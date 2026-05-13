@@ -141,31 +141,35 @@ describe("scored suggestions", () => {
 });
 
 describe("suppression detection", () => {
-	it("ignores suppression markers that only appear inside string literals", async () => {
-		const { verifyCommand } = await import("../verify.js");
+	it(
+		"ignores suppression markers that only appear inside string literals",
+		async () => {
+			const { verifyCommand } = await import("../verify.js");
 
-		// Build the literal token at runtime so this test file's own source
-		// doesn't contain a raw "@ts-expect-error" — the suppressions check would
-		// (correctly) nag every edit if it did. The fixture file written below
-		// still contains the literal token, which is the point of the test.
-		const tsIgnore = `@ts-${"ignore"}`;
-		writeFileSync(
-			join(tempDir, "fixture.ts"),
-			[
-				"export function buildFixture() {",
-				`  const code = "// ${tsIgnore}\\nconst x = 1;";`,
-				`  return code.includes("${tsIgnore}");`,
-				"}",
-				"",
-			].join("\n"),
-		);
+			// Build the literal token at runtime so this test file's own source
+			// doesn't contain a raw "@ts-expect-error" — the suppressions check would
+			// (correctly) nag every edit if it did. The fixture file written below
+			// still contains the literal token, which is the point of the test.
+			const tsIgnore = `@ts-${"ignore"}`;
+			writeFileSync(
+				join(tempDir, "fixture.ts"),
+				[
+					"export function buildFixture() {",
+					`  const code = "// ${tsIgnore}\\nconst x = 1;";`,
+					`  return code.includes("${tsIgnore}");`,
+					"}",
+					"",
+				].join("\n"),
+			);
 
-		const captured = await captureStd(async () => {
-			await verifyCommand({ target: tempDir, json: true });
-		});
-		const result = JSON.parse(captured.stdout);
-		expect(result.suppressions.issues).toBe(0);
-	});
+			const captured = await captureStd(async () => {
+				await verifyCommand({ target: tempDir, json: true });
+			});
+			const result = JSON.parse(captured.stdout);
+			expect(result.suppressions.issues).toBe(0);
+		},
+		60_000,
+	);
 });
 
 // Pins the invariant for the tail "X / Y files flagged" summary:

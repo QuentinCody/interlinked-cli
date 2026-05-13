@@ -521,7 +521,7 @@ const SECRETS_RULES: SignatureRule[] = [
 		category: "secrets_detection",
 		severity: "critical",
 		description: "GitLab Personal Access Token",
-		patterns: [/\bglpat-[A-Za-z0-9_-]{20}\b/],
+		patterns: [/(?<![A-Za-z0-9_-])glpat-[A-Za-z0-9_-]{20}(?![A-Za-z0-9_-])/],
 	},
 	{
 		id: "sig-secret-slack-app",
@@ -612,21 +612,23 @@ const SECRETS_RULES: SignatureRule[] = [
 		category: "secrets_detection",
 		severity: "critical",
 		description: "PlanetScale database token",
-		patterns: [/\bpscale_tkn_[A-Za-z0-9_-]{20,}\b/],
+		patterns: [/(?<![A-Za-z0-9_-])pscale_tkn_[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])/],
 	},
 	{
 		id: "sig-secret-flyio",
 		category: "secrets_detection",
 		severity: "critical",
 		description: "Fly.io API token",
-		patterns: [/\bfo1_[A-Za-z0-9_-]{20,}\b/],
+		patterns: [/(?<![A-Za-z0-9_-])fo1_[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])/],
 	},
 	{
 		id: "sig-secret-railway",
 		category: "secrets_detection",
 		severity: "critical",
 		description: "Railway API token",
-		patterns: [/\b(?:railway|rlwy)_[A-Za-z0-9_-]{20,}\b/],
+		patterns: [
+			/(?<![A-Za-z0-9_-])(?:railway|rlwy)_[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])/,
+		],
 	},
 	{
 		id: "sig-secret-render",
