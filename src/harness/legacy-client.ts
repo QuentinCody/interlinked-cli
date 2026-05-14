@@ -110,6 +110,10 @@ export function toLegacyHarnessEvent(event: UnifiedHookEvent): HarnessEvent {
 
 	const agentName = event.context.agent?.id ?? readString(raw.agent_name);
 	if (agentName) out.agent_name = agentName;
+	// Recursion guard sentinel — copied through explicitly because the legacy
+	// converter only forwards known fields. Without this, the framed adapter
+	// path strips the sentinel before `server.ts` can see it. Plan §2.5.
+	if (event.metacoder_subprocess === true) out.metacoder_subprocess = true;
 	copyString(raw, out, "model");
 	copyString(raw, out, "transcript_path");
 	copyString(raw, out, "tool_use_id");

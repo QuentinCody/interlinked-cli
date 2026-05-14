@@ -134,6 +134,14 @@ export interface UnifiedHookEvent {
 	/** The original native payload. Kept for forensics and debugging; never read
 	 *  in the decision path. Size-capped by adapters when necessary. */
 	raw: unknown;
+
+	/** Recursion guard for the metacoder subprocess path. Set to `true` by
+	 *  `hook-entry.ts` when `INTERLINKED_METACODER_SUBPROCESS=1` is present
+	 *  in the runner's environment. `legacy-client.ts::toLegacyHarnessEvent`
+	 *  copies it through to `HarnessEvent.metacoder_subprocess`, and the
+	 *  harness's UserPromptSubmit branch short-circuits when set. See
+	 *  docs/design/metacoding-agent-plan.md §2.5. */
+	metacoder_subprocess?: boolean;
 }
 
 // -----------------------------------------------------------------------------

@@ -119,6 +119,16 @@ export interface HarnessEvent {
 	 *  record to activity.jsonl. Absent for non-prompt events. */
 	prompt?: string;
 
+	/** Recursion guard for the metacoder subprocess path. When the harness
+	 *  spawns `claude -p` to invoke Opus 4.7 (plan §2.5), the spawned
+	 *  subprocess inherits the user's hooks → its first prompt fires
+	 *  UserPromptSubmit back to this harness. Without this flag, the
+	 *  metacoder would fire recursively on its own subprocess and never
+	 *  return. The subprocess sees `INTERLINKED_METACODER_SUBPROCESS=1` in
+	 *  env; the hook forwards it onto the event, and the UserPromptSubmit
+	 *  branch short-circuits when true. */
+	metacoder_subprocess?: boolean;
+
 	/** Agent role for capability scoping (inferred from context if not set) */
 	agent_role?: AgentRole;
 
@@ -672,6 +682,11 @@ export interface GuardRulesConfig {
 	diff_aware?: DiffAwareConfig;
 	/** LLM policy classifier for ambiguous PreToolUse cases */
 	policy_classifier?: ClassifierConfig;
+	/** Per-prompt metacoder that emits a session-scoped overlay before the
+	 *  coding agent's first tool call. Plan: docs/design/metacoding-agent-plan.md.
+	 *  When undefined or `enabled: false`, the metacoder never fires and the
+	 *  agent runs against floor rules only. */
+	metacoder?: import("./metacoder/types.js").MetacoderConfig;
 	/** ML content scanner (OpenAI privacy-filter etc.) for PreToolUse diff/command/egress content + PostToolUse Read/Grep taint */
 	content_scanner?: import("./content-scanner/types.js").ContentScannerConfig;
 	/** Auto-coordination: periodic read-only check-in with MCP server */

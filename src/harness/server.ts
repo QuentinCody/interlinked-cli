@@ -93,6 +93,9 @@ import {
 	hashEvidence,
 	resolveApiKey,
 } from "./policy-classifier.js";
+import { runMetacoderForPrompt } from "./metacoder/index.js";
+import { evictOverlayForSession } from "./metacoder/metacoder-writer.js";
+import { DEFAULT_METACODER_CONFIG } from "./metacoder/types.js";
 import { ProjectGraph } from "./project-graph.js";
 import {
 	countAsAnyCasts,
@@ -330,6 +333,38 @@ import { buildTurnEndSummary, formatTurnEndWarnings } from "./turn-end.js";
 // --- LLM policy classifier session state ---
 // Per-session classifier state (call count, consecutive failures).
 const classifierSessions = new Map<string, ClassifierSessionState>();
+
+// --- Metacoder per-session rule cache ---
+// Populated on UserPromptSubmit after the metacoder writes the overlay;
+// consulted on PreToolUse via `rulesForSession()`. Cache entry replaces
+// on each new prompt for the same session_id (plan §1.1, replace
+// semantics). Cleared in the SessionEnd / Stop handler.
+const sessionRules = new Map<string, GuardRulesConfig>();
+
+/** PreToolUse evaluator entry point — returns the per-session merged
+ *  ruleset (floor + overlay) for the given session, or the global floor
+ *  when no overlay has been written yet. Mirrors the existing `rules`
+ *  fallback so legacy callers behave unchanged when no metacoder has fired.
+ *
+ *  Plan §reviewer-P3 (round 5): on cache miss, hydrate from the on-disk
+ *  overlay file. Without this, a daemon restart between UserPromptSubmit
+ *  and the first PreToolUse leaves the in-memory map empty, so the agent
+ *  silently runs against floor-only even though `overlay-rules.json`
+ *  exists on disk. The hydrated value is cached so subsequent calls in
+ *  the same process stay O(1). */
+function rulesForSession(sessionId: string | undefined): GuardRulesConfig {
+	if (!sessionId) return rules;
+	const cached = sessionRules.get(sessionId);
+	if (cached) return cached;
+	// Cache miss — try loading from disk. `loadRules(cwd, sessionId)`
+	// returns floor + overlay when an overlay file exists, or floor-only
+	// otherwise. Either way we cache the snapshot; a later
+	// UserPromptSubmit replaces it via `sessionRules.set(...)`, and a
+	// floor reload clears the map via `sessionRules.clear()`.
+	const hydrated = loadRules(CWD, sessionId);
+	sessionRules.set(sessionId, hydrated);
+	return hydrated;
+}
 
 // ML content scanner (OpenAI privacy-filter / gpt-oss-safeguard). Off by default;
 // opt in via `.interlinked/guard-rules.local.json` → `"content_scanner": {"enabled": true}`.
@@ -894,6 +929,12 @@ async function processEvent(rawData: string): Promise<HarnessDecision> {
 			deleteLiveSnapshot(CWD, event.session_id);
 			classifierSessions.delete(event.session_id);
 			autoCoordStates.delete(event.session_id);
+			// Metacoder cleanup — evict the overlay artifacts on disk AND the
+			// per-session rule cache. Codex emits `Stop` only; Claude emits
+			// both `SessionEnd` and `Stop`. The joint switch case above
+			// catches all three. Plan §1, §2.5.
+			evictOverlayForSession({ cwd: CWD, sessionId: event.session_id });
+			sessionRules.delete(event.session_id);
 			log(`Agent left: ${event.agent_name || event.session_id}`);
 			return {
 				decision: "allow",
@@ -902,10 +943,20 @@ async function processEvent(rawData: string): Promise<HarnessDecision> {
 		}
 		case "UserPromptSubmit": {
 			cohort.recordActivity(event);
+
+			// Recursion guard — when the metacoder spawns `claude -p` to invoke
+			// Opus 4.7, the spawned subprocess inherits the user's hooks and
+			// fires its own UserPromptSubmit back here. Without this short-
+			// circuit we recurse and never return. Plan §2.5.
+			if (event.metacoder_subprocess === true) {
+				return { decision: "allow" };
+			}
+
 			// Scan the prompt for PII. On findings, return a redacted copy so the
 			// hook stores the masked version in activity.jsonl instead of the raw.
 			// Never blocks — users are always allowed to submit their own prompts;
 			// this is storage hygiene, not a policy gate.
+			let redactedPrompt: string | undefined;
 			if (rules.content_scanner?.enabled && contentScanner) {
 				const promptText = event.prompt ?? "";
 				const scanResult = await scanUserPrompt(promptText, rules, contentScanner);
@@ -913,10 +964,59 @@ async function processEvent(rawData: string): Promise<HarnessDecision> {
 					log(
 						`Content scanner: UserPromptSubmit — ${scanResult.findings.length} finding(s), redacted for local log`,
 					);
-					return { decision: "allow", redacted_prompt: scanResult.redacted };
+					redactedPrompt = scanResult.redacted;
 				}
 			}
-			return { decision: "allow" };
+
+			// Metacoder — synchronous per-prompt overlay generation. Plan §1, §6.
+			// Pass the redacted prompt when the scanner fired, the raw prompt
+			// otherwise. Fail-open on every error: the prompt always reaches the
+			// agent, just without overlay constraints.
+			const metacoderConfig = rules.metacoder ?? DEFAULT_METACODER_CONFIG;
+			let metacoderAdditionalContext: string | undefined;
+			if (!metacoderConfig.enabled) {
+				// Plan §reviewer-P1 (round 6): metacoder explicitly off. Evict
+				// any stale overlay-rules.json from a prior prompt before it
+				// can be merged on the next PreToolUse. Without this, a user
+				// who toggles enabled→false keeps being blocked by the last
+				// overlay until SessionEnd.
+				sessionRules.delete(event.session_id);
+				evictOverlayForSession({ cwd: CWD, sessionId: event.session_id });
+			} else if (event.prompt && event.prompt.length > 0) {
+				const promptForMeta = redactedPrompt ?? event.prompt;
+				const outcome = await runMetacoderForPrompt({
+					cwd: CWD,
+					sessionId: event.session_id,
+					client: event.agent_source,
+					prompt: promptForMeta,
+					floorRuleIds: rules.rules.map((r) => r.id),
+					config: metacoderConfig,
+				});
+				if (outcome.kind === "ok") {
+					sessionRules.set(event.session_id, loadRules(CWD, event.session_id));
+					metacoderAdditionalContext = outcome.overlay.system_prompt_addendum;
+					log(
+						`Metacoder: ${outcome.overlay.rules.length} overlay rule(s) for ${event.session_id}`,
+					);
+				} else {
+					// Replace semantics (plan §1.1): a non-ok outcome on prompt B
+					// must clear prompt A's overlay, otherwise prompt A's rules
+					// keep blocking prompt B's tool calls until SessionEnd.
+					// Covers skipped (empty_overlay / no_api_key / disabled) and
+					// failed (timeout / malformed JSON / etc.) uniformly.
+					sessionRules.delete(event.session_id);
+					evictOverlayForSession({ cwd: CWD, sessionId: event.session_id });
+					if (outcome.kind === "failed") {
+						log(`Metacoder failed (non-fatal): ${outcome.reason}`);
+					}
+				}
+			}
+
+			return {
+				decision: "allow",
+				redacted_prompt: redactedPrompt,
+				additional_context: metacoderAdditionalContext,
+			};
 		}
 		case "SubagentStart":
 			cohort.subagentJoined(event);
@@ -997,7 +1097,7 @@ async function processEvent(rawData: string): Promise<HarnessDecision> {
 		// script does for mode resolution.
 		const preDecision = evaluatePreToolUse(
 			event,
-			rules,
+			rulesForSession(event.session_id),
 			session,
 			reservations,
 			cohort,
@@ -3338,6 +3438,15 @@ writeProtocolStatus();
 // Watch rules files for hot-reload
 const unwatchRules = watchRulesFiles(CWD, (newRules) => {
 	rules = newRules;
+	// Plan §reviewer-P5 (round 4): clear cached per-session rules so
+	// active sessions pick up the new floor (and any new metacoder
+	// config) on the very next PreToolUse. Without this, sessions that
+	// already have a written overlay keep the snapshot of `rules` they
+	// were merged against until SessionEnd / Stop, so a user disabling a
+	// floor rule via `guard-rules.local.json` mid-session never takes
+	// effect for live sessions. Subsequent UserPromptSubmit calls will
+	// rebuild the cache with fresh floor + overlay.
+	sessionRules.clear();
 	// Update classifier status on config reload
 	if (rules.policy_classifier?.enabled) {
 		const p = rules.policy_classifier;
@@ -3442,8 +3551,15 @@ if (_shutdownPending) {
 	shutdown();
 }
 process.on("SIGHUP", () => {
-	// Reload rules on SIGHUP
+	// Reload rules on SIGHUP.
+	// Plan §reviewer-P2 (round 6): also invalidate the per-session rule
+	// cache so the new ruleset takes effect on active sessions' next
+	// PreToolUse. Without this clear, sessions that have a hydrated
+	// snapshot keep using stale rules until SessionEnd / Stop and
+	// operator SIGHUP-driven reloads silently no-op for live sessions.
+	// Mirrors the watchRulesFiles callback above — keep both in sync.
 	rules = loadRules(CWD);
+	sessionRules.clear();
 	logAlways(`Rules reloaded via SIGHUP: ${rules.rules.length} rules active`);
 });
 

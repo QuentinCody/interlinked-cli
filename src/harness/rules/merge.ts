@@ -9,7 +9,33 @@
 // field could silently execute on every developer's machine. We allow
 // team config to toggle safe fields only — see QUALITY_CHECK_SAFE_FIELDS.
 
+import {
+	DEFAULT_METACODER_CONFIG,
+	USER_PROMPT_HOOK_TIMEOUT_MS,
+	type MetacoderConfig,
+} from "../metacoder/types.js";
 import type { GuardRulesConfig, QualityCheckConfig } from "../types.js";
+
+/** Minimum buffer between the metacoder's internal timeout and the
+ *  user-prompt hook timeout. With less than this, the hook can destroy
+ *  the socket while the harness is still finalizing its "metacoder timed
+ *  out, allow" reply, producing a spurious cold-fallback. Plan §6 + plan
+ *  §reviewer-P2 (round 5). */
+const METACODER_HOOK_BUFFER_MS = 2_000;
+
+/** Hard upper bound for `metacoder.timeout_ms`. Derived from the hook
+ *  timeout so changing one constant automatically tightens the other —
+ *  no drift between merge-time clamp and hook-script generation. */
+const METACODER_TIMEOUT_HARD_CAP_MS = USER_PROMPT_HOOK_TIMEOUT_MS - METACODER_HOOK_BUFFER_MS;
+
+/** Clamp `metacoder.timeout_ms` so user config can never set a value that
+ *  races the hook's own timeout. Pure function — does not mutate input. */
+function clampMetacoderConfig(cfg: MetacoderConfig): MetacoderConfig {
+	if (cfg.timeout_ms > METACODER_TIMEOUT_HARD_CAP_MS) {
+		return { ...cfg, timeout_ms: METACODER_TIMEOUT_HARD_CAP_MS };
+	}
+	return cfg;
+}
 
 /**
  * Team config (git-committed) can toggle settings but CANNOT define
@@ -82,6 +108,21 @@ export function mergeTeamRules(config: GuardRulesConfig, team: Partial<GuardRule
 	if (team.auto_coordination) {
 		config.auto_coordination = team.auto_coordination;
 	}
+	if (team.metacoder) {
+		// Plan §reviewer-P4 (round 4): seed against DEFAULT_METACODER_CONFIG
+		// so a partial team override like `{timeout_ms: 5000}` doesn't drop
+		// `enabled`, `max_rules`, `max_pattern_length`, etc. Without this,
+		// the overlay validator's caps disappear (max_rules undefined →
+		// the cap check NaN-compares → no cap) and `enabled: undefined`
+		// silently disables the metacoder.
+		// Plan §reviewer-P2 (round 5): clamp `timeout_ms` to keep the
+		// metacoder's internal deadline strictly below the hook timeout.
+		config.metacoder = clampMetacoderConfig({
+			...DEFAULT_METACODER_CONFIG,
+			...config.metacoder,
+			...team.metacoder,
+		});
+	}
 	if (team.project_wide_checks && config.project_wide_checks) {
 		Object.assign(config.project_wide_checks, team.project_wide_checks);
 	}
@@ -144,6 +185,24 @@ export function mergeLocalOverrides(
 	// internal structure that needs deep-merge.
 	if (local.structural_checks) {
 		Object.assign(config.structural_checks, local.structural_checks);
+	}
+	// Local can disable / tune the per-prompt metacoder. Without this branch
+	// `{metacoder: {enabled: false}}` in guard-rules.local.json was silently
+	// dropped, leaving every UserPromptSubmit doing a 30s LLM call. Plan §2.1.
+	// Shallow Object.assign — MetacoderConfig is flat scalars, no nested
+	// objects to deep-merge.
+	if (local.metacoder) {
+		// Plan §reviewer-P4 (round 4): seed against DEFAULT_METACODER_CONFIG
+		// so a partial override like `{timeout_ms: 5000}` doesn't leave
+		// `enabled` undefined (silently disabling the metacoder) or drop
+		// the overlay validator's caps. Spread order: defaults < team
+		// config < local override, so local wins on scalar conflicts.
+		// Plan §reviewer-P2 (round 5): clamp timeout_ms after merge.
+		config.metacoder = clampMetacoderConfig({
+			...DEFAULT_METACODER_CONFIG,
+			...config.metacoder,
+			...local.metacoder,
+		});
 	}
 }
 

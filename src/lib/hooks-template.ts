@@ -117,6 +117,7 @@ const HARNESS_SOCK_PATH = resolveHarnessSocket();
 const PENDING_WARNINGS_PATH = join(DATA_DIR, "pending-quality-warnings.json");
 const HARNESS_PRE_TIMEOUT_MS = 5000;  // PreToolUse: allows grep acceleration (ripgrep on candidates)
 const HARNESS_POST_TIMEOUT_MS = ${postTimeoutMs}; // PostToolUse: from harness mode "${modeName}" — see src/harness/rules/modes.ts. Re-rendered on every \`interlinked harness mode <name>\` change.
+const HARNESS_USER_PROMPT_TIMEOUT_MS = 35000; // UserPromptSubmit: must exceed METACODER_TIMEOUT_DEFAULT_MS (30s) so the hook doesn't race the harness's clean timeout response and trigger a spurious cold-fallback. Plan §2.4 / metacoding-agent-plan.md.
 
 /**
  * Flush any pending quality warnings from a previous PostToolUse to stderr.
@@ -231,7 +232,17 @@ function tryHealHarness() {
  */
 function evaluateViaHarness(harnessEvent) {
     const isPreTool = harnessEvent.hook_event === "PreToolUse" || harnessEvent.hook_event === "BeforeTool";
-    const timeoutMs = isPreTool ? HARNESS_PRE_TIMEOUT_MS : HARNESS_POST_TIMEOUT_MS;
+    const isUserPromptCall = harnessEvent.hook_event === "UserPromptSubmit" || harnessEvent.hook_event === "BeforeAgent";
+    // UserPromptSubmit runs the metacoder synchronously inside the harness
+    // (Opus 4.7 max / GPT-5.5 high, ~30s budget). The hook must wait
+    // strictly longer than the metacoder's internal timeout so the harness
+    // can finalize an allow/additional_context reply before the socket
+    // gives up. Drift between these two budgets = 100% cold-fallback.
+    const timeoutMs = isPreTool
+        ? HARNESS_PRE_TIMEOUT_MS
+        : isUserPromptCall
+            ? HARNESS_USER_PROMPT_TIMEOUT_MS
+            : HARNESS_POST_TIMEOUT_MS;
 
     return new Promise((resolve) => {
         if (!existsSync(HARNESS_SOCK_PATH)) {
@@ -577,6 +588,20 @@ async function main() {
 
     if (!event) process.exit(0);
 
+    // Plan §reviewer-P4 (round 5): when the harness spawned this hook as
+    // part of the metacoder's own \`claude -p\` subprocess, every prompt
+    // we see here is internal metacoder traffic — its system prompt
+    // plus the user's prompt plus project_instructions. Letting the
+    // script continue would (a) re-trigger the harness recursion guard
+    // (wasteful socket round-trip), (b) write the metacoder's own
+    // prompt to activity.jsonl as if it were user activity, and (c) POST
+    // it to the realtime sync endpoint. Exit silently. UserPromptSubmit
+    // with no stdout = "allow", which is what Claude Code expects so
+    // the metacoder subprocess can proceed.
+    if (process.env.INTERLINKED_METACODER_SUBPROCESS === "1") {
+        process.exit(0);
+    }
+
     // Always resolve hookEvent from the normalized event so it carries the
     // canonical name (PreToolUse / PostToolUse / UserPromptSubmit / ...).
     // The downstream isPreTool / isPostTool / isUserPrompt checks AND the
@@ -714,6 +739,11 @@ ${PROVIDER_RESPONSES_CHUNK}
             cwd: rawInput.cwd || event.cwd || null,
             model: event.model || null,
             timestamp: new Date().toISOString(),
+            // Recursion guard for the metacoder subprocess path — when the
+            // harness spawns \`claude -p\` to invoke Opus 4.7, the subprocess
+            // inherits this hook and fires its own UserPromptSubmit. The
+            // sentinel env var lets the harness short-circuit. Plan §2.5.
+            metacoder_subprocess: process.env.INTERLINKED_METACODER_SUBPROCESS === "1",
         };
         try {
             const promptDecision = await evaluateViaHarness(promptHarnessEvent);
@@ -722,6 +752,19 @@ ${PROVIDER_RESPONSES_CHUNK}
                 if (event.tool_input_summary) {
                     // Keep the 200-char summary in sync with the masked prompt.
                     event.tool_input_summary = promptDecision.redacted_prompt.slice(0, 200);
+                }
+            }
+            // Metacoder system_prompt_addendum — emit on stdout via the
+            // provider-specific channel so the model sees it inline with the
+            // user prompt. Claude/Codex use hookSpecificOutput.additionalContext;
+            // other runners fall back to {} (no model-visible channel for
+            // UserPromptSubmit). Plan §3.
+            if (promptDecision && typeof promptDecision.additional_context === "string" && promptDecision.additional_context.length > 0) {
+                const adviceResponse = formatProviderResponse("user_prompt_advice", {
+                    summary: promptDecision.additional_context,
+                });
+                if (adviceResponse && Object.keys(adviceResponse).length > 0) {
+                    console.log(JSON.stringify(adviceResponse));
                 }
             }
         } catch (_err) { void 0; /* fail-open: raw prompt still gets inline secrets scrub via scrubPayload below */ }

@@ -20,6 +20,8 @@
 
 import { existsSync, readFileSync, unwatchFile, watchFile } from "node:fs";
 import { join } from "node:path";
+import { loadOverlayForSession } from "./metacoder/overlay-loader.js";
+import { DEFAULT_METACODER_CONFIG } from "./metacoder/types.js";
 import { BUILTIN_RULES } from "./rules/builtin-rules.js";
 import { DEFAULT_CONFIG } from "./rules/default-config.js";
 import {
@@ -123,9 +125,18 @@ function applyModePresetEnablement(
  * and on SIGHUP. Loads the default config, auto-tunes by detected
  * project language, and merges team + local overrides.
  *
- * Priority: local overrides > team rules > built-in defaults.
+ * When `sessionId` is provided, also merges the metacoder overlay for that
+ * session (if one exists on disk at
+ * `.interlinked/sessions/<sid>/overlay-rules.json`). Overlay rules are
+ * appended AFTER all floor rules so floor blocks always iterate before
+ * overlay rules for the same input — plan §2.3, §5.
+ *
+ * Priority: local overrides > team rules > built-in defaults > overlay.
  */
-export function loadRules(cwd: string = process.cwd()): GuardRulesConfig {
+export function loadRules(
+	cwd: string = process.cwd(),
+	sessionId?: string,
+): GuardRulesConfig {
 	const teamPath = join(cwd, ".interlinked", "guard-rules.json");
 	const localPath = join(cwd, ".interlinked", "guard-rules.local.json");
 
@@ -187,12 +198,35 @@ export function loadRules(cwd: string = process.cwd()): GuardRulesConfig {
 		process.env.INTERLINKED_SKIP_DISTILLED_RULES === "1" ||
 		process.env.INTERLINKED_SKIP_COMPILED_RULES === "1";
 	const distilledRules = skipDistilled ? [] : loadDistilledRules(cwd);
-	const allRules = [
+	const floorRules: GuardRule[] = [
 		...BUILTIN_RULES.filter((r) => !disabledSet.has(r.id)),
 		...config.rules.filter((r) => r.enabled !== false),
 		...distilledRules.filter((r) => r.enabled !== false && !disabledSet.has(r.id)),
 	];
-	config.rules = allRules;
+
+	// Per-session metacoder overlay — appended AFTER floor rules so floor
+	// blocks always iterate first. Plan §2.3, §5. The overlay loader
+	// enforces tighten-only: action-block-only, overlay-prefix ids, regex
+	// validation. No-op when sessionId is omitted (every legacy call site).
+	//
+	// Plan §reviewer-P1 (round 6): also no-op when the resolved metacoder
+	// config is disabled, regardless of whether `overlay-rules.json`
+	// still sits on disk. A user toggling `metacoder.enabled: false`
+	// must NOT keep getting blocked by a stale overlay written by an
+	// earlier prompt — the server's UserPromptSubmit handler evicts the
+	// file on the next prompt, but until then we ignore it here.
+	const resolvedMetacoder = config.metacoder ?? DEFAULT_METACODER_CONFIG;
+	const overlayRules =
+		sessionId && resolvedMetacoder.enabled !== false
+			? loadOverlayForSession({
+					cwd,
+					sessionId,
+					floorRuleIds: new Set(floorRules.map((r) => r.id)),
+					config: resolvedMetacoder,
+				})?.rules ?? []
+			: [];
+
+	config.rules = [...floorRules, ...overlayRules];
 
 	return config;
 }

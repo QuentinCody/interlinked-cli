@@ -29,6 +29,14 @@ import type { RunnerId, UnifiedHookEvent } from "./harness/unified-event.js";
 
 const DEFAULT_HOOK_TIMEOUT_MS = 2000;
 
+// User-prompt phase calls the metacoder synchronously, which runs Opus 4.7
+// max-effort (~30s) inside the harness. The hook timeout must exceed the
+// metacoder's internal timeout with a buffer so the harness can return a
+// clean "metacoder timed out, allow" decision before the hook gives up on
+// the socket. Strictly greater than `METACODER_TIMEOUT_DEFAULT_MS` (30_000)
+// in `src/harness/metacoder/types.ts`. Plan §2.4, §6, §10 risk #10.
+const DEFAULT_USER_PROMPT_TIMEOUT_MS = 35_000;
+
 // Hook-socket transport variants. The legacy server uses newline-delimited
 // JSON over a raw stream; the new server uses length-prefixed framing.
 const HOOK_PROTOCOL_RAW = "raw";
@@ -40,6 +48,15 @@ type HookProtocol = typeof HOOK_PROTOCOL_RAW | typeof HOOK_PROTOCOL_FRAMED;
 // strings drift across files when one place is refactored and the others
 // aren't.
 const PHASE_PRE_TOOL = "pre-tool";
+const PHASE_USER_PROMPT = "user-prompt";
+
+// Recursion guard for the metacoder subprocess path. Plan §2.5. The harness
+// spawns `claude -p` with this env set to "1"; the spawned subprocess's
+// first prompt fires UserPromptSubmit back to the harness, which would
+// recurse without this flag. Hook-entry forwards the env onto the event so
+// `server.ts` can short-circuit.
+const METACODER_SUBPROCESS_ENV = "INTERLINKED_METACODER_SUBPROCESS";
+const METACODER_SUBPROCESS_FLAG = "1";
 
 // Discriminator values for UnifiedAction. Same rationale as above.
 const ACTION_TOOL_CALL = "tool_call";
@@ -84,6 +101,14 @@ export async function runHookEntry(opts: HookEntryOptions): Promise<HookEntryRes
 
 	let event: UnifiedHookEvent;
 	event = tryBuildEvent(adapter, opts.nativeJson, opts.nativeEventName);
+
+	// Forward the metacoder-subprocess recursion sentinel from env onto the
+	// event envelope. Plan §2.5 — without this, the framed adapter path
+	// would not surface the sentinel to `server.ts` and the metacoder would
+	// recurse on its own subprocess.
+	if (opts.env[METACODER_SUBPROCESS_ENV] === METACODER_SUBPROCESS_FLAG) {
+		event.metacoder_subprocess = true;
+	}
 
 	const socketPath =
 		opts.socketPath ?? discoverSocket(opts.cwd ?? process.cwd(), event.session_id);
@@ -214,6 +239,7 @@ function resolveHookProtocol(socketPath: string, env: NodeJS.ProcessEnv): HookPr
 
 function defaultTimeoutForPhase(event: UnifiedHookEvent): number {
 	if (event.phase === PHASE_PRE_TOOL) return DEFAULT_LEGACY_PRE_TOOL_TIMEOUT_MS;
+	if (event.phase === PHASE_USER_PROMPT) return DEFAULT_USER_PROMPT_TIMEOUT_MS;
 	return DEFAULT_HOOK_TIMEOUT_MS;
 }
 

@@ -277,3 +277,62 @@ describe("buildHookScript", () => {
 		);
 	});
 });
+
+describe("buildHookScript — UserPromptSubmit metacoder timeout (P3 round 4)", () => {
+	// The metacoder runs synchronously inside the harness with a 30s
+	// internal timeout. The generated .mjs MUST wait strictly longer so
+	// the harness can return a clean allow/additional_context reply
+	// before the socket gives up. With both at 30s the hook destroys the
+	// socket exactly when the harness is finishing, producing 100%
+	// cold-fallback on metacoder timeouts.
+
+	it("defines HARNESS_USER_PROMPT_TIMEOUT_MS = 35000", () => {
+		const out = buildHookScript("v");
+		expect(out).toContain("const HARNESS_USER_PROMPT_TIMEOUT_MS = 35000;");
+	});
+
+	it("routes UserPromptSubmit / BeforeAgent through the user-prompt timeout in evaluateViaHarness", () => {
+		const out = buildHookScript("v");
+		expect(out).toContain('isUserPromptCall = harnessEvent.hook_event === "UserPromptSubmit"');
+		expect(out).toContain("HARNESS_USER_PROMPT_TIMEOUT_MS");
+	});
+
+	it("forwards the metacoder recursion-guard env onto the harness payload", () => {
+		// Plan §2.5: the .mjs path must propagate
+		// INTERLINKED_METACODER_SUBPROCESS=1 so the harness can short-
+		// circuit the recursive call back from `claude -p`.
+		const out = buildHookScript("v");
+		expect(out).toContain("metacoder_subprocess");
+		expect(out).toContain('process.env.INTERLINKED_METACODER_SUBPROCESS');
+	});
+
+	it("emits user_prompt_advice via formatProviderResponse when the harness returns additional_context", () => {
+		const out = buildHookScript("v");
+		expect(out).toContain('formatProviderResponse("user_prompt_advice"');
+	});
+
+	it("exits silently when INTERLINKED_METACODER_SUBPROCESS=1 — no activity write, no realtime POST (P4 round 5)", () => {
+		// Plan §reviewer-P4 (round 5): when the metacoder spawned this
+		// hook as part of its own `claude -p` subprocess, the prompt we
+		// observe is internal metacoder traffic (system prompt + user
+		// prompt + project_instructions). Letting the script continue
+		// would write that to activity.jsonl and POST it to realtime
+		// sync. Exit silently — UserPromptSubmit with empty stdout =
+		// "allow", which is what the subprocess needs.
+		const out = buildHookScript("v");
+		// Early-exit guard appears BEFORE the first `appendLocal` CALL
+		// SITE. Negative lookbehind excludes the function DEFINITION
+		// (`function appendLocal(event,...)`) which is embedded as a
+		// helper chunk earlier in the script.
+		const sentinelIdx = out.indexOf('INTERLINKED_METACODER_SUBPROCESS === "1"');
+		const callMatch = out.match(/(?<!function )appendLocal\(event,/);
+		const firstAppendLocalCallIdx = callMatch?.index ?? -1;
+		expect(sentinelIdx).toBeGreaterThan(-1);
+		expect(firstAppendLocalCallIdx).toBeGreaterThan(-1);
+		expect(sentinelIdx).toBeLessThan(firstAppendLocalCallIdx);
+		// The guard calls process.exit(0) so all downstream side effects
+		// (appendLocal, realtime POST, harness call) are skipped.
+		const guardSection = out.slice(sentinelIdx, sentinelIdx + 200);
+		expect(guardSection).toContain("process.exit(0)");
+	});
+});

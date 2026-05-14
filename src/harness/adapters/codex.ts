@@ -191,7 +191,7 @@ function codexEncodeDecision(
 		// decision shape regardless.
 		return encodeCodexBlock(decision, isPermissionRequest);
 	}
-	return encodeCodexAllow(decision, isPermissionRequest);
+	return encodeCodexAllow(decision, isPermissionRequest, event.runner_native_event);
 }
 
 function encodeCodexBlock(
@@ -216,6 +216,7 @@ function encodeCodexBlock(
 function encodeCodexAllow(
 	decision: { warnings?: string[]; additional_context?: string },
 	isPermissionRequest: boolean,
+	nativeEvent?: string,
 ): AdapterOutput {
 	const warningsTail = (decision.warnings ?? []).join("\n");
 	if (isPermissionRequest) {
@@ -227,11 +228,22 @@ function encodeCodexAllow(
 		});
 		return { stdout, stderr: warningsTail || undefined, exit_code: 0 };
 	}
-	let stderr = warningsTail;
-	if (decision.additional_context) {
-		stderr = stderr ? `${stderr}\n${decision.additional_context}` : decision.additional_context;
+	// UserPromptSubmit, PreToolUse, PostToolUse: route `additional_context`
+	// through `hookSpecificOutput.additionalContext` so it lands in the
+	// model's visible context, not stderr. Codex copies Claude's
+	// hookSpecificOutput contract per docs/hooks-ecosystem-comparison.md:81.
+	// Without this, the metacoder's system_prompt_addendum and the
+	// PostToolUse quality summaries never reach the model. Plan §3, §7.
+	if (decision.additional_context && nativeEvent) {
+		const stdout = JSON.stringify({
+			hookSpecificOutput: {
+				hookEventName: nativeEvent,
+				additionalContext: decision.additional_context,
+			},
+		});
+		return { stdout, stderr: warningsTail || undefined, exit_code: 0 };
 	}
-	return { stderr: stderr || undefined, exit_code: 0 };
+	return { stderr: warningsTail || undefined, exit_code: 0 };
 }
 
 // Tool-input field is JSON-shaped per Codex's contract — preserve it as

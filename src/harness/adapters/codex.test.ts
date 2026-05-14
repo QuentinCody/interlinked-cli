@@ -131,6 +131,47 @@ describe("Codex encodeDecision — PreToolUse path", () => {
 	});
 });
 
+describe("Codex encodeDecision — UserPromptSubmit additionalContext", () => {
+	// Plan §3 / §7: Codex copies Claude's hookSpecificOutput.additionalContext
+	// contract. Before the fix, `additional_context` went to stderr, where the
+	// model never sees it. The metacoder's system_prompt_addendum needs to
+	// reach the model on UserPromptSubmit.
+	const event = adapter.parseHookInput(
+		{ session_id: "c", prompt: "Refactor payments." },
+		"UserPromptSubmit",
+	);
+
+	it("emits additionalContext on stdout when decision carries additional_context", () => {
+		const out = adapter.encodeDecision(
+			{ decision: "allow", additional_context: "Stay focused on the refactor." },
+			event,
+		);
+		expect(out.stdout).toBeDefined();
+		const parsed = JSON.parse(out.stdout ?? "{}");
+		expect(parsed).toEqual({
+			hookSpecificOutput: {
+				hookEventName: "UserPromptSubmit",
+				additionalContext: "Stay focused on the refactor.",
+			},
+		});
+	});
+
+	it("does NOT smuggle additional_context onto stderr", () => {
+		const out = adapter.encodeDecision(
+			{ decision: "allow", additional_context: "Stay focused on the refactor." },
+			event,
+		);
+		expect(out.stderr ?? "").not.toContain("Stay focused on the refactor.");
+	});
+
+	it("plain allow with no additional_context exits 0 silently", () => {
+		const out = adapter.encodeDecision({ decision: "allow" }, event);
+		expect(out.exit_code).toBe(0);
+		expect(out.stdout).toBeUndefined();
+		expect(out.stderr).toBeUndefined();
+	});
+});
+
 describe("Codex encodeDecision — PermissionRequest path", () => {
 	const event = adapter.parseHookInput(
 		{ session_id: "c", tool_name: "Bash", tool_input: { command: "ls /etc" } },

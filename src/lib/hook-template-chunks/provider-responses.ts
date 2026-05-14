@@ -73,6 +73,16 @@ export const PROVIDER_RESPONSES_CHUNK = `    // ══════════�
                 additionalContext: data.summary,
             }};
         }
+        if (responseType === "user_prompt_advice") {
+            // Metacoder system_prompt_addendum lands in the agent's context
+            // via Claude's UserPromptSubmit hookSpecificOutput.additionalContext
+            // channel. Plan §3.
+            if (!data.summary) return {};
+            return { hookSpecificOutput: {
+                hookEventName: "UserPromptSubmit",
+                additionalContext: data.summary,
+            }};
+        }
         return {};
     }
 
@@ -202,6 +212,16 @@ export const PROVIDER_RESPONSES_CHUNK = `    // ══════════�
             if (!data.summary) return {};
             return { hookSpecificOutput: {
                 hookEventName: postEventEcho,
+                additionalContext: data.summary,
+            }};
+        }
+        if (responseType === "user_prompt_advice") {
+            // Codex mirrors Claude's hookSpecificOutput.additionalContext
+            // contract per docs/hooks-ecosystem-comparison.md:81 — emit the
+            // metacoder addendum on the model-visible channel. Plan §3.
+            if (!data.summary) return {};
+            return { hookSpecificOutput: {
+                hookEventName: "UserPromptSubmit",
                 additionalContext: data.summary,
             }};
         }
