@@ -211,15 +211,21 @@ describe("callMetacoder — payload assembly", () => {
 	});
 });
 
-describe("Codex (GPT-5.5) subprocess transport — exact CLI invocation pinned", () => {
+describe("Codex subprocess transport — exact CLI invocation pinned", () => {
 	// Plan §2.1 + user constraint: the metacoder uses the SAME tier as
 	// the coding agent AND reuses the developer's Codex CLI
 	// subscription (authenticated via `codex login`) — NO OpenAI API
 	// key. The reasoning_effort API value is `xhigh` (one word, no
-	// hyphen) per https://developers.openai.com/api/docs/models/gpt-5.5
-	// (verified 2026-05). Verified live by smoke-test: the `codex exec`
-	// startup banner echoed back "reasoning effort: xhigh", confirming
-	// the CLI accepts the `-c model_reasoning_effort=xhigh` override.
+	// hyphen) per the OpenAI developer docs (verified 2026-05).
+	// Verified live by smoke-test: the `codex exec` startup banner
+	// echoed back "reasoning effort: xhigh", confirming the CLI accepts
+	// the `-c model_reasoning_effort=xhigh` override.
+	//
+	// Why hardcoded model ids appear below: pinning the EXACT model
+	// identifier is the contract under test. A silent drift to a
+	// different model is a behavioral regression we want this test to
+	// catch. Each line is marked `REAL_WORLD_VERSION_FIXTURE_OK` per
+	// `software-version-fixtures-policy.test.ts`.
 
 	it("targets the codex CLI binary, not an HTTP endpoint", () => {
 		// Earlier versions of this transport went through
@@ -229,7 +235,10 @@ describe("Codex (GPT-5.5) subprocess transport — exact CLI invocation pinned",
 		expect(CODEX_BINARY).toBe("codex");
 	});
 
-	it("targets gpt-5.5", () => {
+	it("targets the documented CODEX_MODEL identifier", () => {
+		// Pinning the exact model id is the behavior under test —
+		// silent drift to another model is the regression we want to catch.
+		// REAL_WORLD_VERSION_FIXTURE_OK: source = OpenAI developer docs.
 		expect(CODEX_MODEL).toBe("gpt-5.5");
 	});
 
@@ -248,11 +257,12 @@ describe("Codex (GPT-5.5) subprocess transport — exact CLI invocation pinned",
 		expect(CODEX_REASONING_EFFORT_KEY).toBe("model_reasoning_effort");
 	});
 
-	it("buildCodexExecArgs includes -m gpt-5.5 and the xhigh effort override", () => {
+	it("buildCodexExecArgs includes -m for the model and the xhigh effort override", () => {
 		const args = buildCodexExecArgs("the prompt", "/tmp/out.txt");
 		expect(args[0]).toBe("exec");
 		const modelIdx = args.indexOf("-m");
 		expect(modelIdx).toBeGreaterThan(-1);
+		// REAL_WORLD_VERSION_FIXTURE_OK: model id is the contract under test.
 		expect(args[modelIdx + 1]).toBe("gpt-5.5");
 		expect(args).toContain("model_reasoning_effort=xhigh");
 	});
