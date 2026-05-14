@@ -39,6 +39,7 @@ Commands:
   login [options]                            Authenticate with the server (opens browser)
   logout [options]                           Clear authentication credentials (preserves other config)
   logs [options]                             View local activity log (offline, no server needed)
+  metacoder                                  Per-prompt overlay generator — toggle, inspect, audit
   mode [options] [name]                      Show current enforcement mode, or switch to balanced / strict / lenient
   multi-edit [options] [path]                Apply N old/new string edits atomically to one or more files. Gate runs once on final content. Ambiguity evaluated after prior edits.
   mutation                                   Per-file mutation-score ratchet — fails on any file whose mutation score drops
@@ -747,6 +748,66 @@ Options:
   --apply            Apply trailers and notes to HEAD (amends commit)
   --json             Machine-readable output
   -h, --help         display help for command
+```
+
+## Metacoder
+
+```
+Usage: interlinked metacoder [options] [command]
+
+Per-prompt overlay generator — toggle, inspect, audit
+
+Options:
+  -h, --help         display help for command
+
+Commands:
+  enable [options]   Enable the per-prompt metacoder overlay generator
+  disable [options]  Disable the metacoder. The exact timestamp is recorded in
+                     the audit log.
+  status [options]   Show metacoder enable state + recent toggle audit
+  help [command]     display help for command
+```
+
+### metacoder enable
+
+```
+Usage: interlinked metacoder enable [options]
+
+Enable the per-prompt metacoder overlay generator
+
+Options:
+  --reason <text>  Why — recorded in metacoder.audit.jsonl
+  --json           Machine-readable output
+  --short          One-line summary
+  -h, --help       display help for command
+```
+
+### metacoder disable
+
+```
+Usage: interlinked metacoder disable [options]
+
+Disable the metacoder. The exact timestamp is recorded in the audit log.
+
+Options:
+  --reason <text>  Why — recorded in metacoder.audit.jsonl
+  --json           Machine-readable output
+  --short          One-line summary
+  -h, --help       display help for command
+```
+
+### metacoder status
+
+```
+Usage: interlinked metacoder status [options]
+
+Show metacoder enable state + recent toggle audit
+
+Options:
+  --json      Machine-readable output
+  --short     One-line summary
+  --full      Detailed output (full audit log)
+  -h, --help  display help for command
 ```
 
 ## Other Commands

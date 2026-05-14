@@ -184,6 +184,46 @@ Switch modes with `interlinked mode <name>`:
 Team-shared policy lives in `.interlinked/guard-rules.json`. Personal
 overrides go in `.interlinked/guard-rules.local.json` (gitignored).
 
+## Metacoder (per-prompt overlay)
+
+On every `UserPromptSubmit`, the **metacoder** runs a peer of the coding
+agent — **Opus 4.7 max-effort** for Claude Code sessions, **GPT-5.5
+xhigh** for Codex sessions — that reads your prompt + project
+`AGENTS.md` / `CLAUDE.md` and emits a session-scoped overlay of guard
+rules. The overlay merges on top of the floor for the lifetime of the
+prompt: prompt-specific blocks the floor rules don't know about (e.g.
+"this prompt is about payments, so don't touch `src/auth/`"), enforced
+the same hard-block way the built-in rules are.
+
+Both transports use **your existing Claude Code / Codex CLI
+subscription** (`claude -p` / `codex exec`). No `ANTHROPIC_API_KEY` or
+`OPENAI_API_KEY` needed.
+
+**Trade-off:** 5–30 s of added latency on every UserPromptSubmit
+before the coding agent starts, and ~$0.05–$0.30 of subscription credit
+per prompt at the maximum reasoning tier. Fail-open everywhere — if the
+subprocess can't reach the subscription (quota hit, CLI not installed,
+timeout), the overlay is skipped and the prompt reaches the agent
+against floor rules only.
+
+```bash
+interlinked metacoder status                          # current state + recent audit
+interlinked metacoder disable --reason "burn rate"    # off, audited
+interlinked metacoder enable                          # back on
+```
+
+Or hand-edit `.interlinked/guard-rules.local.json`:
+
+```json
+{ "metacoder": { "enabled": false } }
+```
+
+The harness hot-reloads on the next file-watcher tick (~2 s) — no
+restart needed. Full design and operational notes:
+[docs/design/metacoding-agent-plan.md](./docs/design/metacoding-agent-plan.md).
+Per-field config reference:
+[docs/generated/configuration.md § Metacoder](./docs/generated/configuration.md#metacoder-per-prompt-overlay).
+
 ## Privacy
 
 - Harness decisions and activity capture are local by default. Data leaves

@@ -50,3 +50,36 @@ Controls which checks suppress pre-existing findings when editing files.
 | `test_first` | `true` | Nudge agent to write/run tests before editing source files |
 | `cross_file_switch_discriminant` | `true` | Flags the same switch discriminant (.kind/.type/.tag) appearing in multiple files — usually a polymorphism opportunity |
 | `single_implementation_interface` | `true` | Flags exported interfaces with exactly one implementor — possible premature abstraction |
+
+## Metacoder (per-prompt overlay)
+
+On every `UserPromptSubmit` the metacoder runs a peer of the coding agent (Opus 4.7 max-effort for Claude sessions, GPT-5.5 xhigh for Codex sessions) to emit a session-scoped overlay of guard rules. Both transports use the user's existing **Claude Code / Codex CLI subscription** — no API key required. Plan: [docs/design/metacoding-agent-plan.md](../design/metacoding-agent-plan.md).
+
+**Toggle from the CLI:**
+
+```
+interlinked metacoder status        # show current state + recent audit
+interlinked metacoder enable        # turn on (default)
+interlinked metacoder disable --reason "burn rate"   # turn off, with audit
+```
+
+**Or hand-edit `.interlinked/guard-rules.local.json`:**
+
+```json
+{
+  "metacoder": { "enabled": false }
+}
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `true` | Master switch for the per-prompt metacoder |
+| `timeout_ms` | `30000` | Metacoder LLM call timeout. Clamped at merge to keep < hook timeout (33000 ms). |
+| `max_rules` | `20` | Hard cap on overlay rule count per emission |
+| `max_pattern_length` | `200` | Per-pattern regex char cap (bounds ReDoS / compile cost) |
+| `max_patterns_per_rule` | `10` | Patterns-per-rule cap |
+| `max_addendum_chars` | `2000` | `system_prompt_addendum` length cap |
+
+**Hook timeout coordination:** the generated hook waits 35000 ms (5 s buffer past the metacoder's internal timeout) so the harness can return a clean "metacoder timed out, allow" decision before the hook cold-falls back. Both `hook-entry.ts` (adapter path) and the generated `.mjs` (legacy path) honor this budget.
+
+**Latency / cost:** 5–30 s per prompt, $0.05–$0.30 per prompt (Opus 4.7 max-effort). Fail-open: any subprocess failure (CLI not installed, subscription quota hit, timeout) skips the overlay and lets the prompt reach the agent against floor rules only.

@@ -15,6 +15,10 @@ import { join } from "node:path";
 // Import data structures from the harness
 import { getDefaultConfig, getBuiltinRules } from "../src/harness/rules-loader.js";
 import { STRUCTURAL_CHECK_META } from "../src/harness/check-metadata.js";
+import {
+	DEFAULT_METACODER_CONFIG,
+	USER_PROMPT_HOOK_TIMEOUT_MS,
+} from "../src/harness/metacoder/types.js";
 
 const OUT_DIR = join(import.meta.dirname, "..", "docs", "generated");
 if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
@@ -195,6 +199,44 @@ function generateConfigReference(): string {
 	}
 
 	lines.push("");
+	lines.push("## Metacoder (per-prompt overlay)");
+	lines.push("");
+	lines.push(
+		"On every `UserPromptSubmit` the metacoder runs a peer of the coding agent (Opus 4.7 max-effort for Claude sessions, GPT-5.5 xhigh for Codex sessions) to emit a session-scoped overlay of guard rules. Both transports use the user's existing **Claude Code / Codex CLI subscription** — no API key required. Plan: [docs/design/metacoding-agent-plan.md](../design/metacoding-agent-plan.md).",
+	);
+	lines.push("");
+	lines.push("**Toggle from the CLI:**");
+	lines.push("");
+	lines.push("```");
+	lines.push("interlinked metacoder status        # show current state + recent audit");
+	lines.push("interlinked metacoder enable        # turn on (default)");
+	lines.push("interlinked metacoder disable --reason \"burn rate\"   # turn off, with audit");
+	lines.push("```");
+	lines.push("");
+	lines.push("**Or hand-edit `.interlinked/guard-rules.local.json`:**");
+	lines.push("");
+	lines.push("```json");
+	lines.push("{");
+	lines.push("  \"metacoder\": { \"enabled\": false }");
+	lines.push("}");
+	lines.push("```");
+	lines.push("");
+	lines.push("| Setting | Default | Description |");
+	lines.push("|---------|---------|-------------|");
+	const m = DEFAULT_METACODER_CONFIG;
+	lines.push(`| \`enabled\` | \`${m.enabled}\` | Master switch for the per-prompt metacoder |`);
+	lines.push(`| \`timeout_ms\` | \`${m.timeout_ms}\` | Metacoder LLM call timeout. Clamped at merge to keep < hook timeout (${USER_PROMPT_HOOK_TIMEOUT_MS - 2_000} ms). |`);
+	lines.push(`| \`max_rules\` | \`${m.max_rules}\` | Hard cap on overlay rule count per emission |`);
+	lines.push(`| \`max_pattern_length\` | \`${m.max_pattern_length}\` | Per-pattern regex char cap (bounds ReDoS / compile cost) |`);
+	lines.push(`| \`max_patterns_per_rule\` | \`${m.max_patterns_per_rule}\` | Patterns-per-rule cap |`);
+	lines.push(`| \`max_addendum_chars\` | \`${m.max_addendum_chars}\` | \`system_prompt_addendum\` length cap |`);
+	lines.push("");
+	lines.push(
+		`**Hook timeout coordination:** the generated hook waits ${USER_PROMPT_HOOK_TIMEOUT_MS} ms (5 s buffer past the metacoder's internal timeout) so the harness can return a clean "metacoder timed out, allow" decision before the hook cold-falls back. Both \`hook-entry.ts\` (adapter path) and the generated \`.mjs\` (legacy path) honor this budget.`,
+	);
+	lines.push("");
+	lines.push("**Latency / cost:** 5–30 s per prompt, $0.05–$0.30 per prompt (Opus 4.7 max-effort). Fail-open: any subprocess failure (CLI not installed, subscription quota hit, timeout) skips the overlay and lets the prompt reach the agent against floor rules only.");
+	lines.push("");
 	return lines.join("\n");
 }
 
@@ -255,6 +297,7 @@ function generateCliReference(): string {
 		"trace",
 		"guard",
 		"git",
+		"metacoder",
 	];
 
 	// Commands with subcommands — mirror the groups registered in src/index.ts.
@@ -272,6 +315,7 @@ function generateCliReference(): string {
 		coverage: ["check", "baseline"],
 		mutation: ["check", "baseline"],
 		completions: ["bash", "zsh", "fish"],
+		metacoder: ["enable", "disable", "status"],
 	};
 
 	for (const cmd of commandNames) {

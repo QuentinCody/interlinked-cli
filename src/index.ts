@@ -640,6 +640,52 @@ scannerCmd
 		await scannerStatusCommand(opts);
 	});
 
+// ============================================================================
+// Metacoder — per-prompt overlay generator
+// ============================================================================
+// Mirrors the `interlinked scanner` toggle pattern: enable / disable / status.
+// The metacoder runs on every UserPromptSubmit and emits a session-scoped
+// overlay of guard rules via the user's Claude Code / Codex CLI subscription
+// (no API key). Heavyweight (5–30 s per prompt) so users may want it off.
+// Plan: docs/design/metacoding-agent-plan.md.
+
+const metacoderCmd = program
+	.command("metacoder")
+	.description("Per-prompt overlay generator — toggle, inspect, audit");
+
+metacoderCmd
+	.command("enable")
+	.description("Enable the per-prompt metacoder overlay generator")
+	.option("--reason <text>", "Why — recorded in metacoder.audit.jsonl")
+	.option("--json", "Machine-readable output")
+	.option("--short", "One-line summary")
+	.action(async (opts: OptionValues) => {
+		const { metacoderEnableCommand } = await import("./commands/metacoder.js");
+		await metacoderEnableCommand(opts);
+	});
+
+metacoderCmd
+	.command("disable")
+	.description("Disable the metacoder. The exact timestamp is recorded in the audit log.")
+	.option("--reason <text>", "Why — recorded in metacoder.audit.jsonl")
+	.option("--json", "Machine-readable output")
+	.option("--short", "One-line summary")
+	.action(async (opts: OptionValues) => {
+		const { metacoderDisableCommand } = await import("./commands/metacoder.js");
+		await metacoderDisableCommand(opts);
+	});
+
+metacoderCmd
+	.command("status")
+	.description("Show metacoder enable state + recent toggle audit")
+	.option("--json", "Machine-readable output")
+	.option("--short", "One-line summary")
+	.option("--full", "Detailed output (full audit log)")
+	.action(async (opts: OptionValues) => {
+		const { metacoderStatusCommand } = await import("./commands/metacoder.js");
+		await metacoderStatusCommand(opts);
+	});
+
 scannerCmd
 	.command("review")
 	.description(
