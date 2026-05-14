@@ -14,9 +14,17 @@
 
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmdirSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { TsgoDiagnostic } from "./daemon-protocol.js";
 
 export interface TsgoRunnerOptions {
@@ -162,7 +170,11 @@ function computeCacheKey(path: string): string {
 	} catch {
 		mtime = 0;
 	}
-	const h = createHash("sha1");
+	// Non-security cache key (path + mtime + size → dedupe within a
+	// session). SHA-256 over SHA-1 because the harness's `ubs_weak_hash`
+	// rule flags SHA-1 and the per-call cost is microseconds either way
+	// for ~50 bytes of input.
+	const h = createHash("sha256");
 	h.update(path);
 	h.update("|");
 	h.update(String(mtime));
@@ -181,6 +193,62 @@ function readFileSyncSafe(path: string): string | null {
 	return out;
 }
 
+/** Walk up from `startDir` looking for `tsconfig.json`. Capped at 6 levels
+ *  so we don't traverse the entire filesystem on edits to `/tmp` or
+ *  similar paths without a project root. */
+function findProjectTsconfig(startDir: string): string | null {
+	let dir = startDir;
+	for (let i = 0; i < 6; i++) {
+		const candidate = join(dir, "tsconfig.json");
+		if (existsSync(candidate)) return candidate;
+		const parent = dirname(dir);
+		if (parent === dir) return null;
+		dir = parent;
+	}
+	return null;
+}
+
+/** Materialize a per-call tmp tsconfig that extends the project's real
+ *  tsconfig and includes ONLY the target file. Without this dance, tsgo
+ *  refuses to load tsconfig.json when a file is on the command line
+ *  ("error TS5112"), so every `import { ... } from "node:fs"` and the
+ *  like produces spurious TS2591 errors. Routing through
+ *  `-p <tmpTsconfig>` keeps tsgo honest with the project's own
+ *  `compilerOptions` — `types: ["node"]`, `moduleResolution`, target,
+ *  etc.
+ *
+ *  Returns the tmp tsconfig path + a cleanup fn. Null when no project
+ *  tsconfig is anywhere upstream (caller falls back to bare single-file
+ *  mode, which is the only case where tsgo's defaults are acceptable). */
+function makeTmpProjectTsconfig(targetFile: string, projectRootHint: string): {
+	path: string;
+	cleanup: () => void;
+} | null {
+	const projectTsconfig = findProjectTsconfig(projectRootHint);
+	if (!projectTsconfig) return null;
+	const dir = mkdtempSync(join(tmpdir(), "interlinked-tsgo-cfg-"));
+	const path = join(dir, "tsconfig.json");
+	writeFileSync(
+		path,
+		JSON.stringify({ extends: projectTsconfig, include: [targetFile] }, null, 2),
+	);
+	return {
+		path,
+		cleanup: () => {
+			try {
+				unlinkSync(path);
+			} catch {
+				/* best-effort */
+			}
+			try {
+				rmdirSync(dir);
+			} catch {
+				/* best-effort */
+			}
+		},
+	};
+}
+
 async function runTsgo(
 	executable: string,
 	path: string,
@@ -188,7 +256,16 @@ async function runTsgo(
 	timeoutMs: number,
 ): Promise<TsgoDiagnostic[]> {
 	return new Promise((resolve) => {
-		const args = [...extraArgs, path];
+		// Prefer a tmp tsconfig that extends the project's real config so
+		// tsgo loads `compilerOptions` (types, moduleResolution, target,
+		// etc.). Without this, tsgo's "error TS5112" causes the project
+		// tsconfig to be skipped, `@types/node` types vanish, and every
+		// `node:fs` / `node:path` / `process` reference produces a
+		// spurious TS2591. See `makeTmpProjectTsconfig` for the dance.
+		// Fall back to bare single-file mode only when no project tsconfig
+		// is upstream (e.g., editing files outside a project).
+		const tmpConfig = makeTmpProjectTsconfig(path, dirname(path));
+		const args = tmpConfig ? [...extraArgs, "-p", tmpConfig.path] : [...extraArgs, path];
 		const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"] });
 		let stdout = "";
 		let stderr = "";
@@ -196,6 +273,7 @@ async function runTsgo(
 		const finalize = (diagnostics: TsgoDiagnostic[]): void => {
 			if (settled) return;
 			settled = true;
+			if (tmpConfig) tmpConfig.cleanup();
 			resolve(diagnostics);
 		};
 		const timer = setTimeout(() => {
