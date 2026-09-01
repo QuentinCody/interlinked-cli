@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MUTATION_RETRY_MAX_FAILURES } from "./mutation-journal-codec.js";
 import { openMutationJournal } from "./mutation-journal-sqlite.js";
 import type {
-	CommitMutationEvaluation,
 	EnqueueMutationJob,
 	JournalFaultPoint,
 	JournalRetainedEvidence,

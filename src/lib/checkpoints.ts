@@ -359,9 +359,8 @@ export function pruneCheckpoints(opts?: {
 
 	writeCheckpointsFile(checkpoints, cwd);
 
-	// Also clean up stashes for removed checkpoints
-	const _removedIds = new Set(readCheckpointsFile(cwd).map((c) => c.id));
-	// (stash cleanup is best-effort and skipped here for safety)
+	// Stash cleanup for removed checkpoints is best-effort and skipped here
+	// for safety.
 
 	return originalCount - checkpoints.length;
 }

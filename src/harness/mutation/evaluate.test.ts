@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { nonNull } from "../../lib/non-null.js";
 import { evaluateMutation } from "./evaluate.js";
 import { computeSymbolHashes, deriveIdentities, type SymbolHashEntry } from "./identity.js";
 import { emptyManifest } from "./manifest.js";

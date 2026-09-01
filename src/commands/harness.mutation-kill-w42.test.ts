@@ -239,9 +239,6 @@ let errs: string[];
 function logText(): string {
 	return logs.join("\n");
 }
-function errText(): string {
-	return errs.join("\n");
-}
 
 const SOCK = "/repo/.interlinked/harness.sock";
 

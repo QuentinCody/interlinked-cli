@@ -44,7 +44,6 @@ import type { GuardRulesConfig, HarnessEvent, SessionTrajectory } from "../types
 
 const CWD = "/workspace/project";
 const TS = "2026-08-20T00:00:00.000Z";
-type ToolInput = NonNullable<HarnessEvent["tool_input"]>;
 
 beforeEach(() => {
 	vi.clearAllMocks();

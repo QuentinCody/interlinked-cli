@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../non-null.js";
 import { buildCollectionRecord } from "../builder.js";
-import type { CollectionRecord } from "../types.js";
 
 // Helper: minimal activity event with required fields
 function baseEvent(overrides: Record<string, unknown> = {}) {

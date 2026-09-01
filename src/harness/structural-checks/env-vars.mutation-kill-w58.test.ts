@@ -29,7 +29,6 @@ vi.mock("./env-loader.js", async (importOriginal) => {
 import { checkUndefinedEnvVars } from "./env-vars.js";
 import { readEnvExampleFromDir } from "./env-loader.js";
 
-const actualDirname = dirname; // captured before mockImplementation swaps kick in per-test via beforeEach reset below
 const actualReadEnvExampleFromDir = (
 	await vi.importActual<typeof import("./env-loader.js")>("./env-loader.js")
 ).readEnvExampleFromDir;

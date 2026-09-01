@@ -92,9 +92,6 @@ export type { CommitParse } from "./commit-parse.js";
 // them from the gate module too.
 export { parseGitCommit } from "./commit-parse.js";
 
-/** The default CRAP cutoff — the McCabe / SonarQube convention (matches the per-edit gate). */
-const DEFAULT_CRAP_THRESHOLD = 30;
-
 /** The real cyclomatic analyzer for a coverage language, or null to skip. */
 function defaultCyclomaticFor(language: CoverageLanguage): CyclomaticAnalyzer | null {
 	switch (language) {

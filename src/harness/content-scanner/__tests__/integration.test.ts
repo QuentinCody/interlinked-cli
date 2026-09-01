@@ -19,7 +19,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CohortManager } from "../../cohort.js";
-import { evaluatePostToolUse, evaluatePreToolUse } from "../../evaluator.js";
+import { evaluatePreToolUse } from "../../evaluator.js";
 import { ReservationManager } from "../../reservations.js";
 import {
 	type GuardRulesConfig,

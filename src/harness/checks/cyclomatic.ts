@@ -32,7 +32,6 @@ const PYTHON_EXT = ".py";
 const GO_EXT = ".go";
 const RUST_EXT = ".rs";
 const OPEN_BRACE = "{";
-const CLOSE_BRACE = "}";
 
 export interface FunctionComplexityEntry {
 	name: string;

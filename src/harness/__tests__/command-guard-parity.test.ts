@@ -77,12 +77,6 @@ describe("command-guard-hook.ts parity with harness", () => {
 		return String(result.decision);
 	}
 
-	function _expectBlocked(command: string): string {
-		const decision = runGuard(command);
-		expect(decision, `Expected "${command}" to be blocked`).toBe("block");
-		return decision;
-	}
-
 	beforeEach(() => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2024-01-01T00:00:00Z"));

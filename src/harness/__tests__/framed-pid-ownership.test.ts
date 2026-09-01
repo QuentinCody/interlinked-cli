@@ -51,19 +51,19 @@ describe("framed-PID file ownership (Plan 08 review fix)", () => {
 		expect(body).not.toContain("writeFileSync(FRAMED_PATHS");
 	});
 
-	it("removePidFile (server-socket-lifecycle.ts) does NOT touch FRAMED_PATHS.pid", () => {
-		const startIdx = SOCKET_LIFECYCLE_TS.indexOf("function removePidFile(): void {");
-		expect(startIdx).toBeGreaterThan(0);
-		const rest = SOCKET_LIFECYCLE_TS.slice(startIdx);
-		const endRel = rest.search(/\n\t*\}\n/);
-		expect(endRel).toBeGreaterThan(0);
-
-		const body = rest.slice(0, endRel);
-		// Legacy removal stays, but is ownership-checked so a delayed shutdown
-		// cannot erase a successor's PID claim.
-		expect(body).toContain("removePidFileIfOwned(PID_PATH, process.pid)");
-		// Framed removal must be gone — it's owned by session-daemon.handle.stop().
-		expect(body).not.toContain("FRAMED_PATHS.pid");
+	it("server-socket-lifecycle.ts pid removal is ownership-checked and never touches FRAMED_PATHS.pid", () => {
+		// The dedicated `removePidFile()` wrapper was dead (never called) and was
+		// deleted in the 2026-09-01 unused-locals sweep; the invariant it pinned
+		// lives on at the call-site level: every removal in this module goes
+		// through the ownership-checked helper, and the framed pid file is never
+		// removed here — it's owned by session-daemon.handle.stop().
+		const removeCalls = SOCKET_LIFECYCLE_TS.match(/removePidFileIfOwned\([^)]*\)/g) ?? [];
+		expect(removeCalls.length).toBeGreaterThan(0);
+		for (const call of removeCalls) {
+			expect(call).toContain("process.pid");
+			expect(call).not.toContain("FRAMED_PATHS");
+		}
+		expect(SOCKET_LIFECYCLE_TS).not.toContain("unlinkSync(FRAMED_PATHS.pid");
 	});
 
 	it("session-daemon.ts is the sole writer of paths.pid (the framed file), via an atomic claim", () => {

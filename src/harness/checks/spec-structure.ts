@@ -3,7 +3,7 @@
 // spikes 1+3). Cross-file variants live in the spec ledger, not here —
 // the inline contract is (content, filePath) only.
 
-import { claimBindsToNamespace, defLineSet, idLineSet } from "../spec/binding.js";
+import { claimBindsToNamespace, defLineSet } from "../spec/binding.js";
 import { extractSpecFacts } from "../spec/extract-facts.js";
 import { extractFencedBlocks, fencedLineSet } from "../spec/extract-misc.js";
 import { githubSlug } from "../spec/extract-refs.js";

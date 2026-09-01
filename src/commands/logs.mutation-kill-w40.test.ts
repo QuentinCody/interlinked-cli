@@ -19,7 +19,6 @@ let fsState: FsState;
 let watchCallback: (() => void) | null;
 let watchedOpts: unknown;
 let watchedPath: string | null;
-let unwatchedPath: string | null;
 
 // Spies wrap the underlying byte-accurate logic so tests can assert on the
 // exact arguments a mutated arithmetic/flag/guard expression would change,
@@ -58,9 +57,7 @@ vi.mock("node:fs", () => ({
 		watchedOpts = opts;
 		watchCallback = cb;
 	},
-	unwatchFile: (p: string) => {
-		unwatchedPath = p;
-	},
+	unwatchFile: (_p: string) => {},
 }));
 
 vi.mock("../lib/config.js", () => ({
@@ -132,7 +129,6 @@ beforeEach(() => {
 	watchCallback = null;
 	watchedOpts = undefined;
 	watchedPath = null;
-	unwatchedPath = null;
 	openSyncSpy.mockClear();
 	readSyncSpy.mockClear();
 	closeSyncSpy.mockClear();

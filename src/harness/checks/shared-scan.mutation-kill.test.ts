@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import {
 	collectElapsedTimeAnchors,
 	findEnclosingScope,
-	isElapsedTimeLine,
 	isTypeOnlyModule,
 } from "./shared-scan.js";
 

@@ -17,7 +17,6 @@
 //   - `null` when the original `switch` arm fell through with `break`,
 //     i.e. the caller should continue into the Pre/Post evaluation path.
 
-import { join } from "node:path";
 import {
 	autoStripAllScopes,
 	defaultStripAuditLogPath,
@@ -42,7 +41,6 @@ import {
 	formatSequenceFinding,
 	runSequenceDetectorsForPhase,
 } from "../sequence-checks/index.js";
-import { type SessionTracker } from "../session-state.js";
 import { buildStopDigest } from "../stop-digest.js";
 import { buildPatternRescanWarnings } from "../stop-rescan.js";
 import { clearArchive } from "../trajectory/fingerprint-archive.js";

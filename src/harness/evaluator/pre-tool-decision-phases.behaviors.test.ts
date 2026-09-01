@@ -28,7 +28,6 @@ vi.mock("../sequence-checks/index.js", () => ({
 import type { SharedConfig } from "../../lib/config.js";
 import type {
 	GuardRulesConfig,
-	HarnessDecision,
 	HarnessEvent,
 	SessionTrajectory,
 } from "../types.js";

@@ -179,7 +179,7 @@ describe("stale_doc_sibling", () => {
 			writeFileSync(join(dir, "src", "foo.ts"), "// foo\n");
 			writeFileSync(join(dir, "docs", "foo.md"), "# foo\n");
 			const sourcePath = join(dir, "src", "foo.ts");
-			const { session, lastEvent } = buildTrajectoryFixture([
+			const { session } = buildTrajectoryFixture([
 				{
 					tool_name: "Edit",
 					tool_input: { file_path: sourcePath },

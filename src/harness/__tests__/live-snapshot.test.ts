@@ -5,7 +5,7 @@
 // `<id>.live.json`, every restart reads it back. Round-trip parity, atomic
 // rename, missing-file safety, and TTL sweep are the four invariants.
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

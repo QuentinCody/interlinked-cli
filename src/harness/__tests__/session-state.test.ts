@@ -290,7 +290,7 @@ describe("SessionTracker.rollUpVerificationSignals", () => {
 
 	it("leaves parent.observed_checks untouched when the child recorded none", () => {
 		const t = new SessionTracker();
-		const child = t.recordEvent(evt("child"));
+		t.recordEvent(evt("child"));
 		const parent = t.recordEvent(evt("parent"));
 		parent.observed_checks = new Map([["lint", { kind: "lint", status: "green" }]]);
 		// child.observed_checks is left at its fresh-session default: a defined

@@ -78,7 +78,7 @@ vi.mock("./harness.js", () => ({
 // Custom trigram mock (unlike enable.test.ts's arg-discarding stub) so we
 // can assert on the `{ cwd }` object literal and the save() path segment.
 let trigramSaveMock: ReturnType<typeof vi.fn>;
-const trigramBuildMock = vi.fn((opts: unknown) => {
+const trigramBuildMock = vi.fn((_opts: unknown) => {
 	trigramSaveMock = vi.fn();
 	return { save: trigramSaveMock, stats: () => ({ fileCount: 7 }) };
 });

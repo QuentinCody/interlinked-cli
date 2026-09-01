@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync as realMkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 
 const mocks = vi.hoisted(() => ({

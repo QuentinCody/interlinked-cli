@@ -17,7 +17,6 @@
 
 import { execSync } from "node:child_process";
 import {
-	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,

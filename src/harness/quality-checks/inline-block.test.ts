@@ -15,11 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CrapFinding } from "../checks/crap.js";
 import type { CloneFinding } from "../checks/dry.js";
 import type { FilePriority } from "../file-priority.js";
-import type {
-	DiffAwareConfig,
-	HarnessEvent,
-	PreEditBaseline,
-} from "../types.js";
+import type { HarnessEvent, PreEditBaseline } from "../types.js";
 
 // --- Partial mocks: default to the real implementation, override per-test. ---
 // Each factory spreads the actual module so the integration group keeps real

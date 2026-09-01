@@ -44,7 +44,6 @@ import type {
 	HarnessEvent,
 	PolicyClassification,
 	PolicyEvidence,
-	PolicyRule,
 	SessionTrajectory,
 } from "./types.js";
 

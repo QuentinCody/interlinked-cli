@@ -11,7 +11,7 @@
 import { expectedSourceOfTest } from "../coverage-debt.js";
 import { isTestPath } from "../coverage-test-selector.js";
 import type { HarnessDecision } from "../types/decisions.js";
-import { type ChangeSet, changedPaths, normalizeChangeSet } from "./changeset.js";
+import { changedPaths, normalizeChangeSet } from "./changeset.js";
 import { evaluateMutation } from "./evaluate.js";
 import * as gateDecision from "./gate-decision.js";
 import {

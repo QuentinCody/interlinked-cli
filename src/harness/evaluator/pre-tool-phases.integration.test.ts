@@ -36,7 +36,6 @@ import {
 } from "./pre-tool-phases.js";
 
 const FIXED_TS = "2026-04-01T00:00:00.000Z";
-type ToolInput = NonNullable<HarnessEvent["tool_input"]>;
 
 function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 	return {

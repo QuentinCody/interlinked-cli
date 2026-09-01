@@ -666,7 +666,7 @@ describe("SessionTracker round-trip with declared_plan", () => {
 
 	it("hydrate a snapshot WITHOUT declared_plan (older shape) defaults to undefined", () => {
 		const tracker = new SessionTracker();
-		const session = tracker.recordEvent({
+		tracker.recordEvent({
 			hook_event: "SessionStart",
 			session_id: "sess-old",
 			agent_source: "claude",
@@ -690,7 +690,7 @@ describe("SessionTracker round-trip with declared_plan", () => {
 
 	it("hydrate is resilient to malformed declared_plan shapes (returns undefined, no crash)", () => {
 		const tracker = new SessionTracker();
-		const session = tracker.recordEvent({
+		tracker.recordEvent({
 			hook_event: "SessionStart",
 			session_id: "sess-bad",
 			agent_source: "claude",

@@ -10,7 +10,6 @@ import { describe, expect, it } from "vitest";
 import { checkSqlInjection } from "./cross-language.js";
 
 const TS = "src/db/queries.ts";
-const JS = "src/db/queries.js";
 const PY = "src/db/queries.py";
 const SWIFT = "Sources/App/Store.swift";
 

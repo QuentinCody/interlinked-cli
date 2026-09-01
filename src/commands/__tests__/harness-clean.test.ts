@@ -13,7 +13,7 @@
 // path — the mocking layer is only needed for `process.kill` (the liveness
 // probe), which we stub to throw ESRCH for "not running".
 
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

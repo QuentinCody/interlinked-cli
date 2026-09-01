@@ -141,7 +141,7 @@ function wireTsgoViaNode(extraExists: string[] = []): void {
 	requireResolveMock.mockReturnValue(TSGO_PKG_JSON);
 	existsSyncMock.mockImplementation(existsForPaths([TSGO_BIN, ...extraExists]));
 	// First spawnSync call is the tsgo --version probe → success.
-	spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+	spawnSyncMock.mockImplementation((_cmd: string, args: string[]) => {
 		if (args?.includes("--version")) return spawnResult({ status: 0 });
 		return spawnResult({ status: 0 });
 	});
@@ -605,7 +605,7 @@ describe("runTsc (sync) — standalone (no tsconfig)", () => {
 		// tsgo via node, but NO tsconfig anywhere → standalone path with tsgo.
 		requireResolveMock.mockReturnValue(TSGO_PKG_JSON);
 		existsSyncMock.mockImplementation(existsForPaths([TSGO_BIN])); // bin yes, tsconfig no
-		spawnSyncMock.mockImplementation((cmd: string, args: string[]) => {
+		spawnSyncMock.mockImplementation((_cmd: string, args: string[]) => {
 			if (args?.includes("--version")) return spawnResult({ status: 0 });
 			return spawnResult({ status: 1, stdout: tscFileDiag(standalone) });
 		});

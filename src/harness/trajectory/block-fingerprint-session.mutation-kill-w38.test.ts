@@ -19,7 +19,6 @@ vi.mock("./fingerprint-archive.js", () => ({
 }));
 
 import {
-	detectWorkaround,
 	formatWorkaroundStopLine,
 	noteWorkaroundSignal,
 	observeBlockWorkaround,

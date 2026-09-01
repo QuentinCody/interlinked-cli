@@ -249,7 +249,7 @@ export function evaluatePreChecksTail(
  * original inline guard, which only synthesizes when `!pendingEscalation`.
  */
 export function computePostInjectionEscalation(
-	event: HarnessEvent,
+	_event: HarnessEvent,
 	session: SessionTrajectory | undefined,
 	toolName: string,
 	toolInput: ToolInput,
@@ -321,7 +321,7 @@ export function evaluatePermissionPatternDetection(
  * to the original inline block.
  */
 export function evaluateErrorMemory(
-	event: HarnessEvent,
+	_event: HarnessEvent,
 	rules: GuardRulesConfig,
 	session: SessionTrajectory | undefined,
 	graph: ProjectGraph | undefined,

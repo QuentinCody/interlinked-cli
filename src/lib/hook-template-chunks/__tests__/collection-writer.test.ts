@@ -357,7 +357,6 @@ describe("collection writer chunk — timestamp fallback (Bug 1)", () => {
 	});
 
 	it("generates an ISO timestamp when event.ts is absent", () => {
-		const record = build(makeEditEvent());
 		// makeEditEvent sets ts — build one without it
 		const noTsRecord = build({
 			event_type: "tool_use",

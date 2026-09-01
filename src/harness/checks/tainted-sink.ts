@@ -44,7 +44,6 @@ export function _resetSanitizerRegistryCacheForTests(): void {
 	cachedRegistry = null;
 }
 
-const LOOKAHEAD_CHARS = 6000;
 const REPORT_LINE_TRUNC = 150;
 const MAX_MATCHES_PER_FILE = 10;
 

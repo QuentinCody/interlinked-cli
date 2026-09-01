@@ -274,7 +274,7 @@ export {
 	type SurvivorDiffSets,
 	toMutantRecord,
 } from "./manifest-diff.js";
-import { fileRecords, type MeasuredMutant, toMutantRecord } from "./manifest-diff.js";
+import { type MeasuredMutant, toMutantRecord } from "./manifest-diff.js";
 
 // ============================================================
 // Measured-run refresh + receipt persistence (spec §4/§12)

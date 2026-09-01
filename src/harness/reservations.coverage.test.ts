@@ -359,11 +359,8 @@ describe("ReservationManager.refreshFromServer", () => {
 // ===========================================
 
 describe("ReservationManager constructor — server-backed", () => {
-	let cohort: CohortManager;
-
 	beforeEach(() => {
 		vi.useFakeTimers();
-		cohort = new CohortManager();
 	});
 
 	afterEach(() => {

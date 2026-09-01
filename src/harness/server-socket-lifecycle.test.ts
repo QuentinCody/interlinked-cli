@@ -38,7 +38,7 @@ import {
 	cleanupSocket as cleanupSocketAt,
 	ensureDirectory,
 } from "./server/socket-lifecycle.js";
-import { pidFileNames, removePidFileIfOwned } from "./daemon-pid-ownership.js";
+import { removePidFileIfOwned } from "./daemon-pid-ownership.js";
 import {
 	createSocketLifecycle,
 	type SocketLifecycleDeps,

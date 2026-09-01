@@ -154,7 +154,7 @@ describe("detectDispositionLedger — monotonic in FEWER / WEAKER records", () =
 // Integration through the existing baseline_integrity_gate rule.
 // ===========================================================================
 describe("evaluateBaselineIntegrityForEvent — the disposition ledger rides the existing rule", () => {
-	function writeEvent(before: string, after: string): HarnessEvent {
+	function writeEvent(_before: string, after: string): HarnessEvent {
 		return {
 			tool_name: "Write",
 			tool_input: { file_path: LEDGER, content: after },

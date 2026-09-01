@@ -179,7 +179,7 @@ describe("swift.ts mutation-kill w43", () => {
 	// --- parseSwiftBuildOutput regex (866d75dbfe987557, d528476ef7aa46f4,
 	//     93b84185cc6fca3f, 5d55fb71d5d54271) ---
 	describe("runSwiftBuild — diagnostic regex is anchored and exact", () => {
-		function buildInput(stdout: string) {
+		function buildInput() {
 			return input({ mode: "project" });
 		}
 
@@ -190,7 +190,7 @@ describe("swift.ts mutation-kill w43", () => {
 				stderr: "\r/repo/File.swift:10:5: error: bad thing\n",
 				stdout: "",
 			});
-			const results = runSwiftBuild(buildInput(""));
+			const results = runSwiftBuild(buildInput());
 			expect(results).toEqual([]);
 		});
 
@@ -201,7 +201,7 @@ describe("swift.ts mutation-kill w43", () => {
 				stderr: "/repo/File.swift:10:25: error: bad thing\n",
 				stdout: "",
 			});
-			const results = runSwiftBuild(buildInput(""));
+			const results = runSwiftBuild(buildInput());
 			expect(results).toHaveLength(1);
 			expect(results[0]?.column).toBe(25);
 			expect(results[0]?.line).toBe(10);
@@ -214,7 +214,7 @@ describe("swift.ts mutation-kill w43", () => {
 				stderr: "/repo/File.swift:10:5:error: bad thing\n",
 				stdout: "",
 			});
-			const results = runSwiftBuild(buildInput(""));
+			const results = runSwiftBuild(buildInput());
 			expect(results).toHaveLength(1);
 			expect(results[0]?.severity).toBe("error");
 		});
@@ -226,7 +226,7 @@ describe("swift.ts mutation-kill w43", () => {
 				stderr: "/repo/File.swift:10:5: error:message text\n",
 				stdout: "",
 			});
-			const results = runSwiftBuild(buildInput(""));
+			const results = runSwiftBuild(buildInput());
 			expect(results).toHaveLength(1);
 			expect(results[0]?.message).toBe("message text");
 		});

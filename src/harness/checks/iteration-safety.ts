@@ -54,8 +54,6 @@ const MAX_HEADER_TO_BODY_CHARS = 200;
 /** Truncate the matching line in the report so the agent's context isn't
  * blown by a single long line. */
 const REPORT_LINE_TRUNC = 150;
-/** Soft cap on findings per file — keeps the report focused. */
-const MAX_MATCHES_PER_FILE = 10;
 
 function findMatchingBrace(s: string, openIdx: number): number {
 	let depth = 0;

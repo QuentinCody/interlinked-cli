@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
 	canonicalToCoverageSummary,
-	loadLcovFile,
 	parseLcov,
 	perFileCoverageFromCanonical,
 } from "./coverage-lcov.js";

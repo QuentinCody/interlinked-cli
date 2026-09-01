@@ -7,12 +7,11 @@
 // Plus one global property: random alphanumeric strings (50–200 chars) with
 // no known provider prefix never match any sig-secret-* rule.
 import fc from "fast-check";
-import { describe, expect, it } from "vitest";
+import { describe, it } from "vitest";
 import { scanSecrets } from "../signatures.js";
 
 const HEX_LOWER = "abcdef0123456789";
 const ALNUM = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const ALNUM_UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 const ALNUM_LOWER_NUM = "abcdefghijklmnopqrstuvwxyz0123456789";
 const ALNUM_UNDERSCORE = `${ALNUM}_`;
 const ALNUM_HYPHEN_UNDERSCORE = `${ALNUM}-_`;

@@ -5,11 +5,6 @@ import {
 	parseGolangciLintJson,
 	parseOsvScannerJson,
 	parseRuffJson,
-	parseClangTidyOutput,
-	parseGccOutput,
-	parseGoBuildOutput,
-	parseMypyOutput,
-	parseRuffFormatOutput,
 } from "./output-parsers-extra.js";
 
 describe("parseOsvScannerJson", () => {

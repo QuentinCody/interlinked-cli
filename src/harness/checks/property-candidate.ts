@@ -130,7 +130,7 @@ function isExported(ts: TsModule, node: TS.Node): boolean {
 }
 
 /** Parameter count, ignoring `this` parameters. */
-function parameterCount(ts: TsModule, node: TS.Node): number {
+function parameterCount(_ts: TsModule, node: TS.Node): number {
 	const params = (node as { parameters?: readonly TS.ParameterDeclaration[] }).parameters;
 	if (!params) return 0;
 	return params.filter((p) => p.name.getText() !== "this").length;

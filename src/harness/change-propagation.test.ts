@@ -675,7 +675,7 @@ describe("findPropagationTargets — API endpoint docs", () => {
 
 	it("fires for a router-named file when CLAUDE.md has 'Endpoint'", () => {
 		const edited = file("src/router.ts");
-		const claude = file("CLAUDE.md", "Endpoint listing here");
+		file("CLAUDE.md", "Endpoint listing here");
 		const targets = findPropagationTargets(edited, root);
 		expect(targets.some((t) => t.reason.includes("API endpoint table"))).toBe(true);
 	});

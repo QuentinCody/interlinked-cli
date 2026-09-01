@@ -447,8 +447,6 @@ describe("coverageStep", () => {
 });
 
 describe("suiteBaselineStep (opt-in step 6)", () => {
-	const BASELINE_REL = ".interlinked/suite-baseline.json";
-
 	/** A repo whose profile detects a js runner (vitest in devDependencies). */
 	function writeVitestManifest(): void {
 		writeFileSync(

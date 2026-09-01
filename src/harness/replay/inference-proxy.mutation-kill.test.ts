@@ -16,9 +16,8 @@ import { createServer, type Server } from "node:http";
 import { connect as netConnect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { createInferenceProxy, type InferenceProxy, shouldCapture } from "./inference-proxy.js";
-import { loadEnvelopes, pendingEnvelopePath } from "./inference-store.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { createInferenceProxy, type InferenceProxy } from "./inference-proxy.js";
 
 const cleanups: Array<() => void> = [];
 afterEach(async () => {
@@ -93,29 +92,6 @@ function rawRequest(port: number, extraHeaderLines: string[]): Promise<string> {
 		sock.on("close", () => resolveDone(buf));
 		sock.on("error", rejectDone);
 		setTimeout(() => rejectDone(new Error(`rawRequest timed out; buf so far: ${buf}`)), 5000);
-	});
-}
-
-/** Same as rawRequest but stops reading (and never sends Connection: close)
- *  as soon as the header block is complete — needed for headers that make
- *  undici THROW when leaked upstream (Upgrade, Transfer-Encoding), where a
- *  paired "Connection: close" can race the parser into an unrelated error. */
-function rawStatusLineOnly(port: number, headerLine: string): Promise<string> {
-	return new Promise((resolveDone, rejectDone) => {
-		let buf = "";
-		const sock = netConnect(port, "127.0.0.1", () => {
-			sock.write([`GET /v1/models HTTP/1.1`, `Host: 127.0.0.1:${port}`, headerLine, "", ""].join("\r\n"));
-		});
-		sock.on("data", (c: Buffer) => {
-			buf += c.toString("utf-8");
-			if (buf.includes("\r\n\r\n")) {
-				sock.destroy();
-				resolveDone(buf.split("\r\n")[0] ?? "");
-			}
-		});
-		sock.on("error", () => resolveDone(`SOCK-ERROR:${buf}`));
-		sock.on("close", () => resolveDone(`CLOSED:${buf.split("\r\n")[0] ?? ""}`));
-		setTimeout(() => rejectDone(new Error(`rawStatusLineOnly timed out; buf so far: ${buf}`)), 5000);
 	});
 }
 

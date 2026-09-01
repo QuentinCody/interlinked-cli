@@ -236,7 +236,6 @@ describe("metricsCouplingCommand — integration (unexported helpers via real gi
 		commitFiles(dir, { "a.ts": "1", "c.ts": "1" });
 		commitFiles(dir, { "a.ts": "2", "c.ts": "2" });
 		const absA = path.join(dir, "a.ts");
-		const absB = path.join(dir, "c.ts");
 		const elsewhere = path.join(dir, "other.ts");
 		mockState.getDependencies = (f: string) => {
 			if (f === absA) return [{ toFile: elsewhere }];

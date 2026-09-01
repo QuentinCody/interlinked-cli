@@ -8,7 +8,6 @@ import {
 
 const TS = "src/lib/foo.ts";
 const TEST = "src/lib/foo.test.ts";
-const APP = "src/app/page.tsx";
 
 describe("checkDemoDataUnmarked", () => {
 	it("flags test emails (foo@example.com)", () => {

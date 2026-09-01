@@ -331,7 +331,7 @@ describe("relaySseWithCapture — no upstream body", () => {
 	it("ends the response and skips capture when upstream returns a bodyless SSE response", async () => {
 		const replayDir = tempReplayDir();
 		const upstream = await listen(
-			createServer((req, res) => {
+			createServer((_req, res) => {
 				res.writeHead(204, { "content-type": "text/event-stream" });
 				res.end();
 			}),
@@ -351,7 +351,7 @@ describe("relayBufferedWithCapture — response body does not parse as JSON", ()
 	it("still relays the raw text but skips capture", async () => {
 		const replayDir = tempReplayDir();
 		const upstream = await listen(
-			createServer((req, res) => {
+			createServer((_req, res) => {
 				res.writeHead(200, { "content-type": "application/json" });
 				res.end("not actually json");
 			}),
@@ -371,7 +371,7 @@ describe("content-type fallback — upstream response with no content-type heade
 	it("treats a missing content-type as non-SSE and captures via the buffered path", async () => {
 		const replayDir = tempReplayDir();
 		const upstream = await listen(
-			createServer((req, res) => {
+			createServer((_req, res) => {
 				// Deliberately no content-type header at all.
 				res.writeHead(200);
 				res.end(JSON.stringify({ id: "msg_no_ct", stop_reason: "end_turn" }));
@@ -433,7 +433,7 @@ describe("relayPassthrough — no upstream body", () => {
 	it("ends the client response cleanly when upstream returns a bodyless reply", async () => {
 		const replayDir = tempReplayDir();
 		const upstream = await listen(
-			createServer((req, res) => {
+			createServer((_req, res) => {
 				res.writeHead(204, { "content-type": "application/json" });
 				res.end();
 			}),

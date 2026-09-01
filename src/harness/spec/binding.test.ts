@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claimBindsToNamespace, defLineSet, idLineSet, localNounBindings } from "./binding.js";
+import { claimBindsToNamespace, defLineSet, localNounBindings } from "./binding.js";
 import { extractSpecFacts } from "./extract-facts.js";
 
 const facts = (text: string) => extractSpecFacts(text, "docs/plan.md");

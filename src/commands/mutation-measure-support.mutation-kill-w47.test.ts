@@ -82,7 +82,7 @@ beforeEach(() => {
 
 describe("spawnVitestSuite", () => {
 	it("passes an 8MB maxBuffer to execFile", async () => {
-		execFileMock.mockImplementation((_cmd: string, _args: string[], opts: { maxBuffer: number }, cb: any) => {
+		execFileMock.mockImplementation((_cmd: string, _args: string[], _opts: { maxBuffer: number }, cb: any) => {
 			cb(null, "", "");
 			return { on: vi.fn() };
 		});

@@ -13,7 +13,6 @@
 // All tests use vi.hoisted mocks for `node:child_process` (ps + spawn) and
 // `node:fs` (pid file existence + content). No real subprocesses spawned.
 
-import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -101,7 +100,6 @@ async function captureStdio(fn: () => Promise<void> | void): Promise<CapturedStd
 const ORPHAN_A = 50001;
 const ORPHAN_B = 50002;
 const ACTIVE_PID = 60000;
-const ANCESTOR_PID_DAEMON = 70000;
 
 /** Build a `ps -ax -o pid=,ppid=,command=` payload for the test. */
 function psPayload(rows: Array<{ pid: number; ppid: number; cmd: string }>): string {

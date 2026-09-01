@@ -7,7 +7,6 @@ import { nonNull } from "../lib/non-null.js";
 import type { HarnessEvent } from "./types.js";
 
 const APPLY_PATCH_FILE_LINE = /^\*\*\* (?:Update|Add|Delete) File:\s+(.+)$/m;
-const APPLY_PATCH_FILE_LINE_GLOBAL = /^\*\*\* (?:Update|Add|Delete) File:\s+(.+)$/gm;
 const APPLY_PATCH_MOVE_LINE = /^\*\*\* Move to:\s+(.+)$/m;
 /** Global form of the "Move to:" header. Used to walk the patch in the same
  *  order Codex applies sections so we can pair each move with the immediately

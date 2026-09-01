@@ -11,8 +11,6 @@ import {
 	getConfigDir,
 	getDataDir,
 	isConfigured,
-	readLocalConfig,
-	readSharedConfig,
 	resolveConfig,
 } from "../lib/config.js";
 import { c, header, kvLine } from "../lib/formatter.js";
@@ -173,8 +171,6 @@ export async function contextCommand(options: ContextOptions): Promise<void> {
 	}
 
 	const config = resolveConfig(cwd);
-	const _shared = readSharedConfig(cwd);
-	const _local = readLocalConfig(cwd);
 	const activeServer = getActiveServerKey(cwd);
 	const clients = detectClients(cwd);
 	const installedClients = clients.filter((c) => c.exists);

@@ -133,7 +133,7 @@ export async function harnessStartCommand(opts: {
 		// A live PID without a protocol answer is a zombie, not readiness. Include
 		// the pid-file daemon in the verified takeover sweep; answering sockets
 		// were already protected above and are protected again inside the reaper.
-		const reaped = await reapOrphanHarnessesVerified(cwd, { killAll: true });
+		await reapOrphanHarnessesVerified(cwd, { killAll: true });
 
 		// A direct start owns its build preflight. Restart performs the same work
 		// before stopping the incumbent and marks the handoff so a second failed

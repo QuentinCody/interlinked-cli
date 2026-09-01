@@ -20,10 +20,6 @@ import { detectNaNCoercionGuards } from "./nan-coercion.js";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-function lines(src: string): number[] {
-	return detectNaNCoercionGuards(src, "src/util.ts").map((m) => m.line);
-}
-
 function fires(src: string): boolean {
 	return detectNaNCoercionGuards(src, "src/util.ts").length > 0;
 }

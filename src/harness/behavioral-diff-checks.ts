@@ -31,11 +31,6 @@ function basename(p: string): string {
 const DISABLE_DIRECTIVES_RE =
 	/(?:^|\b)(?:it|test|describe|context)\s*\.\s*(?:skip|todo)\s*\(|\b(?:xit|xdescribe|xtest|xcontext)\s*\(/;
 
-function countDisabledIntros(text: string): number {
-	const matches = text.match(new RegExp(DISABLE_DIRECTIVES_RE.source, "g"));
-	return matches ? matches.length : 0;
-}
-
 /** Public API — flags newly-added `.skip` / `xit` directives in test files. */
 export function checkDisabledTestDelta(session: SessionTrajectory): CheckResultEntry[] {
 	const results: CheckResultEntry[] = [];

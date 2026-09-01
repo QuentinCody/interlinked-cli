@@ -2,10 +2,9 @@
 // Extracted from agent-safety.ts to stay under the 800-line module ceiling.
 
 import { readFileSync } from "node:fs";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
-import { parseExports, parseImports, resolveImportPath } from "../project-graph.js";
-import { getGitSourceFiles } from "./export-ripple.js";
+import { parseImports, resolveImportPath } from "../project-graph.js";
 import {
 	getExtension,
 	type InlineMatch,

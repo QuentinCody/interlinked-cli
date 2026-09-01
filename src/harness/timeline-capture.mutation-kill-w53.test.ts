@@ -16,7 +16,7 @@ function assistantLine(uuid: string, ts: string, text: string): string {
 	})}\n`;
 }
 
-function stopEvent(cwd: string | undefined, transcriptPath: string, fallbackForResolve?: string): HarnessEvent {
+function stopEvent(cwd: string | undefined, transcriptPath: string): HarnessEvent {
 	return {
 		hook_event: "Stop",
 		session_id: "S",

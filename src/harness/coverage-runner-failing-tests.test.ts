@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 import type { CoverageRunResult } from "./coverage-runner.js";
 import {
 	parsePytestFailingTestFiles,
-	parsePytestFailingTests,
 	parseVitestFailingTestFiles,
 	parseVitestFailingTests,
 	withFailingTests,

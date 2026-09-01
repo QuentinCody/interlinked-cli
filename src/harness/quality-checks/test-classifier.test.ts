@@ -1,5 +1,5 @@
 import { dirname, resolve, sep } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { LanguageProfile } from "../types.js";
 import {
 	buildTestCandidates,

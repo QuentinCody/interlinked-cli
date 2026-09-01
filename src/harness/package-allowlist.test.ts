@@ -7,7 +7,6 @@ import {
 	type Allowlist,
 	addToAllowlist,
 	allowlistPath,
-	effectiveLicenseAllowlist,
 	hashLockfile,
 	isPackageAllowed,
 	loadAllowlist,

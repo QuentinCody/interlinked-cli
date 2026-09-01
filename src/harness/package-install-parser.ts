@@ -53,7 +53,6 @@ export {
 import { nonNull } from "../lib/non-null.js";
 
 import {
-	isNpmVerb,
 	parseBundle,
 	parseCargo,
 	parseComposer,

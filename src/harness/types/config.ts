@@ -5,7 +5,6 @@
 
 import type {
 	ErrorMemoryConfig,
-	ErrorRecord,
 	ProjectWideCheckConfig,
 	StructuralChecksConfig,
 } from "./config-structural.js";

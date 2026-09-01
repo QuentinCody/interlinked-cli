@@ -420,7 +420,7 @@ describe("additional branch coverage", () => {
 		const v = run(rebReadStormNoEdit, [
 			...scatteredReads(5),
 			bash("echo just looking"),
-			...scatteredReads(5).map((e, i) => read(`/repo/pkgLater${i}/mod.ts`)),
+			...scatteredReads(5).map((_e, i) => read(`/repo/pkgLater${i}/mod.ts`)),
 		]);
 		expect(v?.ruleId).toBe("reb_read_storm_no_edit");
 	});

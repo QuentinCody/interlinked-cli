@@ -49,8 +49,6 @@ const CHAINED_TYPES = new Set(["guard_block", "guard_warn", "guard_allow", "sess
 const DEFAULT_KEEP_RECENT_BYTES = 2 * 1024 * 1024;
 
 import {
-	type ArchiveManifest,
-	type ArchiveSegment,
 	compactPlainLog,
 	PLAIN_COMPACTABLE_LOGS,
 	type PlainCompactResult,
@@ -66,7 +64,6 @@ import {
 import {
 	activityArchiveDir,
 	activityManifestPath,
-	loadArchiveManifest,
 	loadOrRebuildArchiveManifest,
 	nextActivitySegmentSeq,
 } from "./compact-activity-manifest.js";

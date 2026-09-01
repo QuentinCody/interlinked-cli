@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	type Allowlist,
 	addToAllowlist,
-	allowlistPath,
 	hashLockfile,
 	loadAllowlist,
 	saveAllowlist,

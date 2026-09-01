@@ -7,7 +7,6 @@ import {
 	lineList,
 	preBlockIntroducedBlock,
 	preexistingPreBlockWarnings,
-	resolveDiskBaseline,
 	runPreBlockRegistryGate,
 	splitIntroduced,
 	suppressionHint,

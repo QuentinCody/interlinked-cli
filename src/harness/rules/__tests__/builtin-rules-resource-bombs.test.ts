@@ -18,13 +18,12 @@
 //      builtin-infinite-spin (Plan 03 final paragraph — pre-spans-projection
 //      we still scan the inner string).
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { CohortManager } from "../../cohort.js";
 import { evaluatePreToolUse } from "../../evaluator.js";
 import { ReservationManager } from "../../reservations.js";
 import { getDefaultConfig, loadRules } from "../../rules-loader.js";
 import type {
-	GuardRulesConfig,
 	HarnessEvent,
 	SessionTrajectory,
 } from "../../types.js";

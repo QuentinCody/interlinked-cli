@@ -59,16 +59,7 @@ vi.mock("./spec-pre-gates.js", () => ({ evaluateSpecPreGates: vi.fn(nullPhase) }
 import { evaluatePreToolUse } from "./pre-tool.js";
 import { evaluateEditContractPhase } from "./edit-contract-phase.js";
 import { evaluateMutationDirectedProfile } from "./mutation-directed-guard.js";
-import {
-	evaluateCurlMcpPhase,
-	evaluateDiagnosticsPhase,
-	evaluateMarkdownFirstPhase,
-	evaluateProjectSetupPhase,
-	evaluateStructuralContextPhase,
-	evaluateSupermodelGraphContext,
-	evaluateTrajectoryDetectorPhase,
-	drainPendingSessionWarnings,
-} from "./pre-tool-context-phases.js";
+import { evaluateTrajectoryDetectorPhase } from "./pre-tool-context-phases.js";
 import {
 	evaluateAutoReservation,
 	evaluateExfilPhase,
