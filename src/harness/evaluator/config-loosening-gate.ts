@@ -84,7 +84,17 @@ const TSCONFIG_STRICTNESS_FLAGS = [
 	"noImplicitReturns",
 	"noUncheckedIndexedAccess",
 	"exactOptionalPropertyTypes",
+	"noImplicitOverride",
+	"noUnusedLocals",
+	"noUnusedParameters",
 ] as const;
+
+/** Flags whose STRICT value is `false` (TypeScript's default is the loose
+ *  setting). `allowUnreachableCode: false` turns statements after an
+ *  unconditional return/throw into compile errors; absent or `true` merely
+ *  warns or ignores them. Tracked separately because the polarity is
+ *  inverted relative to TSCONFIG_STRICTNESS_FLAGS. */
+const INVERTED_STRICTNESS_FLAGS = ["allowUnreachableCode"] as const;
 
 /**
  * Resolve the effective value of a strictness flag, accounting for both
@@ -109,14 +119,38 @@ function effectiveStrictnessValue(co: unknown, flag: string): boolean {
 	return false;
 }
 
+/** Inverted-polarity flags: strict only when explicitly `false`; absent or
+ *  `true` is the loose default, so `false → absent` is a loosening. */
+function detectInvertedFlagLoosening(
+	filePath: string,
+	beforeCo: unknown,
+	afterCo: unknown,
+): ConfigLooseningFinding[] {
+	const findings: ConfigLooseningFinding[] = [];
+	for (const flag of INVERTED_STRICTNESS_FLAGS) {
+		const b = get(beforeCo, flag) === false;
+		const a = get(afterCo, flag) === false;
+		if (b && !a) {
+			findings.push({
+				rule: flag,
+				before: false,
+				after: get(afterCo, flag),
+				file: filePath,
+				message: `tsconfig flag \`${flag}\` was \`false\` (strict) and is now absent or \`true\`. Unreachable statements stop being compile errors, so dead code after return/throw can accumulate unseen.`,
+			});
+		}
+	}
+	return findings;
+}
+
 function detectTsconfigLoosening(
 	filePath: string,
 	before: unknown,
 	after: unknown,
 ): ConfigLooseningFinding[] {
-	const findings: ConfigLooseningFinding[] = [];
 	const beforeCo = get(before, "compilerOptions");
 	const afterCo = get(after, "compilerOptions");
+	const findings: ConfigLooseningFinding[] = detectInvertedFlagLoosening(filePath, beforeCo, afterCo);
 	for (const flag of TSCONFIG_STRICTNESS_FLAGS) {
 		const b = effectiveStrictnessValue(beforeCo, flag);
 		const a = effectiveStrictnessValue(afterCo, flag);
@@ -145,6 +179,13 @@ function parseSemverFloor(spec: string | undefined): number {
 }
 
 const REQUIRED_SCRIPT_KEYS = ["test", "typecheck", "lint", "build"] as const;
+
+/** Parsed JSON is `unknown`; a package.json is any non-array object (every
+ *  field the detector reads is optional). A predicate, not an assertion, so
+ *  both tsgo and typescript-eslint agree the narrowing is real. */
+function isPackageJsonShape(v: unknown): v is PackageJson {
+	return typeof v === "object" && v !== null && !Array.isArray(v);
+}
 
 function detectPackageJsonLoosening(
 	filePath: string,
@@ -215,7 +256,11 @@ export function detectConfigLoosening(
 		return detectTsconfigLoosening(filePath, before, after);
 	}
 	if (/(?:^|\/)package\.json$/.test(norm)) {
-		return detectPackageJsonLoosening(filePath, before as PackageJson, after as PackageJson);
+		return detectPackageJsonLoosening(
+			filePath,
+			isPackageJsonShape(before) ? before : null,
+			isPackageJsonShape(after) ? after : null,
+		);
 	}
 	// biome.json / .eslintrc.* — coverage TBD: schema-aware diff would catch
 	// rule severity drops. Returning [] for now; promote to a real detector
@@ -326,6 +371,22 @@ export function evaluateConfigLooseningForEvent(event: HarnessEvent): HarnessDec
 	const findings = detectConfigLoosening(filePath, head, proposed);
 	if (findings.length === 0) return null;
 	const messages = findings.map((f) => `[${f.rule}] ${f.message}`).join("\n  ");
+	// tsconfig strictness is a RATCHET water-line like the `.interlinked/`
+	// baselines (2026-09-01): loosening it defeats every type-level check at
+	// once, so it BLOCKS rather than asks. package.json / biome loosening
+	// keeps the ask-mode confirmation. Same bypass as the baseline gate.
+	const isTsconfig = /(?:^|\/)tsconfig(?:\.[^/]+)?\.json$/.test(filePath.replace(/\\/g, "/"));
+	if (isTsconfig && process.env.INTERLINKED_DISABLE_BASELINE_GUARD !== "1") {
+		return {
+			decision: "block",
+			reason:
+				`BLOCKED: this edit loosens TypeScript strictness in ${filePath}:\n  ${messages}\n\n` +
+				"tsconfig strictness may only tighten — the flags are the water-line every type-level check trusts. Fix the code the flag rejects instead. Intentional reset: INTERLINKED_DISABLE_BASELINE_GUARD=1.",
+			rule_id: "config_loosening_gate",
+			severity: "high",
+			category: "config",
+		};
+	}
 	return {
 		decision: "ask",
 		reason:

@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { addToAllowlist } from "../package-allowlist.js";
 import { resetRepoProfileCache } from "../repo-profile.js";
+import { DEFAULT_CONFIG } from "../rules/default-config.js";
 import { SessionTracker } from "../session-state.js";
 import type {
 	GuardRulesConfig,
@@ -77,14 +78,47 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 	return Object.assign(session, overrides);
 }
 
-/** Rules object with only the fields the guards read; rest cast away. */
-function makeRules(overrides: Partial<GuardRulesConfig> = {}): GuardRulesConfig {
+/**
+ * A genuinely complete GuardRulesConfig, honest about the fields
+ * `loadRules()` always populates in production — `quality_checks`,
+ * `structural_checks`, `taint_tracking`, and `output_scanning` are honestly
+ * required (see CLAUDE.md's "GuardRulesConfig sections"), so a partial cast
+ * here would lie about a shape the real evaluator never sees. Those four
+ * required sections are pulled from the same builtin `DEFAULT_CONFIG`
+ * `loadRules()` falls back to; everything else (e.g. `per_edit_coverage`,
+ * `git_session_scope_gate`) stays absent unless a test opts in via
+ * `overrides` — pulling the FULL default config would silently switch on
+ * unrelated production features (coverage debt tracking, etc.) that these
+ * isolated guard tests never intended to exercise. `overrides` replaces
+ * top-level sections wholesale except `structural_checks` and
+ * `quality_checks`, which merge onto the required defaults so a test
+ * overriding one field (e.g. `test_first_mode`) doesn't silently drop a
+ * sibling default (e.g. `characterize_mode`) that other guards in the same
+ * call path read.
+ */
+type RulesOverrides = Omit<Partial<GuardRulesConfig>, "structural_checks" | "quality_checks"> & {
+	structural_checks?: Partial<GuardRulesConfig["structural_checks"]>;
+	quality_checks?: GuardRulesConfig["quality_checks"];
+};
+
+function makeRules(overrides: RulesOverrides = {}): GuardRulesConfig {
+	const { structural_checks, quality_checks, ...rest } = overrides;
 	return {
+		version: 1,
+		enabled: true,
+		rules: [],
 		protected_files: [],
+		file_reminders: [],
+		curl_mcp_detection: DEFAULT_CONFIG.curl_mcp_detection,
+		error_memory: DEFAULT_CONFIG.error_memory,
+		taint_tracking: DEFAULT_CONFIG.taint_tracking,
+		output_scanning: DEFAULT_CONFIG.output_scanning,
 		repo_confinement_allowlist: [],
 		linked_projects: [],
-		...overrides,
-	} as unknown as GuardRulesConfig;
+		...rest,
+		structural_checks: { ...DEFAULT_CONFIG.structural_checks, ...structural_checks },
+		quality_checks: { ...DEFAULT_CONFIG.quality_checks, ...quality_checks },
+	};
 }
 
 function git(args: string[], cwd: string): string {
@@ -795,9 +829,7 @@ describe("evaluateRepoConfinementGuard", () => {
 describe("evaluateTddGate", () => {
 	function enforceRules(): GuardRulesConfig {
 		return makeRules({
-			structural_checks: {
-				test_first_mode: "enforce",
-			} as unknown as GuardRulesConfig["structural_checks"],
+			structural_checks: { test_first_mode: "enforce" },
 		});
 	}
 
@@ -852,7 +884,13 @@ describe("evaluateTddGate", () => {
 					tool_name: "Write",
 					tool_input: { file_path: target, content: "export const x = 1;\n" },
 				}),
-				makeRules(),
+				// The builtin default is "enforce" (DEFAULT_STRUCTURAL_CHECKS) —
+				// explicitly dial it down so this test exercises the branch its
+				// name describes instead of accidentally inheriting enforce.
+				// "nudge" is below the gate's floor entirely (unlike "warn",
+				// which still returns an advisory allow decision) — see
+				// tdd-new-file-gate.test.ts's "below the gate's floor" case.
+				makeRules({ structural_checks: { test_first_mode: "nudge" } }),
 				makeSession(),
 				"Write",
 				[],
@@ -918,7 +956,7 @@ describe("evaluateConfigLooseningGate", () => {
 			"Write",
 			["w"],
 		);
-		expect(d?.decision).toBe("ask");
+		expect(d?.decision).toBe("block");
 		expect(d?.rule_id).toBe("config_loosening_gate");
 		expect(d?.warnings).toEqual(["w"]);
 	});

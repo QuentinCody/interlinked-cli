@@ -13,6 +13,7 @@
         "exactOptionalPropertyTypes": true,
         "noUnusedLocals": true,
         "noUnusedParameters": true,
+        "allowUnreachableCode": false,
         "esModuleInterop": true,
         "skipLibCheck": true,
         "declaration": true,

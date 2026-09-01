@@ -544,7 +544,7 @@ describe("evaluateConfigLooseningForEvent — Write tool against git HEAD", () =
 		if (dir) rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("returns an `ask` decision when a Write loosens strict relative to HEAD", () => {
+	it("returns a `block` decision when a Write loosens strict relative to HEAD (tsconfig is a ratchet)", () => {
 		dir = makeRepoWithCommittedFile(
 			"tsconfig.json",
 			`{ "compilerOptions": { "strict": true } }`,
@@ -554,16 +554,52 @@ describe("evaluateConfigLooseningForEvent — Write tool against git HEAD", () =
 			makeEvent({ file_path: join(dir, "tsconfig.json"), content: proposed }, dir),
 		);
 		expect(decision).not.toBeNull();
-		expect(decision?.decision).toBe("ask");
+		expect(decision?.decision).toBe("block");
 		expect(decision?.rule_id).toBe("config_loosening_gate");
 		expect(decision?.severity).toBe("high");
 		expect(decision?.category).toBe("config");
 		expect(decision?.reason).toContain("strict");
-		expect(decision?.reason).toContain("weakens config");
+		expect(decision?.reason).toContain("loosens TypeScript strictness");
 		expect(decision?.reason).toContain("effectively flipped from true → false");
-		expect(decision?.reason).toContain(
-			"Confirm the loosening is intentional. Strict flags rarely come back once relaxed.",
+		expect(decision?.reason).toContain("INTERLINKED_DISABLE_BASELINE_GUARD=1");
+	});
+
+	it("blocks dropping `allowUnreachableCode: false` (inverted-polarity flag)", () => {
+		dir = makeRepoWithCommittedFile(
+			"tsconfig.json",
+			`{ "compilerOptions": { "strict": true, "allowUnreachableCode": false } }`,
 		);
+		const proposed = `{ "compilerOptions": { "strict": true } }`;
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "tsconfig.json"), content: proposed }, dir),
+		);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("allowUnreachableCode");
+	});
+
+	it("blocks removing noUnusedLocals", () => {
+		dir = makeRepoWithCommittedFile(
+			"tsconfig.json",
+			`{ "compilerOptions": { "strict": true, "noUnusedLocals": true } }`,
+		);
+		const proposed = `{ "compilerOptions": { "strict": true } }`;
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "tsconfig.json"), content: proposed }, dir),
+		);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("noUnusedLocals");
+	});
+
+	it("still ASKS (not blocks) for package.json loosening — only tsconfig is a ratchet", () => {
+		dir = makeRepoWithCommittedFile(
+			"package.json",
+			`{ "engines": { "node": ">=22.0.0" } }`,
+		);
+		const proposed = `{ "engines": { "node": ">=18.0.0" } }`;
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "package.json"), content: proposed }, dir),
+		);
+		expect(decision?.decision).toBe("ask");
 	});
 
 	it("aggregates multiple findings into one reason (engines + script removal)", () => {
@@ -701,7 +737,7 @@ describe("evaluateConfigLooseningForEvent — Write tool against git HEAD", () =
 		const decision = evaluateConfigLooseningForEvent(
 			makeEvent({ path: join(dir, "tsconfig.json"), content: proposed }, dir),
 		);
-		expect(decision?.decision).toBe("ask");
+		expect(decision?.decision).toBe("block");
 		expect(decision?.reason).toContain("strictNullChecks");
 	});
 
@@ -740,7 +776,7 @@ describe("evaluateConfigLooseningForEvent — Edit tool reconstruction path", ()
 				dir,
 			),
 		);
-		expect(decision?.decision).toBe("ask");
+		expect(decision?.decision).toBe("block");
 		expect(decision?.reason).toContain("strict");
 	});
 

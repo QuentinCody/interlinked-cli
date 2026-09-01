@@ -46,6 +46,9 @@ interface FlagSpec {
 	 *  below). Kept in this list so they stay documented and one edit from
 	 *  promotion — flip `advisory` off to gate on them again. */
 	advisory?: boolean;
+	/** The strict value. Default `true`; `false` for inverted-polarity flags
+	 *  such as `allowUnreachableCode`, whose loose setting is the default. */
+	expected?: boolean;
 }
 
 const REQUIRED_STRICTNESS_FLAGS: readonly FlagSpec[] = [
@@ -79,6 +82,32 @@ const REQUIRED_STRICTNESS_FLAGS: readonly FlagSpec[] = [
 		flag: "noFallthroughCasesInSwitch",
 		rationale:
 			"non-empty switch cases must terminate (return/break/throw), catching forgotten breaks",
+	},
+	// Dead-code ratchets (2026-09-01 strict-typing campaign): the compiler is the
+	// cheapest dead-code detector there is once these are on. ADVISORY, not
+	// gated: on a human-written legacy tree noUnusedLocals alone fires in the
+	// thousands (141 on this hardened one), so demanding it from every repo is
+	// the calibration mistake CLAUDE.md warns about. Once a repo turns them on,
+	// the config-loosening gate BLOCKS turning them back off — that is the
+	// ratchet.
+	{
+		flag: "noUnusedLocals",
+		advisory: true,
+		rationale:
+			"an unused local, import, or private type is a compile error — dead code inside function bodies, the class module-level dead-code tools cannot see",
+	},
+	{
+		flag: "noUnusedParameters",
+		advisory: true,
+		rationale:
+			"an unused parameter is a compile error (prefix `_` for deliberate callback-signature slots), so dead inputs cannot accumulate",
+	},
+	{
+		flag: "allowUnreachableCode",
+		expected: false,
+		advisory: true,
+		rationale:
+			"statements after an unconditional return/throw/break become compile errors instead of silent warnings",
 	},
 ] as const;
 
@@ -271,7 +300,8 @@ export function checkTsconfigStrictness(content: string, filePath: string): Inli
 		// the merge logic honest: if a future flag added to this list IS
 		// covered by `strict`, the umbrella will be respected.
 		const value = merged[spec.flag];
-		if (value === true) continue;
+		const expected = spec.expected ?? true;
+		if (value === expected) continue;
 		// If the umbrella `strict: true` is set AND the flag IS one that
 		// strict implies, treat it as enabled. (None of the current five
 		// hit this branch — kept here so adding a new flag doesn't silently
@@ -282,8 +312,8 @@ export function checkTsconfigStrictness(content: string, filePath: string): Inli
 		findings.push({
 			line,
 			text:
-				`[tsconfig_strictness] \`compilerOptions.${spec.flag}\` is not enabled. ` +
-				`Add \`"${spec.flag}": true\` — ${spec.rationale}. ` +
+				`[tsconfig_strictness] \`compilerOptions.${spec.flag}\` is not ${expected ? "enabled" : "set to false"}. ` +
+				`Add \`"${spec.flag}": ${expected}\` — ${spec.rationale}. ` +
 				`(Not covered by \`strict: true\`.)`,
 		});
 	}

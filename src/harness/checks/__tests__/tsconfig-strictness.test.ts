@@ -30,6 +30,9 @@ import { checkTsconfigStrictness } from "../tsconfig-strictness.js";
 
 // noUncheckedIndexedAccess is ADVISORY (never gated, see the check); these four
 // are the gated flags the default verify gate still demands.
+// noUnusedLocals / noUnusedParameters / allowUnreachableCode are likewise
+// advisory (2026-09-01): the config-loosening gate blocks turning them OFF
+// once on, but the check never demands them from a repo that hasn't.
 const GATED_FLAGS = [
 	"exactOptionalPropertyTypes",
 	"noImplicitOverride",
@@ -59,6 +62,9 @@ describe("checkTsconfigStrictness — positive cases", () => {
 				noImplicitOverride: true,
 				noImplicitReturns: true,
 				noFallthroughCasesInSwitch: true,
+				noUnusedLocals: true,
+				noUnusedParameters: true,
+				allowUnreachableCode: false,
 				// exactOptionalPropertyTypes deliberately omitted
 			},
 		};
@@ -77,7 +83,7 @@ describe("checkTsconfigStrictness — positive cases", () => {
 		writeFileSync(configPath, JSON.stringify(cfg, null, 2));
 
 		const findings = checkTsconfigStrictness(JSON.stringify(cfg, null, 2), configPath);
-		// The 4 gated flags are missing; noUncheckedIndexedAccess is advisory (skipped).
+		// The 4 gated flags are missing; the advisory flags are skipped.
 		expect(findings).toHaveLength(4);
 		const ids = findings.map((f) => f.text);
 		for (const flag of GATED_FLAGS) {
@@ -100,6 +106,9 @@ describe("checkTsconfigStrictness — positive cases", () => {
 					noImplicitOverride: true,
 					noImplicitReturns: true,
 					noFallthroughCasesInSwitch: true,
+				noUnusedLocals: true,
+				noUnusedParameters: true,
+				allowUnreachableCode: false,
 				},
 			}),
 		);
@@ -142,6 +151,9 @@ describe("checkTsconfigStrictness — negative cases", () => {
 				noImplicitOverride: true,
 				noImplicitReturns: true,
 				noFallthroughCasesInSwitch: true,
+				noUnusedLocals: true,
+				noUnusedParameters: true,
+				allowUnreachableCode: false,
 			},
 		};
 		writeFileSync(configPath, JSON.stringify(cfg, null, 2));
@@ -159,6 +171,9 @@ describe("checkTsconfigStrictness — negative cases", () => {
 				noImplicitOverride: true,
 				noImplicitReturns: true,
 				noFallthroughCasesInSwitch: true,
+				noUnusedLocals: true,
+				noUnusedParameters: true,
+				allowUnreachableCode: false,
 				// noUncheckedIndexedAccess omitted — advisory, must NOT produce a finding.
 			},
 		};
@@ -205,6 +220,9 @@ describe("checkTsconfigStrictness — negative cases", () => {
 					noImplicitOverride: true,
 					noImplicitReturns: true,
 					noFallthroughCasesInSwitch: true,
+				noUnusedLocals: true,
+				noUnusedParameters: true,
+				allowUnreachableCode: false,
 				},
 			}),
 		);
@@ -306,6 +324,9 @@ describe("checkTsconfigStrictness — robustness", () => {
 				noImplicitOverride: true,
 				noImplicitReturns: true,
 				noFallthroughCasesInSwitch: true,
+				noUnusedLocals: true,
+				noUnusedParameters: true,
+				allowUnreachableCode: false,
 			},
 		};
 		writeFileSync(configPath, JSON.stringify(cfg));
@@ -345,6 +366,9 @@ describe("checkTsconfigStrictness — robustness", () => {
 				noImplicitOverride: true,
 				noImplicitReturns: true,
 				noFallthroughCasesInSwitch: true,
+				noUnusedLocals: true,
+				noUnusedParameters: true,
+				allowUnreachableCode: false,
 			},
 		};
 		writeFileSync(configPath, JSON.stringify(cfg));
@@ -365,6 +389,9 @@ describe("checkTsconfigStrictness — robustness", () => {
 					noImplicitOverride: true,
 					noImplicitReturns: true,
 					noFallthroughCasesInSwitch: true,
+				noUnusedLocals: true,
+				noUnusedParameters: true,
+				allowUnreachableCode: false,
 				},
 			}),
 		);
@@ -387,6 +414,9 @@ describe("checkTsconfigStrictness — robustness", () => {
 					noImplicitOverride: true,
 					noImplicitReturns: true,
 					noFallthroughCasesInSwitch: true,
+				noUnusedLocals: true,
+				noUnusedParameters: true,
+				allowUnreachableCode: false,
 				},
 			}),
 		);
@@ -424,6 +454,9 @@ describe("checkTsconfigStrictness — robustness", () => {
 					noImplicitOverride: true,
 					noImplicitReturns: true,
 					noFallthroughCasesInSwitch: true,
+				noUnusedLocals: true,
+				noUnusedParameters: true,
+				allowUnreachableCode: false,
 				},
 			}),
 		);
