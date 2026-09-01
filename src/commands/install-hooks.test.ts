@@ -164,7 +164,7 @@ describe("install-hooks command", () => {
 		const manifest = JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "installer-manifest.json"), "utf-8"),
 		) as { entries: Array<{ runner: string }> };
-		expect(manifest.entries.length).toBe(7);
+		expect(manifest.entries.length).toBe(8);
 	});
 
 	it("respects --dry-run", async () => {

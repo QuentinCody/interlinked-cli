@@ -36,7 +36,7 @@ describe("write-tool-registry — positive (must classify as a writer)", () => {
 	});
 
 	it("P3: the other-runner patch verbs are direct edits too", () => {
-		for (const name of ["apply_patch", "str_replace", "create", "write_file", "edit_file"]) {
+		for (const name of ["apply_patch", "str_replace", "create", "write_file", "edit_file", "write", "edit"]) {
 			expect(isDirectFileEditTool(name)).toBe(true);
 		}
 	});

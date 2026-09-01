@@ -84,6 +84,8 @@ export const CLIENT_GEMINI = "gemini" as const;
 export const CLIENT_CODEX = "codex" as const;
 /** Public API — consumed by `src/lib/hook-installers.ts`. */
 export const CLIENT_CURSOR = "cursor" as const;
+/** Public API — consumed by `src/lib/hook-installers.ts`. OpenCode v2 (`opencode2` binary). */
+export const CLIENT_OPENCODE2 = "opencode2" as const;
 
 /**
  * Public API — consumed by `src/lib/hook-installers.ts`.

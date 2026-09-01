@@ -66,13 +66,14 @@ export const AGENT_TRANSCRIPT_REDRAIN_MS = 750;
 
 /** Provider label per agent source — same vocabulary the tool_event records
  *  use (`detectProvider` in lib/collection/builder.ts). */
-const PROVIDER_BY_SOURCE: Record<AgentSource, string> = {
+export const PROVIDER_BY_SOURCE: Record<AgentSource, string> = {
 	claude: "claude-code",
 	gemini: "gemini-cli",
 	copilot: "copilot",
 	codex: "codex",
 	cursor: "cursor",
 	opencode: "opencode",
+	opencode2: "opencode2",
 	pi: "pi",
 };
 

@@ -83,6 +83,8 @@ export const WRITE_TOOLS: readonly WriteToolEntry[] = [
 	{ name: "EditFile", channel: "direct", claudeCodeNative: false },
 	{ name: "write_file", channel: "direct", claudeCodeNative: false },
 	{ name: "edit_file", channel: "direct", claudeCodeNative: false },
+	{ name: "write", channel: "direct", claudeCodeNative: false },
+	{ name: "edit", channel: "direct", claudeCodeNative: false },
 	// Copilot CLI / Codex patch verbs.
 	{ name: "apply_patch", channel: "direct", claudeCodeNative: false, codexNative: true },
 	{ name: "str_replace", channel: "direct", claudeCodeNative: false },

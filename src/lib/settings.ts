@@ -19,6 +19,7 @@ export type ClientName =
 	| "codex"
 	| "cursor"
 	| "opencode"
+	| "opencode2"
 	| "pi";
 
 interface ClientConfig {
@@ -91,8 +92,20 @@ const CLIENT_CONFIGS: ClientConfig[] = [
 		detectFromEnv: (env) =>
 			Object.entries(env).some(
 				([name, value]) =>
-					name.startsWith("OPENCODE") && typeof value === "string" && value.length > 0,
+					name.startsWith("OPENCODE") &&
+					name !== "OPENCODE2" &&
+					typeof value === "string" &&
+					value.length > 0,
 			),
+	},
+	{
+		name: "opencode2",
+		label: "OpenCode v2",
+		configDir: ".opencode",
+		settingsFile: "plugins/interlinked-opencode2.ts",
+		inputMethod: "stdin",
+		detectFromEnv: (env) =>
+			Boolean(env.OPENCODE2) || env.INTERLINKED_CLIENT === "opencode2",
 	},
 	{
 		name: "pi",
@@ -125,14 +138,18 @@ export function detectClients(
 	cwd: string,
 	env: NodeJS.ProcessEnv = process.env,
 ): DetectedClient[] {
-	return CLIENT_CONFIGS.map((config) => ({
-		name: config.name,
-		settingsPath: getClientSettingsPath(cwd, config),
-		exists:
+	const v2Env = env.OPENCODE2 || env.INTERLINKED_CLIENT === "opencode2";
+	return CLIENT_CONFIGS.map((config) => {
+		const fromEnv = config.detectFromEnv?.(env) === true;
+		const fromFiles =
 			existsSync(join(cwd, config.configDir)) ||
-			config.detectionFiles?.some((path) => existsSync(join(cwd, path))) === true ||
-			config.detectFromEnv?.(env) === true,
-	}));
+			config.detectionFiles?.some((path) => existsSync(join(cwd, path))) === true;
+		let exists = fromEnv || fromFiles;
+		// `.opencode/` is shared. Directory presence is v1; v2 requires an explicit env/client signal.
+		if (config.name === "opencode2") exists = fromEnv;
+		if (config.name === "opencode" && v2Env) exists = fromEnv;
+		return { name: config.name, settingsPath: getClientSettingsPath(cwd, config), exists };
+	});
 }
 
 /** Maps a legacy `ClientName` id to the adapter `RunnerId` vocabulary. The two
@@ -149,6 +166,7 @@ export const CLIENT_TO_RUNNER: Record<ClientName, RunnerId> = {
 	codex: "codex",
 	cursor: "cursor",
 	opencode: "opencode",
+	opencode2: "opencode2",
 	pi: "pi",
 };
 

@@ -24,6 +24,7 @@ describe("detectClients", () => {
 			"codex",
 			"cursor",
 			"opencode",
+			"opencode2",
 			"pi",
 		]);
 	});
@@ -104,6 +105,7 @@ describe("detectClients", () => {
 
 	it("maps the new public client ids to their normalized runner ids", () => {
 		expect(CLIENT_TO_RUNNER.opencode).toBe("opencode");
+		expect(CLIENT_TO_RUNNER.opencode2).toBe("opencode2");
 		expect(CLIENT_TO_RUNNER.pi).toBe("pi");
 	});
 });

@@ -92,6 +92,20 @@ export const CONSUMED_PAYLOAD_KEYS: ReadonlySet<string> = new Set([
 	"trigger",
 	"custom_instructions",
 	"files_modified",
+	// OpenCode v2 plugin / adapter payload aliases
+	"sessionID",
+	"callID",
+	"tool",
+	"args",
+	"input",
+	"output",
+	"filePath",
+	"oldString",
+	"newString",
+	"replaceAll",
+	"workdir",
+	"include",
+	"agent",
 ]);
 
 /** One census entry: the unconsumed keys seen for a runner + native event,

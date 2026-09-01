@@ -312,6 +312,7 @@ describe("description transform for runners with strict limits", () => {
 		["copilot", ".github/skills/enforce/SKILL.md"],
 		["cursor", ".cursor/skills/enforce/SKILL.md"],
 		["opencode", ".opencode/skills/enforce/SKILL.md"],
+		["opencode2", ".opencode/skills/enforce/SKILL.md"],
 		["pi", ".pi/skills/enforce/SKILL.md"],
 	] as const)("%s install keeps description under 1024 chars", (client, relPath) => {
 		installEnforceSkill(tmpRoot, [client]);

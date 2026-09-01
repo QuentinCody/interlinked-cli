@@ -12,6 +12,7 @@ import {
 } from "./provider-bridge-source.js";
 import { installedEventNames, OPENCODE_CAPABILITIES } from "./provider-capabilities.js";
 import type { RunnerAdapter, SettingsFragment } from "./types.js";
+import { isOpenCodeV2Env } from "../../lib/opencode-runtime.js";
 
 const NATIVE_EVENTS = installedEventNames(OPENCODE_CAPABILITIES);
 const PROJECT_PLUGIN_PATH = ".opencode/plugins/interlinked.ts";
@@ -136,6 +137,7 @@ export function createOpenCodeAdapter(opts: OpenCodeAdapterOptions = {}): Runner
 		nativeEventNames: NATIVE_EVENTS,
 
 		detectFromEnv(env) {
+			if (isOpenCodeV2Env(env)) return false;
 			return Boolean(
 				env.OPENCODE ||
 					env.OPENCODE_CLI ||
@@ -194,10 +196,20 @@ export function renderOpenCodeBridgeSource(binaryPath: string): string {
 	return [
 		renderProviderBridgePrelude("opencode", binaryPath),
 		OPENCODE_PLUGIN_HELPERS,
-		"export const InterlinkedPlugin = async ({ directory, worktree }) => ({",
+		"function interlinkedIsOpenCodeV2() {",
+		'    const env = typeof process === "undefined" ? {} : process.env;',
+		'    return env.INTERLINKED_CLIENT === "opencode2" || Boolean(env.OPENCODE2);',
+		"}",
+		"export const InterlinkedPlugin = async ({ directory, worktree }) => {",
+		"    if (interlinkedIsOpenCodeV2()) return {};",
+		"    return {",
 		OPENCODE_PLUGIN_TOOL_HOOKS,
 		OPENCODE_PLUGIN_OTHER_HOOKS,
-		"});",
+		"    };",
+		"};",
+		// v2's loader requires default.{id,setup}. No-op so this file can sit
+		// next to interlinked-opencode2.ts without crashing opencode2 or double-gating.
+		'export default { id: "interlinked", setup: async () => {} };',
 		"",
 	].join("\n");
 }

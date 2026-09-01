@@ -523,6 +523,9 @@ describe("module-level lookup tables (AGENT_EVENT_NAMES / PROVIDER_BY_SOURCE)", 
 		["gemini", "gemini-cli"],
 		["codex", "codex"],
 		["cursor", "cursor"],
+		["opencode", "opencode"],
+		["opencode2", "opencode2"],
+		["pi", "pi"],
 	] as const)("maps agent_source %s to provider %s", (source, expectedProvider) => {
 		const rec = buildAgentEventRecord(mkEvent({ agent_source: source }), "subagent_start", "/fallback");
 		expect(rec.provider).toBe(expectedProvider);

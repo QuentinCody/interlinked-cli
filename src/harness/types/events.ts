@@ -56,14 +56,17 @@ export type HookEventName =
 	// Generic
 	| string;
 
-export type AgentSource =
-	| "claude"
-	| "copilot"
-	| "codex"
-	| "gemini"
-	| "cursor"
-	| "opencode"
-	| "pi";
+export const AGENT_SOURCES = [
+	"claude",
+	"copilot",
+	"codex",
+	"gemini",
+	"cursor",
+	"opencode",
+	"opencode2",
+	"pi",
+] as const;
+export type AgentSource = (typeof AGENT_SOURCES)[number];
 
 /**
  * Whether a given agent runtime can surface an interactive permission prompt

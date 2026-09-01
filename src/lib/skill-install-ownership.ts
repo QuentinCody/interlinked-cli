@@ -54,6 +54,7 @@ const CLIENT_SKILL_ROOTS: Record<ClientName, string> = {
     codex: join(".agents", "skills"),
     cursor: join(".cursor", "skills"),
     opencode: join(".opencode", "skills"),
+    opencode2: join(".opencode", "skills"),
     pi: join(".pi", "skills"),
 };
 

@@ -20,6 +20,7 @@ const VALID_RUNNERS = new Set<RunnerId>([
 	"gemini-cli",
 	"codex",
 	"opencode",
+	"opencode2",
 	"pi",
 ]);
 

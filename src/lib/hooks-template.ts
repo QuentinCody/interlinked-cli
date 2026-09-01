@@ -1007,6 +1007,7 @@ async function main(rawInput) {
         // normalizer keeps the standalone .mjs fallback at guard parity; the
         // handler identity keeps attribution provider-correct.
         { name: "opencode", detect: (_input, src) => src === "stdin" && RUNNER_ENV === "opencode", normalize: normalizeClaudeEvent },
+        { name: "opencode2", detect: (_input, src) => src === "stdin" && RUNNER_ENV === "opencode2", normalize: normalizeClaudeEvent },
         { name: "pi", detect: (_input, src) => src === "stdin" && RUNNER_ENV === "pi", normalize: normalizeClaudeEvent },
         { name: "claude", detect: (input, src) => src === "stdin", normalize: normalizeClaudeEvent },
     ];

@@ -31,6 +31,7 @@ const VALID_MANIFEST_RUNNERS = new Set<string>([
 	"gemini-cli",
 	"codex",
 	"opencode",
+	"opencode2",
 	"pi",
 ]);
 

@@ -36,6 +36,7 @@ const CLIENTS: ClientName[] = [
 	"codex",
 	"cursor",
 	"opencode",
+	"opencode2",
 	"pi",
 ];
 

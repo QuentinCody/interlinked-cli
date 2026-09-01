@@ -95,7 +95,7 @@ describe("registerSetupCommands — public help contract", () => {
 					"--server": "Server URL",
 					"--agent": "Default agent name",
 					"--clients":
-						"Comma-separated client list (claude,copilot,gemini,codex,cursor,opencode,pi)",
+						"Comma-separated client list (claude,copilot,gemini,codex,cursor,opencode,opencode2,pi)",
 					"--sync-mode": "Sync mode: realtime (default), local, manual",
 					"--data-dir": "Override data directory for activity logs and sessions",
 					"--dry-run": "Show what would change without modifying files",
@@ -141,7 +141,7 @@ describe("registerSetupCommands — public help contract", () => {
 					"--server": "Server URL",
 					"--agent": "Default agent name",
 					"--clients":
-						"Comma-separated client list (claude,copilot,gemini,codex,cursor,opencode,pi)",
+						"Comma-separated client list (claude,copilot,gemini,codex,cursor,opencode,opencode2,pi)",
 					"--sync-mode": "Sync mode: realtime (default), local, manual",
 					"--token": "Manual token for CI/headless use",
 					"--dry-run": "Show what would change without modifying files",
@@ -158,7 +158,7 @@ describe("registerSetupCommands — public help contract", () => {
 				description: "Install agent hooks for detected runners (adapter-based, manifest-driven)",
 				options: {
 					"--runner":
-						"Comma-separated runners (claude-code,copilot-cli,cursor,gemini-cli,codex,opencode,pi); defaults to auto-detect",
+						"Comma-separated runners (claude-code,copilot-cli,cursor,gemini-cli,codex,opencode,opencode2,pi); defaults to auto-detect",
 					"--scope": "Install scope: user, project, or local",
 					"--mode": "Enforcement preset: balanced, strict, lenient",
 					"--binary": "Override path to the interlinked binary",

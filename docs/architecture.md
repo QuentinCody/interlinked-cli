@@ -168,6 +168,7 @@ a common shape:
 | Copilot CLI (experimental) | 6 events | `.github/hooks/hooks.json` |
 | Gemini CLI (experimental) | 9 events | `.gemini/settings.json` hooks |
 | OpenCode (experimental) | 11 installed plugin callbacks; stable permission/Stop signals are observation- or deny-only | managed `.opencode/plugins/interlinked.ts` |
+| OpenCode v2 (`opencode2`, experimental) | 5 plugin hooks (`tool.execute.before/after`, `session.created/deleted/idle` via `event.subscribe`); ask collapses to deny | managed `.opencode/plugins/interlinked-opencode2.ts` |
 | Pi (experimental) | 13 extension callbacks, including `tool_call`, `tool_result`, and direct `user_bash` | managed `.pi/extensions/interlinked.js` |
 
 Runtime reporting derives from the adapters' `nativeEventNames` lists
@@ -175,8 +176,8 @@ Runtime reporting derives from the adapters' `nativeEventNames` lists
 pin expected SNAPSHOTS of those lists so drift is visible, and they carry their date for the
 same reason. Claude Code and Codex are the supported provider-contract pair. Copilot,
 Gemini, and Cursor remain experimental because their end-to-end provider contracts are not
-proven. OpenCode and Pi have managed-bridge execution tests, but also remain experimental:
-their upstream extension APIs expose a narrower native control surface than Claude/Codex.
+proven. OpenCode, OpenCode v2, and Pi have managed-bridge execution tests, but also remain experimental:
+their upstream extension APIs expose a narrower native control surface than Claude/Codex. OpenCode v2 stays experimental until a real-host acceptance test passes.
 
 All adapters share the capability and envelope layer described in
 [`docs/design/cli-hook-normalization.md`](design/cli-hook-normalization.md). Unknown

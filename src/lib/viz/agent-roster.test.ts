@@ -23,6 +23,7 @@ describe("runnerOf", () => {
 		expect(runnerOf("session-codex-abc")).toBe("codex");
 		expect(runnerOf("session-gemini-abc")).toBe("gemini");
 		expect(runnerOf("session-opencode-abc")).toBe("opencode");
+		expect(runnerOf("session-opencode2-abc")).toBe("opencode2");
 		expect(runnerOf("session-pi-abc")).toBe("pi");
 	});
 

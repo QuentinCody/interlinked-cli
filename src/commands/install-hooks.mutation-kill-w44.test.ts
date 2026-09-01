@@ -213,14 +213,14 @@ describe("parseRunners (mutants f0c1edd2a57e52e0, 91195e68e2570134, 8cd077e5ef93
 describe("VALID_RUNNERS / VALID_SCOPES literals (mutant symbol 41d0eb8f71fbd934)", () => {
 	it("recognizes cursor, gemini-cli, codex, OpenCode, and Pi as valid runners", async () => {
 		await installHooksCommand({
-			runner: "cursor,gemini-cli,codex,opencode,pi",
+			runner: "cursor,gemini-cli,codex,opencode,opencode2,pi",
 			mode: "balanced",
 			json: true,
 			dryRun: true,
 		});
 		expect(installHooksMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				runners: ["cursor", "gemini-cli", "codex", "opencode", "pi"],
+				runners: ["cursor", "gemini-cli", "codex", "opencode", "opencode2", "pi"],
 			}),
 		);
 		expect(stderrText()).not.toContain("unknown runner");

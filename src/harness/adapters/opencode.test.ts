@@ -16,6 +16,8 @@ describe("OpenCode adapter", () => {
 	it("detects explicit OpenCode process markers only", () => {
 		expect(adapter.detectFromEnv({ OPENCODE: "1" })).toBe(true);
 		expect(adapter.detectFromEnv({ INTERLINKED_CLIENT: "opencode" })).toBe(true);
+		expect(adapter.detectFromEnv({ OPENCODE2: "1" })).toBe(false);
+		expect(adapter.detectFromEnv({ OPENCODE: "1", OPENCODE2: "1" })).toBe(false);
 		expect(adapter.detectFromEnv({})).toBe(false);
 	});
 
@@ -108,6 +110,8 @@ describe("OpenCode managed plugin", () => {
 		expect(fragment.fileContent).toContain('hook_event_name: interlinkedLegacyHookEvent(eventName)');
 		expect(fragment.fileContent).toContain('.join("\\n")');
 		expect(fragment.fileContent).toContain('"\\n\\n[interlinked]\\n"');
+		expect(fragment.fileContent).toContain('export default { id: "interlinked", setup: async () => {} }');
+		expect(fragment.fileContent).toContain("if (interlinkedIsOpenCodeV2()) return {};");
 	});
 
 	it("hard-denies ask decisions because OpenCode cannot initiate native confirmation", () => {

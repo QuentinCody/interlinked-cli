@@ -60,6 +60,7 @@ const ALL_CLIENTS: readonly ClientName[] = [
 	"codex",
 	"cursor",
 	"opencode",
+	"opencode2",
 	"pi",
 ] as const;
 
@@ -77,6 +78,7 @@ const CLIENT_DESTINATIONS: Record<ClientName, string> = {
 	codex: ".codex/hooks.json + [features] hooks=true flag",
 	cursor: ".cursor/hooks.json",
 	opencode: ".opencode/plugins/interlinked.ts",
+	opencode2: ".opencode/plugins/interlinked-opencode2.ts",
 	pi: ".pi/extensions/interlinked.js",
 };
 
@@ -342,7 +344,7 @@ function printInstallResults(results: InstallResultLike[], detected: ClientName[
 			);
 			console.log(
 				c.dim(
-					"  Use --clients claude,copilot,gemini,codex,cursor,opencode,pi to force installation.",
+					"  Use --clients claude,copilot,gemini,codex,cursor,opencode,opencode2,pi to force installation.",
 				),
 			);
 		}
@@ -457,7 +459,7 @@ function printSummary(
 		}
 	} else {
 		console.log(
-			`\n${c.yellow("Hooks are not active.")} No hook entries were installed. Re-run with ${c.cyan("--clients claude,copilot,gemini,codex,cursor,opencode,pi")} or check client settings paths.`,
+			`\n${c.yellow("Hooks are not active.")} No hook entries were installed. Re-run with ${c.cyan("--clients claude,copilot,gemini,codex,cursor,opencode,opencode2,pi")} or check client settings paths.`,
 		);
 	}
 }
@@ -470,7 +472,7 @@ export function buildPostEnableNotes(targetClients: readonly ClientName[]): stri
 	if (targetClients.includes("codex")) {
 		notes.push("Restart Codex or open a new Codex session to load updated hooks.");
 	}
-	if (targetClients.includes("opencode")) {
+	if (targetClients.includes("opencode") || targetClients.includes("opencode2")) {
 		notes.push("Restart OpenCode or open a new OpenCode session to load the Interlinked plugin.");
 	}
 	if (targetClients.includes("pi")) {

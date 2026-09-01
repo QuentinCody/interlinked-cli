@@ -293,6 +293,7 @@ const AGENT_SOURCE_BY_RUNNER: Partial<Record<UnifiedHookEvent["runner"], AgentSo
 	"gemini-cli": "gemini",
 	cursor: "cursor",
 	opencode: "opencode",
+	opencode2: "opencode2",
 	pi: "pi",
 };
 

@@ -9,6 +9,7 @@ import {
 	GEMINI_CLI_CAPABILITIES,
 	installedEventNames,
 	OPENCODE_CAPABILITIES,
+	OPENCODE2_CAPABILITIES,
 	PI_CAPABILITIES,
 } from "./provider-capabilities.js";
 
@@ -19,12 +20,15 @@ const catalogs = [
 	GEMINI_CLI_CAPABILITIES,
 	CURSOR_CAPABILITIES,
 	OPENCODE_CAPABILITIES,
+	OPENCODE2_CAPABILITIES,
 	PI_CAPABILITIES,
 ];
 
 describe("provider capability catalog", () => {
 	it("drives every adapter's installed native event list", () => {
-		for (const adapter of buildAllAdapters()) {
+		const adapters = buildAllAdapters();
+		expect(catalogs).toHaveLength(adapters.length);
+		for (const adapter of adapters) {
 			expect(adapter.nativeEventNames).toEqual(installedEventNames(adapter.capabilities));
 		}
 	});

@@ -80,6 +80,7 @@ vi.mock("../lib/settings.js", () => ({
 		codex: "codex",
 		cursor: "cursor",
 		opencode: "opencode",
+		opencode2: "opencode2",
 		pi: "pi",
 	},
 }));
@@ -168,6 +169,7 @@ function eventCount(client: ClientName): number {
 		codex: "codex",
 		cursor: "cursor",
 		opencode: "opencode",
+		opencode2: "opencode2",
 		pi: "pi",
 	} as const;
 	const adapter = getAdapter(runner[client]);
@@ -283,7 +285,7 @@ describe("enableCommand — dry run", () => {
 	it("renders every requested client's event summary via --clients", async () => {
 		vi.mocked(detectClients).mockReturnValue([]);
 
-		await enableCommand({ dryRun: true, clients: "copilot,gemini,codex,cursor,opencode,pi" });
+		await enableCommand({ dryRun: true, clients: "copilot,gemini,codex,cursor,opencode,opencode2,pi" });
 
 		const out = logged(logSpy);
 		expect(out).toContain(`copilot — ${eventCount("copilot")} events (.github/hooks/hooks.json) (forced)`);
@@ -292,6 +294,9 @@ describe("enableCommand — dry run", () => {
 		expect(out).toContain(`cursor — ${eventCount("cursor")} events (.cursor/hooks.json)`);
 		expect(out).toContain(
 			`opencode — ${eventCount("opencode")} events (.opencode/plugins/interlinked.ts)`,
+		);
+		expect(out).toContain(
+			`opencode2 — ${eventCount("opencode2")} events (.opencode/plugins/interlinked-opencode2.ts)`,
 		);
 		expect(out).toContain(
 			`pi — ${eventCount("pi")} events (.pi/extensions/interlinked.js)`,
@@ -319,7 +324,7 @@ describe("enableCommand — explicit client validation", () => {
 
 		expect(logged(errorSpy)).toContain("Unknown client: bogus");
 		expect(logged(errorSpy)).toContain(
-			"Supported clients: claude,copilot,gemini,codex,cursor,opencode,pi",
+			"Supported clients: claude,copilot,gemini,codex,cursor,opencode,opencode2,pi",
 		);
 		expect(process.exitCode).toBe(1);
 		expect(vi.mocked(isConfigured)).not.toHaveBeenCalled();
@@ -608,7 +613,7 @@ describe("enableCommand — hook managers + install results", () => {
 		const out = logged(logSpy);
 		expect(out).toContain("Warning: No hooks were installed.");
 		expect(out).toContain("No client directories");
-		expect(out).toContain("Use --clients claude,copilot,gemini,codex,cursor,opencode,pi");
+		expect(out).toContain("Use --clients claude,copilot,gemini,codex,cursor,opencode,opencode2,pi");
 	});
 
 	it("warns WITHOUT the directory hint when clients were detected but none installed", async () => {
@@ -812,7 +817,7 @@ describe("enableCommand — undetected client hint", () => {
 		await enableCommand({});
 
 		const out = logged(logSpy);
-		expect(out).toContain("Not detected: copilot, gemini, codex, cursor, opencode, pi");
+		expect(out).toContain("Not detected: copilot, gemini, codex, cursor, opencode, opencode2, pi");
 		expect(out).toContain("(add with --clients)");
 	});
 
@@ -830,6 +835,7 @@ describe("enableCommand — undetected client hint", () => {
 			detected("codex", true),
 			detected("cursor", true),
 			detected("opencode", true),
+			detected("opencode2", true),
 			detected("pi", true),
 		]);
 		vi.mocked(installAllHooks).mockReturnValue([

@@ -25,9 +25,9 @@ interface ViewOpts extends JsonOpts {
 }
 
 const CLIENT_LIST_HELP =
-	"Comma-separated client list (claude,copilot,gemini,codex,cursor,opencode,pi)";
+	"Comma-separated client list (claude,copilot,gemini,codex,cursor,opencode,opencode2,pi)";
 const RUNNER_LIST_HELP =
-	"Comma-separated runners (claude-code,copilot-cli,cursor,gemini-cli,codex,opencode,pi); defaults to auto-detect";
+	"Comma-separated runners (claude-code,copilot-cli,cursor,gemini-cli,codex,opencode,opencode2,pi); defaults to auto-detect";
 
 async function setupAction(opts: OptionValues): Promise<void> {
 	await enableCommand({

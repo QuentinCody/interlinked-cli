@@ -924,6 +924,7 @@ describe("mapAgentSource", () => {
 		["gemini-cli", "gemini"],
 		["cursor", "cursor"],
 		["opencode", "opencode"],
+		["opencode2", "opencode2"],
 		["pi", "pi"],
 	] as const)("maps runner %s to agent_source %s", (runner, expected) => {
 		expect(toLegacyHarnessEvent(makeEvent({ runner })).agent_source).toBe(expected);

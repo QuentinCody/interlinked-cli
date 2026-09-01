@@ -231,6 +231,31 @@ export const OPENCODE_CAPABILITIES = defineCapabilities({
 	],
 });
 
+export const OPENCODE2_CAPABILITIES = defineCapabilities({
+	project_hook_path: ".opencode/plugins/interlinked-opencode2.ts",
+	hook_trust: "implicit",
+	status_line: "none",
+	events: [
+		event("tool.execute.before", "pre-tool", {
+			control: "deny",
+			modelContext: true,
+			missingRuntime: "fail_closed",
+		}),
+		event("tool.execute.after", "post-tool", {
+			control: "continue",
+			modelContext: true,
+		}),
+		event("session.created", "session-start"),
+		event("session.deleted", "session-end"),
+		event("session.idle", "stop"),
+		event("PreToolUse", "pre-tool", { install: false, control: "deny" }),
+		event("PostToolUse", "post-tool", { install: false, control: "continue" }),
+		event("SessionStart", "session-start", { install: false }),
+		event("SessionEnd", "session-end", { install: false }),
+		event("Stop", "stop", { install: false }),
+	],
+});
+
 export const PI_CAPABILITIES = defineCapabilities({
 	project_hook_path: ".pi/extensions/interlinked.js",
 	hook_trust: "definition-review",

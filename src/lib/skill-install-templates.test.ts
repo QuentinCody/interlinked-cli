@@ -37,6 +37,9 @@ describe("skill install templates", () => {
         expect(runnerTargets("opencode", "interlinked", config)).toEqual([
             { kind: "spec", relPath: ".opencode/skills/interlinked/SKILL.md" },
         ]);
+        expect(runnerTargets("opencode2", "interlinked", config)).toEqual([
+            { kind: "spec", relPath: ".opencode/skills/interlinked/SKILL.md" },
+        ]);
         expect(runnerTargets("pi", "interlinked", config)).toEqual([
             { kind: "spec", relPath: ".pi/skills/interlinked/SKILL.md" },
         ]);

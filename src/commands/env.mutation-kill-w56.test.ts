@@ -86,7 +86,7 @@ describe("envCommand — json mode descriptions/examples", () => {
 			"Comma-separated list of clients for non-interactive bootstrap",
 		);
 		expect(byName.INTERLINKED_CLIENTS.example).toBe(
-			"claude,copilot,gemini,codex,cursor,opencode,pi",
+			"claude,copilot,gemini,codex,cursor,opencode,opencode2,pi",
 		);
 	});
 });

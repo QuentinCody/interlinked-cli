@@ -48,6 +48,12 @@ export {
 	installGeminiHooks,
 	uninstallGeminiHooks,
 } from "./hook-installers-gemini.js";
+// OpenCode v2 (`opencode2` binary) — JS plugin, distinct from the v1 TS bridge.
+export {
+	OPENCODE2_HOOK_EVENTS,
+	installOpencode2Hooks,
+	uninstallOpencode2Hooks,
+} from "./hook-installers-opencode.js";
 // Shared helpers (also public API for `hooks.ts` and the Claude installer).
 export { findParentWithHooks } from "./hook-installers-shared.js";
 // Cross-client statusline installer.

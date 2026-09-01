@@ -160,6 +160,10 @@ export interface RunnerAdapter {
 	 *  writing the JSON fragment, with the resolved scope and the dryRun
 	 *  flag so adapters can no-op or trace under `--dry-run`. */
 	postInstall?(opts: PostInstallOptions): void;
+
+	/** Optional cleanup after the JSON fragment has been unmerged. OpenCode v2
+	 *  writes a JS plugin file the JSON merger cannot own. */
+	postUninstall?(opts: PostInstallOptions): void;
 }
 
 export interface PostInstallOptions {

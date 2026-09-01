@@ -51,7 +51,7 @@ const FILES_KEPT = 6;
 const EDIT_TOOLS = new Set(["Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch"]);
 
 /** Runner families recognized in an agent name (`session-<runner>-<id8>`). */
-const RUNNERS = ["claude", "codex", "copilot", "gemini", "cursor", "opencode", "pi", "aider"];
+const RUNNERS = ["claude", "codex", "copilot", "gemini", "cursor", "opencode", "opencode2", "pi", "aider"];
 
 /**
  * Stable hue for an actor id: the same FNV-1a → hue mapping the graph uses for
@@ -69,7 +69,7 @@ export function hueForAgent(id: string): number {
 /** Extract the runner family from an agent name, or "unknown". */
 export function runnerOf(agent: string): string {
 	const lower = agent.toLowerCase();
-	return RUNNERS.find((r) => lower.includes(r)) ?? "unknown";
+	return [...RUNNERS].sort((a, b) => b.length - a.length).find((r) => lower.includes(r)) ?? "unknown";
 }
 
 /** Compact lane label: runner plus the identifying tail of the agent name. */

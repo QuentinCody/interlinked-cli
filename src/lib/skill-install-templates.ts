@@ -33,6 +33,7 @@ export const RUNNERS_REQUIRING_SHORT_DESCRIPTION: ReadonlySet<ClientName> = new 
 	"copilot",
 	"cursor",
 	"opencode",
+	"opencode2",
 	"pi",
 ]);
 
@@ -112,6 +113,7 @@ export function runnerTargets(
 		case "cursor":
 			return [{ kind: "spec", relPath: join(".cursor", "skills", name, "SKILL.md") }];
 		case "opencode":
+		case "opencode2":
 			return [{ kind: "spec", relPath: join(".opencode", "skills", name, "SKILL.md") }];
 		case "pi":
 			return [{ kind: "spec", relPath: join(".pi", "skills", name, "SKILL.md") }];

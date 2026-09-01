@@ -52,6 +52,8 @@ import {
 	uninstallCopilotHooks,
 	uninstallCursorHooks,
 	uninstallGeminiHooks,
+	OPENCODE2_HOOK_EVENTS,
+	uninstallOpencode2Hooks,
 } from "./hook-installers.js";
 import { fileURLToPath } from "node:url";
 import { detectHookManagers, type HookManagerInfo } from "./hook-manager-detection.js";
@@ -337,6 +339,10 @@ const CLIENT_INSTALL_REGISTRY: Record<ClientName, ClientInstallEntry> = {
 	opencode: {
 		events: OPENCODE_HOOK_EVENTS,
 		uninstall: (cwd) => uninstallManagedClientHooks(cwd, "opencode"),
+	},
+	opencode2: {
+		events: OPENCODE2_HOOK_EVENTS,
+		uninstall: uninstallOpencode2Hooks,
 	},
 	pi: {
 		events: PI_HOOK_EVENTS,

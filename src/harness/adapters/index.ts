@@ -10,6 +10,7 @@ import { createCopilotCliAdapter } from "./copilot-cli.js";
 import { createCursorAdapter } from "./cursor.js";
 import { createGeminiCliAdapter } from "./gemini-cli.js";
 import { createOpenCodeAdapter } from "./opencode.js";
+import { createOpencode2Adapter } from "./opencode2.js";
 import { createPiAdapter } from "./pi.js";
 import type { RunnerAdapter } from "./types.js";
 
@@ -25,6 +26,7 @@ export function buildAllAdapters(opts: AdapterRegistryOptions = {}): RunnerAdapt
 		createCursorAdapter({ overrides: opts.overrides }),
 		createGeminiCliAdapter({ overrides: opts.overrides }),
 		createCodexAdapter({ overrides: opts.overrides }),
+		createOpencode2Adapter({ overrides: opts.overrides }),
 		createOpenCodeAdapter({ overrides: opts.overrides }),
 		createPiAdapter({ overrides: opts.overrides }),
 	];
@@ -32,7 +34,7 @@ export function buildAllAdapters(opts: AdapterRegistryOptions = {}): RunnerAdapt
 
 /** Detect which adapter the current process environment best matches. The
  *  first adapter whose `detectFromEnv` returns true wins. Stable ordering:
- *  claude-code → copilot-cli → cursor → gemini-cli → codex → opencode → pi. */
+ *  claude-code → copilot-cli → cursor → gemini-cli → codex → opencode2 → opencode → pi. */
 export function detectAdapter(
 	env: NodeJS.ProcessEnv,
 	adapters: RunnerAdapter[] = buildAllAdapters(),
@@ -57,6 +59,7 @@ export { createCopilotCliAdapter } from "./copilot-cli.js";
 export { createCursorAdapter } from "./cursor.js";
 export { createGeminiCliAdapter } from "./gemini-cli.js";
 export { createOpenCodeAdapter, renderOpenCodeBridgeSource } from "./opencode.js";
+export { createOpencode2Adapter } from "./opencode2.js";
 export { createPiAdapter, renderPiBridgeSource } from "./pi.js";
 export {
 	buildStandardAction,

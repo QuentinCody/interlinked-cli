@@ -44,6 +44,7 @@ const COLLECTION_DIRECT_PROVIDER_RUNNERS = new Set([
     "gemini-cli",
     "cursor",
     "opencode",
+    "opencode2",
     "pi",
 ]);
 

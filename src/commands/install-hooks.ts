@@ -41,6 +41,7 @@ const VALID_RUNNERS = new Set<RunnerId>([
 	"gemini-cli",
 	"codex",
 	"opencode",
+	"opencode2",
 	"pi",
 ]);
 const VALID_SCOPES = new Set(["user", "project", "local"]);
