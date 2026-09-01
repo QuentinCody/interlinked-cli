@@ -58,8 +58,10 @@ function symbolsOf(clause: string): string[] {
 	const inner = clause.match(/\{([^}]*)\}/)?.[1] ?? "";
 	const named = inner
 		.split(",")
-		.map((s) => s.trim().split(/\s+as\s+/)[0]?.trim() ?? "")
-		.filter((s) => s !== "" && s !== "type");
+		// `import { type Foo }` consumes Foo just as `import type { Foo }` does —
+		// strip the inline specifier keyword or the consumption is invisible.
+		.map((s) => s.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]?.trim() ?? "")
+		.filter((s) => s !== "");
 	// A bare default-import clause consumes only `default`, which this detector
 	// never flags — contribute nothing rather than a fake name.
 	return named;
@@ -87,13 +89,21 @@ function scanImporters(repo: DeadExportsRepo, selfRel: string, targetKey: string
 	return scan;
 }
 
+/** `import("spec")` / `require("spec")` — namespace access with no named
+ *  clause, so a resolving edge marks the whole module consumed (this also
+ *  covers `import("./mod").Foo` in type positions and lazy runtime loads). */
+const DYNAMIC_EDGE_RE = /\b(?:import|require)\s*\(\s*["']([^"']+)["']\s*\)/g;
+
+function edgeResolvesTo(spec: string, importerRel: string, targetKey: string): boolean {
+	if (!spec.startsWith(".")) return false;
+	const resolved = pathKey(resolve("/", dirname(importerRel), spec)).replace(/^\/+/, "");
+	return resolved === targetKey;
+}
+
 function collectEdges(content: string, importerRel: string, targetKey: string, scan: EdgeScan): void {
 	EDGE_RE.lastIndex = 0;
 	for (const m of content.matchAll(EDGE_RE)) {
-		const spec = m[2] ?? "";
-		if (!spec.startsWith(".")) continue;
-		const resolved = pathKey(resolve("/", dirname(importerRel), spec)).replace(/^\/+/, "");
-		if (resolved !== targetKey) continue;
+		if (!edgeResolvesTo(m[2] ?? "", importerRel, targetKey)) continue;
 		scan.resolvedEdges++;
 		const syms = symbolsOf(m[1] ?? "");
 		if (syms.includes("*")) {
@@ -101,6 +111,13 @@ function collectEdges(content: string, importerRel: string, targetKey: string, s
 			return;
 		}
 		for (const s of syms) scan.symbols.add(s);
+	}
+	DYNAMIC_EDGE_RE.lastIndex = 0;
+	for (const m of content.matchAll(DYNAMIC_EDGE_RE)) {
+		if (!edgeResolvesTo(m[1] ?? "", importerRel, targetKey)) continue;
+		scan.resolvedEdges++;
+		scan.allUsed = true;
+		return;
 	}
 }
 

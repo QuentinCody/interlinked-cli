@@ -430,9 +430,12 @@ describe("parseExports — regex boundary precision (double-space inputs)", () =
 		]);
 	});
 
-	it("per-specifier 'type' prefix with doubled whitespace", () => {
+	it("per-specifier 'type' prefix with doubled whitespace is a TYPE-ONLY export", () => {
+		// `export { type Foo }` is TypeScript's inline type-only specifier —
+		// classifying it as a value export made downstream dead-export analysis
+		// misread type surfaces (fixed 2026-09-01).
 		expect(parseExports("export { type  Foo }")).toEqual([
-			{ name: "Foo", kind: "const", isTypeOnly: false, line: 1 },
+			{ name: "Foo", kind: "type", isTypeOnly: true, line: 1 },
 		]);
 	});
 

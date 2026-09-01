@@ -91,6 +91,40 @@ describe("findDeadExports — negative (must not fire)", () => {
 		expect(out).toEqual([]);
 	});
 
+	it("N17: an inline type specifier (`import { type Foo }`) counts as consumption", () => {
+		// Regression: symbolsOf used to parse the specifier as the literal name
+		// "type Foo", so the consumption was invisible and Foo was flagged.
+		const files = {
+			"src/lib.ts": "export const used = 1;\nexport class Foo {}\n",
+			"src/main.ts":
+				'import { used, type Foo } from "./lib.js";\nconsole.log(used);\nexport function f(x: Foo): Foo { return x; }\n',
+		};
+		const out = findDeadExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(out).toEqual([]);
+	});
+
+	it("N18: a dynamic `import(\"./mod\")` marks the whole module consumed", () => {
+		// Lazy runtime loads and `import("./mod").Foo` type positions have no
+		// named clause — a resolving dynamic edge must count as namespace use.
+		const files = {
+			"src/lazy.ts": "export const heavy = 1;\n",
+			"src/main.ts": 'export async function load() {\n\treturn import("./lazy.js");\n}\n',
+		};
+		const out = findDeadExports(args("src/lazy.ts", files["src/lazy.ts"]), repo(files));
+		expect(out).toEqual([]);
+	});
+
+	it("P4: a dynamic import of a DIFFERENT module is not evidence for this one", () => {
+		const files = {
+			"src/lib.ts": "export const used = 1;\nexport const dead = 2;\n",
+			"src/main.ts":
+				'import { used } from "./lib.js";\nconsole.log(used);\nexport const p = import("./other.js");\n',
+			"src/other.ts": "export const o = 1;\n",
+		};
+		const out = findDeadExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(out.map((m) => m.text)).toEqual([expect.stringContaining("'dead'")]);
+	});
+
 	it("N3: a wildcard re-export makes every export potentially consumed", () => {
 		const files = {
 			"src/api.ts": "export const a = 1;\nexport const b = 2;\n",

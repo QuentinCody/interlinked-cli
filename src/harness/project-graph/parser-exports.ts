@@ -123,22 +123,35 @@ function matchReExportOrStar(trimmed: string, lineNum: number): ExportedSymbol[]
 	}
 
 	// export { foo, bar as baz } or export { foo } from '...'
+	// An inline `type` specifier (`export { type Foo }`) is a TYPE-ONLY export
+	// of that one name — record it as such, per-entry, so type surfaces are not
+	// misread as value exports (mixed clauses keep each entry's own flag).
 	const namedReExport = trimmed.match(/^export\s+\{([^}]+)\}/);
 	if (namedReExport?.[1] !== undefined) {
-		const names = namedReExport[1]
+		const isReExport = /from\s+['"]/.test(trimmed);
+		const entries = namedReExport[1]
 			.split(",")
-			.map((n) =>
-				n
-					.trim()
+			.map((raw) => {
+				const trimmedEntry = raw.trim();
+				// `type Foo` / `type Foo as Bar` — keyword, type-only. But in
+				// `type as Bar` the word `type` is an IDENTIFIER being aliased
+				// (a value export), so a `type` followed directly by the `as`
+				// alias form is not the keyword.
+				const typeOnly = /^type\s+(?!\s*as(?:\s|$))/.test(trimmedEntry);
+				const name = trimmedEntry
 					.replace(/^type\s+/, "")
 					.split(/\s+as\s+/)
 					.pop()!
-					.trim(),
-			)
-			.filter(Boolean);
-		const isReExport = /from\s+['"]/.test(trimmed);
-		const kind: ExportedSymbol["kind"] = isReExport ? "re-export" : "const";
-		return names.map((name) => ({ name, kind, isTypeOnly: false, line: lineNum }));
+					.trim();
+				return { name, typeOnly };
+			})
+			.filter((entry) => entry.name !== "");
+		return entries.map(({ name, typeOnly }) => ({
+			name,
+			kind: typeOnly ? "type" : isReExport ? "re-export" : "const",
+			isTypeOnly: typeOnly,
+			line: lineNum,
+		}));
 	}
 
 	// export * from '...' or export * as ns from '...'
