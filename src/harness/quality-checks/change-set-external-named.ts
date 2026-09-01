@@ -71,7 +71,7 @@ async function runAffectedTestsAdmitted(
 	const started = Date.now();
 	const outcome = await runBoundedTestProcess({
 		command: "npx",
-		args: ["vitest", "run", "--related", ...absolutePaths, "--reporter=verbose"],
+		args: ["vitest", "related", ...absolutePaths, "--run", "--reporter=verbose"],
 		cwd: projectRoot,
 		timeoutMs: candidate.check.timeout_ms,
 		admissionAlreadyHeld: true,

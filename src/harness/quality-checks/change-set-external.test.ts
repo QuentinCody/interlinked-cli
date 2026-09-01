@@ -241,10 +241,10 @@ describe("ChangeSet external-check batching", () => {
 			command: "npx",
 			args: [
 				"vitest",
-				"run",
-				"--related",
+				"related",
 				"/repo/src/a.ts",
 				"/repo/src/b.ts",
+				"--run",
 				"--reporter=verbose",
 			],
 			cwd: "/repo",

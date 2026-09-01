@@ -572,10 +572,10 @@ describe("runVitestDispatcher", () => {
 			checkName: "affected_tests",
 		});
 		expect(out).toEqual([]);
-		// --related succeeded → convention fallback must NOT run (one spawn only).
+		// related succeeded → convention fallback must NOT run (one spawn only).
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
 		const firstArgs = nonNull(spawnSyncMock.mock.calls[0])[1] as string[];
-		expect(firstArgs).toContain("--related");
+		expect(firstArgs).toContain("related");
 	});
 
 	it("invokes vitest --related against the absolute edited path", async () => {
@@ -591,7 +591,7 @@ describe("runVitestDispatcher", () => {
 		});
 		expect(spawnSyncMock).toHaveBeenCalledWith(
 			"npx",
-			["vitest", "run", "--related", "/repo/src/widget.ts", "--reporter=verbose"],
+			["vitest", "related", "/repo/src/widget.ts", "--run", "--reporter=verbose"],
 			{
 				shell: false,
 				timeout: 15000,

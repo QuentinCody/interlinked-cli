@@ -29,7 +29,7 @@ import { runBoundedTestProcess } from "./test-process-gate.js";
  * value of running them inline, so the edit is reported and skipped instead
  * (never silently widened or silently truncated to an arbitrary subset).
  */
-export const DEFAULT_MAX_DEPENDENT_TESTS = 8;
+const DEFAULT_MAX_DEPENDENT_TESTS = 8;
 
 export interface TestDispatcherInput {
 	/** Path as reported by the agent (may be relative) */
@@ -131,7 +131,7 @@ async function runVitestDispatcher(input: TestDispatcherInput): Promise<TestDisp
 	// 1) vitest --related
 	const relatedRun = await runBoundedTestProcess({
 		command: "npx",
-		args: ["vitest", "run", "--related", absPath, "--reporter=verbose"],
+		args: ["vitest", "related", absPath, "--run", "--reporter=verbose"],
 		cwd: checkCwd,
 		timeoutMs,
 	});
