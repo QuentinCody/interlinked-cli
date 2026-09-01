@@ -281,8 +281,8 @@ function removeIfExists(path: string): boolean {
 	let removed = false;
 	try {
 		// Socket files show up as special files; rm with force handles both.
-		const info = statSync(path);
-		if (info) rmSync(path, { force: true });
+		statSync(path);
+		rmSync(path, { force: true });
 		removed = true;
 	} catch {
 		removed = false;

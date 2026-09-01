@@ -74,13 +74,20 @@ export function survivorsIndexPath(dir: string): string {
 }
 
 function foldSymbol(symbol: SymbolRecord | undefined, entry: SurvivorsIndexFileEntry): void {
-	const mutants: Record<StableId, MutantRecord> | undefined = symbol?.mutants;
+	// `symbol.mutants` is declared `Record<StableId, MutantRecord>`, but this
+	// fold runs over manifests built in memory (never healed by
+	// `loadManifest`), so a caller-constructed manifest can genuinely violate
+	// that shape at runtime (see the malformed-shape tests in
+	// survivors-index.test.ts). Treat it as `unknown` and validate rather than
+	// trusting the declared type.
+	const mutants: unknown = symbol?.mutants;
 	if (!mutants || typeof mutants !== "object") return;
-	for (const mutant of Object.values(mutants)) {
+	for (const mutant of Object.values(mutants as Record<string, unknown>)) {
 		if (!mutant || typeof mutant !== "object") continue;
+		const m = mutant as MutantRecord;
 		entry.mutantCount++;
-		if (mutant.status === "survived") entry.survivors.push(mutant.mutantId);
-		else if (mutant.status === "killed") entry.killed++;
+		if (m.status === "survived") entry.survivors.push(m.mutantId);
+		else if (m.status === "killed") entry.killed++;
 	}
 }
 
@@ -95,7 +102,7 @@ function foldSymbol(symbol: SymbolRecord | undefined, entry: SurvivorsIndexFileE
  */
 export function deriveSurvivorsIndex(manifest: MutationManifest, at?: string): SurvivorsIndex {
 	const files: Record<string, SurvivorsIndexFileEntry> = {};
-	const source = manifest.files ?? {};
+	const source = manifest.files;
 	for (const key of Object.keys(source)) {
 		const entry: SurvivorsIndexFileEntry = { survivors: [], mutantCount: 0, killed: 0 };
 		const symbols = source[key];

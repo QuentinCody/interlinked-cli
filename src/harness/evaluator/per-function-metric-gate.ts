@@ -155,7 +155,7 @@ export function projectContent(
 
 /** Count of entries per name within ONE state, used to tell a uniquely-named
  *  function from a same-file name collision. */
-function countByName<E extends NamedMetricEntry>(entries: readonly E[]): Map<string, number> {
+function countByName(entries: readonly NamedMetricEntry[]): Map<string, number> {
 	const m = new Map<string, number>();
 	for (const e of entries) m.set(e.name, (m.get(e.name) ?? 0) + 1);
 	return m;

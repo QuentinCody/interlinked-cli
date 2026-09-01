@@ -51,10 +51,13 @@ export interface WriteCommandOptions {
 	unsafeOutsideRepo?: boolean;
 }
 
-/** Manifest shape accepted by `--batch <manifest.json>`. */
+/** Manifest shape accepted by `--batch <manifest.json>`. Every field is
+ *  `unknown` — this is untrusted JSON from disk, not a validated shape — so
+ *  the runtime guards in `loadBatchManifest` stay load-bearing rather than
+ *  redundant with a cast that lies about the parsed content. */
 interface BatchManifest {
-	version: 1;
-	writes: Array<{ path: string; content: string }>;
+	version?: unknown;
+	writes?: unknown;
 }
 
 /** Exit-code sentinel for unrecoverable input errors (no batch processed). */

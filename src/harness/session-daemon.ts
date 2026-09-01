@@ -33,7 +33,6 @@ import {
 	isRequest,
 	makeError,
 	type RpcMessage,
-	type RpcRequest,
 	splitFrames,
 } from "./daemon-protocol.js";
 import { reapZombieIncumbent } from "./server/anti-stomp.js";
@@ -487,7 +486,7 @@ function createSessionRpcRuntime(args: {
 		state.rpc_inflight = inflight;
 		let response: RpcMessage;
 		try {
-			response = await dispatchRpc(message as RpcRequest, state);
+			response = await dispatchRpc(message, state);
 		} catch (err) {
 			response = makeError(message.id, "internal", (err as Error).message);
 		}
@@ -622,7 +621,6 @@ export async function startSessionDaemon(opts: SessionDaemonOptions): Promise<Se
 			if (idleTimer) clearInterval(idleTimer);
 			runtime.destroyClients();
 			await new Promise<void>((resolve) => {
-				if (!server) return resolve();
 				server.close(() => resolve());
 			});
 			removeOwnedSessionArtifacts(paths, process.pid);

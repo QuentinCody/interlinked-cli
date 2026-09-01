@@ -181,7 +181,7 @@ function validatePosttooluseField(obj: JsonObject): ValidationError[] {
 
 function validateCoverageThresholds(ct: JsonObject): ValidationError[] {
 	const errors: ValidationError[] = [];
-	errors.push(...checkUnknownKeys(ct, COVERAGE_KEYS as string[], "$.adoption.coverage_thresholds"));
+	errors.push(...checkUnknownKeys(ct, COVERAGE_KEYS, "$.adoption.coverage_thresholds"));
 	for (const [k, v] of Object.entries(ct)) {
 		if (typeof v !== "number" || v < 0 || v > 1) {
 			errors.push(
@@ -231,16 +231,16 @@ function validateBuiltinsField(obj: JsonObject): ValidationError[] {
 // -------------------------------------------
 
 export function resolveStructureConfig(data: JsonObject): StructureConfig {
-	const mode = (data.mode as StructureMode) || "standard";
+	const mode = (data.mode as StructureMode | undefined) || "standard";
 	const defaults = MODE_DEFAULTS[mode];
 
 	const verify: StructureConfig["verify"] = {
 		...defaults.verify,
-		...((data.verify as Partial<StructureConfig["verify"]>) || {}),
+		...((data.verify as Partial<StructureConfig["verify"]> | undefined) || {}),
 	};
 	const posttooluse: StructureConfig["posttooluse"] = {
 		...defaults.posttooluse,
-		...((data.posttooluse as Partial<StructureConfig["posttooluse"]>) || {}),
+		...((data.posttooluse as Partial<StructureConfig["posttooluse"]> | undefined) || {}),
 	};
 	const adoption: StructureConfig["adoption"] = {
 		coverage_thresholds: {
@@ -251,13 +251,13 @@ export function resolveStructureConfig(data: JsonObject): StructureConfig {
 	};
 	const builtins: StructureConfig["builtins"] = {
 		...DEFAULT_BUILTINS,
-		...((data.builtins as Partial<StructureConfig["builtins"]>) || {}),
+		...((data.builtins as Partial<StructureConfig["builtins"]> | undefined) || {}),
 	};
 
 	return {
 		version: 1,
 		mode,
-		artifacts: (data.artifacts as StructureConfig["artifacts"]) || {},
+		artifacts: (data.artifacts as StructureConfig["artifacts"] | undefined) || {},
 		verify,
 		posttooluse,
 		adoption,

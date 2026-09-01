@@ -35,7 +35,6 @@ import {
 	getModePreset,
 	type HarnessModePreset,
 	migrateLegacyMode,
-	QUALITY_MODE,
 } from "../harness/rules/modes.js";
 import type { RunnerId } from "../harness/unified-event.js";
 import { readSharedConfig } from "./config.js";
@@ -149,12 +148,11 @@ export function writeHookScript(cwd: string): string {
 		mkdirSync(hookDir, { recursive: true });
 	}
 
-	const preset = resolveHarnessModePreset(cwd);
-	// Default to QUALITY_MODE if resolveHarnessModePreset somehow returned
-	// undefined (it shouldn't — getModePreset throws on unknown). The
-	// fallback keeps the generated script renderable on a brand-new install
-	// before any config file has been written.
-	const activePreset = preset ?? QUALITY_MODE;
+	// getModePreset (called by resolveHarnessModePreset) throws on an unknown
+	// mode rather than returning undefined, so the preset is always resolved
+	// here — including on a brand-new install before any config file exists,
+	// where migrateLegacyMode/getModePreset fall back to QUALITY_MODE internally.
+	const activePreset = resolveHarnessModePreset(cwd);
 	// Bake the mode name into the version string so the
 	// `interlinked-hook-version: <v>` sentinel embedded in the .mjs visibly
 	// changes when the user toggles `interlinked harness mode budget|quality|ci`.
@@ -350,6 +348,20 @@ const CLIENT_INSTALL_REGISTRY: Record<ClientName, ClientInstallEntry> = {
 export { CLIENT_TO_RUNNER };
 
 /**
+ * `CLIENT_INSTALL_REGISTRY` is typed `Record<ClientName, ClientInstallEntry>`,
+ * so TS treats every `ClientName` key as always-present — but `client` here
+ * often did not come through the `isClientName` guard (a caller can pass a
+ * type-asserted or otherwise unvalidated value; see the "reports an error
+ * result for a client not in the registry" tests in
+ * hooks-installation.test.ts, which force this with `"not-a-real-client" as
+ * ClientName`). Route the lookup through a function call so the return type
+ * honestly includes `undefined` for that case.
+ */
+function clientInstallEntryOf(client: ClientName): ClientInstallEntry | undefined {
+	return CLIENT_INSTALL_REGISTRY[client];
+}
+
+/**
  * Install hooks into all specified clients.
  *
  * Routes through the adapter installer (`installHooks` in
@@ -370,8 +382,7 @@ export function installAllHooks(cwd: string, clients: ClientName[]): InstallResu
 	const runners: RunnerId[] = [];
 
 	for (const client of clients) {
-		const entry = CLIENT_INSTALL_REGISTRY[client];
-		if (!entry) {
+		if (!clientInstallEntryOf(client)) {
 			skipReason.set(client, `Unknown client: ${client}`);
 			continue;
 		}
@@ -410,7 +421,7 @@ export function installAllHooks(cwd: string, clients: ClientName[]): InstallResu
  */
 export function uninstallAllHooks(cwd: string, clients: ClientName[]): InstallResult[] {
 	return clients.map((client) => {
-		const entry = CLIENT_INSTALL_REGISTRY[client];
+		const entry = clientInstallEntryOf(client);
 		if (!entry) {
 			return { client, installed: false, events: [], error: `Unknown client: ${client}` };
 		}

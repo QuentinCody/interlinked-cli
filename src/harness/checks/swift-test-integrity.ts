@@ -155,7 +155,7 @@ export function extractMockDefinitions(content: string, filePath: string): MockD
 	const mockPattern = /\b(?:vi|jest)\.mock\(\s*["']([^"']+)["']\s*,\s*\(\)\s*=>\s*\(\{/g;
 
 	for (const match of fullText.matchAll(mockPattern)) {
-		const startIdx = match.index ?? 0;
+		const startIdx = match.index;
 		const modulePath = nonNull(match[1]);
 		if (!modulePath.startsWith(".") && !modulePath.startsWith("@/")) continue;
 

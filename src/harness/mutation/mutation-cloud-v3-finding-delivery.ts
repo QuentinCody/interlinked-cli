@@ -280,7 +280,6 @@ function validClaim(claim: ClaimedOutboxEntry, claimNowMs: number): boolean {
 		Number.isSafeInteger(claim.evaluationId) &&
 		claim.evaluationId > 0 &&
 		claim.outboxId.startsWith(`${claim.evaluationId}:`) &&
-		claim.topic === "mutation.finding" &&
 		UUID.test(claim.leaseToken) &&
 		Number.isSafeInteger(claim.leaseExpiresAtMs) &&
 		claim.leaseExpiresAtMs > claimNowMs &&

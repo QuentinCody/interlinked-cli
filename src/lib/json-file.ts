@@ -22,15 +22,22 @@ import { isJsonObject, type JsonObject } from "./json-types.js";
  * Read and parse a JSON file, casting the result to `T`.
  *
  * Returns null when the file is missing, unreadable, or not valid JSON. No
- * shape validation happens — `T` is the caller's assertion, exactly as at the
- * hand-rolled call sites this replaces.
+ * shape validation happens by default — `T` is the caller's assertion, exactly
+ * as at the hand-rolled call sites this replaces. Pass `validate` to actually
+ * check the shape instead of asserting it; on a failed validation this
+ * returns null, same as a parse failure.
  */
-export function readJsonFile<T>(path: string): T | null {
+export function readJsonFile<T>(
+	path: string,
+	validate?: (value: unknown) => value is T,
+): T | null {
 	try {
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		if (validate) return validate(parsed) ? parsed : null;
 		// SAFETY: unvalidated by construction — this is the cast-based variant,
 		// documented as "the caller asserts the shape". Use readJsonObject (or a
 		// domain parser on top of it) when the shape must actually be checked.
-		return JSON.parse(readFileSync(path, "utf-8")) as T;
+		return parsed as T;
 	} catch {
 		return null;
 	}

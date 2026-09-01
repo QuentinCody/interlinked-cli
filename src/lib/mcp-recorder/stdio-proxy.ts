@@ -128,7 +128,7 @@ class JsonLineBuffer {
 
     write(chunk: Buffer | string): void {
         this.buffer += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : chunk;
-        while (true) {
+        for (;;) {
             const newline = this.buffer.indexOf("\n");
             if (newline === -1) {
                 return;

@@ -169,7 +169,7 @@ export function startMutationCloudV3Background(
 	const timer = installInterval(() => {
 		void tick();
 	}, intervalMs);
-	timer.unref?.();
+	timer.unref();
 
 	return {
 		tick,

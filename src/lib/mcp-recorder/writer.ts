@@ -79,7 +79,13 @@ function serializePayload(payload: unknown, contentType: McpPayloadContentType):
     if (contentType === "text/plain") {
         return String(payload);
     }
-    return JSON.stringify(payload) ?? "null";
+    // TS's own lib types declare `JSON.stringify`'s return as `string`, but it
+    // genuinely returns `undefined` at runtime for `undefined`/a function/a
+    // symbol (payload is `unknown` MCP call/response data, so any of those
+    // are possible here). Erase to `unknown` and narrow for real so the
+    // fallback below stays honest instead of being lint-dead.
+    const stringified: unknown = JSON.stringify(payload);
+    return typeof stringified === "string" ? stringified : "null";
 }
 
 function writeMcpPayloadBlob(args: {

@@ -17,9 +17,12 @@ interface CoveragePyFileEntry {
 	missing_lines?: unknown;
 }
 
-/** The coverage.py JSON top level — only `files` is read. */
+/** The coverage.py JSON top level — only `files` is read. Values are typed
+ *  `unknown`, not `CoveragePyFileEntry`: this whole shape is asserted onto an
+ *  untrusted `JSON.parse` result below, so a per-entry runtime check is what
+ *  actually guards against a malformed/foreign coverage.json, not the type. */
 interface CoveragePyJson {
-	files?: Record<string, CoveragePyFileEntry>;
+	files?: Record<string, unknown>;
 }
 
 /** Coerce a coverage.py line array (`number[]`) into a Set, dropping non-ints. */
@@ -69,8 +72,9 @@ export function parseCoveragePyJson(
 	if (!files || typeof files !== "object") return null;
 
 	const result = new Map<string, PerFileCoverage>();
-	for (const [key, entry] of Object.entries(files)) {
-		if (!entry || typeof entry !== "object") continue;
+	for (const [key, rawEntry] of Object.entries(files)) {
+		if (!rawEntry || typeof rawEntry !== "object") continue;
+		const entry: CoveragePyFileEntry = rawEntry;
 		const rel = relForKey(key, projectRoot);
 		if (!rel) continue;
 		result.set(rel, {

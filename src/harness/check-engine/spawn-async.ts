@@ -223,7 +223,11 @@ class SpawnedProcessRun {
 		// A re-parented grandchild can retain stdout/stderr indefinitely after
 		// child exit. Bound that wait (and provide the Windows fallback, where a
 		// POSIX process group cannot be observed) without holding the event loop.
-		const closeGuard = setTimeout(() => {
+		// Declared as "unref is optional" (not the ambient NodeJS.Timeout type,
+		// which always has it): a polyfilled/non-Node timer implementation may
+		// hand back a handle without one, and this stays a no-op rather than a
+		// throw in that case (mutation-kill-pinned in spawn-async test suite).
+		const closeGuard: { unref?(): void } = setTimeout(() => {
 			if (this.settled) return;
 			this.child.stdout?.destroy();
 			this.child.stderr?.destroy();

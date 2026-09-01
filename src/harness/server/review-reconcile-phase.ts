@@ -245,9 +245,18 @@ export function scanDisputedGroundRead(event: HarnessEvent): string[] {
 	// Harness events carry their workspace root — use it, not the daemon's
 	// process cwd, so findings resolve under the edited repo (round-2 #11).
 	const cwd = typeof event.cwd === "string" && event.cwd ? event.cwd : process.cwd();
+	// `HarnessEvent.session_id` is declared as a required `string`, but a
+	// caller can hand this function an event object built from a partial /
+	// untrusted payload (e.g. an external hook JSON that skipped the key
+	// entirely) — the declared type is dishonest for that boundary, proven
+	// by review-reconcile-phase.mutation-kill.test.ts's "missing session_id"
+	// case. Read through a narrower, honest local type instead of trusting
+	// `HarnessEvent` so a genuinely absent id still falls into the shared
+	// "unknown" dedup channel rather than crashing or forking a bad key.
+	const rawSessionId = (event as { session_id?: string }).session_id;
 	const warning = disputedGroundWarning(
 		cwd,
-		event.session_id ?? "unknown",
+		rawSessionId ?? "unknown",
 		filePath,
 		"read",
 		lineRange,

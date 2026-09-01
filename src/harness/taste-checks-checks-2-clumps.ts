@@ -100,7 +100,7 @@ function flagOversizedArgList(
 	for (const m of stripped.matchAll(pattern)) {
 		if (matches.length >= limit) return;
 		if (argCount(nonNull(m[1])) > ARG_COUNT_THRESHOLD) {
-			push(matches, lineIdxForOffset(stripped, m.index ?? 0), lines, limit);
+			push(matches, lineIdxForOffset(stripped, m.index), lines, limit);
 		}
 	}
 }
@@ -165,7 +165,7 @@ function flagDataClump(
 	for (const m of stripped.matchAll(pattern)) {
 		if (matches.length >= limit) return;
 		if (hasDataClump(nonNull(m[1]))) {
-			push(matches, lineIdxForOffset(stripped, m.index ?? 0), lines, limit);
+			push(matches, lineIdxForOffset(stripped, m.index), lines, limit);
 		}
 	}
 }
@@ -205,7 +205,7 @@ export function checkDuplicateDescribe(content: string, filePath: string): Inlin
 	const seen = new Set<string>();
 	for (const m of content.matchAll(DESCRIBE_NAME)) {
 		if (matches.length >= 5) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		// The `d` of `describe` survives in `oracle` only when it is real code;
 		// inside a blanked literal/comment it becomes a space, so skip it.
 		if (oracle[idx] !== content[idx]) continue;

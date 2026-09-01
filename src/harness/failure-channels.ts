@@ -36,7 +36,6 @@ import { recordToolFailure } from "./recurrence.js";
 import { isFileTrackedAsWritten } from "./session-state.js";
 
 import type {
-	AgentSource,
 	FailureRecord,
 	HarnessEvent,
 	SessionTrajectory,
@@ -134,7 +133,7 @@ export function runFailureChannels(opts: {
 	const record: FailureRecord = {
 		failure_id: failureId,
 		session_id: event.session_id,
-		agent_source: event.agent_source as AgentSource,
+		agent_source: event.agent_source,
 		tool_name: toolName,
 		tool_input: event.tool_input,
 		tool_use_id: event.tool_use_id,

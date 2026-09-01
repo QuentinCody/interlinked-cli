@@ -148,8 +148,11 @@ export function loadPriorityCache(repoRoot: string): PriorityCache | null {
 	try {
 		const raw: unknown = JSON.parse(readFileSync(path, "utf-8"));
 		if (typeof raw !== "object" || raw === null) return null;
-		const c = raw as Partial<PriorityCache>;
-		if (c.version !== 1 || typeof c.files !== "object" || !c.files) return null;
+		// Cache file on disk — could be truncated, hand-edited, or written by an
+		// older schema, so `files` is honestly `unknown` here, not the
+		// `Record<string, FilePriority>` the loaded cache promises callers.
+		const c = raw as { version?: unknown; computedAt?: unknown; files?: unknown };
+		if (c.version !== 1 || !c.files || typeof c.files !== "object") return null;
 		return {
 			version: 1,
 			computedAt: typeof c.computedAt === "number" ? c.computedAt : 0,

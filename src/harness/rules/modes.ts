@@ -117,16 +117,11 @@ export function isKnownMode(name: string): name is HarnessMode {
 	return name === "budget" || name === "quality" || name === "ci";
 }
 
-/** Return the preset for a known HarnessMode. Throws on unknown names so
- *  callers get an actionable error instead of a silent fallback. */
+/** Return the preset for a known HarnessMode. `PRESETS_BY_NAME` is a total
+ *  `Record<HarnessMode, _>`, so this lookup can never miss for a value the
+ *  type checker accepts as `HarnessMode`. */
 export function getModePreset(name: HarnessMode): HarnessModePreset {
-	const preset = PRESETS_BY_NAME[name];
-	if (!preset) {
-		throw new Error(
-			`unknown harness mode: ${String(name)}. Known modes: ${HARNESS_MODE_NAMES.join(", ")}`,
-		);
-	}
-	return preset;
+	return PRESETS_BY_NAME[name];
 }
 
 /** Auto-migrate a legacy or unknown mode string to a HarnessMode, respecting

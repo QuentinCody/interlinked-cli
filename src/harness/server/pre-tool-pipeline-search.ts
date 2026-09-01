@@ -104,7 +104,7 @@ export function runGrepAcceleration(
 		// Merge any warnings from the guard evaluation
 		if (preDecision.warnings?.length) {
 			grepDecision.warnings = [
-				...(preDecision.warnings || []),
+				...preDecision.warnings,
 				...(grepDecision.warnings || []),
 			];
 		}

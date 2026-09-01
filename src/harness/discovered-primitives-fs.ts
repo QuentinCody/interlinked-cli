@@ -80,8 +80,8 @@ export function loadCache(repoRoot: string): DiscoveryCache | null {
 		return {
 			version: 1,
 			discoveredAt: typeof c.discoveredAt === "number" ? c.discoveredAt : 0,
-			primitives: c.primitives as DiscoveredPrimitive[],
-			disabled: Array.isArray(c.disabled) ? (c.disabled as string[]) : [],
+			primitives: c.primitives,
+			disabled: Array.isArray(c.disabled) ? c.disabled : [],
 		};
 	} catch {
 		return null;

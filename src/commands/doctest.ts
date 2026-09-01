@@ -78,7 +78,7 @@ export function runDoctestSuite(
 
 const bashExec: DoctestExec = (code) => {
 	const r = spawnSync("bash", ["-c", code], { encoding: "utf-8", timeout: 60_000 });
-	return { exitCode: r.status ?? 1, output: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+	return { exitCode: r.status ?? 1, output: `${r.stdout}${r.stderr}` };
 };
 
 export function doctestCommand(opts: { path?: string; json?: boolean }): void {

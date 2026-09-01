@@ -346,7 +346,7 @@ function scanRustReinterprets(ctx: ScanCtx): void {
 		for (const m of ctx.stripped.matchAll(re)) {
 			if (ctx.matches.length >= MAX_MATCHES_PER_FILE) return;
 			if (pattern.skipMatch?.(m) === true) continue;
-			const lineNo = offsetToLine(ctx.stripped, m.index ?? 0);
+			const lineNo = offsetToLine(ctx.stripped, m.index);
 			if (hasGuardWithin(ctx.strippedLines, lineNo, RUST_GUARD_LOOKBACK_LINES, RUST_GUARD_RE)) {
 				continue;
 			}
@@ -460,7 +460,7 @@ function scanWideViews(ctx: ScanCtx): void {
 	const re = new RegExp(WIDE_VIEW_CTOR_RE.source, "g");
 	for (const m of ctx.stripped.matchAll(re)) {
 		if (ctx.matches.length >= MAX_MATCHES_PER_FILE) return;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const firstArg = extractFirstArg(ctx.stripped, idx + m[0].length - 1);
 		if (firstArg === null || !hasByteBufferSignal(firstArg)) continue;
 		const lineNo = offsetToLine(ctx.stripped, idx);

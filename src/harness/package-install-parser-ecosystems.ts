@@ -345,7 +345,7 @@ function cargoSync(
 	};
 }
 
-function classifyCargoSpec(spec: string, flagVersion?: string | undefined): PackageSpec {
+function classifyCargoSpec(spec: string, flagVersion?: string): PackageSpec {
 	if (spec.startsWith("git+")) return { kind: "git_url", url: spec.slice(4) };
 	if (
 		spec.startsWith("./") ||

@@ -118,10 +118,12 @@ export async function envCommand(options: EnvOptions): Promise<void> {
 			if (setVars.length > 0) {
 				lines.push(header("Active Overrides"));
 				for (const v of setVars) {
+					if (!v.currentValue) continue;
+					const currentValue = v.currentValue;
 					const displayVal =
 						v.name.includes("TOKEN") || v.name.includes("ACCESS")
-							? `${v.currentValue!.substring(0, 8)}...`
-							: v.currentValue!;
+							? `${currentValue.substring(0, 8)}...`
+							: currentValue;
 					lines.push(kvLine(v.name, c.green(displayVal)));
 					lines.push(`    ${c.dim(v.description)}`);
 				}

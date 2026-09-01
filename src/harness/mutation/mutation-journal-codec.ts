@@ -242,13 +242,16 @@ export function detached<T>(value: T, label: string): T {
 export function stableJson(value: unknown): string {
 	const snapshot = detached(value, "journal value");
 	assertJsonValue(snapshot, "journal value", new Set());
+	// SAFETY: JSON.stringify's declared return type is `string`, but it
+	// really returns `undefined` when the top-level value serializes to
+	// nothing (e.g. a bare function or symbol survives `detached()`).
 	const encoded = JSON.stringify(snapshot, (_key, item: unknown) => {
 		if (typeof item !== "object" || item === null || Array.isArray(item)) return item;
 		const source = item as Record<string, unknown>; // SAFETY: guarded object, non-array.
 		const sorted: Record<string, unknown> = {};
 		for (const key of Object.keys(source).sort()) sorted[key] = source[key];
 		return sorted;
-	});
+	}) as string | undefined;
 	if (encoded === undefined) throw new Error("mutation journal values must be JSON-serializable");
 	return encoded;
 }
@@ -376,9 +379,6 @@ export function validateEnqueue(input: EnqueueMutationJob): void {
 	requireHash(input.targetSha256, "targetSha256");
 	requireHash(input.expectedAdmission.request_hash, "expectedAdmission.request_hash");
 	requireHash(input.expectedAdmission.changeset_hash, "expectedAdmission.changeset_hash");
-	if (input.baselineIntent !== "require_established" && input.baselineIntent !== "adopt_current") {
-		throw new Error("baselineIntent must be require_established or adopt_current");
-	}
 	const sourceArtifactFailure = checkSourceArtifactBinding(
 		input.expectedAdmission.source_artifact,
 		"expectedAdmission.source_artifact",

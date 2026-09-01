@@ -80,12 +80,15 @@ export function runQuery(file: string, params: QueryParams): QueryRunResult {
 	const aggState = params.by === undefined ? undefined : createAggregateState();
 	const byPath = params.by ?? "";
 	const rows: Record<string, unknown>[] = [];
-	let sinceStopped = false;
+	// Boxed in an object so TS's control-flow narrowing doesn't collapse this
+	// to a literal `false` at the read below — the scan callback mutates it
+	// synchronously, but TS can't see across the `scanJsonlTail` call boundary.
+	const scanState = { sinceStopped: false };
 	const stats = scanJsonlTail(file, params.budget, (record) => {
 		if (params.sinceMs !== undefined) {
 			const tsMs = recordTimestampMs(record);
 			if (tsMs !== undefined && tsMs < params.sinceMs) {
-				sinceStopped = true;
+				scanState.sinceStopped = true;
 				return false;
 			}
 		}
@@ -98,6 +101,7 @@ export function runQuery(file: string, params: QueryParams): QueryRunResult {
 		return rows.length < params.limit;
 	});
 	rows.reverse();
+	const sinceStopped = scanState.sinceStopped;
 	const limitStopped = aggState === undefined && !sinceStopped && stats.stopReason === "caller";
 	return {
 		rows,

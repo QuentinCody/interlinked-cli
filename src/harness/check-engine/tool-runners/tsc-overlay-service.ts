@@ -54,7 +54,8 @@ function loadTypeScript(projectRoot: string): Ts | null {
 
 interface ServiceContext {
 	ts: Ts;
-	service: import("typescript").LanguageService;
+	/** Mutable: null until createLanguageService completes construction below. */
+	service: import("typescript").LanguageService | null;
 	tsconfigDir: string;
 	/** Mutable: the file being overlaid, if any. */
 	overlay: { filePath: string; content: string; version: number } | null;
@@ -116,7 +117,6 @@ function getOrCreateService(projectRoot: string): ServiceContext | null {
 
 	const ctx: ServiceContext = {
 		ts,
-		// @ts-expect-error — filled by createLanguageService below
 		service: null,
 		tsconfigDir,
 		overlay: null,
@@ -229,7 +229,7 @@ export function runOverlayCheckInProcess(input: RunTscOverlayInput): CheckResult
 	if (!OVERLAY_EXT.test(filePath)) return [];
 
 	const ctx = getOrCreateService(projectRoot);
-	if (!ctx) return [];
+	if (!ctx || !ctx.service) return [];
 	const { ts, service } = ctx;
 	const absFilePath = resolve(filePath);
 
@@ -302,7 +302,7 @@ export function runOverlayCheckInProcess(input: RunTscOverlayInput): CheckResult
 		// Freeze the last version we used for this file so subsequent non-
 		// overlay reads return stable versions. Clear the overlay itself so
 		// cross-file calls see disk state.
-		ctx.versions.set(absFilePath, ctx.overlay?.version ?? 0);
+		ctx.versions.set(absFilePath, ctx.overlay.version);
 		ctx.overlay = null;
 		// Drop sibling overlays and bump their versions again so the next read
 		// invalidates the in-memory snapshot back to disk content.

@@ -107,11 +107,13 @@ export function parseOsvScannerJson(output: string): AuditResult | null {
 	} catch {
 		return null;
 	}
+	// JSON.parse can yield null/primitives — narrow before trusting the shape.
+	if (!isJsonObject(parsed) || !Array.isArray(parsed.results)) return null;
+	// SAFETY: object with a `results` array is the only OsvRoot shape read below.
 	const root = parsed as OsvRoot;
-	if (!root || !Array.isArray(root.results)) return null;
 
 	const tally: OsvTally = { critical: 0, high: 0, moderate: 0, low: 0, topIds: [] };
-	for (const result of root.results) {
+	for (const result of root.results ?? []) {
 		for (const pkg of result.packages ?? []) {
 			tallyPackage(pkg, tally);
 		}

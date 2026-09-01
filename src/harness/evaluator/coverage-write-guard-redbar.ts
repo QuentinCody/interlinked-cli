@@ -72,7 +72,7 @@ function gatedSectionsByLanguage(
 export function blockForDeletionRedBar(
 	relPaths: string[],
 	failingTests: string[] | undefined,
-	failingTestFiles?: string[] | undefined,
+	failingTestFiles?: string[],
 ): HarnessDecision {
 	const shown = relPaths.slice(0, 3).join(", ") + (relPaths.length > 3 ? ", …" : "");
 	return {
@@ -130,7 +130,7 @@ async function runRedBarSuites(
 		language: CoverageLanguage,
 		relPaths: string[],
 		failingTests: string[] | undefined,
-		failingTestFiles?: string[] | undefined,
+		failingTestFiles?: string[],
 	) => HarnessDecision,
 ): Promise<HarnessDecision | null> {
 	const entries = [...byLanguage.entries()];
@@ -223,7 +223,7 @@ export async function decideForDeletionOnly(
 			language: CoverageLanguage,
 			relPaths: string[],
 			failingTests: string[] | undefined,
-			failingTestFiles?: string[] | undefined,
+			failingTestFiles?: string[],
 		): HarnessDecision => {
 			const dels = deletions
 				.filter((d) => coverageLanguageForPath(d.relPath) === language)

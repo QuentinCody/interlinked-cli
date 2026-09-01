@@ -231,8 +231,8 @@ function mergeRegistry(
 	const merged = emptyRegistry();
 	merged.version = override.version || base.version;
 	for (const cls of SINK_CLASSES) {
-		const base_entries = base.sanitizers[cls] || [];
-		const override_entries = override.sanitizers[cls] || [];
+		const base_entries = base.sanitizers[cls];
+		const override_entries = override.sanitizers[cls];
 		const by_key = new Map<string, SanitizerEntry>();
 		for (const e of base_entries) {
 			by_key.set(`${e.name}|${e.scope}`, e);
@@ -256,7 +256,7 @@ export function localSanitizersPath(cwd: string): string {
 }
 
 /** Read + JSON-parse a sanitizers file. Returns null on missing/malformed. */
-function readSanitizersFile(path: string): unknown | null {
+function readSanitizersFile(path: string): unknown {
 	if (!existsSync(path)) return null;
 	try {
 		return JSON.parse(readFileSync(path, "utf-8"));
@@ -313,7 +313,7 @@ export function isSanitized(
 	opts: IsSanitizedOptions = {},
 ): boolean {
 	const entries = registry.sanitizers[sinkClass];
-	if (!entries || entries.length === 0) return false;
+	if (entries.length === 0) return false;
 	const { currentModule } = opts;
 	for (const entry of entries) {
 		if (

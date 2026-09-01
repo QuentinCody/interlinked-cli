@@ -229,7 +229,7 @@ export function isTscFindingDeferrable(f: CheckResult): boolean {
  *  unit test can pin it. */
 const RELATIVE_MODULE_NOT_FOUND = /Cannot find module ['"]\.\.?\//;
 export function _isRelativeModuleNotFound(f: CheckResult): boolean {
-	return RELATIVE_MODULE_NOT_FOUND.test(f.message ?? "");
+	return RELATIVE_MODULE_NOT_FOUND.test(f.message);
 }
 
 /**

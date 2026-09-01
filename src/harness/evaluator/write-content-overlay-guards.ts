@@ -63,7 +63,7 @@ function deferrableTransientGuard(
 			})),
 		),
 		content,
-		config: rules.quality_checks?.transient_debt,
+		config: rules.quality_checks.transient_debt,
 	});
 	warnings.push(...debt.warnings);
 	return debt.decision ? { ...debt.decision, warnings } : null;
@@ -71,7 +71,7 @@ function deferrableTransientGuard(
 
 export function biomeDiffOverlayGuard(state: WriteContentGuardState): HarnessDecision | null {
 	const { content, externalOverlays, filePath, rules, warnings } = state;
-	if (rules.quality_checks?.biome_lint?.enabled === false) return null;
+	if (rules.quality_checks.biome_lint?.enabled === false) return null;
 	if (!externalOverlays) {
 		warnings.push(
 			`[interlinked:biome-overlay] NOT CHECKED — external PreTool checks are deferred for ${filePath}; PostToolUse runs the on-disk check without blocking the daemon event loop.`,
@@ -104,7 +104,7 @@ export function biomeDiffOverlayGuard(state: WriteContentGuardState): HarnessDec
 
 export function tscDiffOverlayGuard(state: WriteContentGuardState): HarnessDecision | null {
 	const { content, event, externalOverlays, filePath, rules, toolName, warnings } = state;
-	if (rules.quality_checks?.typescript?.enabled === false) return null;
+	if (rules.quality_checks.typescript?.enabled === false) return null;
 	if (!externalOverlays) {
 		warnings.push(
 			tscUnavailableWarning(
@@ -132,7 +132,7 @@ export function tscDiffOverlayGuard(state: WriteContentGuardState): HarnessDecis
 		dryRun: !!event.dry_run,
 		findings: deferrableFromTsc(overlay.proposedFindings),
 		content,
-		config: rules.quality_checks?.transient_debt,
+		config: rules.quality_checks.transient_debt,
 	});
 	warnings.push(...debt.warnings);
 	if (blocking.length === 0) return debt.decision ? { ...debt.decision, warnings } : null;
@@ -148,7 +148,7 @@ export function tscDiffOverlayGuard(state: WriteContentGuardState): HarnessDecis
 
 export function strictTypingOverlayGuard(state: WriteContentGuardState): HarnessDecision | null {
 	const { content, filePath, rules, warnings } = state;
-	if (rules.quality_checks?.strict_typing_block?.enabled !== true) return null;
+	if (rules.quality_checks.strict_typing_block?.enabled !== true) return null;
 	const overlay = evaluateTypeErasureOverlay(filePath, content);
 	if (overlay.newFindings.length === 0) return null;
 	const first = nonNull(overlay.newFindings[0]);

@@ -270,7 +270,7 @@ function fdcFilePaths(tokens: string[]): string[] | null {
 /** Absolute form of a dump argument against `cwd`. */
 function fdcAbsolute(fp: string, cwd: string, deps: ColdDumpDeps): string {
 	if (fp.charAt(0) === "/") return fp;
-	if (deps?.join) return deps.join(cwd, fp);
+	if (deps.join) return deps.join(cwd, fp);
 	return cwd + "/" + fp;
 }
 
@@ -308,8 +308,8 @@ function fdcStatFiles(
 		newlines: 0,
 		catLineCountKnown: false,
 	};
-	const existsSyncFn = deps?.existsSync;
-	const statSyncFn = deps?.statSync;
+	const existsSyncFn = deps.existsSync;
+	const statSyncFn = deps.statSync;
 	if (!existsSyncFn || !statSyncFn) return out;
 	for (const fp of files) {
 		const abs = fdcAbsolute(fp, cwd, deps);
@@ -440,7 +440,7 @@ export function checkFileDumpCold(
 ): ColdWriteVerdict | null {
 	const bashTools = ["Bash", "Shell", "shell", "run_command", "bash"];
 	if (!toolName || bashTools.indexOf(toolName) === -1) return null;
-	const cmd = toolInput && typeof toolInput.command === "string" ? toolInput.command : "";
+	const cmd = typeof toolInput.command === "string" ? toolInput.command : "";
 	if (!cmd) return null;
 	const shape = fdcDumpShape(cmd);
 	if (!shape) return null;

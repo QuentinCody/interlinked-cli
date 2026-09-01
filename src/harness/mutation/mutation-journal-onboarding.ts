@@ -79,16 +79,12 @@ function validateBinding(input: MutationOnboardingBinding): void {
 
 function validateScalarFields(input: PrepareMutationOnboardingIntent): void {
 	validateBinding(input);
-	if (input.formatVersion !== 1) throw new Error("mutation onboarding formatVersion must be 1");
 	for (const [label, value] of [
 		["jobKey", input.jobKey],
 		["tenant", input.tenant],
 		["project", input.project],
 		["sourceArtifactId", input.sourceArtifactId],
 	] as const) requireString(value, label);
-	if (input.sourceArtifactFormat !== "git-archive-tar-v1") {
-		throw new Error("mutation onboarding sourceArtifactFormat must be git-archive-tar-v1");
-	}
 	if (!ONBOARDING_JOB_KEY_RE.test(input.jobKey)) {
 		throw new Error("mutation onboarding jobKey must use the job_onboard_<64-hex> domain");
 	}
@@ -228,12 +224,10 @@ function readIntentRow(value: unknown): MutationOnboardingIntent {
 }
 
 function exactPreparedMatch(actual: MutationOnboardingIntent, expected: PrepareMutationOnboardingIntent): boolean {
-	return actual.formatVersion === expected.formatVersion &&
-		actual.jobKey === expected.jobKey && actual.tenant === expected.tenant &&
+	return actual.jobKey === expected.jobKey && actual.tenant === expected.tenant &&
 		actual.project === expected.project && actual.repository === expected.repository &&
 		actual.commit === expected.commit && actual.targetFile === expected.targetFile &&
 		actual.requestSha256 === expected.requestSha256 && actual.sourceArtifactId === expected.sourceArtifactId &&
-		actual.sourceArtifactFormat === expected.sourceArtifactFormat &&
 		actual.sourceArtifactSha256 === expected.sourceArtifactSha256 &&
 		actual.targetSha256 === expected.targetSha256 && actual.requestHash === expected.requestHash &&
 		actual.changesetHash === expected.changesetHash && actual.createdAtMs === expected.createdAtMs &&

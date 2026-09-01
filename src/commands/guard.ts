@@ -420,7 +420,7 @@ async function getReservations(
 				exclusive?: boolean;
 				expires_at?: string;
 			}>;
-		}>("list_file_reservations", { brief: true });
+		} | null>("list_file_reservations", { brief: true });
 
 		const reservations: Reservation[] = (result?.reservations || []).map((r) => ({
 			agent_name: r.agent_name,

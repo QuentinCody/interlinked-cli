@@ -21,7 +21,7 @@ export function filterFindingsByScore(
 	findings: ScanFinding[],
 	config: ContentScannerConfig,
 ): ScanFinding[] {
-	const minScore = config.min_score ?? 0;
+	const minScore = config.min_score;
 	return findings.filter((f) => (f.score ?? 1) >= minScore);
 }
 

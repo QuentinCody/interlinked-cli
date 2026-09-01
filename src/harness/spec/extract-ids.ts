@@ -126,8 +126,8 @@ function collectHits(
 		const line = lines[i] ?? "";
 		re.lastIndex = 0;
 		for (const m of line.matchAll(re)) {
-			const col = m.index ?? 0;
-			const id = m[0] ?? "";
+			const col = m.index;
+			const id = m[0];
 			updateMinCol(firstColByLine, i + 1, col);
 			// The ASCII lookarounds cannot see Unicode glue ("éREQ-1",
 			// "REQ-1é", combining marks, astral letters) — post-filter by
@@ -430,11 +430,11 @@ function parseRangeMatch(
 	if (!(to > from)) return null;
 	return {
 		prefix,
-		style: (m[0] ?? "").charAt(prefix.length) === "-" ? "dashed" : "compact",
+		style: m[0].charAt(prefix.length) === "-" ? "dashed" : "compact",
 		from,
 		to,
 		toExplicit: (m[3] ?? m[4]) !== undefined,
-		raw: m[0] ?? "",
+		raw: m[0],
 		line: lineNo,
 		col: m.index ?? 0,
 	};
@@ -451,7 +451,7 @@ function parseRangeMatch(
  *  it). */
 function rangeMatchToClaim(line: string, m: RegExpMatchArray, lineNo: number): RangeClaim | null {
 	const start = m.index ?? 0;
-	if (hasUnicodeWordGlue(line, start, start + (m[0]?.length ?? 0))) return null;
+	if (hasUnicodeWordGlue(line, start, start + m[0].length)) return null;
 	return parseRangeMatch(m, lineNo);
 }
 

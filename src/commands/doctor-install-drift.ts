@@ -69,7 +69,7 @@ export function installedHookDriftChecks(cwd: string, binaryAbs: string): CheckR
 		];
 	}
 	return state.entries.map((entry): CheckResult => {
-		const installedBinary = entry.binary_path ?? binaryAbs;
+		const installedBinary = entry.binary_path;
 		const runtimeProblem = hookBinaryProblem(installedBinary);
 		if (runtimeProblem !== null) {
 			return {

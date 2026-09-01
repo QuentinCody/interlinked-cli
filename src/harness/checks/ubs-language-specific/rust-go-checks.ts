@@ -36,7 +36,7 @@ export function checkMutexLockUnwrap(content: string, filePath: string): InlineM
 		if (matches.length >= 10) break;
 		// Anchor finding at the `.unwrap` token — the panic site cold readers
 		// jump to from the warning.
-		const idx = (m.index ?? 0) + m[0].lastIndexOf(".unwrap");
+		const idx = m.index + m[0].lastIndexOf(".unwrap");
 		const lineNum = stripped.slice(0, idx).split("\n").length;
 		matches.push({
 			line: lineNum,
@@ -101,7 +101,7 @@ export function checkRustDebugAssertSideEffects(
 
 	for (const m of stripped.matchAll(re)) {
 		if (matches.length >= MATCH_LIMIT) break;
-		const start = m.index ?? 0;
+		const start = m.index;
 		const openIndex = start + m[0].lastIndexOf("(");
 		const closeIndex = matchingParenIndex(stripped, openIndex);
 		if (closeIndex === -1) continue;
@@ -142,7 +142,7 @@ export function checkGoroutineNoWaitgroup(content: string, filePath: string): In
 
 	for (const m of stripped.matchAll(goRe)) {
 		if (matches.length >= MATCH_LIMIT) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const start = Math.max(0, idx - WINDOW);
 		const end = Math.min(stripped.length, idx + WINDOW);
 		const window = stripped.slice(start, end);
@@ -242,7 +242,7 @@ export function checkGoShellInjection(content: string, filePath: string): Inline
 
 	for (const m of commentOnly.matchAll(re)) {
 		if (matches.length >= MATCH_LIMIT) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = commentOnly.slice(0, idx).split("\n").length;
 		matches.push({
 			line: lineNum,

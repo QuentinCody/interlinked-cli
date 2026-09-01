@@ -24,6 +24,14 @@ function declarationKind(ts: TsModule, node: TS.Node): FunctionDeclarationKind {
     return "function";
 }
 
+// SAFETY: TS's own `Node.parent` field is typed `Node` (non-optional) for
+// convenience, but is actually `undefined` once a walk reaches the root
+// SourceFile node. This function's honest return type restores that for
+// every caller without needing a per-call-site assertion.
+function parentOf(node: TS.Node): TS.Node | undefined {
+    return node.parent;
+}
+
 function namedContainer(ts: TsModule, node: TS.Node, sf: TS.SourceFile): string | null {
     if (isFunctionLike(ts, node)) return functionName(ts, node, sf);
     if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
@@ -39,7 +47,7 @@ function qualifiedName(ts: TsModule, node: TS.Node, sf: TS.SourceFile): string {
     while (current) {
         const name = namedContainer(ts, current, sf);
         if (name) segments.push(name);
-        current = current.parent;
+        current = parentOf(current);
     }
     return segments.reverse().join(".");
 }

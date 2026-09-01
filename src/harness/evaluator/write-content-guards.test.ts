@@ -101,7 +101,7 @@ import { evaluateTypeErasureOverlay } from "./type-erasure-overlay.js";
 import { collectContentQualityWarnings, isContentScanExempt } from "./write-content-guards-content-quality.js";
 import { buildTscDiffOverlayBlockReason, evaluateWriteContentGuards } from "./write-content-guards.js";
 
-const BASE_RULES = {} as GuardRulesConfig;
+const BASE_RULES = { quality_checks: {} } as GuardRulesConfig;
 
 function baseEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 	return {

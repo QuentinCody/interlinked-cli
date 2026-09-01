@@ -86,7 +86,14 @@ async function selectFromList(args: {
 		let sel = initial;
 		draw(sel, true);
 		process.stdout.write(c.dim(`   ${WIZARD_COPY.selectHint}\n`));
-		const stdin = process.stdin;
+		// `@types/node` types `process.stdin` as `tty.ReadStream`, which
+		// declares `setRawMode` required — but at runtime stdin is a plain
+		// `net.Socket` (no `setRawMode`) whenever it isn't a real TTY (piped
+		// input, CI, non-interactive test runs). Re-type it honestly here so
+		// the `?.` guards below stay meaningful instead of reading as dead code.
+		const stdin: Omit<NodeJS.ReadStream, "setRawMode"> & {
+			setRawMode?: (mode: boolean) => NodeJS.ReadStream;
+		} = process.stdin;
 		const wasRaw = stdin.isRaw === true;
 		stdin.setRawMode?.(true);
 		stdin.resume();

@@ -252,18 +252,25 @@ export function findClones(input: FindClonesInput): CloneFinding[] {
 		const a = edited[i];
 		let best: { other: FunctionShingles; sim: number } | null = null;
 
-		const consider = (b: FunctionShingles): void => {
-			if (isSameFunction(nonNull(a), b)) return;
+		// Returns the new best (or `current` unchanged) rather than mutating a
+		// closed-over variable — a closure-side-effect assignment to `best`
+		// isn't visible to the type checker's flow analysis at the `best !==
+		// null` check below, which makes it think `best` is always `null`.
+		const consider = (
+			current: { other: FunctionShingles; sim: number } | null,
+			b: FunctionShingles,
+		): { other: FunctionShingles; sim: number } | null => {
+			if (isSameFunction(nonNull(a), b)) return current;
 			const sim = jaccard(nonNull(a).shingles, b.shingles);
-			if (sim < threshold) return;
-			if (!best || sim > best.sim) best = { other: b, sim };
+			if (sim < threshold) return current;
+			return !current || sim > current.sim ? { other: b, sim } : current;
 		};
 
 		// (a) other functions in the edited file -- only j>i so each unordered
 		// pair is examined once.
-		for (let j = i + 1; j < edited.length; j++) consider(nonNull(edited[j]));
+		for (let j = i + 1; j < edited.length; j++) best = consider(best, nonNull(edited[j]));
 		// (b) sibling-file candidates.
-		for (const c of candidates) consider(c);
+		for (const c of candidates) best = consider(best, c);
 
 		if (best !== null) {
 			const b: { other: FunctionShingles; sim: number } = best;

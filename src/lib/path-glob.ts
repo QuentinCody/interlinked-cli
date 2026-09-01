@@ -146,7 +146,7 @@ export function matchesGlob(path: string, glob: string): boolean {
 
 /** Test whether `path` matches any glob in `globs`. Empty list → false. */
 export function matchesAnyGlob(path: string, globs: string[]): boolean {
-	if (!globs || globs.length === 0) return false;
+	if (globs.length === 0) return false;
 	for (const g of globs) {
 		if (matchesGlob(path, g)) return true;
 	}

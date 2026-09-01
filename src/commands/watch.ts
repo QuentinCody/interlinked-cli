@@ -56,6 +56,26 @@ interface WorkStatus {
 	notifications: string[];
 }
 
+// callTool casts an unvalidated network response, so these arrays are honestly optional.
+interface ListTasksResponse {
+	tasks?: Array<{
+		id: number;
+		title: string;
+		status: string;
+		priority: string;
+		assignee_name: string | null;
+	}>;
+	count: number;
+}
+interface ListAgentsResponse {
+	agents?: Array<{
+		name: string;
+		role: string | null;
+		status: string;
+		last_active_ts: string | null;
+	}>;
+}
+
 // ===========================================
 // Data Fetching
 // ===========================================
@@ -82,24 +102,8 @@ async function fetchWorkStatus(previous: WorkStatus | null): Promise<WorkStatus>
 			unread_count: number;
 			oldest_unread_at: string | null;
 		}>("has_unread_messages", {}),
-		client.callTool<{
-			tasks: Array<{
-				id: number;
-				title: string;
-				status: string;
-				priority: string;
-				assignee_name: string | null;
-			}>;
-			count: number;
-		}>("list_tasks", { limit: 50 }),
-		client.callTool<{
-			agents: Array<{
-				name: string;
-				role: string | null;
-				status: string;
-				last_active_ts: string | null;
-			}>;
-		}>("list_agents", {}),
+		client.callTool<ListTasksResponse>("list_tasks", { limit: 50 }),
+		client.callTool<ListAgentsResponse>("list_agents", {}),
 	]);
 
 	const messages =

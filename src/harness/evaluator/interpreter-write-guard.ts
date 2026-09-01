@@ -168,7 +168,7 @@ function collectHeredocPrograms(cmd: string): InlineProgram[] {
 	for (const m of cmd.matchAll(HEREDOC_RE)) {
 		const delimiter = m[1] ?? m[2] ?? m[3];
 		if (delimiter === undefined) continue;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const interpreter = segmentInterpreter(cmd, idx);
 		if (!interpreter) continue;
 		programs.push({
@@ -192,7 +192,7 @@ function collectFlagPrograms(cmd: string): InlineProgram[] {
 		if (quoted === undefined) continue;
 		// The interpreter must be the segment's command word, not a word inside
 		// another command's quoted argument (`echo "python3 -c …"` is data).
-		const interpreterIdx = (m.index ?? 0) + m[0].indexOf(nonNull(m[1]));
+		const interpreterIdx = m.index + m[0].indexOf(nonNull(m[1]));
 		if (!segmentInterpreter(cmd, interpreterIdx)) continue;
 		programs.push({
 			interpreter: nonNull(m[1]),

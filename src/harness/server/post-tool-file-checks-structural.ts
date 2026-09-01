@@ -166,7 +166,7 @@ export function runImpactOrFallback(
 	log: (msg: string) => void,
 ): void {
 	// --- Impact analysis (fast, graph-only, no subprocesses) ---
-	if (structuralConfig?.impact_analysis && editedFilePath) {
+	if (structuralConfig.impact_analysis && editedFilePath) {
 		const newExportsForImpact = fileGraph.getExports(editedFilePath);
 		// Dependency facts come through the seam: a fresh Supermodel
 		// `.graph` shard when present, the internal graph otherwise.
@@ -178,7 +178,7 @@ export function runImpactOrFallback(
 			oldExports,
 			newExportsForImpact,
 			structuralResults,
-			{ highThreshold: structuralConfig.impact_high_threshold ?? 4 },
+			{ highThreshold: structuralConfig.impact_high_threshold },
 		);
 
 		// Record follow-ups in session state (replaces inline pending_completions)

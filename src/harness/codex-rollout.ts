@@ -187,7 +187,7 @@ function scanContext(entries: (CodexEntry | null)[]): CodexContext {
 	for (const e of entries) {
 		const p = e?.payload;
 		if (!p) continue;
-		if (e?.type === "session_meta" && !sessionMetaSeen) {
+		if (e.type === "session_meta" && !sessionMetaSeen) {
 			sessionMetaSeen = true;
 			consumeSessionMeta(p, ctx);
 		}

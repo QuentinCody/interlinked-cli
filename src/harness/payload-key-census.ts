@@ -201,8 +201,8 @@ export function describeShape(value: unknown): string {
 		return value.length === 0 ? "array<empty>" : `array<${describeShape(value[0])}>`;
 	}
 	if (typeof value !== "object") return typeof value;
-	// SAFETY: narrowed to a non-null, non-array object above; only keys are read.
-	const keys = Object.keys(value as Record<string, unknown>);
+	// Narrowed to a non-null, non-array object above; only keys are read.
+	const keys = Object.keys(value);
 	const shown = keys.slice(0, MAX_SHAPE_MEMBERS).join(",");
 	const more = keys.length > MAX_SHAPE_MEMBERS ? ",…" : "";
 	return `object{${shown}${more}}`;

@@ -115,7 +115,8 @@ export function buildStaleBaselineNudge(
 export function buildCommitCadenceNudge(
 	ctx: ServerRuntime,
 	event: HarnessEvent,
-	session: SessionTrajectory,
+	// Nullable: the "returns null when session is falsy" test pins a no-throw contract.
+	session: SessionTrajectory | undefined,
 ): string | null {
 	const cadenceCfg = ctx.rules.commit_cadence;
 	if (!cadenceCfg?.enabled || !session || session.stop_nudge_emitted) return null;
@@ -150,7 +151,8 @@ export function buildCommitCadenceNudge(
 export function buildVerificationStopWarnings(
 	ctx: ServerRuntime,
 	event: HarnessEvent,
-	session: SessionTrajectory,
+	// Nullable: see buildCommitCadenceNudge above — same pinned contract.
+	session: SessionTrajectory | undefined,
 ): string[] {
 	const vsc = ctx.rules.verification_stop_checks;
 	if (!vsc?.enabled || !session) return [];
@@ -349,7 +351,7 @@ function collectRedChecks(
 			redChecks.push({ kind: observed.kind, detail: observed.detail });
 		}
 	}
-	const suiteRun = session.test_runs?.get(ALL_TESTS_SENTINEL);
+	const suiteRun = (session.test_runs as SessionTrajectory["test_runs"] | undefined)?.get(ALL_TESTS_SENTINEL);
 	if (
 		suiteRun?.status === "fail" &&
 		!redChecks.some((check) => check.kind === "test-suite")

@@ -138,10 +138,10 @@ export function runPerFileChecks(args: RunFileChecksArgs): void {
 
 	// Snapshot bucket lengths so the post-pass only re-examines findings this
 	// file contributed — accumulated findings from earlier files are left alone.
-	// Production callers pass the full `emptyResults()` object; the `?? 0` guard
-	// only matters for partial test fixtures that omit some buckets.
+	// Every bucket is a required array on CodeQualityResults, so a caller that
+	// passes a genuine one (the type contract) always has it populated.
 	const before = new Map<keyof CodeQualityResults, number>();
-	for (const key of CQ_RESULT_KEYS) before.set(key, r[key]?.length ?? 0);
+	for (const key of CQ_RESULT_KEYS) before.set(key, r[key].length);
 
 	collectPerFileFindings(args);
 
@@ -168,9 +168,7 @@ function dropInlineSuppressed(
 	for (const key of CQ_RESULT_KEYS) {
 		const start = before.get(key) ?? 0;
 		const bucket = r[key];
-		// Defensive: production passes the full `emptyResults()`; a partial test
-		// fixture may omit a bucket entirely.
-		if (!bucket || bucket.length === start) continue; // nothing new for this file
+		if (bucket.length === start) continue; // nothing new for this file
 		const kept = bucket
 			.slice(start)
 			.filter(

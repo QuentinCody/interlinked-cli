@@ -54,7 +54,7 @@ function parseAnchor(text: string): { file?: string; line?: number } {
 	FILE_LINE_RE.lastIndex = 0;
 	for (const m of text.matchAll(FILE_LINE_RE)) {
 		const file = m[1];
-		if (!file || !isRepoAnchorCandidate(text, m.index ?? 0, file)) continue;
+		if (!file || !isRepoAnchorCandidate(text, m.index, file)) continue;
 		const line = m[2] ? Number(m[2]) : undefined;
 		return line !== undefined && Number.isFinite(line) ? { file, line } : { file };
 	}

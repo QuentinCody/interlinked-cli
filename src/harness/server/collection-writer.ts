@@ -44,9 +44,7 @@ export function mapEventToCollectionInput(
 	}
 
 	// Detect client_runner from agent_source for non-Claude providers
-	const clientRunner = event.agent_source
-		? CLIENT_RUNNER_BY_AGENT_SOURCE[event.agent_source]
-		: undefined;
+	const clientRunner = CLIENT_RUNNER_BY_AGENT_SOURCE[event.agent_source];
 	const cursorVersion = event.agent_source === "cursor" ? "1" : undefined;
 
 	return {
@@ -56,7 +54,7 @@ export function mapEventToCollectionInput(
 		session: event.session_id,
 		tool_name: event.tool_name ?? "",
 		tool_input: event.tool_input ?? {},
-		tool_response: event.tool_response as JsonObject | undefined,
+		tool_response: event.tool_response,
 		tool_use_id: event.tool_use_id,
 		cwd: event.cwd ?? fallbackCwd,
 		tool_response_sha256: event.tool_response_sha256,

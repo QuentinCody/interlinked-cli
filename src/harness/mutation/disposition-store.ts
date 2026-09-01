@@ -143,7 +143,7 @@ export function refuseRecord(record: DispositionRecord): string | null {
  *  applied (spec §3.4). Strictly stricter than the manifest's own carry-forward,
  *  which §1.3 showed drops a disposition even when the hash is unchanged. */
 export function isLive(record: DispositionRecord, manifest: MutationManifest): boolean {
-	const symbol = manifest.files?.[record.file]?.[record.symbolId];
+	const symbol = manifest.files[record.file]?.[record.symbolId];
 	if (!symbol) return false;
 	return symbol.symbolHash === record.symbolHash;
 }
@@ -172,10 +172,10 @@ interface LocatedMutant {
  *  accept.ts's `locate`, matched on the normalized path. */
 function locateMutant(manifest: MutationManifest, file: string, mutantId: string): LocatedMutant | null {
 	const want = lightNormalize(file);
-	for (const [fileKey, symbolMap] of Object.entries(manifest.files ?? {})) {
+	for (const [fileKey, symbolMap] of Object.entries(manifest.files)) {
 		if (lightNormalize(fileKey) !== want) continue;
 		for (const [symbolId, symbol] of Object.entries(symbolMap)) {
-			const mutant = symbol.mutants?.[mutantId];
+			const mutant = symbol.mutants[mutantId];
 			if (mutant) return { fileKey, symbolId, symbol, mutator: mutant.mutator };
 		}
 	}
@@ -276,7 +276,7 @@ export function withDispositions(manifest: MutationManifest, ledger: Disposition
 	for (const r of applicable) {
 		const symbolMap = files[r.file];
 		const symbol = symbolMap?.[r.symbolId];
-		const mutant = symbol?.mutants?.[r.mutantId];
+		const mutant = symbol?.mutants[r.mutantId];
 		if (!symbolMap || !symbol || !mutant) continue;
 		files[r.file] = {
 			...symbolMap,

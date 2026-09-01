@@ -176,7 +176,12 @@ export class SpecLedger {
 		// Deterministic order so the MAX_FILES cap is machine-independent (sol-max #22).
 		entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 		for (const entry of entries) {
-			if (this.truncated) return;
+			// Read through the public getter, not the bare field: `loadFile`/`walk`
+			// calls inside this loop can flip `truncated` mid-iteration (a prior
+			// entry hitting MAX_FILES), and the type checker's narrowing of a
+			// private field doesn't survive that — the getter call keeps this a
+			// live re-read every iteration, which is the actual required behavior.
+			if (this.wasTruncated) return;
 			const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
 			if (entry.isDirectory()) {
 				if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;

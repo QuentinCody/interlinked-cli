@@ -185,13 +185,39 @@ export function foldCoverage(opts: {
 // Fold A2 — per-edit coverage baseline (coverage-edit-baseline.json)
 // ===========================================
 
-/** Raw on-disk shape of coverage-edit-baseline.json: fraction, or {f, scope}. */
-type EditBaselineValue = number | { f?: unknown; scope?: unknown };
+// Raw on-disk shape of coverage-edit-baseline.json: fraction, or {f, scope}.
+// The parsed value is `unknown` (untrusted JSON off disk) and validated
+// field-by-field below, not trusted via a cast.
 
-function editBaselineFraction(value: EditBaselineValue | undefined): number | null {
+function editBaselineFraction(value: unknown): number | null {
 	if (typeof value === "number" && Number.isFinite(value)) return value;
-	if (typeof value === "object" && value !== null && typeof value.f === "number") return value.f;
+	if (
+		typeof value === "object" &&
+		value !== null &&
+		typeof (value as { f?: unknown }).f === "number"
+	)
+		return (value as { f: number }).f;
 	return null;
+}
+
+/**
+ * Boundary parse for coverage-edit-baseline.json: a corrupt or missing file
+ * folds as empty and gets rebuilt tighter. Kept as `unknown` values (not
+ * cast to EditBaselineValue) — untrusted JSON off disk, re-validated per
+ * entry by editBaselineFraction.
+ */
+function parseEditBaselineFile(editPath: string): Record<string, unknown> {
+	try {
+		if (!existsSync(editPath)) return {};
+		const parsed: unknown = JSON.parse(readFileSync(editPath, "utf-8"));
+		if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+			return parsed as Record<string, unknown>;
+		}
+		return {};
+	} catch (err) {
+		void err; // unreadable/corrupt baseline — rebuild from the full water-line
+		return {};
+	}
 }
 
 /**
@@ -216,17 +242,8 @@ export function foldCoverageEditBaseline(opts: {
 	const entries = Object.entries(full.files);
 	if (entries.length === 0) return skippedOutcome("coverage_edit", "no-input");
 	const editPath = join(opts.interlinkedDir, "coverage-edit-baseline.json");
-	// Boundary parse: a corrupt file folds as empty and gets rebuilt tighter.
-	let prior: Record<string, EditBaselineValue> = {};
-	try {
-		if (existsSync(editPath)) {
-			// SAFETY: shape is re-validated per entry by editBaselineFraction.
-			prior = JSON.parse(readFileSync(editPath, "utf-8")) as Record<string, EditBaselineValue>;
-		}
-	} catch (err) {
-		void err; // unreadable/corrupt baseline — rebuild from the full water-line
-	}
-	const next: Record<string, EditBaselineValue> = { ...prior };
+	const prior = parseEditBaselineFile(editPath);
+	const next: Record<string, unknown> = { ...prior };
 	const details: string[] = [];
 	let raised = 0;
 	let refused = 0;

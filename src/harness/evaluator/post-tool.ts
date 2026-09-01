@@ -38,7 +38,9 @@ import type {
 	GuardRulesConfig,
 	HarnessDecision,
 	HarnessEvent,
+	OutputScanningConfig,
 	SessionTrajectory,
+	TaintTrackingConfig,
 } from "../types.js";
 import { collectComplexityPulseWarnings } from "./complexity-pulse.js";
 import { collectFunctionTokenPulseWarnings } from "./function-token-pulse.js";
@@ -56,6 +58,30 @@ import { detectToolMiss } from "./tool-miss.js";
 
 /** Minimum bytes of output before we run secrets/injection scans. */
 const OUTPUT_SCAN_MIN_BYTES = 10;
+
+/**
+ * `GuardRulesConfig.taint_tracking` / `.output_scanning` / `.file_reminders`
+ * are declared non-optional — that's the shape `resolveConfig()` produces
+ * once fully defaulted, not a runtime guarantee every caller into this
+ * module honors. Mutation-kill coverage (`clearConfigField` in
+ * post-tool.test.ts) deliberately constructs `GuardRulesConfig` objects with
+ * these fields stripped to model a stale/partial config object (e.g. one
+ * read off disk before a field existed, or reloaded mid-session). Route
+ * reads through these accessors so the type at THIS boundary honestly
+ * includes `undefined` — without them, TS's structural narrowing on the
+ * declared (non-optional) field type makes the defensive `?.` look dead to
+ * `no-unnecessary-condition`, and deleting it reintroduces the crash the
+ * tests above exist to prevent.
+ */
+function taintTrackingOf(rules: GuardRulesConfig): TaintTrackingConfig | undefined {
+	return rules.taint_tracking;
+}
+function outputScanningOf(rules: GuardRulesConfig): OutputScanningConfig | undefined {
+	return rules.output_scanning;
+}
+function fileRemindersOf(rules: GuardRulesConfig): GuardRulesConfig["file_reminders"] | undefined {
+	return rules.file_reminders;
+}
 
 /** Recent tool-sequence tail length when copying into an escalation request. */
 const NEAR_MISS_MAX_MATCHES = 3;
@@ -129,7 +155,7 @@ function recordBashProvenanceIfFetching(
 	rules: GuardRulesConfig,
 	session: SessionTrajectory | undefined,
 ): void {
-	if (!session || !rules.taint_tracking?.enabled) return;
+	if (!session || !taintTrackingOf(rules)?.enabled) return;
 	if (!isBash(event.tool_name || "")) return;
 	const command = (event.tool_input?.command as string) || "";
 	if (!command) return;
@@ -150,7 +176,8 @@ function collectFileReminders(
 	// reminder can be about a file the agent just READ), isFileWrite adds
 	// MultiEdit/NotebookEdit. Neither alone is a superset (see the protected-files
 	// guard) — gating on isFileWrite alone silently dropped read-triggered reminders.
-	if ((!isFileOperation(toolName) && !isFileWrite(toolName)) || !rules.file_reminders?.length)
+	const fileReminders = fileRemindersOf(rules);
+	if ((!isFileOperation(toolName) && !isFileWrite(toolName)) || !fileReminders?.length)
 		return warnings;
 	const rawPath =
 		(event.tool_input?.file_path as string) || (event.tool_input?.path as string) || "";
@@ -159,7 +186,7 @@ function collectFileReminders(
 	const cwd = event.cwd || process.cwd();
 	const filePath = rawPath.startsWith("/") ? relative(cwd, rawPath) : rawPath;
 	const op = normalizeToolToOp(toolName);
-	for (const reminder of rules.file_reminders) {
+	for (const reminder of fileReminders) {
 		const msg = evaluateReminder(reminder, filePath, op, session);
 		if (msg !== null) warnings.push(msg);
 	}
@@ -194,13 +221,14 @@ function collectOutputScanWarnings(
 	session: SessionTrajectory | undefined,
 ): string[] {
 	const warnings: string[] = [];
-	if (!rules.output_scanning?.enabled || !event.tool_response) return warnings;
+	const outputScanning = outputScanningOf(rules);
+	if (!outputScanning?.enabled || !event.tool_response) return warnings;
 
 	const responseText =
 		typeof event.tool_response === "string"
 			? event.tool_response
 			: JSON.stringify(event.tool_response);
-	const toScan = responseText.slice(0, rules.output_scanning.max_scan_bytes);
+	const toScan = responseText.slice(0, outputScanning.max_scan_bytes);
 
 	// Each numbered section is a self-contained scan; the orchestrator just
 	// concatenates their warnings. Side effects (sensitivity ratchet) live in
@@ -221,7 +249,7 @@ function scanBashSecretLeaks(
 	toScan: string,
 	responseText: string,
 ): string[] {
-	const scanning = rules.output_scanning;
+	const scanning = outputScanningOf(rules);
 	if (
 		!scanning?.scan_bash_secrets ||
 		!isBash(event.tool_name || "") ||
@@ -235,8 +263,9 @@ function scanBashSecretLeaks(
 	const warnings: string[] = [
 		`[interlinked:output-scan] Secrets detected in command output: ${secretMatches.map((m) => m.rule_id).join(", ")}. Do NOT include these in subsequent messages or file writes.`,
 	];
-	if (session && rules.taint_tracking?.enabled) {
-		ratchetSensitivity(session, "<command-output>", "Confidential", rules.taint_tracking);
+	const taintTracking = taintTrackingOf(rules);
+	if (session && taintTracking?.enabled) {
+		ratchetSensitivity(session, "<command-output>", "Confidential", taintTracking);
 	}
 	// PR-N2: egress filter — surface a redacted-count line alongside the
 	// detection warning. Disabled by default; will gate on a
@@ -265,7 +294,7 @@ function scanWebFetchInjection(
 	const toolName = event.tool_name || "";
 	const isWebTool =
 		toolName === "WebFetch" || toolName === "web_fetch" || toolName === "WebSearch";
-	if (!rules.output_scanning?.scan_web_injection || !isWebTool) return [];
+	if (!outputScanningOf(rules)?.scan_web_injection || !isWebTool) return [];
 	const injectionMatches = scanPromptInjection(toScan);
 	if (injectionMatches.length === 0) return [];
 	return [
@@ -279,7 +308,7 @@ function scanFileReadInjection(
 	rules: GuardRulesConfig,
 	toScan: string,
 ): string[] {
-	if (!rules.output_scanning?.scan_file_injection || !isReadOperation(event.tool_name || "")) {
+	if (!outputScanningOf(rules)?.scan_file_injection || !isReadOperation(event.tool_name || "")) {
 		return [];
 	}
 	const injectionMatches = scanPromptInjection(toScan);
@@ -297,14 +326,15 @@ function ratchetTaintOnRead(
 	rules: GuardRulesConfig,
 	session: SessionTrajectory | undefined,
 ): string[] {
-	if (!isReadOperation(event.tool_name || "") || !session || !rules.taint_tracking?.enabled) {
+	const taintTracking = taintTrackingOf(rules);
+	if (!isReadOperation(event.tool_name || "") || !session || !taintTracking?.enabled) {
 		return [];
 	}
 	const filePath = (event.tool_input?.file_path as string) || "";
 	if (!filePath) return [];
-	const fileSensitivity = classifyFileSensitivity(filePath, rules.taint_tracking);
+	const fileSensitivity = classifyFileSensitivity(filePath, taintTracking);
 	if (SENSITIVITY_ORDER[fileSensitivity] > SENSITIVITY_ORDER[session.sensitivity_level]) {
-		ratchetSensitivity(session, filePath, fileSensitivity, rules.taint_tracking);
+		ratchetSensitivity(session, filePath, fileSensitivity, taintTracking);
 	}
 	return [];
 }

@@ -85,7 +85,10 @@ interface UnitScore {
 function scoreUnit(ts: TsModule, fn: TS.Node, unitName: string, initialNesting: number): UnitScore {
 	let cognitive = 0;
 	let maxNesting = 0;
-	let recursed = false;
+	// Boxed so TS's control-flow narrowing doesn't collapse this to a literal
+	// `false` at the read below — `visit` sets it via a `ts.forEachChild`
+	// callback, and TS can't see across that call boundary.
+	const recursionState = { recursed: false };
 	const recursable = unitName !== "(callback)" && unitName !== "constructor";
 
 	const addNested = (nesting: number): void => {
@@ -148,13 +151,13 @@ function scoreUnit(ts: TsModule, fn: TS.Node, unitName: string, initialNesting: 
 			ts.isIdentifier(node.expression) &&
 			node.expression.text === unitName
 		) {
-			recursed = true;
+			recursionState.recursed = true;
 		}
 		descend(node, nesting);
 	};
 
 	descend(fn, initialNesting); // start from children: the unit itself scores 0
-	if (recursed) cognitive += 1;
+	if (recursionState.recursed) cognitive += 1;
 	return { cognitive, maxNesting };
 }
 

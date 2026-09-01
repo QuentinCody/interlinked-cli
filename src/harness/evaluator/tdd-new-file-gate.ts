@@ -33,6 +33,7 @@ import type {
 	HarnessDecision,
 	HarnessEvent,
 	SessionTrajectory,
+	StructuralChecksConfig,
 } from "../types.js";
 
 /** The only mode in which this gate fires. Extracted so the conditional reads
@@ -235,6 +236,13 @@ export function evaluateTddNewFileGateForEvent(
 	rules: GuardRulesConfig,
 	session: SessionTrajectory | undefined,
 ): HarnessDecision | null {
+	// SAFETY: GuardRulesConfig declares `structural_checks` as required, but a
+	// hand-built or partially-merged rules object can omit it in practice
+	// (proven by the "returns null when test_first_mode is not enforce"
+	// test, whose `makeRules()` fixture omits this field entirely) — cast to
+	// the honest optional shape so the chain below reflects reality instead
+	// of the (unenforced) declared type.
+	const structuralChecks = rules.structural_checks as StructuralChecksConfig | undefined;
 	const toolInput = event.tool_input || {};
 	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
 	const block = evaluateTddNewFileGate({
@@ -248,7 +256,7 @@ export function evaluateTddNewFileGateForEvent(
 		// independent of `structural_checks.enabled` (the 2026-07-06 portability
 		// review flagged the surprise; independence is preserved for back-compat:
 		// repos that disabled structural checks still expect the TDD gate to run).
-		testFirstMode: rules.structural_checks?.test_first_mode,
+		testFirstMode: structuralChecks?.test_first_mode,
 	});
 	return downgradeNewFileBlockToDebt(block, event, rules, filePath);
 }

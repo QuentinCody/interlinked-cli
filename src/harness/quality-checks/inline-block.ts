@@ -139,10 +139,8 @@ function checkMissingReturnTypesBlock(
 		ctx.diffAware?.missing_return_types !== "off" &&
 		ctx.baseline?.missingReturnTypes
 	) {
-		const baseline = ctx.baseline?.missingReturnTypes;
-		if (baseline) {
-			missingReturnTypes = missingReturnTypes.filter((m) => !baseline.has(m.text));
-		}
+		const baseline = ctx.baseline.missingReturnTypes;
+		missingReturnTypes = missingReturnTypes.filter((m) => !baseline.has(m.text));
 	}
 	if (missingReturnTypes.length === 0) return [];
 	return [

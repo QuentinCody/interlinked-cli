@@ -89,7 +89,7 @@ export class Ok<T, E = never> {
 		return this.value;
 	}
 
-	unwrapOr<U>(_fallback: U): T {
+	unwrapOr(_fallback: unknown): T {
 		return this.value;
 	}
 
@@ -121,7 +121,7 @@ export class Ok<T, E = never> {
 			[Symbol.iterator]() {
 				return this;
 			},
-		} as Generator<Err<never, E>, T, undefined>;
+		};
 	}
 }
 
@@ -356,20 +356,39 @@ export function gen<Yield extends Err<never, unknown>, R extends AnyResult>(
 		return state.value as Result<InferOk<R>, InferErr<R>>;
 	}
 
-	// Generator yielded — must be an Err (short-circuit)
+	// Generator yielded — must be an Err (short-circuit). The `Yield extends
+	// Err<never, unknown>` constraint on `gen`'s type parameter is a
+	// compile-time-only promise: generics are erased at runtime, so a caller
+	// that defeats the type system (`body as unknown as Parameters<typeof
+	// gen>[0]`, exercised by the "panics if the generator yields a non-Err
+	// value" test) can still make it here with an object whose `status` is
+	// not `"error"`. `statusOf` reads through a call so the comparison below
+	// stays a real runtime check instead of being narrowed away by the
+	// (unsound for this path) generic bound.
 	const yielded = state.value;
-	if (yielded.status === "error") {
+	if (statusOf(yielded) === "error") {
 		// We only call `.return()` to run the generator's `finally` cleanup; the
 		// completion value is discarded, so a placeholder satisfies the `R`
 		// parameter. Widen through `unknown` to avoid a type-system bypass.
 		const placeholder: unknown = undefined;
-		iterator.return?.(placeholder as R);
+		iterator.return(placeholder as R);
 		return yielded as Err<never, InferYieldErr<Yield>>;
 	}
 
 	throw new Panic(
 		"Generator yielded a non-Err value — this is a defect in the Result implementation",
 	);
+}
+
+/**
+ * Read `.status` through an opaque call rather than a direct property
+ * access. A direct `yielded.status === "error"` would let TS narrow the
+ * comparison to the generic `Yield extends Err<never, unknown>` bound and
+ * report it as always-true — sound only for callers who respect the type
+ * system, not for the defect this check exists to catch (see the call site).
+ */
+function statusOf(yielded: { status: string }): string {
+	return yielded.status;
 }
 
 // ===========================================

@@ -86,7 +86,7 @@ export async function readBoundedResponseBody(response: Response): Promise<Bound
 	const decoder = new TextDecoder();
 	let bytes = 0;
 	let text = "";
-	while (true) {
+	for (;;) {
 		const chunk = await reader.read();
 		if (chunk.done) break;
 		bytes += chunk.value.byteLength;

@@ -241,7 +241,7 @@ export class ProtocolV3MutationJobEvaluator implements MutationJobEvaluator {
 		if (registry === null) fail("trusted key registry must be detached structured-clone data");
 		const registryFailure = keyRegistryFailure(registry);
 		if (registryFailure !== null) fail(`trusted ${registryFailure}`);
-		const trustedRegistry = registry as V3KeyRegistry;
+		const trustedRegistry = registry;
 		const roleConflict = registryRoleConflictFailure(trustedRegistry);
 		if (roleConflict !== null) fail(`trusted ${roleConflict}`);
 
@@ -258,8 +258,8 @@ export class ProtocolV3MutationJobEvaluator implements MutationJobEvaluator {
 
 		this.#keyRegistry = deepFreeze(trustedRegistry);
 		this.#serverAuthority = deepFreeze({
-			tenant: authority.tenant as string,
-			project: authority.project as string,
+			tenant: authority.tenant,
+			project: authority.project,
 		});
 		this.#clock = options.clock;
 		this.#evaluatorPolicyVersion = options.evaluatorPolicyVersion;

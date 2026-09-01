@@ -76,7 +76,7 @@ export async function coldDaemonUnreachableBlockReasonFresh(
 		deps.warn ? { warn: deps.warn } : {},
 	);
 	if (reason === null) return null;
-	const root = findRepoRoot(cwd ?? event.context?.cwd ?? process.cwd());
+	const root = findRepoRoot(cwd ?? event.context.cwd);
 	if (root === null) return reason;
 	return (await daemonAnswersNow(root, deps)) ? null : reason;
 }

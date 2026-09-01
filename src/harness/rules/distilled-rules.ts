@@ -25,7 +25,7 @@
 import { existsSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import { looksLikeReDoS } from "../redos-validation.js";
-import type { GuardRule } from "../types.js";
+import type { GuardRule, RulePattern } from "../types.js";
 
 /**
  * Distilled rule sidecar — the `enforce` skill emits these fields on every
@@ -57,8 +57,24 @@ interface DistilledRule extends GuardRule {
 
 interface DistilledRulesFile {
 	version?: number;
-	rules?: DistilledRule[];
+	// Untyped on purpose: `distilled-rules.json` is untrusted external data
+	// (hand-edited by a user, or written by an older /enforce schema version)
+	// — an entry can be `null`, a bare scalar, or an object missing fields
+	// `DistilledRule` declares required. `loadDistilledRules()` below narrows
+	// each entry defensively before trusting any field on it.
+	rules?: unknown[];
 }
+
+/**
+ * Loose, pre-validation shape of one `rules[]` entry — everything
+ * `DistilledRule` declares required except the two fields this loader
+ * actually inspects before trusting the entry (`patterns`, `enabled`), which
+ * genuinely can be absent or malformed in hand-edited/legacy JSON.
+ */
+type RawDistilledRule = Omit<DistilledRule, "patterns" | "enabled"> & {
+	patterns?: unknown[];
+	enabled?: boolean;
+};
 
 interface RuleModification {
 	action?: GuardRule["action"];
@@ -114,8 +130,8 @@ function readDistilledRulesFile(cwd: string): DistilledRulesFile | null {
 	const path = distilledRulesPath(cwd);
 	if (!existsSync(path)) return null;
 	try {
-		const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
-		if (parsed && typeof parsed === "object") return parsed as DistilledRulesFile;
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		if (parsed && typeof parsed === "object") return parsed;
 		return null;
 	} catch {
 		// Malformed JSON — fall back to no distilled rules. The skill's self-checks
@@ -130,8 +146,8 @@ function readDistilledRulesOverrides(cwd: string): DistilledRulesOverrides {
 	const path = distilledRulesOverridesPath(cwd);
 	if (!existsSync(path)) return {};
 	try {
-		const parsed = JSON.parse(readFileSync(path, "utf-8")) as unknown;
-		if (parsed && typeof parsed === "object") return parsed as DistilledRulesOverrides;
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		if (parsed && typeof parsed === "object") return parsed;
 		return {};
 	} catch {
 		return {};
@@ -162,7 +178,7 @@ function buildOverrideLookups(overrides: DistilledRulesOverrides): OverrideLooku
  * removed-ids list.
  */
 function isRuleRemoved(
-	raw: DistilledRule,
+	raw: RawDistilledRule,
 	removedGroups: Set<string>,
 	removedIds: Set<string>,
 ): boolean {
@@ -172,51 +188,69 @@ function isRuleRemoved(
 }
 
 /**
+ * Extracts a usable regex string from one raw pattern-array entry, or `null`
+ * if the entry isn't shaped like a pattern. `entry` is `unknown`, not
+ * `RulePattern`: a hand-edited or legacy-schema `distilled-rules.json` can
+ * carry a pattern entry that isn't even an object, let alone one with a
+ * string `regex`.
+ */
+function rawPatternRegex(entry: unknown): string | null {
+	if (!entry || typeof entry !== "object") return null;
+	const regex = (entry as { regex?: unknown }).regex;
+	return typeof regex === "string" ? regex : null;
+}
+
+/**
  * ReDoS gate. `/enforce`-distilled rules can carry regexes from arbitrary
  * third-party AGENTS.md / CLAUDE.md files; a nested-quantifier or
  * prefix-overlap shape hangs the daemon on adversarial input. Returns true
  * (and logs one stderr line so the operator notices) when any of the rule's
  * patterns fails the shape check — the caller skips the whole rule.
  */
-function hasUnsafePattern(raw: DistilledRule): boolean {
+function hasUnsafePattern(raw: RawDistilledRule): boolean {
 	if (!Array.isArray(raw.patterns)) return false;
-	const unsafe = raw.patterns.find(
-		(p) => p && typeof p.regex === "string" && looksLikeReDoS(p.regex),
-	);
-	if (!unsafe) return false;
-	process.stderr.write(
-		`[interlinked] skipping distilled rule ${raw.id}: ReDoS-prone pattern ${
-			unsafe.regex?.slice(0, 120) ?? ""
-		}\n`,
-	);
-	return true;
+	for (const entry of raw.patterns) {
+		const regex = rawPatternRegex(entry);
+		if (!regex || !looksLikeReDoS(regex)) continue;
+		process.stderr.write(
+			`[interlinked] skipping distilled rule ${raw.id}: ReDoS-prone pattern ${regex.slice(0, 120)}\n`,
+		);
+		return true;
+	}
+	return false;
 }
 
 /**
  * Applies the override `modifications{}` entry for this rule, if any, onto
- * the (already-cloned) rule in place. Only action/severity/enabled are
- * honored; structural fields (patterns, tool_match, trigger) are owned by
- * the distiller and must not be hand-edited via overrides.
+ * the (already-cloned) rule in place. Only action/severity are honored here
+ * — `enabled` is resolved centrally by `resolveEnabledState()` below, since
+ * it also has to weigh the raw JSON's own (possibly-absent) `enabled` value.
+ * Structural fields (patterns, tool_match, trigger) are owned by the
+ * distiller and must not be hand-edited via overrides.
  */
 function applyRuleModification(rule: DistilledRule, mod: RuleModification | undefined): void {
 	if (!mod) return;
 	if (mod.action !== undefined) rule.action = mod.action;
 	if (mod.severity !== undefined) rule.severity = mod.severity;
-	if (mod.enabled !== undefined) rule.enabled = mod.enabled;
 	rule.user_modified = true;
 }
 
 /**
- * Settles the final `enabled` flag: the disabled-ids list always wins (forces
- * `false`); otherwise a still-unset `enabled` (no modification touched it)
- * defaults to `true`.
+ * Settles the final `enabled` flag. Priority: `disabled_rule_ids[]` always
+ * wins (forces `false`); otherwise an explicit `modifications{}.enabled`
+ * wins; otherwise the raw JSON's own `enabled` value — which, unlike
+ * `DistilledRule.enabled`'s required static type, can genuinely be absent
+ * when the file was hand-edited or written by an older /enforce schema — is
+ * used if present, defaulting to `true` when it is not.
  */
-function resolveEnabledState(rule: DistilledRule, ruleId: string, disabledIds: Set<string>): void {
-	if (disabledIds.has(ruleId)) {
-		rule.enabled = false;
-	} else if (rule.enabled === undefined) {
-		rule.enabled = true;
-	}
+function resolveEnabledState(
+	ruleId: string,
+	rawEnabled: boolean | undefined,
+	modEnabled: boolean | undefined,
+	disabledIds: Set<string>,
+): boolean {
+	if (disabledIds.has(ruleId)) return false;
+	return modEnabled ?? rawEnabled ?? true;
 }
 
 /**
@@ -244,8 +278,9 @@ export function loadDistilledRules(cwd: string): GuardRule[] {
 	const { removedGroups, removedIds, disabledIds, mods } = buildOverrideLookups(overrides);
 
 	const out: GuardRule[] = [];
-	for (const raw of file.rules) {
-		if (!raw || typeof raw !== "object") continue;
+	for (const entry of file.rules) {
+		if (!entry || typeof entry !== "object") continue;
+		const raw = entry as RawDistilledRule;
 		if (!raw.id) continue;
 
 		// Filter by group + rule-id removal lists. Removed rules don't reach
@@ -254,13 +289,18 @@ export function loadDistilledRules(cwd: string): GuardRule[] {
 
 		if (hasUnsafePattern(raw)) continue;
 
-		// Clone so we don't mutate the source object.
-		const rule: DistilledRule = { ...raw };
+		const mod = mods[raw.id];
 
-		applyRuleModification(rule, mods[raw.id]);
+		// Clone so we don't mutate the source object; patterns/enabled are
+		// resolved explicitly rather than spread verbatim (see the two
+		// helpers above for why).
+		const rule: DistilledRule = {
+			...raw,
+			patterns: (raw.patterns ?? []) as RulePattern[],
+			enabled: resolveEnabledState(raw.id, raw.enabled, mod?.enabled, disabledIds),
+		};
 
-		// Disabled list overrides any modifications.enabled.
-		resolveEnabledState(rule, raw.id, disabledIds);
+		applyRuleModification(rule, mod);
 
 		out.push(rule);
 	}

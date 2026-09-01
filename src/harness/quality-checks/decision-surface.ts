@@ -114,7 +114,7 @@ function addPackageJsonSignals(
 	for (const section of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
 		const deps = parsed[section];
 		if (deps === null || typeof deps !== "object" || Array.isArray(deps)) continue;
-		for (const name of Object.keys(deps as JsonObject)) {
+		for (const name of Object.keys(deps)) {
 			const entry = PACKAGE_ENTRIES[name];
 			if (!entry) continue;
 			for (const cat of entry.categories) {

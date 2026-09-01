@@ -56,7 +56,8 @@ const KIND_MAP: Record<WaterLineStem, BaselineKind> = {
 
 function baselineKind(filePath: string): BaselineKind | null {
 	const stem = waterLineStem(filePath);
-	return stem ? (KIND_MAP[stem] ?? null) : null;
+	// KIND_MAP is exhaustive over WaterLineStem (compile-time enforced), so a resolved stem always maps.
+	return stem ? KIND_MAP[stem] : null;
 }
 
 function isNum(v: unknown): v is number {

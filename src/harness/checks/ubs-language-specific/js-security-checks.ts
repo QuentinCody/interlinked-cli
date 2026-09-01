@@ -152,7 +152,7 @@ export function checkChildProcessExecUserInput(content: string, filePath: string
 		/\b(?:child_process|childProcess|cp)\.(?:exec|execSync|execFile|execFileSync|spawn|spawnSync)\s*\(\s*`(?:\\[\s\S]|[^`\\])*?\$\{(?:\\[\s\S]|[^`\\])*?`/g;
 	for (const m of commentStripped.matchAll(templateRe)) {
 		if (matches.length >= 10) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = commentStripped.slice(0, idx).split("\n").length;
 		if (matchedLines.has(lineNum)) continue;
 		matchedLines.add(lineNum);
@@ -239,7 +239,7 @@ function findFunctionBodies(src: string): FunctionBody[] {
 	// Match `)` or `=>` followed by an optional return-type annotation and `{`.
 	const re = /(\)|=>)\s*(?::[^{=;]+)?\{/g;
 	for (const m of src.matchAll(re)) {
-		const matchIdx = m.index ?? 0;
+		const matchIdx = m.index;
 		const openIdx = matchIdx + m[0].length - 1;
 		// Skip control-flow constructs whose `) {` looks like a function start.
 		if (m[1] === ")") {
@@ -348,14 +348,14 @@ function collectCookieCallViolations(
 	const cookieCallRe = /\b(?:res\.cookie|cookies\.set)\s*\(/g;
 	for (const m of stripped.matchAll(cookieCallRe)) {
 		if (matches.length >= 10) break;
-		const openIdx = (m.index ?? 0) + m[0].length - 1;
+		const openIdx = m.index + m[0].length - 1;
 		const args = sliceBalancedParens(stripped, openIdx);
 		if (args === null) continue;
 		const opts = extractTopLevelObject(args);
 		const hasHttpOnly = /\bhttpOnly\s*:\s*true\b/i.test(opts);
 		const hasSecure = /\bsecure\s*:\s*true\b/i.test(opts);
 		if (hasHttpOnly && hasSecure) continue;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = stripped.slice(0, idx).split("\n").length;
 		matches.push({
 			line: lineNum,
@@ -385,7 +385,7 @@ function collectSetHeaderCookieViolations(
 		const hasHttpOnly = /\bHttpOnly\b/i.test(headerValue);
 		const hasSecure = /\bSecure\b/i.test(headerValue);
 		if (hasHttpOnly && hasSecure) continue;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = stripped.slice(0, idx).split("\n").length;
 		if (matches.some((match) => match.line === lineNum)) continue;
 		matches.push({

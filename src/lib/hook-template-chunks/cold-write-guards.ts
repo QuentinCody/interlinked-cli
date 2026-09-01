@@ -89,8 +89,13 @@ function cwgIsWriteTool(toolName: string): boolean {
 	return tools.indexOf(toolName) !== -1;
 }
 
-/** Read the plain file-path-shaped keys off a tool_input, in a fixed order. */
-function cwgDirectPaths(toolInput: ColdWriteToolInput): string[] {
+/** Read the plain file-path-shaped keys off a tool_input, in a fixed order.
+ *  `toolInput` is nullable/undefined-able here because the serialized-JS
+ *  runtime path (`guards-inline.ts`'s `inlineGuardCheck`) feeds this from
+ *  `JSON.parse`d hook payloads, where `tool_input` is not guaranteed present —
+ *  the TS-side callers happen to always coalesce first, but that's a property
+ *  of those callers, not of this function's real input. */
+function cwgDirectPaths(toolInput: ColdWriteToolInput | null | undefined): string[] {
 	const paths: string[] = [];
 	if (!toolInput) return paths;
 	const keys = ["file_path", "filePath", "path", "target_file"];
@@ -108,7 +113,7 @@ function cwgDirectPaths(toolInput: ColdWriteToolInput): string[] {
 /** Extract the file paths named in an `apply_patch` body's
  *  `*** Update/Add/Delete File:` and `*** Move to:` headers, deduped against
  *  `existing` and against each other. */
-function cwgPatchPaths(toolInput: ColdWriteToolInput, existing: string[]): string[] {
+function cwgPatchPaths(toolInput: ColdWriteToolInput | null | undefined, existing: string[]): string[] {
 	const body = String(
 		toolInput?.command ?? toolInput?.patch ?? toolInput?.content ?? toolInput?._raw_patch ?? "",
 	);
@@ -129,7 +134,7 @@ function cwgPatchPaths(toolInput: ColdWriteToolInput, existing: string[]): strin
 }
 
 /** All target file paths a write tool call names, direct keys first. */
-function cwgTargets(toolName: string, toolInput: ColdWriteToolInput): string[] {
+function cwgTargets(toolName: string, toolInput: ColdWriteToolInput | null | undefined): string[] {
 	const paths = cwgDirectPaths(toolInput);
 	if (toolName === "apply_patch") {
 		const extra = cwgPatchPaths(toolInput, paths);
@@ -141,7 +146,7 @@ function cwgTargets(toolName: string, toolInput: ColdWriteToolInput): string[] {
 /** The text a file-write tool call would put on disk, across the Write
  *  (`content`), Edit (`new_string`), NotebookEdit (`new_source`) and MultiEdit
  *  (`edits[].new_string`) shapes. Empty string when there is none. */
-function cwgWriteContent(toolInput: ColdWriteToolInput): string {
+function cwgWriteContent(toolInput: ColdWriteToolInput | null | undefined): string {
 	if (!toolInput) return "";
 	if (typeof toolInput.content === "string") return toolInput.content;
 	if (typeof toolInput.new_string === "string") return toolInput.new_string;
@@ -173,7 +178,7 @@ function cwgEditsContent(edits: unknown[]): string {
  *  silently failed open there. */
 function cwgAbsolute(p: string, cwd: string, deps: ColdWriteDeps): string {
 	if (p.charAt(0) === "/") return p;
-	if (deps?.join) return deps.join(cwd, p);
+	if (deps.join) return deps.join(cwd, p);
 	return cwd + "/" + p;
 }
 
@@ -185,7 +190,7 @@ function cwgAbsolute(p: string, cwd: string, deps: ColdWriteDeps): string {
  */
 export function checkMergeConflictWrite(
 	toolName: string,
-	toolInput: ColdWriteToolInput,
+	toolInput: ColdWriteToolInput | null | undefined,
 ): ColdWriteVerdict | null {
 	if (!cwgIsWriteTool(toolName)) return null;
 	const content = cwgWriteContent(toolInput);
@@ -212,8 +217,8 @@ export function checkMergeConflictWrite(
  *  probe cannot be completed — a missing file, an fs error, or a host that
  *  supplied no stat function. */
 function cwgHasFreshShard(abs: string, deps: ColdWriteDeps): boolean {
-	const existsSyncFn = deps?.existsSync;
-	const statSyncFn = deps?.statSync;
+	const existsSyncFn = deps.existsSync;
+	const statSyncFn = deps.statSync;
 	if (!existsSyncFn || !statSyncFn) return false;
 	const stalenessGraceMs = 60000;
 	try {
@@ -239,7 +244,7 @@ function cwgHasFreshShard(abs: string, deps: ColdWriteDeps): boolean {
  */
 export function checkGraphShardWrite(
 	toolName: string,
-	toolInput: ColdWriteToolInput,
+	toolInput: ColdWriteToolInput | null | undefined,
 	cwd: string,
 	deps: ColdWriteDeps,
 ): ColdWriteVerdict | null {

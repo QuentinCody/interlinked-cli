@@ -301,7 +301,7 @@ function validateGlossaryTerm(
 	errors.push(...validateStringArray(t.docs || [], `${tp}.docs`));
 
 	// Register aliases and deprecated for collision checking
-	for (const alias of (t.aliases as string[]) || []) {
+	for (const alias of (t.aliases as string[] | undefined) || []) {
 		const la = alias.toLowerCase();
 		if (allCanonicals.has(la)) {
 			errors.push(
@@ -310,7 +310,7 @@ function validateGlossaryTerm(
 		}
 		allCanonicals.set(la, t.id as string);
 	}
-	for (const dep of (t.deprecated as string[]) || []) {
+	for (const dep of (t.deprecated as string[] | undefined) || []) {
 		const ld = dep.toLowerCase();
 		if (allCanonicals.has(ld)) {
 			errors.push(
@@ -453,7 +453,15 @@ const VALIDATORS: Record<ArtifactFileKey, (data: unknown) => ValidationResult> =
 };
 
 export function validateArtifactFile(key: ArtifactFileKey, data: unknown): ValidationResult {
-	const validator = VALIDATORS[key];
+	// `key` is typed `ArtifactFileKey`, but this is a public, exported entry
+	// point: a caller outside this module's compile-time checking (a `.js`
+	// consumer, or a coerced/`as never` value from upstream key-derivation
+	// logic) can hand in a string that isn't actually one of the known keys —
+	// so the lookup stays defensively `Partial`-typed rather than trusting
+	// `VALIDATORS`' exhaustive `Record<ArtifactFileKey, …>` declaration.
+	const validator = (
+		VALIDATORS as Partial<Record<ArtifactFileKey, (data: unknown) => ValidationResult>>
+	)[key];
 	if (!validator) return fail([err("$", `Unknown artifact file key: ${key}`)]);
 	return validator(data);
 }

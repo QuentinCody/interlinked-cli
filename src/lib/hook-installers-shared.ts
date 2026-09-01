@@ -57,7 +57,7 @@ export function isPlainObject(v: unknown): v is JsonObject {
 	return v instanceof Object && !Array.isArray(v);
 }
 export function isNonEmptyString(v: unknown): v is string {
-	return v === String(v) && (v as string).length > 0;
+	return v === String(v) && v.length > 0;
 }
 
 // ===========================================
@@ -71,6 +71,27 @@ interface InstallHookEntryOptions {
 	additionalContextLimit?: number;
 }
 
+// `hooks[eventName]` is unvalidated JSON read off disk — a hand-edited or
+// legacy settings.json entry may be missing `hooks` entirely, or carry a
+// `command` field that isn't a string. `HookEntry` describes the shape we
+// WRITE, not what we can trust when scanning existing entries, so scanning
+// uses this looser shape instead of asserting the strict one.
+interface RawHookEntry {
+	matcher?: unknown;
+	hooks?: Array<{
+		type?: unknown;
+		command?: unknown;
+		timeout?: unknown;
+		async?: unknown;
+		statusMessage?: unknown;
+		additionalContextLimit?: unknown;
+	}>;
+}
+
+function hasInterlinkedCommand(h: { command?: unknown }): boolean {
+	return typeof h.command === "string" && h.command.includes(INTERLINKED_MARKER);
+}
+
 export function installHookEntry(
 	hooks: JsonObject,
 	eventName: string,
@@ -78,12 +99,10 @@ export function installHookEntry(
 	options: InstallHookEntryOptions = {},
 ): void {
 	if (!hooks[eventName]) hooks[eventName] = [];
-	const entries = hooks[eventName] as HookEntry[];
+	const entries = hooks[eventName] as RawHookEntry[];
 
 	// Check if already installed
-	const existing = entries.find((entry) =>
-		entry.hooks?.some((h) => h.command?.includes(INTERLINKED_MARKER)),
-	);
+	const existing = entries.find((entry) => entry.hooks?.some(hasInterlinkedCommand));
 
 	const timeout = options.timeout ?? hookTimeoutSecondsFor(eventName);
 	if (existing) {
@@ -112,14 +131,14 @@ function buildInstalledHandler(
  *  per-event timeout (idempotent upgrade — entries written before timeouts
  *  existed gain one; policy changes propagate), and the matcher. */
 function reconcileExistingEntry(
-	existing: HookEntry,
+	existing: RawHookEntry,
 	eventName: string,
 	command: string,
 	timeout: number | undefined,
 	options: InstallHookEntryOptions,
 ): void {
 	// Update command if it points to a stale path (e.g. .claude/hooks/ → .interlinked/hooks/)
-	const hook = existing.hooks?.find((h) => h.command?.includes(INTERLINKED_MARKER));
+	const hook = existing.hooks?.find(hasInterlinkedCommand);
 	if (hook && hook.command !== command) {
 		hook.command = command;
 	}
@@ -135,7 +154,7 @@ function reconcileExistingEntry(
 }
 
 function applyHandlerMetadata(
-	hook: HookEntry["hooks"][number],
+	hook: { async?: unknown; statusMessage?: unknown; additionalContextLimit?: unknown },
 	options: InstallHookEntryOptions,
 ): void {
 	if (options.async !== undefined) hook.async = options.async;
@@ -266,7 +285,7 @@ export function cleanJsonHookFile(cwdOrPath: string): boolean {
 	const settings = readJsonFile(settingsPath);
 	if (!settings?.hooks || !isPlainObject(settings.hooks)) return false;
 
-	const hooks = settings.hooks as JsonObject;
+	const hooks = settings.hooks;
 	let changed = false;
 
 	for (const eventName of Object.keys(hooks)) {

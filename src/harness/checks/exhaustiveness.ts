@@ -228,7 +228,7 @@ function readLiteralPropTag(
 	key: string,
 ): string | null {
 	for (const member of lit.members) {
-		if (!ts.isPropertySignature(member) || !member.name) continue;
+		if (!ts.isPropertySignature(member)) continue;
 		const n = member.name;
 		const propName = ts.isIdentifier(n) ? n.text : ts.isStringLiteral(n) ? n.text : null;
 		if (propName !== key) continue;
@@ -363,7 +363,11 @@ function findDeclaredTypeForIdentifier(
 	ident: import("typescript").Identifier,
 ): import("typescript").TypeNode | null {
 	const name = ident.text;
-	let current: import("typescript").Node | undefined = ident.parent;
+	// TS's own `.d.ts` declares `Node.parent` as non-optional (`Node`), but at
+	// runtime the root `SourceFile` node (and any unbound synthetic node) has
+	// `parent === undefined` — the declared type lies. Widen it back to
+	// `Node | undefined` here so the loop guard below stays real.
+	let current = ident.parent as import("typescript").Node | undefined;
 	while (current) {
 		const paramType = findParamType(ts, current, name);
 		if (paramType) return paramType;
@@ -538,7 +542,7 @@ function matchesAssertNeverIdiom(
 			if (decl.type && decl.type.kind === ts.SyntaxKind.NeverKeyword) return true;
 		}
 	}
-	if (ts.isThrowStatement(stmt) && stmt.expression) {
+	if (ts.isThrowStatement(stmt)) {
 		if (ts.isNewExpression(stmt.expression)) {
 			const exprText = stmt.expression.expression.getText(sourceFile);
 			if (UNREACHABLE_THROW_RE.test(`throw new ${exprText}`)) return true;

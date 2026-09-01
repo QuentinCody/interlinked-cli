@@ -126,6 +126,48 @@ function hasAsExpressionLikely(content: string): boolean {
  * on context. When both `isTypeAssignableTo` directions fail we have high
  * confidence; that's the gate.
  */
+/**
+ * `TS.TypeChecker.getTypeAtLocation` / `getTypeFromTypeNode` are declared to
+ * always return `TS.Type` — but `ts` here is loaded dynamically
+ * (`req("typescript")`, see `TsModule`), and the checker instance a caller
+ * hands in can be a wrapper/mock around the real one (exercised by the
+ * "keeps an earlier match when a LATER cast's source type resolves to
+ * undefined" test, which mocks `getTypeAtLocation` to return `undefined` for
+ * one node). Route both reads through a call whose return type honestly
+ * includes `undefined` so the downstream guard stays necessary — a direct
+ * `let sourceType: TS.Type | undefined; sourceType = checker.getTypeAtLocation(...)`
+ * would get narrowed back to `TS.Type` by control-flow analysis at the
+ * assignment, defeating the point.
+ */
+function typeAtLocationOf(checker: TS.TypeChecker, node: TS.Node): TS.Type | undefined {
+	return checker.getTypeAtLocation(node);
+}
+function typeFromTypeNodeOf(checker: TS.TypeChecker, node: TS.TypeNode): TS.Type | undefined {
+	return checker.getTypeFromTypeNode(node);
+}
+
+/**
+ * Detect the classic `as unknown as T` double-cast escape: the CHILD of an
+ * outer AsExpression is itself an AsExpression whose target is `unknown`.
+ * Returns the outer target's source text, or `null` when `node` isn't a
+ * double-cast.
+ */
+function detectDoubleCastTarget(
+	ts: TsModule,
+	node: TS.AsExpression | TS.TypeAssertion,
+	typeNode: TS.TypeNode,
+	sourceFile: TS.SourceFile,
+): string | null {
+	if (
+		ts.isAsExpression(node) &&
+		ts.isAsExpression(node.expression) &&
+		node.expression.type.kind === ts.SyntaxKind.UnknownKeyword
+	) {
+		return typeNode.getText(sourceFile);
+	}
+	return null;
+}
+
 function isSmugglingCast(
 	ts: TsModule,
 	checker: TS.TypeChecker,
@@ -185,7 +227,6 @@ function collectSmugglingCasts(
 	sourceFile: TS.SourceFile,
 ): InlineMatch[] | null {
 	const checker = program.getTypeChecker();
-	if (!checker) return null;
 
 	const matches: InlineMatch[] = [];
 	const lines = sourceFile.text.split("\n");
@@ -232,22 +273,14 @@ function collectSmugglingCasts(
 		// target is `unknown`. We flag it with a specific message, since
 		// the double-cast is even more diagnostic than a single
 		// shape-mismatch cast.
-		let isDoubleCast = false;
-		let doubleCastTargetText: string | null = null;
-		if (
-			ts.isAsExpression(node) &&
-			ts.isAsExpression(node.expression) &&
-			node.expression.type.kind === ts.SyntaxKind.UnknownKeyword
-		) {
-			isDoubleCast = true;
-			doubleCastTargetText = typeNode.getText(sourceFile);
-		}
+		const doubleCastTargetText = detectDoubleCastTarget(ts, node, typeNode, sourceFile);
+		const isDoubleCast = doubleCastTargetText !== null;
 
 		let sourceType: TS.Type | undefined;
 		let targetType: TS.Type | undefined;
 		try {
-			sourceType = checker.getTypeAtLocation(node.expression);
-			targetType = checker.getTypeFromTypeNode(typeNode);
+			sourceType = typeAtLocationOf(checker, node.expression);
+			targetType = typeFromTypeNodeOf(checker, typeNode);
 		} catch {
 			// Checker threw — skip silently rather than false-fire.
 			ts.forEachChild(node, visit);

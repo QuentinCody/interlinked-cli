@@ -105,7 +105,7 @@ export async function runCommandCheck(
 		});
 	}
 
-	const unavailable = engineReport.skipped?.find(
+	const unavailable = engineReport.skipped.find(
 		(entry) =>
 			entry.check === toolId &&
 			(entry.category === "tool_missing" ||

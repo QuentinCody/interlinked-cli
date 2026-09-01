@@ -13,7 +13,7 @@
 // stored copy of the prompt. Users are always allowed to submit whatever
 // they typed; we just don't store the raw version.
 
-import type { GuardRulesConfig } from "../types.js";
+import type { GuardRulesConfig, OutputScanningConfig } from "../types.js";
 import { filterFindingsByScore } from "./policy.js";
 import type { ContentScanner, ScanFinding } from "./types.js";
 
@@ -41,7 +41,13 @@ export async function scanUserPrompt(
 	if (!cfg?.enabled || !cfg.scan_points.user_prompt) return undefined;
 	if (!prompt || prompt.length === 0) return undefined;
 
-	const scanLimit = cfg.max_scan_bytes || rules.output_scanning?.max_scan_bytes || 100_000;
+	// SAFETY: GuardRulesConfig declares `output_scanning` as required, but a
+	// hand-built or partially-merged rules object can omit it in practice
+	// (proven by tests elsewhere that delete this field and expect no
+	// throw) — cast to the honest optional shape so the chain below reflects
+	// reality instead of the (unenforced) declared type.
+	const outputScanning = rules.output_scanning as OutputScanningConfig | undefined;
+	const scanLimit = cfg.max_scan_bytes || outputScanning?.max_scan_bytes || 100_000;
 	const text = prompt.slice(0, scanLimit);
 
 	let findings: ScanFinding[];

@@ -161,7 +161,7 @@ export function runRipgrepOnCandidates(
 		return null;
 	}
 
-	return processRgOutput(result.stdout as string, cfg.maxOutputLines);
+	return processRgOutput(result.stdout, cfg.maxOutputLines);
 }
 
 function processRgOutput(output: string, maxLines: number): RipgrepResult {

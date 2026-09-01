@@ -184,8 +184,8 @@ export function installDaemonTimers(hooks: DaemonTimerHooks): () => void {
 	}, MEMORY_CHECK_INTERVAL_MS);
 
 	// Neither timer should hold the process open on its own.
-	statusline.unref?.();
-	memory.unref?.();
+	statusline.unref();
+	memory.unref();
 
 	return () => {
 		clearInterval(statusline);

@@ -195,7 +195,7 @@ export function checkAssertionFreeTests(content: string, filePath: string): Inli
 		}
 
 		// End of test block
-		if (braceDepth <= 0 && inTestBlock && i > testStartLine) {
+		if (braceDepth <= 0 && i > testStartLine) {
 			if (!hasAssertion && matches.length < 10) {
 				matches.push({
 					line: testStartLine + 1,

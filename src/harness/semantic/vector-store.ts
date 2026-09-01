@@ -208,7 +208,10 @@ function parseRows(data: string): IndexedFunctionRow[] {
 
 function validateIndex(index: LoadedSemanticIndex, functionData: string, vectorData: Buffer): void {
     const { meta, rows } = index;
-    if (meta.schemaVersion !== 1 || meta.byteOrder !== "little-endian") throw new Error("unsupported semantic index schema");
+    // `schemaVersion`/`byteOrder` are literal-typed on `SemanticIndexMeta`
+    // (1 / "little-endian") — both callers of `validateIndex` already went
+    // through `buildMeta` or the `isSemanticIndexMeta` load-time guard, so a
+    // mismatch here is unreachable rather than a runtime possibility.
     if (Buffer.byteLength(functionData) !== meta.functionsBytes || sha256(functionData) !== meta.functionsSha256) {
         throw new Error("semantic function metadata failed integrity validation");
     }

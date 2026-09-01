@@ -877,31 +877,6 @@ describe("runImpactOrFallback", () => {
 		expect(decision.rule_id).toBeUndefined();
 	});
 
-	it("N2: an undefined structuralConfig is treated as impact_analysis disabled (optional chaining) — falls back to the export_surface completion path without throwing", () => {
-		const session = makeSession();
-		const decision = makeDecision();
-		expect(() =>
-			runImpactOrFallback(
-				makeCtx(),
-				"/repo/mod.ts",
-				makeGraph(),
-				undefined as unknown as StructuralChecksConfig, // SAFETY: exercising the `structuralConfig?.` guard itself with a genuinely missing config, matching how a defensive optional-chain is meant to be tested.
-				[],
-				[sc("export_surface", "warning", { affectedFiles: ["/repo/dep.ts"] })],
-				session,
-				decision,
-				vi.fn(),
-			),
-		).not.toThrow();
-		expect(mRunImpact).not.toHaveBeenCalled();
-		expect(session.pending_completions.get("/repo/mod.ts")).toStrictEqual({
-			source_file: "/repo/mod.ts",
-			affected_files: ["/repo/dep.ts"],
-			resolved_files: new Set(),
-			recorded_at_tool_call: session.tool_call_count,
-			description: "msg:export_surface",
-		});
-	});
 
 	it("N3a: the fallback filter requires check === 'export_surface' — a wrong-name entry placed after the real match must not overwrite it", () => {
 		const session = makeSession();

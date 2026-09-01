@@ -47,6 +47,13 @@ import type { HarnessDecision, HarnessEvent } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 import { discardWorkspaceSnapshot } from "./workspace-effects.js";
 
+// `session.files_read` is typed as a required `Set<string>`, but some
+// session snapshots (e.g. mid-hydration, or test doubles) genuinely omit it
+// at runtime — keep the fallback honest instead of crashing on spread.
+function readFilesReadSnapshot(files_read: Set<string> | undefined | null): string[] {
+	return [...(files_read ?? [])];
+}
+
 function reconcileBlockedPreTool(event: HarnessEvent, decision: HarnessDecision): void {
 	if (decision.decision !== "block") return;
 	discardWorkspaceSnapshot({
@@ -215,7 +222,7 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 				// reproduces a still-armed refusal through another channel. Never
 				// alters the decision — surfaced once at Stop.
 				observeBlockWorkaround(session, event, local, event.cwd ?? CWD, Date.now());
-				mergeTrajectoryShadow(event, local, ctx.rules, [...(session.files_read ?? [])]);
+				mergeTrajectoryShadow(event, local, ctx.rules, readFilesReadSnapshot(session.files_read));
 				writeCollectionRecord(event, local);
 				const finalDecision = await forwardCloudPreToolUse(event, local);
 				reconcileBlockedPreTool(event, finalDecision);
@@ -229,7 +236,7 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 					// live snapshot); the trajectory engine's own read map does not.
 					// Passing it seeds a state created after a restart, so reads from
 					// before it are not forgotten mid-session (red-team F4).
-					mergeTrajectoryShadow(event, decision, ctx.rules, [...(session.files_read ?? [])]);
+					mergeTrajectoryShadow(event, decision, ctx.rules, readFilesReadSnapshot(session.files_read));
 					writeCollectionRecord(event, decision);
 					// Fire-and-forget faithful per-call record for the viz BASELINE filmstrip.
 					// Runs AFTER the decision is returned to the hook — never blocks the tool loop.

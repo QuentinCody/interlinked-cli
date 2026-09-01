@@ -74,7 +74,7 @@ export function scanProjectSwitchDiscriminants(reads: FileContent[]): Structural
 		for (const m of content.matchAll(SWITCH_DISC)) {
 			const disc = nonNull(m[1]);
 			if (!DISC_TAIL.test(disc)) continue;
-			const line = lineOfOffset(content, m.index ?? 0);
+			const line = lineOfOffset(content, m.index);
 			const arr = usesByDisc.get(disc) ?? [];
 			arr.push({ file, line });
 			usesByDisc.set(disc, arr);
@@ -117,7 +117,7 @@ export function scanProjectSingleImplInterfaces(reads: FileContent[]): Structura
 			interfaces.push({
 				file,
 				name: nonNull(m[1]),
-				line: lineOfOffset(content, m.index ?? 0),
+				line: lineOfOffset(content, m.index),
 			});
 		}
 	}

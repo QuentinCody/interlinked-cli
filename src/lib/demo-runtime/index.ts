@@ -51,6 +51,27 @@ const REGISTRY = new Map<string, DemoEntry>();
 const LISTENERS = new Set<DemoStateListener>();
 const ANNOUNCED = new Set<string>();
 
+/** Looked up through `globalThis` rather than the bare `document`
+ *  identifier: this module deliberately runs in non-DOM environments too
+ *  (Node, tests, SSR — see the module header), but the ambient `lib.dom`
+ *  types claim `document` is always defined, which makes `typeof document
+ *  !== "undefined"` a type-checker tautology even though it's a real
+ *  runtime branch here. */
+function getGlobalDocument(): Document | undefined {
+	const doc = (globalThis as Record<string, unknown>).document;
+	return typeof doc === "object" && doc !== null ? (doc as Document) : undefined;
+}
+
+/** `Document.body` is typed non-null by lib.dom, but the DOM spec allows a
+ *  bodyless document (e.g. before the parser reaches <body>). Routed through
+ *  a function with an explicit `| null` return type so the real nullability
+ *  survives — assigning straight into a `const x: HTMLElement | null = ...`
+ *  doesn't do it, since control-flow narrowing collapses to the initializer's
+ *  own (non-null) type at the point of use, ignoring the wider annotation. */
+function getBody(doc: Document): HTMLElement | null {
+	return doc.body;
+}
+
 function announceOnce(key: string, reason: string): void {
 	if (ANNOUNCED.has(key)) return;
 	ANNOUNCED.add(key);
@@ -64,8 +85,9 @@ function announceOnce(key: string, reason: string): void {
 		list.push({ key, reason, registeredAt: Date.now() });
 		target.__INTERLINKED_DEMO__ = list;
 	}
-	if (typeof document !== "undefined" && document.body) {
-		document.body.dataset.demo = "true";
+	const doc = getGlobalDocument();
+	if (doc?.body) {
+		doc.body.dataset.demo = "true";
 	}
 }
 
@@ -134,8 +156,9 @@ export function __resetDemoRegistry(): void {
 	if (typeof globalThis !== "undefined") {
 		(globalThis as JsonObject).__INTERLINKED_DEMO__ = [];
 	}
-	if (typeof document !== "undefined" && document.body) {
-		delete document.body.dataset.demo;
+	const doc = getGlobalDocument();
+	if (doc?.body) {
+		delete doc.body.dataset.demo;
 	}
 }
 
@@ -164,10 +187,11 @@ const DEFAULT_BANNER_STYLE =
 
 /** Public API — imperative mount; returns an unmount function. */
 export function mountDemoBanner(options: { container?: HTMLElement } = {}): () => void {
-	if (typeof document === "undefined") return () => undefined;
-	const container = options.container ?? document.body;
+	const doc = getGlobalDocument();
+	if (!doc) return () => undefined;
+	const container = options.container ?? getBody(doc);
 	if (!container) return () => undefined;
-	const el = document.createElement("div");
+	const el = doc.createElement("div");
 	el.dataset.interlinkedDemoBanner = "true";
 	el.setAttribute("role", "status");
 	el.setAttribute("aria-live", "polite");

@@ -252,7 +252,7 @@ export function formatComplexityPulse(
 	const after = profiles?.after;
 	if (after) {
 		line += `; cogΣ ${after.cogTotal}`;
-		const before = profiles?.before;
+		const before = profiles.before;
 		if (before) {
 			line += ` (Δ${signed(after.cogTotal - before.cogTotal)}); astΔ ${structuralDelta(before, after)}`;
 		}

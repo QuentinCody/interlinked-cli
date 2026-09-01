@@ -53,6 +53,24 @@ function colColdToolName(event: UnifiedHookEvent): string | null {
 	return null;
 }
 
+/** Resolve `event.context.cwd`, tolerating a malformed/missing `context`
+ *  (the static `UnifiedHookEvent` type marks it required, but this cold path
+ *  runs precisely when normal validation may not have — see the
+ *  "falls back to process.cwd() when event.context is absent" test). Reads
+ *  through `unknown` and narrows explicitly rather than relying on `?.`/`??`
+ *  against the (honest-elsewhere) required type. */
+function resolveColdCwd(event: UnifiedHookEvent): string {
+	const rawContext: unknown = event.context;
+	if (
+		typeof rawContext === "object" &&
+		rawContext !== null &&
+		typeof (rawContext as { cwd?: unknown }).cwd === "string"
+	) {
+		return (rawContext as { cwd: string }).cwd;
+	}
+	return process.cwd();
+}
+
 /** Filesystem functions handed to the shared write guards. The .mjs supplies
  *  its own; here they are this module's real `node:fs` / `node:path` imports. */
 const COLD_WRITE_DEPS: ColdWriteDeps = { existsSync, statSync, join: joinPath };
@@ -66,7 +84,7 @@ export function coldGraphShardBlockReason(event: UnifiedHookEvent): string | nul
 	if (event.phase !== PHASE_PRE_TOOL) return null;
 	const toolName = colColdToolName(event);
 	if (!toolName) return null;
-	const cwd = event.context?.cwd ?? process.cwd();
+	const cwd = resolveColdCwd(event);
 	const verdict = checkGraphShardWrite(toolName, coldWriteToolInput(event), cwd, COLD_WRITE_DEPS);
 	return verdict ? verdict.reason : null;
 }
@@ -78,9 +96,10 @@ function coldWriteToolInput(event: UnifiedHookEvent): ColdWriteToolInput {
 		return typeof action.path === "string" ? { file_path: action.path } : {};
 	}
 	if (action.kind !== ACTION_TOOL_CALL) return {};
-	// SAFETY: every field of ColdWriteToolInput is optional-unknown, so any
-	// tool_input object satisfies it; the guards type-check each value they read.
-	return (action.tool_input ?? {}) as ColdWriteToolInput;
+	// Every field of ColdWriteToolInput is optional-unknown, so the untyped
+	// tool_input object structurally satisfies it without a cast; the guards
+	// type-check each value they read.
+	return action.tool_input ?? {};
 }
 
 /** Cold fail-closed gate: refuse a file write whose content carries
@@ -177,7 +196,7 @@ export function coldPackageInstallBlockReason(event: UnifiedHookEvent): string |
 	if (!command) return null;
 	const installCommands = parseInstallCommands(command);
 	if (installCommands.length === 0) return null;
-	const cwd = event.context?.cwd || process.cwd();
+	const cwd = resolveColdCwd(event) || process.cwd();
 	const allowlist = loadAllowlist(cwd);
 	const decision = evaluatePackageInstall(installCommands, cwd, allowlist);
 	if (!decision || decision.decision !== "block") return null;
@@ -196,7 +215,7 @@ export function coldLargeFileBlockReason(event: UnifiedHookEvent): string | null
 	if (event.phase !== PHASE_PRE_TOOL) return null;
 	const action = event.action;
 	if (action.kind !== ACTION_TOOL_CALL) return null;
-	const cwd = event.context?.cwd || process.cwd();
+	const cwd = resolveColdCwd(event) || process.cwd();
 	// `checkLargeFileLineCountWrite` self-filters: it returns null for any input
 	// that isn't a file-write shape (no file_path / unknown tool), so no tool-name
 	// gate is needed here.

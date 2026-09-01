@@ -97,7 +97,7 @@ export interface RunCandidateArgs {
 export async function runCandidate(args: RunCandidateArgs): Promise<CandidateRunResult> {
 	const version =
 		typeof args.envelope.request_headers["anthropic-version"] === "string"
-			? (args.envelope.request_headers["anthropic-version"] as string)
+			? args.envelope.request_headers["anthropic-version"]
 			: "2023-06-01";
 	const headers: Record<string, string> = {
 		"content-type": "application/json",

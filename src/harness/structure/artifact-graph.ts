@@ -129,7 +129,7 @@ export class ArtifactGraph {
 
 			if (edge.kind === "documents") docs.push(companionNode);
 			else if (edge.kind === "tests") tests.push(companionNode);
-			else if (edge.kind === "illustrates") examples.push(companionNode);
+			else examples.push(companionNode);
 		}
 
 		return { docs, tests, examples };

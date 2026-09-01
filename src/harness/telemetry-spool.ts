@@ -208,7 +208,7 @@ export function redactSecretsShallow(event: SpoolEvent): SpoolEvent {
 export function truncateFilePaths(event: SpoolEvent): SpoolEvent {
 	const out = { ...event };
 	if (typeof out.file_path === "string" && out.file_path.length > 200) {
-		out.file_path = `${(out.file_path as string).slice(0, 200)}...`;
+		out.file_path = `${out.file_path.slice(0, 200)}...`;
 	}
 	return out;
 }

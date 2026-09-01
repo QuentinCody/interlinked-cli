@@ -138,7 +138,14 @@ export interface CoverageBaselineEntry {
 	scope: string | null;
 }
 
-function decodeBaselineValue(value: StoredBaselineValue | undefined): CoverageBaselineEntry | null {
+// `value` is typed via `StoredBaselineValue`, but it is decoded from an
+// on-disk JSON file read through `readJsonFile`'s cast-based (unvalidated)
+// contract — a hand-edited or corrupted baseline can genuinely put a literal
+// `null` where the type says "object", so this stays `| null` rather than
+// trusting the declared shape.
+function decodeBaselineValue(
+	value: StoredBaselineValue | null | undefined,
+): CoverageBaselineEntry | null {
 	if (typeof value === "number" && Number.isFinite(value)) {
 		return { fraction: value, scope: null };
 	}

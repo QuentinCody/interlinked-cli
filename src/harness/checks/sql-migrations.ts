@@ -163,7 +163,7 @@ const ADD_COLUMN_HELPER_RE =
 function collectCreateTables(text: string, schema: FileSchema): void {
 	for (const m of text.matchAll(CREATE_TABLE_RE)) {
 		const table = unquoteIdentifier(m[1] ?? "").toLowerCase();
-		const body = parenGroupBody(text, (m.index ?? 0) + m[0].length - 1);
+		const body = parenGroupBody(text, m.index + m[0].length - 1);
 		if (!table || body === null) continue;
 		schema.created.add(table);
 		for (const segment of topLevelSegments(body)) {
@@ -230,7 +230,7 @@ export function checkMigrationOrdering(content: string, filePath: string): Inlin
 			.filter((c) => c.length > 0);
 		if (referenced.length === 0) continue;
 		if (referenced.every((c) => declared.has(c))) continue;
-		pushFinding(matches, originalLines, lineOfOffset(text, m.index ?? 0));
+		pushFinding(matches, originalLines, lineOfOffset(text, m.index));
 	}
 	return matches;
 }
@@ -259,7 +259,7 @@ function insertViolations(text: string, schema: FileSchema): number[] {
 			.map((c) => unquoteIdentifier(c.trim()).toLowerCase())
 			.filter((c) => /^[a-z_][\w$]*$/.test(c));
 		if (listed.length === 0 || listed.every((c) => declared.has(c))) continue;
-		offsets.push(m.index ?? 0);
+		offsets.push(m.index);
 	}
 	return offsets;
 }
@@ -271,12 +271,12 @@ function updateViolations(text: string, schema: FileSchema): number[] {
 		const table = unquoteIdentifier(m[1] ?? "").toLowerCase();
 		if (!schema.created.has(table)) continue;
 		const declared = schema.columns.get(table) ?? new Set<string>();
-		const clause = setClauseText(text, (m.index ?? 0) + m[0].length);
+		const clause = setClauseText(text, m.index + m[0].length);
 		const targets = [...clause.matchAll(SET_TARGET_RE)]
 			.map((t) => (t[1] ?? "").toLowerCase())
 			.filter((t) => t.length > 0);
 		if (targets.length === 0 || targets.every((t) => declared.has(t))) continue;
-		offsets.push(m.index ?? 0);
+		offsets.push(m.index);
 	}
 	return offsets;
 }
@@ -331,9 +331,9 @@ export function checkVisibilityFilterMissing(content: string, filePath: string):
 		if (!schema.created.has(table)) continue;
 		const declared = schema.columns.get(table) ?? new Set<string>();
 		if (!SOFT_DELETE_COLUMNS.some((c) => declared.has(c))) continue;
-		const statement = statementExtent(text, m.index ?? 0).toLowerCase();
+		const statement = statementExtent(text, m.index).toLowerCase();
 		if (SOFT_DELETE_COLUMNS.some((c) => statement.includes(c))) continue;
-		pushFinding(matches, originalLines, lineOfOffset(text, m.index ?? 0));
+		pushFinding(matches, originalLines, lineOfOffset(text, m.index));
 	}
 	return matches;
 }

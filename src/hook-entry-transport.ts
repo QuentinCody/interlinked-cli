@@ -36,23 +36,17 @@ export async function callHookDaemon(args: HookDaemonCallArgs): Promise<HookDaem
 
 async function safeCallDaemon(args: HookDaemonCallArgs): Promise<HookDaemonCallResult> {
 	const client = createDaemonClient(args.socketPath);
-	let decision: HarnessDecision | null = null;
-	let reason = "";
-	const done = await client
-		.call(args.method, args.event, { timeout_ms: args.timeoutMs })
-		.then((value) => {
-			// SAFETY: callHookDaemon receives only methodForPhase outputs, whose
-			// RpcResult entries are all HarnessDecision; RpcMethod is wider only
-			// because daemon-protocol.ts also serves health and compiler methods.
-			decision = value as HarnessDecision;
-			return true;
-		})
-		.catch((err: Error) => {
-			reason = err.message;
-			return false;
+	try {
+		const value = await client.call(args.method, args.event, {
+			timeout_ms: args.timeoutMs,
 		});
-	if (done && decision) return { ok: true, decision };
-	return { ok: false, reason };
+		// SAFETY: callHookDaemon receives only methodForPhase outputs, whose
+		// RpcResult entries are all HarnessDecision; RpcMethod is wider only
+		// because daemon-protocol.ts also serves health and compiler methods.
+		return { ok: true, decision: value as HarnessDecision };
+	} catch (err) {
+		return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+	}
 }
 
 async function safeCallLegacy(

@@ -104,7 +104,7 @@ export function checkMagicNumbers(content: string, filePath: string): InlineMatc
 			if (ALLOWED.has(num)) continue;
 
 			// Skip if it's an array index: [123]
-			const before = nonNull(line).slice(Math.max(0, numMatch.index! - 1), numMatch.index);
+			const before = nonNull(line).slice(Math.max(0, numMatch.index - 1), numMatch.index);
 			if (before === "[") continue;
 
 			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });

@@ -339,7 +339,10 @@ function resolveBarePackageName(edge: ImportEdge): string | null {
 	if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("node:")) return null;
 	if (spec.startsWith("@/") || spec.startsWith("#") || spec.startsWith("~/")) return null;
 	// Skip if it resolves to a node_modules path (already found)
-	if (edge.toFile?.includes("/node_modules/")) return null;
+	// Real edges always set `toFile` to `""` (never undefined) when a
+	// specifier is unresolved — see project-graph.ts's `toFile: toFile || ""`
+	// — so the declared required `string` type is honest for real usage.
+	if (edge.toFile.includes("/node_modules/")) return null;
 
 	// Extract package name (handle scoped packages)
 	return spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : nonNull(spec.split("/")[0]);

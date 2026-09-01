@@ -151,7 +151,12 @@ function appendToolResponseChecks(
 	postDecision: HarnessDecision,
 	checksRan: string[],
 ): void {
-	if (!session || !event.tool_name) return;
+	// `session` is typed as required `SessionTrajectory`, but the
+	// "falsy-session guard" test proves a caller can genuinely pass a null
+	// session. Read it through `unknown` so the guard stays real instead
+	// of being lint-dead.
+	const sessionPresent: unknown = session;
+	if (!sessionPresent || !event.tool_name) return;
 	const toolName = event.tool_name;
 
 	// Silent-failure lint: tool returned 200/success but body signals error.

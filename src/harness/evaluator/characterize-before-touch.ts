@@ -155,7 +155,7 @@ export function evaluateCharacterizeForEvent(
 	// SAFETY: hook payloads type tool_input values as unknown; both path keys
 	// are strings when present, and non-strings fall through to "" (no gate).
 	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
-	const mode = rules.structural_checks?.characterize_mode ?? "warn";
+	const mode = rules.structural_checks.characterize_mode ?? "warn";
 	return evaluateCharacterizeBeforeTouch({
 		filePath,
 		cwd: event.cwd,

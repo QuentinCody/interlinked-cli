@@ -71,7 +71,7 @@ export async function appendFlakeCheckWarning(
 
 	const selectedTests = scopedTestsFor(ctx, editedFile);
 	const coverageDir = join(ctx.cwd, ".interlinked", "flake-coverage");
-	const timeoutMs = cfg.budget_ms ?? 25_000;
+	const timeoutMs = cfg.budget_ms;
 	const warning = await runFlakeDoubleCheck(() =>
 		runner.run({ projectRoot: ctx.cwd, coverageDir, selectedTests, timeoutMs }),
 	);

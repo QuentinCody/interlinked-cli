@@ -76,9 +76,9 @@ const EDIT_TOOL_NAMES = new Set(["write", "edit", "multiedit", "applypatch", "no
 /** A PreToolUse whose tool could trigger the per-edit coverage overlay. */
 export function isCodeEditEvent(event: UnifiedHookEvent): boolean {
 	const action = event.action as { kind?: string; tool_name?: string };
-	if (action?.kind === ACTION_FILE_OPERATION) return true;
+	if (action.kind === ACTION_FILE_OPERATION) return true;
 	return (
-		action?.kind === ACTION_TOOL_CALL &&
+		action.kind === ACTION_TOOL_CALL &&
 		EDIT_TOOL_NAMES.has((action.tool_name ?? "").toLowerCase().replace(/_/g, ""))
 	);
 }

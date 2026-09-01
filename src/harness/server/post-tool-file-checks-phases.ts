@@ -80,7 +80,6 @@ export async function runQualityPhase(
 	// --- Quality checks (tsc, lint, secrets — slower, subprocess-based) ---
 	// Capture baseline suppression count before quality checks consume it
 	let previousSuppressionCount = 0;
-	if (!rules.quality_checks) return previousSuppressionCount;
 
 	// Smart tsc: when only internal logic changed (no export surface change),
 	// still run tsc but filter output to only the edited file. This catches
@@ -197,7 +196,7 @@ export function runShotgunSurgeryPhase(
 	// --- Session-level taste check: shotgun surgery ---
 	// Threshold starts at 40 (not 25): adding a field to a shared interface
 	// naturally touches types + implementation + every test mock, easily 10-15 files.
-	if (session && session.files_written.size >= SHOTGUN_THRESHOLD) {
+	if (session.files_written.size >= SHOTGUN_THRESHOLD) {
 		const shotgunKey = `shotgun-surgery-${session.files_written.size >= SHOTGUN_THRESHOLD_HIGH ? "60" : "40"}`;
 		if (!isAcknowledged(session, "__session__", shotgunKey)) {
 			allCheckResults.push({
@@ -261,7 +260,7 @@ export function runStructureChecksPhase(
 				structRepoRoot,
 				ctx.structureGraph,
 				ctx.structureConfigCache,
-				session?.files_written,
+				session.files_written,
 			);
 			ctx.structureGraph = structResult.graph;
 			if (!ctx.structureConfigCache) {
@@ -278,16 +277,14 @@ export function runStructureChecksPhase(
 				);
 			}
 			// Record structure pending completions into session state
-			if (session) {
-				for (const pc of structResult.pendingCompletions) {
-					session.pending_completions.set(`struct:${pc.source_artifact_ref}`, {
-						source_file: pc.source_file,
-						affected_files: pc.required_companion_files,
-						resolved_files: new Set(pc.resolved_companion_files),
-						recorded_at_tool_call: session.tool_call_count,
-						description: `[structure] ${pc.finding_class}: ${pc.source_artifact_ref}`,
-					});
-				}
+			for (const pc of structResult.pendingCompletions) {
+				session.pending_completions.set(`struct:${pc.source_artifact_ref}`, {
+					source_file: pc.source_file,
+					affected_files: pc.required_companion_files,
+					resolved_files: new Set(pc.resolved_companion_files),
+					recorded_at_tool_call: session.tool_call_count,
+					description: `[structure] ${pc.finding_class}: ${pc.source_artifact_ref}`,
+				});
 			}
 		} catch (structErr) {
 			log(
@@ -318,11 +315,11 @@ export function runBehavioralPhase(
 	const { allCheckResults } = acc;
 
 	// --- Session-level behavioral checks ---
-	// Guard clause (was `if (session && editedFilePath) { ...whole body... }`):
-	// de-indenting the rest of the function is behavior-preserving here
-	// because the wrapped block was the last statement in the function —
-	// there is no fall-through code after it to skip.
-	if (!session || !editedFilePath) return;
+	// `session` is always a real object per its non-optional type — only
+	// `editedFilePath` (derived as `(... as string) || ""` upstream) can
+	// genuinely be falsy at runtime, so only that half of the old
+	// `!session || !editedFilePath` guard is a real early-return.
+	if (!editedFilePath) return;
 
 	// Capture fileContent once — both `countSuppressionDirectives`
 	// and `checkAssertionDensity` need it. Reading twice would

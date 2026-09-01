@@ -37,7 +37,7 @@ export function tokenizeKeyValue(line: string): KeyValueLine | null {
 }
 
 interface ParsedScalarOrList {
-	value: string |number | string[] | "unknown";
+	value: string | number | string[];
 	formatViolation: boolean;
 }
 
@@ -103,7 +103,7 @@ export function parseInlineValue(rest: string): ParsedScalarOrList {
 		}
 		return { value: items, formatViolation: false };
 	}
-	return { value: parseScalar(rest) as string | number, formatViolation: false };
+	return { value: parseScalar(rest), formatViolation: false };
 }
 
 export interface ListItemLine {

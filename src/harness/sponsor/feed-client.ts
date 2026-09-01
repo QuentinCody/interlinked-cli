@@ -108,7 +108,7 @@ export async function fetchFeedWire(
 ): Promise<string | null> {
 	const ctl = new AbortController();
 	const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
-	timer.unref?.();
+	timer.unref();
 	try {
 		const res = await fetchImpl(url, { signal: ctl.signal });
 		if (!res.ok) return null;
@@ -294,7 +294,7 @@ export async function flushBeacons(
 	try {
 		const ctl = new AbortController();
 		const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
-		timer.unref?.();
+		timer.unref();
 		const res = await fetchImpl(beaconUrl, {
 			method: "POST",
 			headers: { "content-type": "application/json" },

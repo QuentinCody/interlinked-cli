@@ -17,6 +17,7 @@ import {
 } from "./daemon-protocol.js";
 import type { EvaluateUnifiedContext } from "./evaluator-unified.js";
 import { evaluateUnified } from "./evaluator-unified.js";
+import { isJsonObject } from "../lib/json-types.js";
 import type { TsgoRunner } from "./tsgo-runner.js";
 import type { HarnessDecision } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
@@ -78,11 +79,16 @@ export async function dispatchRpc(
 	request: RpcRequest,
 	state: DispatcherState,
 ): Promise<RpcResponse | RpcError> {
-	if (request.schema_version !== PROTOCOL_VERSION) {
+	// `request` is cast from an untrusted wire object upstream (decodeFrame /
+	// session-daemon's `message as RpcRequest`), so schema_version isn't
+	// actually guaranteed to be the literal "1" at runtime — widen before
+	// comparing so this stays a real runtime check, not a tautology.
+	const receivedSchemaVersion: unknown = request.schema_version;
+	if (receivedSchemaVersion !== PROTOCOL_VERSION) {
 		return makeError(
 			request.id,
 			"schema_mismatch",
-			`unsupported schema_version ${JSON.stringify(request.schema_version)}`,
+			`unsupported schema_version ${JSON.stringify(receivedSchemaVersion)}`,
 			false,
 		);
 	}
@@ -115,7 +121,7 @@ export async function dispatchRpc(
 			return makeError(
 				request.id,
 				"unknown_method",
-				`unknown method: ${String((request as RpcRequest).method)}`,
+				`unknown method: ${String(request.method)}`,
 				true,
 			);
 	}
@@ -135,7 +141,7 @@ async function dispatchHookDecision<M extends HookDecisionMethod>(
 	request: RpcRequest<M>,
 	state: DispatcherState,
 ): Promise<RpcResponse<M> | RpcError> {
-	const event = request.params as UnifiedHookEvent;
+	const event = request.params;
 	const violations = validateUnifiedEvent(event);
 	if (violations.length > 0) {
 		return makeError(request.id, "bad_request", `invalid event: ${violations.join("; ")}`);
@@ -144,20 +150,20 @@ async function dispatchHookDecision<M extends HookDecisionMethod>(
 		const decision = await state.evaluateHook(event);
 		return {
 			id: request.id,
-			result: decision as RpcResult[M],
+			result: decision,
 		};
 	}
 	if (isLifecycleHookMethod(request.method)) {
 		return {
 			id: request.id,
-			result: { decision: "allow" } as RpcResult[M],
+			result: { decision: "allow" },
 		};
 	}
 	const ctx = state.getEvaluatorContext();
 	const decision = await evaluateUnified(event, ctx);
 	return {
 		id: request.id,
-		result: decision as RpcResult[M],
+		result: decision,
 	};
 }
 
@@ -169,8 +175,12 @@ async function dispatchTsgoCheck(
 	request: RpcRequest<"tsgo.check_file">,
 	state: DispatcherState,
 ): Promise<RpcResponse<"tsgo.check_file"> | RpcError> {
-	const params = request.params;
-	if (!params || typeof params.path !== "string" || params.path.length === 0) {
+	// `request.params` is typed as the required `{ path: string }` shape, but
+	// that's inherited from the same untrusted `as RpcRequest` cast at the
+	// socket boundary (session-daemon.ts) — a malformed client can send
+	// anything here, so widen before validating.
+	const params: unknown = request.params;
+	if (!isJsonObject(params) || typeof params.path !== "string" || params.path.length === 0) {
 		return makeError(request.id, "bad_request", "tsgo.check_file requires a path");
 	}
 	if (!state.tsgo.available()) {
@@ -184,9 +194,10 @@ async function dispatchTsgoSimulate(
 	request: RpcRequest<"tsgo.simulate_edit">,
 	state: DispatcherState,
 ): Promise<RpcResponse<"tsgo.simulate_edit"> | RpcError> {
-	const params = request.params;
+	// Same untrusted-boundary reasoning as dispatchTsgoCheck above.
+	const params: unknown = request.params;
 	if (
-		!params ||
+		!isJsonObject(params) ||
 		typeof params.path !== "string" ||
 		typeof params.old_string !== "string" ||
 		typeof params.new_string !== "string"

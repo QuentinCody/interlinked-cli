@@ -143,9 +143,13 @@ export function methodProves(method: ProofMethod): boolean {
 		);
 	}
 	if (method.kind === "bounded_exhaustive") {
-		return method.domainComplete === true && method.casesEnumerated > 0;
+		// `domainComplete` is literally typed `true` (see BoundedExhaustive) —
+		// the only thing left to check is that cases were actually enumerated.
+		return method.casesEnumerated > 0;
 	}
-	return method.result === "unsat" && method.queryHash.trim() !== "";
+	// `result` is literally typed "unsat" (see SmtRelational) — the only thing
+	// left to check is that the query is identifiable.
+	return method.queryHash.trim() !== "";
 }
 
 /** The state a certificate was proved against; a mismatch means it went stale. */

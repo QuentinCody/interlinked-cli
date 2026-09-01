@@ -33,7 +33,7 @@ function asObject(value: unknown): JsonObject | null {
 /** Append one string delta onto a block field (text/thinking/signature). */
 function appendString(block: JsonObject, field: string, piece: unknown): void {
 	if (typeof piece !== "string") return;
-	const prev = typeof block[field] === "string" ? (block[field] as string) : "";
+	const prev = typeof block[field] === "string" ? block[field] : "";
 	block[field] = prev + piece;
 }
 

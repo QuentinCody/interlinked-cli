@@ -29,7 +29,11 @@ interface SkillListSession {
 const SOCKET_TIMEOUT_MS = 2000;
 
 export async function skillEnterCommand(
-	name: string,
+	// `string`, not `string | undefined`, is what commander's `enter <name>`
+	// required-positional-arg wiring promises — but this function is exported
+	// and callable directly (tests do so deliberately), so a caller outside
+	// that one commander action can still hand `undefined` at runtime.
+	name: string | undefined,
 	opts: { ttl?: string; session?: string; source?: string; json?: boolean },
 ): Promise<void> {
 	const mode = getOutputMode(opts);
@@ -69,7 +73,10 @@ export async function skillEnterCommand(
 }
 
 export async function skillLeaveCommand(
-	name: string,
+	// See the comment on `skillEnterCommand` above: the type is honestly
+	// optional because this exported function can be called directly with
+	// `undefined`, not only through commander's required `<name>` arg.
+	name: string | undefined,
 	opts: { session?: string; json?: boolean },
 ): Promise<void> {
 	const mode = getOutputMode(opts);

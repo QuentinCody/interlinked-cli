@@ -236,8 +236,7 @@ export function parseMarkdownBullets(text: string): PlanStep[] {
 		steps.push(step);
 	};
 
-	for (const rawLine of lines) {
-		const line = rawLine ?? "";
+	for (const line of lines) {
 		const bulletMatch = BULLET_RE.exec(line);
 		if (bulletMatch) {
 			flush();

@@ -422,7 +422,7 @@ export class SidecarManager {
 				// best-effort
 			});
 		}, this.opts.idle_shutdown_ms);
-		this.idleTimer.unref?.();
+		this.idleTimer.unref();
 	}
 
 	/**
@@ -450,7 +450,7 @@ export class SidecarManager {
 				// best-effort
 			}
 		}, forceKillAfterMs);
-		killTimer.unref?.();
+		killTimer.unref();
 	}
 
 	// ---- status tracking ----------------------------------------------------

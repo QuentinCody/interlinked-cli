@@ -278,7 +278,7 @@ function pyStepStringMode(
 function pyStepCodeMode(ch: string | undefined, next3: string): PyStep {
 	if (ch === "#") return { text: " ", consumed: 1, mode: { kind: "line" } };
 	if (next3 === '"""' || next3 === "'''") {
-		return { text: next3, consumed: 3, mode: { kind: "string", delim: next3 as '"""' | "'''" } };
+		return { text: next3, consumed: 3, mode: { kind: "string", delim: next3 } };
 	}
 	if (ch === '"' || ch === "'") {
 		return { text: ch, consumed: 1, mode: { kind: "string", delim: ch } };

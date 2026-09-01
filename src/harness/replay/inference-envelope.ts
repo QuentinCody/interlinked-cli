@@ -99,10 +99,10 @@ interface BuildEnvelopeInput {
 export function buildEnvelope(input: BuildEnvelopeInput): InferenceEnvelope {
 	const split = splitRequestBody(input.requestBody);
 	const request: JsonObject = { params: split.params };
-	if (split.model !== undefined) request.model = split.model as JsonObject[string];
-	if (split.system !== undefined) request.system = split.system as JsonObject[string];
-	if (split.tools !== undefined) request.tools = split.tools as JsonObject[string];
-	if (split.messages !== undefined) request.messages = split.messages as JsonObject[string];
+	if (split.model !== undefined) request.model = split.model;
+	if (split.system !== undefined) request.system = split.system;
+	if (split.tools !== undefined) request.tools = split.tools;
+	if (split.messages !== undefined) request.messages = split.messages;
 
 	const latency = Date.parse(input.tsResponse) - Date.parse(input.tsRequest);
 	return {

@@ -57,7 +57,13 @@ export function isSuiteSourcedRed(
 	session: SessionTrajectory,
 	cycle: { red_at?: number | undefined; test_file: string | null },
 ): boolean {
-	const suite = session.test_runs?.get(ALL_TESTS_SENTINEL);
+	// SAFETY: `test_runs` is declared required on SessionTrajectory, but a
+	// caller can hand this a partially-hydrated session (cross-module callers
+	// in lifecycle-stop-warnings.ts do, for pre-check-existence sessions) —
+	// this cast keeps the read honest instead of asserting a guarantee that
+	// doesn't hold everywhere.
+	const testRuns = session.test_runs as SessionTrajectory["test_runs"] | undefined;
+	const suite = testRuns?.get(ALL_TESTS_SENTINEL);
 	if (!suite || suite.status !== "fail") return false;
 	if (cycle.red_at === undefined || cycle.red_at !== suite.at_step) return false;
 	// Only a targeted FAILURE recorded by the same run is sound per-file
@@ -73,7 +79,9 @@ function hasTargetedFailureAtRedStep(
 ): boolean {
 	if (!cycle.test_file || cycle.red_at === undefined) return false;
 	const cycleTestKey = normalizeCycleKey(cycle.test_file);
-	for (const [testFile, result] of session.test_runs ?? []) {
+	// SAFETY: see isSuiteSourcedRed above — same partially-hydrated-session case.
+	const testRuns = session.test_runs as SessionTrajectory["test_runs"] | undefined;
+	for (const [testFile, result] of testRuns ?? []) {
 		if (testFile === ALL_TESTS_SENTINEL) continue;
 		if (normalizeCycleKey(testFile) !== cycleTestKey) continue;
 		if (result.status === "fail" && result.at_step === cycle.red_at) return true;

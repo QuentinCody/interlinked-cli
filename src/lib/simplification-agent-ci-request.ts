@@ -250,9 +250,8 @@ function parseCanonicalStringList(
 		result.push(parsed);
 	}
 	if (new Set(result).size !== result.length) return { reason: `${location} must not contain duplicates` };
-	const canonical = options.order
-		? [...result].sort((left, right) => options.order!.indexOf(left) - options.order!.indexOf(right))
-		: [...result].sort();
+	const order = options.order;
+	const canonical = order ? [...result].sort((left, right) => order.indexOf(left) - order.indexOf(right)) : [...result].sort();
 	for (const [index, entry] of result.entries()) {
 		if (entry !== canonical[index]) return { reason: `${location} must use canonical ordering` };
 	}

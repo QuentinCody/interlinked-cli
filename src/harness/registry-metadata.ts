@@ -41,7 +41,7 @@ async function fetchJson(
 	url: string,
 	opts: NetworkOptions,
 	init?: RequestInit,
-): Promise<unknown | null> {
+): Promise<unknown> {
 	const fetchImpl = opts.fetchImpl ?? globalThis.fetch;
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);

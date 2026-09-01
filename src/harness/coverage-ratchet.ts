@@ -43,10 +43,13 @@ export interface CoverageSummary {
 }
 
 export interface FileCoverageEntry {
-	lines: CoverageMetric;
+	// `lines`/`branches` come off a JSON coverage-summary report read from disk
+	// (`loadCoverageSummary` casts the parsed JSON with `as CoverageSummary`),
+	// so a partial/hand-authored report can omit either key at runtime.
+	lines?: CoverageMetric;
 	statements?: CoverageMetric;
 	functions?: CoverageMetric;
-	branches: CoverageMetric;
+	branches?: CoverageMetric;
 }
 
 export interface CoverageMetric {

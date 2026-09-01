@@ -7,7 +7,6 @@
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { HarnessMode } from "../harness/rules/modes.js";
 import {
 	getConfigDir,
 	getDataDir,
@@ -46,7 +45,11 @@ export interface SharedConfig {
 	 * (per master plan Q&A: balanced → budget on Copilot CLI, → quality
 	 * elsewhere) so existing installs keep working without a manual edit.
 	 */
-	mode?: HarnessMode | string;
+	// Widened to `string` (not `HarnessMode | string`, which the type system
+	// treats as identical to `string`): known values are "budget" / "quality" /
+	// "ci" (see HarnessMode), plus the legacy "balanced" string that
+	// migrateLegacyMode() auto-migrates before use.
+	mode?: string;
 	/** Custom PII patterns for verify detection. */
 	pii_patterns?: Array<{ name: string; pattern: string; severity?: string }>;
 	/** Opt-in built-in PII patterns (e.g., "email", "phone_us", "ip_address"). */
@@ -77,8 +80,20 @@ export interface SharedConfig {
 	harness?: FeatureNode;
 }
 
-/** Recursive feature-flag node — any nested object whose leaves are booleans. */
-export type FeatureNode = { [key: string]: boolean | FeatureNode };
+/**
+ * Recursive feature-flag node — any nested object whose leaves are booleans.
+ * `null` is included because this shape is read straight off disk via
+ * `JSON.parse`; a hand-edited or partially-written config.json can legally
+ * carry `null` at any branch, and the declared type must say so rather than
+ * lying about a boundary the reader has to guard anyway.
+ */
+export type FeatureNode = { [key: string]: boolean | FeatureNode | null };
+
+/** A branch node of the feature tree: an object, not a leaf boolean and not
+ *  the on-disk `null` a hand-edited config can carry at any depth. */
+function isFeatureNode(value: boolean | FeatureNode | null | undefined): value is FeatureNode {
+	return typeof value === "object" && value !== null;
+}
 
 export interface ServerEntry {
 	server_url: string;
@@ -262,14 +277,16 @@ export function isFeatureEnabled(
 		const segments = path.split(".");
 		// Path always starts with "harness."; skip the first segment.
 		if (segments[0] === "harness") {
-			let cursor: boolean | FeatureNode | undefined = config.harness;
+			let cursor: boolean | FeatureNode | null | undefined = config.harness;
 			for (let i = 1; i < segments.length; i++) {
-				if (typeof cursor !== "object" || cursor === null) {
+				// `null` is a legal on-disk branch value; the predicate folds the
+				// typeof + null checks so the walk reads as "still a branch?".
+				if (!isFeatureNode(cursor)) {
 					cursor = undefined;
 					break;
 				}
-				cursor = (cursor as FeatureNode)[segments[i] as string];
-				if (cursor === undefined) break;
+				cursor = cursor[segments[i] as string];
+				if (cursor === undefined || cursor === null) break;
 			}
 			if (typeof cursor === "boolean") return cursor;
 		}

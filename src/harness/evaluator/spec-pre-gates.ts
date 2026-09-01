@@ -50,11 +50,14 @@ export function projectAfterContent(
 	if (toolName === "Write") {
 		return typeof toolInput.content === "string" ? toolInput.content : null;
 	}
-	const edits: EditShape[] =
+	// toolInput comes from the untrusted tool-call payload (agent/hook JSON), so
+	// individual edit entries can genuinely be null/undefined at runtime despite
+	// the `as` cast below asserting EditShape — the !e guard is load-bearing.
+	const edits: (EditShape | null | undefined)[] =
 		toolName === "Edit"
-			? [toolInput as EditShape]
+			? [toolInput]
 			: Array.isArray(toolInput.edits)
-				? (toolInput.edits as EditShape[])
+				? (toolInput.edits as (EditShape | null | undefined)[])
 				: [];
 	let after = before;
 	for (const e of edits) {

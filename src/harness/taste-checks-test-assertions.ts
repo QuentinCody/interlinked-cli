@@ -237,7 +237,7 @@ function isExemptCastAccess(ident: string, tail: string): boolean {
 /** Any non-exempt `(x as any).member` on this (string-stripped) line? */
 function hasCastAnyViolation(line: string): boolean {
 	for (const m of line.matchAll(CAST_ANY_ACCESS)) {
-		const tail = line.slice((m.index ?? 0) + m[0].length);
+		const tail = line.slice(m.index + m[0].length);
 		if (!isExemptCastAccess(nonNull(m[1]), tail)) return true;
 	}
 	return false;
@@ -249,10 +249,10 @@ function hasCastAnyViolation(line: string): boolean {
  *  closing paren is required. */
 function hasCastUnknownViolation(line: string): boolean {
 	for (const m of line.matchAll(CAST_UNKNOWN_START)) {
-		const after = line.slice((m.index ?? 0) + m[0].length);
+		const after = line.slice(m.index + m[0].length);
 		const close = CAST_UNKNOWN_ACCESSOR.exec(after);
 		if (!close) continue;
-		const tail = after.slice((close.index ?? 0) + 1);
+		const tail = after.slice(close.index + 1);
 		if (!isExemptCastAccess(nonNull(m[1]), tail)) return true;
 	}
 	return false;

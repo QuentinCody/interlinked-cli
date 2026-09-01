@@ -63,8 +63,7 @@ export function addSponsorSpinnerVerb(settingsPath: string, verb: string): Spinn
 			? existing.verbs.filter((v): v is string => typeof v === "string")
 			: [];
 	if (!verbs.includes(clean)) verbs.push(clean);
-	const mode =
-		existing && typeof existing.mode === "string" ? (existing.mode as string) : "append";
+	const mode = existing && typeof existing.mode === "string" ? existing.mode : "append";
 	settings.spinnerVerbs = { mode, verbs };
 	try {
 		writeSettings(settingsPath, settings);

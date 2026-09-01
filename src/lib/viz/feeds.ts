@@ -81,7 +81,7 @@ function createRunsTailer(
 			}
 		}
 	}, pollMs);
-	iv.unref?.();
+	iv.unref();
 	return { stop: () => clearInterval(iv) };
 }
 

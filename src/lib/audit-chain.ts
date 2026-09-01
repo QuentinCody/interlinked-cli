@@ -76,7 +76,13 @@ export interface AuditVerifyResult {
  * don't rely on that). Keys at every level are sorted lexicographically.
  */
 export function canonicalJson(value: unknown): string {
-	if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+	// lib.es5's `JSON.stringify` signature claims a `string` return
+	// unconditionally, but at runtime it returns `undefined` for
+	// `undefined`/function/symbol inputs — the declared type lies here, so
+	// the undefined case is handled explicitly rather than via `?? "null"`
+	// (which type-checks as dead code against the dishonest signature).
+	if (value === undefined) return "null";
+	if (value === null || typeof value !== "object") return JSON.stringify(value);
 	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
 	const obj = value as JsonObject;
 	const keys = Object.keys(obj).sort();

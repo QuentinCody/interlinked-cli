@@ -10,10 +10,6 @@ import {
 	captureMutationOverlaySource,
 	type CapturedMutationOverlaySource,
 } from "./mutation-cloud-v3-overlay-source.js";
-import {
-	MUTATION_ONBOARDING_ARCHIVE_PREFIX,
-	MUTATION_ONBOARDING_SOURCE_FORMAT,
-} from "./mutation-cloud-v3-onboarding-source.js";
 import { canonicalJson } from "./protocol-v3/canonical.js";
 import { checkBoundedString } from "./protocol-v3/field-checks.js";
 import {
@@ -89,12 +85,6 @@ function assertCaptureBindings(args: {
 	}
 	if (captured.targetFile !== args.targetFile) {
 		throw new Error("mutation per-edit capture has a foreign target identity");
-	}
-	if (
-		captured.format !== MUTATION_ONBOARDING_SOURCE_FORMAT ||
-		captured.archivePrefix !== MUTATION_ONBOARDING_ARCHIVE_PREFIX
-	) {
-		throw new Error("mutation per-edit capture has a foreign source artifact format");
 	}
 	if (!equalBytes(captured.targetBytes, args.proposedBytes)) {
 		throw new Error("mutation per-edit capture target bytes differ from the proposed edit");

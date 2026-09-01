@@ -183,6 +183,7 @@ function displaySuppressions(interlinkedDir: string): void {
 	);
 	for (const [filePath, checks] of entries.sort((a, b) => a[0].localeCompare(b[0]))) {
 		process.stderr.write(`  \x1b[36m${filePath}\x1b[0m\n`);
+		if (!checks) continue;
 		for (const [checkName, entry] of Object.entries(checks).sort((a, b) =>
 			a[0].localeCompare(b[0]),
 		)) {

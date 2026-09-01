@@ -94,7 +94,7 @@ export function* iterateFileLines(
 	try {
 		const chunk = Buffer.allocUnsafe(chunkBytes);
 		let carry = Buffer.alloc(0);
-		while (true) {
+		for (;;) {
 			const read = readSync(fd, chunk, 0, chunk.length, null);
 			if (read <= 0) break;
 			const data = Buffer.concat([carry, chunk.subarray(0, read)]);
@@ -114,26 +114,51 @@ export function* iterateFileLines(
 	}
 }
 
+/** SAFETY: manifest.json is disk-controlled JSON — its shape is `unknown` at
+ *  compile time regardless of what a naive type annotation would claim, so
+ *  every field is narrowed with `typeof`/`Array.isArray` before use. */
+function auditSegmentSeq(segment: unknown): number {
+	if (segment === null || typeof segment !== "object") return 0;
+	const seq = (segment as { seq?: unknown }).seq;
+	return typeof seq === "number" ? seq : 0;
+}
+
 function readArchivedSegmentPointers(cwd: string): ArchivedSegmentPointer[] {
 	const dir = join(getDataDir(cwd), "archive");
 	const manifestPath = join(dir, "manifest.json");
 	if (!existsSync(manifestPath)) return [];
-	let parsed: { segments?: Array<{ file?: string; seq?: number }> };
+	// JSON.parse's result is `unknown` in substance no matter what shape we'd
+	// like it to be — a hand-edited or corrupted manifest can hand back
+	// anything, so `parsed` stays unknown and every field below is narrowed
+	// before use instead of trusted from a declared type.
+	let parsed: unknown;
 	try {
 		const manifest = readBoundedFileSync(manifestPath, MAX_SYNC_ARCHIVE_BYTES);
 		parsed = JSON.parse(manifest.toString("utf-8"));
 	} catch (error) {
 		throw new ManifestReadError(manifestPath, error, { cause: error });
 	}
-	if (parsed === null || typeof parsed !== "object" || !Array.isArray(parsed.segments)) {
+	// SAFETY: parsed is unknown disk-controlled JSON; narrowed via typeof
+	// before the field read.
+	const segmentsField =
+		parsed !== null && typeof parsed === "object"
+			? (parsed as { segments?: unknown }).segments
+			: undefined;
+	if (!Array.isArray(segmentsField)) {
 		throw new ManifestReadError(manifestPath, "segments is not an array");
 	}
-	const segments = [...parsed.segments].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+	const segments = [...segmentsField].sort((a: unknown, b: unknown) => auditSegmentSeq(a) - auditSegmentSeq(b));
 	return segments.map((segment, index) => {
-		if (segment === null || typeof segment !== "object" || typeof segment.file !== "string") {
+		// SAFETY: segment is unknown disk-controlled JSON; narrowed via typeof
+		// before the field read.
+		const file =
+			segment !== null && typeof segment === "object"
+				? (segment as { file?: unknown }).file
+				: undefined;
+		if (typeof file !== "string") {
 			throw new ManifestReadError(manifestPath, `segment entry ${index} has no file`);
 		}
-		return { file: segment.file, path: join(dir, segment.file) };
+		return { file, path: join(dir, file) };
 	});
 }
 

@@ -7,7 +7,7 @@
 
 import { execFile } from "node:child_process";
 import type { SuiteRunner } from "../harness/mutation/baseline-suite.js";
-import type { MeasureOutcome, SurvivorEntry } from "../harness/mutation/measure.js";
+import type { FileSurvivorSummary, MeasureOutcome, SurvivorEntry } from "../harness/mutation/measure.js";
 import type { MutationTestScopeResult } from "../harness/mutation/test-scope.js";
 import type { MeasurementScope, MeasurementSurface } from "../harness/mutation/types.js";
 import { c, header, kvLine } from "../lib/formatter.js";
@@ -195,7 +195,11 @@ export async function maybeRecordMeasurement(args: {
 	return {
 		recorded: rec.recorded,
 		...(rec.reason !== undefined ? { reason: rec.reason } : {}),
-		...(rec.before !== undefined ? { before: rec.before } : {}),
+		// SAFETY: RecordOutcome declares `before` as required, but callers
+		// (proven by the mutation-kill test covering this line) can supply a
+		// mocked/partial outcome that omits it — widened locally so the
+		// conditional spread reflects reality.
+		...((rec.before as FileSurvivorSummary | undefined) !== undefined ? { before: rec.before } : {}),
 		...(rec.after !== undefined ? { after: rec.after } : {}),
 	};
 }

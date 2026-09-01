@@ -16,11 +16,14 @@ import type { CheckResult, ToolRunnerInput } from "../types.js";
 //    "severity": "Warning", "type": "Force Cast", "rule_id": "force_cast",
 //    "reason": "Force casts should be avoided." }]
 
+// Untrusted swiftlint --reporter json output — only `character` was
+// previously marked optional, but `severity` is read defensively below
+// (f.severity?.toLowerCase()) because real swiftlint output can omit it too.
 interface SwiftLintFinding {
 	file: string;
 	line: number;
 	character?: number;
-	severity: string;
+	severity?: string;
 	type: string;
 	rule_id: string;
 	reason: string;

@@ -47,7 +47,7 @@ export async function readBoundedBytes(
 	const reader = response.body.getReader();
 	let offset = 0;
 	try {
-		while (true) {
+		for (;;) {
 			const next = await reader.read();
 			if (next.done) break;
 			if (offset + next.value.byteLength > bytes.byteLength) {

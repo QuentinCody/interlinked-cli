@@ -176,9 +176,20 @@ export function pendingHandlesFrom(err: unknown): PendingHandle[] {
 		typeof (v as PendingHandle).runnerUrl === "string";
 
 	if (isHandle(err)) return [err];
-	const nested = (err as { pending?: unknown })?.pending;
+	const nested = errRecord(err)?.pending;
 	if (Array.isArray(nested)) return nested.filter(isHandle);
 	return [];
+}
+
+/**
+ * Narrow an `unknown` thrown value to a plain object, or `undefined` if it
+ * isn't one — `err` genuinely can be `null`/a primitive/anything at runtime
+ * (it comes from a `catch`), so every field read below goes through this
+ * instead of an `as {..}` cast that would silently assert non-nullish-ness
+ * the type checker can't actually verify.
+ */
+function errRecord(err: unknown): Record<string, unknown> | undefined {
+	return typeof err === "object" && err !== null ? (err as Record<string, unknown>) : undefined;
 }
 
 /**
@@ -217,7 +228,7 @@ function notMeasuredReason(err: unknown, pendingCount: number): string {
  * say.
  */
 function describeRunnerFailure(err: unknown): string {
-	const message = (err as { message?: unknown })?.message;
+	const message = errRecord(err)?.message;
 	if (typeof message !== "string" || message.trim() === "") return "the mutation runner failed";
 	return `the mutation runner failed — ${message.trim()}`;
 }
@@ -233,17 +244,17 @@ function describeRunnerFailure(err: unknown): string {
  * stays free of an import cycle with the runners it evaluates.
  */
 function isRunnerBusy(err: unknown): boolean {
-	const name = (err as { name?: unknown })?.name;
+	const name = errRecord(err)?.name;
 	if (name === "MutationRunnerBusyError") return true;
-	const message = (err as { message?: unknown })?.message;
+	const message = errRecord(err)?.message;
 	return typeof message === "string" && /\bHTTP 503\b/.test(message);
 }
 
 /** Structural read, so this module stays free of an import cycle with the runners. */
 function notMeasurableReasonOf(err: unknown): string | null {
-	const name = (err as { name?: unknown })?.name;
+	const name = errRecord(err)?.name;
 	if (name !== "MutationNotMeasurableError") return null;
-	const reason = (err as { reason?: unknown })?.reason;
+	const reason = errRecord(err)?.reason;
 	return typeof reason === "string" && reason !== "" ? reason : "unspecified";
 }
 

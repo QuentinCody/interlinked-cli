@@ -378,7 +378,6 @@ function publishPlainRotation(input: PublishPlainRotationInput): PlainCompactRes
 	const gzipSha256 = sha256File(gzipTemporary);
 	let segment: ArchiveSegment | undefined;
 	let publishedClaim: RotationClaim | undefined;
-	let createdClaim = false;
 	try {
 		const prepared = replaceFileWithSuffix(logPath, plan.cutByte, {
 			expectedSource: source,
@@ -402,7 +401,6 @@ function publishPlainRotation(input: PublishPlainRotationInput): PlainCompactRes
 				};
 				publishedClaim = claim;
 				createRotationClaim(archiveDir, claim);
-				createdClaim = true;
 				publishOrVerifyClaimedSegment({
 					temporary: gzipTemporary,
 					finalPath: join(archiveDir, file),
@@ -425,7 +423,7 @@ function publishPlainRotation(input: PublishPlainRotationInput): PlainCompactRes
 			publishedClaim,
 		);
 		if (!conflict) throw error;
-		if (conflict.abandonClaim && createdClaim) removeRotationClaim(archiveDir, log);
+		if (conflict.abandonClaim && publishedClaim !== undefined) removeRotationClaim(archiveDir, log);
 		return skippedPlainResult(log, fileSize, conflict.reason);
 	} finally {
 		unlinkTemporary(gzipTemporary);

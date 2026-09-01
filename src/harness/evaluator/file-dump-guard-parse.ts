@@ -30,7 +30,7 @@ export function firstCommandGroup(command: string): string {
 			continue;
 		}
 		if (ch === '"' || ch === "'" || ch === "`") {
-			q = ch as '"' | "'" | "`";
+			q = ch;
 			continue;
 		}
 		if (ch === ";" || ch === "\n") return command.slice(0, i);
@@ -56,7 +56,7 @@ export function splitPipeline(command: string): string[] {
 			continue;
 		}
 		if (ch === '"' || ch === "'" || ch === "`") {
-			q = ch as '"' | "'" | "`";
+			q = ch;
 			buf += ch;
 			continue;
 		}
@@ -92,7 +92,7 @@ export function tokenize(segment: string): string[] {
 			continue;
 		}
 		if (ch === '"' || ch === "'") {
-			q = ch as '"' | "'";
+			q = ch;
 			continue;
 		}
 		if (/\s/.test(ch)) {
@@ -160,7 +160,7 @@ export function hasOutputRedirect(command: string): boolean {
 			continue;
 		}
 		if (ch === '"' || ch === "'" || ch === "`") {
-			q = ch as '"' | "'" | "`";
+			q = ch;
 			continue;
 		}
 		if (ch === ">") {

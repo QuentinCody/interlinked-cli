@@ -42,7 +42,7 @@ type TypeOnlyTopLevelMode = "import-type" | "type" | "interface";
 function hasOnlyTypeLevelTopLevelStatements(code: string): boolean {
 	let offset = 0;
 
-	while (true) {
+	for (;;) {
 		offset = skipWhitespace(code, offset);
 		if (offset >= code.length) return true;
 

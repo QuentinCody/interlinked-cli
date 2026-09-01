@@ -30,8 +30,8 @@ function recordRow(
 ): void {
 	recordHarnessCaught({
 		check_id: checkId,
-		agent_source: event.agent_source ?? "unknown",
-		session_id: event.session_id ?? "unknown",
+		agent_source: event.agent_source,
+		session_id: event.session_id,
 		file,
 		cwd: event.cwd,
 		phase,

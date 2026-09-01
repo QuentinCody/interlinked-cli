@@ -42,7 +42,7 @@ export function buildBatchSummary(events: LocalActivityEvent[]): BatchSummary {
 
 	const topTools = Object.entries(byTool)
 		.sort((a, b) => b[1] - a[1])
-		.slice(0, 5) as [string, number][];
+		.slice(0, 5);
 
 	return { byType, byAgent, byTool, topTools, sessions, earliest, latest };
 }

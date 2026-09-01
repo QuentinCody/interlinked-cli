@@ -57,7 +57,7 @@ function wrapperDrafts(file: SourceFile): SimplificationCandidateDraft[] {
 		const name = match[2] ?? "wrapper";
 		const target = match[3] ?? "delegate";
 		if (target.split(".").at(-1) === name) continue;
-		const line = lineAt(stripped, match.index ?? 0);
+		const line = lineAt(stripped, match.index);
 		drafts.push({
 			source: "opportunity.delegate_only_wrapper",
 			remedy: "shrink",
@@ -65,7 +65,7 @@ function wrapperDrafts(file: SourceFile): SimplificationCandidateDraft[] {
 			confidence: 0.35,
 			path: file.relative,
 			startLine: line,
-			endLine: line + (match[0]?.split("\n").length ?? 1) - 1,
+			endLine: line + match[0].split("\n").length - 1,
 			key: `${name}:${target}`,
 			summary: `Private function \`${name}\` only delegates to \`${target}\` in the parsed body.`,
 			replacement: "Inline or remove only after checking call-site semantics and the boundary's intent.",
@@ -89,7 +89,7 @@ function factoryDrafts(file: SourceFile): SimplificationCandidateDraft[] {
 		if (match[1]) continue;
 		const name = match[2] ?? "factory";
 		const product = match[3] ?? "product";
-		const line = lineAt(stripped, match.index ?? 0);
+		const line = lineAt(stripped, match.index);
 		drafts.push({
 			source: "opportunity.one_product_factory",
 			remedy: "yagni",
@@ -97,7 +97,7 @@ function factoryDrafts(file: SourceFile): SimplificationCandidateDraft[] {
 			confidence: 0.3,
 			path: file.relative,
 			startLine: line,
-			endLine: line + (match[0]?.split("\n").length ?? 1) - 1,
+			endLine: line + match[0].split("\n").length - 1,
 			key: `${name}:${product}`,
 			summary: `Private factory \`${name}\` has one statically visible product, \`${product}\`.`,
 			replacement: `Construct \`${product}\` directly only if no framework, test-seam, or future contract requires the factory.`,

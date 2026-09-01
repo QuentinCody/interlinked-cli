@@ -88,7 +88,7 @@ async function withPromptFile<T>(content: string, action: (path: string) => Prom
 }
 
 function uniqueSeparator(inputs: string[]): string {
-    while (true) {
+    for (;;) {
         const marker = `<|interlinked:${randomUUID()}|>`;
         if (inputs.every((input) => !input.includes(marker))) return marker;
     }

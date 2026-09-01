@@ -289,9 +289,13 @@ export function createCloudMutationRunner(config: CloudRunnerConfig, fetchImpl: 
 		run: async (file, overlayContent, overlays, options) => {
 			const controller = new AbortController();
 			const jobId = mintJobId();
-			let timedOut = false;
+			// A bare `let` mutated only inside the setTimeout callback below is
+			// invisible to TS's control-flow analysis at the read site in the catch
+			// block — it wrongly proves that read always false. Routing the mutation
+			// through an object property keeps the (real) runtime possibility honest.
+			const timeoutState = { timedOut: false };
 			const timer = setTimeout(() => {
-				timedOut = true;
+				timeoutState.timedOut = true;
 				controller.abort();
 			}, config.timeoutMs);
 			try {
@@ -360,7 +364,7 @@ export function createCloudMutationRunner(config: CloudRunnerConfig, fetchImpl: 
 				// is still working and the result is retained under our job id, so
 				// surface a handle the caller can harvest in its next window instead
 				// of throwing away work that is already paid for.
-					if (timedOut) throw new MutationRunPendingError(jobId, config.url, err);
+					if (timeoutState.timedOut) throw new MutationRunPendingError(jobId, config.url, err);
 				throw err;
 			} finally {
 				clearTimeout(timer);

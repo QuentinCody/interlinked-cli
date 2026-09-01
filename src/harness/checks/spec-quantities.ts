@@ -105,7 +105,7 @@ function checkTable(table: TableBlock, out: InlineMatch[]): void {
 	const totalRow = table.rows.find((r) => TOTAL_LABEL_RE.test(r.cells[0] ?? ""));
 	if (!totalRow || table.rows.length < 3) return;
 	const dataRows = table.rows.filter((r) => r !== totalRow && r !== table.rows[0]);
-	for (let col = 1; col < (totalRow.cells.length ?? 0); col++) {
+	for (let col = 1; col < totalRow.cells.length; col++) {
 		const stated = numericCell(totalRow.cells[col] ?? "");
 		if (stated === null) continue;
 		let sum = 0;

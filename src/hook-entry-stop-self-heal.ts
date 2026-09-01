@@ -77,5 +77,5 @@ export function attemptSelfHealOnStop(
 	const now = (clock.now ?? Date.now)();
 	const lastAt = (clock.lastLedgerEventAt ?? defaultLastLedgerEventAt)(root);
 	if (now - lastAt < STOP_SELF_HEAL_MIN_DOWN_MS) return "not-applicable";
-	return attemptDaemonSelfHeal(cwd ?? event.context?.cwd, env, deps);
+	return attemptDaemonSelfHeal(cwd ?? event.context.cwd, env, deps);
 }

@@ -30,8 +30,11 @@ function loadPopularPackagesData(): readonly string[] {
 		];
 		for (const p of candidates) {
 			if (!existsSync(p)) continue;
+			// Side-loaded JSON off disk: an entry in `packages` can legally be
+			// `null` (hand-edited or partially-written data file), so the type
+			// says so and the reader guards it rather than trusting the shape.
 			const json = JSON.parse(readFileSync(p, "utf-8")) as {
-				packages?: Array<{ name?: unknown }>;
+				packages?: Array<{ name?: unknown } | null>;
 			};
 			if (!Array.isArray(json.packages)) return [];
 			return json.packages
@@ -413,8 +416,8 @@ export function checkTyposquatDependencies(pkgJsonPath: string): InlineMatch[] {
 	}
 
 	const allDeps: Record<string, string> = {
-		...((pkg.dependencies as Record<string, string>) || {}),
-		...((pkg.devDependencies as Record<string, string>) || {}),
+		...((pkg.dependencies as Record<string, string> | undefined) || {}),
+		...((pkg.devDependencies as Record<string, string> | undefined) || {}),
 	};
 
 	const depNames = Object.keys(allDeps);

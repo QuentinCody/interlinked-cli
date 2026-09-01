@@ -137,7 +137,7 @@ function isExternalCommCandidate(candidate: Readonly<HarnessEvent>): boolean {
 		return NON_LOCALHOST_HTTP_URL.test(cmd);
 	}
 	if (MCP_TOOL_NAME.test(toolName)) {
-		return inputContainsUrl(candidate.tool_input as JsonObject | undefined);
+		return inputContainsUrl(candidate.tool_input);
 	}
 	return false;
 }

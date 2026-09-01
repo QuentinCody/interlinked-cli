@@ -44,7 +44,11 @@ export interface FindingRule extends GuardRule {
 
 interface FindingRulesFile {
 	version?: number;
-	rules?: FindingRule[];
+	// Raw parsed JSON, not yet validated — a hand-edited or LLM-authored
+	// findings-rules.json can carry any shape here, so this stays `unknown[]`
+	// rather than `FindingRule[]` (an honest boundary type, not a lie the
+	// no-unnecessary-condition checks below would then have to work around).
+	rules?: unknown[];
 }
 
 interface RuleModification {
@@ -68,8 +72,12 @@ function findingRulesOverridesPath(cwd: string): string {
 	return join(cwd, ".interlinked", "findings-rules.overrides.json");
 }
 
-function normalizeFindingRuleSource(source: FindingRuleSource | undefined): FindingRuleSource | undefined {
-	if (!source || source.kind !== "finding") return undefined;
+// `rawSource` is unvalidated JSON — the raw file may have any `kind`, or not
+// even be an object — so this is honestly `unknown`, not `FindingRuleSource`.
+function normalizeFindingRuleSource(rawSource: unknown): FindingRuleSource | undefined {
+	if (!rawSource || typeof rawSource !== "object") return undefined;
+	const source = rawSource as Partial<FindingRuleSource>;
+	if (source.kind !== "finding" || typeof source.bug_class !== "string") return undefined;
 	const normalized: FindingRuleSource = {
 		kind: "finding",
 		bug_class: source.bug_class,
@@ -86,7 +94,7 @@ function normalizeFindingRuleSource(source: FindingRuleSource | undefined): Find
 }
 
 function copyStringSourceField(
-	source: FindingRuleSource,
+	source: Partial<FindingRuleSource>,
 	target: FindingRuleSource,
 	key: string,
 ): void {
@@ -122,33 +130,48 @@ export function loadFindingRules(cwd: string): GuardRule[] {
 	const mods = overrides.modifications ?? {};
 
 	const out: GuardRule[] = [];
-	for (const raw of file.rules) {
-		if (!raw || typeof raw !== "object" || !raw.id) continue;
-		if (removed.has(raw.id)) continue;
+	for (const entry of file.rules) {
+		if (!entry || typeof entry !== "object") continue;
+		// `entry` is unvalidated JSON at this point; `id` is the one field we
+		// must confirm before trusting the rest of the shape below.
+		const raw = entry as Record<string, unknown>;
+		if (typeof raw.id !== "string" || !raw.id) continue;
+		const id = raw.id;
+		if (removed.has(id)) continue;
 
 		// ReDoS gate — a finding rule's regex is LLM-authored from arbitrary
 		// review prose; a nested-quantifier shape would hang the daemon. Same
 		// guard as distilled rules. Skip the whole rule + one stderr line.
 		const patterns = Array.isArray(raw.patterns) ? raw.patterns : [];
-		const unsafe = patterns.find((p) => p && typeof p.regex === "string" && looksLikeReDoS(p.regex));
-		if (unsafe) {
-			process.stderr.write(
-				`[interlinked] skipping finding rule ${raw.id}: ReDoS-prone pattern ${
-					unsafe.regex?.slice(0, 120) ?? ""
-				}\n`,
-			);
+		const unsafeRegex = findUnsafePatternRegex(patterns);
+		if (unsafeRegex !== undefined) {
+			process.stderr.write(`[interlinked] skipping finding rule ${id}: ReDoS-prone pattern ${unsafeRegex.slice(0, 120)}\n`);
 			continue;
 		}
 
-		const rule: FindingRule = { ...raw };
+		const rule: FindingRule = { ...(raw as unknown as FindingRule), id };
 		const source = normalizeFindingRuleSource(raw.source);
 		delete rule.source;
 		if (source) rule.source = source;
-		applyRuleModification(rule, mods[raw.id]);
-		rule.enabled = disabled.has(raw.id) ? false : raw.enabled !== false;
+		applyRuleModification(rule, mods[id]);
+		rule.enabled = disabled.has(id) ? false : raw.enabled !== false;
 		if (rule.enabled) out.push(rule); // return only the active set
 	}
 	return out;
+}
+
+/**
+ * First ReDoS-prone `regex` field found among unvalidated pattern entries, or
+ * `undefined` if none. Entries are raw JSON — each `p` may not even be an
+ * object — so every access here is a real (not type-proven) narrowing.
+ */
+function findUnsafePatternRegex(patterns: unknown[]): string | undefined {
+	for (const p of patterns) {
+		if (!p || typeof p !== "object") continue;
+		const regex = (p as Record<string, unknown>).regex;
+		if (typeof regex === "string" && looksLikeReDoS(regex)) return regex;
+	}
+	return undefined;
 }
 
 /** Public API — paths watched by `watchRulesFiles()` so changes hot-reload. */

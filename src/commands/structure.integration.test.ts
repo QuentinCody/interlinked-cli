@@ -1520,7 +1520,12 @@ describe("structure.ts mutation survivors", () => {
 
 	it("accept preserves optional artifact configuration and exact empty skip results", async () => {
 		loadStructureConfig.mockReturnValue({
-			config: { ...fullConfig(), artifacts: undefined },
+			// `artifacts: {}` — not `undefined` — is the real "no artifacts
+			// declared" state: both getImplicitConfig() and
+			// resolveStructureConfig() always default this field to an empty
+			// object, never leave it absent (StructureConfig.artifacts is a
+			// required field honestly, per those two construction paths).
+			config: { ...fullConfig(), artifacts: {} },
 			errors: [],
 			implicit: false,
 		});
@@ -2017,12 +2022,17 @@ describe("structure.ts mutation survivors — pass1_w12 (residue)", () => {
 		});
 	});
 
-	// test-contract: invariant — config.artifacts may legitimately be
-	// undefined (no structure.json artifacts map yet); reading its
+	// test-contract: invariant — config.artifacts may legitimately be an
+	// empty object (no structure.json artifacts map declared); reading its
 	// public_api/env keys must default safely and never throw.
-	it("accept defaults both artifact paths safely when config.artifacts is undefined", async () => {
+	it("accept defaults both artifact paths safely when config.artifacts is empty", async () => {
 		loadStructureConfig.mockReturnValue({
-			config: { ...fullConfig(), artifacts: undefined },
+			// `artifacts: {}` — not `undefined` — is the real "no artifacts
+			// declared" state: both getImplicitConfig() and
+			// resolveStructureConfig() always default this field to an empty
+			// object, never leave it absent (StructureConfig.artifacts is a
+			// required field honestly, per those two construction paths).
+			config: { ...fullConfig(), artifacts: {} },
 			errors: [],
 			implicit: false,
 		});

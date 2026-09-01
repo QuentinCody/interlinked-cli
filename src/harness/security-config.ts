@@ -155,7 +155,7 @@ export function securityConfigPath(cwd: string): string {
 
 /** Read + JSON-parse the security-config file. Returns null on missing or
  * malformed (caller falls back to defaults). */
-function readConfigFile(path: string): unknown | null {
+function readConfigFile(path: string): unknown {
 	if (!existsSync(path)) return null;
 	try {
 		return JSON.parse(readFileSync(path, "utf-8"));

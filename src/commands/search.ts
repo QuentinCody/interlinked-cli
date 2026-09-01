@@ -163,6 +163,73 @@ function parseRipgrepSearchedFiles(value: unknown): number {
 	return typeof stats.searches === "number" ? stats.searches : 0;
 }
 
+// SAFETY: @types/node types spawnSync's `stdout` as non-nullable `Buffer`,
+// but it is actually `null` when the child fails to spawn (e.g. `rg`
+// missing from PATH — `result.error` is set in that case). This helper's
+// parameter type is the honest one; callers pass the raw spawnSync result.
+function ripgrepStdoutLines(result: { stdout: Buffer | null }): string[] {
+	return result.stdout ? result.stdout.toString("utf-8").split("\n").filter(Boolean) : [];
+}
+
+/** Parses ripgrep `--json` lines into matches + the searched-file count. */
+function processRipgrepLines(
+	lines: string[],
+	dir: string,
+	opts: { context: number },
+): { matches: SearchMatch[]; searchedFiles: number } {
+	const matches: SearchMatch[] = [];
+	let searchedFiles = 0;
+	// Accumulate leading context lines that appear before the next match
+	let pendingContext: string[] = [];
+
+	for (const line of lines) {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(line);
+		} catch (_) {
+			/* intentional: ripgrep emits only well-formed JSON; skip on unexpected line */
+			continue;
+		}
+		if (!isJsonObject(parsed)) continue;
+
+		if (parsed.type === "match") {
+			const m = parseRipgrepMatch(parsed);
+			if (!m) continue;
+			matches.push({
+				file: relative(dir, m.path),
+				line: m.lineNumber,
+				column: m.submatchStart,
+				text: m.text.replace(/\n$/, ""),
+				context_before: pendingContext.length > 0 ? pendingContext : undefined,
+				context_after: [],
+			});
+			pendingContext = [];
+		} else if (parsed.type === "context") {
+			const ctx = parseRipgrepContext(parsed);
+			if (!ctx) continue;
+			const text = ctx.text.replace(/\n$/, "");
+			const ctxFile = relative(dir, ctx.path);
+			const last = matches[matches.length - 1];
+			// Trailing context: same file, line immediately after match (within context window)
+			if (
+				last &&
+				ctxFile === last.file &&
+				ctx.lineNumber > last.line &&
+				ctx.lineNumber <= last.line + opts.context
+			) {
+				if (!last.context_after) last.context_after = [];
+				last.context_after.push(text);
+			} else {
+				// Leading context for the next match (different file, or gap > context window)
+				pendingContext.push(text);
+			}
+		} else if (parsed.type === "summary") {
+			searchedFiles = parseRipgrepSearchedFiles(parsed);
+		}
+	}
+	return { matches, searchedFiles };
+}
+
 function searchWithRipgrep(
 	query: string,
 	dir: string,
@@ -193,60 +260,8 @@ function searchWithRipgrep(
 		maxBuffer: 10 * 1024 * 1024,
 	});
 
-	const matches: SearchMatch[] = [];
-	let searchedFiles = 0;
-
-	if (result.stdout) {
-		const lines = result.stdout.toString("utf-8").split("\n").filter(Boolean);
-		// Accumulate leading context lines that appear before the next match
-		let pendingContext: string[] = [];
-
-		for (const line of lines) {
-			let parsed: unknown;
-			try {
-				parsed = JSON.parse(line);
-			} catch (_) {
-				/* intentional: ripgrep emits only well-formed JSON; skip on unexpected line */
-				continue;
-			}
-			if (!isJsonObject(parsed)) continue;
-
-			if (parsed.type === "match") {
-				const m = parseRipgrepMatch(parsed);
-				if (!m) continue;
-				matches.push({
-					file: relative(dir, m.path),
-					line: m.lineNumber,
-					column: m.submatchStart,
-					text: m.text.replace(/\n$/, ""),
-					context_before: pendingContext.length > 0 ? pendingContext : undefined,
-					context_after: [],
-				});
-				pendingContext = [];
-			} else if (parsed.type === "context") {
-				const ctx = parseRipgrepContext(parsed);
-				if (!ctx) continue;
-				const text = ctx.text.replace(/\n$/, "");
-				const ctxFile = relative(dir, ctx.path);
-				const last = matches[matches.length - 1];
-				// Trailing context: same file, line immediately after match (within context window)
-				if (
-					last &&
-					ctxFile === last.file &&
-					ctx.lineNumber > last.line &&
-					ctx.lineNumber <= last.line + opts.context
-				) {
-					if (!last.context_after) last.context_after = [];
-					last.context_after.push(text);
-				} else {
-					// Leading context for the next match (different file, or gap > context window)
-					pendingContext.push(text);
-				}
-			} else if (parsed.type === "summary") {
-				searchedFiles = parseRipgrepSearchedFiles(parsed);
-			}
-		}
-	}
+	const lines = ripgrepStdoutLines(result);
+	const { matches, searchedFiles } = processRipgrepLines(lines, dir, opts);
 
 	const elapsed = performance.now() - start;
 	const truncated = matches.length > opts.limit;

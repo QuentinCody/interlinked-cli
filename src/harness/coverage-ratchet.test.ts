@@ -192,7 +192,7 @@ describe("loadCoverageSummary", () => {
 		const p = join(tmp, "summary.json");
 		writeFileSync(p, JSON.stringify({ "src/foo.ts": { lines: { pct: 90 } } }));
 		const summary = loadCoverageSummary(p);
-		expect(summary?.["src/foo.ts"]?.lines.pct).toBe(90);
+		expect(nonNull(summary?.["src/foo.ts"]?.lines).pct).toBe(90);
 	});
 });
 

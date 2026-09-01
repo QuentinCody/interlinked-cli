@@ -201,7 +201,7 @@ export function buildPatternRescanWarnings(
 	const findings = rescanSessionFiles(session, cwd);
 	if (findings.length === 0) return [];
 
-	const sessionId = opts.sessionId ?? session.session_id ?? "unknown";
+	const sessionId = opts.sessionId ?? session.session_id;
 	const interlinkedDir = opts.interlinkedDir ?? resolve(cwd, ".interlinked");
 	const headSha = session.git_session_baseline?.head_sha;
 	const gitShow = opts.gitShow ?? gitShowFile;

@@ -250,7 +250,7 @@ export function checkEmptyCatch(content: string, filePath: string): InlineMatch[
 		if (nonNull(m[1]).trim().length > 0) continue;
 		// Then check the ORIGINAL body text for an intentional-marker comment
 		// and skip if the developer explicitly documented the empty catch.
-		const offset = m.index ?? 0;
+		const offset = m.index;
 		const origSlice = content.slice(offset, offset + m[0].length);
 		const origBody = origSlice.match(/\{([\s\S]*)\}/)?.[1] ?? "";
 		if (INTENTIONAL_MARKER.test(origBody)) continue;

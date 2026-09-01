@@ -46,7 +46,7 @@ function isPlainObject(v: unknown): v is JsonObject {
 	return v instanceof Object && !Array.isArray(v);
 }
 function isNonEmptyString(v: unknown): v is string {
-	return v === String(v) && (v as string).length > 0;
+	return v === String(v) && v.length > 0;
 }
 
 /**

@@ -417,7 +417,12 @@ export function rotateActivityPrefix(
 	let publishedFile: string | undefined;
 	let publishedClaim: RotationClaim | undefined;
 	let publishedSegment: ArchiveSegment | undefined;
-	let createdClaim = false;
+	// A bare `let` mutated only inside the beforeReplace closure below is
+	// invisible to TS's control-flow analysis outside that closure — it wrongly
+	// proves the catch-block read below is always false. Routing the mutation
+	// through an object property sidesteps that blind spot honestly (the value
+	// really can be true at the read site).
+	const claimState = { created: false };
 	const cursor = Math.max(0, deps.syncedBytes - deps.cutByte);
 	const gzipSha256 = sha256File(gzipTemporary);
 	try {
@@ -449,7 +454,7 @@ export function rotateActivityPrefix(
 				};
 				publishedClaim = claim;
 				createRotationClaim(deps.archiveDir, claim);
-				createdClaim = true;
+				claimState.created = true;
 				publishOrVerifyClaimedSegment({
 					temporary: gzipTemporary,
 					finalPath: join(deps.archiveDir, publishedFile),
@@ -484,7 +489,7 @@ export function rotateActivityPrefix(
 			publishedClaim,
 		);
 		if (!conflict) throw error;
-		if (conflict.abandonClaim && createdClaim) {
+		if (conflict.abandonClaim && claimState.created) {
 			removeRotationClaim(deps.archiveDir, "activity");
 		}
 		return { segmentFile: conflict.segmentFile, reason: conflict.reason };

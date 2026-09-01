@@ -97,10 +97,43 @@ interface CursorConfig {
 	hooks: Record<string, CursorHookEntry[]>;
 }
 
+// `.cursor/hooks.json` is user/editor-authored disk state, not something we
+// control — a hand-edited or partially-written file can carry an entry with
+// no `command` field (or a non-string one). The old `as Record<string,
+// CursorHookEntry[]>` cast asserted `command: string` unconditionally, which
+// made every later `.command` access "provably safe" to the type checker
+// while actually crashing at runtime on a malformed entry. Validate each
+// entry instead so the `CursorHookEntry[]` type this function returns is
+// honest — a filtered-out malformed entry is simply not carried forward,
+// matching "start over" behavior already used for unparsable JSON above.
+function parseCursorHookEntry(raw: unknown): CursorHookEntry | null {
+	if (!isPlainObject(raw) || typeof raw.command !== "string") return null;
+	const entry: CursorHookEntry = { command: raw.command };
+	if (typeof raw.type === "string") entry.type = raw.type;
+	if (typeof raw.timeout === "number") entry.timeout = raw.timeout;
+	if (typeof raw.failClosed === "boolean") entry.failClosed = raw.failClosed;
+	if (typeof raw.matcher === "string") entry.matcher = raw.matcher;
+	return entry;
+}
+
 function parseCursorConfigShape(raw: unknown): CursorConfig | null {
 	if (!isPlainObject(raw)) return null;
-	const hooks = isPlainObject(raw.hooks) ? raw.hooks : {};
-	return { version: 1, hooks: hooks as Record<string, CursorHookEntry[]> };
+	const rawHooks = isPlainObject(raw.hooks) ? raw.hooks : {};
+	const hooks: Record<string, CursorHookEntry[]> = {};
+	for (const [eventName, entries] of Object.entries(rawHooks)) {
+		if (!Array.isArray(entries)) {
+			// A non-array value under a hook event key is malformed input we
+			// don't own the shape of — preserve it untouched rather than
+			// dropping it. Both call sites already guard with
+			// `Array.isArray(entries)` before treating this as hook entries.
+			(hooks as Record<string, unknown>)[eventName] = entries;
+			continue;
+		}
+		hooks[eventName] = entries
+			.map(parseCursorHookEntry)
+			.filter((entry): entry is CursorHookEntry => entry !== null);
+	}
+	return { version: 1, hooks };
 }
 
 function safeReadCursorConfig(path: string): CursorConfig | null {
@@ -141,7 +174,7 @@ export function installCursorHooks(cwd: string, hookScriptPath: string): void {
 		if (!config.hooks[eventName]) config.hooks[eventName] = [];
 		const entries = config.hooks[eventName];
 
-		const existing = entries.find((e) => e.command?.includes(INTERLINKED_MARKER));
+		const existing = entries.find((e) => e.command.includes(INTERLINKED_MARKER));
 		if (existing) {
 			if (existing.command !== hookCommand) {
 				existing.command = hookCommand;

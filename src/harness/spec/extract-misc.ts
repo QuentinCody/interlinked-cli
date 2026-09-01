@@ -119,7 +119,7 @@ export function extractPathRefs(
 				line: i + 1,
 				path: token,
 				tense: classifyTense(line),
-				raw: m[0] ?? "",
+				raw: m[0],
 			});
 		}
 	}

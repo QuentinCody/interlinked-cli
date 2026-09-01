@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { coverageSetupGuidance, lcovReportPaths } from "../../harness/coverage-adapters.js";
 import { loadBaseline, saveBaseline } from "../../harness/coverage-ratchet.js";
 import { c, header, kvLine } from "../../lib/formatter.js";
+import { nonNull } from "../../lib/non-null.js";
 import { coverageBaselineCommand, coverageCheckCommand, loadMergedReport } from "../coverage.js";
 
 let cwd: string;
@@ -409,7 +410,7 @@ describe("loadMergedReport — mtime ordering (freshest wins)", () => {
 
 		const { summary, failedPath } = loadMergedReport([older, newer], cwd);
 		expect(failedPath).toBeNull();
-		expect(summary["src/dual.ts"]?.lines.pct).toBe(100); // newer (100%) wins, not older (50%)
+		expect(nonNull(summary["src/dual.ts"]?.lines).pct).toBe(100); // newer (100%) wins, not older (50%)
 	});
 
 	it("passing the paths in reverse order still resolves to the freshest content (sort is by mtime, not array order)", () => {
@@ -425,6 +426,6 @@ describe("loadMergedReport — mtime ordering (freshest wins)", () => {
 		// or dropping the `[...]` copy so order is left as array-order), the
 		// merge would let the OLDER (50%) entry win instead.
 		const { summary } = loadMergedReport([newer, older], cwd);
-		expect(summary["src/dual.ts"]?.lines.pct).toBe(100);
+		expect(nonNull(summary["src/dual.ts"]?.lines).pct).toBe(100);
 	});
 });

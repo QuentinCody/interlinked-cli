@@ -93,12 +93,14 @@ export async function runHookEntry(opts: HookEntryOptions): Promise<HookEntryRes
 		event = { ...event, post_delivery_token: postDeliveryToken, post_delivery_pid: process.pid };
 	}
 
-	const resolvedCwd = opts.cwd ?? process.cwd();
 	// The daemon-liveness gate keys on the TOOL CALL's project (the event's
 	// cwd), not the hook process's cwd — the hook may be spawned from anywhere
 	// (a parent shell, a test harness), but `event.context.cwd` is the project
-	// whose harness should be guarding this action.
-	const gateCwd = event.context?.cwd ?? resolvedCwd;
+	// whose harness should be guarding this action. It is always a real
+	// string by construction — every adapter's `normalizeNativeHookEvent`
+	// falls back to `process.cwd()` at the parse boundary — so it never
+	// needs a fallback to `opts.cwd`/`process.cwd()` here.
+	const gateCwd = event.context.cwd;
 	recordAdapterExecution(adapter, event, gateCwd);
 	// Discover the socket in the SAME project the daemon gate keys on (the event's
 	// cwd), not the hook process's cwd: a client that launches the hook binary

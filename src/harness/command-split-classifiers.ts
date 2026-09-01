@@ -60,7 +60,7 @@ export function classifyTopLevelSplit(
 	}
 	if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
 		if (pendingHeredocOnLine(i)) {
-			return { extraChars: 1, append: ch + (next ?? ""), split: false };
+			return { extraChars: 1, append: ch + next, split: false };
 		}
 		return { extraChars: 1, append: "", split: true };
 	}

@@ -322,7 +322,7 @@ export function checkManualFieldCopy(content: string, filePath: string): InlineM
 		if (trimmed === "") continue; // blank / comment-only — does not break a run
 		const m = trimmed.match(copyRe);
 		const isCopy = m !== null && m[2] === m[4] && m[1] !== m[3];
-		if (isCopy && m) {
+		if (isCopy) {
 			if (runCount > 0 && m[1] === runTarget && m[3] === runSource) {
 				runCount++;
 			} else {

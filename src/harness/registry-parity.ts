@@ -124,7 +124,7 @@ export function extractKeys(content: string, pattern: string): Set<string> {
 	const re = new RegExp(pattern, "g");
 	const out = new Set<string>();
 	let m: RegExpExecArray | null;
-	while (true) {
+	for (;;) {
 		m = re.exec(content);
 		if (m === null) break;
 		if (m[1] !== undefined) out.add(m[1]);

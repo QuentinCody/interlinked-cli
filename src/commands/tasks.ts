@@ -73,7 +73,12 @@ export async function tasksListCommand(opts: {
 		if (opts.priority) args.priority = opts.priority;
 		if (opts.limit) args.limit = parsePositiveInt(opts.limit, "--limit");
 
-		const result = await client.callTool<{ tasks?: Task[] }>("list_tasks", args);
+		// `callTool<T>()`'s declared `Promise<T>` return type is honest about
+		// the shape of a genuine tool result but not about presence: an MCP
+		// tool call can resolve to a bare `null` (a malformed/absent server
+		// response — exercised directly in tests via a mocked client), so `T`
+		// is widened here to `| null` rather than trusted as always-present.
+		const result = await client.callTool<{ tasks?: Task[] } | null>("list_tasks", args);
 		const tasks = result?.tasks || [];
 
 		output(mode, tasks, {
@@ -92,7 +97,7 @@ export async function tasksListCommand(opts: {
 					String(t.id || ""),
 					badge(t.status || "pending"),
 					truncate(t.title || "", 40),
-					(t.assignee_name as string | undefined) || c.dim("unassigned"),
+					t.assignee_name || c.dim("unassigned"),
 					t.priority || c.dim("normal"),
 					relativeTime(t.updated_at || t.created_at),
 				]);
@@ -161,7 +166,7 @@ export async function tasksCreateCommand(
 		output(mode, rawResult, {
 			json: () => rawResult,
 			normal: () =>
-				c.green(`Task created: ${c.bold(task.title || title)} (#${task?.id || "?"})`),
+				c.green(`Task created: ${c.bold(task.title || title)} (#${task.id || "?"})`),
 		});
 	} catch (err) {
 		outputError(
@@ -191,17 +196,12 @@ export async function tasksShowCommand(id: string, opts: { json?: boolean }): Pr
 			json: () => result,
 			normal: () => {
 				const lines: string[] = [];
-				lines.push(header(`Task #${result?.id || id}`));
-				lines.push(kvLine("Title", result?.title || ""));
-				lines.push(kvLine("Status", result?.status || "pending"));
-				lines.push(kvLine("Priority", result?.priority || "normal"));
-				lines.push(
-					kvLine(
-						"Assignee",
-						(result?.assignee_name as string | undefined) || "unassigned",
-					),
-				);
-				if (result?.description) {
+				lines.push(header(`Task #${result.id || id}`));
+				lines.push(kvLine("Title", result.title || ""));
+				lines.push(kvLine("Status", result.status || "pending"));
+				lines.push(kvLine("Priority", result.priority || "normal"));
+				lines.push(kvLine("Assignee", result.assignee_name || "unassigned"));
+				if (result.description) {
 					lines.push(`\n${result.description}`);
 				}
 				return lines.join("\n");

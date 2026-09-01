@@ -113,8 +113,7 @@ export function retainedEvidenceMatches(
 	expected: JournalRetainedEvidence,
 ): boolean {
 	const actual = readRetainedEvidence(db, evaluationId);
-	return actual.formatVersion === expected.formatVersion &&
-		canonicalEqual(actual.envelope, expected.envelope) &&
+	return canonicalEqual(actual.envelope, expected.envelope) &&
 		canonicalEqual(actual.acceptanceReceipt, expected.acceptanceReceipt) &&
 		canonicalEqual(actual.executionReceipt, expected.executionReceipt) &&
 		canonicalEqual(actual.terminalizationRecord, expected.terminalizationRecord) &&

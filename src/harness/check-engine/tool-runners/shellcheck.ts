@@ -56,7 +56,7 @@ export async function runShellcheckAsync(input: ToolRunnerInput): Promise<CheckR
 		{ cwd: scope.projectRoot, timeout: timeoutMs },
 	);
 	if (result.code === 0) return [];
-	if (result.code === null || (result.code !== null && result.code > 1)) return [];
+	if (result.code === null || result.code > 1) return [];
 	const results = parseShellcheckJson(result.stdout);
 	return results.map((r) => ({
 		...r,

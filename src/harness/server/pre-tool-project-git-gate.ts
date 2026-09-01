@@ -14,11 +14,35 @@ import type {
 } from "../types.js";
 import { type ServerRuntime, summarizeToolInput } from "./runtime-context.js";
 
-/** Report a project-wide git-gate block when a server bridge is configured. */
+/**
+ * Re-read `preDecision.decision` through an opaque call boundary.
+ *
+ * TypeScript's control-flow narrowing does NOT get invalidated by an
+ * intervening function call that mutates a property on a passed-by-reference
+ * object — only by a directly-visible assignment in the same control-flow
+ * graph. `applyProjectTypecheckGate(Async)` DOES set `preDecision.decision =
+ * "block"` when typecheck fails, but a bare `preDecision.decision === "allow"`
+ * check after that call would still be narrowed (falsely) to the literal
+ * `"allow"` from the earlier guard, making the comparison read as always-true
+ * to the type checker even though it is a live runtime branch. Routing the
+ * read through a function call (whose declared return type is the full
+ * union, not a narrowed literal) breaks that false narrowing so the check
+ * stays honest — and load-bearing.
+ */
+function currentDecision(preDecision: HarnessDecision): HarnessDecision["decision"] {
+	return preDecision.decision;
+}
+
+/** Report a project-wide git-gate block when a server bridge is configured.
+ *  `session` is typed non-optional at every OTHER call site in this module,
+ *  but the "reports an absent session agent as an empty name without
+ *  throwing" test deliberately calls the exported gate with
+ *  `undefined as unknown as SessionTrajectory` to model a caller that
+ *  defeats the type system — so this one parameter is honestly optional. */
 function reportGitGateGuardBlock(
 	ctx: ServerRuntime,
 	event: HarnessEvent,
-	session: SessionTrajectory,
+	session: SessionTrajectory | undefined,
 	reason: string,
 ): void {
 	if (!ctx.serverBridge) return;
@@ -187,7 +211,7 @@ export function runProjectWideGitGate(
 	if (!isCommit && !isPush) return;
 
 	applyProjectTypecheckGate(ctx, event, session, preDecision, isCommit);
-	if (preDecision.decision === "allow" && isPush) {
+	if (currentDecision(preDecision) === "allow" && isPush) {
 		applyProjectTestGate(ctx, event, session, preDecision);
 	}
 }
@@ -217,7 +241,7 @@ export async function runProjectWideGitGateAsync(
 
 	try {
 		await applyProjectTypecheckGateAsync(ctx, event, session, preDecision, isCommit);
-		if (preDecision.decision === "allow" && isPush) {
+		if (currentDecision(preDecision) === "allow" && isPush) {
 			await applyProjectTestGateAsync(ctx, event, session, preDecision, true);
 		}
 	} finally {

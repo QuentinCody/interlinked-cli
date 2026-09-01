@@ -370,17 +370,15 @@ export function classifySpans(cmd: string): Span[] {
 	};
 
 	while (i < cmd.length) {
-		if (runKind === "executed") {
-			const next =
-				scanHeredoc(cmd, i, flush) ??
-				scanComment(cmd, i, flush) ??
-				scanAnsiCQuote(cmd, i, flush) ??
-				scanSingleQuote(cmd, i, flush) ??
-				scanDoubleQuote(cmd, i, flush);
-			if (next !== null) {
-				i = next;
-				continue;
-			}
+		const next =
+			scanHeredoc(cmd, i, flush) ??
+			scanComment(cmd, i, flush) ??
+			scanAnsiCQuote(cmd, i, flush) ??
+			scanSingleQuote(cmd, i, flush) ??
+			scanDoubleQuote(cmd, i, flush);
+		if (next !== null) {
+			i = next;
+			continue;
 		}
 		i++;
 	}

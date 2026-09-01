@@ -123,7 +123,7 @@ interface TransientDebtOutcome {
 export function isReconcilingEdit(
 	editedFile: string,
 	debt: Obligation,
-	relatedFiles?: ReadonlySet<string> | undefined,
+	relatedFiles?: ReadonlySet<string>,
 ): boolean {
 	if (editedFile === debt.file) return true;
 	if (relatedFiles?.has(debt.file)) return true;
@@ -308,7 +308,7 @@ export function decideTransientDebt(input: TransientDebtInput): TransientDebtOut
 	const overSlack = wandered !== null && (wandered.strikes ?? 0) >= slack;
 	const stale = wandered !== null && input.atMs - wandered.openedAtMs > CROSS_ACTOR_STALE_MS;
 
-	if (overSlack && !stale && input.mode === "block" && wandered) {
+	if (overSlack && !stale && input.mode === "block") {
 		// Refused: the file never changes, so nothing about THIS file's debts
 		// moved. Strike anyway — otherwise a refused wander is free and the agent
 		// can knock on every other file in the repo at no cost.

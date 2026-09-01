@@ -225,13 +225,13 @@ export function functionName(ts: TsModule, node: TS.Node, sf: TS.SourceFile): st
 		return named.name.getText(sf);
 	}
 	const parent = node.parent;
-	if (parent && ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+	if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
 		return parent.name.getText(sf);
 	}
-	if (parent && ts.isPropertyAssignment(parent)) {
+	if (ts.isPropertyAssignment(parent)) {
 		return parent.name.getText(sf);
 	}
-	if (parent && ts.isPropertyDeclaration(parent)) {
+	if (ts.isPropertyDeclaration(parent)) {
 		return parent.name.getText(sf);
 	}
 	return "(callback)";

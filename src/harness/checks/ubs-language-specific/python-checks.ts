@@ -41,13 +41,13 @@ export function checkSubprocessShellTrue(content: string, filePath: string): Inl
 	for (const m of stripped.matchAll(re)) {
 		if (matches.length >= 10) break;
 		// Anchor at `shell` so the warning points at the dangerous keyword.
-		const shellIdx = (m.index ?? 0) + m[0].lastIndexOf("shell");
+		const shellIdx = m.index + m[0].lastIndexOf("shell");
 		const lineNum = stripped.slice(0, shellIdx).split("\n").length;
 		// 139-repo audit: respect Bandit `# noqa: S602 / S603` on any
 		// line within the matched call (the suppression typically sits
 		// on the opening line of a multi-line subprocess.run(...)).
 		// Scan original lines from the call start to the match end.
-		const callStartLine = stripped.slice(0, m.index ?? 0).split("\n").length;
+		const callStartLine = stripped.slice(0, m.index).split("\n").length;
 		if (
 			isNoqaSuppressedInRange(
 				originalLines,
@@ -388,7 +388,7 @@ export function checkYamlUnsafeLoad(content: string, filePath: string): InlineMa
 	const unsafeRe = /\byaml\.unsafe_load\s*\(/g;
 	for (const m of stripped.matchAll(unsafeRe)) {
 		if (matches.length >= MATCH_LIMIT) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = stripped.slice(0, idx).split("\n").length;
 		if (lineHasNoqaSuppression(nonNull(originalLines[lineNum - 1]), "ubs_yaml_unsafe_load")) continue;
 		matches.push({ line: lineNum, text: nonNull(originalLines[lineNum - 1]).trim().slice(0, 150) });
@@ -406,7 +406,7 @@ export function checkYamlUnsafeLoad(content: string, filePath: string): InlineMa
 	const loadRe = /\byaml\.load(?:_all)?\s*\((?![^)\n]{0,200}Safe)/g;
 	for (const m of stripped.matchAll(loadRe)) {
 		if (matches.length >= MATCH_LIMIT) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = stripped.slice(0, idx).split("\n").length;
 		if (matches.some((mx) => mx.line === lineNum)) continue;
 		if (lineHasNoqaSuppression(nonNull(originalLines[lineNum - 1]), "ubs_yaml_unsafe_load")) continue;
@@ -440,7 +440,7 @@ export function checkTorchUnsafeLoad(content: string, filePath: string): InlineM
 	const re = /\btorch\.load\s*\((?![^)\n]{0,200}weights_only\s*=\s*True\b)/g;
 	for (const m of stripped.matchAll(re)) {
 		if (matches.length >= MATCH_LIMIT) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = stripped.slice(0, idx).split("\n").length;
 		if (lineHasNoqaSuppression(nonNull(originalLines[lineNum - 1]), "ubs_torch_unsafe_load")) continue;
 		matches.push({ line: lineNum, text: nonNull(originalLines[lineNum - 1]).trim().slice(0, 150) });
@@ -473,7 +473,7 @@ export function checkPickleWrapperLoad(content: string, filePath: string): Inlin
 	const directRe = /\bjoblib\.load\s*\(|\b(?:pd|pandas)\.read_pickle\s*\(/g;
 	for (const m of stripped.matchAll(directRe)) {
 		if (matches.length >= MATCH_LIMIT) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = stripped.slice(0, idx).split("\n").length;
 		if (lineHasNoqaSuppression(nonNull(originalLines[lineNum - 1]), "ubs_pickle_wrapper_load")) continue;
 		matches.push({ line: lineNum, text: nonNull(originalLines[lineNum - 1]).trim().slice(0, 150) });
@@ -483,7 +483,7 @@ export function checkPickleWrapperLoad(content: string, filePath: string): Inlin
 	const numpyRe = /\b(?:np|numpy)\.load\s*\([^)\n]{0,200}\ballow_pickle\s*=\s*True\b/g;
 	for (const m of stripped.matchAll(numpyRe)) {
 		if (matches.length >= MATCH_LIMIT) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = stripped.slice(0, idx).split("\n").length;
 		if (matches.some((mx) => mx.line === lineNum)) continue;
 		if (lineHasNoqaSuppression(nonNull(originalLines[lineNum - 1]), "ubs_pickle_wrapper_load")) continue;

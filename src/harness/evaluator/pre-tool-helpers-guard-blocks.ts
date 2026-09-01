@@ -368,7 +368,7 @@ export function evaluateCurlMcpGuards(args: {
 	const { mcpScanCommand, targetsMcpPath, curlMcpDetection, session } = args;
 	const warnings: string[] = [];
 
-	if (curlMcpDetection?.enabled && session && targetsMcpPath) {
+	if (curlMcpDetection.enabled && session && targetsMcpPath) {
 		const cmd = mcpScanCommand;
 		for (const port of curlMcpDetection.localhost_ports) {
 			// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp

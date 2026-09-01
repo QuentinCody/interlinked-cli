@@ -171,10 +171,10 @@ export function runToolWithSpinner<T>(args: RunToolWithSpinnerArgs<T>): Promise<
 
 		let stdout = "";
 		let stderr = "";
-		proc.stdout?.on("data", (d: Buffer) => {
+		proc.stdout.on("data", (d: Buffer) => {
 			stdout += d.toString();
 		});
-		proc.stderr?.on("data", (d: Buffer) => {
+		proc.stderr.on("data", (d: Buffer) => {
 			stderr += d.toString();
 		});
 
@@ -225,10 +225,10 @@ export function runToolSilent<T>(args: RunToolArgs<T>): Promise<ToolRun<T>> {
 
 		let stdout = "";
 		let stderr = "";
-		proc.stdout?.on("data", (d: Buffer) => {
+		proc.stdout.on("data", (d: Buffer) => {
 			stdout += d.toString();
 		});
-		proc.stderr?.on("data", (d: Buffer) => {
+		proc.stderr.on("data", (d: Buffer) => {
 			stderr += d.toString();
 		});
 

@@ -433,7 +433,7 @@ export function evaluateLargeFile(args: {
 	maxLines?: number;
 }): LargeFileVerdict {
 	const max = args.maxLines ?? args.baseline?.max_lines ?? DEFAULT_MAX_LINES;
-	const recorded = args.baseline?.files?.[args.relPath.replace(/\\/g, "/")];
+	const recorded = args.baseline?.files[args.relPath.replace(/\\/g, "/")];
 	const overCap = args.lines > max;
 	const ceiling = recorded !== undefined && recorded > max ? recorded : max;
 	// Grandfathered: listed in the baseline AND not grown past its recorded

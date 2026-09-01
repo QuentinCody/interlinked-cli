@@ -322,7 +322,10 @@ export function isHarnessRecoveryCommand(action: UnifiedHookEvent["action"]): bo
  *  Pulling the `??` chain out keeps the gate under the complexity ratchet as new
  *  decision branches (e.g. the disable check) are added. */
 export function resolveGateRoot(event: UnifiedHookEvent, cwd: string | undefined): string | null {
-	return findRepoRoot(cwd ?? event.context?.cwd ?? process.cwd());
+	// `event.context.cwd` is always a real string by construction — every
+	// adapter's `normalizeNativeHookEvent` falls back to `process.cwd()` at
+	// the parse boundary, so only the explicit `cwd` param here is optional.
+	return findRepoRoot(cwd ?? event.context.cwd);
 }
 
 /** Return the project that needs a daemon recovery attempt, for ANY hook

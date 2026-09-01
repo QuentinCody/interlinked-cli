@@ -141,10 +141,10 @@ function pushPrivateImports(matches: InlineMatch[], content: string, lines: read
 		const source = match[1] ?? "";
 		if (!importedPrivateSurface(statement, source)) continue;
 		total++;
-		pushMatch(matches, lines, lineIndexAt(commentFree, match.index ?? 0));
+		pushMatch(matches, lines, lineIndexAt(commentFree, match.index));
 	}
 	for (const match of commentFree.matchAll(REQUIRE_DECLARATION)) {
-		const offset = match.index ?? 0;
+		const offset = match.index;
 		if ((codeMask[offset] ?? " ").trim() === "") continue;
 		if (!PRIVATE_MODULE_SEGMENT.test(match[1] ?? "")) continue;
 		total++;

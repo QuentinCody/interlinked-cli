@@ -85,9 +85,13 @@ function resolveInterlinkedCliPackageRoot(): string | null {
 			const pkgPath = join(dir, "package.json");
 			if (existsSync(pkgPath)) {
 				try {
+					// `JSON.parse` returns `any` — a malformed package.json (an array,
+					// a bare string, or literal `null`) can genuinely produce a
+					// non-object here, so the cast stays nullable and the `pkg &&`
+					// guard below is load-bearing, not decorative.
 					const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
 						name?: unknown;
-					};
+					} | null;
 					if (pkg && pkg.name === "interlinked-cli") {
 						_packageRootCache = dir;
 						return dir;

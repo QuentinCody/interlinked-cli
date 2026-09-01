@@ -63,11 +63,14 @@ export class SidecarPool {
 	constructor(private readonly opts: SidecarPoolOptions) {
 		const n = Math.max(1, opts.pool_size);
 		const nowIso = new Date().toISOString();
-		this.childStatuses = Array.from({ length: n }, () => ({
-			state: "idle" as SidecarLifecycleState,
-			restartCount: 0,
-			sinceIso: nowIso,
-		}));
+		this.childStatuses = Array.from(
+			{ length: n },
+			(): SidecarStatus => ({
+				state: "idle",
+				restartCount: 0,
+				sinceIso: nowIso,
+			}),
+		);
 		this.aggregateStatus = {
 			state: "idle",
 			restartCount: 0,

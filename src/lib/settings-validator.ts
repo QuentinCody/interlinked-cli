@@ -146,8 +146,7 @@ export function classifyRule(rule: string): MalformedRuleReason | null {
 export function findMalformedRulesIn(parsedJson: unknown): MalformedRule[] {
 	const out: MalformedRule[] = [];
 	if (typeof parsedJson !== "object" || parsedJson === null) return out;
-	const perms = (parsedJson as { permissions?: Record<PermissionBucket, unknown> })
-		?.permissions;
+	const perms = (parsedJson as { permissions?: Record<PermissionBucket, unknown> }).permissions;
 	if (!perms || typeof perms !== "object") return out;
 	for (const bucket of ["allow", "deny", "ask"] as const) {
 		const list = perms[bucket];
@@ -221,7 +220,12 @@ export function validateSettingsFile(filePath: string): SettingsValidationResult
 		return result;
 	}
 
-	const perms = (parsed as { permissions?: Record<PermissionBucket, unknown> })?.permissions;
+	// `parsed` is JSON.parse output typed `unknown` — the file can legally
+	// contain a non-object JSON value (`null`, an array, a bare string/number),
+	// which a blind `as {...}` cast would let through and crash on the
+	// following property access. Guard the shape before trusting it.
+	if (typeof parsed !== "object" || parsed === null) return result;
+	const perms = (parsed as { permissions?: Record<PermissionBucket, unknown> }).permissions;
 	if (!perms || typeof perms !== "object") return result;
 
 	for (const bucket of ["allow", "deny", "ask"] as const) {
@@ -275,15 +279,18 @@ export interface StripResult {
 export function stripMalformedRulesAudited(filePath: string): StripResult {
 	const result: StripResult = { stripped: 0, entries: [] };
 	if (!existsSync(filePath)) return result;
-	let parsed: { permissions?: Record<PermissionBucket, unknown> };
+	let parsedRaw: unknown;
 	try {
-		parsed = JSON.parse(readFileSync(filePath, "utf-8")) as {
-			permissions?: Record<PermissionBucket, unknown>;
-		};
+		parsedRaw = JSON.parse(readFileSync(filePath, "utf-8"));
 	} catch {
 		return result;
 	}
-	const perms = parsed?.permissions;
+	// Same JSON-boundary hazard as validateSettingsFile above: the file can
+	// legally hold a non-object JSON value, which a blind cast would let
+	// through and crash the following property access.
+	if (typeof parsedRaw !== "object" || parsedRaw === null) return result;
+	const parsed = parsedRaw as { permissions?: Record<PermissionBucket, unknown> };
+	const perms = parsed.permissions;
 	if (!perms || typeof perms !== "object") return result;
 
 	const now = new Date().toISOString();

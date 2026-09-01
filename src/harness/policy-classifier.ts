@@ -207,10 +207,9 @@ export function buildEvidenceEnvelope(
 	// Count taint sources by level
 	const taintSourceLevels = session.taint_sources.map((s) => s.level);
 
-	// Injection detection context
-	const injectionDetected =
-		(session as SessionTrajectory & { injection_detected_steps?: number[] })
-			.injection_detected_steps || [];
+	// Injection detection context (`injection_detected_steps` is a required
+	// field on SessionTrajectory — always an array, never undefined)
+	const injectionDetected = session.injection_detected_steps;
 	const injectionInSession = injectionDetected.length > 0;
 	const stepsSinceInjection = injectionInSession
 		? session.tool_call_count - nonNull(injectionDetected[injectionDetected.length - 1])
@@ -232,7 +231,7 @@ export function buildEvidenceEnvelope(
 		taint_source_count: session.taint_sources.length,
 		taint_source_levels: taintSourceLevels,
 		recent_actions: recentActions,
-		agent_role: (event.agent_role as "lead" | "worker" | "subagent" | "unknown") || "unknown",
+		agent_role: event.agent_role || "unknown",
 		files_written_count: session.files_written.size,
 		errors_this_session: session.error_count,
 

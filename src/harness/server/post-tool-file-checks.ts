@@ -131,7 +131,12 @@ export async function runPerFileChecks(
 		editedFilePath.length > 0 && isInsideRoot(CWD, editedFilePath);
 
 	// --- TDD cycle tracking: record impl edits and test writes ---
-	if (session && editedFilePath) {
+	// `session` is typed as required `SessionTrajectory`, but production
+	// code elsewhere calls this defensively with a possibly-null session
+	// (see the "falsy session handling" tests). Read it through `unknown`
+	// so the guard stays real instead of being lint-dead.
+	const sessionPresent: unknown = session;
+	if (sessionPresent && editedFilePath) {
 		if (TEST_FILE_RE.test(editedFilePath)) {
 			recordTestWrite(session, editedFilePath, CWD);
 		} else {
@@ -207,7 +212,7 @@ export async function runPerFileChecks(
 	// (spec-audit memo §4/§6.3).
 	runReviewReconcilePhase(
 		CWD,
-		event.session_id ?? "unknown",
+		event.session_id,
 		editedFilePath,
 		editedFileInRepo,
 		decision,
@@ -256,7 +261,7 @@ async function runStructuralChecksForFile(
 	const log = ctx.log;
 	const rules = ctx.rules;
 
-	if (!(structuralConfig?.enabled && fileGraph.isInitialized && editedFilePath)) {
+	if (!(structuralConfig.enabled && fileGraph.isInitialized && editedFilePath)) {
 		if (fileGraph.isInitialized && editedFilePath) {
 			// Even if structural checks are disabled, keep graph up to date
 			fileGraph.updateFile(editedFilePath);
@@ -303,7 +308,7 @@ async function runStructuralChecksForFile(
 			log,
 		);
 		// Record errors in cross-session error history
-		if (rules.error_memory?.enabled) {
+		if (rules.error_memory.enabled) {
 			await recordStructuralErrorMemory(
 				ctx,
 				checkEvent,
@@ -319,7 +324,7 @@ async function runStructuralChecksForFile(
 		session.failed_files.delete(editedFilePath);
 
 		// Record fix in error history
-		if (rules.error_memory?.enabled) {
+		if (rules.error_memory.enabled) {
 			recordStructuralFixMemory(ctx, checkEvent, editedFilePath, fileGraph);
 		}
 	}
@@ -330,7 +335,7 @@ async function runStructuralChecksForFile(
 
 	// --- Deletion hygiene (Layer 3): orphaned test references ---
 	// When exports are removed, check if co-located test files still reference them
-	if (session && oldExports.length > 0) {
+	if (oldExports.length > 0) {
 		runDeletionHygiene(
 			editedFilePath,
 			session,
@@ -366,7 +371,12 @@ function recordFeedbackAndAck(
 	// Pass full evidence (name + line) so the escalation check on the NEXT
 	// edit can read each persistent finding's line for the diff-aware
 	// proximity gate (refinement 2026-05).
-	if (session && editedFilePath && allCheckResults.length > 0) {
+	// `session` is forwarded from `runPerFileChecks`, which the "falsy
+	// session handling" tests prove can be called with a null session
+	// despite the required `SessionTrajectory` type. Read it through
+	// `unknown` so the guard stays real instead of being lint-dead.
+	const sessionPresent: unknown = session;
+	if (sessionPresent && editedFilePath && allCheckResults.length > 0) {
 		const warningEvidence = allCheckResults
 			.filter((r) => r.severity === "warning" || r.severity === "error")
 			.map((r) => ({ name: r.name, ...(r.line !== undefined ? { line: r.line } : {}) }));

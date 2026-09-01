@@ -180,6 +180,20 @@ function projectKeys(cwd: string): { workspace: string; project: string } {
 	return keys;
 }
 
+/**
+ * `event` is parsed straight from an untrusted socket payload (`JSON.parse`
+ * in server-event-loop.ts, cast to `HarnessEvent` with no runtime
+ * validation), so `agent_source` — typed as the required, non-optional
+ * `AgentSource` union — can genuinely be missing or malformed at runtime
+ * despite the type saying otherwise. Read it through `unknown` and narrow
+ * with a real `typeof` check so callers see an honest `string | undefined`
+ * instead of a lint-dead `?? "unknown"` fallback.
+ */
+function honestAgentSource(event: HarnessEvent): string | undefined {
+	const value: unknown = event.agent_source;
+	return typeof value === "string" ? value : undefined;
+}
+
 /** Map a tool `HarnessEvent` to a v5 `LocalActivityEvent`, or null for non-tool
  *  events. Pure (modulo the cached config lookup). */
 export function mapEventToActivityRecord(
@@ -193,7 +207,7 @@ export function mapEventToActivityRecord(
 	const rec: LocalActivityEvent = {
 		schema_version: 5,
 		ts: event.timestamp,
-		agent: event.agent_name ?? event.agent_source ?? "unknown",
+		agent: event.agent_name ?? honestAgentSource(event) ?? "unknown",
 		workspace_key: keys.workspace,
 		project_key: keys.project,
 		type,
@@ -233,7 +247,7 @@ export function mapLifecycleEventToActivityRecord(
 	const rec: LocalActivityEvent = {
 		schema_version: 5,
 		ts: event.timestamp,
-		agent: event.agent_name ?? event.agent_source ?? "unknown",
+		agent: event.agent_name ?? honestAgentSource(event) ?? "unknown",
 		workspace_key: keys.workspace,
 		project_key: keys.project,
 		type,
@@ -323,7 +337,7 @@ export function mapDecisionToGuardRecord(
 	const rec: LocalActivityEvent = {
 		schema_version: 5,
 		ts: event.timestamp,
-		agent: event.agent_name ?? event.agent_source ?? "unknown",
+		agent: event.agent_name ?? honestAgentSource(event) ?? "unknown",
 		workspace_key: keys.workspace,
 		project_key: keys.project,
 		type: isBlock ? "guard_block" : "guard_warn",

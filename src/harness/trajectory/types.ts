@@ -28,11 +28,11 @@ export interface ToolEvent {
 	/** Agent name / source. */
 	agent: string;
 	/** Tool name. The union lists the common tools; any string is accepted. */
-	tool: "Edit" | "Write" | "MultiEdit" | "Read" | "Bash" | "Grep" | "Glob" | string;
+	tool: string;
 	/** Stable per-tool-call id; the PreToolUse and PostToolUse share it. */
 	toolUseId: string;
 	/** Which hook fired. Block rules evaluate at PreToolUse; churn rules at PostToolUse. */
-	hook: "PreToolUse" | "PostToolUse" | "Stop" | string;
+	hook: string;
 	/** Raw tool input (the fields the rules care about). */
 	input: {
 		file_path?: string;

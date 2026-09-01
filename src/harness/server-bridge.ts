@@ -187,7 +187,7 @@ export class ServerBridge implements ServerApiClient {
 				workspace_key: this.config.workspaceKey || "main",
 				project_key: this.config.projectKey || "main",
 			});
-			const reservations = result?.reservations;
+			const reservations = result.reservations;
 			if (!Array.isArray(reservations)) return [];
 			return reservations.map((r: JsonObject) => {
 				const expires_at = r.expires_at as string | undefined;

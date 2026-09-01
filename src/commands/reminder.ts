@@ -75,7 +75,8 @@ export function reminderAddCommand(opts: {
 	const write = opts.team ? writeTeamGuardRules : writeLocalGuardRules;
 
 	const existing = read() || {};
-	const reminders: FileReminder[] = (existing.file_reminders as FileReminder[]) || [];
+	const reminders: FileReminder[] =
+		(existing.file_reminders as FileReminder[] | undefined) ?? [];
 
 	const duplicate = reminders.find((r) => r.id === id);
 	if (duplicate) {
@@ -106,13 +107,13 @@ export function reminderListCommand(opts: {
 	const localRules = readLocalGuardRules();
 
 	const teamReminders: AnnotatedReminder[] = (
-		(teamRules?.file_reminders as FileReminder[]) || []
+		(teamRules?.file_reminders as FileReminder[] | undefined) ?? []
 	).map((r) => ({
 		...r,
 		source: "team" as const,
 	}));
 	const localReminders: AnnotatedReminder[] = (
-		(localRules?.file_reminders as FileReminder[]) || []
+		(localRules?.file_reminders as FileReminder[] | undefined) ?? []
 	).map((r) => ({
 		...r,
 		source: "local" as const,
@@ -154,7 +155,8 @@ export function reminderRemoveCommand(
 	const write = opts.team ? writeTeamGuardRules : writeLocalGuardRules;
 
 	const existing = read() || {};
-	const reminders: FileReminder[] = (existing.file_reminders as FileReminder[]) || [];
+	const reminders: FileReminder[] =
+		(existing.file_reminders as FileReminder[] | undefined) ?? [];
 
 	if (opts.all) {
 		const count = reminders.length;

@@ -49,7 +49,7 @@ export function checkGithubActionsInjection(content: string, filePath: string): 
 
 	for (const m of content.matchAll(dangerous)) {
 		if (matches.length >= 10) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = content.slice(0, idx).split("\n").length;
 		if (matches.some((mx) => mx.line === lineNum)) continue;
 		matches.push({ line: lineNum, text: nonNull(originalLines[lineNum - 1]).trim().slice(0, 150) });

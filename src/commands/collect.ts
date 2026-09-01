@@ -61,7 +61,7 @@ export function registerCollectCommand(program: Command): void {
 		.option("--cwd <path>", "working directory whose .interlinked/timeline.jsonl receives the records")
 		.action((opts: CollectOpts) => {
 			const cwd = opts.cwd ?? process.cwd();
-			const provider = (opts.provider ?? "codex").toLowerCase();
+			const provider = opts.provider.toLowerCase();
 			if (provider !== "codex") {
 				const msg =
 					provider === "claude" || provider === "claude-code"

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nonNull } from "../lib/non-null.js";
 import {
 	coverageBaselineCommand,
 	coverageCheckCommand,
@@ -111,7 +112,7 @@ describe("loadMergedReport", () => {
 		const { summary, failedPath } = loadMergedReport(paths, dir);
 		expect(failedPath).toBeNull();
 		expect(summary["src/a.ts"]).toBeDefined();
-		expect(summary["src/a.ts"]?.lines.pct).toBe(77);
+		expect(nonNull(summary["src/a.ts"]?.lines).pct).toBe(77);
 	});
 
 	it("reports failedPath for a report that parses to zero entries", () => {

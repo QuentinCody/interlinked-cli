@@ -33,6 +33,7 @@ import type {
 	HarnessDecision,
 	SessionTrajectory,
 	TaintProvenance,
+	TaintSource,
 	TaintTrackingConfig,
 } from "../types.js";
 import {
@@ -51,6 +52,35 @@ const ESCALATION_TAIL_LENGTH = 10;
 /** High-water mark (fraction of step limit) past which we raise an escalation
  *  on a state-changing tool call. */
 const HIGH_BUDGET_THRESHOLD = 0.8;
+
+/**
+ * `GuardRulesConfig.taint_tracking` is declared non-optional, but that's the
+ * fully-defaulted `resolveConfig()` shape, not a runtime guarantee at every
+ * call site — unit tests deliberately construct `GuardRulesConfig` objects
+ * missing the field (`{ enabled: true, rules: [] } as unknown as
+ * GuardRulesConfig`) to model stale/partial configs. Routing the read
+ * through this accessor keeps the type at this boundary honest so the
+ * defensive check downstream stays necessary instead of looking dead to
+ * `no-unnecessary-condition`.
+ */
+function taintTrackingOf(rules: GuardRulesConfig): TaintTrackingConfig | undefined {
+	return rules.taint_tracking;
+}
+
+/**
+ * `SessionTrajectory.taint_sources` is likewise declared non-optional, but a
+ * legacy session object hydrated before this field existed can genuinely
+ * lack it at runtime (the "tolerates a legacy session without taint_sources"
+ * test forces this with a type-bypassed `undefined`). Route the read through
+ * a function call rather than a plain local assignment — TypeScript narrows
+ * a `const`'s type to its initializer's (narrower) type at the point of
+ * assignment even when the local is annotated wider, which would silently
+ * defeat a `const taintSources: TaintSource[] | undefined = session.taint_sources`
+ * pattern.
+ */
+function taintSourcesOf(session: SessionTrajectory): TaintSource[] | undefined {
+	return session.taint_sources;
+}
 
 /** Public API — return shape from {@link evaluateTaintGuards}. */
 export type TaintGuardsResult =
@@ -122,12 +152,13 @@ export function checkProvenanceTaintToExternalAction(
 	session: SessionTrajectory,
 ): HarnessDecision | null {
 	if (classifyToolExternality(toolName, toolInput) !== "external_action") return null;
-	if (!session.taint_sources || session.taint_sources.length === 0) return null;
+	const taintSources = taintSourcesOf(session);
+	if (!taintSources || taintSources.length === 0) return null;
 
 	const haystack = flattenToolInputToString(toolInput);
 	if (!haystack) return null;
 
-	for (const src of session.taint_sources) {
+	for (const src of taintSources) {
 		if (!UNTRUSTED_PROVENANCE.has(src.provenance)) continue;
 		if (!src.file) continue;
 		if (haystack.includes(src.file)) {
@@ -290,7 +321,12 @@ export function evaluateTaintGuards(args: TaintGuardsArgs): TaintGuardsResult {
 	const warnings: string[] = [];
 	let escalation = args.pendingEscalation;
 
-	const taint = rules.taint_tracking;
+	// `GuardRulesConfig.taint_tracking` is declared non-optional, but that's
+	// the fully-defaulted `resolveConfig()` shape, not a runtime guarantee at
+	// every call site: `taintTrackingOf` documents the boundary this defends
+	// (mutation-kill + unit tests deliberately construct configs missing the
+	// field to model stale/partial config objects).
+	const taint = taintTrackingOf(rules);
 	if (!taint) return { kind: "ok", warnings, escalation };
 
 	// Stage 1 — on file read, check sensitivity and ratchet (mutates session/warnings).

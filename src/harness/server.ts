@@ -190,7 +190,7 @@ if (astComplexityAvailable()) {
 let structureGraph: import("./structure/artifact-graph.js").ArtifactGraph | null = null;
 let structureConfigCache: import("./structure/types.js").StructureConfig | null = null;
 
-let idleTimer: ReturnType<typeof setTimeout>;
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
 
 // ===========================================
 // Logging

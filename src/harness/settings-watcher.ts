@@ -122,7 +122,13 @@ export function createStripDebouncer(opts: StripDebouncerOptions): StripDebounce
 			pendingTimer = null;
 			runStrip();
 		}, debounceMs);
-		pendingTimer.unref?.();
+		// `NodeJS.Timeout` promises `unref`, but tests (and non-Node timer
+		// shims) can substitute a plain timer handle that lacks it — treat
+		// the method as optional rather than trusting the declared type.
+		// SAFETY: `NodeJS.Timeout` structurally satisfies `{ unref?: () => void }`,
+		// so this narrows the assumed shape rather than lying about it.
+		const timer = pendingTimer as { unref?: () => void };
+		timer.unref?.();
 	};
 
 	const cancel = () => {

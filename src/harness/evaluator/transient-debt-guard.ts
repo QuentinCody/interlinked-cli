@@ -97,8 +97,8 @@ export function deferrableFromTsc(
 	if (findings == null) return null;
 	return findings.filter(isTscFindingDeferrable).map((f) => ({
 		detector: f.ruleId ?? "tsc",
-		line: f.line ?? 0,
-		message: f.message ?? "",
+		line: f.line,
+		message: f.message,
 	}));
 }
 

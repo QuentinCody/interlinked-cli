@@ -119,12 +119,30 @@ function cyclomaticOf(ts: TsModule, node: TS.Node): number {
 	return count;
 }
 
+/**
+ * TS's own `.d.ts` types `Node.parent` as a non-optional `Node`, but that is a
+ * lie for the SourceFile root — it never gets a `.parent` assigned, so
+ * dereferencing `.parent` ON a SourceFile crashes at runtime despite the
+ * type's promise. Rather than compare a "non-optional" value to `undefined`
+ * (which the type checker would call unreachable, defeating the point), this
+ * walks up structurally: `ts.isSourceFile` is a real, narrowing type guard,
+ * so bailing on it BEFORE the next `.parent` read never touches the lie.
+ */
+function nthParent(ts: TsModule, node: TS.Node, depth: number): TS.Node | undefined {
+	let current: TS.Node = node;
+	for (let i = 0; i < depth; i++) {
+		if (ts.isSourceFile(current)) return undefined;
+		current = current.parent;
+	}
+	return current;
+}
+
 /** Whether a node carries an `export` modifier. */
 function isExported(ts: TsModule, node: TS.Node): boolean {
 	const mods = (node as { modifiers?: readonly TS.ModifierLike[] }).modifiers;
 	if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) return true;
 	// `export const foo = () => {}` puts the modifier on the statement.
-	const parent = node.parent?.parent?.parent;
+	const parent = nthParent(ts, node, 3);
 	const parentMods = (parent as { modifiers?: readonly TS.ModifierLike[] } | undefined)?.modifiers;
 	return parentMods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
 }

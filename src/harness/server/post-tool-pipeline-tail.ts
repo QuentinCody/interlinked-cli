@@ -62,7 +62,7 @@ export function appendRequiredToolWarnings(
 	session: SessionTrajectory,
 	postDecision: HarnessDecision,
 ): void {
-	if (!ctx.rules.required_tools?.length || !session) return;
+	if (!ctx.rules.required_tools?.length) return;
 	const engine = getOrCreateEngine(ctx.cwd);
 	for (const reqId of ctx.rules.required_tools) {
 		const skipKey = `required-tool-missing::${reqId}`;

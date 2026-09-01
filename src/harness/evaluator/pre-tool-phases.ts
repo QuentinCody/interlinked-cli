@@ -330,9 +330,13 @@ export function evaluateErrorMemory(
 	toolInput: ToolInput,
 	warnings: string[],
 ): void {
+	// SAFETY: `error_memory` is declared required on GuardRulesConfig, but a
+	// partially-constructed rules object (test fixtures modeling that state,
+	// and potentially a partial hot-reload merge) can omit it.
+	const errorMemory = rules.error_memory as GuardRulesConfig["error_memory"] | undefined;
 	if (
 		errorHistory &&
-		rules.error_memory?.enabled &&
+		errorMemory?.enabled &&
 		(isFileWrite(toolName) || isReadOperation(toolName))
 	) {
 		const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";

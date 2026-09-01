@@ -478,7 +478,7 @@ function buildStopWarnings(
 	// verbatim with nothing changed is a loop, not a reminder (it trapped a real
 	// install waiting on a HUMAN decision). Applied at the outermost assembler
 	// so it covers every nudge family, not one. See stop-nudge-throttle.ts.
-	return suppressRepeatedNudges({ projectRoot: ctx.cwd, sessionId: event.session_id ?? "unknown" }, warnings);
+	return suppressRepeatedNudges({ projectRoot: ctx.cwd, sessionId: event.session_id }, warnings);
 }
 
 // persistSessionTrajectory + cleanupSessionState moved VERBATIM to

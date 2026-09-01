@@ -308,7 +308,7 @@ function codePointEndingBefore(s: string, pos: number): string {
  *  pair), "Appendix Cé", and a 17-digit number would all truncate-and-mis-fire
  *  (sol-max #22/#16, round-5 #17). */
 function runsIntoWordChar(line: string, m: RegExpMatchArray): boolean {
-	const end = (m.index ?? 0) + (m[0]?.length ?? 0);
+	const end = (m.index ?? 0) + m[0].length;
 	return BOUNDARY_WORD_RE.test(codePointStartingAt(line, end));
 }
 
@@ -335,7 +335,7 @@ function refsOnLine(line: string, lineNo: number): SectionRef[] {
 		ref: string | undefined,
 		m: RegExpMatchArray,
 	): void => {
-		if (ref) out.push({ line: lineNo, kind, ref, raw: m[0] ?? "", col: m.index ?? 0 });
+		if (ref) out.push({ line: lineNo, kind, ref, raw: m[0], col: m.index ?? 0 });
 	};
 	for (const m of line.matchAll(SECTION_SIGN_RE)) {
 		// § is self-delimiting; only a trailing boundary is enforced (astral-safe).
@@ -483,7 +483,7 @@ export function extractAnchorLinks(
 			// Masking is column-preserving, so provenance slices the ORIGINAL
 			// source — diagnostics must quote verbatim text, not the mask
 			// ("[a<!--c-->b](x)" was recorded with spaces — round-6 #23).
-			const raw = original.slice(m.index ?? 0, (m.index ?? 0) + (m[0]?.length ?? 0));
+			const raw = original.slice(m.index ?? 0, (m.index ?? 0) + m[0].length);
 			const link = classifyLinkTarget(m[1] ?? "", raw, i + 1);
 			if (link) out.push(link);
 		}

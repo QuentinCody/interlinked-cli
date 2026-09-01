@@ -127,7 +127,7 @@ export function evaluateStructuralContextPhase(
 	routeMap: RouteMap | undefined,
 	warnings: string[],
 ): void {
-	if (!(graph && sessions && rules.structural_checks?.enabled)) return;
+	if (!(graph && sessions && rules.structural_checks.enabled)) return;
 	const contextWarnings = getPreToolUseContext(
 		event,
 		rules.structural_checks,
@@ -183,7 +183,12 @@ export function evaluateDiagnosticsPhase(
 	toolInput: ToolInput,
 	warnings: string[],
 ): void {
-	if (!(isFileWrite(toolName) && rules.quality_checks)) return;
+	// `rules.quality_checks` is typed as required, but a caller can pass a
+	// rules object with it explicitly unset (see the N3 mutation-kill test).
+	// Read it through `unknown` so the guard stays real (AND-gated, not
+	// OR-gated) instead of being lint-dead.
+	const qualityChecksPresent: unknown = rules.quality_checks;
+	if (!(isFileWrite(toolName) && qualityChecksPresent)) return;
 	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
 	if (filePath && DIAGNOSTIC_EXTENSIONS.test(filePath)) {
 		const diagWarnings = getPreToolUseDiagnostics(

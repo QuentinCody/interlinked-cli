@@ -35,6 +35,7 @@ import type {
 	HarnessEvent,
 	ReservationConflict,
 	SessionTrajectory,
+	TaintTrackingConfig,
 } from "../types.js";
 import { evaluateFileDumpGuard } from "./file-dump-guard.js";
 import type { ToolInput } from "./pre-tool-context-phases.js";
@@ -411,7 +412,13 @@ export function evaluateTaintPhase(
 	warnings: string[],
 	ctx: PreToolCtx,
 ): HarnessDecision | null {
-	if (!(rules.taint_tracking?.enabled && session)) return null;
+	// SAFETY: GuardRulesConfig declares `taint_tracking` as required, but a
+	// hand-built or partially-merged rules object can omit it in practice
+	// (proven by the N8 mutation-kill test below, which deletes this field
+	// and expects no throw) — cast to the honest optional shape so the
+	// chain below reflects reality instead of the (unenforced) declared type.
+	const taintTracking = rules.taint_tracking as TaintTrackingConfig | undefined;
+	if (!(taintTracking?.enabled && session)) return null;
 	const taintResult = evaluateTaintGuards({
 		toolName,
 		toolInput,

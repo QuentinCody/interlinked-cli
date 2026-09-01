@@ -68,7 +68,12 @@ function pigIsRemovalOrScript(cmd: string): boolean {
  */
 export function checkPackageInstallCold(
 	toolName: string,
-	toolInput: { command?: unknown },
+	// Optional: this function's SOURCE is serialized via Function.toString()
+	// into the generated .mjs (see the file header) and run there as untyped
+	// JS, where the real hook payload can omit `tool_input` entirely — the
+	// TS-only call sites (tests) always pass an object, but the runtime
+	// caller does not guarantee one.
+	toolInput: { command?: unknown } | null | undefined,
 ): ColdWriteVerdict | null {
 	if (process.env.INTERLINKED_DISABLE_PACKAGE_GUARD === "1") return null;
 	const bashTools = ["Bash", "Shell", "shell", "run_command", "bash"];

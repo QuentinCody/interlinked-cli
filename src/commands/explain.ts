@@ -14,6 +14,12 @@ import {
 } from "../lib/local-activity.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 
+interface ActivityFeedResponse {
+	events?: ActivityEvent[];
+	activity?: ActivityEvent[];
+	activities?: ActivityEvent[];
+}
+
 interface TimelineEvent {
 	timestamp: string;
 	agent: string;
@@ -44,11 +50,7 @@ export async function explainCommand(opts: {
 					limit: 200,
 				}),
 			),
-			getClient().callTool<{
-				events?: ActivityEvent[];
-				activity?: ActivityEvent[];
-				activities?: ActivityEvent[];
-			}>("query_activity_feed", {
+			getClient().callTool<ActivityFeedResponse | undefined>("query_activity_feed", {
 				limit: 100,
 			}),
 		]);

@@ -141,7 +141,7 @@ export function failingTestPhrase(failingTests: string[] | undefined): string {
 export function blockForRedBar(
 	relPath: string,
 	failingTests: string[] | undefined,
-	failingTestFiles?: string[] | undefined,
+	failingTestFiles?: string[],
 ): HarnessDecision {
 	return {
 		decision: "block",

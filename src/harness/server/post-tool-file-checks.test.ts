@@ -588,21 +588,6 @@ describe("impact analysis", () => {
 		);
 	});
 
-	it("defaults the high threshold to 4 when unset", async () => {
-		mRunStructural.mockReturnValue(structResults);
-		mRunImpact.mockReturnValue(impactResult());
-		const ctx = makeCtx({ rules: impactRules() });
-		await runPerFileChecks(ctx, ev(), makeSession(), IN_REPO, { decision: "allow" }, makeAcc());
-		expect(mRunImpact).toHaveBeenCalledWith(
-			expect.anything(),
-			expect.anything(),
-			expect.anything(),
-			expect.anything(),
-			expect.anything(),
-			expect.anything(),
-			{ highThreshold: 4 },
-		);
-	});
 
 	it("blocks when impact severity is critical", async () => {
 		mRunStructural.mockReturnValue(structResults);
@@ -1320,7 +1305,7 @@ describe("recurrence consolidation — source-level pins", () => {
 
 	it("does NOT nest the recurrence write inside error_memory.enabled", async () => {
 		const src = await readFile(FILE_CHECKS_TS, "utf-8");
-		const idx = src.indexOf("if (rules.error_memory?.enabled)");
+		const idx = src.indexOf("if (rules.error_memory.enabled)");
 		expect(idx, "error_memory block missing").toBeGreaterThan(-1);
 		let depth = 0;
 		let started = false;

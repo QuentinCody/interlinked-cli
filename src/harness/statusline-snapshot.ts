@@ -16,7 +16,7 @@ import { CHECK_REGISTRY } from "./check-registry/index.js";
 import { updateEnforcementLedger } from "./enforcement-ledger.js";
 import { crapThresholdFor, maxCyclomaticFor, maxFunctionTokensFor } from "./metric-caps.js";
 import { BUILTIN_RULES } from "./rules/builtin-rules.js";
-import type { GuardRule, GuardRulesConfig, QualityCheckConfig } from "./types.js";
+import type { GuardRule, GuardRulesConfig, QualityCheckConfig, StructuralChecksConfig } from "./types.js";
 
 export interface StatuslineSnapshotInput {
 	/** Project root — directory that owns `.interlinked/`. */
@@ -223,7 +223,9 @@ const AGENT_SAFETY_PIPELINE = "agent_safety" as const;
 function countChecks(rules: GuardRulesConfig): CheckCounts {
 	let tools = 0;
 	let inlineFromConfig = 0;
-	for (const cfg of Object.values(rules.quality_checks)) {
+	// SAFETY: a malformed/partial config can omit a quality_checks entry or
+	// structural_checks entirely — widened to match runtime reality.
+	for (const cfg of Object.values(rules.quality_checks) as (QualityCheckConfig | undefined)[]) {
 		if (!cfg?.enabled) continue;
 		if (isToolRunner(cfg)) {
 			tools++;
@@ -234,7 +236,7 @@ function countChecks(rules: GuardRulesConfig): CheckCounts {
 	const inlineFromRegistry = CHECK_REGISTRY.filter(
 		(c) => c.pipeline === AGENT_SAFETY_PIPELINE,
 	).length;
-	const structural = rules.structural_checks?.enabled ? 1 : 0;
+	const structural = (rules.structural_checks as StructuralChecksConfig | undefined)?.enabled ? 1 : 0;
 	return {
 		tools,
 		inline: inlineFromConfig + inlineFromRegistry + structural,
@@ -358,14 +360,12 @@ interface QualityEntry {
 }
 
 function buildLoadedChecksMarkdown(rules: GuardRulesConfig): string {
-	const entries = Object.entries(rules.quality_checks)
-		.map(([name, cfg]) => ({ name, cfg }))
-		.sort(byEntryName);
+	// SAFETY: a malformed/partial config can supply an undefined entry value.
+	const rawEntries: { name: string; cfg: QualityCheckConfig | undefined }[] = Object.entries(rules.quality_checks).map(([name, cfg]) => ({ name, cfg }));
+	const entries = rawEntries.sort(byEntryName);
 
-	const enabledTools = entries.filter((e) => e.cfg?.enabled && isToolRunner(e.cfg));
-	const enabledInlineFromConfig = entries.filter(
-		(e) => e.cfg?.enabled && !isToolRunner(e.cfg),
-	);
+	const enabledTools = entries.filter((e): e is QualityEntry => e.cfg?.enabled === true && isToolRunner(e.cfg));
+	const enabledInlineFromConfig = entries.filter((e): e is QualityEntry => e.cfg?.enabled === true && !isToolRunner(e.cfg));
 	const disabled = entries.filter((e) => !e.cfg?.enabled);
 
 	const inlineRegistryEntries = CHECK_REGISTRY.filter(
@@ -379,7 +379,7 @@ function buildLoadedChecksMarkdown(rules: GuardRulesConfig): string {
 	const sections: string[][] = [
 		buildChecksHeaderSection(counts),
 		buildToolRunnersSection(enabledTools),
-		buildConfigInlineSection(enabledInlineFromConfig, rules.structural_checks?.enabled === true),
+		buildConfigInlineSection(enabledInlineFromConfig, (rules.structural_checks as StructuralChecksConfig | undefined)?.enabled === true),
 		buildRegistryInlineSection(inlineRegistryEntries),
 		buildDisabledSection(disabled),
 	];
@@ -387,7 +387,7 @@ function buildLoadedChecksMarkdown(rules: GuardRulesConfig): string {
 	return sections.flat().join("\n");
 }
 
-function byEntryName(a: QualityEntry, b: QualityEntry): number {
+function byEntryName(a: { name: string }, b: { name: string }): number {
 	if (a.name < b.name) return -1;
 	if (a.name > b.name) return 1;
 	return 0;
@@ -480,7 +480,7 @@ function buildRegistryInlineSection(
 	return lines;
 }
 
-function buildDisabledSection(disabled: QualityEntry[]): string[] {
+function buildDisabledSection(disabled: { name: string; cfg: QualityCheckConfig | undefined }[]): string[] {
 	if (disabled.length === 0) return [];
 	const lines = [
 		`## Quality checks — disabled (${disabled.length})`,

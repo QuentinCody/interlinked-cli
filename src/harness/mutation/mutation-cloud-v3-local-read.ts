@@ -68,7 +68,12 @@ function noFollowFlag(): number {
 	// Node exposes O_NOFOLLOW on supported POSIX hosts. Windows does not
 	// implement it, so the descriptor/path identity checks below provide the
 	// portable fail-closed fallback instead of passing an unsupported flag.
-	return process.platform === "win32" ? 0 : (constants.O_NOFOLLOW ?? 0);
+	// SAFETY: @types/node declares O_NOFOLLOW unconditionally, but it is
+	// genuinely absent on some non-Windows builds — read it through an
+	// unknown-typed indirection so the runtime-optional fallback below stays
+	// reachable instead of being typed away by the (dishonest) .d.ts.
+	const noFollow = (constants as Record<string, unknown>).O_NOFOLLOW as number | undefined;
+	return process.platform === "win32" ? 0 : (noFollow ?? 0);
 }
 
 function errorCode(error: unknown): string | null {

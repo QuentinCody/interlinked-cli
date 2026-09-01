@@ -209,7 +209,7 @@ export function checkScriptWithoutSri(content: string, filePath: string): Inline
 
 	for (const m of content.matchAll(re)) {
 		if (matches.length >= 10) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = content.slice(0, idx).split("\n").length;
 		matches.push({ line: lineNum, text: nonNull(originalLines[lineNum - 1]).trim().slice(0, 150) });
 	}

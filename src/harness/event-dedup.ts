@@ -44,7 +44,10 @@ const seen = new Map<string, SeenEntry>();
 function hashToolInput(input: unknown): string {
 	let json: string;
 	try {
-		json = JSON.stringify(input) ?? "";
+		// SAFETY: JSON.stringify's declared return type is `string`, but it
+		// really returns `undefined` for inputs like a bare function/symbol.
+		const stringified: string | undefined = JSON.stringify(input);
+		json = typeof stringified === "string" ? stringified : String(input);
 	} catch {
 		// Circular/unserialisable input — fall back to a stringified form.
 		json = String(input);
@@ -65,11 +68,11 @@ interface DedupKey {
  *  falls back to session + tool + input-hash. `hook_event` is always part of
  *  the key so a call's PreToolUse and PostToolUse deliveries stay distinct. */
 export function dedupKey(event: HarnessEvent): DedupKey {
-	const ev = event.hook_event ?? "?";
+	const ev = event.hook_event;
 	if (event.tool_use_id) {
 		return { key: `tuid:${ev}:${event.tool_use_id}`, kind: "tool_use_id" };
 	}
-	const session = event.session_id ?? "?";
+	const session = event.session_id;
 	const tool = event.tool_name ?? "?";
 	return {
 		key: `cmp:${ev}:${session}|${tool}|${hashToolInput(event.tool_input)}`,
@@ -137,7 +140,7 @@ function appendShadowRecord(event: HarnessEvent, dk: DedupKey, prior: SeenEntry)
 		key_kind: dk.kind,
 		key: dk.key,
 		tool: event.tool_name ?? null,
-		hook_event: event.hook_event ?? null,
+		hook_event: event.hook_event,
 		delivery_index: prior.count,
 		ms_since_first: prior.lastTs - prior.firstTs,
 	};

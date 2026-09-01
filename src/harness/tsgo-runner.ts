@@ -304,7 +304,7 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 		const tmpFile = join(dir, `sim${suffix}`);
 		writeFileSync(tmpFile, patched);
 		const diagnostics = await runTsgoOneShot(
-			executable as string,
+			executable,
 			tmpFile,
 			extraArgs,
 			timeoutMs,

@@ -16,10 +16,10 @@ function readAllDeps(pkgJsonPath: string): Record<string, string> {
 	try {
 		const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as JsonObject;
 		return {
-			...((pkg.dependencies as Record<string, string>) || {}),
-			...((pkg.devDependencies as Record<string, string>) || {}),
-			...((pkg.peerDependencies as Record<string, string>) || {}),
-			...((pkg.optionalDependencies as Record<string, string>) || {}),
+			...((pkg.dependencies as Record<string, string> | undefined) || {}),
+			...((pkg.devDependencies as Record<string, string> | undefined) || {}),
+			...((pkg.peerDependencies as Record<string, string> | undefined) || {}),
+			...((pkg.optionalDependencies as Record<string, string> | undefined) || {}),
 		};
 	} catch {
 		return {};

@@ -4,7 +4,7 @@
 // Maps normalized activity events (LocalActivityEvent shape) into
 // collection.v1 records. See docs/design/normalized-collection-layer.md.
 
-import type { JsonObject } from "../json-types.js";
+import { isJsonObject, type JsonObject } from "../json-types.js";
 import type {
 	CollectionAction,
 	CollectionObservation,
@@ -89,14 +89,14 @@ function detectProvider(event: JsonObject): string {
 
 function strField(obj: JsonObject, ...keys: string[]): string | null {
 	for (const k of keys) {
-		if (typeof obj[k] === "string") return obj[k] as string;
+		if (typeof obj[k] === "string") return obj[k];
 	}
 	return null;
 }
 
 function numField(obj: JsonObject, ...keys: string[]): number | null {
 	for (const k of keys) {
-		if (typeof obj[k] === "number") return obj[k] as number;
+		if (typeof obj[k] === "number") return obj[k];
 	}
 	return null;
 }
@@ -173,8 +173,11 @@ const ACTION_BUILDERS: Record<ToolClass, (ctx: ActionContext) => CollectionActio
 		const hunks: FileEditAction["diff"]["hunks"] = [];
 
 		if (toolName === "MultiEdit" && Array.isArray(input.edits)) {
-			for (const e of input.edits as JsonObject[]) {
-				if (e && typeof e === "object") {
+			// `input.edits` is unvalidated tool-call JSON — an element can
+			// legitimately be anything (string, null, …), not just an object,
+			// so `isJsonObject` is a real runtime guard rather than dead code.
+			for (const e of input.edits as unknown[]) {
+				if (isJsonObject(e)) {
 					hunks.push({ old: String(e.old_string || ""), new: String(e.new_string || "") });
 				}
 			}
@@ -446,7 +449,7 @@ export function buildCollectionRecord(event: JsonObject): CollectionRecord | nul
 	const resp = phase === "post" ? (event.tool_response ?? null) : null;
 
 	const actionBuilder = ACTION_BUILDERS[toolClass];
-	const action = actionBuilder ? actionBuilder({ toolClass, toolName, input, cwd, event }) : null;
+	const action = actionBuilder({ toolClass, toolName, input, cwd, event });
 	const observation = phase === "post" ? buildObservation(toolClass, resp) : null;
 	const fidelity = buildFidelity({ phase, toolClass, observation, resp, event });
 	const privacy = buildPrivacy(phase, observation);

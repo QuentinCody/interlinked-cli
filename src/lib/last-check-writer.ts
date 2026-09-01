@@ -47,8 +47,13 @@ export function formatLastCheckLine(fields: LastCheckFields): string {
 
 /** Repo-relative edited file for tool calls; "" when the event has none. */
 export function extractEventFile(event: UnifiedHookEvent): string {
-	const action = event.action as { kind?: string; tool_input?: unknown };
-	if (action?.kind !== "tool_call") return "";
+	// `event` is ultimately built from an untrusted native runner payload
+	// (`adapter.parseHookInput`, tolerant-of-anything by contract) or replayed
+	// from a stored JSONL record — `action` is required by the *declared*
+	// type but not guaranteed to survive a malformed source, so this cast
+	// stays honest about that rather than trusting the static type.
+	const action = event.action as { kind?: string; tool_input?: unknown } | undefined;
+	if (!action || action.kind !== "tool_call") return "";
 	const ti = action.tool_input as
 		| { file_path?: unknown; filePath?: unknown; path?: unknown; notebook_path?: unknown }
 		| null
@@ -56,15 +61,22 @@ export function extractEventFile(event: UnifiedHookEvent): string {
 	if (!ti || typeof ti !== "object") return "";
 	const raw = ti.file_path ?? ti.filePath ?? ti.path ?? ti.notebook_path ?? "";
 	if (typeof raw !== "string" || raw.length === 0) return "";
-	const cwd = event.context?.cwd ?? "";
+	// Same untrusted-source rationale as `action` above — `context` is
+	// declared required but a malformed/replayed event can still omit it.
+	const context = event.context as { cwd?: string } | undefined;
+	const cwd = context?.cwd;
 	if (cwd && raw.startsWith(`${cwd}/`)) return raw.slice(cwd.length + 1);
 	return raw;
 }
 
 function toolLabel(event: UnifiedHookEvent): string {
-	const action = event.action as { kind?: string; tool_name?: string };
-	if (action?.kind === "tool_call" && action.tool_name) return action.tool_name;
-	if (action?.kind === "shell_command") return "Bash";
+	// See extractEventFile: `action` is declared required but the source is
+	// an untrusted native payload / replayed record, so this stays honest
+	// about the possible-absent case rather than trusting the static type.
+	const action = event.action as { kind?: string; tool_name?: string } | undefined;
+	if (!action) return "tool";
+	if (action.kind === "tool_call" && action.tool_name) return action.tool_name;
+	if (action.kind === "shell_command") return "Bash";
 	return "tool";
 }
 

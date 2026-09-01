@@ -152,8 +152,8 @@ export function appendShellSandboxAdvisory(
 	event.sandbox_evidence = assessment.evidence;
 	const explicitRisk = assessment.evidence === "disabled";
 	const acknowledged = session.acknowledged_checks;
-	if (!explicitRisk && acknowledged?.has(NOTICE_KEY)) return;
-	if (!explicitRisk) acknowledged?.add(NOTICE_KEY);
+	if (!explicitRisk && acknowledged.has(NOTICE_KEY)) return;
+	if (!explicitRisk) acknowledged.add(NOTICE_KEY);
 	const strength = assessment.evidence === "attested" ? "attested" : assessment.evidence;
 	const message =
 		`[interlinked:sandbox] Bash sandbox evidence=${strength}: ${assessment.detail}. ` +

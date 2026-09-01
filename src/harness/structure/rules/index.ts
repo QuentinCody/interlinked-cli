@@ -33,10 +33,14 @@ export interface StructureRuleContext {
 	repoRoot?: string | undefined;
 }
 
-function isRuleContext(x: StructureRuleContext | ArtifactGraph): x is StructureRuleContext {
-	return (
-		typeof x === "object" && x !== null && "graph" in x && "config" in x && "changedFiles" in x
-	);
+// Parameter is `unknown`, not `StructureRuleContext | ArtifactGraph`: the
+// second overload's `graph` position is reachable with a type-defeating cast
+// from real callers (proven by the null/string/number cases in
+// index.test.ts), so the `x !== null` guard below is a real runtime check,
+// not dead code — narrowing from the honest union type made TS think it
+// could never see null.
+function isRuleContext(x: unknown): x is StructureRuleContext {
+	return typeof x === "object" && x !== null && "graph" in x && "config" in x && "changedFiles" in x;
 }
 
 export function evaluateStructureRules(ctx: StructureRuleContext): StructureFinding[];

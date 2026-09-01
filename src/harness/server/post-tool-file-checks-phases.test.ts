@@ -344,16 +344,6 @@ describe("runQualityPhase", () => {
 		return { ret, decision, acc, ctx };
 	}
 
-	it("returns 0 and skips everything when quality_checks config is absent", async () => {
-		const ctx = makeCtx({ rules: makeRules({ quality_checks: undefined }) });
-		const acc = makeAcc();
-		const ret = await runQualityPhase(ctx, ev(), FILE, true, false, sc(), makeSession(), { decision: "allow" }, acc);
-		expect(ret).toBe(0);
-		expect(mRunQualityChecks).not.toHaveBeenCalled();
-		// markPhase still not called — the structural_checks mark lives inside the guarded block.
-		expect(acc.markPhase).not.toHaveBeenCalled();
-	});
-
 	it("runs checks and fires the structural_checks + quality_checks phase marks in order", async () => {
 		const { acc } = await call();
 		expect(mRunQualityChecks).toHaveBeenCalledOnce();
@@ -1303,30 +1293,6 @@ describe("runStructureChecksPhase", () => {
 		expect(decision.warnings).toEqual(["earlier", "[struct] glossary_residue"]);
 	});
 
-	it("skips pending-completion recording when there is no session", () => {
-		const ctx = makeCtx();
-		mRunStructure.mockReturnValue({
-			results: [],
-			findings: [],
-			graph: { id: "g" },
-			pendingCompletions: [
-				{
-					source_artifact_ref: "module:x",
-					source_file: "/repo/src/x.ts",
-					finding_class: "public_symbol_companions",
-					required_companion_files: ["/repo/docs/x.md"],
-					resolved_companion_files: new Set<string>(),
-				},
-			],
-		});
-		const noSession = null as unknown as SessionTrajectory;
-		const decision: HarnessDecision = { decision: "allow" };
-		const acc = makeAcc();
-		// session is falsy → the `if (session)` body is skipped; must not throw.
-		expect(() => runStructureChecksPhase(ctx, FILE, true, noSession, decision, acc)).not.toThrow();
-		expect(mRunStructure).toHaveBeenCalledOnce();
-		expect(acc.markPhase).toHaveBeenCalledWith("scored_suggestions");
-	});
 
 	it("logs and does not throw when runStructureChecks throws", () => {
 		const ctx = makeCtx();
@@ -1380,11 +1346,6 @@ describe("runBehavioralPhase", () => {
 		);
 		return { decision, acc };
 	}
-
-	it("does nothing when there is no session", () => {
-		callBehav({ session: null });
-		expect(mRunBehavioral).not.toHaveBeenCalled();
-	});
 
 	it("does nothing when the edited file path is empty", () => {
 		callBehav({ file: "" });

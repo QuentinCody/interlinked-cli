@@ -19,8 +19,10 @@ import { ratchetSensitivity } from "../taint-tracker.js";
 import type {
 	GuardRulesConfig,
 	HarnessEvent,
+	OutputScanningConfig,
 	SensitivityLevel,
 	SessionTrajectory,
+	TaintTrackingConfig,
 } from "../types.js";
 import { applyAllowlist, type CompiledEntry } from "./allowlist.js";
 import { decideFromFindings, filterFindingsByScore } from "./policy.js";
@@ -129,8 +131,12 @@ export async function runPostToolScan(args: PostScanArgs): Promise<PostScanResul
 	const text = extractReadResponseText(event);
 	if (!text) return empty;
 
-	const scanLimit =
-		cfg.max_scan_bytes || rules.output_scanning?.max_scan_bytes || DEFAULT_MAX_SCAN_BYTES;
+	// SAFETY: GuardRulesConfig declares `output_scanning` as required, but
+	// tests (and possibly other partial-config callers) construct `rules`
+	// objects that omit it — widened locally so the optional chain reflects
+	// what actually reaches this function at runtime.
+	const outputScanning = rules.output_scanning as OutputScanningConfig | undefined;
+	const scanLimit = cfg.max_scan_bytes || outputScanning?.max_scan_bytes || DEFAULT_MAX_SCAN_BYTES;
 	let findings: ScanFinding[];
 	try {
 		findings = await scanner.scan({
@@ -170,8 +176,13 @@ export async function runPostToolScan(args: PostScanArgs): Promise<PostScanResul
 
 	const filePath = (event.tool_input?.file_path as string) || `<${toolName}-response>`;
 	let ratcheted: SensitivityLevel | undefined;
-	if (session && rules.taint_tracking?.enabled) {
-		const changed = ratchetSensitivity(session, filePath, ratchetLevel, rules.taint_tracking);
+	// SAFETY: GuardRulesConfig declares `taint_tracking` as required, but
+	// tests (and possibly other partial-config callers) construct `rules`
+	// objects that omit it — widened locally so the guard below reflects
+	// what actually reaches this function at runtime.
+	const taintTracking = rules.taint_tracking as TaintTrackingConfig | undefined;
+	if (session && taintTracking?.enabled) {
+		const changed = ratchetSensitivity(session, filePath, ratchetLevel, taintTracking);
 		if (changed) ratcheted = ratchetLevel;
 		// Record the step even when the ratchet was a no-op (already at or above
 		// the target level) — PreToolUse gating patterns care about detection

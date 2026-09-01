@@ -169,9 +169,12 @@ export async function daemonizeHarness(args: {
 			closeDaemonStderrLog(stderrLog);
 		}
 	})();
-	let childExited = false;
+	// A mutable object property (rather than a bare `let`) so the compiler's
+	// flow analysis doesn't (incorrectly) narrow the exit-callback assignment
+	// away as unreachable at the later read sites below.
+	const exitState = { childExited: false };
 	child.on("exit", () => {
-		childExited = true;
+		exitState.childExited = true;
 	});
 	const childPid = adoptDaemonStartupLease(cwd, child);
 	// The COUNTING row of the attempt-ID chain: a daemon process now exists for
@@ -187,7 +190,7 @@ export async function daemonizeHarness(args: {
 	const startTime = Date.now();
 	let ready = false;
 	while (Date.now() - startTime < maxWaitMs) {
-		if (childExited) break; // Process crashed — stop waiting
+		if (exitState.childExited) break; // Process crashed — stop waiting
 		if (await allSocketsReady(socketPaths)) {
 			ready = true;
 			break;
@@ -209,7 +212,7 @@ export async function daemonizeHarness(args: {
 	// yet listen (resolving), die with an id-stamped startup-failed exit
 	// (resolving), or wedge — and a wedged non-listening daemon SHOULD keep
 	// counting toward the churn backstop.
-	if (!ready && childExited) {
+	if (!ready && exitState.childExited) {
 		recordInheritedDaemonSpawn(cwd, "start_failed", `daemon exited before listening (${elapsed}s)`);
 	}
 	// Automation contract: a start that never reached its sockets exits nonzero.
@@ -219,10 +222,10 @@ export async function daemonizeHarness(args: {
 		normal: () => {
 			if (ready) return c.green(`Harness started (PID ${resolvedPid})`);
 			const lines = [c.red(`Failed to start harness after ${elapsed}s.`)];
-			if (childExited && stderrOutput) {
+			if (exitState.childExited && stderrOutput) {
 				lines.push(c.dim("Error output:"));
 				lines.push(c.dim(stderrOutput.trim().slice(0, 500)));
-			} else if (childExited) {
+			} else if (exitState.childExited) {
 				lines.push(c.dim("Process exited without output."));
 			} else {
 				lines.push(c.dim("Process is running but socket not created. Try foreground:"));

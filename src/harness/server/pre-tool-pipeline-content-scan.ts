@@ -13,7 +13,7 @@ import { buildAskReason, writePendingPrompt } from "../content-scanner/redact-pr
 import { countPendingReviews } from "../content-scanner/review-files.js";
 import type { ScanFinding } from "../content-scanner/types.js";
 import { fetchAndScan } from "../content-scanner/web-fetch-proxy.js";
-import type { HarnessDecision, HarnessEvent } from "../types.js";
+import type { GuardRulesConfig, HarnessDecision, HarnessEvent } from "../types.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
 /**
@@ -163,7 +163,23 @@ export async function runContentScanRequest(
 	}
 	const scanReq = preDecision._contentScan;
 	const maxBytes = rules.content_scanner.max_scan_bytes || 100_000;
-	const timeoutMs = rules.content_scanner.local?.scan_timeout_ms || 1500;
+	// `content_scanner` is declared optional on GuardRulesConfig, and callers
+	// that build one directly (rather than through `loadRules()`, which
+	// always fills every sub-field from DEFAULT_CONFIG) can supply it with
+	// `local` omitted — only relevant for the "local" runtime. `local` stays
+	// required on the shared `ContentScannerConfig` type (every OTHER reader
+	// — opf-local.ts, prompt-scan.ts, post-scan.ts, web-fetch-proxy.ts —
+	// dereferences it unconditionally and is genuinely always fed a
+	// `loadRules()`-built config), so the honest widening is local to this
+	// one defensive read rather than the shared interface.
+	// SAFETY: only relaxes `local` to optional; every other field keeps its
+	// declared shape.
+	const contentScannerLocal = rules.content_scanner as
+		| (Omit<NonNullable<GuardRulesConfig["content_scanner"]>, "local"> & {
+				local?: { scan_timeout_ms?: number };
+		  })
+		| undefined;
+	const timeoutMs = contentScannerLocal?.local?.scan_timeout_ms || 1500;
 	const findings: ScanFinding[] = [];
 	for (const part of scanReq.parts) {
 		try {

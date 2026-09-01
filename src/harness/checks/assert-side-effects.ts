@@ -139,7 +139,7 @@ function isSnakeMutatingName(name: string, python: boolean, dotted: boolean): bo
 /** Any mutating snake call in the body? (`python` enables the bare-`set(` exemption.) */
 function hasSnakeMutatingCall(body: string, python: boolean): boolean {
 	for (const m of body.matchAll(SNAKE_CALL_NAME_RE)) {
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const dotted = idx > 0 && body.charAt(idx - 1) === ".";
 		if (isSnakeMutatingName(m[1] ?? "", python, dotted)) return true;
 	}
@@ -328,7 +328,7 @@ export function checkCAssertSideEffects(content: string, filePath: string): Inli
 
 	for (const m of stripped.matchAll(re)) {
 		if (matches.length >= MAX_MATCHES_PER_FILE) break;
-		const start = m.index ?? 0;
+		const start = m.index;
 		if (start < scannedUntil) continue;
 		const openIndex = start + m[0].lastIndexOf("(");
 		const closeIndex = parens.get(openIndex) ?? -1;
@@ -450,7 +450,7 @@ export function checkJavaAssertSideEffects(
 		if (matches.length >= MAX_MATCHES_PER_FILE) break;
 		const body = (m[1] ?? "") + (m[2] ?? "");
 		if (!detectAssertSideEffect(body, "camel")) continue;
-		recordMatch(matches, rawLines, offsetToLine(stripped, m.index ?? 0), JAVA_MESSAGE);
+		recordMatch(matches, rawLines, offsetToLine(stripped, m.index), JAVA_MESSAGE);
 	}
 	return matches;
 }

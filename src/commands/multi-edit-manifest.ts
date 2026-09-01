@@ -145,12 +145,15 @@ function validateEdits(raw: unknown[]): EditsValidation {
 	}
 	const edits: EditPair[] = [];
 	for (let i = 0; i < raw.length; i += 1) {
-		const e = raw[i] as JsonObject;
-		const hasBothStrings =
-			!!e &&
-			typeof e.old_string === FIELD_TYPE_STRING &&
-			typeof e.new_string === FIELD_TYPE_STRING;
-		if (!hasBothStrings) {
+		// `raw` is a JSON.parse'd array, so an entry can genuinely be `null` or a
+		// non-object at runtime — `JsonObject | null` (not a bare `JsonObject`
+		// cast) keeps that honest and lets the `!e ||` guard below narrow.
+		const e = raw[i] as JsonObject | null;
+		if (
+			!e ||
+			typeof e.old_string !== FIELD_TYPE_STRING ||
+			typeof e.new_string !== FIELD_TYPE_STRING
+		) {
 			return {
 				ok: false,
 				message: `Edit ${i} must have { old_string: string, new_string: string }.`,

@@ -40,7 +40,7 @@ export interface ToolEvent {
 	session: string;
 	tool: string;
 	toolUseId: string;
-	hook: "PreToolUse" | "PostToolUse" | "Stop" | string;
+	hook: string;
 	input: {
 		file_path?: string;
 		old_string?: string;
@@ -223,7 +223,12 @@ function editEvents(events: readonly ToolEvent[]): ToolEvent[] {
 	const seen = new Set<string>();
 	const out: ToolEvent[] = [];
 	for (const ev of events) {
-		const input = ev?.input;
+		// `input` is declared required, but this ledger is documented ("we
+		// scan the edit-bearing ones at Stop / per-edit") to eventually read
+		// events reconstructed from a persisted JSONL trajectory log, not
+		// only the in-process `toToolEvent`-built stream — a genuinely
+		// malformed/truncated record there can omit `input` entirely.
+		const input = (ev as { input?: ToolEvent["input"] }).input;
 		if (!input) continue;
 		const hasEdit =
 			input.new_string !== undefined ||
@@ -388,7 +393,7 @@ export function obligationConflictMarkerRule(
 	events: ToolEvent[],
 	latest: ToolEvent,
 ): ObligationVerdict | null {
-	const file = latest?.input?.file_path ?? "";
+	const file = latest.input.file_path ?? "";
 	if (!file || isExemptPath(file)) return null;
 
 	const resultText = latest.input.new_string ?? latest.input.content ?? "";
@@ -400,8 +405,8 @@ export function obligationConflictMarkerRule(
 	const priorWithMarker = (Array.isArray(events) ? events : []).some(
 		(ev) =>
 			ev !== latest &&
-			ev?.input?.file_path === file &&
-			conflictMarkerLines(ev.input?.new_string ?? ev.input?.content ?? "").length > 0,
+			ev.input.file_path === file &&
+			conflictMarkerLines(ev.input.new_string ?? ev.input.content ?? "").length > 0,
 	);
 	const lede = priorWithMarker
 		? "Conflict markers present in an earlier edit survived this one"

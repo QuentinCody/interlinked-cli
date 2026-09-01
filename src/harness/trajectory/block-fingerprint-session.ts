@@ -173,7 +173,7 @@ function strField(input: JsonObject, key: string): string {
  * the escape-env channel.
  */
 function candidateFromEvent(event: HarnessEvent, cwd: string): WorkaroundCandidate {
-	const input = (event.tool_input ?? {}) as JsonObject;
+	const input = event.tool_input ?? {};
 	const command = typeof input.command === "string" ? input.command : undefined;
 	if (isFileWrite(event.tool_name)) {
 		const named = strField(input, "file_path") || strField(input, "path");

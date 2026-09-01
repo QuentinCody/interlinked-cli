@@ -72,11 +72,22 @@ export function runTddCommitGate(
 	const { rules } = ctx;
 	if (
 		preDecision.decision === "allow" &&
-		session &&
 		event.tool_name === "Bash" &&
 		/\bgit\s+commit\b/.test((event.tool_input?.command as string) || "")
 	) {
-		const testFirstMode = rules.structural_checks?.test_first_mode || "warn";
+		// `GuardRulesConfig.structural_checks` is declared required, but a
+		// hot-reload / partial-merge window (and the test fixtures that model
+		// it — see "uses the warn default when structural_checks is absent")
+		// can genuinely hand this function an incompletely-populated rules
+		// object. Widening the local binding to `| undefined` keeps that
+		// honest instead of asserting a guarantee the runtime doesn't have.
+		// SAFETY: `as` (not a plain annotation) is required here — a plain
+		// `: T | undefined` binding still narrows via the initializer's real
+		// (non-optional) type, defeating the point of this cast.
+		const structuralChecks = rules.structural_checks as
+			| { test_first_mode?: "nudge" | "warn" | "enforce" }
+			| undefined;
+		const testFirstMode = structuralChecks?.test_first_mode || "warn";
 		const commitMessage = parseCommitMessageFromBash(
 			(event.tool_input?.command as string) || "",
 		);
@@ -249,7 +260,7 @@ export function injectStructureContext(
 		try {
 			const structRepoRoot = findProjectRoot(filePath, CWD) || CWD;
 			const { config } = loadStructureConfig(structRepoRoot);
-			if (config && session) {
+			if (config) {
 				// Check for unresolved structure follow-ups in session
 				const unresolvedStructure: string[] = [];
 				for (const [key, completion] of session.pending_completions) {

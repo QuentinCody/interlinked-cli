@@ -29,10 +29,17 @@ interface SuppressionEntry {
 	line?: number;
 }
 
+// Every read site casts an unvalidated `JSON.parse` of a user-editable
+// on-disk config (`.interlinked/verify-suppressions.json`) to this type, so a
+// hand-edited file can genuinely have a `null`/missing entry for a path
+// despite the index signature claiming otherwise — kept honestly nullable.
 interface SuppressionFile {
-	[filePath: string]: {
-		[checkName: string]: SuppressionEntry;
-	};
+	[filePath: string]:
+		| {
+				[checkName: string]: SuppressionEntry;
+		  }
+		| null
+		| undefined;
 }
 
 // ===========================================

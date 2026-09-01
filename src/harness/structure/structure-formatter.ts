@@ -5,7 +5,6 @@
 // and for verify JSON output.
 
 import type {
-	ArtifactFileKey,
 	Determinism,
 	StructureConfig,
 	StructureFinding,
@@ -83,7 +82,7 @@ export function formatStructureVerifyOutput(opts: VerifyOutputOptions): Structur
 		mode,
 		catalog_fresh: opts.catalogFresh,
 		invalid_files: opts.invalidFiles,
-		adoption: opts.adoption as Record<ArtifactFileKey, number>,
+		adoption: opts.adoption,
 		findings: counts,
 		details,
 	};

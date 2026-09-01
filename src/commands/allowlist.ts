@@ -230,7 +230,7 @@ async function screenAdvisories(
 }
 
 export async function addAllowlistCommand(
-	ecosystem: Ecosystem | string,
+	ecosystem: string,
 	pkg: string,
 	opts: AddOpts & { force?: boolean },
 ): Promise<void> {
@@ -301,7 +301,7 @@ interface RemoveOpts {
 }
 
 export function removeAllowlistCommand(
-	ecosystem: Ecosystem | string,
+	ecosystem: string,
 	pkg: string,
 	opts: RemoveOpts,
 ): void {

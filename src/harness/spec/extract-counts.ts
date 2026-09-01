@@ -219,7 +219,7 @@ function parseCountMatch(
 		noun,
 		nounSingular: singularize(noun),
 		value,
-		raw: m[0] ?? "",
+		raw: m[0],
 		line: lineNo,
 	};
 }
@@ -236,7 +236,7 @@ function parseCountMatch(
  *  betsé" would truncate out of a larger word (round-7 #3). */
 function matchToClaim(line: string, m: RegExpMatchArray, lineNo: number): CountClaim | null {
 	const start = m.index ?? 0;
-	if (hasUnicodeWordGlue(line, start, start + (m[0]?.length ?? 0))) return null;
+	if (hasUnicodeWordGlue(line, start, start + m[0].length)) return null;
 	return parseCountMatch(m, lineNo);
 }
 

@@ -364,7 +364,10 @@ function acquireFileMutationLock(
 		...(identity.processStartId ? { process_start_id: identity.processStartId } : {}),
 	};
 
-	while (true) {
+	// `for (;;)` rather than `while (true)`: same infinite-retry loop (exited only
+	// via the `return`/`throw` below), but sidesteps no-unnecessary-condition
+	// flagging the ever-true `true` literal as a dead check.
+	for (;;) {
 		const lease = tryCreateLease(path, lockPath, owner);
 		if (lease) return lease;
 		if (

@@ -118,11 +118,11 @@ function consequentSpan(masked: string, afterCond: number): [number, number] {
 /** True when the slice contains a runtime skip call that is NOT inside any
  *  `if` consequent — an always-skipped test, the runtime spelling of `.skip`. */
 function hasUnconditionalRuntimeSkip(maskedSlice: string): boolean {
-	const skipOffsets = [...maskedSlice.matchAll(RUNTIME_SKIP_RE)].map((m) => m.index ?? 0);
+	const skipOffsets = [...maskedSlice.matchAll(RUNTIME_SKIP_RE)].map((m) => m.index);
 	if (skipOffsets.length === 0) return false;
 	const consequents: Array<[number, number]> = [];
 	for (const m of maskedSlice.matchAll(IF_CONDITION_RE)) {
-		consequents.push(consequentSpan(maskedSlice, (m.index ?? 0) + m[0].length));
+		consequents.push(consequentSpan(maskedSlice, m.index + m[0].length));
 	}
 	return skipOffsets.some((k) => !consequents.some(([s, e]) => k >= s && k < e));
 }
@@ -337,7 +337,7 @@ export function checkSilentDependencySkip(content: string, filePath: string): In
 	const matches: InlineMatch[] = [];
 	for (const m of masked.matchAll(AVAILABILITY_GUARD_RE)) {
 		if (matches.length >= MAX_MATCHES) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		if (!consequentIsSilentSkip(masked, idx + m[0].length)) continue;
 		const lineIdx = lineIdxForOffset(masked, idx);
 		if (!inTestBlock(blocks, lineIdx)) continue; // helper / hook, not a test skip

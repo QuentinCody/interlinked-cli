@@ -174,7 +174,7 @@ export async function gitContextCommand(opts: { commit?: string; json?: boolean 
 		try {
 			const { getClient } = await import("../lib/api-client.js");
 			const client = getClient();
-			const serverResult = await client.callTool<ServerGitContext>("get_git_context", {
+			const serverResult = await client.callTool<ServerGitContext | null>("get_git_context", {
 				...(opts.commit ? { commit_sha: opts.commit } : {}),
 			});
 
@@ -252,6 +252,19 @@ export async function gitContextCommand(opts: { commit?: string; json?: boolean 
 // git link-checkpoint
 // ===========================================
 
+/** Extracted so the caller can spread it without introducing explicit
+ *  `undefined` values, which `exactOptionalPropertyTypes` rejects. */
+function serverPushResultPatch(
+	serverResult: ServerPushResult | null,
+): Pick<LinkCheckpointResult, "trailers" | "notes" | "notes_json"> {
+	if (!serverResult) return {};
+	return {
+		trailers: serverResult.trailers,
+		notes: serverResult.notes,
+		notes_json: serverResult.notes_json,
+	};
+}
+
 export async function gitLinkCheckpointCommand(opts: {
 	checkpoint?: string;
 	commit?: string;
@@ -285,7 +298,7 @@ export async function gitLinkCheckpointCommand(opts: {
 			}
 		} else {
 			try {
-				const ctx = await client.callTool<ServerGitContext>("get_git_context", {});
+				const ctx = await client.callTool<ServerGitContext | null>("get_git_context", {});
 				checkpointId = ctx?.latest_checkpoint?.id;
 			} catch {
 				// Will be handled below
@@ -299,7 +312,7 @@ export async function gitLinkCheckpointCommand(opts: {
 		}
 
 		// Call push_checkpoint_to_git (checkpoint_id is a number per schema)
-		const serverResult = await client.callTool<ServerPushResult>("push_checkpoint_to_git", {
+		const serverResult = await client.callTool<ServerPushResult | null>("push_checkpoint_to_git", {
 			checkpoint_id: checkpointId,
 			commit_sha: commitSha,
 			...(branch ? { branch_name: branch } : {}),
@@ -308,9 +321,7 @@ export async function gitLinkCheckpointCommand(opts: {
 		const result: LinkCheckpointResult = {
 			checkpoint_id: checkpointId,
 			commit_sha: commitSha,
-			trailers: serverResult?.trailers,
-			notes: serverResult?.notes,
-			notes_json: serverResult?.notes_json,
+			...serverPushResultPatch(serverResult),
 			applied: false,
 		};
 

@@ -196,8 +196,10 @@ function userRecords(base: RecordBase, content: unknown): TimelineRecord[] {
 	}
 	if (!Array.isArray(content)) return out;
 	content.forEach((raw, i) => {
-		// SAFETY: untyped JSON block; every field read below is type-guarded first.
-		const b = raw as ContentBlock;
+		// SAFETY: untyped JSON block that may legitimately contain `null`
+		// elements (adversarial/malformed transcripts) — every field read
+		// below is type-guarded first.
+		const b = raw as ContentBlock | null;
 		if (b?.type === "text" && typeof b.text === "string" && b.text.trim()) {
 			out.push({ ...base, seq: i, category: "user_prompt", role: "user", text: scrubText(b.text), scrubbed: true });
 		} else if (b?.type === "tool_result") {
@@ -221,8 +223,10 @@ function assistantRecords(base: RecordBase, content: unknown, model: string | un
 	const out: TimelineRecord[] = [];
 	if (!Array.isArray(content)) return out;
 	content.forEach((raw, i) => {
-		// SAFETY: untyped JSON block; every field read below is type-guarded first.
-		const b = raw as ContentBlock;
+		// SAFETY: untyped JSON block that may legitimately contain `null`
+		// elements (adversarial/malformed transcripts) — every field read
+		// below is type-guarded first.
+		const b = raw as ContentBlock | null;
 		if (b?.type === "text" && typeof b.text === "string" && b.text.trim()) {
 			out.push({ ...base, seq: i, category: "agent_message", role: "assistant", model, text: scrubText(b.text), scrubbed: true });
 		} else if (b?.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim()) {

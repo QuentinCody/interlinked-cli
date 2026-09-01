@@ -188,7 +188,7 @@ function readCurrentEnabled(cwd: string): boolean {
 	if (!existsSync(path)) return false;
 	try {
 		const raw = JSON.parse(readFileSync(path, "utf-8")) as JsonObject;
-		const block = raw?.content_scanner as JsonObject | undefined;
+		const block = raw.content_scanner as JsonObject | undefined;
 		return block?.enabled === true;
 	} catch (_) {
 		return false;

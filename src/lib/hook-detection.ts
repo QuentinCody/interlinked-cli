@@ -34,7 +34,7 @@ function isPackageJsonish(v: unknown): v is PackageJsonLike {
 }
 
 function isNonEmptyString(v: unknown): v is string {
-	return v === String(v) && (v as string).length > 0;
+	return v === String(v) && v.length > 0;
 }
 
 /**

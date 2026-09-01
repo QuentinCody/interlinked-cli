@@ -42,7 +42,7 @@ export function getGitSourceFiles(cwd: string): string[] {
 			"git",
 			["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
 			{ cwd, encoding: "utf-8", timeout: 10_000, stdio: ["pipe", "pipe", "pipe"] },
-		) as string;
+		);
 		const files = raw
 			.split("\0")
 			.filter(Boolean)

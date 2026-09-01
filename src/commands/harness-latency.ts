@@ -26,7 +26,9 @@ interface LatencyRecord {
 	session_id?: string | null;
 	checks_ran?: string[] | null;
 	checks_timing_ms?: number | null;
-	tool_breakdown?: ToolBreakdownRecord[] | null;
+	// Unvalidated JSON array — entries are checked one-by-one in
+	// addBreakdownTimings, not here (see the field's usage comment below).
+	tool_breakdown?: unknown[] | null;
 }
 
 /**
@@ -202,10 +204,17 @@ export function computeLatencyReport(
 function addBreakdownTimings(buckets: Map<string, number[]>, r: LatencyRecord): void {
 	if (!Array.isArray(r.tool_breakdown)) return;
 	for (const entry of r.tool_breakdown) {
-		if (!entry || typeof entry.tool !== "string" || typeof entry.ms !== "number") continue;
-		const arr = buckets.get(entry.tool) ?? [];
-		arr.push(entry.ms);
-		buckets.set(entry.tool, arr);
+		if (
+			typeof entry !== "object" ||
+			entry === null ||
+			typeof (entry as ToolBreakdownRecord).tool !== "string" ||
+			typeof (entry as ToolBreakdownRecord).ms !== "number"
+		)
+			continue;
+		const validated = entry as ToolBreakdownRecord;
+		const arr = buckets.get(validated.tool) ?? [];
+		arr.push(validated.ms);
+		buckets.set(validated.tool, arr);
 	}
 }
 

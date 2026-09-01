@@ -125,7 +125,7 @@ export function trajectoryShadowWarnings(
 	filesRead?: readonly string[],
 ): string[] {
 	try {
-		if (config?.trajectory_shadow?.enabled !== true) return [];
+		if (config.trajectory_shadow?.enabled !== true) return [];
 		// PreToolUse/PostToolUse carry the tool-call rules; Stop carries the
 		// obligation-ledger inventory (obl_net_open_at_stop). Other lifecycle events
 		// (SessionStart/End, Subagent*, Skill*, UserPromptSubmit) have no rule.

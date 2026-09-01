@@ -124,7 +124,10 @@ function evaluatePatterns(rule: GuardRule, toolInput: JsonObject, fallback: stri
 	// ANY positive pattern must match (OR logic); vacuously true with zero patterns.
 	let anyPositiveMatched = positivePatterns.length === 0;
 	for (const pattern of positivePatterns) {
-		const value = getField(toolInput, pattern.field) || fallback;
+		// getField's return is genuinely unknown (rule-config-driven field lookup),
+		// so `|| fallback` can still land on a falsy runtime value (0, "", false) —
+		// annotate explicitly to keep TS from over-narrowing this to "always truthy".
+		const value: unknown = getField(toolInput, pattern.field) || fallback;
 		if (!value) continue;
 		const regex = getCachedRegex(pattern.regex, pattern.flags ?? "i");
 		if (regex.test(projectForPattern(String(value), pattern))) {
@@ -136,7 +139,9 @@ function evaluatePatterns(rule: GuardRule, toolInput: JsonObject, fallback: stri
 
 	// ALL negated patterns must NOT match (exceptions).
 	for (const pattern of negatedPatterns) {
-		const value = getField(toolInput, pattern.field) || fallback;
+		// See the positive-pattern loop above: keep the type honestly `unknown`
+		// so this falsy guard stays live for genuinely falsy field values.
+		const value: unknown = getField(toolInput, pattern.field) || fallback;
 		if (!value) continue;
 		const regex = getCachedRegex(pattern.regex, pattern.flags ?? "i");
 		if (regex.test(projectForPattern(String(value), pattern))) return PATTERN_RESULT_NEGATED;

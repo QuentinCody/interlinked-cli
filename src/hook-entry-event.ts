@@ -29,7 +29,7 @@ export function buildUnifiedHookEvent(
 		runner: adapter.id,
 		nativeEvent: nativeEventName,
 		raw: event.raw,
-		cwd: event.context?.cwd ?? process.cwd(),
+		cwd: event.context.cwd,
 	});
 	return event;
 }

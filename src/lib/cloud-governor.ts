@@ -68,7 +68,7 @@ function parseVerdict(value: unknown): CloudVerdict | null {
 	const result: CloudVerdict = { decision: v.decision };
 	if (typeof v.reason === "string") result.reason = v.reason;
 	if (Array.isArray(v.warnings) && v.warnings.every((w) => typeof w === "string")) {
-		result.warnings = v.warnings as string[];
+		result.warnings = v.warnings;
 	}
 	if (typeof v.rule_id === "string") result.rule_id = v.rule_id;
 	return result;

@@ -23,38 +23,25 @@ export type Determinism = "fully_deterministic" | "partially_deterministic" | "h
 // Events (hook script → harness)
 // ===========================================
 
-/** Hook events from all supported coding agents */
-export type HookEventName =
-	// Claude Code — parseable events. PostToolUseFailure remains parse-only;
-	// PermissionRequest and WorktreeCreate are installed policy events.
-	| "PreToolUse"
-	| "PostToolUse"
-	| "PostToolUseFailure"
-	| "SessionStart"
-	| "SessionEnd"
-	| "Interrupt"
-	| "UserPromptSubmit"
-	| "Stop"
-	| "SubagentStart"
-	| "SubagentStop"
-	| "Notification"
-	| "PreCompact"
-	| "PostCompact"
-	| "TaskCompleted"
-	| "TeammateIdle"
-	| "PermissionRequest"
-	| "WorktreeCreate"
-	// Gemini CLI
-	| "BeforeTool"
-	| "AfterTool"
-	| "AfterModel"
-	| "PreCompress"
-	// Interlinked-internal skill marker events (CLI-posted, not agent-fired)
-	| "SkillEnter"
-	| "SkillLeave"
-	| "SkillList"
-	// Generic
-	| string;
+/** Hook events from all supported coding agents. Known event names are
+ * documented here for reference, but the type is `string`: the union of
+ * literals is structurally redundant (every listed literal is already a
+ * `string`) and callers narrow with `===` checks against the constants
+ * below, not exhaustive switches.
+ *
+ * Claude Code — parseable events. PostToolUseFailure remains parse-only;
+ * PermissionRequest and WorktreeCreate are installed policy events:
+ * PreToolUse, PostToolUse, PostToolUseFailure, SessionStart, SessionEnd,
+ * Interrupt, UserPromptSubmit, Stop, SubagentStart, SubagentStop,
+ * Notification, PreCompact, PostCompact, TaskCompleted, TeammateIdle,
+ * PermissionRequest, WorktreeCreate.
+ *
+ * Gemini CLI: BeforeTool, AfterTool, AfterModel, PreCompress.
+ *
+ * Interlinked-internal skill marker events (CLI-posted, not agent-fired):
+ * SkillEnter, SkillLeave, SkillList.
+ */
+export type HookEventName = string;
 
 export type AgentSource =
 	| "claude"
@@ -76,7 +63,7 @@ export type AgentSource =
 export const ASK_CAPABLE_AGENTS = new Set<AgentSource>(["claude", "cursor", "pi"]);
 
 /** True when the agent runtime supports a per-call user confirmation flow. */
-export function agentSupportsAsk(source: AgentSource | string | undefined): boolean {
+export function agentSupportsAsk(source: string | undefined): boolean {
 	if (!source) return false;
 	return ASK_CAPABLE_AGENTS.has(source as AgentSource);
 }

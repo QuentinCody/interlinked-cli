@@ -410,7 +410,7 @@ function findTestBlocks(ts: TsModule, sf: TS.SourceFile): TestBlock[] {
 			if (info && !info.skipped) {
 				const fnArg = node.arguments.find(
 					(a) => ts.isArrowFunction(a) || ts.isFunctionExpression(a),
-				) as TS.ArrowFunction | TS.FunctionExpression | undefined;
+				);
 				const nameArg = node.arguments[0];
 				if (fnArg?.body && nameArg && ts.isStringLiteralLike(nameArg)) {
 					blocks.push({

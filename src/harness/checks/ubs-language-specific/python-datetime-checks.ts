@@ -42,7 +42,7 @@ export function checkNaiveDatetime(content: string, filePath: string): InlineMat
 	const re = /\bdatetime\.(?:utcnow|utcfromtimestamp)\s*\(|\bdatetime\.now\s*\(\s*\)/g;
 	for (const m of stripped.matchAll(re)) {
 		if (matches.length >= MATCH_LIMIT) break;
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const lineNum = stripped.slice(0, idx).split("\n").length;
 		if (lineHasNoqaSuppression(nonNull(originalLines[lineNum - 1]), "ubs_naive_datetime")) {
 			continue;

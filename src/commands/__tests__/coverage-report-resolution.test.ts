@@ -11,6 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { nonNull } from "../../lib/non-null.js";
 import { loadMergedReport, resolveReportPaths } from "../coverage.js";
 
 let cwd: string;
@@ -118,10 +119,10 @@ describe("loadMergedReport — istanbul-final parsing + the vacuous-success guar
 		expect(failedPath).toBeNull();
 		const entry = summary["src/app.ts"];
 		expect(entry).toBeDefined();
-		expect(entry?.lines.pct).toBe(50); // 1 of 2 statement-start lines covered
-		expect(entry?.lines.total).toBe(2);
-		expect(entry?.branches.pct).toBe(50); // 1 of 2 branch paths taken
-		expect(entry?.branches.total).toBe(2);
+		expect(nonNull(entry?.lines).pct).toBe(50); // 1 of 2 statement-start lines covered
+		expect(nonNull(entry?.lines).total).toBe(2);
+		expect(nonNull(entry?.branches).pct).toBe(50); // 1 of 2 branch paths taken
+		expect(nonNull(entry?.branches).total).toBe(2);
 	});
 
 	it("fails LOUDLY on a report that parses to zero file entries", () => {

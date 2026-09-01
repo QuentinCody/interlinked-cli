@@ -209,7 +209,7 @@ function snapshotMismatchBlock(
 	effectiveCwd: string,
 	allowlist: Allowlist,
 ): HarnessDecision | null {
-	const entries = MANIFEST_BY_ECOSYSTEM[cmd.ecosystem] ?? [];
+	const entries = MANIFEST_BY_ECOSYSTEM[cmd.ecosystem];
 	const globManifests = scanGlobManifests(effectiveCwd, cmd.ecosystem);
 	const globManifestsMatch =
 		globManifests.length > 0 &&

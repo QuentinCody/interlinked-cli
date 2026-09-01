@@ -568,11 +568,13 @@ describe("buildEvidenceEnvelope (aggregation + optional fields)", () => {
 		expect(ev.steps_since_injection).toBeUndefined();
 	});
 
-	it("treats a session missing injection_detected_steps as no-injection (|| [] branch)", () => {
+	it("treats a session with an empty injection_detected_steps as no-injection", () => {
 		fsMock.existsSync.mockReturnValue(false);
-		const session = makeSession();
-		// Older snapshots may lack the field entirely → the `|| []` fallback.
-		delete (session as { injection_detected_steps?: number[] }).injection_detected_steps;
+		// `injection_detected_steps` is a required field on SessionTrajectory,
+		// always normalized to [] (never missing) by both fresh-session
+		// creation and snapshot restore (readNumberArray) — the realistic
+		// "no injection recorded" state is an empty array, not an absent key.
+		const session = makeSession({ injection_detected_steps: [] });
 		const event: HarnessEvent = {
 			hook_event: "PreToolUse",
 			session_id: "s",

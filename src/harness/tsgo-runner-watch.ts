@@ -127,7 +127,7 @@ function terminateCompilerProcess(child: ChildProcess): Promise<void> {
 		killTimer = setTimeout(() => {
 			if (!settled) signalCompilerTree(child, "SIGKILL");
 		}, WATCH_STOP_GRACE_MS);
-		killTimer.unref?.();
+		killTimer.unref();
 		if (childExited) finishAfterGroupExit();
 	});
 }
@@ -193,10 +193,10 @@ export class WatchProcess {
 			this._state = WATCH_RUNNING;
 			// Don't let the watch child keep the daemon's event loop alive.
 			child.unref();
-			child.stdout?.on("data", (b: Buffer) => this.ingest(b.toString("utf-8")));
+			child.stdout.on("data", (b: Buffer) => this.ingest(b.toString("utf-8")));
 			// Parse stderr too: tsgo --watch keeps stderr empty today, but a
 			// future tsgo that splits streams still gets its diagnostics read.
-			child.stderr?.on("data", (b: Buffer) => this.ingest(b.toString("utf-8")));
+			child.stderr.on("data", (b: Buffer) => this.ingest(b.toString("utf-8")));
 			child.on("error", () => {
 				if (this.child === child) this.markCrashed();
 			});
@@ -416,7 +416,7 @@ export class WatchProcess {
 					finish(true);
 				}
 			}, WATCH_POLL_INTERVAL_MS);
-			poll.unref?.();
+			poll.unref();
 			this.passWaiters.push(() => {
 				if (this.lastPassCompletedAt > startPassAt && this.isUsable()) {
 					finish(true);

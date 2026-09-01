@@ -3,11 +3,7 @@
 
 import { existsSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type {
-	ArtifactFileKey,
-	ArtifactKind,
-	Determinism,
-} from "../harness/structure/types.js";
+import type { ArtifactFileKey, ArtifactKind } from "../harness/structure/types.js";
 import { c } from "../lib/formatter.js";
 import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
@@ -200,7 +196,7 @@ export async function structureScanCommand(opts: ScanOpts): Promise<void> {
 				global_ref: e.id,
 				file: "",
 				provenance: e.provenance,
-				determinism_ceiling: "fully_deterministic" as Determinism,
+				determinism_ceiling: "fully_deterministic",
 			})),
 		});
 		for (const [kind, cat] of Object.entries(KIND_TO_CAT))
@@ -323,14 +319,14 @@ export async function structureAcceptCommand(opts: StructureOpts): Promise<void>
 		if (syms && syms.items.length > 0) {
 			const r = acceptSymbols(
 				syms,
-				join(dir, config.artifacts?.public_api || "artifacts/public-api.json"),
+				join(dir, config.artifacts.public_api || "artifacts/public-api.json"),
 			);
 			if (r.accepted > 0) accepted.push({ category: "public_api", count: r.accepted });
 			skipped.push(...r.skipped);
 		}
 		const envs = readCategoryCache(cwd, "env-keys");
 		if (envs && envs.items.length > 0) {
-			const r = acceptEnv(envs, join(dir, config.artifacts?.env || "artifacts/env.json"));
+			const r = acceptEnv(envs, join(dir, config.artifacts.env || "artifacts/env.json"));
 			if (r.accepted > 0) accepted.push({ category: "env", count: r.accepted });
 			skipped.push(...r.skipped);
 		}

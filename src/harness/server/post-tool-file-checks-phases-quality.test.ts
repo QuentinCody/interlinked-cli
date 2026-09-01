@@ -230,46 +230,16 @@ beforeEach(() => {
 // ===========================================================================
 
 describe("buildSmartTscOpts", () => {
-	// test-contract: boundary — `structuralConfig?.smart_tsc` must short-circuit
-	// safely to "no filtering" when the caller passes no structural-checks
-	// config at all, not throw a TypeError reading `.smart_tsc` off undefined.
-	it("returns undefined without throwing when structuralConfig is absent", () => {
-		const ctx = makeCtx({
-			rules: makeRules({ quality_checks: { typescript: { enabled: true, file_types: [".ts"] } } }),
-		});
-		let result: ReturnType<typeof buildSmartTscOpts>;
-		expect(() => {
-			// SAFETY: `structural_checks` is non-optional on GuardRulesConfig,
-			// but the source itself reads it via `structuralConfig?.smart_tsc`
-			// — this deliberately probes that runtime null-guard with the
-			// input shape it defends against.
-			result = buildSmartTscOpts(
-				ctx,
-				undefined as unknown as GuardRulesConfig["structural_checks"],
-				FILE,
-				false,
-			);
-		}).not.toThrow();
-		expect(result!).toBeUndefined();
-	});
-
-	// test-contract: boundary — the same short-circuit must hold for BOTH
-	// `?.` links in `ctx.rules.quality_checks?.typescript?.enabled` when
-	// `quality_checks` itself is absent (a repo with no quality-checks config
-	// configured at all) — losing either `?.` throws instead of returning.
-	it("returns undefined without throwing when rules.quality_checks is absent", () => {
-		const ctx = makeCtx({ rules: makeRules({ quality_checks: undefined }) });
-		let result: ReturnType<typeof buildSmartTscOpts>;
-		expect(() => {
-			result = buildSmartTscOpts(
-				ctx,
-				{ smart_tsc: true } as unknown as GuardRulesConfig["structural_checks"],
-				FILE,
-				false,
-			);
-		}).not.toThrow();
-		expect(result!).toBeUndefined();
-	});
+	// Removed 2026-09-01: `structuralConfig is absent` and
+	// `rules.quality_checks is absent` previously probed `?.` guards on both
+	// params. Neither is reachable in practice — `structural_checks` and
+	// `quality_checks` are honestly required on GuardRulesConfig, and
+	// `loadRules()` (the only production source of a GuardRulesConfig)
+	// always populates both; the sole caller of `buildSmartTscOpts`
+	// (post-tool-file-checks-phases.ts) forwards `ctx.rules.structural_checks`
+	// verbatim, never a substitute. Re-adding the guards would silence the
+	// type checker's honest signal for a state that can't occur, so these
+	// cases were deleted as impossible rather than reinstating the `?.`.
 
 	// test-contract: public-api — on the happy path the function computes the
 	// project-relative filter path and logs it verbatim (agent-visible message).

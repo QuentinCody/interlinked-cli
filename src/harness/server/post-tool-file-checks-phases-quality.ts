@@ -122,10 +122,10 @@ export function buildSmartTscOpts(
 	exportSurfaceChanged: boolean,
 ): QualityCheckOptions | undefined {
 	if (
-		!structuralConfig?.smart_tsc ||
+		!structuralConfig.smart_tsc ||
 		exportSurfaceChanged ||
 		!editedFilePath ||
-		!ctx.rules.quality_checks?.typescript?.enabled
+		!ctx.rules.quality_checks.typescript?.enabled
 	) {
 		return undefined;
 	}
@@ -311,7 +311,10 @@ export function runScoredSuggestionsPhase(
 	ctx: ServerRuntime,
 	checkEvent: HarnessEvent,
 	editedFilePath: string,
-	session: SessionTrajectory,
+	// `session` is typed required, but the PostToolUse caller looks it up by
+	// id and can genuinely come up empty at runtime (see the sibling
+	// `session` comment in post-tool-file-checks.ts) — honest about that here.
+	session: SessionTrajectory | undefined,
 	decision: HarnessDecision,
 	acc: PerFileCheckCtx,
 ): void {
@@ -353,7 +356,7 @@ export function runScoredSuggestionsPhase(
 
 		const rawScored = scoreFindings(allFindings, {
 			filePath: editedFilePath,
-			session,
+			...(session ? { session } : {}),
 			...(editRegion
 				? { editStartLine: editRegion.editStartLine, editEndLine: editRegion.editEndLine }
 				: {}),
@@ -363,10 +366,12 @@ export function runScoredSuggestionsPhase(
 			threshold: rules.suggestion_threshold ?? 0.5,
 		});
 
-		// Session-ack suppression for suggestions (always warning severity)
-		const scored = rawScored.filter(
-			(s) => !isAcknowledged(session, editedFilePath, s.check),
-		);
+		// Session-ack suppression for suggestions (always warning severity).
+		// No session to check acknowledgement against means nothing is
+		// acknowledged yet — keep every finding rather than dereferencing.
+		const scored = session
+			? rawScored.filter((s) => !isAcknowledged(session, editedFilePath, s.check))
+			: rawScored;
 
 		if (scored.length > 0) {
 			for (const s of scored) {

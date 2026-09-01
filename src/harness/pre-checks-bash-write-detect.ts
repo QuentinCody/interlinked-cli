@@ -247,7 +247,7 @@ function scanRedirects(normalized: string, inRoot: (t: string) => boolean): Writ
 	const stripped = stripQuotedStrings(normalized);
 	for (const m of stripped.matchAll(redirRe)) {
 		const op = nonNull(m[1]);
-		const idx = m.index ?? 0;
+		const idx = m.index;
 		const hit = parseRedirectTarget(normalized, idx, op);
 		if (!hit) continue;
 		if (!CODE_FILE_EXT_RE.test(hit.target)) continue;

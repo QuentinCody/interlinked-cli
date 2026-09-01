@@ -59,7 +59,12 @@ export async function ensureRemoteOnboarding(options?: {
 	}
 
 	try {
-		const result = await client.callTool<GetStartedResponse>("get_started", {
+		// callTool's return type is trusted, not verified — the raw payload
+		// comes from `res.json()` over the network, so it can be null (or any
+		// other shape) at runtime despite the generic annotation. Widen to
+		// `| null` here so the `result?.` guards below stay honest instead of
+		// being unnecessary-condition dead code against a lying non-null type.
+		const result = await client.callTool<GetStartedResponse | null>("get_started", {
 			name: agentName,
 			program: "interlinked-cli",
 		});

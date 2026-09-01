@@ -93,11 +93,16 @@ async function workspaceAccessChecks(client: DoctorClient): Promise<CheckResult[
 	// Internal codebases in the active workspace DO context — a different scope
 	// than registry workspaces; can be >1 inside a single ws_ membership.
 	try {
-		const wsResult = await client.callTool<{ workspaces?: Array<{ name?: string }> }>(
-			"list_workspaces",
-			{},
-		);
-		const codebaseCount = wsResult?.workspaces?.length || 0;
+		// `callTool` returns `unknown` cast to the requested shape internally
+		// (it asserts a parsed HTTP body `as T` with no runtime validation), so
+		// the response can genuinely be any JSON value at runtime — narrow it
+		// here instead of trusting the assumed shape.
+		const wsResult: unknown = await client.callTool("list_workspaces", {});
+		const wsWorkspaces =
+			typeof wsResult === "object" && wsResult !== null
+				? (wsResult as { workspaces?: unknown }).workspaces
+				: undefined;
+		const codebaseCount = Array.isArray(wsWorkspaces) ? wsWorkspaces.length : 0;
 		out.push({
 			name: "Codebase access (active workspace)",
 			status: codebaseCount > 0 ? "pass" : "warn",

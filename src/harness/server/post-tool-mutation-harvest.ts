@@ -169,7 +169,7 @@ export async function appendMutationHarvestWarning(
 	const claimTimeoutMs = cfg.harvest_budget_ms ?? DEFAULT_HARVEST_BUDGET_MS;
 	const fetchImpl =
 		deps.fetchImpl ??
-		((url: string) => fetch(url, { signal: AbortSignal.timeout(claimTimeoutMs) }) as never);
+		((url: string) => fetch(url, { signal: AbortSignal.timeout(claimTimeoutMs) }));
 	// harvestPending is contractually non-throwing; this phase depends on that
 	// rather than re-wrapping it, so a regression there surfaces in its own tests.
 	//

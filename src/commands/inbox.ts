@@ -59,10 +59,9 @@ export async function inboxCommand(opts: {
 			args.limit = parsedLimit;
 		}
 
-		const result = await client.callTool<{
-			messages?: Message[];
-			inbox?: Message[];
-		}>("fetch_inbox", args);
+		const result = await client.callTool<
+			{ messages?: Message[]; inbox?: Message[] } | undefined
+		>("fetch_inbox", args);
 
 		const messages = result?.messages || result?.inbox || [];
 

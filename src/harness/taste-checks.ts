@@ -135,7 +135,7 @@ export function checkElseIfChain(content: string, filePath: string): InlineMatch
 	const matches: InlineMatch[] = [];
 	for (const m of stripped.matchAll(ELSE_IF_CHAIN)) {
 		if (matches.length >= 5) break;
-		const offset = m.index ?? 0;
+		const offset = m.index;
 		const lineIdx = (stripped.slice(0, offset).match(/\n/g) || []).length;
 		push(matches, lineIdx, lines, 5);
 	}
@@ -270,7 +270,7 @@ export function checkLawOfDemeter(content: string, filePath: string): InlineMatc
 		const sLine = sLines[i] ?? "";
 		if (/^\s*(?:\/\/|\*|\/\*)/.test(lines[i] ?? "")) continue; // comment line belt-and-braces
 		const m = TRAIN_WRECK.exec(sLine);
-		if (!m || m[0] === undefined) continue;
+		if (!m) continue;
 		if (m[0].startsWith("import.meta.")) continue;
 		if (sLine.includes("Object.prototype.")) continue;
 		// Cloudflare Worker / DurableObject canonical access: `this.ctx.storage.sql.exec(...)`,

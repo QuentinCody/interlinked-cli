@@ -16,7 +16,11 @@ export type TaggedErrorInstance<Tag extends string, Props> = Error & {
 
 /** Class type produced by TaggedError factory */
 export interface TaggedErrorClass<Tag extends string, Props> {
-	new (args: Props): TaggedErrorInstance<Tag, Props>;
+	// `args` accepts `null` honestly: this factory is a reusable primitive
+	// callers can invoke with data reconstructed from anywhere (deserialized
+	// errors, defensively-typed call sites), and the constructor itself never
+	// dereferences a nullish `args` — the type says so too.
+	new (args: Props | null): TaggedErrorInstance<Tag, Props>;
 	is(value: unknown): value is TaggedErrorInstance<Tag, Props>;
 }
 
@@ -31,11 +35,15 @@ function buildTaggedErrorClass<Tag extends string, Props extends JsonObject>(
 			return value instanceof TaggedBase;
 		}
 
-		constructor(args: Props) {
+		constructor(args: Props | null) {
 			const message =
-				args && "message" in args && typeof args.message === "string" ? args.message : tag;
-			const cause = args && "cause" in args ? args.cause : undefined;
+				args != null && "message" in args && typeof args.message === "string"
+					? args.message
+					: tag;
+			const cause = args != null && "cause" in args ? args.cause : undefined;
 			super(message, cause !== undefined ? { cause } : undefined);
+			// `Object.assign` treats a nullish source as a no-op, matching the
+			// widened `Props | null` param — nothing extra to guard here.
 			Object.assign(this, args);
 			Object.setPrototypeOf(this, new.target.prototype);
 			this.name = tag;
@@ -54,7 +62,7 @@ function buildTaggedErrorClass<Tag extends string, Props extends JsonObject>(
 			// Copy the own-enumerable props added via `Object.assign(this, args)`.
 			// `Reflect.get` reads each by key without a structural cast on `this`.
 			for (const key of Object.keys(this)) {
-				json[key] = Reflect.get(this, key) as JsonObject[string];
+				json[key] = Reflect.get(this, key);
 			}
 			return json;
 		}

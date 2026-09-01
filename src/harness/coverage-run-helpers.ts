@@ -11,9 +11,22 @@ export function failure(suiteMs: number, error: string): CoverageRunResult {
 	return { suiteMs, perFile: new Map(), ok: false, error, testsPassed: null };
 }
 
-/** Concatenate a spawn's stdout + stderr into one searchable text blob. */
+/** Read one string field off a value whose static type promises it but whose
+ *  actual origin (test double, partial construction) may not deliver it. */
+function stringFieldOr(value: unknown, key: "stdout" | "stderr", fallback: string): string {
+	if (typeof value !== "object" || value === null) return fallback;
+	// SAFETY: object-ness checked above; the field is read as unknown and
+	// type-checked below, so a missing/wrong-typed field can never be trusted.
+	const field = (value as Record<string, unknown>)[key];
+	return typeof field === "string" ? field : fallback;
+}
+
+/** Concatenate a spawn's stdout + stderr into one searchable text blob.
+ *  Tolerates a partially-constructed `SpawnOutcome` (missing streams) rather
+ *  than trusting the declared type, which every real spawn path fulfills but
+ *  a test double is free to omit. */
 export function spawnText(result: SpawnOutcome): string {
-	return `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+	return `${stringFieldOr(result, "stdout", "")}\n${stringFieldOr(result, "stderr", "")}`;
 }
 
 /**

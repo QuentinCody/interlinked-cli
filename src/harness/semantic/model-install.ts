@@ -66,7 +66,7 @@ async function streamVerifiedArtifact(response: Response, artifact: EmbeddingArt
     try {
         const reader = response.body?.getReader();
         if (reader === undefined) throw new Error("model artifact response has no body");
-        while (true) {
+        for (;;) {
             const next = await reader.read();
             if (next.done) break;
             bytes += next.value.byteLength;

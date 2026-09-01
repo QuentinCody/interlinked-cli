@@ -110,9 +110,7 @@ function applyModePresetEnablement(
 ): void {
 	for (const [checkName, enabled] of Object.entries(preset.quality_checks_enabled)) {
 		if (checkName === "structural_checks") {
-			if (config.structural_checks) {
-				config.structural_checks.enabled = enabled;
-			}
+			config.structural_checks.enabled = enabled;
 			continue;
 		}
 		const entry = config.quality_checks[checkName];

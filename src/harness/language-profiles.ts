@@ -56,7 +56,7 @@ export function findProjectRootForLanguage(
 
 	const root = resolve("/");
 
-	while (true) {
+	for (;;) {
 		for (const marker of profile.project_root_markers) {
 			if (existsSync(join(dir, marker))) {
 				return dir;

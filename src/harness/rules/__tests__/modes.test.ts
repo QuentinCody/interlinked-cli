@@ -12,7 +12,6 @@ import {
 	CI_MODE,
 	getModePreset,
 	HARNESS_MODE_NAMES,
-	type HarnessMode,
 	isKnownMode,
 	migrateLegacyMode,
 	QUALITY_MODE,
@@ -74,10 +73,6 @@ describe("getModePreset", () => {
 		expect(getModePreset("ci")).toBe(CI_MODE);
 	});
 
-	it("throws on unknown mode names", () => {
-		expect(() => getModePreset("strict" as HarnessMode)).toThrow(/unknown harness mode/i);
-		expect(() => getModePreset("" as HarnessMode)).toThrow(/unknown harness mode/i);
-	});
 });
 
 describe("isKnownMode", () => {

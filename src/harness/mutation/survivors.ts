@@ -268,7 +268,7 @@ interface SymbolScan {
 function scanSymbol(file: string, symbol: SymbolRecord, filter: SurvivorFilter): SymbolScan {
 	const counts = emptyCounts();
 	const rows: SurvivorMutantRow[] = [];
-	for (const record of Object.values(symbol.mutants ?? {})) {
+	for (const record of Object.values(symbol.mutants)) {
 		if (!matches(record.mutator, filter.mutator)) continue;
 		tally(counts, record);
 		if (record.status !== "survived") continue;
@@ -287,6 +287,11 @@ function symbolRow(file: string, symbol: SymbolRecord, counts: Counts): Survivor
 		dispositioned: counts.dispositioned,
 		uncovered: counts.uncovered,
 		total: counts.total,
+		// `instability` is declared non-optional on `SymbolRecord`, but a
+		// manifest loaded from disk can genuinely predate the field (added
+		// after symbols were first recorded) — the `?.` here is load-bearing,
+		// not redundant; see survivors.mutation-kill-w27.test.ts's
+		// "quarantined flag survives a missing instability record".
 		quarantined: symbol.instability?.quarantined === true,
 	};
 }
@@ -422,7 +427,7 @@ export function summarizeSurvivors(manifest: MutationManifest, filter: SurvivorF
 	let unqualifiedFiles = 0;
 	const openByRemedy = emptyRemedyCounts();
 
-	for (const [file, symbolMap] of Object.entries(manifest.files ?? {})) {
+	for (const [file, symbolMap] of Object.entries(manifest.files)) {
 		if (!matches(file, filter.file)) continue;
 		const scan = scanFile(file, symbolMap, filter);
 		collectMutators(byMutator, symbolMap, filter);
@@ -495,7 +500,7 @@ function collectMutators(
 	filter: SurvivorFilter,
 ): void {
 	for (const symbol of Object.values(symbolMap)) {
-		for (const record of Object.values(symbol.mutants ?? {})) {
+		for (const record of Object.values(symbol.mutants)) {
 			if (!matches(record.mutator, filter.mutator)) continue;
 			bumpMutator(byMutator, record);
 		}

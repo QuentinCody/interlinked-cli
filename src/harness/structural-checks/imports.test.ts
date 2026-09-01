@@ -821,8 +821,11 @@ describe("checkHallucinatedImports", () => {
 	it("does not require a truthy toFile when resolving a bare package name", () => {
 		mockFs.existsSync.mockImplementation((p) => String(p).endsWith("package.json"));
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: {} }));
+		// Real edges always carry `toFile: ""` (never undefined) for an
+		// unresolved specifier — see project-graph.ts's `toFile: toFile || ""`
+		// — so the fixture uses the same real, per-type value here.
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "ghost", toFile: undefined as unknown as string })],
+			dependencies: [edge({ specifier: "ghost", toFile: "" })],
 		});
 		const res = checkHallucinatedImports(FILE, REL, graph);
 		expect(res).toHaveLength(1);

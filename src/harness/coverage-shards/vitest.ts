@@ -214,7 +214,7 @@ export function parseShardRecord(raw: unknown): ShardRecord | null {
 	if (!isRecord(raw.istanbul)) return null;
 	return {
 		version: 1,
-		testFiles: raw.testFiles as string[],
+		testFiles: raw.testFiles,
 		environment: raw.environment,
 		project: typeof raw.project === "string" ? raw.project : null,
 		durationMs: typeof raw.durationMs === "number" ? raw.durationMs : null,

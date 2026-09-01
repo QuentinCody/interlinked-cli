@@ -5,7 +5,6 @@
 import { createHash, randomBytes as cryptoRandomBytes } from "node:crypto";
 import {
 	captureMutationOnboardingSource,
-	MUTATION_ONBOARDING_ARCHIVE_PREFIX,
 	MUTATION_ONBOARDING_SOURCE_FORMAT,
 	type CapturedMutationOnboardingSource,
 } from "./mutation-cloud-v3-onboarding-source.js";
@@ -77,10 +76,12 @@ function assertCapturedIdentity(args: {
 	if (captured.targetFile !== args.targetFile) {
 		throw new Error("mutation onboarding captured a foreign target");
 	}
-	if (
-		captured.format !== MUTATION_ONBOARDING_SOURCE_FORMAT ||
-		captured.archivePrefix !== MUTATION_ONBOARDING_ARCHIVE_PREFIX
-	) throw new Error("mutation onboarding captured a foreign source artifact format");
+	// captured.format and captured.archivePrefix are typed as the literal
+	// MUTATION_ONBOARDING_SOURCE_FORMAT / MUTATION_ONBOARDING_ARCHIVE_PREFIX
+	// constants (CapturedMutationOnboardingSource), so any captureSource
+	// implementation that disagrees fails to type-check at the injection
+	// site — the mismatch this used to guard is caught earlier, at compile
+	// time, not at runtime.
 	const expectedArtifactId = `src_git_archive_v1_${captured.sourceArtifactSha256}`;
 	if (captured.sourceArtifactId !== expectedArtifactId) {
 		throw new Error("mutation onboarding captured a foreign source artifact identity");

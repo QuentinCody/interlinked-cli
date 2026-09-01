@@ -184,7 +184,7 @@ export function restoreTree(cwd: string, treeSha: string, destDir: string): void
 	});
 	const result = spawnSync("tar", ["-x", "-C", destDir], { input: tarBuf });
 	if (result.status !== 0) {
-		throw new Error(`tar extract failed: ${result.stderr?.toString() ?? "unknown"}`);
+		throw new Error(`tar extract failed: ${result.stderr.toString()}`);
 	}
 }
 

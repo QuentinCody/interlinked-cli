@@ -214,7 +214,7 @@ export function buildAgentEventRecord(
 		ts: event.timestamp,
 		session_id: event.session_id || null,
 		agent_name: event.agent_name ?? null,
-		provider: PROVIDER_BY_SOURCE[event.agent_source] ?? event.agent_source,
+		provider: PROVIDER_BY_SOURCE[event.agent_source],
 		event: name,
 		subagent_id: event.subagent_id ?? eventField(event, "agent_id"),
 		agent_type: label.type,

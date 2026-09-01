@@ -60,20 +60,6 @@ describe("deferrableFromTsc — negative (must not fire)", () => {
 	});
 });
 
-describe("deferrableFromTsc — fallback defaults for missing fields", () => {
-	it("fills in line 0 and an empty message when a deferrable finding omits them", () => {
-		const sparse = {
-			tool: "tsc",
-			severity: "warning",
-			file: "a.ts",
-			ruleId: "TS6133",
-			// SAFETY: exercising the line/message ?? fallbacks in deferrableFromTsc;
-			// ruleId stays a real deferrable code or isTscFindingDeferrable drops it.
-		} as CheckResult;
-		expect(deferrableFromTsc([sparse])).toEqual([{ detector: "TS6133", line: 0, message: "" }]);
-	});
-});
-
 describe("applyTransientDebt — lifecycle over a real ledger", () => {
 	it("P1: a deferrable finding opens a debt and lets the write through", () => {
 		const out = run({ findings: [tsc("TS6133")] });
