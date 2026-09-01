@@ -73,6 +73,18 @@
         "reason": "Existing CLI type dependency and interlinked-cloud protocol source typing",
         "version_range": "=20.19.33",
         "license": "MIT"
+      },
+      "eslint": {
+        "approved_at": "2026-09-01T18:46:12.274Z",
+        "approved_by": "claude-session-2026-09-01",
+        "reason": "tseslint-types verify tool row: type-checker-powered inert-code rules (unreachable branches, inert casts, redundant union members)",
+        "license": "MIT"
+      },
+      "typescript-eslint": {
+        "approved_at": "2026-09-01T18:46:13.262Z",
+        "approved_by": "claude-session-2026-09-01",
+        "reason": "tseslint-types verify tool row: typed rule set + parser (peer of eslint)",
+        "license": "MIT"
       }
     },
     "pypi": {},

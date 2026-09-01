@@ -24,6 +24,7 @@
 export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
 	// Dead-code / coverage scans
 	"knip",
+	"tseslint-types",
 	"no_test_file",
 	"files_without_test",
 	// Function size and complexity

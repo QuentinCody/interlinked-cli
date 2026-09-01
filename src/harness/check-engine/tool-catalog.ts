@@ -373,6 +373,17 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
 		requiresConfig: true,
 	},
 	{
+		// Discovery-only: the typed inert-code row runs from verify-tools.ts with
+		// its dedicated config; "available" means the config file exists AND
+		// eslint answers --version. Deliberately NOT a per-edit runner — a full
+		// typed program per edit is the daemon RSS-spike class.
+		id: "tseslint-types",
+		versionCmd: ["npx", "eslint", "--version"],
+		versionRegex: /v?(\d+\.\d+\.\d+)/,
+		configFiles: ["eslint.interlinked-types.config.mjs"],
+		requiresConfig: true,
+	},
+	{
 		// Discovery-only project-local Node script (`scripts/check-docs.mjs`).
 		id: "docs-check",
 		versionCmd: ["node", "--version"],

@@ -31,6 +31,11 @@ import { SWIFT_ADVISORY_SKIP_IDS } from "./advisory-skips-swift.js";
 export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// Dead-code / coverage scans — valuable in audits, too noisy for default gate.
 	"knip",
+	// tseslint-types: checker-PROVEN inert code (dead branches, inert casts,
+	// redundant unions) — precision is high, but 620 open findings on landing
+	// (2026-09-01) and a full typed program per run. Advisory until the
+	// campaign clears the backlog; then promote to the default gate.
+	"tseslint-types",
 	"no_test_file",
 	"files_without_test",
 	// Function size and complexity — heuristic thresholds, frequent FPs on

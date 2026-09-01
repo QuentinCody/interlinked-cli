@@ -34,6 +34,7 @@ const EXPECTED_PROVEN_MEMBERS = [
 	"dependency_audit",
 	"empty_file",
 	"eslint",
+	"tseslint-types",
 	"external_check_deferred",
 	"export_ripple",
 	"gitleaks",

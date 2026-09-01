@@ -28,6 +28,8 @@ export interface ToolSpec {
 	noun: string;
 	severity: string;
 	cmd: string[];
+	/** Per-tool budget; tools that build a full TS program need more than the default. */
+	timeoutMs?: number;
 }
 
 export const TOOLS_TO_RUN: readonly ToolSpec[] = [
@@ -81,7 +83,21 @@ export const TOOLS_TO_RUN: readonly ToolSpec[] = [
 		passLabel: "no issues",
 		noun: "issues",
 		severity: "33",
-		cmd: ["npx", "eslint", "--no-error-on-unmatched-pattern", "--format", "unix", "."],
+		cmd: ["npx", "eslint", "--no-error-on-unmatched-pattern", "--format", "json", "."],
+	},
+	{
+		// Type-checker-powered INERT-CODE scanner (2026-09-01): conditions the
+		// types prove always-true/false (dead branches, impossible states),
+		// inert `as` casts, redundant union members, pointless generics. Runs
+		// a dedicated typed config so it never collides with the generic eslint
+		// row. Builds a full TS program — hence its own timeout.
+		id: "tseslint-types",
+		label: "tseslint-types (typed inert code)",
+		passLabel: "no type-proven inert code",
+		noun: "type-proven inert constructs",
+		severity: "33",
+		cmd: ["npx", "eslint", "--config", "eslint.interlinked-types.config.mjs", "--format", "json", "."],
+		timeoutMs: 300_000,
 	},
 	{
 		id: "tsc",
@@ -164,12 +180,16 @@ interface StreamExternalToolsArgs {
  * one aggregate progress line. Adds flagged files to `allFlaggedFiles` and
  * pushes one row per non-clean tool into `summary`.
  */
-export async function streamExternalTools(args: StreamExternalToolsArgs): Promise<void> {
-	const { engine, cwd, opts, skipChecks, summary, allFlaggedFiles, details } = args;
+/** Per-tool output parsers (lazy-loaded so verify's cold start stays cheap).
+ *  Extracted from streamExternalTools so that function can hold under the
+ *  function-token cap while the tool table grows. */
+async function buildToolParsers(cwd: string): Promise<{
+	toolParsers: Record<string, (output: string) => CheckResult[]>;
+	parseNpmAuditJson: (output: string) => AuditResult | null;
+}> {
 	const {
 		parseTscOutput,
 		parseBiomeOutput,
-		parseEslintOutput,
 		parseKnipJson,
 		parseSemgrepJson,
 		parseGitleaksJson,
@@ -177,17 +197,26 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 		parseNpmAuditJson,
 		parseDocsCheckOutput,
 	} = await import("../../harness/check-engine/output-parsers.js");
-
-	const toolParsers: Record<string, (output: string) => CheckResult[]> = {
-		tsc: (out) => parseTscOutput(out),
-		biome: (out) => parseBiomeOutput(out),
-		eslint: (out) => parseEslintOutput(out),
-		oxlint: (out) => parseOxlintJson(out),
-		knip: (out) => parseKnipJson(out),
-		semgrep: (out) => parseSemgrepJson(out, cwd),
-		gitleaks: (out) => parseGitleaksJson(out),
-		"docs-check": (out) => parseDocsCheckOutput(out),
+	const { parseEslintJson } = await import("../../harness/check-engine/output-parsers-eslint-json.js");
+	return {
+		parseNpmAuditJson,
+		toolParsers: {
+			tsc: (out) => parseTscOutput(out),
+			biome: (out) => parseBiomeOutput(out),
+			eslint: (out) => parseEslintJson(out),
+			"tseslint-types": (out) => parseEslintJson(out, "tseslint-types"),
+			oxlint: (out) => parseOxlintJson(out),
+			knip: (out) => parseKnipJson(out),
+			semgrep: (out) => parseSemgrepJson(out, cwd),
+			gitleaks: (out) => parseGitleaksJson(out),
+			"docs-check": (out) => parseDocsCheckOutput(out),
+		},
 	};
+}
+
+export async function streamExternalTools(args: StreamExternalToolsArgs): Promise<void> {
+	const { engine, cwd, opts, skipChecks, summary, allFlaggedFiles, details } = args;
+	const { toolParsers, parseNpmAuditJson } = await buildToolParsers(cwd);
 
 	const availableTools = TOOLS_TO_RUN.filter((tool) => {
 		if (opts.only && opts.only !== tool.id && opts.only !== tool.label) return false;
@@ -292,7 +321,7 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 			label: tool.label,
 			cmd: tool.cmd,
 			cwd,
-			timeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
+			timeoutMs: tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
 			parseOutput: (output, status) => parseToolOutput(tool, output, status),
 		});
 		displayToolResult(tool, rawResults);
@@ -322,7 +351,7 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 			runToolSilent({
 				cmd: tool.cmd,
 				cwd,
-				timeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
+				timeoutMs: tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
 				parseOutput: (output, status) => parseToolOutput(tool, output, status),
 			}).then((rawResults) => {
 				process.stderr.write("\r\x1b[K");

@@ -67,12 +67,17 @@ const PACKAGE_JSON = `${PROJECT_ROOT}/package.json`;
 // Tool output fixtures (real shapes the unmocked parsers consume).
 // ---------------------------------------------------------------------------
 
-/** ESLint unix format: "file:line:col: message [rule]". */
+/** ESLint `--format json` output (eslint 10 dropped the `unix` formatter). */
 function eslintUnix(file = "src/app.ts"): string {
-	return [
-		`${file}:7:4: 'x' is assigned a value but never used [no-unused-vars]`,
-		`${file}:19:1: Unexpected console statement [no-console]`,
-	].join("\n");
+	return JSON.stringify([
+		{
+			filePath: file,
+			messages: [
+				{ ruleId: "no-unused-vars", severity: 1, message: "'x' is assigned a value but never used", line: 7, column: 4 },
+				{ ruleId: "no-console", severity: 1, message: "Unexpected console statement", line: 19, column: 1 },
+			],
+		},
+	]);
 }
 
 /** Oxlint JSON: { diagnostics: [{ message, code, severity, filename, labels }] }. */
@@ -241,7 +246,7 @@ describe("runEslint (sync)", () => {
 		expect(spawnSyncMock).not.toHaveBeenCalled();
 	});
 
-	it("discovers a config and invokes eslint (unix format) with targetFile in file mode", () => {
+	it("discovers a config and invokes eslint (json format) with targetFile in file mode", () => {
 		existsSyncMock.mockImplementation(existsForPaths([ESLINT_CONFIG]));
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runEslint(input(fileScope(), 9_999));
@@ -256,7 +261,7 @@ describe("runEslint (sync)", () => {
 			"eslint",
 			"--no-error-on-unmatched-pattern",
 			"--format",
-			"unix",
+			"json",
 			TARGET,
 		]);
 		expect(opts).toMatchObject({
@@ -914,7 +919,7 @@ describe("runEslintAsync", () => {
 		expect(runProcessAsyncMock).not.toHaveBeenCalled();
 	});
 
-	it("invokes runProcessAsync (unix format) with targetFile + cwd/timeout in file mode", async () => {
+	it("invokes runProcessAsync (json format) with targetFile + cwd/timeout in file mode", async () => {
 		existsSyncMock.mockImplementation(existsForPaths([ESLINT_CONFIG]));
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runEslintAsync(input(fileScope(), 4_321));
@@ -924,7 +929,7 @@ describe("runEslintAsync", () => {
 			Record<string, unknown>,
 		];
 		expect(cmd).toBe("npx");
-		expect(args).toEqual(["eslint", "--no-error-on-unmatched-pattern", "--format", "unix", TARGET]);
+		expect(args).toEqual(["eslint", "--no-error-on-unmatched-pattern", "--format", "json", TARGET]);
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 4_321 });
 	});
 

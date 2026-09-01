@@ -7,6 +7,7 @@ export const TOOL_IDS = [
 	"tsc",
 	"biome",
 	"eslint",
+	"tseslint-types",
 	"semgrep",
 	"gitleaks",
 	"dep-audit",

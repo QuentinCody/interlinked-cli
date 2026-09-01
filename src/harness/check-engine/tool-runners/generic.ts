@@ -8,7 +8,6 @@ import { dirname, resolve } from "node:path";
 import { hasOsvScanner } from "../../quality-checks/dependency-audit.js";
 import {
 	filterResultsToFile,
-	parseEslintOutput,
 	parseGitleaksJson,
 	parseKnipJson,
 	parseNpmAuditJson,
@@ -16,6 +15,7 @@ import {
 	parseOxlintJson,
 	parseSemgrepJson,
 } from "../output-parsers.js";
+import { parseEslintJson } from "../output-parsers-eslint-json.js";
 import { interlinkedSemgrepConfigArgs } from "../semgrep-rules.js";
 import { runProcessAsync } from "../spawn-async.js";
 import type { AuditResult, CheckResult, ToolRunnerInput } from "../types.js";
@@ -57,7 +57,7 @@ export function runEslint(input: ToolRunnerInput): CheckResult[] {
 		const target = scope.mode === "file" && scope.targetFile ? scope.targetFile : ".";
 		const result = spawnSync(
 			"npx",
-			["eslint", "--no-error-on-unmatched-pattern", "--format", "unix", target],
+			["eslint", "--no-error-on-unmatched-pattern", "--format", "json", target],
 			{
 				cwd: scope.projectRoot,
 				timeout: timeoutMs,
@@ -68,7 +68,7 @@ export function runEslint(input: ToolRunnerInput): CheckResult[] {
 
 		if (result.status === 0) return [];
 		const output = (result.stdout || "") + (result.stderr || "");
-		return parseEslintOutput(output);
+		return parseEslintJson(output);
 	} catch {
 		return [];
 	}
@@ -252,11 +252,11 @@ export async function runEslintAsync(input: ToolRunnerInput): Promise<CheckResul
 	const target = scope.mode === "file" && scope.targetFile ? scope.targetFile : ".";
 	const result = await runProcessAsync(
 		"npx",
-		["eslint", "--no-error-on-unmatched-pattern", "--format", "unix", target],
+		["eslint", "--no-error-on-unmatched-pattern", "--format", "json", target],
 		{ cwd: scope.projectRoot, timeout: timeoutMs },
 	);
 	if (result.code === 0) return [];
-	return parseEslintOutput(`${result.stdout}${result.stderr}`);
+	return parseEslintJson(`${result.stdout}${result.stderr}`);
 }
 
 export async function runOxlintAsync(input: ToolRunnerInput): Promise<CheckResult[]> {

@@ -103,14 +103,16 @@
     },
     "devDependencies": {
         "@biomejs/biome": "2.4.13",
-        "ajv": "8.18.0",
         "@stryker-mutator/core": "^9.6.1",
         "@stryker-mutator/vitest-runner": "^9.6.1",
         "@types/node": "20.19.33",
         "@vitest/coverage-v8": "4.1.8",
+        "ajv": "8.18.0",
+        "eslint": "10.9.1",
         "fast-check": "4.7.0",
         "tsup": "8.5.1",
         "tsx": "4.21.0",
+        "typescript-eslint": "8.69.0",
         "vitest": "4.1.8"
     }
 }

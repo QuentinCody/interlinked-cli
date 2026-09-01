@@ -7,6 +7,7 @@ export type ToolId =
 	| "tsc"
 	| "biome"
 	| "eslint"
+	| "tseslint-types"
 	| "semgrep"
 	| "gitleaks"
 	| "dep-audit"

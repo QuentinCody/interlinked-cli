@@ -30,6 +30,7 @@ export const PROVEN_TOOL_CHECKS: ReadonlySet<string> = new Set([
 	"typescript",
 	"biome_lint",
 	"eslint",
+	"tseslint-types",
 	"semgrep",
 	"gitleaks",
 	"dependency_audit",

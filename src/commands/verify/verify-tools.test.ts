@@ -40,7 +40,7 @@ let parserReturn: CheckResult[] = [];
 let npmAuditReturn: AuditResult | null = null;
 const parseTscOutput = vi.fn<(o: string) => CheckResult[]>(() => parserReturn);
 const parseBiomeOutput = vi.fn<(o: string) => CheckResult[]>(() => parserReturn);
-const parseEslintOutput = vi.fn<(o: string) => CheckResult[]>(() => parserReturn);
+const parseEslintJson = vi.fn<(o: string, tool?: string) => CheckResult[]>(() => parserReturn);
 const parseKnipJson = vi.fn<(o: string) => CheckResult[]>(() => parserReturn);
 const parseSemgrepJson = vi.fn<(o: string, cwd: string) => CheckResult[]>(() => parserReturn);
 const parseGitleaksJson = vi.fn<(o: string) => CheckResult[]>(() => parserReturn);
@@ -50,7 +50,6 @@ const parseDocsCheckOutput = vi.fn<(o: string) => CheckResult[]>(() => parserRet
 vi.mock("../../harness/check-engine/output-parsers.js", () => ({
 	parseTscOutput: (o: string) => parseTscOutput(o),
 	parseBiomeOutput: (o: string) => parseBiomeOutput(o),
-	parseEslintOutput: (o: string) => parseEslintOutput(o),
 	parseKnipJson: (o: string) => parseKnipJson(o),
 	parseSemgrepJson: (o: string, cwd: string) => parseSemgrepJson(o, cwd),
 	parseGitleaksJson: (o: string) => parseGitleaksJson(o),
@@ -102,6 +101,9 @@ function fakeRun(args: RunArgs): Promise<{ items: unknown[]; elapsedMs: string }
 }
 const runToolWithSpinner = vi.fn(fakeRun);
 const runToolSilent = vi.fn(fakeRun);
+vi.mock("../../harness/check-engine/output-parsers-eslint-json.js", () => ({
+	parseEslintJson: (o: string, tool?: string) => parseEslintJson(o, tool),
+}));
 vi.mock("./streaming-output.js", () => ({
 	SPINNER_FRAMES: ["a", "b"],
 	runToolWithSpinner: (args: RunArgs) => runToolWithSpinner(args),
@@ -451,11 +453,11 @@ describe("streamExternalTools — parseToolOutput status short-circuits", () => 
 		expect(summary[0]).toMatchObject({ label: "1 knip (dead code) issues" });
 	});
 
-	it("eslint non-zero status dispatches to parseEslintOutput", async () => {
+	it("eslint non-zero status dispatches to parseEslintJson (eslint 10 has no unix formatter)", async () => {
 		runnerScript.eslint = { output: "out", status: 1 };
 		parserReturn = [result({ tool: "eslint", file: "e.ts", message: "no-undef" })];
 		const { summary } = await run({ available: ["eslint"], skip: ["sca", "dep-audit"] });
-		expect(parseEslintOutput).toHaveBeenCalledWith("out");
+		expect(parseEslintJson).toHaveBeenCalledWith("out", undefined);
 		expect(summary[0]).toMatchObject({ label: "1 eslint issues" });
 	});
 
@@ -718,7 +720,16 @@ describe("TOOLS_TO_RUN — exact command vectors", () => {
 				"--no-errors-on-unmatched",
 				".",
 			],
-			eslint: ["npx", "eslint", "--no-error-on-unmatched-pattern", "--format", "unix", "."],
+			eslint: ["npx", "eslint", "--no-error-on-unmatched-pattern", "--format", "json", "."],
+			"tseslint-types": [
+				"npx",
+				"eslint",
+				"--config",
+				"eslint.interlinked-types.config.mjs",
+				"--format",
+				"json",
+				".",
+			],
 			tsc: ["npx", "tsc", "--noEmit", "--pretty", "false"],
 			semgrep: [
 				"semgrep",

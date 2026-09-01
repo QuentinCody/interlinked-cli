@@ -131,7 +131,11 @@ npx vitest run src/commands/__tests__/cli-bugs.test.ts
 | Mode | Flag | Purpose |
 |------|------|---------|
 | **Default (high-signal gate)** | *(none)* | Tsc/biome/oxlint/gitleaks/semgrep/dep-audit + check-FP-safe generic checks. Intended to run clean; failures are actionable. |
-| **Deep audit** | `--all-checks` | Adds heuristic smell/taste checks (complexity, magic numbers, data clumps, test-coverage signals, etc.). Intended for periodic review, not as a gate. |
+| **Deep audit** | `--all-checks` | Adds heuristic smell/taste checks (complexity, magic numbers, data clumps, test-coverage signals, etc.) and the `tseslint-types` row — typescript-eslint's type-CHECKED rules via `eslint.interlinked-types.config.mjs` (`no-unnecessary-condition` = dead branches / impossible states, inert `as` casts, redundant union members). Checker-proven, but 620 open findings on landing (2026-09-01), so advisory until the backlog clears. Intended for periodic review, not as a gate. |
+
+ESLint ≥ 10 removed the built-in `unix` formatter; every eslint invocation here uses
+`--format json` parsed by `check-engine/output-parsers-eslint-json.ts` (the old
+`--format unix` rows exited 2 and reported nothing — found 2026-09-01).
 
 The demoted list lives in `DEFAULT_ADVISORY_SKIPS` in `src/commands/verify/advisory.ts` (re-exported from `verify.ts` for back-compat) and is pinned by a regression test so policy changes show up in diffs. Edit both together. Each entry has a rationale comment explaining why it's advisory.
 
@@ -893,6 +897,14 @@ Compares against the **current on-disk** water-line (not git HEAD — most basel
 gitignored), which the hook sees pre-write. The harness's own ratchet raises go through
 internal `fs` writes (`coverage-ratchet.ts` etc.), never the edit tools, so they never
 hit the gate. Bypass an intentional reset with `INTERLINKED_DISABLE_BASELINE_GUARD=1`.
+**tsconfig strictness is a water-line too** (2026-09-01): `evaluator/config-loosening-gate.ts`
+BLOCKS a Write/Edit that flips any tracked strictness flag off relative to git HEAD
+(`strict` and its implied family, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`,
+`noImplicitOverride`, `noUnusedLocals`, `noUnusedParameters`, and the inverted-polarity
+`allowUnreachableCode: false`). Same bypass env as above. `package.json` / biome loosening
+stays ask-mode. The `tsconfig_strictness` check *demands* only four flags from any repo; the
+three dead-code flags are advisory there — the gate ratchets them once a repo turns them on.
+
 A **commit-gate backstop** (`evaluator/commit-baseline-gate.ts`, wired in
 `pre-tool-pipeline.ts` before `runCommitGate`) closes the `apply_patch`/sub-agent hole
 for the 3 git-tracked/stageable baselines (large-files, untested-files, metric-caps):

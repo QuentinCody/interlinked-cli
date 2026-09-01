@@ -253,6 +253,7 @@ const ALL_TOOL_IDS = [
 	"tsc",
 	"biome",
 	"eslint",
+	"tseslint-types",
 	"oxlint",
 	"knip",
 	"semgrep",
