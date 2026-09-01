@@ -12,6 +12,10 @@ import type { ImportEdge } from "./types.js";
  * Detect import cycles involving `absPath` (an already-absolute file path).
  * Returns arrays of file paths forming each cycle, or empty if none. Depth is
  * capped to avoid pathological cases.
+ *
+ * Type-only edges (`import type { X }`) are skipped: the compiler erases them,
+ * so a loop that crosses one cannot execute at runtime. Mirrors Effect's madge
+ * `skipTypeImports: true` (effect-ts-harness-additions.md §2.4).
  */
 export function findCyclesThroughGraph(
 	absPath: string,
@@ -31,7 +35,7 @@ export function findCyclesThroughGraph(
 		visited.add(current);
 		const edges = importGraph.get(current) || [];
 		for (const edge of edges) {
-			if (edge.toFile) {
+			if (edge.toFile && !edge.isTypeOnly) {
 				dfs(edge.toFile, [...path, current]);
 			}
 		}
@@ -40,7 +44,7 @@ export function findCyclesThroughGraph(
 
 	const startEdges = importGraph.get(absPath) || [];
 	for (const edge of startEdges) {
-		if (edge.toFile) {
+		if (edge.toFile && !edge.isTypeOnly) {
 			dfs(edge.toFile, [absPath]);
 		}
 	}

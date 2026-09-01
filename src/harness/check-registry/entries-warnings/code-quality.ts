@@ -4,7 +4,9 @@
 // run alongside related project rules. Extracted from entries-warnings.ts —
 // re-exported there as part of WARNING_ENTRIES.
 
+import { checkPublicApiLeaksInternalType } from "../../checks/api-surface.js";
 import { findUnjustifiedCasts } from "../../checks/cast-justification.js";
+import { checkFetchWithoutAbortSignal } from "../../checks/fetch-abort.js";
 import { findProcessEnvOutsideConfig } from "../../checks/env-access-scope.js";
 import { findTopLevelSideEffects } from "../../checks/module-load-side-effects.js";
 import {
@@ -251,6 +253,38 @@ export const CODE_QUALITY_ENTRIES: CheckRegistration[] = [
 		fn: checkImportFromOwnBarrel,
 		resultsPropName: "importFromOwnBarrel",
 		content_keywords: ["from"],
+	},
+	{
+		id: "fetch_without_abort_signal",
+		phase: "post",
+		name: "Fetch Without Abort Signal",
+		description:
+			"Detects a platform `fetch(...)` call whose options carry no `signal` — bare single-argument fetch, or an options literal with no `signal` key and no spread. The request cannot be cancelled and never times out: it leaks past component unmount and mismatches serverless deadlines. Non-literal options and wrapper `.fetch` methods are exempt (contents not visible). Effect-TS lessons port: Effect's HttpClient threads an interruption-bound AbortSignal into every underlying fetch.",
+		tier: 1,
+		determinism: "heuristic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		fix_instruction:
+			"Wire in a signal: `fetch(url, { signal: AbortSignal.timeout(10_000) })` for a deadline, or create an AbortController tied to the caller's lifetime (component unmount, request scope, process shutdown) and pass `controller.signal`. If the fetch is genuinely fire-and-forget for the process lifetime, say so in a comment.",
+		fn: checkFetchWithoutAbortSignal,
+		resultsPropName: "fetchWithoutAbortSignal",
+		content_keywords: ["fetch"],
+	},
+	{
+		id: "public_api_leaks_internal_type",
+		phase: "post",
+		name: "Public API Leaks Internal Type",
+		description:
+			"Detects an exported declaration whose signature (params, return type, heritage clause, type-alias RHS) references a same-file type that is not exported. Consumers cannot name the type to annotate their own bindings, and declaration emit fails with TS4023. Internal types used only inside function bodies are the normal pattern and never fire. Effect-TS lessons port: approximates Effect's custom oxlint rule `effect/no-unused-internal` at the same identifier-matching precision.",
+		tier: 1,
+		determinism: "heuristic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		fix_instruction:
+			"Export the referenced type alongside the declaration that uses it (`export interface Options {...}`), or keep the type private by removing it from the public signature — accept a wider structural type, or wrap the internal shape behind an exported one.",
+		fn: checkPublicApiLeaksInternalType,
+		resultsPropName: "publicApiLeaksInternalType",
+		content_keywords: ["export"],
 	},
 	{
 		id: "error_dispatch_by_instanceof",

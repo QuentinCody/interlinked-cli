@@ -392,6 +392,12 @@ const POSTTOOLUSE_ONLY_CHECKS = new Set([
 	"jsdoc_param_drift",
 	"detectTimeoutUnitMismatch",
 	"timeout_unit_mismatch",
+	// Effect second-look wave (2026-09-01): shipped PostToolUse-enforced;
+	// verify-surface wiring deferred, matching the quality-frontier precedent.
+	"checkFetchWithoutAbortSignal",
+	"fetch_without_abort_signal",
+	"checkPublicApiLeaksInternalType",
+	"public_api_leaks_internal_type",
 	// Type-discipline wave (2026-08-14): ported from dmmulroy/anti-slop,
 	// detection algorithm only (docs/external-pulse/anti-slop.md). Shipped
 	// PostToolUse-enforced now; their verify-surface wiring (interface +

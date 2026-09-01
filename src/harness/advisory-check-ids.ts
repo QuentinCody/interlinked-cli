@@ -67,6 +67,10 @@ export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
 	"spec_path_ref",
 	"contradictory_nullness_chain",
 	"resource_handle_leak",
+	// Effect second-look wave (2026-09-01): both advisory pending cross-repo
+	// FP calibration (rationales in advisory.ts).
+	"fetch_without_abort_signal",
+	"public_api_leaks_internal_type",
 	// unvalidated_json_boundary: PROMOTED to default gate 2026-08-10 (R2).
 	"dead_exports",
 	"untested_inverse_pair",

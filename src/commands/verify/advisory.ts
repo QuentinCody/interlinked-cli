@@ -152,6 +152,15 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// process-lifetime handles are legitimate. Per effect-ts-harness-additions
 	// §2.5: start advisory, ratchet to default after cross-repo FP calibration.
 	"resource_handle_leak",
+	// fetch_without_abort_signal: fire-and-forget fetches with process-lifetime
+	// scope (CLI one-shots, scripts) are legitimate; options passed as
+	// identifiers are invisible. Per effect-ts-harness-additions §10: advisory
+	// until cross-repo FP calibration.
+	"fetch_without_abort_signal",
+	// public_api_leaks_internal_type: only bites codebases with declaration
+	// consumers (published libraries); app code pays the cost at refactor time
+	// only. Per effect-ts-harness-additions §10: advisory.
+	"public_api_leaks_internal_type",
 	// unvalidated_json_boundary PROMOTED to the default gate 2026-08-10
 	// (boundary-parser campaign R2): the old rationale called the
 	// `JSON.parse(x) as T` form idiomatic — re-examined, that cast IS the
