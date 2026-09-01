@@ -1,21 +1,23 @@
 {
-	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"$schema": "https://unpkg.com/knip@5/schema.json",
 	"entry": [
 		"src/index.ts",
+		"src/hook-entry.ts",
 		"src/harness/server.ts",
-		"src/commands/*.ts",
-		"src/lib/api-client.ts",
-		"scripts/*.ts",
-		"src/**/__tests__/*.test.ts",
-		"test/**/*.ts"
+		"src/harness/replay/inference-proxy.ts",
+		"src/harness/check-engine/tool-runners/tsc-overlay-sidecar-main.ts",
+		"src/lib/demo-runtime/index.ts",
+		"src/lib/viz/reporter-vitest.ts",
+		"scripts/*.mjs",
+		"src/**/*.test.ts",
+		"src/**/*.test.mjs",
+		"src/**/__tests__/**/*.ts"
 	],
-	"project": [
-		"src/**/*.ts",
-		"scripts/**/*.ts",
-		"test/**/*.ts"
-	],
+	"project": ["src/**/*.ts", "scripts/**/*.mjs"],
 	"ignore": [
-		"src/harness/structure/__tests__/fixtures/**"
-	],
-	"ignoreExportsUsedInFile": true
+		"src/**/__fixtures__/**",
+		"src/harness/__tests__/fixtures/**",
+		"scratch/**",
+		".interlinked/**"
+	]
 }

@@ -5,12 +5,68 @@
 // files (per-file line cap): type-discipline.ts +
 // type-discipline-unknown-alias.ts.
 
+import { checkDeadTypeExports } from "../../checks/dead-exports-inline.js";
 import { detectConditionalEmptyObjectSpread } from "../../checks/type-discipline.js";
 import { detectUnknownTypeAlias } from "../../checks/type-discipline-unknown-alias.js";
+import { checkDuplicateTypeDeclaration } from "../../checks/type-redundancy.js";
 import { detectTagReflectionTypeCheck } from "../../checks/tag-reflection.js";
-import type { CheckRegistration } from "../types.js";
+import type { CheckRegistration, InlineMatch } from "../types.js";
+
+// Named wrappers (not inline arrows) so Check Evidence Contract resolution
+// (fn.name) attributes evidence to the real detector; cwd stays overridable
+// for tests (same pattern as agent-clarity.ts).
+
+/** Registry-facing wrapper: binds `dead_type_exports` detection to a cwd. */
+export function checkDeadTypeExportsAtCwd(
+	content: string,
+	filePath: string,
+	cwd: string = process.cwd(),
+): InlineMatch[] {
+	return checkDeadTypeExports(content, filePath, cwd);
+}
+
+/** Registry-facing wrapper: binds `duplicate_type_declaration` to a cwd. */
+export function checkDuplicateTypeDeclarationAtCwd(
+	content: string,
+	filePath: string,
+	cwd: string = process.cwd(),
+): InlineMatch[] {
+	return checkDuplicateTypeDeclaration(content, filePath, cwd);
+}
 
 export const TYPE_DISCIPLINE_ENTRIES: CheckRegistration[] = [
+	{
+		id: "dead_type_exports",
+		phase: "post",
+		name: "Dead Type Exports",
+		description:
+			"Detects exported interfaces/type aliases no other file imports (type-aware consumption: `import type`, inline `{ type X }` specifiers, dynamic imports, re-export barrels). Types are erased at compile time, so the finding is pure reading overhead once nothing consumes it — from the 2026-09-01 dead-code campaign (694 on this tree at introduction).",
+		tier: 3,
+		determinism: "partially_deterministic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		fix_instruction:
+			"If the type is still used inside its own file, remove the `export` keyword — behavior-neutral, and `noUnusedLocals` then watches it (the measured majority remedy: 582/585). If nothing references it at all, delete the declaration. Keep it only for a documented external consumer — add a 'public API' comment above it.",
+		fn: checkDeadTypeExportsAtCwd,
+		resultsPropName: "deadTypeExports",
+		content_keywords: ["export interface ", "export type "],
+	},
+	{
+		id: "duplicate_type_declaration",
+		phase: "post",
+		name: "Duplicate Type Declaration",
+		description:
+			"Detects an exported interface/type alias whose NAME another module also declares (34 homonym names measured on this tree at introduction). Identical bodies drift apart silently — the type-level twin of code_clones; divergent bodies misroute auto-imports to the wrong shape.",
+		tier: 3,
+		determinism: "partially_deterministic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		fix_instruction:
+			"For an IDENTICAL body: keep one declaration and re-export it (`export type { X } from './canonical.js'`). For a DIFFERENT body: rename one side so the name maps to exactly one shape repo-wide.",
+		fn: checkDuplicateTypeDeclarationAtCwd,
+		resultsPropName: "duplicateTypeDeclaration",
+		content_keywords: ["export interface ", "export type "],
+	},
 	{
 		id: "conditional_empty_object_spread",
 		phase: "post",

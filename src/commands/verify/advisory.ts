@@ -475,6 +475,15 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	"test_contract_annotation",
 	// unvalidated_input_boundary: .json()/process.argv boundary heuristic sibling of unvalidated_json_boundary; advisory pending dogfood FP calibration.
 	"unvalidated_input_boundary",
+	// === Type-redundancy wave (2026-09-01, dead-code campaign) ===
+	// dead_type_exports: same consumption scan as dead_exports (advisory for the
+	// same reason — a freshly exported type is legitimately unconsumed mid-refactor
+	// under the exporter-before-importers rule).
+	"dead_type_exports",
+	// duplicate_type_declaration: same-name types in different bounded contexts can
+	// be deliberate; advisory pending dogfood FP calibration against the 34
+	// measured homonyms.
+	"duplicate_type_declaration",
 ]);
 
 /** Public API — consumed by `verify.ts` and `tool-results.ts`. */

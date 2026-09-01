@@ -40,6 +40,20 @@ export const coreSections: readonly SectionSpec[] = [
 		color: "33",
 	},
 	{
+		label: "dead type exports",
+		key: "deadTypeExports",
+		noun: "exported types no other file imports",
+		passLabel: "no dead type exports",
+		color: "33",
+	},
+	{
+		label: "duplicate type declarations",
+		key: "duplicateTypeDeclaration",
+		noun: "type names also declared in another module",
+		passLabel: "every type name maps to one declaration",
+		color: "33",
+	},
+	{
 		label: "circular imports",
 		key: "circularImports",
 		noun: "import cycles involving this file",

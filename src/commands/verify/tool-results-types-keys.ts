@@ -28,6 +28,8 @@ export const CQ_RESULT_KEYS: ReadonlyArray<keyof CodeQualityResults> = [
 	"complexity",
 	"exportRipple",
 	"deadExports",
+	"deadTypeExports",
+	"duplicateTypeDeclaration",
 	"circularImports",
 	"untestedInversePair",
 	"untestedIdempotent",

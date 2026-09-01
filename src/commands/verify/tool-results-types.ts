@@ -51,6 +51,8 @@ export interface CodeQualityResults {
 	complexity: CodeQualityIssue[];
 	exportRipple: CodeQualityIssue[];
 	deadExports: CodeQualityIssue[];
+	deadTypeExports: CodeQualityIssue[];
+	duplicateTypeDeclaration: CodeQualityIssue[];
 	circularImports: CodeQualityIssue[];
 	untestedInversePair: CodeQualityIssue[];
 	untestedIdempotent: CodeQualityIssue[];

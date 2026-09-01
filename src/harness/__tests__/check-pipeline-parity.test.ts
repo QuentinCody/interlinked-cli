@@ -43,6 +43,7 @@ const VERIFY_SUBMODULES = [
 	// these siblings, so they must be concatenated for the regex extraction to
 	// continue seeing every wired check.
 	"file-checks-agent-safety.ts",
+	"file-checks-type-redundancy.ts",
 	"file-checks-react-test.ts",
 	"file-checks-ubs.ts",
 	"file-checks-endpoint-laziness.ts",
@@ -725,6 +726,8 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 			"homedirWriteEscape",
 			"duplicatedPolicyConstant",
 			"typePredicateDrift",
+			"deadTypeExports",
+			"duplicateTypeDeclaration",
 			"snapshotHygiene",
 			"designSlop",
 			"payloadFieldCasing",

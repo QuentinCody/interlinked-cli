@@ -19,6 +19,8 @@ const EXPECTED_KEY_ORDER = [
 	"phantomImports",
 	"exportRipple",
 	"deadExports",
+	"deadTypeExports",
+	"duplicateTypeDeclaration",
 	"circularImports",
 	"untestedInversePair",
 	"untestedIdempotent",

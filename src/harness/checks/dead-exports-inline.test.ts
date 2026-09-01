@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findDeadExports } from "./dead-exports-inline.js";
+import { findDeadExports, findDeadTypeExports } from "./dead-exports-inline.js";
 
 /**
  * Regression corpus from a live FP report (mcp-client-bio, 2026-07-28): the
@@ -91,6 +91,27 @@ describe("findDeadExports — negative (must not fire)", () => {
 		expect(out).toEqual([]);
 	});
 
+	it("P5: remedy names the un-export fix when the symbol is still used in its own file", () => {
+		const files = {
+			"src/lib.ts":
+				"export const used = 1;\nexport function dead(): number { return 2; }\nconst v = dead();\nconsole.log(v);\n",
+			"src/main.ts": 'import { used } from "./lib.js";\nconsole.log(used);\n',
+		};
+		const out = findDeadExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(out.map((m) => m.text)).toEqual([
+			expect.stringContaining("still used inside this file"),
+		]);
+	});
+
+	it("P6: remedy names deletion when the symbol has no references at all", () => {
+		const files = {
+			"src/lib.ts": "export const used = 1;\nexport const dead = 2;\n",
+			"src/main.ts": 'import { used } from "./lib.js";\nconsole.log(used);\n',
+		};
+		const out = findDeadExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(out.map((m) => m.text)).toEqual([expect.stringContaining("no references anywhere")]);
+	});
+
 	it("N17: an inline type specifier (`import { type Foo }`) counts as consumption", () => {
 		// Regression: symbolsOf used to parse the specifier as the literal name
 		// "type Foo", so the consumption was invisible and Foo was flagged.
@@ -123,6 +144,31 @@ describe("findDeadExports — negative (must not fire)", () => {
 		};
 		const out = findDeadExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
 		expect(out.map((m) => m.text)).toEqual([expect.stringContaining("'dead'")]);
+	});
+
+	it("P7: findDeadTypeExports flags an interface nothing imports (value lane stays silent about it)", () => {
+		const files = {
+			"src/lib.ts":
+				"export const used = 1;\nexport interface DeadShape { id: string }\nexport type DeadAlias = number;\n",
+			"src/main.ts": 'import { used } from "./lib.js";\nconsole.log(used);\n',
+		};
+		const typeOut = findDeadTypeExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(typeOut.map((m) => m.text)).toEqual([
+			expect.stringContaining("'DeadShape'"),
+			expect.stringContaining("'DeadAlias'"),
+		]);
+		const valueOut = findDeadExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(valueOut).toEqual([]);
+	});
+
+	it("N19: a type consumed via `import type { … }` is not a dead type export", () => {
+		const files = {
+			"src/lib.ts": "export const used = 1;\nexport interface LiveShape { id: string }\n",
+			"src/main.ts":
+				'import { used } from "./lib.js";\nimport type { LiveShape } from "./lib.js";\nexport function f(x: LiveShape): number { return Number(x.id) + used; }\n',
+		};
+		const out = findDeadTypeExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(out).toEqual([]);
 	});
 
 	it("N3: a wildcard re-export makes every export potentially consumed", () => {

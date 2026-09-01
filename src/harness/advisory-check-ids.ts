@@ -171,6 +171,8 @@ export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
 	"python_portability_trap",
 	"test_contract_annotation",
 	"unvalidated_input_boundary",
+	"dead_type_exports",
+	"duplicate_type_declaration",
 ]);
 
 /** True when `checkId` is advisory-tier (deep-audit only, not default-gate). */

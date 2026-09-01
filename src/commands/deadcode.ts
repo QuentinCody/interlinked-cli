@@ -15,6 +15,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
 import {
 	findDeadExports,
+	findDeadTypeExports,
 	type DeadExportsRepo,
 } from "../harness/checks/dead-exports-inline.js";
 import { getGitSourceFiles } from "../harness/checks/export-ripple.js";
@@ -43,7 +44,7 @@ function walkSourceFiles(root: string, dir = "src"): string[] {
 }
 
 const TEST_OR_FIXTURE_RE =
-	/\.(test|spec)\.[jt]sx?$|(^|\/)__tests__\/|(^|\/)__fixtures__\/|(^|\/)__mocks__\/|\.d\.ts$|(^|\/)(?:generated|__generated__)\//;
+	/\.(test|spec|bench)\.[jt]sx?$|(^|\/)__tests__\/|(^|\/)__fixtures__\/|(^|\/)__mocks__\/|(^|\/)(?:test|tests|bench|benchmarks?|fixtures?|evals?)\/|\.d\.ts$|(^|\/)(?:generated|__generated__)\//;
 
 export interface DeadImportBinding {
 	file: string;
@@ -62,6 +63,10 @@ export interface DeadCodeReport {
 	deadImportBindings: DeadImportBinding[];
 	/** Exported symbols the cross-file detector finds no consumer for. */
 	deadExports: DeadExportFinding[];
+	/** Exported TYPES (interfaces / aliases / `export type {…}`) with no
+	 *  consumer. Separate lane: types are erased at compile time, so deletion
+	 *  can never change runtime behavior — only external consumers gate it. */
+	deadTypeExports: DeadExportFinding[];
 	/** Files alive ONLY because test files import them (categorizer signal). */
 	testOnlyImporterFiles?: string[];
 	/** How many files the scan covered. */
@@ -70,28 +75,53 @@ export interface DeadCodeReport {
 	scannedPaths: string[];
 }
 
-/** Entry points that are reachable by definition: package.json `bin` targets
- *  (mapped dist/x.js → src/x.ts) and any additional src entries named in the
- *  build script. Fail-soft: unreadable/missing package.json ⇒ only the
- *  conventional src/index.* entry survives. */
-function entryPoints(cwd: string): Set<string> {
+/** Collect entries declared by package.json: `bin` targets (mapped
+ *  dist/x.js → src/x.ts) and any source file named in ANY script value —
+ *  a file an npm script runs is reachable by definition, whatever the
+ *  script is called (build, docs, bench, …). */
+function packageJsonEntries(cwd: string, entries: Set<string>): void {
+	const raw: unknown = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8"));
+	if (!isJsonObject(raw)) return;
+	if (isJsonObject(raw.bin)) {
+		for (const v of Object.values(raw.bin)) {
+			if (typeof v === "string") {
+				entries.add(v.replace(/^\.\//, "").replace(/^dist\//, "src/").replace(/\.js$/, ".ts"));
+			}
+		}
+	}
+	const scripts = isJsonObject(raw.scripts) ? raw.scripts : {};
+	for (const v of Object.values(scripts)) {
+		if (typeof v !== "string") continue;
+		for (const m of v.matchAll(/[\w./-]+\.(?:tsx?|[cm]?js)\b/g)) {
+			entries.add(m[0].replace(/^\.\//, ""));
+		}
+	}
+}
+
+/** Entry points that are reachable by definition. Beyond package.json:
+ *  root-level tool config files (vitest/tsup/eslint/… load them by path or
+ *  --config flag, never by import), and a `src/index.*` under any directory
+ *  carrying its own package.json or wrangler manifest (an embedded
+ *  sub-project — its entry is invisible to this repo's import graph).
+ *  Fail-soft: unreadable/missing package.json ⇒ conventional entries only. */
+function entryPoints(cwd: string, files: readonly string[]): Set<string> {
 	const entries = new Set<string>(["src/index.ts", "src/index.tsx"]);
 	try {
-		const raw: unknown = JSON.parse(readFileSync(join(cwd, "package.json"), "utf-8"));
-		if (isJsonObject(raw)) {
-			if (isJsonObject(raw.bin)) {
-				for (const v of Object.values(raw.bin)) {
-					if (typeof v === "string") {
-						entries.add(v.replace(/^\.\//, "").replace(/^dist\//, "src/").replace(/\.js$/, ".ts"));
-					}
-				}
-			}
-			const scripts = isJsonObject(raw.scripts) ? raw.scripts : {};
-			const build = typeof scripts.build === "string" ? scripts.build : "";
-			for (const m of build.matchAll(/src\/\S+?\.tsx?\b/g)) entries.add(m[0]);
-		}
+		packageJsonEntries(cwd, entries);
 	} catch (err) {
 		void err; // fail-soft — conventional entries only
+	}
+	for (const rel of files) {
+		if (/^[^/]+\.config\.[cm]?[jt]s$/.test(rel)) entries.add(rel);
+		const subRoot = rel.match(/^(.+?)\/(?:src\/)?index\.[cm]?[jt]sx?$/)?.[1];
+		if (
+			subRoot &&
+			(existsSync(join(cwd, subRoot, "package.json")) ||
+				existsSync(join(cwd, subRoot, "wrangler.toml")) ||
+				existsSync(join(cwd, subRoot, "wrangler.jsonc")))
+		) {
+			entries.add(rel);
+		}
 	}
 	return entries;
 }
@@ -134,16 +164,22 @@ function reExportTargets(cwd: string, files: string[]): Set<string> {
 	return reached;
 }
 
-/** Sweep the repo once and report the three reachability-layer candidates. */
-export function scanDeadCode(cwd: string): DeadCodeReport {
-	const graph = new ProjectGraph(cwd);
-	graph.initialize();
-	const entries = entryPoints(cwd);
+/** Discovery is git-first: `git ls-files` covers every tracked/untracked
+ *  non-ignored source file regardless of layout (lib/, app/, packages/*), and
+ *  inherits .gitignore so leaked fixture/temp trees can't pollute the report.
+ *  The src/ walk survives only as the non-git-tree fallback. */
+function discoverScanFiles(cwd: string): string[] {
+	const gitFiles = getGitSourceFiles(cwd).filter((f) => /\.[jt]sx?$/.test(f));
+	return gitFiles.length > 0 ? gitFiles : walkSourceFiles(cwd);
+}
 
-	const files = walkSourceFiles(cwd);
-	const importerFiles = getGitSourceFiles(cwd);
+/** Caching repo view shared by the per-symbol detectors. */
+function buildDeadExportsRepo(cwd: string, importerFiles: string[]): {
+	repo: DeadExportsRepo;
+	prime: (rel: string, content: string) => void;
+} {
 	const importerContent = new Map<string, string | null>();
-	const deadExportsRepo: DeadExportsRepo = {
+	const repo: DeadExportsRepo = {
 		listFiles: () => importerFiles,
 		readFile: (rel) => {
 			const cached = importerContent.get(rel);
@@ -158,12 +194,46 @@ export function scanDeadCode(cwd: string): DeadCodeReport {
 			}
 		},
 	};
+	return { repo, prime: (rel, content) => importerContent.set(rel, content) };
+}
+
+/** Reachability classification for one file (layer 1 + the test-only signal). */
+function classifyFileReachability(
+	graph: ProjectGraph,
+	entries: Set<string>,
+	reExported: Set<string>,
+	rel: string,
+	abs: string,
+	out: { unreachableFiles: string[]; testOnlyImporterFiles: string[] },
+): void {
+	const importers = graph.getImporters(abs);
+	if (!entries.has(rel) && !reExported.has(rel) && importers.length === 0) {
+		out.unreachableFiles.push(rel);
+	}
+	if (
+		importers.length > 0 &&
+		importers.every((e) => TEST_OR_FIXTURE_RE.test(e.fromFile.split(sep).join("/")))
+	) {
+		out.testOnlyImporterFiles.push(rel);
+	}
+}
+
+/** Sweep the repo once and report the reachability-layer candidates. */
+export function scanDeadCode(cwd: string): DeadCodeReport {
+	const graph = new ProjectGraph(cwd);
+	graph.initialize();
+	const files = discoverScanFiles(cwd);
+	const entries = entryPoints(cwd, files.map((f) => f.split(sep).join("/")));
+	const { repo: deadExportsRepo, prime } = buildDeadExportsRepo(cwd, getGitSourceFiles(cwd));
 	const reExported = reExportTargets(cwd, files);
-	const unreachableFiles: string[] = [];
-	const deadImportBindings: DeadImportBinding[] = [];
-	const deadExports: DeadExportFinding[] = [];
-	const testOnlyImporterFiles: string[] = [];
-	const scannedPaths: string[] = [];
+	const out = {
+		unreachableFiles: [] as string[],
+		deadImportBindings: [] as DeadImportBinding[],
+		deadExports: [] as DeadExportFinding[],
+		deadTypeExports: [] as DeadExportFinding[],
+		testOnlyImporterFiles: [] as string[],
+		scannedPaths: [] as string[],
+	};
 
 	for (const relRaw of files) {
 		const rel = relRaw.split(sep).join("/");
@@ -171,36 +241,23 @@ export function scanDeadCode(cwd: string): DeadCodeReport {
 		const abs = join(cwd, rel);
 		if (!existsSync(abs)) continue;
 		const content = readFileSync(abs, "utf-8");
-		importerContent.set(rel, content);
-		scannedPaths.push(rel);
+		prime(rel, content);
+		out.scannedPaths.push(rel);
 
-		const importers = graph.getImporters(abs);
-		if (!entries.has(rel) && !reExported.has(rel) && importers.length === 0) {
-			unreachableFiles.push(rel);
-		}
-		if (
-			importers.length > 0 &&
-			importers.every((e) => TEST_OR_FIXTURE_RE.test(e.fromFile.split(sep).join("/")))
-		) {
-			testOnlyImporterFiles.push(rel);
-		}
+		classifyFileReachability(graph, entries, reExported, rel, abs, out);
 		for (const binding of findDeadImports(content)) {
-			deadImportBindings.push({ file: rel, binding });
+			out.deadImportBindings.push({ file: rel, binding });
 		}
 		for (const m of findDeadExports({ content, filePath: abs, cwd }, deadExportsRepo)) {
-			deadExports.push({ file: rel, detail: m.text });
+			out.deadExports.push({ file: rel, detail: m.text });
+		}
+		for (const m of findDeadTypeExports({ content, filePath: abs, cwd }, deadExportsRepo)) {
+			out.deadTypeExports.push({ file: rel, detail: m.text });
 		}
 	}
 
-	unreachableFiles.sort((a, b) => a.localeCompare(b));
-	return {
-		unreachableFiles,
-		deadImportBindings,
-		deadExports,
-		testOnlyImporterFiles,
-		scannedFiles: files.length,
-		scannedPaths,
-	};
+	out.unreachableFiles.sort((a, b) => a.localeCompare(b));
+	return { ...out, scannedFiles: files.length };
 }
 
 /** The `--categorize` path (operator decision 2026-08-17): every candidate
@@ -254,10 +311,14 @@ export async function deadcodeCommand(opts: {
 	for (const b of report.deadImportBindings.slice(0, 40)) console.log(`  ${b.file}: ${b.binding}`);
 	if (report.deadImportBindings.length > 40)
 		console.log(`  … +${report.deadImportBindings.length - 40} more (use --json)`);
-	console.log(`\nDead export candidates (${report.deadExports.length}) — no consumer found (type-only surfaces are common false positives):`);
+	console.log(`\nDead export candidates (${report.deadExports.length}) — no consumer found:`);
 	for (const d of report.deadExports.slice(0, 40)) console.log(`  ${d.file}: ${d.detail}`);
 	if (report.deadExports.length > 40)
 		console.log(`  … +${report.deadExports.length - 40} more (use --json)`);
+	console.log(`\nDead TYPE exports (${report.deadTypeExports.length}) — erased at compile time, deletion is runtime-safe; only external consumers gate it:`);
+	for (const d of report.deadTypeExports.slice(0, 40)) console.log(`  ${d.file}: ${d.detail}`);
+	if (report.deadTypeExports.length > 40)
+		console.log(`  … +${report.deadTypeExports.length - 40} more (use --json)`);
 	console.log(
 		"\nSemantic (behaviorally inert) dead code is the mutation lane's job: interlinked mutation disposition --list dead_code.",
 	);

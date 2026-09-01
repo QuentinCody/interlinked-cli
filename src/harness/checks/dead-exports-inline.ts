@@ -139,8 +139,33 @@ function hasPublicApiComment(lines: string[], exportLine: number): boolean {
 	return false;
 }
 
-/** Core detector over an injectable repo view. */
-export function findDeadExports(args: DeadExportsArgs, repo: DeadExportsRepo): InlineMatch[] {
+/**
+ * The remedy fork the finding text carries. An unused export whose symbol is
+ * still referenced inside its own file needs only the `export` keyword removed
+ * (behavior-neutral); one with no references anywhere is a deletion candidate.
+ * The distinction matters: 79% of real findings measured on this tree
+ * (96/122, 2026-09-01) were the un-export class.
+ */
+function remedyFor(content: string, name: string): string {
+	const wordRe = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "g");
+	let occurrences = 0;
+	for (const _m of content.matchAll(wordRe)) occurrences++;
+	// One occurrence is the declaration itself; a separate `export { name }`
+	// clause adds a second occurrence that is also not a real use.
+	let baseline = 1;
+	const clauseRe = new RegExp(`export\\s+(?:type\\s+)?\\{[^}]*\\b${name}\\b[^}]*\\}`);
+	if (clauseRe.test(content)) baseline++;
+	return occurrences > baseline
+		? `unused export '${name}' (still used inside this file) — remove the export keyword, or document as public API`
+		: `unused export '${name}' (no references anywhere) — delete the declaration, or document as public API`;
+}
+
+/** Shared body for the value-export and type-export detectors. */
+function findDeadExportsCore(
+	args: DeadExportsArgs,
+	repo: DeadExportsRepo,
+	wantTypeOnly: boolean,
+): InlineMatch[] {
 	const ext = getExtension(args.filePath);
 	if (!EXPORTABLE_EXT.includes(ext)) return [];
 	if (args.filePath.endsWith(".d.ts")) return [];
@@ -149,7 +174,11 @@ export function findDeadExports(args: DeadExportsArgs, repo: DeadExportsRepo): I
 	if (base === "index") return []; // barrel — intentionally wide
 
 	const exports = parseExports(args.content).filter(
-		(e) => e.kind !== "default" && e.kind !== "re-export" && e.kind !== "namespace" && !e.isTypeOnly,
+		(e) =>
+			e.kind !== "default" &&
+			e.kind !== "re-export" &&
+			e.kind !== "namespace" &&
+			e.isTypeOnly === wantTypeOnly,
 	);
 	if (exports.length === 0) return [];
 
@@ -170,15 +199,32 @@ export function findDeadExports(args: DeadExportsArgs, repo: DeadExportsRepo): I
 	for (const exp of exports) {
 		if (scan.symbols.has(exp.name)) continue;
 		if (hasPublicApiComment(lines, exp.line)) continue;
-		matches.push({ line: exp.line, text: `unused export '${exp.name}' — remove or document as public API` });
+		matches.push({ line: exp.line, text: remedyFor(args.content, exp.name) });
 		if (matches.length >= MAX_FLAGGED) break;
 	}
 	return matches;
 }
 
-/** Registry-facing wrapper: real git file listing + real filesystem. */
-export function checkDeadExports(content: string, filePath: string, cwd: string): InlineMatch[] {
-	const repo: DeadExportsRepo = {
+/** Core detector over an injectable repo view — VALUE exports only. */
+export function findDeadExports(args: DeadExportsArgs, repo: DeadExportsRepo): InlineMatch[] {
+	return findDeadExportsCore(args, repo, false);
+}
+
+/**
+ * TYPE-only exports (interfaces, type aliases, `export type {…}` clauses) no
+ * other file imports. Split from the value detector because the remedy differs
+ * — a dead type is erased at compile time, so deleting it can never change
+ * runtime behavior; only external (published/vendored) consumers gate it. The
+ * consumption scan is shared, and after the 2026-09-01 parser fixes it counts
+ * `import type {…}`, inline `{ type X }` specifiers, and dynamic imports.
+ */
+export function findDeadTypeExports(args: DeadExportsArgs, repo: DeadExportsRepo): InlineMatch[] {
+	return findDeadExportsCore(args, repo, true);
+}
+
+/** Real repo view: git file listing + filesystem reads. */
+function liveRepo(cwd: string): DeadExportsRepo {
+	return {
 		listFiles: () => getGitSourceFiles(cwd),
 		readFile: (rel) => {
 			try {
@@ -189,5 +235,18 @@ export function checkDeadExports(content: string, filePath: string, cwd: string)
 			}
 		},
 	};
-	return findDeadExports({ content, filePath, cwd }, repo);
+}
+
+/** Registry-facing wrapper: real git file listing + real filesystem. */
+export function checkDeadExports(content: string, filePath: string, cwd: string): InlineMatch[] {
+	return findDeadExports({ content, filePath, cwd }, liveRepo(cwd));
+}
+
+/** Registry-facing wrapper for the TYPE lane (see findDeadTypeExports). */
+export function checkDeadTypeExports(
+	content: string,
+	filePath: string,
+	cwd: string,
+): InlineMatch[] {
+	return findDeadTypeExports({ content, filePath, cwd }, liveRepo(cwd));
 }
