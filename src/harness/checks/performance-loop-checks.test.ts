@@ -885,3 +885,67 @@ describe("checkJsonInLoop — w27 Python and Swift spacing survivors", () => {
 		]);
 	});
 });
+
+describe("checkQueryInLoop n+1 dataflow tag — positive (must fire)", () => {
+	it("P1: JS loop over a query result tags the finding with the source line", () => {
+		const code = `const users = await db.query("SELECT * FROM users");\nfor (const u of users) {\n    const posts = await db.query(u.id);\n}`;
+		const out = checkQueryInLoop(code, "users.ts");
+		expect(out.length).toBe(1);
+		expect(out[0]?.text).toContain(
+			"[n+1: `users` is loaded by the query at line 1 — batch into one query",
+		);
+	});
+
+	it("P2: Python loop over cursor.fetchall() result is tagged", () => {
+		const code = `rows = cursor.fetchall()\nfor r in rows:\n    cursor.execute("SELECT * FROM posts WHERE uid = %s", (r,))\n`;
+		const out = checkQueryInLoop(code, "users.py");
+		expect(out.length).toBe(1);
+		expect(out[0]?.text).toContain("[n+1: `rows` is loaded by the query at line 1");
+	});
+
+	it("P3: Go range over db.Query result (tuple assign rows, err :=) is tagged", () => {
+		const code = `rows, err := db.Query("SELECT id FROM users")\nfor _, r := range rows {\n    db.QueryRow("SELECT * FROM posts WHERE uid = ?", r)\n}`;
+		const out = checkQueryInLoop(code, "users.go");
+		expect(out.length).toBe(1);
+		expect(out[0]?.text).toContain("[n+1: `rows` is loaded by the query at line 1");
+	});
+
+	it("P4: the source assignment may sit several lines above the loop head", () => {
+		const filler = Array.from({ length: 10 }, (_, i) => `doStep${i}();`).join("\n");
+		const code = `const users = await db.query("SELECT * FROM users");\n${filler}\nfor (const u of users) {\n    await db.findOne(u.id);\n}`;
+		const out = checkQueryInLoop(code, "users.ts");
+		expect(out.length).toBe(1);
+		expect(out[0]?.text).toContain("[n+1: `users` is loaded by the query at line 1");
+	});
+});
+
+describe("checkQueryInLoop n+1 dataflow tag — negative (must NOT tag)", () => {
+	it("N1: loop over a plain array still fires the base finding, without the tag", () => {
+		const code = `const ids = [1, 2, 3];\nfor (const id of ids) {\n    const row = await db.query(id);\n}`;
+		const out = checkQueryInLoop(code, "users.ts");
+		expect(out.length).toBe(1);
+		expect(out[0]?.text).not.toContain("[n+1:");
+	});
+
+	it("N2: index-based for loop carries no iterable to trace — no tag", () => {
+		const code = `const users = await db.query("SELECT * FROM users");\nfor (let i = 0; i < users.length; i++) {\n    await db.findOne(i);\n}`;
+		const out = checkQueryInLoop(code, "users.ts");
+		expect(out.length).toBe(1);
+		expect(out[0]?.text).not.toContain("[n+1:");
+	});
+
+	it("N3: a query-fed assignment more than 40 lines above the head is out of scan range — no tag", () => {
+		const filler = Array.from({ length: 45 }, (_, i) => `doStep${i}();`).join("\n");
+		const code = `const users = await db.query("SELECT * FROM users");\n${filler}\nfor (const u of users) {\n    await db.findOne(u.id);\n}`;
+		const out = checkQueryInLoop(code, "users.ts");
+		expect(out.length).toBe(1);
+		expect(out[0]?.text).not.toContain("[n+1:");
+	});
+
+	it("N4: an iterable assigned from a non-query expression is not tagged even when a query ran nearby", () => {
+		const code = `const rows = await db.query("SELECT 1");\nconst names = rows.map(pick);\nfor (const n of names) {\n    await db.findOne(n);\n}`;
+		const out = checkQueryInLoop(code, "users.ts");
+		expect(out.length).toBe(1);
+		expect(out[0]?.text).not.toContain("[n+1:");
+	});
+});

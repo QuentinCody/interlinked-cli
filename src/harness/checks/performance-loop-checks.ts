@@ -49,7 +49,6 @@ export function checkAwaitInLoop(content: string, filePath: string): InlineMatch
 	if (![".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext)) return [];
 
 	const bodies = extractBraceLoopBodies(content);
-	const _originalLines = content.split("\n");
 	const matches: InlineMatch[] = [];
 
 	for (const loop of bodies) {
@@ -72,48 +71,131 @@ export function checkAwaitInLoop(content: string, filePath: string): InlineMatch
 }
 
 /**
+ * Per-language regex extracting the iterated identifier from a loop head line
+ * (`for (const row of rows)` → `rows`). Null when the language has no
+ * head-iterable form we trace (C-style index loops carry no iterable name).
+ */
+function loopIterableRegexFor(ext: string): RegExp | null {
+	if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext)) {
+		return /\bfor\s*(?:await\s*)?\(\s*(?:const|let|var)\s+[^)]*?\s+(?:of|in)\s+(?:await\s+)?([A-Za-z_$][\w$]*)/;
+	}
+	if (ext === ".py") return /\bfor\s+[\w,\s()]+?\s+in\s+([A-Za-z_]\w*)\s*[:.[]/;
+	if (ext === ".go") return /\bfor\s+[^:={]*:=\s*range\s+([A-Za-z_]\w*)/;
+	if (ext === ".rs") return /\bfor\s+[\w\s,()]+?\s+in\s+&?(?:mut\s+)?([A-Za-z_]\w*)/;
+	if (ext === ".java") return /\bfor\s*\(\s*[\w<>[\],\s]+?\s+\w+\s*:\s*([A-Za-z_]\w*)\s*\)/;
+	if (ext === ".swift") return /\bfor\s+\w+\s+in\s+([A-Za-z_]\w*)\b/;
+	return null;
+}
+
+/** Shared per-file state for the query-in-loop scan, built once per call. */
+interface QueryScanCtx {
+	/** The language's query-call pattern. */
+	pattern: RegExp;
+	/** Original file lines (for head/assignment tracing). */
+	contentLines: string[];
+	/** Loop-head iterable extractor, null when the language has none. */
+	iterRe: RegExp | null;
+}
+
+/**
+ * Trace the loop's iterable back to a prior query-result assignment — the
+ * defining N+1 shape (`rows = query(); for row of rows: query(row.x)`).
+ * Scans up to 8 lines above the body for the loop head, then up to 40 lines
+ * above the head for an assignment whose LHS binds the iterable and whose
+ * RHS matches the same query pattern. Returns null when no tie is found;
+ * the caller still reports the plain query-in-loop finding.
+ */
+function findQueryFedIterable(
+	ctx: QueryScanCtx,
+	bodyStartLine: number,
+): { sourceLine: number; iterable: string } | null {
+	if (!ctx.iterRe) return null;
+	const lines = ctx.contentLines;
+	for (let k = bodyStartLine - 2; k >= Math.max(0, bodyStartLine - 8); k--) {
+		const m = ctx.iterRe.exec(nonNull(lines[k]));
+		if (!m) continue;
+		const iterable = nonNull(m[1]);
+		// LHS-binding test: iterable appears before the first `=` (covers
+		// const/let/var, tuple destructuring, and Go's `rows, err :=`).
+		const lhsRe = new RegExp(`^[^=]*\\b${iterable.replace(/\$/g, "\\$")}\\b[^=]*=(?!=)`);
+		for (let j = k - 1; j >= Math.max(0, k - 40); j--) {
+			const line = nonNull(lines[j]);
+			if (lhsRe.test(line) && ctx.pattern.test(line)) {
+				return { sourceLine: j + 1, iterable };
+			}
+		}
+		return null; // head found, no query-fed source — don't keep scanning up
+	}
+	return null;
+}
+
+/**
  * Detect database queries inside loops — the N+1 query anti-pattern.
  * Each iteration is a round-trip to the database.
+ *
+ * When the loop's iterable traces to a prior query result, the finding text
+ * carries an `[n+1: ...]` tag naming the source line and the batched fix —
+ * the confirmed N+1 shape, vs the weaker "some query in some loop".
  */
+function queryCallPatternFor(ext: string): RegExp | null {
+	if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext)) {
+		return /\b(db|prisma|knex|sequelize|pool|client|connection|sql|supabase)\s*\.\s*(query|execute|exec|find|findOne|findMany|findUnique|findFirst|select|insert|update|delete|raw|prepare|get|all|run)\s*\(/;
+	}
+	if (ext === ".py") {
+		return /\b(cursor|session|db|conn|connection)\s*\.\s*(execute|executemany|query|filter|all|get|fetch|fetchone|fetchall)\s*\(/;
+	}
+	if (ext === ".go") {
+		return /\b(db|tx|conn|pool)\s*\.\s*(Query|QueryRow|Exec|Get|Select|NamedExec)\s*\(/;
+	}
+	if (ext === ".rs") {
+		return /\b(sqlx::query|diesel::|\.execute|\.fetch_one|\.fetch_all|\.fetch_optional)\s*\(/;
+	}
+	if (ext === ".java") {
+		return /\b(statement|preparedStatement|session|entityManager|jdbcTemplate)\s*\.\s*(execute|executeQuery|executeUpdate|find|persist|merge|createQuery)\s*\(/i;
+	}
+	if (ext === ".swift") {
+		return /\b(context|viewContext|managedObjectContext)\s*\.\s*(fetch|execute|save|count)\s*\(|\b(db|dbQueue|dbPool)\s*\.\s*(read|write|execute)\s*\(/;
+	}
+	return null;
+}
+
+type QueryLoopBody = ReturnType<typeof getLoopBodies>[number];
+
+/** First query hit inside one loop body, tagged `[n+1: ...]` when the loop's iterable traces to a prior query result. */
+function queryLoopMatch(loop: QueryLoopBody, ctx: QueryScanCtx): InlineMatch | null {
+	for (let i = 0; i < loop.bodyLines.length; i++) {
+		if (!ctx.pattern.test(nonNull(loop.bodyLines[i]))) continue;
+		const fed = findQueryFedIterable(ctx, loop.startLine);
+		const tag = fed
+			? ` [n+1: \`${fed.iterable}\` is loaded by the query at line ${fed.sourceLine} — batch into one query (WHERE ... IN (...), a JOIN, or the ORM's include/prefetch)]`
+			: "";
+		return {
+			line: loop.startLine + i,
+			text: nonNull(loop.originalBodyLines[i]).trim().slice(0, 150) + tag,
+		};
+	}
+	return null;
+}
+
 export function checkQueryInLoop(content: string, filePath: string): InlineMatch[] {
 	const ext = getExtension(filePath);
 	const bodies = getLoopBodies(content, filePath);
 	if (bodies.length === 0) return [];
 
-	let pattern: RegExp;
-	if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext)) {
-		pattern =
-			/\b(db|prisma|knex|sequelize|pool|client|connection|sql|supabase)\s*\.\s*(query|execute|exec|find|findOne|findMany|findUnique|findFirst|select|insert|update|delete|raw|prepare|get|all|run)\s*\(/;
-	} else if (ext === ".py") {
-		pattern =
-			/\b(cursor|session|db|conn|connection)\s*\.\s*(execute|executemany|query|filter|all|get|fetch|fetchone|fetchall)\s*\(/;
-	} else if (ext === ".go") {
-		pattern = /\b(db|tx|conn|pool)\s*\.\s*(Query|QueryRow|Exec|Get|Select|NamedExec)\s*\(/;
-	} else if (ext === ".rs") {
-		pattern =
-			/\b(sqlx::query|diesel::|\.execute|\.fetch_one|\.fetch_all|\.fetch_optional)\s*\(/;
-	} else if (ext === ".java") {
-		pattern =
-			/\b(statement|preparedStatement|session|entityManager|jdbcTemplate)\s*\.\s*(execute|executeQuery|executeUpdate|find|persist|merge|createQuery)\s*\(/i;
-	} else if (ext === ".swift") {
-		pattern =
-			/\b(context|viewContext|managedObjectContext)\s*\.\s*(fetch|execute|save|count)\s*\(|\b(db|dbQueue|dbPool)\s*\.\s*(read|write|execute)\s*\(/;
-	} else {
-		return [];
-	}
+	const pattern = queryCallPatternFor(ext);
+	if (!pattern) return [];
+
+	const ctx: QueryScanCtx = {
+		pattern,
+		contentLines: content.split("\n"),
+		iterRe: loopIterableRegexFor(ext),
+	};
 
 	const matches: InlineMatch[] = [];
 	for (const loop of bodies) {
-		for (let i = 0; i < loop.bodyLines.length; i++) {
-			if (matches.length >= 10) break;
-			if (pattern.test(nonNull(loop.bodyLines[i]))) {
-				matches.push({
-					line: loop.startLine + i,
-					text: nonNull(loop.originalBodyLines[i]).trim().slice(0, 150),
-				});
-				break; // One per loop
-			}
-		}
+		if (matches.length >= 10) break;
+		const match = queryLoopMatch(loop, ctx);
+		if (match) matches.push(match);
 	}
 
 	return matches;
