@@ -25,7 +25,7 @@ import type { MutationGateConfig } from "./check-policy.js";
 // Types
 // ===========================================
 
-export interface FileMutationStats {
+interface FileMutationStats {
 	/** Number of mutants killed by the test suite (tests failed as expected). */
 	killed: number;
 	/** Mutants that escaped — tests passed against the mutated code. Bad. */
@@ -240,7 +240,7 @@ export function mutationScore(stats: FileMutationStats): number {
 // Compare
 // ===========================================
 
-export interface MutationCompareOptions {
+interface MutationCompareOptions {
 	config: MutationGateConfig;
 	repoRoot: string;
 	changedFiles?: string[];

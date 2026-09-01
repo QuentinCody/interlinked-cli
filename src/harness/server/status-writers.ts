@@ -27,7 +27,7 @@ export function writeStatusFile(path: string, content: string): void {
 
 /** The three statusline writers plus the resolved marker paths (exposed for
  *  tests / diagnostics). */
-export interface StatusWriters {
+interface StatusWriters {
 	readonly classifierStatusPath: string;
 	readonly scannerStatusPath: string;
 	readonly scannerReviewPendingPath: string;

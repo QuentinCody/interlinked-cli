@@ -26,7 +26,7 @@ import type { SessionTrajectory, TemporalPredicate } from "../types.js";
 /** Result of evaluating a temporal predicate. `reason` is populated only
  *  on the unsatisfied path so callers can surface "missed precondition"
  *  details without re-deriving them. */
-export interface TemporalEvaluation {
+interface TemporalEvaluation {
 	satisfied: boolean;
 	reason?: string;
 }

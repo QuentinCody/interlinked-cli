@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { JsonObject } from "../lib/json-types.js";
 
-export interface RegistrySource {
+interface RegistrySource {
 	/** Path relative to cwd. */
 	file: string;
 	/** Regex with one capture group. Each capture-1 match is one ID. */
@@ -41,7 +41,7 @@ export interface RegistryParityConfig {
 	pairs: readonly RegistryPair[];
 }
 
-export type RegistryDriftKind =
+type RegistryDriftKind =
 	| "missing-from-right"
 	| "missing-from-left"
 	| "missing-file";

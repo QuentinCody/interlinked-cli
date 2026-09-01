@@ -14,7 +14,7 @@ import type { AdapterOutput, RunnerAdapter, SettingsFragment } from "./types.js"
 
 const NATIVE_EVENTS = installedEventNames(GEMINI_CLI_CAPABILITIES);
 
-export interface GeminiCliAdapterOptions {
+interface GeminiCliAdapterOptions {
 	overrides?: ClassifierOverrides | undefined;
 }
 

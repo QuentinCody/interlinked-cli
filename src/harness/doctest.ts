@@ -9,7 +9,7 @@
 // so a doc full of `rm -rf` examples is never executed. Extraction is pure and
 // execution is injected, so the whole thing is unit-testable without a shell.
 
-export interface DoctestBlock {
+interface DoctestBlock {
 	/** The fence language (bash / sh / …). */
 	lang: string;
 	/** The block body (the commands to run). */
@@ -56,16 +56,16 @@ export function extractDoctestBlocks(markdown: string): DoctestBlock[] {
 	return blocks;
 }
 
-export interface DoctestResult {
+interface DoctestResult {
 	block: DoctestBlock;
 	exitCode: number;
 	ok: boolean;
 	output?: string;
 }
 
-export interface DoctestRunSummary {
+interface DoctestRunSummary {
 	total: number;
-	failed: number;
+failed: number;
 	results: DoctestResult[];
 }
 

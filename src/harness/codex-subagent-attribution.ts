@@ -15,8 +15,8 @@ import type { HarnessEvent } from "./types.js";
 const DEFAULT_MAX_AGE_MS = 15 * 60_000;
 const PENDING_MATCH_WINDOW_MS = 10_000;
 
-export interface CodexSubagentAttribution {
-    subagent_id: string;
+interface CodexSubagentAttribution {
+    subagent_id:string;
     agent_name: string;
     parent_agent: string | null;
     model: string | null;
@@ -33,8 +33,8 @@ interface PendingAttributionMatch {
     call: PendingCall;
 }
 
-export interface ParsedAttributionRollout {
-    attribution: CodexSubagentAttribution | null;
+interface ParsedAttributionRollout {
+    attribution:CodexSubagentAttribution | null;
     cwd: string | null;
     executionIds: Set<string>;
     pendingCalls: PendingCall[];
@@ -46,7 +46,7 @@ interface CachedRollout {
     parsed: ParsedAttributionRollout;
 }
 
-export interface CodexAttributionOptions {
+interface CodexAttributionOptions {
     sessionsDir?: string;
     rolloutPaths?: string[];
     nowMs?: number;

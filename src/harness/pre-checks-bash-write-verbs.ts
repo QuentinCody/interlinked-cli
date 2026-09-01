@@ -15,7 +15,7 @@ import {
 	stripOuterQuotes,
 } from "./pre-checks-bash-write-shared.js";
 
-export interface VerbWriteHit {
+interface VerbWriteHit {
 	target: string;
 	mechanism: string;
 }

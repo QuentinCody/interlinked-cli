@@ -59,7 +59,7 @@ function claudeMissingRuntimePolicy(event: string): "fail_closed" | "warn_open" 
  */
 export const CLAUDE_POST_TOOL_USE_MATCHER = CLAUDE_CODE_WRITE_TOOLS.join("|");
 
-export interface ClaudeCodeAdapterOptions {
+interface ClaudeCodeAdapterOptions {
 	/** Pre-loaded classifier overrides; adapter does not read disk itself. */
 	overrides?: ClassifierOverrides | undefined;
 }

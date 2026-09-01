@@ -10,7 +10,7 @@ import type { JsonObject } from "../../lib/json-types.js";
 const SEMVER_RE =
 	/^(\*|latest|next|canary|workspace:\*|workspace:\^|workspace:~|link:.+|file:.+|https?:\/\/.+|git(\+https?|\+ssh)?:\/\/.+|github:.+|npm:.+|(?:[\^~]|>=?|<=?)?\.?\d+(\.\d+){0,2}(-[\w.]+)?(\+[\w.]+)?(\s*\|\|\s*(?:[\^~]|>=?|<=?)?\.?\d+(\.\d+){0,2}(-[\w.]+)?(\+[\w.]+)?)*)$/;
 
-export interface PkgConsistencyIssue {
+interface PkgConsistencyIssue {
 	kind: "duplicate" | "invalid_semver";
 	pkg: string;
 	detail: string;

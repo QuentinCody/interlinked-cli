@@ -56,7 +56,7 @@ function hashToolInput(input: unknown): string {
 	return h.toString(16);
 }
 
-export interface DedupKey {
+interface DedupKey {
 	key: string;
 	kind: "tool_use_id" | "composite";
 }
@@ -94,7 +94,7 @@ function evict(now: number): void {
 	}
 }
 
-export interface ShadowObservation {
+interface ShadowObservation {
 	/** True when an identical key was seen inside the window — i.e. a live
 	 *  de-dup would have skipped this delivery. */
 	isDuplicate: boolean;

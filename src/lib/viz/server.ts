@@ -30,7 +30,7 @@ const ROUTE = {
 
 const HTTP = { OK: 200, NOT_FOUND: 404, SERVER_ERROR: 500 } as const;
 
-export interface VizServerOptions {
+interface VizServerOptions {
 	root: string;
 	port?: number;
 	host?: string;

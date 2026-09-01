@@ -51,7 +51,7 @@ import {
 } from "../harness/installer.js";
 import type { RunnerId } from "../harness/unified-event.js";
 
-export interface RefreshHooksArgs {
+interface RefreshHooksArgs {
 	cwd: string;
 	binaryPath: string;
 	/** Optional narrowing; intersected with the manifest's runners. */
@@ -59,20 +59,20 @@ export interface RefreshHooksArgs {
 	dryRun?: boolean;
 }
 
-export interface RefreshDeps {
+interface RefreshDeps {
 	install?: typeof installHooks;
 }
 
-export type RefreshVerification = HookVerification;
+type RefreshVerification = HookVerification;
 
 /** Wider than InstallResult's failure rows: a thrown install is reported
  *  under the synthetic "refresh" runner name. */
-export interface RefreshFailure {
+interface RefreshFailure {
 	runner: string;
 	reason: string;
 }
 
-export interface RefreshOutcome {
+interface RefreshOutcome {
 	ok: boolean;
 	dry_run: boolean;
 	refreshed: string[];

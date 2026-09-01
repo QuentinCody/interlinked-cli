@@ -44,7 +44,7 @@ export interface OutcomeEvent {
 }
 
 /** Outcome labels for a window. `none` appears alone when nothing else does. */
-export type OutcomeLabel = "blocked" | "errored" | "reverted" | "repair" | "none";
+type OutcomeLabel = "blocked" | "errored" | "reverted" | "repair" | "none";
 
 /** Record a file's post-call content hash into the per-file history. */
 function noteSha(seen: Map<string, Set<string>>, e: OutcomeEvent): void {
@@ -117,17 +117,17 @@ export function labelWindow(
 }
 
 /** Where a rule fired within a recorded sequence. */
-export interface RuleFirings {
+interface RuleFirings {
 	ruleId: string;
 	/** Indices into the event array. */
 	firedAt: readonly number[];
 }
 
 /** What the join concluded — never "demote"; see the module header. */
-export type PromotionVerdict = "promote" | "hold" | "insufficient" | "no_evidence";
+type PromotionVerdict = "promote" | "hold" | "insufficient" | "no_evidence";
 
 /** Per-rule evidence: how often it fired, and whether trouble followed. */
-export interface RuleOutcomeStats {
+interface RuleOutcomeStats {
 	ruleId: string;
 	fires: number;
 	hits: number;
@@ -141,7 +141,7 @@ export interface RuleOutcomeStats {
 }
 
 /** Thresholds for a promotion verdict. Defaults are deliberately conservative. */
-export interface JoinOptions {
+interface JoinOptions {
 	/** Firings required before precision is treated as meaningful. */
 	minFires?: number;
 	/** Lift a rule must clear to be worth an agent's attention. */

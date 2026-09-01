@@ -27,9 +27,9 @@ import type { Finding } from "./corpus.js";
 /** Context lines captured on each side of the anchored line. */
 const ANCHOR_CONTEXT_RADIUS = 1;
 
-export type AnchorState = "live" | "moved" | "drifted" | "gone" | "unverified";
+type AnchorState = "live" | "moved"| "drifted" | "gone" | "unverified";
 
-export interface AnchorVerdict {
+interface AnchorVerdict {
 	state: AnchorState;
 	/** 1-based current line of the anchor when state is "moved". */
 	newLine?: number | undefined;

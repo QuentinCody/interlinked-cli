@@ -28,7 +28,7 @@
 import type { OutcomeEvent } from "./outcomes.js";
 
 /** Per-file retrieval cost, in units of agent effort spent getting there. */
-export interface RetrievalCost {
+interface RetrievalCost {
 	/** Distinct OTHER files read before this file's first edit. */
 	readsBeforeEdit: number;
 	/** Searches issued before this file's first edit. */

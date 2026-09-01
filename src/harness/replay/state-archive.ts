@@ -31,7 +31,7 @@ import { sanitizeSessionId } from "../session-paths.js";
  *  state. Deriving it means the archive cannot drift from the guards again. */
 export const BASELINE_FILES: readonly string[] = WATER_LINE_BASENAMES;
 
-export interface HarnessStateSnapshot {
+interface HarnessStateSnapshot {
 	schema: "state-snapshot.v1";
 	live_snapshot: JsonObject | null;
 	/** File content, or null when the file did not exist at capture time
@@ -60,7 +60,7 @@ export function parseHarnessStateSnapshot(value: unknown): HarnessStateSnapshot 
 	};
 }
 
-export interface PointerRow {
+interface PointerRow {
 	seq: number | null;
 	sha: string;
 	ts: string;

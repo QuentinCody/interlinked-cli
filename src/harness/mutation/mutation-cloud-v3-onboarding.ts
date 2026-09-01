@@ -20,7 +20,7 @@ import { deriveAdmission, parseMutationJobRequestV3 } from "./protocol-v3/reques
 
 const ONBOARDING_RANDOM_BYTES = 32;
 
-export type MutationCloudV3OnboardingFaultPoint =
+type MutationCloudV3OnboardingFaultPoint =
 	| "after_onboarding_prepare"
 	| "after_onboarding_acceptance"
 	| "after_onboarding_activation";
@@ -36,7 +36,7 @@ export interface MutationCloudV3OnboardingDependencies {
 	faultInjector?: (point: MutationCloudV3OnboardingFaultPoint) => void;
 }
 
-export interface ActivateMutationCloudOnboardingInput {
+interface ActivateMutationCloudOnboardingInput {
 	root: string;
 	targetFile: string;
 	repository: string;

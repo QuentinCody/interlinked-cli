@@ -56,7 +56,7 @@ export interface PredictionContent {
 	impact: PredictionImpact | null;
 }
 
-export type ComparisonStatus = "pending" | "complete" | "parse_failed" | "deferred";
+type ComparisonStatus = "pending" | "complete" | "parse_failed" | "deferred";
 
 /** A miss in one section of a graph prediction. List-typed sections fill
  *  `missed` (oracle entries the agent didn't predict) and `over_predicted`
@@ -98,7 +98,7 @@ export interface PerSectionScore {
 	"impact.affects"?: number;
 }
 
-export interface DiffSummary {
+interface DiffSummary {
 	per_section_score: PerSectionScore;
 	weighted_avg: number;
 	severity: "low" | "medium" | "high" | "full_abstention";

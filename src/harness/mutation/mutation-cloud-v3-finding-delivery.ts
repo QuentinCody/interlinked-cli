@@ -37,7 +37,7 @@ type FindingSeverity = "error" | "warning";
 type FindingVerdict = "clean" | "adverse" | "not_measured" | "baseline_adopted";
 type EvidenceCompleteness = "complete" | "partial" | "none";
 
-export interface DeliveredMutationFindingPayload {
+interface DeliveredMutationFindingPayload {
 	finding_version: "1" | "unrecognized";
 	delivery_finding_id?: string;
 	semantic_finding_fingerprint?: string;
@@ -64,7 +64,7 @@ export interface MutationFindingOutbox {
 	acknowledgeOutbox(input: OutboxLeaseRef): boolean;
 }
 
-export interface MutationFindingDeliveryOptions {
+interface MutationFindingDeliveryOptions {
 	root: string;
 	owner: string;
 	leaseMs: number;

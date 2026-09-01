@@ -6,7 +6,7 @@ interface DiagnosticCacheEntry {
 	results: CheckResult[];
 }
 
-export type DiagnosticCacheLookup =
+type DiagnosticCacheLookup =
 	| { status: "hit"; results: CheckResult[] }
 	| { status: "miss" }
 	| { status: "unavailable" };

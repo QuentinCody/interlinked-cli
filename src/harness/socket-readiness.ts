@@ -8,10 +8,10 @@ import { createConnection } from "node:net";
 import { createDaemonClient } from "./daemon-client.js";
 import { type DaemonHealth, PROTOCOL_VERSION } from "./daemon-protocol.js";
 
-export type HarnessSocketProtocol = "raw" | "framed";
+type HarnessSocketProtocol = "raw" | "framed";
 export type HarnessSocketState = "ready" | "absent" | "occupied_unready";
 
-export interface HarnessSocketReadinessOptions {
+interface HarnessSocketReadinessOptions {
 	timeout_ms?: number;
 }
 

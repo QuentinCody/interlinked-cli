@@ -54,7 +54,7 @@ export const BASELINE_FOLD_LOG_REL = ".interlinked/baseline-folds.jsonl";
  *  would exceed it is skipped and says so rather than delaying the session. */
 export const DEFAULT_AUTOFOLD_BUDGET_MS = 2_000;
 
-export interface BaselineAutoFoldResult {
+interface BaselineAutoFoldResult {
 	/** One entry per fold, in run order, including skipped ones. */
 	outcomes: FoldOutcome[];
 	/** The single `[interlinked:baseline-fold]` line, or null when nothing moved. */

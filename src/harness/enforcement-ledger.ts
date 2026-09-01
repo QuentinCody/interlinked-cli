@@ -106,7 +106,7 @@ function nonNegative(value: unknown): number {
 
 /** One activity row's contribution. Exported for the unit tests, which pin the
  *  classification independently of any file I/O. */
-export interface RowContribution {
+interface RowContribution {
 	blocked: number;
 	caught: number;
 	evaluated: number;

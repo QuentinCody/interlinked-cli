@@ -27,7 +27,7 @@ export type InstallScope = "user" | "project" | "local";
 export const SCOPE_USER = "user" as const;
 
 /** Per-entry verdict for the pre-merge purge. */
-export type PurgeVerdict = "remove" | "foreign" | "keep";
+type PurgeVerdict = "remove" | "foreign" | "keep";
 const VERDICT_REMOVE: PurgeVerdict = "remove";
 const VERDICT_FOREIGN: PurgeVerdict = "foreign";
 const VERDICT_KEEP: PurgeVerdict = "keep";

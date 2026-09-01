@@ -88,7 +88,7 @@ export function cognitiveWriteWarning(
 // the SAME functions the (already-blocking) cyclomatic gate flags. That answers
 // the FP-calibration hedge this warn-only comment used to cite.
 
-export interface CognitiveWriteBlock {
+interface CognitiveWriteBlock {
 	block: string;
 }
 

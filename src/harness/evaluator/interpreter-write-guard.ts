@@ -73,8 +73,8 @@ type ToolInput = NonNullable<HarnessEvent["tool_input"]>;
 
 /** What fired, for the block reason. Every field is evidence the agent can act
  *  on: its own interpreter, its own write call, and the path we resolved. */
-export interface InterpreterWriteHit {
-	/** Interpreter binary that received the program (`python3`, `node`, …). */
+interface InterpreterWriteHit {
+	/** Interpreterbinary that received the program (`python3`, `node`, …). */
 	interpreter: string;
 	/** How the program was delivered: `heredoc (<<EOF)`, `-c`, or `-e`. */
 	form: string;

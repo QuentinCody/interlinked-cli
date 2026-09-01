@@ -31,7 +31,7 @@
 /** What a gate counts. Most gates count files; the cyclomatic/CRAP family
  *  counts functions, so the rendered key is `eligible_fns` rather than
  *  `eligible_files`. */
-export type GateReachUnit = "files" | "fns";
+type GateReachUnit = "files" | "fns";
 
 /**
  * Why a gate's figure looks the way it does. The three states are deliberately
@@ -47,7 +47,7 @@ export type GateReachUnit = "files" | "fns";
  *                             fact here would invent exactly the false
  *                             confidence the module exists to remove.
  */
-export type GateReachStatus = "measured" | "disabled" | "source_unavailable";
+type GateReachStatus = "measured" | "disabled" | "source_unavailable";
 
 /** Caller-supplied raw figures for one gate. Every count is validated and
  *  clamped by {@link computeGateReach} — callers may pass whatever their
@@ -78,7 +78,7 @@ export interface GateReachInput {
 }
 
 /** One gate's validated coverage-of-itself. */
-export interface GateReach {
+interface GateReach {
 	gate: string;
 	unit: GateReachUnit;
 	status: GateReachStatus;
@@ -106,7 +106,7 @@ export interface GateReachSnapshot {
  *  §4 calls for ratcheting the meta-metric itself: "a change that shrinks a
  *  gate's reach is a regression even if every other number improves." Reported,
  *  never blocked — this module is instrumentation. */
-export interface GateReachRegression {
+interface GateReachRegression {
 	gate: string;
 	kind: "reach_dropped" | "stopped_measuring";
 	previous: number;

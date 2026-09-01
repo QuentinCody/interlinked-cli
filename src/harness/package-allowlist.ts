@@ -27,7 +27,7 @@ export interface AllowlistEntry {
 	license?: string | undefined;
 }
 
-export interface LockfileSnapshot {
+interface LockfileSnapshot {
 	sha256: string;
 	approved_at: string;
 	approved_by: string;
@@ -43,7 +43,7 @@ export interface Allowlist {
 	license_allowlist?: string[] | undefined;
 }
 
-export interface AllowDecision {
+interface AllowDecision {
 	allowed: boolean;
 	reason?: string;
 }

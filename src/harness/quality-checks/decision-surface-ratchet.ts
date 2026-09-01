@@ -48,8 +48,8 @@ const CANDIDATE_BASE_REFS: readonly string[] = [
 	"master",
 ];
 
-export interface ComputeDecisionSurfaceRatchetOptions {
-	/** Git command runner — for tests. Throws on non-zero exit. */
+interface ComputeDecisionSurfaceRatchetOptions {
+	/** Git commandrunner — for tests. Throws on non-zero exit. */
 	runGit?: (args: readonly string[], cwd: string) => string;
 }
 

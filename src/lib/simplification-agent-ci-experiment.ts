@@ -18,16 +18,16 @@ const CLAIM_KINDS = ["observational", "causal"] as const;
 const DESIGNS = ["randomized_paired", "randomized_parallel"] as const;
 const DIRECTIONS = ["lower_is_better", "higher_is_better"] as const;
 
-export type SimplificationExperimentClaimKind = (typeof CLAIM_KINDS)[number];
-export type SimplificationExperimentDesignKind = (typeof DESIGNS)[number];
+type SimplificationExperimentClaimKind = (typeof CLAIM_KINDS)[number];
+type SimplificationExperimentDesignKind = (typeof DESIGNS)[number];
 
-export interface SimplificationExperimentMetric {
+interface SimplificationExperimentMetric {
 	name: string;
 	unit: string;
 	direction: (typeof DIRECTIONS)[number];
 }
 
-export interface SimplificationExperimentArm {
+interface SimplificationExperimentArm {
 	name: string;
 	instructions_sha256: string;
 }
@@ -47,7 +47,7 @@ export interface SimplificationExperimentCompletenessOutcome {
 	coverage_sha256: string;
 }
 
-export interface SimplificationCausalDesign {
+interface SimplificationCausalDesign {
 	design: SimplificationExperimentDesignKind;
 	experimental_unit: string;
 	assignment_seed: string;
@@ -113,11 +113,11 @@ export interface SimplificationExperimentManifest {
 }
 
 declare const VALID_EXPERIMENT: unique symbol;
-export type ValidSimplificationExperimentManifest = Readonly<SimplificationExperimentManifest> & {
+type ValidSimplificationExperimentManifest = Readonly<SimplificationExperimentManifest> & {
 	readonly [VALID_EXPERIMENT]: true;
 };
 
-export type SimplificationExperimentParseResult =
+type SimplificationExperimentParseResult =
 	| { ok: true; manifest: ValidSimplificationExperimentManifest }
 	| { ok: false; reason: string };
 

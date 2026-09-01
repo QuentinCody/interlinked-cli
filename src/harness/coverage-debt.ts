@@ -124,7 +124,7 @@ export interface CoverageDebtInput {
 	shouldNoteForeignDebt?: (d: Obligation) => boolean;
 }
 
-export interface CoverageDebtOutcome {
+interface CoverageDebtOutcome {
 	/** The final verdict (null = allow). */
 	decision: HarnessDecision | null;
 	/** Ledger transitions the caller must append. */

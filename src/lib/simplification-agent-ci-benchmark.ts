@@ -19,7 +19,7 @@ const SIMPLIFICATION_BENCHMARK_FIXTURE_VERSION =
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
-export interface SimplificationBenchmarkFile {
+interface SimplificationBenchmarkFile {
 	path: string;
 	language: string;
 	content: string;
@@ -46,7 +46,7 @@ export interface SimplificationBenchmarkFixture {
 	};
 }
 
-export interface SimplificationBenchmarkFindingObservation {
+interface SimplificationBenchmarkFindingObservation {
 	fingerprint: string;
 	remedy: SimplificationRemedy;
 	score: number;
@@ -60,19 +60,19 @@ export interface SimplificationBenchmarkVariantObservation {
 	findings: SimplificationBenchmarkFindingObservation[];
 }
 
-export interface SimplificationBenchmarkPairEvaluation {
+interface SimplificationBenchmarkPairEvaluation {
 	passed: boolean;
 	failures: string[];
 }
 
-export interface SimplificationBenchmarkSuiteReceipt {
+interface SimplificationBenchmarkSuiteReceipt {
 	fixture_count: number;
 	fixture_sha256: string;
 	remedies_covered: SimplificationRemedy[];
 	complete_remedy_coverage: boolean;
 }
 
-export type SimplificationBenchmarkFixtureParseResult =
+type SimplificationBenchmarkFixtureParseResult =
 	| { ok: true; fixture: SimplificationBenchmarkFixture }
 	| { ok: false; reason: string };
 

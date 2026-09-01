@@ -185,7 +185,7 @@ function taskContext(event: HarnessEvent, name: AgentEventName): AgentEventRecor
  *  the agent's type label (payload, or remembered from its SubagentStart), and
  *  the transcript-derived metrics. All optional — an absent field records
  *  null, so a caller that resolves nothing still gets a well-formed record. */
-export interface AgentEventExtras {
+interface AgentEventExtras {
 	resolved?: { text: string; source: AgentMessageSource } | null;
 	agentType?: ResolvedAgentType | null;
 	metrics?: AgentTranscriptMetrics | null;

@@ -38,7 +38,7 @@ export interface IndexValidityInputs {
 }
 
 /** Whole-index validity verdict; `reasons` names each mismatched field. */
-export interface ValidityVerdict {
+interface ValidityVerdict {
 	valid: boolean;
 	reasons: string[];
 }
@@ -122,7 +122,7 @@ export function hashEnvironment(
 }
 
 /** One stale shard plus the first reason it went stale. */
-export interface ShardStaleness {
+interface ShardStaleness {
 	shardId: string;
 	reason: string;
 }

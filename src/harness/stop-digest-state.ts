@@ -43,7 +43,7 @@ export const MAX_TRACKED_SESSIONS = 24;
 export const MAX_SPOOL_ROWS_PER_SESSION = 400;
 
 /** One session's snapshot: when it was taken and which findings were open. */
-export interface StopDigestSessionSnapshot {
+interface StopDigestSessionSnapshot {
 	/** ISO timestamp of the Stop that wrote this snapshot. */
 	last_stop: string;
 	/** Fingerprints of every finding reported open at that Stop. */
@@ -55,7 +55,7 @@ export interface StopDigestSessionSnapshot {
 	reported_tags?: string[];
 }
 
-export interface StopDigestState {
+interface StopDigestState {
 	version: 1;
 	sessions: Record<string, StopDigestSessionSnapshot>;
 }
@@ -63,7 +63,7 @@ export interface StopDigestState {
 /** The minimum a finding must expose to be fingerprinted. Structurally
  *  satisfied by `PatternRescanFinding`; declared narrowly so this module never
  *  imports the rescan (which would make the dependency cycle-shaped). */
-export interface FingerprintableFinding {
+interface FingerprintableFinding {
 	file: string;
 	checkId: string;
 	text: string;
@@ -145,7 +145,7 @@ export function priorSnapshot(
 	return state.sessions[sessionId] ?? null;
 }
 
-export interface StopDelta {
+interface StopDelta {
 	/** Fingerprints open now that were not open at the previous Stop. */
 	newIds: string[];
 	/** Count open at the previous Stop and gone now. */
@@ -202,7 +202,7 @@ function evictOldest(sessions: Record<string, StopDigestSessionSnapshot>): void 
 	for (const id of ordered.slice(0, ids.length - MAX_TRACKED_SESSIONS)) delete sessions[id];
 }
 
-export interface RecordStopDigestStateArgs {
+interface RecordStopDigestStateArgs {
 	interlinkedDir: string;
 	sessionId: string;
 	/** Fingerprints open at THIS Stop — the baseline the next Stop diffs on.
@@ -249,7 +249,7 @@ export interface StopDigestSpoolRow {
 	[extra: string]: unknown;
 }
 
-export interface AppendStopDigestSpoolArgs {
+interface AppendStopDigestSpoolArgs {
 	interlinkedDir: string;
 	sessionId: string;
 	rows: readonly StopDigestSpoolRow[];

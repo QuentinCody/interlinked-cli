@@ -36,8 +36,8 @@ export function tokenizeKeyValue(line: string): KeyValueLine | null {
 	return { indent, key: nonNull(m[1]), rest: nonNull(m[2]).trim() };
 }
 
-export interface ParsedScalarOrList {
-	value: string | number | string[] | "unknown";
+interface ParsedScalarOrList {
+	value: string |number | string[] | "unknown";
 	formatViolation: boolean;
 }
 

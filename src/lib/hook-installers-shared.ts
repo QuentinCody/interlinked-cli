@@ -64,7 +64,7 @@ export function isNonEmptyString(v: unknown): v is string {
 // Shared Hook Entry Helper
 // ===========================================
 
-export interface InstallHookEntryOptions {
+interface InstallHookEntryOptions {
 	timeout?: number;
 	async?: boolean;
 	statusMessage?: string;

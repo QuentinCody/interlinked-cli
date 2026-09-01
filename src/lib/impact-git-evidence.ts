@@ -20,7 +20,7 @@ export interface GitWorktreeEvidence {
     reason?: string | undefined;
 }
 
-export interface DependencyChange {
+interface DependencyChange {
     group: string;
     name: string;
     before?: string | undefined;

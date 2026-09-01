@@ -38,13 +38,13 @@ const CONFIG_KEYS = [
 const MAX_RUNTIME_OWNER_LENGTH = 128;
 const SAFE_RUNTIME_OWNER_CHARS = /^[A-Za-z0-9._:-]+$/;
 
-export interface MutationCloudV3LocalConfig extends MutationCloudV3RuntimeConfig {
+interface MutationCloudV3LocalConfig extends MutationCloudV3RuntimeConfig {
 	/** Separate, default-off authorization for daemon-owned processing. Manual
 	 * cloud commands need only the enclosing enabled:true runtime opt-in. */
 	backgroundEnabled: boolean;
 }
 
-export type MutationCloudV3ConfigOutcome =
+type MutationCloudV3ConfigOutcome =
 	| { ok: true; config: MutationCloudV3LocalConfig }
 	| { ok: false; reason: string };
 

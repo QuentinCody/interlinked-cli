@@ -24,9 +24,9 @@ const PY_TEST_BLOCK_RE = /^\s*def\s+test_\w*\s*\(/gm;
 const PY_ASSERT_RE = /^\s*assert\b/gm;
 
 /** Counts of test blocks and assertions in a source string. */
-export interface TestSignals {
+interface TestSignals {
 	tests: number;
-	assertions: number;
+assertions: number;
 }
 
 function count(s: string, re: RegExp): number {

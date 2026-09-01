@@ -12,7 +12,7 @@ import type { SpecLedger } from "./ledger.js";
 import type { HeadingInfo, SpecFacts } from "./types.js";
 
 /** One agenda item: a pointed question with its provenance. */
-export interface AgendaItem {
+interface AgendaItem {
 	kind: "compose_check" | "coverage_gap" | "outstanding_drift";
 	title: string;
 	detail: string;
@@ -177,7 +177,7 @@ function addSite(map: Map<string, Set<string>>, key: string, site: string): void
 // Assembly + rendering
 // ---------------------------------------------------------------------------
 
-export interface AgendaInput {
+interface AgendaInput {
 	ledger: SpecLedger;
 	/** file → raw content, for section-body scans. */
 	contents: Map<string, string>;

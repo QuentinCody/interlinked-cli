@@ -173,7 +173,7 @@ const PI_EXTENSION_LIFECYCLE = `    pi.on("before_agent_start", async (event, ct
     }
 `;
 
-export interface PiAdapterOptions {
+interface PiAdapterOptions {
 	overrides?: ClassifierOverrides | undefined;
 }
 

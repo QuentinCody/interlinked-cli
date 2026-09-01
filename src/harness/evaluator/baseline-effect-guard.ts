@@ -51,10 +51,10 @@ const BASELINE_FILES: readonly string[] = WATER_LINE_PATHS;
 const UNDO_DIR = ".interlinked/baseline-undo";
 
 /** Raw text of every water-line at one instant; absent files map to null. */
-export type BaselineSnapshot = Readonly<Record<string, string | null>>;
+type BaselineSnapshot = Readonly<Record<string, string | null>>;
 
 /** One water-line that a tool call loosened, with the bytes needed to undo it. */
-export interface BaselineLoosening {
+interface BaselineLoosening {
 	/** Repo-relative water-line path. */
 	file: string;
 	/** Exact pre-call bytes — the undo material. */

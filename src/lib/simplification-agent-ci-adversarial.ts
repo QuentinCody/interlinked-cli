@@ -33,10 +33,10 @@ const TRAP_KINDS = [
 
 const DISPOSITIONS = ["reject", "human_review", "unconfirmed"] as const;
 
-export type SimplificationAdversarialTrapKind = (typeof TRAP_KINDS)[number];
-export type SimplificationAdversarialDisposition = (typeof DISPOSITIONS)[number];
+type SimplificationAdversarialTrapKind = (typeof TRAP_KINDS)[number];
+type SimplificationAdversarialDisposition = (typeof DISPOSITIONS)[number];
 
-export interface SimplificationAdversarialFile {
+interface SimplificationAdversarialFile {
 	path: string;
 	language: string;
 	content: string;
@@ -62,19 +62,19 @@ export interface SimplificationAdversarialFixture {
 	};
 }
 
-export interface SimplificationAdversarialObservation {
+interface SimplificationAdversarialObservation {
 	disposition: SimplificationAdversarialDisposition;
 	patch_eligible: boolean;
 	reason_codes: string[];
 	read_paths: string[];
 }
 
-export interface SimplificationAdversarialEvaluation {
+interface SimplificationAdversarialEvaluation {
 	passed: boolean;
 	failures: string[];
 }
 
-export type SimplificationAdversarialFixtureParseResult =
+type SimplificationAdversarialFixtureParseResult =
 	| { ok: true; fixture: SimplificationAdversarialFixture }
 	| { ok: false; reason: string };
 
@@ -247,7 +247,7 @@ export function evaluateSimplificationAdversarialObservation(
 	return { passed: failures.length === 0, failures };
 }
 
-export interface SimplificationAdversarialSuiteReceipt {
+interface SimplificationAdversarialSuiteReceipt {
 	fixture_count: number;
 	fixture_sha256: string;
 	remedies_covered: SimplificationRemedy[];

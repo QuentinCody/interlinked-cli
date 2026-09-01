@@ -34,7 +34,7 @@ const UNKNOWN_TYPE_PATTERNS = [
 	/\bas\s+unknown\b/,
 ];
 
-export interface AnyTypeMatch {
+interface AnyTypeMatch {
 	line: number;
 	text: string;
 	kind: "any" | "unknown";

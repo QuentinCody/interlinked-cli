@@ -18,7 +18,7 @@ interface GitCall {
 	args: string[];
 }
 
-export type SimplifyGitRunner = (call: GitCall) => string;
+type SimplifyGitRunner = (call: GitCall) => string;
 
 const defaultGitRunner: SimplifyGitRunner = ({ cwd, args }) =>
 	execFileSync("git", args, {
@@ -126,7 +126,7 @@ function changedPaths(cwd: string, runner: SimplifyGitRunner): string[] {
 	);
 }
 
-export interface ResolveReviewScopeOptions {
+interface ResolveReviewScopeOptions {
 	cwd: string;
 	kind: Exclude<SimplificationScopeKind, "repository">;
 	range?: string;
@@ -252,7 +252,7 @@ function stableRepositoryId(cwd: string, runner: SimplifyGitRunner): string {
 	return `repo-${createHash("sha256").update(material).digest("hex").slice(0, 24)}`;
 }
 
-export interface RepositoryIdentityOptions {
+interface RepositoryIdentityOptions {
 	cwd: string;
 	files: string[];
 	git?: SimplifyGitRunner;

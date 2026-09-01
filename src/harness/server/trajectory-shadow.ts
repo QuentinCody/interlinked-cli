@@ -22,7 +22,7 @@ import type { HarnessDecision, HarnessEvent } from "../types.js";
 /** The only config slice this module reads. `GuardRulesConfig` carries a
  *  `trajectory_shadow?` field, so `ctx.rules` satisfies this structurally and
  *  passes straight through — no full-config coupling. */
-export interface TrajectoryShadowConfig {
+interface TrajectoryShadowConfig {
 	trajectory_shadow?: { enabled: boolean };
 }
 

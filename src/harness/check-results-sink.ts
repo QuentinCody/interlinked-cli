@@ -16,14 +16,14 @@ import { eventAttributionFields } from "./event-attribution-fields.js";
 import type { HarnessDecision } from "./types/decisions.js";
 import type { HarnessEvent } from "./types/events.js";
 
-export interface CheckRowEntry {
+interface CheckRowEntry {
 	id: string;
 	severity: string;
 	determinism: "proven" | "heuristic";
 	phase?: string;
 }
 
-export interface CheckRow {
+interface CheckRow {
 	ts: string;
 	tool_use_id: string;
 	/** Session the call belonged to — lets consumers slice check noise per

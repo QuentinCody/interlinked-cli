@@ -24,7 +24,7 @@ import type { JsonObject } from "../lib/json-types.js";
 import type { HarnessEvent } from "./types.js";
 
 /** One background task as the runner reports it. */
-export interface BackgroundTask {
+interface BackgroundTask {
 	id: string;
 	type: string | null;
 	status: string | null;
@@ -120,7 +120,7 @@ export function lastStatuses(cwd: string): Map<string, string | null> {
 }
 
 /** Inputs for one roster observation. */
-export interface RecordBackgroundTasksArgs {
+interface RecordBackgroundTasksArgs {
 	tasks: BackgroundTask[];
 	sessionId: string | null;
 	hookEvent: string;

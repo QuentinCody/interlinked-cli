@@ -22,7 +22,7 @@ import { buildEnvelope } from "./inference-envelope.js";
 import { appendEnvelope } from "./inference-store.js";
 import { createSseReassembler } from "./sse-reassembly.js";
 
-export interface InferenceProxyOptions {
+interface InferenceProxyOptions {
 	/** 0 = ephemeral (tests). */
 	port: number;
 	upstreamUrl: string;

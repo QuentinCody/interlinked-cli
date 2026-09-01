@@ -37,7 +37,7 @@ import { removeFileIfExists } from "./socket-lifecycle.js";
 // one module.
 export { antiStompDepsFor } from "./anti-stomp.js";
 
-export type IncumbentVerdict =
+type IncumbentVerdict =
 	/** A live listener accepted a connection. Defer to it; do NOT bind or signal. */
 	| { kind: "serving"; pid: number | null }
 	/** A socket file existed but nothing answered. The corpse was removed; bind. */
@@ -116,7 +116,7 @@ async function confirmedSocketState(path: string): Promise<HarnessSocketState> {
 	return classifyDaemonSocket(path);
 }
 
-export interface SettleIncumbentArgs {
+interface SettleIncumbentArgs {
 	socketPath: string;
 	pidPath: string;
 	cwd: string;

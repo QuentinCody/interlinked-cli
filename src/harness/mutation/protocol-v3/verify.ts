@@ -44,13 +44,7 @@ import {
 	type TerminalizationPayload,
 } from "./receipts.js";
 import { verifyReportAgainstEnvelope } from "./report.js";
-import {
-	attestationPayload,
-	computeResultHash,
-	resultHashPayload,
-	signatureFailure,
-	timeFailure,
-} from "./verify-attestation.js";
+import { computeResultHash, signatureFailure, timeFailure } from "./verify-attestation.js";
 import {
 	admissionAnchorFailure,
 	authorityFailure,

@@ -142,11 +142,11 @@ const MESSAGE_MAX_LENGTH = 120;
 
 type AuditResult = import("../../harness/check-engine/types.js").AuditResult;
 
-export interface VerifyToolOpts {
+interface VerifyToolOpts {
 	only?: string;
 }
 
-export interface StreamExternalToolsArgs {
+interface StreamExternalToolsArgs {
 	engine: CheckEngine;
 	cwd: string;
 	opts: VerifyToolOpts;

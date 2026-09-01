@@ -173,7 +173,7 @@ export function createStartupGuard(opts: StartupGuardOptions): StartupGuard {
 	return guard;
 }
 
-export interface FramedStartupDeps {
+interface FramedStartupDeps {
 	cwd: string;
 	antiStomp: AntiStompDeps;
 	startup: StartupGuard;

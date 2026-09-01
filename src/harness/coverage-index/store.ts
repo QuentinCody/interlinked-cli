@@ -59,7 +59,7 @@ interface SerializedElementSet {
 }
 
 /** JSON shape of one shard contribution blob (before compression). */
-export interface SerializedContribution {
+interface SerializedContribution {
 	version: 1;
 	shardId: string;
 	files: [string, SerializedElementSet][];
@@ -171,7 +171,7 @@ function sha256Hex(data: Buffer): string {
 // ===========================================
 
 /** Locator + integrity pair for one stored contribution blob. */
-export interface ContributionBlobEntry {
+interface ContributionBlobEntry {
 	/** Store-relative POSIX path of the blob (`shards/<hash>.json.gz`). */
 	contributionPath: string;
 	/** sha256 hex of the compressed bytes — torn-write detection on read. */

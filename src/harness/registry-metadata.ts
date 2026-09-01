@@ -21,14 +21,14 @@ export interface RegistryPackageMetadata {
 	license?: string | undefined;
 }
 
-export interface OsvAdvisory {
+interface OsvAdvisory {
 	id: string;
 	summary?: string | undefined;
 }
 
 type FetchImpl = typeof globalThis.fetch;
 
-export interface NetworkOptions {
+interface NetworkOptions {
 	timeoutMs?: number | undefined;
 	/** Test seam — defaults to global fetch. */
 	fetchImpl?: FetchImpl | undefined;

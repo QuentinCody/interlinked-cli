@@ -172,7 +172,7 @@ export interface LockfileMultiplicityResult {
 	multiplicity: boolean;
 }
 
-export interface DetectLockfileMultiplicityOptions {
+interface DetectLockfileMultiplicityOptions {
 	/** Override existence check — for tests. */
 	exists?: (path: string) => boolean;
 }

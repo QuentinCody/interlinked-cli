@@ -74,7 +74,7 @@ export function buildSelfCheckEventLine(cwd: string, nowMs: number): string {
 	});
 }
 
-export interface StartupSelfCheckDeps {
+interface StartupSelfCheckDeps {
 	cwd: string;
 	/** The daemon's real event entry point. */
 	evaluate: (line: string, protocol: "raw" | "framed") => Promise<HarnessDecision>;

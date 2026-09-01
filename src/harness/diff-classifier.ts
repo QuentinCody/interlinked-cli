@@ -36,9 +36,9 @@
 
 import { extractScannableText } from "./evaluator/spans.js";
 
-export type DiffClass = "whitespace_only" | "comment_only" | "semantic";
+type DiffClass = "whitespace_only" | "comment_only" | "semantic";
 
-export interface ClassifiedDiff {
+interface ClassifiedDiff {
 	diff_class: DiffClass;
 	/** Executed-character count in the old text (excludes masked regions). */
 	old_executed_chars: number;

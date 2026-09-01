@@ -21,12 +21,12 @@ export type ToolClass =
 
 // --- Per-class Action shapes ---
 
-export interface ShellExecAction {
+interface ShellExecAction {
 	command: string;
 	cwd?: string | null;
 }
 
-export interface FileReadAction {
+interface FileReadAction {
 	path: string;
 	offset?: number | null;
 	limit?: number | null;
@@ -37,41 +37,41 @@ export interface FileEditAction {
 	diff: { hunks: Array<{ old: string; new: string }>; unified?: string | null };
 }
 
-export interface FileWriteAction {
+interface FileWriteAction {
 	path: string;
 	content?: string | null;
 	content_ref?: string | null;
 	is_new_file?: boolean;
 }
 
-export interface FileDeleteAction {
+interface FileDeleteAction {
 	path: string;
 }
 
-export interface SearchAction {
+interface SearchAction {
 	pattern: string;
 	path?: string | null;
 	flags?: string | null;
 }
 
-export interface McpCallAction {
+interface McpCallAction {
 	server?: string | null;
 	tool: string;
 	params?: unknown;
 	params_ref?: string | null;
 }
 
-export interface FetchAction {
+interface FetchAction {
 	url: string;
 	prompt?: string | null;
 }
 
-export interface TaskAction {
+interface TaskAction {
 	task: string;
 	params?: unknown;
 }
 
-export interface NotebookEditAction {
+interface NotebookEditAction {
 	path: string;
 	cell?: string | null;
 	diff?: unknown;

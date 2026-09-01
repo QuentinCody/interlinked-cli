@@ -5,7 +5,7 @@ import {
     type FunctionTokenMetricsReport,
 } from "./metrics-function-tokens.js";
 
-export interface FunctionTokenMetricsContext {
+interface FunctionTokenMetricsContext {
     cap: number;
     report: FunctionTokenMetricsReport;
     countsByFile: Map<string, Map<string, number>>;

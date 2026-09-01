@@ -19,12 +19,12 @@
  *  line), so a finding can be cited as `file:line`. */
 import { nonNull } from "../lib/non-null.js";
 
-export interface ExtractedCommand {
+interface ExtractedCommand {
 	line: number;
 	command: string;
 }
 
-export type CIFileKind = "workflow" | "dockerfile" | "makefile";
+type CIFileKind = "workflow" | "dockerfile" | "makefile";
 
 /** Classify a repo-relative path into a CI file family, or null. Matches on
  *  path shape only (never reads content). `docker-compose.yml` is deliberately

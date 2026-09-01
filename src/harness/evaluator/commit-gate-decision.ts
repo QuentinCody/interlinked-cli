@@ -40,7 +40,7 @@ const MAX_NAMED_VIOLATIONS = 8;
 // ===========================================
 
 /** Inputs to the per-file violation scan — explicit so it needs no broader ctx. */
-export interface ScanInput {
+interface ScanInput {
 	source: ChangedSource;
 	cov: PerFileCoverage | undefined;
 	content: string;

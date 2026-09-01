@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { readFileRange } from "./bounded-file-io.js";
 import { isJsonObject } from "./json-types.js";
 
-export type RotatingLogName = "activity" | "collection" | "timeline";
+type RotatingLogName = "activity" | "collection" | "timeline";
 const MAX_ROTATION_FENCE_MANIFEST_BYTES = 4 * 1024 * 1024;
 
 /** Persistent fence published before a compactor can replace the live path. */

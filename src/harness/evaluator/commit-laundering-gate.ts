@@ -30,7 +30,7 @@ const MAX_STAGED_FILES = 200;
 /** Injectable git reader: `(repoRoot, args) => stdout | null`. */
 export type GitReader = (repoRoot: string, args: string[]) => string | null;
 
-export interface LaunderingGateDeps {
+interface LaunderingGateDeps {
 	git?: GitReader;
 	resolveRepoRoot?: (dir: string) => string | null;
 	/** ms epoch for pruning expired fingerprints (default Date.now via caller). */

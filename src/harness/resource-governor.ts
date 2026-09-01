@@ -21,7 +21,7 @@
 
 /** Tunables — all optional; defaults encode the spec's "~half the cores,
  *  reserve headroom, defer when busy" policy. Sourced from guard-rules config. */
-export interface ResourceGovernorConfig {
+interface ResourceGovernorConfig {
 	/** Hard job cap. Default `ceil(cores / 2)` — never `nproc`. */
 	max_jobs?: number;
 	/** Per-core 1-min load at/above which the heavy lane HALVES its jobs. */

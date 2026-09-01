@@ -11,7 +11,7 @@
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-export type CrapTelemetryPhase = "verify" | "post_tool_use" | "pre_tool_use";
+type CrapTelemetryPhase = "verify" | "post_tool_use" | "pre_tool_use";
 
 export interface CrapTelemetryEntry {
 	ts: string;

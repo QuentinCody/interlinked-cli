@@ -21,7 +21,7 @@ const LIST_BUDGET: TailScanBudget = { maxRecords: 50_000, maxBytes: 64 * 1024 * 
 
 // --- export ---
 
-export interface ExperienceExportOptions {
+interface ExperienceExportOptions {
 	session: string;
 	format?: string;
 	out?: string;
@@ -97,7 +97,7 @@ export function experienceExportAction(opts: ExperienceExportOptions): number {
 
 // --- analyze ---
 
-export interface ExperienceAnalyzeOptions {
+interface ExperienceAnalyzeOptions {
 	session: string;
 	cwd?: string;
 	json?: boolean;
@@ -141,7 +141,7 @@ export function experienceAnalyzeAction(opts: ExperienceAnalyzeOptions): number 
 
 // --- list ---
 
-export interface ExperienceListOptions {
+interface ExperienceListOptions {
 	cwd?: string;
 	limit?: string;
 	json?: boolean;

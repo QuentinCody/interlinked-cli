@@ -25,7 +25,7 @@ export interface SilentFailureHit {
 	detail: string;
 }
 
-export interface BloatHit {
+interface BloatHit {
 	chars: number;
 	approx_tokens: number;
 }

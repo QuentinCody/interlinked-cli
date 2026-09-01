@@ -37,13 +37,13 @@ function isScannable(path: string): boolean {
 }
 
 /** A file the detector threw on. */
-export interface DetectorFailure {
+interface DetectorFailure {
 	file: string;
 	message: string;
 }
 
 /** Result of scanning one detector across a file set. */
-export interface CorpusScanResult {
+interface CorpusScanResult {
 	hits: CorpusHit[];
 	files_scanned: number;
 	/**

@@ -16,7 +16,7 @@
 
 /** A function that wraps a task and returns the same Promise the task does,
  *  but enforces concurrency limits. */
-export type Limiter = <T>(task: () => Promise<T>) => Promise<T>;
+type Limiter = <T>(task: () => Promise<T>) => Promise<T>;
 
 /**
  * Create a concurrency limiter. `maxConcurrent` is clamped to ≥1 — a 0/negative

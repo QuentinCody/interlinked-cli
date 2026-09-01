@@ -34,19 +34,19 @@ export type ObligationKind = "coverage" | "mutation" | "red_suite" | "transient"
  *  `observed` = harvested from the agent's own test run; `cloud` = an async
  *  remote job (mutation). Recorded on the obligation so the commit/push gate
  *  can demand a trusted source (e.g. a signed `cloud` discharge) per kind. */
-export type DischargeSource = "local" | "observed" | "cloud";
+type DischargeSource = "local" | "observed" | "cloud";
 
 /** A 1-based inclusive line range identifying the changed region an obligation
  *  covers. Omitted ⇒ a file-level obligation (coverage keys by file today). */
-export interface ObligationRegion {
+interface ObligationRegion {
 	start: number;
-	end: number;
+end: number;
 }
 
 /** A surviving mutant reported by a mutation run — the actionable payload of an
  *  `escalate`: which line, what the operator did, so the push gate can name the
  *  missing assertion instead of a bare "mutants survived". */
-export interface MutationSurvivor {
+interface MutationSurvivor {
 	line: number;
 	/** Human-readable mutation, e.g. "replaced `>` with `>=`". */
 	description: string;
@@ -275,11 +275,11 @@ export function isStale(ob: Obligation, currentEditSeq: number, staleAfterEdits:
 
 /** The earliest surface at which open debt of a kind BLOCKS. `commit`/`push`
  *  always backstop every kind regardless — this names the EARLIEST gate. */
-export type EnforcementCadence = "trajectory" | "commit" | "push";
+type EnforcementCadence = "trajectory" | "commit" | "push";
 
 /** The per-kind policy that is the whole extensibility surface: adding a metric
  *  is declaring one of these, not touching the engine. */
-export interface MetricDescriptor {
+interface MetricDescriptor {
 	kind: ObligationKind;
 	/** Discharge sources the commit/push gate will accept for this kind. */
 	dischargeSources: DischargeSource[];

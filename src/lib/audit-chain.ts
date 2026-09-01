@@ -50,7 +50,7 @@ const CHAINED_AUDIT_TYPES = new Set([
 ]);
 const AUDIT_TAIL_BYTES = 64 * 1024;
 
-export interface GuardChainEntry {
+interface GuardChainEntry {
 	ts?: string;
 	type?: string;
 	previousHash?: string;
@@ -113,12 +113,12 @@ function readPreviousAuditHash(path: string): string {
 					return record.hash;
 				}
 			} catch {
-				// A clipped or malformed tail row is not a usable chain head.
+				// Intentional: a clipped or malformed tail row is not a usable chain head.
 			}
 		}
 	} catch {
-		// Match the legacy hook's availability contract: a read failure starts a
-		// new verifiable segment rather than breaking the tool hook.
+		// Intentional: match the legacy hook's availability contract — a read failure
+		// starts a new verifiable segment rather than breaking the tool hook.
 	}
 	return GENESIS_HASH;
 }

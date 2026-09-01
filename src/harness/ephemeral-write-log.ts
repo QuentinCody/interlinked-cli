@@ -19,9 +19,9 @@ import { extname, join } from "node:path";
 /** What the write appears to be, from path + extension alone. Drives the
  *  advisory steer; recorded so the mix can be re-derived later without
  *  re-running the classifier. */
-export type EphemeralWriteKind = "code" | "manifest" | "agent-output" | "bulk" | "other";
+type EphemeralWriteKind = "code" | "manifest" | "agent-output" | "bulk" | "other";
 
-export interface EphemeralWriteRecord {
+interface EphemeralWriteRecord {
 	/** ISO timestamp. */
 	ts: string;
 	session_id: string | undefined;

@@ -56,7 +56,7 @@ import { existsSync, readFileSync, unwatchFile, watchFile } from "node:fs";
 import { join } from "node:path";
 
 /** Sink class — the kind of sink a sanitizer covers. */
-export type SinkClass = "sql" | "html" | "shell" | "url" | "identity";
+type SinkClass = "sql" | "html" | "shell" | "url" | "identity";
 
 /** All sink classes in declaration order. */
 export const SINK_CLASSES: readonly SinkClass[] = [
@@ -68,7 +68,7 @@ export const SINK_CLASSES: readonly SinkClass[] = [
 ] as const;
 
 /** Kind discriminator for a sanitizer entry. */
-export type SanitizerKind = "function" | "method" | "regex";
+type SanitizerKind = "function" | "method" | "regex";
 
 /**
  * Named constants for `SanitizerKind` so call-sites read as intent rather
@@ -90,7 +90,7 @@ export const SANITIZER_KIND_REGEX = "regex" as const;
 export const SCOPE_GLOBAL = "global" as const;
 
 /** One sanitizer entry (validated, post-load shape). */
-export interface SanitizerEntry {
+interface SanitizerEntry {
 	name: string;
 	kind: SanitizerKind;
 	pattern: string;
@@ -290,7 +290,7 @@ export function load(cwd: string = process.cwd()): SanitizerRegistry {
 /** Options for `isSanitized` scope filtering. Trailing struct so call-sites
  * read as intent (`{ currentModule: "marked" }`) rather than the order of
  * two same-typed string positional args. */
-export interface IsSanitizedOptions {
+interface IsSanitizedOptions {
 	/** Optional module specifier — when supplied, module-scoped entries
 	 * apply only when their `scope` matches this string. Module-scoped
 	 * entries are skipped when this is `undefined`. */

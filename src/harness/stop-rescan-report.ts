@@ -78,7 +78,7 @@ export interface RescanFindingLike {
 	deferReason: string | null;
 }
 
-export interface DigestStopRescanArgs {
+interface DigestStopRescanArgs {
 	findings: readonly RescanFindingLike[];
 	cwd: string;
 	sessionId: string;
@@ -95,7 +95,7 @@ export interface DigestStopRescanArgs {
 	now?: Date;
 }
 
-export interface StopRescanDigest {
+interface StopRescanDigest {
 	/** Warning strings for stderr — already collapsed and capped. */
 	warnings: string[];
 	/** Fingerprints open at this Stop (the next Stop's diff baseline). */

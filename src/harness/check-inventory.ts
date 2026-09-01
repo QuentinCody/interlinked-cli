@@ -33,7 +33,7 @@ import { ALL_SEQUENCE_DETECTORS } from "./sequence-checks/registry.js";
 import { SPEC_LEDGER_CHECK_KINDS } from "./spec/ledger-drift.js";
 
 /** One disjoint family of checks, counted from its authoritative source. */
-export interface CheckFamily {
+interface CheckFamily {
 	/** Stable machine key (used by --json and the pinning test). */
 	key: string;
 	/** Human-readable label. */

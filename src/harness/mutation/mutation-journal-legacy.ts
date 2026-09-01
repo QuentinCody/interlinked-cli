@@ -92,7 +92,7 @@ function captureLegacyFile(path: string, relative: string, remainingBytes: numbe
 	}
 }
 
-export type LegacyFileImportOutcome =
+type LegacyFileImportOutcome =
 	| { kind: "none" }
 	| {
 		kind: "inserted" | "existing";

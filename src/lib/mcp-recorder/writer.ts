@@ -23,7 +23,7 @@ export interface CapturedMcpPayload {
     payload_preview?: string;
 }
 
-export interface CaptureMcpPayloadOptions {
+interface CaptureMcpPayloadOptions {
     cwd?: string;
     inlineLimitBytes?: number;
     contentType?: McpPayloadContentType;

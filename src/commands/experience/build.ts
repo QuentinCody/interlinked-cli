@@ -49,7 +49,7 @@ interface CollectionJoin {
 	command?: string;
 }
 
-export interface BuildExperienceOptions {
+interface BuildExperienceOptions {
 	/** Repo root containing `.interlinked/`. */
 	dir: string;
 	sessionId: string;

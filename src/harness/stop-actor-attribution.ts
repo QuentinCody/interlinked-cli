@@ -145,7 +145,7 @@ function readFileTail(path: string, bytes: number): string | null {
 	}
 }
 
-export interface LoadSubagentAttributionArgs {
+interface LoadSubagentAttributionArgs {
 	/** Absolute path to the repo's `.interlinked/` directory. */
 	interlinkedDir: string;
 	sessionId: string;

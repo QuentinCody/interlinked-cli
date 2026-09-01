@@ -48,7 +48,7 @@ export {
 	sameOwner,
 };
 
-export interface ReservationConflictAtPath {
+interface ReservationConflictAtPath {
 	filePath: string;
 	conflict: ReservationConflict;
 }

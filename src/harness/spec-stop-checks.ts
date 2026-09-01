@@ -7,7 +7,7 @@
 /** Max drift entries quoted in the Stop nudge. */
 const MAX_SHOWN = 3;
 
-export interface SpecDriftStashEntry {
+interface SpecDriftStashEntry {
 	file: string;
 	line: number;
 	message: string;
@@ -39,7 +39,7 @@ export function formatSpecDriftWarning(
 }
 
 /** One open review finding, as the Stop nudge needs it. */
-export interface OpenReviewFindingLite {
+interface OpenReviewFindingLite {
 	id: string;
 	file: string;
 	line: number;

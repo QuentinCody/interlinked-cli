@@ -26,7 +26,7 @@ import { escapeRegex } from "./structural-checks/helpers.js";
 /** One exported symbol as the graph reports it. Structurally satisfied by
  *  `ExportedSymbol` (types/graph.ts) — `kind` widens to string and the
  *  `isTypeOnly` field is simply not read here. */
-export interface ExportGraphSymbol {
+interface ExportGraphSymbol {
 	name: string;
 	kind: string;
 	line: number;
@@ -47,7 +47,7 @@ export interface UntestedExportHit {
 	symbols: string[];
 }
 
-export interface DetectUntestedExportsOpts {
+interface DetectUntestedExportsOpts {
 	/** `session.files_written` — may hold BOTH the raw and resolved-absolute
 	 *  form of the same path (session-state.ts convention); deduped here. */
 	filesWritten: ReadonlySet<string>;

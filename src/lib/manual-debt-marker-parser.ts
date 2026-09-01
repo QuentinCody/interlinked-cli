@@ -40,7 +40,7 @@ export const DEBT_MARKER_ADVISORY_CODES = [
 
 export type DebtMarkerAdvisoryCode = (typeof DEBT_MARKER_ADVISORY_CODES)[number];
 
-export interface DebtMarkerPayload {
+interface DebtMarkerPayload {
     decision: string;
     ceiling: string;
     trigger: string;
@@ -52,12 +52,12 @@ export interface DebtMarkerPayload {
     finding?: string | undefined;
 }
 
-export interface DebtMarkerPayloadIssue {
+interface DebtMarkerPayloadIssue {
     code: DebtMarkerAdvisoryCode;
     message: string;
 }
 
-export interface ParsedDebtMarkerPayload {
+interface ParsedDebtMarkerPayload {
     payload: DebtMarkerPayload | null;
     issues: DebtMarkerPayloadIssue[];
 }

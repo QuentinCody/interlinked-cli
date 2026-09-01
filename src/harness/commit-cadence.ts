@@ -104,9 +104,9 @@ function compileGlob(glob: string): RegExp {
 	return compiled;
 }
 
-export interface SessionTokens {
+interface SessionTokens {
 	input: number;
-	output: number;
+output: number;
 	total: number;
 }
 
@@ -173,7 +173,7 @@ function extractUsage(obj: unknown): RawUsage | null {
 	return { input_tokens: input, output_tokens: output };
 }
 
-export interface FormatStopNudgeOpts {
+interface FormatStopNudgeOpts {
 	uncommittedNonDocCount: number;
 	docFilesExcluded: number;
 	threshold: number;
@@ -228,7 +228,7 @@ export function formatStopNudge(opts: FormatStopNudgeOpts): string | null {
 	);
 }
 
-export interface FormatMidSessionBackstopOpts {
+interface FormatMidSessionBackstopOpts {
 	uncommittedNonDocCount: number;
 	threshold: number;
 }
@@ -308,7 +308,7 @@ export function collectWipCommitSubjects(cwd: string, baselineHeadSha: string): 
 		.filter((s) => s.length > 0 && isWipCommitSubject(s));
 }
 
-export interface FormatWipCommitsNudgeOpts {
+interface FormatWipCommitsNudgeOpts {
 	/** WIP-style commit subjects from {@link collectWipCommitSubjects}. */
 	wipSubjects: readonly string[];
 	maxShown?: number;

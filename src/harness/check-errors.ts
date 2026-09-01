@@ -74,15 +74,3 @@ export class ConfigLoadError extends TaggedError("ConfigLoadError")<{
 	cause: unknown;
 }>() {}
 
-// ===========================================
-// Convenience: All check error types as a union
-// ===========================================
-
-export type HarnessError =
-	| FileReadError
-	| FileWriteError
-	| JsonParseError
-	| EventParseError
-	| CheckError
-	| SubprocessError
-	| ConfigLoadError;

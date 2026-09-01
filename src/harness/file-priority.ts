@@ -32,7 +32,7 @@ import { dirname, join } from "node:path";
 import { nonNull } from "../lib/non-null.js";
 
 /** Priority tier for a tracked file. */
-export type PriorityTier = "hot" | "warm" | "cold";
+type PriorityTier = "hot" | "warm" |"cold";
 
 /** Per-file priority entry. */
 export interface FilePriority {

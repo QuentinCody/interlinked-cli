@@ -33,7 +33,7 @@ import { resolveSettingsPath } from "./installer.js";
 import { isManagedProviderFile, managedProviderFileHash } from "./managed-provider-file.js";
 import type { RunnerId } from "./unified-event.js";
 
-export interface VerifiableInstallEntry {
+interface VerifiableInstallEntry {
 	runner: RunnerId;
 	settings_path: string;
 	scope: string;

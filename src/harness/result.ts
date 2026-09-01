@@ -211,8 +211,8 @@ export type Result<T, E> = Ok<T, E> | Err<T, E>;
 // Type Inference Helpers
 // ===========================================
 
-export type InferOk<R> = R extends Ok<infer T, unknown> ? T : never;
-export type InferErr<R> = R extends Err<unknown, infer E> ? E : never;
+type InferOk<R> = R extends Ok<infer T, unknown> ? T : never;
+type InferErr<R> = R extends Err<unknown, infer E> ? E : never;
 type InferYieldErr<Y> = Y extends Err<never, infer E> ? E : never;
 type AnyResult = Ok<unknown, unknown> | Err<unknown, unknown>;
 
@@ -250,7 +250,7 @@ interface SerializedErr<E> {
 	status: "error";
 	error: E;
 }
-export type SerializedResult<T, E> = SerializedOk<T> | SerializedErr<E>;
+type SerializedResult<T, E> = SerializedOk<T> | SerializedErr<E>;
 
 function isSerializedResult(obj: unknown): obj is SerializedResult<unknown, unknown> {
 	return (

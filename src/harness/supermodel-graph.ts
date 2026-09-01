@@ -28,7 +28,7 @@ export interface SupermodelGraph {
 	deps: DepsSection | null;
 }
 
-export interface ImpactSection {
+interface ImpactSection {
 	risk: "HIGH" | "MEDIUM" | "LOW";
 	/** May be empty: Supermodel omits this field when the domain set is empty
 	 *  (render.go:190). Parser treats absence as []. */
@@ -52,7 +52,7 @@ export interface CallsSection {
 	callees: Array<{ fn: string; callee: string; file: string; line: number }>;
 }
 
-export interface DepsSection {
+interface DepsSection {
 	imports: string[];
 	importedBy: string[];
 }

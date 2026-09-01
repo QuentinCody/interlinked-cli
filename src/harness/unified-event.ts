@@ -79,12 +79,12 @@ export interface FileOperationAction {
 	tool_class: ToolClass;
 }
 
-export interface UserPromptAction {
+interface UserPromptAction {
 	kind: "user_prompt";
 	text: string;
 }
 
-export interface SessionLifecycleAction {
+interface SessionLifecycleAction {
 	kind: "session_lifecycle";
 	event: "start" | "end" | "stop";
 }

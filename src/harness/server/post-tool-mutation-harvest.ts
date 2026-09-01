@@ -37,7 +37,7 @@ import type { HarnessDecision, HarnessEvent } from "../types.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
 /** Seams for tests: real disk and real network by default. */
-export interface HarvestDeps {
+interface HarvestDeps {
 	readDisk?: (absPath: string) => string | null;
 	fetchImpl?: HarvestFetch;
 	now?: () => number;

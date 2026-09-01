@@ -57,7 +57,7 @@ import { discoverFiles } from "./verify/file-discovery.js";
 
 export type { AdoptStepResult } from "./adopt-steps.js";
 
-export interface AdoptOptions {
+interface AdoptOptions {
 	cwd?: string;
 	dryRun?: boolean;
 	json?: boolean;

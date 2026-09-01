@@ -22,7 +22,7 @@ const SHARD_REGEX = /\.graph(\.[a-zA-Z0-9]+)?$/i;
 /** Result of an apply_patch-aware shard-write check.
  *  Returned (instead of throwing) so callers can compose the result with
  *  other guard outcomes — pre-tool.ts is one big sequential decision. */
-export interface ShardWriteBlocked {
+interface ShardWriteBlocked {
 	block: true;
 	reason: string;
 	rule_id: "builtin-supermodel-graph-write-blocked-applypatch";

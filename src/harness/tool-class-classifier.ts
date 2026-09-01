@@ -19,7 +19,7 @@ import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 import type { ToolClass } from "./unified-event.js";
 
-export interface ClassRule {
+interface ClassRule {
 	pattern: RegExp;
 	class: ToolClass;
 	reason: string;
@@ -27,7 +27,7 @@ export interface ClassRule {
 
 /** User-supplied command matcher. Literal substring (no regex) to avoid any
  *  ReDoS surface from untrusted config. First match wins. */
-export interface CommandSubstringRule {
+interface CommandSubstringRule {
 	/** The literal substring to search for. */
 	match: string;
 	class: ToolClass;

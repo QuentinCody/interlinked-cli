@@ -42,7 +42,7 @@ const GIT_SUBMODULE_MODE = "160000";
 const GIT_SYMLINK_MODE = "120000";
 const REGULAR_MODES = new Set(["100644", "100755"]);
 
-export interface CaptureMutationOverlaySourceInput {
+interface CaptureMutationOverlaySourceInput {
 	root: string;
 	repository: string;
 	targetFile: string;
@@ -50,7 +50,7 @@ export interface CaptureMutationOverlaySourceInput {
 	maxTestScope?: number;
 }
 
-export interface MutationOverlaySourceDependencies {
+interface MutationOverlaySourceDependencies {
 	selectTests?: (args: {
 		editedRelPath: string;
 		projectRoot: string;

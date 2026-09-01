@@ -316,7 +316,7 @@ export async function stopRunningHarnessForRestart(
  */
 type RestartSocketState = HarnessSocketState | "probe_failed";
 
-export interface RestartCleanupDeps extends DaemonControlDeps {
+interface RestartCleanupDeps extends DaemonControlDeps {
 	classifySocket?: (socketPath: string) => Promise<HarnessSocketState>;
 	fileExists?: (path: string) => boolean;
 	readText?: (path: string) => string;
@@ -501,8 +501,8 @@ export async function inlineJsonRestartStart(
 	);
 }
 
-export interface RestartStartDeps {
-	acquire?: (cwd: string) => StartupLockResult;
+interface RestartStartDeps {
+	acquire?: (cwd:string) => StartupLockResult;
 	start?: typeof inlineJsonRestartStart;
 	reportPending?: typeof reportPendingStart;
 }

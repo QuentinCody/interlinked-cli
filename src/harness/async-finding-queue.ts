@@ -57,7 +57,7 @@ export interface DeferredFinding {
 }
 
 /** Constructor options for {@link AsyncFindingQueue}. */
-export interface AsyncFindingQueueOptions {
+interface AsyncFindingQueueOptions {
 	/**
 	 * Staleness horizon in milliseconds. A finding is dropped (never
 	 * returned) by `drain()` once `now() - Date.parse(computedAt)` exceeds

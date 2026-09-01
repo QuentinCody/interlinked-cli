@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 
 export const TOOLCHAIN_TOOLS: readonly string[] = ["git", "tsgo", "biome", "vitest", "node"];
 
-export interface ToolchainManifest {
+interface ToolchainManifest {
 	schema: "toolchain-manifest.v1";
 	captured_at: string;
 	/** The capturing process's own node — authoritative, no spawn needed. */

@@ -16,7 +16,7 @@ import type { HarnessDecision, HarnessEvent, SessionTrajectory } from "./types.j
 
 /** The one session-lookup capability {@link noteWanderBlockDecision} needs —
  *  narrow so tests never have to build a ServerRuntime. */
-export interface SessionLookup {
+interface SessionLookup {
 	get(sessionId: string): SessionTrajectory | undefined;
 }
 

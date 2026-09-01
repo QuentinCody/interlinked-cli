@@ -26,7 +26,7 @@ export interface EvalMetrics {
 	turns: number;
 }
 
-export interface ArmComparisonRow {
+interface ArmComparisonRow {
 	metric: string;
 	on: number;
 	off: number;
@@ -41,8 +41,8 @@ export interface ArmCellSummary {
 	metrics: EvalMetrics;
 }
 
-export interface TaskVerdict {
-	verdict: "PASS" | "WARN" | "FAIL" | "SKIP";
+interface TaskVerdict {
+	verdict: "PASS"| "WARN" | "FAIL" | "SKIP";
 	reasons: string[];
 }
 

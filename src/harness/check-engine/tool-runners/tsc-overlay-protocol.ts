@@ -23,12 +23,12 @@ export interface SidecarOverlayRequest {
 	params: RunTscOverlayInput;
 }
 
-export interface SidecarOverlayResponseOk {
+interface SidecarOverlayResponseOk {
 	id: number;
 	result: CheckResult[];
 }
 
-export interface SidecarOverlayResponseErr {
+interface SidecarOverlayResponseErr {
 	id: number;
 	error: string;
 }

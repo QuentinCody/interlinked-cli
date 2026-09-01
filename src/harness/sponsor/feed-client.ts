@@ -51,7 +51,7 @@ const EMBEDDED_SPONSOR_PUBKEYS: Record<string, string> = {
 	"sponsor-2026a": "MCowBQYDK2VwAyEAecJdYpEnYgCYMPskPlurFmE72BlHCVAWM90teom+oRI=",
 };
 
-export interface VerifyOptions {
+interface VerifyOptions {
 	/** Explicit base64 SPKI key (tests / key rotation drills). */
 	pubkeyB64?: string;
 }
@@ -200,7 +200,7 @@ export function beaconUrlFromFeedUrl(feedUrl: string): string | null {
 	}
 }
 
-export interface SponsorStatusArgs {
+interface SponsorStatusArgs {
 	enabled: boolean;
 	creative?: SponsorCreative;
 	clickUrl?: string;

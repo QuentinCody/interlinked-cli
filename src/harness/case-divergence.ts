@@ -84,9 +84,9 @@ export type SymbolKind =
 	| "let"
 	| "var";
 
-export type SymbolRole = "value" | "type";
+type SymbolRole = "value" | "type";
 
-export type CaseStyle =
+type CaseStyle =
 	| "camelCase"
 	| "snake_case"
 	| "PascalCase"
@@ -113,7 +113,7 @@ export interface SymbolLoc {
 	line: number;
 }
 
-export interface SpellingEntry {
+interface SpellingEntry {
 	name: string;
 	style: CaseStyle;
 	locs: Array<{ file: string; line: number; kind: SymbolKind }>;

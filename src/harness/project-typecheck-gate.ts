@@ -51,7 +51,7 @@ export type { ResolvedTestCommand } from "./project-test-gate.js";
 const TYPECHECK_TIMEOUT_MS = 60_000;
 const MAX_DIAGS_REPORTED = 50;
 
-export interface ResolvedTypecheckCommand {
+interface ResolvedTypecheckCommand {
 	bin: string;
 	args: string[];
 	source: "typecheck:stable" | "typecheck" | "local-tsc";
@@ -91,7 +91,7 @@ export function resolveTypecheckCommand(cwd: string): ResolvedTypecheckCommand |
 	return null;
 }
 
-export interface TscDiagnostic {
+interface TscDiagnostic {
 	file: string;
 	line: number;
 	col: number;

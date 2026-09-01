@@ -149,7 +149,7 @@ const DEFAULT_UPGRADE_FAMILIES: ReadonlyArray<SequenceDetectorFamily> = ["inject
 // Public API
 // ============================================================
 
-export interface LockdownEvaluation {
+interface LockdownEvaluation {
 	/** Whether lockdown is currently active for this (trajectory, candidate). */
 	active: boolean;
 	/** Input findings whose `phase` was upgraded from `pre_warn` to `pre_block`. */

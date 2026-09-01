@@ -107,7 +107,7 @@ export interface DebtMarkerScanResult {
     read_only: true;
 }
 
-export interface ScanDebtMarkersOptions {
+interface ScanDebtMarkersOptions {
     cwd: string;
     roots?: string[] | undefined;
     exclude?: string[] | undefined;

@@ -17,7 +17,7 @@ import {
 import { maxFunctionTokensFor } from "../harness/metric-caps.js";
 import { discoverFunctionTokenFiles } from "./verify/file-discovery.js";
 
-export type FunctionTokenSourceScope = "product" | "test";
+type FunctionTokenSourceScope = "product" | "test";
 
 export interface FunctionTokenMetricRow {
     file: string;
@@ -63,7 +63,7 @@ export interface FunctionTokenNumericSummary {
     max: number | null;
 }
 
-export interface FunctionTokenNotMeasured {
+interface FunctionTokenNotMeasured {
     file: string;
     language: string;
     reason: string;

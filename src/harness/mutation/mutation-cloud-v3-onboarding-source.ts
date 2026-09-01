@@ -43,12 +43,12 @@ export type MutationOnboardingGitRunner = (
 	maxBytes: number,
 ) => Uint8Array;
 
-export interface MaterializedHeadSnapshot {
+interface MaterializedHeadSnapshot {
 	root: string;
 	cleanup(): void;
 }
 
-export interface MutationOnboardingSourceDependencies {
+interface MutationOnboardingSourceDependencies {
 	runGit?: MutationOnboardingGitRunner;
 	materialize?: (archiveBytes: Uint8Array) => MaterializedHeadSnapshot;
 	readMaterializedTarget?: (root: string, targetFile: string) => Uint8Array;
@@ -60,7 +60,7 @@ export interface MutationOnboardingSourceDependencies {
 	realpath?: (path: string) => string;
 }
 
-export interface CaptureMutationOnboardingSourceInput {
+interface CaptureMutationOnboardingSourceInput {
 	root: string;
 	repository: string;
 	targetFile: string;

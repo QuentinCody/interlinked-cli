@@ -45,7 +45,7 @@ import { isFileWrite } from "./tool-classifiers.js";
 
 type ToolInput = NonNullable<HarnessEvent["tool_input"]>;
 
-export type ScratchpadCodeWriteMode = "block" | "warn" | "off";
+type ScratchpadCodeWriteMode = "block" | "warn"| "off";
 
 const DEFAULT_CODE_WRITE_MODE: ScratchpadCodeWriteMode = "block";
 

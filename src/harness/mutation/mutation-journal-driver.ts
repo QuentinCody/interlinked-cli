@@ -9,14 +9,14 @@
 
 import { createRequire } from "node:module";
 
-export type SqliteValue = string | number | bigint | null | Uint8Array;
+type SqliteValue = string | number | bigint | null | Uint8Array;
 
-export interface SqliteRunResult {
-	changes: number | bigint;
+interface SqliteRunResult {
+	changes: number| bigint;
 	lastInsertRowid: number | bigint;
 }
 
-export interface SqliteStatement {
+interface SqliteStatement {
 	run(...values: SqliteValue[]): SqliteRunResult;
 	get(...values: SqliteValue[]): unknown;
 	all(...values: SqliteValue[]): unknown[];

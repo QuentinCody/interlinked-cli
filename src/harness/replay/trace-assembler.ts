@@ -25,14 +25,14 @@ import {
 } from "./inference-store.js";
 import { loadSnapshotIndex, type TreeSnapshotRecord } from "./tree-snapshot.js";
 
-export interface TraceStepKey {
+interface TraceStepKey {
 	session_id: string;
 	seq: number | null;
 	tool_use_id: string | null;
 	ts: string;
 }
 
-export interface TraceStep {
+interface TraceStep {
 	schema: "replay-trace.v1";
 	key: TraceStepKey;
 	/** `inference/<session>.jsonl#seq=<n>` when the exact observation was
@@ -45,9 +45,9 @@ export interface TraceStep {
 	state_ref: string | null;
 }
 
-export interface AssembleSummary {
+interface AssembleSummary {
 	steps: number;
-	steps_with_envelope: number;
+steps_with_envelope: number;
 }
 
 function safeId(sessionId: string): string {

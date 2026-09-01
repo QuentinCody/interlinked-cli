@@ -58,7 +58,7 @@ const FILE_EDIT_TOOLS = new Set([
 	"str_replace",
 ]);
 
-export interface FailureChannelOutput {
+interface FailureChannelOutput {
 	failure_id: string;
 	signature: string;
 	warnings: string[];

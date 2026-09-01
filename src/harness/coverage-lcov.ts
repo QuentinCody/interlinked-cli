@@ -36,7 +36,7 @@ import {
 import type { FunctionCoverage, PerFileCoverage } from "./coverage-final-reader.js";
 import type { CoverageSummary } from "./coverage-ratchet.js";
 
-export interface ParseLcovOptions {
+interface ParseLcovOptions {
 	/** Absolute repo root; absolute `SF` paths are normalized relative to it. */
 	cwd?: string;
 }

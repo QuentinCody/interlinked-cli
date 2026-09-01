@@ -102,12 +102,8 @@ export function companionSourceCandidates(testFile: string): string[] {
 	return out;
 }
 
-function sutStillExists(testFile: string, deps: OracleDiffDeps): boolean {
-	return companionSourceCandidates(testFile).some((c) => deps.sourceExists(c));
-}
-
 /** Classification for one losing file — exported for the history replay. */
-export type TestBlockLossKind =
+type TestBlockLossKind =
 	| "move"
 	| "cascade"
 	| "each_table"

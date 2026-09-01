@@ -25,22 +25,22 @@ import { join } from "node:path";
 
 /** Per-detector config sub-shapes. Each is a plain record so the file
  * round-trips through JSON.parse / JSON.stringify with no surprises. */
-export interface AuthMissingConfig {
+interface AuthMissingConfig {
 	exempt_paths: string[];
 }
-export interface IdorShapeConfig {
+interface IdorShapeConfig {
 	auth_context_identifiers: string[];
 }
-export interface MissingTenantFilterConfig {
+interface MissingTenantFilterConfig {
 	tenant_columns: string[];
 	exempt_tables: string[];
 }
-export interface SsrfShapeConfig {
+interface SsrfShapeConfig {
 	exempt_paths: string[];
 }
 // Reserved for future tunables — empty in V1. Using a `Record<string,
 // never>` rather than `{}` so the type accurately rejects extra keys.
-export type MassAssignmentConfig = Record<string, never>;
+type MassAssignmentConfig = Record<string, never>;
 
 /** Loaded security config — keyed by detector check_id. */
 export interface SecurityConfig {

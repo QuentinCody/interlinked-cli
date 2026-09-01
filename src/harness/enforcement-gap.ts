@@ -28,7 +28,7 @@
 import type { DaemonLedgerEvent } from "./daemon-ledger.js";
 
 /** A window during which no daemon was serving. */
-export interface EnforcementGap {
+interface EnforcementGap {
 	/** Epoch ms when service stopped. */
 	from: number;
 	/** Epoch ms when service resumed, or null when still down. */

@@ -52,10 +52,10 @@ export interface ToolEvent {
 }
 
 /** What a firing rule asks the harness to do. */
-export type VerdictAction = "block" | "nudge" | "silent_metric";
+type VerdictAction = "block" | "nudge" | "silent_metric";
 
 /** Confidence/impact band. */
-export type VerdictSeverity = "high" | "medium" | "low";
+type VerdictSeverity = "high" | "medium" | "low";
 
 /** A single rule firing. */
 export interface Verdict {
@@ -104,7 +104,7 @@ export interface EditRecord {
 }
 
 /** One value an anchor held at a point in time (for undo-war A,B,A detection). */
-export interface AnchorValueEntry {
+interface AnchorValueEntry {
 	/** sha256 of the new_string written at this anchor. */
 	valueHash: string;
 	atStep: number;
@@ -113,13 +113,13 @@ export interface AnchorValueEntry {
 }
 
 /** Per-normalized-command failure tracking. */
-export interface CommandFailure {
+interface CommandFailure {
 	count: number;
 	lastStep: number;
 }
 
 /** Per-command-family rerun tracking (test/build re-run without source change). */
-export interface FamilyRerun {
+interface FamilyRerun {
 	/** Consecutive failing runs of this family with no successful edit between. */
 	failingNoEditCount: number;
 	/** state.successfulEditCount snapshot at the last run of this family. */
@@ -137,27 +137,27 @@ export interface DownloadRecord {
 }
 
 /** A secret literal pending in a tracked env/config file (env-add-then-commit). */
-export interface PendingSecretWrite {
+interface PendingSecretWrite {
 	kind: string;
 	atStep: number;
 }
 
 /** A write to a git hook file (git-hook-backdoor leg). */
-export interface GitHookWrite {
+interface GitHookWrite {
 	atStep: number;
 	/** Whether the hook body contained an exec/egress sink. */
 	hasSink: boolean;
 }
 
 /** A DNS lookup observed in a Bash command (dns-exfil-burst substrate). */
-export interface DnsQuery {
+interface DnsQuery {
 	baseDomain: string;
 	label: string;
 	atStep: number;
 }
 
 /** A self-blinding harness-disable event (harness-disable-then-guarded-op leg). */
-export interface HarnessDisable {
+interface HarnessDisable {
 	atStep: number;
 	how: string;
 }

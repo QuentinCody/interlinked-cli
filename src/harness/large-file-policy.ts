@@ -401,9 +401,9 @@ export function isCappableFile(file: { filePath: string; content: string; root?:
 }
 
 /** Verify-side verdict for a static file snapshot. */
-export interface LargeFileVerdict {
+interface LargeFileVerdict {
 	lines: number;
-	/** Over the active cap. */
+/** Over the active cap. */
 	overCap: boolean;
 	/** In the baseline and within its recorded ceiling — does not fail the gate. */
 	grandfathered: boolean;

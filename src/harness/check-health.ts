@@ -17,7 +17,7 @@ import type { RecurrenceEvent } from "./recurrence.js";
 
 export type CheckDeterminismTag = "proven" | "heuristic" | null;
 
-export type CheckHealthStatus = "probation-candidate" | "healthy" | "low-data";
+type CheckHealthStatus = "probation-candidate" | "healthy" | "low-data";
 
 // ===========================================
 // Thresholds (named + rationale — tune here, tests derive from these)
@@ -68,7 +68,7 @@ interface HealthBucket {
 	last_seen: string;
 }
 
-export interface CheckHealthAccumulator {
+interface CheckHealthAccumulator {
 	buckets: Map<string, HealthBucket>;
 }
 

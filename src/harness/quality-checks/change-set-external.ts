@@ -41,8 +41,8 @@ export interface ChangeSetExternalBatch {
 	resultsForFile(filePath: string): Promise<QualityCheckResult[]>;
 }
 
-export interface ChangeSetExternalBatchOptions {
-	readonly paths: readonly string[];
+interface ChangeSetExternalBatchOptions {
+	readonly paths:readonly string[];
 	/** Paths proven created by the request's observed ChangeSet. Only these may
 	 * turn a cold-start TypeScript finding into an "introduced" error without a
 	 * previous compiler report. */

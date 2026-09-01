@@ -8,7 +8,7 @@
 
 import { nonNull } from "../lib/non-null.js";
 
-export interface NearMiss {
+interface NearMiss {
 	/** 1-based line number of the matching span's first line */
 	line: number;
 	/** 1-based line number of the matching span's last line */

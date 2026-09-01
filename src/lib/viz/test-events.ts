@@ -150,7 +150,7 @@ export function seedRecentTestEvents(path: string, max: number): TestEvent[] {
 	return events;
 }
 
-export interface TestTailer {
+interface TestTailer {
 	stop: () => void;
 }
 

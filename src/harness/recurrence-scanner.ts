@@ -57,7 +57,7 @@ export interface ScanCodebaseFinding {
 	text: string;
 }
 
-export interface ScanCodebaseOptions {
+interface ScanCodebaseOptions {
 	/** Working directory the scan is rooted at. Defaults to process.cwd(). */
 	cwd?: string;
 	/** Subdirectories of `cwd` to walk. Defaults to ["src"]. */
@@ -233,9 +233,9 @@ export function scanCIFilesForRecurrences(cwdInput?: string): ScanCodebaseFindin
 /** Detector function signature accepted by `scanFilesForDetector`. Pure:
  * the caller's responsibility to make sure the function has no side
  * effects. */
-export type DetectorFn = (file: string, content: string) => DetectorFinding[];
+type DetectorFn = (file: string, content: string) => DetectorFinding[];
 
-export interface ScanFilesForDetectorOpts {
+interface ScanFilesForDetectorOpts {
 	/** The single detector to run against each file. */
 	detector: DetectorFn;
 	/** Absolute paths to scan. */

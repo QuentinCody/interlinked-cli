@@ -79,7 +79,7 @@ export interface DaemonLedgerEvent {
 /** Planned = someone asked for this exit (a restart, a recycle, a stop).
  *  Unplanned = the daemon lost, and the guard had a gap. Unknown = a reason a
  *  newer daemon writes that this reader has not been taught yet. */
-export type ExitDisposition = "planned" | "unplanned" | "unknown";
+type ExitDisposition = "planned" | "unplanned" | "unknown";
 
 /** Exits the system asked for. `anti-stomp` and `already-running` belong here:
  *  a loser standing down so ONE binder proceeds is the mutex working. */

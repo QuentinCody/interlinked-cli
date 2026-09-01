@@ -152,9 +152,9 @@ function emptyRemedyCounts(): Record<SurvivorRemedy, number> {
 	return { write_test: 0, strengthen_tests: 0, unknown: 0 };
 }
 
-export interface SurvivorTotals {
+interface SurvivorTotals {
 	files: number;
-	symbols: number;
+symbols: number;
 	mutants: number;
 	killed: number;
 	survived: number;

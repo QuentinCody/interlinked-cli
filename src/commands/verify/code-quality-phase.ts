@@ -11,7 +11,7 @@ import {
 } from "./tool-results.js";
 import { streamUndocumentedEnvVars } from "./verify-summary.js";
 
-export interface CodeQualityPhaseArgs {
+interface CodeQualityPhaseArgs {
 	files: string[];
 	cwd: string;
 	skipChecks: Set<string>;

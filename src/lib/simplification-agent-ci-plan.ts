@@ -37,7 +37,7 @@ export const SIMPLIFICATION_PROTECTED_BOUNDARIES = [
 export type SimplificationProtectedBoundary =
 	(typeof SIMPLIFICATION_PROTECTED_BOUNDARIES)[number];
 
-export interface SimplificationAgentCiPartition {
+interface SimplificationAgentCiPartition {
 	partition_id: string;
 	files: string[];
 	remedies: SimplificationRemedy[];
@@ -50,13 +50,13 @@ export interface SimplificationAgentCiPartition {
  * language, and public-surface metadata; this binding supplies the path sets
  * needed to prove that P4 assignments are complete and in scope.
  */
-export interface SimplificationAgentCiP4InventoryBinding {
+interface SimplificationAgentCiP4InventoryBinding {
 	inventory_sha256: string;
 	inventory_files: string[];
 	scoped_files: string[];
 }
 
-export interface SimplificationAgentCiP4PartitionCoverage {
+interface SimplificationAgentCiP4PartitionCoverage {
 	request_inventory_sha256: string;
 	inventory_path_set_sha256: string;
 	scoped_path_set_sha256: string;
@@ -78,7 +78,7 @@ interface SimplificationSpecialistPlan {
 	output: "schema_valid_findings_or_explicit_no_findings_with_read_set";
 }
 
-export interface SimplificationAgentCiP4Plan {
+interface SimplificationAgentCiP4Plan {
 	schema_version: typeof SIMPLIFICATION_P4_PLAN_VERSION;
 	phase: "P4";
 	execution: "declarative_only";
@@ -140,13 +140,13 @@ export interface SimplificationValidationCandidate {
 	independent_validator_sha256: string | null;
 }
 
-export interface SimplificationValidationCandidatePlan
+interface SimplificationValidationCandidatePlan
 	extends SimplificationValidationCandidate {
 	eligibility: "eligible" | "human_narrowing_required";
 	reason_codes: string[];
 }
 
-export interface SimplificationAgentCiP5Plan {
+interface SimplificationAgentCiP5Plan {
 	schema_version: typeof SIMPLIFICATION_P5_PLAN_VERSION;
 	phase: "P5";
 	execution: "declarative_only";
@@ -178,7 +178,7 @@ export interface SimplificationAgentCiP5Plan {
 	};
 }
 
-export type SimplificationPlanParseResult<T> =
+type SimplificationPlanParseResult<T> =
 	| { ok: true; plan: T }
 	| { ok: false; reason: string };
 

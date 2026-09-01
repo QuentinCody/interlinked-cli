@@ -60,7 +60,7 @@ interface VerifyCacheEntry {
 }
 const verifyCache = new Map<string, VerifyCacheEntry>();
 
-export interface BashEditObligation {
+interface BashEditObligation {
 	file: string;
 	checkIds: string[];
 	opened_at: string;

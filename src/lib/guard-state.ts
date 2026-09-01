@@ -28,10 +28,10 @@ import { join } from "node:path";
 /** Disable granularity. Only whole-project today; `paths` (subtree globs) is a
  *  documented future seam, hence the single-member union rather than a bare
  *  string. */
-export type GuardScope = "project";
+type GuardScope = "project";
 
 /** The on-disk disable marker. Its presence + `disabled: true` = stood down. */
-export interface GuardDisableRecord {
+interface GuardDisableRecord {
 	disabled: true;
 	scope: GuardScope;
 	/** Free-text justification. Org policy may require it (see require_reason). */
@@ -46,7 +46,7 @@ export interface GuardDisableRecord {
 }
 
 /** A resolved disable, annotated with which scope it came from (not persisted). */
-export interface ResolvedGuardDisable extends GuardDisableRecord {
+interface ResolvedGuardDisable extends GuardDisableRecord {
 	source: "local" | "team";
 }
 
@@ -56,7 +56,7 @@ export interface ResolvedGuardDisable extends GuardDisableRecord {
  * declared shape — the same bar the `broad_object_types` check enforces
  * everywhere else in the tree.
  */
-export type GuardEvent =
+type GuardEvent =
 	| ({ action: "disable"; source: "local" | "team" } & GuardDisableRecord)
 	| { action: "enable"; cleared: Array<"local" | "team">; by?: string; at?: string };
 
@@ -125,7 +125,7 @@ export function readGuardDisable(
 	);
 }
 
-export interface WriteGuardDisableInput {
+interface WriteGuardDisableInput {
 	scope?: GuardScope;
 	reason?: string;
 	by?: string;

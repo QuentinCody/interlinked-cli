@@ -8,7 +8,7 @@ const MAX_LOCAL_SESSION_FILES = 10_000;
 export const MAX_LOCAL_SESSION_FILE_BYTES = 1024 * 1024;
 const MAX_LOCAL_SESSION_TOTAL_BYTES = 32 * 1024 * 1024;
 
-export interface LocalSessionScanLimits {
+interface LocalSessionScanLimits {
 	maxFiles: number;
 	maxFileBytes: number;
 	maxTotalBytes: number;

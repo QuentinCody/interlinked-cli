@@ -68,8 +68,8 @@ const JACCARD_MATCH_THRESHOLD = 0.3;
  *  consumers without unbounded memory growth on long sessions. */
 const UNEXPECTED_ACTIONS_CAP = 10;
 
-export interface PlanDriftReport {
-	declared_count: number;
+interface PlanDriftReport {
+	declared_count:number;
 	matched_count: number;
 	/** Declared but not found in tool_sequence. */
 	missing_steps: PlanStep[];
@@ -260,7 +260,7 @@ export const UNEXPECTED_ACTIONS_THRESHOLD = 3;
  *  summarized. */
 const ADVISORY_LIST_CAP = 5;
 
-export interface FormatPlanDriftOpts {
+interface FormatPlanDriftOpts {
 	report: PlanDriftReport;
 	/** Override the drift threshold for tests. Defaults to DRIFT_PCT_THRESHOLD. */
 	driftThreshold?: number;

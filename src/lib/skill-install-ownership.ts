@@ -21,7 +21,7 @@ export const SKILL_INSTALL_MANIFEST = join(".interlinked", "skill-install-manife
 
 export type SkillOwner = ClientName | "canonical";
 
-export interface SkillManifestEntry {
+interface SkillManifestEntry {
     sha256: string;
     skill: string;
     owner: SkillOwner;
@@ -42,7 +42,7 @@ export interface ManagedSkillFile {
     isRecognizedLegacy?: (content: Buffer) => boolean;
 }
 
-export interface ManagedWriteResult {
+interface ManagedWriteResult {
     changed: boolean;
 }
 

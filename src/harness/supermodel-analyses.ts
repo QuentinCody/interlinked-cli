@@ -33,7 +33,7 @@ export interface DeadCodeCandidate {
 }
 
 /** Parsed `supermodel dead-code --output json` result. */
-export interface DeadCodeAnalysis {
+interface DeadCodeAnalysis {
 	candidates: DeadCodeCandidate[];
 	totalDeclarations: number;
 }

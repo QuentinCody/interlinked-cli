@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { JsonObject } from "../lib/json-types.js";
 import { countLines } from "./large-file-policy.js";
 
-export interface LineCountProjection {
+interface LineCountProjection {
 	/** File line count before the edit (0 for a brand-new file). */
 	before: number;
 	/** Projected line count after the edit. */

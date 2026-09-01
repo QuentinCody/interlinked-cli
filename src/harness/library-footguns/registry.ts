@@ -24,7 +24,7 @@ import { WORKERS_KV_FOOTGUNS } from "./workers-kv.js";
 
 /** A footgun finding emitted by the registry. Wraps an InlineMatch
  *  with the check id so the consumer knows which detector fired. */
-export interface FootgunFinding {
+interface FootgunFinding {
 	id: string;
 	library: string;
 	name: string;

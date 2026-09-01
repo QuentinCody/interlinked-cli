@@ -27,7 +27,7 @@ export interface TypeErasureFinding {
 	matchKey: string;
 }
 
-export interface TypeErasureOverlayResult {
+interface TypeErasureOverlayResult {
 	newFindings: TypeErasureFinding[];
 	/** Whether the file extension was eligible for the overlay. */
 	applicable: boolean;

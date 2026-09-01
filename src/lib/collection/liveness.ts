@@ -16,7 +16,7 @@ import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { isJsonObject } from "../json-types.js";
 import { getCollectionPath } from "./writer.js";
 
-export type CollectionLivenessStatus =
+type CollectionLivenessStatus =
 	| "live" // last record is recent — collection is flowing
 	| "idle" // older than idleMs but < staleMs — plausibly just no recent activity
 	| "stale" // older than staleMs — likely broken if a session is active
@@ -37,7 +37,7 @@ export interface CollectionLiveness {
 	reason: string;
 }
 
-export interface CollectionLivenessOpts {
+interface CollectionLivenessOpts {
 	/** Injectable clock (ms since epoch) — tests pass a fixed value. */
 	now?: number;
 	/** At or under this age the stream is "live". Default 5 min. */

@@ -90,7 +90,7 @@ const PY_RE = /\.py$/;
 /** AST entries with this name are anonymous — not matchable across before/after. */
 const ANON_FN = "(callback)";
 
-export interface ComplexityWriteBlock {
+interface ComplexityWriteBlock {
 	block: string;
 }
 

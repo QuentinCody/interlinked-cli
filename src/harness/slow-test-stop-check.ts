@@ -102,7 +102,7 @@ export interface SlowTestHit {
 	reason: "absolute" | "relative";
 }
 
-export interface DetectSlowTestsOpts {
+interface DetectSlowTestsOpts {
 	cwd: string;
 	/** `SessionTrajectory.started_at` (ISO 8601) — the lower time bound. */
 	sessionStartedAt: string;
@@ -236,7 +236,7 @@ export function detectSlowTests(opts: DetectSlowTestsOpts): SlowTestHit[] {
 	return hits;
 }
 
-export interface FormatSlowTestsOpts {
+interface FormatSlowTestsOpts {
 	hits: ReadonlyArray<SlowTestHit>;
 	maxShown?: number;
 }

@@ -54,7 +54,7 @@ import {
  *  so the agent's user prompt doesn't scroll off-screen. */
 const REASON_FILE_LIMIT = 5;
 
-export interface GitScopeVerdict {
+interface GitScopeVerdict {
 	decision: "allow" | "ask";
 	reason?: string;
 	/** Files the parser resolved out of the git command (post-pathspec

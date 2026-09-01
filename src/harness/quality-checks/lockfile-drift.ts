@@ -46,14 +46,14 @@ export const LOCKFILE_MAP: Record<string, string[]> = {
  */
 const LOCKFILE_DRIFT_GRACE_MS = 5_000;
 
-export interface LockfileDriftResult {
+interface LockfileDriftResult {
 	drifted: boolean;
 	manifest: string;
 	lockfile?: string;
 	reason: "stale" | "missing" | "none" | "grace";
 }
 
-export interface LockfileDriftOptions {
+interface LockfileDriftOptions {
 	/** Override the grace window (ms). Defaults to LOCKFILE_DRIFT_GRACE_MS. */
 	graceWindowMs?: number;
 	/** Override "now" (ms since epoch). Defaults to Date.now(). Used for tests. */
@@ -152,18 +152,18 @@ export function checkLockfileDrift(
 // package-lock.json's root sections against package.json — deterministic, and
 // (unlike the mtime check) NOT suppressed by the grace window.
 
-export type DepSection = "dependencies" | "devDependencies" | "optionalDependencies";
+type DepSection = "dependencies" |"devDependencies" | "optionalDependencies";
 
 const DEP_SECTIONS: DepSection[] = ["dependencies", "devDependencies", "optionalDependencies"];
 
-export interface LockfileClassificationDrift {
+interface LockfileClassificationDrift {
 	drifted: boolean;
 	manifest: string;
 	mismatches: { name: string; manifestSection: DepSection; lockSection: DepSection | "absent" }[];
 }
 
 /** A dependency-section map (name -> declared spec), narrowed from unknown JSON. */
-export type DependencySections = Partial<Record<DepSection, JsonObject>>;
+type DependencySections = Partial<Record<DepSection, JsonObject>>;
 
 /** True when `value` is a non-null, non-array JSON object. */
 

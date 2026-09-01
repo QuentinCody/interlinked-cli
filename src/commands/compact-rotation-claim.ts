@@ -50,7 +50,7 @@ class RotationSegmentVerificationRequiredError extends Error {
 	}
 }
 
-export interface VerifiedSegmentFingerprint {
+interface VerifiedSegmentFingerprint {
 	dev: string;
 	ino: string;
 	size: string;
@@ -223,7 +223,7 @@ export function verifyClaimedSegment(
 	return after;
 }
 
-export interface PublicationConflict {
+interface PublicationConflict {
 	segmentFile: string;
 	reason: string;
 	abandonClaim: boolean;

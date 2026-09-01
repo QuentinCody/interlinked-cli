@@ -24,7 +24,7 @@ export type HarvestFetch = (url: string) => Promise<{
 	json(): Promise<unknown>;
 }>;
 
-export interface HarvestedSurvivor {
+interface HarvestedSurvivor {
 	mutator: string;
 	lexeme: string;
 	replacement: string;
@@ -89,7 +89,7 @@ async function claimOne(run: PendingRun, fetchImpl: HarvestFetch): Promise<Claim
 export const DEFAULT_HARVEST_BUDGET_MS = 25_000;
 const DEFAULT_POLL_INTERVAL_MS = 400;
 
-export interface HarvestOptions {
+interface HarvestOptions {
 	budgetMs?: number;
 	pollIntervalMs?: number;
 	/** Injected so tests need no real time. */

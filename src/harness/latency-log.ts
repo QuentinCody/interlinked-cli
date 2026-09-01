@@ -19,7 +19,7 @@ export const ROTATION_BYTES_DEFAULT = 10 * 1024 * 1024; // 10 MB
 /** Per-tool execution metric serialised into latency.jsonl. The shape matches
  *  `ToolBreakdownEntry` in `quality-checks.ts` — flattened from the engine's
  *  `ToolMetrics` so the latency CLI can compute p50/p99 per tool. */
-export interface ToolBreakdown {
+interface ToolBreakdown {
 	tool: string;
 	ms: number;
 	finding_count: number;

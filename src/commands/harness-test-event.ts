@@ -29,7 +29,7 @@ export interface HarnessTestOpts {
 
 /** The synthetic PreToolUse event the test command sends over the socket,
  *  paired with the human-readable label printed beside the decision. */
-export interface HarnessTestPlan {
+interface HarnessTestPlan {
 	toolName: string;
 	displayLabel: string;
 	event: JsonObject;

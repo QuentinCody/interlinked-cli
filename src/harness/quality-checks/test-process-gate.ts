@@ -12,7 +12,7 @@
 import { runProcessAsync } from "../check-engine/spawn-async.js";
 import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
 
-export interface TestProcessSpec {
+interface TestProcessSpec {
 	command: string;
 	args: string[];
 	cwd: string;
@@ -25,7 +25,7 @@ export interface TestProcessSpec {
 	admissionAlreadyHeld?: boolean;
 }
 
-export type TestProcessOutcome =
+type TestProcessOutcome =
 	| {
 			kind: "completed";
 			code: number;

@@ -26,7 +26,7 @@ import type { ServerRuntime } from "./server/runtime-context.js";
 import { loadGraphForFile } from "./supermodel-graph.js";
 import type { HarnessEvent, SessionTrajectory } from "./types.js";
 
-export interface DeadOnArrivalHit {
+interface DeadOnArrivalHit {
 	/** Resolved absolute path of the dead-on-arrival source file. */
 	sourcePath: string;
 }

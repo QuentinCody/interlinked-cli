@@ -32,7 +32,7 @@ import { safeJsonParse } from "./config-loosening-gate.js";
 /** Structurally identical to baseline-integrity-gate's `BaselineGamingFinding` so
  *  the delegation there returns these directly. Declared here to keep the import
  *  edge one-directional (that file imports this one, never the reverse). */
-export interface DispositionLedgerFinding {
+interface DispositionLedgerFinding {
 	file: string;
 	rule: string;
 	before: unknown;

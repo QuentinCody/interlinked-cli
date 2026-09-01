@@ -44,7 +44,7 @@ export interface SimplificationRunReceipt {
 	corpus_finding_ids: string[];
 }
 
-export interface RecordSimplificationOptions {
+interface RecordSimplificationOptions {
 	/** Injectable clock for deterministic tests. */
 	now?: string | undefined;
 	clock?: (() => number) | undefined;

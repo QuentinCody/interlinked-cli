@@ -21,7 +21,7 @@ import type { InferenceEnvelope } from "./inference-store.js";
  *  minutes; this only stops a hung upstream from wedging an eval run. */
 const CANDIDATE_TURN_TIMEOUT_MS = 600_000;
 
-export interface ProposedAction {
+interface ProposedAction {
 	tool: string | null;
 	input: JsonObject | null;
 }

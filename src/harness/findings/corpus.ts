@@ -236,7 +236,7 @@ export function makeFinding(input: MakeFindingInput, cwd: string): Finding {
 	};
 }
 
-export interface RecordOpts {
+interface RecordOpts {
 	/** Mirror to the global cross-repo cache. Default true; tests pass false. */
 	mirrorGlobal?: boolean | undefined;
 }
@@ -346,7 +346,7 @@ export function upsertFinding(incoming: Finding, cwd: string, opts: RecordOpts =
 	return merged;
 }
 
-export interface BugClassRow {
+interface BugClassRow {
 	bug_class: string;
 	finding_count: number; // distinct Finding rows (sites) in this class
 	times_observed: number; // total distinct sightings across the class

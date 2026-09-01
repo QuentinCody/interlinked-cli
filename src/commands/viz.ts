@@ -13,15 +13,15 @@ import { buildGraphSnapshot } from "../lib/viz/graph-snapshot.js";
 import { startVizServer, type VizServerHandle } from "../lib/viz/server.js";
 import { clearVizStatus, writeVizStatus } from "../lib/viz/status-file.js";
 
-export interface VizOpts {
+interface VizOpts {
 	port?: string;
-	root?: string;
+root?: string;
 	json?: boolean;
 	short?: boolean;
 	full?: boolean;
 }
 
-export interface VizServeDeps {
+interface VizServeDeps {
 	startServer?: (opts: { root: string; port?: number }) => Promise<VizServerHandle>;
 	waitForStop?: () => Promise<void>;
 }

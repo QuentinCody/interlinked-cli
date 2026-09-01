@@ -188,7 +188,7 @@ export function scanFilesWithoutTest(
  * Project-wide prod/test LOC ratio. Static equivalent of checkProdTestLocRatio.
  * Returns null if no files were scanned.
  */
-export interface ProjectLocRatio {
+interface ProjectLocRatio {
 	prodLoc: number;
 	testLoc: number;
 	ratio: number;
@@ -214,7 +214,7 @@ export function computeProjectLocRatio(reads: FileContent[]): ProjectLocRatio | 
 	};
 }
 
-export interface VerifyParityResults {
+interface VerifyParityResults {
 	crossFileSwitchDiscriminant: StructuralCheckResult[];
 	singleImplementationInterface: StructuralCheckResult[];
 	filesWithoutTest: Array<{ file: string; expectedTest: string }>;

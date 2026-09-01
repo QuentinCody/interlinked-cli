@@ -100,7 +100,7 @@ export const CONSUMED_PAYLOAD_KEYS: ReadonlySet<string> = new Set([
  *  `array<object{id,status,description}>` does. Shapes record TYPE and MEMBER
  *  NAMES only, never values: this file is written on the hook path from live
  *  payloads, so it must not become a second copy of the data. */
-export interface PayloadKeyEntry {
+interface PayloadKeyEntry {
 	unconsumed: string[];
 	shapes?: Record<string, string>;
 	first_seen: string;
@@ -216,8 +216,8 @@ function describeShapes(raw: JsonObject, keys: string[]): Record<string, string>
 }
 
 /** One census observation: which runner+event was seen, with what leftovers. */
-export interface PayloadObservation {
-	/** Census key, `"<runner>/<nativeEvent>"`. */
+interface PayloadObservation {
+	/** Census key,`"<runner>/<nativeEvent>"`. */
 	key: string;
 	/** Unconsumed top-level payload keys seen on this invocation. */
 	keys: string[];
@@ -228,7 +228,7 @@ export interface PayloadObservation {
 }
 
 /** A merge outcome: the next census and whether it differs from the input. */
-export interface CensusMerge {
+interface CensusMerge {
 	census: PayloadKeyCensus;
 	changed: boolean;
 }
@@ -274,7 +274,7 @@ function withEntry(census: PayloadKeyCensus, key: string, entry: PayloadKeyEntry
 
 /** Inputs for one census recording. `now` is injected so the write is
  *  deterministic under test. */
-export interface RecordPayloadKeysArgs {
+interface RecordPayloadKeysArgs {
 	runner: string;
 	nativeEvent: string;
 	raw: unknown;

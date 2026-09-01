@@ -23,7 +23,7 @@ import { readLocalConfig, type SponsorConfig, updateLocalConfig } from "../lib/c
 import { c } from "../lib/formatter.js";
 import { addSponsorSpinnerVerb, removeSponsorSpinnerVerbs } from "../lib/sponsor-spinner.js";
 
-export interface SponsorCmdDeps {
+interface SponsorCmdDeps {
 	/** Project root (defaults to process.cwd()). */
 	cwd?: string;
 	/** ~/.claude/settings.json override for tests. */

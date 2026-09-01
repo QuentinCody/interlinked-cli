@@ -9,7 +9,7 @@
 
 import { parseDuration } from "../../lib/activity-utils.js";
 
-export type WhereOp = "=" | "!=" | "~=" | ">" | "<" | ">=" | "<=";
+type WhereOp = "=" | "!=" | "~=" | ">" | "<" | ">=" | "<=";
 
 export interface WhereClause {
 	path: string;

@@ -39,7 +39,7 @@ import { isCappableFile } from "../large-file-policy.js";
 /** The only structural requirement on a metric's per-function entry: a name.
  *  The numeric value is read through the spec's `metricOf`, so an entry may
  *  carry the metric under any field name. */
-export interface NamedMetricEntry {
+interface NamedMetricEntry {
 	name: string;
 }
 

@@ -33,7 +33,7 @@ const MUTATION_RETRY_MAX_DELAY_MS = 60_000;
 export const MUTATION_RETRY_MAX_FAILURES = 8;
 const MUTATION_LAST_ERROR_MAX_CHARS = 2_048;
 
-export interface MutationRetryPlan {
+interface MutationRetryPlan {
 	readonly outcome: ScheduleMutationRetryOutcome;
 	readonly nextAttemptAtMs: number;
 	readonly failureCount: number;

@@ -78,15 +78,15 @@ export interface SubmitMutationJobOutcome {
 	journalReplay: boolean;
 }
 
-export interface AuthenticatePreparedMutationJobInput {
+interface AuthenticatePreparedMutationJobInput {
 	requestBytes: Uint8Array;
 	sourceArtifactBytes: Uint8Array;
 	targetBytes: Uint8Array;
 }
 
-export interface AuthenticatedMutationAcceptance {
+interface AuthenticatedMutationAcceptance {
 	jobId: string;
-	remoteJobId: string;
+remoteJobId: string;
 	acceptanceReceiptHash: string;
 	idempotentReplay: boolean;
 }

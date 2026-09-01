@@ -51,7 +51,7 @@ const MAX_OVER_CAP_LISTED = 3;
 const ANON_FN = "(callback)";
 
 /** One stashed pre-edit analysis, awaiting its PostToolUse. */
-export interface PulseSnapshot {
+interface PulseSnapshot {
 	beforeFns: FunctionComplexityEntry[];
 	afterFns: FunctionComplexityEntry[];
 	/** sha256 of the projected after-content — consumed only on an exact match. */

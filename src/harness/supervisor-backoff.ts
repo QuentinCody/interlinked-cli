@@ -41,7 +41,7 @@ export const SUPERVISOR_BACKOFF_MAX_MS = 60_000;
  *  Infinity — the cap is then applied to a finite number, not derived from one. */
 const MAX_DOUBLINGS = 16;
 
-export interface SupervisorBackoffState {
+interface SupervisorBackoffState {
 	/** Consecutive self-heal spawns with no successful RPC since. */
 	attempts: number;
 	/** Epoch ms of the most recent spawn. */

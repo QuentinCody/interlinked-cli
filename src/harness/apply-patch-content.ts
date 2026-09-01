@@ -23,7 +23,7 @@
 import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 
-export type ApplyPatchOp = "add" | "update" | "delete";
+type ApplyPatchOp = "add" | "update"| "delete";
 
 export interface ApplyPatchSection {
 	/** Final destination path (after an `*** Move to:` retarget, if any). */

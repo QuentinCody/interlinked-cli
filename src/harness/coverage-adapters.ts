@@ -37,7 +37,7 @@ import { join } from "node:path";
 export const CANONICAL_LCOV_PATH = "coverage/lcov.info";
 
 /** How one language's native coverage engine is wrapped to emit LCOV. */
-export interface CoverageAdapter {
+interface CoverageAdapter {
 	/** Stable id, e.g. `"javascript"` | `"python"`. */
 	id: string;
 	/** Human-readable language name, for guidance output. */

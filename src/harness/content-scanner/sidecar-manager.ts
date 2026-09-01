@@ -22,9 +22,9 @@ import type { JsonObject } from "../../lib/json-types.js";
 // Types
 // ===========================================
 
-export interface SidecarSpan {
+interface SidecarSpan {
 	label: string;
-	start: number;
+start: number;
 	end: number;
 	text: string;
 	score?: number;

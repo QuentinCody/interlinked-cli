@@ -43,7 +43,7 @@ export interface MutationJobEvaluator {
 	}): Promise<CommitMutationEvaluationDraft>;
 }
 
-export interface MutationJobProcessorOptions {
+interface MutationJobProcessorOptions {
 	journal: MutationJournal;
 	remote: RemoteMutationJobClient;
 	evaluator: MutationJobEvaluator;
@@ -53,7 +53,7 @@ export interface MutationJobProcessorOptions {
 	clock?: () => number;
 }
 
-export type MutationJobProcessorStage =
+type MutationJobProcessorStage =
 	| "poll"
 	| "parse"
 	| "evaluate"

@@ -26,7 +26,7 @@ import { isJsonObject } from "../lib/json-types.js";
 
 export const SKIPPED_TESTS_BASELINE_REL = ".interlinked/skipped-tests-baseline.json";
 
-export interface SkippedTestsBaseline {
+interface SkippedTestsBaseline {
 	version: 1;
 	/** Max unconditional skips any non-grandfathered file may carry. Tighten-only. */
 	max_skipped: number;

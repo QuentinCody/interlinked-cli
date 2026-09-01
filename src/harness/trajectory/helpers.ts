@@ -261,7 +261,7 @@ export function isEgressCommandToExternalHost(cmd: string): boolean {
 // ===========================================
 
 /** A matched credential-shaped literal. */
-export interface SecretLiteralMatch {
+interface SecretLiteralMatch {
 	kind: string;
 	token: string;
 	/** Whether this shape is high-confidence enough to gate a block on. */

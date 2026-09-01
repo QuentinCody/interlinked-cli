@@ -72,8 +72,8 @@ function selectTargetEntry(
 	return target;
 }
 
-export interface SeedArgs {
-	/** Manifest to extend — pass the previous result to seed many files. */
+interface SeedArgs {
+	/** Manifest toextend — pass the previous result to seed many files. */
 	base: MutationManifest;
 	/** Repo-relative path of the file being adopted. */
 	file: string;

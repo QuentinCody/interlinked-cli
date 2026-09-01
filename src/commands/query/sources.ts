@@ -12,7 +12,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { getDataDir } from "../../lib/config.js";
 
-export interface QuerySource {
+interface QuerySource {
 	name: string;
 	file: string;
 	/** Identity filter — what makes a record part of this source. */

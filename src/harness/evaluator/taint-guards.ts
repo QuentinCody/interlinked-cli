@@ -273,7 +273,7 @@ function checkStepLimitDegradation(
 	};
 }
 
-export interface TaintGuardsArgs {
+interface TaintGuardsArgs {
 	toolName: string;
 	toolInput: JsonObject;
 	rules: GuardRulesConfig;

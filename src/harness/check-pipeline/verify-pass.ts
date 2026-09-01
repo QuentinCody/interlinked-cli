@@ -24,7 +24,7 @@
 import type { InlineMatch } from "../checks/shared.js";
 
 /** A registered second-pass filter for a specific check id. */
-export interface VerifyPass {
+interface VerifyPass {
 	/** Check id this pass filters (e.g. "magic_literal_in_conditional"). */
 	checkId: string;
 	/** Human-readable rationale — shown to maintainers tuning FPs. */

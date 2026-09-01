@@ -5,9 +5,9 @@
 // around the numbered list; findings without any file anchor still parse
 // (they reconcile by ack rather than by touch).
 
-export type ReviewSeverity = "critical" | "high" | "medium" | "low" | "unknown";
+type ReviewSeverity = "critical" | "high" | "medium" | "low" | "unknown";
 
-export interface ParsedReviewFinding {
+interface ParsedReviewFinding {
 	/** 1-based index as written in the report. */
 	index: number;
 	severity: ReviewSeverity;

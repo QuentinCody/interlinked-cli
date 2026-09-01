@@ -37,7 +37,7 @@ export interface CrossProcessCompilerLease {
 	release: () => void;
 }
 
-export interface CrossProcessCompilerLeaseOptions {
+interface CrossProcessCompilerLeaseOptions {
 	/** Test seam for the observe-then-retire race. Production leaves absent. */
 	beforeRetireObserved?: () => void;
 }

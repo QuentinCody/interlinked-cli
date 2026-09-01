@@ -33,7 +33,7 @@ export interface RpcError {
 	error: { code: RpcErrorCode; message: string; recoverable: boolean };
 }
 
-export type RpcErrorCode =
+type RpcErrorCode =
 	| "timeout"
 	| "bad_request"
 	| "unknown_method"
@@ -85,7 +85,7 @@ export interface DaemonHealth {
 	protocol_version: typeof PROTOCOL_VERSION;
 }
 
-export interface HookSessionAck {
+interface HookSessionAck {
 	ack: true;
 }
 

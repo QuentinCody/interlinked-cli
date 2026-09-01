@@ -18,8 +18,8 @@ import { assembleTrace, loadTrace } from "../harness/replay/trace-assembler.js";
 import { c } from "../lib/formatter.js";
 import { getOutputMode, output } from "../lib/output.js";
 
-export interface ReplayStatus {
-	envelope_count: number;
+interface ReplayStatus {
+	envelope_count:number;
 	/** Envelopes whose response contained at least one tool_use block. */
 	tool_turn_count: number;
 	latest_ts: string | null;

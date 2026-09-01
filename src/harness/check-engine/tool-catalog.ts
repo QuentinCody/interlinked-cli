@@ -53,13 +53,13 @@ import { runTsc, runTscAsync } from "./tool-runners/tsc.js";
 import type { ToolId, ToolRunner, ToolRunnerAsync, ToolRunnerMeta } from "./types.js";
 
 /** A binary-version probe (mirrors discovery's `ToolBinarySpec`). */
-export interface VersionProbe {
+interface VersionProbe {
 	versionCmd: string[];
 	versionRegex: RegExp;
 }
 
 /** One row of the catalog — everything needed to wire and detect a tool. */
-export interface ToolCatalogEntry extends VersionProbe {
+interface ToolCatalogEntry extends VersionProbe {
 	id: ToolId;
 	/** Harness config-name aliases that select this tool. */
 	configNames?: string[];
@@ -79,7 +79,7 @@ export interface ToolCatalogEntry extends VersionProbe {
 }
 
 /** Derived discovery spec shape (structurally matches discovery's `ToolSpec`). */
-export interface DerivedToolSpec extends VersionProbe {
+interface DerivedToolSpec extends VersionProbe {
 	id: ToolId;
 	configFiles?: string[];
 	requiresConfig?: boolean;

@@ -31,7 +31,7 @@ export interface VizEvent {
 	model?: string;
 }
 
-export interface ActivityTailer {
+interface ActivityTailer {
 	stop: () => void;
 }
 
@@ -212,7 +212,7 @@ export function createJsonlTailer<T>(
 // partial/foreign lines (returns null rather than throwing).
 
 /** One check fired against a tool call (severity + how it was decided). */
-export interface CheckSummary {
+interface CheckSummary {
 	id: string;
 	severity: string;
 	determinism: "proven" | "heuristic";
@@ -220,7 +220,7 @@ export interface CheckSummary {
 }
 
 /** A per-tool-call gate decision: which checks ran and whether the call was allowed. */
-export interface CheckEvent {
+interface CheckEvent {
 	ts: string;
 	tool_use_id: string;
 	tool?: string;
@@ -230,7 +230,7 @@ export interface CheckEvent {
 	checks: CheckSummary[];
 }
 
-export interface ChecksTailer {
+interface ChecksTailer {
 	stop: () => void;
 }
 

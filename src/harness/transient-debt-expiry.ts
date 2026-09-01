@@ -32,7 +32,7 @@ import { appendDebtTxn, readOpenTransientDebts } from "./obligation-ledger-io.js
 
 /** One finding as the project-wide sweep reported it. The TS code lives inside
  *  the free-text message, which is the only shape the sweep exposes. */
-export interface SweptDiagnostic {
+interface SweptDiagnostic {
 	/** Absolute or repo-relative; normalized here. Absent ⇒ the finding is
 	 *  un-attributable and cannot keep any file's debt alive. */
 	file?: string | undefined;
@@ -91,7 +91,7 @@ export function expiredTransientDebts(
 	return debts.filter((d) => d.status === "open" && noLongerReproduces(d, byFile));
 }
 
-export interface DebtExpiryOptions {
+interface DebtExpiryOptions {
 	atMs?: number;
 	/** A simulated event must not discharge real debts. */
 	dryRun?: boolean;

@@ -61,7 +61,7 @@ export function renderAggregate(rows: AggregateRow[]): string[] {
 	});
 }
 
-export interface FooterContext {
+interface FooterContext {
 	sinceStopped?: boolean;
 	limitStopped?: boolean;
 }

@@ -40,7 +40,7 @@ export interface TimelineRewriteBasis {
 	mode: number | null;
 }
 
-export interface TimelineRewriteOptions {
+interface TimelineRewriteOptions {
 	afterBasisCaptured?: (() => void) | undefined;
 }
 

@@ -35,8 +35,8 @@ import type { ProjectGraph } from "./project-graph.js";
 import type { RouteMap } from "./route-map.js";
 
 /** Options accepted by {@link annotateReachability}. */
-export interface AnnotateReachabilityOpts {
-	/** Initialized project graph used to compute reachability verdicts. */
+interface AnnotateReachabilityOpts {
+	/** Initializedproject graph used to compute reachability verdicts. */
 	projectGraph: ProjectGraph;
 	/** Entry points the graph should walk from. */
 	entryPoints: EntryPoint[];

@@ -102,7 +102,7 @@ export function defaultResolveRepoRoot(dir: string): string | null {
  *  a commit that only deletes a source file previously skipped the suite
  *  entirely and could land a deletion that breaks imports or tests (finding
  *  2026-06). */
-export interface SelectedChanges {
+interface SelectedChanges {
 	sources: ChangedSource[];
 	/** Repo-relative paths of gated-language files absent from the evaluation
 	 *  tree (deleted by this commit). Their LANGUAGES join the suite run. */

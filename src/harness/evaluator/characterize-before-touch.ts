@@ -31,9 +31,9 @@ const TEST_PATH_RE =
  *  new-file gate's convention of a first-lines marker). */
 const EXEMPT_SCAN_BYTES = 400;
 
-export type CharacterizeMode = "block" | "warn" | "off";
+type CharacterizeMode = "block" | "warn"| "off";
 
-export interface CharacterizeGateArgs {
+interface CharacterizeGateArgs {
 	filePath: string;
 	cwd?: string | undefined;
 	session: SessionTrajectory | undefined;

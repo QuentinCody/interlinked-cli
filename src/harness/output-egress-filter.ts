@@ -43,7 +43,7 @@ export interface EgressFilterConfig {
 	ignored_rule_ids?: ReadonlyArray<string>;
 }
 
-export interface FilteredOutput {
+interface FilteredOutput {
 	/** Content with secrets replaced by redaction marker. Same as input when
 	 *  nothing matched or the filter is disabled. */
 	filtered: string;

@@ -66,7 +66,7 @@ function stripModuleSpecifiers(content: string): string {
 
 /** What fired, for the block reason. Both fields are the matched source text,
  *  trimmed — the agent needs to see its own line to know what to remove. */
-export interface PatchApplierEvidence {
+interface PatchApplierEvidence {
 	writeCall: string;
 	repoTarget: string;
 }

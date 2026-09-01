@@ -47,7 +47,7 @@ import {
 export type FoldKind = "coverage" | "coverage_edit" | "untested_files" | "large_files";
 
 /** Why a fold did nothing. `null` means it ran and moved something. */
-export type FoldSkipReason =
+type FoldSkipReason =
 	| "no-baseline"
 	| "no-input"
 	| "stale-report"
@@ -320,7 +320,7 @@ function lineCountOf(cwd: string, rel: string): number | null {
 }
 
 /** The grandfather plan: the next `files` map plus what moved and what was held. */
-export interface GrandfatherShrinkPlan {
+interface GrandfatherShrinkPlan {
 	files: Record<string, number>;
 	dropped: string[];
 	tightened: string[];

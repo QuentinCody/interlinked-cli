@@ -105,7 +105,7 @@ function mergeView(existing: FileView | undefined, next: FileView): FileView {
 }
 
 /** Rescue attribution: a successful write to the doomed file soon after. */
-function trackRescue(session: SessionTrajectory, event: HarnessEvent, filePath: string): void {
+function trackRescue(session: SessionTrajectory, _event: HarnessEvent, filePath: string): void {
 	const mechanics = session.edit_mechanics;
 	const doom = mechanics?.last_doom;
 	if (!mechanics || !doom || doom.file !== filePath) return;
@@ -201,7 +201,7 @@ export function staleReadWarning(
 	);
 }
 
-export interface BlindEditSpan {
+interface BlindEditSpan {
 	file: string;
 	startLine: number;
 	endLine: number;

@@ -87,7 +87,7 @@ export interface EventLoopDeps {
 
 /** The two entry points the socket servers invoke, plus the protocol-status
  *  serializer that `server.ts` startup also calls. */
-export interface EventLoop {
+interface EventLoop {
 	evaluateEventLine: (line: string, protocol: "raw" | "framed") => Promise<HarnessDecision>;
 	evaluateUnifiedViaRuntime: (event: UnifiedHookEvent) => Promise<HarnessDecision>;
 	writeProtocolStatus: () => void;

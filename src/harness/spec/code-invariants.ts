@@ -6,7 +6,7 @@
 // block-tier markers). Output feeds the taxonomy artifact that scopes
 // reviews — extraction only, judgment stays with reviewers.
 
-export interface ExtractedInvariant {
+interface ExtractedInvariant {
 	line: number;
 	kind: "invariant_comment" | "safety_comment" | "assertion" | "registry_row" | "doctrine";
 	/** Verbatim text, trimmed, capped. */

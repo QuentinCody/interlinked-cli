@@ -34,10 +34,10 @@ interface HfTokenClassificationEntity {
 }
 
 /** Optional DI seam for tests — defaults to the global `fetch`. */
-export type FetchFn = typeof fetch;
+type FetchFn = typeof fetch;
 
-export interface OpfHttpScannerOptions {
-	/** Test hook — defaults to `globalThis.fetch`. */
+interface OpfHttpScannerOptions {
+	/** Test hook —defaults to `globalThis.fetch`. */
 	fetchFn?: FetchFn;
 	/** Test hook — override env lookup. Defaults to `process.env[varName]`. */
 	resolveEnv?: (varName: string) => string | undefined;

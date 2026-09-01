@@ -44,7 +44,7 @@ export interface AdversarialRecord {
 }
 
 /** The committed adversarial store. */
-export interface AdversarialStore {
+interface AdversarialStore {
 	version: 1;
 	checks: Record<string, AdversarialRecord>;
 }

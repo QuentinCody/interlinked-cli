@@ -67,7 +67,7 @@ export function findCodexRollouts(dir: string, sinceMs?: number): string[] {
 	return out;
 }
 
-export interface CollectResult {
+interface CollectResult {
 	/** Rollout files scanned. */
 	files: number;
 	/** Records parsed across all files (before dedup). */

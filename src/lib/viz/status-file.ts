@@ -12,7 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-export interface VizStatus {
+interface VizStatus {
 	url: string;
 	pid: number;
 	root: string;

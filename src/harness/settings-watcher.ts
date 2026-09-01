@@ -47,7 +47,7 @@ const WATCH_POLL_INTERVAL_MS = 500;
  *  polls. */
 const STRIP_DEBOUNCE_MS = 750;
 
-export interface StripDebouncerOptions {
+interface StripDebouncerOptions {
 	cwd: string;
 	/** Called every time a strip actually happens (i.e. at least one
 	 *  malformed rule was removed). Receives the aggregated result so
@@ -66,7 +66,7 @@ export interface StripDebouncerOptions {
 	debounceMs?: number;
 }
 
-export interface StripDebouncer {
+interface StripDebouncer {
 	/** Schedule a strip pass to run after the debounce window. Repeated
 	 *  calls inside the window reset the timer (last-write-wins —
 	 *  acceptable for our use case because `autoStripAllScopes` always
@@ -156,7 +156,7 @@ function autoStripScopedPaths(
 	return { totalStripped, entries };
 }
 
-export interface SettingsWatcherOptions extends StripDebouncerOptions {
+interface SettingsWatcherOptions extends StripDebouncerOptions {
 	/** Override polling interval. Tests pass a small value. Defaults
 	 *  to 500 ms. */
 	pollIntervalMs?: number;

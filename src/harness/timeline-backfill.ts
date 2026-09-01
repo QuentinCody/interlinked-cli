@@ -95,7 +95,7 @@ export function collectTranscriptRecords(cwd: string, homeDir: string): Timeline
 }
 
 /** Summary of a backfill run. */
-export interface BackfillResult {
+interface BackfillResult {
 	dir: string;
 	transcripts: number;
 	records: number;

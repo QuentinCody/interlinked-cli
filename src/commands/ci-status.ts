@@ -113,16 +113,16 @@ function parseCiRun(value: unknown): CiRun | null {
 	};
 }
 
-export interface WorkflowStats {
+interface WorkflowStats {
 	workflowName: string;
 	total: number;
 	failures: number;
 	failureRate: number;
 }
 
-export interface CiAggregation {
+interface CiAggregation {
 	total: number;
-	completed: number;
+completed: number;
 	failures: number;
 	byWorkflow: WorkflowStats[];
 	recentFailures: CiRun[];

@@ -72,7 +72,7 @@ export type MetricKey =
 /** Fully-resolved caps for a repo (every key populated). `coverage_goal` is a
  *  TARGET, not a gate input: enforcement reads `min_coverage` (hard floor) and
  *  the per-file high-water ratchet; the goal drives display and nudges. */
-export interface MetricCaps {
+interface MetricCaps {
 	max_lines: number;
 	max_function_tokens: number;
 	max_cyclomatic: number;
@@ -83,7 +83,7 @@ export interface MetricCaps {
 }
 
 /** Where a resolved cap's value came from (shown by `interlinked caps`). */
-export type CapSource = "metric-caps.json" | "legacy-config" | "default";
+type CapSource = "metric-caps.json" | "legacy-config" | "default";
 
 /** Repo-relative path of the committed override file. */
 export const METRIC_CAPS_REL = ".interlinked/metric-caps.json";
@@ -94,7 +94,7 @@ export const METRIC_CAPS_REL = ".interlinked/metric-caps.json";
  * CLI command, `docs/generated/metrics.md`, and every enforcement message all
  * read these strings, so a metric is described identically everywhere.
  */
-export interface MetricDef {
+interface MetricDef {
 	key: MetricKey;
 	/** Key in `.interlinked/metric-caps.json`. */
 	configKey: keyof MetricCaps;
@@ -275,7 +275,7 @@ interface RawMetricCaps {
 }
 
 /** A partial set of overrides parsed from the file (only present, valid keys). */
-export type MetricCapsOverrides = Partial<MetricCaps>;
+type MetricCapsOverrides = Partial<MetricCaps>;
 
 interface CacheEntry {
 	mtimeMs: number;
@@ -364,7 +364,7 @@ export function resetMetricCapsCache(): void {
 /** Optional legacy per-metric values a caller already has (e.g. the line
  *  baseline's max_lines, the coverage-gate config's crap_threshold). Layered
  *  BELOW metric-caps.json and ABOVE the shipped defaults. */
-export interface LegacyCapInputs {
+interface LegacyCapInputs {
 	max_lines?: number | undefined;
 	crap_threshold?: number | undefined;
 }
@@ -380,9 +380,9 @@ const DEFAULTS: MetricCaps = {
 };
 
 /** A resolved cap value plus where it came from. */
-export interface ResolvedCap {
+interface ResolvedCap {
 	value: number;
-	source: CapSource;
+source: CapSource;
 }
 
 function resolveOne(

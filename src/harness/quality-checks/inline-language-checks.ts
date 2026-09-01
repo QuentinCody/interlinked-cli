@@ -16,7 +16,7 @@ import { nonNull } from "../../lib/non-null.js";
 import type { InlineCheckDef, LanguageId, LanguageProfile } from "../types.js";
 import { isLikelyTestFile } from "./test-classifier.js";
 
-export interface InlineLangCheckResult {
+interface InlineLangCheckResult {
 	name: string;
 	severity: "error" | "warning";
 	message: string;

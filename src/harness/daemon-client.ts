@@ -19,7 +19,7 @@ import {
 	splitFrames,
 } from "./daemon-protocol.js";
 
-export interface RpcCallOptions {
+interface RpcCallOptions {
 	/** Hard deadline in milliseconds. If no response arrives the promise
 	 *  rejects with `new Error("timeout")`. */
 	timeout_ms?: number;

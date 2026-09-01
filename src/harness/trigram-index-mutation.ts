@@ -114,7 +114,7 @@ export function updateFileInState(
 }
 
 /** Read-only slice of the dirty layer the count/flag/clear helpers consume. */
-export interface DirtyStateView {
+interface DirtyStateView {
 	readonly dirtyOverrides: Map<number, Set<number> | null>;
 	readonly dirtyNewFiles: Map<string, { id: number; trigrams: Set<number> }>;
 }
@@ -190,7 +190,7 @@ export function incrementalUpdateState(
 // five-step summary of the algorithm rather than one long procedure.
 
 /** Posting-list entry while it's still being edited as mutable arrays. */
-export interface MutablePostingData {
+interface MutablePostingData {
 	fileIds: number[];
 	locMasks: number[];
 	nextMasks: number[];

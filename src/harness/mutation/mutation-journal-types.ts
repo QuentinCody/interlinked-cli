@@ -6,12 +6,12 @@
 
 import type { V3SourceArtifactBinding } from "./protocol-v3/types.js";
 
-export type MutationJobStatus = "pending" | "evaluated" | "acked" | "dead_letter";
-export type MutationClaimPhase = "poll" | "ack";
+type MutationJobStatus = "pending" | "evaluated" | "acked" | "dead_letter";
+type MutationClaimPhase = "poll" | "ack";
 export type MutationBaselineIntent = "require_established" | "adopt_current";
 
 /** Caller-derived job binding retained before any remote result is trusted. */
-export interface JournalExpectedJob {
+interface JournalExpectedJob {
 	tenant: string;
 	project: string;
 	repository: string;
@@ -22,7 +22,7 @@ export interface JournalExpectedJob {
 }
 
 /** Caller-derived admission identity; never reconstructed from a response. */
-export interface JournalExpectedAdmission {
+interface JournalExpectedAdmission {
 	request_hash: string;
 	changeset_hash: string;
 	/** Caller-held source bundle binding submitted for admission. This must

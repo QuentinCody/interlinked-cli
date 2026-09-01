@@ -7,7 +7,7 @@
 // and array-order-sensitive
 // (docs/design/reproducibility/tier1-teacher-forced-eval.md).
 
-export interface ActionForMatch {
+interface ActionForMatch {
 	tool: string | null;
 	input: unknown;
 }

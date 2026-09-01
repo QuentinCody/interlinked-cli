@@ -71,7 +71,7 @@ const EXEMPT_PATH_RES: readonly RegExp[] = [
 const TDD_EXEMPT_DIRECTIVE_RE = /\/\/\s*interlinked-tdd:\s*exempt\b/;
 const EXEMPT_DIRECTIVE_SCAN_BYTES = 400;
 
-export interface TddNewFileGateArgs {
+interface TddNewFileGateArgs {
 	filePath: string;
 	cwd?: string | undefined;
 	session: SessionTrajectory | undefined;

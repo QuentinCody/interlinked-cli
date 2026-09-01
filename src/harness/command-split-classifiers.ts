@@ -27,7 +27,7 @@ export function nextBracketDepth(
 }
 
 /** Result of classifying a top-level (depth-0) compound-operator position. */
-export interface TopLevelSplitAction {
+interface TopLevelSplitAction {
 	/** Extra characters beyond `ch` this decision consumes (1 for two-char `&&`/`||`). */
 	extraChars: number;
 	/** Text to append to the in-progress segment before continuing. */

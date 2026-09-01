@@ -38,7 +38,7 @@ interface LockOwner {
 	process_start_id?: string;
 }
 
-export interface FileMutationLockOptions {
+interface FileMutationLockOptions {
 	waitMs?: number;
 	retryMs?: number;
 	staleMs?: number;

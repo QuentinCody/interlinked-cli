@@ -20,7 +20,7 @@
 import { getHarnessServerPath } from "../commands/harness-process.js";
 import { DEFAULT_DAEMON_HEAP_MB } from "../harness/memory-ceiling.js";
 
-export interface ReviveBakes {
+interface ReviveBakes {
 	/** Absolute node binary of the generating process. */
 	nodeBin: string;
 	/** Absolute path to dist/harness/server.js, or "" when unresolvable. */
@@ -67,7 +67,7 @@ export function pidDiscoveryBash(): string {
         done`;
 }
 
-export function downBranchBash(b: ReviveBakes): string {
+export function downBranchBash(_b: ReviveBakes): string {
 	return `# Debounce transient restart windows. A self-healing respawn (or a SessionStart
 # relaunch) leaves harness.pid pointing at a dead process for ~1-3s; without a
 # grace period the statusline paints the full outage alarm on that blip even

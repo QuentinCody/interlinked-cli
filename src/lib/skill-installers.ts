@@ -43,7 +43,7 @@ export interface SkillInstallResult {
     error?: string;
 }
 
-export interface SkillInstallationInspection {
+interface SkillInstallationInspection {
     expectedFiles: number;
     currentFiles: number;
     issues: string[];

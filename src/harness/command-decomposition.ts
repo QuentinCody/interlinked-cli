@@ -122,7 +122,7 @@ export function decomposeCommand(command: string): string[] {
 
 const ENV_VAR_ASSIGN_RE = /^[A-Za-z_]\w*=/;
 
-export interface EnvStripResult {
+interface EnvStripResult {
 	stripped: string;
 	dangerous_var?: string;
 }
@@ -159,14 +159,14 @@ export function stripEnvVarPrefix(command: string, mode: "deny" | "allow"): EnvS
 // ===========================================
 
 /** Callback type for custom rule matching (mirrors evaluator's matchesRule) */
-export type MatchRuleFn = (
+type MatchRuleFn = (
 	cmd: string,
-	input: JsonObject,
+input: JsonObject,
 	rule: GuardRule,
 	extras?: Record<string, string[]>,
 ) => boolean;
 
-export interface CompoundEvalResult {
+interface CompoundEvalResult {
 	decision: "allow" | "block";
 	reason?: string | undefined;
 	warnings: string[];

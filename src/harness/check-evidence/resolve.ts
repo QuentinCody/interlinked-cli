@@ -167,7 +167,7 @@ export function buildDetectorIndex({ searchRoot, repoRoot }: IndexRoots): Detect
 }
 
 /** Where a detector's implementation and its exercising tests live. */
-export interface DetectorLocation {
+interface DetectorLocation {
 	/** Repo-relative file exporting the detector, or null when unresolved. */
 	detectorFile: string | null;
 	/** Repo-relative test files referencing the detector, possibly empty. */

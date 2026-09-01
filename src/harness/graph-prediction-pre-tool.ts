@@ -75,7 +75,7 @@ const MODE_SHADOW: GraphPredictionMode = "shadow";
 const MODE_ENFORCED: GraphPredictionMode = "enforced";
 const ACK_REQUIRED = "ack_required" as const;
 
-export interface DriveArgs {
+interface DriveArgs {
 	event: HarnessEvent;
 	cwd: string;
 	mode: GraphPredictionMode;

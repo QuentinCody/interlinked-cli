@@ -26,16 +26,16 @@ import type {
 const RECEIPT_SCHEMA_VERSION = 1 as const;
 const RECEIPT_FILE = "manual-marker-snapshots.jsonl";
 
-export type ManualDebtMarkerTransitionAction = "opened" | "changed" | "closed";
+type ManualDebtMarkerTransitionAction = "opened" | "changed" | "closed";
 
-export interface ManualDebtMarkerTransition {
+interface ManualDebtMarkerTransition {
     action: ManualDebtMarkerTransitionAction;
     fingerprint: string;
     before: ManualDebtMarker | null;
     after: ManualDebtMarker | null;
 }
 
-export interface ManualDebtMarkerSnapshotReceipt {
+interface ManualDebtMarkerSnapshotReceipt {
     schema_version: typeof RECEIPT_SCHEMA_VERSION;
     kind: "manual_debt_marker_snapshot";
     snapshot_fingerprint: string;
@@ -48,7 +48,7 @@ export interface ManualDebtMarkerSnapshotReceipt {
     transitions: ManualDebtMarkerTransition[];
 }
 
-export interface RecordManualDebtMarkerOptions {
+interface RecordManualDebtMarkerOptions {
     reason?: string | undefined;
     now?: string | undefined;
     clock?: (() => number) | undefined;

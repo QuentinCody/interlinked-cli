@@ -12,18 +12,18 @@ import { isJsonObject } from "./json-types.js";
 
 export const HOOK_RUNTIME_RECEIPT_FILE = "hook-runtime.json";
 
-export interface HookRuntimeObservation {
+interface HookRuntimeObservation {
 	observed_at: string;
 	native_event: string;
 	definition_sha256?: string;
 }
 
-export interface HookRuntimeReceipt {
+interface HookRuntimeReceipt {
 	schema_version: "1";
 	providers: Record<string, HookRuntimeObservation>;
 }
 
-export interface RecordHookRuntimeOptions {
+interface RecordHookRuntimeOptions {
 	dataDir: string;
 	provider: string;
 	nativeEvent: string;

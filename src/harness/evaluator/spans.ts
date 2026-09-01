@@ -26,7 +26,7 @@
 //     even `echo "bash -c 'rm -rf /'"` classify as inline code (scanned)
 //     because missing a real payload is worse than scanning prose.
 
-export type SpanKind = "executed" | "inline_code" | "quoted" | "comment" | "heredoc";
+type SpanKind = "executed" | "inline_code" | "quoted" | "comment" | "heredoc";
 
 export interface Span {
 	kind: SpanKind;

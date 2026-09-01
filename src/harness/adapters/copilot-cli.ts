@@ -20,7 +20,7 @@ import type { AdapterOutput, RunnerAdapter, SettingsFragment } from "./types.js"
 
 const NATIVE_EVENTS = installedEventNames(COPILOT_CLI_CAPABILITIES);
 
-export interface CopilotCliAdapterOptions {
+interface CopilotCliAdapterOptions {
 	overrides?: ClassifierOverrides | undefined;
 }
 

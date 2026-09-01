@@ -33,7 +33,7 @@ const FENCE_END_RE = /^```\s*$/;
 const UNKNOWN_SENTINEL = "unknown" as const;
 const TOP_LEVEL_KEY = "graph_prediction" as const;
 
-export type ParseStatus = "ok" | "format_violation" | "parse_failed";
+type ParseStatus = "ok" | "format_violation" | "parse_failed";
 
 export interface PredictionDeps {
 	imports: string[] | "unknown";
@@ -139,11 +139,6 @@ function newAccumulator(): ParserAccumulator {
 		formatViolation: false,
 		parseFailure: null,
 	};
-}
-
-interface SubsectionResult {
-	formatViolation: boolean;
-	nextIndex: number;
 }
 
 interface TopLevelDispatchArgs {

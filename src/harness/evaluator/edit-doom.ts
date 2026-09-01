@@ -194,7 +194,7 @@ function resolveSectionPath(path: string): string {
 }
 
 /** One warn-tier apply_patch finding, path kept separate for recurrence rows. */
-export interface ApplyPatchDoom {
+interface ApplyPatchDoom {
 	path: string;
 	warning: string;
 }

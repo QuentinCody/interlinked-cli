@@ -18,7 +18,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-export interface RepoProfile {
+interface RepoProfile {
 	/** Supported test runner detectable. */
 	runners: { js: boolean; python: boolean };
 	/** Where tests live. */

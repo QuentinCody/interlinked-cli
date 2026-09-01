@@ -31,7 +31,7 @@ import {
 } from "./trigram-primitives.js";
 
 /** Parsed index data produced by {@link loadIndex}, ready for the TrigramIndex constructor. */
-export interface ParsedIndexData {
+interface ParsedIndexData {
 	files: string[];
 	postings: Map<number, PostingList>;
 	stopTrigrams: Set<number>;
@@ -238,8 +238,7 @@ export function loadIndex(cwd: string, interlinkedDir?: string): ParsedIndexData
 	offset += 4;
 	if (version !== VERSION) return null;
 
-	const _flags = lookupBuf.readUInt32LE(offset);
-	offset += 4;
+	offset += 4; // flags — reserved, not read
 
 	const fileCount = lookupBuf.readUInt32LE(offset);
 	offset += 4;
@@ -250,8 +249,7 @@ export function loadIndex(cwd: string, interlinkedDir?: string): ParsedIndexData
 	const stopCount = lookupBuf.readUInt32LE(offset);
 	offset += 4;
 
-	const _reserved = lookupBuf.readUInt32LE(offset);
-	offset += 4;
+	offset += 4; // reserved — not read
 
 	// Meta: base commit + builtAt
 	if (offset >= lookupBuf.length) return null;
@@ -294,8 +292,7 @@ export function loadIndex(cwd: string, interlinkedDir?: string): ParsedIndexData
 	const postings = new Map<number, PostingList>();
 	for (let i = 0; i < trigramCount; i++) {
 		if (offset + 16 > lookupBuf.length) return null;
-		const _hash = lookupBuf.readUInt32LE(offset);
-		offset += 4;
+		offset += 4; // hash — not read; packed lookup entry below carries the trigram key
 		const packed = lookupBuf.readUInt32LE(offset);
 		offset += 4;
 		const postingOffset = lookupBuf.readUInt32LE(offset);

@@ -19,12 +19,12 @@ import type { CanonicalCoverageElementSet } from "../coverage-index/types.js";
  * ({@link locLine}, {@link locColumn}, and the per-entry checks in
  * {@link branchElements} / {@link functionElements}).
  */
-export type IstanbulIdMap = JsonObject;
+type IstanbulIdMap = JsonObject;
 
 /** One istanbul file-coverage entry, after unwrapping any `{data: …}` envelope. */
-export interface IstanbulFileCoverage {
+interface IstanbulFileCoverage {
 	path?: string;
-	statementMap: IstanbulIdMap;
+statementMap: IstanbulIdMap;
 	s: IstanbulIdMap;
 	branchMap?: IstanbulIdMap;
 	b?: IstanbulIdMap;

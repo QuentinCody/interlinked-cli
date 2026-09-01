@@ -95,7 +95,7 @@ export interface TimelineRecord {
 }
 
 /** Per-turn token usage as the transcript reports it. */
-export interface TimelineUsage {
+interface TimelineUsage {
 	input?: number | undefined;
 	output?: number | undefined;
 	cache_read?: number | undefined;

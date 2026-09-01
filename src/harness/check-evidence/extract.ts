@@ -24,7 +24,7 @@ import type {
 } from "./types.js";
 
 /** Inputs for one evidence sweep. */
-export interface EvidenceSweepInput {
+interface EvidenceSweepInput {
 	/** The live check registry (or a subset, in tests). */
 	registry: readonly CheckRegistration[];
 	/** Live `DEFAULT_ADVISORY_SKIPS` — splits the `post` phase into two tiers. */
@@ -50,7 +50,7 @@ export interface EvidenceSweepInput {
 }
 
 /** Result of one evidence sweep. */
-export interface EvidenceSweep {
+interface EvidenceSweep {
 	evidence: CheckEvidence[];
 	verdicts: EvidenceVerdict[];
 	index: DetectorIndex;
@@ -80,7 +80,7 @@ function gapsFor(detectorFile: string | null, testFiles: readonly string[], case
 }
 
 /** Optional recall inputs — absent ones leave their fields UNKNOWN, not zero. */
-export interface RecallInputs {
+interface RecallInputs {
 	/** This check's corpus dogfood run, if one is recorded. */
 	corpus?: CorpusRecord;
 	/** The check's tier, needed to floor the derived case count. */

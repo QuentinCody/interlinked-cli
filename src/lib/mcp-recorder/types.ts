@@ -5,10 +5,10 @@
 
 export type McpTransport = "stdio" | "streamable_http";
 export type McpDirection = "client_to_server" | "server_to_client";
-export type McpStream = "stdin" | "stdout" | "stderr";
+type McpStream = "stdin" | "stdout" | "stderr";
 export type JsonRpcId = string | number | null;
 
-export type McpEventKind =
+type McpEventKind =
     | "mcp_message"
     | "mcp_parse_error"
     | "mcp_transport";
@@ -34,13 +34,13 @@ export interface McpPayloadRef {
     content_type: McpPayloadContentType;
 }
 
-export interface McpFidelityBlock {
+interface McpFidelityBlock {
     source: "mcp_proxy";
     completeness: "complete";
     inline: boolean;
 }
 
-export interface McpPrivacyBlock {
+interface McpPrivacyBlock {
     redaction_status: "unscanned";
     sensitivity: "unknown";
     contains_sensitive: "unknown";

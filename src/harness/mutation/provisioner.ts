@@ -11,12 +11,12 @@ import { reconstructAfterContent } from "../apply-patch-content.js";
 
 export type FileTree = Map<string, string>;
 
-export interface OverlaySnapshot {
+interface OverlaySnapshot {
 	tree: FileTree;
 	changedPaths: string[];
 }
 
-export interface RepoProvisioner {
+interface RepoProvisioner {
 	seed(files: FileTree): Promise<void>;
 	/** Apply the whole change set to a copy — for evaluation, not persisted. */
 	applyOverlay(changeSet: ChangeSet): Promise<OverlaySnapshot>;

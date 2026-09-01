@@ -23,7 +23,7 @@ import { dirname } from "node:path";
 import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 
-export type SpoolEventKind =
+type SpoolEventKind =
 	| "hook_decision"
 	| "check_finding"
 	| "session_lifecycle"

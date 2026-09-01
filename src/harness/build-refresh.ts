@@ -62,7 +62,7 @@ const QUIET_MS = 10_000;
  */
 const MAX_STALENESS_MS = 10 * 60_000;
 
-export interface OwnArtifact {
+interface OwnArtifact {
 	/** Absolute path of the running daemon's own build artifact. */
 	artifactPath: string;
 	/** Absolute path of the sibling CLI entry (`dist/index.js`). */
@@ -85,9 +85,9 @@ export function resolveOwnArtifact(moduleUrl: string): OwnArtifact | null {
 	return { artifactPath: here, cliEntryPath: join(here.slice(0, idx), "dist", "index.js") };
 }
 
-export interface HandOverInput {
+interface HandOverInput {
 	nowMs: number;
-	currentMtimeMs: number;
+currentMtimeMs: number;
 	startedMtimeMs: number;
 	/** Last hook-event timestamp (0 = never — trivially quiet). */
 	lastActivityAtMs: number;
@@ -114,12 +114,12 @@ export function shouldHandOver(input: HandOverInput): boolean {
 }
 
 /** Injectable I/O so the watcher is unit-testable without spawning daemons. */
-export interface BuildRefreshDeps {
+interface BuildRefreshDeps {
 	statMtimeMs: (path: string) => number | null;
 	spawn: typeof nodeSpawn;
 }
 
-export interface BuildRefreshOptions {
+interface BuildRefreshOptions {
 	moduleUrl: string;
 	/** Repo root the daemon guards — the restart runs with this cwd. */
 	cwd: string;

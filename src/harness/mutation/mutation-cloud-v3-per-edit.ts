@@ -30,7 +30,7 @@ export interface MutationCloudV3PerEditAuthority {
 	repository: string;
 }
 
-export interface PrepareMutationCloudV3PerEditInput {
+interface PrepareMutationCloudV3PerEditInput {
 	root: string;
 	targetFile: string;
 	proposedBytes: Uint8Array;
@@ -38,11 +38,11 @@ export interface PrepareMutationCloudV3PerEditInput {
 	maxTestScope?: number;
 }
 
-export interface MutationCloudV3PerEditDependencies {
-	captureSource?: typeof captureMutationOverlaySource;
+interface MutationCloudV3PerEditDependencies {
+	captureSource?:typeof captureMutationOverlaySource;
 }
 
-export interface PreparedMutationCloudV3PerEdit {
+interface PreparedMutationCloudV3PerEdit {
 	request: ValidMutationJobRequest;
 	sourceArtifactBytes: Uint8Array;
 	targetBytes: Uint8Array;

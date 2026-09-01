@@ -39,7 +39,7 @@ export function persistableHeaders(headers: Record<string, unknown>): JsonObject
 	return out;
 }
 
-export interface SplitRequest {
+interface SplitRequest {
 	model: unknown;
 	system: unknown;
 	tools: unknown;
@@ -85,7 +85,7 @@ export function extractToolUseIds(response: JsonObject): string[] {
 	return ids;
 }
 
-export interface BuildEnvelopeInput {
+interface BuildEnvelopeInput {
 	requestIndex: number;
 	tsRequest: string;
 	tsResponse: string;

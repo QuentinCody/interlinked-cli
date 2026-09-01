@@ -61,7 +61,7 @@ export interface SocketLifecycleDeps {
  *  not evidence that anything is answering. That distinction is the whole
  *  point: it is what lets the daemon tell a pre-listen failure (fatal) from a
  *  post-listen one (survivable). */
-export interface RawListenReporter {
+interface RawListenReporter {
 	note: (which: "raw" | "framed") => void;
 	fail: (what: string, err: unknown) => void;
 }
@@ -170,13 +170,6 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 			}, PID_HEAL_INTERVAL_MS);
 			pidHealTimer.unref();
 		}
-	}
-
-	function removePidFile(): void {
-		// Owns ONLY the legacy `harness.pid`. The framed `harness-<session>.pid`
-		// is removed by `session-daemon.handle.stop()` (session-daemon.ts:167-169)
-		// — the side that wrote it owns the lifecycle, so we don't touch it here.
-		removePidFileIfOwned(PID_PATH, process.pid);
 	}
 
 	function shutdown(): void {

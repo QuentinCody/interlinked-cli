@@ -41,10 +41,10 @@
  *   obligation gate polices, which is exactly why a `direct` tool must never be
  *   classified here by accident.
  */
-export type WriteToolChannel = "direct" | "shell";
+type WriteToolChannel = "direct" | "shell";
 
 /** One write-capable tool name and how the pipeline should treat it. */
-export interface WriteToolEntry {
+interface WriteToolEntry {
 	/** Tool name as the daemon sees it (`evaluator-unified.ts::nativeToolName`
 	 *  restores Claude Code's casing; other runners deliver lowercase_snake). */
 	readonly name: string;

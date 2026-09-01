@@ -16,7 +16,7 @@ import { cpus, freemem } from "node:os";
 
 export type CheckStatus = "pass" | "fail" | "warn";
 
-export interface SystemCheckResult {
+interface SystemCheckResult {
 	name: string;
 	status: CheckStatus;
 	message: string;
@@ -131,8 +131,8 @@ export function checkOrphanHarnessCount(orphanCount: number | null): SystemCheck
 }
 
 /** What the CLI-resolvability probe observed about the `interlinked` verb. */
-export interface CliResolution {
-	/** Path `which interlinked` returned, or null when it resolves nowhere. */
+interface CliResolution {
+	/** Path `whichinterlinked` returned, or null when it resolves nowhere. */
 	resolvedPath: string | null;
 	/** Whether the resolved entry's target actually exists (symlinks rot). */
 	linkTargetExists: boolean;

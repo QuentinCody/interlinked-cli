@@ -24,7 +24,7 @@ import {
 import { loadStateSnapshot } from "./state-archive.js";
 import { loadSnapshotIndex, restoreTree } from "./tree-snapshot.js";
 
-export interface RestoreSummary {
+interface RestoreSummary {
 	tree: string;
 	state_found: boolean;
 	baselines_written: number;

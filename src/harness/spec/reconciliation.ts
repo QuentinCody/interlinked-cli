@@ -9,9 +9,9 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
 
-export type ReconciliationState = "open" | "touched" | "acked";
+type ReconciliationState = "open" | "touched" | "acked";
 
-export interface ReconciliationTxn {
+interface ReconciliationTxn {
 	finding_id: string;
 	action: "touched" | "acked" | "reopened" | "reanchored";
 	/** Session (touch) or actor (ack) attribution. */
@@ -50,7 +50,7 @@ export function appendReconciliationTxn(cwd: string, txn: ReconciliationTxn): vo
 }
 
 /** One finding's folded state. */
-export interface ReconciliationEntry {
+interface ReconciliationEntry {
 	state: ReconciliationState;
 	last_txn?: ReconciliationTxn;
 }

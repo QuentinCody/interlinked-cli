@@ -9,7 +9,7 @@
 // quality-checks.ts just looks up the dispatcher by LanguageId and calls it.
 
 import { existsSync } from "node:fs";
-import { dirname, extname, relative, resolve, sep } from "node:path";
+import { dirname, extname, relative, sep } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import type { LanguageId, LanguageProfile } from "../types.js";
 import { findDirectImporters } from "./direct-importers.js";
@@ -31,7 +31,7 @@ import { runBoundedTestProcess } from "./test-process-gate.js";
  */
 const DEFAULT_MAX_DEPENDENT_TESTS = 8;
 
-export interface TestDispatcherInput {
+interface TestDispatcherInput {
 	/** Path as reported by the agent (may be relative) */
 	filePath: string;
 	/** Absolute filesystem path of the edited file */
@@ -51,7 +51,7 @@ export interface TestDispatcherInput {
 	maxDependentTests?: number;
 }
 
-export interface TestDispatcherResult {
+interface TestDispatcherResult {
 	name: string;
 	severity: "error" | "warning";
 	message: string;
@@ -210,8 +210,8 @@ async function runVitestDispatcher(input: TestDispatcherInput): Promise<TestDisp
 
 /** Result of {@link capDependentTests} — a discriminated union so callers
  *  must branch on `kind` before reading either payload field. */
-export type DependentTestCapDecision =
-	| { kind: "ok"; tests: string[] }
+type DependentTestCapDecision =
+	| { kind: "ok";tests: string[] }
 	| { kind: "over_cap"; count: number };
 
 /**
@@ -447,7 +447,3 @@ export const __test_only__ = {
 	runDirectImporterCompanions,
 };
 
-// Keep the TestDispatcher type reachable by tests/extensions without
-// re-exporting it publicly — prevents accidental consumer-side coupling
-// while giving us a symbol for docs and future extension points.
-export type __TestDispatcher = TestDispatcher;

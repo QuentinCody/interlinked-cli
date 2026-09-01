@@ -42,7 +42,7 @@ import { SKIP_DIRS, TS_JS_EXTENSIONS } from "../project-graph.js";
 import { parseImports } from "../project-graph/parser-imports.js";
 import { resolveImportPath } from "../project-graph/resolve.js";
 
-export interface FindDirectImportersArgs {
+interface FindDirectImportersArgs {
 	/** Absolute path of the edited (target) file. */
 	absPath: string;
 	/** Directory to walk — the file's project root/boundary. */

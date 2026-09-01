@@ -18,7 +18,7 @@ export function managedProviderFileHash(content: string): string {
 
 /** Remove a provider bridge only when it is recognizably ours and, when a
  * manifest hash is available, has not been edited since installation. */
-export type ManagedProviderFileRemoval = "removed" | "missing" | "foreign" | "modified";
+type ManagedProviderFileRemoval = "removed" | "missing" | "foreign" | "modified";
 
 export function removeManagedProviderFile(
     path: string,

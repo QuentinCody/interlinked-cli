@@ -91,7 +91,7 @@ const ASK_CAPABLE_EVENTS = new Set<string>([
 // are observation-only.
 const POST_CONTEXT_EVENTS = new Set<string>(["postToolUse"]);
 
-export interface CursorAdapterOptions {
+interface CursorAdapterOptions {
 	overrides?: ClassifierOverrides | undefined;
 }
 

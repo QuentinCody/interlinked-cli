@@ -36,7 +36,7 @@ export interface ColdDumpDeps {
 }
 
 /** Stat summary over a dump command's file arguments. */
-export interface ColdDumpStats {
+interface ColdDumpStats {
 	largestBytes: number;
 	largestPath: string;
 	newlines: number;
@@ -45,7 +45,7 @@ export interface ColdDumpStats {
 
 /** Parsed shape of a dump command: its pipeline segments, the first segment's
  *  tokens with wrappers stripped, and the dump verb. */
-export interface ColdDumpShape {
+interface ColdDumpShape {
 	segments: string[];
 	tokens: string[];
 	verb: string;

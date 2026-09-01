@@ -55,7 +55,7 @@ function isAsciiWhitespace(byte: number): boolean {
 	return byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d;
 }
 
-export interface FileLine {
+interface FileLine {
 	start: number;
 	end: number;
 	nextOffset: number;
@@ -241,7 +241,7 @@ export function readFirstNonEmptyFileLine(
 	return first;
 }
 
-export interface LineBoundary {
+interface LineBoundary {
 	offset: number;
 	records: number;
 }

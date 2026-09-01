@@ -37,7 +37,7 @@ import { join, resolve } from "node:path";
 import type { RouteMap } from "./route-map.js";
 
 /** Kind of entry point — what surfaced this file as a root of reachability. */
-export type EntryPointKind = "http_handler" | "bin" | "lib_export" | "test";
+type EntryPointKind = "http_handler" |"bin" | "lib_export" | "test";
 
 /** One entry-point record. Absolute path in `file`; `reason` is for diagnostics. */
 export interface EntryPoint {
@@ -47,7 +47,7 @@ export interface EntryPoint {
 }
 
 /** Options bag for `collectEntryPoints`. */
-export interface CollectEntryPointsOptions {
+interface CollectEntryPointsOptions {
 	/** Pre-initialized RouteMap, reused so we don't double-scan. */
 	routeMap?: RouteMap;
 	/**

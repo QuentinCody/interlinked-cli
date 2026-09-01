@@ -88,7 +88,7 @@ function scopedSources(
 	});
 }
 
-export interface CoverageReceiptOptions {
+interface CoverageReceiptOptions {
 	cwd: string;
 	discovered: string[];
 	scope: SimplificationScopeReceipt;

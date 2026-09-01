@@ -72,7 +72,7 @@ export function isRootScratchDir(repoRoot: string, absDir: string): boolean {
 /** Runs the `git ls-files` ignored-directory listing and returns raw stdout,
  *  or null when git is unavailable / the path is not a repo / it times out.
  *  Injectable so the walk's gitignore awareness is unit-testable without git. */
-export type GitIgnoredDirRunner = (repoRoot: string) => string | null;
+type GitIgnoredDirRunner = (repoRoot: string) => string | null;
 
 /** Cap git's stdout so a pathological ignore listing can't balloon memory. */
 const GIT_LS_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
@@ -144,7 +144,7 @@ function parseIgnoredDirs(repoRoot: string, stdout: string | null): ReadonlySet<
 /** Predicate an extractor walk applies to each child directory: skip it when
  *  its basename is a universal artefact dir OR its absolute path is gitignored
  *  in this repo. */
-export type DirSkipper = (basename: string, absDir: string) => boolean;
+type DirSkipper = (basename: string, absDir: string) => boolean;
 
 /** Build the dir-skip predicate for one walk over `repoRoot`: the universal
  *  basename set plus this repo's gitignored directories (resolved once,

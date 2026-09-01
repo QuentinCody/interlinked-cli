@@ -67,7 +67,7 @@ export function baselineSurvivorCount(manifest: MutationManifest, file: string):
 	return count;
 }
 
-export interface TestEffectInput {
+interface TestEffectInput {
 	/** The code file that was measured. */
 	file: string;
 	/** The test file whose edit triggered this run. */

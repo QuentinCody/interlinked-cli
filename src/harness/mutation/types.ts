@@ -209,7 +209,7 @@ export interface MutationReceipt {
 }
 
 /** Recorded when a measurement could not complete (parent doc §12, case 3). */
-export interface MutationObligation {
+interface MutationObligation {
 	reason: "cloud_unreachable" | "over_budget" | "partial";
 	overlayHash: string;
 	/** Changed symbols still needing measurement at commit time. */

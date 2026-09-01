@@ -43,7 +43,7 @@ import type {
 	TestRunResult,
 } from "./types.js";
 
-export interface MutationEvalInput {
+interface MutationEvalInput {
 	file: string;
 	baseManifest: MutationManifest;
 	/** The proposed (post-overlay) content of the edited file. */
@@ -244,7 +244,7 @@ function engineExitEvidenceGap(exit: number | null | undefined): string | null {
 	return `engine exited ${exit} — the mutation engine failed, so any report it produced is partial and its survivors cannot be trusted to be the whole set`;
 }
 
-export interface V2RunEvidenceInput {
+interface V2RunEvidenceInput {
 	testRun?: TestRunResult | undefined;
 	executedTestCount?: number | null | undefined;
 	droppedMutants?: number | undefined;

@@ -39,7 +39,7 @@ export interface EngineFindingRow {
 	message: string;
 }
 
-export interface FindingDelta {
+interface FindingDelta {
 	introduced: EngineFindingRow[];
 	preExisting: EngineFindingRow[];
 }

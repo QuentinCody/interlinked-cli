@@ -76,7 +76,7 @@ const DEFAULT_SCAN_TIMEOUT_MS = 1500;
 // Result shape
 // ===========================================
 
-export type ProxyResult =
+type ProxyResult =
 	| { kind: "passthrough"; body: string }
 	| { kind: "review_pending"; reviewPath: string; key: string; findingCount: number }
 	| { kind: "decision_resolved"; decision: "allow" | "redact" | "block"; body: string }

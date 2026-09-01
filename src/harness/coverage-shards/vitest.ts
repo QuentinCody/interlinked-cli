@@ -26,7 +26,6 @@
 // element sets ({@link istanbulToElementSets}) with per-line max-hit semantics
 // matching istanbul's own getLineCoverage.
 
-import { createHash } from "node:crypto";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { isAbsolute, join, relative } from "node:path";
@@ -195,7 +194,7 @@ export default {
 // ===========================================
 
 /** One parsed per-shard capture record, as written by the generated module. */
-export interface ShardRecord {
+interface ShardRecord {
 	version: 1;
 	testFiles: string[];
 	environment: string;
@@ -248,7 +247,7 @@ export function shardIdForRecord(record: ShardRecord, projectRoot: string): stri
 // ===========================================
 
 /** What the caller asks a capture run to do. */
-export interface CaptureVitestShardsOpts {
+interface CaptureVitestShardsOpts {
 	/** Absolute target project root (the suite runs here). */
 	projectRoot: string;
 	/** Absolute scratch dir owned by the caller; module, records, and the run's coverage report all live under it. */
@@ -262,7 +261,7 @@ export interface CaptureVitestShardsOpts {
 }
 
 /** One captured shard, canonicalized and ready for the index builder. */
-export interface CapturedShard {
+interface CapturedShard {
 	shardId: string;
 	testFiles: string[];
 	contribution: ShardCoverageContribution;
@@ -273,7 +272,7 @@ export interface CapturedShard {
 }
 
 /** The outcome of one capture run. */
-export interface VitestShardCaptureResult {
+interface VitestShardCaptureResult {
 	/** The underlying suite run (ok / testsPassed / suiteMs / whole-run coverage). */
 	runResult: CoverageRunResult;
 	shards: CapturedShard[];

@@ -25,7 +25,7 @@
 // `__tests__/destructive-command-guard.test.ts` pins this invariant.
 
 /** A destructive-command block verdict. `reason` is shown to the agent. */
-export interface DestructiveCommandVerdict {
+interface DestructiveCommandVerdict {
 	decision: "block";
 	reason: string;
 }

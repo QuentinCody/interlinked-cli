@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { CheckResultEntry } from "./types.js";
 
-export interface PendingFindings {
+interface PendingFindings {
 	file: string;
 	findings: CheckResultEntry[];
 	produced_at: string;

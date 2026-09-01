@@ -113,7 +113,7 @@ function corpusShortfalls(evidence: CheckEvidence, tier: ObligationTier): string
 }
 
 /** Inputs for one evidence verdict. */
-export interface EvaluateEvidenceInput {
+interface EvaluateEvidenceInput {
 	evidence: CheckEvidence;
 	tier: ObligationTier;
 	/** Exempt pending backfill — reported but not failing. */

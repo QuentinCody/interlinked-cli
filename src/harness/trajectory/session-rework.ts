@@ -17,7 +17,7 @@ export const MIN_EDITS_FOR_NUDGE = 8;
 export const REWORK_RATIO_FLOOR = 0.25;
 const MAX_TOP_FILES = 3;
 
-export interface SessionReworkSummary {
+interface SessionReworkSummary {
 	totalEdits: number;
 	/** Edits whose exact post-edit content appeared EARLIER for the same file
 	 *  (whitespace-only cycles excluded via normSha, mirroring

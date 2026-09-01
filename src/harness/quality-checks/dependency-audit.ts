@@ -14,15 +14,15 @@
 import { spawnSync } from "node:child_process";
 import { runProcessAsync } from "../check-engine/spawn-async.js";
 
-export type AuditParser = "osv-scanner" | "npm-audit" | "pip-audit" | "cargo-audit" | "govulncheck";
+type AuditParser = "osv-scanner" | "npm-audit" | "pip-audit" | "cargo-audit" | "govulncheck";
 
-export interface ResolvedAuditCommand {
+interface ResolvedAuditCommand {
 	cmd: string[];
-	parser: AuditParser;
+parser: AuditParser;
 }
 
-export interface ResolveOptions {
-	/** Defaults to true. Set false to skip osv-scanner even when installed. */
+interface ResolveOptions {
+	/** Defaults totrue. Set false to skip osv-scanner even when installed. */
 	useOsvScanner?: boolean | undefined;
 	/** When osv-scanner is picked, pass --offline (requires pre-downloaded DB). */
 	offline?: boolean | undefined;

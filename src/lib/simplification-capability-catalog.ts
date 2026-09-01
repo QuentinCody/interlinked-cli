@@ -20,11 +20,11 @@ const REMEDIES = ["stdlib", "native"] as const;
 const SUPPORT = ["available", "partial", "unavailable"] as const;
 const EQUIVALENCE = ["unverified", "contract-checked", "fixture-validated"] as const;
 
-export type SimplificationCapabilityRemedy = (typeof REMEDIES)[number];
-export type SimplificationCapabilitySupport = (typeof SUPPORT)[number];
-export type SimplificationCapabilityEquivalence = (typeof EQUIVALENCE)[number];
+type SimplificationCapabilityRemedy = (typeof REMEDIES)[number];
+type SimplificationCapabilitySupport = (typeof SUPPORT)[number];
+type SimplificationCapabilityEquivalence = (typeof EQUIVALENCE)[number];
 
-export interface SimplificationCapabilityEntry {
+interface SimplificationCapabilityEntry {
 	id: string;
 	remedy: SimplificationCapabilityRemedy;
 	capability: string;
@@ -50,7 +50,7 @@ export interface SimplificationCapabilityCatalog {
 	entries: SimplificationCapabilityEntry[];
 }
 
-export type SimplificationCapabilityCatalogParseResult =
+type SimplificationCapabilityCatalogParseResult =
 	| { ok: true; catalog: Readonly<SimplificationCapabilityCatalog> }
 	| { ok: false; reason: string };
 

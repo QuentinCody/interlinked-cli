@@ -59,7 +59,7 @@ export const STARTUP_LOCK_INITIALIZATION_GRACE_MS = 2_000;
 /** Socket poll interval while waiting for the winner. */
 const STARTUP_POLL_MS = 250;
 
-export interface StartupLockHolder {
+interface StartupLockHolder {
 	pid: number;
 	at: number;
 }
@@ -272,7 +272,7 @@ export function touchStartupLockHolder(
 	replaceStartupLockHolder(repoRoot, holder, { pid: holderPid, at: nowMs });
 }
 
-export interface WaitOptions {
+interface WaitOptions {
 	timeout_ms?: number;
 	poll_ms?: number;
 	/** Test seam — defaults to a real Unix-socket connect probe. */

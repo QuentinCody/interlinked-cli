@@ -45,15 +45,15 @@ import type {
 	SimplificationScopeReceipt,
 } from "./simplification-types.js";
 
-export type ImpactAvailability = "available" | "not-recorded" | "unavailable";
+type ImpactAvailability = "available" | "not-recorded" | "unavailable";
 
-export interface BaselineFoldKindEvidence {
+interface BaselineFoldKindEvidence {
 	events: number;
 	changed: number;
 	refused: number;
 }
 
-export interface BaselineFoldEvidence {
+interface BaselineFoldEvidence {
 	availability: ImpactAvailability;
 	evidence_class: "observed";
 	events: number;
@@ -63,7 +63,7 @@ export interface BaselineFoldEvidence {
 	reason?: string | undefined;
 }
 
-export interface ActivityEvidence {
+interface ActivityEvidence {
 	availability: ImpactAvailability;
 	evidence_class: "observed";
 	sessions: number;
@@ -82,7 +82,7 @@ export interface ActivityEvidence {
 	scope: string;
 }
 
-export interface FindingsEvidence {
+interface FindingsEvidence {
 	availability: ImpactAvailability;
 	evidence_class: "observed";
 	review_findings: number;
@@ -96,7 +96,7 @@ export interface FindingsEvidence {
 	scope: string;
 }
 
-export interface ManualDebtLifecycleEvidence {
+interface ManualDebtLifecycleEvidence {
 	availability: ImpactAvailability;
 	evidence_class: "observed";
 	snapshot_count: number;
@@ -117,7 +117,7 @@ export interface ManualDebtLifecycleEvidence {
 	reason?: string | undefined;
 }
 
-export interface SimplificationImpactRunScope {
+interface SimplificationImpactRunScope {
 	run_fingerprint: string;
 	recorded_at: string;
 	command: "scan" | "review" | "audit";
@@ -127,7 +127,7 @@ export interface SimplificationImpactRunScope {
 	finding_observations: number;
 }
 
-export interface SimplificationReceiptEvidence {
+interface SimplificationReceiptEvidence {
 	availability: ImpactAvailability;
 	path: string;
 	receipt_rows: number;
@@ -154,11 +154,11 @@ export interface SimplificationImpactAggregate {
 	note: string;
 }
 
-export interface PotentialImpactEvidence extends SimplificationImpactAggregate {
+interface PotentialImpactEvidence extends SimplificationImpactAggregate {
 	evidence_class: "potential";
 }
 
-export interface SandboxValidatedImpactEvidence extends SimplificationImpactAggregate {
+interface SandboxValidatedImpactEvidence extends SimplificationImpactAggregate {
 	evidence_class: "sandbox-validated";
 	eligible_validated_findings: number;
 }

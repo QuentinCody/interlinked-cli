@@ -15,7 +15,7 @@ import type { ProjectGraph } from "../../harness/project-graph.js";
 import type { ModuleRole } from "../../harness/types.js";
 
 /** One module/cell in the graph. `id` is the project-relative path. */
-export interface VizNode {
+interface VizNode {
 	id: string;
 	role: ModuleRole;
 	dependents: number;
@@ -31,7 +31,7 @@ export function groupOf(id: string): string {
 }
 
 /** A directed import edge between two cells (both endpoints are real nodes). */
-export interface VizEdge {
+interface VizEdge {
 	from: string;
 	to: string;
 	typeOnly: boolean;

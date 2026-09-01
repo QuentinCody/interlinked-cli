@@ -44,7 +44,7 @@ export function normalizeFindingPath(file: string): string {
 
 /** Fields that participate in a sighting's identity. Prose sightings carry
  *  `raw_sha256` (content hash of the captured blob) when they lack a locator. */
-export interface ProvenanceIdInput {
+interface ProvenanceIdInput {
 	source_runner: string;
 	repo?: string | undefined;
 	pr?: number | undefined;
@@ -74,8 +74,8 @@ export function computeProvenanceId(input: ProvenanceIdInput): string {
 	return sha256(identity).slice(0, HASH_HEX_LENGTH);
 }
 
-export interface CompletenessInput {
-	file?: string | undefined;
+interface CompletenessInput {
+	file?: string |undefined;
 	lines?: [number, number] | undefined;
 	line?: number | undefined;
 	commit_sha?: string | undefined;
@@ -92,7 +92,7 @@ export function computeCompleteness(input: CompletenessInput): ProvenanceComplet
 	return "unanchored";
 }
 
-export interface DedupKeyInput {
+interface DedupKeyInput {
 	/** Already repo-relative, already normalized by the corpus layer. */
 	file?: string | undefined;
 	line?: number | undefined;

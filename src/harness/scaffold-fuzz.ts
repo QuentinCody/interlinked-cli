@@ -38,7 +38,7 @@ import type { Endpoint } from "./types/session.js";
 // Public API
 // ===========================================
 
-export interface AttachScaffoldsOpts {
+interface AttachScaffoldsOpts {
 	endpoints: Endpoint[];
 	/** Per-detector opt-in. When set, only findings whose `check_id` is in
 	 * the set receive a scaffold; all others are returned unchanged.
@@ -101,9 +101,6 @@ const FRAMEWORK_FASTAPI: Endpoint["framework"] = "fastapi";
 const PARAM_SOURCE_PATH = "path" as const;
 const CHECK_AUTH_MISSING = "endpoint_auth_missing";
 const CHECK_MASS_ASSIGNMENT = "endpoint_mass_assignment";
-const CHECK_IDOR = "endpoint_idor_shape";
-const CHECK_TENANT_FILTER = "endpoint_missing_tenant_filter";
-const CHECK_SSRF = "endpoint_ssrf_shape";
 
 function synthesizeScaffold(finding: DetectorFinding, endpoint: Endpoint): string {
 	if (endpoint.framework === FRAMEWORK_FASTAPI) {

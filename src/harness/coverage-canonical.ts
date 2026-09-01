@@ -9,7 +9,7 @@
 // Cobertura the planned fallback. Nothing in this module is TS- or JS-specific.
 
 /** A single coverage dimension: covered / total with a derived percentage. */
-export interface CanonicalMetric {
+interface CanonicalMetric {
 	covered: number;
 	total: number;
 	/** 0–100. A file with no countable entities (total === 0) is vacuously 100%. */

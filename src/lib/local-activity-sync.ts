@@ -245,7 +245,7 @@ export interface UnsyncedEvents {
 	newOffset: number;
 }
 
-export interface UnsyncedReadRange {
+interface UnsyncedReadRange {
 	/** Override the persisted cursor (used by read-only/dry-run pagination). */
 	startOffset?: number;
 	/** Freeze a sync run at the activity-log size observed when it started. */

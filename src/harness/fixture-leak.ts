@@ -39,7 +39,7 @@ const FIXTURE_WRITER_CALL_RE =
 
 const GIT_TIMEOUT_MS = 3_000;
 
-export interface FixtureLeak {
+interface FixtureLeak {
 	/** Repo-relative path of the orphaned fixture. */
 	file: string;
 	/** Repo-relative path of the test file that creates this fixture. */
@@ -119,7 +119,7 @@ function loadTrackedTestContents(cwd: string): Map<string, string> {
 	return out;
 }
 
-export interface FormatFixtureLeakOpts {
+interface FormatFixtureLeakOpts {
 	leaks: ReadonlyArray<FixtureLeak>;
 	maxShown?: number;
 }

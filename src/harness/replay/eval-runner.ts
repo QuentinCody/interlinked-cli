@@ -24,9 +24,9 @@ import { actionMatch } from "./scorers/action-match.js";
 import { scoreEditActions } from "./scorers/ast-edit-diff.js";
 import { loadTrace, perSessionEnvelopePath } from "./trace-assembler.js";
 
-export type CandidateRunnerFn = (args: RunCandidateArgs) => Promise<CandidateRunResult>;
+type CandidateRunnerFn = (args: RunCandidateArgs) => Promise<CandidateRunResult>;
 
-export interface EvalRunArgs {
+interface EvalRunArgs {
 	cwd: string;
 	sessionId: string;
 	candidateModel: string;
@@ -43,7 +43,7 @@ export interface EvalRunArgs {
 	runner?: CandidateRunnerFn;
 }
 
-export interface EvalRunSummary {
+interface EvalRunSummary {
 	run_id: string;
 	evaluated: number;
 	skipped_no_envelope: number;

@@ -123,7 +123,7 @@ const OPENCODE_PLUGIN_OTHER_HOOKS = `        "chat.message": async (input, outpu
         },
 `;
 
-export interface OpenCodeAdapterOptions {
+interface OpenCodeAdapterOptions {
 	overrides?: ClassifierOverrides | undefined;
 }
 

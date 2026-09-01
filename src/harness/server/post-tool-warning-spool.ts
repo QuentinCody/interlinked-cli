@@ -12,7 +12,7 @@ import type { HarnessEvent } from "../types.js";
 
 export { QUALITY_WARNING_SPOOL_DIR };
 
-export interface PostToolWarningSpoolHandle {
+interface PostToolWarningSpoolHandle {
 	readonly token: string;
 	readonly sessionId: string;
 	readonly markerPath: string;

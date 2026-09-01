@@ -21,7 +21,7 @@ import { READ_ONLY_TOOL_NAMES } from "../../lib/hook-read-only-tools.js";
  *  - `warn_open` → exit 1, a loud logged failure that does NOT claim a block
  *    it cannot deliver (exit 1 is non-blocking on every provider).
  */
-export type MissingRuntimePolicy = "fail_closed" | "warn_open";
+type MissingRuntimePolicy = "fail_closed" | "warn_open";
 
 const MISSING_RUNTIME_BLOCK_EXIT = 2;
 const HOOK_REFRESH_COMMAND = "interlinked install-hooks --refresh --preserve-mode";

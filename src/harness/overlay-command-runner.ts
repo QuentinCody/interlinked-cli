@@ -25,7 +25,7 @@ import { existsSync } from "node:fs";
 /** Grace before SIGKILL when a timed-out child ignores SIGTERM. */
 const KILL_GRACE_MS = 5_000;
 
-export interface OverlaySpawnOutcome {
+interface OverlaySpawnOutcome {
 	stdout: string;
 	stderr: string;
 	/** Exit code; null on signal-kill / timeout / launch failure. */
@@ -42,7 +42,7 @@ export type OverlaySpawnFn = (
 ) => Promise<OverlaySpawnOutcome>;
 
 /** Structured result of one overlay command run. */
-export interface OverlayCommandRunResult {
+interface OverlayCommandRunResult {
 	/** Process exit code; null when signal-killed, timed out, or never launched. */
 	exitCode: number | null;
 	stdout: string;

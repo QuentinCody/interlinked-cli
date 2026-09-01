@@ -24,7 +24,7 @@ import {
 import type { Ecosystem, PackageSpec } from "../package-install-parser.js";
 import type { HarnessDecision } from "../types.js";
 
-export interface ManifestEditInput {
+interface ManifestEditInput {
 	filePath: string;
 	newContent: string;
 	allowlist: Allowlist;

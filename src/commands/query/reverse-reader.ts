@@ -25,7 +25,7 @@ export interface TailScanBudget {
 	chunkBytes?: number;
 }
 
-export type TailStopReason = "records" | "bytes" | "caller";
+type TailStopReason = "records" | "bytes" | "caller";
 
 export interface TailScanStats {
 	fileBytes: number;
@@ -38,7 +38,7 @@ export interface TailScanStats {
 }
 
 /** Receives records newest-first; return false to stop the scan early. */
-export type TailRecordHandler = (record: Record<string, unknown>) => boolean | undefined;
+type TailRecordHandler = (record: Record<string, unknown>) => boolean | undefined;
 
 interface ScanState {
 	stats: TailScanStats;

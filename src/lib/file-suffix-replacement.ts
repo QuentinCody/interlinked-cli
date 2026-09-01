@@ -21,7 +21,7 @@ export interface FileIdentity {
 	ino: string;
 }
 
-export interface PreparedSuffixReplacement {
+interface PreparedSuffixReplacement {
 	source: FileIdentity;
 	replacement: FileIdentity;
 	temporaryPath: string;
@@ -29,7 +29,7 @@ export interface PreparedSuffixReplacement {
 	retainedBytes: number;
 }
 
-export interface ReplaceFileSuffixOptions {
+interface ReplaceFileSuffixOptions {
 	expectedSource?: FileIdentity;
 	afterInitialCopy?: (() => void) | undefined;
 	beforeReplace?: ((prepared: PreparedSuffixReplacement) => void) | undefined;

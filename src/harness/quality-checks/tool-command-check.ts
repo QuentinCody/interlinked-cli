@@ -11,7 +11,7 @@ import {
 import { findProjectRoot } from "./project-root.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./result-types.js";
 
-export interface CommandCheckContext {
+interface CommandCheckContext {
 	filePath: string;
 	cwd: string;
 	tscFilterFile: string | undefined;

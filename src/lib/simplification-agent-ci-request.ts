@@ -27,10 +27,10 @@ const VALID_SCOPE_KINDS = ["repository", "diff", "paths"] as const;
 const VALIDATION_MODES = ["none", "candidate"] as const;
 
 export type SimplificationAgentCiRiskTier = (typeof VALID_RISK_TIERS)[number];
-export type SimplificationAgentCiScopeKind = (typeof VALID_SCOPE_KINDS)[number];
-export type SimplificationAgentCiValidationMode = (typeof VALIDATION_MODES)[number];
+type SimplificationAgentCiScopeKind = (typeof VALID_SCOPE_KINDS)[number];
+type SimplificationAgentCiValidationMode = (typeof VALIDATION_MODES)[number];
 
-export interface SimplificationAgentCiRepositoryRef {
+interface SimplificationAgentCiRepositoryRef {
 	workspace_id: string;
 	repository_id: string;
 	commit_sha: string;
@@ -38,7 +38,7 @@ export interface SimplificationAgentCiRepositoryRef {
 	inventory_sha256: string;
 }
 
-export interface SimplificationAgentCiScope {
+interface SimplificationAgentCiScope {
 	kind: SimplificationAgentCiScopeKind;
 	base_sha: string | null;
 	head_sha: string;
@@ -47,13 +47,13 @@ export interface SimplificationAgentCiScope {
 	excludes: string[];
 }
 
-export interface SimplificationAgentCiToolEvidence {
+interface SimplificationAgentCiToolEvidence {
 	name: string;
 	version: string;
 	output_sha256: string;
 }
 
-export interface SimplificationAgentCiEvidenceBinding {
+interface SimplificationAgentCiEvidenceBinding {
 	deterministic_digest_sha256: string;
 	tools: SimplificationAgentCiToolEvidence[];
 	policy_hashes: string[];
@@ -64,27 +64,27 @@ export interface SimplificationAgentCiEvidenceBinding {
 	prior_findings_sha256: string;
 }
 
-export interface SimplificationAgentCiModelBinding {
+interface SimplificationAgentCiModelBinding {
 	provider: string;
 	family: string;
 	model: string;
 	version: string;
 }
 
-export interface SimplificationAgentCiOrchestrationBinding {
+interface SimplificationAgentCiOrchestrationBinding {
 	risk_tier: SimplificationAgentCiRiskTier;
 	model: SimplificationAgentCiModelBinding;
 	coordinator_prompt_sha256: string;
 	partition_plan_version: string;
 }
 
-export interface SimplificationAgentCiValidationRequest {
+interface SimplificationAgentCiValidationRequest {
 	mode: SimplificationAgentCiValidationMode;
 	check_plan_sha256: string | null;
 	max_candidates: number;
 }
 
-export interface SimplificationAgentCiSubmissionMarker {
+interface SimplificationAgentCiSubmissionMarker {
 	state: "not_submitted";
 	transport: "unimplemented";
 	reason: string;

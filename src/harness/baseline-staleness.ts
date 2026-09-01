@@ -26,7 +26,7 @@ export const DEFAULT_STALE_AFTER_DAYS = 14;
 /** One day in ms — the unit every age in this module is reported in. */
 const MS_PER_DAY = 86_400_000;
 
-export interface TrackedBaseline {
+interface TrackedBaseline {
 	file: string;
 	refresh: string;
 }
@@ -50,15 +50,15 @@ export const TRACKED_BASELINES: readonly TrackedBaseline[] = [
 	{ file: "untested-files-baseline.json", refresh: "interlinked adopt" },
 ];
 
-export interface BaselineAge {
+interface BaselineAge {
 	file: string;
 	refresh: string;
 	/** Whole days since last write; null when the baseline has never been generated. */
 	ageDays: number | null;
 }
 
-export interface BaselineStalenessOpts {
-	interlinkedDir: string;
+interface BaselineStalenessOpts {
+	interlinkedDir:string;
 	/** Epoch ms; injected so tests need no clock control. */
 	now: number;
 	staleAfterDays?: number;
@@ -94,8 +94,8 @@ export const NUDGE_MARKER = ".baseline-staleness-nudged";
  *  the same warning at every Stop would train the reader to ignore it. */
 export const NUDGE_INTERVAL_MS = 86_400_000;
 
-export interface NudgeThrottleOpts {
-	interlinkedDir: string;
+interface NudgeThrottleOpts {
+	interlinkedDir:string;
 	now: number;
 	intervalMs?: number;
 	readMtime?: (path: string) => number | null;

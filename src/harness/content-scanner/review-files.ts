@@ -98,7 +98,7 @@ export interface ReviewPayload {
 	cache_key: string;
 }
 
-export interface WriteReviewArgs {
+interface WriteReviewArgs {
 	cwd: string;
 	key: string;
 	url: string;
@@ -260,7 +260,7 @@ export function countPendingReviews(cwd: string): number {
 // Decision file (written by the CLI, consumed by the proxy)
 // ===========================================
 
-export interface DecisionPayload {
+interface DecisionPayload {
 	decision: ReviewDecision;
 	timestamp: string;
 	cache_key: string;
@@ -271,7 +271,7 @@ export interface DecisionPayload {
 	};
 }
 
-export interface WriteDecisionArgs {
+interface WriteDecisionArgs {
 	cwd: string;
 	key: string;
 	decision: ReviewDecision;

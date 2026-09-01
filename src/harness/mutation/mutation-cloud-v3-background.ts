@@ -29,7 +29,7 @@ interface BackgroundRuntime {
 	close(): void;
 }
 
-export interface MutationCloudBackgroundOptions {
+interface MutationCloudBackgroundOptions {
 	root: string;
 	log: (message: string) => void;
 	intervalMs?: number;
@@ -37,7 +37,7 @@ export interface MutationCloudBackgroundOptions {
 	onFinding?: (finding: Extract<MutationFindingDeliveryOutcome, { kind: "delivered" }>) => void;
 }
 
-export interface MutationCloudBackgroundDependencies {
+interface MutationCloudBackgroundDependencies {
 	configExists?: (path: string) => boolean;
 	loadConfig?: (root: string) => MutationCloudV3RuntimeConfig & { backgroundEnabled?: boolean };
 	openRuntime?: (root: string, config: MutationCloudV3RuntimeConfig) => BackgroundRuntime;
@@ -45,7 +45,7 @@ export interface MutationCloudBackgroundDependencies {
 	clearInterval?: (timer: ReturnType<typeof setInterval>) => void;
 }
 
-export interface MutationCloudBackgroundHandle {
+interface MutationCloudBackgroundHandle {
 	tick(): Promise<"disabled" | "busy" | "idle" | "processed" | "failed">;
 	stop(): void;
 }

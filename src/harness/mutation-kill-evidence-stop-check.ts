@@ -99,7 +99,7 @@ const MUTATION_KILL_EVIDENCE_TAG = "mutation-kill-evidence";
 /** `git show <ref>` content-reader shape — injected so tests never shell out
  *  to a real git process. Returns null on any failure (path absent from
  *  that tree, no HEAD, git missing). */
-export type GitShowReader = (cwd: string, ref: string) => string | null;
+type GitShowReader = (cwd: string, ref: string) => string | null;
 
 /** Default {@link GitShowReader} — mirrors
  *  evaluator/commit-baseline-gate.ts's `gitShow`: fail-open by design. A
@@ -174,7 +174,7 @@ function newMissingContractCount(
 	return splitIntroduced(current, baseline).introduced.length;
 }
 
-export interface DetectMutationKillEvidenceGapsOpts {
+interface DetectMutationKillEvidenceGapsOpts {
 	filesWritten: ReadonlySet<string>;
 	fileWriteTimes: ReadonlyMap<string, string>;
 	/** Session-start HEAD sha (`git_session_baseline.head_sha`); empty/undefined

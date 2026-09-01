@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionTrajectory } from "../types.js";
 
-export interface SessionEvidence {
+interface SessionEvidence {
 	session_id: string;
 	started_at: string;
 	tool_calls: number;

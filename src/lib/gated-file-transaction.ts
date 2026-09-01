@@ -34,7 +34,7 @@ interface PreparedWrite {
 	baseline: FileSnapshot;
 }
 
-export interface GatedWriteSpec {
+interface GatedWriteSpec {
 	/** Absolute path, or a path relative to repoRoot. */
 	path: string;
 	/** Bytes to write; null deletes the target. */
@@ -43,7 +43,7 @@ export interface GatedWriteSpec {
 	mode?: number;
 }
 
-export interface GatedWriteTransaction {
+interface GatedWriteTransaction {
 	readonly id: string;
 	readonly repoRoot: string;
 	readonly writes: readonly PreparedWrite[];
@@ -235,7 +235,7 @@ function cleanupTemps(staged: readonly StagedWrite[]): void {
 	}
 }
 
-function acquireLock(repoRoot: string, transactionId: string): HeldLock {
+function acquireLock(repoRoot: string): HeldLock {
 	const path = join(repoRoot, LOCK_RELATIVE_PATH);
 	mkdirSync(dirname(path), { recursive: true });
 	const token = randomUUID();
@@ -383,7 +383,7 @@ export function commitGatedWrites(transaction: GatedWriteTransaction): void {
 	const committed: PreparedWrite[] = [];
 	let failure: unknown;
 	try {
-		lock = acquireLock(transaction.repoRoot, transaction.id);
+		lock = acquireLock(transaction.repoRoot);
 		const drifted = transaction.writes
 			.filter((write) => !sameState(snapshot(write.path), write.baseline))
 			.map((write) => write.path);

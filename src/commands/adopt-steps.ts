@@ -248,7 +248,7 @@ export function untestedFilesStep(cwd: string, scan: RepoScan, dryRun: boolean):
 // ===========================================
 
 /** A located-and-merged coverage report (or the reasons there isn't one). */
-export interface LoadedCoverage {
+interface LoadedCoverage {
 	summary: CoverageSummary | null;
 	/** Human label of the merged report set ("" when none). */
 	reportLabel: string;
@@ -414,7 +414,7 @@ export function allowlistSnapshotStep(cwd: string, dryRun: boolean): AdoptStepRe
 // ===========================================
 
 /** Dependency seam so tests can stub the runner without spawning a suite. */
-export type SuiteRunnerResolver = typeof coverageRunnerFor;
+type SuiteRunnerResolver = typeof coverageRunnerFor;
 
 /**
  * Record the suite's CURRENT red/green state to `.interlinked/suite-baseline.json`

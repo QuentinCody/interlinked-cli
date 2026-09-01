@@ -17,7 +17,7 @@ const STATUSLINE_REFRESH_INTERVAL_MS = 10_000;
 const MEMORY_CHECK_INTERVAL_MS = 30_000;
 const BYTES_PER_MB = 1024 * 1024;
 
-export interface DaemonTimerHooks {
+interface DaemonTimerHooks {
 	/** Recompute the statusline snapshot (reservations, index, bridge state). */
 	refreshStatuslineSnapshot: () => void;
 	/**

@@ -16,7 +16,7 @@
 // stale check count.
 
 /** Guard activity since this daemon started. */
-export interface GuardTally {
+interface GuardTally {
 	/** Tool calls refused outright. */
 	blocked: number;
 	/** Warnings surfaced on allowed calls (counted individually, not per call). */
@@ -28,7 +28,7 @@ export interface GuardTally {
 }
 
 /** The decision fields this module reads — a structural subset of HarnessDecision. */
-export interface GuardDecisionLike {
+interface GuardDecisionLike {
 	decision: "allow" | "block" | "ask";
 	warnings?: readonly string[] | undefined;
 	rule_id?: string | undefined;

@@ -32,7 +32,7 @@ export interface SimplificationRepositoryIdentity {
 	working_tree_sha256: string;
 }
 
-export interface SimplificationPinnedRepositoryIdentity
+interface SimplificationPinnedRepositoryIdentity
 	extends SimplificationRepositoryIdentity {
 	head_sha: string;
 	tree_sha: string;
@@ -49,7 +49,7 @@ export interface SimplificationScopeReceipt {
 	selected_paths: string[] | null;
 }
 
-export interface SimplificationLocation {
+interface SimplificationLocation {
 	path: string;
 	start_line: number | null;
 	end_line: number | null;
@@ -69,7 +69,7 @@ export interface SimplificationDelta {
 	dependencies_removed: string[];
 }
 
-export interface SimplificationImpact {
+interface SimplificationImpact {
 	estimated: SimplificationDelta;
 	validated: SimplificationDelta | null;
 }
@@ -80,7 +80,7 @@ export type SimplificationValidationStatus =
 	| "failed"
 	| "inconclusive";
 
-export interface SimplificationValidationNotRunReceipt {
+interface SimplificationValidationNotRunReceipt {
 	status: "not_run";
 	executor: null;
 	commands: [];
@@ -88,7 +88,7 @@ export interface SimplificationValidationNotRunReceipt {
 	notes: string[];
 }
 
-export interface SimplificationValidationPassedReceipt {
+interface SimplificationValidationPassedReceipt {
 	status: "passed";
 	executor: "local" | "sandbox";
 	commands: [string, ...string[]];
@@ -96,7 +96,7 @@ export interface SimplificationValidationPassedReceipt {
 	notes: string[];
 }
 
-export interface SimplificationValidationUnsuccessfulReceipt {
+interface SimplificationValidationUnsuccessfulReceipt {
 	status: "failed" | "inconclusive";
 	executor: "local" | "sandbox" | null;
 	commands: string[];
@@ -127,8 +127,8 @@ export interface SimplificationFinding {
 	auto_fix: false;
 }
 
-export type SimplificationCoverageStatus = "complete" | "partial" | "unavailable";
-export type SimplificationSourceStatus = "checked" | "partial" | "skipped" | "unavailable";
+type SimplificationCoverageStatus = "complete" | "partial" | "unavailable";
+type SimplificationSourceStatus = "checked" | "partial" | "skipped" | "unavailable";
 
 export interface SimplificationCoverageExclusion {
 	rule: string;

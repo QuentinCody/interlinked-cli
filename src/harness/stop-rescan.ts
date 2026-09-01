@@ -168,7 +168,7 @@ function gitShowFile(cwd: string, ref: string): string | null {
 	}
 }
 
-export interface PatternRescanOpts {
+interface PatternRescanOpts {
 	/** Session id for the repeat-Stop delta and the spool. */
 	sessionId?: string | undefined;
 	/** Honors the dry-run contract: a probe must not move the gate. */

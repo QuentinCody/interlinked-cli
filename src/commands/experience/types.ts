@@ -43,7 +43,7 @@ export interface ExperienceReasoningRecord {
 	timestamp: string;
 }
 
-export interface ExperienceToolCall {
+interface ExperienceToolCall {
 	id: string;
 	name: string;
 	/** JSON-encoded arguments (string, per the Letta wire example). */
@@ -120,7 +120,7 @@ export type ExperienceFormat = "letta" | "ix";
 
 // --- Build output ---
 
-export interface ExperienceDiagnostics {
+interface ExperienceDiagnostics {
 	timeline_records: number;
 	collection_joined: number;
 	guard_joined: number;

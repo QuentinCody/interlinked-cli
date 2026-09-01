@@ -30,13 +30,13 @@ const BYPASS_ENV = "INTERLINKED_DISABLE_TRANSIENT_DEBT";
 /** Config read off `quality_checks.transient_debt`. Absent ⇒ defaults. Typed
  *  structurally rather than as `QualityCheckConfig` so the pure module and its
  *  tests never have to satisfy that interface's unrelated required fields. */
-export interface TransientDebtConfig {
+interface TransientDebtConfig {
 	enabled?: boolean;
 	mode?: TransientDebtMode | undefined;
 	slack?: number | undefined;
 }
 
-export interface TransientDebtGuardArgs {
+interface TransientDebtGuardArgs {
 	/** Absolute path of the file being written. */
 	filePath: string;
 	/** Project root the ledger and relative paths resolve against. */
@@ -67,7 +67,7 @@ export interface TransientDebtGuardArgs {
 	config?: TransientDebtConfig | undefined;
 }
 
-export interface TransientDebtGuardResult {
+interface TransientDebtGuardResult {
 	/** A block decision, or null. */
 	decision: HarnessDecision | null;
 	warnings: string[];

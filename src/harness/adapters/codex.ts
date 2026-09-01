@@ -73,7 +73,7 @@ const HOOKS_PATH_PROJECT = ".codex/hooks.json";
 const HOOKS_PATH_USER = "~/.codex/hooks.json";
 const SCOPE_USER = "user" as const;
 
-export interface CodexAdapterOptions {
+interface CodexAdapterOptions {
 	overrides?: ClassifierOverrides | undefined;
 }
 

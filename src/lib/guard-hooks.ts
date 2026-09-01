@@ -105,7 +105,7 @@ exit 0
 `;
 }
 
-export interface InstallGuardHookResult {
+interface InstallGuardHookResult {
 	installed: boolean;
 	backed_up?: string;
 }
@@ -164,7 +164,7 @@ ${generateGuardScript(hookType).split("\n").slice(1).join("\n")}
 	return { installed: true };
 }
 
-export interface UninstallGuardHookResult {
+interface UninstallGuardHookResult {
 	removed: boolean;
 	restored?: string;
 }
@@ -202,7 +202,7 @@ export function uninstallGuardHook(
 	return { removed: true };
 }
 
-export interface GuardHookStatus {
+interface GuardHookStatus {
 	pre_commit: boolean;
 	pre_push: boolean;
 }

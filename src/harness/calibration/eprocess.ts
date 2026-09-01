@@ -86,7 +86,7 @@ export function isAnomalous(state: EProcessState, cfg: EProcessConfig): boolean 
 	return state.logE >= -Math.log(normalizeConfig(cfg).alpha);
 }
 
-export interface EProcessSummary {
+interface EProcessSummary {
 	n: number;
 	positives: number;
 	empiricalRate: number;

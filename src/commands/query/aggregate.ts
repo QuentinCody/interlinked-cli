@@ -15,7 +15,7 @@ export interface AggregateRow {
 	sum?: number;
 }
 
-export interface AggregateState {
+interface AggregateState {
 	groups: Map<string, { count: number; sum: number }>;
 	sawSum: boolean;
 }

@@ -55,12 +55,12 @@ export type ObligationKind = "conflict_marker" | "stub" | "test_disabled" | "tod
 
 /** Action gradient (Family framing): nudge is the default; block is reserved
  *  for proven harm; silent_metric never interrupts. These rules only nudge. */
-export type ObligationAction = "nudge" | "block" | "silent_metric";
+type ObligationAction = "nudge" | "block" | "silent_metric";
 
 /** A per-edit verdict. Shape mirrors the sequence-checks SequenceFinding —
  *  rule id + agent-visible message + evidence snippets — kept local so this
  *  module stays free-standing. */
-export interface ObligationVerdict {
+interface ObligationVerdict {
 	rule_id: string;
 	action: ObligationAction;
 	severity: "low" | "medium" | "high";

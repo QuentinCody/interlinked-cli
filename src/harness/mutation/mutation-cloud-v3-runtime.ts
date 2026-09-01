@@ -55,7 +55,7 @@ export interface MutationCloudV3RuntimeConfig {
 	leaseMs: number;
 }
 
-export interface MutationCloudV3RuntimeDependencies {
+interface MutationCloudV3RuntimeDependencies {
 	journal?: MutationJournal;
 	submissionFetch?: MutationCloudSubmissionFetch;
 	clientFetch?: MutationCloudFetch;

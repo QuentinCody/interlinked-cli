@@ -18,18 +18,18 @@
 
 /** The oracle kinds the Worker knows how to run. Extending this is a Worker
  *  deploy (it owns the command table), never a client-supplied command. */
-export type SandboxJobKind = "mutation" | "leak" | "flake" | "asan" | "miri";
+type SandboxJobKind = "mutation" | "leak" | "flake" | "asan" | "miri";
 
 /** A file's full proposed content — the overlay wire shape, primary first.
  *  Identical to mutation's FileOverlay so the transport is shared. */
-export interface SandboxFileOverlay {
+interface SandboxFileOverlay {
 	path: string;
 	content: string;
 }
 
 /** Risk tier drives which oracles run and how hard (mirrors the pre-push
  *  reviewer triage in multi-agent-pre-push-review.md §3). */
-export type SandboxRiskTier = "trivial" | "lite" | "full";
+type SandboxRiskTier = "trivial" | "lite" | "full";
 
 /** One job dispatched to the Sandbox Worker. NOTE the absence of any argv /
  *  command / script field — that absence is the security contract, not an
@@ -47,26 +47,6 @@ export interface SandboxJobRequest {
 	/** Client-side budget; the Worker also enforces its own ceiling. */
 	timeoutMs: number;
 	riskTier: SandboxRiskTier;
-}
-
-/** Structured verdict. `verdict` is the merge-friendly summary; `findings` is
- *  the kind-specific payload the daemon maps to warnings. `inconclusive` (never
- *  `pass`) is returned on a malformed/absent report — an unmeasured job must
- *  never forge a clean pass (mutation's honest-fallback invariant). */
-export interface SandboxJobResult {
-	jobId: string;
-	kind: SandboxJobKind;
-	verdict: "pass" | "fail" | "inconclusive" | "timed_out";
-	durationMs: number;
-	findings: unknown[];
-	stdoutTail?: string;
-	stderrTail?: string;
-}
-
-/** The client seam the daemon depends on (parallels MutationRunner). */
-export interface SandboxJobRunner {
-	available(): boolean;
-	run(req: SandboxJobRequest): Promise<SandboxJobResult>;
 }
 
 const VALID_KINDS: ReadonlySet<string> = new Set<SandboxJobKind>([

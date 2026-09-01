@@ -203,7 +203,7 @@ function selectTopItems(categories: readonly Category[]): TopSelection {
 	return { lines, lineCount, demoted };
 }
 
-export interface BuildStopDigestArgs {
+interface BuildStopDigestArgs {
 	/** Every warning string the Stop branch produced, in emission order. */
 	warnings: readonly string[];
 	cwd: string;

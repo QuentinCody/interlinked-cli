@@ -44,14 +44,14 @@ const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";
 
 /** One file's contribution to the scan's wall time. */
-export interface SlowFile {
+interface SlowFile {
 	file: string;
 	ms: number;
 }
 
 /** Injection seams — tests supply their own writer and clock. */
-export interface ScanProgressDeps {
-	/** Defaults to `process.stderr.write`, resolved per call so tests can patch it. */
+interface ScanProgressDeps {
+	/** Defaults to`process.stderr.write`, resolved per call so tests can patch it. */
 	write?: (chunk: string) => void;
 	/** Defaults to `Date.now`. */
 	now?: () => number;

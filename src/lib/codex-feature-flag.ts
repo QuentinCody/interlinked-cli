@@ -47,7 +47,7 @@ const HOOKS_DIR = ".codex";
 const CONFIG_TOML = "config.toml";
 
 /** What `<scope>/.codex/config.toml` says about the hooks feature flag. */
-export type CodexHooksFlagState =
+type CodexHooksFlagState =
 	/** `hooks` (or legacy `codex_hooks`) is `true` inside `[features]`. */
 	| "enabled"
 	/** The key is present inside `[features]` but set to `false`. */
@@ -228,7 +228,7 @@ export function findFeaturesHooksAssignmentCounts(tomlText: string): { hooks: nu
 	return counts;
 }
 
-export type EnsureFeatureFlagAction =
+type EnsureFeatureFlagAction =
 	/** Wrote a fresh file (none existed). */
 	| "created"
 	/** Appended a `[features]` block / inserted `hooks = true` into an existing one. */

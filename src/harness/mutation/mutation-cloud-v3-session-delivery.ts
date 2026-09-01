@@ -3,17 +3,17 @@ import type { MutationFindingDeliveryOutcome } from "./mutation-cloud-v3-finding
 
 type DeliveredMutationFinding = Extract<MutationFindingDeliveryOutcome, { kind: "delivered" }>;
 
-export interface ActiveMutationSessionSource {
+interface ActiveMutationSessionSource {
 	getAll(): readonly { session_id: string }[];
 }
 
-export interface MutationFindingSessionDeliveryOptions {
+interface MutationFindingSessionDeliveryOptions {
 	sessions: ActiveMutationSessionSource;
 	queue: Pick<AsyncFindingQueue, "enqueue">;
 	clock?: () => number;
 }
 
-export type MutationFindingSessionDelivery = (finding: DeliveredMutationFinding) => number;
+type MutationFindingSessionDelivery = (finding: DeliveredMutationFinding) => number;
 
 function deferredFinding(finding: DeliveredMutationFinding, computedAt: string): DeferredFinding {
 	return {

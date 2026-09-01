@@ -93,7 +93,7 @@ const DEFAULT_COLD_TIMEOUT_MS = 5000;
 /** Default cap on (path, mtime, size)-keyed result-cache entries. */
 const DEFAULT_MAX_CACHE_ENTRIES = 512;
 
-export interface TsgoRunnerOptions {
+interface TsgoRunnerOptions {
 	/** Override the executable lookup. Defaults to the first tsgo binary on $PATH. */
 	executable?: string;
 	/** Extra args passed to every invocation. */

@@ -33,10 +33,10 @@ export interface CorpusHit {
 }
 
 /** How a human resolved one corpus hit. */
-export type Adjudication = "true_positive" | "false_positive";
+type Adjudication = "true_positive" | "false_positive";
 
 /** A recorded verdict on one hit, keyed by the hit's stable signature. */
-export interface AdjudicationRecord {
+interface AdjudicationRecord {
 	verdict: Adjudication;
 	/** Why. Expected for `false_positive`, since it justifies a negative case. */
 	note?: string;

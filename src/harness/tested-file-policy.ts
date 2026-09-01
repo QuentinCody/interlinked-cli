@@ -284,7 +284,7 @@ export function hasCompanionTest(relPath: string, cwd: string): boolean {
 }
 
 /** Verify-side verdict for a single file's test exposure. */
-export interface TestedFileVerdict {
+interface TestedFileVerdict {
 	/** No companion test AND coverage below threshold (or absent). */
 	untested: boolean;
 	/** Listed in the baseline — recorded offender, does not fail the gate. */

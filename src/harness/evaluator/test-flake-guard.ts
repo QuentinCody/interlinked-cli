@@ -69,7 +69,7 @@ export function flakeDivergence(
 /** Injected dependency: run the scoped affected suite once and return its
  *  result. The wiring supplies a CoverageRunner-backed impl; tests supply a
  *  scripted sequence. */
-export type RunScopedSuite = () => Promise<CoverageRunResult>;
+type RunScopedSuite = () => Promise<CoverageRunResult>;
 
 /**
  * Run the scoped suite twice and return a flake warning (or null). The first

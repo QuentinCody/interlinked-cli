@@ -190,7 +190,6 @@ function nodeScriptIndex(words: string[], executableIndex: number): number | nul
 function optionValue(args: string[], name: string): string | null {
 	let found: string | null = null;
 	for (let i = 0; i < args.length; i++) {
-		const arg = args[i] ?? "";
 		const match = optionMatch(args, i, name);
 		if (match === null) continue;
 		if (match.value === null || found !== null) return null;
@@ -233,7 +232,7 @@ function isRecognizedLegacyScript(script: string, legacyAssigned: boolean): bool
 }
 
 /** One recognized Interlinked invocation, with its identity classified. */
-export interface HookInvocation {
+interface HookInvocation {
 	executable: string;
 	script: string | null;
 	kind: "hook-entry" | "legacy-mjs" | "interlinked-hook";

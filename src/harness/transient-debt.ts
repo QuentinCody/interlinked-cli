@@ -107,7 +107,7 @@ export interface TransientDebtInput {
 	slack?: number | undefined;
 }
 
-export interface TransientDebtOutcome {
+interface TransientDebtOutcome {
 	/** A block decision, or null to let the write through. */
 	decision: HarnessDecision | null;
 	/** Warnings to surface on the allowed write (introduction notes, the

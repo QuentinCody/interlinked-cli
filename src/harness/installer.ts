@@ -27,7 +27,6 @@ import {
 	ensureDir,
 	mergeSettings,
 	readJson,
-	removeJsonPath,
 	restoreTextFile,
 	resolveSettingsPath,
 	snapshotTextFile,
@@ -62,9 +61,8 @@ export type { InstallScope };
 // here: the purge verdict keys off it, and re-importing it from this module
 // would make the two files cyclic.
 const SCOPE_PROJECT = "project" as const;
-const SCOPE_LOCAL = "local" as const;
 
-export interface InstallOptions {
+interface InstallOptions {
 	/** Repo root (used for project/local scope paths). */
 	cwd: string;
 	/** Absolute path to the hook binary that runners should invoke. */
@@ -478,14 +476,14 @@ function runPostInstall(
 // Uninstall
 // -----------------------------------------------------------------------------
 
-export interface UninstallOptions {
+interface UninstallOptions {
 	cwd: string;
 	/** Subset of runners to remove; empty = all. */
 	runners?: RunnerId[];
 	dryRun?: boolean;
 }
 
-export interface UninstallResult {
+interface UninstallResult {
 	removed: InstallerManifestEntry[];
 	remaining: InstallerManifestEntry[];
 	manifest_path: string;

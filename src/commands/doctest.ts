@@ -42,9 +42,9 @@ export function findMarkdownFiles(root: string): string[] {
 	return out;
 }
 
-export interface DoctestSuiteResult {
+interface DoctestSuiteResult {
 	total: number;
-	failed: number;
+failed: number;
 	failures: { file: string; line: number; exitCode: number }[];
 }
 
