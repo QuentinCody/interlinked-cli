@@ -26,8 +26,7 @@ import {
 } from "./mutation-target.js";
 import type { MutationRunOutput } from "./stryker-adapter.js";
 import { testEditEffect } from "./test-edit-effect.js";
-import type { MutationGateOutcome, MutationManifest, MutationReceipt } from "./types.js";
-import { mutationOutcomeToDecision } from "./verdict.js";
+import type { MutationManifest, MutationReceipt } from "./types.js";
 
 /** Default small-scope ceiling (spec §6) — clj-mutate's "consider splitting a file
  *  over 50 sites" precedent. Per-repo configurable via `site_count_threshold`. */

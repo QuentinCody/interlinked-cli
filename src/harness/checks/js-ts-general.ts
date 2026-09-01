@@ -7,7 +7,6 @@ import {
 	type InlineMatch,
 	isTestFile,
 	JS_TS_ALL_EXTS,
-	scanLinesStripped,
 	stripComments,
 	stripCommentsAndStrings,
 } from "./shared.js";

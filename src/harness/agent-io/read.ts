@@ -18,7 +18,7 @@ import type { AgentIoRecord } from "./types.js";
 
 /** Default cap on rows returned — mirrors `interlinked query`'s newest-N
  *  bound so the two readers agree about what "recent" means. */
-export const DEFAULT_READ_LIMIT = 20_000;
+const DEFAULT_READ_LIMIT = 20_000;
 
 export interface ReadAgentIoOpts {
 	/** Newest N rows; 0 or negative means unbounded. */
@@ -33,7 +33,7 @@ export interface ReadAgentIoOpts {
  * pass through: this is a self-written store, and rejecting a row over a field
  * a later schema version added would make the reader the fragile part.
  */
-export function parseAgentIoRecord(value: unknown): AgentIoRecord | null {
+function parseAgentIoRecord(value: unknown): AgentIoRecord | null {
 	if (!isJsonObject(value)) return null;
 	if (value.schema !== "agent-io.v1") return null;
 	if (typeof value.ts !== "string") return null;
@@ -95,7 +95,7 @@ export function resolveAgentIoContent(record: AgentIoRecord, cwd: string): strin
  *  what makes a re-drain and a backfill converge instead of duplicating — the
  *  guarantee `timeline-writer.ts` gets from `uuid#seq`, which a projection
  *  store has no natural equivalent for. */
-export function agentIoKey(record: {
+function agentIoKey(record: {
 	agent_id: string | null;
 	kind: string;
 	content_sha256: string;

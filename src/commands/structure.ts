@@ -23,7 +23,6 @@ import {
 	KEY_TO_KIND,
 	KIND_TO_CAT,
 	pctColor,
-	readJson,
 	SCAFFOLDS,
 	writeJson,
 } from "./structure-helpers.js";

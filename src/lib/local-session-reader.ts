@@ -4,9 +4,9 @@ import { readFileRange } from "./bounded-file-io.js";
 import { isJsonObject } from "./json-types.js";
 import type { SessionState } from "./local-activity-types.js";
 
-export const MAX_LOCAL_SESSION_FILES = 10_000;
+const MAX_LOCAL_SESSION_FILES = 10_000;
 export const MAX_LOCAL_SESSION_FILE_BYTES = 1024 * 1024;
-export const MAX_LOCAL_SESSION_TOTAL_BYTES = 32 * 1024 * 1024;
+const MAX_LOCAL_SESSION_TOTAL_BYTES = 32 * 1024 * 1024;
 
 export interface LocalSessionScanLimits {
 	maxFiles: number;

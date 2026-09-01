@@ -177,7 +177,7 @@ export class AgentRoster {
 }
 
 /** Default idle threshold: an actor silent this long reads as idle, not gone. */
-export const IDLE_AFTER_MS = 120_000;
+const IDLE_AFTER_MS = 120_000;
 
 /** True when the actor has acted within `idleAfterMs` of `nowMs`. */
 export function isActive(presence: AgentPresence, nowMs: number, idleAfterMs = IDLE_AFTER_MS): boolean {

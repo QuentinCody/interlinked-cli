@@ -26,7 +26,6 @@ import { LineFramer } from "./server/socket-framing.js";
 import {
 	cleanupSocket as cleanupSocketAt,
 	ensureDirectory,
-	removeFileIfExists,
 } from "./server/socket-lifecycle.js";
 import type { ServerBridge } from "./server-bridge.js";
 import type { SessionDaemonHandle } from "./session-daemon.js";

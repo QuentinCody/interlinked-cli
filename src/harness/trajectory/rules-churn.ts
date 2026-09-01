@@ -10,7 +10,7 @@
 // refactor would fail the low-FP bar.
 
 import { commandFamily, commandHeads, isSourceCodeFile, normalizeCommand } from "./helpers.js";
-import type { ToolEvent, TrajectoryRule, TrajectoryState, Verdict } from "./types.js";
+import type { ToolEvent, TrajectoryRule, Verdict } from "./types.js";
 
 function isPostEdit(event: ToolEvent): boolean {
 	return (

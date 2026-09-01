@@ -27,7 +27,7 @@ import type { HarnessEvent } from "../types.js";
 /** Cap on the transcript read for metrics. Metrics are sums over the whole
  *  file, so unlike the final-message tail read this wants the WHOLE
  *  transcript; the cap only guards against a pathological one. */
-export const MAX_METRICS_TRANSCRIPT_BYTES = 32 * 1024 * 1024;
+const MAX_METRICS_TRANSCRIPT_BYTES = 32 * 1024 * 1024;
 
 /** Bound on remembered labels so a long-lived daemon can't grow the map
  *  without limit. Insertion-ordered, so eviction drops the oldest agents —

@@ -37,7 +37,7 @@ import { daemonSocketPaths, isDaemonSocketReady } from "./session-paths.js";
 
 /** Lock file name, under `.interlinked/`. Hidden so it never shows up in the
  *  data-directory INDEX as a durable artifact — it is transient by design. */
-export const STARTUP_LOCK_FILE = ".harness-start.lock";
+const STARTUP_LOCK_FILE = ".harness-start.lock";
 
 /** A lock older than this is presumed abandoned. Canonical startup can wait up
  * to 60s for a cold compiler- and memory-pressure-bound daemon. Keep a margin
@@ -49,7 +49,7 @@ export const STARTUP_LOCK_TTL_MS = 75_000;
 /** How long a loser waits for the winner's socket before giving up and saying
  *  so. Deliberately longer than a normal boot and shorter than a hook's
  *  patience: the loser reports, it does not hang the CLI. */
-export const STARTUP_WAIT_MS = 8_000;
+const STARTUP_WAIT_MS = 8_000;
 
 /** A newly O_EXCL-created lock exists briefly before its JSON holder bytes are
  * visible. An unreadable file inside this grace is an initializing mutex, not

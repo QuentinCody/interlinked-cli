@@ -21,7 +21,7 @@ import type { MutationFindingDeliveryOutcome } from "./mutation-cloud-v3-finding
 
 /** Public operational cadence so status/doctor surfaces can report the same
  * schedule without copying a magic number. */
-export const MUTATION_CLOUD_BACKGROUND_INTERVAL_MS = 15_000;
+const MUTATION_CLOUD_BACKGROUND_INTERVAL_MS = 15_000;
 
 interface BackgroundRuntime {
 	processNext(): Promise<MutationCloudV3ProcessResult>;

@@ -6,7 +6,7 @@
 // check telemetry and remain model-visible as NOT CHECKED, but they are not
 // source-code feedback: editing the target cannot resolve them.
 
-export const OPERATIONAL_CHECK_DEFERRAL_IDS: ReadonlySet<string> = new Set([
+const OPERATIONAL_CHECK_DEFERRAL_IDS: ReadonlySet<string> = new Set([
 	"affected_tests_deferred",
 	"external_check_deferred",
 	"project_tests_deferred",

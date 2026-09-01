@@ -66,10 +66,6 @@ import type { CodeQualityIssue, CodeQualityResults } from "./tool-results-types.
 import { CQ_RESULT_KEYS } from "./tool-results-types.js";
 
 export type { FileCheckContext, PiiOpts };
-// Re-exported for the `file-checks-<group>.test.ts` files, which import these
-// names from `./file-checks.js`. The definitions now live in
-// `./file-checks-shared.js` to break the file-checks ↔ group-file cycle.
-export { toIssues };
 
 const JSON_EXT = ".json";
 const TS_EXT = ".ts";

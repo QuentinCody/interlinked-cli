@@ -80,7 +80,7 @@ export function tierFor(phase: CheckPhase, checkId: string, advisoryIds: Readonl
 }
 
 /** The dimension set in force before any later phase is switched on. */
-export const DEFAULT_ENFORCED: readonly EvidenceDimension[] = ["cases"];
+const DEFAULT_ENFORCED: readonly EvidenceDimension[] = ["cases"];
 
 /** Case-count and test-file shortfalls (the `cases` dimension). */
 function caseShortfalls(evidence: CheckEvidence, tier: ObligationTier): string[] {

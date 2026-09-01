@@ -139,7 +139,7 @@ export function updateAggregate(
  * nothing to cover means no regression is possible, matching the existing
  * gate's covered-fraction convention for no-statement files.
  */
-export function dimensionCounts(elements: ReadonlyMap<unknown, number>): DimensionCounts {
+function dimensionCounts(elements: ReadonlyMap<unknown, number>): DimensionCounts {
 	let covered = 0;
 	for (const hits of elements.values()) {
 		if (hits > 0) covered++;

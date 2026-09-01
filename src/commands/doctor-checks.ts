@@ -24,7 +24,6 @@ import {
 import { c } from "../lib/formatter.js";
 import { readGuardDisable } from "../lib/guard-state.js";
 import { HOOK_SCRIPT_VERSION, writeHookScript } from "../lib/hooks.js";
-import { readCodexHooksFlag } from "../lib/codex-feature-flag.js";
 import { isJsonObject } from "../lib/json-types.js";
 import { functionTokenCapConfigIssue } from "../harness/metric-caps.js";
 import { clientHookTargets } from "../lib/settings.js";

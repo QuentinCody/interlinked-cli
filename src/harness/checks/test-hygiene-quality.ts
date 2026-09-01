@@ -18,7 +18,7 @@ import {
 	stripCommentsAndStrings,
 } from "./shared.js";
 import { blankRange, isCodeMatch, isSkippedOrTodoCall, maskCommentsAndStrings } from "./test-hygiene-masking.js";
-import { findCallSpan, IT_TEST_OPEN_RE } from "./test-hygiene-shared.js";
+import { findCallSpan } from "./test-hygiene-shared.js";
 
 export { checkMockOnlyTest } from "./test-hygiene-quality-mock-only.js";
 

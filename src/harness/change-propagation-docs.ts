@@ -149,7 +149,7 @@ export function docClaudeMd(c: PropagationCtx): PropagationTarget[] {
 // Shared helper
 // ===========================================
 
-export function findFilesRecursive(
+function findFilesRecursive(
 	dir: string,
 	extensions: string[],
 	maxDepth: number,

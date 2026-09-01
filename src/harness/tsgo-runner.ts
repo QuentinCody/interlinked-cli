@@ -52,27 +52,19 @@
 // cold one-shot or to an empty diagnostics list. The daemon must never crash
 // because of tsgo.
 
-import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TsgoDiagnostic } from "./daemon-protocol.js";
 import { applyLiteralReplacement } from "./overlay-content.js";
 import {
-	buildInfoPath,
 	computeCacheKey,
-	filterDiagnosticsForFile,
 	findTsconfigDir,
 	isTsFile,
 	locateTsgo,
 	nowMs,
-	PASS_COMPLETE_RE,
-	PASS_START_RE,
-	parseDiagnosticLine,
 	readFileSyncSafe,
 	runTsgoOneShot,
-	stripAnsi,
-	stripWatchTimestamp,
 } from "./tsgo-diagnostics.js";
 
 // Public re-export: `parseTsgoOutput` (and the helper cluster it lives among)

@@ -2,7 +2,7 @@
 
 const MAX_ERROR_BODY_BYTES = 4 * 1024;
 const MAX_ERROR_BODY_CHARS = 500;
-export const MAX_CLOUD_JSON_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_CLOUD_JSON_RESPONSE_BYTES = 8 * 1024 * 1024;
 
 export interface BoundedHttpResponse {
 	readonly headers: { get(name: string): string | null };

@@ -42,9 +42,9 @@ function pemOf(key: KeyObject): string {
 	return createPublicKey(key).export({ format: "pem", type: "spki" }).toString();
 }
 
-export const CONTROL_KEY = keyFromSeed(7);
-export const RUNNER_KEY = keyFromSeed(9);
-export const CONTROL_PEM = pemOf(CONTROL_KEY);
+const CONTROL_KEY = keyFromSeed(7);
+const RUNNER_KEY = keyFromSeed(9);
+const CONTROL_PEM = pemOf(CONTROL_KEY);
 export const RUNNER_PEM = pemOf(RUNNER_KEY);
 
 export const TEST_REGISTRY: V3KeyRegistry = {
@@ -238,7 +238,7 @@ function executionPayloadFor(
 /** The CANONICAL admission for one fixture view — derived from the
  *  request the CLI would have submitted (request.ts), never placeholder
  *  hashing (seventh pass P0-3). */
-export function requestOf(view: RawEvidenceView): MutationJobRequestV3 {
+function requestOf(view: RawEvidenceView): MutationJobRequestV3 {
 	return {
 		request_version: "1",
 		protocol_version: "interlinked-mutation/3.0",

@@ -32,7 +32,7 @@ interface NodeSqliteModule {
 	DatabaseSync: new (path: string) => SqliteDatabase;
 }
 
-export class MutationJournalUnavailableError extends Error {
+class MutationJournalUnavailableError extends Error {
 	constructor(message: string, options?: ErrorOptions) {
 		super(message, options);
 		this.name = "MutationJournalUnavailableError";

@@ -65,7 +65,7 @@ function findDownloadForExec(state: TrajectoryState, execPath: string): Download
 	}
 	return null;
 }
-export const secFetchRemoteScriptThenExecute: TrajectoryRule = (state, event) => {
+const secFetchRemoteScriptThenExecute: TrajectoryRule = (state, event) => {
 	if (!isPreBash(event)) return null;
 	const cmd = event.input.command;
 	if (!cmd) return null;
@@ -100,7 +100,7 @@ export const secFetchRemoteScriptThenExecute: TrajectoryRule = (state, event) =>
 // A structured secret was written into a tracked .env/config file, then a git
 // add/commit would include that path. FP guard: structured-secret detection
 // (so FOREIGN_KEY / PUBLIC_KEY etc. never qualify) + the file must be env/config.
-export const secEnvAddThenGitCommit: TrajectoryRule = (state, event) => {
+const secEnvAddThenGitCommit: TrajectoryRule = (state, event) => {
 	if (!isPreBash(event)) return null;
 	const cmd = event.input.command;
 	if (!cmd || !isGitAddOrCommit(cmd)) return null;
@@ -157,7 +157,7 @@ const HOOK_GROUPS: Record<string, ReadonlySet<string>> = {
 function hookTriggeredBy(triggered: string, written: string): boolean {
 	return HOOK_GROUPS[triggered]?.has(written) ?? false;
 }
-export const secGitHookBackdoor: TrajectoryRule = (state, event) => {
+const secGitHookBackdoor: TrajectoryRule = (state, event) => {
 	if (!isPreBash(event)) return null;
 	const cmd = event.input.command;
 	if (!cmd) return null;
@@ -183,7 +183,7 @@ export const secGitHookBackdoor: TrajectoryRule = (state, event) => {
 // Append an SSH public key to a real-$HOME ~/.ssh/authorized_keys. Two signals
 // on one event: the home-confined path AND public-key content. FP guard:
 // project/tmp/fixture/CI paths are excluded by isAuthorizedKeysPath.
-export const secSshAuthorizedKeysInject: TrajectoryRule = (_state, event) => {
+const secSshAuthorizedKeysInject: TrajectoryRule = (_state, event) => {
 	if (event.hook !== "PreToolUse") return null;
 	if (isEditEvent(event)) {
 		const file = event.input.file_path;
@@ -219,7 +219,7 @@ export const secSshAuthorizedKeysInject: TrajectoryRule = (_state, event) => {
 // grown) earlier this session, then a guarded op runs. FP guard: the documented
 // INTERLINKED_DISABLE_* bypass and `interlinked harness stop|restart|clean`
 // are treated as sanctioned (parseHarnessDisable returns null for them).
-export const secHarnessDisableThenGuardedOp: TrajectoryRule = (state, event) => {
+const secHarnessDisableThenGuardedOp: TrajectoryRule = (state, event) => {
 	if (!isPreBash(event) || !state.harnessDisabled) return null;
 	const cmd = event.input.command;
 	if (!cmd) return null;
@@ -240,7 +240,7 @@ export const secHarnessDisableThenGuardedOp: TrajectoryRule = (state, event) => 
 // After a credential read, ≥3 distinct high-entropy DNS labels to one base
 // domain (the burst substrate is filtered for entropy + hex in state folding).
 const DNS_BURST_THRESHOLD = 3;
-export const secDnsExfilBurst: TrajectoryRule = (state, event) => {
+const secDnsExfilBurst: TrajectoryRule = (state, event) => {
 	if (event.hook !== "PostToolUse" || event.tool !== "Bash") return null;
 	if (state.lastSecretReadStep === 0) return null;
 	const byDomain = new Map<string, Set<string>>();
@@ -276,7 +276,7 @@ export const secDnsExfilBurst: TrajectoryRule = (state, event) => {
 // Block ONLY the highest-confidence shapes (PEM header / AKIA / GitHub PAT /
 // Anthropic key) — the structured prefix + fixed charset/length is itself the
 // near-zero-FP signal the catalog requires.
-export const sessionSecretPersistence: TrajectoryRule = (_state, event) => {
+const sessionSecretPersistence: TrajectoryRule = (_state, event) => {
 	if (!isPreEdit(event)) return null;
 	const content = editContent(event);
 	if (!content) return null;
@@ -300,7 +300,7 @@ export const sessionSecretPersistence: TrajectoryRule = (_state, event) => {
 // catalog rule also consults git history (`git log -S`); this in-session
 // variant fires on the scrub→re-add pair observed within the session and is the
 // part implementable without a git-pickaxe capture.
-export const xsrReintroduceScrubbedSecret: TrajectoryRule = (state, event) => {
+const xsrReintroduceScrubbedSecret: TrajectoryRule = (state, event) => {
 	if (!isPreEdit(event) || state.scrubbedSecretHashes.size === 0) return null;
 	const content = editContent(event);
 	if (!content) return null;

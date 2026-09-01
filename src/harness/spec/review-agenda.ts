@@ -139,7 +139,7 @@ export function coverageGaps(
 // ---------------------------------------------------------------------------
 
 /** Compose-check items across the ledger's files. */
-export function composeChecks(
+function composeChecks(
 	filesFacts: Array<{ file: string; facts: SpecFacts }>,
 ): AgendaItem[] {
 	const sitesByEntity = new Map<string, Set<string>>();

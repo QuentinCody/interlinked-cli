@@ -50,7 +50,7 @@ const HEREDOC_TOKEN = "<<";
  *  SQL/REPL clients, ssh, docker/kubectl exec, xargs, eval) must NOT be
  *  here: unknown targets are treated as executing, so omission fails
  *  toward recall. */
-export const HEREDOC_DATA_SINKS: ReadonlySet<string> = new Set([
+const HEREDOC_DATA_SINKS: ReadonlySet<string> = new Set([
 	":",
 	"awk",
 	"base64",

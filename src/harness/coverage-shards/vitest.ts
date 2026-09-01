@@ -48,7 +48,7 @@ export { istanbulToElementSets } from "./vitest-istanbul.js";
 import { canonicalPath, isRecord, istanbulToElementSets } from "./vitest-istanbul.js";
 
 /** Filename of the loud non-authoritative marker inside a capture directory. */
-export const CAPTURE_DEGRADED_FILENAME = "capture-degraded.json";
+const CAPTURE_DEGRADED_FILENAME = "capture-degraded.json";
 
 // ===========================================
 // Generated capture provider module

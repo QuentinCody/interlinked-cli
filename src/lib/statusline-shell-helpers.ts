@@ -17,7 +17,7 @@
  * gracefully against a daemon too old to write a newer key: the caller passes
  * `""` and omits its whole segment rather than rendering a confident zero.
  */
-export const READ_SNAP_FN = `# read_snap KEY [DEFAULT] — extract one key=value line from the snapshot.
+const READ_SNAP_FN = `# read_snap KEY [DEFAULT] — extract one key=value line from the snapshot.
 read_snap() {
     local val
     val=$(grep -E "^$1=" "$SNAP" 2>/dev/null | head -1 | cut -d= -f2-)
@@ -35,7 +35,7 @@ read_snap() {
  * constants and print it with `printf '%s'`. Terminals without OSC 8 support
  * strip the escapes and render TEXT cleanly, so this is safe everywhere.
  */
-export const OSC8_FN = `# osc8 URL TEXT — wrap TEXT in an OSC 8 hyperlink using BEL terminator.
+const OSC8_FN = `# osc8 URL TEXT — wrap TEXT in an OSC 8 hyperlink using BEL terminator.
 # Outputs real ESC + BEL bytes so callers can concatenate with color
 # constants and emit via printf '%s'. Terminals that don't support OSC 8
 # strip the escape sequences and render TEXT cleanly.
@@ -47,7 +47,7 @@ osc8() {
  * `fmt_count N` — abbreviate thousands so a lifetime counter cannot widen the
  * row without bound. 999 stays 999; 1200 becomes `1k`.
  */
-export const FMT_COUNT_FN = `# fmt_count N — abbreviate thousands so a lifetime counter can't widen the row.
+const FMT_COUNT_FN = `# fmt_count N — abbreviate thousands so a lifetime counter can't widen the row.
 fmt_count() {
     if [ "$1" -ge 1000 ]; then printf '%sk' "$(($1 / 1000))"; else printf '%s' "$1"; fi
 }`;

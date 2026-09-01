@@ -16,7 +16,7 @@
 // so a blocked legitimate commit would fail the low-FP bar.
 
 import { isSourceCodeFile, isTestFile, isVerifyCommand, splitSegments } from "./helpers.js";
-import type { ToolEvent, TrajectoryRule, TrajectoryState, Verdict } from "./types.js";
+import type { ToolEvent, TrajectoryRule, Verdict } from "./types.js";
 
 function nudge(ruleId: string, severity: Verdict["severity"], reason: string): Verdict {
 	return { ruleId, action: "nudge", severity, reason };

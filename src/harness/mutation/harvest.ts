@@ -87,7 +87,7 @@ async function claimOne(run: PendingRun, fetchImpl: HarvestFetch): Promise<Claim
 
 /** How long the second window will wait for a run to finish, and how often it asks. */
 export const DEFAULT_HARVEST_BUDGET_MS = 25_000;
-export const DEFAULT_POLL_INTERVAL_MS = 400;
+const DEFAULT_POLL_INTERVAL_MS = 400;
 
 export interface HarvestOptions {
 	budgetMs?: number;

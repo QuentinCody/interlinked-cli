@@ -7,7 +7,6 @@
 import { join } from "node:path";
 import type { SpecDriftFinding } from "./ledger-drift.js";
 import type { SpecFacts } from "./types.js";
-import { isSpecEligibleFile } from "./types.js";
 
 /** Normalize a link target relative to its source file into repo-relative form. */
 export function resolveRelativeTarget(

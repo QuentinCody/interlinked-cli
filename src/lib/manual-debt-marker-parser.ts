@@ -138,7 +138,7 @@ function stringField(value: unknown): string | null {
     return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
-export function isIsoCalendarDate(value: string): boolean {
+function isIsoCalendarDate(value: string): boolean {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
     if (!match) return false;
     const year = Number.parseInt(match[1] ?? "", 10);

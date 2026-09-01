@@ -23,7 +23,7 @@
 // `--all-checks` audit.
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 import { isGeneratedFile } from "./checks/shared.js";
 import { stripCommentsAndStrings } from "./checks/shared-text-utils.js";

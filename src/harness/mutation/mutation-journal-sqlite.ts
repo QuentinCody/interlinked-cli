@@ -66,7 +66,6 @@ import type {
 	InitializeManifestHeadOutcome,
 	InitializeMutationManifestHead,
 	JournalEvaluationView,
-	JournalFinding,
 	JournalJobView,
 	JournalManifestHead,
 	LegacyMutationImport,
@@ -86,13 +85,13 @@ import type {
 	PrepareMutationOnboardingIntent,
 } from "./mutation-journal-types.js";
 
-export const MUTATION_JOURNAL_RELATIVE_PATH = join(".interlinked", "mutation-journal.sqlite");
+const MUTATION_JOURNAL_RELATIVE_PATH = join(".interlinked", "mutation-journal.sqlite");
 
 export function mutationJournalPath(root: string): string {
 	return join(root, MUTATION_JOURNAL_RELATIVE_PATH);
 }
 
-export class SqliteMutationJournal implements MutationJournal {
+class SqliteMutationJournal implements MutationJournal {
 	readonly path: string;
 	readonly #db: SqliteDatabase;
 	readonly #fault: NonNullable<MutationJournalOptions["faultInjector"]>;

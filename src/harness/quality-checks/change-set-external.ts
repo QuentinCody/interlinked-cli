@@ -31,9 +31,9 @@ export { MULTI_FILE_NAMED_EXTERNAL_CHECKS } from "./change-set-external-candidat
 const MAX_BATCH_TOOL_TIMEOUT_MS = 30_000;
 /** Attribution work cap. Project tools still scan one project, but mapping an
  * unbounded generated ChangeSet back to files must not monopolize the daemon. */
-export const MAX_CHANGESET_EXTERNAL_FILES = 32;
+const MAX_CHANGESET_EXTERNAL_FILES = 32;
 /** Sequential project tools admitted in one request-owned heavy-process lease. */
-export const MAX_CHANGESET_EXTERNAL_TOOLS = 8;
+const MAX_CHANGESET_EXTERNAL_TOOLS = 8;
 
 export interface ChangeSetExternalBatch {
 	/** Results attributed to one path. The underlying external batch is lazy,

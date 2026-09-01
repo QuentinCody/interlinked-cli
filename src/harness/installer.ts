@@ -14,11 +14,9 @@
 // recogniser lives in `../lib/hook-ownership.ts`; the purge cluster itself
 // lives in `./installer-purge.ts`.
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { isHookEntryInvokingBinary } from "../lib/hook-ownership.js";
-import type { JsonObject } from "../lib/json-types.js";
 import {
 	buildAllAdapters,
 	getAdapter,

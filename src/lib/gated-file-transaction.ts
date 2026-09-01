@@ -72,7 +72,7 @@ export class GatedWriteLockError extends Error {
 }
 
 /** Public so command handlers can distinguish partial rollback from clean aborts. */
-export class GatedWriteRollbackError extends Error {
+class GatedWriteRollbackError extends Error {
 	readonly failures: readonly string[];
 
 	constructor(cause: unknown, failures: readonly string[]) {

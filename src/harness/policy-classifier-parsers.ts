@@ -71,7 +71,7 @@ export function parseAnthropicResponse(data: JsonObject): PolicyClassification {
 /**
  * Parse the JSON classification payload from model output text.
  */
-export function parseClassificationJson(text: string): PolicyClassification {
+function parseClassificationJson(text: string): PolicyClassification {
 	try {
 		// Strip markdown code fences (claude -p wraps output in ```json ... ```)
 		let cleaned = text.trim();

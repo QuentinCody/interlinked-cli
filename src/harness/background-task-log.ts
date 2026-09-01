@@ -43,7 +43,7 @@ export interface BackgroundTaskRecord extends BackgroundTask {
 /** Tail bytes scanned to recover each task's last recorded status. Rows are
  *  small and a session's roster is short, so this covers the whole session in
  *  practice while bounding the read on a long-lived log. */
-export const STATUS_TAIL_BYTES = 256 * 1024;
+const STATUS_TAIL_BYTES = 256 * 1024;
 
 export function backgroundTaskLogPath(cwd: string): string {
 	return join(cwd, ".interlinked", "background-tasks.jsonl");

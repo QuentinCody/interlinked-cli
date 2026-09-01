@@ -8,7 +8,6 @@
 // immediately) or `null` to continue. The shared `warnings` array is passed by
 // reference where the original embedded it; control-flow order is unchanged.
 
-import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { loadAllowlist } from "../package-allowlist.js";
 import { parseInstallCommands } from "../package-install-parser.js";

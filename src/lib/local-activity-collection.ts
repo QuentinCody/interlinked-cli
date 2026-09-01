@@ -12,7 +12,6 @@ import type { AgentEventName } from "./collection/types.js";
 import { getCollectionPath } from "./collection/writer.js";
 import { isJsonObject, type JsonObject } from "./json-types.js";
 import type { EventAttribution, LocalActivityEvent, TokenUsage } from "./local-activity-types.js";
-import { nonNull } from "./non-null.js";
 import { readRecentLines } from "./reverse-line-reader.js";
 
 export { readRecentLines };

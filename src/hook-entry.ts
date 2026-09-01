@@ -30,7 +30,6 @@ import {
 } from "./hook-entry-cold-gates.js";
 import {
 	attemptDaemonSelfHealDetailed,
-	findRepoRoot,
 	type SelfHealAttempt,
 } from "./hook-entry-daemon-gate.js";
 import { daemonRecoveryRootFresh } from "./hook-entry-daemon-probe.js";

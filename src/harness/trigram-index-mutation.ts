@@ -218,7 +218,7 @@ export function cloneMutablePostings(
  * read error (e.g. the path now points at a directory) — so callers fall
  * back to zero masks uniformly regardless of which way it failed.
  */
-export function readMasksFromDisk(
+function readMasksFromDisk(
 	cwd: string,
 	relPath: string | undefined,
 ): Map<number, { locMask: number; nextMask: number }> | null {

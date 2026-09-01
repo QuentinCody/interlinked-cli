@@ -29,7 +29,7 @@ import {
 } from "./hook-entry-daemon-gate.js";
 
 /** Connect budget for the freshness probe. */
-export const FRESH_PROBE_TIMEOUT_MS = 250;
+const FRESH_PROBE_TIMEOUT_MS = 250;
 
 export interface FreshnessProbeDeps {
 	listSockets?: (root: string) => string[];
@@ -40,7 +40,7 @@ export interface FreshnessProbeDeps {
 }
 
 /** True when SOME daemon socket for `root` accepts a connection right now. */
-export async function daemonAnswersNow(
+async function daemonAnswersNow(
 	root: string,
 	deps: FreshnessProbeDeps = {},
 ): Promise<boolean> {

@@ -27,8 +27,8 @@ import type { TimelineRecord } from "./transcript-record.js";
 
 /** A collection run is intentionally finite: the existing history is streamed,
  * while only this bounded set of new candidates is retained. */
-export const MAX_CODEX_COLLECTION_BYTES = 64 * 1024 * 1024;
-export const MAX_CODEX_ROLLOUT_BYTES = 64 * 1024 * 1024;
+const MAX_CODEX_COLLECTION_BYTES = 64 * 1024 * 1024;
+const MAX_CODEX_ROLLOUT_BYTES = 64 * 1024 * 1024;
 
 /** Default Codex session root (`~/.codex/sessions`). */
 export function codexSessionsDir(): string {

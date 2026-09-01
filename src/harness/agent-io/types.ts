@@ -156,7 +156,7 @@ export const SPAWN_TOOL_NAMES: ReadonlySet<string> = new Set([
 /** Fernet-token prefix. Codex encrypts the sub-agent `message` at rest, in
  *  both directions. Detected by SHAPE rather than assumed by tool name, so a
  *  future plaintext payload is captured instead of written off. */
-export const FERNET_PREFIX = "gAAAAA";
+const FERNET_PREFIX = "gAAAAA";
 
 /** True when the value looks like a Fernet token rather than a task text. */
 export function isEncryptedByRunner(value: string): boolean {

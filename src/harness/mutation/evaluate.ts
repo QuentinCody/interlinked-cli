@@ -226,7 +226,7 @@ interface VerdictInput {
  *  crash reads as CLEANER than a healthy run. Only an explicit 0 certifies;
  *  every other state is the absence of evidence, not evidence of absence.
  *  Returns null when the engine is proven to have finished. */
-export function engineExitEvidenceGap(exit: number | null | undefined): string | null {
+function engineExitEvidenceGap(exit: number | null | undefined): string | null {
 	if (exit === 0) return null;
 	// STRICT (operator decision 2026-08-28): absence refuses. `runner_url` is
 	// configurable, so an old runner, a proxy, a replay, or a misdeployed Worker

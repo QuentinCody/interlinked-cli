@@ -375,7 +375,7 @@ function acceptedSurvivorSet(manifest: unknown): Set<string> {
 	return out;
 }
 
-export function detectMutationManifest(file: string, before: unknown, after: unknown): BaselineGamingFinding[] {
+function detectMutationManifest(file: string, before: unknown, after: unknown): BaselineGamingFinding[] {
 	const out: BaselineGamingFinding[] = [];
 	const beforeAccepted = acceptedSurvivorSet(before);
 	for (const mutantId of acceptedSurvivorSet(after)) {

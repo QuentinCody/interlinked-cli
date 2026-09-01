@@ -27,7 +27,7 @@ export function defaultSemanticTeamConfig(): SemanticTeamConfig {
     };
 }
 
-export function defaultSemanticLocalConfig(): SemanticLocalConfig {
+function defaultSemanticLocalConfig(): SemanticLocalConfig {
     return {
         version: 1,
         device: "auto",
@@ -143,7 +143,7 @@ export function loadSemanticConfig(root: string): ResolvedSemanticConfig {
     return { team, local, manifest };
 }
 
-export function semanticModelCacheRoot(): string {
+function semanticModelCacheRoot(): string {
     const override = process.env.INTERLINKED_MODEL_CACHE?.trim();
     if (override) return override;
     if (process.platform === "darwin") return join(homedir(), "Library", "Caches", "interlinked", "models");

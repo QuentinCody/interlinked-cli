@@ -36,7 +36,7 @@ const STOP_PHASES = new Set(["stop", "subagent-stop"]);
  *  fire during that ordinary gap, and a premature proactive spawn there would
  *  just contend uselessly for the startup mutex the real successor already
  *  holds. Well above that, well below "a whole turn goes by unrevived". */
-export const STOP_SELF_HEAL_MIN_DOWN_MS = 60_000;
+const STOP_SELF_HEAL_MIN_DOWN_MS = 60_000;
 
 /** Injectable clock/ledger seam for tests; production reads the real ledger. */
 export interface StopSelfHealClock {

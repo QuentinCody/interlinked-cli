@@ -6,7 +6,6 @@
 
 import { spawn } from "node:child_process";
 import { McpProtocolRecorder } from "./recorder.js";
-import type { McpDirection } from "./types.js";
 
 export interface McpStdioProxyOptions {
     serverName: string;

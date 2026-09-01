@@ -26,7 +26,7 @@ export interface SkillRenderConfig {
 }
 
 /** Runners whose SKILL.md copies must keep a parser-safe description length. */
-export const RUNNERS_REQUIRING_SHORT_DESCRIPTION: ReadonlySet<ClientName> = new Set([
+const RUNNERS_REQUIRING_SHORT_DESCRIPTION: ReadonlySet<ClientName> = new Set([
 	"claude",
 	"codex",
 	"gemini",
@@ -46,7 +46,7 @@ export const ENFORCE_SHORT_DESCRIPTION =
 	"Distill imperative markdown guidance (AGENTS.md, CLAUDE.md, .clinerules/, GEMINI.md, SKILL.md with hard imperatives) into Interlinked harness hook rules with verbatim source provenance. Invoke as /enforce with a local path, directory, GitHub shorthand (owner/repo/path), URL, or no argument to walk the project. Lexical strength is binding: never/MUST NOT/forbidden distill to block; should not/avoid to ask; should/prefer to advisory; hedged language is skipped. Output goes to .interlinked/distilled-rules.json plus .interlinked/distilled-rules.overrides.json. Lifecycle ops: /enforce list, show, remove, disable, enable, modify, add, reset, --review, --accept. Description-match invocation: make my AGENTS.md enforced, distill rules from this file. Manual invocation only — never auto-fires.";
 
 /** Thin prompt-file alias for Copilot surfaces that still read .prompt.md files. */
-export const ENFORCE_COPILOT_PROMPT_ALIAS = `---
+const ENFORCE_COPILOT_PROMPT_ALIAS = `---
 name: enforce
 description: Distill imperative .md guidance into harness-enforced rules with full source provenance. Aliases to the full skill body. Invoke as /enforce with a path, directory, GitHub shorthand (owner/repo/path), or URL. With no argument, walks the project. Lifecycle ops: /enforce list, /enforce remove, /enforce disable, /enforce modify.
 ---

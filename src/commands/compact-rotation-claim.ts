@@ -43,7 +43,7 @@ export class RotationSegmentMismatchError extends Error {
 	}
 }
 
-export class RotationSegmentVerificationRequiredError extends Error {
+class RotationSegmentVerificationRequiredError extends Error {
 	constructor(readonly segmentFile: string) {
 		super(`archive segment ${segmentFile} appeared during publication; retry to verify it`);
 		this.name = "RotationSegmentVerificationRequiredError";

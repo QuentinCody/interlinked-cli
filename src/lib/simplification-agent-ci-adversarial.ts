@@ -17,7 +17,7 @@ import {
 	type SimplificationRemedy,
 } from "./simplification-types.js";
 
-export const SIMPLIFICATION_ADVERSARIAL_FIXTURE_VERSION =
+const SIMPLIFICATION_ADVERSARIAL_FIXTURE_VERSION =
 	"simplification-adversarial/v1" as const;
 
 const TRAP_KINDS = [

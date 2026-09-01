@@ -9,7 +9,7 @@
 //   - same_command_thrice_no_observe (§3.9, pre_warn)
 
 import { isNetworkCommand } from "../taint-tracker.js";
-import type { SequenceDetector, SequenceMatch } from "./types.js";
+import type { SequenceDetector } from "./types.js";
 
 const CONFIDENTIAL_LEVELS = new Set(["Confidential", "HighlyConfidential"]);
 

@@ -17,7 +17,7 @@
 // companion presence and marks coverage/CRAP as unavailable (fail-open, never
 // throws).
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { computeCrapForFile } from "../harness/checks/crap.js";
 import { computeCyclomaticComplexity, type FunctionComplexityEntry } from "../harness/checks/cyclomatic.js";

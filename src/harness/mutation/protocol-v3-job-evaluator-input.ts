@@ -6,7 +6,7 @@
 
 import { createHash } from "node:crypto";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
-import type { ClaimedMutationJob, JournalManifestHead } from "./mutation-journal-types.js";
+import type { ClaimedMutationJob } from "./mutation-journal-types.js";
 import { hasExactJsonKeys } from "./mutation-cloud-v3-http.js";
 import {
 	canonicalJson,

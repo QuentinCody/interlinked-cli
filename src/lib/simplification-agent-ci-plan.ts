@@ -19,8 +19,8 @@ import {
 	type SimplificationRemedy,
 } from "./simplification-types.js";
 
-export const SIMPLIFICATION_P4_PLAN_VERSION = "simplification-orchestration-plan/v2" as const;
-export const SIMPLIFICATION_P5_PLAN_VERSION = "simplification-validation-plan/v1" as const;
+const SIMPLIFICATION_P4_PLAN_VERSION = "simplification-orchestration-plan/v2" as const;
+const SIMPLIFICATION_P5_PLAN_VERSION = "simplification-validation-plan/v1" as const;
 
 export const SIMPLIFICATION_PROTECTED_BOUNDARIES = [
 	"authorization",

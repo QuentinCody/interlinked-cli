@@ -9,7 +9,7 @@ import { isJsonObject, type JsonObject } from "./json-types.js";
 import { canonicalSimplificationAgentCiJson } from "./simplification-agent-ci-request.js";
 import { isPinnedExactVersion } from "./simplification-version.js";
 
-export const SIMPLIFICATION_EXPERIMENT_VERSION = "simplification-experiment/v1" as const;
+const SIMPLIFICATION_EXPERIMENT_VERSION = "simplification-experiment/v1" as const;
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const GIT_OBJECT_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;

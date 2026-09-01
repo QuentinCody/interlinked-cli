@@ -17,18 +17,15 @@
 //   - `null` when the original `switch` arm fell through with `break`,
 //     i.e. the caller should continue into the Pre/Post evaluation path.
 
-import { mkdir, writeFile } from "node:fs/promises";
-import { join, resolve, sep } from "node:path";
+import { join } from "node:path";
 import {
 	autoStripAllScopes,
 	defaultStripAuditLogPath,
 	describeReason as describeMalformedReason,
 } from "../../lib/settings-validator.js";
-import type { CohortManager } from "../cohort.js";
 import { scanUserPrompt } from "../content-scanner/prompt-scan.js";
 import { buildEditMechanicsStopNudge } from "../edit-mechanics-stop.js";
 import { resetProjectSetupWarningsCache } from "../evaluator/pre-tool.js";
-import { computeEffectivenessSummary } from "../feedback-effectiveness.js";
 import { refreshPriorityIfStale as refreshFilePriorityIfStale } from "../file-priority.js";
 import { buildGateReachStopWarning } from "../gate-reach-collect.js";
 import { findRipgrep } from "../grep-accelerator.js";
@@ -45,13 +42,7 @@ import {
 	formatSequenceFinding,
 	runSequenceDetectorsForPhase,
 } from "../sequence-checks/index.js";
-import { sanitizeSessionId } from "../session-paths.js";
-import {
-	getActiveSkills,
-	recordSkillEnter,
-	recordSkillLeave,
-	type SessionTracker,
-} from "../session-state.js";
+import { type SessionTracker } from "../session-state.js";
 import { buildStopDigest } from "../stop-digest.js";
 import { buildPatternRescanWarnings } from "../stop-rescan.js";
 import { clearArchive } from "../trajectory/fingerprint-archive.js";

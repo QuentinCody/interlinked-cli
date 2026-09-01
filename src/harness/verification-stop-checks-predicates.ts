@@ -10,7 +10,6 @@
 // drift helpers. Depend only on their own regexes plus the shared `isDocFile`
 // predicate and `basename`. Behavior is byte-identical to the originals.
 
-import { basename } from "node:path";
 import { isDocFile } from "./commit-cadence.js";
 
 /** Verification signal kinds tracked across a session.

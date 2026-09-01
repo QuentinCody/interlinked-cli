@@ -33,7 +33,7 @@ import type { GuardRulesConfig, HarnessDecision, HarnessEvent } from "../types.j
  * `hookSpecificOutput.additionalContext` at PreToolUse, so this text reaches the
  * model on the same turn. Fail-open: the decision is `allow`, never a block.
  */
-export function allowWithCoverageWarning(warning: string): HarnessDecision {
+function allowWithCoverageWarning(warning: string): HarnessDecision {
 	process.stderr.write(`${warning}\n`);
 	return { decision: "allow", warnings: [warning] };
 }

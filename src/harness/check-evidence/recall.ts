@@ -28,7 +28,7 @@ import { computeCyclomaticAst } from "../checks/cyclomatic-ast.js";
 import type { ObligationTier } from "./types.js";
 
 /** Where the existing mutation system keeps per-file scores. */
-export const MUTATION_BASELINE_PATH = ".interlinked/mutation-baseline.json";
+const MUTATION_BASELINE_PATH = ".interlinked/mutation-baseline.json";
 
 /**
  * Upper bound on a derived floor.

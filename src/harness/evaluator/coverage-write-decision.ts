@@ -171,7 +171,7 @@ export function blockForRedBar(
  * wobble (1.0 → 0.9997) while catching a real multi-line regression; the
  * commit-time full-suite gate re-checks against the complete measurement.
  */
-export const COVERAGE_DROP_EPSILON = 0.005;
+const COVERAGE_DROP_EPSILON = 0.005;
 
 /** How many uncovered lines the drop message names (orientation, not a dump). */
 const UNCOVERED_SAMPLE_MAX = 3;

@@ -33,10 +33,10 @@ export interface VizFeed {
 }
 
 /** Backlog size replayed to a joining client. Enough to fill a screen, not a log. */
-export const SEED_EVENTS = 40;
+const SEED_EVENTS = 40;
 
 /** Test-feed backlog. Larger: a run emits a burst, and the lens is about order. */
-export const SEED_TESTS = 120;
+const SEED_TESTS = 120;
 
 /** Resolved locations of every file the feeds read. All overridable for tests. */
 export interface FeedPaths {
@@ -117,7 +117,7 @@ export function seedMutants(path: string): MutantEvent[] {
  * by all connected browsers); the seed replays the backlog through the same fold
  * so a joining client gets the current roster, one presence per actor.
  */
-export function buildAgentFeed(activityPath: string, pollMs: number): VizFeed {
+function buildAgentFeed(activityPath: string, pollMs: number): VizFeed {
 	const roster = new AgentRoster();
 	return {
 		route: "/api/agents",
@@ -135,7 +135,7 @@ export function buildAgentFeed(activityPath: string, pollMs: number): VizFeed {
  * window would under-report an agent that has been quiet for a few minutes but
  * is very much still working.
  */
-export const SEED_PRESENCE = 600;
+const SEED_PRESENCE = 600;
 
 /** Build every feed the dashboard hosts, wired to `paths`. */
 export function buildFeeds(paths: FeedPaths, pollMs: number): VizFeed[] {

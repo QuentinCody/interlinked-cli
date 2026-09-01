@@ -60,7 +60,7 @@ import {
 	decideCrap,
 	defaultCyclomaticFor,
 } from "./coverage-crap-decision.js";
-import { type CoverageEditPlan, type CoverageTarget, coverageEditPlan } from "./coverage-edit-targets.js";
+import { type CoverageTarget, coverageEditPlan } from "./coverage-edit-targets.js";
 import { isFileWrite } from "./tool-classifiers.js";
 
 // Re-exported so this module's public surface is unchanged for existing importers.

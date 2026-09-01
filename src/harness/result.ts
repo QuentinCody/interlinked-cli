@@ -1,4 +1,3 @@
-import type { JsonObject } from "../lib/json-types.js";
 import type {
 	AnyTaggedError,
 	TaggedErrorClass,

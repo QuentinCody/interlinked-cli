@@ -36,7 +36,6 @@ import {
 } from "./harness-lifecycle-helpers.js";
 import {
 	ensureDistFresh,
-	getFramedSocketPath,
 	getHarnessServerPath,
 	getSocketPath,
 	isHarnessRunning,

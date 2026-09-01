@@ -32,7 +32,7 @@
 // + needlessly self-healed (the regression this fixes).
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
 	describeLastExit,
 	describeLastLedgerEvent,

@@ -102,7 +102,7 @@ function appendFileFindings(
  * the identical code path that produced the current findings — two different
  * detector loops would be two different definitions of "the same finding".
  */
-export function scanContentFindings(args: {
+function scanContentFindings(args: {
 	content: string;
 	relPath: string;
 }): PatternRescanFinding[] {

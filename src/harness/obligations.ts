@@ -2,7 +2,6 @@
 // Obligation ledger — metric-agnostic TDD-debt state machine
 // ===========================================
 import { isJsonObject } from "../lib/json-types.js";
-import type { JsonObject } from "../lib/json-types.js";
 // The single source of truth for "code changed and a quality bar is not yet
 // met" — coverage today, mutation (cloud, async) by descriptor next. An edit
 // OPENS an obligation; a later measurement DISCHARGES it; a re-edit of the same
@@ -315,7 +314,7 @@ export const MUTATION_DESCRIPTOR: MetricDescriptor = {
  *  Opens when an edit's overlay run leaves the suite RED; discharges from the
  *  next same-pair overlay run that is not red; the commit gate is the
  *  ground-truth backstop. */
-export const RED_SUITE_DESCRIPTOR: MetricDescriptor = {
+const RED_SUITE_DESCRIPTOR: MetricDescriptor = {
 	kind: "red_suite",
 	dischargeSources: ["local", "observed"],
 	enforcementCadence: "trajectory",
@@ -335,7 +334,7 @@ export const RED_SUITE_DESCRIPTOR: MetricDescriptor = {
  * WHICH file the next one touches — so relatedness carries the whole decision
  * (`transient-debt.ts`), exactly as it does for `red_suite`.
  */
-export const TRANSIENT_DESCRIPTOR: MetricDescriptor = {
+const TRANSIENT_DESCRIPTOR: MetricDescriptor = {
 	kind: "transient",
 	dischargeSources: ["local"],
 	enforcementCadence: "trajectory",

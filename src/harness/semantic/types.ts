@@ -1,8 +1,8 @@
 import type { FunctionDeclarationKind } from "../function-tokens/types.js";
 
 export const SEMANTIC_SCHEMA_VERSION = 1;
-export const FUNCTION_EMBEDDING_SCHEMA = "function-embedding-v1" as const;
-export const SEMANTIC_AGGREGATION_VERSION = "weighted-centroid-v1" as const;
+const FUNCTION_EMBEDDING_SCHEMA = "function-embedding-v1" as const;
+const SEMANTIC_AGGREGATION_VERSION = "weighted-centroid-v1" as const;
 
 export interface EmbeddingArtifactManifest {
     url: string;

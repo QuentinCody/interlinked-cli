@@ -37,7 +37,7 @@ interface CapturedLegacyFile {
 }
 
 export const LEGACY_CAPTURE_MAX_FILE_BYTES = 256 * 1024;
-export const LEGACY_CAPTURE_MAX_TOTAL_BYTES = 512 * 1024;
+const LEGACY_CAPTURE_MAX_TOTAL_BYTES = 512 * 1024;
 
 function readBoundedFile(path: string, limit: number): Buffer {
 	const descriptor = openSync(path, "r");

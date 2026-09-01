@@ -16,7 +16,6 @@
 // modes follow the CLI convention: --json / --short / --full via the shared
 // getOutputMode / output helpers.
 
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
 	appendDebtTxn,

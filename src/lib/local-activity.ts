@@ -5,7 +5,7 @@
 // so CLI commands work offline and can sync later.
 
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import {
 	countNonEmptyFileLines,
 	MAX_CAPTURED_JSONL_LINE_BYTES,

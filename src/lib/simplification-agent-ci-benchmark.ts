@@ -14,7 +14,7 @@ import {
 } from "./simplification-types.js";
 
 /** Public wire-version constant for Agent CI benchmark producers. */
-export const SIMPLIFICATION_BENCHMARK_FIXTURE_VERSION =
+const SIMPLIFICATION_BENCHMARK_FIXTURE_VERSION =
 	"simplification-benchmark-pair/v1" as const;
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;

@@ -209,7 +209,7 @@ export function describeShape(value: unknown): string {
 }
 
 /** Shapes for the given keys of a payload. */
-export function describeShapes(raw: JsonObject, keys: string[]): Record<string, string> {
+function describeShapes(raw: JsonObject, keys: string[]): Record<string, string> {
 	const out: Record<string, string> = {};
 	for (const key of keys) out[key] = describeShape(raw[key]);
 	return out;

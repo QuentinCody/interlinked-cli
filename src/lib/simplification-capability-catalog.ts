@@ -12,7 +12,7 @@ import { canonicalSimplificationAgentCiJson } from "./simplification-agent-ci-re
 import { isPinnedExactVersion } from "./simplification-version.js";
 
 /** Public wire-version constant for Interlinked MCP Server implementations. */
-export const SIMPLIFICATION_CAPABILITY_CATALOG_VERSION =
+const SIMPLIFICATION_CAPABILITY_CATALOG_VERSION =
 	"simplification-capability-catalog/v1" as const;
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;

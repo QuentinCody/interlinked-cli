@@ -277,7 +277,7 @@ function scanMembersMatchCoverage(
         && advisories.every((advisory) => scanned.has(advisory.file));
 }
 
-export function parseDebtMarkerScanResult(value: unknown): DebtMarkerScanResult | null {
+function parseDebtMarkerScanResult(value: unknown): DebtMarkerScanResult | null {
     if (!isJsonObject(value) || value.schema_version !== 1) return null;
     if (value.source !== "source-comments" || value.read_only !== true) return null;
     const repository = parseRepository(value.repository);
@@ -306,7 +306,7 @@ function markerChanged(before: ManualDebtMarker, after: ManualDebtMarker): boole
     return before.file !== after.file || before.content_fingerprint !== after.content_fingerprint;
 }
 
-export function deriveManualDebtMarkerTransitions(
+function deriveManualDebtMarkerTransitions(
     before: readonly ManualDebtMarker[],
     after: readonly ManualDebtMarker[],
     closeWhen: (marker: ManualDebtMarker) => boolean = () => true,

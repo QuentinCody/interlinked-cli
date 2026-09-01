@@ -46,7 +46,7 @@ export function hasOsvScanner(): boolean {
 
 /** Event-loop-safe availability probe for daemon/PostToolUse callers. Shares
  * the same memoized answer as the legacy synchronous CLI resolver. */
-export async function hasOsvScannerAsync(): Promise<boolean> {
+async function hasOsvScannerAsync(): Promise<boolean> {
 	if (osvScannerAvailable !== null) return osvScannerAvailable;
 	const result = await runProcessAsync("osv-scanner", ["--version"], { timeout: 2_000 });
 	osvScannerAvailable =

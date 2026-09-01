@@ -6,18 +6,14 @@
 
 import { join } from "node:path";
 import { loadEnforcementLedger } from "../harness/enforcement-ledger.js";
-import { formatActivitySummary } from "../lib/activity-utils.js";
 import { getClient } from "../lib/api-client.js";
 import { type ResolvedConfig, resolveConfig } from "../lib/config.js";
 import {
 	badge,
 	c,
-	estimateCost,
-	formatTokens,
 	header,
 	kvLine,
 	relativeTime,
-	shortTimestamp,
 	table,
 	truncate,
 } from "../lib/formatter.js";

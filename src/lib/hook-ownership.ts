@@ -372,7 +372,7 @@ export function withoutIncomingDuplicates(existing: unknown[], incoming: unknown
 	return existing.filter((entry) => !keys.has(hookEntryKey(entry)));
 }
 
-export function hookEntryKey(entry: unknown): string {
+function hookEntryKey(entry: unknown): string {
 	return JSON.stringify(entry, (_key, value: unknown) => {
 		if (!isRecord(value)) return value;
 		const sorted: JsonObject = {};

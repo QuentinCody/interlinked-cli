@@ -29,7 +29,7 @@ export function toolRunnerFor(id: ToolId): ToolRunner | undefined {
 	return TOOL_RUNNERS[id];
 }
 
-export function toolRunnerMetaFor(id: ToolId): ToolRunnerMeta | undefined {
+function toolRunnerMetaFor(id: ToolId): ToolRunnerMeta | undefined {
 	return TOOL_REGISTRY[id];
 }
 

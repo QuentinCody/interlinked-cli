@@ -16,9 +16,7 @@ import { healManifestFiles } from "./manifest-heal.js";
 import { normalizeManifestKey } from "./manifest-key.js";
 import type {
 	MeasurementProvenance,
-	MutantIdentity,
 	MutantRecord,
-	MutantStatus,
 	MutationManifest,
 	MutationReceipt,
 	StableId,

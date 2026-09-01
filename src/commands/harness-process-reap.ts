@@ -33,31 +33,9 @@ export interface OrphanCandidate {
 	command: string;
 }
 
-/**
- * Extract the `--cwd <path>` argument the daemon was spawned with. Each harness
- * binds to one workspace (see `harnessStartCommand`'s `args = [..., serverPath,
- * "--cwd", cwd]` construction); reading that field tells us which repo the
- * daemon serves. Returns null on a legacy/malformed cmdline so the caller can
- * skip the candidate rather than risk reaping a daemon from another workspace.
- */
-export function extractCwdArg(cmdline: string): string | null {
-	const tokens = cmdline.split(/\s+/);
-	// Scan every token: the `--cwd=<path>` equals form is self-contained and can
-	// legitimately be the LAST token, so the loop must reach the final index. The
-	// space form `--cwd <path>` reads tokens[i+1] — `undefined → null` past the
-	// end, which is correct (a valueless `--cwd` is malformed).
-	for (let i = 0; i < tokens.length; i++) {
-		if (tokens[i] === "--cwd") return tokens[i + 1] ?? null;
-		if (tokens[i]?.startsWith("--cwd=")) {
-			return tokens[i]?.slice("--cwd=".length) ?? null;
-		}
-	}
-	return null;
-}
-
 /** Parse one `ps` row of the form `<pid> <ppid> <command>`. Returns null when
  *  the line doesn't match (blank lines, header residue) or the pid is NaN. */
-export function parsePsRow(line: string): OrphanCandidate | null {
+function parsePsRow(line: string): OrphanCandidate | null {
 	const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
 	if (!m) return null;
 	const pid = Number.parseInt(m[1] as string, 10);
@@ -73,7 +51,7 @@ export function parsePsRow(line: string): OrphanCandidate | null {
  * protections. The `killAll` flag drops the active-pid protection (but never the
  * ancestor protection — that would kill the shell that invoked us).
  */
-export function isReapCandidate(
+function isReapCandidate(
 	row: OrphanCandidate,
 	cwd: string,
 	ancestorPids: Set<number>,
@@ -233,39 +211,7 @@ function waitForIdentityExit(
 	return alive;
 }
 
-/** Block synchronously until every PID is gone or `timeoutMs` elapses. Returns
- *  the still-alive survivors. Polls with `process.kill(pid, 0)` (signal 0 is
- *  "test for existence") at ~50 ms intervals. */
-export function waitForProcessesExit(
-	pids: readonly number[],
-	timeoutMs: number,
-	onExited: (pid: number) => void,
-): Set<number> {
-	const alive = new Set(pids);
-	const deadline = Date.now() + timeoutMs;
-	while (alive.size > 0 && Date.now() < deadline) {
-		for (const pid of [...alive]) {
-			if (!hasProcess(pid)) {
-				alive.delete(pid);
-				onExited(pid);
-			}
-		}
-		if (alive.size === 0) break;
-		// Use Atomics.wait for a no-CPU sleep — busy-looping here would burn
-		// a core during shutdown.
-		const buf = new SharedArrayBuffer(4);
-		Atomics.wait(new Int32Array(buf), 0, 0, 50);
-	}
-	for (const pid of [...alive]) {
-		if (!hasProcess(pid)) {
-			alive.delete(pid);
-			onExited(pid);
-		}
-	}
-	return alive;
-}
-
-export function hasProcess(pid: number): boolean {
+function hasProcess(pid: number): boolean {
 	try {
 		process.kill(pid, 0);
 		return true;
@@ -274,7 +220,7 @@ export function hasProcess(pid: number): boolean {
 	}
 }
 
-export function isNoSuchProcessError(err: unknown): boolean {
+function isNoSuchProcessError(err: unknown): boolean {
 	return (
 		typeof err === "object" &&
 		err !== null &&

@@ -226,7 +226,7 @@ export function getAllFileIds(view: QueryView): Set<number> {
 }
 
 /** Get candidates for a single trigram, merging base + dirty */
-export function getCandidatesForTrigram(view: QueryView, trigram: number): Set<number> {
+function getCandidatesForTrigram(view: QueryView, trigram: number): Set<number> {
 	const candidates = new Set<number>();
 
 	// Add from base posting list (skipping overridden files)
@@ -253,7 +253,7 @@ export function getCandidatesForTrigram(view: QueryView, trigram: number): Set<n
 }
 
 /** Get posting list size (for sort order optimization) */
-export function getPostingSize(view: QueryView, trigram: number): number {
+function getPostingSize(view: QueryView, trigram: number): number {
 	const base = view.postings.get(trigram);
 	return base ? base.fileIds.length : 0;
 }

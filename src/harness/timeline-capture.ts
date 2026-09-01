@@ -230,7 +230,7 @@ export function captureTimeline(event: HarnessEvent, fallbackCwd: string): void 
  *  typically well under 1MB; anything past this cap reads only the TAIL
  *  (newest entries win — the final result message is what capture exists
  *  for). Keeps a pathological transcript from stalling the daemon. */
-export const MAX_ONESHOT_TRANSCRIPT_BYTES = 8 * 1024 * 1024;
+const MAX_ONESHOT_TRANSCRIPT_BYTES = 8 * 1024 * 1024;
 
 /**
  * One-shot drain of a SUBAGENT transcript into timeline.jsonl. Unlike

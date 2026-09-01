@@ -52,7 +52,7 @@ function stringList(value: unknown): string[] | null {
 	return value.every((entry): entry is string => typeof entry === "string") ? [...value] : null;
 }
 
-export function isSimplificationRepositoryPath(value: string): boolean {
+function isSimplificationRepositoryPath(value: string): boolean {
 	if (value.length === 0 || value.startsWith("/") || value.includes("\\")) return false;
 	if (/^[A-Za-z]:/.test(value)) return false;
 	return value.split("/").every((part) => part !== "" && part !== "." && part !== "..");

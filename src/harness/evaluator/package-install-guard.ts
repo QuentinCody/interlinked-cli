@@ -64,7 +64,6 @@ function isHarnessRequiredTooling(ecosystem: Ecosystem, spec: PackageSpec): bool
 	return findTyposquatMatch(spec.name) === null;
 }
 
-export { HARNESS_REQUIRED_DEV_TOOLING };
 
 interface ManifestSearchEntry {
 	manifest: string;

@@ -368,9 +368,3 @@ export class ProtocolV3MutationJobEvaluator implements MutationJobEvaluator {
 		};
 	}
 }
-
-export function createProtocolV3MutationJobEvaluator(
-	options: ProtocolV3MutationJobEvaluatorOptions,
-): MutationJobEvaluator {
-	return new ProtocolV3MutationJobEvaluator(options);
-}

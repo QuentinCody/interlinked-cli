@@ -30,7 +30,7 @@ import { classifyVerificationCommand } from "../verification-stop-checks.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
 /** Tool names that write a file to disk (direct dirty-layer + index update). */
-export const FILE_WRITE_TOOLS = [
+const FILE_WRITE_TOOLS = [
 	"Write",
 	"Edit",
 	"Update",

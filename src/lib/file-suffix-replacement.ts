@@ -14,7 +14,7 @@ import { withFileMutationLock } from "./file-mutation-lock.js";
 
 /** Upper bound on bytes copied while appenders wait. A pathological single
  * record is refused instead of pausing every coding-agent hook indefinitely. */
-export const MAX_LOCKED_SUFFIX_BYTES = 64 * 1024 * 1024;
+const MAX_LOCKED_SUFFIX_BYTES = 64 * 1024 * 1024;
 
 export interface FileIdentity {
 	dev: string;

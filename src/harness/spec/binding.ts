@@ -26,7 +26,7 @@ export function idLineSet(ns: IdNamespace): Set<number> {
  *  against the F census (stop-digest FPs 2026-08-21).
  *  Exported for tests; production callers go through the memoized
  *  enumLinesFor below. */
-export function enumerationLineSet(ns: IdNamespace): Set<number> {
+function enumerationLineSet(ns: IdNamespace): Set<number> {
 	const idsOnLine = new Map<number, number>();
 	const set = new Set<number>();
 	for (const id of ns.ids) {

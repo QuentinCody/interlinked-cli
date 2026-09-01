@@ -29,7 +29,7 @@ const SHA256_RE = /^[0-9a-f]{64}$/;
 
 export const MUTATION_PENDING_POLL_DELAY_MS = 1_000;
 export const MUTATION_RETRY_BASE_DELAY_MS = 1_000;
-export const MUTATION_RETRY_MAX_DELAY_MS = 60_000;
+const MUTATION_RETRY_MAX_DELAY_MS = 60_000;
 export const MUTATION_RETRY_MAX_FAILURES = 8;
 const MUTATION_LAST_ERROR_MAX_CHARS = 2_048;
 
@@ -50,7 +50,7 @@ function retryTimestamp(nowMs: number, delayMs: number): number {
 /** Pure persisted retry policy. A successful not-ready poll clears prior
  * failures; actual failures back off exponentially and dead-letter after the
  * bounded failure budget is exhausted. */
-export function mutationRetryPlan(
+function mutationRetryPlan(
 	input: ScheduleMutationRetry,
 	previousFailureCount: number,
 ): MutationRetryPlan {

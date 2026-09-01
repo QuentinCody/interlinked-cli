@@ -16,7 +16,7 @@ import {
 	sameFileIdentity,
 } from "../lib/file-suffix-replacement.js";
 import { withFileMutationLock } from "../lib/file-mutation-lock.js";
-import type { ArchiveManifest, ArchiveSegment } from "./compact-plain.js";
+import type { ArchiveSegment } from "./compact-plain.js";
 import type {
 	ActivityRecoveryDeps,
 	ActivityRotationConflict,
@@ -89,7 +89,7 @@ function removeTemporary(path: string): void {
 }
 
 /** Complete an already-indexed activity prefix before planning another one. */
-export function recoverPendingActivityRotation(
+function recoverPendingActivityRotation(
 	deps: ActivityRecoveryDeps,
 ): ActivityRotationResult | null {
 	const manifest = deps.loadManifest();

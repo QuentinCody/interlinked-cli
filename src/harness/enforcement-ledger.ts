@@ -64,7 +64,7 @@ export interface EnforcementLedger {
  */
 const COLD_START_MAX_BYTES = 4 * 1024 * 1024;
 
-export const EMPTY_LEDGER: EnforcementLedger = {
+const EMPTY_LEDGER: EnforcementLedger = {
 	version: 1,
 	since: "",
 	cursor: 0,

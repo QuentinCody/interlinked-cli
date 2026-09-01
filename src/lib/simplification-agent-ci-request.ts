@@ -15,8 +15,8 @@ import {
 } from "./simplification-types.js";
 import { isPinnedExactVersion } from "./simplification-version.js";
 
-export const SIMPLIFICATION_AGENT_CI_REQUEST_VERSION = "simplification-request/v1" as const;
-export const SIMPLIFICATION_LENS_VERSION = "simplification-lens/v1" as const;
+const SIMPLIFICATION_AGENT_CI_REQUEST_VERSION = "simplification-request/v1" as const;
+const SIMPLIFICATION_LENS_VERSION = "simplification-lens/v1" as const;
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const GIT_OBJECT_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;

@@ -47,7 +47,7 @@ const MAX_WIRE_BYTES = 256 * 1024;
  * wire's `key_id`. Rotation = add the new key here, keep the old one until
  * its feeds expire. `INTERLINKED_SPONSOR_PUBKEY` overrides for dev/tests.
  */
-export const EMBEDDED_SPONSOR_PUBKEYS: Record<string, string> = {
+const EMBEDDED_SPONSOR_PUBKEYS: Record<string, string> = {
 	"sponsor-2026a": "MCowBQYDK2VwAyEAecJdYpEnYgCYMPskPlurFmE72BlHCVAWM90teom+oRI=",
 };
 

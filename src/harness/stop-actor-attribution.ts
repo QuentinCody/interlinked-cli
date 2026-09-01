@@ -33,7 +33,7 @@ export const TIMELINE_FILE = "timeline.jsonl";
 
 /** Tail window read from the timeline. Large enough to span a long session's
  *  sidechain rows, small enough that Stop never pays a full-file read. */
-export const DEFAULT_TAIL_BYTES = 4 * 1024 * 1024;
+const DEFAULT_TAIL_BYTES = 4 * 1024 * 1024;
 
 /** The line separator of a JSONL file, built from its code point rather than
  *  written as an escape. Tool-authored source has arrived here with the escape

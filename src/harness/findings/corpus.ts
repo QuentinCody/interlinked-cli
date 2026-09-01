@@ -12,8 +12,8 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative } from "node:path";
-import { INTERLINKED_DIR, interlinkedPath } from "../../lib/interlinked-path.js";
+import { dirname, isAbsolute, relative } from "node:path";
+import { interlinkedPath } from "../../lib/interlinked-path.js";
 import { parseFinding } from "./parse-finding.js";
 import type { FindingExtensions } from "./simplification-extension.js";
 import {

@@ -16,7 +16,7 @@
 // or verb-pair that fetches attacker-controllable content from the open
 // internet OR a public package registry.
 
-import type { SensitivityLevel, SessionTrajectory, TaintProvenance } from "./types.js";
+import type { SessionTrajectory, TaintProvenance } from "./types.js";
 
 /** Maximum length of the `file` field on the synthesized taint source. The
  *  raw Bash command can be long; bound it to keep `taint_sources` memory
