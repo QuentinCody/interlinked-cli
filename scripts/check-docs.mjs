@@ -298,15 +298,9 @@ function findMarkers(text) {
 	return found;
 }
 
-function check() {
-	const facts = loadFacts();
-	const receipts = loadReceipts();
-	const ctx = { facts, receipts };
-	const docs = loadDocs();
-	const errors = [];
-	const warnings = [];
-
-	// 1. Every marker has a known mapping or is hand-edited (data_as_of).
+// Push one error per marker name found in `docs` that has no entry in
+// GEN_MARKERS. Pure collection step — no other side effects.
+function collectUnknownMarkerErrors(docs, errors) {
 	for (const [path, text] of Object.entries(docs)) {
 		for (const { name } of findMarkers(text)) {
 			if (!(name in GEN_MARKERS)) {
@@ -314,35 +308,45 @@ function check() {
 			}
 		}
 	}
+}
 
-	// 2. Every gen marker's content matches the canonical value.
-	for (const [name, fn] of Object.entries(GEN_MARKERS)) {
-		if (fn === null) continue;
-		let expected;
-		try {
-			expected = fn(ctx);
-		} catch (err) {
-			errors.push(`gen:${name} computation failed: ${err.message}`);
-			continue;
-		}
-		for (const [path, text] of Object.entries(docs)) {
-			const re = markerRe(name);
-			let m = re.exec(text);
-			while (m) {
-				const actual = m[1];
-				if (actual !== expected) {
-					errors.push(
-						`${path}: gen:${name} drift\n` +
-							`  expected: ${expected}\n` +
-							`  actual:   ${actual}`,
-					);
-				}
-				m = re.exec(text);
+// For one gen-marker NAME, push an error for every occurrence across `docs`
+// whose content doesn't match the canonical value computed by `fn(ctx)`.
+function collectMarkerDriftErrorsForName(name, fn, ctx, docs, errors) {
+	let expected;
+	try {
+		expected = fn(ctx);
+	} catch (err) {
+		errors.push(`gen:${name} computation failed: ${err.message}`);
+		return;
+	}
+	for (const [path, text] of Object.entries(docs)) {
+		const re = markerRe(name);
+		let m = re.exec(text);
+		while (m) {
+			const actual = m[1];
+			if (actual !== expected) {
+				errors.push(
+					`${path}: gen:${name} drift\n` +
+						`  expected: ${expected}\n` +
+						`  actual:   ${actual}`,
+				);
 			}
+			m = re.exec(text);
 		}
 	}
+}
 
-	// 3. Hand-written assertions.
+// Every gen marker's content matches the canonical value.
+function collectMarkerDriftErrors(ctx, docs, errors) {
+	for (const [name, fn] of Object.entries(GEN_MARKERS)) {
+		if (fn === null) continue;
+		collectMarkerDriftErrorsForName(name, fn, ctx, docs, errors);
+	}
+}
+
+// Hand-written assertions.
+function collectAssertionErrors(facts, docs, receipts, errors) {
 	for (const a of ASSERTIONS) {
 		try {
 			a.run(facts, docs, receipts);
@@ -350,13 +354,11 @@ function check() {
 			errors.push(`assertion "${a.name}":\n  ${err.message}`);
 		}
 	}
+}
 
-	// 4. Receipts staleness — warn only.
-	const stale = checkDataAsOfStaleness(docs);
-	if (stale.warn) warnings.push(stale.warn);
-	if (stale.error) errors.push(stale.error);
-
-	// 5. Report.
+// Emit warnings/errors to stderr and exit(1) on failure; otherwise print the
+// one-line OK summary to stdout.
+function reportCheckResult(warnings, errors, facts, receipts) {
 	if (warnings.length > 0) {
 		for (const w of warnings) process.stderr.write(`[docs:warn] ${w}\n`);
 	}
@@ -368,6 +370,32 @@ function check() {
 	process.stdout.write(
 		`docs OK (${facts.builtin_rule_count} rules · ${facts.runner_count} runners · ${facts.mode_names_user_facing.length} modes · Node ${facts.node_min_version}+ · ${receipts.total_verified} verified blocks / ${receipts.total_logged} logged)\n`,
 	);
+}
+
+function check() {
+	const facts = loadFacts();
+	const receipts = loadReceipts();
+	const ctx = { facts, receipts };
+	const docs = loadDocs();
+	const errors = [];
+	const warnings = [];
+
+	// 1. Every marker has a known mapping or is hand-edited (data_as_of).
+	collectUnknownMarkerErrors(docs, errors);
+
+	// 2. Every gen marker's content matches the canonical value.
+	collectMarkerDriftErrors(ctx, docs, errors);
+
+	// 3. Hand-written assertions.
+	collectAssertionErrors(facts, docs, receipts, errors);
+
+	// 4. Receipts staleness — warn only.
+	const stale = checkDataAsOfStaleness(docs);
+	if (stale.warn) warnings.push(stale.warn);
+	if (stale.error) errors.push(stale.error);
+
+	// 5. Report.
+	reportCheckResult(warnings, errors, facts, receipts);
 }
 
 function build() {

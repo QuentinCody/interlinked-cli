@@ -7,10 +7,9 @@ import type { ArtifactFileKey, ArtifactKind } from "../harness/structure/types.j
 import { c } from "../lib/formatter.js";
 import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
-import type { AcceptBatch, Issue, SkipEntry } from "./structure-helpers.js";
+import { buildAcceptLines, collectAccepts } from "./structure-accept.js";
+import type { Issue } from "./structure-helpers.js";
 import {
-	acceptEnv,
-	acceptSymbols,
 	badge,
 	catalogToNode,
 	doctorCheckFiles,
@@ -171,47 +170,7 @@ export async function structureScanCommand(opts: ScanOpts): Promise<void> {
 		}
 		cm.writeCatalogMeta(cwd, meta);
 
-		// Write node/edge caches
-		// n.id is the global ref (e.g. "public_symbol:pkg-index#createClient"). Extract local_id by stripping the kind prefix.
-		const extractLocalId = (globalRef: string): string => {
-			const idx = globalRef.indexOf(":");
-			return idx >= 0 ? globalRef.slice(idx + 1) : globalRef;
-		};
-		const toItems = (nodes: import("../harness/structure/types.js").ArtifactNode[]) =>
-			nodes.map((n) => ({
-				local_id: extractLocalId(n.id),
-				global_ref: n.id,
-				file: n.file,
-				provenance: n.provenance,
-				determinism_ceiling: n.determinism_ceiling,
-			}));
-		cm.writeCategoryCache(cwd, "artifact-nodes", {
-			schema_version: 1,
-			items: toItems(graph.toNodesJson().nodes),
-		});
-		cm.writeCategoryCache(cwd, "artifact-edges", {
-			schema_version: 1,
-			items: graph.toEdgesJson().edges.map((e) => ({
-				local_id: e.id,
-				global_ref: e.id,
-				file: "",
-				provenance: e.provenance,
-				determinism_ceiling: "fully_deterministic",
-			})),
-		});
-		for (const [kind, cat] of Object.entries(KIND_TO_CAT))
-			cm.writeCategoryCache(cwd, cat, {
-				schema_version: 1,
-				items: toItems(graph.getNodesByKind(kind as ArtifactKind)),
-			});
-
-		const adoption = {} as Record<ArtifactFileKey, number>;
-		for (const key of Object.keys(SCAFFOLDS)) {
-			const nodes = graph.getNodesByKind((KEY_TO_KIND[key] ?? key) as ArtifactKind);
-			const decl = nodes.filter((n) => n.provenance === "declared").length;
-			adoption[key as ArtifactFileKey] = nodes.length > 0 ? decl / nodes.length : 0;
-		}
-		cm.writeAdoptionReport(cwd, { schema_version: 1, categories: adoption });
+		writeScanCaches(cm, cwd, graph);
 
 		const ms = Date.now() - t0;
 		const summary = {
@@ -239,6 +198,55 @@ export async function structureScanCommand(opts: ScanOpts): Promise<void> {
 		console.error(c.red(`structure scan failed: ${(e as Error).message}`));
 		process.exitCode = 1;
 	}
+}
+
+type CacheModule = typeof import("../harness/structure/cache-manager.js");
+type Graph = import("../harness/structure/artifact-graph.js").ArtifactGraph;
+
+// n.id is the global ref (e.g. "public_symbol:pkg-index#createClient"). Extract local_id by stripping the kind prefix.
+function extractLocalId(globalRef: string): string {
+	const idx = globalRef.indexOf(":");
+	return idx >= 0 ? globalRef.slice(idx + 1) : globalRef;
+}
+
+function toItems(nodes: import("../harness/structure/types.js").ArtifactNode[]) {
+	return nodes.map((n) => ({
+		local_id: extractLocalId(n.id),
+		global_ref: n.id,
+		file: n.file,
+		provenance: n.provenance,
+		determinism_ceiling: n.determinism_ceiling,
+	}));
+}
+
+function writeScanCaches(cm: CacheModule, cwd: string, graph: Graph): void {
+	cm.writeCategoryCache(cwd, "artifact-nodes", {
+		schema_version: 1,
+		items: toItems(graph.toNodesJson().nodes),
+	});
+	cm.writeCategoryCache(cwd, "artifact-edges", {
+		schema_version: 1,
+		items: graph.toEdgesJson().edges.map((e) => ({
+			local_id: e.id,
+			global_ref: e.id,
+			file: "",
+			provenance: e.provenance,
+			determinism_ceiling: "fully_deterministic",
+		})),
+	});
+	for (const [kind, cat] of Object.entries(KIND_TO_CAT))
+		cm.writeCategoryCache(cwd, cat, {
+			schema_version: 1,
+			items: toItems(graph.getNodesByKind(kind as ArtifactKind)),
+		});
+
+	const adoption = {} as Record<ArtifactFileKey, number>;
+	for (const key of Object.keys(SCAFFOLDS)) {
+		const nodes = graph.getNodesByKind((KEY_TO_KIND[key] ?? key) as ArtifactKind);
+		const decl = nodes.filter((n) => n.provenance === "declared").length;
+		adoption[key as ArtifactFileKey] = nodes.length > 0 ? decl / nodes.length : 0;
+	}
+	cm.writeAdoptionReport(cwd, { schema_version: 1, categories: adoption });
 }
 
 // --- 3. structure status ---
@@ -273,34 +281,53 @@ export async function structureStatusCommand(opts: StructureOpts): Promise<void>
 		};
 		if (opts.json) return out(opts.json, data, "");
 
-		const imp = loaded.implicit ? c.dim(" (implicit, no structure.json)") : "";
-		let cl = c.dim("not built");
-		if (meta && stale) cl = c.yellow("stale");
-		else if (meta) cl = c.green("fresh");
-		const lines = [
-			c.bold("Structure Status"),
-			"",
-			`  Mode:     ${c.cyan(config.mode)}${imp}`,
-			`  Cache:    ${cl}`,
-		];
-		if (meta?.built_at) lines.push(`  Built:    ${c.dim(meta.built_at)}`);
-		if (adopt) {
-			lines.push("", c.bold("  Adoption:"));
-			for (const [cat, score] of Object.entries(adopt.categories))
-				lines.push(
-					`    ${cat.padEnd(12)} ${pctColor(Math.round(score * 100))(`${String(Math.round(score * 100))}%`)}`,
-				);
-		}
-		if (invalid.length > 0) {
-			lines.push("", c.yellow("  Invalid manifest references:"));
-			for (const f of invalid) lines.push(`    ${c.red("missing")}  ${f}`);
-		}
-		for (const err of loaded.errors) lines.push(`    ${c.red("error")}  ${err}`);
-		console.log(lines.join("\n"));
+		console.log(
+			buildStatusLines({ mode: config.mode, loaded, meta, adopt, stale, invalid }).join("\n"),
+		);
 	} catch (e) {
 		console.error(c.red(`structure status failed: ${(e as Error).message}`));
 		process.exitCode = 1;
 	}
+}
+
+type LoadedStructure = ReturnType<
+	typeof import("../harness/structure/structure-loader.js").loadStructureConfig
+>;
+
+interface StatusView {
+	mode: string;
+	loaded: LoadedStructure;
+	meta: ReturnType<CacheModule["readCatalogMeta"]>;
+	adopt: ReturnType<CacheModule["readAdoptionReport"]>;
+	stale: boolean;
+	invalid: string[];
+}
+
+function buildStatusLines({ mode, loaded, meta, adopt, stale, invalid }: StatusView): string[] {
+	const imp = loaded.implicit ? c.dim(" (implicit, no structure.json)") : "";
+	let cl = c.dim("not built");
+	if (meta && stale) cl = c.yellow("stale");
+	else if (meta) cl = c.green("fresh");
+	const lines = [
+		c.bold("Structure Status"),
+		"",
+		`  Mode:     ${c.cyan(mode)}${imp}`,
+		`  Cache:    ${cl}`,
+	];
+	if (meta?.built_at) lines.push(`  Built:    ${c.dim(meta.built_at)}`);
+	if (adopt) {
+		lines.push("", c.bold("  Adoption:"));
+		for (const [cat, score] of Object.entries(adopt.categories))
+			lines.push(
+				`    ${cat.padEnd(12)} ${pctColor(Math.round(score * 100))(`${String(Math.round(score * 100))}%`)}`,
+			);
+	}
+	if (invalid.length > 0) {
+		lines.push("", c.yellow("  Invalid manifest references:"));
+		for (const f of invalid) lines.push(`    ${c.red("missing")}  ${f}`);
+	}
+	for (const err of loaded.errors) lines.push(`    ${c.red("error")}  ${err}`);
+	return lines;
 }
 
 // --- 4. structure accept ---
@@ -311,42 +338,14 @@ export async function structureAcceptCommand(opts: StructureOpts): Promise<void>
 		const { readCategoryCache } = await import("../harness/structure/cache-manager.js");
 		const loader = await import("../harness/structure/structure-loader.js");
 		const config = loader.loadStructureConfig(cwd).config || loader.getImplicitConfig();
-		const dir = join(cwd, "interlinked");
-		const accepted: AcceptBatch[] = [];
-		const skipped: SkipEntry[] = [];
-
-		const syms = readCategoryCache(cwd, "public-symbols");
-		if (syms && syms.items.length > 0) {
-			const r = acceptSymbols(
-				syms,
-				join(dir, config.artifacts.public_api || "artifacts/public-api.json"),
-			);
-			if (r.accepted > 0) accepted.push({ category: "public_api", count: r.accepted });
-			skipped.push(...r.skipped);
-		}
-		const envs = readCategoryCache(cwd, "env-keys");
-		if (envs && envs.items.length > 0) {
-			const r = acceptEnv(envs, join(dir, config.artifacts.env || "artifacts/env.json"));
-			if (r.accepted > 0) accepted.push({ category: "env", count: r.accepted });
-			skipped.push(...r.skipped);
-		}
+		const { accepted, skipped } = collectAccepts(cwd, config, readCategoryCache);
 
 		if (opts.json) return out(true, { accepted, skipped }, "");
 		if (accepted.length === 0 && skipped.length === 0)
 			return void console.log(
 				c.dim("Nothing to accept. Run `interlinked structure scan` first."),
 			);
-		const lines = [c.bold("Structure Accept")];
-		for (const a of accepted)
-			lines.push(`  ${c.green("accepted")}  ${a.category}: ${String(a.count)} items`);
-		if (skipped.length > 0) {
-			lines.push("", c.dim("  Skipped (already declared):"));
-			for (const s of skipped.slice(0, 10))
-				lines.push(`    ${c.yellow("skip")}  ${s.category}/${s.item}: ${s.reason}`);
-			if (skipped.length > 10)
-				lines.push(c.dim(`    ... and ${String(skipped.length - 10)} more`));
-		}
-		console.log(lines.join("\n"));
+		console.log(buildAcceptLines(accepted, skipped).join("\n"));
 	} catch (e) {
 		console.error(c.red(`structure accept failed: ${(e as Error).message}`));
 		process.exitCode = 1;

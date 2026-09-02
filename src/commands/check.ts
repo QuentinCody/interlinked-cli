@@ -11,14 +11,9 @@ import { CheckEngine, type CheckReport, type ToolId } from "../harness/check-eng
 import { RUNNABLE_TOOL_IDS } from "../harness/check-engine/tool-catalog.js";
 import { ProjectGraph } from "../harness/project-graph.js";
 import { containsSecrets, findAnyTypes } from "../harness/quality-checks.js";
+import { emitCheckOutput, printToolReportIfRequested, warnDroppedDiscoveryTools } from "./check-report.js";
 import { findDeadImports } from "./check-dead-imports.js";
-import {
-	emitEngineOnly,
-	emitFullSummary,
-	emitJsonOutput,
-	emitStructuralOnly,
-	type StructuralCheckResult,
-} from "./check-output.js";
+import { type StructuralCheckResult } from "./check-output.js";
 
 // Re-exported for callers/tests that import the dead-import helpers directly.
 export { extractBindings, findDeadImports } from "./check-dead-imports.js";
@@ -439,24 +434,10 @@ export async function checkCommand(opts: {
 		return;
 	}
 
-	// --tools: warn (don't fail) on discovery-only ids dropped from the filter so
-	// the run never prints a misleading "0 findings" row for a check that did not
-	// run; these run under `interlinked verify`.
-	if (typeof opts.tools === "string") {
-		const dropped = opts.tools.split(",").map((t) => t.trim()).filter(isDiscoveryOnlyTool);
-		if (dropped.length > 0) {
-			process.stderr.write(
-				`Skipping discovery-only tool(s) ${dropped.join(", ")} from --tools — no interlinked check runner; run interlinked verify instead.\n`,
-			);
-		}
-	}
+	warnDroppedDiscoveryTools(opts.tools, isDiscoveryOnlyTool);
 
 	// --- Tool report ---
-	if (opts.report) {
-		const engine = new CheckEngine(cwd);
-		process.stderr.write(`\n  ${engine.formatToolReport()}\n\n`);
-		if (!opts.tools && !onlyCheck) return;
-	}
+	if (printToolReportIfRequested(cwd, opts.report, opts.tools, onlyCheck)) return;
 
 	// Build the project graph (needed for structural checks)
 	let graph: ProjectGraph | undefined;
@@ -475,20 +456,11 @@ export async function checkCommand(opts: {
 	const engineReport = runEngineChecks(cwd, plan.runEngine, plan.engineToolFilter);
 
 	// --- Output ---
-	if (opts.json) {
-		emitJsonOutput(results, engineReport);
-		return;
-	}
-
-	if (onlyCheck) {
-		if (isStructuralOnly) {
-			emitStructuralOnly(results, onlyCheck);
-		} else if (isEngineOnly && engineReport) {
-			emitEngineOnly(engineReport, onlyCheck);
-		}
-		return;
-	}
-
-	// --- Full summary ---
-	emitFullSummary(results, engineReport, graph?.fileCount ?? 0);
+	emitCheckOutput(
+		opts.json,
+		{ onlyCheck, isStructuralOnly, isEngineOnly },
+		results,
+		engineReport,
+		graph?.fileCount ?? 0,
+	);
 }

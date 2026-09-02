@@ -18,7 +18,7 @@ describe("registerCapsCommands", () => {
 		const caps = program.commands.find((c) => c.name() === "caps");
 		expect(caps).toBeDefined();
 		const subs = (caps?.commands ?? []).map((c) => c.name()).sort();
-		expect(subs).toEqual(["explain", "set"]);
+		expect(subs).toEqual(["explain", "propose", "ratchet", "set", "status"]);
 	});
 
 	it("runs capsShowAction for a bare `caps` invocation", async () => {

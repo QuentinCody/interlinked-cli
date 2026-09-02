@@ -132,6 +132,62 @@ function adaptedRows(
 	return { ok: true, run: { mutants: adapted } };
 }
 
+type BridgeEnvelope = VerifiedEvidenceBundle["envelope"];
+
+function terminalKindFailure(envelope: BridgeEnvelope): string | null {
+	if (
+		envelope.kind !== "mutation_result" &&
+		envelope.kind !== "not_mutatable" &&
+		envelope.kind !== "suite_red" &&
+		envelope.kind !== "execution_failed"
+	) {
+		return `terminal kind ${envelope.kind} carries no evaluator mutation run`;
+	}
+	return null;
+}
+
+function deriveTestRun(
+	envelope: BridgeEnvelope,
+): { overlayGreen: boolean; redWitnessSatisfied: boolean | null } | undefined {
+	return "test_run" in envelope
+		? {
+			overlayGreen: envelope.test_run.overlay_green,
+			redWitnessSatisfied: envelope.test_run.red_witness_satisfied,
+		}
+		: undefined;
+}
+
+function deriveEngineExitCode(envelope: BridgeEnvelope): number | undefined {
+	return "engine" in envelope ? envelope.engine.exit_code : undefined;
+}
+
+function deriveExecutedTestCount(envelope: BridgeEnvelope): number | undefined {
+	return "test_run" in envelope ? envelope.test_run.executed_test_count : undefined;
+}
+
+function buildRunOutput(
+	bridgedRun: MutationRunOutput,
+	testRun: { overlayGreen: boolean; redWitnessSatisfied: boolean | null } | undefined,
+	engineExitCode: number | undefined,
+	executedTestCount: number | undefined,
+	exclusions: readonly V3ExcludedRow[],
+): MutationRunOutput {
+	return {
+		...bridgedRun,
+		...(testRun === undefined ? {} : { testRun }),
+		...(engineExitCode === undefined ? {} : { engineExitCode }),
+		...(executedTestCount === undefined ? {} : { executedTestCount }),
+		droppedMutants: 0,
+		...(exclusions.length === 0
+			? {}
+			: {
+				evidenceGaps: [
+					`approved exclusion rows are not executable mutant evidence (${exclusions.length} excluded mutant(s))`,
+				],
+			}),
+	};
+}
+
 /** Convert authenticated v3 evidence into the raw mechanical input expected
  * by evaluate.ts. The caller must provide the exact local overlay bytes it
  * submitted; a hash mismatch refuses before any identity or policy work. */
@@ -152,38 +208,15 @@ export function authenticatedEvidenceToMutationRun(
 	const exclusions = exclusionsIn(bundle);
 	const bridged = adaptedRows(rowsIn(bundle), exclusions, targetContent, envelope.job.target_file);
 	if (!bridged.ok) return bridged;
-	if (
-		envelope.kind !== "mutation_result" &&
-		envelope.kind !== "not_mutatable" &&
-		envelope.kind !== "suite_red" &&
-		envelope.kind !== "execution_failed"
-	) {
-		return { ok: false, reason: `terminal kind ${envelope.kind} carries no evaluator mutation run` };
+	const kindFailure = terminalKindFailure(envelope);
+	if (kindFailure !== null) {
+		return { ok: false, reason: kindFailure };
 	}
-	const testRun =
-		"test_run" in envelope && envelope.test_run !== undefined
-			? {
-				overlayGreen: envelope.test_run.overlay_green,
-				redWitnessSatisfied: envelope.test_run.red_witness_satisfied,
-			}
-			: undefined;
-	const engineExitCode = "engine" in envelope ? envelope.engine?.exit_code : undefined;
-	const executedTestCount = "test_run" in envelope ? envelope.test_run?.executed_test_count : undefined;
+	const testRun = deriveTestRun(envelope);
+	const engineExitCode = deriveEngineExitCode(envelope);
+	const executedTestCount = deriveExecutedTestCount(envelope);
 	return {
 		ok: true,
-		run: {
-			...bridged.run,
-			...(testRun === undefined ? {} : { testRun }),
-			...(engineExitCode === undefined ? {} : { engineExitCode }),
-			...(executedTestCount === undefined ? {} : { executedTestCount }),
-			droppedMutants: 0,
-			...(exclusions.length === 0
-				? {}
-				: {
-					evidenceGaps: [
-						`approved exclusion rows are not executable mutant evidence (${exclusions.length} excluded mutant(s))`,
-					],
-				}),
-		},
+		run: buildRunOutput(bridged.run, testRun, engineExitCode, executedTestCount, exclusions),
 	};
 }

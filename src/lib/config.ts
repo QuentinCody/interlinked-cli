@@ -15,6 +15,11 @@ import {
 	getLocalConfigPath,
 	getSharedConfigPath,
 } from "./config-paths.js";
+import {
+	resolveActiveServerEntry,
+	resolveConfigEnvOverrides,
+	resolveSyncMode,
+} from "./config-resolve.js";
 import { readJsonFile } from "./json-file.js";
 
 // Path helpers live in ./config-paths.ts (line-cap split). Re-exported here
@@ -326,35 +331,17 @@ export function resolveConfig(cwd?: string): ResolvedConfig {
 	const shared = readSharedConfig(cwd);
 	const local = readLocalConfig(cwd);
 
-	const envServerUrl = process.env.INTERLINKED_SERVER_URL?.trim();
-	const envWorkspaceId = process.env.INTERLINKED_WORKSPACE_ID?.trim();
-	const envMcpPrefix = process.env.INTERLINKED_MCP_PREFIX?.trim();
-	const envAgentName =
-		process.env.INTERLINKED_AGENT_NAME?.trim() || process.env.INTERLINKED_AGENT?.trim();
-	const envAccessToken =
-		process.env.INTERLINKED_ACCESS_TOKEN?.trim() || process.env.INTERLINKED_TOKEN?.trim();
-	const envSyncMode = process.env.INTERLINKED_SYNC_MODE?.trim().toLowerCase();
-
-	// Resolve active server entry — all URL/workspace/prefix come from the same source
-	const activeKey = local?.active_server || "production";
-	const configuredActiveServer = local?.servers?.[activeKey];
-	const envMatchedServer = envServerUrl
-		? Object.values(local?.servers || {}).find((s) => s.server_url === envServerUrl)
-		: undefined;
-	const activeServer = envServerUrl ? envMatchedServer : configuredActiveServer;
-
-	let resolvedSyncMode = local?.sync_mode || "realtime";
-	if (envSyncMode === "local" || envSyncMode === "manual" || envSyncMode === "realtime") {
-		resolvedSyncMode = envSyncMode;
-	}
+	const env = resolveConfigEnvOverrides();
+	const activeServer = resolveActiveServerEntry(local, env.envServerUrl);
+	const resolvedSyncMode = resolveSyncMode(local, env.envSyncMode);
 
 	return {
 		server_url:
-			envServerUrl || activeServer?.server_url || shared?.server_url || DEFAULT_SERVER,
-		workspace_id: envWorkspaceId || activeServer?.workspace_id || local?.workspace_id,
-		mcp_prefix: envMcpPrefix || activeServer?.mcp_prefix || local?.mcp_prefix,
-		agent_name: envAgentName || local?.agent_name,
-		access_token: envAccessToken || local?.access_token,
+			env.envServerUrl || activeServer?.server_url || shared?.server_url || DEFAULT_SERVER,
+		workspace_id: env.envWorkspaceId || activeServer?.workspace_id || local?.workspace_id,
+		mcp_prefix: env.envMcpPrefix || activeServer?.mcp_prefix || local?.mcp_prefix,
+		agent_name: env.envAgentName || local?.agent_name,
+		access_token: env.envAccessToken || local?.access_token,
 		refresh_token: local?.refresh_token,
 		token_expires_at: local?.token_expires_at,
 		oauth_client_id: local?.oauth_client_id,

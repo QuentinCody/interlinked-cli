@@ -489,10 +489,10 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// be deliberate; advisory pending dogfood FP calibration against the 34
 	// measured homonyms.
 	"duplicate_type_declaration",
+	"new_export_without_importer", // helper-hygiene (2026-09-01): exporter-first edits are legitimately unconsumed for one edit — nudge, not gate
+	"extracted_helper_duplicate", // helper-hygiene (2026-09-01): 0.90 shingle-Jaccard is a taste bar (DRY class is advisory as code_clones); pending dogfood calibration
 ]);
 
-/** Public API — consumed by `verify.ts` and `tool-results.ts`. */
-export const JS_TS_EXTS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]);
-
-// The skip-set helpers (getEffectiveSkipChecks, getSkipTools) live in
-// ./advisory-skips.ts — split 2026-07-24 for the line cap; policy data stays here.
+// Public API (verify.ts, tool-results.ts) — ONE definition, in checks/shared.ts.
+export { JS_TS_EXTS } from "../../harness/checks/shared.js";
+// Skip-set helpers (getEffectiveSkipChecks, getSkipTools) live in ./advisory-skips.ts (line cap, 2026-07-24).

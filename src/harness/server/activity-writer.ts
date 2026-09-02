@@ -329,20 +329,44 @@ export function mapDecisionToGuardRecord(
 	decision: HarnessDecision,
 	fallbackCwd: string,
 ): LocalActivityEvent | null {
+	const kind = classifyGuardKind(decision);
+	if (!kind) return null;
+	const cwd = event.cwd ?? fallbackCwd;
+	const keys = projectKeys(cwd);
+	const rec = buildGuardBaseRecord(event, decision, cwd, keys, kind);
+	applyGuardOptionalFields(rec, event, decision);
+	return rec;
+}
+
+/** block/ask becomes "guard_block"; an allow carrying warnings becomes
+ *  "guard_warn"; a bare allow with no warnings is not recorded (null). */
+function classifyGuardKind(decision: HarnessDecision): "guard_block" | "guard_warn" | null {
 	const isBlock = decision.decision === "block" || decision.decision === "ask";
 	const hasWarnings = (decision.warnings?.length ?? 0) > 0;
 	if (!isBlock && !hasWarnings) return null;
-	const cwd = event.cwd ?? fallbackCwd;
-	const keys = projectKeys(cwd);
-	const rec: LocalActivityEvent = {
+	return isBlock ? "guard_block" : "guard_warn";
+}
+
+function guardSummary(decision: HarnessDecision): string {
+	return (decision.reason ?? decision.warnings?.join("; ") ?? "guard").slice(0, 500);
+}
+
+function buildGuardBaseRecord(
+	event: HarnessEvent,
+	decision: HarnessDecision,
+	cwd: string,
+	keys: { workspace: string | null; project: string | null },
+	kind: "guard_block" | "guard_warn",
+): LocalActivityEvent {
+	return {
 		schema_version: 5,
 		ts: event.timestamp,
 		agent: event.agent_name ?? honestAgentSource(event) ?? "unknown",
 		workspace_key: keys.workspace,
 		project_key: keys.project,
-		type: isBlock ? "guard_block" : "guard_warn",
+		type: kind,
 		tool: event.tool_name ?? null,
-		summary: (decision.reason ?? decision.warnings?.join("; ") ?? "guard").slice(0, 500),
+		summary: guardSummary(decision),
 		session: event.session_id,
 		hook: event.hook_event,
 		cwd,
@@ -353,11 +377,13 @@ export function mapDecisionToGuardRecord(
 		guard_reason: decision.reason ?? null,
 		guard_warnings: decision.warnings ?? null,
 	};
+}
+
+function applyGuardOptionalFields(rec: LocalActivityEvent, event: HarnessEvent, decision: HarnessDecision): void {
 	if (event.tool_use_id) rec.tool_use_id = event.tool_use_id;
 	Object.assign(rec, eventAttributionFields(event));
 	if (event.seq !== undefined) rec.seq = event.seq;
 	if (typeof decision.checks_timing_ms === "number") rec.guard_harness_ms = decision.checks_timing_ms;
-	return rec;
 }
 
 /** Append the legacy activity.jsonl guard_* record for a guard decision.

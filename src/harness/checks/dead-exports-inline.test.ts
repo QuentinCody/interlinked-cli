@@ -161,6 +161,63 @@ describe("findDeadExports — negative (must not fire)", () => {
 		expect(valueOut).toEqual([]);
 	});
 
+	it("N20: an exported type used only in an exported function's return type is not dead (public API via declaration emit, no importer needed)", () => {
+		// Real regression (105-agent campaign, 2026-09-01): `dead_type_exports`
+		// flagged this shape; the agent un-exported the type and the sibling
+		// `public_api_leaks_internal_type` check then correctly refused it (TS4023
+		// — the exported function's return type must be nameable).
+		const files = {
+			"src/lib.ts":
+				"export interface Fields { id: string }\nexport function parse(x: unknown): Fields | null { return x as Fields; }\n",
+			"src/main.ts": 'import { parse } from "./lib.js";\nparse(1);\n',
+		};
+		const out = findDeadTypeExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(out).toEqual([]);
+	});
+
+	it("N21: an exported type used as a parameter type of an exported arrow const is not dead", () => {
+		const files = {
+			"src/lib.ts":
+				"export interface Fields { id: string }\nexport const useFields = (f: Fields): void => { console.log(f); };\n",
+			"src/main.ts": 'import { useFields } from "./lib.js";\nuseFields({ id: "1" });\n',
+		};
+		const out = findDeadTypeExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(out).toEqual([]);
+	});
+
+	it("N22: an exported type referenced inside another exported interface's body is not dead", () => {
+		const files = {
+			"src/lib.ts":
+				"export interface Fields { id: string }\nexport interface Wrapper { fields: Fields }\n",
+			"src/main.ts": 'import { Wrapper } from "./lib.js";\nconst w: Wrapper = { fields: { id: "1" } };\nconsole.log(w);\n',
+		};
+		const out = findDeadTypeExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(out).toEqual([]);
+	});
+
+	it("P8: an exported type referenced only inside a NON-exported function's body still fires (un-export remedy)", () => {
+		const files = {
+			"src/lib.ts":
+				"export interface Hidden { id: string }\nfunction helper(): void { const x: Hidden = { id: '1' }; console.log(x); }\nhelper();\n",
+			"src/main.ts": "console.log(1);\n",
+		};
+		const out = findDeadTypeExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(out).toHaveLength(1);
+		expect(out[0]?.text).toContain("'Hidden'");
+		expect(out[0]?.text).toContain("still used inside this file");
+	});
+
+	it("P9: an exported type unused anywhere in the file still fires (delete remedy)", () => {
+		const files = {
+			"src/lib.ts": "export const used = 1;\nexport interface Orphan { id: string }\n",
+			"src/main.ts": 'import { used } from "./lib.js";\nconsole.log(used);\n',
+		};
+		const out = findDeadTypeExports(args("src/lib.ts", files["src/lib.ts"]), repo(files));
+		expect(out).toHaveLength(1);
+		expect(out[0]?.text).toContain("'Orphan'");
+		expect(out[0]?.text).toContain("no references anywhere");
+	});
+
 	it("N19: a type consumed via `import type { … }` is not a dead type export", () => {
 		const files = {
 			"src/lib.ts": "export const used = 1;\nexport interface LiveShape { id: string }\n",
@@ -394,6 +451,28 @@ describe("findDeadExports — MAX_FLAGGED caps the report at exactly 10", () => 
 		const content = Array.from({ length: 12 }, (_, i) => `export const dead${i} = ${i};`).join("\n") + "\n";
 		const out = findDeadExports(args("src/many.ts", content), repo({}));
 		expect(out.length).toBe(10);
+	});
+
+	it("P2: `only` narrows the scan so the cap cannot truncate a named export past position 10", () => {
+		const content = Array.from({ length: 12 }, (_, i) => `export const dead${i} = ${i};`).join("\n") + "\n";
+		const out = findDeadExports(
+			{ ...args("src/many.ts", content), only: new Set(["dead11"]) },
+			repo({}),
+		);
+		expect(out.map((m) => m.line)).toEqual([12]);
+		expect(out.map((m) => m.text)).toEqual([expect.stringContaining("'dead11'")]);
+	});
+
+	it("N28: `only` naming a consumed export reports nothing", () => {
+		const files = {
+			"src/lib.ts": "export const used = 1;\nexport const dead = 2;\n",
+			"src/main.ts": 'import { used } from "./lib.js";\nconsole.log(used);\n',
+		};
+		const out = findDeadExports(
+			{ ...args("src/lib.ts", files["src/lib.ts"]), only: new Set(["used"]) },
+			repo(files),
+		);
+		expect(out).toEqual([]);
 	});
 });
 

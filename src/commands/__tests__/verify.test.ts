@@ -342,6 +342,17 @@ describe("DEFAULT_ADVISORY_SKIPS", () => {
 				"python_portability_trap",
 				"test_contract_annotation",
 				"unvalidated_input_boundary",
+				// tseslint-types verify row (strict-types campaign, 2026-09-01)
+				"tseslint-types",
+				// Effect second-look wave (2026-09-01)
+				"fetch_without_abort_signal",
+				"public_api_leaks_internal_type",
+				// type-redundancy wave (2026-09-01)
+				"dead_type_exports",
+				"duplicate_type_declaration",
+				// helper-hygiene wave (2026-09-01)
+				"new_export_without_importer",
+				"extracted_helper_duplicate",
 				// Quality-frontier wave (2026-07-06): verify-only doc-drift sibling +
 				// two low-not-zero-FP heuristics pending cross-repo calibration.
 				"readme_script_drift",

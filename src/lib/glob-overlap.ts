@@ -27,35 +27,56 @@ export function patternsOverlap(pattern1: string, pattern2: string, ignoreCase =
 		const part2 = p2Parts[i];
 		if (part1 === undefined || part2 === undefined) continue;
 
-		// ** matches any number of directories
-		if (part1 === "**" || part2 === "**") {
-			return true;
-		}
-
-		// * matches within a single path segment
-		if (part1 === "*" || part2 === "*") {
-			continue;
-		}
-
-		// Glob pattern in part (e.g., *.ts, test_*).
-		// The glob parts are first escaped by replacing "*" with ".*", so the
-		// dynamic RegExp input is constrained to a known shape and is safe.
-		if (part1.includes("*") || part2.includes("*")) {
-			// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-			const regex1 = new RegExp(`^${part1.replace(/\*/g, ".*")}$`, ignoreCase ? "i" : "");
-			// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-			const regex2 = new RegExp(`^${part2.replace(/\*/g, ".*")}$`, ignoreCase ? "i" : "");
-			if (regex1.test(part2) || regex2.test(part1)) {
-				continue;
-			}
-		}
-
-		if (part1 !== part2) {
-			return false;
-		}
+		const verdict = segmentOverlapVerdict(part1, part2, ignoreCase);
+		if (verdict === "overlap-all") return true;
+		if (verdict === "diverge") return false;
+		// verdict === "continue" falls through to the next path segment
 	}
 
 	return true;
+}
+
+/**
+ * Compare one path segment pair and decide how the outer scan should react.
+ * - "overlap-all": either side is "**" — the whole comparison overlaps
+ * - "continue": this segment doesn't rule out overlap; keep scanning
+ * - "diverge": this segment proves the patterns don't overlap
+ */
+function segmentOverlapVerdict(
+	part1: string,
+	part2: string,
+	ignoreCase: boolean,
+): "overlap-all" | "continue" | "diverge" {
+	// ** matches any number of directories
+	if (part1 === "**" || part2 === "**") {
+		return "overlap-all";
+	}
+
+	// * matches within a single path segment
+	if (part1 === "*" || part2 === "*") {
+		return "continue";
+	}
+
+	// Glob pattern in part (e.g., *.ts, test_*).
+	if ((part1.includes("*") || part2.includes("*")) && globPartsOverlap(part1, part2, ignoreCase)) {
+		return "continue";
+	}
+
+	return part1 === part2 ? "continue" : "diverge";
+}
+
+/**
+ * Test whether two glob-bearing path segments (each containing at least one
+ * "*") match one another via RegExp.
+ * The glob parts are first escaped by replacing "*" with ".*", so the
+ * dynamic RegExp input is constrained to a known shape and is safe.
+ */
+function globPartsOverlap(part1: string, part2: string, ignoreCase: boolean): boolean {
+	// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
+	const regex1 = new RegExp(`^${part1.replace(/\*/g, ".*")}$`, ignoreCase ? "i" : "");
+	// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
+	const regex2 = new RegExp(`^${part2.replace(/\*/g, ".*")}$`, ignoreCase ? "i" : "");
+	return regex1.test(part2) || regex2.test(part1);
 }
 
 /**

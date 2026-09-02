@@ -7,12 +7,9 @@
 
 import { createHash } from "node:crypto";
 import { isJsonObject, type JsonObject } from "./json-types.js";
+import { checkedCandidateCount, narrowScopeFields, scopeConsistencyReason, validationModeReason } from "./simplification-agent-ci-request-shape.js";
 import { parseSimplificationHandoff } from "./simplification-schema.js";
-import {
-	SIMPLIFICATION_REMEDIES,
-	type SimplificationDeepHandoffRequest,
-	type SimplificationRemedy,
-} from "./simplification-types.js";
+import { SIMPLIFICATION_REMEDIES, type SimplificationDeepHandoffRequest, type SimplificationRemedy } from "./simplification-types.js";
 import { isPinnedExactVersion } from "./simplification-version.js";
 
 const SIMPLIFICATION_AGENT_CI_REQUEST_VERSION = "simplification-request/v1" as const;
@@ -312,21 +309,11 @@ function parseScope(value: unknown): SimplificationAgentCiScope | { reason: stri
 		const bad = reasonFrom(parsed);
 		if (bad) return { reason: bad };
 	}
-	if (
-		(kind === "diff" && base_sha === null) ||
-		(kind !== "diff" && base_sha !== null)
-	) return { reason: "request.scope.base_sha is required only for diff scope" };
-	if (kind === "repository" && Array.isArray(paths) && paths.length !== 0) {
-		return { reason: "request.scope.paths must be empty for repository scope" };
-	}
-	if (kind === "paths" && Array.isArray(paths) && paths.length === 0) {
-		return { reason: "request.scope.paths must not be empty for paths scope" };
-	}
-	if (
-		typeof head_sha !== "string" || !Array.isArray(paths) ||
-		!Array.isArray(includes) || !Array.isArray(excludes)
-	) return { reason: "request.scope is invalid" };
-	return { kind, base_sha, head_sha, paths, includes, excludes };
+	const inconsistent = scopeConsistencyReason(kind, base_sha, paths);
+	if (inconsistent) return { reason: inconsistent };
+	const fields = narrowScopeFields(head_sha, paths, includes, excludes);
+	if (!fields) return { reason: "request.scope is invalid" };
+	return { kind, base_sha, ...fields };
 }
 
 function parseToolEvidence(value: unknown, index: number): SimplificationAgentCiToolEvidence | { reason: string } {
@@ -514,19 +501,14 @@ function parseValidation(value: unknown): SimplificationAgentCiValidationRequest
 		? null
 		: checkedSha256(value.check_plan_sha256, "request.validation.check_plan_sha256");
 	if (isParseFailure(check_plan_sha256)) return check_plan_sha256;
-	if (!Number.isInteger(value.max_candidates) || typeof value.max_candidates !== "number" || value.max_candidates < 0 || value.max_candidates > 100) {
-		return { reason: "request.validation.max_candidates must be an integer from 0 through 100" };
-	}
-	if (value.mode === "none" && (check_plan_sha256 !== null || value.max_candidates !== 0)) {
-		return { reason: "request.validation none mode must omit a check plan and use zero candidates" };
-	}
-	if (value.mode === "candidate" && (typeof check_plan_sha256 !== "string" || value.max_candidates === 0)) {
-		return { reason: "request.validation candidate mode requires a check plan and at least one candidate" };
-	}
+	const max_candidates = checkedCandidateCount(value.max_candidates);
+	if (typeof max_candidates !== "number") return max_candidates;
+	const invalidMode = validationModeReason(value.mode, check_plan_sha256, max_candidates);
+	if (invalidMode) return { reason: invalidMode };
 	return {
 		mode: value.mode as SimplificationAgentCiValidationMode,
 		check_plan_sha256,
-		max_candidates: value.max_candidates,
+		max_candidates,
 	};
 }
 
@@ -613,6 +595,16 @@ function deepFreeze<T>(value: T): T {
 	return value;
 }
 
+type NestedRequestParts = Pick<SimplificationAgentCiRequestV1, "repository" | "scope" | "requested_remedies" | "evidence" | "orchestration" | "validation" | "submission">;
+
+/** Narrow the parsed members together; null means one member kept a failure shape. */
+function narrowNestedParts(parts: { [K in keyof NestedRequestParts]: NestedRequestParts[K] | ParseFailure }): NestedRequestParts | null {
+	const { repository, scope, requested_remedies, evidence, orchestration, validation, submission } = parts;
+	if (!("workspace_id" in repository) || !("kind" in scope) || !Array.isArray(requested_remedies)) return null;
+	if (!("tools" in evidence) || !("risk_tier" in orchestration) || !("mode" in validation) || !("state" in submission)) return null;
+	return { repository, scope, requested_remedies, evidence, orchestration, validation, submission };
+}
+
 /** Strict constructing parser; unknown keys and non-canonical ordering fail. */
 export function parseSimplificationAgentCiRequest(
 	input: unknown,
@@ -621,19 +613,8 @@ export function parseSimplificationAgentCiRequest(
 	const extra = unknownKeys(
 		input,
 		[
-			"schema_version",
-			"kind",
-			"lens_version",
-			"repository",
-			"scope",
-			"requested_remedies",
-			"evidence",
-			"orchestration",
-			"validation",
-			"record",
-			"no_cache",
-			"idempotency_key",
-			"submission",
+			"schema_version", "kind", "lens_version", "repository", "scope", "requested_remedies", "evidence",
+			"orchestration", "validation", "record", "no_cache", "idempotency_key", "submission",
 		],
 		"request",
 	);
@@ -661,28 +642,25 @@ export function parseSimplificationAgentCiRequest(
 	const idempotency_key = checkedSha256(input.idempotency_key, "request.idempotency_key");
 	const keyBad = reasonFrom(idempotency_key);
 	if (keyBad) return { ok: false, reason: keyBad };
-	if (
-		!("workspace_id" in repository) || !("kind" in scope) || !Array.isArray(requested_remedies) ||
-		!("tools" in evidence) || !("risk_tier" in orchestration) || !("mode" in validation) ||
-		!("state" in submission) || typeof idempotency_key !== "string"
-	) return { ok: false, reason: "request contains an invalid nested object" };
-	if (repository.commit_sha !== scope.head_sha) {
+	const nested = narrowNestedParts({ repository, scope, requested_remedies, evidence, orchestration, validation, submission });
+	if (!nested || typeof idempotency_key !== "string") return { ok: false, reason: "request contains an invalid nested object" };
+	if (nested.repository.commit_sha !== nested.scope.head_sha) {
 		return { ok: false, reason: "request scope head_sha must equal the pinned repository commit_sha" };
 	}
 	const request: SimplificationAgentCiRequestV1 = {
 		schema_version: SIMPLIFICATION_AGENT_CI_REQUEST_VERSION,
 		kind: "agent_ci.simplification_review",
 		lens_version: SIMPLIFICATION_LENS_VERSION,
-		repository,
-		scope,
-		requested_remedies,
-		evidence,
-		orchestration,
-		validation,
+		repository: nested.repository,
+		scope: nested.scope,
+		requested_remedies: nested.requested_remedies,
+		evidence: nested.evidence,
+		orchestration: nested.orchestration,
+		validation: nested.validation,
 		record: input.record,
 		no_cache: input.no_cache,
 		idempotency_key,
-		submission,
+		submission: nested.submission,
 	};
 	const expectedKey = canonicalSimplificationAgentCiRequestHash(request);
 	if (request.idempotency_key !== expectedKey) {

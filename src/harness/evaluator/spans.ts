@@ -167,14 +167,11 @@ function effectiveCommandWord(tokens: string[]): string | null {
  *  `bash`, not `cat` (the unbounded-backward-scan soundness bug dcg fixed
  *  in their #136). Checks left of the operator first, then right (bash
  *  permits `<<EOF cmd` as well as `cmd <<EOF`). */
-export function resolveHeredocTarget(
-	cmd: string,
-	operatorIndex: number,
-	headerEnd: number,
-): string | null {
-	const lineStart = cmd.lastIndexOf("\n", operatorIndex - 1) + 1;
-	// Find the segment start: last top-level separator on the line before the
-	// operator, tracked with a minimal quote scanner (the slice is one line).
+/** Scan backward from `lineStart` to `operatorIndex` to find where the
+ *  current pipe/chain segment starts, honoring quotes with a minimal
+ *  scanner (the slice is one line) so separators inside strings don't
+ *  split the segment. */
+function findHeredocSegmentStart(cmd: string, lineStart: number, operatorIndex: number): number {
 	let segStart = lineStart;
 	let inSingle = false;
 	let inDouble = false;
@@ -185,13 +182,13 @@ export function resolveHeredocTarget(
 		else if (!inSingle && !inDouble && (ch === ";" || ch === "|" || ch === "&" || ch === "("))
 			segStart = i + 1;
 	}
-	const before = cmd.slice(segStart, operatorIndex).trim();
-	if (before) {
-		const word = effectiveCommandWord(before.split(/\s+/).filter(Boolean));
-		if (word) return word;
-	}
-	// Nothing left of the operator — look right on the same line (stop at a
-	// separator; the command after a pipe receives the pipe, not the heredoc).
+	return segStart;
+}
+
+/** Nothing left of the heredoc operator — look right on the same line
+ *  (bash permits `<<EOF cmd`), stopping at a separator (the command after
+ *  a pipe receives the pipe, not the heredoc). */
+function resolveHeredocTargetRight(cmd: string, headerEnd: number): string | null {
 	let lineEnd = cmd.indexOf("\n", headerEnd);
 	if (lineEnd === -1) lineEnd = cmd.length;
 	let after = cmd.slice(headerEnd, lineEnd);
@@ -200,6 +197,23 @@ export function resolveHeredocTarget(
 	const trimmed = after.trim();
 	if (!trimmed) return null;
 	return effectiveCommandWord(trimmed.split(/\s+/).filter(Boolean));
+}
+
+export function resolveHeredocTarget(
+	cmd: string,
+	operatorIndex: number,
+	headerEnd: number,
+): string | null {
+	const lineStart = cmd.lastIndexOf("\n", operatorIndex - 1) + 1;
+	// Find the segment start: last top-level separator on the line before the
+	// operator, tracked with a minimal quote scanner (the slice is one line).
+	const segStart = findHeredocSegmentStart(cmd, lineStart, operatorIndex);
+	const before = cmd.slice(segStart, operatorIndex).trim();
+	if (before) {
+		const word = effectiveCommandWord(before.split(/\s+/).filter(Boolean));
+		if (word) return word;
+	}
+	return resolveHeredocTargetRight(cmd, headerEnd);
 }
 
 /** Interpreter inline-exec payload detector: does the executed text ending

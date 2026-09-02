@@ -216,48 +216,106 @@ export function detectMutationKillEvidenceGaps(
 
 	const hits: MutationKillEvidenceHit[] = [];
 	const seen = new Set<string>();
-	let measurementMs: number | null | undefined; // lazy, resolved at most once
+	// Lazy, resolved at most once across the whole scan — shared via this
+	// mutable box so the per-entry helper can memoize without becoming a
+	// closure over loop-local state.
+	const measurementCache: { value: number | null | undefined } = { value: undefined };
 
 	for (const entry of filesWritten) {
-		const abs = resolve(cwd, entry);
-		if (seen.has(abs)) continue;
-		seen.add(abs);
-
-		if (!JS_TS_EXTS.has(getExtension(abs))) continue;
-		const posixAbs = abs.replace(/\\/g, "/");
-		if (!MUTATION_DIRECTED_PATH.test(posixAbs)) continue;
-
-		const currentContent = readFile(abs);
-		if (currentContent === null) continue; // deleted / unreadable — can't tell
-
-		const relPath = relative(cwd, abs).replace(/\\/g, "/");
-		const baselineContent = gitShow(cwd, `${gitHeadSha}:${relPath}`) ?? "";
-
-		const newCaseCount = Math.max(
-			0,
-			countTestCaseOpeners(currentContent) - countTestCaseOpeners(baselineContent),
-		);
-		if (newCaseCount === 0) continue; // no new cases — maintenance edit, stay silent
-
-		if (measurementMs === undefined) {
-			const manifest = loadMutationManifest(join(cwd, ".interlinked"));
-			const ms = manifest?.authoritativeAt ? Date.parse(manifest.authoritativeAt) : NaN;
-			measurementMs = Number.isNaN(ms) ? null : ms;
-		}
-		const writeTimeRaw = fileWriteTimes.get(entry) ?? fileWriteTimes.get(abs);
-		const writeMs = writeTimeRaw ? Date.parse(writeTimeRaw) : NaN;
-		const staleMeasurement = Number.isNaN(writeMs)
-			? false // can't determine write time — don't claim staleness
-			: measurementMs === null || measurementMs < writeMs;
-
-		const missingContractCount = newMissingContractCount(currentContent, baselineContent, abs);
-
-		if (staleMeasurement || missingContractCount > 0) {
-			hits.push({ file: relPath, newCaseCount, staleMeasurement, missingContractCount });
-		}
+		const abs = resolveMutationDirectedWrite(entry, cwd, seen);
+		if (abs === null) continue;
+		const hit = evaluateMutationKillEvidence(entry, abs, {
+			cwd,
+			gitHeadSha,
+			gitShow,
+			readFile,
+			fileWriteTimes,
+			loadMutationManifest,
+			measurementCache,
+		});
+		if (hit !== null) hits.push(hit);
 	}
 
 	return hits;
+}
+
+/**
+ * Resolves one `filesWritten` entry to its dedup'd, in-scope absolute path,
+ * or null when the entry should be skipped this scan (already seen, not a
+ * JS/TS file, or not under the mutation-directed naming convention).
+ */
+function resolveMutationDirectedWrite(
+	entry: string,
+	cwd: string,
+	seen: Set<string>,
+): string | null {
+	const abs = resolve(cwd, entry);
+	if (seen.has(abs)) return null;
+	seen.add(abs);
+
+	if (!JS_TS_EXTS.has(getExtension(abs))) return null;
+	const posixAbs = abs.replace(/\\/g, "/");
+	if (!MUTATION_DIRECTED_PATH.test(posixAbs)) return null;
+	return abs;
+}
+
+/** Lazily resolves + memoizes the mutation-measurement timestamp for one scan. */
+function resolveMeasurementMs(
+	cwd: string,
+	loadMutationManifest: NonNullable<DetectMutationKillEvidenceGapsOpts["loadMutationManifest"]>,
+	cache: { value: number | null | undefined },
+): number | null {
+	if (cache.value === undefined) {
+		const manifest = loadMutationManifest(join(cwd, ".interlinked"));
+		const ms = manifest?.authoritativeAt ? Date.parse(manifest.authoritativeAt) : NaN;
+		cache.value = Number.isNaN(ms) ? null : ms;
+	}
+	return cache.value;
+}
+
+/**
+ * Evaluates one in-scope, dedup'd written file for the two evidence gaps
+ * (stale measurement / missing test-contract marker). Returns the hit, or
+ * null when the file has no new cases or has complete evidence.
+ */
+function evaluateMutationKillEvidence(
+	entry: string,
+	abs: string,
+	ctx: {
+		cwd: string;
+		gitHeadSha: string;
+		gitShow: GitShowReader;
+		readFile: NonNullable<DetectMutationKillEvidenceGapsOpts["readFile"]>;
+		fileWriteTimes: ReadonlyMap<string, string>;
+		loadMutationManifest: NonNullable<DetectMutationKillEvidenceGapsOpts["loadMutationManifest"]>;
+		measurementCache: { value: number | null | undefined };
+	},
+): MutationKillEvidenceHit | null {
+	const currentContent = ctx.readFile(abs);
+	if (currentContent === null) return null; // deleted / unreadable — can't tell
+
+	const relPath = relative(ctx.cwd, abs).replace(/\\/g, "/");
+	const baselineContent = ctx.gitShow(ctx.cwd, `${ctx.gitHeadSha}:${relPath}`) ?? "";
+
+	const newCaseCount = Math.max(
+		0,
+		countTestCaseOpeners(currentContent) - countTestCaseOpeners(baselineContent),
+	);
+	if (newCaseCount === 0) return null; // no new cases — maintenance edit, stay silent
+
+	const measurementMs = resolveMeasurementMs(ctx.cwd, ctx.loadMutationManifest, ctx.measurementCache);
+	const writeTimeRaw = ctx.fileWriteTimes.get(entry) ?? ctx.fileWriteTimes.get(abs);
+	const writeMs = writeTimeRaw ? Date.parse(writeTimeRaw) : NaN;
+	const staleMeasurement = Number.isNaN(writeMs)
+		? false // can't determine write time — don't claim staleness
+		: measurementMs === null || measurementMs < writeMs;
+
+	const missingContractCount = newMissingContractCount(currentContent, baselineContent, abs);
+
+	if (staleMeasurement || missingContractCount > 0) {
+		return { file: relPath, newCaseCount, staleMeasurement, missingContractCount };
+	}
+	return null;
 }
 
 /**

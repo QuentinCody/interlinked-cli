@@ -348,16 +348,25 @@ function isOptionalParam(param: string): boolean {
 	if (stripped.startsWith("...")) return false;
 	let depth = 0;
 	for (let i = 0; i < stripped.length; i++) {
-		const ch = stripped[i];
-		if (ch === "<" || ch === "(" || ch === "{" || ch === "[") depth++;
-		else if (ch === ">" || ch === ")" || ch === "}" || ch === "]") depth--;
-		else if (depth === 0) {
-			if (ch === "?" && stripped[i + 1] === ":") return true;
-			// `=` (default) — but not `=>` (arrow type) or `==` (comparison, shouldn't appear in a param)
-			if (ch === "=" && stripped[i + 1] !== ">" && stripped[i + 1] !== "=") return true;
-		}
+		const d = bracketDelta(stripped[i]);
+		if (d !== 0) depth += d;
+		else if (depth === 0 && isOptionalMarkerAt(stripped, i)) return true;
 	}
 	return false;
+}
+
+/** Depth delta for one char: +1 for an opener, -1 for a closer, 0 otherwise. */
+function bracketDelta(ch: string | undefined): number {
+	if (ch === "<" || ch === "(" || ch === "{" || ch === "[") return 1;
+	if (ch === ">" || ch === ")" || ch === "}" || ch === "]") return -1;
+	return 0;
+}
+
+/** True if `stripped[i]` starts a top-level `?:` marker or a non-arrow, non-`==` `=` default. */
+function isOptionalMarkerAt(stripped: string, i: number): boolean {
+	const ch = stripped[i];
+	if (ch === "?" && stripped[i + 1] === ":") return true;
+	return ch === "=" && stripped[i + 1] !== ">" && stripped[i + 1] !== "=";
 }
 
 /**

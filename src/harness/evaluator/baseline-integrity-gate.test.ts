@@ -691,3 +691,103 @@ describe("mutation-manifest accepted-survivor set may only shrink (spec §7)", (
 		expect(detect(MUT_MANIFEST, mm("survived"), mm("survived"))).toEqual([]);
 	});
 });
+
+describe("function-complexity-baseline.json — the per-function grandfather ledger is shrink-only", () => {
+	const LEDGER = "/repo/.interlinked/function-complexity-baseline.json";
+	const before = {
+		version: 1,
+		metrics: { cyclomatic: { cap: 16, entries: [{ file: "src/a.ts", name: "big", line: 3, value: 20 }] } },
+	};
+
+	it("BLOCKS raising a metric cap through detectBaselineGaming (a water-line kind, dispatched via KIND_MAP)", () => {
+		const after = { version: 1, metrics: { cyclomatic: { cap: 18, entries: before.metrics.cyclomatic.entries } } };
+		expect(detect(LEDGER, before, after).map((f) => f.rule)).toEqual(["cyclomatic:cap"]);
+	});
+
+	it("BLOCKS a Write that adds an entry or raises one, under the baseline_integrity_gate rule id", () => {
+		const after = {
+			version: 1,
+			metrics: {
+				cyclomatic: {
+					cap: 16,
+					entries: [
+						{ file: "src/a.ts", name: "big", line: 3, value: 21 },
+						{ file: "src/b.ts", name: "fresh", line: 1, value: 30 },
+					],
+				},
+			},
+		};
+		const d = evaluateBaselineIntegrityForEvent(
+			mkEvent({ file_path: LEDGER, content: JSON.stringify(after) }),
+			{ getDisk: () => JSON.stringify(before) },
+		);
+		expect(d?.decision).toBe("block");
+		expect(d?.rule_id).toBe("baseline_integrity_gate");
+		expect(d?.reason).toContain("cyclomatic:grandfather:src/a.ts:big");
+		expect(d?.reason).toContain("cyclomatic:grandfather-new:src/b.ts:fresh");
+	});
+
+	it("allows a Write that tightens the cap and drops an entry (the burn-down path)", () => {
+		const after = { version: 1, metrics: { cyclomatic: { cap: 12, entries: [] } } };
+		const d = evaluateBaselineIntegrityForEvent(
+			mkEvent({ file_path: LEDGER, content: JSON.stringify(after) }),
+			{ getDisk: () => JSON.stringify(before) },
+		);
+		expect(d).toBeNull();
+	});
+
+	it("P: BLOCKS a Write that CREATES the ledger — only `caps ratchet` (internal write) creates it", () => {
+		// No ledger = legacy delta semantics (the stricter state); a hand-written
+		// first ledger pre-authorizes every function it lists, so creation is the
+		// one loosening move the other water-lines' "new baseline" rule misses.
+		const d = evaluateBaselineIntegrityForEvent(
+			mkEvent({ file_path: LEDGER, content: JSON.stringify(before) }),
+			{ getDisk: () => null },
+		);
+		expect(d?.decision).toBe("block");
+		expect(d?.rule_id).toBe("baseline_integrity_gate");
+		expect(d?.reason).toContain("caps ratchet");
+	});
+
+	it("N: creating any OTHER water-line for the first time is still not a loosening", () => {
+		const d = evaluateBaselineIntegrityForEvent(
+			mkEvent({ file_path: CAPS, content: JSON.stringify({ version: 1, max_cyclomatic: 999 }) }),
+			{ getDisk: () => null },
+		);
+		expect(d).toBeNull();
+	});
+
+	it("N: a tightening ratchet may list functions the tightening newly put over the cap (value ≤ old cap)", () => {
+		const after = {
+			version: 1,
+			metrics: {
+				cyclomatic: {
+					cap: 12,
+					entries: [
+						{ file: "src/a.ts", name: "big", line: 3, value: 20 },
+						{ file: "src/a.ts", name: "mid", line: 40, value: 14 },
+					],
+				},
+			},
+		};
+		expect(detect(LEDGER, before, after)).toEqual([]);
+	});
+
+	it("P: a tightening that smuggles an entry ABOVE the old cap still blocks", () => {
+		const after = {
+			version: 1,
+			metrics: {
+				cyclomatic: {
+					cap: 12,
+					entries: [
+						{ file: "src/a.ts", name: "big", line: 3, value: 20 },
+						{ file: "src/a.ts", name: "huge", line: 40, value: 17 },
+					],
+				},
+			},
+		};
+		expect(detect(LEDGER, before, after).map((f) => f.rule)).toEqual([
+			"cyclomatic:grandfather-new:src/a.ts:huge",
+		]);
+	});
+});

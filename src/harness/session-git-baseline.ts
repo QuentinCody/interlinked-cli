@@ -31,54 +31,81 @@ export function captureGitBaseline(cwd: string): {
 		untracked: new Set<string>(),
 		head_sha: "",
 	};
-	let headSha = "";
+	const headSha = readHeadSha(cwd);
+	const porcelain = readPorcelainStatus(cwd);
+	if (porcelain === null) return empty;
+	const { modified, staged, untracked } = parsePorcelainEntries(porcelain);
+	return { modified, staged, untracked, head_sha: headSha };
+}
+
+/** `git rev-parse HEAD`, trimmed. Returns "" for a non-git dir or any failure. */
+function readHeadSha(cwd: string): string {
 	try {
-		headSha = execFileSync("git", ["rev-parse", "HEAD"], {
+		return execFileSync("git", ["rev-parse", "HEAD"], {
 			cwd,
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
 			timeout: GIT_BASELINE_TIMEOUT_MS,
 		}).trim();
 	} catch {
-		headSha = "";
+		return "";
 	}
+}
 
-	let porcelain = "";
+/** `git status --porcelain -z -uall` raw output. Returns null on failure (non-git dir, hung git, etc.). */
+function readPorcelainStatus(cwd: string): string | null {
 	try {
-		porcelain = execFileSync("git", ["status", "--porcelain", "-z", "-uall"], {
+		return execFileSync("git", ["status", "--porcelain", "-z", "-uall"], {
 			cwd,
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
 			timeout: GIT_BASELINE_TIMEOUT_MS,
 		});
 	} catch {
-		return empty;
+		return null;
 	}
+}
 
+/** Classifies one porcelain `-z` entry into the modified/staged/untracked sets in place.
+ *  Returns the number of extra entries consumed (1 when the entry is a rename/copy whose
+ *  old-path entry must be skipped, 0 otherwise). */
+function classifyPorcelainEntry(
+	raw: string,
+	sets: { modified: Set<string>; staged: Set<string>; untracked: Set<string> },
+): number {
+	if (raw.length < 3) return 0;
+	const indexStatus = raw[0];
+	const worktreeStatus = raw[1];
+	const path = raw.slice(3);
+	const consumedExtra = indexStatus === "R" || indexStatus === "C" ? 1 : 0;
+	if (indexStatus === "?" && worktreeStatus === "?") {
+		sets.untracked.add(path);
+		return consumedExtra;
+	}
+	if (indexStatus === "!" && worktreeStatus === "!") return consumedExtra;
+	if (indexStatus !== " " && indexStatus !== "?" && indexStatus !== "!") {
+		sets.staged.add(path);
+	}
+	if (worktreeStatus !== " " && worktreeStatus !== "?" && worktreeStatus !== "!") {
+		sets.modified.add(path);
+	}
+	return consumedExtra;
+}
+
+/** Parses the full `-z`-delimited porcelain output into modified/staged/untracked path sets. */
+function parsePorcelainEntries(porcelain: string): {
+	modified: Set<string>;
+	staged: Set<string>;
+	untracked: Set<string>;
+} {
 	const modified = new Set<string>();
 	const staged = new Set<string>();
 	const untracked = new Set<string>();
+	const sets = { modified, staged, untracked };
 	const entries = porcelain.split("\0").filter((e) => e.length > 0);
 	for (let i = 0; i < entries.length; i++) {
 		const raw = nonNull(entries[i]);
-		if (raw.length < 3) continue;
-		const indexStatus = raw[0];
-		const worktreeStatus = raw[1];
-		const path = raw.slice(3);
-		if (indexStatus === "R" || indexStatus === "C") {
-			i++; // skip the old-path entry of a rename/copy
-		}
-		if (indexStatus === "?" && worktreeStatus === "?") {
-			untracked.add(path);
-			continue;
-		}
-		if (indexStatus === "!" && worktreeStatus === "!") continue;
-		if (indexStatus !== " " && indexStatus !== "?" && indexStatus !== "!") {
-			staged.add(path);
-		}
-		if (worktreeStatus !== " " && worktreeStatus !== "?" && worktreeStatus !== "!") {
-			modified.add(path);
-		}
+		i += classifyPorcelainEntry(raw, sets);
 	}
-	return { modified, staged, untracked, head_sha: headSha };
+	return { modified, staged, untracked };
 }

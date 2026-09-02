@@ -354,6 +354,41 @@ export function detectBashCodeFileWrite(
  *  a Supermodel shard. */
 const FILE_MOVE_VERBS = new Set(["cp", "mv", "ln", "install", "rsync", "scp"]);
 
+/** Flags that take a value in two-token form (`-m 644`, `--mode 644`,
+ *  `-t DIR`). `-T` is `--no-target-directory` — a boolean; NOT included,
+ *  or the destination gets parsed away and `cp -T /tmp/x src/foo.ts` slips
+ *  past the guard. Long forms with `=` (e.g. `--mode=644`) are one token
+ *  and handled by the no-skip path. */
+function isValueTakingFlag(arg: string): boolean {
+	return (
+		arg === "-m" ||
+		arg === "--mode" ||
+		arg === "-t" ||
+		arg === "--target-directory" ||
+		arg === "-S" ||
+		arg === "--suffix"
+	);
+}
+
+/** Skip any subsequent flag-token (starts with `-`), find the positional
+ *  arguments. `cp` and friends always put the destination last when called
+ *  with N positionals. */
+function extractMoveVerbPositionals(args: string[]): string[] {
+	const positionals: string[] = [];
+	for (let i = 1; i < args.length; i++) {
+		const arg = nonNull(args[i]);
+		if (arg.startsWith("-")) {
+			const next = args[i + 1];
+			if (isValueTakingFlag(arg) && next !== undefined && !next.startsWith("-")) {
+				i++;
+			}
+			continue;
+		}
+		positionals.push(arg);
+	}
+	return positionals;
+}
+
 function detectFileMoveToProtected(
 	cmd: string,
 ): { target: string; mechanism: string } | null {
@@ -362,33 +397,7 @@ function detectFileMoveToProtected(
 		if (args.length < 2) continue;
 		const verb = nonNull(args[0]).split("/").pop() ?? nonNull(args[0]);
 		if (!FILE_MOVE_VERBS.has(verb)) continue;
-		// Skip any subsequent flag-token (starts with `-`), find the last
-		// positional argument. `cp` and friends always put the destination
-		// last when called with N positionals.
-		const positionals: string[] = [];
-		for (let i = 1; i < args.length; i++) {
-			const arg = args[i];
-			if (nonNull(arg).startsWith("-")) {
-				// Some flags take a value in two-token form (`-m 644`,
-				// `--mode 644`, `-t DIR`). Skip the next token only for those.
-				// `-T` is `--no-target-directory` — a boolean; do NOT skip,
-				// or the destination gets parsed away and `cp -T /tmp/x src/foo.ts`
-				// slips past the guard. Long forms with `=` (e.g. `--mode=644`)
-				// are one token and handled by the no-skip path.
-				const flagTakesArg =
-					arg === "-m" ||
-					arg === "--mode" ||
-					arg === "-t" ||
-					arg === "--target-directory" ||
-					arg === "-S" ||
-					arg === "--suffix";
-				if (flagTakesArg && i + 1 < args.length && !nonNull(args[i + 1]).startsWith("-")) {
-					i++;
-				}
-				continue;
-			}
-			positionals.push(nonNull(arg));
-		}
+		const positionals = extractMoveVerbPositionals(args);
 		if (positionals.length < 2) continue;
 		const target = nonNull(positionals[positionals.length - 1]);
 		if (isProtectedTarget(target)) {

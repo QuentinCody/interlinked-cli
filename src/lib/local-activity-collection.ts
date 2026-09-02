@@ -258,35 +258,59 @@ function collectionToActivity(rec: CollectionRecordUsed): LocalActivityEvent {
 	return ev;
 }
 
-/** Read recent tool activity from collection.jsonl, projected to the v5 display
- *  shape, applying the same since/agent/type/limit filters as readLocalActivity.
- *  Newest-first (mirrors readRecentLines order). */
-export function readCollectionActivity(opts?: {
+type ReadCollectionActivityOpts = {
 	since?: number | undefined;
 	agent?: string | undefined;
 	limit?: number | undefined;
 	type?: string | undefined;
 	cwd?: string | undefined;
-}): LocalActivityEvent[] {
+};
+
+/** Parse one collection.jsonl line to a v5 LocalActivityEvent, or `null` on any
+ *  malformed/unrecognized line — mirrors the original inline try/catch: any
+ *  parse or projection error is swallowed and the line is skipped. */
+function parseCollectionLine(line: string): LocalActivityEvent | null {
+	try {
+		const parsed = parseCollectionOrAgentEvent(JSON.parse(line));
+		if (!parsed) return null;
+		return "event" in parsed ? agentEventToActivity(parsed) : collectionToActivity(parsed);
+	} catch {
+		return null;
+	}
+}
+
+/** `true` once `ev` is older than `opts.since` — the loop's break condition. */
+function isBeforeSince(ev: LocalActivityEvent, since: number | undefined): boolean {
+	if (!since) return false;
+	return new Date(ev.ts).getTime() < since;
+}
+
+/** Same agent/type filters `readLocalActivity` applies. */
+function matchesCollectionFilters(
+	ev: LocalActivityEvent,
+	opts: Pick<ReadCollectionActivityOpts, "agent" | "type"> | undefined,
+): boolean {
+	if (opts?.agent && ev.agent !== opts.agent) return false;
+	if (opts?.type && ev.type !== opts.type) return false;
+	return true;
+}
+
+/** Read recent tool activity from collection.jsonl, projected to the v5 display
+ *  shape, applying the same since/agent/type/limit filters as readLocalActivity.
+ *  Newest-first (mirrors readRecentLines order). */
+export function readCollectionActivity(opts?: ReadCollectionActivityOpts): LocalActivityEvent[] {
 	const path = getCollectionPath(opts?.cwd ?? process.cwd());
 	if (!existsSync(path)) return [];
 	const limit = opts?.limit && opts.limit > 0 ? opts.limit : undefined;
 	const scanLineBudget = limit ? Math.max(limit * 20, 500) : 10000;
 	const events: LocalActivityEvent[] = [];
 	for (const line of readRecentLines(path, scanLineBudget)) {
-		try {
-			const parsed = parseCollectionOrAgentEvent(JSON.parse(line));
-			if (!parsed) continue;
-			const ev =
-				"event" in parsed ? agentEventToActivity(parsed) : collectionToActivity(parsed);
-			if (opts?.since && new Date(ev.ts).getTime() < opts.since) break;
-			if (opts?.agent && ev.agent !== opts.agent) continue;
-			if (opts?.type && ev.type !== opts.type) continue;
-			events.push(ev);
-			if (limit && events.length >= limit) break;
-		} catch {
-			continue;
-		}
+		const ev = parseCollectionLine(line);
+		if (!ev) continue;
+		if (isBeforeSince(ev, opts?.since)) break;
+		if (!matchesCollectionFilters(ev, opts)) continue;
+		events.push(ev);
+		if (limit && events.length >= limit) break;
 	}
 	return events;
 }

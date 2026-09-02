@@ -123,12 +123,10 @@ export async function runPostToolScan(args: PostScanArgs): Promise<PostScanResul
 	const { event, session, rules, scanner, compiledAllowlist } = args;
 	const empty: PostScanResult = { warnings: [], findings: [] };
 	if (!scanner) return empty;
-	const cfg = rules.content_scanner;
-	if (!cfg?.enabled || !cfg.scan_points.read_grep_taint) return empty;
+	const cfg = resolveActiveScanConfig(rules);
+	if (!cfg) return empty;
 	const toolName = event.tool_name ?? "";
-	if (!READ_TOOLS.has(toolName)) return empty;
-
-	const text = extractReadResponseText(event);
+	const text = resolveScanText(event, toolName);
 	if (!text) return empty;
 
 	// SAFETY: GuardRulesConfig declares `output_scanning` as required, but
@@ -137,27 +135,10 @@ export async function runPostToolScan(args: PostScanArgs): Promise<PostScanResul
 	// what actually reaches this function at runtime.
 	const outputScanning = rules.output_scanning as OutputScanningConfig | undefined;
 	const scanLimit = cfg.max_scan_bytes || outputScanning?.max_scan_bytes || DEFAULT_MAX_SCAN_BYTES;
-	let findings: ScanFinding[];
-	try {
-		findings = await scanner.scan({
-			text: text.slice(0, scanLimit),
-			source: `${toolName}.tool_response`,
-			signal: AbortSignal.timeout(cfg.local.scan_timeout_ms || DEFAULT_SCAN_TIMEOUT_MS),
-		});
-	} catch (scanErr) {
-		// fail-open — surface the reason to the operator log so a chronic
-		// failure mode (sidecar dead, model not loaded) is visible.
-		void scanErr;
-		return empty;
-	}
+	const findings = await runScannerSafe(scanner, text, scanLimit, toolName, cfg);
+	if (!findings || findings.length === 0) return empty;
 
-	if (findings.length === 0) return empty;
-	// Score floor first (cheap), then allowlist (drops known FPs that the
-	// model nominally meets the score floor for). Doing them in this order
-	// matches the PreToolUse path in server.ts.
-	const scoreKept = filterFindingsByScore(findings, cfg);
-	if (scoreKept.length === 0) return empty;
-	const keptFindings = applyAllowlist(scoreKept, compiledAllowlist).kept;
+	const keptFindings = filterKeptFindings(findings, cfg, compiledAllowlist);
 	if (keptFindings.length === 0) return empty;
 
 	// Policy reuses the PreToolUse decision to compute the human-readable
@@ -168,31 +149,93 @@ export async function runPostToolScan(args: PostScanArgs): Promise<PostScanResul
 		`BLOCKED: privacy-filter detected sensitive content [${keptFindings.length} span(s)].`;
 
 	// Pick sensitivity level — `secret`/`account_number` → HighlyConfidential.
-	const ratchetLevel: SensitivityLevel = keptFindings.some((f) =>
-		HIGHLY_CONFIDENTIAL_LABELS.has(f.label),
-	)
-		? "HighlyConfidential"
-		: "Confidential";
-
+	const ratchetLevel = computeRatchetLevel(keptFindings);
 	const filePath = (event.tool_input?.file_path as string) || `<${toolName}-response>`;
-	let ratcheted: SensitivityLevel | undefined;
-	// SAFETY: GuardRulesConfig declares `taint_tracking` as required, but
-	// tests (and possibly other partial-config callers) construct `rules`
-	// objects that omit it — widened locally so the guard below reflects
-	// what actually reaches this function at runtime.
-	const taintTracking = rules.taint_tracking as TaintTrackingConfig | undefined;
-	if (session && taintTracking?.enabled) {
-		const changed = ratchetSensitivity(session, filePath, ratchetLevel, taintTracking);
-		if (changed) ratcheted = ratchetLevel;
-		// Record the step even when the ratchet was a no-op (already at or above
-		// the target level) — PreToolUse gating patterns care about detection
-		// events, not just monotone changes.
-		session.pii_detected_steps.push(session.tool_call_count);
-	}
+	const ratcheted = applyTaintRatchetIfEnabled(session, rules, filePath, ratchetLevel);
 
 	const warning =
 		`[interlinked:content-scanner] ${toolName} returned sensitive content ` +
 		`(session sensitivity → ${ratchetLevel}). ${summary.replace(/^BLOCKED: /, "")}`;
 
 	return { warnings: [warning], findings: keptFindings, ratcheted_to: ratcheted };
+}
+
+/** Returns the active `content_scanner` config, or `undefined` when the
+ *  scanner (or the read/grep scan point specifically) is disabled. */
+function resolveActiveScanConfig(rules: GuardRulesConfig) {
+	const cfg = rules.content_scanner;
+	if (!cfg?.enabled || !cfg.scan_points.read_grep_taint) return undefined;
+	return cfg;
+}
+
+/** Returns the scannable text for this event, or `undefined` when the tool
+ *  isn't a read/grep tool or the event carries no scannable content. */
+function resolveScanText(event: HarnessEvent, toolName: string): string | undefined {
+	if (!READ_TOOLS.has(toolName)) return undefined;
+	return extractReadResponseText(event);
+}
+
+/** Runs the scanner, fail-open on any error (sidecar dead, model not
+ *  loaded, etc.) — the caller treats `undefined` the same as an empty scan. */
+async function runScannerSafe(
+	scanner: ContentScanner,
+	text: string,
+	scanLimit: number,
+	toolName: string,
+	cfg: NonNullable<GuardRulesConfig["content_scanner"]>,
+): Promise<ScanFinding[] | undefined> {
+	try {
+		return await scanner.scan({
+			text: text.slice(0, scanLimit),
+			source: `${toolName}.tool_response`,
+			signal: AbortSignal.timeout(cfg.local.scan_timeout_ms || DEFAULT_SCAN_TIMEOUT_MS),
+		});
+	} catch (scanErr) {
+		// fail-open — surface the reason to the operator log so a chronic
+		// failure mode (sidecar dead, model not loaded) is visible.
+		void scanErr;
+		return undefined;
+	}
+}
+
+/** Score floor first (cheap), then allowlist (drops known FPs that the
+ *  model nominally meets the score floor for). Doing them in this order
+ *  matches the PreToolUse path in server.ts. */
+function filterKeptFindings(
+	findings: ScanFinding[],
+	cfg: NonNullable<GuardRulesConfig["content_scanner"]>,
+	compiledAllowlist: CompiledEntry[],
+): ScanFinding[] {
+	const scoreKept = filterFindingsByScore(findings, cfg);
+	if (scoreKept.length === 0) return [];
+	return applyAllowlist(scoreKept, compiledAllowlist).kept;
+}
+
+/** `secret`/`account_number` findings escalate to `HighlyConfidential`;
+ *  everything else ratchets to `Confidential`. */
+function computeRatchetLevel(keptFindings: ScanFinding[]): SensitivityLevel {
+	return keptFindings.some((f) => HIGHLY_CONFIDENTIAL_LABELS.has(f.label))
+		? "HighlyConfidential"
+		: "Confidential";
+}
+
+/** Applies the taint-tracking ratchet when a session and taint tracking are
+ *  both present, recording the detection step even on a no-op ratchet —
+ *  PreToolUse gating patterns care about detection events, not just
+ *  monotone sensitivity changes. Returns the new level only when it changed. */
+function applyTaintRatchetIfEnabled(
+	session: SessionTrajectory | undefined,
+	rules: GuardRulesConfig,
+	filePath: string,
+	ratchetLevel: SensitivityLevel,
+): SensitivityLevel | undefined {
+	// SAFETY: GuardRulesConfig declares `taint_tracking` as required, but
+	// tests (and possibly other partial-config callers) construct `rules`
+	// objects that omit it — widened locally so the guard below reflects
+	// what actually reaches this function at runtime.
+	const taintTracking = rules.taint_tracking as TaintTrackingConfig | undefined;
+	if (!session || !taintTracking?.enabled) return undefined;
+	const changed = ratchetSensitivity(session, filePath, ratchetLevel, taintTracking);
+	session.pii_detected_steps.push(session.tool_call_count);
+	return changed ? ratchetLevel : undefined;
 }

@@ -1,10 +1,16 @@
+import type * as TS from "typescript";
 import { describe, expect, it } from "vitest";
 import {
 	__resetTsCacheForTesting,
 	astComplexityAvailable,
 	computeCyclomaticAst,
+	functionName,
+	isDecisionPoint,
+	isFunctionLike,
+	isImplementationFunction,
 	type ParsedTsSource,
 	parseTsSource,
+	type TsModule,
 } from "./cyclomatic-ast.js";
 
 const run = (src: string) => computeCyclomaticAst(src, "src/x.ts") ?? [];
@@ -220,3 +226,106 @@ describe("cyclomatic-ast — per-entry field exactness", () => {
 		expect(entries[0]?.language).toBe("js_ts");
 	});
 });
+
+/**
+ * Re-derive per-function cyclomatic from the EXPORTED predicate alone, the way
+ * the private `complexityOf` did before `isDecisionPoint` was exported: 1 + the
+ * decision points under the function's own children, never crossing into a
+ * nested function-like.
+ */
+function referenceCyclomatic(ts: TsModule, fn: TS.Node): number {
+	let count = 1;
+	const visit = (node: TS.Node): void => {
+		if (isFunctionLike(ts, node)) return;
+		if (isDecisionPoint(ts, node)) count++;
+		ts.forEachChild(node, visit);
+	};
+	ts.forEachChild(fn, visit);
+	return count;
+}
+
+/** Every implementation function in `src`, named → count via the exported predicate. */
+function referenceCounts(src: string): Array<[string, number]> {
+	const parsed = parseTsSource(src, "src/x.ts");
+	if (!parsed) throw new Error("typescript dep missing");
+	const { ts, sf } = parsed;
+	const out: Array<[string, number]> = [];
+	const walk = (node: TS.Node): void => {
+		if (isImplementationFunction(ts, node)) {
+			out.push([functionName(ts, node, sf), referenceCyclomatic(ts, node)]);
+		}
+		ts.forEachChild(node, walk);
+	};
+	walk(sf);
+	return out;
+}
+
+/** The fixtures the decision-set / scope / implementation cases above already pin. */
+const EXISTING_FIXTURES: readonly string[] = [
+	`export function parent(xs: number[]): number {
+		if (xs.length === 0) return 0;
+		return xs.map((x) => { return x > 0 ? x : -x; }).reduce((a, b) => a + b, 0);
+	}`,
+	`function outer() { const a = () => 1; const b = () => 2; return a() + b(); }`,
+	`function f(a: unknown) { return a ?? 1; }`,
+	`function f(a: number, b: number) {
+		if (a && b || a) { return 1; }
+		for (let i = 0; i < a; i++) {}
+		while (b > 0) { b--; }
+		switch (a) { case 1: break; case 2: break; default: break; }
+		try { b++; } catch (e) { void e; }
+		return a > 0 ? 1 : 2;
+	}`,
+	`function f(a: number) { switch (a) { default: return 0; } }`,
+	`function f(x: { v?: number } | null) { return x?.v; }`,
+	`export function f(a: string): string;
+	export function f(a: number): number;
+	export function f(a: unknown): unknown { return a; }`,
+	`class C { constructor() {} get x() { return 1; } m(a: number) { return a > 0 ? 1 : 2; } }`,
+];
+
+describe("cyclomatic-ast — exported isDecisionPoint matches the gate's own count", () => {
+	// test-contract: invariant — `isDecisionPoint` is the ONE predicate both the
+	// gate (`complexityOf`) and the decomposition planner price with. Re-deriving
+	// every existing fixture through the exported predicate must reproduce
+	// `computeCyclomaticAst` exactly, so exporting it changed nothing.
+	it("P1: reproduces computeCyclomaticAst on every existing fixture", () => {
+		for (const src of EXISTING_FIXTURES) {
+			const expected = run(src).map((e) => [e.name, e.cyclomatic]);
+			expect(referenceCounts(src)).toEqual(expected);
+		}
+	});
+
+	it("P2: fires on each member of the canonical decision set", () => {
+		// if, for, for-in, for-of, while, do, case, catch, ?:, &&, ||, ??
+		expect(
+			decisionPointsIn(
+				"function f(a: number) { if (a) {} for (;;) {} for (const k in a) {} for (const v of a) {} " +
+					"while (a) {} do {} while (a); switch (a) { case 1: break; } try {} catch {} " +
+					"a ? 1 : 2; a && a; a || a; a ?? a; }",
+			),
+		).toBe(12);
+	});
+
+	it("N1: a DefaultClause, `?.`, a Block, and a plain BinaryExpression are not decision points", () => {
+		expect(
+			decisionPointsIn(
+				"function f(a: { v?: number }) { switch (1) { default: break; } return a?.v + 1; }",
+			),
+		).toBe(0);
+	});
+});
+
+/** Whole-file count of nodes the exported predicate accepts (no scope rules). */
+function decisionPointsIn(src: string): number {
+	const parsed = parseTsSource(src, "src/x.ts");
+	if (!parsed) throw new Error("typescript dep missing");
+	const { ts, sf } = parsed;
+	let fired = 0;
+	const visit = (node: TS.Node): void => {
+		if (isDecisionPoint(ts, node)) fired++;
+		ts.forEachChild(node, visit);
+	};
+	visit(sf);
+	return fired;
+}

@@ -20,66 +20,83 @@ import { MATCH_LIMIT, stripCommentsPreservingStrings } from "./_shared.js";
  * Does NOT fire on parameterized queries (`db.query("...$1...", [v])`),
  * which are the safe form. Skips test files.
  */
+// Source extensions the SQL-concat check scans. Kept as a Set so the
+// extension check is a single membership test instead of a long `||` chain —
+// extracted to keep the orchestrator's cyclomatic count low, matching the
+// pattern already used for `LOCALHOST_SOURCE_EXTS` below.
+const SQL_CONCAT_SOURCE_EXTS = new Set([
+	".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs", ".swift",
+]);
+
+// Tightened verb forms — earlier `UPDATE` / `DROP` / `TRUNCATE` matched
+// plain English ("dirty update:", "drop the file", etc.). Each verb now
+// requires the syntactic neighbor that disambiguates SQL from prose.
+const SQL_CONCAT_VERB_RE =
+	/\b(?:SELECT\s+(?:\*|DISTINCT\s|[\w,\s]+\s+FROM)|INSERT\s+INTO\s+\w+|UPDATE\s+\w+\s+SET\b|DELETE\s+FROM\s+\w+|DROP\s+(?:TABLE|INDEX|DATABASE|SCHEMA|VIEW)\b|TRUNCATE\s+TABLE\b)/i;
+const SQL_CONCAT_SELECT_PREFIX_RE = /\bSELECT\s*["'`]\s*[+,]/i;
+// JS/Py/Go/Rust: `"…" + ident` or `` `…${expr}…` ``.
+// Swift: `"…\(ident)…"` — Swift's string interpolation uses `\(expr)`.
+//
+// FP fix (2026-06): the concat token must be ADJACENT to the string
+// delimiter (`["'`]\s*[+,]`) so a comma INSIDE the literal — a SQL column
+// list like `"SELECT id, name FROM users"` — is not read as JS
+// concatenation. The earlier `["'`].*[+,]` greedily spanned into the
+// literal and FP'd on every multi-column SELECT.
+const SQL_CONCAT_INTERPOLATION_RE =
+	/["'`]\s*[+,]\s*[A-Za-z_$]\w*|`[^`]*\$\{[^}]*\}[^`]*`|"[^"]*\\\([^)]+\)/;
+
+// Helicone audit (2026-05): the check was firing 66 times on
+// `WHERE id = $1` style PARAMETERIZED queries — the `$N` placeholder
+// IS the safe form. Same for `?` (positional) and `:name` (named).
+// Skip any line that contains a recognizable parameterized-query
+// placeholder, regardless of what follows it.
+//
+// The `?` placeholder accepts any closing context (whitespace, comma,
+// `)`, `"`, `'`) so Swift / Java forms like `"WHERE id = ?"` are
+// recognized as parameterized — the placeholder sits at the END of
+// the string literal, immediately followed by the closing quote.
+const SQL_CONCAT_PLACEHOLDER_RE = /\$\d+\b|[=(,\s]\?[\s,)"']|:\w+\b/;
+// Event-handler shapes that look SQL-y because of an interpolated
+// callback arg ("`click`", "${selector}") but are not SQL.
+const SQL_CONCAT_EVENT_LISTENER_RE =
+	/\.\s*(?:on|once|addEventListener|removeEventListener)\s*\(/;
+
+/**
+ * True when `filePath` is a source file the SQL-concat check should scan — a
+ * recognized code extension, not a test file. Extracted from
+ * `checkSqlStringConcat` so the extension `||` chain lives in its own scope.
+ */
+function isSqlConcatScannableFile(filePath: string): boolean {
+	if (!SQL_CONCAT_SOURCE_EXTS.has(getExtension(filePath))) return false;
+	return !isTestFile(filePath);
+}
+
+/**
+ * True when `line` looks like a SQL statement with unsafe string
+ * concatenation/interpolation of an identifier, after the parameterized-query
+ * and event-listener exemptions. Extracted from `checkSqlStringConcat` so its
+ * chain of guard conditions lives in its own scope.
+ */
+function isUnsafeSqlConcatLine(line: string): boolean {
+	if (!SQL_CONCAT_VERB_RE.test(line) && !SQL_CONCAT_SELECT_PREFIX_RE.test(line)) return false;
+	if (!SQL_CONCAT_INTERPOLATION_RE.test(line)) return false;
+	// Tightening: parameterized queries are safe — skip them.
+	if (SQL_CONCAT_PLACEHOLDER_RE.test(line)) return false;
+	// Tightening: event-handler shapes aren't SQL — skip them.
+	if (SQL_CONCAT_EVENT_LISTENER_RE.test(line)) return false;
+	return true;
+}
+
 export function checkSqlStringConcat(content: string, filePath: string): InlineMatch[] {
-	const ext = getExtension(filePath);
-	const isCode =
-		ext === ".ts" ||
-		ext === ".tsx" ||
-		ext === ".js" ||
-		ext === ".jsx" ||
-		ext === ".mjs" ||
-		ext === ".cjs" ||
-		ext === ".py" ||
-		ext === ".go" ||
-		ext === ".rs" ||
-		ext === ".swift";
-	if (!isCode) return [];
-	if (isTestFile(filePath)) return [];
+	if (!isSqlConcatScannableFile(filePath)) return [];
 
 	const originalLines = content.split("\n");
 	const matches: InlineMatch[] = [];
 
-	// Tightened verb forms — earlier `UPDATE` / `DROP` / `TRUNCATE` matched
-	// plain English ("dirty update:", "drop the file", etc.). Each verb now
-	// requires the syntactic neighbor that disambiguates SQL from prose.
-	const sqlVerb =
-		/\b(?:SELECT\s+(?:\*|DISTINCT\s|[\w,\s]+\s+FROM)|INSERT\s+INTO\s+\w+|UPDATE\s+\w+\s+SET\b|DELETE\s+FROM\s+\w+|DROP\s+(?:TABLE|INDEX|DATABASE|SCHEMA|VIEW)\b|TRUNCATE\s+TABLE\b)/i;
-	const selectConcatPrefix = /\bSELECT\s*["'`]\s*[+,]/i;
-	// JS/Py/Go/Rust: `"…" + ident` or `` `…${expr}…` ``.
-	// Swift: `"…\(ident)…"` — Swift's string interpolation uses `\(expr)`.
-	//
-	// FP fix (2026-06): the concat token must be ADJACENT to the string
-	// delimiter (`["'`]\s*[+,]`) so a comma INSIDE the literal — a SQL column
-	// list like `"SELECT id, name FROM users"` — is not read as JS
-	// concatenation. The earlier `["'`].*[+,]` greedily spanned into the
-	// literal and FP'd on every multi-column SELECT.
-	const interpolation =
-		/["'`]\s*[+,]\s*[A-Za-z_$]\w*|`[^`]*\$\{[^}]*\}[^`]*`|"[^"]*\\\([^)]+\)/;
-
-	// Helicone audit (2026-05): the check was firing 66 times on
-	// `WHERE id = $1` style PARAMETERIZED queries — the `$N` placeholder
-	// IS the safe form. Same for `?` (positional) and `:name` (named).
-	// Skip any line that contains a recognizable parameterized-query
-	// placeholder, regardless of what follows it.
-	//
-	// The `?` placeholder accepts any closing context (whitespace, comma,
-	// `)`, `"`, `'`) so Swift / Java forms like `"WHERE id = ?"` are
-	// recognized as parameterized — the placeholder sits at the END of
-	// the string literal, immediately followed by the closing quote.
-	const placeholder = /\$\d+\b|[=(,\s]\?[\s,)"']|:\w+\b/;
-	// Event-handler shapes that look SQL-y because of an interpolated
-	// callback arg ("`click`", "${selector}") but are not SQL.
-	const eventListener = /\.\s*(?:on|once|addEventListener|removeEventListener)\s*\(/;
-
 	for (let i = 0; i < originalLines.length; i++) {
 		if (matches.length >= 10) break;
 		const line = nonNull(originalLines[i]);
-		if (!sqlVerb.test(line) && !selectConcatPrefix.test(line)) continue;
-		if (!interpolation.test(line)) continue;
-		// Tightening: parameterized queries are safe — skip them.
-		if (placeholder.test(line)) continue;
-		// Tightening: event-handler shapes aren't SQL — skip them.
-		if (eventListener.test(line)) continue;
+		if (!isUnsafeSqlConcatLine(line)) continue;
 		matches.push({ line: i + 1, text: line.trim().slice(0, 150) });
 	}
 	return matches;

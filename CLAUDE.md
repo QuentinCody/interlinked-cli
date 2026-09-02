@@ -954,6 +954,55 @@ FULL `MetricRegression[]` (all metrics at once) so an agent fixes them in one
 pass; a parallel mutation suite slots in as "another metric" over the same
 scoped overlay + affected-test set, kept ≤25s by small files.
 
+## Complexity-campaign tooling (added 2026-09-02)
+
+Built for whole-repo burn-downs (cyclomatic / cognitive / LoC-per-file) so the
+gates HELP the campaign instead of blocking the refactor they demanded. Ten
+lanes, every one a deterministic local surface; numbers live in
+`.interlinked/metric-caps.json` and the ledger, never in this prose.
+
+| Lane | Surface | What it does |
+|---|---|---|
+| Grandfather ledger | `interlinked caps ratchet <cyclomatic\|cognitive> --to <n> [--dry-run]`, `caps status`; `.interlinked/function-complexity-baseline.json` (committed; `function-complexity-baseline.ts`, gate `evaluator/function-complexity-baseline-gate.ts`) | Tightens the cap and records every function over it as `{file,name,line,value}`. A listed function may HOLD or shrink at its recorded value; an unlisted over-cap function blocks even when held. Shrink-only under `baseline_integrity_gate` (a value may fall, an entry may drop, nothing may be added except by `caps ratchet` on a tightening; Write-tool creation of the ledger is refused — only the ratchet writes it). `caps set cyclomatic\|cognitive` delegates to the ratchet whenever a section exists, so cap and ledger cannot drift; the commit-gate backstop covers it as a tracked baseline. |
+| Census + proposals | `interlinked metrics complexity [--metric …] [--top n]`, `interlinked caps propose` (`commands/metrics-complexity.ts`) | Percentile ladder, histograms, hotspots, per-file mass, and "the smallest cap whose ledger stays under budget". Calibrate against the TREE, never fixtures. |
+| Decomposition plan | `harness/decomposition-plan.ts`, wired as `planFor` on the cyclomatic spec (`evaluator/metric-gate-plan-hints.ts`) | The cyclomatic block now carries a `↳ plan:` sub-line per named over-cap function: the fewest arm extractions that bring it under the cap. Anonymous units and held/grandfathered functions get no plan. |
+| Moved-line coverage | `evaluator/coverage-moved-lines.ts` | Per-edit coverage splits edited lines by PROVENANCE (multiset diff of normalized text): a relocated uncovered line is not a NEW uncovered line, so an extraction no longer trips the added-line block. The per-file drop backstop is unchanged. |
+| Survivor moves | `mutation/survivor-moves.ts` (`priorContent` on `evaluateMutation`, `movedSurvivors` on the verdict) | Per-edit mutation reconciles a survivor that moved into an extracted helper against its vanished same-content twin instead of charging it as new. A vanished NON-accepted twin (killed/uncovered) never excuses an arrival. |
+| Assertion moves | `checks/assertion-move.ts`, `harness/assertion-waiver-log.ts`; `INTERLINKED_ASSERTION_MOVE_WAIVER=1` (logged) | `mutation_directed_assertion_removal` distinguishes an assertion MOVED to a new test file from one deleted; the waiver is an audited one-command escape, never silent. |
+| Characterize-first | `evaluator/characterize-campaign-target.ts`; `structural_checks.characterize_mode: block\|warn\|off` (default `warn`) | In `block`, an edit to a ledger-listed function requires an observed test run covering that file first (per-file, directory, or `.`). Covers Write/Edit/MultiEdit AND apply_patch. |
+| Helper hygiene | `checks/helper-hygiene.ts` → `new_export_without_importer`, `extracted_helper_duplicate` (pre_warn, advisory) | Edit-time nudges for the two decomposition footguns: exporting a helper nobody imports, and re-extracting a helper a sibling already has (≥0.90 shingle-Jaccard). Diff-vs-baseline checks, so they have no verify surface by design. |
+| Split plan | `interlinked metrics split-plan <file> [--max-clusters 2..4]` (`commands/metrics-split-plan*.ts`) | Intra-file reference graph → 2–4 cohesive modules with line count, ΣCC, imports, a filename each, and the cross-module references the split creates. |
+
+A per-file "no ΣCC regression" guard was designed and REJECTED: extraction
+raises the file's ΣCC by construction (each helper adds 1), so it would block
+the burn-down itself. Campaign run-book: `scratch/CAMPAIGN-cc16.md`.
+
+**First live run (cyclomatic 22 → 16, 2026-09-02):** 105 file units, 219
+agents (decompose → adversarial verify → one fix round), 0 units failed; every
+function ended ≤ 16 and the ledger regenerated empty. What the gates taught
+(all fixed the same day — the campaign is the calibration corpus a check
+cannot get from fixtures):
+- The 500-line **no-growth** rule is the dominant force: ~40 units could not
+  add a single line to an over-cap parent, so helpers went to a NEW sibling
+  module (companion test first, module, then the parent import). Expect the
+  exporter-first order, not in-place extraction, whenever the parent is over cap.
+- `stale_read_then_write` / `file_overwrite_after_other_agent` attributed a
+  subagent's OWN writes to "another agent" (~30 times): activity rows carry
+  the parent session id with a per-subagent `agent_name`, and the trajectory
+  pins the first agent_name it saw. Same session id is now self.
+- The characterize signal lived in the 100-entry `commands_run` ring, so a
+  test run at the start of a long unit expired behind typechecks and greps
+  (8 forced re-runs). Test-runner commands now go to a durable
+  `test_commands_run` list (500 entries, 2000 chars).
+- `dead_type_exports` and `public_api_leaks_internal_type` contradicted each
+  other on a type named only in an exported signature; the dead-type side now
+  exempts signature-referenced types.
+- `extracted_helper_duplicate` read a verbatim MOVE (sibling written first,
+  originals deleted next edit) as six re-extractions; ≥0.99 similarity or a
+  new file now yields ONE "move in progress" note.
+- `ubs_string_concat_in_loop` fired on `cursor.offset += n`; numeric-named
+  targets / numeric RHS evidence are now exempt.
+
 ## Conventions
 
 - **Output mode pattern**: All commands support `--json`, `--short`, `--full` via `getOutputMode(opts)` and `output(mode, data, { json, short, normal, full })`.

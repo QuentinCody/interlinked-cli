@@ -233,7 +233,26 @@ export function runOverlayCheckInProcess(input: RunTscOverlayInput): CheckResult
 	const { ts, service } = ctx;
 	const absFilePath = resolve(filePath);
 
-	// Set overlay — bump version so LS invalidates caches for this file
+	setOverlayTarget(ctx, absFilePath, content);
+	const siblingPaths = setOverlaySiblings(ctx, absFilePath, input.siblings ?? []);
+
+	try {
+		const syntactic = service.getSyntacticDiagnostics(absFilePath);
+		const semantic = service.getSemanticDiagnostics(absFilePath);
+		const all = [...syntactic, ...semantic];
+		return buildOverlayResults(ts, projectRoot, absFilePath, all);
+	} catch {
+		// intentional: LS internals can throw on malformed ASTs — treat as
+		// "no diagnostics" rather than crashing the caller (in-process mode)
+		// or the sidecar process (sidecar mode).
+		return [];
+	} finally {
+		clearOverlayTarget(ctx, absFilePath, siblingPaths);
+	}
+}
+
+/** Set the primary overlay, bumping its version so the LS invalidates caches for this file. */
+function setOverlayTarget(ctx: ServiceContext, absFilePath: string, content: string): void {
 	const prevVersion =
 		ctx.overlay?.filePath === absFilePath
 			? ctx.overlay.version
@@ -243,74 +262,91 @@ export function runOverlayCheckInProcess(input: RunTscOverlayInput): CheckResult
 		content,
 		version: prevVersion + 1,
 	};
+}
 
-	// Overlay sibling files (other batch members) so cross-file analysis of the
-	// target sees the proposed combined state. Bump each version so the LS
-	// invalidates any cached snapshot for the flip to in-memory content.
+/**
+ * Overlay sibling files (other batch members) so cross-file analysis of the
+ * target sees the proposed combined state. Bumps each version so the LS
+ * invalidates any cached snapshot for the flip to in-memory content. Returns
+ * the absolute paths overlaid, for later cleanup.
+ */
+function setOverlaySiblings(
+	ctx: ServiceContext,
+	absFilePath: string,
+	siblings: ReadonlyArray<{ filePath: string; content: string }>,
+): string[] {
 	const siblingPaths: string[] = [];
-	for (const sib of input.siblings ?? []) {
+	for (const sib of siblings) {
 		const abs = resolve(sib.filePath);
 		if (abs === absFilePath) continue;
 		ctx.siblings.set(abs, sib.content);
 		ctx.versions.set(abs, (ctx.versions.get(abs) ?? 0) + 1);
 		siblingPaths.push(abs);
 	}
+	return siblingPaths;
+}
 
-	try {
-		const syntactic = service.getSyntacticDiagnostics(absFilePath);
-		const semantic = service.getSemanticDiagnostics(absFilePath);
-		const all = [...syntactic, ...semantic];
-
-		const results: CheckResult[] = [];
-		for (const d of all) {
-			const severity = diagnosticSeverity(ts, d);
-			if (severity === null) continue;
-
-			let file = absFilePath;
-			let line = 0;
-			let column: number | undefined;
-			if (d.file && d.start !== undefined) {
-				file = d.file.fileName;
-				const pos = d.file.getLineAndCharacterOfPosition(d.start);
-				line = pos.line + 1;
-				column = pos.character + 1;
-			}
-
-			const relFile = relative(projectRoot, file);
-			const message =
-				typeof d.messageText === "string"
-					? d.messageText
-					: ts.flattenDiagnosticMessageText(d.messageText, "\n");
-
-			results.push({
-				tool: "tsc",
-				severity,
-				file: relFile,
-				line,
-				column,
-				message,
-				ruleId: `TS${d.code}`,
-			});
-		}
-		return results;
-	} catch {
-		// intentional: LS internals can throw on malformed ASTs — treat as
-		// "no diagnostics" rather than crashing the caller (in-process mode)
-		// or the sidecar process (sidecar mode).
-		return [];
-	} finally {
-		// Freeze the last version we used for this file so subsequent non-
-		// overlay reads return stable versions. Clear the overlay itself so
-		// cross-file calls see disk state.
-		ctx.versions.set(absFilePath, ctx.overlay.version);
-		ctx.overlay = null;
-		// Drop sibling overlays and bump their versions again so the next read
-		// invalidates the in-memory snapshot back to disk content.
-		for (const abs of siblingPaths) {
-			ctx.versions.set(abs, (ctx.versions.get(abs) ?? 0) + 1);
-			ctx.siblings.delete(abs);
-		}
+/**
+ * Freeze the last version used for the overlaid file so subsequent non-
+ * overlay reads return stable versions, clear the overlay itself so
+ * cross-file calls see disk state, and drop sibling overlays (bumping their
+ * versions again so the next read invalidates the in-memory snapshot back to
+ * disk content).
+ */
+function clearOverlayTarget(
+	ctx: ServiceContext,
+	absFilePath: string,
+	siblingPaths: readonly string[],
+): void {
+	// ctx.overlay is always set here — setOverlayTarget assigned it above,
+	// and nothing between there and this finally block clears it.
+	ctx.versions.set(absFilePath, (ctx.overlay as NonNullable<ServiceContext["overlay"]>).version);
+	ctx.overlay = null;
+	for (const abs of siblingPaths) {
+		ctx.versions.set(abs, (ctx.versions.get(abs) ?? 0) + 1);
+		ctx.siblings.delete(abs);
 	}
+}
+
+/** Convert raw tsc diagnostics into the check-engine's CheckResult shape. */
+function buildOverlayResults(
+	ts: Ts,
+	projectRoot: string,
+	absFilePath: string,
+	diagnostics: readonly import("typescript").Diagnostic[],
+): CheckResult[] {
+	const results: CheckResult[] = [];
+	for (const d of diagnostics) {
+		const severity = diagnosticSeverity(ts, d);
+		if (severity === null) continue;
+
+		let file = absFilePath;
+		let line = 0;
+		let column: number | undefined;
+		if (d.file && d.start !== undefined) {
+			file = d.file.fileName;
+			const pos = d.file.getLineAndCharacterOfPosition(d.start);
+			line = pos.line + 1;
+			column = pos.character + 1;
+		}
+
+		const relFile = relative(projectRoot, file);
+		const message =
+			typeof d.messageText === "string"
+				? d.messageText
+				: ts.flattenDiagnosticMessageText(d.messageText, "\n");
+
+		results.push({
+			tool: "tsc",
+			severity,
+			file: relFile,
+			line,
+			column,
+			message,
+			ruleId: `TS${d.code}`,
+		});
+	}
+	return results;
 }
 
 function diagnosticSeverity(

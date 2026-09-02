@@ -210,47 +210,18 @@ async function runDependencyAudit(
 			timeout: check.timeout_ms,
 			cwd: checkCwd,
 		});
-		if (auditResult.timedOut) {
-			return deferredExternalCheck(ctx.filePath, name, "dependency audit timed out");
-		}
-		if (auditResult.killed || (auditResult.code !== null && auditResult.code >= 128)) {
-			return deferredExternalCheck(ctx.filePath, name, "dependency audit was interrupted");
-		}
-		if (auditResult.code === null) {
-			return deferredExternalCheck(ctx.filePath, name, "dependency audit runner was unavailable");
-		}
+		const processDeferral = classifyAuditProcessOutcome(ctx.filePath, name, auditResult);
+		if (processDeferral) return processDeferral;
 
 		// Every supported tool exits non-zero when vulnerabilities are found.
 		if (auditResult.code === 0) return [];
 
 		const stdout = auditResult.stdout.trim();
-		let detail = "";
-		if (resolved.parser === "osv-scanner") {
-			const summary = parseOsvScannerJson(stdout);
-			if (!summary) {
-				return deferredExternalCheck(
-					ctx.filePath,
-					name,
-					"dependency audit exited non-zero without a parseable report",
-				);
-			}
-			detail = summary.detail;
-		} else if (resolved.parser === "npm-audit") {
-			const summary = parseNpmAuditJson(stdout);
-			if (!summary) {
-				return deferredExternalCheck(
-					ctx.filePath,
-					name,
-					"npm audit exited non-zero without a parseable report",
-				);
-			}
-			detail = summary.detail;
-		} else {
-			// pip-audit / cargo-audit / govulncheck: surface raw stderr tail.
-			detail =
-				auditResult.stderr.split("\n").slice(0, 5).join("\n") ||
-				"vulnerabilities found";
+		const extracted = extractAuditDetail(resolved.parser, stdout, auditResult.stderr);
+		if ("error" in extracted) {
+			return deferredExternalCheck(ctx.filePath, name, extracted.error);
 		}
+		const detail = extracted.detail;
 
 		return [
 			{
@@ -264,6 +235,57 @@ async function runDependencyAudit(
 	} finally {
 		release();
 	}
+}
+
+/**
+ * Classify a finished audit subprocess. Returns the deferral rows for a run
+ * that produced no verdict (timeout / signal / missing runner), or `null` when
+ * the process exited normally and its output can be read.
+ */
+function classifyAuditProcessOutcome(
+	filePath: string,
+	name: string,
+	auditResult: { timedOut: boolean; killed: boolean; code: number | null },
+): QualityCheckResult[] | null {
+	if (auditResult.timedOut) {
+		return deferredExternalCheck(filePath, name, "dependency audit timed out");
+	}
+	if (auditResult.killed || (auditResult.code !== null && auditResult.code >= 128)) {
+		return deferredExternalCheck(filePath, name, "dependency audit was interrupted");
+	}
+	if (auditResult.code === null) {
+		return deferredExternalCheck(filePath, name, "dependency audit runner was unavailable");
+	}
+	return null;
+}
+
+/**
+ * Turn a non-zero audit run's output into the finding detail, or into the
+ * reason the run produced no parseable report.
+ */
+function extractAuditDetail(
+	parser: string,
+	stdout: string,
+	stderr: string,
+): { detail: string } | { error: string } {
+	if (parser === "osv-scanner") {
+		const summary = parseOsvScannerJson(stdout);
+		if (!summary) {
+			return { error: "dependency audit exited non-zero without a parseable report" };
+		}
+		return { detail: summary.detail };
+	}
+	if (parser === "npm-audit") {
+		const summary = parseNpmAuditJson(stdout);
+		if (!summary) {
+			return { error: "npm audit exited non-zero without a parseable report" };
+		}
+		return { detail: summary.detail };
+	}
+	// pip-audit / cargo-audit / govulncheck: surface raw stderr tail.
+	return {
+		detail: stderr.split("\n").slice(0, 5).join("\n") || "vulnerabilities found",
+	};
 }
 
 /** inline_language_checks — data-driven per-language inline pattern checks. */
@@ -349,6 +371,81 @@ const NAMED_CHECK_HANDLERS: Record<string, NamedCheckHandler> = {
 };
 
 /**
+ * Guards evaluated before the per-check event-loop yield. Skipping here costs
+ * no yield and emits no boundary, exactly as the original inline `continue`s.
+ */
+function skipBeforeYield(
+	ctx: ToolCheckLoopContext,
+	name: string,
+	check: QualityCheckConfig,
+): boolean {
+	if (!check.enabled) return true;
+	if (!check.file_types.some((t) => ctx.filePath.endsWith(t))) return true;
+	return Boolean(
+		ctx.skipMultiFileExternalChecks &&
+			(check.command || MULTI_FILE_NAMED_EXTERNAL_CHECKS.has(name)),
+	);
+}
+
+/**
+ * Guards evaluated after the yield: opt-in test-file skipping, and the
+ * out-of-tree guard for subprocess / tree-walking `command`-based checks (tsc,
+ * biome, semgrep, gitleaks). The `command` fallback resolves a project root and
+ * runs the check engine project-wide; for a foreign file `findProjectRoot`
+ * falls back to `cwd`, which would run THIS project's tooling against an
+ * unrelated file (wrong result) and pay the project-tree-walk cost. Inline
+ * content checks (secrets, strong_typing, software_version_regression, the
+ * inline-checks block) carry no `command` and still run for out-of-tree files.
+ */
+function skipAfterYield(ctx: ToolCheckLoopContext, check: QualityCheckConfig): boolean {
+	if (check.skip_test_files && isLikelyTestFile(ctx.testCheckBaseName, ctx.absForTestCheck)) {
+		return true;
+	}
+	return ctx.editedFileInRepo === false && Boolean(check.command);
+}
+
+/**
+ * Execute one check and return its findings in push order plus the boundary
+ * label the caller should emit (`null` when the check signalled "skip the
+ * boundary", i.e. the original inline `continue`).
+ */
+async function runOneCheck(
+	ctx: ToolCheckLoopContext,
+	name: string,
+	check: QualityCheckConfig,
+): Promise<{ boundary: string | null; findings: QualityCheckResult[] }> {
+	const findings: QualityCheckResult[] = [];
+	try {
+		const handler = NAMED_CHECK_HANDLERS[name];
+		let outcome: QualityCheckResult[] | null;
+		if (handler) {
+			outcome = await handler(ctx, name, check);
+		} else if (check.command) {
+			outcome = await runCommandCheck(ctx, name, check);
+		} else {
+			outcome = [];
+		}
+		if (outcome === null) return { boundary: null, findings };
+		findings.push(...outcome);
+		if (outcome.some((result) => isOperationalCheckDeferral(result.name))) {
+			return { boundary: `deferred_${name}`, findings };
+		}
+		// Unknown config entries have neither a handler nor a command and do
+		// not represent a check execution, even though their no-op iteration is
+		// retained for backwards-compatible boundary timing.
+		if (handler || check.command) ctx.outChecksRan?.push(name);
+	} catch (err) {
+		// A handler failure is not clean. Keep the pipeline fail-open, but
+		// surface an explicit no-verdict row and classify its timing as
+		// deferred rather than completed.
+		const msg = err instanceof Error ? err.message : String(err);
+		findings.push(...deferredExternalCheck(ctx.filePath, name, `check handler threw: ${msg}`));
+		return { boundary: `deferred_${name}`, findings };
+	}
+	return { boundary: `inline_${name}`, findings };
+}
+
+/**
  * Run the config-driven per-check loop and return the findings in push order.
  * Mirrors the original inline loop: same branches, same skip guards, same
  * yields and instrumentation hooks. Per-check bodies live in the
@@ -358,17 +455,10 @@ const NAMED_CHECK_HANDLERS: Record<string, NamedCheckHandler> = {
  */
 export async function runToolCheckLoop(ctx: ToolCheckLoopContext): Promise<QualityCheckResult[]> {
 	const results: QualityCheckResult[] = [];
-	const { checks, filePath, absForTestCheck, testCheckBaseName, onCheckBoundary } = ctx;
+	const { checks, onCheckBoundary } = ctx;
 
 	for (const [name, check] of Object.entries(checks)) {
-		if (!check.enabled) continue;
-		if (!check.file_types.some((t) => filePath.endsWith(t))) continue;
-		if (
-			ctx.skipMultiFileExternalChecks &&
-			(check.command || MULTI_FILE_NAMED_EXTERNAL_CHECKS.has(name))
-		) {
-			continue;
-		}
+		if (skipBeforeYield(ctx, name, check)) continue;
 
 		// Yield to the event loop between checks so concurrent socket
 		// connections can be serviced. The cost is one microtask boundary
@@ -384,58 +474,17 @@ export async function runToolCheckLoop(ctx: ToolCheckLoopContext): Promise<Quali
 		// not the check's regex/AST work.
 		onCheckBoundary?.(`yield_${name}`);
 
-		// Skip test files for checks that opt in (e.g., semgrep, gitleaks)
-		if (check.skip_test_files && isLikelyTestFile(testCheckBaseName, absForTestCheck)) continue;
+		if (skipAfterYield(ctx, check)) continue;
 
-		// Skip subprocess / tree-walking `command`-based checks (tsc, biome,
-		// semgrep, gitleaks) when the edited file is outside the harness's
-		// own project. The `command` fallback below resolves a project
-		// root and runs the check engine project-wide; for a foreign file
-		// `findProjectRoot` falls back to `cwd`, which would run THIS
-		// project's tooling against an unrelated file (wrong result) and
-		// pay the project-tree-walk cost. Inline content checks (secrets,
-		// strong_typing, software_version_regression, the inline-checks
-		// block) carry no `command` and still run for out-of-tree files.
-		if (ctx.editedFileInRepo === false && check.command) continue;
-
-		try {
-			const handler = NAMED_CHECK_HANDLERS[name];
-			let outcome: QualityCheckResult[] | null;
-			if (handler) {
-				outcome = await handler(ctx, name, check);
-			} else if (check.command) {
-				outcome = await runCommandCheck(ctx, name, check);
-			} else {
-				outcome = [];
-			}
-			// `null` reproduces the original inline `continue`: skip the
-			// per-check boundary below. An array (even empty) falls through.
-			if (outcome === null) continue;
-			results.push(...outcome);
-			if (outcome.some((result) => isOperationalCheckDeferral(result.name))) {
-				onCheckBoundary?.(`deferred_${name}`);
-				continue;
-			}
-			// Unknown config entries have neither a handler nor a command and do
-			// not represent a check execution, even though their no-op iteration is
-			// retained for backwards-compatible boundary timing.
-			if (handler || check.command) ctx.outChecksRan?.push(name);
-		} catch (err) {
-			// A handler failure is not clean. Keep the pipeline fail-open, but
-			// surface an explicit no-verdict row and classify its timing as
-			// deferred rather than completed.
-			const msg = err instanceof Error ? err.message : String(err);
-			results.push(
-				...deferredExternalCheck(ctx.filePath, name, `check handler threw: ${msg}`),
-			);
-			onCheckBoundary?.(`deferred_${name}`);
-			continue;
-		}
-		// Per-check phase boundary for diagnostic instrumentation. Fires
-		// when the check completed (or the config entry was an unknown no-op).
-		// Deferred attempts use `deferred_<name>` above so timing telemetry never
-		// labels a no-verdict attempt as completed.
-		onCheckBoundary?.(`inline_${name}`);
+		// Per-check phase boundary for diagnostic instrumentation. `inline_<name>`
+		// fires when the check completed (or the config entry was an unknown
+		// no-op); a no-verdict attempt reports `deferred_<name>` instead, so
+		// timing telemetry never labels it as completed. `null` reproduces the
+		// original inline `continue` that emitted no boundary at all.
+		const { boundary, findings } = await runOneCheck(ctx, name, check);
+		results.push(...findings);
+		if (boundary === null) continue;
+		onCheckBoundary?.(boundary);
 	}
 
 	return results;

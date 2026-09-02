@@ -233,6 +233,32 @@ function parseTraceResult(raw: unknown): TraceStep["result"] | undefined {
 	return { outcome, observation };
 }
 
+/** Validates a `T | null`-shaped raw field: absent/null passes through as
+ *  `null`, a string passes through unchanged, anything else is the same
+ *  invalid-shape `undefined` sentinel used by {@link parseTraceAction} and
+ *  {@link parseTraceResult}. */
+function parseNullableStringField(raw: unknown): string | null | undefined {
+	if (raw === undefined || raw === null) return null;
+	return typeof raw === "string" ? raw : undefined;
+}
+
+/** The four optional string-or-null fields on a trace step, each validated
+ *  with {@link parseNullableStringField}. `undefined` on any field means the
+ *  whole step is malformed — the caller rejects on that sentinel. */
+function parseTraceStepRefs(value: JsonObject):
+	| { observationRef: string | null; preTree: string | null; postTree: string | null; stateRef: string | null }
+	| undefined {
+	const observationRef = parseNullableStringField(value.observation_ref);
+	if (observationRef === undefined) return undefined;
+	const preTree = parseNullableStringField(value.pre_tree);
+	if (preTree === undefined) return undefined;
+	const postTree = parseNullableStringField(value.post_tree);
+	if (postTree === undefined) return undefined;
+	const stateRef = parseNullableStringField(value.state_ref);
+	if (stateRef === undefined) return undefined;
+	return { observationRef, preTree, postTree, stateRef };
+}
+
 /** Validate one trace-file line. Exported for direct testing. */
 export function parseTraceStep(value: unknown): TraceStep | null {
 	if (!isJsonObject(value)) return null;
@@ -243,25 +269,18 @@ export function parseTraceStep(value: unknown): TraceStep | null {
 	if (action === undefined) return null;
 	const result = parseTraceResult(value.result ?? null);
 	if (result === undefined) return null;
-
-	const observationRef = value.observation_ref ?? null;
-	if (observationRef !== null && typeof observationRef !== "string") return null;
-	const preTree = value.pre_tree ?? null;
-	if (preTree !== null && typeof preTree !== "string") return null;
-	const postTree = value.post_tree ?? null;
-	if (postTree !== null && typeof postTree !== "string") return null;
-	const stateRef = value.state_ref ?? null;
-	if (stateRef !== null && typeof stateRef !== "string") return null;
+	const refs = parseTraceStepRefs(value);
+	if (!refs) return null;
 
 	return {
 		schema: "replay-trace.v1",
 		key,
-		observation_ref: observationRef,
+		observation_ref: refs.observationRef,
 		action,
 		result,
-		pre_tree: preTree,
-		post_tree: postTree,
-		state_ref: stateRef,
+		pre_tree: refs.preTree,
+		post_tree: refs.postTree,
+		state_ref: refs.stateRef,
 	};
 }
 

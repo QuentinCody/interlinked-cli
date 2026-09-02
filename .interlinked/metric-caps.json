@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "max_cyclomatic": 22,
+  "max_cyclomatic": 16,
   "crap_threshold": 25,
   "max_predicate_drift": 0
 }

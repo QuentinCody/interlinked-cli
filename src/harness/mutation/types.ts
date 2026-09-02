@@ -272,6 +272,12 @@ export type MutationGateOutcome =
 			 *  outcome — a dirty or unmeasured run must not launder the manifest
 			 *  (spec §4/§12). */
 			refreshedManifest?: MutationManifest | undefined;
+			/** Accepted survivors this run reconciled as MOVED — same content
+			 *  under a new identity (survivor-moves.ts) — and so did not charge
+			 *  to the edit. Present only when at least one move was matched, so
+			 *  an allow that leaned on reconciliation is distinguishable from a
+			 *  plain clean allow. */
+			movedSurvivors?: number;
 	  }
 	| {
 			kind: "unavailable";

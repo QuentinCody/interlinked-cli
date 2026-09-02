@@ -59,38 +59,65 @@ export function initEffectAttributionStore(root: string): void {
 	loadedFromDisk = false;
 }
 
+/** Parse the on-disk attribution store into a plain record, or null when the
+ *  file is absent or its shape is unusable. Never throws — callers already
+ *  wrap the whole load in try/catch for the read/parse failure case. */
+function parseAttributionStoreFile(file: string): Record<string, unknown> | null {
+	if (!existsSync(file)) return null;
+	const parsed: unknown = JSON.parse(readFileSync(file, "utf-8"));
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+	return parsed as Record<string, unknown>;
+}
+
+/** Normalize one raw disk entry into a `ReconciledEffectRecord`, or null when
+ *  the entry's shape can't be trusted. */
+function normalizeLoadedRecord(rec: unknown): ReconciledEffectRecord | null {
+	if (typeof rec !== "object" || rec === null) return null;
+	const sessionId = (rec as { sessionId?: unknown }).sessionId;
+	const subagentId = (rec as { subagentId?: unknown }).subagentId;
+	const sha256 = (rec as { sha256?: unknown }).sha256;
+	if (typeof sessionId !== "string") return null;
+	const record: ReconciledEffectRecord = {
+		sessionId,
+		sha256: typeof sha256 === "string" ? sha256 : null,
+	};
+	if (subagentId === null) record.subagentId = null;
+	else if (typeof subagentId === "string" && subagentId.length > 0) {
+		record.subagentId = subagentId;
+	}
+	return record;
+}
+
+/** Apply every usable entry from a parsed disk record into the live map.
+ *  Live rows (already present) outrank disk — never overwritten. */
+function applyLoadedEntries(parsed: Record<string, unknown>): void {
+	for (const [path, rec] of Object.entries(parsed)) {
+		if (reconciledEffectByPath.has(path)) continue; // live rows outrank disk
+		const record = normalizeLoadedRecord(rec);
+		if (record === null) continue;
+		reconciledEffectByPath.set(path, record);
+	}
+}
+
+/** Note a load/persist failure once to stderr. Fail-soft: never a gate. */
+function noteAttributionStoreFailure(kind: "unreadable" | "write failed", err: unknown): void {
+	if (loadFailureNoted) return;
+	loadFailureNoted = true;
+	console.error(`[interlinked] effect-attribution store ${kind}: ${String(err)}`);
+}
+
 function loadRegistryOnce(): void {
 	if (loadedFromDisk || storeRoot === null) return;
 	loadedFromDisk = true;
 	try {
 		const file = join(storeRoot, ATTRIBUTION_STORE_REL);
-		if (!existsSync(file)) return;
-		const parsed: unknown = JSON.parse(readFileSync(file, "utf-8"));
-		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return;
-		for (const [path, rec] of Object.entries(parsed as Record<string, unknown>)) {
-			if (reconciledEffectByPath.has(path)) continue; // live rows outrank disk
-			if (typeof rec !== "object" || rec === null) continue;
-			const sessionId = (rec as { sessionId?: unknown }).sessionId;
-			const subagentId = (rec as { subagentId?: unknown }).subagentId;
-			const sha256 = (rec as { sha256?: unknown }).sha256;
-			if (typeof sessionId !== "string") continue;
-			const record: ReconciledEffectRecord = {
-				sessionId,
-				sha256: typeof sha256 === "string" ? sha256 : null,
-			};
-			if (subagentId === null) record.subagentId = null;
-			else if (typeof subagentId === "string" && subagentId.length > 0) {
-				record.subagentId = subagentId;
-			}
-			reconciledEffectByPath.set(path, record);
-		}
+		const parsed = parseAttributionStoreFile(file);
+		if (parsed === null) return;
+		applyLoadedEntries(parsed);
 	} catch (err) {
 		// Corrupt/unreadable store: registry falls back to in-memory-only
 		// semantics. Note once to stderr; never a gate.
-		if (!loadFailureNoted) {
-			loadFailureNoted = true;
-			console.error(`[interlinked] effect-attribution store unreadable: ${String(err)}`);
-		}
+		noteAttributionStoreFailure("unreadable", err);
 	}
 }
 

@@ -16,7 +16,7 @@
 // superset? Widening means blocking hand-edits to guard-rules.json and
 // friends, which is a real policy change with its own FP profile — decide it
 // deliberately, with data, not as a side effect of de-duplicating a list.
-// Today: this 9-file set is the guard set; workspace-effects derives its
+// Today: this 10-file set is the guard set; workspace-effects derives its
 // baseline subset from here so the two cannot silently drift apart.
 
 /** Canonical water-line stems (basename without the `.json` extension). */
@@ -30,6 +30,10 @@ export const WATER_LINE_FILES = [
 	"metric-caps",
 	"skipped-tests-baseline",
 	"check-evidence-baseline",
+	// Per-function complexity grandfather ledger (`interlinked caps ratchet`).
+	// Promoted from the sibling-detector seam 2026-09-02 so the bash arm, the
+	// effect arm, and the replay archive cover it like every other water-line.
+	"function-complexity-baseline",
 ] as const;
 
 /** One canonical water-line stem. */

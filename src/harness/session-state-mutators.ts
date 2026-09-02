@@ -25,8 +25,19 @@ import type { HarnessEvent, SessionTrajectory } from "./types.js";
 import {
 	classifyBrowserToolName,
 	classifyVerificationCommand,
+	isTestRunnerCommand,
 	STUB_INTRODUCED_CAP,
 } from "./verification-stop-checks.js";
+
+/** Bound on `SessionTrajectory.test_commands_run` — see its doc comment in
+ *  `types/session.ts`. Kept far above `commands_run`'s 100-entry ring since
+ *  it only accumulates recognized test-runner commands, a small fraction of
+ *  total Bash traffic. */
+const TEST_COMMANDS_RUN_CAP = 500;
+/** Per-entry char cap for `test_commands_run` — generous relative to
+ *  `commands_run`'s 200 so a long test-runner invocation's file argument
+ *  never falls past the cut (the defect this list exists to fix). */
+const TEST_COMMAND_TEXT_CAP = 2000;
 
 /**
  * Set-union the subagent's verification_observed signals into the parent.
@@ -68,6 +79,7 @@ export function createFreshSession(event: HarnessEvent, sessionId: string): Sess
 		files_read: new Set(),
 		files_written: new Set(),
 		commands_run: [],
+		test_commands_run: [],
 		curl_localhost_count: {},
 		mcp_tools_used: 0,
 		local_tools_used: 0,
@@ -279,11 +291,29 @@ export function trackCommand(session: SessionTrajectory, event: HarnessEvent): v
 	if (session.commands_run.length > 100) {
 		session.commands_run = session.commands_run.slice(-100);
 	}
+	trackTestCommand(session, command);
 
 	const cmdKind = classifyVerificationCommand(command);
 	if (cmdKind) {
 		if (!session.verification_observed) session.verification_observed = new Set();
 		session.verification_observed.add(cmdKind);
+	}
+}
+
+/**
+ * Append `command` to the durable `test_commands_run` list when it's a
+ * test-runner invocation. Split out of `trackCommand` so that function's own
+ * cyclomatic count stays flat — this is a straight-line append, no branching
+ * beyond the recognizer + cap checks it owns.
+ */
+function trackTestCommand(session: SessionTrajectory, command: string): void {
+	if (!isTestRunnerCommand(command)) return;
+	if (!session.test_commands_run) session.test_commands_run = [];
+	const text =
+		command.length > TEST_COMMAND_TEXT_CAP ? command.slice(0, TEST_COMMAND_TEXT_CAP) : command;
+	session.test_commands_run.push(text);
+	if (session.test_commands_run.length > TEST_COMMANDS_RUN_CAP) {
+		session.test_commands_run = session.test_commands_run.slice(-TEST_COMMANDS_RUN_CAP);
 	}
 }
 

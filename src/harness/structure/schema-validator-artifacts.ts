@@ -137,6 +137,50 @@ export function validatePublicApiFile(data: unknown): ValidationResult {
 // env
 // -------------------------------------------
 
+// Validates the optional `$.sources` block: object shape plus its two
+// string-array members. Called only when the key is present, matching the
+// original `obj.sources !== undefined` guard.
+function validateEnvSources(sources: unknown, errors: ValidationError[]): void {
+	if (typeof sources !== "object" || sources === null || Array.isArray(sources)) {
+		errors.push(err("$.sources", "Must be an object"));
+		return;
+	}
+	const src = sources as JsonObject;
+	errors.push(...checkUnknownKeys(src, ["declarations", "defaults"], "$.sources"));
+	errors.push(...validateStringArray(src.declarations || [], "$.sources.declarations"));
+	errors.push(...validateStringArray(src.defaults || [], "$.sources.defaults"));
+}
+
+// Validates one entry of `$.keys[]`: shape, name pattern + duplicate detection
+// against the caller-owned `keyNames` set, `required`, and the string arrays.
+function validateEnvKey(k: JsonObject, kp: string, keyNames: Set<string>): ValidationError[] {
+	const errors: ValidationError[] = [];
+	errors.push(
+		...checkUnknownKeys(
+			k,
+			["name", "required", "docs", "tests", "examples", "default_sources"],
+			kp,
+		),
+	);
+
+	if (typeof k.name !== "string") {
+		errors.push(err(`${kp}.name`, "Must be a string"));
+	} else {
+		if (!ENV_KEY_PATTERN.test(k.name)) {
+			errors.push(err(`${kp}.name`, `Must match ${ENV_KEY_PATTERN.source}`));
+		}
+		if (keyNames.has(k.name)) errors.push(err(`${kp}.name`, `Duplicate key name "${k.name}"`));
+		keyNames.add(k.name);
+	}
+
+	if (typeof k.required !== "boolean") errors.push(err(`${kp}.required`, "Must be a boolean"));
+	errors.push(...validateStringArray(k.docs || [], `${kp}.docs`));
+	errors.push(...validateStringArray(k.tests || [], `${kp}.tests`));
+	errors.push(...validateStringArray(k.examples || [], `${kp}.examples`));
+	errors.push(...validateStringArray(k.default_sources || [], `${kp}.default_sources`));
+	return errors;
+}
+
 export function validateEnvFile(data: unknown): ValidationResult {
 	if (typeof data !== "object" || data === null || Array.isArray(data)) {
 		return fail([err("$", "Must be a JSON object")]);
@@ -146,16 +190,7 @@ export function validateEnvFile(data: unknown): ValidationResult {
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
 
-	if (obj.sources !== undefined) {
-		if (typeof obj.sources !== "object" || obj.sources === null || Array.isArray(obj.sources)) {
-			errors.push(err("$.sources", "Must be an object"));
-		} else {
-			const src = obj.sources as JsonObject;
-			errors.push(...checkUnknownKeys(src, ["declarations", "defaults"], "$.sources"));
-			errors.push(...validateStringArray(src.declarations || [], "$.sources.declarations"));
-			errors.push(...validateStringArray(src.defaults || [], "$.sources.defaults"));
-		}
-	}
+	if (obj.sources !== undefined) validateEnvSources(obj.sources, errors);
 
 	if (!Array.isArray(obj.keys)) {
 		errors.push(err("$.keys", "Must be an array"));
@@ -165,32 +200,7 @@ export function validateEnvFile(data: unknown): ValidationResult {
 	const keyNames = new Set<string>();
 	for (let i = 0; i < obj.keys.length; i++) {
 		const k = obj.keys[i] as JsonObject;
-		const kp = `$.keys[${i}]`;
-		errors.push(
-			...checkUnknownKeys(
-				k,
-				["name", "required", "docs", "tests", "examples", "default_sources"],
-				kp,
-			),
-		);
-
-		if (typeof k.name !== "string") {
-			errors.push(err(`${kp}.name`, "Must be a string"));
-		} else {
-			if (!ENV_KEY_PATTERN.test(k.name)) {
-				errors.push(err(`${kp}.name`, `Must match ${ENV_KEY_PATTERN.source}`));
-			}
-			if (keyNames.has(k.name))
-				errors.push(err(`${kp}.name`, `Duplicate key name "${k.name}"`));
-			keyNames.add(k.name);
-		}
-
-		if (typeof k.required !== "boolean")
-			errors.push(err(`${kp}.required`, "Must be a boolean"));
-		errors.push(...validateStringArray(k.docs || [], `${kp}.docs`));
-		errors.push(...validateStringArray(k.tests || [], `${kp}.tests`));
-		errors.push(...validateStringArray(k.examples || [], `${kp}.examples`));
-		errors.push(...validateStringArray(k.default_sources || [], `${kp}.default_sources`));
+		errors.push(...validateEnvKey(k, `$.keys[${i}]`, keyNames));
 	}
 	return errors.length > 0 ? fail(errors) : ok();
 }
@@ -198,6 +208,52 @@ export function validateEnvFile(data: unknown): ValidationResult {
 // -------------------------------------------
 // config
 // -------------------------------------------
+
+// Validates one entry of `$.roots[]`: shape, `id` local-ID rules + duplicate
+// detection against the caller-owned `rootIds` set, and `file` path shape.
+function validateConfigRoot(r: JsonObject, rp: string, rootIds: Set<string>): ValidationError[] {
+	const errors: ValidationError[] = [];
+	errors.push(...checkUnknownKeys(r, ["id", "file"], rp));
+	if (typeof r.id !== "string") errors.push(err(`${rp}.id`, "Must be a string"));
+	else {
+		errors.push(...validateLocalId(r.id, `${rp}.id`));
+		if (rootIds.has(r.id)) errors.push(err(`${rp}.id`, `Duplicate root ID "${r.id}"`));
+		rootIds.add(r.id);
+	}
+	if (typeof r.file !== "string") errors.push(err(`${rp}.file`, "Must be a string"));
+	else if (!isRepoRelativePath(r.file))
+		errors.push(err(`${rp}.file`, "Must be a repo-relative POSIX path"));
+	return errors;
+}
+
+// Validates the optional `$.roots` array. Skipped entirely when it isn't an
+// array, matching the original `if (Array.isArray(obj.roots))` leniency.
+function validateConfigRoots(roots: unknown[], errors: ValidationError[]): void {
+	const rootIds = new Set<string>();
+	for (let i = 0; i < roots.length; i++) {
+		const r = roots[i] as JsonObject;
+		errors.push(...validateConfigRoot(r, `$.roots[${i}]`, rootIds));
+	}
+}
+
+// Validates one entry of `$.keys[]`: shape, `name`, `required`, and the four
+// string-array fields.
+function validateConfigKey(k: JsonObject, kp: string): ValidationError[] {
+	const errors: ValidationError[] = [];
+	errors.push(
+		...checkUnknownKeys(k, ["name", "required", "docs", "tests", "examples", "declared_in"], kp),
+	);
+
+	if (typeof k.name !== "string" || k.name.length === 0) {
+		errors.push(err(`${kp}.name`, "Must be a non-empty string"));
+	}
+	if (typeof k.required !== "boolean") errors.push(err(`${kp}.required`, "Must be a boolean"));
+	errors.push(...validateStringArray(k.docs || [], `${kp}.docs`));
+	errors.push(...validateStringArray(k.tests || [], `${kp}.tests`));
+	errors.push(...validateStringArray(k.examples || [], `${kp}.examples`));
+	errors.push(...validateStringArray(k.declared_in || [], `${kp}.declared_in`));
+	return errors;
+}
 
 export function validateConfigFile(data: unknown): ValidationResult {
 	if (typeof data !== "object" || data === null || Array.isArray(data)) {
@@ -208,23 +264,7 @@ export function validateConfigFile(data: unknown): ValidationResult {
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
 
-	if (Array.isArray(obj.roots)) {
-		const rootIds = new Set<string>();
-		for (let i = 0; i < obj.roots.length; i++) {
-			const r = obj.roots[i] as JsonObject;
-			const rp = `$.roots[${i}]`;
-			errors.push(...checkUnknownKeys(r, ["id", "file"], rp));
-			if (typeof r.id !== "string") errors.push(err(`${rp}.id`, "Must be a string"));
-			else {
-				errors.push(...validateLocalId(r.id, `${rp}.id`));
-				if (rootIds.has(r.id)) errors.push(err(`${rp}.id`, `Duplicate root ID "${r.id}"`));
-				rootIds.add(r.id);
-			}
-			if (typeof r.file !== "string") errors.push(err(`${rp}.file`, "Must be a string"));
-			else if (!isRepoRelativePath(r.file))
-				errors.push(err(`${rp}.file`, "Must be a repo-relative POSIX path"));
-		}
-	}
+	if (Array.isArray(obj.roots)) validateConfigRoots(obj.roots, errors);
 
 	if (!Array.isArray(obj.keys)) {
 		errors.push(err("$.keys", "Must be an array"));
@@ -233,24 +273,7 @@ export function validateConfigFile(data: unknown): ValidationResult {
 
 	for (let i = 0; i < obj.keys.length; i++) {
 		const k = obj.keys[i] as JsonObject;
-		const kp = `$.keys[${i}]`;
-		errors.push(
-			...checkUnknownKeys(
-				k,
-				["name", "required", "docs", "tests", "examples", "declared_in"],
-				kp,
-			),
-		);
-
-		if (typeof k.name !== "string" || k.name.length === 0) {
-			errors.push(err(`${kp}.name`, "Must be a non-empty string"));
-		}
-		if (typeof k.required !== "boolean")
-			errors.push(err(`${kp}.required`, "Must be a boolean"));
-		errors.push(...validateStringArray(k.docs || [], `${kp}.docs`));
-		errors.push(...validateStringArray(k.tests || [], `${kp}.tests`));
-		errors.push(...validateStringArray(k.examples || [], `${kp}.examples`));
-		errors.push(...validateStringArray(k.declared_in || [], `${kp}.declared_in`));
+		errors.push(...validateConfigKey(k, `$.keys[${i}]`));
 	}
 	return errors.length > 0 ? fail(errors) : ok();
 }

@@ -187,6 +187,72 @@ describe("ubs-language-specific/quality-smell-checks", () => {
 			const matches = checkUbsStringConcatInLoop(codeLines.join("\n"), "src/lib/foo.ts");
 			expect(matches.length).toBe(MATCH_LIMIT);
 		});
+
+		it("N5: does NOT flag `cursor.offset += pathLen` — a byte-offset member accumulator", () => {
+			const code = [
+				"function f() {",
+				"  const cursor = { offset: 0 };",
+				"  for (const pathLen of lens) {",
+				"    cursor.offset += pathLen;",
+				"  }",
+				"}",
+			].join("\n");
+			expect(checkUbsStringConcatInLoop(code, "src/lib/foo.ts")).toEqual([]);
+		});
+
+		it("N6: does NOT flag `total += buf.length` — RHS is a `.length` read", () => {
+			const code = [
+				"function f() {",
+				"  let i = 0;",
+				"  while (i < n) {",
+				"    total += buf.length;",
+				"    i++;",
+				"  }",
+				"}",
+			].join("\n");
+			expect(checkUbsStringConcatInLoop(code, "src/lib/foo.ts")).toEqual([]);
+		});
+
+		it("N7: does NOT flag `acc.count += 1` — target's last segment is a numeric name", () => {
+			const code = [
+				"function f() {",
+				"  for (const x of xs) {",
+				"    acc.count += x;",
+				"  }",
+				"}",
+			].join("\n");
+			expect(checkUbsStringConcatInLoop(code, "src/lib/foo.ts")).toEqual([]);
+		});
+
+		it("P7: still flags `s += chunk` inside a for loop (plain string accumulator)", () => {
+			const code = [
+				"function f() {",
+				"  let s = '';",
+				"  for (const chunk of chunks) {",
+				"    s += chunk;",
+				"  }",
+				"}",
+			].join("\n");
+			expect(checkUbsStringConcatInLoop(code, "src/lib/foo.ts")).toEqual([
+				{ line: 4, text: "s += chunk;" },
+			]);
+		});
+
+		it('P8: still flags `html += "<li>" + x + "</li>"` inside a while loop (string concat with markup)', () => {
+			const code = [
+				"function f() {",
+				"  let html = '';",
+				"  let i = 0;",
+				"  while (i < n) {",
+				'    html += "<li>" + x + "</li>";',
+				"    i++;",
+				"  }",
+				"}",
+			].join("\n");
+			expect(checkUbsStringConcatInLoop(code, "src/lib/foo.ts")).toEqual([
+				{ line: 5, text: 'html += "<li>" + x + "</li>";' },
+			]);
+		});
 	});
 
 	// =========================================================================

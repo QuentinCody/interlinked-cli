@@ -174,6 +174,8 @@ export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
 	"unvalidated_input_boundary",
 	"dead_type_exports",
 	"duplicate_type_declaration",
+	"new_export_without_importer",
+	"extracted_helper_duplicate",
 ]);
 
 /** True when `checkId` is advisory-tier (deep-audit only, not default-gate). */

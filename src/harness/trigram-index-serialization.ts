@@ -227,94 +227,164 @@ export function loadIndex(cwd: string, interlinkedDir?: string): ParsedIndexData
 
 	if (lookupBuf.length < 28) return null;
 
-	let offset = 0;
+	const cursor: ReadCursor = { offset: 0 };
 
-	// Header
-	const magic = lookupBuf.readUInt32LE(offset);
-	offset += 4;
+	const header = readLookupHeader(lookupBuf, cursor);
+	if (header === null) return null;
+
+	const meta = readLookupMeta(lookupBuf, cursor);
+	if (meta === null) return null;
+
+	const files = readFileTable(lookupBuf, cursor, header.fileCount);
+	if (files === null) return null;
+
+	const stopTrigrams = readStopTrigrams(lookupBuf, cursor, header.stopCount);
+	if (stopTrigrams === null) return null;
+
+	const postings = readPostings(lookupBuf, postingsBuf, cursor, header.trigramCount);
+	if (postings === null) return null;
+
+	return { files, postings, stopTrigrams, baseCommit: meta.baseCommit, builtAt: meta.builtAt };
+}
+
+/** Mutable read position shared by the {@link loadIndex} section readers. */
+interface ReadCursor {
+	offset: number;
+}
+
+/** Fixed-size lookup-file header counts. */
+interface LookupHeader {
+	fileCount: number;
+	trigramCount: number;
+	stopCount: number;
+}
+
+/** Read the 28-byte lookup header; null when magic or version does not match. */
+function readLookupHeader(lookupBuf: Buffer, cursor: ReadCursor): LookupHeader | null {
+	const magic = lookupBuf.readUInt32LE(cursor.offset);
+	cursor.offset += 4;
 	if (magic !== MAGIC_LOOKUP) return null;
 
-	const version = lookupBuf.readUInt32LE(offset);
-	offset += 4;
+	const version = lookupBuf.readUInt32LE(cursor.offset);
+	cursor.offset += 4;
 	if (version !== VERSION) return null;
 
-	offset += 4; // flags — reserved, not read
+	cursor.offset += 4; // flags — reserved, not read
 
-	const fileCount = lookupBuf.readUInt32LE(offset);
-	offset += 4;
+	const fileCount = lookupBuf.readUInt32LE(cursor.offset);
+	cursor.offset += 4;
 
-	const trigramCount = lookupBuf.readUInt32LE(offset);
-	offset += 4;
+	const trigramCount = lookupBuf.readUInt32LE(cursor.offset);
+	cursor.offset += 4;
 
-	const stopCount = lookupBuf.readUInt32LE(offset);
-	offset += 4;
+	const stopCount = lookupBuf.readUInt32LE(cursor.offset);
+	cursor.offset += 4;
 
-	offset += 4; // reserved — not read
+	cursor.offset += 4; // reserved — not read
 
-	// Meta: base commit + builtAt
-	if (offset >= lookupBuf.length) return null;
-	const commitLen = lookupBuf.readUInt8(offset);
-	offset += 1;
-	if (offset + commitLen > lookupBuf.length) return null;
-	const baseCommit = lookupBuf.toString("utf-8", offset, offset + commitLen);
-	offset += commitLen;
+	return { fileCount, trigramCount, stopCount };
+}
+
+/** Read the base-commit / builtAt meta strings that follow the header. */
+function readLookupMeta(
+	lookupBuf: Buffer,
+	cursor: ReadCursor,
+): { baseCommit: string; builtAt: string } | null {
+	if (cursor.offset >= lookupBuf.length) return null;
+	const commitLen = lookupBuf.readUInt8(cursor.offset);
+	cursor.offset += 1;
+	if (cursor.offset + commitLen > lookupBuf.length) return null;
+	const baseCommit = lookupBuf.toString("utf-8", cursor.offset, cursor.offset + commitLen);
+	cursor.offset += commitLen;
 
 	let builtAt = new Date().toISOString();
-	if (offset < lookupBuf.length) {
-		const builtAtLen = lookupBuf.readUInt8(offset);
-		offset += 1;
-		if (offset + builtAtLen <= lookupBuf.length) {
-			builtAt = lookupBuf.toString("utf-8", offset, offset + builtAtLen);
-			offset += builtAtLen;
+	if (cursor.offset < lookupBuf.length) {
+		const builtAtLen = lookupBuf.readUInt8(cursor.offset);
+		cursor.offset += 1;
+		if (cursor.offset + builtAtLen <= lookupBuf.length) {
+			builtAt = lookupBuf.toString("utf-8", cursor.offset, cursor.offset + builtAtLen);
+			cursor.offset += builtAtLen;
 		}
 	}
 
-	// File table
+	return { baseCommit, builtAt };
+}
+
+/** Read the length-prefixed file-path table. */
+function readFileTable(
+	lookupBuf: Buffer,
+	cursor: ReadCursor,
+	fileCount: number,
+): string[] | null {
 	const files: string[] = [];
 	for (let i = 0; i < fileCount; i++) {
-		if (offset + 2 > lookupBuf.length) return null;
-		const pathLen = lookupBuf.readUInt16LE(offset);
-		offset += 2;
-		if (offset + pathLen > lookupBuf.length) return null;
-		files.push(lookupBuf.toString("utf-8", offset, offset + pathLen));
-		offset += pathLen;
+		if (cursor.offset + 2 > lookupBuf.length) return null;
+		const pathLen = lookupBuf.readUInt16LE(cursor.offset);
+		cursor.offset += 2;
+		if (cursor.offset + pathLen > lookupBuf.length) return null;
+		files.push(lookupBuf.toString("utf-8", cursor.offset, cursor.offset + pathLen));
+		cursor.offset += pathLen;
 	}
+	return files;
+}
 
-	// Stop trigrams
+/** Read the stop-trigram set. */
+function readStopTrigrams(
+	lookupBuf: Buffer,
+	cursor: ReadCursor,
+	stopCount: number,
+): Set<number> | null {
 	const stopTrigrams = new Set<number>();
 	for (let i = 0; i < stopCount; i++) {
-		if (offset + 4 > lookupBuf.length) return null;
-		stopTrigrams.add(lookupBuf.readUInt32LE(offset));
-		offset += 4;
+		if (cursor.offset + 4 > lookupBuf.length) return null;
+		stopTrigrams.add(lookupBuf.readUInt32LE(cursor.offset));
+		cursor.offset += 4;
 	}
+	return stopTrigrams;
+}
 
-	// Lookup table entries → reconstruct postings from postings file
+/** Read one posting list's entries out of the postings file. */
+function readPostingEntries(
+	postingsBuf: Buffer,
+	postingOffset: number,
+	count: number,
+): PostingList | null {
+	if (postingOffset + count * 6 > postingsBuf.length) return null;
+	const fileIds = new Uint32Array(count);
+	const locMasks = new Uint8Array(count);
+	const nextMasks = new Uint8Array(count);
+	for (let j = 0; j < count; j++) {
+		const entryOffset = postingOffset + j * 6;
+		fileIds[j] = postingsBuf.readUInt32LE(entryOffset);
+		locMasks[j] = postingsBuf.readUInt8(entryOffset + 4);
+		nextMasks[j] = postingsBuf.readUInt8(entryOffset + 5);
+	}
+	return { fileIds, locMasks, nextMasks };
+}
+
+/** Walk the lookup table entries and reconstruct postings from the postings file. */
+function readPostings(
+	lookupBuf: Buffer,
+	postingsBuf: Buffer,
+	cursor: ReadCursor,
+	trigramCount: number,
+): Map<number, PostingList> | null {
 	const postings = new Map<number, PostingList>();
 	for (let i = 0; i < trigramCount; i++) {
-		if (offset + 16 > lookupBuf.length) return null;
-		offset += 4; // hash — not read; packed lookup entry below carries the trigram key
-		const packed = lookupBuf.readUInt32LE(offset);
-		offset += 4;
-		const postingOffset = lookupBuf.readUInt32LE(offset);
-		offset += 4;
-		const count = lookupBuf.readUInt32LE(offset);
-		offset += 4;
+		if (cursor.offset + 16 > lookupBuf.length) return null;
+		cursor.offset += 4; // hash — not read; packed lookup entry below carries the trigram key
+		const packed = lookupBuf.readUInt32LE(cursor.offset);
+		cursor.offset += 4;
+		const postingOffset = lookupBuf.readUInt32LE(cursor.offset);
+		cursor.offset += 4;
+		const count = lookupBuf.readUInt32LE(cursor.offset);
+		cursor.offset += 4;
 
-		// Read posting entries from postings file
-		if (postingOffset + count * 6 > postingsBuf.length) return null;
-		const fileIds = new Uint32Array(count);
-		const locMasks = new Uint8Array(count);
-		const nextMasks = new Uint8Array(count);
-		for (let j = 0; j < count; j++) {
-			const entryOffset = postingOffset + j * 6;
-			fileIds[j] = postingsBuf.readUInt32LE(entryOffset);
-			locMasks[j] = postingsBuf.readUInt8(entryOffset + 4);
-			nextMasks[j] = postingsBuf.readUInt8(entryOffset + 5);
-		}
-		postings.set(packed, { fileIds, locMasks, nextMasks });
+		const posting = readPostingEntries(postingsBuf, postingOffset, count);
+		if (posting === null) return null;
+		postings.set(packed, posting);
 	}
-
-	return { files, postings, stopTrigrams, baseCommit, builtAt };
+	return postings;
 }
 
 /**

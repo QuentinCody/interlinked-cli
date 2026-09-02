@@ -41,6 +41,39 @@ function registerArchitectureCommand(metrics: Command): void {
         });
 }
 
+function registerComplexityCommand(metrics: Command): void {
+    metrics
+        .command("complexity")
+        .description(
+            "Complexity census: percentiles, histograms, top-N hotspots, per-file mass, and over-cap counts for cyclomatic / cognitive / lines",
+        )
+        .option("--cwd <path>", "Project root (default: current directory)")
+        .option("--top <n>", "Hotspots per metric and files by mass (default: 20)")
+        .option("--metric <name>", "cyclomatic | cognitive | lines | all (default: all)")
+        .option("--json", "Machine-readable output")
+        .option("--short", "One-line summary")
+        .action(async (opts: OptionValues, command: Command) => {
+            const { metricsComplexityCommand } = await import("../commands/metrics-complexity.js");
+            await metricsComplexityCommand(parentAndChildOptions(opts, command));
+        });
+}
+
+function registerSplitPlanCommand(metrics: Command): void {
+    metrics
+        .command("split-plan <file>")
+        .description(
+            "Where to cut one over-cap file: intra-file reference graph (TS AST) → 2–4 cohesive modules with line count, ΣCC, imports, a suggested filename each, and the cross-module references the split creates",
+        )
+        .option("--cwd <path>", "Project root (default: current directory)")
+        .option("--max-clusters <n>", "Upper bound on proposed modules, 2–4 (default: 4)")
+        .option("--json", "Machine-readable output")
+        .option("--short", "One-line summary")
+        .action(async (file: string, opts: OptionValues, command: Command) => {
+            const { metricsSplitPlanCommand } = await import("../commands/metrics-split-plan.js");
+            await metricsSplitPlanCommand({ ...parentAndChildOptions(opts, command), file });
+        });
+}
+
 function registerReworkCommand(metrics: Command): void {
     metrics
         .command("rework")
@@ -80,4 +113,6 @@ export function registerMetricsCommands(program: Command): void {
     registerCouplingCommand(metrics);
     registerArchitectureCommand(metrics);
     registerReworkCommand(metrics);
+    registerComplexityCommand(metrics);
+    registerSplitPlanCommand(metrics);
 }

@@ -248,94 +248,84 @@ function collectSmugglingCasts(
 			return;
 		}
 
-		const typeNode = node.type;
-
-		// Skip `as const` — literal-narrowing, not smuggling.
-		if (
-			ts.isAsExpression(node) &&
-			ts.isTypeReferenceNode(typeNode) &&
-			ts.isIdentifier(typeNode.typeName) &&
-			typeNode.typeName.text === "const"
-		) {
-			ts.forEachChild(node, visit);
-			return;
-		}
-
-		// Skip casts whose target is `any` / `unknown` — those are
-		// legitimate widening escape hatches re-narrowed later.
-		if (targetIsAnyOrUnknownSyntax(ts, typeNode)) {
-			ts.forEachChild(node, visit);
-			return;
-		}
-
-		// Detect the classic `as unknown as T` double-cast escape: the
-		// CHILD of an outer AsExpression is itself an AsExpression whose
-		// target is `unknown`. We flag it with a specific message, since
-		// the double-cast is even more diagnostic than a single
-		// shape-mismatch cast.
-		const doubleCastTargetText = detectDoubleCastTarget(ts, node, typeNode, sourceFile);
-		const isDoubleCast = doubleCastTargetText !== null;
-
-		let sourceType: TS.Type | undefined;
-		let targetType: TS.Type | undefined;
-		try {
-			sourceType = typeAtLocationOf(checker, node.expression);
-			targetType = typeFromTypeNodeOf(checker, typeNode);
-		} catch {
-			// Checker threw — skip silently rather than false-fire.
-			ts.forEachChild(node, visit);
-			return;
-		}
-
-		if (!sourceType || !targetType) {
-			ts.forEachChild(node, visit);
-			return;
-		}
-
-		// For double-cast: we always flag regardless of overlap result,
-		// because the inner `as unknown` is itself the lie — the source
-		// type at the outer `as T` level is already `unknown` (which
-		// would normally be exempt), so the structural-overlap test
-		// would say "fine" when the user is actually doing the most
-		// suspicious thing. Override that.
-		if (isDoubleCast) {
-			const { line } = ts.getLineAndCharacterOfPosition(
-				sourceFile,
-				node.getStart(sourceFile),
-			);
-			matches.push({
-				line: line + 1,
-				text: buildDoubleCastReportText(
-					lines[line] || "",
-					doubleCastTargetText || "<unknown>",
-				),
-			});
-			ts.forEachChild(node, visit);
-			return;
-		}
-
-		if (isSmugglingCast(ts, checker, sourceType, targetType)) {
-			const { line } = ts.getLineAndCharacterOfPosition(
-				sourceFile,
-				node.getStart(sourceFile),
-			);
-			const sourceTypeText = safeTypeToString(checker, sourceType);
-			const targetTypeText = typeNode.getText(sourceFile);
-			matches.push({
-				line: line + 1,
-				text: buildSmugglingReportText(
-					lines[line] || "",
-					sourceTypeText,
-					targetTypeText,
-				),
-			});
-		}
+		const match = evaluateAsNode(ts, checker, sourceFile, lines, node, node.type);
+		if (match) matches.push(match);
 
 		ts.forEachChild(node, visit);
 	};
 
 	visit(sourceFile);
 	return matches;
+}
+
+/**
+ * Decide the verdict for a single AsExpression/TypeAssertion node and build
+ * its `InlineMatch` when it should be reported. Returns `null` for every
+ * "skip silently" path (as-const, any/unknown target, checker-threw,
+ * unresolved types, no structural mismatch) — extracted from `visit` so the
+ * walker stays a pure recursion, same order/branches as before.
+ */
+function evaluateAsNode(
+	ts: TsModule,
+	checker: TS.TypeChecker,
+	sourceFile: TS.SourceFile,
+	lines: string[],
+	node: TS.AsExpression | TS.TypeAssertion,
+	typeNode: TS.TypeNode,
+): InlineMatch | null {
+	// Skip `as const` — literal-narrowing, not smuggling.
+	if (
+		ts.isAsExpression(node) &&
+		ts.isTypeReferenceNode(typeNode) &&
+		ts.isIdentifier(typeNode.typeName) &&
+		typeNode.typeName.text === "const"
+	) {
+		return null;
+	}
+
+	// Skip casts whose target is `any` / `unknown` — those are legitimate
+	// widening escape hatches re-narrowed later.
+	if (targetIsAnyOrUnknownSyntax(ts, typeNode)) return null;
+
+	// Detect the classic `as unknown as T` double-cast escape: the CHILD of
+	// an outer AsExpression is itself an AsExpression whose target is
+	// `unknown`. We flag it with a specific message, since the double-cast
+	// is even more diagnostic than a single shape-mismatch cast. We always
+	// flag regardless of overlap result, because the inner `as unknown` is
+	// itself the lie — the source type at the outer `as T` level is already
+	// `unknown` (which would normally be exempt), so the structural-overlap
+	// test would say "fine" when the user is actually doing the most
+	// suspicious thing. Override that.
+	const doubleCastTargetText = detectDoubleCastTarget(ts, node, typeNode, sourceFile);
+	if (doubleCastTargetText !== null) {
+		const { line } = ts.getLineAndCharacterOfPosition(sourceFile, node.getStart(sourceFile));
+		return {
+			line: line + 1,
+			text: buildDoubleCastReportText(lines[line] || "", doubleCastTargetText),
+		};
+	}
+
+	let sourceType: TS.Type | undefined;
+	let targetType: TS.Type | undefined;
+	try {
+		sourceType = typeAtLocationOf(checker, node.expression);
+		targetType = typeFromTypeNodeOf(checker, typeNode);
+	} catch {
+		// Checker threw — skip silently rather than false-fire.
+		return null;
+	}
+
+	if (!sourceType || !targetType) return null;
+
+	if (!isSmugglingCast(ts, checker, sourceType, targetType)) return null;
+
+	const { line } = ts.getLineAndCharacterOfPosition(sourceFile, node.getStart(sourceFile));
+	const sourceTypeText = safeTypeToString(checker, sourceType);
+	const targetTypeText = typeNode.getText(sourceFile);
+	return {
+		line: line + 1,
+		text: buildSmugglingReportText(lines[line] || "", sourceTypeText, targetTypeText),
+	};
 }
 
 function safeTypeToString(checker: TS.TypeChecker, t: TS.Type): string {

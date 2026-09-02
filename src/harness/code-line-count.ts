@@ -39,19 +39,33 @@ function scanCodeLineChar(content: string, i: number, s: CodeLineScanState): num
 	const ch = content.charAt(i);
 	const next = content.charAt(i + 1);
 	if (s.inLineComment) return 0;
-	if (s.inBlockComment) {
-		if (ch === "*" && next === "/") {
-			s.inBlockComment = false;
-			return 1;
-		}
-		return 0;
+	if (s.inBlockComment) return scanBlockCommentChar(ch, next, s);
+	if (s.stringDelim !== null) return scanStringChar(ch, next, s);
+	return scanNormalChar(ch, next, s);
+}
+
+/** Handle one character while inside a block comment. Closes the comment on
+ *  the `*​/` token; otherwise the character is comment text, not code. */
+function scanBlockCommentChar(ch: string, next: string, s: CodeLineScanState): number {
+	if (ch === "*" && next === "/") {
+		s.inBlockComment = false;
+		return 1;
 	}
-	if (s.stringDelim !== null) {
-		s.lineHasCode = true; // string/template content is code (data), never comment
-		if (ch === "\\" && next !== "\n") return 1; // escape consumes the next char
-		if (ch === s.stringDelim) s.stringDelim = null;
-		return 0;
-	}
+	return 0;
+}
+
+/** Handle one character while inside a string/template literal. String
+ *  content is always code (data), and a backslash escapes the next char. */
+function scanStringChar(ch: string, next: string, s: CodeLineScanState): number {
+	s.lineHasCode = true; // string/template content is code (data), never comment
+	if (ch === "\\" && next !== "\n") return 1; // escape consumes the next char
+	if (ch === s.stringDelim) s.stringDelim = null;
+	return 0;
+}
+
+/** Handle one character outside any comment/string: detect comment openers,
+ *  string/template openers, and otherwise mark non-whitespace as code. */
+function scanNormalChar(ch: string, next: string, s: CodeLineScanState): number {
 	if (ch === "/" && next === "/") {
 		s.inLineComment = true;
 		return 1;

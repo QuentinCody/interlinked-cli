@@ -343,6 +343,35 @@ function looksLikeShapeValidator(body: string): boolean {
 }
 
 /**
+ * Evaluate one predicate site against the declared/imported shapes and return
+ * a finding when it under-checks required properties, or `null` when it does
+ * not qualify (unknown/small shape, no shape validation, or nothing missing).
+ * Extracted from `detectTypePredicateDrift` to keep the orchestrator's own
+ * branch count low; behavior is unchanged.
+ */
+function evaluatePredicateSite(
+	site: PredicateSite,
+	shapes: Map<string, DeclaredShape>,
+	typeImports: Map<string, ImportedType>,
+	filePath: string,
+	originalLines: string[],
+): InlineMatch | null {
+	const shape =
+		shapes.get(site.typeName) ?? resolveImportedShape(site.typeName, typeImports, filePath);
+	if (!shape || shape.requiredProps.length < 2) return null;
+	if (!looksLikeShapeValidator(site.body)) return null;
+
+	const tokens = bodyTokens(site.body);
+	const missing = shape.requiredProps.filter((p) => !tokens.has(p));
+	const checked = shape.requiredProps.length - missing.length;
+	if (checked === 0 || missing.length === 0) return null;
+
+	const raw = originalLines[site.line - 1] ?? "";
+	const detail = `${raw.trim()}  [unchecked: ${missing.join(", ")}]`;
+	return { line: site.line, text: detail.slice(0, 150) };
+}
+
+/**
  * Detect `value is T` type predicates that fail to check every required
  * property of `T`.
  *
@@ -375,19 +404,8 @@ export function detectTypePredicateDrift(content: string, filePath: string): Inl
 
 	for (const site of collectPredicates(stripped)) {
 		if (matches.length >= MAX_MATCHES) break;
-		const shape =
-			shapes.get(site.typeName) ?? resolveImportedShape(site.typeName, typeImports, filePath);
-		if (!shape || shape.requiredProps.length < 2) continue;
-		if (!looksLikeShapeValidator(site.body)) continue;
-
-		const tokens = bodyTokens(site.body);
-		const missing = shape.requiredProps.filter((p) => !tokens.has(p));
-		const checked = shape.requiredProps.length - missing.length;
-		if (checked === 0 || missing.length === 0) continue;
-
-		const raw = originalLines[site.line - 1] ?? "";
-		const detail = `${raw.trim()}  [unchecked: ${missing.join(", ")}]`;
-		matches.push({ line: site.line, text: detail.slice(0, 150) });
+		const match = evaluatePredicateSite(site, shapes, typeImports, filePath, originalLines);
+		if (match) matches.push(match);
 	}
 	return matches;
 }

@@ -16,8 +16,8 @@ import type {
 	RulePattern,
 	SessionTrajectory,
 } from "../types.js";
+import { passesExtraExceptions, passesTemporalGating } from "./rule-matching-guards.js";
 import { extractScannableText } from "./spans.js";
-import { evaluateForbidsAfter, evaluateRequiresPrior } from "./temporal-matching.js";
 import { classifyToolExternality } from "./tool-classifiers.js";
 import { normalizeCommandWrappers } from "./wrapper-normalization.js";
 
@@ -199,32 +199,12 @@ export function matchesRule(ctx: MatchRuleContext): boolean {
 	const patternResult = evaluatePatterns(rule, toolInput, command);
 	if (patternResult !== PATTERN_RESULT_MATCH) return false;
 
-	// Check extra exceptions from local config (substring allowlist on command).
-	const exceptions = extraExceptions?.[rule.id];
-	if (exceptions) {
-		const cmd = String(getField(toolInput, "command") || command);
-		for (const exc of exceptions) {
-			if (cmd.includes(exc)) return false;
-		}
-	}
-
-	// Temporal-precondition gating. After content patterns + extra_exceptions
-	// so the rule is already a content-level hit. Semantics:
-	//   - `requires_prior` fires when predicate NOT satisfied (precondition missing).
-	//   - `forbids_after` fires when predicate IS satisfied (forbidden state present).
-	// Without a session in scope, rules with temporal predicates fall through to
-	// not-fire — content-level callers (compound decomposer) don't gate temporally.
-	if ((rule.requires_prior || rule.forbids_after) && !session) {
-		return false;
-	}
-	if (rule.requires_prior && session) {
-		const result = evaluateRequiresPrior(session, rule.requires_prior);
-		if (result.satisfied) return false; // precondition met → rule stays dormant
-	}
-	if (rule.forbids_after && session) {
-		const result = evaluateForbidsAfter(session, rule.forbids_after);
-		if (!result.satisfied) return false; // forbidden state absent → rule stays dormant
-	}
+	// Check extra exceptions from local config (substring allowlist on command),
+	// then temporal preconditions. Both gates live in the line-cap sibling
+	// module `rule-matching-guards.ts` — see their docs there for semantics.
+	const cmd = String(getField(toolInput, "command") || command);
+	if (!passesExtraExceptions(cmd, rule.id, extraExceptions)) return false;
+	if (!passesTemporalGating(rule, session)) return false;
 
 	return true;
 }

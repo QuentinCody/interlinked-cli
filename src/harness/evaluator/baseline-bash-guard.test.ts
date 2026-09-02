@@ -308,6 +308,7 @@ describe("baselineBashWriteRefusal — every water-line basename is protected", 
 		"untested-files-baseline.json",
 		"skipped-tests-baseline.json",
 		"check-evidence-baseline.json",
+		"function-complexity-baseline.json",
 	])("P: rm -rf against %s is refused", (basename) => {
 		expect(baselineBashWriteRefusal(`rm -rf /repo/.interlinked/${basename}`, ROOT)).toContain(
 			basename,

@@ -141,70 +141,93 @@ function blameTimesFor(
 	}
 }
 
-/** Public API — wired by `interlinked metrics rework` in registrars/quality.ts. */
-export async function metricsReworkCommand(opts: MetricsReworkOpts): Promise<void> {
-	const cwd = opts.cwd || process.cwd();
-	const days = Number(opts.days ?? "") || 30;
-	const windowDays = Number(opts.window ?? "") || 14;
-	const maxCommits = Number(opts.maxCommits ?? "") || 100;
-	const maxCommitFiles = Number(opts.maxCommitFiles ?? "") || 30;
-	const mode = getOutputMode(opts);
+interface ReworkAccumulator {
+	overall: ReworkCount;
+	byFile: Map<string, ReworkCount>;
+	skippedBulk: number;
+	skippedBlame: number;
+}
 
-	let commits: CommitHeader[];
+/** Resolve one commit's old-side hunks into rework counts, folded into `acc`. */
+function processCommitForRework(
+	cwd: string,
+	commit: CommitHeader,
+	maxCommitFiles: number,
+	windowDays: number,
+	acc: ReworkAccumulator,
+): void {
+	let diffText: string;
 	try {
-		commits = listCommits(cwd, days, maxCommits);
-	} catch (err) {
-		process.stderr.write(
-			`git log failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}\n`,
+		diffText = execFileSync(
+			"git",
+			["diff", "-U0", "--no-color", `${commit.sha}^`, commit.sha],
+			{ cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
 		);
-		process.exitCode = 1;
+	} catch {
+		return; // root commit has no parent
+	}
+	const hunks = parseUnifiedZeroHunks(diffText).filter((f) => !EXCLUDE_RE.test(f.file));
+	if (hunks.length > maxCommitFiles) {
+		acc.skippedBulk++;
 		return;
 	}
-
-	const overall: ReworkCount = { rework: 0, total: 0 };
-	const byFile = new Map<string, ReworkCount>();
-	let skippedBulk = 0;
-	let skippedBlame = 0;
-
-	for (const commit of commits) {
-		let diffText: string;
-		try {
-			diffText = execFileSync(
-				"git",
-				["diff", "-U0", "--no-color", `${commit.sha}^`, commit.sha],
-				{ cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-			);
-		} catch {
-			continue; // root commit has no parent
-		}
-		const hunks = parseUnifiedZeroHunks(diffText).filter((f) => !EXCLUDE_RE.test(f.file));
-		if (hunks.length > maxCommitFiles) {
-			skippedBulk++;
+	for (const fh of hunks) {
+		const times = blameTimesFor(cwd, commit.sha, fh);
+		if (times === null) {
+			acc.skippedBlame++;
 			continue;
 		}
-		for (const fh of hunks) {
-			const times = blameTimesFor(cwd, commit.sha, fh);
-			if (times === null) {
-				skippedBlame++;
-				continue;
-			}
-			const c = classifyRework(commit.timestamp, times, windowDays * DAY_SECS);
-			overall.rework += c.rework;
-			overall.total += c.total;
-			const agg = byFile.get(fh.file) ?? { rework: 0, total: 0 };
-			agg.rework += c.rework;
-			agg.total += c.total;
-			byFile.set(fh.file, agg);
-		}
+		const c = classifyRework(commit.timestamp, times, windowDays * DAY_SECS);
+		acc.overall.rework += c.rework;
+		acc.overall.total += c.total;
+		const agg = acc.byFile.get(fh.file) ?? { rework: 0, total: 0 };
+		agg.rework += c.rework;
+		agg.total += c.total;
+		acc.byFile.set(fh.file, agg);
 	}
+}
 
-	const pct = overall.total === 0 ? 0 : (overall.rework / overall.total) * 100;
-	const top = [...byFile.entries()]
+interface ReworkTotals {
+	commits: CommitHeader[];
+	overall: ReworkCount;
+	top: Array<[string, ReworkCount]>;
+	pct: number;
+	skippedBulk: number;
+	skippedBlame: number;
+}
+
+/** Walk every commit, folding old-side blame ages into overall + per-file totals. */
+function computeReworkTotals(
+	cwd: string,
+	commits: CommitHeader[],
+	maxCommitFiles: number,
+	windowDays: number,
+): ReworkTotals {
+	const acc: ReworkAccumulator = {
+		overall: { rework: 0, total: 0 },
+		byFile: new Map(),
+		skippedBulk: 0,
+		skippedBlame: 0,
+	};
+	for (const commit of commits) {
+		processCommitForRework(cwd, commit, maxCommitFiles, windowDays, acc);
+	}
+	const pct = acc.overall.total === 0 ? 0 : (acc.overall.rework / acc.overall.total) * 100;
+	const top = [...acc.byFile.entries()]
 		.filter(([, c]) => c.rework > 0)
 		.sort((a, b) => b[1].rework - a[1].rework)
 		.slice(0, 10);
+	return { commits, overall: acc.overall, top, pct, skippedBulk: acc.skippedBulk, skippedBlame: acc.skippedBlame };
+}
 
-	output(mode, { overall, byFile: top }, {
+/** Build the `output()` handler map for a computed rework result. */
+function buildReworkOutputHandlers(
+	totals: ReworkTotals,
+	days: number,
+	windowDays: number,
+) {
+	const { commits, overall, top, pct, skippedBulk, skippedBlame } = totals;
+	return {
 		json: () => ({
 			days,
 			window_days: windowDays,
@@ -227,5 +250,29 @@ export async function metricsReworkCommand(opts: MetricsReworkOpts): Promise<voi
 			}
 			return lines.join("\n");
 		},
-	});
+	};
+}
+
+/** Public API — wired by `interlinked metrics rework` in registrars/quality.ts. */
+export async function metricsReworkCommand(opts: MetricsReworkOpts): Promise<void> {
+	const cwd = opts.cwd || process.cwd();
+	const days = Number(opts.days ?? "") || 30;
+	const windowDays = Number(opts.window ?? "") || 14;
+	const maxCommits = Number(opts.maxCommits ?? "") || 100;
+	const maxCommitFiles = Number(opts.maxCommitFiles ?? "") || 30;
+	const mode = getOutputMode(opts);
+
+	let commits: CommitHeader[];
+	try {
+		commits = listCommits(cwd, days, maxCommits);
+	} catch (err) {
+		process.stderr.write(
+			`git log failed: ${err instanceof Error ? err.message.split("\n")[0] : String(err)}\n`,
+		);
+		process.exitCode = 1;
+		return;
+	}
+
+	const totals = computeReworkTotals(cwd, commits, maxCommitFiles, windowDays);
+	output(mode, { overall: totals.overall, byFile: totals.top }, buildReworkOutputHandlers(totals, days, windowDays));
 }

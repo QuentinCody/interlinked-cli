@@ -228,34 +228,73 @@ export function evaluateExfilGuards(args: {
 	let pendingEscalation = args.pendingEscalation;
 	const warnings: string[] = [];
 
+	pushRemoteExecShellWarning(cmd, warnings);
+	pushNoVerifyWarning(cmd, warnings);
+	pushDirtyDependentPreCommitWarning(cmd, graph, cwd, warnings);
+	pendingEscalation = buildExternalUrlEscalation(cmd, toolName, session, pendingEscalation);
+	pushDataExfilWarning(cmd, warnings);
+
+	const envExfilBlock = buildEnvExfilBlock(cmd);
+	if (envExfilBlock) {
+		return { warnings, block: envExfilBlock, escalation: pendingEscalation };
+	}
+
+	pushCustomRegistryWarning(cmd, warnings);
+	pushDropperStagingWarning(cmd, session, warnings);
+
+	return { warnings, escalation: pendingEscalation };
+}
+
+/** GUARD: warn when remote content is piped straight to a shell. */
+function pushRemoteExecShellWarning(cmd: string, warnings: string[]): void {
 	if (/\b(curl|wget)\b.*\|\s*(ba)?sh\b/i.test(cmd)) {
 		warnings.push(
 			"[interlinked] Warning: Piping remote content to shell is a security risk. Download first, inspect, then execute.",
 		);
 	}
+}
+
+/** GUARD: warn on `--no-verify`, which bypasses safety hooks. */
+function pushNoVerifyWarning(cmd: string, warnings: string[]): void {
 	if (/--no-verify\b/i.test(cmd)) {
 		warnings.push(
 			"[interlinked] Warning: --no-verify bypasses safety hooks. These hooks exist to prevent broken commits.",
 		);
 	}
+}
 
-	// GUARD: dirty-dependent pre-commit check. When the agent runs
-	// `git commit`, walk staged files' transitive importers through the
-	// project graph; flag any importer that is dirty-but-unstaged. This
-	// catches the failure class that produced commit 7219b48 → red CI:
-	// production code committed alone while its consumer test stayed
-	// in the working tree, so tests passed locally and broke on the
-	// committed snapshot in CI.
+/** GUARD: dirty-dependent pre-commit check. When the agent runs
+ *  `git commit`, walk staged files' transitive importers through the
+ *  project graph; flag any importer that is dirty-but-unstaged. This
+ *  catches the failure class that produced commit 7219b48 → red CI:
+ *  production code committed alone while its consumer test stayed
+ *  in the working tree, so tests passed locally and broke on the
+ *  committed snapshot in CI. */
+function pushDirtyDependentPreCommitWarning(
+	cmd: string,
+	graph: ProjectGraph | undefined,
+	cwd: string | undefined,
+	warnings: string[],
+): void {
 	if (/\bgit\s+commit\b/.test(cmd) && graph && cwd) {
 		const dd = collectDirtyDependentWarning(cwd, graph);
 		if (dd) warnings.push(dd);
 	}
+}
+
+/** GUARD: escalate curl/wget to an external URL (unless already pending). */
+function buildExternalUrlEscalation(
+	cmd: string,
+	toolName: string,
+	session: SessionTrajectory | undefined,
+	pendingEscalation: EscalationRequest | undefined,
+): EscalationRequest | undefined {
 	if (
 		/\b(curl|wget)\b/i.test(cmd) &&
 		/https?:\/\/(?!localhost|127\.0\.0\.1)/i.test(cmd) &&
 		!pendingEscalation
 	) {
-		pendingEscalation = {
+		return {
 			trigger: "external_url",
 			summary: "Bash command contains curl/wget to external URL",
 			tool_name: toolName,
@@ -265,6 +304,11 @@ export function evaluateExfilGuards(args: {
 			recent_tool_sequence: session?.tool_sequence.slice(-ESCALATION_TAIL_LENGTH) || [],
 		};
 	}
+	return pendingEscalation;
+}
+
+/** GUARD: warn when curl sends data to an external URL (possible exfil). */
+function pushDataExfilWarning(cmd: string, warnings: string[]): void {
 	if (
 		/\bcurl\b.*(-d|--data|--data-raw|--data-binary)\b.*https?:\/\/(?!localhost|127\.0\.0\.1)/i.test(
 			cmd,
@@ -274,21 +318,35 @@ export function evaluateExfilGuards(args: {
 			"[interlinked] Warning: Sending data to an external URL. Verify this is intentional and not exfiltrating sensitive data.",
 		);
 	}
+}
+
+/** GUARD: block piping environment variables to a network tool. */
+function buildEnvExfilBlock(cmd: string): HarnessDecision | undefined {
 	if (/\b(env|printenv|set)\b.*\|\s*(curl|wget|nc|netcat)\b/i.test(cmd)) {
 		return {
-			warnings,
-			block: {
-				decision: "block",
-				reason: "BLOCKED: Piping environment variables to a network tool is a data exfiltration risk.",
-			},
-			escalation: pendingEscalation,
+			decision: "block",
+			reason: "BLOCKED: Piping environment variables to a network tool is a data exfiltration risk.",
 		};
 	}
+	return undefined;
+}
+
+/** GUARD: warn on package installs from a custom registry (dependency confusion risk). */
+function pushCustomRegistryWarning(cmd: string, warnings: string[]): void {
 	if (/\b(pip|npm)\s+install\b.*(-i\b|--index-url|--registry)\b/i.test(cmd)) {
 		warnings.push(
 			"[interlinked] Warning: Installing packages from a custom registry. Verify this is a trusted source (dependency confusion risk).",
 		);
 	}
+}
+
+/** GUARD: warn when a command matches the dropper-staging pattern
+ *  (write-then-execute a payload from a temp directory). */
+function pushDropperStagingWarning(
+	cmd: string,
+	session: SessionTrajectory | undefined,
+	warnings: string[],
+): void {
 	if (session) {
 		const staged = detectDropperStaging(cmd, session.session_id);
 		if (staged) {
@@ -297,8 +355,6 @@ export function evaluateExfilGuards(args: {
 			);
 		}
 	}
-
-	return { warnings, escalation: pendingEscalation };
 }
 
 /** Result of the Read sensitive-file / oversized-file block. */

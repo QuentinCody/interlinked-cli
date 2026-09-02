@@ -25,6 +25,7 @@
 import { readFileSync } from "node:fs";
 import type { JsonObject } from "../../lib/json-types.js";
 import { type CognitiveComplexityEntry, computeCognitiveAst } from "../checks/cognitive-ast.js";
+import { makeGrandfatherResolver } from "../function-complexity-baseline.js";
 import { maxCognitiveFor, metricDef } from "../metric-caps.js";
 import { checkPerFunctionMetricWrite, type MetricGateSpec } from "./per-function-metric-gate.js";
 
@@ -135,6 +136,11 @@ export const SUB_CAP_COGNITIVE_RATCHET_TOLERANCE = 4;
  * the deepest-nested block), not "extract a branch" — a branch pulled out
  * unflattened just moves the same nesting cost into a helper (see the
  * relocation test in cognitive-write-guard.block.test.ts).
+ *
+ * `grandfatherFor` plugs in the per-function grandfather ledger's cognitive
+ * section (`interlinked caps ratchet cognitive --to <n>`) — same contract as
+ * the cyclomatic spec: listed functions may hold/shrink at their recorded
+ * value, unlisted over-cap functions block, no ledger ⇒ legacy delta.
  */
 const COGNITIVE_SPEC: MetricGateSpec<CognitiveComplexityEntry> = {
 	label: "cognitive",
@@ -144,6 +150,7 @@ const COGNITIVE_SPEC: MetricGateSpec<CognitiveComplexityEntry> = {
 	selectAnalyzer: (filePath) =>
 		JS_TS_RE.test(filePath) ? { compute: computeCognitiveAst, language: "js_ts" } : null,
 	capFor: maxCognitiveFor,
+	grandfatherFor: makeGrandfatherResolver("cognitive", ANON_FN),
 	limitPhrase: "cognitive-complexity limit",
 	unitPlural: "point(s)",
 	unitAdj: "point",

@@ -134,37 +134,63 @@ export function scrubSecrets(text: string, opts?: ScrubConfig): ScrubResult {
 	const config = opts || {};
 	if (config.enabled === false) return { text, found: 0, types: [] };
 
-	let scrubbed = text;
 	const foundTypes: string[] = [];
 	let found = 0;
+	const note = (name: string) => {
+		if (!foundTypes.includes(name)) foundTypes.push(name);
+		found++;
+	};
 
-	// Compile ignore patterns. These come from user-authored scrub.json under
-	// the caller's control, not from untrusted input — dynamic RegExp is
-	// deliberate here.
+	const shouldIgnore = buildIgnoreChecker(config.ignore_patterns);
+	const allPatterns = buildAllPatterns(config.extra_patterns);
+	let scrubbed = applyPatternScrub(text, allPatterns, shouldIgnore, note);
+	scrubbed = applyEntropyScrub(scrubbed, config, note);
+
+	return { text: scrubbed, found, types: foundTypes };
+}
+
+/**
+ * Compile ignore patterns and return a predicate for whether a match should
+ * be skipped. These come from user-authored scrub.json under the caller's
+ * control, not from untrusted input — dynamic RegExp is deliberate here.
+ */
+function buildIgnoreChecker(ignorePatternsSrc: string[] | undefined): (match: string) => boolean {
 	// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-	const ignorePatterns = (config.ignore_patterns || []).map((p) => new RegExp(p, "g"));
-
-	// Check if a match should be ignored
-	const shouldIgnore = (match: string) =>
+	const ignorePatterns = (ignorePatternsSrc || []).map((p) => new RegExp(p, "g"));
+	return (match: string) =>
 		ignorePatterns.some((p) => {
 			p.lastIndex = 0;
 			return p.test(match);
 		});
+}
 
-	// Layer 1: Pattern matching. `extra_patterns` is user-authored scrub
-	// config, not untrusted input — dynamic RegExp is deliberate.
+/**
+ * Combine the built-in patterns with any user-supplied `extra_patterns`.
+ * `extra_patterns` is user-authored scrub config, not untrusted input —
+ * dynamic RegExp is deliberate.
+ */
+function buildAllPatterns(extraPatternsSrc: string[] | undefined): SecretPattern[] {
 	const allPatterns = [...BUILTIN_PATTERNS];
-	if (config.extra_patterns) {
-		for (const p of config.extra_patterns) {
-			try {
-				// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-				allPatterns.push({ name: "custom", regex: new RegExp(p, "g") });
-			} catch (_err) {
-				/* intentional: user-supplied pattern failed to compile — skip it silently */
-			}
+	if (!extraPatternsSrc) return allPatterns;
+	for (const p of extraPatternsSrc) {
+		try {
+			// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
+			allPatterns.push({ name: "custom", regex: new RegExp(p, "g") });
+		} catch (_err) {
+			/* intentional: user-supplied pattern failed to compile — skip it silently */
 		}
 	}
+	return allPatterns;
+}
 
+/** Layer 1: replace every non-ignored pattern match with a redaction marker. */
+function applyPatternScrub(
+	text: string,
+	allPatterns: SecretPattern[],
+	shouldIgnore: (match: string) => boolean,
+	note: (name: string) => void,
+): string {
+	let scrubbed = text;
 	for (const pattern of allPatterns) {
 		pattern.regex.lastIndex = 0;
 		let match: RegExpExecArray | null = pattern.regex.exec(scrubbed);
@@ -177,30 +203,35 @@ export function scrubSecrets(text: string, opts?: ScrubConfig): ScrubResult {
 				scrubbed.slice(0, match.index) +
 				`[REDACTED:${pattern.name}]` +
 				scrubbed.slice(match.index + match[0].length);
-			if (!foundTypes.includes(pattern.name)) foundTypes.push(pattern.name);
-			found++;
+			note(pattern.name);
 			// Reset lastIndex since string changed
 			pattern.regex.lastIndex = match.index + `[REDACTED:${pattern.name}]`.length;
 			match = pattern.regex.exec(scrubbed);
 		}
 	}
+	return scrubbed;
+}
 
-	// Layer 2: Entropy detection
+/** Layer 2: entropy detection over whitespace/delimiter-split tokens. */
+function applyEntropyScrub(
+	text: string,
+	config: ScrubConfig,
+	note: (name: string) => void,
+): string {
 	const threshold = config.entropy_threshold || 4.5;
 	const minLength = config.entropy_min_length || 20;
 
+	let scrubbed = text;
 	// Split on whitespace and common delimiters, check each token
 	const tokens = scrubbed.split(/[\s"'`=:,;{}[\]()]+/);
 	for (const token of tokens) {
 		if (token.includes("[REDACTED:")) continue; // Already scrubbed
 		if (isLikelySecret(token, threshold, minLength)) {
 			scrubbed = scrubbed.replace(token, "[REDACTED:entropy]");
-			if (!foundTypes.includes("entropy")) foundTypes.push("entropy");
-			found++;
+			note("entropy");
 		}
 	}
-
-	return { text: scrubbed, found, types: foundTypes };
+	return scrubbed;
 }
 
 // ===========================================

@@ -29,6 +29,13 @@
 //   Uses `splitRemoved`, the mirror of `splitIntroduced` added alongside it
 //   in pre-block-gate.ts for this purpose. See its own companion test file
 //   for the evidence dossier (this detector is not grandfathered).
+//   MOVE-aware (2026-09): a removed line paid for by an EQUIVALENT added
+//   line in the same edit (same expect() subject + terminal matcher +
+//   expected-value text; this file or a mutation-directed `siblings` entry
+//   of the same ChangeSet) is a move, not a loss —
+//   `classifyRemovedAssertions` splits removed/moved; only `removed` fires.
+//   The campaign waiver (INTERLINKED_ASSERTION_MOVE_WAIVER=1, ledger in
+//   assertion-waiver-log.ts) lives in the evaluator, not here.
 //
 // Suppression-aware like every other pre_block surface (pre-block-gate.ts's
 // own header comment, point 2): a directive exempts a finding here exactly
@@ -51,6 +58,7 @@ import {
 	type PreBlockCheckOutcome,
 } from "../pre-block-gate.js";
 import { isSuppressed, scanInlineSuppressions } from "../suppressions.js";
+import { type MovedAssertionSplit, partitionMovedAssertions } from "./assertion-move.js";
 import { getExtension, isStrictTestFile, JS_TS_EXTS } from "./shared.js";
 import { maskCommentsAndStrings } from "./test-hygiene-masking.js";
 import {
@@ -85,6 +93,23 @@ export interface MutationDirectedProfileArgs {
 	/** Project root, for `.interlinked/verify-suppressions.json` resolution.
 	 *  Omitted ⇒ inline suppressions only (GATE 1) / no suppression (GATE 2). */
 	projectRoot?: string | undefined;
+	/** Other files written by the SAME edit/ChangeSet. GATE 2 only: an
+	 *  assertion removed here and re-added (equivalently) in a sibling is a
+	 *  MOVE, not a loss. GATE 1 ignores siblings. */
+	siblings?: ChangeSetSibling[] | undefined;
+}
+
+/** One sibling file of a multi-file edit — proposed content plus its own
+ *  on-disk baseline (null when the sibling is a new file). Only a sibling
+ *  that is ITSELF mutation-directed (`isMutationDirectedFile`) can pay for a
+ *  removal: kill evidence that leaves the graded file class — deleted from
+ *  `x.mutation-kill.test.ts`, re-added to plain `x.test.ts` — is a loss for
+ *  the mutation grade even though the assertion text survives, so such a
+ *  sibling is ignored and the removal stays a removal. */
+export interface ChangeSetSibling {
+	filePath: string;
+	content: string;
+	baselineContent: string | null;
 }
 
 /** True when `filePath` is in the mutation-directed file class this whole
@@ -241,12 +266,41 @@ function assertionAndCaseLines(content: string, filePath: string): InlineMatch[]
  * surviving line to place a directive above).
  */
 export function detectRemovedAssertions(args: MutationDirectedProfileArgs): InlineMatch[] {
-	const { content, filePath, baselineContent, projectRoot } = args;
-	if (!isMutationDirectedFile(filePath) || baselineContent == null) return [];
-	if (fileSuppressionsFor(filePath, projectRoot).has(REMOVED_ASSERTION_CHECK_ID)) return [];
+	return classifyRemovedAssertions(args).removed;
+}
+
+/**
+ * Assertion/case lines this edit INTRODUCES in one mutation-directed file (no
+ * baseline ⇒ every line is new) — the pool that can pay for a removal
+ * elsewhere in the edit, or REDEEM a same-session waived removal from the
+ * ledger (assertion-waiver-log.ts). [] for any file outside the graded class.
+ */
+export function introducedAssertionLines(file: ChangeSetSibling): InlineMatch[] {
+	if (!isMutationDirectedFile(file.filePath)) return [];
+	const proposed = assertionAndCaseLines(file.content, file.filePath);
+	if (file.baselineContent == null) return proposed;
+	return splitIntroduced(proposed, assertionAndCaseLines(file.baselineContent, file.filePath)).introduced;
+}
+
+/**
+ * GATE 2 with MOVE awareness: the exact-text removals of
+ * {@link detectRemovedAssertions}, split into `removed` (evidence left the
+ * edit) and `moved` (an equivalent assertion — same subject, same terminal
+ * matcher, same expected-value text — was ADDED by the same edit, in this
+ * file or any mutation-directed `siblings` entry; see
+ * checks/assertion-move.ts). Only `removed` warns or blocks. Same []
+ * conditions as the plain detector.
+ */
+export function classifyRemovedAssertions(args: MutationDirectedProfileArgs): MovedAssertionSplit {
+	const { content, filePath, baselineContent, projectRoot, siblings } = args;
+	if (!isMutationDirectedFile(filePath) || baselineContent == null) return { removed: [], moved: [] };
+	if (fileSuppressionsFor(filePath, projectRoot).has(REMOVED_ASSERTION_CHECK_ID)) return { removed: [], moved: [] };
 	const { removed } = splitRemoved(
 		assertionAndCaseLines(content, filePath),
 		assertionAndCaseLines(baselineContent, filePath),
 	);
-	return removed;
+	if (removed.length === 0) return { removed, moved: [] };
+	const added = introducedAssertionLines({ filePath, content, baselineContent });
+	for (const s of siblings ?? []) added.push(...introducedAssertionLines(s));
+	return partitionMovedAssertions(removed, added);
 }

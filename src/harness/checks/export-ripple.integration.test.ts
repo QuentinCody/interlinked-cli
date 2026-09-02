@@ -96,6 +96,21 @@ describe("getGitSourceFiles", () => {
 		expect(files).not.toContain("data.json");
 	});
 
+	it("P1: lists .mts/.cts files — the same JS/TS set the per-function gates put into ledger mode", () => {
+		// A ledger scan (function-complexity-baseline.ts::computeOverCap) walks this
+		// list; a .mts the gates treat as ledgerable but the scan never saw could
+		// never be listed, so every edit to it false-blocked once a ledger existed.
+		const repo = makeRepo();
+		write(repo, "src/esm.mts", "export const m = 1;\n");
+		write(repo, "src/cjs.cts", "export const c = 1;\n");
+		write(repo, "src/notes.mdts", "not source\n");
+		add(repo);
+		const files = getGitSourceFiles(repo);
+		expect(files).toContain("src/esm.mts");
+		expect(files).toContain("src/cjs.cts");
+		expect(files).not.toContain("src/notes.mdts");
+	});
+
 	it("includes untracked-but-not-ignored files (--others --exclude-standard)", () => {
 		const repo = makeRepo();
 		// Never `git add`-ed, but not ignored => should still appear.

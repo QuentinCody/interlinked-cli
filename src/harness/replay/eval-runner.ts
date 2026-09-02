@@ -50,13 +50,62 @@ interface EvalRunSummary {
 	failed: number;
 }
 
+interface EvalRunDefaults {
+	runner: CandidateRunnerFn;
+	now: () => string;
+	limit: number;
+	log: (msg: string) => void;
+}
+
+function resolveEvalDefaults(args: EvalRunArgs): EvalRunDefaults {
+	return {
+		runner: args.runner ?? runCandidate,
+		now: args.now ?? (() => new Date().toISOString()),
+		limit: args.limit ?? Number.POSITIVE_INFINITY,
+		log: args.log ?? ((): void => undefined),
+	};
+}
+
+function buildLedgerRow(
+	args: EvalRunArgs,
+	step: ReturnType<typeof loadTrace>[number],
+	toolUseId: string | null,
+	envelope: NonNullable<ReturnType<typeof envelopeForToolUseId>>,
+	result: CandidateRunResult,
+	now: () => string,
+): LedgerRow {
+	const refAction = {
+		tool: step.action?.tool ?? null,
+		input: step.action?.input ?? null,
+	};
+	return {
+		schema: "replay-eval.v1",
+		run_id: args.runId,
+		ts: now(),
+		mode: "off_policy",
+		reference: {
+			session_id: args.sessionId,
+			seq: step.key.seq,
+			tool_use_id: toolUseId,
+			model: typeof envelope.request.model === "string" ? envelope.request.model : null,
+		},
+		candidate: { model: args.candidateModel, decode: "default" },
+		scores: {
+			action_match: actionMatch(refAction, result.proposed),
+			structural: scoreEditActions(refAction, result.proposed),
+		},
+		reference_tool: refAction.tool,
+	};
+}
+
+function formatEvalStepError(step: ReturnType<typeof loadTrace>[number], err: unknown): string {
+	return `eval step seq=${step.key.seq ?? "?"} failed: ${err instanceof Error ? err.message : String(err)}`;
+}
+
 export async function runEvalOverTrace(args: EvalRunArgs): Promise<EvalRunSummary> {
 	const steps = loadTrace(args.cwd, args.sessionId);
 	const envelopes = loadEnvelopes(perSessionEnvelopePath(args.cwd, args.sessionId));
-	const runner = args.runner ?? runCandidate;
-	const now = args.now ?? (() => new Date().toISOString());
-	const limit = args.limit ?? Number.POSITIVE_INFINITY;
-	const log = args.log ?? ((): void => undefined);
+	const { runner, now, limit, log } = resolveEvalDefaults(args);
 
 	let evaluated = 0;
 	let skipped = 0;
@@ -77,36 +126,12 @@ export async function runEvalOverTrace(args: EvalRunArgs): Promise<EvalRunSummar
 				apiKey: args.apiKey,
 				keepThinking: args.keepThinking ?? false,
 			});
-			const refAction = {
-				tool: step.action?.tool ?? null,
-				input: step.action?.input ?? null,
-			};
-			const row: LedgerRow = {
-				schema: "replay-eval.v1",
-				run_id: args.runId,
-				ts: now(),
-				mode: "off_policy",
-				reference: {
-					session_id: args.sessionId,
-					seq: step.key.seq,
-					tool_use_id: toolUseId,
-					model:
-						typeof envelope.request.model === "string" ? envelope.request.model : null,
-				},
-				candidate: { model: args.candidateModel, decode: "default" },
-				scores: {
-					action_match: actionMatch(refAction, result.proposed),
-					structural: scoreEditActions(refAction, result.proposed),
-				},
-				reference_tool: refAction.tool,
-			};
+			const row = buildLedgerRow(args, step, toolUseId, envelope, result, now);
 			appendLedgerRow(args.cwd, row);
 			evaluated++;
 		} catch (err) {
 			failed++;
-			log(
-				`eval step seq=${step.key.seq ?? "?"} failed: ${err instanceof Error ? err.message : String(err)}`,
-			);
+			log(formatEvalStepError(step, err));
 		}
 	}
 	return { run_id: args.runId, evaluated, skipped_no_envelope: skipped, failed };

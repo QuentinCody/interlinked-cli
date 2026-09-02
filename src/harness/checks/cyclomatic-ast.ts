@@ -174,8 +174,12 @@ export function isImplementationFunction(ts: TsModule, node: TS.Node): boolean {
 	return isFunctionLike(ts, node) && (node as TS.FunctionLikeDeclaration).body !== undefined;
 }
 
-/** Does this node add one to cyclomatic complexity? (Canonical decision set.) */
-function isDecisionPoint(ts: TsModule, node: TS.Node): boolean {
+/**
+ * Does this node add one to cyclomatic complexity? (Canonical decision set.)
+ * Exported so the decomposition planner (`decomposition-plan.ts`) prices arms
+ * with the SAME predicate the gate counts with — a private mirror would drift.
+ */
+export function isDecisionPoint(ts: TsModule, node: TS.Node): boolean {
 	if (
 		ts.isIfStatement(node) ||
 		ts.isForStatement(node) ||

@@ -59,27 +59,64 @@ function artifactFieldError(r: JsonObject, at: string): string | null {
 		: null;
 }
 
-/** Field-level validation for one row; the returned string is the reason. */
-function fieldError(r: JsonObject, at: string): string | null {
+function runnerFieldError(r: JsonObject, at: string): string | null {
 	if (typeof r.runner !== "string" || !VALID_MANIFEST_RUNNERS.has(r.runner)) {
 		return `${at} has unknown runner ${JSON.stringify(r.runner)}`;
 	}
+	return null;
+}
+
+function scopeFieldError(r: JsonObject, at: string): string | null {
 	if (r.scope !== "user" && r.scope !== "project" && r.scope !== "local") {
 		return `${at} has invalid scope ${JSON.stringify(r.scope)}`;
 	}
+	return null;
+}
+
+function settingsPathFieldError(r: JsonObject, at: string): string | null {
 	if (typeof r.settings_path !== "string" || r.settings_path === "") return `${at} has no settings_path`;
+	return null;
+}
+
+function addedPathsFieldError(r: JsonObject, at: string): string | null {
 	if (!Array.isArray(r.added_paths) || r.added_paths.some((x) => typeof x !== "string")) {
 		return `${at} has a non-string added_paths array`;
 	}
 	for (const p of r.added_paths as string[]) {
 		if (forbiddenSegmentIn(p)) return `${at} has a forbidden added_paths segment in ${JSON.stringify(p)}`;
 	}
+	return null;
+}
+
+function binaryPathFieldError(r: JsonObject, at: string): string | null {
 	if (typeof r.binary_path !== "string" || r.binary_path === "") return `${at} has no binary_path`;
+	return null;
+}
+
+function installedAtFieldError(r: JsonObject, at: string): string | null {
 	if (typeof r.installed_at !== "string") return `${at} has no installed_at`;
+	return null;
+}
+
+function postInstallFieldError(r: JsonObject, at: string): string | null {
 	if (r.post_install !== undefined && r.post_install !== "ok" && r.post_install !== "failed") {
 		return `${at} has invalid post_install ${JSON.stringify(r.post_install)}`;
 	}
-	return artifactFieldError(r, at);
+	return null;
+}
+
+/** Field-level validation for one row; the returned string is the reason. */
+function fieldError(r: JsonObject, at: string): string | null {
+	return (
+		runnerFieldError(r, at) ??
+		scopeFieldError(r, at) ??
+		settingsPathFieldError(r, at) ??
+		addedPathsFieldError(r, at) ??
+		binaryPathFieldError(r, at) ??
+		installedAtFieldError(r, at) ??
+		postInstallFieldError(r, at) ??
+		artifactFieldError(r, at)
+	);
 }
 
 /** ADAPTER/PATH BINDING: the stored path must equal what the named adapter

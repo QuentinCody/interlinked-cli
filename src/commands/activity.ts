@@ -81,35 +81,17 @@ export async function activityCommand(opts: {
 	const limit = parsedLimit;
 
 	try {
-		const durationMs = opts.since ? parseDuration(opts.since) : undefined;
-		const sinceTs = durationMs ? Date.now() - durationMs : undefined;
+		const sinceTs = computeSinceTs(opts.since);
 
 		// Fetch local and server in parallel
 		const [localResult, serverResult] = await Promise.allSettled([
-			Promise.resolve(
-				readLocalActivity({
-					...(sinceTs !== undefined ? { since: sinceTs } : {}),
-					...(opts.agent !== undefined ? { agent: opts.agent } : {}),
-					limit: limit * 2, // Fetch extra for merge dedup
-				}).map(localToActivity),
-			),
-			getClient().callTool<ServerActivityFeedResult>("query_activity_feed", {
-				limit: limit * 2,
-				...(opts.agent ? { agent_name: opts.agent } : {}),
-			}),
+			Promise.resolve(readLocalEvents(opts, limit, sinceTs)),
+			fetchServerEvents(opts, limit),
 		]);
 
 		const localEvents = localResult.status === "fulfilled" ? localResult.value : [];
-		let serverEvents: ActivityEvent[] = [];
-		if (serverResult.status === "fulfilled") {
-			const result = serverResult.value;
-			serverEvents = (result?.events || result?.activities || result?.activity || []).map(
-				(e) => ({
-					...e,
-					_source: "server",
-				}),
-			);
-		}
+		const serverEvents: ActivityEvent[] =
+			serverResult.status === "fulfilled" ? toServerEvents(serverResult.value) : [];
 
 		const isServerDown = serverResult.status === "rejected";
 		const isLocalEmpty = localEvents.length === 0;
@@ -124,83 +106,152 @@ export async function activityCommand(opts: {
 
 		// Apply --since filter to server events (local already filtered)
 		if (sinceTs) {
-			events = events.filter((e) => {
-				const ts = e.occurred_at || e.ts || e.timestamp || e.created_at;
-				if (!ts) return true;
-				return new Date(ts).getTime() >= sinceTs;
-			});
+			events = applySinceFilter(events, sinceTs);
 		}
 
 		// Apply limit after merge
 		events = events.slice(0, limit);
 
 		const sourceLabel = isServerDown && !isLocalEmpty ? " (local)" : "";
-
-		let eventSource: "local" | "server" | "merged";
-		if (isServerDown) {
-			eventSource = "local";
-		} else if (isLocalEmpty) {
-			eventSource = "server";
-		} else {
-			eventSource = "merged";
-		}
+		const eventSource = resolveEventSource(isServerDown, isLocalEmpty);
 
 		output(mode, events, {
 			json: () => ({
 				events,
 				source: eventSource,
 			}),
-			normal: () => {
-				const lines: string[] = [];
-				lines.push(header(`Activity Feed${sourceLabel}`));
-
-				if (events.length === 0) {
-					lines.push(c.dim("  No recent activity"));
-					return lines.join("\n");
-				}
-
-				const rows = events.map((e) => {
-					const ts = shortTimestamp(e.occurred_at || e.ts || e.timestamp || e.created_at);
-					const agent = e.agent_name || e.agent || c.dim("-");
-					const eventType = e.event_type || e.type || c.dim("-");
-					const tool = e.tool_name || e.tool || c.dim("-");
-					const summary = truncate(e.tool_input_summary || e.summary || "", 50);
-					const dur = e.duration_ms != null ? `${e.duration_ms}ms` : c.dim("-");
-					const tok = e.tokens
-						? c.dim(`${(e.tokens.input || 0) + (e.tokens.output || 0)} tok`)
-						: c.dim("-");
-					return [ts, agent, eventType, tool, summary, dur, tok];
-				});
-
-				lines.push(
-					table(
-						["Time", "Agent", "Event", "Tool", "Summary", "Duration", "Tokens"],
-						rows,
-					),
-				);
-
-				// Aggregate token summary
-				const totals = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
-				let tokenEventCount = 0;
-				for (const e of events) {
-					if (e.tokens) {
-						totals.input += e.tokens.input || 0;
-						totals.output += e.tokens.output || 0;
-						totals.cache_read += e.tokens.cache_read || 0;
-						totals.cache_creation += e.tokens.cache_creation || 0;
-						tokenEventCount++;
-					}
-				}
-				if (tokenEventCount > 0) {
-					lines.push(
-						`\n  ${c.bold("Totals")}: ${formatTokens(totals)} (${estimateCost(totals)}) across ${tokenEventCount} events`,
-					);
-				}
-
-				return lines.join("\n");
-			},
+			normal: () => renderActivityText(events, sourceLabel),
 		});
 	} catch (err) {
 		outputError(mode, err instanceof Error ? err.message : String(err));
 	}
+}
+
+/** Resolve the `--since` cutoff timestamp (ms epoch) from the raw duration string. */
+function computeSinceTs(since: string | undefined): number | undefined {
+	const durationMs = since ? parseDuration(since) : undefined;
+	return durationMs ? Date.now() - durationMs : undefined;
+}
+
+/** Read the local JSONL feed (over-fetched for merge dedup) as ActivityEvents. */
+function readLocalEvents(
+	opts: { agent?: string },
+	limit: number,
+	sinceTs: number | undefined,
+): ActivityEvent[] {
+	return readLocalActivity({
+		...(sinceTs !== undefined ? { since: sinceTs } : {}),
+		...(opts.agent !== undefined ? { agent: opts.agent } : {}),
+		limit: limit * 2, // Fetch extra for merge dedup
+	}).map(localToActivity);
+}
+
+/** Ask the server for its activity feed (over-fetched for merge dedup). */
+function fetchServerEvents(
+	opts: { agent?: string },
+	limit: number,
+): Promise<ServerActivityFeedResult> {
+	return getClient().callTool<ServerActivityFeedResult>("query_activity_feed", {
+		limit: limit * 2,
+		...(opts.agent ? { agent_name: opts.agent } : {}),
+	});
+}
+
+/** Normalize the untyped server payload into tagged ActivityEvents. */
+function toServerEvents(result: ServerActivityFeedResult): ActivityEvent[] {
+	return (result?.events || result?.activities || result?.activity || []).map((e) => ({
+		...e,
+		_source: "server",
+	}));
+}
+
+/** The first timestamp field an event carries, in server→local precedence order. */
+function eventTimestamp(e: ActivityEvent): string | undefined {
+	return e.occurred_at || e.ts || e.timestamp || e.created_at;
+}
+
+/** Drop events older than the cutoff; events with no timestamp are kept. */
+function applySinceFilter(events: ActivityEvent[], sinceTs: number): ActivityEvent[] {
+	return events.filter((e) => {
+		const ts = eventTimestamp(e);
+		if (!ts) return true;
+		return new Date(ts).getTime() >= sinceTs;
+	});
+}
+
+/** Which source(s) the rendered feed actually came from. */
+function resolveEventSource(
+	isServerDown: boolean,
+	isLocalEmpty: boolean,
+): "local" | "server" | "merged" {
+	if (isServerDown) return "local";
+	if (isLocalEmpty) return "server";
+	return "merged";
+}
+
+/** The Tokens column cell for one event. */
+function tokenCell(e: ActivityEvent): string {
+	return e.tokens
+		? c.dim(`${(e.tokens.input || 0) + (e.tokens.output || 0)} tok`)
+		: c.dim("-");
+}
+
+/** One table row for one event. */
+function toEventRow(e: ActivityEvent): string[] {
+	const ts = shortTimestamp(eventTimestamp(e));
+	const agent = e.agent_name || e.agent || c.dim("-");
+	const eventType = e.event_type || e.type || c.dim("-");
+	const tool = e.tool_name || e.tool || c.dim("-");
+	const summary = truncate(e.tool_input_summary || e.summary || "", 50);
+	const dur = e.duration_ms != null ? `${e.duration_ms}ms` : c.dim("-");
+	return [ts, agent, eventType, tool, summary, dur, tokenCell(e)];
+}
+
+interface TokenTotals {
+	totals: { input: number; output: number; cache_read: number; cache_creation: number };
+	tokenEventCount: number;
+}
+
+/** Sum token usage across the events that report it. */
+function sumTokenTotals(events: ActivityEvent[]): TokenTotals {
+	const totals = { input: 0, output: 0, cache_read: 0, cache_creation: 0 };
+	let tokenEventCount = 0;
+	for (const e of events) {
+		if (e.tokens) {
+			totals.input += e.tokens.input || 0;
+			totals.output += e.tokens.output || 0;
+			totals.cache_read += e.tokens.cache_read || 0;
+			totals.cache_creation += e.tokens.cache_creation || 0;
+			tokenEventCount++;
+		}
+	}
+	return { totals, tokenEventCount };
+}
+
+/** Render the human-readable activity feed. */
+function renderActivityText(events: ActivityEvent[], sourceLabel: string): string {
+	const lines: string[] = [];
+	lines.push(header(`Activity Feed${sourceLabel}`));
+
+	if (events.length === 0) {
+		lines.push(c.dim("  No recent activity"));
+		return lines.join("\n");
+	}
+
+	lines.push(
+		table(
+			["Time", "Agent", "Event", "Tool", "Summary", "Duration", "Tokens"],
+			events.map(toEventRow),
+		),
+	);
+
+	// Aggregate token summary
+	const { totals, tokenEventCount } = sumTokenTotals(events);
+	if (tokenEventCount > 0) {
+		lines.push(
+			`\n  ${c.bold("Totals")}: ${formatTokens(totals)} (${estimateCost(totals)}) across ${tokenEventCount} events`,
+		);
+	}
+
+	return lines.join("\n");
 }

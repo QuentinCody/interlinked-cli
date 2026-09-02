@@ -259,6 +259,52 @@ function collectSeverityTriggers(
 	listScores: Map<keyof PerSectionScore, ListSectionScore>,
 ): SeverityTrigger[] {
 	const triggers: SeverityTrigger[] = [];
+	pushRiskTriggers(prediction, oracle, triggers);
+
+	if (isDirectCountUnderestimated(prediction, oracle)) {
+		triggers.push("direct_count_underestimated");
+	}
+
+	if (
+		hasLowRecall({
+			score: listScores.get("deps.imported_by"),
+			oracleCount: (oracle.deps?.importedBy ?? []).length,
+			recallFloor: IMPORTED_BY_RECALL_FLOOR,
+			oracleMin: IMPORTED_BY_ORACLE_MIN,
+		})
+	) {
+		triggers.push("imported_by_recall_low");
+	}
+
+	if (
+		hasLowRecall({
+			score: listScores.get("calls.callers"),
+			oracleCount: (oracle.calls?.callers ?? []).length,
+			recallFloor: CALLERS_RECALL_FLOOR,
+			oracleMin: CALLERS_ORACLE_MIN,
+		})
+	) {
+		triggers.push("callers_recall_low");
+	}
+
+	if (
+		hasLowRecall({
+			score: listScores.get("impact.domains"),
+			oracleCount: (oracle.impact?.domains ?? []).length,
+			recallFloor: DOMAINS_RECALL_FLOOR,
+			oracleMin: DOMAINS_ORACLE_MIN,
+		})
+	) {
+		triggers.push("domains_recall_low");
+	}
+	return triggers;
+}
+
+function pushRiskTriggers(
+	prediction: ParsedGraphPrediction,
+	oracle: SupermodelGraph,
+	triggers: SeverityTrigger[],
+): void {
 	const predictedRisk = prediction.impact?.risk;
 	const oracleRisk = oracle.impact?.risk;
 	if (predictedRisk === PREDICTED_RISK_LOW && oracleRisk === ORACLE_RISK_HIGH) {
@@ -267,48 +313,32 @@ function collectSeverityTriggers(
 	if (predictedRisk === PREDICTED_RISK_MEDIUM && oracleRisk === ORACLE_RISK_HIGH) {
 		triggers.push("risk_underestimated_medium_to_high");
 	}
+}
 
+function isDirectCountUnderestimated(
+	prediction: ParsedGraphPrediction,
+	oracle: SupermodelGraph,
+): boolean {
 	const predictedDirect = prediction.impact?.direct;
 	const oracleDirect = oracle.impact?.direct;
-	if (
+	return (
 		typeof predictedDirect === "number" &&
 		predictedDirect <= DIRECT_PRED_MAX_FOR_TRIGGER &&
 		typeof oracleDirect === "number" &&
 		oracleDirect >= DIRECT_ORACLE_MIN_FOR_TRIGGER
-	) {
-		triggers.push("direct_count_underestimated");
-	}
+	);
+}
 
-	const importedByScore = listScores.get("deps.imported_by");
-	const oracleImporters = oracle.deps?.importedBy ?? [];
-	if (
-		importedByScore &&
-		importedByScore.recall < IMPORTED_BY_RECALL_FLOOR &&
-		oracleImporters.length >= IMPORTED_BY_ORACLE_MIN
-	) {
-		triggers.push("imported_by_recall_low");
-	}
+interface RecallTriggerInput {
+	score: ListSectionScore | undefined;
+	oracleCount: number;
+	recallFloor: number;
+	oracleMin: number;
+}
 
-	const callersScore = listScores.get("calls.callers");
-	const oracleCallers = oracle.calls?.callers ?? [];
-	if (
-		callersScore &&
-		callersScore.recall < CALLERS_RECALL_FLOOR &&
-		oracleCallers.length >= CALLERS_ORACLE_MIN
-	) {
-		triggers.push("callers_recall_low");
-	}
-
-	const domainsScore = listScores.get("impact.domains");
-	const oracleDomains = oracle.impact?.domains ?? [];
-	if (
-		domainsScore &&
-		domainsScore.recall < DOMAINS_RECALL_FLOOR &&
-		oracleDomains.length >= DOMAINS_ORACLE_MIN
-	) {
-		triggers.push("domains_recall_low");
-	}
-	return triggers;
+function hasLowRecall(input: RecallTriggerInput): boolean {
+	const { score, oracleCount, recallFloor, oracleMin } = input;
+	return score !== undefined && score.recall < recallFloor && oracleCount >= oracleMin;
 }
 
 export function reconcile(inputs: ReconcileInputs): SeverityResult {

@@ -209,54 +209,80 @@ function rankCalleeIdent(name: string, ctx: TraceCtx): Rank {
 	return UNCERTAIN;
 }
 
-/** Does this expression's value provably reach a non-mocked SUT symbol? */
-function rankValue(node: TS.Node, ctx: TraceCtx, depth: number, seen: Set<string>): Rank {
+/** Dynamic `import("./sut")` reaches the SUT module's surface, else null (not applicable). */
+function rankDynamicImport(node: TS.CallExpression, ctx: TraceCtx): Rank | null {
 	const { ts } = ctx;
+	if (node.expression.kind !== ts.SyntaxKind.ImportKeyword) return null;
+	const spec = node.arguments[0];
+	if (spec && ts.isStringLiteralLike(spec) && isSutSpecifier(spec.text)) return REACHED;
+	return null;
+}
 
-	if (isPrimitiveLiteral(ts, node)) return NONE;
+/** Rank a CallExpression: dynamic-import special case, then callee + args. */
+function rankCallExpressionValue(
+	node: TS.CallExpression,
+	ctx: TraceCtx,
+	depth: number,
+	seen: Set<string>,
+): Rank {
+	const { ts } = ctx;
+	const dynamicImport = rankDynamicImport(node, ctx);
+	if (dynamicImport === REACHED) return REACHED;
+	const callee = node.expression;
+	const calleeRank = ts.isIdentifier(callee)
+		? rankCalleeIdent(callee.text, ctx)
+		: rankValue(callee, ctx, depth, seen); // PropertyAccess etc. → value rule (handles ns)
+	if (calleeRank === REACHED) return REACHED;
+	const args = node.arguments.map((a) => rankValue(a, ctx, depth, seen));
+	return combine([calleeRank, ...args]);
+}
 
-	if (ts.isCallExpression(node)) {
-		// Dynamic `import("./sut")` reaches the SUT module's surface.
-		if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-			const spec = node.arguments[0];
-			if (spec && ts.isStringLiteralLike(spec) && isSutSpecifier(spec.text)) return REACHED;
-		}
-		const callee = node.expression;
-		const calleeRank = ts.isIdentifier(callee)
-			? rankCalleeIdent(callee.text, ctx)
-			: rankValue(callee, ctx, depth, seen); // PropertyAccess etc. → value rule (handles ns)
-		if (calleeRank === REACHED) return REACHED;
-		const args = node.arguments.map((a) => rankValue(a, ctx, depth, seen));
-		return combine([calleeRank, ...args]);
+/** Rank a PropertyAccessExpression: `ns.foo` on a non-mocked namespace → REACHED, else recurse object. */
+function rankPropertyAccessValue(
+	node: TS.PropertyAccessExpression,
+	ctx: TraceCtx,
+	depth: number,
+	seen: Set<string>,
+): Rank {
+	const { ts } = ctx;
+	// `ns.foo` where `ns` is a non-mocked namespace import → reaches SUT.
+	if (ts.isIdentifier(node.expression) && ctx.sut.namespaces.has(node.expression.text)) {
+		return REACHED;
 	}
+	return rankValue(node.expression, ctx, depth, seen); // recurse object; ignore .name
+}
 
-	if (ts.isPropertyAccessExpression(node)) {
-		// `ns.foo` where `ns` is a non-mocked namespace import → reaches SUT.
-		if (ts.isIdentifier(node.expression) && ctx.sut.namespaces.has(node.expression.text)) {
-			return REACHED;
-		}
-		return rankValue(node.expression, ctx, depth, seen); // recurse object; ignore .name
-	}
+/** Rank an Identifier: SUT export, mocked/known-non-SUT, a traceable local binding, or unresolved. */
+function rankIdentifierValue(node: TS.Identifier, ctx: TraceCtx, depth: number, seen: Set<string>): Rank {
+	const n = node.text;
+	if (ctx.sut.reachable.has(n)) return REACHED; // reading a SUT export value
+	if (ctx.sut.mocked.has(n) || KNOWN_NON_SUT.has(n)) return NONE;
+	const bound = ctx.bindings.get(n);
+	if (!bound) return UNCERTAIN; // param / module const / unresolved — cannot prove non-SUT
+	if (depth >= MAX_BINDING_DEPTH || seen.has(n)) return UNCERTAIN;
+	return rankValue(bound, ctx, depth + 1, new Set(seen).add(n));
+}
 
-	if (ts.isIdentifier(node)) {
-		const n = node.text;
-		if (ctx.sut.reachable.has(n)) return REACHED; // reading a SUT export value
-		if (ctx.sut.mocked.has(n) || KNOWN_NON_SUT.has(n)) return NONE;
-		const bound = ctx.bindings.get(n);
-		if (bound) {
-			if (depth >= MAX_BINDING_DEPTH || seen.has(n)) return UNCERTAIN;
-			return rankValue(bound, ctx, depth + 1, new Set(seen).add(n));
-		}
-		return UNCERTAIN; // param / module const / unresolved — cannot prove non-SUT
-	}
-
-	// await / paren / binary / conditional / element-access / array & object
-	// literals: recurse children — a SUT call nested anywhere makes it reachable.
+/** await / paren / binary / conditional / element-access / array & object literals:
+ *  recurse children — a SUT call nested anywhere makes it reachable. */
+function rankChildrenValue(node: TS.Node, ctx: TraceCtx, depth: number, seen: Set<string>): Rank {
+	const { ts } = ctx;
 	const childRanks: Rank[] = [];
 	ts.forEachChild(node, (c) => {
 		childRanks.push(rankValue(c, ctx, depth, seen));
 	});
 	return combine(childRanks);
+}
+
+/** Does this expression's value provably reach a non-mocked SUT symbol? */
+function rankValue(node: TS.Node, ctx: TraceCtx, depth: number, seen: Set<string>): Rank {
+	const { ts } = ctx;
+
+	if (isPrimitiveLiteral(ts, node)) return NONE;
+	if (ts.isCallExpression(node)) return rankCallExpressionValue(node, ctx, depth, seen);
+	if (ts.isPropertyAccessExpression(node)) return rankPropertyAccessValue(node, ctx, depth, seen);
+	if (ts.isIdentifier(node)) return rankIdentifierValue(node, ctx, depth, seen);
+	return rankChildrenValue(node, ctx, depth, seen);
 }
 
 /** Build the local `name -> initializer` map for a test body (incl. destructuring). */

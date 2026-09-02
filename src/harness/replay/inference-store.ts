@@ -65,20 +65,17 @@ export function parseInferenceEnvelope(value: unknown): InferenceEnvelope | null
 	if (!isJsonObject(value)) return null;
 	if (value.schema !== "inference-envelope.v1") return null;
 	if (value.provider !== "anthropic") return null;
-	const { request_index, ts_request, ts_response, latency_ms, request_sha256 } = value;
-	if (typeof request_index !== "number") return null;
-	if (typeof ts_request !== "string" || typeof ts_response !== "string") return null;
-	if (typeof latency_ms !== "number") return null;
-	if (typeof request_sha256 !== "string") return null;
-	const { request_headers, request, response } = value;
-	if (!isJsonObject(request_headers) || !isJsonObject(request) || !isJsonObject(response)) {
-		return null;
-	}
+	const scalars = parseScalarFields(value);
+	if (!scalars) return null;
+	const { request_index, ts_request, ts_response, latency_ms, request_sha256 } = scalars;
+	const objectFields = parseObjectFields(value);
+	if (!objectFields) return null;
+	const { request_headers, request, response } = objectFields;
 	if (!isStringArray(value.tool_use_ids)) return null;
 	const sessionId = value.session_id ?? null;
-	if (sessionId !== null && typeof sessionId !== "string") return null;
+	if (!isNullableString(sessionId)) return null;
 	const seq = value.seq ?? null;
-	if (seq !== null && typeof seq !== "number") return null;
+	if (!isNullableNumber(seq)) return null;
 
 	return {
 		schema: "inference-envelope.v1",
@@ -95,6 +92,48 @@ export function parseInferenceEnvelope(value: unknown): InferenceEnvelope | null
 		session_id: sessionId,
 		seq,
 	};
+}
+
+interface ScalarFields {
+	request_index: number;
+	ts_request: string;
+	ts_response: string;
+	latency_ms: number;
+	request_sha256: string;
+}
+
+/** Validate + narrow the top-level scalar fields shared by every envelope. */
+function parseScalarFields(value: JsonObject): ScalarFields | null {
+	const { request_index, ts_request, ts_response, latency_ms, request_sha256 } = value;
+	if (typeof request_index !== "number") return null;
+	if (typeof ts_request !== "string" || typeof ts_response !== "string") return null;
+	if (typeof latency_ms !== "number") return null;
+	if (typeof request_sha256 !== "string") return null;
+	return { request_index, ts_request, ts_response, latency_ms, request_sha256 };
+}
+
+interface ObjectFields {
+	request_headers: JsonObject;
+	request: JsonObject;
+	response: JsonObject;
+}
+
+/** Validate + narrow the three `JsonObject`-shaped fields (open-shaped by
+ *  design — they are the EXACT, arbitrarily-shaped Anthropic API bodies). */
+function parseObjectFields(value: JsonObject): ObjectFields | null {
+	const { request_headers, request, response } = value;
+	if (!isJsonObject(request_headers) || !isJsonObject(request) || !isJsonObject(response)) {
+		return null;
+	}
+	return { request_headers, request, response };
+}
+
+function isNullableString(value: unknown): value is string | null {
+	return value === null || typeof value === "string";
+}
+
+function isNullableNumber(value: unknown): value is number | null {
+	return value === null || typeof value === "number";
 }
 
 /** Load every parseable envelope from a JSONL file. Tolerant: unparseable or

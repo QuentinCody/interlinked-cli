@@ -4,9 +4,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import type { InlineMatch } from "./shared.js";
+import {
+	findTyposquatForDep,
+	parsePackageJsonDeps,
+} from "./supply-chain-typosquat-helpers.js";
 
 /**
  * Read the side-loaded popular-packages JSON. The file lives next to this
@@ -405,26 +408,16 @@ export function findTyposquatMatch(
 }
 
 export function checkTyposquatDependencies(pkgJsonPath: string): InlineMatch[] {
-	if (!existsSync(pkgJsonPath)) return [];
-	let content: string;
-	let pkg: JsonObject;
-	try {
-		content = readFileSync(pkgJsonPath, "utf-8");
-		pkg = JSON.parse(content);
-	} catch {
-		return [];
-	}
-
-	const allDeps: Record<string, string> = {
-		...((pkg.dependencies as Record<string, string> | undefined) || {}),
-		...((pkg.devDependencies as Record<string, string> | undefined) || {}),
-	};
+	const parsed = parsePackageJsonDeps(pkgJsonPath);
+	if (!parsed) return [];
+	const { content, allDeps } = parsed;
 
 	const depNames = Object.keys(allDeps);
 	if (depNames.length === 0) return [];
 
 	const lines = content.split("\n");
 	const matches: InlineMatch[] = [];
+	const scoring = { popularPackages: POPULAR_PACKAGES, levenshtein };
 
 	for (const dep of depNames) {
 		if (matches.length >= 5) break;
@@ -436,19 +429,8 @@ export function checkTyposquatDependencies(pkgJsonPath: string): InlineMatch[] {
 		// relaxes detection for anything outside it.
 		if (isAllowlistedDep(dep)) continue;
 
-		// Check Levenshtein distance to each popular package
-		for (const popular of POPULAR_PACKAGES) {
-			if (dep === popular) break;
-			const dist = levenshtein(dep.toLowerCase(), popular.toLowerCase());
-			if (dist > 0 && dist <= 2 && dep.length >= 3) {
-				const lineIdx = lines.findIndex((l) => l.includes(`"${dep}"`));
-				matches.push({
-					line: lineIdx >= 0 ? lineIdx + 1 : 1,
-					text: `Possible typosquat: "${dep}" is ${dist} character${dist > 1 ? "s" : ""} away from popular package "${popular}". Verify this is the intended package.`,
-				});
-				break;
-			}
-		}
+		const match = findTyposquatForDep(dep, lines, scoring);
+		if (match) matches.push(match);
 	}
 	return matches;
 }

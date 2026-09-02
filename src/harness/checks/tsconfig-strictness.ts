@@ -273,16 +273,7 @@ export function checkTsconfigStrictness(content: string, filePath: string): Inli
 	// the result is the effective compilerOptions object after inheritance.
 	const merged = mergeExtendsChain(cfg, filePath);
 
-	// Composite project root configs that contain only `references` (or
-	// `files`) and have no `compilerOptions` ANYWHERE in the inheritance
-	// chain are project-list configs — strictness lives in the per-project
-	// tsconfigs they reference, not here. Skipping silences a class of
-	// guaranteed FPs.
-	const ownCompiler = getCompilerOptions(cfg);
-	const ownHasCompilerOptions = ownCompiler !== null && Object.keys(ownCompiler).length > 0;
-	const inheritedHasCompilerOptions = Object.keys(merged).length > 0;
-	const hasReferences = Array.isArray(cfg.references) && (cfg.references as unknown[]).length > 0;
-	if (!ownHasCompilerOptions && !inheritedHasCompilerOptions && hasReferences) {
+	if (isCompositeRootWithoutCompilerOptions(cfg, merged)) {
 		return [];
 	}
 
@@ -290,33 +281,53 @@ export function checkTsconfigStrictness(content: string, filePath: string): Inli
 	const findings: InlineMatch[] = [];
 
 	for (const spec of REQUIRED_STRICTNESS_FLAGS) {
-		// Advisory flags (e.g. noUncheckedIndexedAccess) are documented in the list
-		// but never gated — skip them so the default verify gate doesn't demand them.
-		if (spec.advisory) continue;
-		// A flag is "enabled" only when its effective value is literal `true`.
-		// `strict: true` does NOT imply any of the five flags this check
-		// targets (see `STRICT_IMPLIES` above), so the umbrella never
-		// rescues a missing flag here. Listing STRICT_IMPLIES still keeps
-		// the merge logic honest: if a future flag added to this list IS
-		// covered by `strict`, the umbrella will be respected.
-		const value = merged[spec.flag];
-		const expected = spec.expected ?? true;
-		if (value === expected) continue;
-		// If the umbrella `strict: true` is set AND the flag IS one that
-		// strict implies, treat it as enabled. (None of the current five
-		// hit this branch — kept here so adding a new flag doesn't silently
-		// over-fire.)
-		if (STRICT_IMPLIES.has(spec.flag) && merged.strict === true && value !== false) {
-			continue;
-		}
-		findings.push({
-			line,
-			text:
-				`[tsconfig_strictness] \`compilerOptions.${spec.flag}\` is not ${expected ? "enabled" : "set to false"}. ` +
-				`Add \`"${spec.flag}": ${expected}\` — ${spec.rationale}. ` +
-				`(Not covered by \`strict: true\`.)`,
-		});
+		const finding = evaluateFlagFinding(spec, merged, line);
+		if (finding) findings.push(finding);
 	}
 
 	return findings;
+}
+
+/** Composite project root configs that contain only `references` (or
+ *  `files`) and have no `compilerOptions` ANYWHERE in the inheritance
+ *  chain are project-list configs — strictness lives in the per-project
+ *  tsconfigs they reference, not here. Skipping silences a class of
+ *  guaranteed FPs. */
+function isCompositeRootWithoutCompilerOptions(cfg: JsonObject, merged: JsonObject): boolean {
+	const ownCompiler = getCompilerOptions(cfg);
+	const ownHasCompilerOptions = ownCompiler !== null && Object.keys(ownCompiler).length > 0;
+	const inheritedHasCompilerOptions = Object.keys(merged).length > 0;
+	const hasReferences = Array.isArray(cfg.references) && (cfg.references as unknown[]).length > 0;
+	return !ownHasCompilerOptions && !inheritedHasCompilerOptions && hasReferences;
+}
+
+/** Decides whether one flag spec is effectively satisfied by the merged
+ *  compilerOptions and, if not, builds the finding for it. Advisory flags
+ *  (e.g. `noUncheckedIndexedAccess`) are documented in the list but never
+ *  gated — skipped here so the default verify gate doesn't demand them. */
+function evaluateFlagFinding(spec: FlagSpec, merged: JsonObject, line: number): InlineMatch | null {
+	if (spec.advisory) return null;
+	// A flag is "enabled" only when its effective value is literal `true`.
+	// `strict: true` does NOT imply any of the five flags this check
+	// targets (see `STRICT_IMPLIES` above), so the umbrella never
+	// rescues a missing flag here. Listing STRICT_IMPLIES still keeps
+	// the merge logic honest: if a future flag added to this list IS
+	// covered by `strict`, the umbrella will be respected.
+	const value = merged[spec.flag];
+	const expected = spec.expected ?? true;
+	if (value === expected) return null;
+	// If the umbrella `strict: true` is set AND the flag IS one that
+	// strict implies, treat it as enabled. (None of the current five
+	// hit this branch — kept here so adding a new flag doesn't silently
+	// over-fire.)
+	if (STRICT_IMPLIES.has(spec.flag) && merged.strict === true && value !== false) {
+		return null;
+	}
+	return {
+		line,
+		text:
+			`[tsconfig_strictness] \`compilerOptions.${spec.flag}\` is not ${expected ? "enabled" : "set to false"}. ` +
+			`Add \`"${spec.flag}": ${expected}\` — ${spec.rationale}. ` +
+			`(Not covered by \`strict: true\`.)`,
+	};
 }

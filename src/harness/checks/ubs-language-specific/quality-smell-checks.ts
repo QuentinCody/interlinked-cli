@@ -39,6 +39,59 @@ function collectNumericVars(strippedLines: string[]): Set<string> {
 	return numericVars;
 }
 
+// Conventionally-numeric accumulator/index/offset names. A `+=` target whose
+// bare identifier or dotted-path LAST segment matches this list (e.g.
+// `cursor.offset`, `acc.count`) is integer/byte accumulation, not string
+// building — `collectNumericVars` alone can't see member-expression targets
+// (`obj.offset`), only bare identifiers assigned a numeric literal.
+const NUMERIC_NAME_RE =
+	/^(?:offset|pos|position|index|idx|count|total|sum|len|length|size|n|i|j|k|cursor|bytes|width|height|depth|level|score|weight|ms|seconds|elapsed|delta)$/i;
+
+/** Internal: does `name` read as a conventionally-numeric accumulator name? */
+function isNumericName(name: string): boolean {
+	return NUMERIC_NAME_RE.test(name);
+}
+
+/**
+ * Internal: does the `+=` target itself look numeric — either the bare
+ * identifier, or the last segment of a dotted member expression
+ * (`cursor.offset` -> `offset`)?
+ */
+function targetLooksNumeric(target: string): boolean {
+	const parts = target.split(".");
+	const last = parts[parts.length - 1];
+	return last !== undefined && isNumericName(last);
+}
+
+/**
+ * Internal: does the `+=` right-hand side read as numeric evidence — a
+ * numeric literal, a `.length`/`.size`/`.byteLength` read, a name already
+ * known numeric (`numericVars`), a conventionally-numeric name, or an
+ * arithmetic expression built only from those? A quote/backtick anywhere
+ * disqualifies it immediately (string literal present -> string building).
+ */
+function rhsLooksNumeric(rhs: string, numericVars: Set<string>): boolean {
+	const trimmed = rhs.trim().replace(/;\s*$/, "");
+	if (trimmed === "" || /["'`]/.test(trimmed)) return false;
+	if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return true;
+	if (/\.(?:length|size|byteLength)\b/.test(trimmed)) return true;
+	if (!/^[\w.\s+\-*/()]+$/.test(trimmed)) return false;
+	const idents = trimmed.match(/[A-Za-z_$]\w*/g) || [];
+	return idents.length > 0 && idents.every((id) => numericVars.has(id) || isNumericName(id));
+}
+
+/**
+ * Internal: combines target- and RHS-side numeric evidence to decide whether
+ * a `+=` is integer/byte accumulation rather than string building. Kills the
+ * `cursor.offset += pathLen` FP (target-side) while still catching
+ * `total += len` (already handled via `numericVars`/name-list) and leaving
+ * `s += chunk` / `html += "<li>" + x` flagged (neither side is numeric).
+ */
+function isNumericAccumulation(target: string, rhs: string, numericVars: Set<string>): boolean {
+	if (numericVars.has(target) || targetLooksNumeric(target)) return true;
+	return rhsLooksNumeric(rhs, numericVars);
+}
+
 // Loop-carried state for the brace-tracked (JS/TS/Java) concat scan.
 interface BraceLoopState {
 	loopDepth: number;
@@ -64,8 +117,13 @@ function scanBraceConcatLine(
 		state.loopDepth++;
 	}
 	const concat =
-		state.loopDepth > 0 ? line.match(/\b([A-Za-z_$]\w*)\s*\+=\s*[A-Za-z_$"'`]/) : null;
-	if (concat && !numericVars.has(nonNull(concat[1]))) {
+		state.loopDepth > 0
+			? line.match(/\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*\+=\s*([A-Za-z_$"'`].*)/)
+			: null;
+	if (
+		concat &&
+		!isNumericAccumulation(nonNull(concat[1]), nonNull(concat[2]), numericVars)
+	) {
 		matches.push({ line: idx + 1, text: nonNull(originalLines[idx]).trim().slice(0, 150) });
 	}
 	// Roughly pop loop depth when braces close — heuristic only.

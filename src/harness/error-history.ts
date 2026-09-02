@@ -36,8 +36,25 @@ function isStringArray(v: unknown): v is string[] {
  * is checked; the return is a CONSTRUCTED literal, so a field added to
  * `ErrorRecord` fails to compile here instead of silently under-validating.
  */
-export function parseErrorRecord(value: unknown): ErrorRecord | null {
-	if (!isJsonObject(value)) return null;
+type RequiredErrorFields = Pick<
+	ErrorRecord,
+	| "timestamp"
+	| "session_id"
+	| "agent_name"
+	| "file"
+	| "file_role"
+	| "check_name"
+	| "severity"
+	| "message"
+	| "diff_context"
+>;
+
+/**
+ * Narrow the nine required `ErrorRecord` fields out of a JSON object, or
+ * return null if any is missing/mistyped. Split out of `parseErrorRecord` so
+ * each function stays under the cyclomatic cap; behavior is unchanged.
+ */
+function extractRequiredErrorFields(value: Record<string, unknown>): RequiredErrorFields | null {
 	const {
 		timestamp,
 		session_id,
@@ -69,6 +86,17 @@ export function parseErrorRecord(value: unknown): ErrorRecord | null {
 		severity,
 		message,
 		diff_context,
+	};
+}
+
+/**
+ * Narrow the optional `ErrorRecord` fields out of a JSON object; every field
+ * defaults to `undefined` when absent or mistyped. Split out of
+ * `parseErrorRecord` so each function stays under the cyclomatic cap;
+ * behavior is unchanged.
+ */
+function extractOptionalErrorFields(value: Record<string, unknown>) {
+	return {
 		affected_files: isStringArray(value.affected_files) ? value.affected_files : undefined,
 		fix_context: typeof value.fix_context === "string" ? value.fix_context : undefined,
 		line_start: typeof value.line_start === "number" ? value.line_start : undefined,
@@ -77,6 +105,25 @@ export function parseErrorRecord(value: unknown): ErrorRecord | null {
 		pre_error_sequence: isStringArray(value.pre_error_sequence)
 			? value.pre_error_sequence
 			: undefined,
+	};
+}
+
+/**
+ * Defensively narrow one persisted JSONL line to an `ErrorRecord`, or null for
+ * a torn / foreign / legacy row. `load()` folds the non-null results in and
+ * silently skips the rest — malformed error-history bookkeeping must never
+ * crash the harness (`[[feedback_safety_continuity]]`). Every required field
+ * is checked; the return is a CONSTRUCTED literal, so a field added to
+ * `ErrorRecord` fails to compile here instead of silently under-validating.
+ */
+export function parseErrorRecord(value: unknown): ErrorRecord | null {
+	if (!isJsonObject(value)) return null;
+	const required = extractRequiredErrorFields(value);
+	if (!required) return null;
+
+	return {
+		...required,
+		...extractOptionalErrorFields(value),
 	};
 }
 

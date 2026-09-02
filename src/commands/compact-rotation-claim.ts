@@ -78,32 +78,94 @@ function expectedSegmentFile(log: RotationClaim["log"], seq: number): string {
 	return `${log}-${String(seq).padStart(4, "0")}.jsonl.gz`;
 }
 
-function parseRotationClaim(value: unknown, log: RotationClaim["log"]): RotationClaim | null {
-	if (!isJsonObject(value) || value.version !== 1 || value.log !== log) return null;
-	if (!validSafeInteger(value.seq, 1) || !validSafeInteger(value.cut_bytes, 1)) return null;
-	if (!validSafeInteger(value.records, 0) || !validSafeInteger(value.gz_bytes, 1)) return null;
-	const file = typeof value.file === "string" ? value.file : null;
-	if (file !== expectedSegmentFile(log, value.seq)) return null;
-	const digest = typeof value.gzip_sha256 === "string" ? value.gzip_sha256 : null;
-	if (!digest || !/^[a-f0-9]{64}$/.test(digest)) return null;
-	if (typeof value.created_at !== "string" || value.created_at.length === 0) return null;
-	const source = parseIdentity(value.source);
-	const replacement = parseIdentity(value.replacement);
-	if (!source || !replacement) return null;
-	const cursor = value.synced_through_bytes;
-	if (cursor !== undefined && !validSafeInteger(cursor, 0)) return null;
+interface ClaimNumerics {
+	seq: number;
+	cut_bytes: number;
+	records: number;
+	gz_bytes: number;
+}
+
+function claimNumericFields(
+	value: Record<string, unknown>,
+	log: RotationClaim["log"],
+): ClaimNumerics | null {
+	if (value.version !== 1 || value.log !== log) return null;
+	if (!validSafeInteger(value.seq, 1)) return null;
+	if (!validSafeInteger(value.cut_bytes, 1)) return null;
+	if (!validSafeInteger(value.records, 0)) return null;
+	if (!validSafeInteger(value.gz_bytes, 1)) return null;
 	return {
-		version: 1,
-		log,
 		seq: value.seq,
-		file,
 		cut_bytes: value.cut_bytes,
 		records: value.records,
 		gz_bytes: value.gz_bytes,
+	};
+}
+
+function claimFileField(
+	value: Record<string, unknown>,
+	log: RotationClaim["log"],
+	seq: number,
+): string | null {
+	const file = typeof value.file === "string" ? value.file : null;
+	return file === expectedSegmentFile(log, seq) ? file : null;
+}
+
+function claimDigestField(value: Record<string, unknown>): string | null {
+	const digest = typeof value.gzip_sha256 === "string" ? value.gzip_sha256 : null;
+	if (!digest || !/^[a-f0-9]{64}$/.test(digest)) return null;
+	return digest;
+}
+
+function hasValidClaimTimestamp(value: Record<string, unknown>): boolean {
+	return typeof value.created_at === "string" && value.created_at.length > 0;
+}
+
+interface ClaimIdentities {
+	source: FileIdentity;
+	replacement: FileIdentity;
+}
+
+function claimIdentities(value: Record<string, unknown>): ClaimIdentities | null {
+	const source = parseIdentity(value.source);
+	const replacement = parseIdentity(value.replacement);
+	if (!source || !replacement) return null;
+	return { source, replacement };
+}
+
+function claimCursorField(value: Record<string, unknown>): number | undefined | typeof INVALID_CURSOR {
+	const cursor = value.synced_through_bytes;
+	if (cursor === undefined) return undefined;
+	return validSafeInteger(cursor, 0) ? cursor : INVALID_CURSOR;
+}
+
+const INVALID_CURSOR = Symbol("invalid-cursor");
+
+function parseRotationClaim(value: unknown, log: RotationClaim["log"]): RotationClaim | null {
+	if (!isJsonObject(value)) return null;
+	const numerics = claimNumericFields(value, log);
+	if (!numerics) return null;
+	const file = claimFileField(value, log, numerics.seq);
+	if (!file) return null;
+	const digest = claimDigestField(value);
+	if (!digest) return null;
+	if (!hasValidClaimTimestamp(value)) return null;
+	const identities = claimIdentities(value);
+	if (!identities) return null;
+	const cursor = claimCursorField(value);
+	if (cursor === INVALID_CURSOR) return null;
+	return {
+		version: 1,
+		log,
+		seq: numerics.seq,
+		file,
+		cut_bytes: numerics.cut_bytes,
+		records: numerics.records,
+		gz_bytes: numerics.gz_bytes,
 		gzip_sha256: digest,
-		created_at: value.created_at,
-		source,
-		replacement,
+		created_at: value.created_at as string,
+		source: identities.source,
+		replacement: identities.replacement,
 		...(cursor === undefined ? {} : { synced_through_bytes: cursor }),
 	};
 }

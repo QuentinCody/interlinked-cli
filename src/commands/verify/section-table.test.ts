@@ -21,6 +21,8 @@ const EXPECTED_KEY_ORDER = [
 	"deadExports",
 	"deadTypeExports",
 	"duplicateTypeDeclaration",
+	"newExportWithoutImporter",
+	"extractedHelperDuplicate",
 	"circularImports",
 	"untestedInversePair",
 	"untestedIdempotent",

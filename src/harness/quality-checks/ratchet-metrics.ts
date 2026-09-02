@@ -182,18 +182,34 @@ function countUntypedParams(paramList: string): number {
 	for (let i = 0; i <= trimmed.length; i++) {
 		const ch = trimmed[i];
 		const isEnd = i === trimmed.length;
-		if (!isEnd && (ch === "<" || ch === "(" || ch === "{" || ch === "[")) depth++;
-		else if (!isEnd && (ch === ">" || ch === ")" || ch === "}" || ch === "]")) depth--;
+		depth += paramBracketDelta(isEnd, ch);
 		if ((ch === "," && depth === 0) || isEnd) {
-			const param = buf.trim();
+			untyped += untypedParamIncrement(buf);
 			buf = "";
-			if (param === "") continue;
-			if (!param.includes(":")) untyped++;
 		} else {
 			buf += ch;
 		}
 	}
 	return untyped;
+}
+
+/** Depth delta for one character of a parameter list: opening brackets/generics
+ *  push depth, closing ones pop it, everything else (including the end-of-string
+ *  sentinel) leaves depth unchanged. */
+function paramBracketDelta(isEnd: boolean, ch: string | undefined): number {
+	if (isEnd) return 0;
+	if (ch === "<" || ch === "(" || ch === "{" || ch === "[") return 1;
+	if (ch === ">" || ch === ")" || ch === "}" || ch === "]") return -1;
+	return 0;
+}
+
+/** 1 if the buffered parameter text is non-empty and lacks a `:` type
+ *  annotation, else 0. Mirrors the original inline "skip blank, else check
+ *  for a colon" logic. */
+function untypedParamIncrement(buf: string): number {
+	const param = buf.trim();
+	if (param === "") return 0;
+	return param.includes(":") ? 0 : 1;
 }
 
 // Re-export the unjustified-cast counter (defined in checks/cast-justification.ts)

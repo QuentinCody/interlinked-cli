@@ -79,70 +79,92 @@ export async function fetchRegistryMetadata(
 	opts: NetworkOptions = {},
 ): Promise<RegistryPackageMetadata | null> {
 	switch (ecosystem) {
-		case "npm": {
-			// Scoped names keep the leading @ but escape the inner slash.
-			const escaped = name.startsWith("@") ? name.replace("/", "%2F") : name;
-			const json = rec(await fetchJson(`https://registry.npmjs.org/${escaped}/latest`, opts));
-			if (Object.keys(json).length === 0) return null;
-			return { latestVersion: str(json.version), license: str(json.license) };
-		}
-		case "pypi": {
-			const json = rec(
-				await fetchJson(`https://pypi.org/pypi/${encodeURIComponent(name)}/json`, opts),
-			);
-			const info = rec(json.info);
-			if (Object.keys(info).length === 0) return null;
-			// PEP 639 license_expression is the SPDX field; legacy `license`
-			// free-text is the fallback (matches against the allowlist only
-			// when it happens to be a bare SPDX id, which is fine).
-			return {
-				latestVersion: str(info.version),
-				license: str(info.license_expression) ?? str(info.license),
-			};
-		}
-		case "cargo": {
-			const json = rec(
-				await fetchJson(`https://crates.io/api/v1/crates/${encodeURIComponent(name)}`, opts),
-			);
-			const crate = rec(json.crate);
-			if (Object.keys(crate).length === 0) return null;
-			const versions = Array.isArray(json.versions) ? json.versions : [];
-			// latestVersion is the max STABLE release; the license must describe THAT
-			// same version. versions[0] is newest-overall, which can be a PRERELEASE
-			// when max_version > max_stable_version — recording its license screened
-			// one version but enforced another (finding 2026-06, round 7). Select the
-			// entry whose `num` matches the chosen version; fall back to versions[0]
-			// only when no entry matches.
-			const chosen = str(crate.max_stable_version) ?? str(crate.max_version);
-			const matching = versions.map(rec).find((v) => str(v.num) === chosen);
-			const newest = matching ?? rec(versions[0]);
-			// crates.io spells dual licensing "MIT/Apache-2.0"; normalize to SPDX OR.
-			const rawLicense = str(newest.license);
-			return {
-				latestVersion: chosen,
-				license: rawLicense?.replace(/\s*\/\s*/g, " OR "),
-			};
-		}
-		case "rubygems": {
-			const json = rec(
-				await fetchJson(`https://rubygems.org/api/v1/gems/${encodeURIComponent(name)}.json`, opts),
-			);
-			if (Object.keys(json).length === 0) return null;
-			const licenses = Array.isArray(json.licenses)
-				? json.licenses.filter((l): l is string => typeof l === "string" && l.trim() !== "")
-				: [];
-			// Multiple license entries on rubygems mean "choose any" → SPDX OR.
-			return {
-				latestVersion: str(json.version),
-				license: licenses.length > 0 ? licenses.join(" OR ") : undefined,
-			};
-		}
+		case "npm":
+			return fetchNpmLatestMetadata(name, opts);
+		case "pypi":
+			return fetchPypiLatestMetadata(name, opts);
+		case "cargo":
+			return fetchCargoLatestMetadata(name, opts);
+		case "rubygems":
+			return fetchRubygemsLatestMetadata(name, opts);
 		case "go":
 			// No stable license/version metadata API; pkg.go.dev is HTML-only.
 			return null;
 		default:
 			return null;
 	}
+}
+
+async function fetchNpmLatestMetadata(
+	name: string,
+	opts: NetworkOptions,
+): Promise<RegistryPackageMetadata | null> {
+	// Scoped names keep the leading @ but escape the inner slash.
+	const escaped = name.startsWith("@") ? name.replace("/", "%2F") : name;
+	const json = rec(await fetchJson(`https://registry.npmjs.org/${escaped}/latest`, opts));
+	if (Object.keys(json).length === 0) return null;
+	return { latestVersion: str(json.version), license: str(json.license) };
+}
+
+async function fetchPypiLatestMetadata(
+	name: string,
+	opts: NetworkOptions,
+): Promise<RegistryPackageMetadata | null> {
+	const json = rec(await fetchJson(`https://pypi.org/pypi/${encodeURIComponent(name)}/json`, opts));
+	const info = rec(json.info);
+	if (Object.keys(info).length === 0) return null;
+	// PEP 639 license_expression is the SPDX field; legacy `license`
+	// free-text is the fallback (matches against the allowlist only
+	// when it happens to be a bare SPDX id, which is fine).
+	return {
+		latestVersion: str(info.version),
+		license: str(info.license_expression) ?? str(info.license),
+	};
+}
+
+async function fetchCargoLatestMetadata(
+	name: string,
+	opts: NetworkOptions,
+): Promise<RegistryPackageMetadata | null> {
+	const json = rec(
+		await fetchJson(`https://crates.io/api/v1/crates/${encodeURIComponent(name)}`, opts),
+	);
+	const crate = rec(json.crate);
+	if (Object.keys(crate).length === 0) return null;
+	const versions = Array.isArray(json.versions) ? json.versions : [];
+	// latestVersion is the max STABLE release; the license must describe THAT
+	// same version. versions[0] is newest-overall, which can be a PRERELEASE
+	// when max_version > max_stable_version — recording its license screened
+	// one version but enforced another (finding 2026-06, round 7). Select the
+	// entry whose `num` matches the chosen version; fall back to versions[0]
+	// only when no entry matches.
+	const chosen = str(crate.max_stable_version) ?? str(crate.max_version);
+	const matching = versions.map(rec).find((v) => str(v.num) === chosen);
+	const newest = matching ?? rec(versions[0]);
+	// crates.io spells dual licensing "MIT/Apache-2.0"; normalize to SPDX OR.
+	const rawLicense = str(newest.license);
+	return {
+		latestVersion: chosen,
+		license: rawLicense?.replace(/\s*\/\s*/g, " OR "),
+	};
+}
+
+async function fetchRubygemsLatestMetadata(
+	name: string,
+	opts: NetworkOptions,
+): Promise<RegistryPackageMetadata | null> {
+	const json = rec(
+		await fetchJson(`https://rubygems.org/api/v1/gems/${encodeURIComponent(name)}.json`, opts),
+	);
+	if (Object.keys(json).length === 0) return null;
+	const licenses = Array.isArray(json.licenses)
+		? json.licenses.filter((l): l is string => typeof l === "string" && l.trim() !== "")
+		: [];
+	// Multiple license entries on rubygems mean "choose any" → SPDX OR.
+	return {
+		latestVersion: str(json.version),
+		license: licenses.length > 0 ? licenses.join(" OR ") : undefined,
+	};
 }
 
 /**

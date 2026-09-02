@@ -70,16 +70,7 @@ import { isJsTsFile, isPyFile } from "./_shared.js";
  */
 export function checkDivisionByVariable(content: string, filePath: string): InlineMatch[] {
 	const ext = getExtension(filePath);
-	const supported =
-		isJsTsFile(ext) ||
-		isPyFile(ext) ||
-		ext === ".go" ||
-		ext === ".java" ||
-		ext === ".rs" ||
-		ext === ".c" ||
-		ext === ".cpp" ||
-		ext === ".swift";
-	if (!supported) return [];
+	if (!isSupportedDivisionFile(ext)) return [];
 
 	const stripped = stripCommentsAndStrings(content);
 	const originalLines = content.split("\n");
@@ -103,36 +94,9 @@ export function checkDivisionByVariable(content: string, filePath: string): Inli
 		divisionRegex.lastIndex = 0;
 		if (!divisionRegex.test(line)) continue;
 
-		// 139-repo audit: skip when a same-line zero-guard is present.
-		// Supermodel mcpbr/analytics shape:
-		//   avg = total / count if count > 0 else 0.0
-		//   rate = (a / b * 100.0) if b > 0 else 0.0
-		// The guard sits on the same line via the Python ternary; in JS/Go
-		// it appears as `count > 0 ? a / b : 0` or `count !== 0 && a / b`.
-		if (lineHasZeroGuard(line)) continue;
-
-		// Known-FP fix (2026-08): skip when a bounded window of preceding
-		// non-blank lines carries an explicit zero/emptiness guard on the
-		// SAME divisor identifier — `if (n === 0) return; ... total / n`
-		// split across lines used to still fire. Checked against every
-		// divisor identifier on this line (matchAll, not just the first).
-		if (divisorsOnLine(line).some((divisor) => precedingLinesHaveZeroGuard(strippedLines, i, divisor))) {
+		if (shouldSuppressDivisionMatch(line, nonNull(originalLines[i]), strippedLines, i, pathishNames)) {
 			continue;
 		}
-
-		// 139-repo audit: Python `Path / "subdir"` shape — re-run the
-		// regex globally to inspect the operands and skip any match
-		// whose LHS is annotated/assigned as a Path (or whose
-		// neighborhood is a string literal — those are stripped to `""`
-		// already, so we look at the original line).
-		if (pathishNames && isPathDivisionLine(line, nonNull(originalLines[i]), pathishNames)) {
-			continue;
-		}
-
-		// 139-repo audit: skip `os.path.join(...)` shapes — even if the
-		// regex matched some inner identifier-pair, the call's outer
-		// shape is path-join not division.
-		if (/\bos\.path\.join\s*\(/.test(line)) continue;
 
 		matches.push({
 			line: i + 1,
@@ -140,6 +104,70 @@ export function checkDivisionByVariable(content: string, filePath: string): Inli
 		});
 	}
 	return matches;
+}
+
+/**
+ * Extension gate: cross-language coverage for the division-by-variable
+ * check (mirrors `checkLargeFunction`'s allow-list). Markdown, plain-text,
+ * config, and unknown extensions short-circuit before the matcher runs.
+ */
+function isSupportedDivisionFile(ext: string): boolean {
+	return (
+		isJsTsFile(ext) ||
+		isPyFile(ext) ||
+		ext === ".go" ||
+		ext === ".java" ||
+		ext === ".rs" ||
+		ext === ".c" ||
+		ext === ".cpp" ||
+		ext === ".swift"
+	);
+}
+
+/**
+ * Combine every per-line suppression rule for one already-regex-matched
+ * division line: same-line zero-guard, a preceding-line guard on the
+ * SAME divisor, the Python `Path / "subdir"` join shape, and
+ * `os.path.join(...)` calls. Extracted from `checkDivisionByVariable`'s
+ * loop body — see that function's per-check comments (139-repo audit,
+ * 2026-08 over-firer fix) for the rationale behind each branch.
+ */
+function shouldSuppressDivisionMatch(
+	line: string,
+	originalLine: string,
+	strippedLines: string[],
+	lineIdx: number,
+	pathishNames: Set<string> | null,
+): boolean {
+	// Supermodel mcpbr/analytics shape:
+	//   avg = total / count if count > 0 else 0.0
+	//   rate = (a / b * 100.0) if b > 0 else 0.0
+	// The guard sits on the same line via the Python ternary; in JS/Go
+	// it appears as `count > 0 ? a / b : 0` or `count !== 0 && a / b`.
+	if (lineHasZeroGuard(line)) return true;
+
+	// Known-FP fix (2026-08): skip when a bounded window of preceding
+	// non-blank lines carries an explicit zero/emptiness guard on the
+	// SAME divisor identifier — `if (n === 0) return; ... total / n`
+	// split across lines used to still fire. Checked against every
+	// divisor identifier on this line (matchAll, not just the first).
+	if (divisorsOnLine(line).some((divisor) => precedingLinesHaveZeroGuard(strippedLines, lineIdx, divisor))) {
+		return true;
+	}
+
+	// 139-repo audit: Python `Path / "subdir"` shape — re-run the
+	// regex globally to inspect the operands and skip any match
+	// whose LHS is annotated/assigned as a Path (or whose
+	// neighborhood is a string literal — those are stripped to `""`
+	// already, so we look at the original line).
+	if (pathishNames && isPathDivisionLine(line, originalLine, pathishNames)) return true;
+
+	// 139-repo audit: skip `os.path.join(...)` shapes — even if the
+	// regex matched some inner identifier-pair, the call's outer
+	// shape is path-join not division.
+	if (/\bos\.path\.join\s*\(/.test(line)) return true;
+
+	return false;
 }
 
 /**

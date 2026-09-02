@@ -107,6 +107,47 @@ export function runStructuralChecks(
 	// Skip files outside the project graph root (e.g., editing a file in another repo)
 	if (relPath.startsWith("..")) return [];
 
+	const ctx: StructuralRunContext = {
+		event,
+		config,
+		graph,
+		sessions,
+		filePath,
+		relPath,
+		oldExports,
+		oldInterfaceBodies,
+	};
+
+	results.push(...runTier1SurfaceChecks(ctx));
+	results.push(...runTier2DependencyChecks(ctx));
+	results.push(...runUnconditionalAndTasteChecks(ctx));
+
+	return results;
+}
+
+/**
+ * Shared, pre-resolved inputs every runStructuralChecks helper reads. Each
+ * helper below is a single-responsibility extraction of one former inline
+ * block group — same gate, same wording, same order — so the public
+ * behavior is byte-identical to the pre-decomposition function while
+ * runStructuralChecks stays a thin sequence.
+ */
+type StructuralRunContext = {
+	event: HarnessEvent;
+	config: StructuralChecksConfig;
+	graph: ProjectGraph;
+	sessions: SessionTracker;
+	filePath: string;
+	relPath: string;
+	oldExports: ExportedSymbol[];
+	oldInterfaceBodies: Map<string, string>;
+};
+
+/** Tier 1: export surface, import resolution, duplicate symbols, co-dependency staleness, dead imports. */
+function runTier1SurfaceChecks(ctx: StructuralRunContext): StructuralCheckResult[] {
+	const { event, config, graph, sessions, filePath, relPath, oldExports } = ctx;
+	const results: StructuralCheckResult[] = [];
+
 	// Tier 1: Export surface change detection
 	if (config.export_surface) {
 		const exportResults = checkExportSurface(filePath, relPath, oldExports, graph);
@@ -148,6 +189,14 @@ export function runStructuralChecks(
 		results.push(...checkDeadImports(filePath, relPath, config.dead_code_action));
 	}
 
+	return results;
+}
+
+/** Tier 2: import cycles (existing + new-delta), interface change impact, test proximity. */
+function runTier2DependencyChecks(ctx: StructuralRunContext): StructuralCheckResult[] {
+	const { event, config, graph, sessions, filePath, relPath, oldInterfaceBodies } = ctx;
+	const results: StructuralCheckResult[] = [];
+
 	// Tier 2: Import cycle detection
 	if (config.import_cycles) {
 		results.push(...checkImportCycles(filePath, relPath, graph));
@@ -171,6 +220,14 @@ export function runStructuralChecks(
 	if (config.test_proximity) {
 		results.push(...checkTestProximity(filePath, relPath, event, sessions));
 	}
+
+	return results;
+}
+
+/** Tier 1 remainder (dead exports, hallucinated imports, cross-package imports, undefined env vars), the unconditional JSDoc check, and the cross-file taste checks. */
+function runUnconditionalAndTasteChecks(ctx: StructuralRunContext): StructuralCheckResult[] {
+	const { event, config, graph, filePath, relPath } = ctx;
+	const results: StructuralCheckResult[] = [];
 
 	// Tier 1: Dead exports
 	if (config.dead_exports) {

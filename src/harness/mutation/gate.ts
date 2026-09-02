@@ -11,9 +11,10 @@
 import { expectedSourceOfTest } from "../coverage-debt.js";
 import { isTestPath } from "../coverage-test-selector.js";
 import type { HarnessDecision } from "../types/decisions.js";
-import { changedPaths, normalizeChangeSet } from "./changeset.js";
+import { type ChangeSet, changedPaths, normalizeChangeSet } from "./changeset.js";
 import { evaluateMutation } from "./evaluate.js";
 import * as gateDecision from "./gate-decision.js";
+import { notMeasuredReason, type PendingHandle, pendingHandlesFrom } from "./gate-errors.js";
 import {
 	buildMutationOverlays,
 	type FileOverlay,
@@ -78,6 +79,9 @@ export interface PerEditMutationConfig {
 }
 
 export type { FileOverlay } from "./gate-overlays.js";
+/** Re-exported so the gate's public surface is unchanged by the extraction of
+ *  the runner-error classification into `gate-errors.ts`. */
+export { type PendingHandle, pendingHandlesFrom } from "./gate-errors.js";
 
 /** Exact tests selected by the CLI's dependency graph for this mutation run. */
 export interface MutationRunOptions {
@@ -148,114 +152,6 @@ export interface MutationGateContext {
 	 *  `ctx.cwd`, which can diverge from `process.cwd()` under an explicit
 	 *  `--cwd`. Omitted callers fall back to `process.cwd()`. */
 	cwd?: string;
-}
-
-/** The minimum a caller needs to come back for an unfinished run. */
-export interface PendingHandle {
-	jobId: string;
-	runnerUrl: string;
-}
-
-/**
- * Pull the still-running job handles out of whatever a runner threw.
- *
- * Both shapes matter: a single runner rejects with `MutationRunPendingError`
- * directly, while a wrapper that aggregates several rejections carries them in
- * a `pending` array. Anything else is a real failure with nothing to claim.
- * Structural checks, not `instanceof`, so this stays free of an import cycle
- * with the runners that depend on this module's types.
- */
-export function pendingHandlesFrom(err: unknown): PendingHandle[] {
-	const isHandle = (v: unknown): v is PendingHandle =>
-		typeof v === "object" &&
-		v !== null &&
-		// SAFETY: object-ness is established above; these two reads are the
-		// predicate's actual test, and `typeof` on a missing key is "undefined",
-		// so a non-handle fails rather than throwing.
-		typeof (v as PendingHandle).jobId === "string" &&
-		typeof (v as PendingHandle).runnerUrl === "string";
-
-	if (isHandle(err)) return [err];
-	const nested = errRecord(err)?.pending;
-	if (Array.isArray(nested)) return nested.filter(isHandle);
-	return [];
-}
-
-/**
- * Narrow an `unknown` thrown value to a plain object, or `undefined` if it
- * isn't one — `err` genuinely can be `null`/a primitive/anything at runtime
- * (it comes from a `catch`), so every field read below goes through this
- * instead of an `as {..}` cast that would silently assert non-nullish-ness
- * the type checker can't actually verify.
- */
-function errRecord(err: unknown): Record<string, unknown> | undefined {
-	return typeof err === "object" && err !== null ? (err as Record<string, unknown>) : undefined;
-}
-
-/**
- * Why the run produced no verdict.
- *
- * Three outcomes that used to read identically as "the mutation runner failed",
- * which is the least useful of them and was wrong most of the time:
- *   - still working  -> results ARE coming, in the PostToolUse window
- *   - not measurable -> the runner succeeded; there is nothing to measure
- *                       (usually: no test exercises this file)
- *   - failed         -> actually broken
- */
-function notMeasuredReason(err: unknown, pendingCount: number): string {
-	if (pendingCount > 0) return "mutation still running past the budget";
-	if (isRunnerBusy(err)) {
-		return "the mutation runner is busy with another job right now — not measured this edit, and NOT evidence this file has no tests (retry on the next edit)";
-	}
-	const reason = notMeasurableReasonOf(err);
-	if (reason === "no_tests") {
-		return "no test exercises this file, so mutation cannot measure it — add one and the gate starts protecting this code";
-	}
-	if (reason !== null) return `mutation not measurable here (${reason})`;
-	return describeRunnerFailure(err);
-}
-
-/**
- * Quote the runner's own words.
- *
- * "the mutation runner failed" was the terminal string for every unclassified
- * error, and it was the DOMINANT live outcome — 12 occurrences in the last 4000
- * activity records, against zero measured verdicts. It names the component and
- * withholds the cause, which is the one combination nobody can act on: the
- * reader cannot separate a dead endpoint from a failed clone from a crashed
- * engine, so re-running is the only move left. The client now carries the
- * response body up (`describeErrorResponse`), so there is finally something to
- * say.
- */
-function describeRunnerFailure(err: unknown): string {
-	const message = errRecord(err)?.message;
-	if (typeof message !== "string" || message.trim() === "") return "the mutation runner failed";
-	return `the mutation runner failed — ${message.trim()}`;
-}
-
-/**
- * A contended runner is not a broken one, and it is definitely not a
- * "no tests" verdict — collapsing "busy" into either is the exact
- * measurement-integrity defect this check exists to prevent (a contended
- * runner silently drops the file out of the denominator). Detected
- * structurally — by error name (a runner that throws the dedicated
- * `MutationRunnerBusyError`) or by message (the generic HTTP-status error a
- * plain non-ok response produces) — rather than `instanceof`, so this module
- * stays free of an import cycle with the runners it evaluates.
- */
-function isRunnerBusy(err: unknown): boolean {
-	const name = errRecord(err)?.name;
-	if (name === "MutationRunnerBusyError") return true;
-	const message = errRecord(err)?.message;
-	return typeof message === "string" && /\bHTTP 503\b/.test(message);
-}
-
-/** Structural read, so this module stays free of an import cycle with the runners. */
-function notMeasurableReasonOf(err: unknown): string | null {
-	const name = errRecord(err)?.name;
-	if (name !== "MutationNotMeasurableError") return null;
-	const reason = errRecord(err)?.reason;
-	return typeof reason === "string" && reason !== "" ? reason : "unspecified";
 }
 
 /**
@@ -371,25 +267,41 @@ function runSelectedMutation(
 	return runner.run(target, overlayContent, overlays, options);
 }
 
-/** PreToolUse per-edit mutation gate (spec §4 / §12). Default-off; capability-aware. */
-export async function runPerEditMutationGate(ctx: MutationGateContext): Promise<HarnessDecision | null> {
-	if (!ctx.config.enabled || ctx.config.mode === "off") return null;
+/** What the change set resolves to before any runner is consulted: nothing to
+ *  do, a reason the gate cannot measure, or the single file to mutate. */
+type GateTargetResolution =
+	| { kind: "skip" }
+	| { kind: "unavailable"; reason: string }
+	| { kind: "target"; changeSet: ChangeSet; target: string };
+
+function resolveGateTarget(ctx: MutationGateContext): GateTargetResolution {
 	const changeSet = normalizeChangeSet(ctx.toolName, ctx.toolInput);
-	if (changeSet === null) return null;
+	if (changeSet === null) return { kind: "skip" };
 	const paths = changedPaths(changeSet);
 	const multiSourceReason = multiSourceNotMeasuredReason(paths);
-	if (multiSourceReason !== null) {
-		return gateDecision.unavailableDecision(ctx.config, multiSourceReason);
-	}
+	if (multiSourceReason !== null) return { kind: "unavailable", reason: multiSourceReason };
 	const target = mutationTargetFor(paths, (p) => ctx.readDisk(p) !== null);
-	if (target === null) return null;
+	if (target === null) return { kind: "skip" };
+	return { kind: "target", changeSet, target };
+}
 
+/** Everything the run needs once the gate has decided it CAN measure. */
+interface PreparedMutationRun {
+	runner: MutationRunner;
+	disk: string;
+	overlayContent: string;
+	testSelection: MutationTestSelection | undefined;
+}
+
+type GatePreparation = { kind: "unavailable"; reason: string } | ({ kind: "ready" } & PreparedMutationRun);
+
+function prepareMutationRun(ctx: MutationGateContext, changeSet: ChangeSet, target: string): GatePreparation {
 	if (ctx.runner === null || !ctx.runner.available()) {
-		return gateDecision.unavailableDecision(ctx.config, "no mutation runner configured");
+		return { kind: "unavailable", reason: "no mutation runner configured" };
 	}
 	const testSelection = resolvedTestSelection(ctx, target);
 	const unavailableScope = unavailableTestSelection(testSelection);
-	if (unavailableScope !== null) return gateDecision.unavailableDecision(ctx.config, unavailableScope);
+	if (unavailableScope !== null) return { kind: "unavailable", reason: unavailableScope };
 
 	const disk = ctx.readDisk(target);
 	if (disk === null) {
@@ -404,32 +316,39 @@ export async function runPerEditMutationGate(ctx: MutationGateContext): Promise<
 		// honest answer: it warns, and under a fail-closed
 		// `unavailable_behavior` it blocks, exactly like every other case where
 		// the gate cannot see enough.
-		return gateDecision.unavailableDecision(
-			ctx.config,
-			`new file has no on-disk baseline to measure against (${target})`,
-		);
+		return { kind: "unavailable", reason: `new file has no on-disk baseline to measure against (${target})` };
 	}
 	const overlayContent = overlayContentFor(changeSet, target, disk);
 	if (overlayContent === null) {
 		// The edit could not be applied to the on-disk content (a stale Edit
 		// whose old_string no longer matches, an unsupported payload shape).
 		// Silence here would report the same nothing as "not eligible".
-		return gateDecision.unavailableDecision(
-			ctx.config,
-			`could not reconstruct the proposed content for ${target}`,
-		);
+		return { kind: "unavailable", reason: `could not reconstruct the proposed content for ${target}` };
 	}
+	return { kind: "ready", runner: ctx.runner, disk, overlayContent, testSelection };
+}
 
-	// v1 measures the WHOLE FILE (review passes 11-18): line-range execution is
-	// removed entirely — Stryker only emits mutants whose full AST span fits a
-	// range, so EVERY ranged run was a partial view that could find adverse
-	// evidence but never certify clean (a cost with no conclusive answer), and
-	// a boundary-spanning mutant could vanish from both sides of a split. The
-	// changed-region VERDICT scoping is unaffected: the evaluator still judges
-	// only changed symbols via the manifest's symbol hashes.
+type MutationRunAttempt = { kind: "unavailable"; reason: string } | { kind: "ran"; result: MutationRunOutput };
+
+/**
+ * v1 measures the WHOLE FILE (review passes 11-18): line-range execution is
+ * removed entirely — Stryker only emits mutants whose full AST span fits a
+ * range, so EVERY ranged run was a partial view that could find adverse
+ * evidence but never certify clean (a cost with no conclusive answer), and a
+ * boundary-spanning mutant could vanish from both sides of a split. The
+ * changed-region VERDICT scoping is unaffected: the evaluator still judges only
+ * changed symbols via the manifest's symbol hashes.
+ */
+async function executeMutationRun(
+	ctx: MutationGateContext,
+	prepared: PreparedMutationRun,
+	changeSet: ChangeSet,
+	target: string,
+): Promise<MutationRunAttempt> {
+	const { overlayContent } = prepared;
 	let result: MutationRunOutput;
 	try {
-		const runOptions = selectedRunOptions(testSelection);
+		const runOptions = selectedRunOptions(prepared.testSelection);
 		const overlays = buildMutationOverlays({
 			changeSet,
 			target,
@@ -437,29 +356,40 @@ export async function runPerEditMutationGate(ctx: MutationGateContext): Promise<
 			readDisk: ctx.readDisk,
 			testFiles: runOptions?.testFiles ?? [],
 		});
-		result = await runSelectedMutation(ctx.runner, target, overlayContent, overlays, runOptions);
+		result = await runSelectedMutation(prepared.runner, target, overlayContent, overlays, runOptions);
 	} catch (err) {
 		// A budget expiry is not a failure — the engine is still working and the
 		// runner retains the report, so hand the handles up for the next window.
 		// The answer is still "not measured", because right now it genuinely is.
 		const pending = pendingHandlesFrom(err);
 		if (pending.length > 0 && ctx.onPending) ctx.onPending(target, overlayContent, pending);
-		return gateDecision.unavailableDecision(ctx.config, notMeasuredReason(err, pending.length));
+		return { kind: "unavailable", reason: notMeasuredReason(err, pending.length) };
 	}
 	// Completeness gate (external review 2026-08-23, second pass, finding 1): a
 	// sharded run with ANY missing shard is a partial view — a survivor in the
 	// missing tile would be invisible, so evaluating it could persist a forged
 	// clean pass. Incomplete ⇒ honest not-measured; the manifest never moves.
 	if ((result.incompleteShards ?? 0) > 0) {
-		return gateDecision.unavailableDecision(
-			ctx.config,
-			`${result.incompleteShards} of the planned mutation shard(s) did not report — partial results never count as measured (a missing shard could be hiding survivors)`,
-		);
+		return {
+			kind: "unavailable",
+			reason: `${result.incompleteShards} of the planned mutation shard(s) did not report — partial results never count as measured (a missing shard could be hiding survivors)`,
+		};
 	}
+	return { kind: "ran", result };
+}
+
+/** Judge a completed run and turn it into the gate's decision. */
+function finishMutationGate(
+	ctx: MutationGateContext,
+	prepared: PreparedMutationRun,
+	changeSet: ChangeSet,
+	target: string,
+	result: MutationRunOutput,
+): HarnessDecision {
 	const outcome = evaluateMutation({
 		file: target,
 		baseManifest: ctx.baseManifest,
-		overlayContent,
+		overlayContent: prepared.overlayContent,
 		adapted: result.mutants,
 		siteCountThreshold: ctx.config.site_count_threshold ?? DEFAULT_SITE_COUNT_THRESHOLD,
 		testRun: result.testRun,
@@ -468,7 +398,11 @@ export async function runPerEditMutationGate(ctx: MutationGateContext): Promise<
 		// v1 runs are always whole-file (line-range execution removed, review
 		// passes 11-18), so the run is never a partial view. The evaluator's
 		// partial-scope guards stay in place for any future scoped mode.
-		partialScope: testSelectionIsPartial(testSelection),
+		partialScope: testSelectionIsPartial(prepared.testSelection),
+		// The pre-edit disk content is what the manifest's records describe; it
+		// lets a survivor that moved into an extracted helper keep its accepted
+		// status instead of being charged to this edit (survivor-moves.ts).
+		priorContent: prepared.disk,
 		...(ctx.cwd !== undefined ? { cwd: ctx.cwd } : {}),
 	});
 	// An unavailable verdict from the evaluator (typescript missing, partial run
@@ -487,4 +421,20 @@ export async function runPerEditMutationGate(ctx: MutationGateContext): Promise<
 	const effect = testEditEffect(changedPaths(changeSet), target, ctx.baseManifest, result.mutants);
 	if (effect) decision.warnings = [...(decision.warnings ?? []), effect];
 	return decision;
+}
+
+/** PreToolUse per-edit mutation gate (spec §4 / §12). Default-off; capability-aware. */
+export async function runPerEditMutationGate(ctx: MutationGateContext): Promise<HarnessDecision | null> {
+	if (!ctx.config.enabled || ctx.config.mode === "off") return null;
+	const resolved = resolveGateTarget(ctx);
+	if (resolved.kind === "skip") return null;
+	if (resolved.kind === "unavailable") return gateDecision.unavailableDecision(ctx.config, resolved.reason);
+	const { changeSet, target } = resolved;
+
+	const prepared = prepareMutationRun(ctx, changeSet, target);
+	if (prepared.kind === "unavailable") return gateDecision.unavailableDecision(ctx.config, prepared.reason);
+
+	const attempt = await executeMutationRun(ctx, prepared, changeSet, target);
+	if (attempt.kind === "unavailable") return gateDecision.unavailableDecision(ctx.config, attempt.reason);
+	return finishMutationGate(ctx, prepared, changeSet, target, attempt.result);
 }

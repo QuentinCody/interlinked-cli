@@ -22,6 +22,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { loadUntestedFilesBaseline } from "../tested-file-policy.js";
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent, SessionTrajectory } from "../types.js";
+import { evaluateCampaignTargetGate } from "./characterize-campaign-target.js";
 import { companionTestCandidates } from "./companion-test.js";
 
 const SOURCE_EXT_RE = /\.(ts|tsx|py)$/;
@@ -145,7 +146,13 @@ export function evaluateCharacterizeBeforeTouch(args: CharacterizeGateArgs): Har
 }
 
 /** Event-shaped wrapper for the pre-tool pipeline: resolves the target path
- *  from the tool input and the mode from config (default "warn"). */
+ *  from the tool input and the mode from config (default "warn"). The
+ *  untested-file half runs first; when it stands down, the campaign-target
+ *  half (lane 7: a function-complexity ledger entry edited with no test
+ *  signal in the trajectory — block mode only) gets its turn. Both halves
+ *  are pure reads, so `event.dry_run` needs no special handling. Neither
+ *  half adjudicates `apply_patch` (no `file_path` in that payload → "" →
+ *  null); see the campaign-target module header for the open follow-up. */
 export function evaluateCharacterizeForEvent(
 	event: HarnessEvent,
 	rules: GuardRulesConfig,
@@ -156,10 +163,8 @@ export function evaluateCharacterizeForEvent(
 	// are strings when present, and non-strings fall through to "" (no gate).
 	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
 	const mode = rules.structural_checks.characterize_mode ?? "warn";
-	return evaluateCharacterizeBeforeTouch({
-		filePath,
-		cwd: event.cwd,
-		session,
-		mode,
-	});
+	const cwd = event.cwd || process.cwd();
+	const untested = evaluateCharacterizeBeforeTouch({ filePath, cwd, session, mode });
+	if (untested) return untested;
+	return evaluateCampaignTargetGate({ toolInput, cwd, session, mode });
 }

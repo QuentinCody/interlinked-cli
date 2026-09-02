@@ -208,85 +208,30 @@ export async function multiEditCommand(
 	// Mutually-exclusive input modes: must supply exactly one.
 	const hasStdin = !!opts.stdin;
 	const hasManifest = !!opts.manifest;
-	if (hasStdin && hasManifest) {
-		emit(json, {
-			ok: false,
-			error_code: MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST,
-			file_changes_applied: [],
-			error_detail: {
-				path: path || "",
-				message: "--stdin and --manifest are mutually exclusive.",
-			},
-		});
-		process.exitCode = 1;
-		return;
-	}
-	if (!hasStdin && !hasManifest) {
-		emit(json, {
-			ok: false,
-			error_code: MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST,
-			file_changes_applied: [],
-			error_detail: {
-				path: path || "",
-				message:
-					"Must supply --stdin or --manifest. Preferred (no temp file): pipe {version:1,batches:[{path,edits}]} to `interlinked multi-edit --stdin` for any number of files, or {version:1,edits:[...]} with a <path> for one file. `--manifest <file>` reads the same shapes from disk.",
-			},
-		});
+	const modeError = inputModeError(hasStdin, hasManifest, path);
+	if (modeError) {
+		emit(json, modeError);
 		process.exitCode = 1;
 		return;
 	}
 
 	// Read the raw manifest JSON.
-	let raw: string;
-	if (hasStdin) {
-		try {
-			raw = await readStdin();
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			emit(json, {
-				ok: false,
-				error_code: MULTI_EDIT_ERROR_CODES.READ_FAILED,
-				file_changes_applied: [],
-				error_detail: { path: "<stdin>", message: msg },
-			});
-			process.exitCode = 1;
-			return;
-		}
-	} else {
-		// opts.manifest is guaranteed set by the mutex check above.
-		const manifestPath = opts.manifest as string;
-		try {
-			raw = readFileSync(manifestPath, "utf-8");
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			emit(json, {
-				ok: false,
-				error_code: MULTI_EDIT_ERROR_CODES.READ_FAILED,
-				file_changes_applied: [],
-				error_detail: { path: manifestPath, message: msg },
-			});
-			process.exitCode = 1;
-			return;
-		}
-	}
-
-	// Parse + normalize.
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(raw);
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
-		emit(json, {
-			ok: false,
-			error_code: MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST,
-			file_changes_applied: [],
-			error_detail: { path: path || "<manifest>", message: `JSON parse error: ${msg}` },
-		});
+	const rawResult = await readManifestRaw(hasStdin, opts);
+	if (!rawResult.ok) {
+		emit(json, rawResult.result);
 		process.exitCode = 1;
 		return;
 	}
 
-	const normalized = normalizeManifest(parsed, path);
+	// Parse + normalize.
+	const parseResult = parseManifestJson(rawResult.raw, path);
+	if (!parseResult.ok) {
+		emit(json, parseResult.result);
+		process.exitCode = 1;
+		return;
+	}
+
+	const normalized = normalizeManifest(parseResult.parsed, path);
 	if (!normalized.ok) {
 		emit(json, {
 			ok: false,
@@ -303,6 +248,107 @@ export async function multiEditCommand(
 	emit(json, result);
 	if (!result.ok) {
 		process.exitCode = 1;
+	}
+}
+
+/**
+ * Validate the mutually-exclusive `--stdin` / `--manifest` input modes.
+ * Returns the failure result to emit, or `null` when exactly one is set.
+ */
+function inputModeError(
+	hasStdin: boolean,
+	hasManifest: boolean,
+	path: string | undefined,
+): MultiEditResult | null {
+	if (hasStdin && hasManifest) {
+		return {
+			ok: false,
+			error_code: MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST,
+			file_changes_applied: [],
+			error_detail: {
+				path: path || "",
+				message: "--stdin and --manifest are mutually exclusive.",
+			},
+		};
+	}
+	if (!hasStdin && !hasManifest) {
+		return {
+			ok: false,
+			error_code: MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST,
+			file_changes_applied: [],
+			error_detail: {
+				path: path || "",
+				message:
+					"Must supply --stdin or --manifest. Preferred (no temp file): pipe {version:1,batches:[{path,edits}]} to `interlinked multi-edit --stdin` for any number of files, or {version:1,edits:[...]} with a <path> for one file. `--manifest <file>` reads the same shapes from disk.",
+			},
+		};
+	}
+	return null;
+}
+
+/**
+ * Read the raw manifest JSON from stdin or a `--manifest` file. Assumes
+ * exactly one of the two is set (enforced by `inputModeError` upstream).
+ */
+async function readManifestRaw(
+	hasStdin: boolean,
+	opts: MultiEditOpts,
+): Promise<{ ok: true; raw: string } | { ok: false; result: MultiEditResult }> {
+	if (hasStdin) {
+		try {
+			return { ok: true, raw: await readStdin() };
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			return {
+				ok: false,
+				result: {
+					ok: false,
+					error_code: MULTI_EDIT_ERROR_CODES.READ_FAILED,
+					file_changes_applied: [],
+					error_detail: { path: "<stdin>", message: msg },
+				},
+			};
+		}
+	}
+	// opts.manifest is guaranteed set by the mutex check above.
+	const manifestPath = opts.manifest as string;
+	try {
+		return { ok: true, raw: readFileSync(manifestPath, "utf-8") };
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		return {
+			ok: false,
+			result: {
+				ok: false,
+				error_code: MULTI_EDIT_ERROR_CODES.READ_FAILED,
+				file_changes_applied: [],
+				error_detail: { path: manifestPath, message: msg },
+			},
+		};
+	}
+}
+
+/**
+ * Parse the raw manifest string as JSON, wrapping a parse failure into the
+ * same `MultiEditResult` shape the rest of the pipeline uses.
+ */
+function parseManifestJson(
+	raw: string,
+	path: string | undefined,
+): { ok: true; parsed: unknown } | { ok: false; result: MultiEditResult } {
+	try {
+		return { ok: true, parsed: JSON.parse(raw) };
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		return {
+			ok: false,
+			result: {
+				ok: false,
+				error_code: MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST,
+				file_changes_applied: [],
+				error_detail: { path: path || "<manifest>", message: `JSON parse error: ${msg}` },
+			},
+		};
 	}
 }
 

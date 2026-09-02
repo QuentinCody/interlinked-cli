@@ -66,6 +66,24 @@ function stripShellComment(segment: string): string {
 	return segment;
 }
 
+const SEGMENT_SEPARATORS = new Set([";", "&", "|", "\n", "(", ")"]);
+
+/** One character's contribution while already inside a quoted run. */
+function scanQuotedChar(
+	command: string,
+	i: number,
+	ch: string,
+	state: { quote: string | null; current: string; segments: string[] },
+): number {
+	state.current += ch;
+	if (ch === "\\" && state.quote === '"') {
+		state.current += command[i + 1] ?? "";
+		return i + 2;
+	}
+	if (ch === state.quote) state.quote = null;
+	return i + 1;
+}
+
 /** One character's contribution during the segment scan. */
 function scanChar(
 	command: string,
@@ -73,15 +91,7 @@ function scanChar(
 	state: { quote: string | null; current: string; segments: string[] },
 ): number {
 	const ch = command[i] ?? "";
-	if (state.quote !== null) {
-		state.current += ch;
-		if (ch === "\\" && state.quote === '"') {
-			state.current += command[i + 1] ?? "";
-			return i + 2;
-		}
-		if (ch === state.quote) state.quote = null;
-		return i + 1;
-	}
+	if (state.quote !== null) return scanQuotedChar(command, i, ch, state);
 	if (ch === "'" || ch === '"') {
 		state.quote = ch;
 		state.current += ch;
@@ -91,7 +101,7 @@ function scanChar(
 		state.current += ch + (command[i + 1] ?? "");
 		return i + 2;
 	}
-	if (ch === ";" || ch === "&" || ch === "|" || ch === "\n" || ch === "(" || ch === ")") {
+	if (SEGMENT_SEPARATORS.has(ch)) {
 		state.segments.push(state.current);
 		state.current = "";
 		return i + 1;

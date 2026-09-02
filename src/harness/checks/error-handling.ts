@@ -3,12 +3,11 @@
 
 import { nonNull } from "../../lib/non-null.js";
 import {
-	getExtension,
-	type InlineMatch,
-	isTestFile,
-	JS_TS_ALL_EXTS,
-	stripComments,
-} from "./shared.js";
+	pushBareCatchOneLiner,
+	pushBarePythonExcept,
+	pushCommentOnlyCatch,
+} from "./error-handling-bare-catch.js";
+import { getExtension, type InlineMatch, isTestFile, JS_TS_ALL_EXTS, stripComments } from "./shared.js";
 
 // ===========================================
 // Taste Enforcement: Error Handling Quality
@@ -28,11 +27,7 @@ export function checkBareCatchBlock(content: string, filePath: string): InlineMa
 	for (let i = 0; i < lines.length; i++) {
 		const line = nonNull(lines[i]);
 		// JS/TS: catch (...) { } or catch { } on same line
-		if (/\bcatch\s*(\([^)]*\))?\s*\{\s*\}/.test(line)) {
-			matches.push({
-				line: i + 1,
-				text: `bare catch block silently swallows error: ${nonNull(line).trim().slice(0, 100)}`,
-			});
+		if (pushBareCatchOneLiner(line, i, matches)) {
 			// The shared `matches.length >= 10` cap below is unreachable from this
 			// branch's `continue` — check it here too, or a file with many bare
 			// one-liner catches never caps (source defect found via mutation testing
@@ -41,29 +36,9 @@ export function checkBareCatchBlock(content: string, filePath: string): InlineMa
 			continue;
 		}
 		// catch block with only a comment inside
-		if (/\bcatch\s*(\([^)]*\))?\s*\{/.test(line) && i + 2 < lines.length) {
-			const next = nonNull(lines[i + 1]).trim();
-			const afterNext = nonNull(lines[i + 2]).trim();
-			if (
-				(next.startsWith("//") || next.startsWith("/*") || next === "") &&
-				afterNext === "}"
-			) {
-				matches.push({
-					line: i + 1,
-					text: `catch block with only a comment — error is silently ignored: ${nonNull(line).trim().slice(0, 100)}`,
-				});
-			}
-		}
+		pushCommentOnlyCatch(lines, i, matches);
 		// Python: except: pass / except Exception: pass
-		if (ext === ".py" && /\bexcept\b.*:\s*$/.test(line) && i + 1 < lines.length) {
-			const next = nonNull(lines[i + 1]).trim();
-			if (next === "pass" || next === "...") {
-				matches.push({
-					line: i + 1,
-					text: `bare except/pass silently swallows error: ${nonNull(line).trim().slice(0, 100)}`,
-				});
-			}
-		}
+		if (ext === ".py") pushBarePythonExcept(lines, i, matches);
 		if (matches.length >= 10) break;
 	}
 

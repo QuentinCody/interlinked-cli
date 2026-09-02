@@ -399,6 +399,14 @@ const POSTTOOLUSE_ONLY_CHECKS = new Set([
 	"fetch_without_abort_signal",
 	"checkPublicApiLeaksInternalType",
 	"public_api_leaks_internal_type",
+	// Helper-hygiene wave (2026-09-01): both are EDIT-TIME (pre_warn) nudges —
+	// they diff the proposed content against the on-disk baseline, so a verify
+	// walk (no baseline, no "new" symbols) has nothing to compare and never
+	// wires them. PostToolUse/PreToolUse only, by design.
+	"checkNewExportWithoutImporter",
+	"new_export_without_importer",
+	"checkExtractedHelperDuplicate",
+	"extracted_helper_duplicate",
 	// Type-discipline wave (2026-08-14): ported from dmmulroy/anti-slop,
 	// detection algorithm only (docs/external-pulse/anti-slop.md). Shipped
 	// PostToolUse-enforced now; their verify-surface wiring (interface +
@@ -728,6 +736,8 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 			"typePredicateDrift",
 			"deadTypeExports",
 			"duplicateTypeDeclaration",
+			"newExportWithoutImporter",
+			"extractedHelperDuplicate",
 			"snapshotHygiene",
 			"designSlop",
 			"payloadFieldCasing",

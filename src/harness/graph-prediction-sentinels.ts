@@ -214,14 +214,11 @@ export function handleAckSubmission(event: HarnessEvent, cwd: string, sentinel: 
 
 // ── Prediction submission ────────────────────────────────────────────────────
 
-export function handleSentinelSubmission(event: HarnessEvent, cwd: string): DriveResult | null {
-	const filePath = typeof event.tool_input?.file_path === "string"
-		? event.tool_input.file_path
-		: "";
-	const sentinel = parseSentinelPath(filePath, cwd);
-	if (!sentinel) return null;
-
-	const content = typeof event.tool_input?.content === "string" ? event.tool_input.content : "";
+/** Validate the raw submission content and parse it. Returns either a block
+ *  `DriveResult` (content missing/malformed) or the parsed prediction. */
+function parseSentinelSubmissionContent(
+	content: string,
+): DriveResult | ReturnType<typeof parseBarePrediction> {
 	if (!content || !content.includes("graph_prediction:")) {
 		return {
 			decision: "block",
@@ -248,14 +245,23 @@ export function handleSentinelSubmission(event: HarnessEvent, cwd: string): Driv
 				"match this submission to the target edit.",
 		};
 	}
+	return parsed;
+}
 
-	const absTarget = isAbsolute(parsed.file) ? resolve(parsed.file) : resolve(cwd, parsed.file);
+/** Classify the prediction's target file and confirm it is E-fresh with
+ *  resolvable shard metadata. Returns either a block `DriveResult` or the
+ *  classification. */
+function classifySentinelTarget(
+	parsedFile: string,
+	cwd: string,
+): DriveResult | (CaseResult & { shardPath: string; sourceMtime: string; shardMtime: string }) {
+	const absTarget = isAbsolute(parsedFile) ? resolve(parsedFile) : resolve(cwd, parsedFile);
 	const classification = classifyCase(absTarget, cwd);
 	if (classification.case !== E_FRESH) {
 		return {
 			decision: "block",
 			reason:
-				`[interlinked:graph-pred] Prediction target ${parsed.file} classifies as Case ${classification.case}, ` +
+				`[interlinked:graph-pred] Prediction target ${parsedFile} classifies as Case ${classification.case}, ` +
 				"not E-fresh. Only E-fresh files (source exists + fresh shard colocated) need predictions. " +
 				"If you intended to edit a different file, retry the Edit and the harness will tell you which file is in scope.",
 		};
@@ -263,9 +269,44 @@ export function handleSentinelSubmission(event: HarnessEvent, cwd: string): Driv
 	if (!classification.shardPath || !classification.sourceMtime || !classification.shardMtime) {
 		return {
 			decision: "block",
-			reason: `[interlinked:graph-pred] Could not resolve shard metadata for ${parsed.file}.`,
+			reason: `[interlinked:graph-pred] Could not resolve shard metadata for ${parsedFile}.`,
 		};
 	}
+	// SAFETY: the two guards above prove case === E_FRESH and all three
+	// fields are non-null, matching the narrowed return type exactly.
+	return classification as CaseResult & { shardPath: string; sourceMtime: string; shardMtime: string };
+}
+
+/** Build the accepted-prediction acknowledgement message. */
+function buildSentinelSubmissionAck(
+	sourcePath: string,
+	parsed: ReturnType<typeof parseBarePrediction>,
+): string {
+	const ackParts: string[] = [
+		`[interlinked:graph-pred] Prediction for ${sourcePath} accepted.`,
+	];
+	if (parsed.parse_status === "format_violation") {
+		ackParts.push(
+			`Format violation noted (${parsed.parse_error ?? "exceeded entry cap"}); the prediction was persisted but the format is non-conforming.`,
+		);
+	}
+	ackParts.push("You can now retry the original Edit; the cache will be consulted.");
+	return ackParts.join("\n");
+}
+
+export function handleSentinelSubmission(event: HarnessEvent, cwd: string): DriveResult | null {
+	const filePath = typeof event.tool_input?.file_path === "string"
+		? event.tool_input.file_path
+		: "";
+	const sentinel = parseSentinelPath(filePath, cwd);
+	if (!sentinel) return null;
+
+	const content = typeof event.tool_input?.content === "string" ? event.tool_input.content : "";
+	const parsed = parseSentinelSubmissionContent(content);
+	if ("decision" in parsed) return parsed;
+
+	const classification = classifySentinelTarget(parsed.file, cwd);
+	if ("decision" in classification) return classification;
 
 	appendPredictionRow(cwd, {
 		session_id: sentinel.sessionId,
@@ -284,19 +325,9 @@ export function handleSentinelSubmission(event: HarnessEvent, cwd: string): Driv
 		comparison_status: parsed.parse_status === "format_violation" ? "parse_failed" : "pending",
 	});
 
-	const ackParts: string[] = [
-		`[interlinked:graph-pred] Prediction for ${classification.sourcePath} accepted.`,
-	];
-	if (parsed.parse_status === "format_violation") {
-		ackParts.push(
-			`Format violation noted (${parsed.parse_error ?? "exceeded entry cap"}); the prediction was persisted but the format is non-conforming.`,
-		);
-	}
-	ackParts.push("You can now retry the original Edit; the cache will be consulted.");
-
 	return {
 		decision: "allow",
-		additional_context: ackParts.join("\n"),
+		additional_context: buildSentinelSubmissionAck(classification.sourcePath, parsed),
 	};
 }
 

@@ -40,6 +40,55 @@ function exportedTypeDecls(content: string): Map<string, number> {
 	return out;
 }
 
+/** Best-effort read of a candidate module's source; `null` on any read error
+ *  (e.g. a stale git-listed path that no longer exists on disk). */
+function readOtherFileOrNull(cwd: string, rel: string): string | null {
+	try {
+		return readFileSync(resolve(cwd, rel), "utf-8");
+	} catch {
+		return null;
+	}
+}
+
+/** Build the finding for one own-declared name that also exists in `other`. */
+function buildDuplicateMatch(
+	name: string,
+	line: number,
+	ownBody: string,
+	otherBodies: Map<string, string>,
+	rel: string,
+): InlineMatch {
+	const otherBody = normalizeBody(otherBodies.get(name) ?? "");
+	const identical = ownBody !== "" && ownBody === otherBody;
+	return {
+		line,
+		text: identical
+			? `type '${name}' is also declared in ${basename(rel)} with an IDENTICAL body — keep one declaration and re-export it (duplicate declarations drift)`
+			: `type '${name}' is also declared in ${basename(rel)} with a DIFFERENT body — rename one side; same-name different-shape types misroute auto-imports`,
+	};
+}
+
+/** Compare `ownDecls` against one other module's declarations, appending any
+ *  newly-discovered duplicate names to `matches` and `seen`. */
+function matchOwnDeclsAgainstOther(
+	ownDecls: Map<string, number>,
+	ownBodies: Map<string, string>,
+	other: string,
+	rel: string,
+	seen: Set<string>,
+	matches: InlineMatch[],
+): void {
+	const otherDecls = exportedTypeDecls(other);
+	let otherBodies: Map<string, string> | null = null;
+	for (const [name, line] of ownDecls) {
+		if (seen.has(name) || !otherDecls.has(name)) continue;
+		seen.add(name);
+		otherBodies ??= extractInterfaceBodies(other);
+		const ownBody = normalizeBody(ownBodies.get(name) ?? "");
+		matches.push(buildDuplicateMatch(name, line, ownBody, otherBodies, rel));
+	}
+}
+
 /**
  * Flag exported type/interface declarations in the edited file whose NAME is
  * also declared (exported) by a different non-test module. Identical bodies
@@ -61,28 +110,9 @@ export function checkDuplicateTypeDeclaration(
 	const seen = new Set<string>();
 	for (const rel of getGitSourceFiles(cwd)) {
 		if (rel === selfRel || isTestFile(rel) || rel.endsWith(".d.ts")) continue;
-		let other: string;
-		try {
-			other = readFileSync(resolve(cwd, rel), "utf-8");
-		} catch {
-			continue;
-		}
-		const otherDecls = exportedTypeDecls(other);
-		let otherBodies: Map<string, string> | null = null;
-		for (const [name, line] of ownDecls) {
-			if (seen.has(name) || !otherDecls.has(name)) continue;
-			seen.add(name);
-			otherBodies ??= extractInterfaceBodies(other);
-			const ownBody = normalizeBody(ownBodies.get(name) ?? "");
-			const otherBody = normalizeBody(otherBodies.get(name) ?? "");
-			const identical = ownBody !== "" && ownBody === otherBody;
-			matches.push({
-				line,
-				text: identical
-					? `type '${name}' is also declared in ${basename(rel)} with an IDENTICAL body — keep one declaration and re-export it (duplicate declarations drift)`
-					: `type '${name}' is also declared in ${basename(rel)} with a DIFFERENT body — rename one side; same-name different-shape types misroute auto-imports`,
-			});
-		}
+		const other = readOtherFileOrNull(cwd, rel);
+		if (other === null) continue;
+		matchOwnDeclsAgainstOther(ownDecls, ownBodies, other, rel, seen, matches);
 		if (seen.size === ownDecls.size) break;
 	}
 	return matches;

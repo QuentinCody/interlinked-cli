@@ -54,6 +54,20 @@ export const coreSections: readonly SectionSpec[] = [
 		color: "33",
 	},
 	{
+		label: "new exports without importer",
+		key: "newExportWithoutImporter",
+		noun: "newly exported symbols no other file imports",
+		passLabel: "every new export has an importer",
+		color: "33",
+	},
+	{
+		label: "extracted helper duplicates",
+		key: "extractedHelperDuplicate",
+		noun: "new functions near-identical to a sibling helper",
+		passLabel: "no duplicated helpers",
+		color: "33",
+	},
+	{
 		label: "circular imports",
 		key: "circularImports",
 		noun: "import cycles involving this file",

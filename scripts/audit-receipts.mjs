@@ -56,6 +56,7 @@ import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { createGunzip } from "node:zlib";
+import { classify } from "./audit-receipts-classify.mjs";
 import { incompleteHistoryError } from "./receipts-completeness.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -318,57 +319,6 @@ function findCommandForBlock(sessionId, blockTsMs) {
 		}
 	}
 	return best;
-}
-
-// Heuristic: classify a resolved command as a real attempt or an FP.
-// Conservative — defaults to "needs_review" so the audit underclaims
-// rather than overclaims.
-function classify(ruleId, command) {
-	const lc = command.toLowerCase();
-	const looksLikeText = (verb) =>
-		lc.includes("git commit") || lc.includes(`echo `) || lc.includes(`grep `) || lc.includes(`rg `) || lc.includes(`> ${verb}.log`);
-
-	if (ruleId === "builtin-shutdown-reboot") {
-		if (looksLikeText("shutdown") && (lc.includes("shutdown") || lc.includes("reboot"))) return "fp_in_text";
-		const startsWithVerb = /^\s*(?:sudo\s+)?(?:shutdown|reboot)\b/i;
-		if (startsWithVerb.test(command)) return "real";
-		return "fp_in_text"; // older rule fired on substring match — assume FP unless command-start match
-	}
-	if (ruleId === "builtin-rm-rf-root") {
-		if (looksLikeText("rm")) return "fp_in_text";
-		const isRoot = /^\s*(?:sudo\s+)?rm\s+-[rRf]+\s+\/(?!Users|Volumes|var\/tmp\b|tmp\b)/.test(command);
-		const isWildcard = /^\s*(?:sudo\s+)?rm\s+-[rRf]+\s+\*/.test(command);
-		if (isRoot || isWildcard) return "real";
-		// rm -rf <project-subdir> is the rule firing on any path starting with /
-		// Not a true root-level delete.
-		return "fp_path_under_users";
-	}
-	if (ruleId === "builtin-drop-database") {
-		if (looksLikeText("drop")) return "fp_in_text";
-		// Real DROP would be embedded in a script execution, not interactive
-		return "needs_review";
-	}
-	if (ruleId === "builtin-kubectl-delete-all") {
-		if (looksLikeText("kubectl")) return "fp_in_text";
-		if (/^\s*kubectl\s+delete\s+--all/.test(command)) return "real";
-		return "fp_in_text";
-	}
-	if (ruleId === "builtin-chmod-777") {
-		if (looksLikeText("chmod")) return "fp_in_text";
-		if (/^\s*(?:sudo\s+)?chmod\s+0?777\b/.test(command)) return "real";
-		return "fp_in_text";
-	}
-	if (ruleId === "builtin-nohup-network") {
-		if (!lc.includes("nohup")) return "fp_in_text";
-		return "needs_review";
-	}
-	if (ruleId === "pretooluse-injection-scan") {
-		// File-path field, not a command. Whether the content was real
-		// prompt injection depends on the file's contents at write time,
-		// which the activity log doesn't preserve. Mark as unverified.
-		return "needs_review";
-	}
-	return "needs_review";
 }
 
 function auditWindow(blocks) {

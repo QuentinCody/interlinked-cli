@@ -478,3 +478,52 @@ describe("trackCommand", () => {
 		expect(session.verification_observed).toBeUndefined();
 	});
 });
+
+// The durable `test_commands_run` list exists to fix a specific defect: a
+// characterization command run early in a long session aged out of
+// `commands_run`'s 100-entry ring under unrelated Bash traffic, forcing a
+// re-run of a command that had already produced a passing signal. These
+// cases pin the recognizer (only real test-runner shapes qualify), the cap,
+// and that unrelated traffic never evicts an entry from this list.
+describe("trackCommand — test_commands_run (durable test-signal list)", () => {
+	it("P1: a recognized test-runner command is appended to test_commands_run", () => {
+		const session = freshSession();
+		trackCommand(
+			session,
+			baseEvent({ tool_name: "Bash", tool_input: { command: "npx vitest related src/a.ts --run" } }),
+		);
+		expect(session.test_commands_run).toEqual(["npx vitest related src/a.ts --run"]);
+	});
+
+	it("N1: `npm run typecheck` × 150 never enters test_commands_run (bounded, only runner shapes)", () => {
+		const session = freshSession();
+		for (let i = 0; i < 150; i++) {
+			trackCommand(session, baseEvent({ tool_name: "Bash", tool_input: { command: "npm run typecheck" } }));
+		}
+		expect(session.test_commands_run ?? []).toEqual([]);
+		// The unrelated traffic still fills (and trims) the ring buffer as before.
+		expect(session.commands_run).toHaveLength(100);
+	});
+
+	it("P2: 600 test commands tracked → test_commands_run holds the newest 500 (bounded)", () => {
+		const session = freshSession();
+		for (let i = 0; i < 600; i++) {
+			trackCommand(
+				session,
+				baseEvent({ tool_name: "Bash", tool_input: { command: `npx vitest run src/f${i}.test.ts` } }),
+			);
+		}
+		expect(session.test_commands_run).toHaveLength(500);
+		expect(session.test_commands_run?.[0]).toBe("npx vitest run src/f100.test.ts");
+		expect(session.test_commands_run?.[499]).toBe("npx vitest run src/f599.test.ts");
+	});
+
+	it("N2: a test command's text is truncated at 2000 chars, not commands_run's 200", () => {
+		const session = freshSession();
+		const long = `npx vitest run src/${"a".repeat(2100)}.test.ts`;
+		trackCommand(session, baseEvent({ tool_name: "Bash", tool_input: { command: long } }));
+		expect(session.test_commands_run?.[0]).toHaveLength(2000);
+		// commands_run keeps its own, shorter, independent truncation.
+		expect(session.commands_run[0]).toHaveLength(200);
+	});
+});

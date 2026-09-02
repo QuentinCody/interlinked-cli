@@ -206,27 +206,45 @@ export function checkBoundaryCopyNoRevalidation(
 	const matches: InlineMatch[] = [];
 	const seen = new Set<number>();
 
-	const isValidated = (text: string): boolean =>
-		VALIDATOR_RES.some((re) => re.test(text));
+	if (scanObjectAssignBoundary(stripped, lines, matches, seen)) return matches;
+	scanSpreadBoundary(stripped, lines, matches, seen);
 
-	// Object.assign(<typed>, <source>...) where any source contains external
-	// input and the source itself isn't a validator call.
+	return matches;
+}
+
+function isValidated(text: string): boolean {
+	return VALIDATOR_RES.some((re) => re.test(text));
+}
+
+function findMatchingParen(s: string, openIdx: number, budget: number): number {
+	let depth = 0;
+	const end = Math.min(s.length, openIdx + budget);
+	for (let i = openIdx; i < end; i++) {
+		const c = s.charAt(i);
+		if (c === "(") {
+			depth++;
+		} else if (c === ")" && --depth === 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+// Object.assign(<typed>, <source>...) where any source contains external
+// input and the source itself isn't a validator call. Returns true when the
+// per-file match cap was hit (caller should stop scanning immediately).
+function scanObjectAssignBoundary(
+	stripped: string,
+	lines: string[],
+	matches: InlineMatch[],
+	seen: Set<number>,
+): boolean {
 	const assignRe = /\bObject\.assign\s*\(/g;
 	let assignHit: RegExpExecArray | null;
 	while ((assignHit = assignRe.exec(stripped))) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return matches;
+		if (matches.length >= MAX_MATCHES_PER_FILE) return true;
 		const openParen = assignHit.index + assignHit[0].length - 1;
-		// Walk to matching `)`.
-		let depth = 0;
-		let close = -1;
-		for (let i = openParen; i < Math.min(stripped.length, openParen + 4000); i++) {
-			const c = stripped.charAt(i);
-			if (c === "(") depth++;
-			else if (c === ")" && --depth === 0) {
-				close = i;
-				break;
-			}
-		}
+		const close = findMatchingParen(stripped, openParen, 4000);
 		if (close < 0) continue;
 		const args = stripped.slice(openParen + 1, close);
 		// Sources are everything past the first comma.
@@ -235,20 +253,28 @@ export function checkBoundaryCopyNoRevalidation(
 		const sources = args.slice(firstComma + 1);
 		if (!EXTERNAL_INPUT_RE.test(sources)) continue;
 		if (isValidated(sources)) continue;
-		if (recordLine(stripped, lines, assignHit.index, matches, seen)) return matches;
+		if (recordLine(stripped, lines, assignHit.index, matches, seen)) return true;
 	}
+	return false;
+}
 
-	// Spread of external input inside an object literal: `{ ...req.body }` etc.
+// Spread of external input inside an object literal: `{ ...req.body }` etc.
+// Returns true when the per-file match cap was hit.
+function scanSpreadBoundary(
+	stripped: string,
+	lines: string[],
+	matches: InlineMatch[],
+	seen: Set<number>,
+): boolean {
 	const spreadRe =
 		/\{[^{}]*\.\.\.\s*((?:req|request)\.(?:body|query|params)\b[\w$.]*|process\.(?:argv|env)[\w$.]*)/g;
 	let spreadHit: RegExpExecArray | null;
 	while ((spreadHit = spreadRe.exec(stripped))) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return matches;
+		if (matches.length >= MAX_MATCHES_PER_FILE) return true;
 		// Suppress if this object literal is the argument to a validator call.
 		const before = stripped.slice(Math.max(0, spreadHit.index - 80), spreadHit.index);
 		if (isValidated(before)) continue;
-		if (recordLine(stripped, lines, spreadHit.index, matches, seen)) return matches;
+		if (recordLine(stripped, lines, spreadHit.index, matches, seen)) return true;
 	}
-
-	return matches;
+	return false;
 }

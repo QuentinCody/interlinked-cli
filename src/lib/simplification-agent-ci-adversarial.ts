@@ -160,10 +160,12 @@ function parseExpected(value: unknown): SimplificationAdversarialFixture["expect
 	};
 }
 
-export function parseSimplificationAdversarialFixture(
-	input: unknown,
-): SimplificationAdversarialFixtureParseResult {
-	if (!isJsonObject(input) || !exactKeys(
+type SimplificationAdversarialFieldResult<T> =
+	| { ok: true; value: T }
+	| { ok: false; reason: string };
+
+function parseAdversarialShape(input: unknown): input is Record<string, unknown> {
+	return isJsonObject(input) && exactKeys(
 		input,
 		[
 			"schema_version",
@@ -176,21 +178,47 @@ export function parseSimplificationAdversarialFixture(
 			"required_read_paths",
 			"expected",
 		],
-	)) return { ok: false, reason: "fixture has an unknown or missing field" };
+	);
+}
+
+function parseAdversarialIdentity(
+	input: Record<string, unknown>,
+): SimplificationAdversarialFieldResult<{
+	fixtureId: string;
+	remedy: SimplificationRemedy;
+	trapKind: SimplificationAdversarialTrapKind;
+}> {
 	if (input.schema_version !== SIMPLIFICATION_ADVERSARIAL_FIXTURE_VERSION || !nonempty(input.fixture_id)) {
 		return { ok: false, reason: "fixture version or id is invalid" };
 	}
+	const fixtureId = input.fixture_id;
 	const remedy = input.remedy;
 	const trapKind = input.trap_kind;
 	if (!isRemedy(remedy) || !isTrapKind(trapKind)) {
 		return { ok: false, reason: "fixture remedy or trap kind is invalid" };
 	}
+	return { ok: true, value: { fixtureId, remedy, trapKind } };
+}
+
+function parseAdversarialBody(
+	input: Record<string, unknown>,
+): SimplificationAdversarialFieldResult<{
+	repository_files: SimplificationAdversarialFile[];
+	candidate: SimplificationAdversarialFixture["candidate"];
+	expected: SimplificationAdversarialFixture["expected"];
+}> {
 	const repository_files = parseFiles(input.repository_files);
 	const candidate = parseCandidate(input.candidate);
 	const expected = parseExpected(input.expected);
 	if (!repository_files || !candidate || !expected) {
 		return { ok: false, reason: "fixture source, candidate, or expected result is invalid" };
 	}
+	return { ok: true, value: { repository_files, candidate, expected } };
+}
+
+function parseAdversarialBoundaries(
+	input: Record<string, unknown>,
+): SimplificationAdversarialFieldResult<SimplificationProtectedBoundary[]> {
 	if (!Array.isArray(input.protected_boundaries) || input.protected_boundaries.length === 0 || !input.protected_boundaries.every(isBoundary)) {
 		return { ok: false, reason: "fixture must identify at least one protected boundary" };
 	}
@@ -201,6 +229,13 @@ export function parseSimplificationAdversarialFixture(
 	if (canonicalBoundaries.some((boundary, index) => boundary !== protected_boundaries[index])) {
 		return { ok: false, reason: "fixture protected boundaries must be unique and canonically ordered" };
 	}
+	return { ok: true, value: canonicalBoundaries };
+}
+
+function parseAdversarialReadPaths(
+	input: Record<string, unknown>,
+	repository_files: SimplificationAdversarialFile[],
+): SimplificationAdversarialFieldResult<string[]> {
 	if (!canonicalPathList(input.required_read_paths) || input.required_read_paths.length === 0) {
 		return { ok: false, reason: "fixture required_read_paths must be a non-empty canonical path list" };
 	}
@@ -208,18 +243,35 @@ export function parseSimplificationAdversarialFixture(
 	if (!input.required_read_paths.every((path) => knownPaths.has(path))) {
 		return { ok: false, reason: "fixture requires a read path absent from repository_files" };
 	}
+	return { ok: true, value: [...input.required_read_paths] };
+}
+
+export function parseSimplificationAdversarialFixture(
+	input: unknown,
+): SimplificationAdversarialFixtureParseResult {
+	if (!parseAdversarialShape(input)) {
+		return { ok: false, reason: "fixture has an unknown or missing field" };
+	}
+	const identity = parseAdversarialIdentity(input);
+	if (!identity.ok) return { ok: false, reason: identity.reason };
+	const body = parseAdversarialBody(input);
+	if (!body.ok) return { ok: false, reason: body.reason };
+	const boundaries = parseAdversarialBoundaries(input);
+	if (!boundaries.ok) return { ok: false, reason: boundaries.reason };
+	const readPaths = parseAdversarialReadPaths(input, body.value.repository_files);
+	if (!readPaths.ok) return { ok: false, reason: readPaths.reason };
 	return {
 		ok: true,
 		fixture: {
 			schema_version: SIMPLIFICATION_ADVERSARIAL_FIXTURE_VERSION,
-			fixture_id: input.fixture_id,
-			remedy,
-			trap_kind: trapKind,
-			repository_files,
-			candidate,
-			protected_boundaries: canonicalBoundaries,
-			required_read_paths: [...input.required_read_paths],
-			expected,
+			fixture_id: identity.value.fixtureId,
+			remedy: identity.value.remedy,
+			trap_kind: identity.value.trapKind,
+			repository_files: body.value.repository_files,
+			candidate: body.value.candidate,
+			protected_boundaries: boundaries.value,
+			required_read_paths: readPaths.value,
+			expected: body.value.expected,
 		},
 	};
 }

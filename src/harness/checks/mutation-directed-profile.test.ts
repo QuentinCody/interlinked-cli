@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	classifyRemovedAssertions,
 	detectRemovedAssertions,
 	evaluateMutationDirectedSignals,
 	isMutationDirectedFile,
@@ -433,5 +434,107 @@ describe("mutation-hardening additions (wave 41)", () => {
 		const proposed = "";
 		const found = detectRemovedAssertions(args({ content: proposed, baselineContent: baseline }));
 		expect(found).toHaveLength(1);
+	});
+});
+
+const SIBLING_PATH = "src/lib/other.mutation-kill.test.ts";
+const TWO_ASSERTIONS = 'it("x", () => {\n  expect(a).toBe(1);\n  expect(b).toBe(2);\n});';
+const ONE_ASSERTION = 'it("x", () => {\n  expect(a).toBe(1);\n});';
+
+describe("classifyRemovedAssertions — GATE 2 move awareness — positive (must fire)", () => {
+	// test-contract: invariant — a removal with no equivalent addition anywhere
+	// in the edit is still a removal (the pre-move behavior, unchanged).
+	it("P1: a plain removal with nothing added stays removed", () => {
+		const out = classifyRemovedAssertions(args({ content: ONE_ASSERTION, baselineContent: TWO_ASSERTIONS }));
+		expect(out.removed.map((m) => m.text)).toEqual(["expect(b).toBe(2);"]);
+		expect(out.moved).toEqual([]);
+	});
+
+	// test-contract: boundary — an addition with the same matcher but a
+	// different expected value does not pay for the removal.
+	it("P2: an added assertion with a different expected value is not a move", () => {
+		const proposed = 'it("x", () => {\n  expect(a).toBe(1);\n  expect(b).toBe(3);\n});';
+		const out = classifyRemovedAssertions(args({ content: proposed, baselineContent: TWO_ASSERTIONS }));
+		expect(out.removed).toHaveLength(1);
+		expect(out.moved).toEqual([]);
+	});
+
+	// test-contract: boundary — a sibling whose "addition" was already on its
+	// own disk baseline adds nothing, so it cannot pay for the removal.
+	it("P3: a sibling line that pre-exists on the sibling's baseline is not an addition", () => {
+		const siblingContent = 'it("y", () => {\n  expect(c).toBe(2);\n});';
+		const out = classifyRemovedAssertions(
+			args({
+				content: ONE_ASSERTION,
+				baselineContent: TWO_ASSERTIONS,
+				siblings: [{ filePath: SIBLING_PATH, content: siblingContent, baselineContent: siblingContent }],
+			}),
+		);
+		expect(out.removed).toHaveLength(1);
+		expect(out.moved).toEqual([]);
+	});
+
+	// test-contract: boundary — a sibling outside the mutation-directed class
+	// (plain x.test.ts) cannot pay: the kill evidence left the graded file
+	// class even though the assertion text survives in the ChangeSet.
+	it("P4: an equivalent addition in a NON-mutation-directed sibling does not pay for the removal", () => {
+		const out = classifyRemovedAssertions(
+			args({
+				content: ONE_ASSERTION,
+				baselineContent: TWO_ASSERTIONS,
+				siblings: [{ filePath: ORDINARY_PATH, content: 'it("y", () => {\n  expect(b).toBe(2);\n});', baselineContent: null }],
+			}),
+		);
+		expect(out.removed.map((m) => m.text)).toEqual(["expect(b).toBe(2);"]);
+		expect(out.moved).toEqual([]);
+	});
+
+	// test-contract: boundary — the subject is part of the equivalence key: a
+	// renamed subject with the same low-entropy expected value is a rewrite.
+	it("P5: a same-file re-add with a RENAMED subject is not a move", () => {
+		const proposed = `${ONE_ASSERTION}\nit("y", () => {\n  expect(out.b).toBe(2);\n});`;
+		const out = classifyRemovedAssertions(args({ content: proposed, baselineContent: TWO_ASSERTIONS }));
+		expect(out.removed.map((m) => m.text)).toEqual(["expect(b).toBe(2);"]);
+		expect(out.moved).toEqual([]);
+	});
+});
+
+describe("classifyRemovedAssertions — GATE 2 move awareness — negative (must not fire)", () => {
+	// test-contract: public-api — the assertion moved to another test block in
+	// the same file (same subject, different spacing) is a move, not a removal.
+	it("N1: same-file move into another test block with the same subject", () => {
+		const proposed = `${ONE_ASSERTION}\nit("y", () => {\n  expect( b ).toBe( 2 );\n});`;
+		const out = classifyRemovedAssertions(args({ content: proposed, baselineContent: TWO_ASSERTIONS }));
+		expect(out.removed).toEqual([]);
+		expect(out.moved.map((m) => m.text)).toEqual(["expect(b).toBe(2);"]);
+		expect(detectRemovedAssertions(args({ content: proposed, baselineContent: TWO_ASSERTIONS }))).toEqual([]);
+	});
+
+	// test-contract: public-api — the assertion moved into a sibling file of
+	// the same ChangeSet is a move; the sibling's own baseline is diffed so
+	// only its ADDED lines count.
+	it("N2: cross-file move into a sibling of the same ChangeSet", () => {
+		const siblingBaseline = 'it("y", () => {\n  expect(c).toBe(3);\n});';
+		const siblingContent = 'it("y", () => {\n  expect(c).toBe(3);\n  expect( b ).toBe( 2 );\n});';
+		const out = classifyRemovedAssertions(
+			args({
+				content: ONE_ASSERTION,
+				baselineContent: TWO_ASSERTIONS,
+				siblings: [{ filePath: SIBLING_PATH, content: siblingContent, baselineContent: siblingBaseline }],
+			}),
+		);
+		expect(out.removed).toEqual([]);
+		expect(out.moved).toHaveLength(1);
+	});
+
+	// test-contract: public-api — a whole test case (declaration + assertion)
+	// moved verbatim to a NEW sibling file (null baseline ⇒ every line added).
+	it("N3: a whole case moved verbatim into a new sibling file", () => {
+		const baseline = 'it("kept", () => expect(a).toBe(1));\nit("moved", () => expect(b).toBe(2));';
+		const proposed = 'it("kept", () => expect(a).toBe(1));';
+		const sibling = { filePath: SIBLING_PATH, content: 'it("moved", () => expect(b).toBe(2));', baselineContent: null };
+		const out = classifyRemovedAssertions(args({ content: proposed, baselineContent: baseline, siblings: [sibling] }));
+		expect(out.removed).toEqual([]);
+		expect(out.moved).toHaveLength(1);
 	});
 });

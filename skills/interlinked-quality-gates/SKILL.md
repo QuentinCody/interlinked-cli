@@ -532,6 +532,11 @@ Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline 
 | `interlinked caps` | Show effective caps (lines/function-tokens/cyclomatic/crap/coverage) + provenance. |
 | `interlinked caps set <lines\|function-tokens\|cyclomatic\|crap\|coverage> <n>` | Retune a cap → `.interlinked/metric-caps.json`. Function tokens cannot exceed 500. |
 | `interlinked caps explain [metric]` | Definition, default, fix hint per metric. |
+| `interlinked caps ratchet <cyclomatic\|cognitive> --to <n> [--dry-run]` | Tighten a per-function cap AND regenerate the grandfather ledger (`function-complexity-baseline.json`) for everything over it. Only writer of the ledger; `caps set` delegates here when a section exists. |
+| `interlinked caps status` | Ledger burn-down per metric: cap, entries remaining, top offenders, delta vs the previous snapshot. |
+| `interlinked caps propose` | Data-driven cap proposals from a live census: percentile ladder and the count each candidate cap would grandfather. |
+| `interlinked metrics complexity [--metric <m>] [--top <n>]` | Complexity census: percentiles, histograms, hotspots, per-file mass, over-cap counts. |
+| `interlinked metrics split-plan <file>` | Where to cut one over-cap file: 2–4 cohesive modules from the intra-file reference graph. |
 | `interlinked coverage check [--update-baseline] [--json]` | Full-suite per-file coverage ratchet vs `coverage-baseline.json`. |
 | `interlinked mutation check [--report <p>] [--update-baseline]` | Per-file mutation-score ratchet vs `mutation-baseline.json` (needs a Stryker report). |
 | `interlinked mutation measure <file> [--record]` | Measure one source file; `--record` persists a complete, conclusive measured report as an explicit manifest baseline update. Recording is not a clean verdict. |
@@ -640,6 +645,19 @@ The integrity gate matches these eight files; direction is **per-file**:
 | `metric-caps.json` | `max_*`/`crap_threshold` may only **tighten**; `min_coverage` may only **rise**. `max_function_tokens` also has an absolute 500 ceiling. Includes `max_predicate_drift` — see below. |
 | `skipped-tests-baseline.json` | `max_skipped` may only **tighten**; a grandfather count may only **shrink**. |
 | `mutation-manifest.json` | the accepted-survivor set may only **shrink**. |
+| `function-complexity-baseline.json` | per-function grandfather ledger (cyclomatic / cognitive): a recorded value may only **fall**, an entry may only be **dropped**; new entries enter only through `caps ratchet` on a tightening; Write-tool creation is refused. A listed function may hold or shrink at its value; an unlisted over-cap function blocks even when held. When the cap in `metric-caps.json` is tighter than the ledger's, the block says so and names `caps ratchet <metric> --to <cap>`. |
+
+### Decomposition campaigns (added 2026-09-02)
+The gates carry campaign-aware relaxations so a refactor is never blocked by the
+metric it improves: the cyclomatic block lists a `↳ plan:` (fewest arm
+extractions to get under the cap); per-edit coverage treats a RELOCATED uncovered
+line as moved, not added; per-edit mutation reconciles survivors that moved into
+an extracted helper; `mutation_directed_assertion_removal` recognizes an assertion
+moved to a new test file (`INTERLINKED_ASSERTION_MOVE_WAIVER=1` is the logged
+escape). `structural_checks.characterize_mode: block` requires a test run covering
+the file before a ledger-listed function is edited. Two advisory nudges catch the
+decomposition footguns: `new_export_without_importer` and
+`extracted_helper_duplicate`.
 
 ### SessionEnd baseline auto-fold (added 2026-08-16)
 

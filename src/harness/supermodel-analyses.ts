@@ -82,6 +82,30 @@ export interface RunDeadCodeOptions {
  * Never throws.
  */
 export function parseDeadCodeJson(stdout: string): DeadCodeAnalysis | null {
+	const root = parseDeadCodeRoot(stdout);
+	if (root === null) return null;
+
+	const candidates: DeadCodeCandidate[] = [];
+	for (const entry of root.entries) {
+		const candidate = toDeadCodeCandidate(entry);
+		if (candidate !== null) candidates.push(candidate);
+	}
+
+	return {
+		candidates,
+		totalDeclarations: readTotalDeclarations(root.metadata),
+	};
+}
+
+/** The validated top level of a `dead-code` payload: the candidate array
+ *  plus the still-untrusted metadata value. Null when the input is empty,
+ *  unparseable, not a plain object, or carries no candidate array. */
+interface DeadCodeRoot {
+	entries: unknown[];
+	metadata: unknown;
+}
+
+function parseDeadCodeRoot(stdout: string): DeadCodeRoot | null {
 	if (!stdout || stdout.trim() === "") return null;
 	let raw: unknown;
 	try {
@@ -92,32 +116,34 @@ export function parseDeadCodeJson(stdout: string): DeadCodeAnalysis | null {
 	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
 	const obj = raw as RawDeadCodeResult;
 	if (!Array.isArray(obj.deadCodeCandidates)) return null;
+	return { entries: obj.deadCodeCandidates, metadata: obj.metadata };
+}
 
-	const candidates: DeadCodeCandidate[] = [];
-	for (const entry of obj.deadCodeCandidates) {
-		if (typeof entry !== "object" || entry === null) continue;
-		const e = entry as RawCandidate;
-		if (typeof e.file !== "string" || typeof e.name !== "string") continue;
-		const conf = e.confidence;
-		const confidence: DeadCodeCandidate["confidence"] =
-			conf === "high" || conf === "medium" || conf === "low" ? conf : "low";
-		candidates.push({
-			file: e.file,
-			name: e.name,
-			line: typeof e.line === "number" ? e.line : 0,
-			confidence,
-			reason: typeof e.reason === "string" ? e.reason : "",
-		});
-	}
+/** Validate one raw candidate entry. Null for a malformed entry (skipped
+ *  by the caller); an unrecognized confidence degrades to "low". */
+function toDeadCodeCandidate(entry: unknown): DeadCodeCandidate | null {
+	if (typeof entry !== "object" || entry === null) return null;
+	const e = entry as RawCandidate;
+	if (typeof e.file !== "string" || typeof e.name !== "string") return null;
+	const conf = e.confidence;
+	const confidence: DeadCodeCandidate["confidence"] =
+		conf === "high" || conf === "medium" || conf === "low" ? conf : "low";
+	return {
+		file: e.file,
+		name: e.name,
+		line: typeof e.line === "number" ? e.line : 0,
+		confidence,
+		reason: typeof e.reason === "string" ? e.reason : "",
+	};
+}
 
-	let totalDeclarations = 0;
-	const meta = obj.metadata;
+/** `metadata.totalDeclarations` when it is a number; 0 otherwise. */
+function readTotalDeclarations(meta: unknown): number {
 	if (typeof meta === "object" && meta !== null) {
 		const td = (meta as RawMetadata).totalDeclarations;
-		if (typeof td === "number") totalDeclarations = td;
+		if (typeof td === "number") return td;
 	}
-
-	return { candidates, totalDeclarations };
+	return 0;
 }
 
 /**

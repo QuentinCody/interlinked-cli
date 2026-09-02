@@ -262,6 +262,63 @@ describe("stale_read_then_write", () => {
 		expect(staleReadThenWrite.fn(session, candidate)).toEqual([]);
 	});
 
+	describe("subagent self-attribution — positive/negative (2026-09-02 false-positive fix)", () => {
+		it("N1: does not fire on a subagent's own prior write — same session_id, different agent_name", () => {
+			// Reproduces the observed shape: a subagent's tool calls land in
+			// activity.jsonl under the PARENT session id, but with the
+			// subagent's own per-call agent_name hash. Same session, so it
+			// must read as self even though agent_name differs from the
+			// trajectory's ("me").
+			const filePath = "src/gate.ts";
+			const { session } = buildTrajectoryFixture(
+				[{ tool_name: "Read", tool_input: { file_path: filePath }, cwd: dir }],
+				{ started_at: "2026-05-27T00:00:00.000Z", agent_name: "me", session_id: "test-session" },
+			);
+			writeActivityLog(dir, [
+				{
+					agent_name: "a24a6a5628eeba5b3",
+					session_id: "test-session",
+					tool_name: "Edit",
+					tool_input: { file_path: filePath },
+					timestamp: "2026-05-27T00:05:00.000Z",
+				},
+			]);
+			const candidate = makeCandidate({
+				tool_name: "Edit",
+				tool_input: { file_path: filePath },
+				cwd: dir,
+				agent_name: "me",
+				session_id: "test-session",
+			});
+			expect(staleReadThenWrite.fn(session, candidate)).toEqual([]);
+		});
+
+		it("P1: fires on a write from a different session_id and different agent_name", () => {
+			const filePath = "src/gate.ts";
+			const { session } = buildTrajectoryFixture(
+				[{ tool_name: "Read", tool_input: { file_path: filePath }, cwd: dir }],
+				{ started_at: "2026-05-27T00:00:00.000Z", agent_name: "me", session_id: "test-session" },
+			);
+			writeActivityLog(dir, [
+				{
+					agent_name: "rival",
+					session_id: "rival-session",
+					tool_name: "Edit",
+					tool_input: { file_path: filePath },
+					timestamp: "2026-05-27T00:05:00.000Z",
+				},
+			]);
+			const candidate = makeCandidate({
+				tool_name: "Edit",
+				tool_input: { file_path: filePath },
+				cwd: dir,
+				agent_name: "me",
+				session_id: "test-session",
+			});
+			expect(staleReadThenWrite.fn(session, candidate)).toHaveLength(1);
+		});
+	});
+
 	it("does not fire when tool_input is missing (getFilePath's !toolInput branch)", () => {
 		const { session } = buildTrajectoryFixture(
 			[{ tool_name: "Read", tool_input: { file_path: "src/foo.ts" }, cwd: dir }],
@@ -885,6 +942,58 @@ describe("file_overwrite_after_other_agent", () => {
 			agent_name: "me",
 		});
 		expect(fileOverwriteAfterOtherAgent.fn(session, candidate)).toEqual([]);
+	});
+
+	describe("subagent self-attribution — positive/negative (2026-09-02 false-positive fix)", () => {
+		it("N1: does not fire on a subagent's own prior write — same session_id, different agent_name", () => {
+			const filePath = "src/gate.ts";
+			const { session } = buildTrajectoryFixture(
+				[{ tool_name: "Read", tool_input: { file_path: "unrelated.ts" }, cwd: dir }],
+				{ agent_name: "me", session_id: "test-session" },
+			);
+			writeActivityLog(dir, [
+				{
+					agent_name: "afdfb5ad4ab629fa8",
+					session_id: "test-session",
+					tool_name: "Edit",
+					tool_input: { file_path: filePath },
+					timestamp: isoMinutesFromNow(-5),
+				},
+			]);
+			const candidate = makeCandidate({
+				tool_name: "Write",
+				tool_input: { file_path: filePath },
+				cwd: dir,
+				agent_name: "me",
+				session_id: "test-session",
+			});
+			expect(fileOverwriteAfterOtherAgent.fn(session, candidate)).toEqual([]);
+		});
+
+		it("P1: fires on a write from a different session_id and different agent_name", () => {
+			const filePath = "src/gate.ts";
+			const { session } = buildTrajectoryFixture(
+				[{ tool_name: "Read", tool_input: { file_path: "unrelated.ts" }, cwd: dir }],
+				{ agent_name: "me", session_id: "test-session" },
+			);
+			writeActivityLog(dir, [
+				{
+					agent_name: "rival",
+					session_id: "rival-session",
+					tool_name: "Edit",
+					tool_input: { file_path: filePath },
+					timestamp: isoMinutesFromNow(-5),
+				},
+			]);
+			const candidate = makeCandidate({
+				tool_name: "Write",
+				tool_input: { file_path: filePath },
+				cwd: dir,
+				agent_name: "me",
+				session_id: "test-session",
+			});
+			expect(fileOverwriteAfterOtherAgent.fn(session, candidate)).toHaveLength(1);
+		});
 	});
 
 	it("skips a non-write-tool row and an unrelated-file row, then still matches", () => {

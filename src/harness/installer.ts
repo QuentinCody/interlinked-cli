@@ -43,10 +43,13 @@ import {
 } from "./installer-purge.js";
 import { MANIFEST_SCHEMA_VERSION, readManifestState, writeManifest } from "./installer-manifest.js";
 import {
-	isManagedProviderFile,
-	managedProviderFileHash,
-	removeManagedProviderFile,
-} from "./managed-provider-file.js";
+	buildManifestUpdate,
+	cleanCrossScopeArtifacts,
+	cleanStaleInstalls,
+	collectPostInstallFailures,
+	computeReplacementSets,
+} from "./installer-reconcile.js";
+import { isManagedProviderFile, managedProviderFileHash, removeManagedProviderFile } from "./managed-provider-file.js";
 import type { RunnerId } from "./unified-event.js";
 
 export { mergeSettings, removeJsonPath } from "./installer-merge-engine.js";
@@ -54,12 +57,6 @@ export { mergeSettings, removeJsonPath } from "./installer-merge-engine.js";
 // installer, even though the scope identity is declared alongside the
 // scope-aware purge verdict.
 export type { InstallScope };
-
-// Scope identities as named constants — `as const` keeps their literal types
-// so equality checks narrow correctly (e.g. in `coerceManifestEntry`).
-// `SCOPE_USER` is imported from `./installer-purge.ts` rather than declared
-// here: the purge verdict keys off it, and re-importing it from this module
-// would make the two files cyclic.
 const SCOPE_PROJECT = "project" as const;
 
 interface InstallOptions {
@@ -219,69 +216,17 @@ export function installHooks(opts: InstallOptions): InstallResult {
 		foreign += outcome.foreign;
 	}
 
-	// Stale-install cleanup: a prior install of a runner we just REPLACED may
-	// have written a *different* settings file — e.g. a user→project scope
-	// switch. The in-place purge in `installSingle` only reached the file this
-	// run rewrote, so clear the old one here. Keyed on SUCCESSFUL replacements, not
-	// merely selected ones (review 2026-08-30): a selected runner that was
-	// SKIPPED (malformed settings, missing target) produced no replacement, so
-	// its prior install must survive untouched — cleaning it while dropping its
-	// manifest entry silently destroyed working installs.
-	const successfulEntries = entries.filter((entry) => entry.post_install === "ok");
-	const replacedIds = new Set(successfulEntries.map((entry) => entry.runner));
-	const newFiles = new Set(successfulEntries.map((entry) => entry.settings_path));
-	const orphansCleaned: string[] = [];
-	for (const prior of priorManifest) {
-		if (!replacedIds.has(prior.runner)) continue;
-		if (newFiles.has(prior.settings_path)) continue;
-		const removed = cleanPriorArtifact(prior, opts.cwd, dryRun);
-		if (removed > 0) orphansCleaned.push(prior.settings_path);
-	}
+	// Stale-install cleanup, cross-scope cleanup, manifest reconciliation, and
+	// post-install-failure collection are each extracted below (line-cap /
+	// cyclomatic-cap decompose) — see their doc comments for the "why".
+	const { replacedIds, newFiles } = computeReplacementSets(entries);
+	const orphansCleaned = cleanStaleInstalls(priorManifest, replacedIds, newFiles, opts.cwd, dryRun);
+	cleanCrossScopeArtifacts(scope, selected, replacedIds, newFiles, binaryAbs, opts.cwd, dryRun, orphansCleaned);
 
-	// Cross-scope stale cleanup: a historical user-scope install may predate
-	// the manifest, or may have been created by a different installer path. If
-	// the current run installs project/local hooks, a matching user-scope hook
-	// for the same project will be merged by runners like Claude Code and fire
-	// in addition to the project hook. Remove this project's user-scope entries
-	// from the same runner settings file, sparing other projects' hooks. A
-	// skipped or semantically failed replacement never earns this destructive
-	// cleanup step.
-	if (scope !== SCOPE_USER) {
-		const verdict = makePurgeVerdict(SCOPE_USER, opts.cwd);
-		for (const adapter of selected) {
-			if (!replacedIds.has(adapter.id)) continue;
-			const userFragment = adapter.renderSettingsFragment(binaryAbs, SCOPE_USER);
-			const userTarget = resolveSettingsPath(opts.cwd, userFragment.path);
-			if (newFiles.has(userTarget)) continue;
-			const removed = cleanUserScopeArtifact(userFragment.fileContent, userTarget, verdict, dryRun);
-			if (removed > 0 && !orphansCleaned.includes(userTarget)) {
-				orphansCleaned.push(userTarget);
-			}
-		}
-	}
-
-	// Non-clobbering manifest: keep prior entries for every runner this run
-	// did not successfully REPLACE, then add this run's entries. Filtering on
-	// selection instead of replacement (pre-2026-08-30) meant a selected-but-
-	// SKIPPED runner lost its manifest entry while its hooks stayed installed —
-	// unfindable by uninstall and invisible to refresh.
-	const retained = priorManifest.filter((entry) => !replacedIds.has(entry.runner));
-	const priorIds = new Set(priorManifest.map((entry) => entry.runner));
-	// A first-time postInstall failure keeps its row because its partial hook
-	// needs to remain uninstallable. A failed replacement has already restored
-	// its attempted target, so the prior one-row ownership record stays canonical.
-	const recordableEntries = entries.filter(
-		(entry) => entry.post_install === "ok" || !priorIds.has(entry.runner),
-	);
+	const { retained, recordableEntries } = buildManifestUpdate(priorManifest, entries, replacedIds);
 	if (!dryRun) writeManifest(mfPath, [...retained, ...recordableEntries]);
 
-	// A postInstall failure is recorded on the attempt entry by `installSingle`; lift
-	// it here so the CALLER cannot miss it. Before this, the throw was caught,
-	// logged to stderr and dropped — an install whose hooks never fire was
-	// reported as a success and written to the manifest as one.
-	const postInstallFailures = entries
-		.filter((e) => e.post_install === "failed")
-		.map((e) => ({ runner: e.runner, reason: e.post_install_error ?? "postInstall failed" }));
+	const postInstallFailures = collectPostInstallFailures(entries);
 
 	return {
 		ok: postInstallFailures.length === 0,
@@ -546,34 +491,8 @@ function removeEntry(entry: InstallerManifestEntry, cwd: string): boolean {
 	return true;
 }
 
-function cleanPriorArtifact(entry: InstallerManifestEntry, cwd: string, dryRun: boolean): number {
-	if (entry.artifact_kind === "managed-file") {
-		return removeManagedProviderFile(entry.settings_path, entry.artifact_sha256, dryRun) === "removed" ? 1 : 0;
-	}
-	const verdict = makePurgeVerdict(entry.scope, cwd);
-	return cleanProjectOwnedHooks(entry.settings_path, verdict, dryRun);
-}
-
-function cleanUserScopeArtifact(
-	fileContent: string | undefined,
-	target: string,
-	verdict: ReturnType<typeof makePurgeVerdict>,
-	dryRun: boolean,
-): number {
-	if (fileContent === undefined) return cleanProjectOwnedHooks(target, verdict, dryRun);
-	// A marker proves that Interlinked created the file at some point, but it
-	// does not prove that the user has not customized it since. Historical
-	// user-scope bridges may have no manifest row, so require an exact match to
-	// the source this adapter would render before cross-scope cleanup removes
-	// them. A differing managed file is deliberately preserved.
-	return removeManagedProviderFile(
-		target,
-		managedProviderFileHash(fileContent),
-		dryRun,
-	) === "removed"
-		? 1
-		: 0;
-}
+// cleanPriorArtifact / cleanUserScopeArtifact moved to installer-reconcile.ts
+// (2026-09-02, line-cap decompose) alongside their only callers.
 
 // -----------------------------------------------------------------------------
 // Manifest IO — extracted to installer-manifest.ts (2026-08-30, line cap);

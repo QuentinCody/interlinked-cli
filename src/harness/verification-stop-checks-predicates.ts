@@ -100,6 +100,19 @@ export function classifyVerificationCommand(cmd: string): VerificationSignal | n
 	return null;
 }
 
+/**
+ * Whether `cmd` is a test-runner invocation — the exact predicate
+ * `characterize-campaign-target.ts`'s `commandNamesFile` gates on before it
+ * even looks at the command's file arguments. Exported here (rather than
+ * re-derived in the gate or in `trackCommand`) so the "does this command
+ * count as a test run" question has exactly one implementation; the gate and
+ * the durable `test_commands_run` recorder both import this instead of each
+ * carrying their own copy that could drift apart.
+ */
+export function isTestRunnerCommand(cmd: string): boolean {
+	return classifyVerificationCommand(cmd) === "test";
+}
+
 /** The correctness-grade `VerificationSignal` kinds — the subset of
  *  {@link classifyVerificationCommand}'s outputs that prove the code was
  *  actually *checked* (typecheck / test / lint / build / the full verify

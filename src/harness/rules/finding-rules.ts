@@ -125,39 +125,58 @@ export function loadFindingRules(cwd: string): GuardRule[] {
 	if (!file?.rules || !Array.isArray(file.rules)) return [];
 
 	const overrides = (readJsonObject(findingRulesOverridesPath(cwd)) ?? {}) as FindingRulesOverrides;
-	const removed = new Set(overrides.removed_rule_ids ?? []);
-	const disabled = new Set(overrides.disabled_rule_ids ?? []);
-	const mods = overrides.modifications ?? {};
+	const overrideState: FindingRuleOverrideState = {
+		removed: new Set(overrides.removed_rule_ids ?? []),
+		disabled: new Set(overrides.disabled_rule_ids ?? []),
+		mods: overrides.modifications ?? {},
+	};
 
 	const out: GuardRule[] = [];
 	for (const entry of file.rules) {
-		if (!entry || typeof entry !== "object") continue;
-		// `entry` is unvalidated JSON at this point; `id` is the one field we
-		// must confirm before trusting the rest of the shape below.
-		const raw = entry as Record<string, unknown>;
-		if (typeof raw.id !== "string" || !raw.id) continue;
-		const id = raw.id;
-		if (removed.has(id)) continue;
-
-		// ReDoS gate — a finding rule's regex is LLM-authored from arbitrary
-		// review prose; a nested-quantifier shape would hang the daemon. Same
-		// guard as distilled rules. Skip the whole rule + one stderr line.
-		const patterns = Array.isArray(raw.patterns) ? raw.patterns : [];
-		const unsafeRegex = findUnsafePatternRegex(patterns);
-		if (unsafeRegex !== undefined) {
-			process.stderr.write(`[interlinked] skipping finding rule ${id}: ReDoS-prone pattern ${unsafeRegex.slice(0, 120)}\n`);
-			continue;
-		}
-
-		const rule: FindingRule = { ...(raw as unknown as FindingRule), id };
-		const source = normalizeFindingRuleSource(raw.source);
-		delete rule.source;
-		if (source) rule.source = source;
-		applyRuleModification(rule, mods[id]);
-		rule.enabled = disabled.has(id) ? false : raw.enabled !== false;
-		if (rule.enabled) out.push(rule); // return only the active set
+		const rule = resolveActiveFindingRule(entry, overrideState);
+		if (rule) out.push(rule); // return only the active set
 	}
 	return out;
+}
+
+interface FindingRuleOverrideState {
+	removed: Set<string>;
+	disabled: Set<string>;
+	mods: Record<string, RuleModification>;
+}
+
+/**
+ * Validate, build, and apply overrides to one raw findings-rules.json entry.
+ * Returns `null` for anything that should be dropped (malformed shape,
+ * explicitly removed, ReDoS-prone, or disabled) — the caller only pushes a
+ * non-null result, so this is the whole per-entry decision in one place.
+ */
+function resolveActiveFindingRule(entry: unknown, overrides: FindingRuleOverrideState): FindingRule | null {
+	if (!entry || typeof entry !== "object") return null;
+	// `entry` is unvalidated JSON at this point; `id` is the one field we
+	// must confirm before trusting the rest of the shape below.
+	const raw = entry as Record<string, unknown>;
+	if (typeof raw.id !== "string" || !raw.id) return null;
+	const id = raw.id;
+	if (overrides.removed.has(id)) return null;
+
+	// ReDoS gate — a finding rule's regex is LLM-authored from arbitrary
+	// review prose; a nested-quantifier shape would hang the daemon. Same
+	// guard as distilled rules. Skip the whole rule + one stderr line.
+	const patterns = Array.isArray(raw.patterns) ? raw.patterns : [];
+	const unsafeRegex = findUnsafePatternRegex(patterns);
+	if (unsafeRegex !== undefined) {
+		process.stderr.write(`[interlinked] skipping finding rule ${id}: ReDoS-prone pattern ${unsafeRegex.slice(0, 120)}\n`);
+		return null;
+	}
+
+	const rule: FindingRule = { ...(raw as unknown as FindingRule), id };
+	const source = normalizeFindingRuleSource(raw.source);
+	delete rule.source;
+	if (source) rule.source = source;
+	applyRuleModification(rule, overrides.mods[id]);
+	rule.enabled = overrides.disabled.has(id) ? false : raw.enabled !== false;
+	return rule.enabled ? rule : null;
 }
 
 /**

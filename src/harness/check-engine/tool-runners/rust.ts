@@ -3,6 +3,7 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
+import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { nonNull } from "../../../lib/non-null.js";
@@ -157,64 +158,80 @@ function rustfmtFailureResult(
 	};
 }
 
+/** Spawn `rustfmt --check` for a single file, or `cargo fmt --all -- --check`
+ *  for the whole project — the two invocation shapes `runRustfmtCheck` picks
+ *  between. File mode threads the crate edition explicitly (bare rustfmt does
+ *  not read Cargo.toml and would parse 2021/2024 syntax as edition-2015
+ *  errors). */
+function spawnRustfmt(
+	fileTarget: string | undefined,
+	scope: ToolRunnerInput["scope"],
+	timeoutMs: number,
+): SpawnSyncReturns<string> {
+	const spawnOpts: SpawnSyncOptionsWithStringEncoding = {
+		cwd: scope.projectRoot,
+		timeout: timeoutMs,
+		encoding: "utf-8",
+		stdio: ["pipe", "pipe", "pipe"],
+	};
+	if (!fileTarget) {
+		return spawnSync("cargo", ["fmt", "--all", "--", "--check", "--color=never"], spawnOpts);
+	}
+	const edition = crateEditionFor(fileTarget, scope.projectRoot);
+	const args = [
+		"--check",
+		"--color=never",
+		...(edition !== null ? ["--edition", edition] : []),
+		fileTarget,
+	];
+	return spawnSync("rustfmt", args, spawnOpts);
+}
+
+/** Turn a non-zero, non-ENOENT `rustfmt`/`cargo fmt` result into findings:
+ *  parsed diff headers scoped to the edited file, or — when nothing parsed —
+ *  a loud tool-failure result so a parse error never reads as a clean pass. */
+function interpretRustfmtFailure(
+	result: SpawnSyncReturns<string>,
+	fileTarget: string | undefined,
+	scope: ToolRunnerInput["scope"],
+): CheckResult[] {
+	const output = (result.stdout || "") + (result.stderr || "");
+	const parsed = parseRustfmtCheckOutput(output, scope.projectRoot);
+	// Honor file-scope (finding 2026-06, round 7): pointing rustfmt at a crate
+	// root / mod.rs makes it recurse and report formatting diffs in CHILD
+	// modules. A per-edit check must surface only the edited file's findings,
+	// not pre-existing diffs elsewhere — the same `filterToFile` contract
+	// cargo check/clippy already honor above.
+	const findings =
+		scope.mode === "file" && scope.targetFile && scope.filterToFile
+			? filterResultsToFile(parsed, scope.targetFile)
+			: parsed;
+	if (findings.length > 0) return findings;
+	// Parsed diffs existed but were all filtered out as OTHER files → the
+	// edited file is clean; don't synthesize a tool-failure warning.
+	if (parsed.length > 0) return [];
+	// Non-zero with NO parsable diff headers = the tool itself failed (parse
+	// error, bad flag, timeout). Surfacing it as a distinct "not validated"
+	// warning keeps the failure visible without double-reporting the syntax
+	// error itself (cargo-check owns that diagnostic).
+	return [rustfmtFailureResult(fileTarget, scope.projectRoot, result.status, result.stderr || "")];
+}
+
 export function runRustfmtCheck(input: ToolRunnerInput): CheckResult[] {
 	const { scope, timeoutMs } = input;
 
 	try {
 		// File mode checks the one edited file (the cheap per-edit path);
-		// project mode defers workspace discovery to cargo fmt. File mode must
-		// thread the crate edition explicitly — bare rustfmt does not read
-		// Cargo.toml and would parse 2021/2024 syntax as edition-2015 errors.
+		// project mode defers workspace discovery to cargo fmt.
 		const fileTarget = scope.mode === "file" ? scope.targetFile : undefined;
-		const edition = fileTarget ? crateEditionFor(fileTarget, scope.projectRoot) : null;
-		const result = fileTarget
-			? spawnSync(
-					"rustfmt",
-					[
-						"--check",
-						"--color=never",
-						...(edition !== null ? ["--edition", edition] : []),
-						fileTarget,
-					],
-					{
-						cwd: scope.projectRoot,
-						timeout: timeoutMs,
-						encoding: "utf-8",
-						stdio: ["pipe", "pipe", "pipe"],
-					},
-				)
-			: spawnSync("cargo", ["fmt", "--all", "--", "--check", "--color=never"], {
-					cwd: scope.projectRoot,
-					timeout: timeoutMs,
-					encoding: "utf-8",
-					stdio: ["pipe", "pipe", "pipe"],
-				});
+		const result = spawnRustfmt(fileTarget, scope, timeoutMs);
 
 		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
 			return [];
 		}
 		// Exit 0 = formatted clean.
 		if (result.status === 0) return [];
-		const output = (result.stdout || "") + (result.stderr || "");
-		const parsed = parseRustfmtCheckOutput(output, scope.projectRoot);
-		// Honor file-scope (finding 2026-06, round 7): pointing rustfmt at a crate
-		// root / mod.rs makes it recurse and report formatting diffs in CHILD
-		// modules. A per-edit check must surface only the edited file's findings,
-		// not pre-existing diffs elsewhere — the same `filterToFile` contract
-		// cargo check/clippy already honor above.
-		const findings =
-			scope.mode === "file" && scope.targetFile && scope.filterToFile
-				? filterResultsToFile(parsed, scope.targetFile)
-				: parsed;
-		if (findings.length > 0) return findings;
-		// Parsed diffs existed but were all filtered out as OTHER files → the
-		// edited file is clean; don't synthesize a tool-failure warning.
-		if (parsed.length > 0) return [];
-		// Non-zero with NO parsable diff headers = the tool itself failed (parse
-		// error, bad flag, timeout). Surfacing it as a distinct "not validated"
-		// warning keeps the failure visible without double-reporting the syntax
-		// error itself (cargo-check owns that diagnostic).
-		return [rustfmtFailureResult(fileTarget, scope.projectRoot, result.status, result.stderr || "")];
+		return interpretRustfmtFailure(result, fileTarget, scope);
 	} catch {
 		return [];
 	}

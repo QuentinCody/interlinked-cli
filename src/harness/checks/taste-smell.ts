@@ -341,68 +341,73 @@ function classifyCommentLine(raw: string, isPython = false): "code" | "doc" | "n
 	if (/^[=\-*~_#+.|/\\<>\s]+$/.test(line)) return "neutral";
 
 	// --- Doc markers (any one of these vetoes the block) ---------------
-
-	// Type unions / pipe-separated alternatives (`a | b | c`, `string | null`).
-	// Real code rarely puts ` | ` mid-line outside a type position; doc shape
-	// examples use it constantly. (Python bitwise-or is rare in commented code
-	// and would still need a doc-free majority elsewhere — acceptable veto.)
-	if (/\s\|\s/.test(line)) return "doc";
-	// Angle-bracket placeholders: `<original native event name>`, `<T>` as prose.
-	// A `<...>` span containing a space is a natural-language placeholder, not
-	// a generic type argument (those have no spaces: `Array<string>`).
-	if (/<[^<>]*\s[^<>]*>/.test(line)) return "doc";
-	// Ellipsis used as prose ("...event-specific fields", "etc. ...").
-	if (line.includes("...")) return "doc";
-	// Prose parentheticals: "(e.g. ...)", "(see ...)", "(per the design ...)".
-	if (/\((?:e\.g\.|i\.e\.|see\b|per\b|note\b|or\b|and\b|matches\b|with\b)/i.test(line))
-		return "doc";
-	// A bare `key: type` annotation — illustrative shape line, no value, no
-	// terminator. JS/TS only: in Python `:` ends a compound-statement header
-	// (`if x:`, `def f():`) which is real code, so skip this veto there.
-	if (
-		!isPython &&
-		/^[A-Za-z_$][\w$]*\s*\??:\s*[A-Za-z_$]/.test(line) &&
-		!/[;,{]\s*$/.test(line)
-	) {
-		// Object-literal entries end in `,` or `{`; `case Foo:` starts with the
-		// `case` keyword (caught as code below). Anything left is a bare type
-		// annotation → doc.
-		return "doc";
-	}
+	if (isDocMarkerLine(line, isPython)) return "doc";
 
 	// --- Real-code markers ---------------------------------------------
 
 	// Statement keywords at the start of the line.
-	const jsKeywords =
-		/^(const|let|var|function|async\s+function|class|interface|enum|type\s+[A-Za-z]|import|export|return|throw|await|yield|if|else|for|while|do|switch|case\s|default:|try|catch|finally|break|continue|new\s|delete\s)\b/;
-	const pyKeywords =
-		/^(def|class|import|from\s|return|raise|yield|await|async\s+def|if|elif|else|for|while|with|try|except|finally|break|continue|pass|global|nonlocal|assert|del|lambda\b)\b/;
-	if ((isPython ? pyKeywords : jsKeywords).test(line)) return "code";
+	if ((isPython ? PY_STATEMENT_KEYWORDS : JS_STATEMENT_KEYWORDS).test(line)) return "code";
 
-	if (isPython) {
-		// Python: statements are newline-terminated. An assignment with a
-		// real right-hand side: `data = request.json()`, `x = 3`.
-		if (/^[\w$.[\]]+\s*[-+*/%|&^]?=\s*\S/.test(line) && !/[=<>!]=\s*$/.test(line))
-			return "code";
-		// A bare call statement: `save(data)`, `obj.run(a, b)`.
-		if (/^[\w$]+(?:\.[\w$]+)*\([^)]*\)\s*$/.test(line)) return "code";
-		return "neutral";
-	}
+	if (isPython) return isPythonCodeLine(line) ? "code" : "neutral";
+	return isJsCodeLine(line) ? "code" : "neutral";
+}
 
-	// JS/TS: assignment with a real right-hand side ending in a terminator:
+/** True when the line carries any documentation marker (vetoes the block). */
+function isDocMarkerLine(line: string, isPython: boolean): boolean {
+	// Type unions / pipe-separated alternatives (`a | b | c`, `string | null`).
+	// Real code rarely puts ` | ` mid-line outside a type position; doc shape
+	// examples use it constantly. (Python bitwise-or is rare in commented code
+	// and would still need a doc-free majority elsewhere — acceptable veto.)
+	if (/\s\|\s/.test(line)) return true;
+	// Angle-bracket placeholders: `<original native event name>`, `<T>` as prose.
+	// A `<...>` span containing a space is a natural-language placeholder, not
+	// a generic type argument (those have no spaces: `Array<string>`).
+	if (/<[^<>]*\s[^<>]*>/.test(line)) return true;
+	// Ellipsis used as prose ("...event-specific fields", "etc. ...").
+	if (line.includes("...")) return true;
+	// Prose parentheticals: "(e.g. ...)", "(see ...)", "(per the design ...)".
+	if (/\((?:e\.g\.|i\.e\.|see\b|per\b|note\b|or\b|and\b|matches\b|with\b)/i.test(line))
+		return true;
+	// A bare `key: type` annotation — illustrative shape line, no value, no
+	// terminator. JS/TS only: in Python `:` ends a compound-statement header
+	// (`if x:`, `def f():`) which is real code, so skip this veto there.
+	// Object-literal entries end in `,` or `{`; `case Foo:` starts with the
+	// `case` keyword (caught as code below). Anything left is a bare type
+	// annotation → doc.
+	return (
+		!isPython &&
+		/^[A-Za-z_$][\w$]*\s*\??:\s*[A-Za-z_$]/.test(line) &&
+		!/[;,{]\s*$/.test(line)
+	);
+}
+
+const JS_STATEMENT_KEYWORDS =
+	/^(const|let|var|function|async\s+function|class|interface|enum|type\s+[A-Za-z]|import|export|return|throw|await|yield|if|else|for|while|do|switch|case\s|default:|try|catch|finally|break|continue|new\s|delete\s)\b/;
+const PY_STATEMENT_KEYWORDS =
+	/^(def|class|import|from\s|return|raise|yield|await|async\s+def|if|elif|else|for|while|with|try|except|finally|break|continue|pass|global|nonlocal|assert|del|lambda\b)\b/;
+
+/** Python: statements are newline-terminated. */
+function isPythonCodeLine(line: string): boolean {
+	// An assignment with a real right-hand side: `data = request.json()`, `x = 3`.
+	if (/^[\w$.[\]]+\s*[-+*/%|&^]?=\s*\S/.test(line) && !/[=<>!]=\s*$/.test(line)) return true;
+	// A bare call statement: `save(data)`, `obj.run(a, b)`.
+	return /^[\w$]+(?:\.[\w$]+)*\([^)]*\)\s*$/.test(line);
+}
+
+/** JS/TS real-code markers. */
+function isJsCodeLine(line: string): boolean {
+	// Assignment with a real right-hand side ending in a terminator:
 	// `x = foo();`  `this.y = 3;`  `obj.k = "v";`
-	if (/^[\w$.[\]]+\s*[-+*/|&^]?=\s*\S.*[;,]\s*$/.test(line)) return "code";
+	if (/^[\w$.[\]]+\s*[-+*/|&^]?=\s*\S.*[;,]\s*$/.test(line)) return true;
 	// A bare function/method call statement: `doThing();`  `obj.run(a, b);`
-	if (/^[\w$]+(?:\.[\w$]+)*\([^)]*\)\s*;?\s*$/.test(line)) return "code";
+	if (/^[\w$]+(?:\.[\w$]+)*\([^)]*\)\s*;?\s*$/.test(line)) return true;
 	// A line that ends in a semicolon and contains a call or assignment — a
 	// disabled statement that didn't match the tighter patterns above.
-	if (/;\s*$/.test(line) && /[\w$]\s*[=(]/.test(line)) return "code";
+	if (/;\s*$/.test(line) && /[\w$]\s*[=(]/.test(line)) return true;
 	// A lone block-closer that belongs to disabled code: `}`, `};`, `});`,
 	// `} else {`. A lone `{` is too ambiguous (shape examples open with it),
 	// so an opening brace only counts when preceded by code on the same line.
-	if (/^\}[\s;)]*[,;]?\s*(else\b.*)?$/.test(line)) return "code";
-
-	return "neutral";
+	return /^\}[\s;)]*[,;]?\s*(else\b.*)?$/.test(line);
 }
 
 /**

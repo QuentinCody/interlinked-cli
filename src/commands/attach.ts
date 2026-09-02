@@ -109,6 +109,31 @@ function buildRemoteStatusLines(remote: RemoteOnboardingResult, result: AttachRe
 	return lines;
 }
 
+// --auto: derive workspace_key/project from git repo metadata, mutating opts in place.
+function applyAutoDerivedContext(opts: AttachOptions, mode: ReturnType<typeof getOutputMode>): void {
+	const cwd = process.cwd();
+	if (!isGitRepo(cwd)) {
+		if (mode !== "json") {
+			console.log(c.yellow("  --auto: not a git repository, skipping auto-derivation."));
+		}
+		return;
+	}
+
+	const derived = deriveProjectIdentity(cwd);
+	if (!opts.workspaceKey && derived.workspaceKey) {
+		opts.workspaceKey = derived.workspaceKey;
+		if (mode !== "json") {
+			console.log(c.dim(`  Auto-derived workspace_key: ${derived.workspaceKey}`));
+		}
+	}
+	if (!opts.project && derived.projectKey) {
+		opts.project = derived.projectKey;
+		if (mode !== "json") {
+			console.log(c.dim(`  Auto-derived project: ${derived.projectKey}`));
+		}
+	}
+}
+
 function applyDefaultContext(opts: {
 	workspaceKey?: string | undefined;
 	project?: string | undefined;
@@ -131,24 +156,7 @@ export async function attachCommand(opts: AttachOptions): Promise<void> {
 	try {
 		// --auto: derive workspace_key/project from git repo metadata
 		if (opts.auto) {
-			const cwd = process.cwd();
-			if (isGitRepo(cwd)) {
-				const derived = deriveProjectIdentity(cwd);
-				if (!opts.workspaceKey && derived.workspaceKey) {
-					opts.workspaceKey = derived.workspaceKey;
-					if (mode !== "json") {
-						console.log(c.dim(`  Auto-derived workspace_key: ${derived.workspaceKey}`));
-					}
-				}
-				if (!opts.project && derived.projectKey) {
-					opts.project = derived.projectKey;
-					if (mode !== "json") {
-						console.log(c.dim(`  Auto-derived project: ${derived.projectKey}`));
-					}
-				}
-			} else if (mode !== "json") {
-				console.log(c.yellow("  --auto: not a git repository, skipping auto-derivation."));
-			}
+			applyAutoDerivedContext(opts, mode);
 		}
 
 		if (opts.server) {

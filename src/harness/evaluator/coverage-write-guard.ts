@@ -54,10 +54,8 @@ import type { DependencyView } from "../dependency-view.js";
 import { crapThresholdFor } from "../metric-caps.js";
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent } from "../types.js";
 import {
-	type CrapInput,
 	type CyclomaticAnalyzer,
 	DEFAULT_CRAP_THRESHOLD,
-	decideCrap,
 	defaultCyclomaticFor,
 } from "./coverage-crap-decision.js";
 import { type CoverageTarget, coverageEditPlan } from "./coverage-edit-targets.js";
@@ -93,12 +91,8 @@ const DEFAULT_DEPS: CoverageWriteDeps = {
 
 // The uncovered-added-line / coverage-drop / red-bar DECISION helpers live in
 // ./coverage-write-decision.ts — extracted verbatim (finding 2026-06).
-import { coverageScopeId, formatScopeReanchorWarning } from "./coverage-scope.js";
-import {
-	blockForRedBar,
-	type CoverageDecisionOut,
-	decideFromCoverage,
-} from "./coverage-write-decision.js";
+import { coverageScopeId } from "./coverage-scope.js";
+import { type CoverageDecisionOut, decideFromCoverage } from "./coverage-write-decision.js";
 
 // EVIDENCE-AUTHORITY CONTRACT (finding 2): there is deliberately NO
 // `blockForUntestedSource`. An empty affected-test selection (`[]`) means only
@@ -125,11 +119,19 @@ import {
 	profileRunnerFastPath,
 } from "./coverage-write-guard-degrade.js";
 import {
+	buildOverlayRunOpts,
+	checkRedBar,
+	evaluateCrapGate,
+	finalizeAllow,
+	handleFailedOverlayRun,
+	missingCoverageDegrade,
+} from "./coverage-write-guard-overlay.js";
+import {
 	decideForDeletionOnly,
 	decideForResidualLanguages,
 } from "./coverage-write-guard-redbar.js";
 
-interface GateContext {
+export interface GateContext {
 	projectRoot: string;
 	relPath: string;
 	proposed: string;
@@ -196,48 +198,22 @@ async function runOverlayAndDecide(
 
 	const overlay = deps.createOverlay(ctx.projectRoot, ctx.relPath, ctx.proposed, ctx.overlayFiles);
 	try {
-		const runOpts: { projectRoot: string; coverageDir: string; selectedTests?: string[]; timeoutMs: number } = {
-			projectRoot: overlay.overlayRoot,
-			coverageDir: `${overlay.overlayRoot}/.interlinked/coverage`,
-			timeoutMs: ctx.budgetMs, // per-edit BUDGET, not the 120s suite default → an over-budget run defers (below), never hangs the daemon 2min
-		};
-		if (ctx.selectedTests && ctx.selectedTests.length > 0) {
-			runOpts.selectedTests = ctx.selectedTests;
-		}
+		const runOpts = buildOverlayRunOpts(ctx, overlay.overlayRoot);
 		const result = await runner.run(runOpts);
 		// Budget estimate from FULL runs ONLY: a scoped subset's runtime isn't the full-suite cost the gate keys on; blending it erodes the estimate below budget → the next full route re-runs the whole suite + times out (the big-monorepo starvation).
 		if (runOpts.selectedTests === undefined) {
 			updateRuntimeEstimateMs(ctx.projectRoot, result.suiteMs, deps.clock);
 		}
-		// `ok:false` means the runner produced no parseable coverage — the most
-		// common real cause is a missing provider. Fail LOUD, not silent.
 		if (!result.ok) {
-			// Over-budget (suiteMs >= budgetMs): the run was killed at the per-edit
-			// timeout (timeoutMs === budgetMs) before finishing - the wide-fan-in
-			// SCOPED case (a correct but too-slow affected-test set). Failing open here
-			// would let an edit that breaks a slow affected test through (caught only at
-			// pre-push); record a commit-time obligation instead, exactly like the full
-			// route's up-front budget defer, so the commit gate runs the affected tests
-			// before the change can be pushed. A FAST failure (suiteMs < budgetMs) is a
-			// real launch/parse failure (missing provider, ENOENT) - nothing to defer.
-			if (result.suiteMs >= ctx.budgetMs) {
-				return deferForBudget(ctx.projectRoot, ctx.relPath, event, result.suiteMs, ctx.budgetMs);
-			}
-			return loudRunnerUnavailable(ctx, result.error ?? "coverage run failed");
+			return handleFailedOverlayRun(ctx, event, result);
 		}
 
-		// Red bar before coverage: a FAILING suite is a harder failure than a
-		// coverage gap. Only when opted in (block_on_test_failure) AND the suite
-		// definitively came back red (testsPassed === false). `null` (couldn't
-		// determine) falls through to the coverage decision — fail-open on the
-		// pass/fail axis, exactly like the coverage block's runner-unavailable path.
-		if (ctx.blockOnTestFailure && result.testsPassed === false) {
-			return blockForRedBar(ctx.relPath, result.failingTests, result.failingTestFiles);
-		}
+		const redBarDecision = checkRedBar(ctx, result);
+		if (redBarDecision) return redBarDecision;
 
 		const cov = result.perFile.get(ctx.relPath);
 		if (!cov) {
-			return loudDegrade(ctx.relPath, "edited file absent from coverage report");
+			return missingCoverageDegrade(ctx.relPath);
 		}
 		// Coverage decision first (uncovered-added-line / drop). A block here is the
 		// more basic failure; CRAP is the "complex AND under-covered" escalation.
@@ -257,46 +233,10 @@ async function runOverlayAndDecide(
 		);
 		if (coverageDecision) return coverageDecision;
 
-		// Coverage allowed → the 4th per-edit gate. Only when opted in (block_on_crap);
-		// uses the SAME overlay coverage just computed. It runs BEFORE the baseline is
-		// persisted, so a CRAP block never poisons it with rejected content (finding 8).
-		if (ctx.blockOnCrap) {
-			const crapInput: CrapInput = {
-				relPath: ctx.relPath,
-				proposed: ctx.proposed,
-				cov,
-				editedLines: ctx.editedLines,
-				threshold: ctx.crapThreshold ?? DEFAULT_CRAP_THRESHOLD,
-				analyzer: deps.cyclomaticFor(ctx.language),
-			};
-			const crapDecision = decideCrap(crapInput, loudDegrade);
-			if (crapDecision) return crapDecision;
-		}
+		const crapDecision = evaluateCrapGate(ctx, deps, cov);
+		if (crapDecision) return crapDecision;
 
-		// EVERY per-target gate passed → STAGE the new baseline (never persist
-		// in-loop: a later target or residual-language run can still block the whole
-		// atomic patch — finding 2026-06; see GateContext.recordBaseline).
-		if (covOut.now !== undefined) {
-			ctx.recordBaseline?.(ctx.relPath, covOut.now, scopeId);
-		}
-		// A cross-scope re-anchor is a loud ALLOW: the recorded high-water was
-		// measured under a different affected-test set, so the gate reseeded at
-		// today's measurement rather than blocking. Surface it — the commit-time
-		// full-suite gate still holds the real line.
-		if (covOut.scopeChanged) {
-			return {
-				decision: "allow",
-				warnings: [
-					formatScopeReanchorWarning(
-						ctx.relPath,
-						covOut.scopeChanged.priorFraction,
-						covOut.now ?? 0,
-						scopeId,
-					),
-				],
-			};
-		}
-		return null;
+		return finalizeAllow(ctx, covOut, scopeId);
 	} finally {
 		overlay.cleanup();
 	}

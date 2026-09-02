@@ -130,6 +130,118 @@ function authorityFailure(value: unknown, projectRef: unknown): string | null {
 		: "mutation cloud config server_authority.project must equal project_ref";
 }
 
+function requiredStringFieldsFailure(value: Record<string, unknown>): string | null {
+	for (const [field, candidate] of [
+		["token", value.token],
+		["project_ref", value.project_ref],
+		["repository", value.repository],
+		["claimant_id", value.claimant_id],
+		["evaluator_policy_version", value.evaluator_policy_version],
+		["contract_digest", value.contract_digest],
+	] as const) {
+		const failure = nonEmpty(candidate, field);
+		if (failure !== null) return failure;
+	}
+	return null;
+}
+
+function requiredPositiveIntFieldsFailure(value: Record<string, unknown>): string | null {
+	for (const [field, candidate] of [
+		["timeout_ms", value.timeout_ms],
+		["lease_ms", value.lease_ms],
+		["site_count_threshold", value.site_count_threshold],
+	] as const) {
+		const failure = positiveInteger(candidate, field);
+		if (failure !== null) return failure;
+	}
+	return null;
+}
+
+function contractDigestFailure(value: Record<string, unknown>): string | null {
+	if (typeof value.contract_digest !== "string" || !/^[a-f0-9]{64}$/.test(value.contract_digest)) {
+		return "mutation cloud config contract_digest must be lowercase sha-256 hex";
+	}
+	return value.contract_digest === PROTOCOL_V3_CONTRACT_DIGEST
+		? null
+		: `mutation cloud config contract_digest does not match this CLI build (${PROTOCOL_V3_CONTRACT_DIGEST})`;
+}
+
+/** Field-level shape checks that must all pass before the parsed values are
+ * safe to hand to `checkedString`/`checkedPositiveInteger`. Split from the
+ * top-level parser purely to keep its own branch count under the cap — every
+ * check here is still required, in the same order, with the same message. */
+function preflightConfigFailure(value: Record<string, unknown>): string | null {
+	const requiredStrings = requiredStringFieldsFailure(value);
+	if (requiredStrings !== null) return requiredStrings;
+	const ownerFailure = runtimeOwnerFailure(value.owner);
+	if (ownerFailure !== null) return ownerFailure;
+	const leaseMargin = leaseMarginFailure(value.timeout_ms, value.lease_ms);
+	if (leaseMargin !== null) return leaseMargin;
+	const baseUrl = safeBaseUrl(value.base_url);
+	if (baseUrl !== null) return baseUrl;
+	const digest = contractDigestFailure(value);
+	if (digest !== null) return digest;
+	const requiredInts = requiredPositiveIntFieldsFailure(value);
+	if (requiredInts !== null) return requiredInts;
+	const authority = authorityFailure(value.server_authority, value.project_ref);
+	if (authority !== null) return authority;
+	return null;
+}
+
+function resolvedKeyRegistryFailure(value: Record<string, unknown>): string | null {
+	const registry = keyRegistryFailure(value.key_registry);
+	if (registry !== null) return `mutation cloud config ${registry}`;
+	// SAFETY: keyRegistryFailure constructed every record and validated key
+	// purpose/window/public-key fields; this only names that proven shape.
+	const keyRegistry = value.key_registry as V3KeyRegistry;
+	const roleConflict = registryRoleConflictFailure(keyRegistry);
+	return roleConflict !== null ? `mutation cloud config ${roleConflict}` : null;
+}
+
+function buildMutationCloudV3Config(
+	value: Record<string, unknown>,
+	root: string,
+	backgroundEnabled: boolean,
+): MutationCloudV3LocalConfig {
+	if (!isJsonObject(value.server_authority)) {
+		throw new Error("internal mutation cloud config parser lost checked server_authority");
+	}
+	// SAFETY: parseMutationCloudV3Config already ran resolvedKeyRegistryFailure
+	// (keyRegistryFailure + registryRoleConflictFailure) before calling this
+	// builder, so key_registry is a proven V3KeyRegistry here.
+	const keyRegistry = value.key_registry as V3KeyRegistry;
+	const serverAuthority = {
+		tenant: checkedString(value.server_authority.tenant, "server_authority.tenant"),
+		project: checkedString(value.server_authority.project, "server_authority.project"),
+	};
+	const common = {
+		baseUrl: checkedString(value.base_url, "base_url"),
+		token: checkedString(value.token, "token"),
+		projectRef: checkedString(value.project_ref, "project_ref"),
+		timeoutMs: checkedPositiveInteger(value.timeout_ms, "timeout_ms"),
+	};
+	return {
+		backgroundEnabled,
+		submission: {
+			...common,
+			repository: checkedString(value.repository, "repository"),
+			contractDigest: checkedString(value.contract_digest, "contract_digest"),
+			keyRegistry,
+			serverAuthority,
+		},
+		client: { ...common, claimantId: checkedString(value.claimant_id, "claimant_id") },
+		evaluator: {
+			keyRegistry,
+			serverAuthority,
+			evaluatorPolicyVersion: checkedString(value.evaluator_policy_version, "evaluator_policy_version"),
+			siteCountThreshold: checkedPositiveInteger(value.site_count_threshold, "site_count_threshold"),
+			cwd: root,
+		},
+		owner: checkedString(value.owner, "owner"),
+		leaseMs: checkedPositiveInteger(value.lease_ms, "lease_ms"),
+	};
+}
+
 /** Strictly parse the ignored, machine-local cloud runtime config. Manual
  * commands require enabled:true; daemon processing additionally requires the
  * separately parsed, default-off background_enabled:true. */
@@ -143,86 +255,11 @@ export function parseMutationCloudV3Config(value: unknown, root: string): Mutati
 	}
 	const background = backgroundSetting(value.background_enabled);
 	if (!background.ok) return background;
-	for (const [field, candidate] of [
-		["token", value.token],
-		["project_ref", value.project_ref],
-		["repository", value.repository],
-		["claimant_id", value.claimant_id],
-		["evaluator_policy_version", value.evaluator_policy_version],
-		["contract_digest", value.contract_digest],
-	] as const) {
-		const failure = nonEmpty(candidate, field);
-		if (failure !== null) return { ok: false, reason: failure };
-	}
-	const ownerFailure = runtimeOwnerFailure(value.owner);
-	if (ownerFailure !== null) return { ok: false, reason: ownerFailure };
-	const leaseMargin = leaseMarginFailure(value.timeout_ms, value.lease_ms);
-	if (leaseMargin !== null) return { ok: false, reason: leaseMargin };
-	const baseUrl = safeBaseUrl(value.base_url);
-	if (baseUrl !== null) return { ok: false, reason: baseUrl };
-	if (typeof value.contract_digest !== "string" || !/^[a-f0-9]{64}$/.test(value.contract_digest)) {
-		return { ok: false, reason: "mutation cloud config contract_digest must be lowercase sha-256 hex" };
-	}
-	if (value.contract_digest !== PROTOCOL_V3_CONTRACT_DIGEST) {
-		return {
-			ok: false,
-			reason: `mutation cloud config contract_digest does not match this CLI build (${PROTOCOL_V3_CONTRACT_DIGEST})`,
-		};
-	}
-	for (const [field, candidate] of [
-		["timeout_ms", value.timeout_ms],
-		["lease_ms", value.lease_ms],
-		["site_count_threshold", value.site_count_threshold],
-	] as const) {
-		const failure = positiveInteger(candidate, field);
-		if (failure !== null) return { ok: false, reason: failure };
-	}
-	const authority = authorityFailure(value.server_authority, value.project_ref);
-	if (authority !== null) return { ok: false, reason: authority };
-	const registry = keyRegistryFailure(value.key_registry);
-	if (registry !== null) return { ok: false, reason: `mutation cloud config ${registry}` };
-	// SAFETY: keyRegistryFailure constructed every record and validated key
-	// purpose/window/public-key fields; this only names that proven shape.
-	const keyRegistry = value.key_registry as V3KeyRegistry;
-	const roleConflict = registryRoleConflictFailure(keyRegistry);
-	if (roleConflict !== null) return { ok: false, reason: `mutation cloud config ${roleConflict}` };
-
-	if (!isJsonObject(value.server_authority)) {
-		throw new Error("internal mutation cloud config parser lost checked server_authority");
-	}
-	const serverAuthority = {
-		tenant: checkedString(value.server_authority.tenant, "server_authority.tenant"),
-		project: checkedString(value.server_authority.project, "server_authority.project"),
-	};
-	const common = {
-		baseUrl: checkedString(value.base_url, "base_url"),
-		token: checkedString(value.token, "token"),
-		projectRef: checkedString(value.project_ref, "project_ref"),
-		timeoutMs: checkedPositiveInteger(value.timeout_ms, "timeout_ms"),
-	};
-	return {
-		ok: true,
-		config: {
-			backgroundEnabled: background.enabled,
-			submission: {
-				...common,
-				repository: checkedString(value.repository, "repository"),
-				contractDigest: checkedString(value.contract_digest, "contract_digest"),
-				keyRegistry,
-				serverAuthority,
-			},
-			client: { ...common, claimantId: checkedString(value.claimant_id, "claimant_id") },
-			evaluator: {
-				keyRegistry,
-				serverAuthority,
-				evaluatorPolicyVersion: checkedString(value.evaluator_policy_version, "evaluator_policy_version"),
-				siteCountThreshold: checkedPositiveInteger(value.site_count_threshold, "site_count_threshold"),
-				cwd: root,
-			},
-			owner: checkedString(value.owner, "owner"),
-			leaseMs: checkedPositiveInteger(value.lease_ms, "lease_ms"),
-		},
-	};
+	const preflight = preflightConfigFailure(value);
+	if (preflight !== null) return { ok: false, reason: preflight };
+	const registry = resolvedKeyRegistryFailure(value);
+	if (registry !== null) return { ok: false, reason: registry };
+	return { ok: true, config: buildMutationCloudV3Config(value, root, background.enabled) };
 }
 
 export function loadMutationCloudV3Config(root: string, path = MUTATION_CLOUD_V3_LOCAL_CONFIG): MutationCloudV3LocalConfig {

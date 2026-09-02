@@ -5,6 +5,7 @@
 // collection.v1 records. See docs/design/normalized-collection-layer.md.
 
 import { isJsonObject, type JsonObject } from "../json-types.js";
+import { resolveOutcome, resolveToolEventKey } from "./builder-event-key.js";
 import type {
 	CollectionAction,
 	CollectionObservation,
@@ -42,19 +43,9 @@ function classifyTool(toolName: string): ToolClass {
 
 // --- Phase detection ---
 
-/** Legacy activity `type`s the builder projects to a PRE-phase record (which the
- *  collection reader projects back as `tool_use_start`). Exported so the merge
- *  reader's identity dedup can normalize a raw type to its projected display type
- *  — `permission_request` ⇄ `tool_use_start` would otherwise never match across
- *  the two stores (imported, not mirrored: the hand-copied set is what drifted). */
-export const PRE_EVENT_TYPES: ReadonlySet<string> = new Set(["tool_use_start", "permission_request"]);
-const POST_EVENT_TYPES = new Set(["tool_use", "tool_use_error"]);
-/** Every legacy activity `type` the collection builder CONSUMES (projects into
- *  collection.jsonl). Exported as the single source of truth for the merge reader:
- *  when collection.jsonl exists, a legacy row of one of these types is dropped
- *  exactly when its collection twin is present (identity dedup — finding 2026-06:
- *  type-level dropping erased pre-collection history and failed-append events). */
-export const TOOL_EVENT_TYPES: ReadonlySet<string> = new Set([...PRE_EVENT_TYPES, ...POST_EVENT_TYPES]);
+/** Re-exported from the sibling gate module (the sets and the phase mapping moved
+ *  there with `resolveToolEventKey`); `builder.js` stays their import path. */
+export { PRE_EVENT_TYPES, TOOL_EVENT_TYPES } from "./builder-event-key.js";
 
 const GEMINI_HOOK_EVENTS = new Set(["BeforeTool", "AfterTool"]);
 const DIRECT_PROVIDER_RUNNERS = new Set([
@@ -66,12 +57,6 @@ const DIRECT_PROVIDER_RUNNERS = new Set([
 	"opencode",
 	"pi",
 ]);
-
-function detectPhase(eventType: string): "pre" | "post" | null {
-	if (PRE_EVENT_TYPES.has(eventType)) return "pre";
-	if (POST_EVENT_TYPES.has(eventType)) return "post";
-	return null;
-}
 
 // --- Provider detection ---
 
@@ -422,24 +407,10 @@ function buildGit(event: JsonObject): GitContext | null {
  * Returns null for non-tool events (session lifecycle, guard telemetry, etc.).
  */
 export function buildCollectionRecord(event: JsonObject): CollectionRecord | null {
-	const eventType = String(event.event_type || event.type || "");
-	// Guard telemetry (guard_allow/guard_warn/guard_block) is local-only and is
-	// never collected — keyed on record TYPE (either discriminator field), not
-	// schema_version (the version is the log-format version, shared across families).
-	if (eventType.startsWith("guard_") || String(event.type || "").startsWith("guard_")) return null;
-	if (!TOOL_EVENT_TYPES.has(eventType)) return null;
-
-	const toolName = String(event.tool_name || event.tool || "");
-	if (!toolName) return null;
-
-	const phase = detectPhase(eventType);
-	if (!phase) return null;
-
-	// Preserve the success/failure discriminator on POST events so the canonical
-	// round-trip can reconstruct `tool_use_error` rather than collapsing every post
-	// event to `tool_use` (finding 5). Pre events carry no outcome yet.
-	const outcome: "ok" | "error" | undefined =
-		phase === "post" ? (eventType === "tool_use_error" ? "error" : "ok") : undefined;
+	const key = resolveToolEventKey(event);
+	if (!key) return null;
+	const { toolName, phase } = key;
+	const outcome = resolveOutcome(phase, key.eventType);
 
 	const toolClass = classifyTool(toolName);
 	const input = (event.tool_input && typeof event.tool_input === "object"

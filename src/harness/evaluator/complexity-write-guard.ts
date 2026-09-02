@@ -38,9 +38,11 @@
 // longer bypass the gate by carrying their edit in the patch body.
 
 import type { JsonObject } from "../../lib/json-types.js";
+import { planDecomposition, planToMessage } from "../decomposition-plan.js";
 import type { FunctionComplexityEntry } from "../checks/cyclomatic.js";
 import { computeCyclomaticAst } from "../checks/cyclomatic-ast.js";
 import { computeCyclomaticPython } from "../checks/cyclomatic-python.js";
+import { makeGrandfatherResolver } from "../function-complexity-baseline.js";
 import { maxCyclomaticFor } from "../metric-caps.js";
 import {
 	checkPerFunctionMetricWrite,
@@ -151,7 +153,18 @@ function warnAnalyzerUnavailable(language: string): void {
 	);
 }
 
-/** The cyclomatic instantiation of the shared per-function metric gate. */
+/**
+ * The cyclomatic instantiation of the shared per-function metric gate.
+ *
+ * `grandfatherFor` plugs in the per-function grandfather ledger
+ * (`.interlinked/function-complexity-baseline.json`, written by `interlinked
+ * caps ratchet cyclomatic --to <n>`). When the ledger has a cyclomatic section
+ * it is the EXPLICIT source of the "hold or reduce" allowance: a listed
+ * function may hold/shrink at its recorded value even above the cap, and the
+ * block names that value plus the burn-down count; an unlisted over-cap
+ * function blocks even when merely held. With no ledger the engine keeps the
+ * legacy on-disk delta semantics.
+ */
 const CYCLOMATIC_SPEC: MetricGateSpec<FunctionComplexityEntry> = {
 	label: "cyclomatic",
 	anonName: ANON_FN,
@@ -160,11 +173,20 @@ const CYCLOMATIC_SPEC: MetricGateSpec<FunctionComplexityEntry> = {
 	selectAnalyzer,
 	capFor: maxCyclomaticFor,
 	onAnalyzerUnavailable: warnAnalyzerUnavailable,
+	grandfatherFor: makeGrandfatherResolver("cyclomatic", ANON_FN),
 	limitPhrase: "cyclomatic limit",
 	unitPlural: "branch(es)",
 	unitAdj: "branch",
 	advice: "Decompose: extract cohesive branches into smaller named functions, then retry.",
+	planFor: decompositionPlanHint,
 };
+
+/** Lane-3 hook: the fewest branch extractions that bring `fnName` under `cap`,
+ *  rendered as one sentence for the `↳ plan:` sub-line (null = nothing to say). */
+function decompositionPlanHint(after: string, filePath: string, fnName: string, cap: number): string | null {
+	const plan = planDecomposition(after, filePath, fnName, cap);
+	return plan ? planToMessage(plan) : null;
+}
 
 /**
  * Block a Write/Edit/MultiEdit/apply_patch that introduces or worsens an

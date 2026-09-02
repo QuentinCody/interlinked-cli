@@ -55,42 +55,65 @@ export function applyLiteralReplacement(
  * fall back to the raw `new_string` — downstream checks may over-flag, but
  * that's strictly better than skipping checks entirely.
  */
-export function resolveProposedContent(filePath: string, toolInput: JsonObject): string {
-	// Write tool: `content` is the full file.
-	if (typeof toolInput.content === "string") return toolInput.content;
-
-	// Read the current disk content as the base.
-	let base = "";
+/** Read the current disk content as the splice base. Missing file or a read
+ *  error both fall through to an empty base — no base content means we'll
+ *  only have the new_string, which is the best we can do for a new-file
+ *  Edit. */
+function readBaseContent(filePath: string): string {
 	try {
-		if (existsSync(filePath)) base = readFileSync(filePath, "utf-8");
+		if (existsSync(filePath)) return readFileSync(filePath, "utf-8");
 	} catch (_err) {
-		void 0; /* intentional: intentional: fall through — no base content means we'll only have
-		 * the new_string, which is the best we can do for a new-file Edit. */
+		void 0; /* intentional: fall through to empty base */
 	}
+	return "";
+}
 
-	// MultiEdit: apply the `edits` array in sequence.
-	const edits = toolInput.edits;
-	if (Array.isArray(edits)) {
-		let current = base;
-		for (const e of edits) {
-			if (!e || typeof e !== "object") continue;
-			const entry = e as MultiEditEntry;
-			const oldStr = entry.old_string ?? "";
-			const newStr = entry.new_string ?? "";
-			if (oldStr && current.includes(oldStr)) {
-				current = applyLiteralReplacement(current, oldStr, newStr, entry.replace_all === true);
-			}
-		}
-		return current;
+/** Apply one MultiEdit array entry onto `current`, in place semantics via
+ *  return value. Skips malformed entries and no-op entries whose old_string
+ *  isn't present, exactly as the orchestrator's inline loop body did. */
+function applyMultiEditEntry(current: string, e: unknown): string {
+	if (!e || typeof e !== "object") return current;
+	const entry = e as MultiEditEntry;
+	const oldStr = entry.old_string ?? "";
+	const newStr = entry.new_string ?? "";
+	if (oldStr && current.includes(oldStr)) {
+		return applyLiteralReplacement(current, oldStr, newStr, entry.replace_all === true);
 	}
+	return current;
+}
 
-	// Edit tool: splice old_string → new_string.
+/** MultiEdit: apply the `edits` array in sequence onto `base`. */
+function applyMultiEditSequence(base: string, edits: unknown[]): string {
+	let current = base;
+	for (const e of edits) {
+		current = applyMultiEditEntry(current, e);
+	}
+	return current;
+}
+
+/** Edit tool: splice `old_string` → `new_string` into `base`. Falls back to
+ *  the raw new_string (or base, if there's no new_string either) when the
+ *  splice can't succeed. */
+function applySingleEdit(base: string, toolInput: JsonObject): string {
 	const oldString = typeof toolInput.old_string === "string" ? toolInput.old_string : "";
 	const newString = typeof toolInput.new_string === "string" ? toolInput.new_string : "";
 	if (oldString && base.includes(oldString)) {
 		return applyLiteralReplacement(base, oldString, newString, toolInput.replace_all === true);
 	}
-
-	// Fallback — can't compute proposed content reliably.
 	return newString || base;
+}
+
+export function resolveProposedContent(filePath: string, toolInput: JsonObject): string {
+	// Write tool: `content` is the full file.
+	if (typeof toolInput.content === "string") return toolInput.content;
+
+	const base = readBaseContent(filePath);
+
+	// MultiEdit: apply the `edits` array in sequence.
+	const edits = toolInput.edits;
+	if (Array.isArray(edits)) {
+		return applyMultiEditSequence(base, edits);
+	}
+
+	return applySingleEdit(base, toolInput);
 }

@@ -113,6 +113,42 @@ const RFC_TEST_DOMAIN_RE =
 
 const SKIPPED_PATH_RE =
 	/(?:^|\/)(?:__fixtures__|__mocks__|fixtures|mocks|test-data|seed-data|seeds)(?:\/|$)/;
+// Pattern bank 1: SMELL_PATTERNS. Count all hits per line, not just the
+// first — multi-declaration lines are common in seed/demo data. `budget`
+// caps how many matches this call may return (the caller's remaining
+// MAX_MATCHES headroom).
+function smellPatternMatchesForLine(lines: string[], i: number, budget: number): InlineMatch[] {
+	const line = nonNull(lines[i]);
+	const found: InlineMatch[] = [];
+
+	for (const pat of SMELL_PATTERNS) {
+		if (found.length >= budget) break;
+		const globalRe = new RegExp(pat.re.source, pat.re.flags.includes("g") ? pat.re.flags : pat.re.flags + "g");
+		const hits = line.match(globalRe);
+		if (!hits || hits.length === 0) continue;
+		if (lineHasNearbyDemoDirective(lines, i)) continue;
+		for (let h = 0; h < hits.length && found.length < budget; h++) {
+			found.push({
+				line: i + 1,
+				text: `unmarked demo data (${pat.label}): ${nonNull(hits[h]).slice(0, 80)}. Mark with \`// @demo-data: <reason>\` directly above, or wrap with demoData() from the vendored runtime.`,
+			});
+		}
+	}
+
+	return found;
+}
+
+// Pattern bank 2: RFC test-domain URLs (separate so the message is specific).
+function rfcTestDomainMatchForLine(lines: string[], i: number): InlineMatch | null {
+	const line = nonNull(lines[i]);
+	if (!RFC_TEST_DOMAIN_RE.test(line)) return null;
+	if (lineHasNearbyDemoDirective(lines, i)) return null;
+	return {
+		line: i + 1,
+		text: `unmarked demo data (RFC test domain): ${line.trim().slice(0, 110)}. Mark with \`// @demo-data: <reason>\` or move to a config file.`,
+	};
+}
+
 /** Public API — flags fake-data smell patterns without `@demo-data:` directive. */
 export function checkDemoDataUnmarked(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
@@ -125,35 +161,12 @@ export function checkDemoDataUnmarked(content: string, filePath: string): Inline
 
 	for (let i = 0; i < lines.length; i++) {
 		if (matches.length >= MAX_MATCHES) break;
-		const line = nonNull(lines[i]);
 
-		// Pattern bank 1: SMELL_PATTERNS. Count all hits per line, not just
-		// the first — multi-declaration lines are common in seed/demo data.
-		for (const pat of SMELL_PATTERNS) {
-			if (matches.length >= MAX_MATCHES) break;
-			const globalRe = new RegExp(pat.re.source, pat.re.flags.includes("g") ? pat.re.flags : pat.re.flags + "g");
-			const hits = line.match(globalRe);
-			if (!hits || hits.length === 0) continue;
-			if (lineHasNearbyDemoDirective(lines, i)) continue;
-			for (let h = 0; h < hits.length && matches.length < MAX_MATCHES; h++) {
-				matches.push({
-					line: i + 1,
-					text: `unmarked demo data (${pat.label}): ${nonNull(hits[h]).slice(0, 80)}. Mark with \`// @demo-data: <reason>\` directly above, or wrap with demoData() from the vendored runtime.`,
-				});
-			}
-		}
+		matches.push(...smellPatternMatchesForLine(lines, i, MAX_MATCHES - matches.length));
 
-		// Pattern bank 2: RFC test-domain URLs (separate so the message is specific).
-		if (
-			matches.length < MAX_MATCHES &&
-			RFC_TEST_DOMAIN_RE.test(line) &&
-			!lineHasNearbyDemoDirective(lines, i)
-		) {
-			matches.push({
-				line: i + 1,
-				text: `unmarked demo data (RFC test domain): ${line.trim().slice(0, 110)}. Mark with \`// @demo-data: <reason>\` or move to a config file.`,
-			});
-		}
+		if (matches.length >= MAX_MATCHES) continue;
+		const rfcMatch = rfcTestDomainMatchForLine(lines, i);
+		if (rfcMatch) matches.push(rfcMatch);
 	}
 
 	return matches;

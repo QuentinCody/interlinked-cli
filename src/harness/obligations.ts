@@ -2,6 +2,7 @@
 // Obligation ledger — metric-agnostic TDD-debt state machine
 // ===========================================
 import { isJsonObject } from "../lib/json-types.js";
+import { parseOpenTxnOptional, parseOpenTxnRequired } from "./obligations-open-txn.js";
 // The single source of truth for "code changed and a quality bar is not yet
 // met" — coverage today, mutation (cloud, async) by descriptor next. An edit
 // OPENS an obligation; a later measurement DISCHARGES it; a re-edit of the same
@@ -38,7 +39,7 @@ type DischargeSource = "local" | "observed" | "cloud";
 
 /** A 1-based inclusive line range identifying the changed region an obligation
  *  covers. Omitted ⇒ a file-level obligation (coverage keys by file today). */
-interface ObligationRegion {
+export interface ObligationRegion {
 	start: number;
 end: number;
 }
@@ -348,36 +349,16 @@ export const METRIC_DESCRIPTORS: Record<ObligationKind, MetricDescriptor> = {
 	transient: TRANSIENT_DESCRIPTOR,
 };
 
-type OpenTxn = Extract<ObligationTxn, { op: "open" }>;
+export type OpenTxn = Extract<ObligationTxn, { op: "open" }>;
 type DischargeTxn = Extract<ObligationTxn, { op: "discharge" }>;
 type EscalateTxn = Extract<ObligationTxn, { op: "escalate" }>;
-
-function isObligationKind(v: unknown): v is ObligationKind {
-	return v === "coverage" || v === "mutation" || v === "red_suite" || v === "transient";
-}
 
 function isDischargeSource(v: unknown): v is DischargeSource {
 	return v === "local" || v === "observed" || v === "cloud";
 }
 
-
-function isStringArray(v: unknown): v is string[] {
-	return Array.isArray(v) && v.every((entry): entry is string => typeof entry === "string");
-}
-
 function asString(v: unknown): string | null {
 	return typeof v === "string" ? v : null;
-}
-
-function asNumber(v: unknown): number | null {
-	return typeof v === "number" ? v : null;
-}
-
-function parseRegion(value: unknown): ObligationRegion | null {
-	if (!isJsonObject(value)) return null;
-	const { start, end } = value;
-	if (typeof start !== "number" || typeof end !== "number") return null;
-	return { start, end };
 }
 
 function parseMutationSurvivor(value: unknown): MutationSurvivor | null {
@@ -415,36 +396,19 @@ function optionalField<T>(value: unknown, parse: (v: unknown) => T | null): T | 
 	return parsed === null ? INVALID : parsed;
 }
 
+// `parseOpenTxn` splits into a required-fields pass and an optional-fields
+// pass, implemented in the sibling `obligations-open-txn.ts` module (moved
+// out for the line cap; imported at the top of this file). Kept a two-call
+// orchestrator here rather than inlined so the cyclomatic weight of the
+// "open" row's five independently-malformable optional fields doesn't fold
+// into this function's own count.
 function parseOpenTxn(value: unknown): OpenTxn | null {
-	if (!isJsonObject(value) || value.op !== "open") return null;
-	if (!isObligationKind(value.kind)) return null;
-	if (typeof value.file !== "string") return null;
-	if (typeof value.contentHash !== "string") return null;
-	if (typeof value.sessionId !== "string") return null;
-	if (typeof value.atMs !== "number") return null;
-	const region = optionalField(value.region, parseRegion);
-	if (region === INVALID) return null;
-	const editSeq = optionalField(value.editSeq, asNumber);
-	if (editSeq === INVALID) return null;
-	const detector = optionalField(value.detector, asString);
-	if (detector === INVALID) return null;
-	const strikes = optionalField(value.strikes, asNumber);
-	if (strikes === INVALID) return null;
-	const failingTestFiles = optionalField(value.failingTestFiles, (v) => (isStringArray(v) ? v : null));
-	if (failingTestFiles === INVALID) return null;
-	return {
-		op: "open",
-		kind: value.kind,
-		file: value.file,
-		contentHash: value.contentHash,
-		sessionId: value.sessionId,
-		atMs: value.atMs,
-		...(region !== undefined ? { region } : {}),
-		...(editSeq !== undefined ? { editSeq } : {}),
-		...(detector !== undefined ? { detector } : {}),
-		...(strikes !== undefined ? { strikes } : {}),
-		...(failingTestFiles !== undefined ? { failingTestFiles } : {}),
-	};
+	if (!isJsonObject(value)) return null;
+	const required = parseOpenTxnRequired(value);
+	if (required === null) return null;
+	const optional = parseOpenTxnOptional(value);
+	if (optional === null) return null;
+	return { op: "open", ...required, ...optional };
 }
 
 function parseDischargeTxn(value: unknown): DischargeTxn | null {

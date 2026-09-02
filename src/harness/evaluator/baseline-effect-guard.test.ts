@@ -56,7 +56,14 @@ const BASELINE_RELS = [
 	".interlinked/metric-caps.json",
 	".interlinked/skipped-tests-baseline.json",
 	".interlinked/check-evidence-baseline.json",
+	".interlinked/function-complexity-baseline.json",
 ];
+const LEDGER_REL = ".interlinked/function-complexity-baseline.json";
+const LEDGER_TIGHT =
+	'{"version":1,"metrics":{"cyclomatic":{"cap":16,"entries":[{"file":"src/a.ts","name":"big","line":3,"value":20}]}}}';
+const LEDGER_RAISED =
+	'{"version":1,"metrics":{"cyclomatic":{"cap":16,"entries":[{"file":"src/a.ts","name":"big","line":3,"value":999}]}}}';
+const LEDGER_BURNED = '{"version":1,"metrics":{"cyclomatic":{"cap":16,"entries":[]}}}';
 
 let root: string;
 
@@ -111,6 +118,26 @@ describe("detectBaselineLoosening — positive (must fire)", () => {
 		rmSync(join(root, CAPS_REL));
 		const before = captureBaselines(root);
 		writeCaps(LOOSE);
+		expect(detectBaselineLoosening(before, captureBaselines(root))).toEqual([]);
+	});
+
+	it("P4: a shell write that raises a complexity-ledger entry is a loosening (the bash-path hole)", () => {
+		writeFileSync(join(root, LEDGER_REL), LEDGER_TIGHT);
+		const before = captureBaselines(root);
+		writeFileSync(join(root, LEDGER_REL), LEDGER_RAISED);
+		const found = detectBaselineLoosening(before, captureBaselines(root));
+		expect(found).toHaveLength(1);
+		expect(found[0]?.file).toBe(LEDGER_REL);
+		expect(found[0]?.beforeText).toBe(LEDGER_TIGHT);
+		expect(found[0]?.details.join(" ")).toContain("20→999");
+	});
+});
+
+describe("detectBaselineLoosening — negative (must not fire) on the complexity ledger", () => {
+	it("N1: burning down the ledger (dropping an entry) is silent", () => {
+		writeFileSync(join(root, LEDGER_REL), LEDGER_TIGHT);
+		const before = captureBaselines(root);
+		writeFileSync(join(root, LEDGER_REL), LEDGER_BURNED);
 		expect(detectBaselineLoosening(before, captureBaselines(root))).toEqual([]);
 	});
 });

@@ -278,6 +278,7 @@ export class SessionTracker {
 			files_read: [...s.files_read],
 			files_written: [...s.files_written],
 			commands_run: s.commands_run,
+			test_commands_run: s.test_commands_run ?? [],
 			tool_sequence: s.tool_sequence,
 			curl_localhost_count: s.curl_localhost_count,
 			taint_sources: s.taint_sources,
@@ -289,54 +290,7 @@ export class SessionTracker {
 			soft_blocks: [...s.soft_blocks],
 			silent_failure_warned: [...s.silent_failure_warned],
 			bloat_warned: [...s.bloat_warned],
-			file_write_times: Object.fromEntries(s.file_write_times),
-			file_read_at: Object.fromEntries(s.file_read_at),
-			failed_files: Object.fromEntries(
-				[...s.failed_files.entries()].map(([k, v]) => [k, { ...v }]),
-			),
-			pending_completions: Object.fromEntries(
-				[...s.pending_completions.entries()].map(([k, v]) => [
-					k,
-					{ ...v, resolved_files: [...v.resolved_files] },
-				]),
-			),
-			file_edit_counts: Object.fromEntries(s.file_edit_counts),
-			warnings_issued: Object.fromEntries(
-				[...s.warnings_issued.entries()].map(([k, v]) => [k, { ...v }]),
-			),
-			tdd_cycles: Object.fromEntries(
-				[...s.tdd_cycles.entries()].map(([k, v]) => [k, { ...v }]),
-			),
-			consecutive_tool_failures: Object.fromEntries(s.consecutive_tool_failures),
-			test_runs: Object.fromEntries(
-				[...s.test_runs.entries()].map(([k, v]) => [k, { ...v }]),
-			),
-			active_skills: s.active_skills
-				? Object.fromEntries([...s.active_skills.entries()].map(([k, v]) => [k, { ...v }]))
-				: {},
-			non_doc_files_edited_since_commit: s.non_doc_files_edited_since_commit
-				? [...s.non_doc_files_edited_since_commit]
-				: [],
-			doc_files_edited_since_commit: s.doc_files_edited_since_commit ?? 0,
-			mid_session_nudge_emitted: s.mid_session_nudge_emitted ?? false,
-			stop_nudge_emitted: s.stop_nudge_emitted ?? false,
-			assertion_counts: Object.fromEntries(
-				[...s.assertion_counts.entries()].map(([k, v]) => [k, { ...v }]),
-			),
-			verification_observed: s.verification_observed ? [...s.verification_observed] : [],
-			observed_checks: s.observed_checks
-				? Object.fromEntries([...s.observed_checks.entries()].map(([k, v]) => [k, { ...v }]))
-				: {},
-			stubs_introduced: s.stubs_introduced ? s.stubs_introduced.map((e) => ({ ...e })) : [],
-			declared_plan: s.declared_plan ? serializeCapturedPlan(s.declared_plan) : null,
-			git_session_baseline: s.git_session_baseline
-				? {
-						head_sha: s.git_session_baseline.head_sha,
-						modified: [...s.git_session_baseline.modified],
-						staged: [...s.git_session_baseline.staged],
-						untracked: [...s.git_session_baseline.untracked],
-					}
-				: null,
+			...serializeSessionExtras(s),
 		};
 	}
 
@@ -381,6 +335,7 @@ export class SessionTracker {
 			files_read: readStringSet(snapshot.files_read),
 			files_written: readStringSet(snapshot.files_written),
 			commands_run: readStringArray(snapshot.commands_run),
+			test_commands_run: readStringArray(snapshot.test_commands_run),
 			tool_sequence: readStringArray(snapshot.tool_sequence),
 			curl_localhost_count: readNumberRecord(snapshot.curl_localhost_count),
 			taint_sources: readTaintSources(snapshot.taint_sources),
@@ -432,4 +387,71 @@ export class SessionTracker {
 			(s) => s.tool_call_count > 0 && new Date(s.started_at).getTime() < cutoff,
 		);
 	}
+}
+
+/**
+ * The back half of `serialize()`'s field set, split into two cohesive halves
+ * purely to keep `serialize` (already grandfathered over the function-token
+ * cap before this split) — and each half itself — under the canonical
+ * per-function token cap. No behavior change — every field here is spread
+ * back into the same snapshot object `serialize` used to build inline.
+ */
+function serializeSessionExtras(s: SessionTrajectory): JsonObject {
+	return { ...serializeSessionExtrasFileState(s), ...serializeSessionExtrasVerification(s) };
+}
+
+/** File/edit/warning-tracking half of the split `serialize()` field set. */
+function serializeSessionExtrasFileState(s: SessionTrajectory): JsonObject {
+	return {
+		file_write_times: Object.fromEntries(s.file_write_times),
+		file_read_at: Object.fromEntries(s.file_read_at),
+		failed_files: Object.fromEntries(
+			[...s.failed_files.entries()].map(([k, v]) => [k, { ...v }]),
+		),
+		pending_completions: Object.fromEntries(
+			[...s.pending_completions.entries()].map(([k, v]) => [
+				k,
+				{ ...v, resolved_files: [...v.resolved_files] },
+			]),
+		),
+		file_edit_counts: Object.fromEntries(s.file_edit_counts),
+		warnings_issued: Object.fromEntries(
+			[...s.warnings_issued.entries()].map(([k, v]) => [k, { ...v }]),
+		),
+		tdd_cycles: Object.fromEntries([...s.tdd_cycles.entries()].map(([k, v]) => [k, { ...v }])),
+		consecutive_tool_failures: Object.fromEntries(s.consecutive_tool_failures),
+		non_doc_files_edited_since_commit: s.non_doc_files_edited_since_commit
+			? [...s.non_doc_files_edited_since_commit]
+			: [],
+		doc_files_edited_since_commit: s.doc_files_edited_since_commit ?? 0,
+	};
+}
+
+/** Verification/TDD/plan/git-baseline half of the split `serialize()` field set. */
+function serializeSessionExtrasVerification(s: SessionTrajectory): JsonObject {
+	return {
+		test_runs: Object.fromEntries([...s.test_runs.entries()].map(([k, v]) => [k, { ...v }])),
+		active_skills: s.active_skills
+			? Object.fromEntries([...s.active_skills.entries()].map(([k, v]) => [k, { ...v }]))
+			: {},
+		mid_session_nudge_emitted: s.mid_session_nudge_emitted ?? false,
+		stop_nudge_emitted: s.stop_nudge_emitted ?? false,
+		assertion_counts: Object.fromEntries(
+			[...s.assertion_counts.entries()].map(([k, v]) => [k, { ...v }]),
+		),
+		verification_observed: s.verification_observed ? [...s.verification_observed] : [],
+		observed_checks: s.observed_checks
+			? Object.fromEntries([...s.observed_checks.entries()].map(([k, v]) => [k, { ...v }]))
+			: {},
+		stubs_introduced: s.stubs_introduced ? s.stubs_introduced.map((e) => ({ ...e })) : [],
+		declared_plan: s.declared_plan ? serializeCapturedPlan(s.declared_plan) : null,
+		git_session_baseline: s.git_session_baseline
+			? {
+					head_sha: s.git_session_baseline.head_sha,
+					modified: [...s.git_session_baseline.modified],
+					staged: [...s.git_session_baseline.staged],
+					untracked: [...s.git_session_baseline.untracked],
+				}
+			: null,
+	};
 }

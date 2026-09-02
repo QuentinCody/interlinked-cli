@@ -39,28 +39,57 @@ function tailString(v: unknown): string | undefined {
  * left exactly as before (`observedOutput` reads them directly).
  */
 export function liftOutcomeEvidence(event: HarnessEvent): void {
-	if (event.hook_event !== "PostToolUse" && event.hook_event !== "PostToolUseFailure") return;
+	const fields = liftableResponseFields(event);
+	if (fields === undefined) return;
+
+	applyStreamEvidence(event, fields);
+	const codeRaw = applyExitCode(event, fields);
+	event.tool_outcome = deriveToolOutcomeFromFields(event, fields, codeRaw);
+}
+
+/**
+ * Return the object tool_response's fields when this event is eligible for the
+ * lift, or `undefined` when it is not (wrong hook event, outcome already
+ * derived upstream, or a non-object tool_response).
+ */
+function liftableResponseFields(event: HarnessEvent): Record<string, unknown> | undefined {
+	if (event.hook_event !== "PostToolUse" && event.hook_event !== "PostToolUseFailure")
+		return undefined;
 	// Already derived upstream (.mjs hook, or a prior pass) — never second-guess.
-	if (event.tool_outcome !== undefined) return;
+	if (event.tool_outcome !== undefined) return undefined;
 	const resp = event.tool_response;
 	if (resp === null || resp === undefined || typeof resp !== "object" || Array.isArray(resp))
-		return;
+		return undefined;
 	// SAFETY: narrowed to a non-null, non-array object; every read below
 	// re-checks its own field's type before use.
-	const fields = resp as Record<string, unknown>;
+	return resp as Record<string, unknown>;
+}
 
+/** Copy stdout/stderr tails onto the event, never overwriting existing values. */
+function applyStreamEvidence(event: HarnessEvent, fields: Record<string, unknown>): void {
 	const stdout = tailString(fields.stdout);
 	const stderr = tailString(fields.stderr);
 	if (stdout !== undefined && event.stdout === undefined) event.stdout = stdout;
 	if (stderr !== undefined && event.stderr === undefined) event.stderr = stderr;
+}
 
+/** Copy the exit code onto the event (never overwriting) and return the raw value. */
+function applyExitCode(event: HarnessEvent, fields: Record<string, unknown>): unknown {
 	const codeRaw = fields.exitCode ?? fields.exit_code ?? fields.returncode;
 	if (typeof codeRaw === "number" && event.exit_code === undefined) event.exit_code = codeRaw;
+	return codeRaw;
+}
 
+/** Conservative outcome: `interrupted` beats any failure marker, which beats success. */
+function deriveToolOutcomeFromFields(
+	event: HarnessEvent,
+	fields: Record<string, unknown>,
+	codeRaw: unknown,
+): "interrupted" | "error" | "success" {
+	if (fields.interrupted === true) return "interrupted";
 	const failed =
 		event.hook_event === "PostToolUseFailure" ||
 		fields.is_error === true ||
 		(typeof codeRaw === "number" && codeRaw !== 0);
-	if (fields.interrupted === true) event.tool_outcome = "interrupted";
-	else event.tool_outcome = failed ? "error" : "success";
+	return failed ? "error" : "success";
 }

@@ -57,6 +57,51 @@ function extractStringLiteral(raw: string): string | null {
 	return null;
 }
 
+// --------------------------------------------------------------------------
+// Shared character-scanning helpers
+// --------------------------------------------------------------------------
+// Both `splitTopLevelArgs` and `extractFirstArg` walk raw source one character
+// at a time, tracking string-literal state and bracket depth. These helpers
+// hold the per-character classification so each scanner stays readable.
+
+/** Result of advancing the string-literal state by one character. */
+interface StringScanStep {
+	/** The quote character still open, or null once the literal closed. */
+	inStr: string | null;
+	/** True when the caller must skip the next character (escape sequence). */
+	skipNext: boolean;
+}
+
+/**
+ * Advance string-literal state by one character while inside a literal opened
+ * by `inStr`. `hasNext` says whether a following character exists (an escape
+ * at the very end of the buffer skips nothing).
+ */
+function stepInsideStringLiteral(
+	ch: string | undefined,
+	inStr: string,
+	hasNext: boolean,
+): StringScanStep {
+	if (ch === "\\" && hasNext) return { inStr, skipNext: true };
+	if (ch === inStr) return { inStr: null, skipNext: false };
+	return { inStr, skipNext: false };
+}
+
+/** True when the character opens a string literal we must skip over. */
+function isQuoteChar(ch: string | undefined): boolean {
+	return ch === '"' || ch === "'" || ch === "`";
+}
+
+/** True when the character opens a nesting level. */
+function isOpenBracket(ch: string | undefined): boolean {
+	return ch === "(" || ch === "[" || ch === "{";
+}
+
+/** True when the character closes a nesting level. */
+function isCloseBracket(ch: string | undefined): boolean {
+	return ch === ")" || ch === "]" || ch === "}";
+}
+
 /**
  * Split a raw comma-separated argument list into top-level argument strings,
  * respecting nested parens, brackets, braces, and string literals.
@@ -71,22 +116,20 @@ function splitTopLevelArgs(argsRaw: string): string[] {
 	for (let i = 0; i < argsRaw.length; i++) {
 		const ch = argsRaw[i];
 		if (inStr !== null) {
-			if (ch === "\\" && i + 1 < argsRaw.length) {
-				i++; // skip escaped char
-			} else if (ch === inStr) {
-				inStr = null;
-			}
+			const step = stepInsideStringLiteral(ch, inStr, i + 1 < argsRaw.length);
+			inStr = step.inStr;
+			if (step.skipNext) i++; // skip escaped char
 			continue;
 		}
-		if (ch === '"' || ch === "'" || ch === "`") {
-			inStr = ch;
+		if (isQuoteChar(ch)) {
+			inStr = ch ?? null;
 			continue;
 		}
-		if (ch === "(" || ch === "[" || ch === "{") {
+		if (isOpenBracket(ch)) {
 			depth++;
 			continue;
 		}
-		if (ch === ")" || ch === "]" || ch === "}") {
+		if (isCloseBracket(ch)) {
 			depth--;
 			continue;
 		}
@@ -187,22 +230,20 @@ function extractFirstArg(content: string, openParenOffset: number): string | nul
 	for (; i < content.length; i++) {
 		const ch = content[i];
 		if (inStr !== null) {
-			if (ch === "\\" && i + 1 < content.length) {
-				i++;
-			} else if (ch === inStr) {
-				inStr = null;
-			}
+			const step = stepInsideStringLiteral(ch, inStr, i + 1 < content.length);
+			inStr = step.inStr;
+			if (step.skipNext) i++;
 			continue;
 		}
-		if (ch === '"' || ch === "'" || ch === "`") {
-			inStr = ch;
+		if (isQuoteChar(ch)) {
+			inStr = ch ?? null;
 			continue;
 		}
-		if (ch === "(" || ch === "[" || ch === "{") {
+		if (isOpenBracket(ch)) {
 			depth++;
 			continue;
 		}
-		if (ch === ")" || ch === "]" || ch === "}") {
+		if (isCloseBracket(ch)) {
 			depth--;
 			if (depth === 0) {
 				// Closing paren — the first arg ends here (no comma was found).

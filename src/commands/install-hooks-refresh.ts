@@ -278,6 +278,63 @@ export function reportRefresh(outcome: RefreshOutcome, json: boolean): void {
 	process.stdout.write("mode: preserved (refresh never writes enforcement mode)\n");
 }
 
+/** Corrupt/missing manifest states each refuse with a synthetic "refresh"
+ *  failure row — corrupt keeps the bytes, missing has none to keep. */
+function manifestStateOutcome(reason: string, dryRun: boolean): RefreshOutcome {
+	return {
+		ok: false,
+		dry_run: dryRun,
+		refreshed: [],
+		skipped: [],
+		post_install_failures: [{ runner: "refresh", reason }],
+		rolled_back: false,
+		unchanged: true,
+		verifications: [],
+	};
+}
+
+/** Every TARGETED runner must have been replaced; an installer skip
+ *  (malformed settings, missing file) is a refresh FAILURE, mutating `run`
+ *  in place (review 2026-08-30 — a skip used to erase the manifest entry
+ *  and report ok:true). */
+function markUnreplacedAsFailed(run: InstallRunOutcome, targets: ManifestEntries): void {
+	const replaced = new Set(
+		run.entries.map((entry: InstallResult["entries"][number]) => entry.runner),
+	);
+	for (const target of targets) {
+		if (!replaced.has(target.runner)) {
+			run.failed = true;
+			run.failures.push({
+				runner: target.runner,
+				reason: "targeted runner was not replaced — see skipped for the installer's reason",
+			});
+		}
+	}
+}
+
+/** Shared shape for both rollback-on-failure paths (unreplaced target,
+ *  failed verification): restore the snapshot and report the failure. */
+function rollbackFailureOutcome(
+	before: Snapshot,
+	dryRun: boolean,
+	skipped: RefreshOutcome["skipped"],
+	failures: RefreshFailure[],
+	verifications: RefreshVerification[] = [],
+): RefreshOutcome {
+	const rollbackError = restoreSnapshot(before);
+	return {
+		ok: false,
+		dry_run: dryRun,
+		refreshed: [],
+		skipped,
+		post_install_failures: failures,
+		rolled_back: rollbackError === undefined,
+		...(rollbackError !== undefined ? { rollback_error: rollbackError } : {}),
+		unchanged: settingsUnchanged(before),
+		verifications,
+	};
+}
+
 export function refreshInstalledHooks(
 	args: RefreshHooksArgs,
 	deps: RefreshDeps = {},
@@ -289,38 +346,16 @@ export function refreshInstalledHooks(
 	const manifestState = readManifestState(mfPath);
 	if (manifestState.kind === "corrupt") {
 		// Refuse with the bytes preserved: corrupt is NOT "nothing installed".
-		return {
-			ok: false,
-			dry_run: dryRun,
-			refreshed: [],
-			skipped: [],
-			post_install_failures: [
-				{
-					runner: "refresh",
-					reason: `installer manifest is corrupt (${manifestState.reason}) — restore a trusted backup or repair ${mfPath} to the valid schema; deleting it loses the ownership record`,
-				},
-			],
-			rolled_back: false,
-			unchanged: true,
-			verifications: [],
-		};
+		return manifestStateOutcome(
+			`installer manifest is corrupt (${manifestState.reason}) — restore a trusted backup or repair ${mfPath} to the valid schema; deleting it loses the ownership record`,
+			dryRun,
+		);
 	}
 	if (manifestState.kind === "missing") {
-		return {
-			ok: false,
-			dry_run: dryRun,
-			refreshed: [],
-			skipped: [],
-			post_install_failures: [
-				{
-					runner: "refresh",
-					reason: `installer manifest is missing at ${mfPath} — restore or repair the ownership record; refresh cannot infer which hooks it owns`,
-				},
-			],
-			rolled_back: false,
-			unchanged: true,
-			verifications: [],
-		};
+		return manifestStateOutcome(
+			`installer manifest is missing at ${mfPath} — restore or repair the ownership record; refresh cannot infer which hooks it owns`,
+			dryRun,
+		);
 	}
 	const manifest = manifestState.entries;
 
@@ -348,34 +383,10 @@ export function refreshInstalledHooks(
 	const run = runScopedInstalls(args, binaryAbs, targets, install);
 	run.skipped.push(...skipped);
 
-	// Every TARGETED runner must have been replaced; an installer skip
-	// (malformed settings, missing file) is a refresh FAILURE that rolls back
-	// (review 2026-08-30 — a skip used to erase the manifest entry and report
-	// ok:true).
-	const replaced = new Set(run.entries.map((entry: InstallResult["entries"][number]) => entry.runner));
-	for (const target of targets) {
-		if (!replaced.has(target.runner)) {
-			run.failed = true;
-			run.failures.push({
-				runner: target.runner,
-				reason: "targeted runner was not replaced — see skipped for the installer's reason",
-			});
-		}
-	}
+	markUnreplacedAsFailed(run, targets);
 
 	if (run.failed && !dryRun) {
-		const rollbackError = restoreSnapshot(before);
-		return {
-			ok: false,
-			dry_run: dryRun,
-			refreshed: [],
-			skipped: run.skipped,
-			post_install_failures: run.failures,
-			rolled_back: rollbackError === undefined,
-			...(rollbackError !== undefined ? { rollback_error: rollbackError } : {}),
-			unchanged: settingsUnchanged(before),
-			verifications: [],
-		};
+		return rollbackFailureOutcome(before, dryRun, run.skipped, run.failures);
 	}
 
 	// Verification is part of SUCCESS (review 2026-08-30: a run that installed
@@ -384,24 +395,13 @@ export function refreshInstalledHooks(
 	const verifications = dryRun ? [] : verifyFinalState(args.cwd, run.entries, binaryAbs);
 	const unverified = verifications.filter((v) => !v.verified);
 	if (unverified.length > 0) {
-		const rollbackError = restoreSnapshot(before);
-		return {
-			ok: false,
-			dry_run: dryRun,
-			refreshed: [],
-			skipped: run.skipped,
-			post_install_failures: [
-				...run.failures,
-				...unverified.map((v) => ({
-					runner: v.runner,
-					reason: `final-state verification failed: ${v.problems.slice(0, 2).join("; ")}`,
-				})),
-			],
-			rolled_back: rollbackError === undefined,
-			...(rollbackError !== undefined ? { rollback_error: rollbackError } : {}),
-			unchanged: settingsUnchanged(before),
-			verifications,
-		};
+		return rollbackFailureOutcome(before, dryRun, run.skipped, [
+			...run.failures,
+			...unverified.map((v) => ({
+				runner: v.runner,
+				reason: `final-state verification failed: ${v.problems.slice(0, 2).join("; ")}`,
+			})),
+		], verifications);
 	}
 
 	// Idempotency signal excludes the manifest (its installed_at stamp always

@@ -48,26 +48,51 @@ export function isRawStatusDecision(value: unknown): boolean {
 	return decision === "allow" || decision === "block" || decision === "ask";
 }
 
-/** Parse the complete daemon.health contract. Readiness, diagnostics, and
- * startup arbitration must not each accept a different subset of the wire. */
-export function parseDaemonHealth(value: unknown): DaemonHealth | null {
-	if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+type DaemonHealthStatus = DaemonHealth["status"];
+type DaemonHealthTsgoStatus = DaemonHealth["tsgo_status"];
+
+function readHealthStatus(value: object): DaemonHealthStatus | null {
 	const status = Reflect.get(value, "status");
 	if (status !== "ready" && status !== "warming" && status !== "degraded") return null;
+	return status;
+}
+
+function readHealthTsgoStatus(value: object): DaemonHealthTsgoStatus | null {
 	const tsgoStatus = Reflect.get(value, "tsgo_status");
 	if (tsgoStatus !== "ready" && tsgoStatus !== "starting" && tsgoStatus !== "unavailable") {
 		return null;
 	}
-	const uptimeMs = Reflect.get(value, "uptime_ms");
-	if (typeof uptimeMs !== "number" || !Number.isInteger(uptimeMs) || uptimeMs < 0) return null;
-	const rpcInflight = Reflect.get(value, "rpc_inflight");
-	if (typeof rpcInflight !== "number" || !Number.isInteger(rpcInflight) || rpcInflight < 0) {
-		return null;
-	}
+	return tsgoStatus;
+}
+
+function readNonNegativeInt(value: object, key: string): number | null {
+	const n = Reflect.get(value, key);
+	if (typeof n !== "number" || !Number.isInteger(n) || n < 0) return null;
+	return n;
+}
+
+function readWarmCaches(value: object): string[] | null {
 	const warmCaches = Reflect.get(value, "warm_caches");
 	if (!Array.isArray(warmCaches) || !warmCaches.every((entry) => typeof entry === "string")) {
 		return null;
 	}
+	return warmCaches;
+}
+
+/** Parse the complete daemon.health contract. Readiness, diagnostics, and
+ * startup arbitration must not each accept a different subset of the wire. */
+export function parseDaemonHealth(value: unknown): DaemonHealth | null {
+	if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+	const status = readHealthStatus(value);
+	if (status === null) return null;
+	const tsgoStatus = readHealthTsgoStatus(value);
+	if (tsgoStatus === null) return null;
+	const uptimeMs = readNonNegativeInt(value, "uptime_ms");
+	if (uptimeMs === null) return null;
+	const rpcInflight = readNonNegativeInt(value, "rpc_inflight");
+	if (rpcInflight === null) return null;
+	const warmCaches = readWarmCaches(value);
+	if (warmCaches === null) return null;
 	if (Reflect.get(value, "protocol_version") !== PROTOCOL_VERSION) return null;
 	return {
 		status,

@@ -101,31 +101,40 @@ async function resolveSingleFileEntry(
 }
 
 /**
- * Load a batch manifest from disk. Validates shape defensively — malformed
- * manifests are the most common failure mode for this command.
+ * Read the manifest file's raw text from disk. Throws a usage-level Error
+ * with a message the caller should surface to the user.
  */
-function loadBatchManifest(manifestPath: string): GateInputEntry[] {
+function readManifestRaw(manifestPath: string): string {
 	if (!existsSync(manifestPath)) {
 		throw new Error(`Batch manifest not found: ${manifestPath}`);
 	}
-	let raw: string;
 	try {
-		raw = readFileSync(manifestPath, "utf-8");
+		return readFileSync(manifestPath, "utf-8");
 	} catch (err) {
 		throw new Error(
 			`Could not read batch manifest: ${err instanceof Error ? err.message : String(err)}`,
 			{ cause: err },
 		);
 	}
-	let parsed: unknown;
+}
+
+/** Parse the manifest's raw text as JSON. Throws a usage-level Error on failure. */
+function parseManifestJson(raw: string): unknown {
 	try {
-		parsed = JSON.parse(raw);
+		return JSON.parse(raw);
 	} catch (err) {
 		throw new Error(
 			`Batch manifest is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
 			{ cause: err },
 		);
 	}
+}
+
+/**
+ * Validate the manifest's top-level envelope (object shape, `version: 1`, a
+ * non-empty `writes` array) and return it narrowed to `BatchManifest`.
+ */
+function validateManifestEnvelope(parsed: unknown): BatchManifest & { writes: unknown[] } {
 	if (!parsed || typeof parsed !== "object") {
 		throw new Error("Batch manifest must be a JSON object { version: 1, writes: [...] }.");
 	}
@@ -138,21 +147,36 @@ function loadBatchManifest(manifestPath: string): GateInputEntry[] {
 	if (!Array.isArray(manifest.writes) || manifest.writes.length === 0) {
 		throw new Error("Batch manifest must include a non-empty 'writes' array.");
 	}
-	const entries: GateInputEntry[] = [];
-	for (const [i, w] of manifest.writes.entries()) {
-		if (!w || typeof w !== "object") {
-			throw new Error(`Batch writes[${i}] must be an object { path, content }.`);
-		}
-		const { path, content } = w as { path?: unknown; content?: unknown };
-		if (typeof path !== "string" || path.length === 0) {
-			throw new Error(`Batch writes[${i}].path must be a non-empty string.`);
-		}
-		if (typeof content !== "string") {
-			throw new Error(`Batch writes[${i}].content must be a string.`);
-		}
-		entries.push({ path, content });
+	return manifest as BatchManifest & { writes: unknown[] };
+}
+
+/**
+ * Validate and narrow a single `writes[i]` entry to a `GateInputEntry`.
+ * Throws a usage-level Error naming the offending index.
+ */
+function parseManifestEntry(w: unknown, i: number): GateInputEntry {
+	if (!w || typeof w !== "object") {
+		throw new Error(`Batch writes[${i}] must be an object { path, content }.`);
 	}
-	return entries;
+	const { path, content } = w as { path?: unknown; content?: unknown };
+	if (typeof path !== "string" || path.length === 0) {
+		throw new Error(`Batch writes[${i}].path must be a non-empty string.`);
+	}
+	if (typeof content !== "string") {
+		throw new Error(`Batch writes[${i}].content must be a string.`);
+	}
+	return { path, content };
+}
+
+/**
+ * Load a batch manifest from disk. Validates shape defensively — malformed
+ * manifests are the most common failure mode for this command.
+ */
+function loadBatchManifest(manifestPath: string): GateInputEntry[] {
+	const raw = readManifestRaw(manifestPath);
+	const parsed = parseManifestJson(raw);
+	const manifest = validateManifestEnvelope(parsed);
+	return manifest.writes.map((w, i) => parseManifestEntry(w, i));
 }
 
 /**

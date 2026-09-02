@@ -217,36 +217,52 @@ function parsePlanLine(line: string): CapturedPlan | null {
 	if (!session_id || !agent_name || !created_at_iso) return null;
 	const sourceRaw = typeof rec.source === "string" ? rec.source : "";
 	if (!PLAN_SOURCES.has(sourceRaw as PlanSource)) return null;
-	const stepsRaw = Array.isArray(rec.steps) ? rec.steps : [];
-	const steps: PlanStep[] = [];
-	for (const item of stepsRaw) {
-		if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-		const r = item as JsonObject;
-		const intent = readString(r.intent);
-		if (!intent) continue;
-		const statusRaw = typeof r.status === "string" ? r.status : "pending";
-		const status = PLAN_STEP_STATUSES.has(statusRaw as PlanStepStatus)
-			? (statusRaw as PlanStepStatus)
-			: "pending";
-		const step: PlanStep = { intent, status };
-		const toolHint = readString(r.tool_hint);
-		if (toolHint) step.tool_hint = toolHint;
-		const targetHint = readString(r.target_hint);
-		if (targetHint) step.target_hint = targetHint;
-		steps.push(step);
-	}
-	const createdAtStep =
-		typeof rec.created_at_step === "number" && Number.isFinite(rec.created_at_step)
-			? rec.created_at_step
-			: 0;
 	return {
 		session_id,
 		agent_name,
 		created_at_iso,
-		created_at_step: createdAtStep,
+		created_at_step: readCreatedAtStep(rec.created_at_step),
 		source: sourceRaw as PlanSource,
-		steps,
+		steps: parsePlanSteps(rec.steps),
 	};
+}
+
+/** Parses the `steps` array, dropping any entry that fails shape validation. */
+function parsePlanSteps(stepsField: unknown): PlanStep[] {
+	const stepsRaw = Array.isArray(stepsField) ? stepsField : [];
+	const steps: PlanStep[] = [];
+	for (const item of stepsRaw) {
+		const step = parsePlanStep(item);
+		if (step) steps.push(step);
+	}
+	return steps;
+}
+
+/** Parses one step record. Returns null when it is not an object or has no intent. */
+function parsePlanStep(item: unknown): PlanStep | null {
+	if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+	const r = item as JsonObject;
+	const intent = readString(r.intent);
+	if (!intent) return null;
+	const step: PlanStep = { intent, status: readPlanStepStatus(r.status) };
+	const toolHint = readString(r.tool_hint);
+	if (toolHint) step.tool_hint = toolHint;
+	const targetHint = readString(r.target_hint);
+	if (targetHint) step.target_hint = targetHint;
+	return step;
+}
+
+/** Normalizes an unknown status field to a known status, defaulting to "pending". */
+function readPlanStepStatus(v: unknown): PlanStepStatus {
+	const statusRaw = typeof v === "string" ? v : "pending";
+	return PLAN_STEP_STATUSES.has(statusRaw as PlanStepStatus)
+		? (statusRaw as PlanStepStatus)
+		: "pending";
+}
+
+/** Reads the numeric step counter, defaulting to 0 for missing or non-finite values. */
+function readCreatedAtStep(v: unknown): number {
+	return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
 // ===========================================

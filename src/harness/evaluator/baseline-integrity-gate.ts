@@ -18,8 +18,9 @@
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
-import { readDiskContent, reconstructEditContent, safeJsonParse } from "./config-loosening-gate.js";
-import { detectDispositionLedger, isDispositionLedgerPath } from "./disposition-ledger-gate.js";
+import { reconstructProposedBaseline } from "./baseline-integrity-proposal.js";
+import { readDiskContent, safeJsonParse } from "./config-loosening-gate.js";
+import { detectFunctionComplexityBaseline, detectSiblingBaseline, isSiblingBaselinePath, ledgerCreationBlock } from "./function-complexity-baseline-gate.js";
 import { type WaterLineStem, waterLineStem } from "./water-line-files.js";
 
 export interface BaselineGamingFinding {
@@ -39,7 +40,8 @@ type BaselineKind =
 	| "metric-caps"
 	| "mutation-manifest"
 	| "skipped-tests"
-	| "check-evidence";
+	| "check-evidence"
+	| "function-complexity";
 
 /** Keyed by WaterLineStem: a new water-line unhandled here is a compile error. */
 const KIND_MAP: Record<WaterLineStem, BaselineKind> = {
@@ -52,6 +54,7 @@ const KIND_MAP: Record<WaterLineStem, BaselineKind> = {
 	"mutation-manifest": "mutation-manifest",
 	"skipped-tests-baseline": "skipped-tests",
 	"check-evidence-baseline": "check-evidence",
+	"function-complexity-baseline": "function-complexity",
 };
 
 function baselineKind(filePath: string): BaselineKind | null {
@@ -76,13 +79,7 @@ function makeDefaultSourceExists(baselineFile: string): (rel: string) => boolean
 	return (rel: string) => existsSync(resolve(root, rel));
 }
 
-function fmt(
-	file: string,
-	rule: string,
-	before: unknown,
-	after: unknown,
-	message: string,
-): BaselineGamingFinding {
+function fmt(file: string, rule: string, before: unknown, after: unknown, message: string): BaselineGamingFinding {
 	return { file, rule, before, after, message };
 }
 
@@ -407,8 +404,8 @@ export function detectBaselineGaming(
 	sourceExists?: (rel: string) => boolean,
 ): BaselineGamingFinding[] {
 	const kind = baselineKind(filePath);
-	// The disposition ledger rides its own sibling detector (monotonic in fewer/weaker records).
-	if (!kind) return detectDispositionLedger(filePath, beforeText, afterText);
+	// The disposition ledger (not a water-line) rides its sibling detector.
+	if (!kind) return detectSiblingBaseline(filePath, beforeText, afterText);
 	if (!beforeText) return [];
 	const before = safeJsonParse(beforeText);
 	const after = safeJsonParse(afterText);
@@ -433,6 +430,8 @@ export function detectBaselineGaming(
 			return detectSkippedTests(filePath, before, after);
 		case "check-evidence":
 			return detectCheckEvidence(filePath, before, after);
+		case "function-complexity":
+			return detectFunctionComplexityBaseline(filePath, beforeText, afterText);
 	}
 }
 
@@ -455,32 +454,15 @@ export function evaluateBaselineIntegrityForEvent(
 	if (process.env.INTERLINKED_DISABLE_BASELINE_GUARD === "1") return null;
 	const toolInput = event.tool_input || {};
 	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
-	if (!filePath || (!baselineKind(filePath) && !isDispositionLedgerPath(filePath))) return null;
+	const kind = baselineKind(filePath);
+	if (!filePath || (!kind && !isSiblingBaselinePath(filePath))) return null;
 
 	const getDisk = deps.getDisk ?? readDiskContent;
 	const before = getDisk(filePath, event.cwd);
-	if (before === null) return null; // baseline doesn't exist yet — creating it isn't loosening
+	// Absent baseline: creating it isn't loosening — except the complexity ledger (ledgerCreationBlock).
+	if (before === null) return kind === "function-complexity" ? ledgerCreationBlock(filePath) : null;
 
-	let proposed: string | null = null;
-	const content = toolInput.content as string | undefined;
-	if (typeof content === "string") {
-		proposed = content;
-	} else if (Array.isArray(toolInput.edits)) {
-		let cur: string | null = before;
-		for (const e of toolInput.edits as Array<{ old_string?: string; new_string?: string }>) {
-			if (cur === null) break;
-			if (typeof e.old_string === "string" && typeof e.new_string === "string") {
-				cur = reconstructEditContent(cur, e.old_string, e.new_string);
-			}
-		}
-		proposed = cur;
-	} else {
-		const oldString = toolInput.old_string as string | undefined;
-		const newString = toolInput.new_string as string | undefined;
-		if (typeof oldString === "string" && typeof newString === "string") {
-			proposed = reconstructEditContent(before, oldString, newString);
-		}
-	}
+	const proposed = reconstructProposedBaseline(before, toolInput);
 	if (proposed === null) return null;
 
 	const findings = detectBaselineGaming(filePath, before, proposed);

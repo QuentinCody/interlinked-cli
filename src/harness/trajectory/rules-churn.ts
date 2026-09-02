@@ -10,7 +10,13 @@
 // refactor would fail the low-FP bar.
 
 import { commandFamily, commandHeads, isSourceCodeFile, normalizeCommand } from "./helpers.js";
-import type { ToolEvent, TrajectoryRule, Verdict } from "./types.js";
+import type {
+	EditRecord,
+	ShaEntry,
+	ToolEvent,
+	TrajectoryRule,
+	Verdict,
+} from "./types.js";
 
 function isPostEdit(event: ToolEvent): boolean {
 	return (
@@ -33,6 +39,42 @@ function verdict(
 // New edit produces a content_sha256 already in the file's list → closed loop.
 // FP guard: fire only when there are ≥2 distinct revisits OR a failing check
 // intervened, and never when the cycle delta is whitespace-only.
+/** Indexes before `lastIdx` whose sha equals the current entry's sha. */
+function priorShaMatches(hist: ShaEntry[], cur: ShaEntry, lastIdx: number): number[] {
+	const priorIdxs: number[] = [];
+	for (let i = 0; i < lastIdx; i++) {
+		if (hist[i]?.sha === cur.sha) priorIdxs.push(i);
+	}
+	return priorIdxs;
+}
+
+/**
+ * Whitespace-only exclusion: if every entry between the matched prior and now
+ * shares the current normalized hash, nothing substantive changed.
+ */
+function isWhitespaceOnlyCycle(span: ShaEntry[], curNormSha: string): boolean {
+	for (const entry of span) {
+		// Optional chain retained deliberately: a sparse-array hole must compare
+		// unequal rather than throw (pinned by the mutation-hardening tests).
+		if (entry?.normSha !== curNormSha) return false;
+	}
+	return true;
+}
+
+/** A failing-check edit landed strictly between the prior occurrence and now. */
+function failingCheckIntervened(
+	log: EditRecord[],
+	sincePrior: number,
+	untilStep: number,
+): boolean {
+	for (const rec of log) {
+		if (rec.atStep > sincePrior && rec.atStep < untilStep && rec.failedCheck) {
+			return true;
+		}
+	}
+	return false;
+}
+
 export const churnShaCycleRevisit: TrajectoryRule = (state, event) => {
 	if (!isPostEdit(event) || !event.contentSha256) return null;
 	const file = event.input.file_path;
@@ -43,34 +85,16 @@ export const churnShaCycleRevisit: TrajectoryRule = (state, event) => {
 	const cur = hist[lastIdx];
 	if (!cur) return null;
 
-	const priorIdxs: number[] = [];
-	for (let i = 0; i < lastIdx; i++) {
-		if (hist[i]?.sha === cur.sha) priorIdxs.push(i);
-	}
+	const priorIdxs = priorShaMatches(hist, cur, lastIdx);
 	if (priorIdxs.length === 0) return null;
 	const firstPrior = priorIdxs[0] ?? 0;
 
-	// Whitespace-only exclusion: if every entry between the matched prior and now
-	// shares the current normalized hash, nothing substantive changed.
-	let allWhitespace = true;
-	for (let i = firstPrior; i < lastIdx; i++) {
-		if (hist[i]?.normSha !== cur.normSha) {
-			allWhitespace = false;
-			break;
-		}
-	}
-	if (allWhitespace) return null;
+	if (isWhitespaceOnlyCycle(hist.slice(firstPrior, lastIdx), cur.normSha)) return null;
 
 	const twoDistinctRevisits = priorIdxs.length >= 2;
-	let failingIntervened = false;
 	const log = state.fileEditLog.get(file) ?? [];
 	const sincePrior = hist[firstPrior]?.atStep ?? 0;
-	for (const rec of log) {
-		if (rec.atStep > sincePrior && rec.atStep < cur.atStep && rec.failedCheck) {
-			failingIntervened = true;
-			break;
-		}
-	}
+	const failingIntervened = failingCheckIntervened(log, sincePrior, cur.atStep);
 	if (!twoDistinctRevisits && !failingIntervened) return null;
 
 	return verdict(
@@ -225,6 +249,42 @@ export const churnRerunFailingTestNoSourceChange: TrajectoryRule = (state, event
 // E1 → E3 byte-identically re-applies E1, ≤6 edits apart, no green between, no
 // install/env/git disruptor between.
 const REVERT_COMBO_WINDOW = 6;
+
+/** A literal revert of `e1` sits somewhere in `span`. */
+function hasLiteralRevertIn(span: EditRecord[], e1: EditRecord): boolean {
+	for (const p of span) {
+		// Truthiness guard retained deliberately: a sparse-array hole must be
+		// skipped rather than throw.
+		if (p && p.old === e1.new && p.new === e1.old) return true;
+	}
+	return false;
+}
+
+/**
+ * The edit at `i` is a failing edit that the log's last edit re-applies
+ * byte-for-byte, with a literal revert in between, no green since, and no
+ * install/env/git disruptor between.
+ */
+function isReapplyOfFailingEdit(
+	log: EditRecord[],
+	i: number,
+	lastDisruptStep: number,
+): boolean {
+	const e3Idx = log.length - 1;
+	const e3 = log[e3Idx];
+	const e1 = log[i];
+	if (!e3 || !e1 || !e1.failedCheck) return false;
+	// Byte-identical re-apply of the failing edit E1.
+	if (e1.old !== e3.old || e1.new !== e3.new) return false;
+	// A literal revert of E1 must sit strictly between E1 and E3.
+	if (!hasLiteralRevertIn(log.slice(i + 1, e3Idx), e1)) return false;
+	// No green anywhere between E1 and E3 (covers "other file passed a check").
+	if (e3.greenCountAtEntry !== e1.greenCountAtEntry) return false;
+	// No install/env/git disruptor between E1 and E3.
+	if (lastDisruptStep > e1.atStep && lastDisruptStep < e3.atStep) return false;
+	return true;
+}
+
 export const churnRevertAfterCheckFailCombo: TrajectoryRule = (state, event) => {
 	if (!isPostEdit(event)) return null;
 	const file = event.input.file_path;
@@ -237,24 +297,7 @@ export const churnRevertAfterCheckFailCombo: TrajectoryRule = (state, event) => 
 
 	const lo = Math.max(0, e3Idx - REVERT_COMBO_WINDOW);
 	for (let i = e3Idx - 1; i >= lo; i--) {
-		const e1 = log[i];
-		if (!e1 || !e1.failedCheck) continue;
-		// Byte-identical re-apply of the failing edit E1.
-		if (e1.old !== e3.old || e1.new !== e3.new) continue;
-		// A literal revert of E1 must sit strictly between E1 and E3.
-		let revertBetween = false;
-		for (let j = i + 1; j < e3Idx; j++) {
-			const p = log[j];
-			if (p && p.old === e1.new && p.new === e1.old) {
-				revertBetween = true;
-				break;
-			}
-		}
-		if (!revertBetween) continue;
-		// No green anywhere between E1 and E3 (covers "other file passed a check").
-		if (e3.greenCountAtEntry !== e1.greenCountAtEntry) continue;
-		// No install/env/git disruptor between E1 and E3.
-		if (state.lastDisruptStep > e1.atStep && state.lastDisruptStep < e3.atStep) continue;
+		if (!isReapplyOfFailingEdit(log, i, state.lastDisruptStep)) continue;
 		return {
 			ruleId: "churn_revert_after_check_fail_combo",
 			action: "nudge",

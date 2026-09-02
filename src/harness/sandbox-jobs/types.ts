@@ -75,6 +75,18 @@ const VALID_RISK_TIERS: ReadonlySet<string> = new Set<SandboxRiskTier>([
 export function isValidSandboxJobRequest(v: unknown): v is SandboxJobRequest {
 	if (v === null || typeof v !== "object") return false;
 	const r = v as Record<string, unknown>;
+	if (!hasValidScalarFields(r)) return false;
+	if (!Array.isArray(r.overlays) || !overlaysAreValid(r.overlays)) return false;
+	// The security invariant: reject any smuggled execution channel.
+	if (hasForbiddenExecutionField(r)) return false;
+	return true;
+}
+
+/** schemaVersion / kind / riskTier / file / sessionId / timeoutMs — the scalar
+ *  (non-array) fields of the request. Split out so the orchestrator's own
+ *  branch count stays low; each sub-check keeps its original short-circuit
+ *  order and messageless `false` return. */
+function hasValidScalarFields(r: Record<string, unknown>): boolean {
 	if (r.schemaVersion !== 1) return false;
 	if (typeof r.kind !== "string" || !VALID_KINDS.has(r.kind)) return false;
 	// riskTier decides which oracles run and how hard, so an unvalidated one is
@@ -85,15 +97,24 @@ export function isValidSandboxJobRequest(v: unknown): v is SandboxJobRequest {
 	if (typeof r.riskTier !== "string" || !VALID_RISK_TIERS.has(r.riskTier)) return false;
 	if (typeof r.file !== "string" || typeof r.sessionId !== "string") return false;
 	if (typeof r.timeoutMs !== "number" || !Number.isFinite(r.timeoutMs)) return false;
-	if (!Array.isArray(r.overlays)) return false;
-	for (const o of r.overlays) {
+	return true;
+}
+
+/** Every element of `overlays` must be a `{path: string, content: string}`
+ *  object. */
+function overlaysAreValid(overlays: unknown[]): boolean {
+	for (const o of overlays) {
 		if (o === null || typeof o !== "object") return false;
 		const fo = o as Record<string, unknown>;
 		if (typeof fo.path !== "string" || typeof fo.content !== "string") return false;
 	}
-	// The security invariant: reject any smuggled execution channel.
-	for (const forbidden of ["command", "argv", "script", "cmd", "exec", "shell"]) {
-		if (forbidden in r) return false;
-	}
 	return true;
+}
+
+/** True when any forbidden execution-channel key is present on the request. */
+function hasForbiddenExecutionField(r: Record<string, unknown>): boolean {
+	for (const forbidden of ["command", "argv", "script", "cmd", "exec", "shell"]) {
+		if (forbidden in r) return true;
+	}
+	return false;
 }

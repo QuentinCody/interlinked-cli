@@ -138,6 +138,165 @@ function firstObservation(
 	return { file_path: nonNull(classifications[0]).sourcePath, case: nonNull(classifications[0]).case };
 }
 
+/** Blocks when any E-fresh target has no cached prediction yet (Fire 1:
+ *  challenge). Returns null when every target already has one cached. */
+function checkMissingPredictions(
+	eFreshTargets: CaseResult[],
+	classifications: CaseResult[],
+	predictionsByPath: ReturnType<typeof collectCachedPredictions>,
+	event: HarnessEvent,
+	cwd: string,
+): DriveResult | null {
+	const missingTargets = eFreshTargets.filter((c) => !predictionsByPath.has(c.sourcePath));
+	if (missingTargets.length === 0) return null;
+	return {
+		decision: "block",
+		reason: buildChallengeReason(missingTargets, classifications, event.session_id, cwd),
+		observation: { file_path: nonNull(missingTargets[0]).sourcePath, case: E_FRESH },
+	};
+}
+
+/** Re-blocks when a cached prediction violated format constraints at submit
+ *  time (e.g. exceeded the 50-entry cap). Silently reconciling a
+ *  non-conforming submission would teach the agent that hitting the cap is
+ *  fine — it isn't. Ask for a narrower top-K or explicit `unknown`. Returns
+ *  null when no cached prediction has a format violation. */
+function checkFormatViolations(
+	eFreshTargets: CaseResult[],
+	predictionsByPath: ReturnType<typeof collectCachedPredictions>,
+	event: HarnessEvent,
+): DriveResult | null {
+	const formatViolationTargets = eFreshTargets.filter((c) => {
+		const p = predictionsByPath.get(c.sourcePath);
+		return p?.parse_status === "format_violation";
+	});
+	if (formatViolationTargets.length === 0) return null;
+	const first = formatViolationTargets[0];
+	const slug = basename(nonNull(first).sourcePath).replace(/\.[^./]+$/, "");
+	const reason = [
+		`[interlinked:graph-pred] Cached prediction for ${nonNull(first).sourcePath} violated the format contract (per-section entry cap is 50).`,
+		"Narrow your prediction to the entries that matter most, or use `unknown` for any list you can't bound.",
+		`Re-submit by writing to .interlinked/predictions/incoming/${event.session_id}/${slug}.yaml`,
+	].join("\n");
+	return {
+		decision: "block",
+		reason,
+		observation: { file_path: nonNull(first).sourcePath, case: E_FRESH },
+	};
+}
+
+/** Appends one reconciliation row per reconciled target that still has a
+ *  cached prediction (should always be all of them at this point). */
+function appendReconciliationRows(
+	cwd: string,
+	event: HarnessEvent,
+	reconciled: ReconciledTarget[],
+	predictionsByPath: ReturnType<typeof collectCachedPredictions>,
+	reconciledAt: string,
+): void {
+	for (const r of reconciled) {
+		const prediction = predictionsByPath.get(r.classification.sourcePath);
+		if (!prediction) continue;
+		appendReconciliationRow(
+			cwd,
+			buildReconciliationRow({
+				sessionId: event.session_id,
+				classification: r.classification,
+				prediction,
+				severity: r.severity,
+				oracle: r.oracle,
+				reconciledAt,
+			}),
+		);
+	}
+}
+
+/** Enforced-mode ack gate: blocks when a high-severity reconciliation is
+ *  flagged `ack_required` and hasn't been acknowledged via the sentinel-path
+ *  ack submission yet. Without this, `enforced` mode would loop forever: the
+ *  cached prediction stays the same, reconciliation stays the same, and the
+ *  ack_required severity keeps re-firing on retry. Returns null outside
+ *  enforced mode, when nothing is flagged, or once everything is acked. */
+function checkAckGate(
+	mode: GraphPredictionMode,
+	flagged: ReconciledTarget[],
+	event: HarnessEvent,
+	cwd: string,
+	reconciled: ReconciledTarget[],
+): DriveResult | null {
+	if (mode !== MODE_ENFORCED || flagged.length === 0) return null;
+	const flaggedNotAcked = flagged.filter((r) => {
+		if (!r.classification.sourceMtime || !r.classification.shardMtime) return true;
+		const row = findPredictionRow(cwd, {
+			session_id: event.session_id,
+			file_path: r.classification.sourcePath,
+			source_mtime: r.classification.sourceMtime,
+			shard_mtime: r.classification.shardMtime,
+		});
+		return !row?.acknowledged_at;
+	});
+	if (flaggedNotAcked.length === 0) return null;
+	return {
+		decision: "block",
+		reason: buildAckReason(flaggedNotAcked) + buildAckSentinelInstruction(flaggedNotAcked, event.session_id),
+		additional_context: buildRevealText(reconciled),
+		observation: { file_path: nonNull(flaggedNotAcked[0]).classification.sourcePath, case: E_FRESH },
+	};
+}
+
+/** Enforced-mode "Option A" shard-read gate. After reconciliation has
+ *  produced the comparison, the agent must call Read on each E-fresh
+ *  target's oracle shard before the retry Edit can land. The first reveal
+ *  carries the diff; the agent then reads the shard; the gate clears (via
+ *  `shard_read_at` on the row); the next retry proceeds. Returns null
+ *  outside enforced mode or once every target's shard has been read. */
+function checkShardReadGate(
+	mode: GraphPredictionMode,
+	eFreshTargets: CaseResult[],
+	event: HarnessEvent,
+	cwd: string,
+	reconciled: ReconciledTarget[],
+): DriveResult | null {
+	if (mode !== MODE_ENFORCED) return null;
+	const needsRead = eFreshTargets.filter((c) => {
+		if (!c.sourceMtime || !c.shardMtime) return false;
+		const row = findPredictionRow(cwd, {
+			session_id: event.session_id,
+			file_path: c.sourcePath,
+			source_mtime: c.sourceMtime,
+			shard_mtime: c.shardMtime,
+		});
+		return !row?.shard_read_at;
+	});
+	if (needsRead.length === 0) return null;
+	return {
+		decision: "block",
+		reason: buildShardReadRequiredReason(needsRead),
+		additional_context: buildRevealText(reconciled),
+		observation: { file_path: nonNull(needsRead[0]).sourcePath, case: E_FRESH },
+	};
+}
+
+/** Final allow: builds the reveal text. In soft_gate mode, the oracle shard
+ *  bytes are appended inline (Option B) so the agent updates its mental
+ *  model from the source of truth without an extra tool call. In enforced
+ *  mode the shard contents are surfaced via the explicit-Read gate (Option
+ *  A) above, so the inline append is skipped to avoid redundant context. */
+function buildFinalAllow(
+	mode: GraphPredictionMode,
+	reconciled: ReconciledTarget[],
+	eFreshTargets: CaseResult[],
+): DriveResult {
+	const reveal = mode === MODE_ENFORCED
+		? buildRevealText(reconciled)
+		: buildRevealText(reconciled) + buildShardInlineText(reconciled);
+	return {
+		decision: "allow",
+		additional_context: reveal,
+		observation: { file_path: nonNull(eFreshTargets[0]).sourcePath, case: E_FRESH },
+	};
+}
+
 export function driveGraphPrediction(args: DriveArgs): DriveResult | null {
 	const { event, cwd, mode, graph } = args;
 
@@ -185,123 +344,26 @@ export function driveGraphPrediction(args: DriveArgs): DriveResult | null {
 	}
 
 	const predictionsByPath = collectCachedPredictions(cwd, event.session_id, eFreshTargets);
-	const missingTargets = eFreshTargets.filter((c) => !predictionsByPath.has(c.sourcePath));
-	if (missingTargets.length > 0) {
-		return {
-			decision: "block",
-			reason: buildChallengeReason(missingTargets, classifications, event.session_id, cwd),
-			observation: { file_path: nonNull(missingTargets[0]).sourcePath, case: E_FRESH },
-		};
-	}
 
-	// Re-block when a cached prediction violated format constraints at submit
-	// time (e.g. exceeded the 50-entry cap). Silently reconciling a
-	// non-conforming submission would teach the agent that hitting the cap is
-	// fine — it isn't. Ask for a narrower top-K or explicit `unknown`.
-	const formatViolationTargets = eFreshTargets.filter((c) => {
-		const p = predictionsByPath.get(c.sourcePath);
-		return p?.parse_status === "format_violation";
-	});
-	if (formatViolationTargets.length > 0) {
-		const first = formatViolationTargets[0];
-		const slug = basename(nonNull(first).sourcePath).replace(/\.[^./]+$/, "");
-		const reason = [
-			`[interlinked:graph-pred] Cached prediction for ${nonNull(first).sourcePath} violated the format contract (per-section entry cap is 50).`,
-			"Narrow your prediction to the entries that matter most, or use `unknown` for any list you can't bound.",
-			`Re-submit by writing to .interlinked/predictions/incoming/${event.session_id}/${slug}.yaml`,
-		].join("\n");
-		return {
-			decision: "block",
-			reason,
-			observation: { file_path: nonNull(first).sourcePath, case: E_FRESH },
-		};
-	}
+	const missingResult = checkMissingPredictions(eFreshTargets, classifications, predictionsByPath, event, cwd);
+	if (missingResult) return missingResult;
+
+	const formatViolationResult = checkFormatViolations(eFreshTargets, predictionsByPath, event);
+	if (formatViolationResult) return formatViolationResult;
 
 	// All E-fresh files have predictions — reconcile each.
 	const reconciled = reconcileEachTarget(cwd, eFreshTargets, predictionsByPath, graph);
 	const reconciledAt = event.timestamp || new Date().toISOString();
-	for (const r of reconciled) {
-		const prediction = predictionsByPath.get(r.classification.sourcePath);
-		if (!prediction) continue;
-		appendReconciliationRow(
-			cwd,
-			buildReconciliationRow({
-				sessionId: event.session_id,
-				classification: r.classification,
-				prediction,
-				severity: r.severity,
-				oracle: r.oracle,
-				reconciledAt,
-			}),
-		);
-	}
+	appendReconciliationRows(cwd, event, reconciled, predictionsByPath, reconciledAt);
 	const flagged = reconciled.filter((r) => r.severity.decision === ACK_REQUIRED);
 
-	if (mode === MODE_ENFORCED && flagged.length > 0) {
-		// Drop targets the agent has already acknowledged via sentinel-path
-		// ack submission. Without this, `enforced` mode would loop forever:
-		// the cached prediction stays the same, reconciliation stays the
-		// same, and the ack_required severity keeps re-firing on retry.
-		const flaggedNotAcked = flagged.filter((r) => {
-			if (!r.classification.sourceMtime || !r.classification.shardMtime) return true;
-			const row = findPredictionRow(cwd, {
-				session_id: event.session_id,
-				file_path: r.classification.sourcePath,
-				source_mtime: r.classification.sourceMtime,
-				shard_mtime: r.classification.shardMtime,
-			});
-			return !row?.acknowledged_at;
-		});
-		if (flaggedNotAcked.length > 0) {
-			return {
-				decision: "block",
-				reason: buildAckReason(flaggedNotAcked) + buildAckSentinelInstruction(flaggedNotAcked, event.session_id),
-				additional_context: buildRevealText(reconciled),
-				observation: { file_path: nonNull(flaggedNotAcked[0]).classification.sourcePath, case: E_FRESH },
-			};
-		}
-	}
+	const ackResult = checkAckGate(mode, flagged, event, cwd, reconciled);
+	if (ackResult) return ackResult;
 
-	// Enforced-mode "Option A" shard-read gate. After reconciliation has
-	// produced the comparison, the agent must call Read on each E-fresh
-	// target's oracle shard before the retry Edit can land. The first
-	// reveal carries the diff; the agent then reads the shard; the gate
-	// clears (via `shard_read_at` on the row); the next retry proceeds.
-	if (mode === MODE_ENFORCED) {
-		const needsRead = eFreshTargets.filter((c) => {
-			if (!c.sourceMtime || !c.shardMtime) return false;
-			const row = findPredictionRow(cwd, {
-				session_id: event.session_id,
-				file_path: c.sourcePath,
-				source_mtime: c.sourceMtime,
-				shard_mtime: c.shardMtime,
-			});
-			return !row?.shard_read_at;
-		});
-		if (needsRead.length > 0) {
-			return {
-				decision: "block",
-				reason: buildShardReadRequiredReason(needsRead),
-				additional_context: buildRevealText(reconciled),
-				observation: { file_path: nonNull(needsRead[0]).sourcePath, case: E_FRESH },
-			};
-		}
-	}
+	const shardReadResult = checkShardReadGate(mode, eFreshTargets, event, cwd, reconciled);
+	if (shardReadResult) return shardReadResult;
 
-	// Build the reveal text. In soft_gate mode, append the oracle shard bytes
-	// inline (Option B) so the agent updates its mental model from the
-	// source of truth without an extra tool call. In enforced mode the
-	// shard contents are surfaced via the explicit-Read gate (Option A)
-	// above, so the inline append is skipped to avoid redundant context.
-	const reveal = mode === MODE_ENFORCED
-		? buildRevealText(reconciled)
-		: buildRevealText(reconciled) + buildShardInlineText(reconciled);
-
-	return {
-		decision: "allow",
-		additional_context: reveal,
-		observation: { file_path: nonNull(eFreshTargets[0]).sourcePath, case: E_FRESH },
-	};
+	return buildFinalAllow(mode, reconciled, eFreshTargets);
 }
 
 // ── Re-exports for consumers that imported from this module ──────────────────

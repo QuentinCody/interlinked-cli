@@ -68,13 +68,10 @@ function countMap(value: unknown): Record<string, number> | null {
 	return result;
 }
 
-function parseLastSyncSummary(value: unknown): LastSyncSummary | null {
-	if (!isJsonObject(value)) return null;
-	const byType = countMap(value.by_type);
-	const byAgent = countMap(value.by_agent);
-	if (!byType || !byAgent || !Array.isArray(value.top_tools)) return null;
+function parseTopTools(value: unknown): [string, number][] | null {
+	if (!Array.isArray(value)) return null;
 	const topTools: [string, number][] = [];
-	for (const entry of value.top_tools) {
+	for (const entry of value) {
 		if (
 			!Array.isArray(entry) ||
 			entry.length !== SUMMARY_TOOL_TUPLE_LENGTH ||
@@ -85,37 +82,58 @@ function parseLastSyncSummary(value: unknown): LastSyncSummary | null {
 		}
 		topTools.push([entry[0], entry[1]]);
 	}
-	if (!isJsonObject(value.time_range)) return null;
+	return topTools;
+}
+
+type SummaryCounts = Pick<
+	LastSyncSummary,
+	"events_total" | "accepted" | "skipped" | "scrubbed" | "batches" | "sessions"
+>;
+
+function parseSummaryCounts(value: Record<string, unknown>): SummaryCounts | null {
+	const { events_total, accepted, skipped, scrubbed, batches, sessions } = value;
 	if (
-		typeof value.server_url !== "string" ||
-		!(typeof value.workspace_id === "string" || value.workspace_id === null) ||
-		!nonNegativeSafeInteger(value.events_total) ||
-		!nonNegativeSafeInteger(value.accepted) ||
-		!nonNegativeSafeInteger(value.skipped) ||
-		!nonNegativeSafeInteger(value.scrubbed) ||
-		!nonNegativeSafeInteger(value.batches) ||
-		!nonNegativeSafeInteger(value.sessions) ||
-		typeof value.time_range.earliest !== "string" ||
-		typeof value.time_range.latest !== "string"
+		!nonNegativeSafeInteger(events_total) ||
+		!nonNegativeSafeInteger(accepted) ||
+		!nonNegativeSafeInteger(skipped) ||
+		!nonNegativeSafeInteger(scrubbed) ||
+		!nonNegativeSafeInteger(batches) ||
+		!nonNegativeSafeInteger(sessions)
 	) {
 		return null;
 	}
+	return { events_total, accepted, skipped, scrubbed, batches, sessions };
+}
+
+function parseSummaryTimeRange(value: unknown): LastSyncSummary["time_range"] | null {
+	if (!isJsonObject(value)) return null;
+	if (typeof value.earliest !== "string" || typeof value.latest !== "string") return null;
+	return { earliest: value.earliest, latest: value.latest };
+}
+
+function parseLastSyncSummary(value: unknown): LastSyncSummary | null {
+	if (!isJsonObject(value)) return null;
+	const byType = countMap(value.by_type);
+	const byAgent = countMap(value.by_agent);
+	const topTools = parseTopTools(value.top_tools);
+	const timeRange = parseSummaryTimeRange(value.time_range);
+	const counts = parseSummaryCounts(value);
+	if (!byType || !byAgent || !topTools || !timeRange || !counts) return null;
+	if (typeof value.server_url !== "string") return null;
+	if (!(typeof value.workspace_id === "string" || value.workspace_id === null)) return null;
 	return {
 		server_url: value.server_url,
 		workspace_id: value.workspace_id,
-		events_total: value.events_total,
-		accepted: value.accepted,
-		skipped: value.skipped,
-		scrubbed: value.scrubbed,
-		batches: value.batches,
+		events_total: counts.events_total,
+		accepted: counts.accepted,
+		skipped: counts.skipped,
+		scrubbed: counts.scrubbed,
+		batches: counts.batches,
 		by_type: byType,
 		by_agent: byAgent,
 		top_tools: topTools,
-		sessions: value.sessions,
-		time_range: {
-			earliest: value.time_range.earliest,
-			latest: value.time_range.latest,
-		},
+		sessions: counts.sessions,
+		time_range: timeRange,
 	};
 }
 

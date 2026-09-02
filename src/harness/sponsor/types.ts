@@ -87,23 +87,56 @@ interface RawCreative {
 export function sanitizeCreative(raw: unknown): SponsorCreative | null {
 	if (typeof raw !== "object" || raw === null) return null;
 	const o = raw as RawCreative;
+	const id = validateCreativeId(o);
+	if (id === null) return null;
+	const text = validateCreativeText(o);
+	if (text === null) return null;
+	const url = validateCreativeUrl(o);
+	if (url === null) return null;
+	const campaign = resolveCreativeCampaign(o);
+	const weight = resolveCreativeWeight(o);
+	const out: SponsorCreative = { id, campaign, text, url, weight };
+	applyOptionalCreativeDates(o, out);
+	return out;
+}
+
+/** `id` field: required, `[a-z0-9-]{1,64}`. */
+function validateCreativeId(o: RawCreative): string | null {
 	if (typeof o.id !== "string" || !ID_RE.test(o.id)) return null;
-	const campaign =
-		typeof o.campaign === "string" && ID_RE.test(o.campaign) ? o.campaign : "default";
+	return o.id;
+}
+
+/** `campaign` field: same charset as id, defaults to "default". */
+function resolveCreativeCampaign(o: RawCreative): string {
+	return typeof o.campaign === "string" && ID_RE.test(o.campaign) ? o.campaign : "default";
+}
+
+/** `text` field: required string, control-stripped, trimmed, length-capped, non-empty. */
+function validateCreativeText(o: RawCreative): string | null {
 	if (typeof o.text !== "string") return null;
 	const text = stripControlChars(o.text).trim().slice(0, MAX_TEXT_LEN);
-	if (text.length === 0) return null;
+	return text.length === 0 ? null : text;
+}
+
+/** `url` field: required string, control-stripped, trimmed, https-only. */
+function validateCreativeUrl(o: RawCreative): string | null {
 	if (typeof o.url !== "string") return null;
 	const url = stripControlChars(o.url).trim();
-	if (!isHttpsUrl(url)) return null;
-	let weight = 1;
+	return isHttpsUrl(url) ? url : null;
+}
+
+/** `weight` field: optional integer 1..100, defaults to 1. */
+function resolveCreativeWeight(o: RawCreative): number {
 	if (typeof o.weight === "number" && Number.isFinite(o.weight)) {
-		weight = Math.min(100, Math.max(1, Math.floor(o.weight)));
+		return Math.min(100, Math.max(1, Math.floor(o.weight)));
 	}
-	const out: SponsorCreative = { id: o.id, campaign, text, url, weight };
+	return 1;
+}
+
+/** `starts_at` / `ends_at`: optional ISO dates, set on `out` only when valid. */
+function applyOptionalCreativeDates(o: RawCreative, out: SponsorCreative): void {
 	if (typeof o.starts_at === "string" && isIsoDate(o.starts_at)) out.starts_at = o.starts_at;
 	if (typeof o.ends_at === "string" && isIsoDate(o.ends_at)) out.ends_at = o.ends_at;
-	return out;
 }
 
 /**

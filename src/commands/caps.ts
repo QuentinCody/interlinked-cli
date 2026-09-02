@@ -9,17 +9,18 @@
 // describe each metric identically — no agent is ever confused about what a
 // metric is or how to change it.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+	isComplexityMetric,
+	loadFunctionComplexityBaseline,
+} from "../harness/function-complexity-baseline.js";
 import { loadLargeFileBaseline } from "../harness/large-file-policy.js";
 import {
 	COVERAGE_SCALE_MAX,
 	DEFAULT_MAX_FUNCTION_TOKENS,
 	METRIC_DEFS,
-	resetMetricCapsCache,
 	resolveMetricCaps,
 } from "../harness/metric-caps.js";
-import { isJsonObject, type JsonObject } from "../lib/json-types.js";
+import { type CapsRatchetOpts, capsRatchetAction, writeMetricCapOverride } from "./caps-ratchet.js";
 
 interface CapRow {
 	key: string;
@@ -90,19 +91,6 @@ export async function capsShowAction(
 	return 0;
 }
 
-/** Parse an existing metric-caps.json into a plain object; {} on absent, malformed
- *  JSON, or JSON that parses to a non-object shape (array/string/number — valid
- *  JSON, wrong shape) — all three take the same documented overwrite-cleanly path. */
-function readExisting(path: string): JsonObject {
-	try {
-		if (!existsSync(path)) return {};
-		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-		return isJsonObject(parsed) ? parsed : {}; // wrong shape → overwrite cleanly
-	} catch {
-		return {}; // malformed → overwrite cleanly
-	}
-}
-
 function validateFunctionTokenValue(n: number): string | null {
 	if (!Number.isInteger(n)) return "function-tokens cap must be an integer";
 	if (n < 1 || n > DEFAULT_MAX_FUNCTION_TOKENS) {
@@ -135,7 +123,20 @@ function functionTokenLoosening(
 		: null;
 }
 
-/** `interlinked caps set <metric> <value>` — write one cap to metric-caps.json. */
+/**
+ * A cyclomatic/cognitive cap whose grandfather ledger already has a section
+ * must not drift from that section: the write gates judge every unlisted
+ * function against the EFFECTIVE cap, so a stale ledger turns held functions
+ * into blocks on unrelated edits. Hand such a change to `caps ratchet`, which
+ * regenerates the section shrink-only (and refuses to loosen). No section ⇒
+ * nothing to keep in step ⇒ the plain cap write below.
+ */
+function ledgerFollowsCap(cwd: string, metricKey: string): boolean {
+	return isComplexityMetric(metricKey) && loadFunctionComplexityBaseline(cwd)?.metrics[metricKey] !== undefined;
+}
+
+/** `interlinked caps set <metric> <value>` — write one cap to metric-caps.json
+ *  (the metric-caps writer itself lives in caps-ratchet.ts, the ONE internal writer). */
 export async function capsSetAction(
 	metric: string,
 	value: string,
@@ -159,16 +160,12 @@ export async function capsSetAction(
 		console.error(`Cannot set function-tokens: ${loosening}.`);
 		return 1;
 	}
-	const dir = join(cwd, ".interlinked");
-	const path = join(dir, "metric-caps.json");
-	const next = { version: 1, ...readExisting(path), [def.configKey]: n };
-	// Create .interlinked/ when absent so `caps set` works before `interlinked
-	// enable` (or in any repo lacking it) instead of throwing ENOENT — the
-	// committed metric-caps.json is a policy file, not a runtime artifact that
-	// presupposes enablement (finding 2026-06, round 8). recursive ⇒ idempotent.
-	mkdirSync(dir, { recursive: true });
-	writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
-	resetMetricCapsCache();
+	if (ledgerFollowsCap(cwd, def.key)) {
+		const ratchetOpts: CapsRatchetOpts = { to: String(n) };
+		if (opts.json) ratchetOpts.json = true;
+		return capsRatchetAction(def.key, ratchetOpts, { cwd });
+	}
+	writeMetricCapOverride(cwd, def.configKey, n);
 	if (opts.json) {
 		console.log(JSON.stringify({ metric: def.key, value: n, configKey: def.configKey }));
 		return 0;

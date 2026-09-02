@@ -16,6 +16,7 @@ import {
 	loadRecentWorkspaceEvents,
 	type WorkspaceActivityEvent,
 } from "../cross-session.js";
+import type { SessionTrajectory } from "../types.js";
 import type { SequenceDetector, SequenceMatch } from "./types.js";
 
 /** Canonicalize a file path against `cwd` so the trajectory's
@@ -79,6 +80,34 @@ function isAfter(a: string, b: string): boolean {
 	return a > b;
 }
 
+/**
+ * True when a workspace activity row was written by a genuinely different
+ * ACTOR than the trajectory under evaluation — the only case these
+ * detectors should treat as "another agent".
+ *
+ * Root cause (found 2026-09-02, ~30 false positives across a 105-agent
+ * campaign): a subagent's tool calls land in `activity.jsonl` under the
+ * PARENT session id, but each row's `agent_name` is the subagent's own
+ * per-call hash (e.g. `a24a6a5628eeba5b3`), not the parent's. Both
+ * detectors compared `agent_name` alone, so a subagent's own prior write —
+ * same session, different `agent_name` — read as "another agent wrote it".
+ * `agent_name` is the identity that differs; `session_id` is the identity
+ * that is shared. A same `session_id` is therefore self regardless of
+ * `agent_name`. Same `agent_name` is still self too (legacy rule, kept for
+ * activity rows with no `session_id`).
+ */
+function isOtherAgent(
+	ev: WorkspaceActivityEvent,
+	trajectory: Readonly<SessionTrajectory>,
+): boolean {
+	if (!ev.agent_name) return false;
+	if (ev.agent_name === trajectory.agent_name) return false;
+	if (ev.session_id && trajectory.session_id && ev.session_id === trajectory.session_id) {
+		return false;
+	}
+	return true;
+}
+
 // ============================================================
 // §3.4 stale_read_then_write (pre_warn)
 // ============================================================
@@ -115,7 +144,7 @@ export const staleReadThenWrite: SequenceDetector = {
 		const offending: WorkspaceActivityEvent[] = [];
 		for (const ev of events) {
 			if (!ev.tool_name || !WRITE_TOOLS.has(ev.tool_name)) continue;
-			if (!ev.agent_name || ev.agent_name === trajectory.agent_name) continue;
+			if (!isOtherAgent(ev, trajectory)) continue;
 			if (!fileMatches(eventFilePath(ev), filePath)) continue;
 			if (!isAfter(ev.timestamp, trajectory.started_at)) continue;
 			offending.push(ev);
@@ -249,7 +278,7 @@ export const fileOverwriteAfterOtherAgent: SequenceDetector = {
 			const ev = events[i];
 			if (!ev) continue;
 			if (!ev.tool_name || !WRITE_TOOLS.has(ev.tool_name)) continue;
-			if (!ev.agent_name || ev.agent_name === trajectory.agent_name) continue;
+			if (!isOtherAgent(ev, trajectory)) continue;
 			if (!fileMatches(eventFilePath(ev), filePath)) continue;
 			const evMs = Date.parse(ev.timestamp);
 			if (Number.isNaN(evMs)) continue;

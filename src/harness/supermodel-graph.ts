@@ -333,60 +333,81 @@ function parseCalls(lines: string[]): CallsSection | null {
 	return { callers, callees };
 }
 
+interface ImpactAccumulator {
+	risk: ImpactSection["risk"] | null;
+	domains: string[];
+	direct: number | null;
+	transitive: number | null;
+	affects: string[];
+	valid: boolean;
+}
+
+function splitImpactList(value: string): string[] | null {
+	if (!value) return null;
+	return value
+		.split(DOMAIN_SEPARATOR)
+		.map((d) => d.trim())
+		.filter(Boolean);
+}
+
+function parseImpactNumber(value: string): number | null {
+	const n = Number.parseInt(value, 10);
+	return Number.isFinite(n) ? n : null;
+}
+
+function applyImpactField(acc: ImpactAccumulator, key: string | undefined, value: string): void {
+	switch (key) {
+		case "risk":
+			if (value === "HIGH" || value === "MEDIUM" || value === "LOW") {
+				acc.risk = value;
+			} else {
+				acc.valid = false;
+			}
+			break;
+		case "domains": {
+			const parsed = splitImpactList(value);
+			if (parsed !== null) acc.domains = parsed;
+			break;
+		}
+		case "direct": {
+			const n = parseImpactNumber(value);
+			if (n !== null) acc.direct = n;
+			else acc.valid = false;
+			break;
+		}
+		case "transitive": {
+			const n = parseImpactNumber(value);
+			if (n !== null) acc.transitive = n;
+			else acc.valid = false;
+			break;
+		}
+		case "affects": {
+			const parsed = splitImpactList(value);
+			if (parsed !== null) acc.affects = parsed;
+			break;
+		}
+	}
+}
+
 function parseImpact(lines: string[]): ImpactSection | null {
 	if (lines.length === 0) return null;
-	let risk: ImpactSection["risk"] | null = null;
-	let domains: string[] = [];
-	let direct: number | null = null;
-	let transitive: number | null = null;
-	let affects: string[] = [];
-	let valid = true;
+	const acc: ImpactAccumulator = {
+		risk: null,
+		domains: [],
+		direct: null,
+		transitive: null,
+		affects: [],
+		valid: true,
+	};
 
 	for (const line of lines) {
 		const trimmed = line.trim();
 		const [key, ...valueParts] = trimmed.split(/\s+/);
 		const value = valueParts.join(" ");
-
-		switch (key) {
-			case "risk":
-				if (value === "HIGH" || value === "MEDIUM" || value === "LOW") {
-					risk = value;
-				} else {
-					valid = false;
-				}
-				break;
-			case "domains":
-				if (value) {
-					domains = value
-						.split(DOMAIN_SEPARATOR)
-						.map((d) => d.trim())
-						.filter(Boolean);
-				}
-				break;
-			case "direct": {
-				const n = Number.parseInt(value, 10);
-				if (Number.isFinite(n)) direct = n;
-				else valid = false;
-				break;
-			}
-			case "transitive": {
-				const n = Number.parseInt(value, 10);
-				if (Number.isFinite(n)) transitive = n;
-				else valid = false;
-				break;
-			}
-			case "affects":
-				if (value) {
-					affects = value
-						.split(DOMAIN_SEPARATOR)
-						.map((a) => a.trim())
-						.filter(Boolean);
-				}
-				break;
-		}
+		applyImpactField(acc, key, value);
 	}
 
-	if (!valid) return null;
-	if (!risk || direct === null || transitive === null) return null;
-	return { risk, domains, direct, transitive, affects };
+	if (!acc.valid) return null;
+	if (!acc.risk || acc.direct === null || acc.transitive === null) return null;
+	return { risk: acc.risk, domains: acc.domains, direct: acc.direct, transitive: acc.transitive, affects: acc.affects };
 }

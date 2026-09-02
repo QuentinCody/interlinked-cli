@@ -11,6 +11,7 @@ import { statSync } from "node:fs";
 import { join } from "node:path";
 
 import { isJsonObject, type JsonObject } from "../lib/json-types.js";
+import type { LocalActivityEvent } from "../lib/local-activity-types.js";
 import {
 	parseLocalActivityEvent,
 	readRecentLines,
@@ -129,9 +130,17 @@ function normalizeActivityEvent(record: JsonObject, cwd: string): WorkspaceActiv
 	const local = parseLocalActivityEvent(record);
 	const timestamp = stringField(record, "timestamp") ?? local?.ts;
 	if (!timestamp) return null;
-	const agentName = stringField(record, "agent_name") ?? local?.agent;
-	const toolName = stringField(record, "tool_name") ?? local?.tool ?? undefined;
-	const sessionId = stringField(record, "session_id") ?? local?.session ?? undefined;
+	const event: WorkspaceActivityEvent = {
+		timestamp,
+		cwd: typeof record.cwd === "string" ? record.cwd : cwd,
+	};
+	applyOptionalActivityFields(event, record, local);
+	return event;
+}
+
+/** Inferred hook-event kind from a legacy-shaped record, used only when no
+ * explicit `hook_event`/`local.hook` field is present. */
+function resolveHookEvent(record: JsonObject, local: LocalActivityEvent | null): string | undefined {
 	const explicitHook = stringField(record, "hook_event") ?? local?.hook ?? undefined;
 	const inferredHook =
 		record.type === "tool_use_start"
@@ -139,17 +148,26 @@ function normalizeActivityEvent(record: JsonObject, cwd: string): WorkspaceActiv
 			: record.type === "tool_use"
 				? "PostToolUse"
 				: undefined;
-	const hookEvent = explicitHook ?? inferredHook;
-	const event: WorkspaceActivityEvent = {
-		timestamp,
-		cwd: typeof record.cwd === "string" ? record.cwd : cwd,
-	};
+	return explicitHook ?? inferredHook;
+}
+
+/** Resolves and assigns every optional field on `event`, mutating it in
+ * place. Split out of `normalizeActivityEvent` to keep the required-field
+ * path (timestamp resolution + the early null return) separately readable. */
+function applyOptionalActivityFields(
+	event: WorkspaceActivityEvent,
+	record: JsonObject,
+	local: LocalActivityEvent | null,
+): void {
+	const agentName = stringField(record, "agent_name") ?? local?.agent;
+	const toolName = stringField(record, "tool_name") ?? local?.tool ?? undefined;
+	const sessionId = stringField(record, "session_id") ?? local?.session ?? undefined;
+	const hookEvent = resolveHookEvent(record, local);
 	if (agentName) event.agent_name = agentName;
 	if (toolName) event.tool_name = toolName;
 	if (isJsonObject(record.tool_input)) event.tool_input = record.tool_input;
 	if (sessionId) event.session_id = sessionId;
 	if (hookEvent) event.hook_event = hookEvent;
-	return event;
 }
 
 /** Test helper — drop all cached entries. Exported only for vitest. */

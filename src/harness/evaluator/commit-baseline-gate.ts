@@ -29,6 +29,10 @@ const TRACKED_BASELINES = [
 	".interlinked/untested-files-baseline.json",
 	".interlinked/metric-caps.json",
 	".interlinked/skipped-tests-baseline.json",
+	// Per-function complexity grandfather ledger (2026-09-01) — its sibling
+	// detector lives in function-complexity-baseline-gate.ts, reached via
+	// detectBaselineGaming like the disposition ledger below.
+	".interlinked/function-complexity-baseline.json",
 	// Mutation adjudication ledger (plan 18 M0) — committed sidecar; its monotonic
 	// detector lives in disposition-ledger-gate.ts and reaches here via detectBaselineGaming.
 	".interlinked/mutation-dispositions.json",

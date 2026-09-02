@@ -86,9 +86,22 @@ export function mutationOutcomeToDecision(outcome: MutationGateOutcome): Harness
 				: blockReason(outcome.newSurvivors, outcome.uncoveredSites.length);
 		return { decision: "block", reason, rule_id: RULE_ID, severity: "medium", category: CATEGORY };
 	}
-	// Clean allow — but surface a failed RED-witness as a non-blocking warning.
-	if (outcome.redWitnessFailed) {
-		return { decision: "allow", warnings: [redWitnessWarning()], rule_id: RULE_ID, category: CATEGORY };
-	}
+	// Clean allow — but surface a failed RED-witness as a non-blocking warning,
+	// and say when the allow leaned on move reconciliation (auditable: a plain
+	// clean allow and one that excused moved survivors must not read alike).
+	const warnings = [
+		...(outcome.redWitnessFailed ? [redWitnessWarning()] : []),
+		...(outcome.movedSurvivors === undefined ? [] : [movedSurvivorsNote(outcome.movedSurvivors)]),
+	];
+	if (warnings.length > 0) return { decision: "allow", warnings, rule_id: RULE_ID, category: CATEGORY };
 	return { decision: "allow", rule_id: RULE_ID, category: CATEGORY };
+}
+
+/** survivor-moves.ts: an accepted survivor that moved with its statement into
+ *  another symbol keeps its accepted status — this line makes that visible. */
+function movedSurvivorsNote(count: number): string {
+	return (
+		`[interlinked:mutation] ${count} previously accepted survivor(s) moved with the code ` +
+		"(same content, new symbol) and were not charged to this edit."
+	);
 }

@@ -8,6 +8,10 @@ import {
 	detectReturnArrayPush,
 } from "../../checks/array-method-misuse.js";
 import { detectDesignSlop } from "../../checks/design-slop.js";
+import {
+	checkExtractedHelperDuplicate,
+	checkNewExportWithoutImporter,
+} from "../../checks/helper-hygiene.js";
 import { checkAnonymousRegistration } from "../../checks/anonymous-registration.js";
 import { detectPayloadFieldCasing } from "../../checks/payload-casing.js";
 import {
@@ -304,5 +308,38 @@ export const CODE_QUALITY_ENTRIES_EXTRA: CheckRegistration[] = [
 		fn: checkSuppressionSpan,
 		resultsPropName: "suppressionBlockSpan",
 		content_keywords: ["eslint-disable"],
+	},
+	// === Helper-hygiene wave (2026-09-01) — decomposition-campaign nudges ===
+	{
+		id: "new_export_without_importer",
+		name: "New export without importer",
+		description:
+			"Detects a newly-added `export` (vs the on-disk baseline) whose symbol no other file in the git-tracked tree imports — the extract-a-helper move that leaks the helper into the public surface (the dead-export class, caught at the edit that creates it rather than at the next dead-code sweep). Exporter-first cross-file edits legitimately trip this for one edit; the finding is a pre_warn nudge, never a block.",
+		tier: 2,
+		determinism: "heuristic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		phase: "pre_warn",
+		fix_instruction:
+			"Keep extracted helpers private (drop the `export`) unless a sibling module imports them; if the importer lands in the next edit, no action is needed.",
+		fn: checkNewExportWithoutImporter,
+		resultsPropName: "newExportWithoutImporter",
+		content_keywords: ["export"],
+	},
+	{
+		id: "extracted_helper_duplicate",
+		name: "Extracted helper duplicates a sibling",
+		description:
+			"Detects a newly-added function (vs the on-disk baseline) whose normalized body is ≥0.90 shingle-Jaccard similar to a function already defined in the same file or a same-directory sibling — the decomposition move that re-extracts a helper another agent already extracted (parallel-campaign duplicate class).",
+		tier: 2,
+		determinism: "heuristic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		phase: "pre_warn",
+		fix_instruction:
+			"Import and reuse the existing sibling helper instead of adding a near-copy; if the two genuinely differ, name the difference in the new helper's name.",
+		fn: checkExtractedHelperDuplicate,
+		resultsPropName: "extractedHelperDuplicate",
+		content_keywords: ["function", "=>"],
 	},
 ];

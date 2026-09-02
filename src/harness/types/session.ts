@@ -33,6 +33,17 @@ export interface SessionTrajectory {
 	files_read: Set<string>;
 	files_written: Set<string>;
 	commands_run: string[];
+	/** Durable, non-expiring subset of `commands_run`: only commands
+	 *  `isTestRunnerCommand` recognizes as a test-runner invocation, kept at
+	 *  full text (up to 2000 chars — a file-path argument must not fall past
+	 *  the cut) so a test run recorded early in a long session still reads
+	 *  as a signal after `commands_run`'s 100-entry ring buffer has aged it
+	 *  out under unrelated Bash traffic. Bounded to `TEST_COMMANDS_RUN_CAP`
+	 *  entries, oldest dropped first. Populated in
+	 *  `session-state-mutators.ts::trackCommand`; consulted by
+	 *  `characterize-campaign-target.ts::hasTestSignalFor`. Optional so a
+	 *  session hydrated from a pre-fix snapshot reads as `[]`. */
+	test_commands_run?: string[];
 	/** Track curl-to-localhost frequency per port */
 	curl_localhost_count: Record<number, number>;
 	last_checkpoint_at?: string;

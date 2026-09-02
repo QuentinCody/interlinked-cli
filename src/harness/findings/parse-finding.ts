@@ -292,38 +292,78 @@ interface OptionalScalars {
 	extensions?: FindingExtensions;
 }
 
-/** The remaining optional members, or null when any one fails to parse. Split
- *  out to keep `parseFinding` under the cyclomatic cap. */
-function parseOptionalScalars(value: JsonObject): OptionalScalars | null {
+/** `category`, alone: validated against the known-category set. Split out of
+ *  `parseOptionalScalars` to keep it under the cyclomatic cap. */
+function parseCategoryField(value: JsonObject): Pick<OptionalScalars, "category"> | null {
 	const category = value.category;
 	if (category !== undefined && (typeof category !== "string" || !CATEGORIES.has(category))) {
 		return null;
 	}
+	return category !== undefined ? { category: category as FindingCategory } : {};
+}
+
+/** The two free-text optional members. Split out of `parseOptionalScalars` to
+ *  keep it under the cyclomatic cap. */
+function parseTextFields(
+	value: JsonObject,
+): Pick<OptionalScalars, "fix_instruction" | "approved_by"> | null {
 	const fix_instruction = optionalString(value.fix_instruction);
 	const approved_by = optionalString(value.approved_by);
+	if (fix_instruction === null || approved_by === null) return null;
+	return {
+		...(fix_instruction !== undefined ? { fix_instruction } : {}),
+		...(approved_by !== undefined ? { approved_by } : {}),
+	};
+}
+
+/** The three anchor-related members. Split out of `parseOptionalScalars` to
+ *  keep it under the cyclomatic cap. */
+function parseAnchorFields(
+	value: JsonObject,
+): Pick<OptionalScalars, "anchor_span_sha256" | "anchor_context" | "anchor_tree"> | null {
 	const anchor_span_sha256 = optionalString(value.anchor_span_sha256);
 	const anchor_tree = optionalString(value.anchor_tree);
-	if (fix_instruction === null || approved_by === null) return null;
 	if (anchor_span_sha256 === null || anchor_tree === null) return null;
 
 	const anchor_context =
 		value.anchor_context === undefined ? undefined : stringArray(value.anchor_context);
 	if (anchor_context === null) return null;
-	const distilled = parseDistilled(value.distilled);
-	if (distilled === null) return null;
-	const extensions = parseFindingExtensions(value.extensions);
-	if (extensions === null) return null;
 
 	return {
-		...(category !== undefined ? { category: category as FindingCategory } : {}),
-		...(fix_instruction !== undefined ? { fix_instruction } : {}),
-		...(approved_by !== undefined ? { approved_by } : {}),
-		...(distilled !== undefined ? { distilled } : {}),
-		...(extensions !== undefined ? { extensions } : {}),
 		...(anchor_span_sha256 !== undefined ? { anchor_span_sha256 } : {}),
 		...(anchor_context !== undefined ? { anchor_context } : {}),
 		...(anchor_tree !== undefined ? { anchor_tree } : {}),
 	};
+}
+
+/** `distilled` + `extensions`, each parsed by its own sub-parser. Split out of
+ *  `parseOptionalScalars` to keep it under the cyclomatic cap. */
+function parseDistilledAndExtensions(
+	value: JsonObject,
+): Pick<OptionalScalars, "distilled" | "extensions"> | null {
+	const distilled = parseDistilled(value.distilled);
+	if (distilled === null) return null;
+	const extensions = parseFindingExtensions(value.extensions);
+	if (extensions === null) return null;
+	return {
+		...(distilled !== undefined ? { distilled } : {}),
+		...(extensions !== undefined ? { extensions } : {}),
+	};
+}
+
+/** The remaining optional members, or null when any one fails to parse. Split
+ *  out to keep `parseFinding` under the cyclomatic cap. */
+function parseOptionalScalars(value: JsonObject): OptionalScalars | null {
+	const category = parseCategoryField(value);
+	if (category === null) return null;
+	const text = parseTextFields(value);
+	if (text === null) return null;
+	const anchors = parseAnchorFields(value);
+	if (anchors === null) return null;
+	const distilledAndExtensions = parseDistilledAndExtensions(value);
+	if (distilledAndExtensions === null) return null;
+
+	return { ...category, ...text, ...anchors, ...distilledAndExtensions };
 }
 
 /**

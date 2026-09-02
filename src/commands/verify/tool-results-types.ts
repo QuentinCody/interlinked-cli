@@ -53,6 +53,8 @@ export interface CodeQualityResults {
 	deadExports: CodeQualityIssue[];
 	deadTypeExports: CodeQualityIssue[];
 	duplicateTypeDeclaration: CodeQualityIssue[];
+	newExportWithoutImporter: CodeQualityIssue[];
+	extractedHelperDuplicate: CodeQualityIssue[];
 	circularImports: CodeQualityIssue[];
 	untestedInversePair: CodeQualityIssue[];
 	untestedIdempotent: CodeQualityIssue[];

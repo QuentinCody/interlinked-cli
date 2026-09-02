@@ -293,27 +293,60 @@ interface RefreshSymbolArgs {
 	threshold: number;
 	/** The run measured a LINE RANGE, not the whole file (MeasuredRunArgs.partial). */
 	partial?: boolean;
+	/** Prior records continued by a MOVE, keyed by the CURRENT id (file-wide —
+	 *  a move may cross symbols). See {@link MeasuredRunArgs.moves}. */
+	carried: CarriedRecords;
+}
+
+/** current mutantId → the prior record it continues. */
+type CarriedRecords = ReadonlyMap<StableId, MutantRecord>;
+
+/** A moved survivor's refreshed record. The prior record's review travels
+ *  with it: a proved `equivalent` that still survives at its new address keeps
+ *  that status and its reason/disposition; any other status is the measured
+ *  one (a moved mutant the tests now kill is killed). */
+function movedRecord(m: MeasuredMutant, prior: MutantRecord, firstSeen: string): MutantRecord {
+	const reviewed = prior.status === "equivalent" && m.status === "survived";
+	const record = toMutantRecord(m.identity, reviewed ? "equivalent" : m.status, firstSeen);
+	if (!reviewed) return record;
+	return {
+		...record,
+		...(prior.accepted_reason === undefined ? {} : { accepted_reason: prior.accepted_reason }),
+		...(prior.disposition === undefined ? {} : { disposition: prior.disposition }),
+	};
 }
 
 /** The symbol's next mutant map. A PARTIAL run's measured set is a floor, not
  *  a census (Stryker only emits mutants whose whole span fits the range), so
  *  under `partial` the prior records are retained and measured statuses win
- *  per mutantId — absent ids are never deleted. A full run replaces. */
-// interlinked: defer function_arg_count -- private helper with one call site;
-// the four params are distinct types readable at a glance, and an options
-// object would only restate the RefreshSymbolArgs it was extracted from.
-function nextMutantMap(
-	prev: SymbolRecord | undefined,
-	ms: MeasuredMutant[],
-	at: string,
-	partial: boolean,
-): Record<StableId, MutantRecord> {
-	const mutants: Record<StableId, MutantRecord> = partial && prev ? { ...prev.mutants } : {};
+ *  per mutantId — absent ids are never deleted. A full run replaces. A moved
+ *  mutant keeps the firstSeen (and review) of the record it continues. */
+function nextMutantMap(args: RefreshSymbolArgs): Record<StableId, MutantRecord> {
+	const { prev, ms, at, carried } = args;
+	const mutants: Record<StableId, MutantRecord> = args.partial === true && prev ? { ...prev.mutants } : {};
 	for (const m of ms) {
-		const firstSeen = prev?.mutants[m.identity.mutantId]?.firstSeen ?? at;
-		mutants[m.identity.mutantId] = toMutantRecord(m.identity, m.status, firstSeen);
+		const id = m.identity.mutantId;
+		const moved = carried.get(id);
+		const firstSeen = prev?.mutants[id]?.firstSeen ?? moved?.firstSeen ?? at;
+		mutants[id] = moved === undefined ? toMutantRecord(m.identity, m.status, firstSeen) : movedRecord(m, moved, firstSeen);
 	}
 	return mutants;
+}
+
+/** Resolve each move's prior record once, file-wide (survivor-moves.ts pairs a
+ *  vanished prior id with a current id; the symbols may differ). */
+function carriedRecords(prevFile: Record<StableId, SymbolRecord>, moves: MeasuredRunArgs["moves"]): CarriedRecords {
+	const out = new Map<StableId, MutantRecord>();
+	if (moves === undefined || moves.length === 0) return out;
+	const byId = new Map<StableId, MutantRecord>();
+	for (const symbol of Object.values(prevFile)) {
+		for (const m of Object.values(symbol.mutants)) byId.set(m.mutantId, m);
+	}
+	for (const move of moves) {
+		const prior = byId.get(move.previousMutantId);
+		if (prior !== undefined) out.set(move.currentMutantId, prior);
+	}
+	return out;
 }
 
 function refreshSymbol(args: RefreshSymbolArgs): SymbolRecord {
@@ -328,7 +361,7 @@ function refreshSymbol(args: RefreshSymbolArgs): SymbolRecord {
 	// verbatim — only a full-scope run may replace it; with no prior record the
 	// measured floor is adopted (all we know beats nothing).
 	if (partial === true && prev !== undefined && prev.symbolHash !== entry.symbolHash) return prev;
-	const mutants = nextMutantMap(prev, ms, at, partial === true);
+	const mutants = nextMutantMap(args);
 	// Identity churn only counts against an UNCHANGED hash — a changed symbol is
 	// EXPECTED to mint new mutant ids (spec §6 of the identity spec).
 	const churned =
@@ -355,6 +388,11 @@ export interface MeasuredRunArgs {
 	 *  partial run may only ADD knowledge (merge; changed symbols keep their
 	 *  prior record) — it must never replace a symbol's complete record. */
 	partial?: boolean;
+	/** Survivors that MOVED with their statement into another symbol
+	 *  (survivor-moves.ts): the current id continues the prior record, so its
+	 *  firstSeen — and a reviewed `equivalent` status with its reason — travel
+	 *  with the move instead of being re-minted as a fresh survivor. */
+	moves?: ReadonlyArray<{ previousMutantId: StableId; currentMutantId: StableId }>;
 }
 
 /**
@@ -385,6 +423,7 @@ export function applyMeasuredRun(args: MeasuredRunArgs): MutationManifest {
 		list.push(m);
 		bySymbol.set(m.identity.symbolId, list);
 	}
+	const carried = carriedRecords(prevFile, args.moves);
 	const nextFile: Record<StableId, SymbolRecord> = {};
 	for (const [symbolId, entry] of overlayHashes) {
 		nextFile[symbolId] = refreshSymbol({
@@ -395,6 +434,7 @@ export function applyMeasuredRun(args: MeasuredRunArgs): MutationManifest {
 			at,
 			threshold,
 			partial: args.partial === true,
+			carried,
 		});
 	}
 	return { ...base, generation: base.generation + 1, authoritativeAt: at, files: { ...base.files, [file]: nextFile } };

@@ -32,7 +32,7 @@ export function checkArchiveExtractTraversal(content: string, filePath: string):
 	if (isTestFile(filePath)) return [];
 	const ext = getExtension(filePath);
 	const isPy = ext === ".py";
-	const isJs = ext === ".ts" || ext === ".tsx" || ext === ".js" || ext === ".jsx" || ext === ".mjs" || ext === ".cts" || ext === ".mts" || ext === ".cjs";
+	const isJs = isSupportedJsExtension(ext);
 	if (!isPy && !isJs) return [];
 
 	const originalLines = content.split("\n");
@@ -47,4 +47,9 @@ export function checkArchiveExtractTraversal(content: string, filePath: string):
 		}
 	}
 	return matches;
+}
+
+/** JS/TS source extensions the Node extractor patterns apply to. */
+function isSupportedJsExtension(ext: string): boolean {
+	return ext === ".ts" || ext === ".tsx" || ext === ".js" || ext === ".jsx" || ext === ".mjs" || ext === ".cts" || ext === ".mts" || ext === ".cjs";
 }

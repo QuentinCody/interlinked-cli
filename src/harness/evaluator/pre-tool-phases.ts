@@ -192,6 +192,52 @@ function checkFileWriteMetricCaps(
  *  concurrent-edit, test-signal erosion. Never blocks; pushes into `warnings`
  *  by reference. Split out of `evaluatePreChecksTail` alongside
  *  `checkFileWriteMetricCaps` for the same complexity-budget reason. */
+function pushStaleBranchWarning(
+	event: HarnessEvent,
+	session: SessionTrajectory | undefined,
+	eventCwd: string,
+	warnings: string[],
+): void {
+	if (session && session.tool_call_count <= STALE_BRANCH_CHECK_LIMIT) {
+		const staleResult = checkStaleBranch(eventCwd, event.session_id);
+		if (staleResult?.warning) warnings.push(staleResult.warning);
+	}
+}
+
+function pushDirtyTreeWarning(
+	toolName: string,
+	toolInput: ToolInput,
+	eventCwd: string,
+	warnings: string[],
+): void {
+	if (!isBash(toolName)) return;
+	const command = (toolInput.command as string) || "";
+	if (!command) return;
+	const dirtyResult = checkDirtyWorkingTree(command, eventCwd);
+	if (dirtyResult?.warning) warnings.push(dirtyResult.warning);
+}
+
+function pushLargeFileByteWarning(toolName: string, toolInput: ToolInput, warnings: string[]): void {
+	if (!isFileWrite(toolName)) return;
+	const content = (toolInput.content as string) || "";
+	const largeResult = checkLargeFileWrite(content);
+	if (largeResult?.warning) warnings.push(largeResult.warning);
+}
+
+function pushConcurrentEditWarning(
+	event: HarnessEvent,
+	sessions: SessionTracker | undefined,
+	toolName: string,
+	toolInput: ToolInput,
+	warnings: string[],
+): void {
+	if (!isFileWrite(toolName) || !sessions) return;
+	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	if (!filePath) return;
+	const concurrentResult = checkConcurrentEdit(filePath, event.session_id, sessions.getAll());
+	if (concurrentResult?.warning) warnings.push(concurrentResult.warning);
+}
+
 function pushTailWarnings(
 	event: HarnessEvent,
 	session: SessionTrajectory | undefined,
@@ -201,29 +247,10 @@ function pushTailWarnings(
 	toolInput: ToolInput,
 	warnings: string[],
 ): void {
-	if (session && session.tool_call_count <= STALE_BRANCH_CHECK_LIMIT) {
-		const staleResult = checkStaleBranch(eventCwd, event.session_id);
-		if (staleResult?.warning) warnings.push(staleResult.warning);
-	}
-	if (isBash(toolName)) {
-		const command = (toolInput.command as string) || "";
-		if (command) {
-			const dirtyResult = checkDirtyWorkingTree(command, eventCwd);
-			if (dirtyResult?.warning) warnings.push(dirtyResult.warning);
-		}
-	}
-	if (isFileWrite(toolName)) {
-		const content = (toolInput.content as string) || "";
-		const largeResult = checkLargeFileWrite(content);
-		if (largeResult?.warning) warnings.push(largeResult.warning);
-	}
-	if (isFileWrite(toolName) && sessions) {
-		const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
-		if (filePath) {
-			const concurrentResult = checkConcurrentEdit(filePath, event.session_id, sessions.getAll());
-			if (concurrentResult?.warning) warnings.push(concurrentResult.warning);
-		}
-	}
+	pushStaleBranchWarning(event, session, eventCwd, warnings);
+	pushDirtyTreeWarning(toolName, toolInput, eventCwd, warnings);
+	pushLargeFileByteWarning(toolName, toolInput, warnings);
+	pushConcurrentEditWarning(event, sessions, toolName, toolInput, warnings);
 	maybeWarnTestErosion(event, session, eventCwd, warnings);
 }
 

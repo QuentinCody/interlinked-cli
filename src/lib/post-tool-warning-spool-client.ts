@@ -330,37 +330,64 @@ function consumeReadyRecords(
 	warnings: Set<string>,
 ): void {
 	for (const path of paths) {
-		let record: QualityWarningRecord | null = null;
-		try {
-			record = parseRecord(readFileSync(path, "utf-8"));
-		} catch {
-			// The malformed record is claimed and discarded below.
-		}
-		const producedMs = record ? Date.parse(record.produced_at) : Number.NaN;
-		const ageMs = nowMs - producedMs;
-		const stale =
-			!Number.isFinite(producedMs) || ageMs > READY_TTL_MS || ageMs < -READY_GRACE_MS;
-		if (record && !stale && record.session_id !== sessionId) continue;
-		if (record && !stale && ageMs < READY_GRACE_MS) continue;
+		const read = readReadyRecord(path, nowMs);
+		if (skipReadyRecord(read, sessionId)) continue;
 
 		const claimed = claim(path);
 		if (!claimed) continue;
-		try {
-			const claimedRecord = parseRecord(readFileSync(claimed, "utf-8"));
-			if (claimedRecord && !stale && claimedRecord.session_id === sessionId) {
-				for (const warning of claimedRecord.warnings) warnings.add(warning);
-			}
-		} catch {
-			// Corrupt records are discarded, never replayed.
-		} finally {
-			try {
-				unlinkSync(claimed);
-			} catch {
-				// Best-effort claimed-record cleanup.
-			}
-		}
-		const claimedToken = record?.token ?? tokenFromReadyPath(path);
+		absorbClaimedReadyRecord(claimed, read.stale, sessionId, warnings);
+		const claimedToken = read.record?.token ?? tokenFromReadyPath(path);
 		if (claimedToken) removeTokenFile(dataDir, claimedToken, "active");
+	}
+}
+
+interface ReadyRecordRead {
+	record: QualityWarningRecord | null;
+	ageMs: number;
+	stale: boolean;
+}
+
+/** Read one ready record and derive its age plus staleness verdict. */
+function readReadyRecord(path: string, nowMs: number): ReadyRecordRead {
+	let record: QualityWarningRecord | null = null;
+	try {
+		record = parseRecord(readFileSync(path, "utf-8"));
+	} catch {
+		// The malformed record is claimed and discarded by the caller.
+	}
+	const producedMs = record ? Date.parse(record.produced_at) : Number.NaN;
+	const ageMs = nowMs - producedMs;
+	const stale = !Number.isFinite(producedMs) || ageMs > READY_TTL_MS || ageMs < -READY_GRACE_MS;
+	return { record, ageMs, stale };
+}
+
+/** A fresh record belonging to another session, or still inside its grace window, is left alone. */
+function skipReadyRecord(read: ReadyRecordRead, sessionId: string): boolean {
+	if (read.record && !read.stale && read.record.session_id !== sessionId) return true;
+	if (read.record && !read.stale && read.ageMs < READY_GRACE_MS) return true;
+	return false;
+}
+
+/** Merge a claimed record's warnings when it is still this session's, then delete it. */
+function absorbClaimedReadyRecord(
+	claimed: string,
+	stale: boolean,
+	sessionId: string,
+	warnings: Set<string>,
+): void {
+	try {
+		const claimedRecord = parseRecord(readFileSync(claimed, "utf-8"));
+		if (claimedRecord && !stale && claimedRecord.session_id === sessionId) {
+			for (const warning of claimedRecord.warnings) warnings.add(warning);
+		}
+	} catch {
+		// Corrupt records are discarded, never replayed.
+	} finally {
+		try {
+			unlinkSync(claimed);
+		} catch {
+			// Best-effort claimed-record cleanup.
+		}
 	}
 }
 

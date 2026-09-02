@@ -30,6 +30,8 @@ export const CQ_RESULT_KEYS: ReadonlyArray<keyof CodeQualityResults> = [
 	"deadExports",
 	"deadTypeExports",
 	"duplicateTypeDeclaration",
+	"newExportWithoutImporter",
+	"extractedHelperDuplicate",
 	"circularImports",
 	"untestedInversePair",
 	"untestedIdempotent",

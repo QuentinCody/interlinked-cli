@@ -302,6 +302,25 @@ function currentVersion(db: SqliteDatabase): number {
 	return typeof row?.user_version === "number" ? row.user_version : 0;
 }
 
+/**
+ * Runs one versioned migration step inside its own transaction, exactly
+ * mirroring the previous inline pattern: BEGIN IMMEDIATE, run `apply`, bump
+ * `PRAGMA user_version`, COMMIT; on any error, ROLLBACK and rethrow.
+ * Returns `targetVersion` so callers can chain `version = runVersionedMigration(...)`.
+ */
+function runVersionedMigration(db: SqliteDatabase, targetVersion: number, apply: () => void): number {
+	db.exec("BEGIN IMMEDIATE");
+	try {
+		apply();
+		db.exec(`PRAGMA user_version = ${targetVersion}`);
+		db.exec("COMMIT");
+		return targetVersion;
+	} catch (error) {
+		db.exec("ROLLBACK");
+		throw error;
+	}
+}
+
 export function migrateMutationJournal(db: SqliteDatabase): void {
 	db.exec(
 		"PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;",
@@ -313,111 +332,33 @@ export function migrateMutationJournal(db: SqliteDatabase): void {
 		);
 	}
 	if (version === 0) {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			db.exec(MUTATION_JOURNAL_V1_SQL);
-			db.exec("PRAGMA user_version = 1");
-			db.exec("COMMIT");
-			version = 1;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		version = runVersionedMigration(db, 1, () => db.exec(MUTATION_JOURNAL_V1_SQL));
 	}
 	if (version === 1) {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			db.exec(V2_SQL);
-			db.exec("PRAGMA user_version = 2");
-			db.exec("COMMIT");
-			version = 2;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		version = runVersionedMigration(db, 2, () => db.exec(V2_SQL));
 	}
 	if (version === 2) {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			db.exec(V3_SQL);
-			db.exec("PRAGMA user_version = 3");
-			db.exec("COMMIT");
-			version = 3;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		version = runVersionedMigration(db, 3, () => db.exec(V3_SQL));
 	}
 	if (version === 3) {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			db.exec(V4_SQL);
-			db.exec("PRAGMA user_version = 4");
-			db.exec("COMMIT");
-			version = 4;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		version = runVersionedMigration(db, 4, () => db.exec(V4_SQL));
 	}
 	if (version === 4) {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			db.exec(V5_SQL);
-			db.exec("PRAGMA user_version = 5");
-			db.exec("COMMIT");
-			version = 5;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		version = runVersionedMigration(db, 5, () => db.exec(V5_SQL));
 	}
 	if (version === 5) {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			db.exec(V6_SQL);
-			db.exec("PRAGMA user_version = 6");
-			db.exec("COMMIT");
-			version = 6;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		version = runVersionedMigration(db, 6, () => db.exec(V6_SQL));
 	}
 	if (version === 6) {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			db.exec(V7_SQL);
-			db.exec("PRAGMA user_version = 7");
-			db.exec("COMMIT");
-			version = 7;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		version = runVersionedMigration(db, 7, () => db.exec(V7_SQL));
 	}
 	if (version === 7) {
-		db.exec("BEGIN IMMEDIATE");
-		try {
+		version = runVersionedMigration(db, 8, () => {
 			db.exec(V8_SQL);
 			assertV8ManifestHeadSchema(db);
-			db.exec("PRAGMA user_version = 8");
-			db.exec("COMMIT");
-			version = 8;
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		});
 	}
 	if (version === 8) {
-		db.exec("BEGIN IMMEDIATE");
-		try {
-			migrateV9(db);
-			db.exec("PRAGMA user_version = 9");
-			db.exec("COMMIT");
-		} catch (error) {
-			db.exec("ROLLBACK");
-			throw error;
-		}
+		runVersionedMigration(db, 9, () => migrateV9(db));
 	}
 }

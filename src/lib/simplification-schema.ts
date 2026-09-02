@@ -6,10 +6,10 @@
 // here so every consumer enforces the same advisory/read-only contract.
 
 import { isJsonObject } from "./json-types.js";
+import { isValidLineRange, parseHandoffSubmissionReason, parseReportCommand, parseRequestedRemedies } from "./simplification-schema-guards.js";
 import {
 	SIMPLIFICATION_HANDOFF_SCHEMA_VERSION,
-	SIMPLIFICATION_REMEDIES,
-	SIMPLIFICATION_REPORT_SCHEMA_VERSION,
+	SIMPLIFICATION_REMEDIES, SIMPLIFICATION_REPORT_SCHEMA_VERSION,
 	type SimplificationCoverageExclusion,
 	type SimplificationCoverageReceipt,
 	type SimplificationDeepHandoffRequest,
@@ -185,9 +185,7 @@ function parseLocation(value: unknown): SimplificationFinding["location"] | null
 		return null;
 	}
 	if (start_line === undefined || end_line === undefined) return null;
-	if (start_line !== null && (!Number.isInteger(start_line) || start_line < 1)) return null;
-	if (end_line !== null && (!Number.isInteger(end_line) || end_line < 1)) return null;
-	if (start_line !== null && end_line !== null && end_line < start_line) return null;
+	if (!isValidLineRange(start_line, end_line)) return null;
 	return { path, start_line, end_line, tree_sha, working_tree_sha256 };
 }
 
@@ -491,17 +489,11 @@ export function parseSimplificationHandoff(value: unknown): SimplificationDeepHa
 		|| repository.tree_sha === null
 		|| !deterministic_finding_fingerprints
 		|| !requested_remedies
-	) {
-		return null;
-	}
-	if (!requirements) return null;
-	const parsedRemedies: SimplificationRemedy[] = [];
-	for (const remedy of requested_remedies) {
-		if (!isMember(remedy, SIMPLIFICATION_REMEDIES)) return null;
-		parsedRemedies.push(remedy);
-	}
-	if (!isJsonObject(value.submission) || value.submission.status !== "not_submitted") return null;
-	const reason = requiredString(value.submission.reason);
+		|| !requirements
+	) return null;
+	const parsedRemedies = parseRequestedRemedies(requested_remedies);
+	if (!parsedRemedies) return null;
+	const reason = parseHandoffSubmissionReason(value.submission);
 	if (!reason) return null;
 	const pinnedRepository = {
 		...repository,
@@ -522,13 +514,9 @@ export function parseSimplificationHandoff(value: unknown): SimplificationDeepHa
 }
 
 export function parseSimplificationReport(value: unknown): SimplificationReport | null {
-	if (!isJsonObject(value) || value.schema_version !== SIMPLIFICATION_REPORT_SCHEMA_VERSION) {
-		return null;
-	}
-	if (value.lens !== "simplification" || value.read_only !== true) return null;
-	if (value.command !== "scan" && value.command !== "review" && value.command !== "audit") {
-		return null;
-	}
+	if (!isJsonObject(value)) return null;
+	const command = parseReportCommand(value);
+	if (command === null) return null;
 	const repository = parseSimplificationRepository(value.repository);
 	const scope = parseSimplificationScope(value.scope);
 	const findings = parsedList(value.findings, parseSimplificationFinding);
@@ -537,18 +525,12 @@ export function parseSimplificationReport(value: unknown): SimplificationReport 
 	const deep_handoff = value.deep_handoff === null ? null : parseSimplificationHandoff(value.deep_handoff);
 	if (!repository || !scope || !findings || !summary || !coverage) return null;
 	if (value.deep_handoff !== null && !deep_handoff) return null;
-	if (!reportRelationsMatch({
-		command: value.command,
-		repository,
-		scope,
-		findings,
-		summary,
-		handoff: deep_handoff,
-	})) return null;
+	const relations = { command, repository, scope, findings, summary, handoff: deep_handoff };
+	if (!reportRelationsMatch(relations)) return null;
 	return {
 		schema_version: SIMPLIFICATION_REPORT_SCHEMA_VERSION,
 		lens: "simplification",
-		command: value.command,
+		command,
 		repository,
 		scope,
 		findings,

@@ -55,6 +55,7 @@ export {
 	formatDocMarkerDriftWarning,
 	isCodeFile,
 	isDocFactSourceFile,
+	isTestRunnerCommand,
 	isUiFile,
 	STUB_INTRODUCED_CAP,
 	scanForStubs,

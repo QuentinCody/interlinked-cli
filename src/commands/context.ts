@@ -161,6 +161,34 @@ function renderNormalOutput(data: ContextRenderData, rawAgentHandle: string | un
 	return lines.join("\n");
 }
 
+/**
+ * Labels the origin of the resolved auth token. Extracted verbatim from the
+ * nested ternary in `contextCommand`.
+ */
+function resolveTokenSource(configuredToken: string | undefined, hasToken: boolean): string {
+	if (configuredToken) return "config.local.json";
+	if (hasToken) return "Claude Code credentials";
+	return "none";
+}
+
+/**
+ * Lists the `INTERLINKED_*` env vars that override config, in the same order
+ * the inline chain in `contextCommand` pushed them.
+ */
+function collectEnvOverrides(): string[] {
+	const envOverrides: string[] = [];
+	if (process.env.INTERLINKED_SERVER_URL) envOverrides.push("INTERLINKED_SERVER_URL");
+	if (process.env.INTERLINKED_ACCESS_TOKEN || process.env.INTERLINKED_TOKEN)
+		envOverrides.push("INTERLINKED_ACCESS_TOKEN");
+	if (process.env.INTERLINKED_AGENT_NAME || process.env.INTERLINKED_AGENT)
+		envOverrides.push("INTERLINKED_AGENT_NAME");
+	if (process.env.INTERLINKED_WORKSPACE_ID) envOverrides.push("INTERLINKED_WORKSPACE_ID");
+	if (process.env.INTERLINKED_SYNC_MODE) envOverrides.push("INTERLINKED_SYNC_MODE");
+	if (process.env.INTERLINKED_DATA_DIR) envOverrides.push("INTERLINKED_DATA_DIR");
+	if (process.env.INTERLINKED_HOME) envOverrides.push("INTERLINKED_HOME");
+	return envOverrides;
+}
+
 export async function contextCommand(options: ContextOptions): Promise<void> {
 	const cwd = process.cwd();
 	const mode = getOutputMode(options);
@@ -181,23 +209,10 @@ export async function contextCommand(options: ContextOptions): Promise<void> {
 	// Auth status
 	const token = resolveAuthToken();
 	const hasToken = !!token;
-	const tokenSource = config.access_token
-		? "config.local.json"
-		: hasToken
-			? "Claude Code credentials"
-			: "none";
+	const tokenSource = resolveTokenSource(config.access_token, hasToken);
 
 	// Env var overrides
-	const envOverrides: string[] = [];
-	if (process.env.INTERLINKED_SERVER_URL) envOverrides.push("INTERLINKED_SERVER_URL");
-	if (process.env.INTERLINKED_ACCESS_TOKEN || process.env.INTERLINKED_TOKEN)
-		envOverrides.push("INTERLINKED_ACCESS_TOKEN");
-	if (process.env.INTERLINKED_AGENT_NAME || process.env.INTERLINKED_AGENT)
-		envOverrides.push("INTERLINKED_AGENT_NAME");
-	if (process.env.INTERLINKED_WORKSPACE_ID) envOverrides.push("INTERLINKED_WORKSPACE_ID");
-	if (process.env.INTERLINKED_SYNC_MODE) envOverrides.push("INTERLINKED_SYNC_MODE");
-	if (process.env.INTERLINKED_DATA_DIR) envOverrides.push("INTERLINKED_DATA_DIR");
-	if (process.env.INTERLINKED_HOME) envOverrides.push("INTERLINKED_HOME");
+	const envOverrides = collectEnvOverrides();
 
 	const data = {
 		server_url: config.server_url,

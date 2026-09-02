@@ -6,45 +6,36 @@
 
 import { createHash } from "node:crypto";
 import { isJsonObject, type JsonObject } from "./json-types.js";
+import {
+	exactKeys,
+	gitObject,
+	isoTimestamp,
+	nonempty,
+	parseOutcomes,
+	sha256,
+	type SimplificationExperimentOutcomes,
+	sortedUniqueStrings,
+} from "./simplification-agent-ci-experiment-outcomes.js";
 import { canonicalSimplificationAgentCiJson } from "./simplification-agent-ci-request.js";
 import { isPinnedExactVersion } from "./simplification-version.js";
 
+export type {
+	SimplificationExperimentCompletenessOutcome,
+	SimplificationExperimentSafetyOutcome,
+} from "./simplification-agent-ci-experiment-outcomes.js";
+
 const SIMPLIFICATION_EXPERIMENT_VERSION = "simplification-experiment/v1" as const;
 
-const SHA256_PATTERN = /^[a-f0-9]{64}$/;
-const GIT_OBJECT_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const IMAGE_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 const CLAIM_KINDS = ["observational", "causal"] as const;
 const DESIGNS = ["randomized_paired", "randomized_parallel"] as const;
-const DIRECTIONS = ["lower_is_better", "higher_is_better"] as const;
 
 type SimplificationExperimentClaimKind = (typeof CLAIM_KINDS)[number];
 type SimplificationExperimentDesignKind = (typeof DESIGNS)[number];
 
-interface SimplificationExperimentMetric {
-	name: string;
-	unit: string;
-	direction: (typeof DIRECTIONS)[number];
-}
-
 interface SimplificationExperimentArm {
 	name: string;
 	instructions_sha256: string;
-}
-
-export interface SimplificationExperimentSafetyOutcome {
-	protected_behavior_regressions: number;
-	required_checks_passed: boolean;
-	receipt_path: string;
-	receipt_sha256: string;
-}
-
-export interface SimplificationExperimentCompletenessOutcome {
-	planned_runs: number;
-	completed_runs: number;
-	scored_runs: number;
-	coverage_path: string;
-	coverage_sha256: string;
 }
 
 interface SimplificationCausalDesign {
@@ -99,16 +90,7 @@ export interface SimplificationExperimentManifest {
 		failed_runs: number;
 		exclusions: string[];
 	};
-	outcomes: {
-		primary_metric: string;
-		metrics: SimplificationExperimentMetric[];
-		safety: SimplificationExperimentSafetyOutcome;
-		completeness: SimplificationExperimentCompletenessOutcome;
-		raw_results_path: string;
-		raw_results_sha256: string;
-		analysis_output_path: string;
-		analysis_output_sha256: string;
-	};
+	outcomes: SimplificationExperimentOutcomes;
 	causal_design: SimplificationCausalDesign | null;
 }
 
@@ -121,48 +103,8 @@ type SimplificationExperimentParseResult =
 	| { ok: true; manifest: ValidSimplificationExperimentManifest }
 	| { ok: false; reason: string };
 
-function exactKeys(value: JsonObject, expected: readonly string[]): boolean {
-	return Object.keys(value).sort().join("|") === [...expected].sort().join("|");
-}
-
-function nonempty(value: unknown): value is string {
-	return typeof value === "string" && value.length > 0 && value.length <= 4_096;
-}
-
-function sha256(value: unknown): value is string {
-	return typeof value === "string" && SHA256_PATTERN.test(value);
-}
-
-function artifactPath(value: unknown): value is string {
-	if (typeof value !== "string" || value.length === 0 || value.startsWith("/")) return false;
-	if (value.includes("\\") || /^[A-Za-z]:/.test(value)) return false;
-	return value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
-}
-
-function gitObject(value: unknown): value is string {
-	return typeof value === "string" && GIT_OBJECT_PATTERN.test(value);
-}
-
-function isoTimestamp(value: unknown): value is string {
-	if (typeof value !== "string") return false;
-	const millis = Date.parse(value);
-	return Number.isFinite(millis) && new Date(millis).toISOString() === value;
-}
-
-function sortedUniqueStrings(value: unknown): value is string[] {
-	if (!Array.isArray(value) || !value.every(nonempty)) return false;
-	if (new Set(value).size !== value.length) return false;
-	return value.every((entry, index) => index === 0 || entry >= (value[index - 1] ?? ""));
-}
-
 function isClaimKind(value: unknown): value is SimplificationExperimentClaimKind {
 	return typeof value === "string" && CLAIM_KINDS.some((kind) => kind === value);
-}
-
-function isMetricDirection(
-	value: unknown,
-): value is SimplificationExperimentMetric["direction"] {
-	return typeof value === "string" && DIRECTIONS.some((direction) => direction === value);
 }
 
 function isDesignKind(value: unknown): value is SimplificationExperimentDesignKind {
@@ -276,110 +218,6 @@ function parseRuns(value: unknown): SimplificationExperimentManifest["runs"] | n
 	};
 }
 
-function parseMetric(value: unknown): SimplificationExperimentMetric | null {
-	if (!isJsonObject(value) || !exactKeys(value, ["name", "unit", "direction"])) return null;
-	const direction = value.direction;
-	if (!nonempty(value.name) || !nonempty(value.unit) || !isMetricDirection(direction)) return null;
-	return { name: value.name, unit: value.unit, direction };
-}
-
-function parseSafetyOutcome(value: unknown): SimplificationExperimentSafetyOutcome | null {
-	if (!isJsonObject(value) || !exactKeys(
-		value,
-		[
-			"protected_behavior_regressions",
-			"required_checks_passed",
-			"receipt_path",
-			"receipt_sha256",
-		],
-	)) return null;
-	if (
-		typeof value.protected_behavior_regressions !== "number"
-		|| !Number.isInteger(value.protected_behavior_regressions)
-		|| value.protected_behavior_regressions < 0
-		|| typeof value.required_checks_passed !== "boolean"
-		|| !artifactPath(value.receipt_path)
-		|| !sha256(value.receipt_sha256)
-	) return null;
-	return {
-		protected_behavior_regressions: value.protected_behavior_regressions,
-		required_checks_passed: value.required_checks_passed,
-		receipt_path: value.receipt_path,
-		receipt_sha256: value.receipt_sha256,
-	};
-}
-
-function parseCompletenessOutcome(
-	value: unknown,
-): SimplificationExperimentCompletenessOutcome | null {
-	if (!isJsonObject(value) || !exactKeys(
-		value,
-		["planned_runs", "completed_runs", "scored_runs", "coverage_path", "coverage_sha256"],
-	)) return null;
-	for (const count of [value.planned_runs, value.completed_runs, value.scored_runs]) {
-		if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return null;
-	}
-	if (
-		typeof value.planned_runs !== "number"
-		|| typeof value.completed_runs !== "number"
-		|| typeof value.scored_runs !== "number"
-		|| value.completed_runs > value.planned_runs
-		|| value.scored_runs > value.completed_runs
-		|| !artifactPath(value.coverage_path)
-		|| !sha256(value.coverage_sha256)
-	) return null;
-	return {
-		planned_runs: value.planned_runs,
-		completed_runs: value.completed_runs,
-		scored_runs: value.scored_runs,
-		coverage_path: value.coverage_path,
-		coverage_sha256: value.coverage_sha256,
-	};
-}
-
-function parseOutcomes(value: unknown): SimplificationExperimentManifest["outcomes"] | null {
-	if (!isJsonObject(value) || !exactKeys(
-		value,
-		[
-			"primary_metric",
-			"metrics",
-			"safety",
-			"completeness",
-			"raw_results_path",
-			"raw_results_sha256",
-			"analysis_output_path",
-			"analysis_output_sha256",
-		],
-	)) return null;
-	if (!nonempty(value.primary_metric) || !Array.isArray(value.metrics) || value.metrics.length === 0) return null;
-	const metrics: SimplificationExperimentMetric[] = [];
-	for (const entry of value.metrics) {
-		const metric = parseMetric(entry);
-		if (!metric) return null;
-		metrics.push(metric);
-	}
-	const names = metrics.map((metric) => metric.name);
-	if (new Set(names).size !== names.length || !names.includes(value.primary_metric)) return null;
-	if (!names.every((name, index) => index === 0 || name >= (names[index - 1] ?? ""))) return null;
-	const safety = parseSafetyOutcome(value.safety);
-	const completeness = parseCompletenessOutcome(value.completeness);
-	if (
-		!safety || !completeness || !artifactPath(value.raw_results_path)
-		|| !sha256(value.raw_results_sha256) || !artifactPath(value.analysis_output_path)
-		|| !sha256(value.analysis_output_sha256)
-	) return null;
-	return {
-		primary_metric: value.primary_metric,
-		metrics,
-		safety,
-		completeness,
-		raw_results_path: value.raw_results_path,
-		raw_results_sha256: value.raw_results_sha256,
-		analysis_output_path: value.analysis_output_path,
-		analysis_output_sha256: value.analysis_output_sha256,
-	};
-}
-
 function completenessMatchesRuns(
 	outcomes: SimplificationExperimentManifest["outcomes"],
 	runs: SimplificationExperimentManifest["runs"],
@@ -461,6 +299,26 @@ function causalRelationshipError(
 	return null;
 }
 
+/** The seven evidence sections, all present and individually well-formed, or null. */
+type SimplificationExperimentSections = Pick<
+	SimplificationExperimentManifest,
+	"claim" | "repository" | "task_suite" | "model" | "environment" | "runs" | "outcomes"
+>;
+
+function parseManifestSections(input: JsonObject): SimplificationExperimentSections | null {
+	const claim = parseClaim(input.claim);
+	const repository = parseRepository(input.repository);
+	const task_suite = parseTaskSuite(input.task_suite);
+	const model = parseModel(input.model);
+	const environment = parseEnvironment(input.environment);
+	const runs = parseRuns(input.runs);
+	const outcomes = parseOutcomes(input.outcomes);
+	if (!claim || !repository || !task_suite || !model || !environment || !runs || !outcomes) {
+		return null;
+	}
+	return { claim, repository, task_suite, model, environment, runs, outcomes };
+}
+
 export function parseSimplificationExperimentManifest(
 	input: unknown,
 ): SimplificationExperimentParseResult {
@@ -482,35 +340,29 @@ export function parseSimplificationExperimentManifest(
 	if (input.schema_version !== SIMPLIFICATION_EXPERIMENT_VERSION || !nonempty(input.experiment_id)) {
 		return { ok: false, reason: "experiment manifest version or id is invalid" };
 	}
-	const claim = parseClaim(input.claim);
-	const repository = parseRepository(input.repository);
-	const task_suite = parseTaskSuite(input.task_suite);
-	const model = parseModel(input.model);
-	const environment = parseEnvironment(input.environment);
-	const runs = parseRuns(input.runs);
-	const outcomes = parseOutcomes(input.outcomes);
-	if (!claim || !repository || !task_suite || !model || !environment || !runs || !outcomes) {
+	const sections = parseManifestSections(input);
+	if (!sections) {
 		return { ok: false, reason: "experiment manifest has incomplete or unpinned evidence metadata" };
 	}
-	if (!completenessMatchesRuns(outcomes, runs)) {
+	if (!completenessMatchesRuns(sections.outcomes, sections.runs)) {
 		return { ok: false, reason: "experiment completeness counts do not match run receipts" };
 	}
 	const causal_design = input.causal_design === null ? null : parseCausalDesign(input.causal_design);
 	if (input.causal_design !== null && !causal_design) {
 		return { ok: false, reason: "experiment causal_design is incomplete" };
 	}
-	const causalError = causalRelationshipError(claim, runs, causal_design);
+	const causalError = causalRelationshipError(sections.claim, sections.runs, causal_design);
 	if (causalError) return { ok: false, reason: causalError };
 	const manifest: SimplificationExperimentManifest = {
 		schema_version: SIMPLIFICATION_EXPERIMENT_VERSION,
 		experiment_id: input.experiment_id,
-		claim,
-		repository,
-		task_suite,
-		model,
-		environment,
-		runs,
-		outcomes,
+		claim: sections.claim,
+		repository: sections.repository,
+		task_suite: sections.task_suite,
+		model: sections.model,
+		environment: sections.environment,
+		runs: sections.runs,
+		outcomes: sections.outcomes,
 		causal_design,
 	};
 	freezeRecursively(manifest);

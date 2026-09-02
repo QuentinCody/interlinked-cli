@@ -115,22 +115,73 @@ export function runFailureChannels(opts: {
 
 	// Channel 5 — rollback feasibility (only file-edit tools, only with
 	// provenance evidence).
-	let rollback;
 	const filePath = extractFilePath(event);
-	if (filePath && FILE_EDIT_TOOLS.has(toolName) && session) {
-		const provenance = (p: string) => isFileTrackedAsWritten(session, p, cwd);
-		rollback = safeRun(() => assessRollbackFeasibility(filePath, cwd, provenance), undefined);
-		if (rollback) {
-			const rollbackLine = formatRollbackLine(rollback);
-			if (rollbackLine) warnings.push(rollbackLine);
-		}
-	}
+	const rollback = computeRollback({ event, session, cwd, toolName, filePath, warnings });
 
 	// Disk record. Failures here are tolerable — channel output still flows
 	// through warnings[] regardless. Storage failures land in the harness
 	// sync-errors log via the upper-layer try/catch.
 	const failureId = mintFailureId();
-	const record: FailureRecord = {
+	const record = buildFailureRecord({
+		event,
+		toolName,
+		cwd,
+		failureId,
+		signature,
+		failureEvent,
+		triage,
+		recovery,
+		explanation,
+		rollback,
+	});
+	const recordPath = persistFailureRecord(record, cwd, failureId, warnings);
+
+	return {
+		failure_id: failureId,
+		signature,
+		warnings,
+		triage,
+		record_path: recordPath,
+	};
+}
+
+/** Channel 5 — rollback feasibility. Only runs for file-edit tools with a
+ *  resolvable file path and an active session; pushes the formatted line
+ *  onto `warnings` in place, same as the inline block it replaces. */
+function computeRollback(opts: {
+	event: HarnessEvent;
+	session: SessionTrajectory | undefined;
+	cwd: string;
+	toolName: string;
+	filePath: string | null;
+	warnings: string[];
+}) {
+	const { session, cwd, toolName, filePath, warnings } = opts;
+	if (!filePath || !FILE_EDIT_TOOLS.has(toolName) || !session) return undefined;
+	const provenance = (p: string) => isFileTrackedAsWritten(session, p, cwd);
+	const rollback = safeRun(() => assessRollbackFeasibility(filePath, cwd, provenance), undefined);
+	if (rollback) {
+		const rollbackLine = formatRollbackLine(rollback);
+		if (rollbackLine) warnings.push(rollbackLine);
+	}
+	return rollback;
+}
+
+function buildFailureRecord(opts: {
+	event: HarnessEvent;
+	toolName: string;
+	cwd: string;
+	failureId: string;
+	signature: string;
+	failureEvent: ToolFailureEvent;
+	triage: TriageResult;
+	recovery: string | null;
+	explanation: string | null;
+	rollback: ReturnType<typeof computeRollback>;
+}): FailureRecord {
+	const { event, toolName, cwd, failureId, signature, failureEvent, triage, recovery, explanation, rollback } =
+		opts;
+	return {
 		failure_id: failureId,
 		session_id: event.session_id,
 		agent_source: event.agent_source,
@@ -149,22 +200,21 @@ export function runFailureChannels(opts: {
 		explanation: explanation ?? undefined,
 		rollback,
 	};
-	let recordPath: string;
+}
+
+function persistFailureRecord(
+	record: FailureRecord,
+	cwd: string,
+	failureId: string,
+	warnings: string[],
+): string {
 	try {
 		writeFailureRecord(record, cwd);
-		recordPath = join(cwd, failureRecordRelPath(failureId));
 		warnings.push(`[interlinked:failure] full record: ${failureRecordRelPath(failureId)}`);
+		return join(cwd, failureRecordRelPath(failureId));
 	} catch {
-		recordPath = "";
+		return "";
 	}
-
-	return {
-		failure_id: failureId,
-		signature,
-		warnings,
-		triage,
-		record_path: recordPath,
-	};
 }
 
 function toFailureEvent(event: HarnessEvent): ToolFailureEvent {

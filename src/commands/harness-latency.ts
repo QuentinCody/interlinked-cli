@@ -123,19 +123,55 @@ export function computeLatencyReport(
 		post_tool_use: { timing_count: 0, p50: null, p90: null, p99: null, max: null },
 		slowest_sessions: [],
 	};
-	if (!existsSync(path)) return empty;
+	const raw = readLatencyLog(path);
+	if (raw === null) return empty;
 
-	let raw: string;
+	const records = parseLatencyRecords(raw);
+	const { byHookEvent, postTimings, sessionMax } = aggregateLatencyRecords(records);
+
+	postTimings.sort((a, b) => a - b);
+	const slowestSessions = topSlowestSessions(sessionMax, topN);
+
+	const byTool = opts.compute_by_tool ? computeByToolStats(records) : undefined;
+
+	return {
+		total_events: records.length,
+		by_hook_event: byHookEvent,
+		post_tool_use: {
+			timing_count: postTimings.length,
+			p50: percentile(postTimings, 0.5),
+			p90: percentile(postTimings, 0.9),
+			p99: percentile(postTimings, 0.99),
+			max: postTimings.length > 0 ? (postTimings[postTimings.length - 1] ?? null) : null,
+		},
+		slowest_sessions: slowestSessions,
+		...(byTool ? { by_tool: byTool } : {}),
+	};
+}
+
+/**
+ * Read the latency log, or null when it is missing or unreadable. A null
+ * makes the caller return the empty report rather than crashing
+ * `interlinked harness latency` — `Total events: 0` is correct for a
+ * missing/unreadable log.
+ */
+function readLatencyLog(path: string): string | null {
+	if (!existsSync(path)) return null;
 	try {
-		raw = readFileSync(path, "utf-8");
+		return readFileSync(path, "utf-8");
 	} catch (e) {
-		// fs error reading the log — return empty rather than crashing
-		// `interlinked harness latency`. The user gets `Total events: 0`
-		// which is correct for a missing/unreadable log.
 		void e;
-		return empty;
+		return null;
 	}
+}
 
+/**
+ * Parse every non-blank line of the raw log into records. A malformed line is
+ * skipped silently — the latency log is append-only and occasionally contains
+ * a partial trailing line if the daemon was killed mid-write; we should not
+ * crash the report on it.
+ */
+function parseLatencyRecords(raw: string): LatencyRecord[] {
 	const records: LatencyRecord[] = [];
 	for (const line of raw.split("\n")) {
 		const trimmed = line.trim();
@@ -144,13 +180,22 @@ export function computeLatencyReport(
 			const record = parseLatencyRecord(JSON.parse(trimmed));
 			if (record) records.push(record);
 		} catch (e) {
-			// Malformed line — skip silently. Latency log is append-only and
-			// occasionally contains a partial trailing line if the daemon was
-			// killed mid-write; we should not crash the report on it.
 			void e;
 		}
 	}
+	return records;
+}
 
+interface LatencyAggregates {
+	byHookEvent: Record<string, number>;
+	/** Unsorted — the caller sorts ascending before taking percentiles. */
+	postTimings: number[];
+	sessionMax: Map<string, { max: number; count: number }>;
+}
+
+/** Fold the records into hook-event counts, PostToolUse timings, and the
+ *  per-session max/count used by the slowest-sessions table. */
+function aggregateLatencyRecords(records: LatencyRecord[]): LatencyAggregates {
 	const byHookEvent: Record<string, number> = {};
 	const postTimings: number[] = [];
 	const sessionMax = new Map<string, { max: number; count: number }>();
@@ -168,9 +213,15 @@ export function computeLatencyReport(
 			sessionMax.set(r.session_id, entry);
 		}
 	}
+	return { byHookEvent, postTimings, sessionMax };
+}
 
-	postTimings.sort((a, b) => a - b);
-	const slowestSessions: SlowestSession[] = Array.from(sessionMax.entries())
+/** The `topN` sessions with the highest single-event timing, descending. */
+function topSlowestSessions(
+	sessionMax: Map<string, { max: number; count: number }>,
+	topN: number,
+): SlowestSession[] {
+	return Array.from(sessionMax.entries())
 		.map(([session_id, e]) => ({
 			session_id,
 			max_timing_ms: e.max,
@@ -178,22 +229,6 @@ export function computeLatencyReport(
 		}))
 		.sort((a, b) => b.max_timing_ms - a.max_timing_ms)
 		.slice(0, topN);
-
-	const byTool = opts.compute_by_tool ? computeByToolStats(records) : undefined;
-
-	return {
-		total_events: records.length,
-		by_hook_event: byHookEvent,
-		post_tool_use: {
-			timing_count: postTimings.length,
-			p50: percentile(postTimings, 0.5),
-			p90: percentile(postTimings, 0.9),
-			p99: percentile(postTimings, 0.99),
-			max: postTimings.length > 0 ? (postTimings[postTimings.length - 1] ?? null) : null,
-		},
-		slowest_sessions: slowestSessions,
-		...(byTool ? { by_tool: byTool } : {}),
-	};
 }
 
 /**

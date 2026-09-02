@@ -46,7 +46,10 @@ export function getGitSourceFiles(cwd: string): string[] {
 		const files = raw
 			.split("\0")
 			.filter(Boolean)
-			.filter((f) => /\.(ts|tsx|js|jsx|mjs|cjs)$/.test(f));
+			// Same extension set the per-function gates treat as JS/TS (incl. the
+			// ESM/CJS-flavoured TS files), so a ledger scan sees every file the
+			// gates can put into ledger mode.
+			.filter((f) => /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/.test(f));
 		_gitFilesCache.set(cwd, { files, timestamp: Date.now() });
 		return files;
 	} catch {

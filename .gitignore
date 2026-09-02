@@ -155,6 +155,13 @@ scripts/*
 !scripts/gen-onboarding-demo.mts
 !scripts/onboarding-demo-template.html
 !scripts/smoke-tarball-install.sh
+# Sibling module extracted out of the tracked scripts/audit-receipts.mjs during
+# the cyclomatic burn-down (the parent was already over the line cap, so the
+# per-rule classify arms had to move out). The parent imports it, so a clone
+# without it fails at load; its companion test ships for the same reason every
+# other scripts/*.test.mjs here does.
+!scripts/audit-receipts-classify.mjs
+!scripts/audit-receipts-classify.test.mjs
 
 # Session-internal phase plans + work-in-progress design notes. The older
 # top-level docs/plans/*.md files (security-scanning-pillars, sondera-
@@ -189,6 +196,9 @@ scratch/*
 !.interlinked/structure.json
 !.interlinked/registry-parity.json
 !.interlinked/large-files-baseline.json
+# Per-function complexity grandfather ledger, written by `interlinked caps ratchet`.
+# Committed policy like large-files-baseline.json; the .previous snapshot stays ignored.
+!.interlinked/function-complexity-baseline.json
 # Configurable quality-metric caps (lines / cyclomatic / CRAP / coverage) written
 # by `interlinked caps set`. Committed policy — it MUST surface in PR diffs, so it
 # is carved out of the .interlinked/* ignore like the other team-shared configs.

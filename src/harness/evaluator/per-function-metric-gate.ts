@@ -34,6 +34,9 @@ import {
 	parseApplyPatchSections,
 	reconstructAfterContent,
 } from "../apply-patch-content.js";
+import { appendPlanHints, type PlanHintFn } from "./metric-gate-plan-hints.js";
+import { type FileGrandfather, ledgerOverCapViolation } from "../function-complexity-baseline.js";
+import { ledgerBlockLines } from "./metric-gate-ledger-line.js";
 import { isCappableFile } from "../large-file-policy.js";
 
 /** The only structural requirement on a metric's per-function entry: a name.
@@ -83,6 +86,11 @@ export interface MetricGateSpec<E extends NamedMetricEntry> {
 	capFor: (cwd: string) => number;
 	/** Called (fail-open) when the analyzer for `language` is unavailable. */
 	onAnalyzerUnavailable?: (language: string) => void;
+	/** The grandfather ledger's view of `filePath` (function-complexity-baseline.ts),
+	 *  or null for legacy delta semantics. When present it is AUTHORITATIVE over
+	 *  the cap band: a listed function may hold/shrink at its recorded value; an
+	 *  unlisted over-cap function blocks even when merely held. */
+	grandfatherFor?: (cwd: string, filePath: string) => FileGrandfather | null;
 	/** Message: the noun phrase after "past a" (e.g. "cyclomatic limit"). */
 	limitPhrase: string;
 	/** Message: plural unit for the slew allowance (e.g. "branch(es)"). */
@@ -91,6 +99,9 @@ export interface MetricGateSpec<E extends NamedMetricEntry> {
 	unitAdj: string;
 	/** Message: the metric-specific remediation sentence(s). */
 	advice: string;
+	/** Optional per-function decomposition planner; its sentence is appended as a
+	 *  `↳ plan:` sub-line under the violation naming that function. */
+	planFor?: PlanHintFn;
 }
 
 export interface MetricWriteBlock {
@@ -198,26 +209,52 @@ function uniqueByName<E extends NamedMetricEntry>(
 	return out;
 }
 
+/** Violation text for ONE uniquely-named over-cap entry, or null when allowed.
+ *  Ledger mode delegates to the ledger's rule; legacy mode is the on-disk delta. */
+function overCapText<E extends NamedMetricEntry>(
+	spec: MetricGateSpec<E>,
+	entry: E,
+	prior: number | undefined,
+	gf: FileGrandfather | null,
+): string | null {
+	const value = spec.metricOf(entry);
+	if (gf) return ledgerOverCapViolation(spec.label, entry.name, value, prior, gf);
+	if (prior !== undefined && value <= prior) return null; // held or reduced
+	const how = prior !== undefined ? `raised from ${prior}` : "new over-cap function";
+	return `${entry.name} (${spec.label} ${value}, ${how})`;
+}
+
 /** (1a) Identity-based over-cap violations: a uniquely-named over-cap entry is
- *  compared against ITS OWN prior value, or against the cap when the name is
- *  brand new. Never against another entry's rank. This is what catches a
- *  decomposition that RELOCATES the excess into a new, still-over-cap helper. */
+ *  compared against ITS OWN prior value (and, in ledger mode, its grandfathered
+ *  value), or against the cap when the name is brand new. Never against another
+ *  entry's rank. This is what catches a decomposition that RELOCATES the excess
+ *  into a new, still-over-cap helper. */
 function identityOverCapViolations<E extends NamedMetricEntry>(
 	spec: MetricGateSpec<E>,
 	afterOver: readonly E[],
 	afterNameCounts: Map<string, number>,
 	beforeByName: Map<string, number>,
+	gf: FileGrandfather | null,
 ): string[] {
 	const out: string[] = [];
 	for (const e of afterOver) {
 		if (isAmbiguousName(spec.anonName, e.name, afterNameCounts)) continue;
-		const prior = beforeByName.get(e.name);
-		const value = spec.metricOf(e);
-		if (prior !== undefined && value <= prior) continue; // held or reduced
-		const how = prior !== undefined ? `raised from ${prior}` : "new over-cap function";
-		out.push(`${e.name} (${spec.label} ${value}, ${how})`);
+		const text = overCapText(spec, e, beforeByName.get(e.name), gf);
+		if (text) out.push(text);
 	}
 	return out;
+}
+
+/** Rank-i ceiling for the pooled band: the before-state rank (or the cap),
+ *  further bounded by the ledger's same rank in ledger mode. */
+function pooledCeiling(
+	beforeVal: number | undefined,
+	gf: FileGrandfather | null,
+	rank: number,
+	cap: number,
+): number {
+	const fromBefore = beforeVal ?? cap;
+	return gf ? Math.min(fromBefore, gf.pooled[rank] ?? cap) : fromBefore;
 }
 
 /** (1b) Pooled sorted-multiset comparison, scoped to AMBIGUOUS (anonymous /
@@ -230,6 +267,7 @@ function pooledAmbiguousOverCapViolations<E extends NamedMetricEntry>(
 	afterNameCounts: Map<string, number>,
 	beforeNameCounts: Map<string, number>,
 	cap: number,
+	gf: FileGrandfather | null,
 ): string[] {
 	const afterAmbiguous = afterOver
 		.filter((e) => isAmbiguousName(spec.anonName, e.name, afterNameCounts))
@@ -247,7 +285,7 @@ function pooledAmbiguousOverCapViolations<E extends NamedMetricEntry>(
 	const out: string[] = [];
 	for (let i = 0; i < afterAmbiguous.length; i++) {
 		const post = nonNull(afterAmbiguous[i]);
-		const baseline = beforeVals[i] ?? cap;
+		const baseline = pooledCeiling(beforeVals[i], gf, i, cap);
 		const value = spec.metricOf(post);
 		if (value <= baseline) continue; // this rank held or reduced
 		const how =
@@ -301,6 +339,7 @@ export function metricViolations<E extends NamedMetricEntry>(
 	analyzer: MetricAnalyzer<E>,
 	cap: number,
 	observe?: MetricObserver<E>,
+	gf: FileGrandfather | null = null,
 ): string[] | null {
 	const afterEntries = analyzer.compute(after, filePath);
 	if (!afterEntries) {
@@ -323,6 +362,7 @@ export function metricViolations<E extends NamedMetricEntry>(
 				afterOver,
 				afterNameCounts,
 				maxByName(spec, beforeEntries),
+				gf,
 			),
 		);
 		violations.push(
@@ -333,11 +373,13 @@ export function metricViolations<E extends NamedMetricEntry>(
 				afterNameCounts,
 				countByName(beforeEntries),
 				cap,
+				gf,
 			),
 		);
 	}
 	violations.push(...subCapSlewViolations(spec, beforeEntries, afterEntries, cap));
-	return violations;
+	if (!spec.planFor) return violations;
+	return appendPlanHints(violations, afterOver, spec.anonName, spec.planFor, after, filePath, cap);
 }
 
 /** The shared block payload for a set of violation strings. */
@@ -345,7 +387,9 @@ export function buildMetricBlock<E extends NamedMetricEntry>(
 	spec: MetricGateSpec<E>,
 	violations: string[],
 	cap: number,
+	gf: FileGrandfather | null = null,
 ): string {
+	const ledgerLine = ledgerBlockLines(spec.label, gf, cap);
 	const policy = spec.slewTolerance === null
 		? `no function may exceed the ${cap}-${spec.unitAdj} cap`
 		: `a function may rise by at most ${spec.slewTolerance} ${spec.unitPlural} ` +
@@ -357,7 +401,8 @@ export function buildMetricBlock<E extends NamedMetricEntry>(
 		`${spec.advice} Holding or reducing an existing function is always allowed; ` +
 		"there is no suppression.\n" +
 		`This ${cap}-${spec.unitAdj} cap is per-repo configurable: \`interlinked caps set ${spec.label} <n>\` ` +
-		`(run \`interlinked caps explain ${spec.label}\` for what ${spec.label} complexity measures).`
+		`(run \`interlinked caps explain ${spec.label}\` for what ${spec.label} complexity measures).` +
+		ledgerLine
 	);
 }
 
@@ -378,6 +423,7 @@ function checkApplyPatch<E extends NamedMetricEntry>(
 
 	const violations: string[] = [];
 	const cap = spec.capFor(cwd);
+	let lastGf: FileGrandfather | null = null;
 	for (const section of parseApplyPatchSections(raw)) {
 		const analyzer = spec.selectAnalyzer(section.path);
 		if (!analyzer) continue; // extension the metric can't analyze → skip
@@ -391,6 +437,7 @@ function checkApplyPatch<E extends NamedMetricEntry>(
 		const after = reconstructAfterContent(section, before);
 		if (after === null) continue; // can't reconstruct confidently → fail open for this file
 		if (!isCappableFile({ filePath: section.path, content: after, root: cwd })) continue;
+		const gf = spec.grandfatherFor?.(cwd, section.path) ?? null;
 		const fileViolations = metricViolations(
 			spec,
 			before,
@@ -399,12 +446,14 @@ function checkApplyPatch<E extends NamedMetricEntry>(
 			analyzer,
 			cap,
 			observe,
+			gf,
 		);
 		if (fileViolations === null) return null; // analyzer unavailable → fail open entirely
 		for (const item of fileViolations) violations.push(`${section.path}: ${item}`);
+		if (fileViolations.length > 0) lastGf = gf;
 	}
 	if (violations.length === 0) return null;
-	return { block: buildMetricBlock(spec, violations, cap) };
+	return { block: buildMetricBlock(spec, violations, cap, lastGf) };
 }
 
 /**
@@ -428,6 +477,7 @@ export function checkPerFunctionMetricWrite<E extends NamedMetricEntry>(
 		if (!projected) return null;
 		if (!isCappableFile({ filePath, content: projected.after, root: cwd })) return null;
 		const cap = spec.capFor(cwd);
+		const gf = spec.grandfatherFor?.(cwd, filePath) ?? null;
 		const violations = metricViolations(
 			spec,
 			projected.before,
@@ -436,9 +486,10 @@ export function checkPerFunctionMetricWrite<E extends NamedMetricEntry>(
 			analyzer,
 			cap,
 			observe,
+			gf,
 		);
 		if (violations === null || violations.length === 0) return null;
-		return { block: buildMetricBlock(spec, violations, cap) };
+		return { block: buildMetricBlock(spec, violations, cap, gf) };
 	}
 	// No explicit file_path → may be an apply_patch payload (multi-file).
 	return checkApplyPatch(spec, toolInput, cwd, observe);

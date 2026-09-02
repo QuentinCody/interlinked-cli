@@ -72,6 +72,31 @@ function unwrapParens(ts: TsModule, node: TS.Node): TS.Node {
 	return cur;
 }
 
+/** Loop/switch/ternary/catch: the four constructs that add a nesting-paying increment. */
+function isNestingConstruct(ts: TsModule, node: TS.Node): boolean {
+	return (
+		isLoop(ts, node) ||
+		ts.isSwitchStatement(node) ||
+		ts.isConditionalExpression(node) ||
+		ts.isCatchClause(node)
+	);
+}
+
+/** A labeled `break`/`continue` — Sonar's +1 for jumping out of the immediate structure. */
+function isLabeledJump(ts: TsModule, node: TS.Node): boolean {
+	return (ts.isBreakStatement(node) || ts.isContinueStatement(node)) && !!node.label;
+}
+
+/** A direct self-call by name, used for the one-time recursion +1. */
+function isRecursiveCall(ts: TsModule, node: TS.Node, unitName: string, recursable: boolean): boolean {
+	return (
+		recursable &&
+		ts.isCallExpression(node) &&
+		ts.isIdentifier(node.expression) &&
+		node.expression.text === unitName
+	);
+}
+
 interface UnitScore {
 	cognitive: number;
 	maxNesting: number;
@@ -123,12 +148,7 @@ function scoreUnit(ts: TsModule, fn: TS.Node, unitName: string, initialNesting: 
 			visitIf(node, nesting, false);
 			return;
 		}
-		if (
-			isLoop(ts, node) ||
-			ts.isSwitchStatement(node) ||
-			ts.isConditionalExpression(node) ||
-			ts.isCatchClause(node)
-		) {
+		if (isNestingConstruct(ts, node)) {
 			addNested(nesting);
 			descend(node, nesting + 1);
 			return;
@@ -142,15 +162,10 @@ function scoreUnit(ts: TsModule, fn: TS.Node, unitName: string, initialNesting: 
 			descend(node, nesting);
 			return;
 		}
-		if ((ts.isBreakStatement(node) || ts.isContinueStatement(node)) && node.label) {
+		if (isLabeledJump(ts, node)) {
 			cognitive += 1;
 		}
-		if (
-			recursable &&
-			ts.isCallExpression(node) &&
-			ts.isIdentifier(node.expression) &&
-			node.expression.text === unitName
-		) {
+		if (isRecursiveCall(ts, node, unitName, recursable)) {
 			recursionState.recursed = true;
 		}
 		descend(node, nesting);

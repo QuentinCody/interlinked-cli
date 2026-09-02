@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "metrics": {
+    "cyclomatic": {
+      "cap": 16,
+      "entries": []
+    }
+  }
+}

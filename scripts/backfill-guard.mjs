@@ -33,20 +33,51 @@ if (!existsSync(transcriptDir) || !existsSync(activityPath)) {
 	process.exit(1);
 }
 
+function isTrackedSourceFileReason(r) {
+	return r.includes("tracked source file");
+}
+function isNewSourceFileReason(r) {
+	return r.includes("new source file");
+}
+function isLineCapReason(r) {
+	return r.includes("line") && (r.includes("grow") || r.includes("cap"));
+}
+function isComplexityReason(r) {
+	return r.includes("cyclomatic") || r.includes("complex") || r.includes("function(s)");
+}
+function isCoverageReason(r) {
+	return r.includes("coverage") || r.includes("uncovered");
+}
+function isGitResetHardReason(r) {
+	return r.includes("reset --hard");
+}
+function isDestructiveRmReason(r) {
+	return r.includes("recursive deletion") || r.includes("force-delete") || r.includes("rm -rf");
+}
+function isForcePushReason(r) {
+	return r.includes("force") && r.includes("push");
+}
+function isBaselineReason(r) {
+	return r.includes("baseline");
+}
+function isSecretsReason(r) {
+	return r.includes("secret") || r.includes("redact");
+}
+
 /** Best-effort map a harness reason line to the rule that most likely produced
  *  it. Unmatched reasons keep a null rule_id (the verbatim reason is retained). */
 function ruleIdFromReason(reason) {
 	const r = reason.toLowerCase();
-	if (r.includes("tracked source file")) return "content-quality-gate";
-	if (r.includes("new source file")) return "tdd_gate";
-	if (r.includes("line") && (r.includes("grow") || r.includes("cap"))) return "large_files";
-	if (r.includes("cyclomatic") || r.includes("complex") || r.includes("function(s)")) return "complexity";
-	if (r.includes("coverage") || r.includes("uncovered")) return "per_edit_coverage";
-	if (r.includes("reset --hard")) return "destructive-git-reset";
-	if (r.includes("recursive deletion") || r.includes("force-delete") || r.includes("rm -rf")) return "destructive-rm";
-	if (r.includes("force") && r.includes("push")) return "force-push";
-	if (r.includes("baseline")) return "baseline_integrity_gate";
-	if (r.includes("secret") || r.includes("redact")) return "secrets";
+	if (isTrackedSourceFileReason(r)) return "content-quality-gate";
+	if (isNewSourceFileReason(r)) return "tdd_gate";
+	if (isLineCapReason(r)) return "large_files";
+	if (isComplexityReason(r)) return "complexity";
+	if (isCoverageReason(r)) return "per_edit_coverage";
+	if (isGitResetHardReason(r)) return "destructive-git-reset";
+	if (isDestructiveRmReason(r)) return "destructive-rm";
+	if (isForcePushReason(r)) return "force-push";
+	if (isBaselineReason(r)) return "baseline_integrity_gate";
+	if (isSecretsReason(r)) return "secrets";
 	return null;
 }
 

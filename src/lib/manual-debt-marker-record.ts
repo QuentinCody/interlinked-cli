@@ -11,10 +11,8 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { canonicalJson } from "./audit-chain.js";
 import { interlinkedPath } from "./interlinked-path.js";
 import { isJsonObject } from "./json-types.js";
-import {
-    DEBT_MARKER_ADVISORY_CODES,
-    type DebtMarkerAdvisoryCode,
-} from "./manual-debt-marker-parser.js";
+import { DEBT_MARKER_ADVISORY_CODES, type DebtMarkerAdvisoryCode } from "./manual-debt-marker-parser.js";
+import { parseTransition } from "./manual-debt-marker-transition.js";
 import type {
     DebtMarkerAdvisory,
     DebtMarkerCoverage,
@@ -26,9 +24,9 @@ import type {
 const RECEIPT_SCHEMA_VERSION = 1 as const;
 const RECEIPT_FILE = "manual-marker-snapshots.jsonl";
 
-type ManualDebtMarkerTransitionAction = "opened" | "changed" | "closed";
+export type ManualDebtMarkerTransitionAction = "opened" | "changed" | "closed";
 
-interface ManualDebtMarkerTransition {
+export interface ManualDebtMarkerTransition {
     action: ManualDebtMarkerTransitionAction;
     fingerprint: string;
     before: ManualDebtMarker | null;
@@ -86,7 +84,7 @@ export function manualDebtMarkerSnapshotFingerprint(
     return sha256(`manual-debt-marker-snapshot/v2\0${canonicalJson(material)}`);
 }
 
-function nonEmptyString(value: unknown): string | null {
+export function nonEmptyString(value: unknown): string | null {
     return typeof value === "string" && value.length > 0 ? value : null;
 }
 
@@ -153,7 +151,7 @@ function markerOptionalFields(value: Record<string, unknown>): Partial<ManualDeb
     };
 }
 
-function parseMarker(value: unknown): ManualDebtMarker | null {
+export function parseMarker(value: unknown): ManualDebtMarker | null {
     if (!isJsonObject(value)) return null;
     const fingerprint = nonEmptyString(value.fingerprint);
     const contentFingerprint = nonEmptyString(value.content_fingerprint);
@@ -302,7 +300,7 @@ function parseDebtMarkerScanResult(value: unknown): DebtMarkerScanResult | null 
     };
 }
 
-function markerChanged(before: ManualDebtMarker, after: ManualDebtMarker): boolean {
+export function markerChanged(before: ManualDebtMarker, after: ManualDebtMarker): boolean {
     return before.file !== after.file || before.content_fingerprint !== after.content_fingerprint;
 }
 
@@ -368,27 +366,6 @@ function markerAbsenceVerified(
     const selected = scan.coverage.roots.some((root) =>
         pathInside(resolve(scan.repository.root, root), absolute));
     return selected && !existsSync(absolute);
-}
-
-function parseTransition(value: unknown): ManualDebtMarkerTransition | null {
-    if (!isJsonObject(value)) return null;
-    const fingerprint = nonEmptyString(value.fingerprint);
-    if (!fingerprint) return null;
-    const before = value.before === null ? null : parseMarker(value.before);
-    const after = value.after === null ? null : parseMarker(value.after);
-    if (value.before !== null && !before) return null;
-    if (value.after !== null && !after) return null;
-    if (value.action === "opened" && before === null && after?.fingerprint === fingerprint) {
-        return { action: "opened", fingerprint, before: null, after };
-    }
-    if (value.action === "closed" && after === null && before?.fingerprint === fingerprint) {
-        return { action: "closed", fingerprint, before, after: null };
-    }
-    if (value.action === "changed" && before?.fingerprint === fingerprint
-        && after?.fingerprint === fingerprint && markerChanged(before, after)) {
-        return { action: "changed", fingerprint, before, after };
-    }
-    return null;
 }
 
 export function parseManualDebtMarkerSnapshotReceipt(

@@ -174,15 +174,9 @@ export function makeEventId(): string {
 	return `evt-${now.toString(36)}-${rand}`;
 }
 
-/** Guard that verifies the envelope conforms to the v1 schema before handing it
- *  to the evaluator. Returns a list of violations; empty = valid.
- *  Intentionally permissive: unknown fields are allowed. */
-export function validateUnifiedEvent(event: unknown): string[] {
-	if (event == null || typeof event !== "object") {
-		return ["event must be an object"];
-	}
-	const e = event as JsonObject;
-	const problems: string[] = [];
+/** Checks the required scalar identity/timestamp fields (schema_version, event_id,
+ *  session_id, ts). Pushes any violations onto `problems`. */
+function validateUnifiedEventIdentity(e: JsonObject, problems: string[]): void {
 	if (e.schema_version !== "1") {
 		problems.push(`schema_version must be "1", got ${JSON.stringify(e.schema_version)}`);
 	}
@@ -195,6 +189,11 @@ export function validateUnifiedEvent(event: unknown): string[] {
 	if (typeof e.ts !== "string") {
 		problems.push("ts must be an ISO 8601 string");
 	}
+}
+
+/** Checks the required runner/phase scalar fields (runner, runner_native_event,
+ *  phase). Pushes any violations onto `problems`. */
+function validateUnifiedEventRunnerPhase(e: JsonObject, problems: string[]): void {
 	if (typeof e.runner !== "string") {
 		problems.push("runner must be a RunnerId string");
 	}
@@ -204,6 +203,11 @@ export function validateUnifiedEvent(event: unknown): string[] {
 	if (typeof e.phase !== "string") {
 		problems.push("phase must be a UnifiedPhase string");
 	}
+}
+
+/** Checks the `context` and `action` nested-object fields. Pushes any
+ *  violations onto `problems`. */
+function validateUnifiedEventNested(e: JsonObject, problems: string[]): void {
 	const ctx = e.context as { cwd?: unknown } | undefined;
 	if (!ctx || typeof ctx !== "object" || typeof ctx.cwd !== "string") {
 		problems.push("context.cwd must be a string");
@@ -212,6 +216,20 @@ export function validateUnifiedEvent(event: unknown): string[] {
 	if (!action || typeof action !== "object" || typeof action.kind !== "string") {
 		problems.push("action.kind must be a string");
 	}
+}
+
+/** Guard that verifies the envelope conforms to the v1 schema before handing it
+ *  to the evaluator. Returns a list of violations; empty = valid.
+ *  Intentionally permissive: unknown fields are allowed. */
+export function validateUnifiedEvent(event: unknown): string[] {
+	if (event == null || typeof event !== "object") {
+		return ["event must be an object"];
+	}
+	const e = event as JsonObject;
+	const problems: string[] = [];
+	validateUnifiedEventIdentity(e, problems);
+	validateUnifiedEventRunnerPhase(e, problems);
+	validateUnifiedEventNested(e, problems);
 	return problems;
 }
 

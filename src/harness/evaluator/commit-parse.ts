@@ -325,34 +325,60 @@ interface AddState {
  *     it at run time, so an exact-match filter would match nothing and silently
  *     evaluate NO source (finding 2026-06).
  */
+/**
+ * A plain-add path UNDER a commit pathspec is content this commit DOES
+ * contain (the add tracks it before the commit runs) — merge it into
+ * `specific` so the snapshot overlays it in full ALONGSIDE the tracked-only
+ * dir scope, instead of widening the whole scope to a raw copy (round 5). A
+ * glob add under the pathspec lands here too and degrades to broad below via
+ * `isNonLiteralPathspec` — unknowable fails toward evaluating MORE. Mutates
+ * `specific` in place (helper for {@link applyConstructedContent}).
+ */
+function mergeCoveredAddPaths(seg: SegmentCommit, add: AddState, specific: string[]): void {
+	const fullAdds = add.addPaths.filter((p) => !add.updateOnlyPaths.includes(p));
+	for (const f of fullAdds) {
+		if (seg.pathspecs.some((p) => pathCovers(p, f)) && !specific.includes(f)) {
+			specific.push(f);
+		}
+	}
+}
+
+/** True when the commit's constructed content set must be treated as BROAD
+ *  (evaluate the whole worktree) rather than the specific paths collected so
+ *  far — see the `applyConstructedContent` doc comment for each case. */
+function isBroadConstruction(
+	onlyNamedPaths: boolean,
+	seg: SegmentCommit,
+	add: AddState,
+	specific: string[],
+): boolean {
+	return (
+		(onlyNamedPaths ? false : add.addBroad) ||
+		seg.pathspecFromFile ||
+		seg.all ||
+		specific.some(isNonLiteralPathspec)
+	);
+}
+
+/** True when the commit ALSO captures the pre-existing staged index (see
+ *  {@link CommitParse.includesIndex}). */
+function includesStagedIndex(seg: SegmentCommit, add: AddState): boolean {
+	return seg.include || (add.sawGitAdd && seg.pathspecs.length === 0 && !seg.pathspecFromFile);
+}
+
 function applyConstructedContent(parse: CommitParse, seg: SegmentCommit, add: AddState): void {
 	const onlyNamedPaths = seg.pathspecs.length > 0 && !seg.include;
 	const specific = onlyNamedPaths ? [...seg.pathspecs] : [...seg.pathspecs, ...add.addPaths];
 	if (onlyNamedPaths) {
-		// A plain-add path UNDER a commit pathspec is content this commit DOES
-		// contain (the add tracks it before the commit runs) — surface it so the
-		// snapshot overlays it in full ALONGSIDE the tracked-only dir scope,
-		// instead of widening the whole scope to a raw copy (round 5). A glob
-		// add under the pathspec lands here too and degrades to broad below via
-		// isNonLiteralPathspec — unknowable fails toward evaluating MORE.
-		const fullAdds = add.addPaths.filter((p) => !add.updateOnlyPaths.includes(p));
-		for (const f of fullAdds) {
-			if (seg.pathspecs.some((p) => pathCovers(p, f)) && !specific.includes(f)) {
-				specific.push(f);
-			}
-		}
+		mergeCoveredAddPaths(seg, add, specific);
 	}
-	const broad =
-		(onlyNamedPaths ? false : add.addBroad) ||
-		seg.pathspecFromFile ||
-		seg.all ||
-		specific.some(isNonLiteralPathspec);
+	const broad = isBroadConstruction(onlyNamedPaths, seg, add, specific);
 	if (!broad && specific.length > 0) {
 		parse.constructedPaths = specific;
 		const trackedOnly = trackedOnlySubset(seg, add);
 		if (trackedOnly.length > 0) parse.trackedOnlyPaths = trackedOnly;
 	}
-	if (seg.include || (add.sawGitAdd && seg.pathspecs.length === 0 && !seg.pathspecFromFile)) {
+	if (includesStagedIndex(seg, add)) {
 		parse.includesIndex = true;
 	}
 }

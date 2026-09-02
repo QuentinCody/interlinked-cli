@@ -7,7 +7,7 @@
 // universal equivalence claims.
 
 import { createHash } from "node:crypto";
-import { isJsonObject } from "./json-types.js";
+import { isJsonObject, type JsonObject } from "./json-types.js";
 import { canonicalSimplificationAgentCiJson } from "./simplification-agent-ci-request.js";
 import { isPinnedExactVersion } from "./simplification-version.js";
 
@@ -106,6 +106,45 @@ function parseProvenance(
 	};
 }
 
+type SimplificationCapabilityEntryScalars = {
+	id: string;
+	remedy: SimplificationCapabilityRemedy;
+	capability: string;
+	support: SimplificationCapabilitySupport;
+	equivalence: SimplificationCapabilityEquivalence;
+	contract_sha256: string;
+	fixture_sha256: string | null;
+	limitations: string[];
+};
+
+function hasValidEntryScalars(
+	value: JsonObject,
+	target: SimplificationCapabilityEntry["target"] | null,
+): value is SimplificationCapabilityEntryScalars {
+	if (
+		!target || !nonempty(value.id) || !member(value.remedy, REMEDIES)
+		|| !nonempty(value.capability)
+	) {
+		return false;
+	}
+	if (!member(value.support, SUPPORT) || !member(value.equivalence, EQUIVALENCE)) {
+		return false;
+	}
+	if (!sha256(value.contract_sha256) || !canonicalStrings(value.limitations)) return false;
+	if (value.fixture_sha256 !== null && !sha256(value.fixture_sha256)) return false;
+	return true;
+}
+
+function hasConsistentEntryEquivalence(
+	value: Pick<SimplificationCapabilityEntryScalars, "equivalence" | "support" | "fixture_sha256">,
+	provenance: SimplificationCapabilityEntry["provenance"] | null,
+): provenance is SimplificationCapabilityEntry["provenance"] {
+	if (!provenance) return false;
+	if (value.equivalence === "fixture-validated" && value.fixture_sha256 === null) return false;
+	if (value.support !== "available" && value.equivalence === "fixture-validated") return false;
+	return true;
+}
+
 function parseEntry(value: unknown): SimplificationCapabilityEntry | null {
 	if (!isJsonObject(value) || !exactKeys(
 		value,
@@ -124,17 +163,10 @@ function parseEntry(value: unknown): SimplificationCapabilityEntry | null {
 	)) return null;
 	const target = parseTarget(value.target);
 	const provenance = parseProvenance(value.provenance);
-	if (!nonempty(value.id) || !member(value.remedy, REMEDIES) || !nonempty(value.capability)) {
+	if (!target) return null;
+	if (!hasValidEntryScalars(value, target) || !hasConsistentEntryEquivalence(value, provenance)) {
 		return null;
 	}
-	if (!target || !member(value.support, SUPPORT) || !member(value.equivalence, EQUIVALENCE)) {
-		return null;
-	}
-	if (!sha256(value.contract_sha256) || !canonicalStrings(value.limitations)) return null;
-	if (value.fixture_sha256 !== null && !sha256(value.fixture_sha256)) return null;
-	if (!provenance) return null;
-	if (value.equivalence === "fixture-validated" && value.fixture_sha256 === null) return null;
-	if (value.support !== "available" && value.equivalence === "fixture-validated") return null;
 	return {
 		id: value.id,
 		remedy: value.remedy,

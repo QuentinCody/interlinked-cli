@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ASSERTION_WAIVER_ENV, ASSERTION_WAIVER_LOG } from "../assertion-waiver-log.js";
 import type { GuardRulesConfig, HarnessEvent } from "../types.js";
 import { evaluateMutationDirectedProfile } from "./mutation-directed-guard.js";
 
@@ -269,5 +270,235 @@ describe("evaluateMutationDirectedProfile — GATE 1 zero-finding loop", () => {
 		const decision = evaluateMutationDirectedProfile(event, STRICT_ON, "Write", event.tool_input!, warnings);
 		expect(decision).toBeNull();
 		expect(warnings).toEqual([]);
+	});
+});
+
+// ─── GATE 2 assertion MOVES + campaign waiver ─────────────────────────────────
+
+const TWO_ASSERTIONS = 'it("x", () => {\n  expect(a).toBe(1);\n  expect(b).toBe(2);\n});';
+const ONE_ASSERTION = 'it("x", () => {\n  expect(a).toBe(1);\n});';
+
+/** A mutation-directed file seeded with TWO_ASSERTIONS on disk. */
+function seedPrimary(): string {
+	const filePath = join(dir, "widget.mutation-kill.test.ts");
+	writeFileSync(filePath, TWO_ASSERTIONS, "utf-8");
+	return filePath;
+}
+
+function ledgerPath(): string {
+	return join(dir, ".interlinked", ASSERTION_WAIVER_LOG);
+}
+
+describe("evaluateMutationDirectedProfile — GATE 2 assertion moves — positive (must fire)", () => {
+	// test-contract: invariant — a plain removal (nothing equivalent added in
+	// the edit) blocks exactly as before the move-awareness landed.
+	it("P1: a plain removal with nothing added still blocks (flag ON)", () => {
+		const filePath = seedPrimary();
+		const event = writeEvent(filePath, ONE_ASSERTION);
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(event, STRICT_ON, "Write", event.tool_input!, warnings);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.rule_id).toBe("mutation_directed_assertion_removal");
+	});
+
+	// test-contract: boundary — an added assertion with a different expected
+	// value is not equivalent; the removal still blocks.
+	it("P2: a removal paired with a NON-equivalent addition still blocks", () => {
+		const filePath = seedPrimary();
+		const event = writeEvent(filePath, 'it("x", () => {\n  expect(a).toBe(1);\n  expect(b).toBe(3);\n});');
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(event, STRICT_ON, "Write", event.tool_input!, warnings);
+		expect(decision?.decision).toBe("block");
+	});
+
+	// test-contract: boundary — an `edits[]` entry WITHOUT its own file_path
+	// is a same-file MultiEdit entry, not a sibling; it contributes nothing.
+	it("P3: an edits[] entry with no file_path is not a sibling and cannot pay for the removal", () => {
+		const filePath = seedPrimary();
+		const event = writeEvent(filePath, ONE_ASSERTION);
+		event.tool_input = { ...event.tool_input, edits: [{ old_string: "", new_string: "expect(z).toBe(2);" }] };
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(event, STRICT_ON, "Write", event.tool_input, warnings);
+		expect(decision?.decision).toBe("block");
+	});
+
+	// test-contract: security — the review's counter-example: kill evidence
+	// (`expect(killed).toBe(true)`) deleted from one case and a trivial
+	// same-matcher assertion on a DIFFERENT subject added to an unrelated case
+	// must still block; the subject is part of the equivalence key.
+	it("P4: a low-entropy literal re-asserted on another subject in an unrelated block still blocks", () => {
+		const filePath = join(dir, "widget.mutation-kill.test.ts");
+		writeFileSync(filePath, 'it("mutant 12 dies", () => {\n  expect(killed).toBe(true);\n});', "utf-8");
+		const receipt = "// test-contract: invariant — flag is set";
+		const event = writeEvent(filePath, `it("mutant 12 dies", () => {\n});\n${receipt}\nit("other", () => {\n  expect(flag).toBe(true);\n});`);
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(event, STRICT_ON, "Write", event.tool_input!, warnings);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain('"expect(killed).toBe(true);"');
+	});
+});
+
+describe("evaluateMutationDirectedProfile — GATE 2 assertion moves — negative (must not fire)", () => {
+	// test-contract: public-api — moving an assertion into another test block
+	// (same file, same subject, different spacing) is a move: no warning, no block.
+	it("N1: a same-file move into another test block passes silently", () => {
+		const filePath = seedPrimary();
+		// The new case carries a receipt so GATE 1 (test_legitimacy) stays quiet
+		// and only GATE 2's verdict is under test here.
+		const receipt = "// test-contract: invariant — b stays 2 after the move";
+		const event = writeEvent(filePath, `${ONE_ASSERTION}\n${receipt}\nit("y", () => {\n  expect( b ).toBe( 2 );\n});`);
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(event, STRICT_ON, "Write", event.tool_input!, warnings);
+		expect(decision).toBeNull();
+		expect(warnings.some((w) => w.includes("mutation_directed_assertion_removal"))).toBe(false);
+	});
+
+	// test-contract: public-api — a sibling file in the same edit payload
+	// (`edits[]` entry with its own file_path) that ADDS the equivalent
+	// assertion pays for the removal here.
+	it("N2: a cross-file move into a sibling of the same edit passes silently", () => {
+		const filePath = seedPrimary();
+		const siblingPath = join(dir, "other.mutation-kill.test.ts");
+		writeFileSync(siblingPath, 'it("y", () => {\n  expect(c).toBe(3);\n});', "utf-8");
+		const event = writeEvent(filePath, ONE_ASSERTION);
+		event.tool_input = {
+			...event.tool_input,
+			edits: [{ file_path: siblingPath, content: 'it("y", () => {\n  expect(c).toBe(3);\n  expect(b).toBe(2);\n});' }],
+		};
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(event, STRICT_ON, "Write", event.tool_input, warnings);
+		expect(decision).toBeNull();
+		expect(warnings.some((w) => w.includes("mutation_directed_assertion_removal"))).toBe(false);
+	});
+});
+
+describe("evaluateMutationDirectedProfile — campaign waiver (INTERLINKED_ASSERTION_MOVE_WAIVER) — positive (must fire)", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	// test-contract: invariant — a waiver with no ledger to land in is not a
+	// waiver: the block stands and the warning says why.
+	it("P1: waiver set but no .interlinked directory ⇒ block as usual", () => {
+		vi.stubEnv(ASSERTION_WAIVER_ENV, "1");
+		const filePath = seedPrimary();
+		const event = writeEvent(filePath, ONE_ASSERTION);
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(event, STRICT_ON, "Write", event.tool_input!, warnings);
+		expect(decision?.decision).toBe("block");
+		expect(warnings.some((w) => w.includes("waiver NOT honored"))).toBe(true);
+	});
+
+	// test-contract: boundary — the waiver only ever converts a BLOCK; with the
+	// flag off the removal WARNING still fires and nothing is written because
+	// nothing would have blocked.
+	it("P2: waiver set but strict profile off ⇒ warn only, no ledger row", () => {
+		vi.stubEnv(ASSERTION_WAIVER_ENV, "1");
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		const filePath = seedPrimary();
+		const event = writeEvent(filePath, ONE_ASSERTION);
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(event, BASE_RULES, "Write", event.tool_input!, warnings);
+		expect(decision).toBeNull();
+		expect(warnings.some((w) => w.includes("removes 1 test-case/assertion"))).toBe(true);
+		expect(existsSync(ledgerPath())).toBe(false);
+	});
+
+	// test-contract: boundary — the second call of a cross-file move redeems
+	// only an EQUIVALENT line; a different subject leaves the pending row
+	// pending and writes no redemption row.
+	it("P3: a later addition with a different subject redeems nothing", () => {
+		vi.stubEnv(ASSERTION_WAIVER_ENV, "1");
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		const first = writeEvent(seedPrimary(), ONE_ASSERTION);
+		expect(evaluateMutationDirectedProfile(first, STRICT_ON, "Write", first.tool_input!, [])).toBeNull();
+		const otherPath = join(dir, "other.mutation-kill.test.ts");
+		const second = writeEvent(otherPath, 'it("y", () => {\n  expect(flag).toBe(2);\n});');
+		const warnings: string[] = [];
+		evaluateMutationDirectedProfile(second, STRICT_ON, "Write", second.tool_input!, warnings);
+		expect(warnings.some((w) => w.includes("REDEEMED"))).toBe(false);
+		const rows = readFileSync(ledgerPath(), "utf-8").trimEnd().split("\n");
+		expect(rows).toHaveLength(1);
+	});
+});
+
+describe("evaluateMutationDirectedProfile — campaign waiver (INTERLINKED_ASSERTION_MOVE_WAIVER) — negative (must not fire)", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
+	// test-contract: public-api — with the waiver set, a would-be block becomes
+	// an allow and every removal is recorded to the ledger with file, line,
+	// assertion text and session id.
+	it("N1: waiver set ⇒ allow + one ledger row per removed line", () => {
+		vi.stubEnv(ASSERTION_WAIVER_ENV, "1");
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		const filePath = seedPrimary();
+		const event = writeEvent(filePath, ONE_ASSERTION);
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(event, STRICT_ON, "Write", event.tool_input!, warnings);
+		expect(decision).toBeNull();
+		expect(warnings.some((w) => w.includes("WAIVED 1 assertion removal(s)"))).toBe(true);
+		const rows = readFileSync(ledgerPath(), "utf-8").trimEnd().split("\n").map((l) => JSON.parse(l));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			file: filePath,
+			line: 3,
+			assertion: "expect(b).toBe(2);",
+			session_id: "s",
+			rule_id: "mutation_directed_assertion_removal",
+		});
+	});
+
+	// test-contract: invariant — a dry run must not move the gate: the waiver
+	// verdict is computed, but no ledger row is written.
+	it("N2: dry_run ⇒ allow, nothing persisted", () => {
+		vi.stubEnv(ASSERTION_WAIVER_ENV, "1");
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		const filePath = seedPrimary();
+		const event = { ...writeEvent(filePath, ONE_ASSERTION), dry_run: true };
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(event, STRICT_ON, "Write", event.tool_input!, warnings);
+		expect(decision).toBeNull();
+		expect(warnings.some((w) => w.includes("dry run: not persisted"))).toBe(true);
+		expect(existsSync(ledgerPath())).toBe(false);
+	});
+
+	// test-contract: public-api — the cross-file move as Claude Code sends it
+	// (two calls): the waived removal in call 1 is REDEEMED by call 2's
+	// equivalent addition in another mutation-directed file — a `redeemed_by`
+	// row is appended and the warning names the source file.
+	it("N3: a later same-session addition in another file redeems the waived removal", () => {
+		vi.stubEnv(ASSERTION_WAIVER_ENV, "1");
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		const primary = seedPrimary();
+		const first = writeEvent(primary, ONE_ASSERTION);
+		expect(evaluateMutationDirectedProfile(first, STRICT_ON, "Write", first.tool_input!, [])).toBeNull();
+		const otherPath = join(dir, "other.mutation-kill.test.ts");
+		const receipt = "// test-contract: invariant — b stays 2 after the move";
+		// SUT import + receipt keep GATE 1 quiet so only redemption is under test.
+		const second = writeEvent(otherPath, `import "./other.js";\n${receipt}\nit("y", () => {\n  expect( b ).toBe( 2 );\n});`);
+		const warnings: string[] = [];
+		const decision = evaluateMutationDirectedProfile(second, STRICT_ON, "Write", second.tool_input!, warnings);
+		expect(decision).toBeNull();
+		expect(warnings.some((w) => w.includes(`REDEEMED 1 waived removal(s) from ${primary}`))).toBe(true);
+		const rows = readFileSync(ledgerPath(), "utf-8").trimEnd().split("\n").map((l) => JSON.parse(l));
+		expect(rows).toHaveLength(2);
+		expect(rows[1]).toMatchObject({ file: primary, line: 3, assertion: "expect(b).toBe(2);", redeemed_by: otherPath });
+	});
+
+	// test-contract: invariant — a dry-run addition reports the redemption
+	// but writes no row (a dry run must not move the gate).
+	it("N4: a dry-run addition reports the redemption without persisting it", () => {
+		vi.stubEnv(ASSERTION_WAIVER_ENV, "1");
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		const first = writeEvent(seedPrimary(), ONE_ASSERTION);
+		expect(evaluateMutationDirectedProfile(first, STRICT_ON, "Write", first.tool_input!, [])).toBeNull();
+		const otherPath = join(dir, "other.mutation-kill.test.ts");
+		const second = { ...writeEvent(otherPath, 'it("y", () => {\n  expect(b).toBe(2);\n});'), dry_run: true };
+		const warnings: string[] = [];
+		evaluateMutationDirectedProfile(second, STRICT_ON, "Write", second.tool_input!, warnings);
+		expect(warnings.some((w) => w.includes("REDEEMED 1") && w.includes("dry run: not persisted"))).toBe(true);
+		expect(readFileSync(ledgerPath(), "utf-8").trimEnd().split("\n")).toHaveLength(1);
 	});
 });

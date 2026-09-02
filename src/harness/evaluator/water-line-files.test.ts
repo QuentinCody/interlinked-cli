@@ -16,7 +16,7 @@ import {
 } from "./water-line-files.js";
 
 describe("WATER_LINE_FILES — the canonical guard set", () => {
-	it("pins the exact nine stems, in order", () => {
+	it("pins the exact ten stems, in order", () => {
 		expect([...WATER_LINE_FILES]).toEqual([
 			"coverage-baseline",
 			"coverage-edit-baseline",
@@ -27,7 +27,18 @@ describe("WATER_LINE_FILES — the canonical guard set", () => {
 			"metric-caps",
 			"skipped-tests-baseline",
 			"check-evidence-baseline",
+			"function-complexity-baseline",
 		]);
+	});
+
+	it("P4: the per-function complexity ledger is a water-line (bash + effect arms cover it)", () => {
+		expect(waterLineStem("/repo/.interlinked/function-complexity-baseline.json")).toBe(
+			"function-complexity-baseline",
+		);
+	});
+
+	it("N4: the ledger's .previous snapshot is NOT a water-line", () => {
+		expect(waterLineStem("/repo/.interlinked/function-complexity-baseline.previous.json")).toBeNull();
 	});
 
 	it("has no duplicate entries", () => {

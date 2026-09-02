@@ -146,17 +146,18 @@ export const vdCommitNoVerify: TrajectoryRule = (state, event) => {
 // recent-window positions) are strictly increasing AND the newest is >2× the gap
 // two-ago. Needs ≥4 verifier runs in the window; fires only on the freshest
 // verify. Silent metric (labeler/Stop-reflection feed), not a nudge.
-export const vdVerificationCadenceDecay: TrajectoryRule = (state, event) => {
-	if (!isPostVerify(event)) return null;
-	const ev = state.recentEvents;
+/** Indexes into `ev` of every PostToolUse verifier-run event, in order. */
+function collectVerifyIndexes(ev: ReadonlyArray<ToolEvent>): number[] {
 	const verifyIdxs: number[] = [];
 	for (let i = 0; i < ev.length; i++) {
 		const e = ev[i];
 		if (e && isPostVerify(e)) verifyIdxs.push(i);
 	}
-	if (verifyIdxs.length < 4) return null;
-	// Only evaluate on the freshest verify (this event, just pushed as the last).
-	if (verifyIdxs[verifyIdxs.length - 1] !== ev.length - 1) return null;
+	return verifyIdxs;
+}
+
+/** Gaps (in recent-window positions) between consecutive verifier runs. */
+function computeInterVerifyGaps(verifyIdxs: readonly number[]): number[] {
 	const gaps: number[] = [];
 	for (let i = 1; i < verifyIdxs.length; i++) {
 		const a = verifyIdxs[i];
@@ -164,6 +165,11 @@ export const vdVerificationCadenceDecay: TrajectoryRule = (state, event) => {
 		if (a === undefined || b === undefined) continue;
 		gaps.push(a - b);
 	}
+	return gaps;
+}
+
+/** The last three inter-verify gaps, or null if the strictly-increasing-and->2x decay pattern isn't met. */
+function lastThreeDecayingGaps(gaps: readonly number[]): [number, number, number] | null {
 	const n = gaps.length;
 	if (n < 3) return null;
 	const gn = gaps[n - 1];
@@ -172,6 +178,20 @@ export const vdVerificationCadenceDecay: TrajectoryRule = (state, event) => {
 	if (gn === undefined || gn1 === undefined || gn2 === undefined) return null;
 	if (!(gn > gn1 && gn1 > gn2)) return null; // strictly increasing
 	if (gn <= 2 * gn2) return null; // and the newest gap more than doubled vs two-ago
+	return [gn2, gn1, gn];
+}
+
+export const vdVerificationCadenceDecay: TrajectoryRule = (state, event) => {
+	if (!isPostVerify(event)) return null;
+	const ev = state.recentEvents;
+	const verifyIdxs = collectVerifyIndexes(ev);
+	if (verifyIdxs.length < 4) return null;
+	// Only evaluate on the freshest verify (this event, just pushed as the last).
+	if (verifyIdxs[verifyIdxs.length - 1] !== ev.length - 1) return null;
+	const gaps = computeInterVerifyGaps(verifyIdxs);
+	const decaying = lastThreeDecayingGaps(gaps);
+	if (!decaying) return null;
+	const [gn2, gn1, gn] = decaying;
 	return metric(
 		"vd_verification_cadence_decay",
 		`Time between verifier runs is stretching (recent gaps ${gn2} → ${gn1} → ${gn} tool calls). ` +

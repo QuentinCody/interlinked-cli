@@ -38,6 +38,11 @@ export interface DeadExportsArgs {
 	content: string;
 	filePath: string;
 	cwd?: string;
+	/** Restrict the report to these export names. A delta caller (the
+	 *  helper-hygiene check) names the exports one edit introduced, so the
+	 *  MAX_FLAGGED cap counts only them and a file already carrying ten dead
+	 *  exports cannot truncate the new one out of the result. */
+	only?: ReadonlySet<string>;
 }
 
 const EXPORTABLE_EXT = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"];
@@ -160,49 +165,214 @@ function remedyFor(content: string, name: string): string {
 		: `unused export '${name}' (no references anywhere) — delete the declaration, or document as public API`;
 }
 
+/** Whole-file exclusions: unsupported extension, declaration file, test file,
+ *  or barrel (`index`, intentionally wide). Checked before anything else is
+ *  parsed. */
+function isExcludedFile(filePath: string): boolean {
+	const ext = getExtension(filePath);
+	if (!EXPORTABLE_EXT.includes(ext)) return true;
+	if (filePath.endsWith(".d.ts")) return true;
+	if (isTestFile(filePath)) return true;
+	const base = basename(filePath).replace(/\.[^.]*$/, "");
+	return base === "index"; // barrel — intentionally wide
+}
+
+/** The candidate exports for one lane (value or type-only), pre-filtered to
+ *  the kinds this detector can ever flag and to the caller's `only` set. */
+function candidateExports(args: DeadExportsArgs, wantTypeOnly: boolean) {
+	return parseExports(args.content).filter(
+		(e) =>
+			e.kind !== "default" &&
+			e.kind !== "re-export" &&
+			e.kind !== "namespace" &&
+			e.isTypeOnly === wantTypeOnly &&
+			(args.only === undefined || args.only.has(e.name)),
+	);
+}
+
+/** Resolve `filePath` to a repo-relative path and scan every candidate
+ *  importer for edges into it. Returns null when the whole-file result is
+ *  already decided (outside the project root, or every use is accounted
+ *  for) — the caller should report no findings in that case. */
+function resolveAndScan(args: DeadExportsArgs, repo: DeadExportsRepo): EdgeScan | null {
+	const cwd = args.cwd ?? "";
+	const selfRel = isAbsolute(args.filePath) ? relative(cwd || "/", args.filePath) : args.filePath;
+	// A file OUTSIDE the project root has no candidate importers here, so "no
+	// one imports it" would be vacuously true — say nothing instead. (Guard
+	// carried over from the pre-extraction detector; its tests pin it.)
+	if (selfRel.startsWith("..")) return null;
+	const scan = scanImporters(repo, selfRel, pathKey(selfRel));
+	if (scan.allUsed) return null;
+	// The evidence guard (lesson 3): mentioned but never resolved ⇒ our
+	// resolution failed somewhere, so silence beats a page of false debt.
+	if (scan.mentions > 0 && scan.resolvedEdges === 0) return null;
+	return scan;
+}
+
+/** Declaration keywords whose SIGNATURE text (not just its own export name)
+ *  can gate a dead-type-export finding: return/param/member type positions of
+ *  another exported declaration in the same file. Regex-only, matching this
+ *  detector's existing style — not a parser. */
+const SIGNATURE_START_RE =
+	/^export\s+(?:default\s+)?(?:async\s+)?(?:abstract\s+)?(function|const|let|var|class|interface|type)\s+\w+/;
+
+/** Safety valve against an unterminated span (unbalanced brackets in input
+ *  the regex scanner can't fully model) running off the end of a large file. */
+const SIGNATURE_SPAN_LINE_CAP = 200;
+
+interface SignatureSpan {
+	/** 1-based start line — used to exclude a type's own declaration. */
+	line: number;
+	text: string;
+}
+
+/** `interface`/`type`/`class`: the reference can sit anywhere in the body
+ *  (an interface field, a type-alias union member, a class member's type),
+ *  so capture the whole brace-matched (or `;`-terminated, for a brace-less
+ *  type alias) declaration. For `class` this is deliberately over-inclusive —
+ *  it also sweeps in method BODIES, not just member signatures — trading a
+ *  little precision for never false-blocking a real public-surface type;
+ *  this check is advisory, so the safe failure direction is under-flagging. */
+function extractBracedOrStatement(lines: string[], startIdx: number): string {
+	let braceDepth = 0;
+	let seenBrace = false;
+	const out: string[] = [];
+	for (let i = startIdx; i < lines.length && i - startIdx < SIGNATURE_SPAN_LINE_CAP; i++) {
+		const line = lines[i] ?? "";
+		out.push(line);
+		for (const ch of line) {
+			if (ch === "{") {
+				braceDepth++;
+				seenBrace = true;
+			} else if (ch === "}") {
+				braceDepth--;
+			}
+		}
+		if (seenBrace && braceDepth <= 0) return out.join("\n");
+		if (!seenBrace && /;\s*$/.test(line.trimEnd())) return out.join("\n");
+	}
+	return out.join("\n");
+}
+
+/** `function`/`const`/`let`/`var`: capture only the SIGNATURE — params and
+ *  return-type annotation — stopping at the first `{` that opens the
+ *  function body (tracked via paren depth, so an inline object-type param
+ *  like `(x: { a: string })` doesn't trigger an early cutoff) or at a
+ *  brace-less statement's terminating `;`. A referenced type inside the
+ *  BODY is intentionally excluded — that is the "still used inside this
+ *  file" un-export case, not a public-surface one. */
+function extractSignaturePrefix(lines: string[], startIdx: number): string {
+	let parenDepth = 0;
+	const out: string[] = [];
+	for (let i = startIdx; i < lines.length && i - startIdx < SIGNATURE_SPAN_LINE_CAP; i++) {
+		const line = lines[i] ?? "";
+		let cut = -1;
+		for (let c = 0; c < line.length; c++) {
+			const ch = line[c];
+			if (ch === "(") parenDepth++;
+			else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
+			else if (ch === "{" && parenDepth === 0) {
+				cut = c;
+				break;
+			}
+		}
+		if (cut >= 0) {
+			out.push(line.slice(0, cut));
+			return out.join("\n");
+		}
+		out.push(line);
+		if (parenDepth === 0 && /;\s*$/.test(line.trimEnd())) return out.join("\n");
+	}
+	return out.join("\n");
+}
+
+/** Every exported declaration's signature span in the file, keyed by its
+ *  start line so the type's own declaration can be excluded from its own
+ *  evidence search. */
+function collectExportedSignatureSpans(content: string): SignatureSpan[] {
+	const lines = content.split("\n");
+	const spans: SignatureSpan[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const trimmed = lines[i]?.trim() ?? "";
+		const m = trimmed.match(SIGNATURE_START_RE);
+		if (!m) continue;
+		const keyword = m[1];
+		const line = i + 1;
+		const text =
+			keyword === "interface" || keyword === "type" || keyword === "class"
+				? extractBracedOrStatement(lines, i)
+				: extractSignaturePrefix(lines, i);
+		spans.push({ line, text });
+	}
+	return spans;
+}
+
+/** True when `typeName` names the type position of some OTHER exported
+ *  declaration's signature — i.e. TS declaration emit needs it nameable
+ *  regardless of whether any file imports it by name (the
+ *  `public_api_leaks_internal_type` contradiction this guard exists to
+ *  resolve). */
+function isTypeUsedInExportedSignature(spans: SignatureSpan[], typeName: string, ownLine: number): boolean {
+	const wordRe = new RegExp(`\\b${typeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
+	for (const span of spans) {
+		if (span.line === ownLine) continue;
+		if (wordRe.test(span.text)) return true;
+	}
+	return false;
+}
+
+/** One export's escape checks: import consumption, the "public API" doc
+ *  comment, and (type-only exports only) the same-file exported-signature
+ *  escape. Split out of {@link buildMatches} to keep its own branch count
+ *  under the per-edit cyclomatic sub-cap. */
+function isExemptExport(
+	exp: ReturnType<typeof candidateExports>[number],
+	lines: string[],
+	scan: EdgeScan,
+	signatureSpans: SignatureSpan[],
+): boolean {
+	if (scan.symbols.has(exp.name)) return true;
+	if (hasPublicApiComment(lines, exp.line)) return true;
+	if (exp.isTypeOnly && isTypeUsedInExportedSignature(signatureSpans, exp.name, exp.line)) return true;
+	return false;
+}
+
+/** Turn the resolved scan + candidate exports into findings, honoring the
+ *  public-API escape, the same-file exported-signature escape, and the
+ *  MAX_FLAGGED cap. */
+function buildMatches(args: DeadExportsArgs, exports: ReturnType<typeof candidateExports>, scan: EdgeScan): InlineMatch[] {
+	const lines = args.content.split("\n");
+	// Only type-only exports need the signature scan — for value exports
+	// `exp.isTypeOnly` is always false (candidateExports already filtered on
+	// it), so the guard inside isExemptExport is a no-op there without
+	// threading a flag.
+	const signatureSpans = exports.some((e) => e.isTypeOnly)
+		? collectExportedSignatureSpans(args.content)
+		: [];
+	const matches: InlineMatch[] = [];
+	for (const exp of exports) {
+		if (isExemptExport(exp, lines, scan, signatureSpans)) continue;
+		matches.push({ line: exp.line, text: remedyFor(args.content, exp.name) });
+		if (matches.length >= MAX_FLAGGED) break;
+	}
+	return matches;
+}
+
 /** Shared body for the value-export and type-export detectors. */
 function findDeadExportsCore(
 	args: DeadExportsArgs,
 	repo: DeadExportsRepo,
 	wantTypeOnly: boolean,
 ): InlineMatch[] {
-	const ext = getExtension(args.filePath);
-	if (!EXPORTABLE_EXT.includes(ext)) return [];
-	if (args.filePath.endsWith(".d.ts")) return [];
-	if (isTestFile(args.filePath)) return [];
-	const base = basename(args.filePath).replace(/\.[^.]*$/, "");
-	if (base === "index") return []; // barrel — intentionally wide
+	if (isExcludedFile(args.filePath)) return [];
 
-	const exports = parseExports(args.content).filter(
-		(e) =>
-			e.kind !== "default" &&
-			e.kind !== "re-export" &&
-			e.kind !== "namespace" &&
-			e.isTypeOnly === wantTypeOnly,
-	);
+	const exports = candidateExports(args, wantTypeOnly);
 	if (exports.length === 0) return [];
 
-	const cwd = args.cwd ?? "";
-	const selfRel = isAbsolute(args.filePath) ? relative(cwd || "/", args.filePath) : args.filePath;
-	// A file OUTSIDE the project root has no candidate importers here, so "no
-	// one imports it" would be vacuously true — say nothing instead. (Guard
-	// carried over from the pre-extraction detector; its tests pin it.)
-	if (selfRel.startsWith("..")) return [];
-	const scan = scanImporters(repo, selfRel, pathKey(selfRel));
-	if (scan.allUsed) return [];
-	// The evidence guard (lesson 3): mentioned but never resolved ⇒ our
-	// resolution failed somewhere, so silence beats a page of false debt.
-	if (scan.mentions > 0 && scan.resolvedEdges === 0) return [];
+	const scan = resolveAndScan(args, repo);
+	if (scan === null) return [];
 
-	const lines = args.content.split("\n");
-	const matches: InlineMatch[] = [];
-	for (const exp of exports) {
-		if (scan.symbols.has(exp.name)) continue;
-		if (hasPublicApiComment(lines, exp.line)) continue;
-		matches.push({ line: exp.line, text: remedyFor(args.content, exp.name) });
-		if (matches.length >= MAX_FLAGGED) break;
-	}
-	return matches;
+	return buildMatches(args, exports, scan);
 }
 
 /** Core detector over an injectable repo view — VALUE exports only. */

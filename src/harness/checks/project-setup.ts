@@ -196,6 +196,150 @@ export function checkClaudeSettingsPermissions(cwd: string): ProjectSetupIssue[]
  * Detect common project setup issues that cause confusing compiler errors.
  * Runs once per project (not per-file). Returns actionable fix instructions.
  */
+/** Walk up from `cwd` (5 levels max) looking for a directory containing
+ *  tsconfig.json. Returns the directory, or `null` if none was found. */
+function findTsconfigDir(cwd: string): string | null {
+	let searchDir = cwd;
+	for (let i = 0; i < 5; i++) {
+		if (existsSync(resolve(searchDir, "tsconfig.json"))) {
+			return searchDir;
+		}
+		const parent = dirname(searchDir);
+		if (parent === searchDir) break;
+		searchDir = parent;
+	}
+	return null;
+}
+
+/** Read + JSON-parse tsconfig.json from `tsconfigDir`. On parse failure,
+ *  returns the same ProjectSetupIssue the inline try/catch used to push,
+ *  and a `null` config so the caller can short-circuit exactly as before. */
+function readTsconfig(tsconfigDir: string): {
+	config: JsonObject | null;
+	parseErrorIssue: ProjectSetupIssue | null;
+} {
+	try {
+		const raw = readFileSync(resolve(tsconfigDir, "tsconfig.json"), "utf-8");
+		return { config: JSON.parse(raw), parseErrorIssue: null };
+	} catch {
+		return {
+			config: null,
+			parseErrorIssue: {
+				check: "project_setup",
+				file: "tsconfig.json",
+				line: 0,
+				message: "tsconfig.json exists but cannot be parsed (invalid JSON)",
+				fix: "Fix the JSON syntax in tsconfig.json",
+			},
+		};
+	}
+}
+
+/** First-party source files use `node:` protocol imports if any `.ts` file
+ *  (skipping node_modules et al) matches `from "node:..."`. */
+function hasNodeProtocolImportsIn(cwd: string): boolean {
+	return walkProjectFiles(cwd, (f) => {
+		if (!f.endsWith(".ts")) return false;
+		try {
+			return /from\s+["']node:/.test(readFileSync(f, "utf-8"));
+		} catch {
+			// intentional: an unreadable file → treat as no match, keep scanning.
+			return false;
+		}
+	});
+}
+
+/** Best-effort probe: is `@types/node` declared in package.json's
+ *  dependencies or devDependencies at `tsconfigDir`? */
+function packageHasTypesNode(tsconfigDir: string): boolean {
+	try {
+		const pkgPath = resolve(tsconfigDir, "package.json");
+		const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+		const allDeps = {
+			...(pkg.dependencies || {}),
+			...(pkg.devDependencies || {}),
+		};
+		return "@types/node" in allDeps;
+	} catch {
+		// intentional: best-effort package.json probe — absence or parse
+		// failure just means we can't confirm @types/node is installed.
+		return false;
+	}
+}
+
+/** Issues for the "uses node: imports" case: missing @types/node, and/or a
+ *  tsconfig `types` field that omits "node". Only called when the project
+ *  is already known to use node: protocol imports. */
+function checkNodeImportIssues(
+	tsconfigDir: string,
+	compilerOptions: JsonObject,
+): ProjectSetupIssue[] {
+	const issues: ProjectSetupIssue[] = [];
+
+	if (!packageHasTypesNode(tsconfigDir)) {
+		issues.push({
+			check: "project_setup",
+			file: "package.json",
+			line: 0,
+			message:
+				"Code uses node: protocol imports (node:fs, node:path, etc.) but @types/node is not in devDependencies",
+			fix: "Run `npm i --save-dev @types/node`",
+		});
+	}
+
+	const typesForNode = compilerOptions.types as string[] | undefined;
+	if (typesForNode && !typesForNode.includes("node")) {
+		issues.push({
+			check: "project_setup",
+			file: "tsconfig.json",
+			line: 0,
+			message:
+				'tsconfig.json has a "types" field but "node" is not included — node: imports will fail',
+			fix: 'Add "node" to the "types" array in compilerOptions',
+		});
+	}
+
+	return issues;
+}
+
+/** Issue for a `moduleResolution` value that won't resolve node: protocol
+ *  imports, or `null` when there's nothing to flag. */
+function checkModuleResolutionIssue(
+	compilerOptions: JsonObject,
+	hasNodeProtocolImports: boolean,
+): ProjectSetupIssue | null {
+	const moduleResolution = compilerOptions.moduleResolution as string | undefined;
+	if (
+		hasNodeProtocolImports &&
+		moduleResolution &&
+		!["node16", "nodenext", "bundler"].includes(moduleResolution.toLowerCase())
+	) {
+		return {
+			check: "project_setup",
+			file: "tsconfig.json",
+			line: 0,
+			message: `moduleResolution "${moduleResolution}" may not resolve node: protocol imports`,
+			fix: 'Set "moduleResolution": "node16" or "bundler" in compilerOptions',
+		};
+	}
+	return null;
+}
+
+/** Issue for strict mode being disabled, or `null` when it's on. */
+function checkStrictModeIssue(compilerOptions: JsonObject): ProjectSetupIssue | null {
+	if (compilerOptions.strict !== true) {
+		return {
+			check: "project_setup",
+			file: "tsconfig.json",
+			line: 0,
+			message:
+				"TypeScript strict mode is not enabled — agents produce safer code with strict checks",
+			fix: 'Add "strict": true to compilerOptions',
+		};
+	}
+	return null;
+}
+
 export function checkProjectSetup(cwd: string): ProjectSetupIssue[] {
 	const issues: ProjectSetupIssue[] = [];
 
@@ -203,18 +347,7 @@ export function checkProjectSetup(cwd: string): ProjectSetupIssue[] {
 	// project that has a .claude/ directory, regardless of language.
 	issues.push(...checkClaudeSettingsPermissions(cwd));
 
-	// Find tsconfig.json (walk up)
-	let tsconfigDir: string | null = null;
-	let searchDir = cwd;
-	for (let i = 0; i < 5; i++) {
-		if (existsSync(resolve(searchDir, "tsconfig.json"))) {
-			tsconfigDir = searchDir;
-			break;
-		}
-		const parent = dirname(searchDir);
-		if (parent === searchDir) break;
-		searchDir = parent;
-	}
+	const tsconfigDir = findTsconfigDir(cwd);
 
 	// Check if this is a TypeScript project (has .ts/.tsx files in first-party
 	// source). The walk skips node_modules: an unbounded recursive readdir
@@ -237,20 +370,12 @@ export function checkProjectSetup(cwd: string): ProjectSetupIssue[] {
 	}
 
 	// Read and parse tsconfig
-	let tsconfig: JsonObject = {};
-	try {
-		const raw = readFileSync(resolve(tsconfigDir, "tsconfig.json"), "utf-8");
-		tsconfig = JSON.parse(raw);
-	} catch {
-		issues.push({
-			check: "project_setup",
-			file: "tsconfig.json",
-			line: 0,
-			message: "tsconfig.json exists but cannot be parsed (invalid JSON)",
-			fix: "Fix the JSON syntax in tsconfig.json",
-		});
+	const { config, parseErrorIssue } = readTsconfig(tsconfigDir);
+	if (parseErrorIssue) {
+		issues.push(parseErrorIssue);
 		return issues;
 	}
+	const tsconfig: JsonObject = config as JsonObject;
 
 	const compilerOptions = (tsconfig.compilerOptions || {}) as JsonObject;
 
@@ -258,86 +383,26 @@ export function checkProjectSetup(cwd: string): ProjectSetupIssue[] {
 	// skips node_modules — otherwise a dependency's own `node:` imports made
 	// this probe fire on nearly every project, recommending @types/node even
 	// when the project's own code never touches a node builtin.
-	const hasNodeProtocolImports = walkProjectFiles(cwd, (f) => {
-		if (!f.endsWith(".ts")) return false;
-		try {
-			return /from\s+["']node:/.test(readFileSync(f, "utf-8"));
-		} catch {
-			// intentional: an unreadable file → treat as no match, keep scanning.
-			return false;
-		}
-	});
+	const hasNodeProtocolImports = hasNodeProtocolImportsIn(cwd);
 
-	// Issue: Uses node: imports but @types/node not installed
+	// Issue: Uses node: imports but @types/node not installed, and/or
+	// tsconfig types field missing "node"
 	if (hasNodeProtocolImports) {
-		const pkgPath = resolve(tsconfigDir, "package.json");
-		let hasTypesNode = false;
-		try {
-			const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
-			const allDeps = {
-				...(pkg.dependencies || {}),
-				...(pkg.devDependencies || {}),
-			};
-			hasTypesNode = "@types/node" in allDeps;
-		} catch {
-			// intentional: best-effort package.json probe — absence or parse
-			// failure just means we can't confirm @types/node is installed.
-		}
-
-		if (!hasTypesNode) {
-			issues.push({
-				check: "project_setup",
-				file: "package.json",
-				line: 0,
-				message:
-					"Code uses node: protocol imports (node:fs, node:path, etc.) but @types/node is not in devDependencies",
-				fix: "Run `npm i --save-dev @types/node`",
-			});
-		}
-
-		// Check tsconfig types field includes "node"
-		const typesForNode = compilerOptions.types as string[] | undefined;
-		if (typesForNode && !typesForNode.includes("node")) {
-			issues.push({
-				check: "project_setup",
-				file: "tsconfig.json",
-				line: 0,
-				message:
-					'tsconfig.json has a "types" field but "node" is not included — node: imports will fail',
-				fix: 'Add "node" to the "types" array in compilerOptions',
-			});
-		}
+		issues.push(...checkNodeImportIssues(tsconfigDir, compilerOptions));
 	}
 
 	issues.push(...checkTsConfigTypesAgainstDeps(compilerOptions, tsconfigDir));
 
 	// Issue: Wrong moduleResolution for node: imports
-	const moduleResolution = compilerOptions.moduleResolution as string | undefined;
-	if (
-		hasNodeProtocolImports &&
-		moduleResolution &&
-		!["node16", "nodenext", "bundler"].includes(moduleResolution.toLowerCase())
-	) {
-		issues.push({
-			check: "project_setup",
-			file: "tsconfig.json",
-			line: 0,
-			message: `moduleResolution "${moduleResolution}" may not resolve node: protocol imports`,
-			fix: 'Set "moduleResolution": "node16" or "bundler" in compilerOptions',
-		});
-	}
+	const moduleResolutionIssue = checkModuleResolutionIssue(
+		compilerOptions,
+		hasNodeProtocolImports,
+	);
+	if (moduleResolutionIssue) issues.push(moduleResolutionIssue);
 
 	// Issue: strict mode disabled
-	if (compilerOptions.strict !== true) {
-		issues.push({
-			check: "project_setup",
-			file: "tsconfig.json",
-			line: 0,
-			message:
-				"TypeScript strict mode is not enabled — agents produce safer code with strict checks",
-			fix: 'Add "strict": true to compilerOptions',
-		});
-	}
+	const strictModeIssue = checkStrictModeIssue(compilerOptions);
+	if (strictModeIssue) issues.push(strictModeIssue);
 
 	return issues;
 }

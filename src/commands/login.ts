@@ -56,12 +56,11 @@ function renderRemoteOnboarding(result: RemoteOnboardingResult): void {
 	);
 }
 
-export async function loginCommand(options: LoginOptions): Promise<void> {
-	const cwd = process.cwd();
-
-	console.log(c.bold("Interlinked CLI — Login"));
-	console.log(c.dim("─".repeat(40)));
-
+/**
+ * Ensure a config exists, apply an explicit `--server` override, and return the
+ * server URL the login flow should use.
+ */
+function resolveLoginServerUrl(options: LoginOptions, cwd: string): string {
 	// Ensure config exists (at minimum, we need a server URL)
 	if (!isConfigured(cwd)) {
 		// Default to localhost; users configure their own remote via `--server`.
@@ -83,44 +82,151 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
 		);
 	}
 
-	// Path 1: Manual token injection (CI/headless)
-	if (options.token) {
-		const manualToken = options.token.trim();
-		if (!manualToken) {
-			console.error(`\n${c.red("Invalid token.")} --token cannot be empty.`);
-			process.exit(1);
-		}
+	return serverUrl;
+}
 
-		try {
-			const testClient = new InterlinkedClient({
-				serverUrl,
-				token: manualToken,
-			});
-			await testClient.callTool("health_check");
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			console.error(`\n${c.red("Token validation failed:")} ${message}`);
-			console.error(c.dim("The token was not saved. Check the value and try again."));
-			process.exit(1);
-		}
+/** Path 1: manual token injection (CI/headless). */
+async function loginWithManualToken(
+	token: string,
+	serverUrl: string,
+	cwd: string,
+): Promise<void> {
+	const manualToken = token.trim();
+	if (!manualToken) {
+		console.error(`\n${c.red("Invalid token.")} --token cannot be empty.`);
+		process.exit(1);
+	}
 
-		updateLocalConfig(
-			{
-				access_token: manualToken,
-				refresh_token: undefined,
-				token_expires_at: undefined,
-				oauth_client_id: undefined,
-			},
-			cwd,
-		);
-		console.log(`${c.green("Saved")} manual token to .interlinked/config.local.json`);
-		console.log(c.dim("Token source: --token flag (manual injection)"));
-		const onboarding = await ensureRemoteOnboarding({
+	try {
+		const testClient = new InterlinkedClient({
 			serverUrl,
 			token: manualToken,
 		});
-		renderRemoteOnboarding(onboarding);
-		console.log(`\n${c.green("Authenticated.")} You can now use Interlinked CLI commands.`);
+		await testClient.callTool("health_check");
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		console.error(`\n${c.red("Token validation failed:")} ${message}`);
+		console.error(c.dim("The token was not saved. Check the value and try again."));
+		process.exit(1);
+	}
+
+	updateLocalConfig(
+		{
+			access_token: manualToken,
+			refresh_token: undefined,
+			token_expires_at: undefined,
+			oauth_client_id: undefined,
+		},
+		cwd,
+	);
+	console.log(`${c.green("Saved")} manual token to .interlinked/config.local.json`);
+	console.log(c.dim("Token source: --token flag (manual injection)"));
+	const onboarding = await ensureRemoteOnboarding({
+		serverUrl,
+		token: manualToken,
+	});
+	renderRemoteOnboarding(onboarding);
+	console.log(`\n${c.green("Authenticated.")} You can now use Interlinked CLI commands.`);
+}
+
+/**
+ * Auto-select a default workspace after successful auth to remove manual setup
+ * friction. Prefer owner workspace when available, otherwise first membership.
+ * Never throws — login already succeeded; discovery is a bonus step.
+ */
+async function autoSelectWorkspace(
+	serverUrl: string,
+	accessToken: string,
+	cwd: string,
+): Promise<void> {
+	try {
+		const client = new InterlinkedClient({
+			serverUrl,
+			token: accessToken,
+		});
+		const workspaces = await client.fetchWorkspaces();
+		const preferred = workspaces.find((w) => w.role === "owner") || workspaces[0];
+		if (preferred?.id) {
+			const local = readLocalConfig(cwd) || {};
+			const activeServerKey = local.active_server || "production";
+			if (local.servers?.[activeServerKey]) {
+				const servers = {
+					...local.servers,
+					[activeServerKey]: {
+						...local.servers[activeServerKey],
+						workspace_id: preferred.id,
+					},
+				};
+				updateLocalConfig({ workspace_id: preferred.id, servers }, cwd);
+			} else {
+				updateLocalConfig({ workspace_id: preferred.id }, cwd);
+			}
+		}
+	} catch (_) {
+		/* intentional: login already succeeded; workspace discovery is a bonus step */
+	}
+}
+
+/** Print expiry + refresh-token lines for a freshly issued token pair. */
+function printTokenLifetime(tokens: {
+	expires_in?: number | undefined;
+	refresh_token?: string | undefined;
+}): void {
+	if (tokens.expires_in) {
+		const hours = Math.round(tokens.expires_in / 3600);
+		if (hours > 0) {
+			console.log(`  ${c.dim("Expires in:")}    ~${hours} hour(s)`);
+		} else {
+			const minutes = Math.round(tokens.expires_in / 60);
+			console.log(`  ${c.dim("Expires in:")}    ~${minutes} minute(s)`);
+		}
+	}
+
+	if (tokens.refresh_token) {
+		console.log(`  ${c.dim("Refresh token:")} ${c.green("Yes")} (auto-renewal available)`);
+	}
+}
+
+/** Path 2: OAuth PKCE flow (interactive). Throws on any login failure. */
+async function loginWithOAuth(serverUrl: string, cwd: string): Promise<void> {
+	const tokens = await performLogin(serverUrl);
+
+	// Save tokens to local config
+	saveLoginTokens(tokens, cwd);
+
+	await autoSelectWorkspace(serverUrl, tokens.access_token, cwd);
+
+	console.log(`\n${c.green("Authentication successful!")}`);
+	console.log(`  ${c.dim("Token saved to:")} .interlinked/config.local.json`);
+
+	printTokenLifetime(tokens);
+
+	const resolvedAfterLogin = resolveConfig(cwd);
+	if (resolvedAfterLogin.workspace_id) {
+		console.log(
+			`  ${c.dim("Workspace:")}    ${resolvedAfterLogin.workspace_id} (auto-selected)`,
+		);
+	}
+	const onboarding = await ensureRemoteOnboarding({
+		serverUrl,
+		token: tokens.access_token,
+	});
+	renderRemoteOnboarding(onboarding);
+
+	console.log(`\n${c.green("Ready.")} You can now use Interlinked CLI commands.`);
+}
+
+export async function loginCommand(options: LoginOptions): Promise<void> {
+	const cwd = process.cwd();
+
+	console.log(c.bold("Interlinked CLI — Login"));
+	console.log(c.dim("─".repeat(40)));
+
+	const serverUrl = resolveLoginServerUrl(options, cwd);
+
+	// Path 1: Manual token injection (CI/headless)
+	if (options.token) {
+		await loginWithManualToken(options.token, serverUrl, cwd);
 		return;
 	}
 
@@ -129,70 +235,7 @@ export async function loginCommand(options: LoginOptions): Promise<void> {
 	console.log(c.dim("Starting OAuth PKCE flow...\n"));
 
 	try {
-		const tokens = await performLogin(serverUrl);
-
-		// Save tokens to local config
-		saveLoginTokens(tokens, cwd);
-
-		// Auto-select a default workspace after successful auth to remove manual setup friction.
-		// Prefer owner workspace when available, otherwise first workspace membership.
-		try {
-			const client = new InterlinkedClient({
-				serverUrl,
-				token: tokens.access_token,
-			});
-			const workspaces = await client.fetchWorkspaces();
-			const preferred = workspaces.find((w) => w.role === "owner") || workspaces[0];
-			if (preferred?.id) {
-				const local = readLocalConfig(cwd) || {};
-				const activeServerKey = local.active_server || "production";
-				if (local.servers?.[activeServerKey]) {
-					const servers = {
-						...local.servers,
-						[activeServerKey]: {
-							...local.servers[activeServerKey],
-							workspace_id: preferred.id,
-						},
-					};
-					updateLocalConfig({ workspace_id: preferred.id, servers }, cwd);
-				} else {
-					updateLocalConfig({ workspace_id: preferred.id }, cwd);
-				}
-			}
-		} catch (_) {
-			/* intentional: login already succeeded; workspace discovery is a bonus step */
-		}
-
-		console.log(`\n${c.green("Authentication successful!")}`);
-		console.log(`  ${c.dim("Token saved to:")} .interlinked/config.local.json`);
-
-		if (tokens.expires_in) {
-			const hours = Math.round(tokens.expires_in / 3600);
-			if (hours > 0) {
-				console.log(`  ${c.dim("Expires in:")}    ~${hours} hour(s)`);
-			} else {
-				const minutes = Math.round(tokens.expires_in / 60);
-				console.log(`  ${c.dim("Expires in:")}    ~${minutes} minute(s)`);
-			}
-		}
-
-		if (tokens.refresh_token) {
-			console.log(`  ${c.dim("Refresh token:")} ${c.green("Yes")} (auto-renewal available)`);
-		}
-
-		const resolvedAfterLogin = resolveConfig(cwd);
-		if (resolvedAfterLogin.workspace_id) {
-			console.log(
-				`  ${c.dim("Workspace:")}    ${resolvedAfterLogin.workspace_id} (auto-selected)`,
-			);
-		}
-		const onboarding = await ensureRemoteOnboarding({
-			serverUrl,
-			token: tokens.access_token,
-		});
-		renderRemoteOnboarding(onboarding);
-
-		console.log(`\n${c.green("Ready.")} You can now use Interlinked CLI commands.`);
+		await loginWithOAuth(serverUrl, cwd);
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		reportLoginFailure(message, serverUrl);
