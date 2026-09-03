@@ -84,6 +84,33 @@ function isCommentOnlyLine(line: string, state: CommentScan): boolean {
 	return trimmed.slice(close + 2).trim().length === 0;
 }
 
+/**
+ * Evaluate one line for a catastrophic-backtracking regex and return the
+ * match to record, or null when the line clears every gate. Mutates
+ * `commentState` to carry block-comment nesting across lines (must run on
+ * every line, including ones skipped later, so state cannot desync).
+ */
+function redosMatchForLine(
+	line: string,
+	lineIndex: number,
+	isPy: boolean,
+	commentState: CommentScan,
+): InlineMatch | null {
+	const isComment = isCommentOnlyLine(line, commentState);
+	if (isComment) return null;
+	if (!line.includes("(")) return null; // every ReDoS signature needs a group
+	let hit = false;
+	for (const body of regexBodies(line, isPy)) {
+		if (NESTED_QUANT.test(body)) {
+			hit = true;
+			break;
+		}
+	}
+	if (!hit) return null;
+	if (lineHasNoqaSuppression(line, "redos_catastrophic")) return null;
+	return { line: lineIndex + 1, text: line.trim().slice(0, 150) };
+}
+
 export function checkRedosCatastrophic(content: string, filePath: string): InlineMatch[] {
 	const ext = getExtension(filePath);
 	const isPy = PY_EXTS.has(ext);
@@ -97,21 +124,8 @@ export function checkRedosCatastrophic(content: string, filePath: string): Inlin
 	for (let i = 0; i < lines.length; i++) {
 		if (matches.length >= MATCH_LIMIT) break;
 		const line = lines[i] ?? "";
-		// Runs on EVERY line (before the `(` fast-path) so block-comment state
-		// cannot desync on a comment line that happens to contain no paren.
-		const isComment = isCommentOnlyLine(line, commentState);
-		if (isComment) continue;
-		if (!line.includes("(")) continue; // every ReDoS signature needs a group
-		let hit = false;
-		for (const body of regexBodies(line, isPy)) {
-			if (NESTED_QUANT.test(body)) {
-				hit = true;
-				break;
-			}
-		}
-		if (!hit) continue;
-		if (lineHasNoqaSuppression(line, "redos_catastrophic")) continue;
-		matches.push({ line: i + 1, text: line.trim().slice(0, 150) });
+		const match = redosMatchForLine(line, i, isPy, commentState);
+		if (match) matches.push(match);
 	}
 	return matches;
 }

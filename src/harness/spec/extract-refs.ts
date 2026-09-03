@@ -483,7 +483,7 @@ export function extractAnchorLinks(
 			// Masking is column-preserving, so provenance slices the ORIGINAL
 			// source — diagnostics must quote verbatim text, not the mask
 			// ("[a<!--c-->b](x)" was recorded with spaces — round-6 #23).
-			const raw = original.slice(m.index ?? 0, (m.index ?? 0) + m[0].length);
+			const raw = original.slice(m.index, m.index + m[0].length);
 			const link = classifyLinkTarget(m[1] ?? "", raw, i + 1);
 			if (link) out.push(link);
 		}

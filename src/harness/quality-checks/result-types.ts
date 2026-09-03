@@ -15,12 +15,6 @@ export interface QualityCheckResult {
 	detail?: string;
 }
 
-/** A single regex/AST match surfaced as an inline finding (line + matched text). */
-export interface InlineFinding {
-	line: number;
-	text: string;
-}
-
 /** Per-tool execution metrics surfaced from the engine into latency telemetry.
  *  Mirror of `ToolMetrics` in `check-engine/types.ts` but flattened into the
  *  shape `latency-log.ts` consumes (snake_case keys) and stripped to the three

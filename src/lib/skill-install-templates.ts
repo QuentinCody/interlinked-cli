@@ -64,7 +64,7 @@ enable, modify, add, reset) are documented in the same skill body.
 `;
 
 /** YAML double-quoted scalar — escape backslashes and double quotes only. */
-export function quoteYamlDouble(s: string): string {
+function quoteYamlDouble(s: string): string {
 	const escaped = s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 	return `"${escaped}"`;
 }
@@ -138,6 +138,63 @@ export function renderTargetContent(
 }
 
 /**
+ * Skip past a block-scalar (`|`, `>`) continuation: indented or blank lines
+ * immediately following a `description: |` style header. Returns the index
+ * of the first line that is NOT part of the continuation.
+ */
+function skipBlockScalarContinuation(lines: string[], startIdx: number): number {
+	let i = startIdx;
+	while (i < lines.length) {
+		const next = lines[i];
+		if (next === undefined) break;
+		if (next.length === 0 || /^\s/.test(next)) {
+			i += 1;
+			continue;
+		}
+		break;
+	}
+	return i;
+}
+
+/**
+ * Build the replacement frontmatter lines: swap the `description` field for
+ * `quoted`, dropping any block-scalar continuation lines that belonged to
+ * the original value, and leaving every other line untouched. Returns the
+ * rebuilt lines and whether a `description` field was found and replaced.
+ */
+function processLinesLength(lines: string[], quoted: string): { out: string[]; replaced: boolean } {
+	const out: string[] = [];
+	let i = 0;
+	let replaced = false;
+
+	while (i < lines.length) {
+		const line = lines[i];
+		if (line === undefined) {
+			i += 1;
+			continue;
+		}
+		if (replaced || !/^description\s*:/.test(line)) {
+			out.push(line);
+			i += 1;
+			continue;
+		}
+		out.push(`description: ${quoted}`);
+		replaced = true;
+
+		// If the original used a block scalar (`|`, `>`, with optional chomp
+		// indicators `+`/`-`), consume the indented/blank continuation lines.
+		const valuePart = line.slice(line.indexOf(":") + 1).trim();
+		const isBlockScalar = /^[|>][+-]?$/.test(valuePart);
+		i += 1;
+		if (isBlockScalar) {
+			i = skipBlockScalarContinuation(lines, i);
+		}
+	}
+
+	return { out, replaced };
+}
+
+/**
  * Replace the YAML frontmatter `description` field with `newDescription`,
  * leaving the body and other frontmatter keys (name, etc.) untouched. Handles
  * both inline-style (`description: foo`) and block-scalar style (`description: |`
@@ -154,42 +211,8 @@ export function swapFrontmatterDescription(content: string, newDescription: stri
 	const body = content.slice(closeIdx + 1 + DELIM.length);
 
 	const lines = frontmatter.split("\n");
-	const out: string[] = [];
-	let i = 0;
-	let replaced = false;
 	const quoted = quoteYamlDouble(newDescription);
-
-	while (i < lines.length) {
-		const line = lines[i];
-		if (line === undefined) {
-			i += 1;
-			continue;
-		}
-		if (!replaced && /^description\s*:/.test(line)) {
-			out.push(`description: ${quoted}`);
-			replaced = true;
-
-			// If the original used a block scalar (`|`, `>`, with optional chomp
-			// indicators `+`/`-`), consume the indented/blank continuation lines.
-			const valuePart = line.slice(line.indexOf(":") + 1).trim();
-			const isBlockScalar = /^[|>][+-]?$/.test(valuePart);
-			i += 1;
-			if (isBlockScalar) {
-				while (i < lines.length) {
-					const next = lines[i];
-					if (next === undefined) break;
-					if (next.length === 0 || /^\s/.test(next)) {
-						i += 1;
-						continue;
-					}
-					break;
-				}
-			}
-			continue;
-		}
-		out.push(line);
-		i += 1;
-	}
+	const { out, replaced } = processLinesLength(lines, quoted);
 
 	if (!replaced) {
 		out.push(`description: ${quoted}`);

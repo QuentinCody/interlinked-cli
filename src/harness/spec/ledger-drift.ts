@@ -6,7 +6,7 @@
 // MORE — a split registry's global count/max is a distinct cross-file
 // finding (round-5 #3).
 
-import type { IdNamespace, SpecFacts } from "./types.js";
+import type { CountClaim, IdNamespace, SpecFacts } from "./types.js";
 
 /** The cross-file drift kinds the ledger emits (source "spec" in
  *  CheckResultEntry). Authoritative list for the check-inventory spec_ledger
@@ -65,6 +65,61 @@ export function foldLooseDefinedIds(
 	}
 }
 
+/** Count-claim drift for a single claim against the global census — the
+ *  per-claim body of appendCountDrift, extracted so the outer loop carries
+ *  none of this nesting (cognitive-complexity split; no behavior change).
+ *  Returns the number of findings emitted for this claim. */
+function appendCountDriftForClaim(
+	claim: CountClaim,
+	out: SpecDriftFinding[],
+	file: string,
+	global: Map<string, GlobalNamespace>,
+	bindings: Map<string, Set<string>>,
+	localByKey: Map<string, IdNamespace>,
+): number {
+	const keys = bindings.get(claim.nounSingular);
+	if (!keys) return 0;
+	// A noun that binds to MORE THAN ONE namespace across the repo is
+	// ambiguous ("phase" → W in one doc, P in another). Comparing such a
+	// claim against every bound namespace double-reports a correct "three
+	// phases" (W1–W3) claim against the unrelated P1–P4 registry (round-2
+	// #19). Disambiguate by locality: only keep a key that co-occurs in
+	// THIS file. A single-key binding stays unambiguous, so the D-1 case
+	// (a README count claim about a registry defined in another file, where
+	// the claim's file has no local ids) still fires.
+	const ambiguous = keys.size > 1;
+	// Disambiguate by locality: for an ambiguous noun keep only the bound
+	// namespaces that also occur in THIS file (round-2 #19). If MORE THAN ONE
+	// such candidate is local, the claim cannot be attributed to a single
+	// registry — comparing against each double-reports (sol-max #14) — so skip
+	// it entirely. A single-key binding stays unambiguous, preserving D-1.
+	const candidates = ambiguous ? [...keys].filter((k) => localByKey.has(k)) : [...keys];
+	if (ambiguous && candidates.length > 1) return 0;
+	let emittedHere = 0;
+	for (const key of candidates) {
+		const g = global.get(key);
+		if (!g || g.nums.size < 2) continue;
+		if (claim.value === g.nums.size) continue;
+		const local = localByKey.get(key);
+		// A finding whose ENTIRE census lives in this one file is not cross-file
+		// drift — the inline single-file check (checkSpecCountClaim) owns it, and
+		// it fires for ANY bound namespace, registry or not. Suppress the ledger's
+		// duplicate (sol-max #13). The old `hasDefSites(local)` gate let a local
+		// namespace WITHOUT definition-shaped lines leak through, double-reporting
+		// a purely-local contradiction the inline check already catches.
+		if (local && g.nums.size === local.uniqueCount) continue;
+		out.push({
+			kind: "count_claim_drift",
+			file,
+			line: claim.line,
+			message: `"${claim.raw}" (${file}:${claim.line}) vs the ${g.prefix} census: ${g.nums.size} distinct ids across ${formatFileList(g.definingFiles.length > 0 ? g.definingFiles : g.files)} (max ${g.prefix}-${g.max}). Either this claim is stale or the extra ids are vestigial.`,
+			relatedFiles: uniqueOthers(g.files, file),
+		});
+		emittedHere++;
+	}
+	return emittedHere;
+}
+
 /** Count-claim drift for one file against the global census. */
 export function appendCountDrift(
 	out: SpecDriftFinding[],
@@ -79,45 +134,7 @@ export function appendCountDrift(
 	let emitted = 0;
 	for (const claim of facts.countClaims) {
 		if (emitted >= MAX_DRIFT_FINDINGS) break;
-		const keys = bindings.get(claim.nounSingular);
-		if (!keys) continue;
-		// A noun that binds to MORE THAN ONE namespace across the repo is
-		// ambiguous ("phase" → W in one doc, P in another). Comparing such a
-		// claim against every bound namespace double-reports a correct "three
-		// phases" (W1–W3) claim against the unrelated P1–P4 registry (round-2
-		// #19). Disambiguate by locality: only keep a key that co-occurs in
-		// THIS file. A single-key binding stays unambiguous, so the D-1 case
-		// (a README count claim about a registry defined in another file, where
-		// the claim's file has no local ids) still fires.
-		const ambiguous = keys.size > 1;
-		// Disambiguate by locality: for an ambiguous noun keep only the bound
-		// namespaces that also occur in THIS file (round-2 #19). If MORE THAN ONE
-		// such candidate is local, the claim cannot be attributed to a single
-		// registry — comparing against each double-reports (sol-max #14) — so skip
-		// it entirely. A single-key binding stays unambiguous, preserving D-1.
-		const candidates = ambiguous ? [...keys].filter((k) => localByKey.has(k)) : [...keys];
-		if (ambiguous && candidates.length > 1) continue;
-		for (const key of candidates) {
-			const g = global.get(key);
-			if (!g || g.nums.size < 2) continue;
-			if (claim.value === g.nums.size) continue;
-			const local = localByKey.get(key);
-			// A finding whose ENTIRE census lives in this one file is not cross-file
-			// drift — the inline single-file check (checkSpecCountClaim) owns it, and
-			// it fires for ANY bound namespace, registry or not. Suppress the ledger's
-			// duplicate (sol-max #13). The old `hasDefSites(local)` gate let a local
-			// namespace WITHOUT definition-shaped lines leak through, double-reporting
-			// a purely-local contradiction the inline check already catches.
-			if (local && g.nums.size === local.uniqueCount) continue;
-			out.push({
-				kind: "count_claim_drift",
-				file,
-				line: claim.line,
-				message: `"${claim.raw}" (${file}:${claim.line}) vs the ${g.prefix} census: ${g.nums.size} distinct ids across ${formatFileList(g.definingFiles.length > 0 ? g.definingFiles : g.files)} (max ${g.prefix}-${g.max}). Either this claim is stale or the extra ids are vestigial.`,
-				relatedFiles: uniqueOthers(g.files, file),
-			});
-			emitted++;
-		}
+		emitted += appendCountDriftForClaim(claim, out, file, global, bindings, localByKey);
 	}
 }
 

@@ -145,7 +145,6 @@ export function captureDiffAwareBaseline(
 	filePath: string,
 ): void {
 	const { rules } = ctx;
-	const CWD = ctx.cwd;
 	if (rules.diff_aware?.enabled === false) return;
 	const toolName = event.tool_name || "";
 	const isFileWrite = [
@@ -165,71 +164,91 @@ export function captureDiffAwareBaseline(
 	// edits were previously skipped entirely (no CRAP/complexity baseline).
 	const targetPaths = filePath ? [filePath] : extractAllEditedFilePaths(event);
 	for (const target of targetPaths) {
-		const baselineFilePath = isAbsolute(target) ? target : resolve(CWD, target);
-		if (existsSync(baselineFilePath)) {
-			try {
-				const preContent = readFileSync(baselineFilePath, "utf-8");
-				const missingRT = checkMissingReturnTypes(preContent, baselineFilePath);
-				const complexFns = checkFunctionComplexity(preContent, baselineFilePath);
-				// CRAP baseline — fail-open when coverage data is absent.
-				let crapScores: Map<string, Map<string, number>> | undefined;
-				try {
-					const coveragePath = resolve(CWD, "coverage", "coverage-final.json");
-					const covCache = loadCoverageFinal(coveragePath, CWD);
-					if (covCache) {
-						const relPath = relative(CWD, baselineFilePath).replace(/\\/g, "/");
-						const perFile = coverageForFile(covCache, relPath);
-						const mtimeMs = statSync(baselineFilePath).mtimeMs;
-						crapScores = snapshotCrap({
-							preContent,
-							filePath: relPath,
-							coverage: perFile,
-							fileMtime: mtimeMs,
-							threshold: 30,
-						});
-					}
-				} catch (crapErr) {
-					void crapErr; /* CRAP snapshot must never break the baseline capture */
-				}
-				let dryCloneBaseline: PreEditBaseline["dryCloneBaseline"] | undefined;
-				try {
-					dryCloneBaseline = snapshotDryShingles({
-						preContent,
-						filePath: baselineFilePath,
-						candidates: collectSiblingFunctions(baselineFilePath),
-					});
-				} catch (dryErr) {
-					void dryErr; /* clone snapshot must never break the baseline capture */
-				}
-				ctx.preEditBaselines.set(baselineFilePath, {
-					missingReturnTypes: new Set(missingRT.map((m) => m.text)),
-					complexFunctions: new Set(complexFns.map((m) => m.text)),
-					crapScores,
-					dryCloneBaseline,
-					capturedAt: Date.now(),
-					suppressionCount: countSuppressionDirectives(preContent),
-					asAnyCastCount: countAsAnyCasts(preContent),
-					nonNullAssertionCount: countNonNullAssertions(preContent),
-					unjustifiedCastCount: countUnjustifiedCasts(preContent),
-					todoMarkerCount: countTodoMarkers(preContent),
-					consoleStatementCount: countConsoleStatements(preContent),
-					publicApiSurfaceCount: countPublicApiSurface(preContent),
-					typeDensity: countTypeDensity(preContent),
-					softwareVersions: collectSoftwareVersionReferences(
-						preContent,
-						baselineFilePath,
-					),
-					discoveredPrimitiveViolations: captureDiscoveredPrimitiveViolations(
-						CWD,
-						preContent,
-					),
-					ambientSeams: countAmbientSeams(preContent, baselineFilePath),
-					assertionStrength: countAssertionStrength(preContent, baselineFilePath),
-				});
-			} catch (e) {
-				void e;
-			}
+		captureBaselineForTarget(ctx, target);
+	}
+}
+
+/**
+ * Snapshots the pre-edit metrics for a single edit target into
+ * `ctx.preEditBaselines`. Extracted loop body of `captureDiffAwareBaseline`;
+ * same side effects, same fail-open error handling.
+ */
+function captureBaselineForTarget(ctx: ServerRuntime, target: string): void {
+	const CWD = ctx.cwd;
+	const baselineFilePath = isAbsolute(target) ? target : resolve(CWD, target);
+	if (!existsSync(baselineFilePath)) return;
+	try {
+		const preContent = readFileSync(baselineFilePath, "utf-8");
+		const missingRT = checkMissingReturnTypes(preContent, baselineFilePath);
+		const complexFns = checkFunctionComplexity(preContent, baselineFilePath);
+		// CRAP baseline — fail-open when coverage data is absent.
+		const crapScores = snapshotCrapBaseline(CWD, baselineFilePath, preContent);
+		let dryCloneBaseline: PreEditBaseline["dryCloneBaseline"] | undefined;
+		try {
+			dryCloneBaseline = snapshotDryShingles({
+				preContent,
+				filePath: baselineFilePath,
+				candidates: collectSiblingFunctions(baselineFilePath),
+			});
+		} catch (dryErr) {
+			void dryErr; /* clone snapshot must never break the baseline capture */
 		}
+		ctx.preEditBaselines.set(baselineFilePath, {
+			missingReturnTypes: new Set(missingRT.map((m) => m.text)),
+			complexFunctions: new Set(complexFns.map((m) => m.text)),
+			crapScores,
+			dryCloneBaseline,
+			capturedAt: Date.now(),
+			suppressionCount: countSuppressionDirectives(preContent),
+			asAnyCastCount: countAsAnyCasts(preContent),
+			nonNullAssertionCount: countNonNullAssertions(preContent),
+			unjustifiedCastCount: countUnjustifiedCasts(preContent),
+			todoMarkerCount: countTodoMarkers(preContent),
+			consoleStatementCount: countConsoleStatements(preContent),
+			publicApiSurfaceCount: countPublicApiSurface(preContent),
+			typeDensity: countTypeDensity(preContent),
+			softwareVersions: collectSoftwareVersionReferences(
+				preContent,
+				baselineFilePath,
+			),
+			discoveredPrimitiveViolations: captureDiscoveredPrimitiveViolations(
+				CWD,
+				preContent,
+			),
+			ambientSeams: countAmbientSeams(preContent, baselineFilePath),
+			assertionStrength: countAssertionStrength(preContent, baselineFilePath),
+		});
+	} catch (e) {
+		void e;
+	}
+}
+
+/**
+ * CRAP pre-edit snapshot for one file. Fail-open: any error (or absent
+ * coverage data) yields `undefined` rather than breaking baseline capture.
+ */
+function snapshotCrapBaseline(
+	CWD: string,
+	baselineFilePath: string,
+	preContent: string,
+): Map<string, Map<string, number>> | undefined {
+	try {
+		const coveragePath = resolve(CWD, "coverage", "coverage-final.json");
+		const covCache = loadCoverageFinal(coveragePath, CWD);
+		if (!covCache) return undefined;
+		const relPath = relative(CWD, baselineFilePath).replace(/\\/g, "/");
+		const perFile = coverageForFile(covCache, relPath);
+		const mtimeMs = statSync(baselineFilePath).mtimeMs;
+		return snapshotCrap({
+			preContent,
+			filePath: relPath,
+			coverage: perFile,
+			fileMtime: mtimeMs,
+			threshold: 30,
+		});
+	} catch (crapErr) {
+		void crapErr; /* CRAP snapshot must never break the baseline capture */
+		return undefined;
 	}
 }
 
@@ -245,45 +264,49 @@ export function injectStructureContext(
 	filePath: string,
 ): void {
 	const CWD = ctx.cwd;
-	if (
-		filePath &&
-		[
-			"Write",
-			"Edit",
-			"Update",
-			"WriteFile",
-			"EditFile",
-			"write_file",
-			"edit_file",
-		].includes(event.tool_name || "")
-	) {
-		try {
-			const structRepoRoot = findProjectRoot(filePath, CWD) || CWD;
-			const { config } = loadStructureConfig(structRepoRoot);
-			if (config) {
-				// Check for unresolved structure follow-ups in session
-				const unresolvedStructure: string[] = [];
-				for (const [key, completion] of session.pending_completions) {
-					if (!key.startsWith("struct:")) continue;
-					const remaining = completion.affected_files.filter(
-						(f) => !completion.resolved_files.has(f),
-					);
-					if (remaining.length > 0) {
-						unresolvedStructure.push(
-							`${completion.description}: ${remaining.join(", ")}`,
-						);
-					}
-				}
-				if (unresolvedStructure.length > 0) {
-					const warnings = preDecision.warnings || [];
-					warnings.push(
-						`[interlinked:structure] Unresolved companion follow-ups from previous edits:\n${unresolvedStructure.map((u) => `  - ${u}`).join("\n")}`,
-					);
-					preDecision.warnings = warnings;
-				}
+	const isFileWriteTool = [
+		"Write",
+		"Edit",
+		"Update",
+		"WriteFile",
+		"EditFile",
+		"write_file",
+		"edit_file",
+	].includes(event.tool_name || "");
+	if (!filePath || !isFileWriteTool) return;
+	try {
+		const structRepoRoot = findProjectRoot(filePath, CWD) || CWD;
+		const { config } = loadStructureConfig(structRepoRoot);
+		if (config) {
+			// Check for unresolved structure follow-ups in session
+			const unresolvedStructure = collectUnresolvedStructureFollowUps(session);
+			if (unresolvedStructure.length > 0) {
+				const warnings = preDecision.warnings || [];
+				warnings.push(
+					`[interlinked:structure] Unresolved companion follow-ups from previous edits:\n${unresolvedStructure.map((u) => `  - ${u}`).join("\n")}`,
+				);
+				preDecision.warnings = warnings;
 			}
-		} catch (e) {
-			void e;
+		}
+	} catch (e) {
+		void e;
+	}
+}
+
+/**
+ * Describes every `struct:` pending completion in the session that still has
+ * unresolved affected files. Extracted from `injectStructureContext`.
+ */
+function collectUnresolvedStructureFollowUps(session: SessionTrajectory): string[] {
+	const unresolvedStructure: string[] = [];
+	for (const [key, completion] of session.pending_completions) {
+		if (!key.startsWith("struct:")) continue;
+		const remaining = completion.affected_files.filter(
+			(f) => !completion.resolved_files.has(f),
+		);
+		if (remaining.length > 0) {
+			unresolvedStructure.push(`${completion.description}: ${remaining.join(", ")}`);
 		}
 	}
+	return unresolvedStructure;
 }

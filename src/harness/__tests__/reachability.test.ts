@@ -32,7 +32,8 @@ vi.mock("node:fs", () => ({
 }));
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { ProjectGraph, REACHABILITY_DEPTH_CAP } from "../project-graph.js";
+import { ProjectGraph } from "../project-graph.js";
+import { REACHABILITY_DEPTH_CAP } from "../project-graph-reachability.js";
 
 const mockedExistsSync = existsSync as unknown as ReturnType<typeof vi.fn>;
 const mockedStatSync = statSync as unknown as ReturnType<typeof vi.fn>;

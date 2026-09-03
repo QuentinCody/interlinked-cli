@@ -66,6 +66,7 @@ const POSTTOOLUSE_KEYS = ["emit_deterministic", "emit_partial", "emit_heuristic"
 const ADOPTION_KEYS = ["coverage_thresholds"];
 const BUILTINS_KEYS = [
 	"public_symbol_companions",
+	"public_symbol_test_case",
 	"env_key_companions",
 	"config_key_companions",
 	"layer_boundary_violations",

@@ -41,6 +41,46 @@ interface AnyTypeMatch {
 }
 
 /**
+ * Scan a single (regex-stripped) line for `any`/`unknown` type usage and
+ * append any match to `matches`. Extracted from `findAnyTypes` so the loop
+ * body runs at nesting depth 0 (cognitive-complexity flattening) — pure
+ * behavior-preserving extraction, no logic changes.
+ */
+function collectAnyTypeMatchForLine(line: string, lineNumber: number, matches: AnyTypeMatch[]): void {
+	const trimmed = line.trim();
+
+	// Skip comment-only lines
+	if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*")) return;
+
+	// Skip lines that are entirely inside a string (best-effort: starts with quote)
+	if (/^\s*['"`]/.test(line) && /['"`]\s*[;,]?\s*$/.test(line)) return;
+
+	// Strip string literal content before checking patterns to avoid
+	// matching `any` inside strings (e.g., "Do NOT use `as any`")
+	const stripped = stripStringLiterals(line);
+
+	// Check for any-type patterns on the stripped line
+	let matched = false;
+	for (const pattern of ANY_TYPE_PATTERNS) {
+		if (pattern.test(stripped)) {
+			matches.push({ line: lineNumber, text: trimmed.slice(0, 120), kind: "any" });
+			matched = true;
+			break;
+		}
+	}
+
+	// Check for unknown-type patterns (only if no any match on this line)
+	if (!matched) {
+		for (const pattern of UNKNOWN_TYPE_PATTERNS) {
+			if (pattern.test(stripped)) {
+				matches.push({ line: lineNumber, text: trimmed.slice(0, 120), kind: "unknown" });
+				break;
+			}
+		}
+	}
+}
+
+/**
  * Public API — consumed by quality-checks.runQualityChecks and verify.ts.
  *
  * Scan file content for explicit `any` and `unknown` type usage.
@@ -59,38 +99,7 @@ export function findAnyTypes(content: string): AnyTypeMatch[] {
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = nonNull(lines[i]);
-		const trimmed = line.trim();
-
-		// Skip comment-only lines
-		if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.startsWith("/*"))
-			continue;
-
-		// Skip lines that are entirely inside a string (best-effort: starts with quote)
-		if (/^\s*['"`]/.test(line) && /['"`]\s*[;,]?\s*$/.test(line)) continue;
-
-		// Strip string literal content before checking patterns to avoid
-		// matching `any` inside strings (e.g., "Do NOT use `as any`")
-		const stripped = stripStringLiterals(line);
-
-		// Check for any-type patterns on the stripped line
-		let matched = false;
-		for (const pattern of ANY_TYPE_PATTERNS) {
-			if (pattern.test(stripped)) {
-				matches.push({ line: i + 1, text: trimmed.slice(0, 120), kind: "any" });
-				matched = true;
-				break;
-			}
-		}
-
-		// Check for unknown-type patterns (only if no any match on this line)
-		if (!matched) {
-			for (const pattern of UNKNOWN_TYPE_PATTERNS) {
-				if (pattern.test(stripped)) {
-					matches.push({ line: i + 1, text: trimmed.slice(0, 120), kind: "unknown" });
-					break;
-				}
-			}
-		}
+		collectAnyTypeMatchForLine(line, i + 1, matches);
 	}
 
 	return matches;

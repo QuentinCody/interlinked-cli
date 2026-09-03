@@ -83,6 +83,60 @@ function* walkSourceFiles(root: string): Iterable<string> {
 	}
 }
 
+interface InterfaceLineResult {
+	activeContainer: string | null;
+	braceDepth: number;
+	field: InterfaceField | null;
+}
+
+// Scans one source line against the current (activeContainer, braceDepth)
+// state and returns the updated state plus a field record when the line
+// declares a top-level interface property. Pulled out of
+// `extractInterfaceFields`'s loop body so that loop stays flat: this
+// function's own branches never nest inside another loop or if.
+function scanInterfaceLine(
+	line: string,
+	lineIndex: number,
+	file: string,
+	activeContainer: string | null,
+	braceDepth: number,
+): InterfaceLineResult {
+	const open = INTERFACE_OPEN_RE.exec(line);
+	if (open) {
+		return { activeContainer: open[1] ?? null, braceDepth: 1, field: null };
+	}
+	if (activeContainer === null) {
+		return { activeContainer, braceDepth, field: null };
+	}
+
+	braceDepth += (line.match(/\{/g) || []).length;
+	braceDepth -= (line.match(/\}/g) || []).length;
+	if (braceDepth <= 0) {
+		return { activeContainer: null, braceDepth, field: null };
+	}
+	// Only record top-level properties of the interface.
+	if (braceDepth !== 1) {
+		return { activeContainer, braceDepth, field: null };
+	}
+	// Reject method signatures: `name(args): ret;` has `(` before `:`.
+	const colonIdx = line.indexOf(":");
+	const parenIdx = line.indexOf("(");
+	if (parenIdx !== -1 && (colonIdx === -1 || parenIdx < colonIdx)) {
+		return { activeContainer, braceDepth, field: null };
+	}
+
+	const fieldMatch = FIELD_DECL_RE.exec(line);
+	if (!fieldMatch) {
+		return { activeContainer, braceDepth, field: null };
+	}
+	const fieldName = fieldMatch[1] ?? "";
+	return {
+		activeContainer,
+		braceDepth,
+		field: { file, line: lineIndex + 1, containerName: activeContainer, field: fieldName },
+	};
+}
+
 function extractInterfaceFields(file: string): InterfaceField[] {
 	let content: string;
 	try {
@@ -97,36 +151,10 @@ function extractInterfaceFields(file: string): InterfaceField[] {
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i] ?? "";
-		const open = INTERFACE_OPEN_RE.exec(line);
-		if (open) {
-			activeContainer = open[1] ?? null;
-			braceDepth = 1;
-			continue;
-		}
-		if (activeContainer === null) continue;
-
-		braceDepth += (line.match(/\{/g) || []).length;
-		braceDepth -= (line.match(/\}/g) || []).length;
-		if (braceDepth <= 0) {
-			activeContainer = null;
-			continue;
-		}
-		// Only record top-level properties of the interface.
-		if (braceDepth !== 1) continue;
-		// Reject method signatures: `name(args): ret;` has `(` before `:`.
-		const colonIdx = line.indexOf(":");
-		const parenIdx = line.indexOf("(");
-		if (parenIdx !== -1 && (colonIdx === -1 || parenIdx < colonIdx)) continue;
-
-		const fieldMatch = FIELD_DECL_RE.exec(line);
-		if (!fieldMatch) continue;
-		const fieldName = fieldMatch[1] ?? "";
-		fields.push({
-			file,
-			line: i + 1,
-			containerName: activeContainer,
-			field: fieldName,
-		});
+		const result = scanInterfaceLine(line, i, file, activeContainer, braceDepth);
+		activeContainer = result.activeContainer;
+		braceDepth = result.braceDepth;
+		if (result.field) fields.push(result.field);
 	}
 	return fields;
 }

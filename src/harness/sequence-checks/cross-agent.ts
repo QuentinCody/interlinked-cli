@@ -192,6 +192,45 @@ export const staleReadThenWrite: SequenceDetector = {
  * work" pattern at end-of-turn rather than every PreToolUse, keeping
  * the dispatch hot-path cheap.
  */
+/** One `trajectory.files_written` entry's worth of the `subagentDivergedEdit`
+ *  loop body, extracted to keep the detector flat. Returns the match for
+ *  the first qualifying `events` row (mirrors the original inner-loop
+ *  `break`), or `null` when the file was already reported or no event
+ *  qualifies (mirrors the original `continue`s). Mutates `reportedFiles`
+ *  on a hit, same as the original inline loop did. */
+function findDivergedEditForFile(
+	filePath: string,
+	cwd: string,
+	trajectory: Readonly<SessionTrajectory>,
+	events: readonly WorkspaceActivityEvent[],
+	windowStartMs: number,
+	reportedFiles: Set<string>,
+): SequenceMatch | null {
+	const key = canonicalKey(filePath, cwd);
+	if (reportedFiles.has(key)) return null;
+	for (const ev of events) {
+		if (!ev.tool_name || !WRITE_TOOLS.has(ev.tool_name)) continue;
+		if (!ev.agent_name || ev.agent_name === trajectory.agent_name) continue;
+		if (!fileMatches(eventFilePath(ev), filePath)) continue;
+		const evMs = Date.parse(ev.timestamp);
+		if (Number.isNaN(evMs)) continue;
+		if (evMs < windowStartMs) continue;
+		const otherAgent = ev.agent_name ?? "another agent";
+		reportedFiles.add(key);
+		return {
+			prior_event_count: 1,
+			prior_summary: `${otherAgent} wrote ${filePath} at ${ev.timestamp}`,
+			message:
+				`Both this session and ${otherAgent} wrote ${filePath} in the last 30 minutes. ` +
+				"Coarse proxy for parent/subagent divergence — verify the final on-disk state " +
+				"matches intent, or acknowledge with " +
+				"`// interlinked: defer subagent_diverged_edit -- <reason>`.",
+			evidence: [filePath, ev.timestamp],
+		};
+	}
+	return null;
+}
+
 export const subagentDivergedEdit: SequenceDetector = {
 	id: "subagent_diverged_edit",
 	description:
@@ -213,29 +252,15 @@ export const subagentDivergedEdit: SequenceDetector = {
 		// one match per actual file.
 		const reportedFiles = new Set<string>();
 		for (const filePath of trajectory.files_written) {
-			const key = canonicalKey(filePath, cwd);
-			if (reportedFiles.has(key)) continue;
-			for (const ev of events) {
-				if (!ev.tool_name || !WRITE_TOOLS.has(ev.tool_name)) continue;
-				if (!ev.agent_name || ev.agent_name === trajectory.agent_name) continue;
-				if (!fileMatches(eventFilePath(ev), filePath)) continue;
-				const evMs = Date.parse(ev.timestamp);
-				if (Number.isNaN(evMs)) continue;
-				if (evMs < windowStartMs) continue;
-				const otherAgent = ev.agent_name ?? "another agent";
-				matches.push({
-					prior_event_count: 1,
-					prior_summary: `${otherAgent} wrote ${filePath} at ${ev.timestamp}`,
-					message:
-						`Both this session and ${otherAgent} wrote ${filePath} in the last 30 minutes. ` +
-						"Coarse proxy for parent/subagent divergence — verify the final on-disk state " +
-						"matches intent, or acknowledge with " +
-						"`// interlinked: defer subagent_diverged_edit -- <reason>`.",
-					evidence: [filePath, ev.timestamp],
-				});
-				reportedFiles.add(key);
-				break;
-			}
+			const match = findDivergedEditForFile(
+				filePath,
+				cwd,
+				trajectory,
+				events,
+				windowStartMs,
+				reportedFiles,
+			);
+			if (match) matches.push(match);
 		}
 		return matches;
 	},

@@ -11,4 +11,4 @@
  * `contract-digest.json` to agree.
  */
 export const PROTOCOL_V3_CONTRACT_DIGEST =
-	"3e5e9eff3b383ff48be2710d290a5c69e3bc66b7af4a259a17228921b236a751";
+	"a99c96afcc1ef17b7cb848de01da679eeb9e149277dcba185ad1a3366a66cda0";

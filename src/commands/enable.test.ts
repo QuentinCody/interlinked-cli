@@ -127,7 +127,8 @@ import {
 } from "../lib/hooks.js";
 import { detectClients } from "../lib/settings.js";
 import { installSkills } from "../lib/skill-installers.js";
-import { buildPostEnableNotes, enableCommand } from "./enable.js";
+import { buildPostEnableNotes } from "./enable-client-summary.js";
+import { enableCommand } from "./enable.js";
 import { harnessStartCommand, isHarnessRunning } from "./harness.js";
 import { structureInitCommand } from "./structure.js";
 

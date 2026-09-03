@@ -25,7 +25,7 @@
 import type { AgentTokenTotals, AgentTranscriptMetrics } from "../lib/collection/types.js";
 import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 
-export type { AgentTokenTotals, AgentTranscriptMetrics };
+export type { AgentTranscriptMetrics };
 
 /** Cap on the recorded id list — a runaway agent must not write an unbounded
  *  field into collection.jsonl. Counts stay exact when this trips. */

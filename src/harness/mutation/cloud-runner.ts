@@ -10,9 +10,10 @@
 // allow, never a forged clean pass (spec §12).
 
 import { isJsonObject } from "../../lib/json-types.js";
-import type { MutationRunner } from "./gate.js";
+import type { FileOverlay } from "./gate-overlays.js";
+import type { MutationRunner, MutationRunOptions } from "./gate.js";
 import { normalizeManifestKey } from "./manifest-key.js";
-import { type AdaptedFile, strykerToAdapted } from "./stryker-adapter.js";
+import { type AdaptedFile, type MutationRunOutput, strykerToAdapted } from "./stryker-adapter.js";
 import type { TestRunResult } from "./types.js";
 
 export interface CloudRunnerConfig {
@@ -282,6 +283,83 @@ export function readExecutedTestCount(body: unknown): number | null {
 	return typeof count === "number" && Number.isSafeInteger(count) && count >= 0 ? count : null;
 }
 
+/**
+ * Send the request and adapt the response into a `MutationRunOutput` — the
+ * body of `run`'s try block, extracted so the timeout/abort bookkeeping
+ * around it in `run` reads at its own nesting depth.
+ */
+async function attemptOperation(
+	fetchImpl: FetchLike,
+	config: CloudRunnerConfig,
+	file: string,
+	overlayContent: string,
+	overlays: FileOverlay[] | undefined,
+	options: MutationRunOptions | undefined,
+	jobId: string,
+	signal: AbortSignal,
+): Promise<MutationRunOutput> {
+	const res = await fetchImpl(config.url, {
+		method: "POST",
+		headers: headersFor(config),
+		// `overlays` (full proposed state incl. the companion test) is
+		// omitted when absent — an older Worker just ignores it.
+		// Explicit scope + cache fields (review pass 19): the per-edit path
+		// is ALWAYS whole-file with the incremental cache OFF, stated on
+		// the wire — never inferred from a missing `range`. `range` and
+		// `shard` no longer exist in the client (v1 line-range/shard
+		// execution retired, passes 11-19); a runner that keys cache
+		// behavior off range-absence must read these explicit fields.
+		body: JSON.stringify({
+			file,
+			overlayContent,
+			overlays,
+			testScope: options?.testFiles,
+			test_scope_mode: options?.scopeMode,
+			scope: "whole_file",
+			incremental: false,
+			job_id: jobId,
+		}),
+		signal,
+	});
+	// 503 is the single-worktree runner's "busy" lock, which is neither a
+	// failure nor evidence of a missing test — throw the dedicated type here
+	// rather than leaving `gate.ts` to recover it from message text.
+	if (res.status === 503) throw new MutationRunnerBusyError();
+	if (!res.ok) throw new Error(await describeErrorResponse(res));
+	const body = await res.json();
+	// A runner that knows WHY it produced nothing says so, rather than
+	// leaving the gate to report a generic failure.
+	const notMeasurable = readNotMeasurable(body);
+	if (notMeasurable) throw new MutationNotMeasurableError(notMeasurable.reason, notMeasurable.detail);
+	// Review 2026-08-25, pass 7: the Worker reports a RED overlay suite as
+	// `{files:{}, testRun:{overlayGreen:false}}` — Stryker never ran, so
+	// there legitimately is no target entry. Selecting the target first
+	// threw "no entry", the gate read that as unavailable, and a KNOWN red
+	// suite failed to block. Red evidence short-circuits target selection.
+	const testRun = parseTestRun(body);
+	if (testRun?.overlayGreen === false) return { mutants: [], testRun };
+	const adapted = strykerToAdapted(body);
+	if (adapted === null) throw new Error("unrecognized mutation report");
+	// The target's OWN entry, exact-path-matched and bound to the proposed
+	// overlay content — see selectTargetEntry for the three refusals.
+	const entry = selectTargetEntry(adapted, file, overlayContent, config.cwd);
+	const mutants = entry.mutants;
+	// Carry the parse loss to the evaluator rather than absorbing it here:
+	// the runner's job is to report what arrived, the evaluator's is to
+	// decide whether that is enough to certify.
+	const dropped = entry.dropped > 0 ? { droppedMutants: entry.dropped } : {};
+	// Same division of labour as `dropped`: carry the engine's status up
+	// rather than judging it here. Absent stays absent, so the evaluator
+	// can tell "the runner said nothing about the engine" apart from
+	// "the engine reported a status".
+	const engine = readEngineExitCode(body);
+	const engineEvidence = engine === undefined ? {} : { engineExitCode: engine };
+	const executedTestCount = readExecutedTestCount(body);
+	return testRun
+		? { mutants, testRun, executedTestCount, ...dropped, ...engineEvidence }
+		: { mutants, executedTestCount, ...dropped, ...engineEvidence };
+}
+
 /** Daemon-side MutationRunner forwarding to the cloud Sandbox Worker (spec §8). */
 export function createCloudMutationRunner(config: CloudRunnerConfig, fetchImpl: FetchLike): MutationRunner {
 	return {
@@ -299,72 +377,22 @@ export function createCloudMutationRunner(config: CloudRunnerConfig, fetchImpl: 
 				controller.abort();
 			}, config.timeoutMs);
 			try {
-				const res = await fetchImpl(config.url, {
-					method: "POST",
-					headers: headersFor(config),
-					// `overlays` (full proposed state incl. the companion test) is
-					// omitted when absent — an older Worker just ignores it.
-					// Explicit scope + cache fields (review pass 19): the per-edit path
-					// is ALWAYS whole-file with the incremental cache OFF, stated on
-					// the wire — never inferred from a missing `range`. `range` and
-					// `shard` no longer exist in the client (v1 line-range/shard
-					// execution retired, passes 11-19); a runner that keys cache
-					// behavior off range-absence must read these explicit fields.
-					body: JSON.stringify({
-						file,
-						overlayContent,
-						overlays,
-						testScope: options?.testFiles,
-						test_scope_mode: options?.scopeMode,
-						scope: "whole_file",
-						incremental: false,
-						job_id: jobId,
-					}),
-					signal: controller.signal,
-				});
-				// 503 is the single-worktree runner's "busy" lock, which is neither a
-				// failure nor evidence of a missing test — throw the dedicated type here
-				// rather than leaving `gate.ts` to recover it from message text.
-				if (res.status === 503) throw new MutationRunnerBusyError();
-				if (!res.ok) throw new Error(await describeErrorResponse(res));
-				const body = await res.json();
-				// A runner that knows WHY it produced nothing says so, rather than
-				// leaving the gate to report a generic failure.
-				const notMeasurable = readNotMeasurable(body);
-				if (notMeasurable) throw new MutationNotMeasurableError(notMeasurable.reason, notMeasurable.detail);
-				// Review 2026-08-25, pass 7: the Worker reports a RED overlay suite as
-				// `{files:{}, testRun:{overlayGreen:false}}` — Stryker never ran, so
-				// there legitimately is no target entry. Selecting the target first
-				// threw "no entry", the gate read that as unavailable, and a KNOWN red
-				// suite failed to block. Red evidence short-circuits target selection.
-				const testRun = parseTestRun(body);
-				if (testRun?.overlayGreen === false) return { mutants: [], testRun };
-				const adapted = strykerToAdapted(body);
-				if (adapted === null) throw new Error("unrecognized mutation report");
-				// The target's OWN entry, exact-path-matched and bound to the proposed
-				// overlay content — see selectTargetEntry for the three refusals.
-				const entry = selectTargetEntry(adapted, file, overlayContent, config.cwd);
-				const mutants = entry.mutants;
-				// Carry the parse loss to the evaluator rather than absorbing it here:
-				// the runner's job is to report what arrived, the evaluator's is to
-				// decide whether that is enough to certify.
-				const dropped = entry.dropped > 0 ? { droppedMutants: entry.dropped } : {};
-				// Same division of labour as `dropped`: carry the engine's status up
-				// rather than judging it here. Absent stays absent, so the evaluator
-				// can tell "the runner said nothing about the engine" apart from
-				// "the engine reported a status".
-				const engine = readEngineExitCode(body);
-				const engineEvidence = engine === undefined ? {} : { engineExitCode: engine };
-				const executedTestCount = readExecutedTestCount(body);
-				return testRun
-					? { mutants, testRun, executedTestCount, ...dropped, ...engineEvidence }
-					: { mutants, executedTestCount, ...dropped, ...engineEvidence };
+				return await attemptOperation(
+					fetchImpl,
+					config,
+					file,
+					overlayContent,
+					overlays,
+					options,
+					jobId,
+					controller.signal,
+				);
 			} catch (err) {
 				// Budget expiry is NOT the same failure as a broken runner. The engine
 				// is still working and the result is retained under our job id, so
 				// surface a handle the caller can harvest in its next window instead
 				// of throwing away work that is already paid for.
-					if (timeoutState.timedOut) throw new MutationRunPendingError(jobId, config.url, err);
+				if (timeoutState.timedOut) throw new MutationRunPendingError(jobId, config.url, err);
 				throw err;
 			} finally {
 				clearTimeout(timer);

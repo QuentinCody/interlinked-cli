@@ -38,7 +38,6 @@ export {
 // ---------------------------------------------------------------------------
 export type {
 	Ecosystem,
-	InstallAction,
 	InstallCommand,
 	PackageSpec,
 } from "./package-install-parser-shared.js";
@@ -120,52 +119,67 @@ function composeCwd(prev: string | undefined, next: string): string {
 	return `${prev}/${next}`;
 }
 
+/** Mutable scan state threaded through {@link consumeShellSplitChar}: the
+ *  segment text accumulated so far and the active quote char (or null). */
+interface ShellSplitState {
+	buf: string;
+	q: string | null;
+}
+
+/** Handle one character of `splitShellSegments`'s scan, mutating `state`
+ *  and pushing a completed segment onto `out` at a boundary. Returns true
+ *  when `nextCh` was consumed as the second half of a two-char operator
+ *  (`&&`, `||`) — the caller must then skip that character. */
+function consumeShellSplitChar(
+	ch: string | undefined,
+	nextCh: string | undefined,
+	prevCh: string | undefined,
+	state: ShellSplitState,
+	out: string[],
+): boolean {
+	if (ch === undefined) return false;
+	if (state.q) {
+		state.buf += ch;
+		if (ch === state.q && prevCh !== "\\") state.q = null;
+		return false;
+	}
+	if (ch === '"' || ch === "'") {
+		state.q = ch;
+		state.buf += ch;
+		return false;
+	}
+	if (ch === ";") {
+		out.push(state.buf);
+		state.buf = "";
+		return false;
+	}
+	if (ch === "&" && nextCh === "&") {
+		out.push(state.buf);
+		state.buf = "";
+		return true;
+	}
+	if (ch === "|" && nextCh === "|") {
+		out.push(state.buf);
+		state.buf = "";
+		return true;
+	}
+	if (ch === "|" || ch === "&") {
+		out.push(state.buf);
+		state.buf = "";
+		return false;
+	}
+	state.buf += ch;
+	return false;
+}
+
 export function splitShellSegments(s: string): string[] {
 	const out: string[] = [];
-	let buf = "";
-	let q: string | null = null;
+	const state: ShellSplitState = { buf: "", q: null };
 	for (let i = 0; i < s.length; i++) {
-		const ch = s[i];
-		if (q) {
-			buf += ch;
-			if (ch === q && s[i - 1] !== "\\") q = null;
-			continue;
-		}
-		if (ch === '"' || ch === "'") {
-			q = ch;
-			buf += ch;
-			continue;
-		}
-		if (ch === ";") {
-			out.push(buf);
-			buf = "";
-			continue;
-		}
-		if (ch === "&" && s[i + 1] === "&") {
-			out.push(buf);
-			buf = "";
-			i++;
-			continue;
-		}
-		if (ch === "|" && s[i + 1] === "|") {
-			out.push(buf);
-			buf = "";
-			i++;
-			continue;
-		}
-		if (ch === "|") {
-			out.push(buf);
-			buf = "";
-			continue;
-		}
-		if (ch === "&") {
-			out.push(buf);
-			buf = "";
-			continue;
-		}
-		buf += ch;
+		const consumedNext = consumeShellSplitChar(s[i], s[i + 1], s[i - 1], state, out);
+		if (consumedNext) i++;
 	}
-	if (buf) out.push(buf);
+	if (state.buf) out.push(state.buf);
 	return out.map((p) => p.trim()).filter((p) => p.length > 0);
 }
 

@@ -321,6 +321,36 @@ function extractScriptFileRefs(scriptValue: string): string[] {
  * only flags paths matched by a runtime+path or tsc/--config pattern. Skips
  * `node_modules/**`. Returns one finding per missing file.
  */
+/**
+ * Missing-file findings for one script's file refs — the per-script body
+ * extracted from {@link checkPackageJsonScriptPaths}'s outer loop so that
+ * loop restarts at cognitive depth 0.
+ */
+function collectMissingScriptRefFindings(
+	scriptName: string,
+	scriptVal: string,
+	dir: string,
+	lines: string[],
+	seen: Set<string>,
+): InlineMatch[] {
+	const findings: InlineMatch[] = [];
+	for (const ref of extractScriptFileRefs(scriptVal)) {
+		const refPath = isAbsolute(ref) ? ref : resolve(dir, ref);
+		if (existsSync(refPath)) continue;
+		// One finding per (script, ref) pair — same script invoking the same
+		// missing file twice is one bug, not two.
+		const key = `${scriptName}::${ref}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		const lineIdx = lines.findIndex((l) => l.includes(`"${scriptName}"`));
+		findings.push({
+			line: lineIdx >= 0 ? lineIdx + 1 : 1,
+			text: `[package_json_script_paths] scripts.${scriptName} references "${ref}" but that file does not exist on disk. Either create the file or fix the path before \`npm run ${scriptName}\` is invoked.`,
+		});
+	}
+	return findings;
+}
+
 export function checkPackageJsonScriptPaths(
 	content: string,
 	filePath: string,
@@ -341,20 +371,7 @@ export function checkPackageJsonScriptPaths(
 
 	for (const [scriptName, scriptVal] of Object.entries(scripts as JsonObject)) {
 		if (typeof scriptVal !== "string") continue;
-		for (const ref of extractScriptFileRefs(scriptVal)) {
-			const refPath = isAbsolute(ref) ? ref : resolve(dir, ref);
-			if (existsSync(refPath)) continue;
-			// One finding per (script, ref) pair — same script invoking the same
-			// missing file twice is one bug, not two.
-			const key = `${scriptName}::${ref}`;
-			if (seen.has(key)) continue;
-			seen.add(key);
-			const lineIdx = lines.findIndex((l) => l.includes(`"${scriptName}"`));
-			findings.push({
-				line: lineIdx >= 0 ? lineIdx + 1 : 1,
-				text: `[package_json_script_paths] scripts.${scriptName} references "${ref}" but that file does not exist on disk. Either create the file or fix the path before \`npm run ${scriptName}\` is invoked.`,
-			});
-		}
+		findings.push(...collectMissingScriptRefFindings(scriptName, scriptVal, dir, lines, seen));
 	}
 	return findings;
 }

@@ -88,10 +88,16 @@ function normalizeTokens(ts: TsModule, text: string): string {
  *  body block is not a statement (TS's own `isStatement`), so a mutant in a
  *  body anchors to the statement it sits in, never to the whole body. */
 function enclosingStatement(ts: TsModule, node: TS.Node): TS.Node | null {
-	let cur: TS.Node | undefined = node.parent;
+	// SAFETY: `typescript`'s own .d.ts types `Node.parent` as non-optional
+	// `Node`, but at runtime it is `undefined` for the SourceFile root and any
+	// node visited before binding — the compiler API's well-known type lie.
+	// Cast to the true runtime shape so the loop's null check stays live
+	// instead of reading as an impossible branch.
+	let cur = node.parent as TS.Node | undefined;
 	while (cur !== undefined && !ts.isSourceFile(cur)) {
 		if (ts.isStatement(cur)) return cur;
-		cur = cur.parent;
+		// SAFETY: same `Node.parent` type-lie as above.
+		cur = cur.parent as TS.Node | undefined;
 	}
 	return null;
 }

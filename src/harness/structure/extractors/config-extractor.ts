@@ -78,6 +78,30 @@ interface WalkContext {
 	ignoredDirs?: ReadonlySet<string>;
 }
 
+/** Handle one directory entry for `walkDir`: recurse into subdirectories
+ *  (skipping ignored ones) or scan a source file's config-access patterns.
+ *  A Dirent is never both a directory and a file, so the guard-clause
+ *  returns below are mutually exclusive, matching the original else-if. */
+function processWalkEntry(dir: string, entry: fs.Dirent, ctx: WalkContext): void {
+	if (entry.isDirectory()) {
+		const sub = path.join(dir, entry.name);
+		if (SKIP_DIRS.has(entry.name) || isRootScratchDir(ctx.repoRoot, sub) || ctx.ignoredDirs?.has(sub)) return;
+		walkDir(sub, ctx);
+		return;
+	}
+	if (!entry.isFile()) return;
+	const ext = path.extname(entry.name);
+	if (!SOURCE_EXTENSIONS.has(ext)) return;
+	const fullPath = path.join(dir, entry.name);
+	const relPath = path.relative(ctx.repoRoot, fullPath);
+	try {
+		const content = fs.readFileSync(fullPath, "utf-8");
+		scanFile(content, ctx.configKeys, relPath);
+	} catch (_err) {
+		void 0; /* intentional: skip unreadable files */
+	}
+}
+
 function walkDir(dir: string, ctx: WalkContext): void {
 	let entries: fs.Dirent[];
 	try {
@@ -88,23 +112,8 @@ function walkDir(dir: string, ctx: WalkContext): void {
 	for (const entry of entries) {
 		// Hard cap: stop descending/iterating once the entry or time budget trips.
 		if (!consumeWalkEntry(ctx.budget)) return;
-		if (entry.isDirectory()) {
-			const sub = path.join(dir, entry.name);
-			if (SKIP_DIRS.has(entry.name) || isRootScratchDir(ctx.repoRoot, sub) || ctx.ignoredDirs?.has(sub)) continue;
-			walkDir(sub, ctx);
-			if (ctx.budget.truncated) return;
-		} else if (entry.isFile()) {
-			const ext = path.extname(entry.name);
-			if (!SOURCE_EXTENSIONS.has(ext)) continue;
-			const fullPath = path.join(dir, entry.name);
-			const relPath = path.relative(ctx.repoRoot, fullPath);
-			try {
-				const content = fs.readFileSync(fullPath, "utf-8");
-				scanFile(content, ctx.configKeys, relPath);
-			} catch (_err) {
-				void 0; /* intentional: skip unreadable files */
-			}
-		}
+		processWalkEntry(dir, entry, ctx);
+		if (ctx.budget.truncated) return;
 	}
 }
 

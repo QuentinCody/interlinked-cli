@@ -51,7 +51,7 @@ export interface ToolEvent {
 }
 
 /** The obligation classes this ledger accounts for. */
-export type ObligationKind = "conflict_marker" | "stub" | "test_disabled" | "todo";
+type ObligationKind = "conflict_marker" | "stub" | "test_disabled" | "todo";
 
 /** Action gradient (Family framing): nudge is the default; block is reserved
  *  for proven harm; silent_metric never interrupts. These rules only nudge. */

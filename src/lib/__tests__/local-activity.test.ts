@@ -633,12 +633,37 @@ describe("readLocalSessions", () => {
 	});
 
 	it("uses process.cwd() when no cwd is passed (default-arg path)", () => {
-		// Exercises getSessionsDir()'s default-arg branch. We don't control the
-		// repo's own sessions dir, so we only assert it returns an array without
-		// throwing (every element, if any, must be an object).
-		const sessions = readLocalSessions();
-		expect(Array.isArray(sessions)).toBe(true);
-		for (const s of sessions) expect(typeof s).toBe("object");
+		// Exercises getSessionsDir()'s default-arg branch against a sessions dir
+		// we control: the repo's own .interlinked/sessions holds live session
+		// files that can exceed the per-file scan limit, which made this test
+		// depend on the developer's current session size.
+		const cwd = mkdtempSync(join(tmpdir(), "la-cwd-"));
+		const sessionsDir = join(cwd, ".interlinked", "sessions");
+		mkdirSync(sessionsDir, { recursive: true });
+		writeFileSync(
+			join(sessionsDir, "s1.json"),
+			JSON.stringify({
+				session_id: "s1",
+				agent: "alice",
+				phase: "ACTIVE",
+				started_at: "t0",
+				last_event_at: "t1",
+				tool_count: 1,
+				error_count: 0,
+				files_touched: [],
+				tools_used: { Read: 1 },
+			}),
+		);
+		const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(cwd);
+		try {
+			const sessions = readLocalSessions();
+			expect(Array.isArray(sessions)).toBe(true);
+			expect(sessions).toHaveLength(1);
+			expect(sessions[0]?.session_id).toBe("s1");
+		} finally {
+			cwdSpy.mockRestore();
+			rmSync(cwd, { recursive: true, force: true });
+		}
 	});
 });
 

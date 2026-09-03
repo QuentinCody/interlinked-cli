@@ -14,7 +14,7 @@ import { execSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
 import { cpus, freemem } from "node:os";
 
-export type CheckStatus = "pass" | "fail" | "warn";
+type CheckStatus = "pass" | "fail" | "warn";
 
 interface SystemCheckResult {
 	name: string;

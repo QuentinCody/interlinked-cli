@@ -147,24 +147,30 @@ export function createSseReassembler(): SseReassembler {
 		}
 	}
 
+	// Process one complete SSE event block (lines between blank-line
+	// separators): find its `data:` line(s) and dispatch each parsed
+	// payload to handleEvent. Extracted from drainCompleteEvents to keep
+	// the outer loop flat.
+	function processPart(part: string): void {
+		for (const line of part.split(/\r?\n/)) {
+			if (!line.startsWith("data:")) continue;
+			const payload = line.slice("data:".length).trim();
+			if (!payload) continue;
+			try {
+				const data = asObject(JSON.parse(payload));
+				if (data) handleEvent(data);
+			} catch (err) {
+				void err; // non-JSON data line (comments/pings) — ignored by contract
+			}
+		}
+	}
+
 	function drainCompleteEvents(): void {
 		// SSE events are separated by a blank line. Process every complete
 		// event; keep the trailing partial in the buffer.
 		const parts = buffer.split(/\r?\n\r?\n/);
 		buffer = parts.pop() ?? "";
-		for (const part of parts) {
-			for (const line of part.split(/\r?\n/)) {
-				if (!line.startsWith("data:")) continue;
-				const payload = line.slice("data:".length).trim();
-				if (!payload) continue;
-				try {
-					const data = asObject(JSON.parse(payload));
-					if (data) handleEvent(data);
-				} catch (err) {
-					void err; // non-JSON data line (comments/pings) — ignored by contract
-				}
-			}
-		}
+		for (const part of parts) processPart(part);
 	}
 
 	return {

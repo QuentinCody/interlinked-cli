@@ -62,7 +62,7 @@ function parseConfiguredMode(value: unknown): string | undefined {
  * compare, doctor would read `0.1.0+mode-budget` as `0.1.0` and skip the
  * regenerate even though the baked timeout is for the wrong mode.
  */
-export function expectedHookVersion(cwd: string): string {
+function expectedHookVersion(cwd: string): string {
 	const sharedConfigPath = getSharedConfigPath(cwd);
 	let modeName: HarnessMode = DEFAULT_HARNESS_MODE;
 	if (existsSync(sharedConfigPath)) {

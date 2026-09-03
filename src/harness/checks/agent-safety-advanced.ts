@@ -204,6 +204,55 @@ function collectLifecycleBodies(classBody: string, names: string[]): string[] {
 	return bodies;
 }
 
+const LIFECYCLE_METHOD_NAMES = ["dispose", "destroy", "close", "unmount", "stop"];
+const LIFECYCLE_PAIRS: Array<{ add: RegExp; clean: RegExp; label: string }> = [
+	{ add: /\bsetInterval\s*\(/, clean: /\bclearInterval\s*\(/, label: "setInterval" },
+	{ add: /\bsetTimeout\s*\(/, clean: /\bclearTimeout\s*\(/, label: "setTimeout" },
+	{
+		add: /\baddEventListener\s*\(/,
+		clean: /\bremoveEventListener\s*\(/,
+		label: "addEventListener",
+	},
+];
+
+// Body of the class-block scan in checkLifecycleCleanup: for ONE matched class
+// header, append a finding per subscription primitive whose paired cleanup is
+// missing from the class's lifecycle methods. Appends into `matches` in place.
+function appendClassLifecycleGaps(
+	stripped: string,
+	originalLines: string[],
+	classMatch: RegExpExecArray,
+	matches: InlineMatch[],
+): void {
+	const bodyStart = classMatch.index + classMatch[0].length;
+	const { end: bodyEnd, balanced } = matchBraceEnd(stripped, bodyStart);
+	if (!balanced) return; // unbalanced
+
+	const classBody = stripped.slice(bodyStart, bodyEnd);
+
+	// Only warn on classes that already have a lifecycle method — we can't
+	// claim every class must have one.
+	const lifecycleBodies = collectLifecycleBodies(classBody, LIFECYCLE_METHOD_NAMES);
+	if (lifecycleBodies.length === 0) return;
+	const combinedCleanup = lifecycleBodies.join("\n");
+
+	for (const pair of LIFECYCLE_PAIRS) {
+		if (matches.length >= 10) break;
+		if (!pair.add.test(classBody)) continue;
+		if (pair.clean.test(combinedCleanup)) continue;
+
+		// Find the subscription-add line within the class body for reporting.
+		const addSearch = pair.add.exec(classBody);
+		if (!addSearch) continue;
+		const absOffset = bodyStart + addSearch.index;
+		const lineIdx = (stripped.slice(0, absOffset).match(/\n/g) || []).length;
+		matches.push({
+			line: lineIdx + 1,
+			text: `${pair.label}() without matching ${pair.clean.source.replace(/\\b|\\s\*\\\(|\//g, "")} in lifecycle method: ${originalLines[lineIdx]?.trim().slice(0, 120) ?? ""}`,
+		});
+	}
+}
+
 export function checkLifecycleCleanup(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
@@ -211,17 +260,6 @@ export function checkLifecycleCleanup(content: string, filePath: string): Inline
 	const stripped = stripCommentsAndStrings(content);
 	const originalLines = content.split("\n");
 	const matches: InlineMatch[] = [];
-
-	const LIFECYCLE_METHOD_NAMES = ["dispose", "destroy", "close", "unmount", "stop"];
-	const PAIRS: Array<{ add: RegExp; clean: RegExp; label: string }> = [
-		{ add: /\bsetInterval\s*\(/, clean: /\bclearInterval\s*\(/, label: "setInterval" },
-		{ add: /\bsetTimeout\s*\(/, clean: /\bclearTimeout\s*\(/, label: "setTimeout" },
-		{
-			add: /\baddEventListener\s*\(/,
-			clean: /\bremoveEventListener\s*\(/,
-			label: "addEventListener",
-		},
-	];
 
 	// Scan for class blocks. Use the stripped content for matching so we don't
 	// trip on keywords inside strings/comments.
@@ -232,37 +270,74 @@ export function checkLifecycleCleanup(content: string, filePath: string): Inline
 		classMatch = classRegex.exec(stripped)
 	) {
 		if (matches.length >= 10) break;
-
-		const bodyStart = classMatch.index + classMatch[0].length;
-		const { end: bodyEnd, balanced } = matchBraceEnd(stripped, bodyStart);
-		if (!balanced) continue; // unbalanced
-
-		const classBody = stripped.slice(bodyStart, bodyEnd);
-
-		// Only warn on classes that already have a lifecycle method — we can't
-		// claim every class must have one.
-		const lifecycleBodies = collectLifecycleBodies(classBody, LIFECYCLE_METHOD_NAMES);
-		if (lifecycleBodies.length === 0) continue;
-		const combinedCleanup = lifecycleBodies.join("\n");
-
-		for (const pair of PAIRS) {
-			if (matches.length >= 10) break;
-			if (!pair.add.test(classBody)) continue;
-			if (pair.clean.test(combinedCleanup)) continue;
-
-			// Find the subscription-add line within the class body for reporting.
-			const addSearch = pair.add.exec(classBody);
-			if (!addSearch) continue;
-			const absOffset = bodyStart + addSearch.index;
-			const lineIdx = (stripped.slice(0, absOffset).match(/\n/g) || []).length;
-			matches.push({
-				line: lineIdx + 1,
-				text: `${pair.label}() without matching ${pair.clean.source.replace(/\\b|\\s\*\\\(|\//g, "")} in lifecycle method: ${originalLines[lineIdx]?.trim().slice(0, 120) ?? ""}`,
-			});
-		}
+		appendClassLifecycleGaps(stripped, originalLines, classMatch, matches);
 	}
 
 	return matches;
+}
+
+type ParsedImportEdge = ReturnType<typeof parseImports>[number];
+
+// Walk the import graph outward from `absStart` and collect every path that
+// returns to it. `content` is the (possibly unsaved) source of the start file;
+// every other file is read from disk and cached for the duration of the walk.
+function collectImportCycles(content: string, absStart: string): string[][] {
+	const MAX_DEPTH = 10;
+	const MAX_PATHS = 5;
+	const fileCache = new Map<string, string | null>();
+	const readCached = (p: string): string | null => {
+		const hit = fileCache.get(p);
+		if (hit !== undefined) return hit;
+		try {
+			const raw = readFileSync(p, "utf-8");
+			fileCache.set(p, raw);
+			return raw;
+		} catch {
+			fileCache.set(p, null);
+			return null;
+		}
+	};
+
+	const cycles: string[][] = [];
+	const onPath = new Set<string>();
+
+	// One import edge of `current`: record a cycle back to the start file, or
+	// descend into the imported file. Mutually recursive with `dfs`.
+	const walkEdge = (current: string, trail: string[], edge: ParsedImportEdge): void => {
+		if (edge.isTypeOnly) return;
+		const resolved = resolveImportPath(current, edge.specifier);
+		if (!resolved) return;
+
+		if (resolved === absStart && trail.length > 0) {
+			cycles.push([...trail, current, absStart]);
+			return;
+		}
+		if (onPath.has(resolved)) return; // Avoid infinite recursion on other cycles.
+
+		onPath.add(resolved);
+		dfs(resolved, [...trail, current]);
+		onPath.delete(resolved);
+	};
+
+	const dfs = (current: string, trail: string[]): void => {
+		if (cycles.length >= MAX_PATHS) return;
+		if (trail.length > MAX_DEPTH) return;
+
+		const src = current === absStart && trail.length === 0 ? content : readCached(current);
+		if (!src) return;
+
+		const imports = parseImports(src, current);
+		for (const edge of imports) {
+			if (cycles.length >= MAX_PATHS) return;
+			walkEdge(current, trail, edge);
+		}
+	};
+
+	onPath.add(absStart);
+	dfs(absStart, []);
+	onPath.delete(absStart);
+
+	return cycles;
 }
 
 /**
@@ -297,54 +372,7 @@ export function checkCircularImports(
 	const absStart = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
 	if (relative(cwd, absStart).startsWith("..")) return [];
 
-	const MAX_DEPTH = 10;
-	const MAX_PATHS = 5;
-	const fileCache = new Map<string, string | null>();
-	const readCached = (p: string): string | null => {
-		const hit = fileCache.get(p);
-		if (hit !== undefined) return hit;
-		try {
-			const raw = readFileSync(p, "utf-8");
-			fileCache.set(p, raw);
-			return raw;
-		} catch {
-			fileCache.set(p, null);
-			return null;
-		}
-	};
-
-	const cycles: string[][] = [];
-	const onPath = new Set<string>();
-
-	const dfs = (current: string, trail: string[]): void => {
-		if (cycles.length >= MAX_PATHS) return;
-		if (trail.length > MAX_DEPTH) return;
-
-		const src = current === absStart && trail.length === 0 ? content : readCached(current);
-		if (!src) return;
-
-		const imports = parseImports(src, current);
-		for (const edge of imports) {
-			if (cycles.length >= MAX_PATHS) return;
-			if (edge.isTypeOnly) continue;
-			const resolved = resolveImportPath(current, edge.specifier);
-			if (!resolved) continue;
-
-			if (resolved === absStart && trail.length > 0) {
-				cycles.push([...trail, current, absStart]);
-				continue;
-			}
-			if (onPath.has(resolved)) continue; // Avoid infinite recursion on other cycles.
-
-			onPath.add(resolved);
-			dfs(resolved, [...trail, current]);
-			onPath.delete(resolved);
-		}
-	};
-
-	onPath.add(absStart);
-	dfs(absStart, []);
-	onPath.delete(absStart);
+	const cycles = collectImportCycles(content, absStart);
 
 	const matches: InlineMatch[] = [];
 	const seen = new Set<string>();

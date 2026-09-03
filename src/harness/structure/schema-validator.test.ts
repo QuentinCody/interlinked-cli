@@ -475,6 +475,7 @@ describe("validateStructureJson: builtins field", () => {
 			mode: "minimal",
 			builtins: {
 				public_symbol_companions: true,
+				public_symbol_test_case: true,
 				env_key_companions: false,
 				config_key_companions: true,
 				layer_boundary_violations: false,

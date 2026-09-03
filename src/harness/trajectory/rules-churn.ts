@@ -52,7 +52,12 @@ function priorShaMatches(hist: ShaEntry[], cur: ShaEntry, lastIdx: number): numb
  * Whitespace-only exclusion: if every entry between the matched prior and now
  * shares the current normalized hash, nothing substantive changed.
  */
-function isWhitespaceOnlyCycle(span: ShaEntry[], curNormSha: string): boolean {
+// `span` is typed to admit holes (`ShaEntry | undefined` elements): `.slice()`
+// of a sparse `hist` array preserves the holes, and iterating a sparse array
+// with `for...of` yields `undefined` at each hole — a real runtime shape the
+// dense `ShaEntry[]` type would otherwise lie about, making the optional
+// chain below read as an impossible branch instead of the live guard it is.
+function isWhitespaceOnlyCycle(span: Array<ShaEntry | undefined>, curNormSha: string): boolean {
 	for (const entry of span) {
 		// Optional chain retained deliberately: a sparse-array hole must compare
 		// unequal rather than throw (pinned by the mutation-hardening tests).
@@ -251,7 +256,9 @@ export const churnRerunFailingTestNoSourceChange: TrajectoryRule = (state, event
 const REVERT_COMBO_WINDOW = 6;
 
 /** A literal revert of `e1` sits somewhere in `span`. */
-function hasLiteralRevertIn(span: EditRecord[], e1: EditRecord): boolean {
+// `span` is typed to admit holes (`EditRecord | undefined` elements) for the
+// same sparse-`.slice()` reason as `isWhitespaceOnlyCycle` above.
+function hasLiteralRevertIn(span: Array<EditRecord | undefined>, e1: EditRecord): boolean {
 	for (const p of span) {
 		// Truthiness guard retained deliberately: a sparse-array hole must be
 		// skipped rather than throw.

@@ -136,7 +136,7 @@ export function isBashEvent(event: { tool: string }): boolean {
 // ===========================================
 
 /** Verbs whose invocation opens an outbound connection. */
-export const EGRESS_VERBS: ReadonlySet<string> = new Set([
+const EGRESS_VERBS: ReadonlySet<string> = new Set([
 	"curl", "wget", "nc", "ncat", "netcat", "scp", "sftp", "rsync", "ssh",
 	"telnet", "ftp", "socat", "http", "https", "httpie",
 ]);

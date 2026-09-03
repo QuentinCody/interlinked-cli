@@ -19,7 +19,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ArtifactGraph } from "../artifact-graph.js";
-import type { Determinism, StructureFinding } from "../types.js";
+import type { ArtifactNode, Determinism, StructureFinding } from "../types.js";
 
 export function checkPublicSymbolTestCase(
 	graph: ArtifactGraph,
@@ -29,70 +29,98 @@ export function checkPublicSymbolTestCase(
 	const findings: StructureFinding[] = [];
 	const changedSet = new Set(changedFiles);
 	const symbolNodes = graph.getNodesByKind("public_symbol");
+	const root = repoRoot ?? process.cwd();
 
 	for (const symbol of symbolNodes) {
 		if (!changedSet.has(symbol.file)) continue;
-
-		const { tests } = graph.getCompanions(symbol.id);
-		if (tests.length === 0) continue;
-
-		const root = repoRoot ?? process.cwd();
-		const pattern = symbolReferenceRegex(symbol.label);
-
-		const referencingFiles: string[] = [];
-		const nonReferencingFiles: string[] = [];
-
-		for (const test of tests) {
-			const absPath = resolve(root, test.file);
-			if (!existsSync(absPath)) {
-				nonReferencingFiles.push(test.file);
-				continue;
-			}
-			let content = "";
-			try {
-				content = readFileSync(absPath, "utf-8");
-			} catch {
-				// Unreadable file is treated as "no reference" — the signal remains
-				// actionable (add a test case here) even if the root cause is IO.
-				nonReferencingFiles.push(test.file);
-				continue;
-			}
-			if (pattern.test(content)) {
-				referencingFiles.push(test.file);
-			} else {
-				nonReferencingFiles.push(test.file);
-			}
-		}
-
-		// If at least one companion test file references the symbol, we're good.
-		if (referencingFiles.length > 0) continue;
-
-		const allDeclared =
-			symbol.provenance === "declared" && tests.every((t) => t.provenance === "declared");
-		const determinism: Determinism = allDeclared
-			? "fully_deterministic"
-			: "partially_deterministic";
-
-		findings.push({
-			name: "public_symbol_test_case_missing",
-			severity: "warning",
-			message: `Public symbol "${symbol.label}" has ${tests.length} companion test file(s) but none contain a reference to it. Add a test case that imports/invokes "${symbol.label}".`,
-			file: symbol.file,
-			affected_files: nonReferencingFiles,
-			determinism,
-			provenance: symbol.provenance,
-			artifact_kind: "public_symbol",
-			artifact_id: symbol.id,
-			required_updates: nonReferencingFiles.map((f) => ({
-				file: f,
-				kind: "test",
-				reason: `Add a test case referencing "${symbol.label}"`,
-			})),
-			confidence: allDeclared ? 1.0 : 0.75,
-		});
+		const finding = evaluateSymbolTestCase(graph, symbol, root);
+		if (finding) findings.push(finding);
 	}
 
 	return findings;
+}
+
+/**
+ * Evaluate a single public symbol against its companion test files, returning
+ * a `public_symbol_test_case_missing` finding when none of them reference the
+ * symbol by name — or `null` when the symbol has no companion tests, or at
+ * least one companion test already references it.
+ */
+function evaluateSymbolTestCase(
+	graph: ArtifactGraph,
+	symbol: ArtifactNode,
+	root: string,
+): StructureFinding | null {
+	const { tests } = graph.getCompanions(symbol.id);
+	if (tests.length === 0) return null;
+
+	const pattern = symbolReferenceRegex(symbol.label);
+	const { referencingFiles, nonReferencingFiles } = classifyCompanionTests(tests, root, pattern);
+
+	// If at least one companion test file references the symbol, we're good.
+	if (referencingFiles.length > 0) return null;
+
+	const allDeclared =
+		symbol.provenance === "declared" && tests.every((t) => t.provenance === "declared");
+	const determinism: Determinism = allDeclared ? "fully_deterministic" : "partially_deterministic";
+
+	return {
+		name: "public_symbol_test_case_missing",
+		severity: "warning",
+		message: `Public symbol "${symbol.label}" has ${tests.length} companion test file(s) but none contain a reference to it. Add a test case that imports/invokes "${symbol.label}".`,
+		file: symbol.file,
+		affected_files: nonReferencingFiles,
+		determinism,
+		provenance: symbol.provenance,
+		artifact_kind: "public_symbol",
+		artifact_id: symbol.id,
+		required_updates: nonReferencingFiles.map((f) => ({
+			file: f,
+			kind: "test",
+			reason: `Add a test case referencing "${symbol.label}"`,
+		})),
+		confidence: allDeclared ? 1.0 : 0.75,
+	};
+}
+
+/**
+ * Split a symbol's companion test files into those whose on-disk content
+ * references the symbol (by `pattern`) and those that don't — including
+ * missing/unreadable files, which are treated as non-referencing.
+ */
+function classifyCompanionTests(
+	tests: Array<{ file: string; provenance: string }>,
+	root: string,
+	pattern: RegExp,
+): { referencingFiles: string[]; nonReferencingFiles: string[] } {
+	const referencingFiles: string[] = [];
+	const nonReferencingFiles: string[] = [];
+
+	for (const test of tests) {
+		const content = readCompanionTestContent(root, test.file);
+		if (content !== null && pattern.test(content)) {
+			referencingFiles.push(test.file);
+		} else {
+			nonReferencingFiles.push(test.file);
+		}
+	}
+
+	return { referencingFiles, nonReferencingFiles };
+}
+
+/**
+ * Read a companion test file's content, returning `null` when it doesn't
+ * exist or can't be read (both treated as "no reference" by the caller —
+ * the signal remains actionable even if the root cause is IO).
+ */
+function readCompanionTestContent(root: string, testFile: string): string | null {
+	const absPath = resolve(root, testFile);
+	if (!existsSync(absPath)) return null;
+	try {
+		return readFileSync(absPath, "utf-8");
+	} catch {
+		return null;
+	}
 }
 
 /**

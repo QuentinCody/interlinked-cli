@@ -74,45 +74,45 @@ export function checkMagicNumbers(content: string, filePath: string): InlineMatc
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
-		const line = strippedLines[i];
-		const trimmed = nonNull(line).trim();
-
-		// Skip declarations — the number IS the named constant
-		if (/^\s*(const|let|var|enum|static\s+(readonly\s+)?)\b/.test(trimmed)) continue;
-
-		// Skip return statements returning bare numbers (often intentional)
-		if (/^\s*return\s+-?\d/.test(trimmed)) continue;
-
-		// Skip case labels
-		if (/^\s*case\s+-?\d/.test(trimmed)) continue;
-
-		// Must be in a conditional, expression, or function call context
-		// (not just any line with a number)
-		if (
-			!/\b(if|else|while|for|switch|&&|\|\||[<>=!]+|[+\-*/%])\b/.test(trimmed) &&
-			!/\w+\s*\(/.test(trimmed)
-		)
-			continue;
-
-		// Find bare numeric literals
-		const numPattern = /(?<![.\w])(-?\d+(?:\.\d+)?)\b/g;
-		const numHits = nonNull(line).matchAll(numPattern);
-		let flaggedLine = false;
-		for (const numMatch of numHits) {
-			if (flaggedLine) break;
-			const num = nonNull(numMatch[1]);
-			if (ALLOWED.has(num)) continue;
-
-			// Skip if it's an array index: [123]
-			const before = nonNull(line).slice(Math.max(0, numMatch.index - 1), numMatch.index);
-			if (before === "[") continue;
-
-			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-			flaggedLine = true;
-		}
+		const line = nonNull(strippedLines[i]);
+		if (!isMagicNumberContext(line.trim())) continue;
+		if (!lineHasBareMagicNumber(line, ALLOWED)) continue;
+		matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 	}
 
 	return matches;
+}
+
+/**
+ * True when a stripped, trimmed line is the kind of line a magic number can hide
+ * in: not a declaration (the number IS the named constant), not a bare-number
+ * `return` (often intentional), not a `case` label, and carrying a conditional,
+ * an operator, or a call.
+ */
+function isMagicNumberContext(trimmed: string): boolean {
+	if (/^\s*(const|let|var|enum|static\s+(readonly\s+)?)\b/.test(trimmed)) return false;
+	if (/^\s*return\s+-?\d/.test(trimmed)) return false;
+	if (/^\s*case\s+-?\d/.test(trimmed)) return false;
+	return (
+		/\b(if|else|while|for|switch|&&|\|\||[<>=!]+|[+\-*/%])\b/.test(trimmed) ||
+		/\w+\s*\(/.test(trimmed)
+	);
+}
+
+/**
+ * True when the line carries a bare numeric literal that is neither on the
+ * allow-list nor an array index (`[123]`).
+ */
+function lineHasBareMagicNumber(line: string, allowed: Set<string>): boolean {
+	const numPattern = /(?<![.\w])(-?\d+(?:\.\d+)?)\b/g;
+	for (const numMatch of line.matchAll(numPattern)) {
+		const num = nonNull(numMatch[1]);
+		if (allowed.has(num)) continue;
+		const before = line.slice(Math.max(0, numMatch.index - 1), numMatch.index);
+		if (before === "[") continue;
+		return true;
+	}
+	return false;
 }
 
 /**
@@ -270,49 +270,52 @@ export function checkFlagArguments(content: string, filePath: string): InlineMat
 	const originalLines = content.split("\n");
 	const matches: InlineMatch[] = [];
 
-	const funcPatterns = [
-		/(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(?:<[^>]*>)?\s*\(/,
-		/(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s+)?\(/,
-	];
-
 	for (let i = 0; i < lines.length; i++) {
 		if (matches.length >= 10) break;
 		const trimmed = nonNull(lines[i]).trim();
+		if (!declaredFunctionName(trimmed)) continue;
 
-		let funcName: string | null = null;
-		for (const pat of funcPatterns) {
-			const m = trimmed.match(pat);
-			if (m) {
-				funcName = nonNull(m[1]);
-				break;
-			}
-		}
-		if (!funcName) continue;
+		// Collect the full signature, then count `: boolean` params in it
+		const boolParamCount = countBooleanParams(collectFunctionSignature(lines, i));
+		if (boolParamCount < 2) continue;
 
-		// Collect the full signature
-		const sig = collectFunctionSignature(lines, i);
-		const paramMatch = sig.match(/\(([^)]*)\)/);
-		if (!paramMatch) continue;
-
-		// Count params with `: boolean` type annotation
-		const params = nonNull(paramMatch[1]).split(",");
-		let boolParamCount = 0;
-		for (const p of params) {
-			// Match: paramName: boolean or paramName?: boolean
-			if (/:\s*boolean\s*(?:[,=)]|$)/.test(p)) {
-				boolParamCount++;
-			}
-		}
-
-		if (boolParamCount >= 2) {
-			matches.push({
-				line: i + 1,
-				text: `[${boolParamCount} boolean params → use options object] ${nonNull(originalLines[i]).trim().slice(0, 100)}`,
-			});
-		}
+		matches.push({
+			line: i + 1,
+			text: `[${boolParamCount} boolean params → use options object] ${nonNull(originalLines[i]).trim().slice(0, 100)}`,
+		});
 	}
 
 	return matches;
+}
+
+const FUNC_DECL_PATTERNS = [
+	/(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(?:<[^>]*>)?\s*\(/,
+	/(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::\s*[^=]+)?\s*=\s*(?:async\s+)?\(/,
+];
+
+/** The function name a trimmed line declares, or null when it declares none. */
+function declaredFunctionName(trimmed: string): string | null {
+	for (const pat of FUNC_DECL_PATTERNS) {
+		const m = trimmed.match(pat);
+		if (m) return nonNull(m[1]);
+	}
+	return null;
+}
+
+/**
+ * Count params carrying a `: boolean` type annotation in a collected signature.
+ * A signature with no parseable parameter list counts zero — same effect as the
+ * caller skipping the line.
+ */
+function countBooleanParams(sig: string): number {
+	const paramMatch = sig.match(/\(([^)]*)\)/);
+	if (!paramMatch) return 0;
+	let boolParamCount = 0;
+	// Match: paramName: boolean or paramName?: boolean
+	for (const p of nonNull(paramMatch[1]).split(",")) {
+		if (/:\s*boolean\s*(?:[,=)]|$)/.test(p)) boolParamCount++;
+	}
+	return boolParamCount;
 }
 
 /**
@@ -429,65 +432,68 @@ export function checkCommentedOutCode(content: string, filePath: string): Inline
 	const originalLines = content.split("\n");
 	const matches: InlineMatch[] = [];
 
-	// JSDoc/documentation patterns to skip — line never counts, but unlike a
-	// "doc" classification it does not by itself veto the block (a stray
-	// `// NOTE:` next to real disabled code should not save the block).
-	const docPattern =
-		/^\s*\/\/\s*(@\w+|@param|@returns|@throws|@example|@see|@todo|TODO|FIXME|NOTE|HACK|XXX)\b/i;
-	// License/header patterns — same: skipped, non-vetoing.
-	const licensePattern = /^\s*\/\/\s*(copyright|license|MIT|Apache|BSD|GPL|all rights reserved)/i;
-
 	const isPython = ext === ".py";
 	const commentPrefix = isPython ? /^\s*#\s?/ : /^\s*\/\/\s?/;
-
-	let blockStart = -1;
-	let codeLineCount = 0;
-	let totalLineCount = 0;
-	let docLineCount = 0;
-
-	const flushBlock = () => {
-		// Need 3+ comment lines, a strong code majority, and zero doc lines.
-		// A single doc/prose/shape line vetoes the block — bias hard toward
-		// not firing, since comments are useful and false positives at
-		// edit-time are especially annoying.
-		if (blockStart !== -1 && totalLineCount >= 3 && docLineCount === 0) {
-			// Require at least 3 lines that are unambiguously real code, not
-			// just a >60% ratio of a short block. Two code lines plus a blank
-			// is no longer enough to fire.
-			const codeRatio = totalLineCount > 0 ? codeLineCount / totalLineCount : 0;
-			if (codeLineCount >= 3 && codeRatio > 0.6) {
-				matches.push({
-					line: blockStart + 1,
-					text: `[${totalLineCount} lines of commented-out code → use version control instead]`,
-				});
-			}
-		}
-		blockStart = -1;
-		codeLineCount = 0;
-		totalLineCount = 0;
-		docLineCount = 0;
-	};
+	const tally: CommentBlockTally = { blockStart: -1, codeLines: 0, totalLines: 0, docLines: 0 };
 
 	for (let i = 0; i <= originalLines.length; i++) {
 		if (matches.length >= 5) break;
 
 		const line = i < originalLines.length ? nonNull(originalLines[i]) : "";
-		const isComment = commentPrefix.test(line);
-
-		if (isComment) {
-			if (blockStart === -1) blockStart = i;
-			totalLineCount++;
-			// JSDoc / license lines are skipped entirely — neither code nor
-			// veto. The block continues across them.
-			if (docPattern.test(line) || licensePattern.test(line)) continue;
-			const uncommented = line.replace(commentPrefix, "");
-			const kind = classifyCommentLine(uncommented, isPython);
-			if (kind === "code") codeLineCount++;
-			else if (kind === "doc") docLineCount++;
-		} else {
-			flushBlock();
-		}
+		if (commentPrefix.test(line)) tallyCommentLine(line, commentPrefix, isPython, tally, i);
+		else flushCommentBlock(tally, matches);
 	}
 
 	return matches;
+}
+
+/** Running state for one run of consecutive comment lines. */
+interface CommentBlockTally {
+	blockStart: number;
+	codeLines: number;
+	totalLines: number;
+	docLines: number;
+}
+
+// JSDoc/doc-tag and license/header lines are skipped — they never count as code,
+// but unlike a "doc" classification they do not by themselves veto the block.
+const DOC_TAG_PATTERN =
+	/^\s*\/\/\s*(@\w+|@param|@returns|@throws|@example|@see|@todo|TODO|FIXME|NOTE|HACK|XXX)\b/i;
+const LICENSE_PATTERN = /^\s*\/\/\s*(copyright|license|MIT|Apache|BSD|GPL|all rights reserved)/i;
+
+/** Fold one comment line into the running tally; the block spans skipped lines. */
+function tallyCommentLine(
+	line: string,
+	commentPrefix: RegExp,
+	isPython: boolean,
+	tally: CommentBlockTally,
+	index: number,
+): void {
+	if (tally.blockStart === -1) tally.blockStart = index;
+	tally.totalLines++;
+	if (DOC_TAG_PATTERN.test(line) || LICENSE_PATTERN.test(line)) return;
+	const kind = classifyCommentLine(line.replace(commentPrefix, ""), isPython);
+	if (kind === "code") tally.codeLines++;
+	else if (kind === "doc") tally.docLines++;
+}
+
+/**
+ * Emit a match for the just-ended block when it qualifies, then reset the tally.
+ * Needs 3+ comment lines, 3+ unambiguous code lines, a >60% code ratio, and zero
+ * doc lines — one prose/shape line vetoes the block, since a false positive at
+ * edit time is especially annoying.
+ */
+function flushCommentBlock(tally: CommentBlockTally, matches: InlineMatch[]): void {
+	const { blockStart, codeLines, totalLines, docLines } = tally;
+	tally.blockStart = -1;
+	tally.codeLines = 0;
+	tally.totalLines = 0;
+	tally.docLines = 0;
+	if (blockStart === -1 || totalLines < 3 || docLines !== 0) return;
+	const codeRatio = totalLines > 0 ? codeLines / totalLines : 0;
+	if (codeLines < 3 || codeRatio <= 0.6) return;
+	matches.push({
+		line: blockStart + 1,
+		text: `[${totalLines} lines of commented-out code → use version control instead]`,
+	});
 }

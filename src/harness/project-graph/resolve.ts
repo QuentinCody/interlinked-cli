@@ -11,6 +11,37 @@ import { dirname, join, resolve } from "node:path";
 const RESOLVE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"];
 
 /**
+ * Resolve a bare (node_modules-style) specifier via tsconfig path aliases.
+ * Extracted from resolveImportPath so the alias-matching loop restarts at
+ * nesting depth 0 (2026-09 cognitive-complexity flattening).
+ * Returns null when no alias/target combination resolves to a real file —
+ * including when no tsconfigPaths were supplied at all.
+ */
+function resolveBareSpecifier(
+	fromFile: string,
+	specifier: string,
+	tsconfigPaths?: Record<string, string[]>,
+): string | null {
+	if (!tsconfigPaths) return null;
+	for (const [alias, targets] of Object.entries(tsconfigPaths)) {
+		const pattern = alias.replace("/*", "");
+		if (!specifier.startsWith(pattern)) continue;
+		// Strip the leading "/" from the remainder: path.resolve treats an
+		// absolute segment as a restart, so "@lib/util" → rest "/util"
+		// discarded everything before it and every suffixed alias
+		// specifier resolved to null (wave-9 find, 2026-08-17).
+		const rest = specifier.slice(pattern.length).replace(/^\//, "");
+		for (const target of targets) {
+			const base = target.replace("/*", "");
+			const candidate = resolve(dirname(fromFile), "..", base, rest);
+			const resolved = tryResolveFile(candidate);
+			if (resolved) return resolved;
+		}
+	}
+	return null;
+}
+
+/**
  * Public API — consumed by ProjectGraph.indexFile and structural-checks.
  *
  * Resolve a relative import specifier to an absolute file path.
@@ -23,26 +54,7 @@ export function resolveImportPath(
 ): string | null {
 	// Skip node_modules imports (bare specifiers)
 	if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
-		// Check tsconfig paths aliases
-		if (tsconfigPaths) {
-			for (const [alias, targets] of Object.entries(tsconfigPaths)) {
-				const pattern = alias.replace("/*", "");
-				if (specifier.startsWith(pattern)) {
-					// Strip the leading "/" from the remainder: path.resolve treats an
-					// absolute segment as a restart, so "@lib/util" → rest "/util"
-					// discarded everything before it and every suffixed alias
-					// specifier resolved to null (wave-9 find, 2026-08-17).
-					const rest = specifier.slice(pattern.length).replace(/^\//, "");
-					for (const target of targets) {
-						const base = target.replace("/*", "");
-						const candidate = resolve(dirname(fromFile), "..", base, rest);
-						const resolved = tryResolveFile(candidate);
-						if (resolved) return resolved;
-					}
-				}
-			}
-		}
-		return null;
+		return resolveBareSpecifier(fromFile, specifier, tsconfigPaths);
 	}
 
 	const baseDir = dirname(fromFile);

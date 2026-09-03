@@ -72,6 +72,27 @@ export function parseNameOnlyLog(text: string): CommitFiles[] {
 	return commits;
 }
 
+/**
+ * Fold one commit's files into the running rev counts and pairwise support
+ * counts. Skips commits with no files, or bulk commits over the file-count
+ * ceiling (they'd dominate pair counts with refactor noise).
+ */
+function accumulateCommitCoupling(
+	commit: CommitFiles,
+	opts: CouplingOptions,
+	revs: Map<string, number>,
+	pairSupport: Map<string, Map<string, number>>,
+): void {
+	const files = [...new Set(commit.files)].sort();
+	if (files.length === 0 || files.length > opts.maxCommitFiles) return;
+	for (const f of files) revs.set(f, (revs.get(f) ?? 0) + 1);
+	for (const [i, a] of files.entries()) {
+		const row = pairSupport.get(a) ?? new Map<string, number>();
+		pairSupport.set(a, row);
+		for (const b of files.slice(i + 1)) row.set(b, (row.get(b) ?? 0) + 1);
+	}
+}
+
 /** Pairwise co-change counts over non-bulk commits, Tornhill strength, filtered + sorted. */
 export function computeCoupling(commits: CommitFiles[], opts: CouplingOptions): CouplingPair[] {
 	const revs = new Map<string, number>();
@@ -80,16 +101,7 @@ export function computeCoupling(commits: CommitFiles[], opts: CouplingOptions): 
 	// split hands back substrings that were never inputs) and collides two distinct
 	// pairs onto one support count.
 	const pairSupport = new Map<string, Map<string, number>>();
-	for (const commit of commits) {
-		const files = [...new Set(commit.files)].sort();
-		if (files.length === 0 || files.length > opts.maxCommitFiles) continue;
-		for (const f of files) revs.set(f, (revs.get(f) ?? 0) + 1);
-		for (const [i, a] of files.entries()) {
-			const row = pairSupport.get(a) ?? new Map<string, number>();
-			pairSupport.set(a, row);
-			for (const b of files.slice(i + 1)) row.set(b, (row.get(b) ?? 0) + 1);
-		}
-	}
+	for (const commit of commits) accumulateCommitCoupling(commit, opts, revs, pairSupport);
 	const pairs: CouplingPair[] = [];
 	for (const [a, row] of pairSupport) {
 		const revA = revs.get(a) ?? 0;

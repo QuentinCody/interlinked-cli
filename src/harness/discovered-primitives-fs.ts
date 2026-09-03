@@ -29,6 +29,33 @@ const SKIP_DIRS = new Set([
 	".archive",
 ]);
 
+/** Process one directory's entries: push subdirectories onto `stack`,
+ *  push matching source files onto `out`. Mutates both in place. */
+function scanDirectoryInto(dir: string, stack: string[], out: string[]): void {
+	let entries: string[];
+	try {
+		entries = readdirSync(dir).sort();
+	} catch {
+		return;
+	}
+	for (const entry of entries) {
+		if (SKIP_DIRS.has(entry)) continue;
+		const full = join(dir, entry);
+		let st: ReturnType<typeof statSync>;
+		try {
+			st = statSync(full);
+		} catch {
+			continue;
+		}
+		if (st.isDirectory()) {
+			stack.push(full);
+		} else if (st.isFile() && SOURCE_FILE_RE.test(entry)) {
+			out.push(full);
+			if (out.length >= MAX_FILES_TO_SCAN) break;
+		}
+	}
+}
+
 /** Walk the repo and return absolute paths to source files, capped
  *  at MAX_FILES_TO_SCAN. Skips vendored/generated/git trees. */
 export function listSourceFiles(repoRoot: string): string[] {
@@ -37,28 +64,7 @@ export function listSourceFiles(repoRoot: string): string[] {
 	while (stack.length > 0 && out.length < MAX_FILES_TO_SCAN) {
 		const dir = stack.pop();
 		if (!dir) break;
-		let entries: string[];
-		try {
-			entries = readdirSync(dir).sort();
-		} catch {
-			continue;
-		}
-		for (const entry of entries) {
-			if (SKIP_DIRS.has(entry)) continue;
-			const full = join(dir, entry);
-			let st: ReturnType<typeof statSync>;
-			try {
-				st = statSync(full);
-			} catch {
-				continue;
-			}
-			if (st.isDirectory()) {
-				stack.push(full);
-			} else if (st.isFile() && SOURCE_FILE_RE.test(entry)) {
-				out.push(full);
-				if (out.length >= MAX_FILES_TO_SCAN) break;
-			}
-		}
+		scanDirectoryInto(dir, stack, out);
 	}
 	return out;
 }

@@ -18,63 +18,41 @@
 // gap and gives Stop a residue backstop when a runner drops a PostToolUse event.
 
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import {
 	existsSync,
 	lstatSync,
-	readdirSync,
 	readFileSync,
 	readlinkSync,
 } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
-import { WATER_LINE_PATHS } from "./evaluator/water-line-files.js";
+import { isAbsolute, relative, resolve } from "node:path";
 import {
 	EFFECT_ATTRIBUTION_STORE_REL,
 	initEffectAttributionStore,
 	partitionResidueByAttribution,
 	recordReconciledEffects,
 } from "./workspace-effect-attribution.js";
+import {
+	EXPLICIT_CONTROL_PATHS,
+	formatWorkspaceResidueWarning,
+	isWorkspaceControlPath,
+} from "./workspace-effects-control-paths.js";
+import {
+	fallbackVisiblePaths,
+	gitStandaloneIgnoredPaths,
+	gitVisiblePaths,
+	isInside,
+	MAX_FILES,
+} from "./workspace-effects-git-scan.js";
+import { shouldObserveWorkspaceEffects } from "./workspace-effects-read-only-tools.js";
 
-const MAX_FILES = 25_000;
+export {
+	formatWorkspaceResidueWarning,
+	isWorkspaceControlPath,
+	shouldObserveWorkspaceEffects,
+};
+
 const MAX_HASH_BYTES = 8 * 1024 * 1024;
 const MAX_TOTAL_HASH_BYTES = 64 * 1024 * 1024;
-const MAX_GIT_LIST_BYTES = 16 * 1024 * 1024;
-const FALLBACK_SKIP_DIRS = new Set([
-	".git",
-	".interlinked",
-	"node_modules",
-	"dist",
-	"build",
-	"coverage",
-	".next",
-	".wrangler",
-	".stryker-tmp",
-	"stryker-tmp",
-	".scratch",
-	"scratch",
-	"tmp",
-]);
-/** Control paths that are NOT ratchet water-lines. The water-line subset is
- *  derived from WATER_LINE_PATHS below, so this snapshot set is a strict
- *  superset of the guard set and the two cannot drift apart. */
-const NON_WATER_LINE_CONTROL_PATHS = [
-	".interlinked/check-policy.json",
-	".interlinked/check-policy.local.json",
-	".interlinked/config.json",
-	".interlinked/config.local.json",
-	".interlinked/distilled-rules.json",
-	".interlinked/distilled-rules.overrides.json",
-	".interlinked/guard-rules.json",
-	".interlinked/guard-rules.local.json",
-	".interlinked/package-allowlist.json",
-	".interlinked/security-config.json",
-	".interlinked/suite-baseline.json",
-	".interlinked/verify-suppressions.json",
-];
-const EXPLICIT_CONTROL_PATHS = new Set([
-	...NON_WATER_LINE_CONTROL_PATHS,
-	...WATER_LINE_PATHS,
-]);
 
 export type WorkspaceEffectKind = "created" | "modified" | "deleted";
 
@@ -124,41 +102,13 @@ const pendingByToolId = new Map<string, PendingSnapshot>();
 const pendingAnonymous = new Map<string, PendingSnapshot[]>();
 const lastReconciledBySession = new Map<string, WorkspaceSnapshot>();
 const PENDING_CEILING = 128;
-const READ_ONLY_TOOLS = new Set([
-	"Read",
-	"Glob",
-	"Grep",
-	"WebFetch",
-	"WebSearch",
-	"TodoRead",
-	"NotebookRead",
-	"ListFiles",
-]);
-
-/**
- * Unknown tools are observed by default. A new runner/tool must earn a
- * read-only exemption; otherwise renaming a write-capable tool would reopen
- * the exact bypass this layer exists to close.
- */
-export function shouldObserveWorkspaceEffects(toolName: string | undefined): boolean {
-	return !toolName || !READ_ONLY_TOOLS.has(toolName);
-}
 
 function pendingToolKey(sessionId: string, toolUseId: string): string {
 	return `${sessionId}\0${toolUseId}`;
 }
 
-/** Runtime policy files observed even though the noisy `.interlinked/` tree is collapsed. */
-export function isWorkspaceControlPath(path: string): boolean {
-	return EXPLICIT_CONTROL_PATHS.has(path.replaceAll("\\", "/"));
-}
-
 function sha256(value: Buffer | string): string {
 	return createHash("sha256").update(value).digest("hex");
-}
-
-function isInside(root: string, path: string): boolean {
-	return path === root || path.startsWith(`${root}${sep}`);
 }
 
 function fingerprint(path: string, contentBudget: number): WorkspaceFileFingerprint | null {
@@ -179,81 +129,6 @@ function fingerprint(path: string, contentBudget: number): WorkspaceFileFingerpr
 	} catch {
 		return null;
 	}
-}
-
-function gitVisiblePaths(root: string): string[] | null {
-	try {
-		const raw = execFileSync(
-			"git",
-			["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-			{
-				cwd: root,
-				encoding: "utf8",
-				maxBuffer: MAX_GIT_LIST_BYTES,
-				stdio: ["ignore", "pipe", "ignore"],
-			},
-		);
-		return [...new Set(raw.split("\0").filter(Boolean))];
-	} catch {
-		return null;
-	}
-}
-
-function gitStandaloneIgnoredPaths(root: string): { paths: string[]; complete: boolean } {
-	try {
-		const raw = execFileSync(
-			"git",
-			["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
-			{
-				cwd: root,
-				encoding: "utf8",
-				maxBuffer: MAX_GIT_LIST_BYTES,
-				stdio: ["ignore", "pipe", "ignore"],
-			},
-		);
-		// `--directory` deliberately collapses wholly ignored trees to `dir/`.
-		// Skip those markers; standalone ignored files (for example `.env` or
-		// `.claude/settings.local.json`) retain concrete paths and are observed.
-		const entries = raw.split("\0").filter(Boolean);
-		const paths = [...new Set(entries.filter((path) => {
-			if (!path || path.endsWith("/")) return false;
-			const parentSegments = path.split(/[\\/]/).slice(0, -1);
-			return !parentSegments.some((segment) => FALLBACK_SKIP_DIRS.has(segment));
-		}))];
-		return { paths, complete: !entries.some((path) => path.endsWith("/")) };
-	} catch {
-		return { paths: [], complete: false };
-	}
-}
-
-function fallbackVisiblePaths(root: string): { paths: string[]; complete: boolean } {
-	const paths: string[] = [];
-	const queue = [root];
-	let complete = true;
-	while (queue.length > 0 && paths.length < MAX_FILES) {
-		const dir = queue.pop();
-		if (!dir) break;
-		let entries;
-		try {
-			entries = readdirSync(dir, { withFileTypes: true });
-		} catch {
-			complete = false;
-			continue;
-		}
-		for (const entry of entries) {
-			if (entry.isDirectory() && FALLBACK_SKIP_DIRS.has(entry.name)) continue;
-			const absolute = resolve(dir, entry.name);
-			if (!isInside(root, absolute)) continue;
-			if (entry.isDirectory()) queue.push(absolute);
-			else if (entry.isFile() || entry.isSymbolicLink()) paths.push(relative(root, absolute));
-			if (paths.length >= MAX_FILES) {
-				complete = false;
-				break;
-			}
-		}
-	}
-	if (queue.length > 0) complete = false;
-	return { paths, complete };
 }
 
 function discoverSnapshotPaths(root: string): { paths: string[]; complete: boolean } {
@@ -468,26 +343,6 @@ export function consumeWorkspaceResidue(
 		subagentId,
 	);
 	return { ...raw, files: own, attributed_to_other_sessions: attributedElsewhere };
-}
-
-/** Render a bounded Stop warning for writes whose PostToolUse was missed. */
-export function formatWorkspaceResidueWarning(changeSet: WorkspaceChangeSet): string | null {
-	if (changeSet.files.length === 0) return null;
-	const shown = changeSet.files.slice(0, 8).map((effect) => `${effect.kind}:${effect.path}`);
-	const more = changeSet.files.length > shown.length
-		? ` (+${changeSet.files.length - shown.length} more)`
-		: "";
-	const completeness = changeSet.complete ? "complete" : "bounded/incomplete";
-	const attributed = changeSet.attributed_to_other_sessions ?? 0;
-	const attributedNote = attributed > 0
-		? ` ${attributed} further effect(s) matched another actor's reconciled writes and were excluded.`
-		: "";
-	return (
-		`[interlinked:effect-residue] Stop observed ${changeSet.files.length} filesystem effect(s) ` +
-		`that were not reconciled by PostToolUse (${completeness} snapshot): ${shown.join(", ")}${more}.` +
-		`${attributedNote} ` +
-		"The files were added to the touched-file rescan; this is a backstop, not rollback of the originating command."
-	);
 }
 
 /** Release all in-memory evidence for a completed session. */

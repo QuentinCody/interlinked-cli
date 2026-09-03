@@ -246,6 +246,63 @@ interface MutationCompareOptions {
 	changedFiles?: string[];
 }
 
+type BaselineFileEntry = { score: number; killed: number };
+
+/** One report entry resolved against the baseline, before any accounting. */
+type FileMutationOutcome =
+	| { kind: "skip" }
+	| { kind: "new"; relPath: string; score: number; entry: FileMutationStats; belowFloor: boolean }
+	| {
+			kind: "decreased";
+			relPath: string;
+			score: number;
+			entry: FileMutationStats;
+			prior: BaselineFileEntry;
+			belowFloor: boolean;
+	  }
+	| {
+			kind: "same-or-improved";
+			relPath: string;
+			score: number;
+			entry: FileMutationStats;
+			prior: BaselineFileEntry;
+			belowFloor: boolean;
+	  };
+
+/**
+ * Resolves one report entry (path normalization, changed-file filtering,
+ * floor check, and new/decreased/same-or-improved classification) without
+ * mutating any accumulator — the caller applies the outcome.
+ */
+function resolveFileMutationOutcome(
+	rawPath: string,
+	entry: FileMutationStats | undefined,
+	baseline: MutationBaseline,
+	config: MutationGateConfig,
+	repoRoot: string,
+	changedSet: Set<string> | null,
+): FileMutationOutcome {
+	if (!entry) return { kind: "skip" };
+	const relPath = normalizePath(rawPath, repoRoot);
+	if (!relPath) return { kind: "skip" };
+	if (changedSet && !changedSet.has(relPath)) return { kind: "skip" };
+
+	const score = mutationScore(entry);
+	const prior = baseline.files[relPath];
+
+	// Floor check: below configured minimum score is always a warning,
+	// regardless of ratchet state. Files without any test mutants
+	// (denom=0) are treated as "no signal" and excluded from floor.
+	const hasSignal = entry.killed + entry.survived > 0;
+	const belowFloor = hasSignal && score < config.min_score;
+
+	if (!prior) return { kind: "new", relPath, score, entry, belowFloor };
+	if (score + 1e-9 < prior.score) {
+		return { kind: "decreased", relPath, score, entry, prior, belowFloor };
+	}
+	return { kind: "same-or-improved", relPath, score, entry, prior, belowFloor };
+}
+
 export function compareMutation(
 	report: MutationReport,
 	baseline: MutationBaseline,
@@ -253,7 +310,7 @@ export function compareMutation(
 ): MutationGateResult {
 	const { config, repoRoot, changedFiles } = options;
 	const findings: MutationFinding[] = [];
-	const nextFiles: Record<string, { score: number; killed: number }> = { ...baseline.files };
+	const nextFiles: Record<string, BaselineFileEntry> = { ...baseline.files };
 	const changedSet = changedFiles ? new Set(changedFiles) : null;
 
 	let filesChecked = 0;
@@ -263,52 +320,44 @@ export function compareMutation(
 	let filesImproved = 0;
 
 	for (const [rawPath, entry] of Object.entries(report.files)) {
-		if (!entry) continue;
-		const relPath = normalizePath(rawPath, repoRoot);
-		if (!relPath) continue;
-		if (changedSet && !changedSet.has(relPath)) continue;
+		const outcome = resolveFileMutationOutcome(rawPath, entry, baseline, config, repoRoot, changedSet);
+		if (outcome.kind === "skip") continue;
 
 		filesChecked++;
-		const score = mutationScore(entry);
-		const prior = baseline.files[relPath];
-
-		// Floor check: below configured minimum score is always a warning,
-		// regardless of ratchet state. Files without any test mutants
-		// (denom=0) are treated as "no signal" and excluded from floor.
-		const hasSignal = entry.killed + entry.survived > 0;
-		if (hasSignal && score < config.min_score) {
+		if (outcome.belowFloor) {
+			const priorScore = outcome.kind === "new" ? 0 : outcome.prior.score;
 			findings.push({
 				name: "mutation_score_below_floor",
 				severity: "warning",
-				file: relPath,
-				baseline_score: round(prior?.score ?? 0),
-				current_score: round(score),
-				message: `Mutation score for ${relPath} is ${(score * 100).toFixed(1)}% (floor: ${(config.min_score * 100).toFixed(0)}%). Add tests that kill the surviving mutants.`,
+				file: outcome.relPath,
+				baseline_score: round(priorScore),
+				current_score: round(outcome.score),
+				message: `Mutation score for ${outcome.relPath} is ${(outcome.score * 100).toFixed(1)}% (floor: ${(config.min_score * 100).toFixed(0)}%). Add tests that kill the surviving mutants.`,
 			});
 			filesBelowFloor++;
 		}
 
-		if (!prior) {
+		if (outcome.kind === "new") {
 			filesNew++;
-			nextFiles[relPath] = { score, killed: entry.killed };
+			nextFiles[outcome.relPath] = { score: outcome.score, killed: outcome.entry.killed };
 			continue;
 		}
 
-		if (score + 1e-9 < prior.score) {
+		if (outcome.kind === "decreased") {
 			findings.push({
 				name: "mutation_score_decrease",
 				severity: "error",
-				file: relPath,
-				baseline_score: round(prior.score),
-				current_score: round(score),
-				message: `Mutation score for ${relPath} dropped from ${(prior.score * 100).toFixed(1)}% to ${(score * 100).toFixed(1)}%. Investigate new survived mutants before merging.`,
+				file: outcome.relPath,
+				baseline_score: round(outcome.prior.score),
+				current_score: round(outcome.score),
+				message: `Mutation score for ${outcome.relPath} dropped from ${(outcome.prior.score * 100).toFixed(1)}% to ${(outcome.score * 100).toFixed(1)}%. Investigate new survived mutants before merging.`,
 			});
 			filesDecreased++;
 			// Preserve high-water mark.
-			nextFiles[relPath] = prior;
+			nextFiles[outcome.relPath] = outcome.prior;
 		} else {
-			if (score > prior.score) filesImproved++;
-			nextFiles[relPath] = { score, killed: Math.max(entry.killed, prior.killed) };
+			if (outcome.score > outcome.prior.score) filesImproved++;
+			nextFiles[outcome.relPath] = { score: outcome.score, killed: Math.max(outcome.entry.killed, outcome.prior.killed) };
 		}
 	}
 

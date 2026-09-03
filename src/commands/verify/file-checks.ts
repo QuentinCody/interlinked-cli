@@ -53,7 +53,7 @@ import {
 	isTestableSourceFile,
 	loadUntestedFilesBaseline,
 } from "../../harness/tested-file-policy.js";
-import { loadMetricsCoverage, type MetricsCoverage } from "../metrics.js";
+import { loadMetricsCoverage, type MetricsCoverage } from "../metrics-coverage.js";
 import { JS_TS_EXTS } from "./advisory.js";
 import { runAgentSafetyChecks, runCrapCheck } from "./file-checks-agent-safety.js";
 import { runTypeRedundancyChecks } from "./file-checks-type-redundancy.js";
@@ -66,7 +66,7 @@ import { collectSuppressionFindings } from "./suppressions.js";
 import type { CodeQualityIssue, CodeQualityResults } from "./tool-results-types.js";
 import { CQ_RESULT_KEYS } from "./tool-results-types.js";
 
-export type { FileCheckContext, PiiOpts };
+export type { FileCheckContext };
 
 const JSON_EXT = ".json";
 const TS_EXT = ".ts";

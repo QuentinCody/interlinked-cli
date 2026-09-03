@@ -25,7 +25,7 @@ vi.mock("node:fs", () => ({
 	readFileSync: mocks.readFileSync,
 }));
 
-import { reapOrphanHarnesses } from "../harness.js";
+import { reapOrphanHarnesses } from "../harness-process.js";
 import { buildPsFixture, type FixtureDaemon } from "./multi-workspace-fixture.js";
 
 beforeEach(() => {

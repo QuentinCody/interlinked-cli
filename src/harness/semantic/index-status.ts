@@ -4,8 +4,26 @@ import { loadSemanticConfig, modelArtifactPath } from "./config.js";
 import { discoverSemanticSources, semanticSourceHash } from "./index-discovery.js";
 import { semanticModelInstalled, verifySemanticModelArtifact } from "./model-install.js";
 import { createLlamaRuntime } from "./runtime.js";
-import type { SemanticStatus } from "./types.js";
+import type { ResolvedSemanticConfig, SemanticStatus } from "./types.js";
 import { loadSemanticIndex, semanticBuildInProgress, semanticIndexRoot } from "./vector-store.js";
+
+async function resolveMissingIndexStatus(config: ResolvedSemanticConfig, expectedModel: string): Promise<SemanticStatus> {
+    const installed = semanticModelInstalled(config.manifest);
+    const verified = installed && await verifySemanticModelArtifact(config.manifest);
+    const state = verified ? "absent" : "model-missing";
+    return {
+        schemaVersion: 1,
+        state,
+        generation: null,
+        modelFingerprint: expectedModel,
+        reason: state === "model-missing"
+            ? installed
+                ? "the configured model artifact failed SHA-256 verification"
+                : `model artifact is absent from ${modelArtifactPath(config.manifest)}`
+            : null,
+        meta: null,
+    };
+}
 
 export async function semanticIndexStatus(root: string): Promise<SemanticStatus> {
     const config = loadSemanticConfig(root);
@@ -14,21 +32,7 @@ export async function semanticIndexStatus(root: string): Promise<SemanticStatus>
         return { schemaVersion: 1, state: "building", generation: null, modelFingerprint: expectedModel, reason: null, meta: null };
     }
     if (!existsSync(join(semanticIndexRoot(root), "CURRENT"))) {
-        const installed = semanticModelInstalled(config.manifest);
-        const verified = installed && await verifySemanticModelArtifact(config.manifest);
-        const state = verified ? "absent" : "model-missing";
-        return {
-            schemaVersion: 1,
-            state,
-            generation: null,
-            modelFingerprint: expectedModel,
-            reason: state === "model-missing"
-                ? installed
-                    ? "the configured model artifact failed SHA-256 verification"
-                    : `model artifact is absent from ${modelArtifactPath(config.manifest)}`
-                : null,
-            meta: null,
-        };
+        return await resolveMissingIndexStatus(config, expectedModel);
     }
     let index;
     try {

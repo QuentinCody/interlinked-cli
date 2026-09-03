@@ -66,6 +66,58 @@ const FS_HELPER_DEF_RE =
 	/\b(?:function|const|let|var)\s+(writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|mkdirSync|mkdir|rmSync|unlinkSync)\b/g;
 const TMP_PATH_RE = /(?:^|[/\\])(?:tmp|__fixtures__|fixtures|tmp\/|\.tmp|os\.tmpdir|tmpdir)/i;
 
+/** Network-call finding for one line, or null if the line has no flaggable
+ *  network call. Only fires if the ORIGINAL line contains a URL pointing
+ *  somewhere that isn't localhost / 127.0.0.1 / 0.0.0.0. */
+function realNetworkCallMatch(strippedLine: string, originalLine: string): InlineMatch | null {
+	if (!NETWORK_CALL_RE.test(strippedLine)) return null;
+	const urlMatch = HTTP_LITERAL_URL_RE.exec(originalLine);
+	if (!urlMatch) return null;
+	return {
+		line: 0, // caller fills in the real line number
+		text: `real network call in test (${nonNull(urlMatch[1]).slice(0, 80)}). Mock with msw / fetch-mock / nock — real upstreams make tests flaky.`,
+	};
+}
+
+/** FS-write finding for one line, or null. Requires the call to survive in
+ *  the STRIPPED line (real code, not a write quoted inside a string
+ *  fixture), then reads the path literal from the original line. Only
+ *  flags paths outside a tmp / fixtures dir and not a locally-defined
+ *  wrapper helper. */
+function realFsWriteMatch(
+	strippedLine: string,
+	originalLine: string,
+	localFsHelpers: ReadonlySet<string>,
+): InlineMatch | null {
+	if (!FS_WRITE_CALL_RE.test(strippedLine)) return null;
+	const fsMatch = FS_WRITE_RE.exec(originalLine);
+	if (!fsMatch) return null;
+	const verb = nonNull(fsMatch[1]);
+	const target = nonNull(fsMatch[2]);
+	const isMemberCall = originalLine[fsMatch.index - 1] === ".";
+	const isLocalHelper = !isMemberCall && localFsHelpers.has(verb);
+	if (isLocalHelper || TMP_PATH_RE.test(target) || target.startsWith("/tmp")) return null;
+	return {
+		line: 0, // caller fills in the real line number
+		text: `test writes to real filesystem path "${target.slice(0, 80)}". Use os.tmpdir() / a __fixtures__ dir / a memfs mock. ${SANDBOX_FRAGILITY_NOTE}`,
+	};
+}
+
+/** One entry's finding (network takes priority over FS, matching the
+ *  original loop's early `continue` after a network match), or null. */
+function realIoMatchForEntry(
+	i: number,
+	strippedLine: string,
+	original: readonly string[],
+	localFsHelpers: ReadonlySet<string>,
+): InlineMatch | null {
+	const originalLine = nonNull(original[i]);
+	const netMatch = realNetworkCallMatch(strippedLine, originalLine);
+	const match = netMatch ?? realFsWriteMatch(strippedLine, originalLine, localFsHelpers);
+	if (!match) return null;
+	return { ...match, line: i + 1 };
+}
+
 /** Public API — flags real-network/FS calls in test files. */
 export function checkRealIoInTests(content: string, filePath: string): InlineMatch[] {
 	if (!isStrictTestFile(filePath)) return [];
@@ -85,38 +137,8 @@ export function checkRealIoInTests(content: string, filePath: string): InlineMat
 
 	for (const [i, line] of strippedLines.entries()) {
 		if (matches.length >= MAX_MATCHES) break;
-
-		// Network: only flag if the same line in the ORIGINAL contains a URL
-		// pointing somewhere that isn't localhost / 127.0.0.1 / 0.0.0.0.
-		if (NETWORK_CALL_RE.test(line)) {
-			const urlMatch = HTTP_LITERAL_URL_RE.exec(nonNull(original[i]));
-			if (urlMatch) {
-				matches.push({
-					line: i + 1,
-					text: `real network call in test (${nonNull(urlMatch[1]).slice(0, 80)}). Mock with msw / fetch-mock / nock — real upstreams make tests flaky.`,
-				});
-				continue;
-			}
-		}
-
-		// FS write: require the call to survive in the STRIPPED line (real code,
-		// not a write quoted inside a string fixture), then read the path literal
-		// from the original line. Only flag paths outside a tmp / fixtures dir.
-		if (FS_WRITE_CALL_RE.test(line)) {
-			const fsMatch = FS_WRITE_RE.exec(nonNull(original[i]));
-			if (fsMatch) {
-				const verb = nonNull(fsMatch[1]);
-				const target = nonNull(fsMatch[2]);
-				const isMemberCall = nonNull(original[i])[fsMatch.index - 1] === ".";
-				const isLocalHelper = !isMemberCall && localFsHelpers.has(verb);
-				if (!isLocalHelper && !TMP_PATH_RE.test(target) && !target.startsWith("/tmp")) {
-					matches.push({
-						line: i + 1,
-						text: `test writes to real filesystem path "${target.slice(0, 80)}". Use os.tmpdir() / a __fixtures__ dir / a memfs mock. ${SANDBOX_FRAGILITY_NOTE}`,
-					});
-				}
-			}
-		}
+		const match = realIoMatchForEntry(i, line, original, localFsHelpers);
+		if (match) matches.push(match);
 	}
 	return matches;
 }

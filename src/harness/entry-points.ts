@@ -220,29 +220,45 @@ function collectTestFiles(projectRoot: string): EntryPoint[] {
 	const stack: string[] = [projectRoot];
 	const seen = new Set<string>();
 	while (stack.length > 0) {
-		const dir = stack.pop();
-		if (!dir || seen.has(dir)) continue;
-		seen.add(dir);
-		let entries: Dirent[];
-		try {
-			entries = readdirSync(dir, { withFileTypes: true });
-		} catch {
-			continue;
-		}
-		for (const entry of entries) {
-			if (entry.name.startsWith(".") && entry.name !== ".") continue;
-			if (TEST_SKIP_DIRS.has(entry.name)) continue;
-			const full = join(dir, entry.name);
-			if (entry.isDirectory()) {
-				stack.push(full);
-				continue;
-			}
-			if (entry.isFile() && TEST_SUFFIXES.some((s) => entry.name.endsWith(s))) {
-				out.push({ kind: "test", file: full, reason: `test file: ${entry.name}` });
-			}
-		}
+		visitTestDirectory(stack.pop(), stack, seen, out);
 	}
 	return out;
+}
+
+/**
+ * Process one directory popped off `collectTestFiles`'s work stack:
+ * skip it if already visited, list its entries, push subdirectories
+ * back onto the stack, and record any file matching a test suffix.
+ * Extracted so the caller's while loop carries no nested branching of
+ * its own (the per-directory logic — including its own guard clauses
+ * and inner entry loop — restarts at nesting depth 0 here).
+ */
+function visitTestDirectory(
+	dir: string | undefined,
+	stack: string[],
+	seen: Set<string>,
+	out: EntryPoint[],
+): void {
+	if (!dir || seen.has(dir)) return;
+	seen.add(dir);
+	let entries: Dirent[];
+	try {
+		entries = readdirSync(dir, { withFileTypes: true });
+	} catch {
+		return;
+	}
+	for (const entry of entries) {
+		if (entry.name.startsWith(".") && entry.name !== ".") continue;
+		if (TEST_SKIP_DIRS.has(entry.name)) continue;
+		const full = join(dir, entry.name);
+		if (entry.isDirectory()) {
+			stack.push(full);
+			continue;
+		}
+		if (entry.isFile() && TEST_SUFFIXES.some((s) => entry.name.endsWith(s))) {
+			out.push({ kind: "test", file: full, reason: `test file: ${entry.name}` });
+		}
+	}
 }
 
 /**

@@ -34,6 +34,41 @@ function collectDiscriminants(content: string): Set<string> {
 	return out;
 }
 
+function findDiscriminantEcho(
+	disc: string,
+	filePath: string,
+	relPath: string,
+	graph: ProjectGraph,
+): StructuralCheckResult | null {
+	const otherFiles: string[] = [];
+	for (const other of graph.allFiles()) {
+		if (other === filePath) continue;
+		const oc = safeRead(other);
+		if (!oc) continue;
+		// Reason: `disc` is a discriminant identifier extracted from a
+		// TS switch's parsed AST; dots are escaped for property access.
+		// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
+		if (new RegExp(`\\bswitch\\s*\\(\\s*${disc.replace(/\./g, "\\.")}\\s*\\)`).test(oc)) {
+			otherFiles.push(other);
+			if (otherFiles.length >= 5) break;
+		}
+	}
+	if (otherFiles.length === 0) return null;
+	const relList = otherFiles
+		.slice(0, 3)
+		.map((f) => graph.toRelative(f))
+		.join(", ");
+	return {
+		check: "cross_file_switch_discriminant",
+		severity: "warning",
+		message: `${relPath} switches on \`${disc}\` — also seen in ${otherFiles.length} other file(s): ${relList}${
+			otherFiles.length > 3 ? ", …" : ""
+		}. Consider a polymorphic dispatch or strategy registry.`,
+		file: filePath,
+		affectedFiles: otherFiles,
+	};
+}
+
 export function checkCrossFileSwitchDiscriminant(
 	filePath: string,
 	relPath: string,
@@ -46,33 +81,8 @@ export function checkCrossFileSwitchDiscriminant(
 
 	const results: StructuralCheckResult[] = [];
 	for (const disc of mine) {
-		const otherFiles: string[] = [];
-		for (const other of graph.allFiles()) {
-			if (other === filePath) continue;
-			const oc = safeRead(other);
-			if (!oc) continue;
-			// Reason: `disc` is a discriminant identifier extracted from a
-			// TS switch's parsed AST; dots are escaped for property access.
-			// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-			if (new RegExp(`\\bswitch\\s*\\(\\s*${disc.replace(/\./g, "\\.")}\\s*\\)`).test(oc)) {
-				otherFiles.push(other);
-				if (otherFiles.length >= 5) break;
-			}
-		}
-		if (otherFiles.length === 0) continue;
-		const relList = otherFiles
-			.slice(0, 3)
-			.map((f) => graph.toRelative(f))
-			.join(", ");
-		results.push({
-			check: "cross_file_switch_discriminant",
-			severity: "warning",
-			message: `${relPath} switches on \`${disc}\` — also seen in ${otherFiles.length} other file(s): ${relList}${
-				otherFiles.length > 3 ? ", …" : ""
-			}. Consider a polymorphic dispatch or strategy registry.`,
-			file: filePath,
-			affectedFiles: otherFiles,
-		});
+		const result = findDiscriminantEcho(disc, filePath, relPath, graph);
+		if (result) results.push(result);
 	}
 	return results;
 }

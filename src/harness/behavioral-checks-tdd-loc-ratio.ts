@@ -48,50 +48,101 @@ export interface LocDelta {
  *
  * Returns zeroes on any failure (not in a repo, no HEAD, git missing).
  */
-export function gitNumstatDelta(cwd: string = process.cwd()): LocDelta {
-	let prodLoc = 0;
-	let testLoc = 0;
+/**
+ * Accumulate the numstat delta for one tracked-diff line into `delta` in
+ * place. Split out of `sumTrackedNumstat` so the loop body carries no
+ * nesting of its own.
+ */
+function accumulateNumstatLine(line: string, delta: LocDelta): void {
+	const parts = line.split("\t");
+	if (parts.length < 3) return;
+	const added = Number.parseInt(nonNull(parts[0]), 10);
+	const deleted = Number.parseInt(nonNull(parts[1]), 10);
+	if (!Number.isFinite(added) || !Number.isFinite(deleted)) return;
+	const path = nonNull(parts[2]);
+	const loc = added + deleted;
+	if (TEST_FILE_RE.test(path)) delta.testLoc += loc;
+	else if (isCodeFile(path)) delta.prodLoc += loc;
+	// else: docs, JSON data, lockfiles, etc. — not "production code"
+}
+
+/** Lines added + deleted for tracked changes, from `git diff --numstat HEAD`. */
+function sumTrackedNumstat(cwd: string): LocDelta {
+	const numstat = execSync("git diff --numstat HEAD", {
+		cwd,
+		encoding: "utf-8",
+		timeout: 3000,
+		stdio: ["pipe", "pipe", "pipe"],
+	});
+	const delta: LocDelta = { prodLoc: 0, testLoc: 0 };
+	for (const line of numstat.split("\n")) accumulateNumstatLine(line, delta);
+	return delta;
+}
+
+/**
+ * Full line count for one untracked-but-not-ignored path, added into
+ * `delta` in place. Best-effort: an unreadable file is silently skipped
+ * (it may have been deleted between `git ls-files` and this read).
+ */
+function accumulateUntrackedFile(cwd: string, path: string, delta: LocDelta): void {
+	if (!path) return;
+	const isTest = TEST_FILE_RE.test(path);
+	if (!isTest && !isCodeFile(path)) return;
 	try {
-		const numstat = execSync("git diff --numstat HEAD", {
-			cwd,
-			encoding: "utf-8",
-			timeout: 3000,
-			stdio: ["pipe", "pipe", "pipe"],
-		});
-		for (const line of numstat.split("\n")) {
-			const parts = line.split("\t");
-			if (parts.length < 3) continue;
-			const added = Number.parseInt(nonNull(parts[0]), 10);
-			const deleted = Number.parseInt(nonNull(parts[1]), 10);
-			if (!Number.isFinite(added) || !Number.isFinite(deleted)) continue;
-			const path = nonNull(parts[2]);
-			const delta = added + deleted;
-			if (TEST_FILE_RE.test(path)) testLoc += delta;
-			else if (isCodeFile(path)) prodLoc += delta;
-			// else: docs, JSON data, lockfiles, etc. — not "production code"
-		}
-		const untracked = execSync("git ls-files --others --exclude-standard", {
-			cwd,
-			encoding: "utf-8",
-			timeout: 3000,
-			stdio: ["pipe", "pipe", "pipe"],
-		});
-		for (const path of untracked.split("\n")) {
-			if (!path) continue;
-			if (!TEST_FILE_RE.test(path) && !isCodeFile(path)) continue;
-			try {
-				const content = readFileSync(join(cwd, path), "utf-8");
-				const loc = content.split("\n").length;
-				if (TEST_FILE_RE.test(path)) testLoc += loc;
-				else prodLoc += loc;
-			} catch {
-				// intentional: best-effort read; skip an unreadable untracked file.
-			}
-		}
+		const content = readFileSync(join(cwd, path), "utf-8");
+		const loc = content.split("\n").length;
+		if (isTest) delta.testLoc += loc;
+		else delta.prodLoc += loc;
+	} catch {
+		// intentional: best-effort read; skip an unreadable untracked file.
+	}
+}
+
+/** Lines counted in full for untracked-but-not-ignored files. */
+function sumUntrackedLoc(cwd: string): LocDelta {
+	const untracked = execSync("git ls-files --others --exclude-standard", {
+		cwd,
+		encoding: "utf-8",
+		timeout: 3000,
+		stdio: ["pipe", "pipe", "pipe"],
+	});
+	const delta: LocDelta = { prodLoc: 0, testLoc: 0 };
+	for (const path of untracked.split("\n")) accumulateUntrackedFile(cwd, path, delta);
+	return delta;
+}
+
+/**
+ * Combined tracked + untracked LOC delta. Throws only if the TRACKED diff
+ * itself fails (mirrors the original single-try-block behavior, where
+ * prodLoc/testLoc were outer-scoped `let`s mutated by both loops: a
+ * failure in the untracked-file listing after the tracked diff already
+ * succeeded returned the partial tracked totals, not zero — only a
+ * failure before any accumulation (i.e. the tracked diff itself) produced
+ * an unrecoverable zero).
+ */
+function computeNumstatDelta(cwd: string): LocDelta {
+	const tracked = sumTrackedNumstat(cwd);
+	try {
+		const untracked = sumUntrackedLoc(cwd);
+		return {
+			prodLoc: tracked.prodLoc + untracked.prodLoc,
+			testLoc: tracked.testLoc + untracked.testLoc,
+		};
+	} catch {
+		// intentional: untracked-file listing failed AFTER the tracked diff
+		// already succeeded — return the partial tracked totals, matching
+		// the original shared-`let` fallthrough behavior.
+		return tracked;
+	}
+}
+
+export function gitNumstatDelta(cwd: string = process.cwd()): LocDelta {
+	try {
+		return computeNumstatDelta(cwd);
 	} catch {
 		// intentional: git unavailable / not a repo / no HEAD — fall back to 0
+		return { prodLoc: 0, testLoc: 0 };
 	}
-	return { prodLoc, testLoc };
 }
 
 /**

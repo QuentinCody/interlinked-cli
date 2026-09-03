@@ -356,17 +356,23 @@ function parseManifestJson(
 // Output
 // ───────────────────────────────────────────────
 
+/**
+ * Emit the design doc's --json shape. Omits empty fields for tidiness.
+ */
+function emitJson(result: MultiEditResult): void {
+	const payload: JsonObject = {
+		ok: result.ok,
+		file_changes_applied: result.file_changes_applied,
+	};
+	if (result.error_code) payload.error_code = result.error_code;
+	if (result.error_detail) payload.error_detail = result.error_detail;
+	if (result.gate_failures) payload.gate_failures = result.gate_failures;
+	console.log(JSON.stringify(payload, null, 2));
+}
+
 function emit(json: boolean, result: MultiEditResult): void {
 	if (json) {
-		// The design doc's --json shape. Omit empty fields for tidiness.
-		const payload: JsonObject = {
-			ok: result.ok,
-			file_changes_applied: result.file_changes_applied,
-		};
-		if (result.error_code) payload.error_code = result.error_code;
-		if (result.error_detail) payload.error_detail = result.error_detail;
-		if (result.gate_failures) payload.gate_failures = result.gate_failures;
-		console.log(JSON.stringify(payload, null, 2));
+		emitJson(result);
 		return;
 	}
 	if (result.ok) {

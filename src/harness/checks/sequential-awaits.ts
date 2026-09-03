@@ -8,6 +8,63 @@ import { getExtension, type InlineMatch, isTestFile, JS_TS_EXTS } from "./shared
 // Sequential Independent Awaits Detection (JS/TS)
 // ===========================================
 
+const AWAIT_PATTERN = /^(?:const|let|var)\s+(\w+)\s*=\s*await\s+(.+);?\s*$/;
+// Prompts must be sequential — their output interleaves, so they're never
+// flagged as candidates for Promise.all even when otherwise independent.
+const INTERACTIVE_IO_PATTERN = /\bprompt\s*\(|\breadline\b|\bquestion\s*\(/;
+
+function isInteractiveIO(expr: string): boolean {
+	return INTERACTIVE_IO_PATTERN.test(expr);
+}
+
+interface AwaitLineResult {
+	/** true when the original loop body would have hit `continue` — the
+	 * caller must leave prevVarName/prevLineIdx untouched in that case. */
+	skip: boolean;
+	match: InlineMatch | null;
+	varName: string | null;
+	lineIdx: number;
+}
+
+function processAwaitLine(
+	lines: string[],
+	i: number,
+	prevVarName: string | null,
+	prevLineIdx: number,
+): AwaitLineResult {
+	const trimmed = nonNull(lines[i]).trim();
+	const m = AWAIT_PATTERN.exec(trimmed);
+	if (!m) {
+		return { skip: false, match: null, varName: null, lineIdx: -1 };
+	}
+
+	const varName = nonNull(m[1]);
+	const expr = nonNull(m[2]);
+
+	// Check if this await references the previous await's variable
+	if (prevVarName === null || prevLineIdx !== i - 1) {
+		return { skip: false, match: null, varName, lineIdx: i };
+	}
+	if (expr.includes(prevVarName)) {
+		return { skip: false, match: null, varName, lineIdx: i };
+	}
+
+	const prevExpr = nonNull(lines[prevLineIdx]).trim();
+	if (isInteractiveIO(prevExpr) || isInteractiveIO(expr)) {
+		return { skip: true, match: null, varName: null, lineIdx: -1 };
+	}
+
+	return {
+		skip: false,
+		match: {
+			line: prevLineIdx + 1,
+			text: `[sequential independent awaits — consider Promise.all] ${prevExpr.slice(0, 100)}`,
+		},
+		varName,
+		lineIdx: i,
+	};
+}
+
 /**
  * Detect sequential `const x = await ...;` lines where the second doesn't
  * reference the first's variable — they could run concurrently with Promise.all.
@@ -20,36 +77,16 @@ export function checkSequentialAwaits(content: string, filePath: string): Inline
 
 	const lines = content.split("\n");
 	const matches: InlineMatch[] = [];
-	const awaitPattern = /^(?:const|let|var)\s+(\w+)\s*=\s*await\s+(.+);?\s*$/;
 
 	let prevVarName: string | null = null;
 	let prevLineIdx = -1;
 
 	for (let i = 0; i < lines.length; i++) {
-		const trimmed = nonNull(lines[i]).trim();
-		const m = awaitPattern.exec(trimmed);
-		if (m) {
-			const varName = nonNull(m[1]);
-			const expr = nonNull(m[2]);
-			// Check if this await references the previous await's variable
-			if (prevVarName !== null && prevLineIdx === i - 1) {
-				if (!expr.includes(prevVarName)) {
-					// Skip interactive I/O — prompts must be sequential (output interleaves)
-					const prevExpr = nonNull(lines[prevLineIdx]).trim();
-					if (/\bprompt\s*\(|\breadline\b|\bquestion\s*\(/.test(prevExpr)) continue;
-					if (/\bprompt\s*\(|\breadline\b|\bquestion\s*\(/.test(expr)) continue;
-					matches.push({
-						line: prevLineIdx + 1,
-						text: `[sequential independent awaits — consider Promise.all] ${nonNull(lines[prevLineIdx]).trim().slice(0, 100)}`,
-					});
-				}
-			}
-			prevVarName = varName;
-			prevLineIdx = i;
-		} else {
-			prevVarName = null;
-			prevLineIdx = -1;
-		}
+		const result = processAwaitLine(lines, i, prevVarName, prevLineIdx);
+		if (result.skip) continue;
+		if (result.match) matches.push(result.match);
+		prevVarName = result.varName;
+		prevLineIdx = result.lineIdx;
 	}
 
 	return matches;

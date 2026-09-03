@@ -233,7 +233,7 @@ async function runOverlayAndDecide(
 		);
 		if (coverageDecision) return coverageDecision;
 
-		const crapDecision = evaluateCrapGate(ctx, deps, cov);
+		const crapDecision = evaluateCrapGate(ctx, deps, cov, event);
 		if (crapDecision) return crapDecision;
 
 		return finalizeAllow(ctx, covOut, scopeId);

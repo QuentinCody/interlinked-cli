@@ -56,6 +56,136 @@ export function checkNonNullAssertions(content: string, filePath: string): Inlin
  * cold readers see `if (status === ORDER_FULFILLED)` and know what branch
  * they're in without jumping anywhere.
  */
+// --- checkMagicLiteralInConditional support (module-private) ---
+//
+// Comparison literals — number > 1 or string longer than 2 chars excluding
+// trivial values. Capture groups: 1=number, 2=double-quoted, 3=single-quoted.
+const MAGIC_LITERAL_NUM_CMP =
+	/(?:===|!==|==|!=)\s*(-?\d+(?:\.\d+)?)(?!\w)|(?:===|!==|==|!=)\s*"([^"\\]{3,})"|(?:===|!==|==|!=)\s*'([^'\\]{3,})'/;
+const MAGIC_LITERAL_CASE_CMP = /^\s*case\s+(?:(-?\d+(?:\.\d+)?)(?!\w)|"([^"\\]{3,})"|'([^'\\]{3,})')\s*:/;
+
+// Trivial strings that look long enough to match `[^"]{3,}` but shouldn't
+// be flagged: keywords that appear in type comparisons.
+const MAGIC_LITERAL_TRIVIAL_STRINGS = new Set(["true", "false", "null", "undefined"]);
+
+// `typeof x === "string"` is THE canonical TS narrowing idiom — the RHS is
+// drawn from a fixed, language-defined set of 8 strings. Hoisting any of
+// them to a constant (`STRING_TYPE = "string"`) is pure noise. Skip the
+// comparison-literal hit when the operand is `typeof`.
+const MAGIC_LITERAL_TYPEOF_RESULTS = new Set([
+	"string",
+	"number",
+	"bigint",
+	"boolean",
+	"symbol",
+	"undefined",
+	"object",
+	"function",
+]);
+
+// Self-describing identifier-like string literals. The literal IS the name
+// — hoisting it to a constant (`const CODEX = "codex"; x === CODEX`) is pure
+// noise, because the string token already reads as its own intent. Matches a
+// single contiguous token: word chars / `_` / `-` / `.`, no whitespace, no
+// sentence structure. Covers shell names (`bash`), runner ids (`codex`),
+// tool names (`apply_patch`), event kinds (`session_end`), enum members
+// (`fulfilled`, `pre-commit`), namespaced ids (`mcp__foo`), dotted paths,
+// SCREAMING_CASE constants (`SESSION_END`), and camelCase. It deliberately
+// does NOT match opaque phrases with spaces/punctuation
+// (`"Order fulfilled successfully"`) — those carry no self-documenting
+// token and stay flagged. Applies to BOTH `=== "..."` comparisons and
+// `case "...":` labels: the value of this check is opaque NUMERIC codes
+// (`status === 2`) and opaque string phrases, not readable string tokens.
+const MAGIC_LITERAL_SELF_DESCRIBING_TOKEN = /^[A-Za-z][\w.-]*$/;
+const MAGIC_LITERAL_SELF_DESCRIBING_ALLOWLIST = new Set([
+	// HTTP methods are all-caps and already flow through the token regex,
+	// but kept explicit so the intent is documented and future
+	// multi-token additions have a home.
+	"GET",
+	"POST",
+	"PUT",
+	"DELETE",
+	"PATCH",
+	"HEAD",
+	"OPTIONS",
+]);
+
+function isMagicNumber(raw: string): boolean {
+	const n = Number(raw);
+	return Number.isFinite(n) && Math.abs(n) > 1;
+}
+// A string literal is self-describing (NOT magic) when it is a single
+// readable identifier-like token. Trivial keywords (`true`/`false`/
+// `null`/`undefined`) are already excluded upstream; here we additionally
+// spare any contiguous token. Opaque phrases (spaces, sentence text) and
+// genuinely cryptic short codes that aren't identifier-shaped still fire.
+function isSelfDescribingToken(raw: string): boolean {
+	return (
+		MAGIC_LITERAL_SELF_DESCRIBING_TOKEN.test(raw) ||
+		MAGIC_LITERAL_SELF_DESCRIBING_ALLOWLIST.has(raw)
+	);
+}
+function isMagicString(raw: string): boolean {
+	if (MAGIC_LITERAL_TRIVIAL_STRINGS.has(raw)) return false;
+	// Readable identifier-like tokens ARE the intent — not magic.
+	if (isSelfDescribingToken(raw)) return false;
+	return true;
+}
+// Shared "does this captured literal deserve a flag" decision. Both the
+// `===`/`!==`/`==`/`!=` comparison branch and the `case` label branch parse
+// into the same (num, dq, sq) capture triple from NUM_CMP / CASE_CMP, so the
+// hit logic (opaque number OR opaque quoted string) lives here once instead
+// of being duplicated at each call site.
+function isMagicLiteralHit(
+	num: string | undefined,
+	dq: string | undefined,
+	sq: string | undefined,
+): boolean {
+	return (
+		(num !== undefined && isMagicNumber(num)) ||
+		(dq !== undefined && isMagicString(dq)) ||
+		(sq !== undefined && isMagicString(sq))
+	);
+}
+
+// Per-line decision, extracted from the scan loop in
+// checkMagicLiteralInConditional below: at most one magic-literal hit per
+// line, checked in order (comparison, then case label) — mirrors the
+// original inline control flow exactly, including the eq-branch
+// short-circuit that skips the case check once an eq hit fires.
+function findMagicLiteralOnLine(
+	line: string,
+	i: number,
+	originalLines: string[],
+): InlineMatch | undefined {
+	// `if (x === 2)` / `x !== "Order fulfilled successfully"`
+	const eqMatch = MAGIC_LITERAL_NUM_CMP.exec(line);
+	if (eqMatch) {
+		const [, num, dq, sq] = eqMatch;
+		const strLiteral = dq ?? sq;
+		// `typeof x === "string"` exemption — see the TYPEOF_RESULTS comment
+		// above. We only need to check when there's a string capture;
+		// numeric comparisons are never typeof results.
+		const isTypeofCheck =
+			strLiteral !== undefined &&
+			MAGIC_LITERAL_TYPEOF_RESULTS.has(strLiteral) &&
+			/\btypeof\b/.test(line);
+		if (!isTypeofCheck && isMagicLiteralHit(num, dq, sq)) {
+			return { line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) };
+		}
+	}
+
+	// `case 2:` / `case "Order fulfilled successfully":`
+	const caseMatch = MAGIC_LITERAL_CASE_CMP.exec(line);
+	if (caseMatch) {
+		const [, num, dq, sq] = caseMatch;
+		if (isMagicLiteralHit(num, dq, sq)) {
+			return { line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) };
+		}
+	}
+	return undefined;
+}
+
 export function checkMagicLiteralInConditional(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
@@ -72,124 +202,10 @@ export function checkMagicLiteralInConditional(content: string, filePath: string
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
 
-	// Comparison literals — number > 1 or string longer than 2 chars excluding
-	// trivial values. Capture groups: 1=number, 2=double-quoted, 3=single-quoted.
-	const NUM_CMP =
-		/(?:===|!==|==|!=)\s*(-?\d+(?:\.\d+)?)(?!\w)|(?:===|!==|==|!=)\s*"([^"\\]{3,})"|(?:===|!==|==|!=)\s*'([^'\\]{3,})'/;
-	const CASE_CMP = /^\s*case\s+(?:(-?\d+(?:\.\d+)?)(?!\w)|"([^"\\]{3,})"|'([^'\\]{3,})')\s*:/;
-
-	// Trivial strings that look long enough to match `[^"]{3,}` but shouldn't
-	// be flagged: keywords that appear in type comparisons.
-	const TRIVIAL_STRINGS = new Set(["true", "false", "null", "undefined"]);
-
-	// `typeof x === "string"` is THE canonical TS narrowing idiom — the RHS is
-	// drawn from a fixed, language-defined set of 8 strings. Hoisting any of
-	// them to a constant (`STRING_TYPE = "string"`) is pure noise. Skip the
-	// comparison-literal hit when the operand is `typeof`.
-	const TYPEOF_RESULTS = new Set([
-		"string",
-		"number",
-		"bigint",
-		"boolean",
-		"symbol",
-		"undefined",
-		"object",
-		"function",
-	]);
-
-	// Self-describing identifier-like string literals. The literal IS the name
-	// — hoisting it to a constant (`const CODEX = "codex"; x === CODEX`) is pure
-	// noise, because the string token already reads as its own intent. Matches a
-	// single contiguous token: word chars / `_` / `-` / `.`, no whitespace, no
-	// sentence structure. Covers shell names (`bash`), runner ids (`codex`),
-	// tool names (`apply_patch`), event kinds (`session_end`), enum members
-	// (`fulfilled`, `pre-commit`), namespaced ids (`mcp__foo`), dotted paths,
-	// SCREAMING_CASE constants (`SESSION_END`), and camelCase. It deliberately
-	// does NOT match opaque phrases with spaces/punctuation
-	// (`"Order fulfilled successfully"`) — those carry no self-documenting
-	// token and stay flagged. Applies to BOTH `=== "..."` comparisons and
-	// `case "...":` labels: the value of this check is opaque NUMERIC codes
-	// (`status === 2`) and opaque string phrases, not readable string tokens.
-	const SELF_DESCRIBING_TOKEN = /^[A-Za-z][\w.-]*$/;
-	const SELF_DESCRIBING_ALLOWLIST = new Set([
-		// HTTP methods are all-caps and already flow through the token regex,
-		// but kept explicit so the intent is documented and future
-		// multi-token additions have a home.
-		"GET",
-		"POST",
-		"PUT",
-		"DELETE",
-		"PATCH",
-		"HEAD",
-		"OPTIONS",
-	]);
-
-	function isMagicNumber(raw: string): boolean {
-		const n = Number(raw);
-		return Number.isFinite(n) && Math.abs(n) > 1;
-	}
-	// A string literal is self-describing (NOT magic) when it is a single
-	// readable identifier-like token. Trivial keywords (`true`/`false`/
-	// `null`/`undefined`) are already excluded upstream; here we additionally
-	// spare any contiguous token. Opaque phrases (spaces, sentence text) and
-	// genuinely cryptic short codes that aren't identifier-shaped still fire.
-	function isSelfDescribingToken(raw: string): boolean {
-		return SELF_DESCRIBING_TOKEN.test(raw) || SELF_DESCRIBING_ALLOWLIST.has(raw);
-	}
-	function isMagicString(raw: string): boolean {
-		if (TRIVIAL_STRINGS.has(raw)) return false;
-		// Readable identifier-like tokens ARE the intent — not magic.
-		if (isSelfDescribingToken(raw)) return false;
-		return true;
-	}
-	// Shared "does this captured literal deserve a flag" decision. Both the
-	// `===`/`!==`/`==`/`!=` comparison branch and the `case` label branch parse
-	// into the same (num, dq, sq) capture triple from NUM_CMP / CASE_CMP, so the
-	// hit logic (opaque number OR opaque quoted string) lives here once instead
-	// of being duplicated at each call site.
-	function isMagicLiteralHit(
-		num: string | undefined,
-		dq: string | undefined,
-		sq: string | undefined,
-	): boolean {
-		return (
-			(num !== undefined && isMagicNumber(num)) ||
-			(dq !== undefined && isMagicString(dq)) ||
-			(sq !== undefined && isMagicString(sq))
-		);
-	}
-
 	for (const [i, line] of strippedLines.entries()) {
 		if (matches.length >= 10) break;
-
-		// `if (x === 2)` / `x !== "Order fulfilled successfully"`
-		const eqMatch = NUM_CMP.exec(line);
-		if (eqMatch) {
-			const [, num, dq, sq] = eqMatch;
-			const strLiteral = dq ?? sq;
-			// `typeof x === "string"` exemption — see TYPEOF_RESULTS comment.
-			// We only need to check when there's a string capture; numeric
-			// comparisons are never typeof results.
-			const isTypeofCheck =
-				strLiteral !== undefined &&
-				TYPEOF_RESULTS.has(strLiteral) &&
-				/\btypeof\b/.test(line);
-			if (!isTypeofCheck) {
-				if (isMagicLiteralHit(num, dq, sq)) {
-					matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-					continue;
-				}
-			}
-		}
-
-		// `case 2:` / `case "Order fulfilled successfully":`
-		const caseMatch = CASE_CMP.exec(line);
-		if (caseMatch) {
-			const [, num, dq, sq] = caseMatch;
-			if (isMagicLiteralHit(num, dq, sq)) {
-				matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-			}
-		}
+		const match = findMagicLiteralOnLine(line, i, originalLines);
+		if (match) matches.push(match);
 	}
 
 	return matches;

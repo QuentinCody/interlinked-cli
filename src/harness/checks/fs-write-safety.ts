@@ -66,6 +66,82 @@ const EXISTS_SYNC_RE = /\bexistsSync\s*\(/;
  */
 const MKDIR_CALL_RE = /\b(?:mkdirSync|mkdir)\s*\(/g;
 
+/**
+ * Matches `<name> = mkdtempSync(...)` / `<name> = await mkdtemp(...)` /
+ * `<name> = fs.mkdtempSync(...)` — with or without a leading `const`/`let`/
+ * `var`, so both the declaration site and a later `beforeEach` reassignment
+ * (`let dir; beforeEach(() => { dir = mkdtempSync(...); })`) are caught.
+ * `mkdtempSync`/`mkdtemp` themselves create the directory, so any name bound
+ * to their result is a directory KNOWN to exist for the rest of the file.
+ */
+const MKDTEMP_ASSIGN_RE =
+	/\b([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?(?:fs\.)?mkdtemp(?:Sync)?\s*\(/g;
+
+/**
+ * Matches a bare `mkdirSync(<identifier>)` — a single-argument call with no
+ * `recursive` option. It creates exactly `<identifier>` (one level), so a
+ * write placed directly inside it can't ENOENT even without `recursive`.
+ */
+const BARE_MKDIR_RE = /\bmkdirSync\s*\(\s*([A-Za-z_$][\w$]*)\s*\)/g;
+
+/**
+ * Collect directory names known to exist by the time any write in this file
+ * runs: names bound to `mkdtempSync`/`mkdtemp`, and names created via a bare
+ * `mkdirSync(<name>)` (no options — the directory itself, one level). Scanned
+ * across the whole file (not per-function-scope) so a `beforeEach`/`beforeAll`
+ * setup outside the write's enclosing function still counts — the real shape
+ * this guards against.
+ */
+function collectKnownDirNames(commentStrippedLines: string[]): Set<string> {
+	const names = new Set<string>();
+	for (const line of commentStrippedLines) {
+		MKDTEMP_ASSIGN_RE.lastIndex = 0;
+		let mk: RegExpExecArray | null;
+		while ((mk = MKDTEMP_ASSIGN_RE.exec(line)) !== null) {
+			if (mk[1]) names.add(mk[1]);
+		}
+		BARE_MKDIR_RE.lastIndex = 0;
+		let bm: RegExpExecArray | null;
+		while ((bm = BARE_MKDIR_RE.exec(line)) !== null) {
+			if (bm[1]) names.add(bm[1]);
+		}
+	}
+	return names;
+}
+
+/**
+ * True when `argWindow` places exactly ONE path segment directly inside a
+ * name in `knownDirs` — `join(dir, "f")`, `` `${dir}/f` ``, or
+ * `dir + "/f"` — which can't ENOENT because `dir` is known to already exist.
+ * A second segment below `dir` (`join(dir, "sub", "f")`) still can, so this
+ * stays false whenever more than one segment separates the write from the
+ * known directory.
+ */
+function isSingleSegmentIntoKnownDir(argWindow: string, knownDirs: Set<string>): boolean {
+	if (knownDirs.size === 0) return false;
+	const dirAlt = Array.from(knownDirs)
+		.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+		.join("|");
+
+	const joinIdx = argWindow.search(JOIN_CALL_RE);
+	if (joinIdx !== -1) {
+		const openIdx = argWindow.indexOf("(", joinIdx);
+		if (openIdx === -1) return false;
+		const inner = argWindow.slice(openIdx + 1);
+		const firstArg = new RegExp(`^\\s*(${dirAlt})\\s*,`).exec(inner);
+		if (!firstArg) return false;
+		return countTopLevelArgs(argWindow, openIdx + 1, 300) === 2;
+	}
+
+	// Template literal: `${dir}/seg` — no further `/` before the closing quote.
+	const tplRe = new RegExp("`\\$\\{\\s*(?:" + dirAlt + ")\\s*\\}\\/[^`/]+`");
+	if (tplRe.test(argWindow)) return true;
+
+	// String concat: dir + "/seg"
+	const concatRe = new RegExp("\\b(?:" + dirAlt + ")\\s*\\+\\s*[\"'`]\\/[^\"'`/]+[\"'`]");
+	return concatRe.test(argWindow);
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
@@ -99,13 +175,17 @@ function countTopLevelArgs(text: string, afterOpenParen: number, budget: number)
  *
  * We extract the first argument by walking forward from the write call's `(`.
  */
-function hasNestedPathArg(lineText: string): boolean {
+function hasNestedPathArg(lineText: string, knownDirs: Set<string>): boolean {
 	// Find the write function call
 	const writeMatch = /\b(?:writeFileSync|appendFileSync|writeFile|createWriteStream)\s*\(/.exec(lineText);
 	if (writeMatch === null) return false;
 
 	const afterOpen = writeMatch.index + writeMatch[0].length;
 	const argWindow = lineText.slice(afterOpen, afterOpen + 300);
+
+	// A file placed directly inside a directory already known to exist
+	// (mkdtemp*, or a bare mkdirSync(name)) can't ENOENT — not a nested path.
+	if (isSingleSegmentIntoKnownDir(argWindow, knownDirs)) return false;
 
 	// Check for join(…, …) with ≥2 args
 	const joinIdx = argWindow.search(JOIN_CALL_RE);
@@ -206,6 +286,7 @@ export function detectWriteWithoutMkdir(content: string, filePath: string): Inli
 	const rawLines = content.split("\n");
 	const matches: InlineMatch[] = [];
 	const seen = new Set<number>();
+	const knownDirs = collectKnownDirNames(commentStrippedLines);
 
 	WRITE_STRIPPED_RE.lastIndex = 0;
 	let m: RegExpExecArray | null;
@@ -219,7 +300,7 @@ export function detectWriteWithoutMkdir(content: string, filePath: string): Inli
 
 		// Analyse the raw line for the path argument (strings visible)
 		const rawLine = rawLines[lineIdx] ?? "";
-		if (!hasNestedPathArg(rawLine)) continue;
+		if (!hasNestedPathArg(rawLine, knownDirs)) continue;
 
 		// Find enclosing function start in comment-stripped lines (brace balance)
 		const fnStartLineIdx = findEnclosingFunctionStartLine(commentStrippedLines, lineIdx);

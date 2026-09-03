@@ -5,12 +5,16 @@
 // dead imports, hallucinated packages, and cross-package boundary violations.
 
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { dirname } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import type { ProjectGraph } from "../project-graph.js";
 import type { ExportedSymbol, ImportEdge, StructuralCheckResult } from "../types.js";
 import { escapeRegex } from "./helpers.js";
+import {
+	collectDeclaredDeps,
+	findCrossPackageBoundary,
+	loadNearestPackageJson,
+} from "./package-json-boundary.js";
 
 /**
  * Public API — consumed by structural-checks.runStructuralChecks.
@@ -361,42 +365,10 @@ export function checkHallucinatedImports(
 	const results: StructuralCheckResult[] = [];
 	const edges = graph.getDependencies(filePath);
 
-	// Find closest package.json
-	let pkgJson: JsonObject | null = null;
-	let dir = dirname(filePath);
-	for (let i = 0; i < 10; i++) {
-		const pkgPath = join(dir, "package.json");
-		if (existsSync(pkgPath)) {
-			try {
-				const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf-8"));
-				if (isJsonObject(parsed)) pkgJson = parsed;
-			} catch {
-				/* intentional: best-effort parse — unreadable/malformed
-				 * package.json is treated as absent. */
-			}
-			break;
-		}
-		const parent = dirname(dir);
-		if (parent === dir) break;
-		dir = parent;
-	}
-
+	const pkgJson = loadNearestPackageJson(filePath);
 	if (!pkgJson) return [];
 
-	const allDeps = new Set<string>();
-	for (const field of [
-		"dependencies",
-		"devDependencies",
-		"peerDependencies",
-		"optionalDependencies",
-	]) {
-		const deps = pkgJson[field];
-		if (isJsonObject(deps)) {
-			for (const name of Object.keys(deps)) {
-				allDeps.add(name);
-			}
-		}
-	}
+	const allDeps = collectDeclaredDeps(pkgJson);
 
 	for (const edge of edges) {
 		const spec = edge.specifier;
@@ -438,43 +410,15 @@ export function checkCrossPackageImports(
 		if (targetDir === fileDir) continue;
 
 		// Walk from fileDir toward targetDir looking for package.json boundaries
-		const steps = edge.specifier.split("/").filter((s) => s === "..").length;
-		let foundBoundary = false;
-		let boundaryDir = "";
+		const boundaryDir = findCrossPackageBoundary(filePath, fileDir, edge.specifier);
+		if (boundaryDir === null) continue;
 
-		let dir = fileDir;
-		for (let i = 0; i < steps && i < 10; i++) {
-			dir = dirname(dir);
-			const pkgPath = join(dir, "package.json");
-			if (existsSync(pkgPath) && dir !== dirname(filePath)) {
-				// This is a different package
-				// Only flag if this package.json is between the two files, not the project root
-				let isProjectRoot = false;
-				try {
-					const pkg: unknown = JSON.parse(readFileSync(pkgPath, "utf-8"));
-					// Project roots typically have "private: true" or workspaces
-					if (isJsonObject(pkg) && (pkg.private || pkg.workspaces)) isProjectRoot = true;
-				} catch {
-					/* intentional: best-effort parse — a malformed
-					 * package.json leaves isProjectRoot=false and the
-					 * boundary walk continues. */
-				}
-				if (!isProjectRoot) {
-					foundBoundary = true;
-					boundaryDir = dir;
-					break;
-				}
-			}
-		}
-
-		if (foundBoundary) {
-			results.push({
-				check: "cross_package_imports",
-				severity: "warning",
-				message: `${relPath} uses relative import "${edge.specifier}" which crosses a package.json boundary at ${graph.toRelative(boundaryDir)}. Use the package name instead.`,
-				file: filePath,
-			});
-		}
+		results.push({
+			check: "cross_package_imports",
+			severity: "warning",
+			message: `${relPath} uses relative import "${edge.specifier}" which crosses a package.json boundary at ${graph.toRelative(boundaryDir)}. Use the package name instead.`,
+			file: filePath,
+		});
 	}
 
 	return results;

@@ -263,6 +263,34 @@ export function checkCollectThenIterate(content: string, filePath: string): Inli
 }
 
 /**
+ * Scan the .reduce() callback body starting at line `i` (up to 20 lines) for
+ * a `[...` spread that would allocate/copy the whole accumulator array. The
+ * scan stops at the first spread found after `i`, or when paren depth closes
+ * back to zero (end of the callback).
+ */
+function findSpreadInReduceCallback(
+	strippedLines: string[],
+	originalLines: string[],
+	i: number,
+): InlineMatch | null {
+	let depth = 0;
+	for (let j = i; j < Math.min(i + 20, strippedLines.length); j++) {
+		for (const ch of nonNull(strippedLines[j])) {
+			if (ch === "(") depth++;
+			if (ch === ")") depth--;
+		}
+		if (/\[\s*\.\.\./.test(nonNull(strippedLines[j])) && j > i) {
+			return {
+				line: j + 1,
+				text: nonNull(originalLines[j]).trim().slice(0, 150),
+			};
+		}
+		if (depth <= 0 && j > i) break;
+	}
+	return null;
+}
+
+/**
  * Detect [...acc, item] inside .reduce() — O(n²) array copying.
  * Each iteration allocates and copies the entire accumulator array.
  */
@@ -280,21 +308,8 @@ export function checkSpreadInReduce(content: string, filePath: string): InlineMa
 		if (!/\.reduce\s*\(/.test(nonNull(strippedLines[i]))) continue;
 
 		// Scan the reduce callback body (up to 20 lines) for spread
-		let depth = 0;
-		for (let j = i; j < Math.min(i + 20, strippedLines.length); j++) {
-			for (const ch of nonNull(strippedLines[j])) {
-				if (ch === "(") depth++;
-				if (ch === ")") depth--;
-			}
-			if (/\[\s*\.\.\./.test(nonNull(strippedLines[j])) && j > i) {
-				matches.push({
-					line: j + 1,
-					text: nonNull(originalLines[j]).trim().slice(0, 150),
-				});
-				break;
-			}
-			if (depth <= 0 && j > i) break;
-		}
+		const match = findSpreadInReduceCallback(strippedLines, originalLines, i);
+		if (match) matches.push(match);
 	}
 
 	return matches;

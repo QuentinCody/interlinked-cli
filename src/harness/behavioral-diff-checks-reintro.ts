@@ -95,39 +95,67 @@ export function checkReintroducesRemovedCode(session: SessionTrajectory): CheckR
 
 	for (const file of session.files_written) {
 		if (results.length >= MAX_TOTAL) break;
-		const diff = getStagedDiff(file);
-		if (!diff) continue;
-		const repoCwd = findRepoCwd(file);
-		if (!repoCwd) continue;
-		const seenPhrases = new Set<string>();
-		let perFile = 0;
-		for (const rawLine of extractAddedLines(diff).split("\n")) {
-			if (perFile >= MAX_PER_FILE) break;
-			if (results.length >= MAX_TOTAL) break;
-			const line = rawLine.trim();
-			if (line.length < 8) continue;
-			// Search by the loud-marker substring, not the full line — agents
-			// often re-introduce a `console.log("X")` inside a different
-			// surrounding statement, and pickaxe needs an exact substring match.
-			const loud = LOUD_REINTRO_RE.exec(line);
-			if (!loud) continue;
-			const phrase = extractDistinctivePhrase(line, loud[0]);
-			if (!phrase || seenPhrases.has(phrase)) continue;
-			seenPhrases.add(phrase);
-			const removalCommit = gitLogContainsRemoval(repoCwd, phrase);
-			if (!removalCommit) continue;
-			perFile++;
-			results.push({
-				source: "structural",
-				name: "reintroduces_removed_code",
-				severity: "warning",
-				message: `Re-introduces \`${phrase.slice(0, 80)}\` — a prior commit removed this (last removal: ${removalCommit.slice(0, 70)}). Verify the cleanup wasn't intentional before re-adding.`,
-				file,
-				determinism: "fully_deterministic",
-			});
-		}
+		collectFileReintroductions(file, results, MAX_PER_FILE, MAX_TOTAL);
 	}
 	return results;
+}
+
+/**
+ * Scans one written file's staged diff and appends each re-introduction it
+ * finds to `results`, stopping at the per-file and total caps.
+ */
+function collectFileReintroductions(
+	file: string,
+	results: CheckResultEntry[],
+	maxPerFile: number,
+	maxTotal: number,
+): void {
+	const diff = getStagedDiff(file);
+	if (!diff) return;
+	const repoCwd = findRepoCwd(file);
+	if (!repoCwd) return;
+	const seenPhrases = new Set<string>();
+	let perFile = 0;
+	for (const rawLine of extractAddedLines(diff).split("\n")) {
+		if (perFile >= maxPerFile) break;
+		if (results.length >= maxTotal) break;
+		const finding = judgeAddedLine(rawLine, repoCwd, seenPhrases, file);
+		if (!finding) continue;
+		perFile++;
+		results.push(finding);
+	}
+}
+
+/**
+ * Decides whether one added diff line re-introduces removed code. Records the
+ * phrase in `seenPhrases` so a repeated marker costs only one pickaxe search.
+ */
+function judgeAddedLine(
+	rawLine: string,
+	repoCwd: string,
+	seenPhrases: Set<string>,
+	file: string,
+): CheckResultEntry | null {
+	const line = rawLine.trim();
+	if (line.length < 8) return null;
+	// Search by the loud-marker substring, not the full line — agents
+	// often re-introduce a `console.log("X")` inside a different
+	// surrounding statement, and pickaxe needs an exact substring match.
+	const loud = LOUD_REINTRO_RE.exec(line);
+	if (!loud) return null;
+	const phrase = extractDistinctivePhrase(line, loud[0]);
+	if (!phrase || seenPhrases.has(phrase)) return null;
+	seenPhrases.add(phrase);
+	const removalCommit = gitLogContainsRemoval(repoCwd, phrase);
+	if (!removalCommit) return null;
+	return {
+		source: "structural",
+		name: "reintroduces_removed_code",
+		severity: "warning",
+		message: `Re-introduces \`${phrase.slice(0, 80)}\` — a prior commit removed this (last removal: ${removalCommit.slice(0, 70)}). Verify the cleanup wasn't intentional before re-adding.`,
+		file,
+		determinism: "fully_deterministic",
+	};
 }
 
 /**

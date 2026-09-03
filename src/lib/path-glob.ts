@@ -21,6 +21,61 @@ function escapeRegexChar(ch: string): string {
 	return ch;
 }
 
+/** Result of translating one glob token starting at index `i`. */
+interface GlobTokenResult {
+	/** Regex source appended for this token. */
+	appended: string;
+	/** Index of the next unconsumed character in `glob`. */
+	nextIndex: number;
+}
+
+/** Translate the star token (`*`, bare `**`, or `**` followed by `/`) at `i` into regex source. */
+function processStarToken(glob: string, i: number): GlobTokenResult {
+	if (glob[i + 1] === "*") {
+		// "**/" — zero or more path segments (incl. trailing slash optional).
+		if (glob[i + 2] === "/") {
+			return { appended: "(?:.*/)?", nextIndex: i + 3 };
+		}
+		// Bare "**" — any chars, including "/".
+		return { appended: ".*", nextIndex: i + 2 };
+	}
+	// Single "*" — any chars except "/".
+	return { appended: "[^/]*", nextIndex: i + 1 };
+}
+
+/** Translate the `[...]` character-class token starting at `i`. */
+function processBracketToken(glob: string, i: number): GlobTokenResult {
+	const close = glob.indexOf("]", i + 1);
+	if (close === -1) throw new Error(`unterminated [ in glob: ${glob}`);
+	const body = glob.slice(i + 1, close);
+	// Reject ranges per spec (no need for them in skip_paths defaults).
+	if (/[A-Za-z0-9]-[A-Za-z0-9]/.test(body)) {
+		throw new Error(`character ranges not supported in glob: ${glob}`);
+	}
+	return { appended: `[${body.replace(/\\/g, "\\\\")}]`, nextIndex: close + 1 };
+}
+
+/** Translate the `{a,b,c}` brace-alternation token starting at `i`. */
+function processBraceToken(glob: string, i: number): GlobTokenResult {
+	const close = findMatchingBrace(glob, i);
+	if (close === -1) throw new Error(`unterminated { in glob: ${glob}`);
+	const inner = splitTopLevelCommas(glob.slice(i + 1, close));
+	return {
+		appended: `(?:${inner.map(globToRegexSource).join("|")})`,
+		nextIndex: close + 1,
+	};
+}
+
+/** Translate the single glob token starting at index `i`. */
+function processGlobToken(glob: string, i: number): GlobTokenResult {
+	const ch = glob[i] as string;
+	if (ch === "*") return processStarToken(glob, i);
+	if (ch === "?") return { appended: "[^/]", nextIndex: i + 1 };
+	if (ch === "[") return processBracketToken(glob, i);
+	if (ch === "{") return processBraceToken(glob, i);
+	return { appended: escapeRegexChar(ch), nextIndex: i + 1 };
+}
+
 /**
  * Translate a glob into the body of an anchored regex (no leading `^` /
  * trailing `$`). Throws on syntax errors so the caller can fall back to a
@@ -31,52 +86,9 @@ function globToRegexSource(glob: string): string {
 	let i = 0;
 	const len = glob.length;
 	while (i < len) {
-		const ch = glob[i] as string;
-		if (ch === "*") {
-			if (glob[i + 1] === "*") {
-				// "**/" — zero or more path segments (incl. trailing slash optional).
-				if (glob[i + 2] === "/") {
-					out += "(?:.*/)?";
-					i += 3;
-					continue;
-				}
-				// Bare "**" — any chars, including "/".
-				out += ".*";
-				i += 2;
-				continue;
-			}
-			// Single "*" — any chars except "/".
-			out += "[^/]*";
-			i++;
-			continue;
-		}
-		if (ch === "?") {
-			out += "[^/]";
-			i++;
-			continue;
-		}
-		if (ch === "[") {
-			const close = glob.indexOf("]", i + 1);
-			if (close === -1) throw new Error(`unterminated [ in glob: ${glob}`);
-			const body = glob.slice(i + 1, close);
-			// Reject ranges per spec (no need for them in skip_paths defaults).
-			if (/[A-Za-z0-9]-[A-Za-z0-9]/.test(body)) {
-				throw new Error(`character ranges not supported in glob: ${glob}`);
-			}
-			out += `[${body.replace(/\\/g, "\\\\")}]`;
-			i = close + 1;
-			continue;
-		}
-		if (ch === "{") {
-			const close = findMatchingBrace(glob, i);
-			if (close === -1) throw new Error(`unterminated { in glob: ${glob}`);
-			const inner = splitTopLevelCommas(glob.slice(i + 1, close));
-			out += `(?:${inner.map(globToRegexSource).join("|")})`;
-			i = close + 1;
-			continue;
-		}
-		out += escapeRegexChar(ch);
-		i++;
+		const { appended, nextIndex } = processGlobToken(glob, i);
+		out += appended;
+		i = nextIndex;
 	}
 	return out;
 }

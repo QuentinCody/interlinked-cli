@@ -264,6 +264,24 @@ const MCP_EXTERNAL_ACTION_VERB_PREFIXES = [
 const BASH_EXTERNAL_ACTION_REGEX =
 	/\b(curl|wget|scp|rsync|ssh|mail|gh\s+pr|docker\s+push|kubectl\s+apply|terraform\s+apply|npm\s+publish|yarn\s+publish|pnpm\s+publish)\b/;
 
+/** MCP tools: `mcp__<server>__<verb>`. The server name itself can contain
+ *  hyphens (e.g. `chrome-devtools`) and the verb may include further
+ *  underscores (e.g. `list_issues`, `create_pull_request`). Split on the
+ *  final `__` separator — server is the prefix, verb is the remainder.
+ *  Returns null when the verb matches no known prefix. */
+function classifyMcpVerbExternality(toolName: string): ToolExternality | null {
+	const sep = toolName.lastIndexOf("__");
+	if (sep <= "mcp__".length - 2) return null;
+	const verb = toolName.slice(sep + 2);
+	for (const prefix of MCP_PURE_READ_VERB_PREFIXES) {
+		if (verb.startsWith(prefix)) return "pure_read";
+	}
+	for (const prefix of MCP_EXTERNAL_ACTION_VERB_PREFIXES) {
+		if (verb.startsWith(prefix)) return "external_action";
+	}
+	return null;
+}
+
 /** Public API — coarse-grained externality classifier for guard-rule gating.
  *  See module header for the externality tiers. Unknown tools default to
  *  `local_write` (cautious mid-tier). */
@@ -290,21 +308,10 @@ export function classifyToolExternality(
 	if (LOCAL_WRITE_TOOL_NAMES.has(toolName)) return "local_write";
 	if (EXTERNAL_ACTION_TOOL_NAMES.has(toolName)) return "external_action";
 
-	// MCP tools: `mcp__<server>__<verb>`. The server name itself can contain
-	// hyphens (e.g. `chrome-devtools`) and the verb may include further
-	// underscores (e.g. `list_issues`, `create_pull_request`). Split on the
-	// final `__` separator — server is the prefix, verb is the remainder.
+	// MCP tools refine by verb prefix — see classifyMcpVerbExternality.
 	if (toolName.startsWith("mcp__")) {
-		const sep = toolName.lastIndexOf("__");
-		if (sep > "mcp__".length - 2) {
-			const verb = toolName.slice(sep + 2);
-			for (const prefix of MCP_PURE_READ_VERB_PREFIXES) {
-				if (verb.startsWith(prefix)) return "pure_read";
-			}
-			for (const prefix of MCP_EXTERNAL_ACTION_VERB_PREFIXES) {
-				if (verb.startsWith(prefix)) return "external_action";
-			}
-		}
+		const byVerb = classifyMcpVerbExternality(toolName);
+		if (byVerb) return byVerb;
 	}
 
 	return "local_write";

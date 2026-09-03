@@ -111,21 +111,33 @@ function blankTemplateLiteral(s: string, out: string[], start: number): number {
 		}
 		if (ch === "`") return i + 1;
 		if (ch === "$" && s[i + 1] === "{") {
-			i += 2; // keep the `${` marker and the expression body
-			let depth = 1;
-			while (i < n && depth > 0) {
-				const c2 = s[i];
-				if (c2 === "`") {
-					i = blankTemplateLiteral(s, out, i); // nested template
-					continue;
-				}
-				if (c2 === "{") depth++;
-				else if (c2 === "}") depth--;
-				i++;
-			}
+			// keep the `${` marker and the expression body
+			i = skipTemplateInterpolation(s, out, i + 2);
 			continue;
 		}
 		if (ch !== "\n") out[i] = " ";
+		i++;
+	}
+	return i;
+}
+
+/**
+ * Walk an already-entered `${…}` interpolation from `start` (just past the
+ * `${`) to just past its closing `}`, leaving the expression body intact and
+ * blanking the text of any nested template literal it contains.
+ */
+function skipTemplateInterpolation(s: string, out: string[], start: number): number {
+	const n = s.length;
+	let i = start;
+	let depth = 1;
+	while (i < n && depth > 0) {
+		const c2 = s[i];
+		if (c2 === "`") {
+			i = blankTemplateLiteral(s, out, i); // nested template
+			continue;
+		}
+		if (c2 === "{") depth++;
+		else if (c2 === "}") depth--;
 		i++;
 	}
 	return i;

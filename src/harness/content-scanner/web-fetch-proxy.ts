@@ -53,9 +53,7 @@ import {
 } from "./web-fetch-proxy-ssrf-fetch.js";
 
 export type {
-	HostResolver,
 	PinnedFetchResponse,
-	SsrfRejectionReason,
 	VettedTarget,
 } from "./web-fetch-proxy-ssrf-fetch.js";
 export {

@@ -4,7 +4,6 @@
 // ===========================================
 
 import { c } from "../lib/formatter.js";
-import type { LocalActivityEvent } from "../lib/local-activity.js";
 import { readSyncState } from "../lib/local-activity.js";
 
 /** Aggregated breakdown of the events synced in one run. */
@@ -16,35 +15,6 @@ export interface BatchSummary {
 	sessions: Set<string>;
 	earliest: string;
 	latest: string;
-}
-
-/** Tally per-type / per-agent / per-tool counts, sessions, and time range. */
-export function buildBatchSummary(events: LocalActivityEvent[]): BatchSummary {
-	const byType: Record<string, number> = {};
-	const byAgent: Record<string, number> = {};
-	const byTool: Record<string, number> = {};
-	const sessions = new Set<string>();
-	let earliest = "";
-	let latest = "";
-
-	for (const e of events) {
-		byType[e.type] = (byType[e.type] || 0) + 1;
-		if (e.agent && e.agent !== "unknown") {
-			byAgent[e.agent] = (byAgent[e.agent] || 0) + 1;
-		}
-		if (e.tool) {
-			byTool[e.tool] = (byTool[e.tool] || 0) + 1;
-		}
-		if (e.session) sessions.add(e.session);
-		if (!earliest || e.ts < earliest) earliest = e.ts;
-		if (!latest || e.ts > latest) latest = e.ts;
-	}
-
-	const topTools = Object.entries(byTool)
-		.sort((a, b) => b[1] - a[1])
-		.slice(0, 5);
-
-	return { byType, byAgent, byTool, topTools, sessions, earliest, latest };
 }
 
 /**

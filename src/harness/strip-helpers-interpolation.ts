@@ -136,6 +136,63 @@ function stepPastCommentOrString(
 	return null;
 }
 
+type BalancedExpressionStep =
+	| { kind: "continue"; i: number; depth: number }
+	| { kind: "return-null" }
+	| { kind: "done"; body: string; end: number };
+
+/**
+ * Advance one lexer step of `readBalancedTemplateExpression`'s scan: skip
+ * comment/string state via `stepPastCommentOrString`, then dispatch on the
+ * current character (comment/string start, nested template literal, or
+ * brace depth tracking). Extracted so the caller's loop stays flat — the
+ * depth bookkeeping and nested-template lookahead that used to nest inside
+ * the loop now live at this function's top level instead.
+ */
+function advanceBalancedExpressionScan(
+	content: string,
+	i: number,
+	start: number,
+	depth: number,
+	state: CommentStringLexerState,
+): BalancedExpressionStep {
+	const stepped = stepPastCommentOrString(content, i, state);
+	if (stepped !== null) {
+		return { kind: "continue", i: stepped, depth };
+	}
+	const ch = content[i];
+	const next = content[i + 1];
+
+	if (ch === "/" && next === "/") {
+		state.inLineComment = true;
+		return { kind: "continue", i: i + 2, depth };
+	}
+	if (ch === "/" && next === "*") {
+		state.inBlockComment = true;
+		return { kind: "continue", i: i + 2, depth };
+	}
+	if (ch === '"' || ch === "'") {
+		state.inString = ch;
+		return { kind: "continue", i: i + 1, depth };
+	}
+	if (ch === "`") {
+		const end = findTemplateLiteralEnd(content, i + 1);
+		if (end === null) return { kind: "return-null" };
+		return { kind: "continue", i: end + 1, depth };
+	}
+	if (ch === "{") {
+		return { kind: "continue", i: i + 1, depth: depth + 1 };
+	}
+	if (ch === "}") {
+		const newDepth = depth - 1;
+		if (newDepth === 0) {
+			return { kind: "done", body: content.slice(start, i), end: i };
+		}
+		return { kind: "continue", i: i + 1, depth: newDepth };
+	}
+	return { kind: "continue", i: i + 1, depth };
+}
+
 function readBalancedTemplateExpression(
 	content: string,
 	start: number,
@@ -149,44 +206,11 @@ function readBalancedTemplateExpression(
 	};
 
 	while (i < content.length) {
-		const stepped = stepPastCommentOrString(content, i, state);
-		if (stepped !== null) {
-			i = stepped;
-			continue;
-		}
-		const ch = content[i];
-		const next = content[i + 1];
-
-		if (ch === "/" && next === "/") {
-			state.inLineComment = true;
-			i += 2;
-			continue;
-		}
-		if (ch === "/" && next === "*") {
-			state.inBlockComment = true;
-			i += 2;
-			continue;
-		}
-		if (ch === '"' || ch === "'") {
-			state.inString = ch;
-			i++;
-			continue;
-		}
-		if (ch === "`") {
-			const end = findTemplateLiteralEnd(content, i + 1);
-			if (end === null) return null;
-			i = end + 1;
-			continue;
-		}
-		if (ch === "{") {
-			depth++;
-		} else if (ch === "}") {
-			depth--;
-			if (depth === 0) {
-				return { body: content.slice(start, i), end: i };
-			}
-		}
-		i++;
+		const step = advanceBalancedExpressionScan(content, i, start, depth, state);
+		if (step.kind === "return-null") return null;
+		if (step.kind === "done") return { body: step.body, end: step.end };
+		i = step.i;
+		depth = step.depth;
 	}
 
 	return null;

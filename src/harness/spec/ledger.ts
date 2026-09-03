@@ -16,6 +16,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { localNounBindings } from "./binding.js";
 import { extractSpecFacts } from "./extract-facts.js";
+import { claimsTouchKeys } from "./ledger-claims-touch-keys.js";
 import {
 	appendCountDrift,
 	appendRangeDrift,
@@ -23,6 +24,15 @@ import {
 	type GlobalNamespace,
 	type SpecDriftFinding,
 } from "./ledger-drift.js";
+import {
+	EXCLUDED_DIRS,
+	FACT_FINDING_CAP,
+	FACT_SUMMARY_CAP,
+	MAX_DEPTH,
+	MAX_FILES,
+	MAX_FILE_BYTES,
+} from "./ledger-excluded-dirs.js";
+import { representativeSites } from "./ledger-fact-site.js";
 import {
 	computeXrefDrift,
 	resolveRelativeTarget as xrefResolveTarget,
@@ -32,83 +42,6 @@ import { isSpecEligibleFile } from "./types.js";
 
 // Public API stability: consumers import the finding type from here.
 export type { SpecDriftFinding } from "./ledger-drift.js";
-// resolveRelativeTarget moved to ledger-xref.ts; re-exported for back-compat.
-export { resolveRelativeTarget } from "./ledger-xref.js";
-
-const EXCLUDED_DIRS = new Set([
-	"node_modules",
-	".git",
-	"dist",
-	"build",
-	"out",
-	"coverage",
-	".interlinked",
-	"vendor",
-	"third_party",
-	".next",
-]);
-const MAX_FILES = 500;
-const MAX_FILE_BYTES = 2 * 1024 * 1024;
-const MAX_DEPTH = 8;
-/** Caps on declared-fact-drift output — bound the O(sites²) string blowup
- *  (round-2 #3): at most this many sites quoted in a summary, and at most
- *  this many findings emitted per disagreeing fact name. */
-const FACT_SUMMARY_CAP = 8;
-const FACT_FINDING_CAP = 10;
-
-type FactSite = { file: string; line: number; value: string };
-/** Representative slices for bounded declared-fact-drift output (sol-max #5):
- *  `summary` is one site per DISTINCT VALUE (so every contradicting value shows);
- *  `findings` lists those value-representative files FIRST, then fills with other
- *  disagreeing files up to `findingCap` — so the contradictory value/file always
- *  survives the cap even behind a long run of an agreeing value, while still
- *  emitting one finding per involved file when they fit. */
-function representativeSites(
-	list: FactSite[],
-	findingCap: number,
-	pinFile?: string,
-): { summary: FactSite[]; findings: FactSite[] } {
-	const perValue = new Map<string, FactSite>();
-	for (const s of list) {
-		if (!perValue.has(s.value)) perValue.set(s.value, s);
-	}
-	const summary = [...perValue.values()];
-	const findings: FactSite[] = [];
-	const seen = new Set<string>();
-	const take = (s: FactSite | undefined): void => {
-		if (s && !seen.has(s.file) && findings.length < findingCap) {
-			seen.add(s.file);
-			findings.push(s);
-		}
-	};
-	// scoped file first so a scoped query never drops it (sol-max #6); then one per
-	// distinct VALUE; then fill by file — all bounded by findingCap (sol-max #12).
-	if (pinFile) take(list.find((s) => s.file === pinFile));
-	for (const s of summary) take(s);
-	for (const s of list) take(s);
-	return { summary, findings };
-}
-
-/** Whether any count/range claim in `facts` binds to a namespace key in `keys`
- *  — the test for whether a file can contribute a count/range finding involving
- *  the scoped file (sol-max #19). Range keys are direct; count keys come through
- *  the merged noun→namespace bindings (covers the D-1 no-local-ids case). */
-function claimsTouchKeys(
-	facts: SpecFacts,
-	bindings: Map<string, Set<string>>,
-	keys: Set<string>,
-): boolean {
-	for (const c of facts.rangeClaims) {
-		if (keys.has(`${c.style} ${c.prefix}`)) return true;
-	}
-	for (const c of facts.countClaims) {
-		const bound = bindings.get(c.nounSingular);
-		if (bound) {
-			for (const k of bound) if (keys.has(k)) return true;
-		}
-	}
-	return false;
-}
 
 export class SpecLedger {
 	private files = new Map<string, SpecFacts>();

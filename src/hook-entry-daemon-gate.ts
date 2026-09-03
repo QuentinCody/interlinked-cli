@@ -44,7 +44,6 @@ import {
 	attemptDaemonSelfHealDetailed,
 	type SelfHealAttempt,
 	type SelfHealDeps,
-	type SelfHealDisposition,
 	type SelfHealResult,
 } from "./hook-entry-daemon-self-heal.js";
 import { findRepoRoot } from "./hook-entry-project.js";
@@ -57,7 +56,6 @@ export {
 	attemptDaemonSelfHealDetailed,
 	type SelfHealAttempt,
 	type SelfHealDeps,
-	type SelfHealDisposition,
 	type SelfHealResult,
 };
 export { findRepoRoot };

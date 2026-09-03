@@ -106,6 +106,34 @@ function parseLockfileSnapshot(value: unknown): LockfileSnapshot | null {
 	return snap;
 }
 
+/**
+ * Parse `parsed.packages` (already known to be a JSON object) into
+ * `base.packages`, mutating `base` in place. Extracted from
+ * `loadAllowlist` to keep that function's nesting shallow.
+ */
+function applyParsedPackages(base: Allowlist, packagesValue: Record<string, unknown>): void {
+	for (const eco of [
+		"npm",
+		"pypi",
+		"cargo",
+		"rubygems",
+		"go",
+		"composer",
+		"maven",
+		"gradle",
+		"nuget",
+	] as Ecosystem[]) {
+		const ecoEntry = packagesValue[eco];
+		if (!isJsonObject(ecoEntry)) continue;
+		const entries: Record<string, AllowlistEntry> = {};
+		for (const [name, rawEntry] of Object.entries(ecoEntry)) {
+			const entry = parseAllowlistEntry(rawEntry);
+			if (entry) entries[name] = entry;
+		}
+		base.packages[eco] = entries;
+	}
+}
+
 export function loadAllowlist(cwd: string): Allowlist {
 	const p = allowlistPath(cwd);
 	if (!existsSync(p)) return emptyAllowlist();
@@ -115,26 +143,7 @@ export function loadAllowlist(cwd: string): Allowlist {
 		const base = emptyAllowlist();
 		if (!isJsonObject(parsed)) return base;
 		if (isJsonObject(parsed.packages)) {
-			for (const eco of [
-				"npm",
-				"pypi",
-				"cargo",
-				"rubygems",
-				"go",
-				"composer",
-				"maven",
-				"gradle",
-				"nuget",
-			] as Ecosystem[]) {
-				const ecoEntry = parsed.packages[eco];
-				if (!isJsonObject(ecoEntry)) continue;
-				const entries: Record<string, AllowlistEntry> = {};
-				for (const [name, rawEntry] of Object.entries(ecoEntry)) {
-					const entry = parseAllowlistEntry(rawEntry);
-					if (entry) entries[name] = entry;
-				}
-				base.packages[eco] = entries;
-			}
+			applyParsedPackages(base, parsed.packages);
 		}
 		if (isJsonObject(parsed.lockfile_snapshots)) {
 			const snapshots: Record<string, LockfileSnapshot> = {};

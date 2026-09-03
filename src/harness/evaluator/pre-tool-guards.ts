@@ -113,6 +113,36 @@ export function evaluatePackageInstallGuard(
  * write. Off by default until validated on real sessions; force-push is
  * intentionally deferred to the existing force-push rule.
  */
+/**
+ * Body of the git session-scope gate for a Bash tool call with a live
+ * session — extracted so `evaluateGitScopeGate` only pays nesting for its
+ * own guard clause, not for this block's inner branches too.
+ */
+function evaluateGitScopeForBashSession(
+	event: HarnessEvent,
+	rules: GuardRulesConfig,
+	session: SessionTrajectory,
+	toolInput: ToolInput,
+	warnings: string[],
+): HarnessDecision | null {
+	const gateConfig = rules.git_session_scope_gate;
+	if (!gateConfig?.enabled || gateConfig.mode === "off") return null;
+	const cmd = (toolInput.command as string) || "";
+	if (!cmd) return null;
+	const evalCwd = event.cwd || process.cwd();
+	const verdict = evaluateGitScopeGateSync(cmd, session, evalCwd);
+	if (!verdict || verdict.decision !== "ask") return null;
+	const mappedDecision: "ask" | "block" = gateConfig.mode === "block" ? "block" : "ask";
+	return {
+		decision: mappedDecision,
+		reason: verdict.reason ?? "git operation scope ambiguous",
+		rule_id: "git-session-scope-gate",
+		severity: "medium",
+		category: "git-scope",
+		warnings,
+	};
+}
+
 export function evaluateGitScopeGate(
 	event: HarnessEvent,
 	rules: GuardRulesConfig,
@@ -122,26 +152,7 @@ export function evaluateGitScopeGate(
 	warnings: string[],
 ): HarnessDecision | null {
 	if (isBash(toolName) && session) {
-		const gateConfig = rules.git_session_scope_gate;
-		if (gateConfig?.enabled && gateConfig.mode !== "off") {
-			const cmd = (toolInput.command as string) || "";
-			if (cmd) {
-				const evalCwd = event.cwd || process.cwd();
-				const verdict = evaluateGitScopeGateSync(cmd, session, evalCwd);
-				if (verdict && verdict.decision === "ask") {
-					const mappedDecision: "ask" | "block" =
-						gateConfig.mode === "block" ? "block" : "ask";
-					return {
-						decision: mappedDecision,
-						reason: verdict.reason ?? "git operation scope ambiguous",
-						rule_id: "git-session-scope-gate",
-						severity: "medium",
-						category: "git-scope",
-						warnings,
-					};
-				}
-			}
-		}
+		return evaluateGitScopeForBashSession(event, rules, session, toolInput, warnings);
 	}
 	return null;
 }

@@ -3,11 +3,8 @@
 // ===========================================
 // Manual markers never read or mutate the pair-scoped obligation ledger.
 
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { relative, resolve, sep } from "node:path";
-import { loadFindings } from "../harness/findings/corpus.js";
+import { resolve } from "node:path";
 import { canonicalJson } from "./audit-chain.js";
 import {
     debtMarkerContentFingerprint,
@@ -19,31 +16,27 @@ import {
     supportsDebtMarkerComments,
     type DebtMarkerAdvisoryCode,
 } from "./manual-debt-marker-parser.js";
+import {
+    DEFAULT_EXCLUDED_SEGMENTS,
+    findingIds,
+    isExcluded,
+    normalizedExclusions,
+    scanDate,
+} from "./manual-debt-markers-default-excluded-segments.js";
+import {
+    advancePythonState,
+    advanceSlashLanguageState,
+    type DebtLexicalState,
+} from "./manual-debt-markers-escaped-at.js";
+import {
+    repoRelative,
+    repositoryIdentity,
+    type DebtMarkerRepositoryIdentity,
+} from "./manual-debt-markers-repository-identity.js";
+
+export type { DebtMarkerRepositoryIdentity } from "./manual-debt-markers-repository-identity.js";
 
 const MAX_SOURCE_BYTES = 1_048_576;
-
-const DEFAULT_EXCLUDED_SEGMENTS = new Set([
-    ".cache",
-    ".git",
-    ".interlinked",
-    ".next",
-    ".nuxt",
-    "__fixtures__",
-    "bower_components",
-    "build",
-    "coverage",
-    "dist",
-    "docs",
-    "examples",
-    "fixtures",
-    "generated",
-    "node_modules",
-    "out",
-    "target",
-    "temp",
-    "tmp",
-    "vendor",
-]);
 
 export interface ManualDebtMarker {
     fingerprint: string;
@@ -89,13 +82,6 @@ export interface DebtMarkerCoverage {
     custom_exclusions: string[];
 }
 
-export interface DebtMarkerRepositoryIdentity {
-    root: string;
-    head_sha: string | null;
-    tree_sha: string | null;
-    working_tree_sha256: string;
-}
-
 export interface DebtMarkerScanResult {
     schema_version: 1;
     source: "source-comments";
@@ -123,81 +109,6 @@ interface MarkerSite {
     payload: string;
 }
 
-type DebtLexicalState = "normal" | "block-comment" | "template" | "triple-single" | "triple-double";
-
-function escapedAt(line: string, index: number): boolean {
-    let slashes = 0;
-    for (let cursor = index - 1; cursor >= 0 && line[cursor] === "\\"; cursor--) slashes++;
-    return slashes % 2 === 1;
-}
-
-function unescapedTokenIndex(line: string, token: string, from: number): number {
-    let index = line.indexOf(token, from);
-    while (index >= 0 && escapedAt(line, index)) index = line.indexOf(token, index + token.length);
-    return index;
-}
-
-function advanceSlashLanguageState(line: string, initial: DebtLexicalState): DebtLexicalState {
-    let state = initial;
-    for (let index = 0; index < line.length; index++) {
-        if (state === "block-comment") {
-            if (line.slice(index, index + 2) === "*/") {
-                state = "normal";
-                index++;
-            }
-            continue;
-        }
-        if (state === "template") {
-            if (line[index] === "`" && !escapedAt(line, index)) state = "normal";
-            continue;
-        }
-        const pair = line.slice(index, index + 2);
-        if (pair === "//") break;
-        if (pair === "/*") {
-            state = "block-comment";
-            index++;
-            continue;
-        }
-        if (line[index] === "`") {
-            state = "template";
-            continue;
-        }
-        const quote = line[index];
-        if (quote !== undefined && (quote === "\"" || quote === "'")) {
-            const closing = unescapedTokenIndex(line, quote, index + 1);
-            index = closing < 0 ? line.length : closing;
-        }
-    }
-    return state;
-}
-
-function advancePythonState(line: string, initial: DebtLexicalState): DebtLexicalState {
-    let state = initial;
-    for (let index = 0; index < line.length; index++) {
-        const triple = state === "triple-single" ? "'''" : '"""';
-        if (state === "triple-single" || state === "triple-double") {
-            if (line.slice(index, index + 3) === triple && !escapedAt(line, index)) {
-                state = "normal";
-                index += 2;
-            }
-            continue;
-        }
-        if (line[index] === "#") break;
-        const opening = line.slice(index, index + 3);
-        if (opening === "'''" || opening === '"""') {
-            state = opening === "'''" ? "triple-single" : "triple-double";
-            index += 2;
-            continue;
-        }
-        const quote = line[index];
-        if (quote !== undefined && (quote === "\"" || quote === "'")) {
-            const closing = unescapedTokenIndex(line, quote, index + 1);
-            index = closing < 0 ? line.length : closing;
-        }
-    }
-    return state;
-}
-
 function markerSitesInContent(file: string, content: string): MarkerSite[] {
     const extension = file.slice(file.lastIndexOf(".")).toLowerCase();
     const python = extension === ".py" || extension === ".pyi";
@@ -215,89 +126,6 @@ function markerSitesInContent(file: string, content: string): MarkerSite[] {
         else if (slashLanguage) state = advanceSlashLanguageState(line, state);
     }
     return sites;
-}
-
-function repoRelative(projectRoot: string, absolute: string): string | null {
-    const rel = relative(projectRoot, absolute);
-    if (rel === "") return ".";
-    if (rel === ".." || rel.startsWith(`..${sep}`) || resolve(projectRoot, rel) !== absolute) {
-        return null;
-    }
-    return rel.split(sep).join("/");
-}
-
-function gitValue(projectRoot: string, args: string[]): string | null {
-    try {
-        const value = execFileSync("git", args, {
-            cwd: projectRoot,
-            encoding: "utf8",
-            timeout: 10_000,
-            stdio: ["ignore", "pipe", "pipe"],
-        }).trim();
-        return value.length > 0 ? value : null;
-    } catch (gitError) {
-        void gitError;
-        return null;
-    }
-}
-
-function workingTreeFingerprint(projectRoot: string, files: readonly string[]): string {
-    const hash = createHash("sha256");
-    for (const absolute of [...files].sort()) {
-        const rel = repoRelative(projectRoot, absolute) ?? absolute;
-        hash.update(rel);
-        hash.update("\0");
-        try {
-            hash.update(readFileSync(absolute));
-        } catch (readError) {
-            void readError;
-            hash.update("<unreadable>");
-        }
-        hash.update("\0");
-    }
-    return hash.digest("hex");
-}
-
-function repositoryIdentity(
-    projectRoot: string,
-    files: readonly string[],
-): DebtMarkerRepositoryIdentity {
-    return {
-        root: projectRoot,
-        head_sha: gitValue(projectRoot, ["rev-parse", "--verify", "HEAD^{commit}"]),
-        tree_sha: gitValue(projectRoot, ["rev-parse", "--verify", "HEAD^{tree}"]),
-        working_tree_sha256: workingTreeFingerprint(projectRoot, files),
-    };
-}
-
-function scanDate(clock: (() => number) | undefined): string {
-    const date = new Date((clock ?? Date.now)());
-    if (!Number.isFinite(date.getTime())) throw new Error("debt marker scan clock is invalid");
-    return date.toISOString().slice(0, 10);
-}
-
-function findingIds(projectRoot: string, supplied?: ReadonlySet<string>): ReadonlySet<string> | null {
-    if (supplied) return supplied;
-    try {
-        return new Set(loadFindings(projectRoot).map((finding) => finding.id));
-    } catch (corpusError) {
-        void corpusError;
-        // Finding linkage is advisory. An unreadable corpus must not turn every
-        // link into a false "missing" row.
-        return null;
-    }
-}
-
-function normalizedExclusions(values: readonly string[]): string[] {
-    return values
-        .map((value) => value.trim().replace(/^\.\//, "").replace(/\/$/, ""))
-        .filter(Boolean)
-        .sort();
-}
-
-function isExcluded(rel: string, custom: readonly string[]): boolean {
-    if (rel.split("/").some((segment) => DEFAULT_EXCLUDED_SEGMENTS.has(segment))) return true;
-    return custom.some((entry) => rel === entry || rel.startsWith(`${entry}/`));
 }
 
 function emptyCoverage(roots: string[], custom: string[]): DebtMarkerCoverage {

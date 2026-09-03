@@ -68,6 +68,59 @@ function indentOf(line: string): number {
 	return m ? m[0].length : 0;
 }
 
+/** Collect a YAML block-scalar body: every line following the `run:` key that
+ *  is indented deeper than `keyIndent`. Returns the dedented body lines and
+ *  the index of the last line consumed (so the caller can resume scanning
+ *  after it). */
+function collectBlockScalarBody(
+	lines: string[],
+	startIndex: number,
+	keyIndent: number,
+): { body: string[]; endIndex: number } {
+	const body: string[] = [];
+	let bodyIndent = -1;
+	let j = startIndex + 1;
+	for (; j < lines.length; j++) {
+		const bl = lines[j];
+		if (nonNull(bl).trim() === "") {
+			body.push("");
+			continue;
+		}
+		const ind = indentOf(nonNull(bl));
+		if (ind <= keyIndent) break;
+		if (bodyIndent === -1) bodyIndent = ind;
+		body.push(nonNull(bl).slice(Math.min(ind, bodyIndent)));
+	}
+	return { body, endIndex: j - 1 };
+}
+
+/** Match a `run:` key at `lines[i]` and extract its command, if any. Returns
+ *  `null` when the line is not a `run:` key at all; otherwise the extracted
+ *  entry (or `null` if the value was empty) plus the index the scan should
+ *  resume from (past a consumed block-scalar body, or `i` itself). */
+function extractRunAt(
+	lines: string[],
+	i: number,
+): { entry: ExtractedCommand | null; endIndex: number } | null {
+	const line = lines[i];
+	const m = nonNull(line).match(/^(\s*)(?:-\s+)?run:\s?(.*)$/);
+	if (!m) return null;
+	const keyIndent = (m[1] as string).length;
+	const value = (m[2] as string).trim();
+	const startLine = i + 1;
+
+	if (/^[|>][+-]?\s*$/.test(value)) {
+		// Block scalar: collect deeper-indented body lines.
+		const { body, endIndex } = collectBlockScalarBody(lines, i, keyIndent);
+		const joined = body.join("\n").replace(/\n+$/, "").trim();
+		return { entry: joined ? { line: startLine, command: joined } : null, endIndex };
+	}
+	if (value) {
+		return { entry: { line: startLine, command: unquote(value) }, endIndex: i };
+	}
+	return { entry: null, endIndex: i };
+}
+
 /**
  * GitHub workflow `run:` steps. Handles the inline form (`run: cmd`) and YAML
  * block scalars (`run: |`, `run: >`, with optional `-`/`+` chomping). A block
@@ -79,35 +132,10 @@ export function extractWorkflowCommands(content: string): ExtractedCommand[] {
 	const lines = content.split("\n");
 	const out: ExtractedCommand[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
-		const m = nonNull(line).match(/^(\s*)(?:-\s+)?run:\s?(.*)$/);
-		if (!m) continue;
-		const keyIndent = (m[1] as string).length;
-		const value = (m[2] as string).trim();
-		const startLine = i + 1;
-
-		if (/^[|>][+-]?\s*$/.test(value)) {
-			// Block scalar: collect deeper-indented body lines.
-			const body: string[] = [];
-			let bodyIndent = -1;
-			let j = i + 1;
-			for (; j < lines.length; j++) {
-				const bl = lines[j];
-				if (nonNull(bl).trim() === "") {
-					body.push("");
-					continue;
-				}
-				const ind = indentOf(nonNull(bl));
-				if (ind <= keyIndent) break;
-				if (bodyIndent === -1) bodyIndent = ind;
-				body.push(nonNull(bl).slice(Math.min(ind, bodyIndent)));
-			}
-			i = j - 1;
-			const joined = body.join("\n").replace(/\n+$/, "").trim();
-			if (joined) out.push({ line: startLine, command: joined });
-		} else if (value) {
-			out.push({ line: startLine, command: unquote(value) });
-		}
+		const res = extractRunAt(lines, i);
+		if (!res) continue;
+		i = res.endIndex;
+		if (res.entry) out.push(res.entry);
 	}
 	return out;
 }

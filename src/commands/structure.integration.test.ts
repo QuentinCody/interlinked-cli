@@ -224,6 +224,7 @@ function fullConfig(over: Partial<StructureConfig> = {}): StructureConfig {
 		},
 		builtins: {
 			public_symbol_companions: true,
+			public_symbol_test_case: true,
 			env_key_companions: true,
 			config_key_companions: true,
 			layer_boundary_violations: true,

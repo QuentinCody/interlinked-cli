@@ -153,8 +153,11 @@ import {
 	buildCommitCadenceNudge,
 	buildStaleBaselineNudge,
 	buildVerificationStopWarnings,
-	pushIfNotNull,
 } from "./lifecycle-stop-warnings.js";
+// pushIfNotNull's only external consumer is this test file, so it's imported
+// directly from its home module (line-cap split, 2026-09) rather than kept
+// re-exported from the parent barrel for no external reader.
+import { pushIfNotNull } from "./lifecycle-stop-warnings-code-file-verification.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
 // Typed handles to the mocked functions.

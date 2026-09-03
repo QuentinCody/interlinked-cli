@@ -352,50 +352,68 @@ export function expandEndpointDetectorSiblings(
 	}
 
 	for (const [, indices] of groups) {
-		const lead = nonNull(result[nonNull(indices[0])]);
-		const file = lead.file;
-		const checkId = lead.check_id;
-
-		// Load file content (once per file, regardless of how many groups
-		// share it). A null cache entry means we already tried and failed.
-		const content = cachedOrCompute(contentCache, file, () => readFileFn(file));
-		if (content === null) continue;
-
-		// Rescan once per file. The detector typically returns findings for
-		// all five check_ids on the file; we filter to the current group's
-		// check_id below.
-		const rescanned = cachedOrCompute(rescanCache, file, () => opts.rescan(file, content));
-		if (rescanned === null) continue;
-
-		const sameCheck = rescanned.filter((f) => f.check_id === checkId);
-
-		// Siblings = rescan findings on lines NOT already in the original
-		// group. Deduplicate by line — a detector that fires twice on the
-		// same line counts once.
-		const originalLines = new Set(indices.map((i) => nonNull(result[i]).line));
-		const siblingLines: number[] = [];
-		const seen = new Set<number>();
-		for (const f of sameCheck) {
-			if (originalLines.has(f.line)) continue;
-			if (seen.has(f.line)) continue;
-			seen.add(f.line);
-			siblingLines.push(f.line);
-		}
-		if (siblingLines.length === 0) continue;
-
-		siblingLines.sort((a, b) => a - b);
-		const noun = siblingLines.length === 1 ? "endpoint" : "endpoints";
-		const suffix = `Same shape on ${siblingLines.length} sibling ${noun} in ${basename(file)}: ${siblingLines.join(", ")}`;
-		// Append with a blank line so the formatter renders the bundle as a
-		// distinct paragraph. The lead finding owns the bundle; the rest of
-		// the group is unchanged so the suffix doesn't print N times.
-		result[nonNull(indices[0])] = {
-			...lead,
-			message: `${lead.message}\n\n${suffix}`,
-		};
+		appendSiblingSuffixForGroup(indices, result, contentCache, rescanCache, readFileFn, opts.rescan);
 	}
 
 	return result;
+}
+
+/** Body of `expandEndpointDetectorSiblings`'s per-group loop: load the
+ *  group's file (cached), rescan it for the same check_id (cached), and
+ *  append a sibling-count suffix to the group's lead finding when the
+ *  rescan turns up lines the original group didn't already cover.
+ *  Mutates `result` in place at the lead's index; everything else about
+ *  the group is read-only. Extracted verbatim from
+ *  `expandEndpointDetectorSiblings` — same early-outs, same cache lookups. */
+function appendSiblingSuffixForGroup(
+	indices: number[],
+	result: DetectorFinding[],
+	contentCache: Map<string, string | null>,
+	rescanCache: Map<string, DetectorFinding[] | null>,
+	readFileFn: (p: string) => string,
+	rescan: (file: string, content: string) => DetectorFinding[],
+): void {
+	const lead = nonNull(result[nonNull(indices[0])]);
+	const file = lead.file;
+	const checkId = lead.check_id;
+
+	// Load file content (once per file, regardless of how many groups
+	// share it). A null cache entry means we already tried and failed.
+	const content = cachedOrCompute(contentCache, file, () => readFileFn(file));
+	if (content === null) return;
+
+	// Rescan once per file. The detector typically returns findings for
+	// all five check_ids on the file; we filter to the current group's
+	// check_id below.
+	const rescanned = cachedOrCompute(rescanCache, file, () => rescan(file, content));
+	if (rescanned === null) return;
+
+	const sameCheck = rescanned.filter((f) => f.check_id === checkId);
+
+	// Siblings = rescan findings on lines NOT already in the original
+	// group. Deduplicate by line — a detector that fires twice on the
+	// same line counts once.
+	const originalLines = new Set(indices.map((i) => nonNull(result[i]).line));
+	const siblingLines: number[] = [];
+	const seen = new Set<number>();
+	for (const f of sameCheck) {
+		if (originalLines.has(f.line)) continue;
+		if (seen.has(f.line)) continue;
+		seen.add(f.line);
+		siblingLines.push(f.line);
+	}
+	if (siblingLines.length === 0) return;
+
+	siblingLines.sort((a, b) => a - b);
+	const noun = siblingLines.length === 1 ? "endpoint" : "endpoints";
+	const suffix = `Same shape on ${siblingLines.length} sibling ${noun} in ${basename(file)}: ${siblingLines.join(", ")}`;
+	// Append with a blank line so the formatter renders the bundle as a
+	// distinct paragraph. The lead finding owns the bundle; the rest of
+	// the group is unchanged so the suffix doesn't print N times.
+	result[nonNull(indices[0])] = {
+		...lead,
+		message: `${lead.message}\n\n${suffix}`,
+	};
 }
 
 function defaultReadFile(p: string): string {

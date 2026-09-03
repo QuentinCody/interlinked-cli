@@ -81,13 +81,10 @@ import { parseGitCommit } from "./commit-parse.js";
 import type { CommitParse } from "./commit-parse.js";
 import { materializeIndexSnapshot } from "./staged-snapshot.js";
 
-export type { GitChangedFilesFn } from "./commit-gate-changes.js";
 export { defaultGitChangedFiles, defaultResolveRepoRoot } from "./commit-gate-changes.js";
-export type { CyclomaticAnalyzer } from "./commit-gate-decision.js";
 // Re-export the injectable-deps interface + commit-run timeout so existing call
 // sites / tests import them from the gate module too.
 export { COMMIT_RUN_TIMEOUT_MS, type CommitGateDeps } from "./commit-gate-suite.js";
-export type { CommitParse } from "./commit-parse.js";
 // Re-export the parser + selection surfaces so existing call sites / tests import
 // them from the gate module too.
 export { parseGitCommit } from "./commit-parse.js";

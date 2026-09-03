@@ -11,6 +11,7 @@ import { checkGlossaryResidue } from "./glossary-residue.js";
 import { checkLayerBoundaryViolations } from "./layer-boundary.js";
 import { checkPackageBoundaryViolations } from "./package-boundary.js";
 import { checkPublicSymbolCompanions } from "./public-symbol-companions.js";
+import { checkPublicSymbolTestCase } from "./public-symbol-test-case.js";
 
 // -------------------------------------------
 // Determinism sort order
@@ -73,6 +74,10 @@ export function evaluateStructureRules(
 		findings.push(...checkPublicSymbolCompanions(graph, changedFiles));
 	}
 
+	if (builtins.public_symbol_test_case) {
+		findings.push(...checkPublicSymbolTestCase(graph, changedFiles, repoRoot));
+	}
+
 	if (builtins.env_key_companions) {
 		findings.push(...checkEnvKeyCompanions(graph, changedFiles));
 	}
@@ -129,4 +134,5 @@ export {
 	checkLayerBoundaryViolations,
 	checkPackageBoundaryViolations,
 	checkPublicSymbolCompanions,
+	checkPublicSymbolTestCase,
 };

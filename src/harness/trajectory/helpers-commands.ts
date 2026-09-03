@@ -30,28 +30,34 @@ export interface RemoteDownload {
 	isScript: boolean;
 }
 
+/** Parse one segment for an external-host curl/wget download, or null if it isn't one. */
+function parseRemoteDownloadSegment(seg: string): RemoteDownload | null {
+	if (!/\b(?:curl|wget)\b/i.test(seg)) return null;
+	const urlM = /\bhttps?:\/\/([^/\s'"]+)(\/[^\s'"]*)?/i.exec(seg);
+	if (!urlM || !urlM[1]) return null;
+	const host = urlM[1];
+	const urlPath = urlM[2] ?? "";
+	if (!isExternalHost(host)) return null;
+	let localPath: string | null = null;
+	const oM =
+		/\s-o\s+([^\s|;&'"]+)/.exec(seg) ?? /\s--output[=\s]+([^\s|;&'"]+)/.exec(seg);
+	if (oM?.[1]) localPath = oM[1];
+	const redirM = /\s>\s*([^\s|;&'"]+)/.exec(seg);
+	if (!localPath && redirM?.[1]) localPath = redirM[1];
+	if (!localPath && /\s-O\b/.test(seg)) {
+		const base = urlPath.split("/").pop();
+		if (base) localPath = base;
+	}
+	const isScript = SCRIPT_EXT.test(urlPath) || (localPath != null && SCRIPT_EXT.test(localPath));
+	return { localPath, host, urlPath, isScript };
+}
+
 /** Parse external-host curl/wget downloads (to a local path) out of a command. */
 export function parseRemoteScriptDownloads(cmd: string): RemoteDownload[] {
 	const out: RemoteDownload[] = [];
 	for (const seg of splitSegments(cmd)) {
-		if (!/\b(?:curl|wget)\b/i.test(seg)) continue;
-		const urlM = /\bhttps?:\/\/([^/\s'"]+)(\/[^\s'"]*)?/i.exec(seg);
-		if (!urlM || !urlM[1]) continue;
-		const host = urlM[1];
-		const urlPath = urlM[2] ?? "";
-		if (!isExternalHost(host)) continue;
-		let localPath: string | null = null;
-		const oM =
-			/\s-o\s+([^\s|;&'"]+)/.exec(seg) ?? /\s--output[=\s]+([^\s|;&'"]+)/.exec(seg);
-		if (oM?.[1]) localPath = oM[1];
-		const redirM = /\s>\s*([^\s|;&'"]+)/.exec(seg);
-		if (!localPath && redirM?.[1]) localPath = redirM[1];
-		if (!localPath && /\s-O\b/.test(seg)) {
-			const base = urlPath.split("/").pop();
-			if (base) localPath = base;
-		}
-		const isScript = SCRIPT_EXT.test(urlPath) || (localPath != null && SCRIPT_EXT.test(localPath));
-		out.push({ localPath, host, urlPath, isScript });
+		const parsed = parseRemoteDownloadSegment(seg);
+		if (parsed) out.push(parsed);
 	}
 	return out;
 }

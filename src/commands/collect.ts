@@ -28,6 +28,34 @@ function reportCollectError(json: boolean | undefined, message: string): void {
 	process.exitCode = 2;
 }
 
+/** True (and already reported) when the requested provider isn't codex. Extracted to drop a nesting level from the action callback. */
+function handleUnsupportedProvider(json: boolean | undefined, provider: string): boolean {
+	if (provider !== "codex") {
+		const msg =
+			provider === "claude" || provider === "claude-code"
+				? "Claude sessions are already captured live by the daemon (and rebuildable via the timeline backfill) — `collect` covers the external-provider gap. Only `--provider codex` is supported today."
+				: `Unknown provider "${provider}". Supported: codex.`;
+		reportCollectError(json, msg);
+		return true;
+	}
+	return false;
+}
+
+/** Resolves --since into a cutoff timestamp, reporting a parse failure itself. Extracted to drop a nesting level from the action callback. */
+function resolveSinceMs(
+	json: boolean | undefined,
+	since: string | undefined,
+): { sinceMs?: number; failed: boolean } {
+	if (!since) return { failed: false };
+	try {
+		return { sinceMs: Date.now() - parseDuration(since), failed: false };
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		reportCollectError(json, msg);
+		return { failed: true };
+	}
+}
+
 function tryCollectCodexSessions(
 	opts: CollectOpts,
 	cwd: string,
@@ -62,27 +90,12 @@ export function registerCollectCommand(program: Command): void {
 		.action((opts: CollectOpts) => {
 			const cwd = opts.cwd ?? process.cwd();
 			const provider = opts.provider.toLowerCase();
-			if (provider !== "codex") {
-				const msg =
-					provider === "claude" || provider === "claude-code"
-						? "Claude sessions are already captured live by the daemon (and rebuildable via the timeline backfill) — `collect` covers the external-provider gap. Only `--provider codex` is supported today."
-						: `Unknown provider "${provider}". Supported: codex.`;
-				reportCollectError(opts.json, msg);
-				return;
-			}
+			if (handleUnsupportedProvider(opts.json, provider)) return;
 
-			let sinceMs: number | undefined;
-			if (opts.since) {
-				try {
-					sinceMs = Date.now() - parseDuration(opts.since);
-				} catch (e) {
-					const msg = e instanceof Error ? e.message : String(e);
-					reportCollectError(opts.json, msg);
-					return;
-				}
-			}
+			const sinceResult = resolveSinceMs(opts.json, opts.since);
+			if (sinceResult.failed) return;
 
-			const result = tryCollectCodexSessions(opts, cwd, sinceMs);
+			const result = tryCollectCodexSessions(opts, cwd, sinceResult.sinceMs);
 			if (result === null) return;
 
 			if (opts.json) {

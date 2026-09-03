@@ -25,7 +25,7 @@ import {
 } from "./behavioral-checks-tdd-red-evidence.js";
 import { isTypeOnlyModule } from "./checks/shared.js";
 import { isTddExemptPath } from "./evaluator/tdd-new-file-gate.js";
-import type { CheckResultEntry, SessionTrajectory } from "./types.js";
+import type { CheckResultEntry, SessionTrajectory, TddCycle } from "./types.js";
 
 export type { LocDelta };
 export { checkAssertionDensity, checkProdTestLocRatio, countAssertions, gitNumstatDelta };
@@ -191,44 +191,64 @@ export function checkTddCommitGate(
 	else if (mode === "warn") severity = "warning";
 
 	for (const [sourceFile, cycle] of session.tdd_cycles) {
-		if (cycle.state === "red" || cycle.state === "regression") {
-			results.push(redCycleEntry(session, sourceFile, cycle, severity));
-		} else if (cycle.state === "no_test" && cycle.impl_edits_before_test > 0) {
-			// Disk reality check: state-machine tracking can miss a transition
-			// (path mismatch, harness restart mid-session, hydration gap), but
-			// if a test file actually exists on disk for this source, the
-			// "no tests written" framing is wrong — tests exist, the tracker
-			// just didn't see the green transition. Suppress.
-			const candidateTest = cycle.test_file ?? findTestFilePath(sourceFile);
-			if (candidateTest && existsSync(candidateTest)) continue;
-			// Pure type-definition modules have nothing to unit-test.
-			if (isTypeOnlySourceFile(sourceFile)) continue;
-			// Inherit the same exemption surface the in-edit TDD checks already
-			// apply at lines 153/155 + 200/202: non-source extensions (e.g. a
-			// .patch / .md / .json the agent happened to Write) and exempt
-			// paths (.interlinked/, dist/, node_modules/, scripts/, …). Without
-			// these the commit-gate had a wider net than the in-edit checks,
-			// so a transient `.interlinked/foo.patch` write fired the gate.
-			if (!TDD_SOURCE_EXT_RE.test(sourceFile)) continue;
-			if (isTddExemptPath(sourceFile)) continue;
-			// A file that no longer exists on disk can't be tested. Covers the
-			// transient-file case (agent Writes a working file, then deletes
-			// it later in the same session) and renames where the cycle's
-			// recorded path no longer resolves.
-			if (!existsSync(sourceFile)) continue;
-
-			results.push({
-				source: "structural",
-				name: "tdd_commit_gate",
-				severity: severity === "error" ? "warning" : severity,
-				message: `No tests written or run for ${basename(sourceFile)} (edited ${cycle.impl_edits_before_test} times). Verify changes before committing.`,
-				file: sourceFile,
-				determinism: "partially_deterministic",
-			});
-		}
+		const entry = commitGateEntryFor(session, sourceFile, cycle, severity);
+		if (entry) results.push(entry);
 	}
 
 	return results;
+}
+
+/**
+ * The commit-gate verdict for ONE tracked cycle: a red/regression entry, a
+ * "no tests written" entry, or null when the cycle is clean or exempt.
+ */
+function commitGateEntryFor(
+	session: SessionTrajectory,
+	sourceFile: string,
+	cycle: TddCycle,
+	severity: "error" | "warning" | "info",
+): CheckResultEntry | null {
+	if (cycle.state === "red" || cycle.state === "regression") {
+		return redCycleEntry(session, sourceFile, cycle, severity);
+	}
+	if (!(cycle.state === "no_test" && cycle.impl_edits_before_test > 0)) return null;
+	if (isUntestedGateExempt(sourceFile, cycle)) return null;
+
+	return {
+		source: "structural",
+		name: "tdd_commit_gate",
+		severity: severity === "error" ? "warning" : severity,
+		message: `No tests written or run for ${basename(sourceFile)} (edited ${cycle.impl_edits_before_test} times). Verify changes before committing.`,
+		file: sourceFile,
+		determinism: "partially_deterministic",
+	};
+}
+
+/** Suppression surface for the "no tests written" commit-gate entry. */
+function isUntestedGateExempt(sourceFile: string, cycle: TddCycle): boolean {
+	// Disk reality check: state-machine tracking can miss a transition
+	// (path mismatch, harness restart mid-session, hydration gap), but
+	// if a test file actually exists on disk for this source, the
+	// "no tests written" framing is wrong — tests exist, the tracker
+	// just didn't see the green transition. Suppress.
+	const candidateTest = cycle.test_file ?? findTestFilePath(sourceFile);
+	if (candidateTest && existsSync(candidateTest)) return true;
+	// Pure type-definition modules have nothing to unit-test.
+	if (isTypeOnlySourceFile(sourceFile)) return true;
+	// Inherit the same exemption surface the in-edit TDD checks already
+	// apply: non-source extensions (e.g. a .patch / .md / .json the agent
+	// happened to Write) and exempt paths (.interlinked/, dist/,
+	// node_modules/, scripts/, …). Without these the commit-gate had a wider
+	// net than the in-edit checks, so a transient `.interlinked/foo.patch`
+	// write fired the gate.
+	if (!TDD_SOURCE_EXT_RE.test(sourceFile)) return true;
+	if (isTddExemptPath(sourceFile)) return true;
+	// A file that no longer exists on disk can't be tested. Covers the
+	// transient-file case (agent Writes a working file, then deletes
+	// it later in the same session) and renames where the cycle's
+	// recorded path no longer resolves.
+	if (!existsSync(sourceFile)) return true;
+	return false;
 }
 
 // ---- Helper ----
@@ -326,34 +346,43 @@ export function extractAddedLines(diff: string): string {
 export function checkTppLeapfrog(session: SessionTrajectory): CheckResultEntry[] {
 	const results: CheckResultEntry[] = [];
 	for (const file of session.files_written) {
-		if (TEST_FILE_RE.test(file)) continue;
-		const diff = getStagedDiff(file);
-		if (!diff) continue;
-		const added = extractAddedLines(diff);
-		if (!added) continue;
-
-		const constructs: string[] = [];
-		for (const { re, name } of HEAVY_CONSTRUCTS) {
-			const matches = added.match(re);
-			if (!matches || matches.length === 0) continue;
-			constructs.push(matches.length === 1 ? name : `${matches.length}× ${name}`);
-		}
-		if (constructs.length < TPP_LEAPFROG_THRESHOLD) continue;
-
-		// Suppress when a disciplined red→green cycle ran for this file.
-		const cycle = session.tdd_cycles.get(file);
-		if (cycle && cycle.state === "green" && cycle.red_at !== undefined) continue;
-
-		results.push({
-			source: "structural",
-			name: "tpp_leapfrog",
-			severity: "info",
-			message: `${basename(file)} adds ${constructs.join(" + ")} without a prior red→green cycle. Consider splitting into smaller transformations (Transformation Priority Premise).`,
-			file,
-			determinism: "heuristic",
-		});
+		const entry = tppLeapfrogEntryFor(session, file);
+		if (entry) results.push(entry);
 	}
 	return results;
+}
+
+/** The TPP-leapfrog verdict for ONE written file, or null when it is clean. */
+function tppLeapfrogEntryFor(session: SessionTrajectory, file: string): CheckResultEntry | null {
+	if (TEST_FILE_RE.test(file)) return null;
+	const diff = getStagedDiff(file);
+	if (!diff) return null;
+	const added = extractAddedLines(diff);
+	if (!added) return null;
+	const constructs = heavyConstructsIn(added);
+	if (constructs.length < TPP_LEAPFROG_THRESHOLD) return null;
+	// Suppress when a disciplined red→green cycle ran for this file.
+	const cycle = session.tdd_cycles.get(file);
+	if (cycle && cycle.state === "green" && cycle.red_at !== undefined) return null;
+	return {
+		source: "structural",
+		name: "tpp_leapfrog",
+		severity: "info",
+		message: `${basename(file)} adds ${constructs.join(" + ")} without a prior red→green cycle. Consider splitting into smaller transformations (Transformation Priority Premise).`,
+		file,
+		determinism: "heuristic",
+	};
+}
+
+/** Heavy TPP constructs present in `added`, each labelled with its count. */
+function heavyConstructsIn(added: string): string[] {
+	const constructs: string[] = [];
+	for (const { re, name } of HEAVY_CONSTRUCTS) {
+		const matches = added.match(re);
+		if (!matches || matches.length === 0) continue;
+		constructs.push(matches.length === 1 ? name : `${matches.length}× ${name}`);
+	}
+	return constructs;
 }
 
 /**

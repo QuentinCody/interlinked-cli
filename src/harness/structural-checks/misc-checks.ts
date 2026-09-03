@@ -14,6 +14,54 @@ import type { ProjectGraph } from "../project-graph.js";
 import type { SessionTracker } from "../session-state.js";
 import type { HarnessEvent, StructuralCheckResult } from "../types.js";
 
+/** Sessions (other than the editing agent) that recently read one of the dependents. */
+function collectStaleAgentReads(
+	dependents: string[],
+	sessions: SessionTracker,
+	agentName: string,
+	stalenessMs: number,
+	graph: ProjectGraph,
+): Array<{ agent: string; file: string }> {
+	const affectedAgents: Array<{ agent: string; file: string }> = [];
+	const now = Date.now();
+
+	for (const sess of sessions.getAll()) {
+		if (sess.agent_name === agentName) continue;
+
+		for (const dep of dependents) {
+			if (!sess.files_read.has(dep)) continue;
+			// Check if the read was recent (we track reads but not timestamps,
+			// so use the session start as a proxy — if the session is active
+			// and has read a dependent, warn)
+			const sessionAge = now - new Date(sess.started_at).getTime();
+			if (sessionAge < stalenessMs) {
+				affectedAgents.push({ agent: sess.agent_name, file: graph.toRelative(dep) });
+			}
+		}
+	}
+
+	return affectedAgents;
+}
+
+/** One "<agent> recently read <files>" phrase per distinct agent. */
+function summarizeAgentReads(affectedAgents: Array<{ agent: string; file: string }>): string[] {
+	// Deduplicate by agent
+	const byAgent = new Map<string, string[]>();
+	for (const { agent, file } of affectedAgents) {
+		const existing = byAgent.get(agent) || [];
+		existing.push(file);
+		byAgent.set(agent, existing);
+	}
+
+	const agentSummaries: string[] = [];
+	for (const [agent, files] of byAgent) {
+		const fileList = files.slice(0, 3).join(", ");
+		const more = files.length > 3 ? ` +${files.length - 3}` : "";
+		agentSummaries.push(`${agent} recently read ${fileList}${more}`);
+	}
+	return agentSummaries;
+}
+
 /**
  * Public API — consumed by structural-checks.runStructuralChecks.
  *
@@ -33,43 +81,16 @@ export function checkCoDependencyStaleness(
 	if (dependents.length === 0) return [];
 
 	const stalenessMs = stalenessWindowS * 1000;
-	const now = Date.now();
-	const affectedAgents: Array<{ agent: string; file: string }> = [];
-
-	for (const sess of sessions.getAll()) {
-		if (sess.agent_name === agentName) continue;
-
-		for (const dep of dependents) {
-			if (sess.files_read.has(dep)) {
-				// Check if the read was recent (we track reads but not timestamps,
-				// so use the session start as a proxy — if the session is active
-				// and has read a dependent, warn)
-				const sessionAge = now - new Date(sess.started_at).getTime();
-				if (sessionAge < stalenessMs) {
-					affectedAgents.push({
-						agent: sess.agent_name,
-						file: graph.toRelative(dep),
-					});
-				}
-			}
-		}
-	}
+	const affectedAgents = collectStaleAgentReads(
+		dependents,
+		sessions,
+		agentName,
+		stalenessMs,
+		graph,
+	);
 
 	if (affectedAgents.length > 0) {
-		// Deduplicate by agent
-		const byAgent = new Map<string, string[]>();
-		for (const { agent, file } of affectedAgents) {
-			const existing = byAgent.get(agent) || [];
-			existing.push(file);
-			byAgent.set(agent, existing);
-		}
-
-		const agentSummaries: string[] = [];
-		for (const [agent, files] of byAgent) {
-			const fileList = files.slice(0, 3).join(", ");
-			const more = files.length > 3 ? ` +${files.length - 3}` : "";
-			agentSummaries.push(`${agent} recently read ${fileList}${more}`);
-		}
+		const agentSummaries = summarizeAgentReads(affectedAgents);
 
 		results.push({
 			check: "co_dependency_staleness",
@@ -81,6 +102,52 @@ export function checkCoDependencyStaleness(
 	}
 
 	return results;
+}
+
+/** Parameter names declared on a function/method signature line, or [] when there is none. */
+function extractSignatureParamNames(line: string): string[] {
+	// Find function/method declarations
+	const funcMatch = line.match(
+		/(?:function\s+\w+|(?:async\s+)?(?:\w+\s*)?(?:=>|\())\s*\(([^)]*)\)/,
+	);
+	if (!funcMatch) return [];
+
+	// Extract parameter names from the function signature
+	const paramStr = funcMatch[1];
+	if (!nonNull(paramStr).trim()) return [];
+	return nonNull(paramStr)
+		.split(",")
+		.map((p) => {
+			const name = nonNull(p
+				.trim()
+				.replace(/^\.\.\./, "")
+				.split(/[\s:=?]/)[0])
+				.trim();
+			return name;
+		})
+		.filter((n) => n && n !== "{" && n !== "}");
+}
+
+/** Parameter names tagged in the JSDoc block immediately above line `i`. */
+function collectPrecedingJsDocParams(lines: string[], i: number): string[] {
+	const jsdocParams: string[] = [];
+	for (let j = i - 1; j >= Math.max(0, i - 30); j--) {
+		const paramTag = nonNull(lines[j]).match(/@param\s+(?:\{[^}]*\}\s+)?(\w+)/);
+		if (paramTag) {
+			jsdocParams.push(nonNull(paramTag[1]));
+		}
+		// Stop at JSDoc start
+		if (nonNull(lines[j]).trim().startsWith("/**")) break;
+		// Stop at non-comment line
+		if (
+			!nonNull(lines[j]).trim().startsWith("*") &&
+			!nonNull(lines[j]).trim().startsWith("//") &&
+			nonNull(lines[j]).trim() !== ""
+		) {
+			break;
+		}
+	}
+	return jsdocParams;
 }
 
 /**
@@ -106,48 +173,11 @@ export function checkJSDocParamMismatch(
 	const lines = content.split("\n");
 
 	for (let i = 0; i < lines.length; i++) {
-		// Find function/method declarations
-		const funcMatch = nonNull(lines[i]).match(
-			/(?:function\s+\w+|(?:async\s+)?(?:\w+\s*)?(?:=>|\())\s*\(([^)]*)\)/,
-		);
-		if (!funcMatch) continue;
-
-		// Extract parameter names from the function signature
-		const paramStr = funcMatch[1];
-		if (!nonNull(paramStr).trim()) continue;
-		const paramNames = nonNull(paramStr)
-			.split(",")
-			.map((p) => {
-				const name = nonNull(p
-					.trim()
-					.replace(/^\.\.\./, "")
-					.split(/[\s:=?]/)[0])
-					.trim();
-				return name;
-			})
-			.filter((n) => n && n !== "{" && n !== "}");
-
+		const paramNames = extractSignatureParamNames(nonNull(lines[i]));
 		if (paramNames.length === 0) continue;
 
 		// Look back for JSDoc @param tags
-		const jsdocParams: string[] = [];
-		for (let j = i - 1; j >= Math.max(0, i - 30); j--) {
-			const paramTag = nonNull(lines[j]).match(/@param\s+(?:\{[^}]*\}\s+)?(\w+)/);
-			if (paramTag) {
-				jsdocParams.push(nonNull(paramTag[1]));
-			}
-			// Stop at JSDoc start
-			if (nonNull(lines[j]).trim().startsWith("/**")) break;
-			// Stop at non-comment line
-			if (
-				!nonNull(lines[j]).trim().startsWith("*") &&
-				!nonNull(lines[j]).trim().startsWith("//") &&
-				nonNull(lines[j]).trim() !== ""
-			) {
-				break;
-			}
-		}
-
+		const jsdocParams = collectPrecedingJsDocParams(lines, i);
 		if (jsdocParams.length === 0) continue;
 
 		// Check for mismatches

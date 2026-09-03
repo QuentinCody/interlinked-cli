@@ -6,6 +6,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ClientName } from "./settings.js";
 import {
+    countMatchingSkillFiles,
+    errorText,
+    reportLegacySkillTargets,
+} from "./skill-install-inspect.js";
+import {
     assertSafeSkillPath,
     loadSkillInstallManifest,
     type ManagedSkillFile,
@@ -47,10 +52,6 @@ interface SkillInstallationInspection {
     expectedFiles: number;
     currentFiles: number;
     issues: string[];
-}
-
-function errorText(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
 }
 
 function sourceSkillContent(files: readonly SkillSourceFile[]): string {
@@ -459,25 +460,8 @@ export function inspectInstalledSkills(
         for (const client of clients) {
             const specs = targetFiles(client, name, config, files, skillContent);
             expectedFiles += specs.length;
-            for (const spec of specs) {
-                try {
-                    const target = assertSafeSkillPath(cwd, spec.relPath);
-                    if (existsSync(target) && readFileSync(target).equals(spec.content)) currentFiles += 1;
-                    else issues.push(`${spec.relPath}: missing or stale`);
-                } catch (err) {
-                    issues.push(`${spec.relPath}: ${errorText(err)}`);
-                }
-            }
-            for (const legacy of legacyTargets(client, name, config, skillContent)) {
-                try {
-                    const target = assertSafeSkillPath(cwd, legacy.relPath);
-                    if (existsSync(target) && legacy.isRecognizedLegacy?.(readFileSync(target))) {
-                        issues.push(`${legacy.relPath}: legacy install target`);
-                    }
-                } catch (err) {
-                    issues.push(`${legacy.relPath}: ${errorText(err)}`);
-                }
-            }
+            currentFiles += countMatchingSkillFiles(cwd, specs, issues);
+            reportLegacySkillTargets(cwd, legacyTargets(client, name, config, skillContent), issues);
         }
     }
     return { expectedFiles, currentFiles, issues };

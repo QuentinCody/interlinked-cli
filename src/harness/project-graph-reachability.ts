@@ -22,6 +22,46 @@ import type { ReachabilityVerdict } from "./types.js";
  */
 export const REACHABILITY_DEPTH_CAP = 25;
 
+type QueueHeadOutcome = "depth-cap" | "no-parents" | "continue" | "found";
+
+interface QueueHeadResult {
+	outcome: QueueHeadOutcome;
+	foundEntry: string | null;
+}
+
+/**
+ * Processes one BFS queue head for `computeReachabilityVerdict`: expands
+ * `current`'s parents (mutating `distances`/`parents`/`queue` in place) and
+ * reports what happened so the caller can decide continue/break. Mirrors the
+ * original inline loop body exactly, including the early-exit-on-first-match
+ * semantics of the original inner `for` + `break`.
+ */
+function processQueueHead(
+	current: string,
+	distances: Map<string, number>,
+	reverseGraph: Map<string, Set<string>>,
+	entrySet: Set<string>,
+	parents: Map<string, string>,
+	queue: string[],
+): QueueHeadResult {
+	const currentDist = distances.get(current) ?? 0;
+	if (currentDist >= REACHABILITY_DEPTH_CAP) {
+		return { outcome: "depth-cap", foundEntry: null };
+	}
+	const parentsOfCurrent = reverseGraph.get(current);
+	if (!parentsOfCurrent) return { outcome: "no-parents", foundEntry: null };
+	for (const parent of parentsOfCurrent) {
+		if (distances.has(parent)) continue;
+		distances.set(parent, currentDist + 1);
+		parents.set(parent, current);
+		if (entrySet.has(parent)) {
+			return { outcome: "found", foundEntry: parent };
+		}
+		queue.push(parent);
+	}
+	return { outcome: "continue", foundEntry: null };
+}
+
 /**
  * Compute whether `target` is reachable from any of `entryAbs` by walking the
  * import chain backwards via `reverseGraph` (parents of each file). All inputs
@@ -59,24 +99,22 @@ export function computeReachabilityVerdict(
 
 	while (head < queue.length) {
 		const current = nonNull(queue[head++]);
-		const currentDist = distances.get(current) ?? 0;
-		if (currentDist >= REACHABILITY_DEPTH_CAP) {
+		const step = processQueueHead(
+			current,
+			distances,
+			reverseGraph,
+			entrySet,
+			parents,
+			queue,
+		);
+		if (step.outcome === "depth-cap") {
 			depthCapHit = true;
 			continue;
 		}
-		const parentsOfCurrent = reverseGraph.get(current);
-		if (!parentsOfCurrent) continue;
-		for (const parent of parentsOfCurrent) {
-			if (distances.has(parent)) continue;
-			distances.set(parent, currentDist + 1);
-			parents.set(parent, current);
-			if (entrySet.has(parent)) {
-				foundEntry = parent;
-				break;
-			}
-			queue.push(parent);
+		if (step.outcome === "found") {
+			foundEntry = step.foundEntry;
+			break;
 		}
-		if (foundEntry) break;
 	}
 
 	if (foundEntry) {

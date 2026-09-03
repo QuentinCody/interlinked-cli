@@ -184,6 +184,42 @@ function nextPairableSpan(
 	return null;
 }
 
+/** One step of the fused precedence scan: advances past the earlier of the
+ *  next pairable span opener and the next `<!--`, consuming through its own
+ *  closer (the loser's chars inside are content). `interval` is the span to
+ *  blank (null when nothing should be blanked this step — a span step with
+ *  `blankCode` false, or an unclosed-comment retry); `stop` mirrors the
+ *  original loop's `break` sites. Mutates `state.r`/cursors like the scan it
+ *  was extracted from; `from`/`commentAt` come back explicitly since the
+ *  caller owns those two loop variables. */
+function advancePrecedenceScan(
+	line: string,
+	state: LtrState,
+	from: number,
+	commentAt: number,
+	blankCode: boolean,
+): { stop: boolean; from: number; commentAt: number; interval: [number, number] | null } {
+	while (state.r < state.runs.length && (state.runs[state.r]?.[0] ?? 0) < from) state.r++;
+	if (commentAt >= 0 && commentAt < from) commentAt = line.indexOf("<!--", from);
+	const span = nextPairableSpan(state);
+	if (span && (commentAt < 0 || span.start < commentAt)) {
+		state.r = span.nextRun;
+		return {
+			stop: false,
+			from: span.end,
+			commentAt,
+			interval: blankCode ? [span.start, span.end] : null,
+		};
+	}
+	if (commentAt < 0) return { stop: true, from, commentAt, interval: null };
+	const close = line.indexOf("-->", commentAt + 4);
+	if (close < 0) {
+		if (!span) return { stop: true, from, commentAt, interval: null };
+		return { stop: false, from, commentAt: -1, interval: null }; // unclosed → literal; only spans remain ahead
+	}
+	return { stop: false, from: close + 3, commentAt, interval: [commentAt, close + 3] };
+}
+
 /** Blank-intervals from the fused precedence scan: at each position take the
  *  next pairable span opener and the next `<!--`; the EARLIER one wins and
  *  consumes through its own closer, so the loser's chars inside are content.
@@ -203,24 +239,11 @@ function precedenceIntervals(
 	let from = 0;
 	let commentAt = line.indexOf("<!--");
 	while (from < line.length) {
-		while (state.r < runs.length && (runs[state.r]?.[0] ?? 0) < from) state.r++;
-		if (commentAt >= 0 && commentAt < from) commentAt = line.indexOf("<!--", from);
-		const span = nextPairableSpan(state);
-		if (span && (commentAt < 0 || span.start < commentAt)) {
-			if (blankCode) out.push([span.start, span.end]);
-			from = span.end;
-			state.r = span.nextRun;
-			continue;
-		}
-		if (commentAt < 0) break;
-		const close = line.indexOf("-->", commentAt + 4);
-		if (close < 0) {
-			if (!span) break;
-			commentAt = -1; // unclosed → literal; only spans remain ahead
-			continue;
-		}
-		out.push([commentAt, close + 3]);
-		from = close + 3;
+		const step = advancePrecedenceScan(line, state, from, commentAt, blankCode);
+		if (step.interval) out.push(step.interval);
+		if (step.stop) break;
+		from = step.from;
+		commentAt = step.commentAt;
 	}
 	return out;
 }

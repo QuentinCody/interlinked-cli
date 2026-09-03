@@ -200,55 +200,43 @@ export function writeJsonFile(path: string, data: JsonObject): void {
 	writeFileSync(path, next);
 }
 
-export function buildHookCommand(hookScriptPath: string, client?: ClientName): string {
-	const escapedPath = hookScriptPath.replace(/(["\\`$])/g, "\\$1");
-	const runner =
-		client === CLIENT_CLAUDE
-			? "claude-code"
-			: client === CLIENT_COPILOT
-				? "copilot-cli"
-				: client === CLIENT_GEMINI
-					? "gemini-cli"
-					: client === CLIENT_CODEX
-						? "codex"
-						: client === CLIENT_CURSOR
-							? "cursor"
-							: "";
-	const envPrefix =
-		client && runner ? `INTERLINKED_CLIENT="${client}" INTERLINKED_RUNNER="${runner}" ` : "";
+// The runner label embedded in INTERLINKED_RUNNER for each client — "" for
+// clients (or an absent client) that don't get the env-prefix treatment.
+function runnerLabelFor(client?: ClientName): string {
+	if (client === CLIENT_CLAUDE) return "claude-code";
+	if (client === CLIENT_COPILOT) return "copilot-cli";
+	if (client === CLIENT_GEMINI) return "gemini-cli";
+	if (client === CLIENT_CODEX) return "codex";
+	if (client === CLIENT_CURSOR) return "cursor";
+	return "";
+}
 
-	// Cursor is the one client where hook startup/runtime failures must
-	// propagate as a non-zero exit so its `failClosed: true` setting
-	// actually fails closed. For every other client we keep the historic
-	// fail-open shape (`|| true` / `break` on missing script) so a
-	// transient error in observation hooks doesn't derail the session.
-	const isCursorFailClosed = client === CLIENT_CURSOR;
-
-	if (hookScriptPath.startsWith("/")) {
-		// Absolute paths are already stable — keep the shell snippet short.
-		if (isCursorFailClosed) {
-			// `exec` replaces the shell with node so node's exit code (0 on
-			// allow, non-zero on a crash) is what Cursor sees. A missing
-			// script file falls through to an explicit `exit 1` — Cursor
-			// treats that as a fail-closed denial, which is what the user
-			// asked for when they enabled `failClosed: true`.
-			return `if test -f "${escapedPath}"; then ${envPrefix}exec node "${escapedPath}"; else exit 1; fi`;
-		}
-		return `test -f "${escapedPath}" && ${envPrefix}node "${escapedPath}" || true`;
+// Absolute paths are already stable — keep the shell snippet short.
+function absoluteHookCommand(escapedPath: string, envPrefix: string, isCursorFailClosed: boolean): string {
+	if (isCursorFailClosed) {
+		// `exec` replaces the shell with node so node's exit code (0 on
+		// allow, non-zero on a crash) is what Cursor sees. A missing
+		// script file falls through to an explicit `exit 1` — Cursor
+		// treats that as a fail-closed denial, which is what the user
+		// asked for when they enabled `failClosed: true`.
+		return `if test -f "${escapedPath}"; then ${envPrefix}exec node "${escapedPath}"; else exit 1; fi`;
 	}
+	return `test -f "${escapedPath}" && ${envPrefix}node "${escapedPath}" || true`;
+}
 
-	// Project-local installs write a relative path like
-	// `.interlinked/hooks/interlinked-activity.mjs`. The hook may fire from
-	// a nested cwd inside the repo, so walk upward until the script is found.
-	//
-	// CRITICAL: this single-line shell snippet must parse under POSIX sh,
-	// bash AND zsh — Codex CLI invokes hooks via the user's configured
-	// shell. `do; if` and `then; ACTION` (semicolon between a keyword and
-	// its body) are syntax errors in bash/sh/dash; only zsh tolerates
-	// them. So we glue `do`/`then` directly to the next statement with a
-	// space rather than building the body via `.join("; ")`. See
-	// `hook-installers-shell.test.ts` for a regression test that actually
-	// invokes bash on the generated string.
+// Project-local installs write a relative path like
+// `.interlinked/hooks/interlinked-activity.mjs`. The hook may fire from
+// a nested cwd inside the repo, so walk upward until the script is found.
+//
+// CRITICAL: this single-line shell snippet must parse under POSIX sh,
+// bash AND zsh — Codex CLI invokes hooks via the user's configured
+// shell. `do; if` and `then; ACTION` (semicolon between a keyword and
+// its body) are syntax errors in bash/sh/dash; only zsh tolerates
+// them. So we glue `do`/`then` directly to the next statement with a
+// space rather than building the body via `.join("; ")`. See
+// `hook-installers-shell.test.ts` for a regression test that actually
+// invokes bash on the generated string.
+function relativeHookCommand(escapedPath: string, envPrefix: string, isCursorFailClosed: boolean): string {
 	if (isCursorFailClosed) {
 		return (
 			`HOOK_SCRIPT_REL="${escapedPath}"; ` +
@@ -276,6 +264,25 @@ export function buildHookCommand(hookScriptPath: string, client?: ClientName): s
 		`HOOK_DIR="$NEXT_HOOK_DIR"; ` +
 		`done`
 	);
+}
+
+export function buildHookCommand(hookScriptPath: string, client?: ClientName): string {
+	const escapedPath = hookScriptPath.replace(/(["\\`$])/g, "\\$1");
+	const runner = runnerLabelFor(client);
+	const envPrefix =
+		client && runner ? `INTERLINKED_CLIENT="${client}" INTERLINKED_RUNNER="${runner}" ` : "";
+
+	// Cursor is the one client where hook startup/runtime failures must
+	// propagate as a non-zero exit so its `failClosed: true` setting
+	// actually fails closed. For every other client we keep the historic
+	// fail-open shape (`|| true` / `break` on missing script) so a
+	// transient error in observation hooks doesn't derail the session.
+	const isCursorFailClosed = client === CLIENT_CURSOR;
+
+	if (hookScriptPath.startsWith("/")) {
+		return absoluteHookCommand(escapedPath, envPrefix, isCursorFailClosed);
+	}
+	return relativeHookCommand(escapedPath, envPrefix, isCursorFailClosed);
 }
 
 export function cleanJsonHookFile(cwdOrPath: string): boolean {

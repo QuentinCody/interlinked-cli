@@ -645,7 +645,7 @@ describe("coverageBaselineCommand", () => {
 		expect(stdout).not.toContain("src/f29.ts");
 	});
 
-	it("defaults cwd to process.cwd() when no cwd option is given", () => {
+	it("coverageBaselineCommand defaults cwd to process.cwd() when no cwd option is given", () => {
 		// SPY, not process.chdir(): chdir THROWS in a worker thread ("process.chdir()
 		// is not supported in workers"), and Stryker's vitest runner pins its own
 		// pool, so a real chdir here fails the mutation dry run for any file whose

@@ -10,9 +10,8 @@
 //   - Incremental updates (only re-parse edited files, ~5ms per file)
 //   - Cross-agent awareness via SessionTracker integration
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
-import { isJsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 import { extractInterfaceBodies } from "./project-graph/interface-bodies.js";
 import { parseExports } from "./project-graph/parser-exports.js";
@@ -20,7 +19,7 @@ import { parseImports } from "./project-graph/parser-imports.js";
 import { resolveImportPath } from "./project-graph/resolve.js";
 import { findCyclesThroughGraph } from "./project-graph-cycles.js";
 import { computeReachabilityVerdict } from "./project-graph-reachability.js";
-import { resolveIgnoredDirs } from "./structure/extractors/skip-dirs.js";
+import { loadTsconfigPathsFor, scanProjectFiles, TS_JS_EXTENSIONS } from "./project-graph-scan.js";
 import type {
 	ExportedSymbol,
 	ImportEdge,
@@ -30,78 +29,10 @@ import type {
 
 // Re-export the extracted helpers so existing call sites that import them
 // from project-graph.ts continue to work without updating their specifier.
-export { extractInterfaceBodies } from "./project-graph/interface-bodies.js";
 export { parseExports } from "./project-graph/parser-exports.js";
 export { parseImports } from "./project-graph/parser-imports.js";
-export { resolveImportPath, tryResolveFile } from "./project-graph/resolve.js";
-export { REACHABILITY_DEPTH_CAP } from "./project-graph-reachability.js";
-
-// ===========================================
-// Skip Directories
-// ===========================================
-
-export const SKIP_DIRS = new Set([
-	"node_modules",
-	".git",
-	"dist",
-	"build",
-	".next",
-	".nuxt",
-	"coverage",
-	".wrangler",
-	".cache",
-	".turbo",
-	"out",
-	".interlinked",
-	".claude",
-	".entire",
-	"__pycache__",
-	".vscode",
-	".idea",
-	"reference-repos",
-	"vendor",
-	"third_party",
-	"third-party",
-	"external",
-	".venv",
-	"venv",
-	"target",
-	".gradle",
-	".svelte-kit",
-	".output",
-	// Tool sandboxes and caches. `.stryker-tmp` matters most: the mutation
-	// engine copies the ENTIRE tree into `.stryker-tmp/sandbox-*/`, so leaving it
-	// in multiplied this repo's graph 32119 nodes / 81050 edges against a real
-	// 2934 / 6680 — a 45s walk, and every symbol appeared to be duplicately
-	// exported by its own sandbox copy. A sandbox is a transient mirror of files
-	// already in the graph; it is never the source of truth.
-	".stryker-tmp",
-	".nyc_output",
-	".pytest_cache",
-	".mypy_cache",
-	".ruff_cache",
-	".tox",
-	".parcel-cache",
-	".vite",
-	".astro",
-]);
-
-export const TS_JS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"]);
-
-/** Root-local agent scratch is deliberately outside the shipped dependency
- * graph. Its `.gitignore` has a README carve-out, so Git cannot collapse the
- * directory to a single ignored marker even when it contains thousands of
- * generated source probes. Keep this path-specific: a real `src/scratch/`
- * package remains ordinary project source. */
-const ROOT_SCAN_SKIP_DIRS: ReadonlySet<string> = new Set(["scratch"]);
-
-interface ProjectWalkContext {
-	dir: string;
-	result: string[];
-	depth: number;
-	currentBoundary?: string;
-	ignoredDirs: ReadonlySet<string>;
-}
+export { resolveImportPath } from "./project-graph/resolve.js";
+export { SKIP_DIRS, TS_JS_EXTENSIONS } from "./project-graph-scan.js";
 
 // ===========================================
 // Project Graph
@@ -146,7 +77,7 @@ export class ProjectGraph {
 
 	constructor(projectRoot: string) {
 		this.projectRoot = resolve(projectRoot);
-		this.loadTsconfigPaths();
+		this.tsconfigPaths = loadTsconfigPathsFor(this.projectRoot);
 	}
 
 	// --- Public API ---
@@ -167,8 +98,9 @@ export class ProjectGraph {
 	 */
 	initialize(): void {
 		if (this.initialized) return;
-		const files = this.scanProjectFiles();
-		for (const file of files) {
+		const files = scanProjectFiles(this.projectRoot);
+		for (const { file, boundary } of files) {
+			this.projectBoundaries.set(file, boundary);
 			this.indexFile(file);
 		}
 		this.initialized = true;
@@ -394,6 +326,26 @@ export class ProjectGraph {
 		return isAbsolute(filePath) ? filePath : resolve(this.projectRoot, filePath);
 	}
 
+	private collectStarReExportTargets(
+		fileContent: string,
+		exports: ReturnType<typeof parseExports>,
+		absPath: string,
+	): string[] {
+		const starTargets: string[] = [];
+		for (const exp of exports) {
+			if (exp.name === "*" && exp.kind === "namespace") {
+				// Find the source specifier from the file content
+				const starRe = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
+				for (let m = starRe.exec(fileContent); m !== null; m = starRe.exec(fileContent)) {
+					const resolved = resolveImportPath(absPath, nonNull(m[1]), this.tsconfigPaths);
+					if (resolved) starTargets.push(resolved);
+				}
+				break; // Only need to scan once
+			}
+		}
+		return starTargets;
+	}
+
 	private indexFile(absPath: string, content?: string): void {
 		let fileContent: string;
 		if (content) {
@@ -419,18 +371,7 @@ export class ProjectGraph {
 		this.exportIndex.set(absPath, exports);
 
 		// Track `export * from '...'` targets for transitive resolution
-		const starTargets: string[] = [];
-		for (const exp of exports) {
-			if (exp.name === "*" && exp.kind === "namespace") {
-				// Find the source specifier from the file content
-				const starRe = /export\s+\*\s+from\s+['"]([^'"]+)['"]/g;
-				for (let m = starRe.exec(fileContent); m !== null; m = starRe.exec(fileContent)) {
-					const resolved = resolveImportPath(absPath, nonNull(m[1]), this.tsconfigPaths);
-					if (resolved) starTargets.push(resolved);
-				}
-				break; // Only need to scan once
-			}
-		}
+		const starTargets = this.collectStarReExportTargets(fileContent, exports, absPath);
 		this.starReExports.set(absPath, starTargets);
 
 		// Parse imports and resolve paths
@@ -456,75 +397,4 @@ export class ProjectGraph {
 		this.interfaceBodies.set(absPath, extractInterfaceBodies(fileContent));
 	}
 
-	private scanProjectFiles(): string[] {
-		const files: string[] = [];
-		this.walkDir({
-			dir: this.projectRoot,
-			result: files,
-			depth: 0,
-			ignoredDirs: resolveIgnoredDirs(this.projectRoot),
-		});
-		return files;
-	}
-
-	private walkDir({ dir, result, depth, currentBoundary, ignoredDirs }: ProjectWalkContext): void {
-		if (depth > 20) return; // Safety limit
-		try {
-			// Determine the project boundary for this directory.
-			// A directory is a sub-project boundary if it has its own tsconfig.json or package.json.
-			// The main project root is always the default boundary.
-			let boundary = currentBoundary ?? this.projectRoot;
-			if (dir !== this.projectRoot) {
-				const hasTsconfig = existsSync(join(dir, "tsconfig.json"));
-				const hasPackageJson = existsSync(join(dir, "package.json"));
-				if (hasTsconfig || hasPackageJson) {
-					boundary = dir;
-				}
-			}
-
-			const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-				a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-			);
-			for (const entry of entries) {
-				const fullPath = join(dir, entry.name);
-				if (entry.isDirectory()) {
-					const isRootScratch = dir === this.projectRoot && ROOT_SCAN_SKIP_DIRS.has(entry.name);
-					if (SKIP_DIRS.has(entry.name) || isRootScratch || ignoredDirs.has(fullPath)) continue;
-					this.walkDir({
-						dir: fullPath,
-						result,
-						depth: depth + 1,
-						currentBoundary: boundary,
-						ignoredDirs,
-					});
-				} else if (entry.isFile()) {
-					const ext = extname(entry.name);
-					if (TS_JS_EXTENSIONS.has(ext)) {
-						result.push(fullPath);
-						this.projectBoundaries.set(fullPath, boundary);
-					}
-				}
-			}
-		} catch (err) {
-			void err; /* intentional: directory not readable — skip */
-		}
-	}
-
-	private loadTsconfigPaths(): void {
-		try {
-			const tsconfigPath = join(this.projectRoot, "tsconfig.json");
-			if (!existsSync(tsconfigPath)) return;
-
-			const raw = readFileSync(tsconfigPath, "utf-8");
-			// Strip single-line comments (tsconfig allows them)
-			const cleaned = raw.replace(/\/\/.*$/gm, "");
-			const config: unknown = JSON.parse(cleaned);
-			const paths = isJsonObject(config) && isJsonObject(config.compilerOptions) ? config.compilerOptions.paths : undefined;
-			if (isJsonObject(paths) && Object.values(paths).every((t) => Array.isArray(t) && t.every((s): s is string => typeof s === "string"))) {
-				this.tsconfigPaths = paths as Record<string, string[]>;
-			}
-		} catch (err) {
-			void err; /* intentional: can't parse tsconfig — skip path alias support */
-		}
-	}
 }

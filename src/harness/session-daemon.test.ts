@@ -16,15 +16,13 @@ import { nonNull } from "../lib/non-null.js";
 import { encodeFrame, type RpcMessage, splitFrames } from "./daemon-protocol.js";
 import type { EvaluateUnifiedContext } from "./evaluator-unified.js";
 import {
-	BIND_ATTEMPTS,
-	BIND_BACKOFF_MS,
-	bindSessionSocket,
 	claimSessionPid,
 	DaemonOwnershipConflictError,
 	removeOwnedSessionArtifacts,
 	type SessionDaemonHandle,
 	startSessionDaemon,
 } from "./session-daemon.js";
+import { BIND_ATTEMPTS, BIND_BACKOFF_MS, bindSessionSocket } from "./session-daemon-bind.js";
 import type { DaemonPaths } from "./session-paths.js";
 import type { TsgoRunner } from "./tsgo-runner.js";
 import type { HarnessDecision } from "./types.js";

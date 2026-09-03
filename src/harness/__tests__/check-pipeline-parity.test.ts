@@ -104,6 +104,11 @@ function readRegistrySources(): string {
 		"entries-errors.ts",
 		"entries-warnings.ts",
 		"entries-warnings/agent-clarity.ts",
+		// `agent-clarity.ts` was split at the 500-line cap (lines campaign,
+		// 2026-09-02): runtime-safety and comment-drift entry blocks now live in
+		// two sibling fragments spread back into AGENT_CLARITY_ENTRIES.
+		"entries-warnings/agent-clarity-runtime-safety.ts",
+		"entries-warnings/agent-clarity-comment-drift.ts",
 		"entries-warnings/code-quality.ts",
 		// `code-quality.ts` was itself decomposed: its React-hooks / test-hygiene /
 		// SQL second half now lives in `code-quality-extra.ts` (spread back into
@@ -117,6 +122,9 @@ function readRegistrySources(): string {
 		// UBS_ENTRIES). Concatenate it so the regex extraction continues to see
 		// those entry blocks and their generic-checks imports.
 		"entries-warnings/ubs-checks-extra.ts",
+		// Same split, second round (lines campaign, 2026-09-02): the
+		// language-specific UBS entries moved to `ubs-checks-lang.ts`.
+		"entries-warnings/ubs-checks-lang.ts",
 		"entries-warnings/agent-laziness.ts",
 		"entries-warnings/test-and-demo.ts",
 		"entries-warnings/endpoint-security.ts",

@@ -36,6 +36,68 @@ const MAX_EXPONENT = 12;
  * input (e.g. a user-supplied signature) should cap it first; the index is a
  * ranking heuristic, so a bounded prefix carries more than enough structure.
  */
+/** Adjacent-pair counts over `seq`, keyed left→right, value→count. Nested
+ *  Map keying (not a delimited string) is load-bearing — see the identity
+ *  note on `runRepairRound`. */
+function countAdjacentPairs(
+	seq: readonly (string | object)[],
+): Map<string | object, Map<string | object, number>> {
+	const counts = new Map<string | object, Map<string | object, number>>();
+	for (let i = 0; i + 1 < seq.length; i++) {
+		const left = seq[i] as string | object;
+		const right = seq[i + 1] as string | object;
+		let inner = counts.get(left);
+		if (!inner) {
+			inner = new Map();
+			counts.set(left, inner);
+		}
+		inner.set(right, (inner.get(right) ?? 0) + 1);
+	}
+	return counts;
+}
+
+/** Most frequent adjacent pair in `counts`, or nulls with count 1 if none
+ *  recurs (count ≥ 2) — the Re-Pair stopping condition. */
+function mostFrequentPair(
+	counts: Map<string | object, Map<string | object, number>>,
+): { bestA: string | object | null; bestB: string | object | null; bestCount: number } {
+	let bestA: string | object | null = null;
+	let bestB: string | object | null = null;
+	let bestCount = 1;
+	for (const [left, inner] of counts) {
+		for (const [right, count] of inner) {
+			if (count > bestCount) {
+				bestA = left;
+				bestB = right;
+				bestCount = count;
+			}
+		}
+	}
+	return { bestA, bestB, bestCount };
+}
+
+/** One Re-Pair round: replace every occurrence of the single most frequent
+ *  adjacent pair with a fresh nonterminal. `merged` is false when no pair
+ *  recurs (count < 2) — the caller's stopping condition — in which case
+ *  `seq` is returned unchanged. */
+function runRepairRound(
+	seq: readonly (string | object)[],
+): { seq: (string | object)[]; merged: boolean } {
+	const { bestA, bestB, bestCount } = mostFrequentPair(countAdjacentPairs(seq));
+	if (bestCount < 2) return { seq: [...seq], merged: false };
+	const nonterminal = {}; // fresh identity: collides with nothing
+	const next: (string | object)[] = [];
+	for (let i = 0; i < seq.length; i++) {
+		if (i + 1 < seq.length && seq[i] === bestA && seq[i + 1] === bestB) {
+			next.push(nonterminal);
+			i++;
+		} else {
+			next.push(seq[i] as string | object);
+		}
+	}
+	return { seq: next, merged: true };
+}
+
 export function assemblyIndexOfTokens(tokens: readonly string[]): number {
 	if (tokens.length === 0) return 0;
 	// Tokens are strings from the caller plus fresh nonterminal OBJECTS
@@ -48,41 +110,9 @@ export function assemblyIndexOfTokens(tokens: readonly string[]): number {
 	let seq: (string | object)[] = [...tokens];
 	let rules = 0;
 	for (let round = 0; round < MAX_ROUNDS; round++) {
-		const counts = new Map<string | object, Map<string | object, number>>();
-		for (let i = 0; i + 1 < seq.length; i++) {
-			const left = seq[i] as string | object;
-			const right = seq[i + 1] as string | object;
-			let inner = counts.get(left);
-			if (!inner) {
-				inner = new Map();
-				counts.set(left, inner);
-			}
-			inner.set(right, (inner.get(right) ?? 0) + 1);
-		}
-		let bestA: string | object | null = null;
-		let bestB: string | object | null = null;
-		let bestCount = 1;
-		for (const [left, inner] of counts) {
-			for (const [right, count] of inner) {
-				if (count > bestCount) {
-					bestA = left;
-					bestB = right;
-					bestCount = count;
-				}
-			}
-		}
-		if (bestCount < 2) break;
-		const nonterminal = {}; // fresh identity: collides with nothing
-		const next: (string | object)[] = [];
-		for (let i = 0; i < seq.length; i++) {
-			if (i + 1 < seq.length && seq[i] === bestA && seq[i + 1] === bestB) {
-				next.push(nonterminal);
-				i++;
-			} else {
-				next.push(seq[i] as string | object);
-			}
-		}
-		seq = next;
+		const result = runRepairRound(seq);
+		if (!result.merged) break;
+		seq = result.seq;
 		rules++;
 	}
 	return rules + seq.length;

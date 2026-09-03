@@ -205,65 +205,89 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 
 		syncRuntimeIn();
 		try {
-			// Lifecycle events (SessionStart / SessionEnd / Stop / Subagent* /
-			// Skill* / UserPromptSubmit): a non-null decision is an early return,
-			// null means fall through to the Pre/Post evaluation path.
-			const lifecycleDecision = await handleLifecycleEvent(ctx, event, session);
-			persistNonToolLifecycleActivity(writeLifecycleActivityRecord, event, lifecycleDecision);
-			// Shadow-eval lifecycle events too (Stop carries the obligation-ledger
-			// inventory). Metric-only: appends warnings, never alters the decision.
-			if (lifecycleDecision) { mergeTrajectoryShadow(event, lifecycleDecision, ctx.rules); return lifecycleDecision; }
-
-			// Evaluate based on hook type
-			if (isPreToolUse(event)) {
-				const local = await runPreToolPipeline(ctx, event, session);
-				// P1 trajectory continuity (shadow): arm a fingerprint when this
-				// event was blocked; on a later event that gets through, note if it
-				// reproduces a still-armed refusal through another channel. Never
-				// alters the decision — surfaced once at Stop.
-				observeBlockWorkaround(session, event, local, event.cwd ?? CWD, Date.now());
-				mergeTrajectoryShadow(event, local, ctx.rules, readFilesReadSnapshot(session.files_read));
-				writeCollectionRecord(event, local);
-				const finalDecision = await forwardCloudPreToolUse(event, local);
-				reconcileBlockedPreTool(event, finalDecision);
-				return finalDecision;
-			}
-
-			if (isPostToolUse(event)) {
-				try {
-					const decision = await runPostToolPipeline(ctx, event, session);
-					// `session.files_read` survives a daemon restart (it is in the
-					// live snapshot); the trajectory engine's own read map does not.
-					// Passing it seeds a state created after a restart, so reads from
-					// before it are not forgotten mid-session (red-team F4).
-					mergeTrajectoryShadow(event, decision, ctx.rules, readFilesReadSnapshot(session.files_read));
-					writeCollectionRecord(event, decision);
-					// Fire-and-forget faithful per-call record for the viz BASELINE filmstrip.
-					// Runs AFTER the decision is returned to the hook — never blocks the tool loop.
-					appendCheckResults(CWD, event, decision);
-					return decision;
-				} catch (postErr) {
-					// PostToolUse runs AFTER the tool — the action already happened, so
-					// a thrown observability/quality check must NEVER become a block. A
-					// reason-less block here was surfacing to the user as a spurious
-					// "harness bug". Fail OPEN (feedback_safety_continuity) and report
-					// the skipped check as a non-blocking warning.
-					log(
-						`PostToolUse pipeline threw (failing open): ${
-							postErr instanceof Error ? postErr.message : String(postErr)
-						}`,
-					);
-					return {
-						decision: "allow",
-						warnings: [POST_TOOL_PIPELINE_FAILURE_WARNING],
-					};
-				}
-			}
-
-			// Non-tool events (lifecycle, notifications, etc.) — always allow
-			return { decision: "allow" };
+			return await dispatchEvent(event, session);
 		} finally {
 			syncRuntimeOut();
+		}
+	}
+
+	/** The Pre/Post/lifecycle dispatch that `processEvent` runs between its
+	 *  runtime in/out sync. Extracted verbatim from the body of that
+	 *  `try { … } finally { syncRuntimeOut(); }` — every path returns, so the
+	 *  caller needs no residual guard and the ordering of side effects is
+	 *  unchanged. Living at depth 0 in its own function removes the nesting
+	 *  increments the whole block paid inside the enclosing try. */
+	async function dispatchEvent(
+		event: HarnessEvent,
+		session: ReturnType<typeof sessions.recordEvent>,
+	): Promise<HarnessDecision> {
+		// Lifecycle events (SessionStart / SessionEnd / Stop / Subagent* /
+		// Skill* / UserPromptSubmit): a non-null decision is an early return,
+		// null means fall through to the Pre/Post evaluation path.
+		const lifecycleDecision = await handleLifecycleEvent(ctx, event, session);
+		persistNonToolLifecycleActivity(writeLifecycleActivityRecord, event, lifecycleDecision);
+		// Shadow-eval lifecycle events too (Stop carries the obligation-ledger
+		// inventory). Metric-only: appends warnings, never alters the decision.
+		if (lifecycleDecision) {
+			mergeTrajectoryShadow(event, lifecycleDecision, ctx.rules);
+			return lifecycleDecision;
+		}
+
+		// Evaluate based on hook type
+		if (isPreToolUse(event)) {
+			const local = await runPreToolPipeline(ctx, event, session);
+			// P1 trajectory continuity (shadow): arm a fingerprint when this
+			// event was blocked; on a later event that gets through, note if it
+			// reproduces a still-armed refusal through another channel. Never
+			// alters the decision — surfaced once at Stop.
+			observeBlockWorkaround(session, event, local, event.cwd ?? CWD, Date.now());
+			mergeTrajectoryShadow(event, local, ctx.rules, readFilesReadSnapshot(session.files_read));
+			writeCollectionRecord(event, local);
+			const finalDecision = await forwardCloudPreToolUse(event, local);
+			reconcileBlockedPreTool(event, finalDecision);
+			return finalDecision;
+		}
+
+		if (isPostToolUse(event)) {
+			return await dispatchPostToolUse(event, session);
+		}
+
+		// Non-tool events (lifecycle, notifications, etc.) — always allow
+		return { decision: "allow" };
+	}
+
+	/** The PostToolUse arm of `dispatchEvent`, moved verbatim (body + its
+	 *  fail-open catch). PostToolUse runs AFTER the tool — the action already
+	 *  happened, so a thrown observability/quality check must NEVER become a
+	 *  block. A reason-less block here was surfacing to the user as a spurious
+	 *  "harness bug". Fail OPEN (feedback_safety_continuity) and report the
+	 *  skipped check as a non-blocking warning. */
+	async function dispatchPostToolUse(
+		event: HarnessEvent,
+		session: ReturnType<typeof sessions.recordEvent>,
+	): Promise<HarnessDecision> {
+		try {
+			const decision = await runPostToolPipeline(ctx, event, session);
+			// `session.files_read` survives a daemon restart (it is in the
+			// live snapshot); the trajectory engine's own read map does not.
+			// Passing it seeds a state created after a restart, so reads from
+			// before it are not forgotten mid-session (red-team F4).
+			mergeTrajectoryShadow(event, decision, ctx.rules, readFilesReadSnapshot(session.files_read));
+			writeCollectionRecord(event, decision);
+			// Fire-and-forget faithful per-call record for the viz BASELINE filmstrip.
+			// Runs AFTER the decision is returned to the hook — never blocks the tool loop.
+			appendCheckResults(CWD, event, decision);
+			return decision;
+		} catch (postErr) {
+			log(
+				`PostToolUse pipeline threw (failing open): ${
+					postErr instanceof Error ? postErr.message : String(postErr)
+				}`,
+			);
+			return {
+				decision: "allow",
+				warnings: [POST_TOOL_PIPELINE_FAILURE_WARNING],
+			};
 		}
 	}
 

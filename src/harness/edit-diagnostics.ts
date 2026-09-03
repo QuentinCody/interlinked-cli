@@ -59,18 +59,7 @@ export function findClosestSpans(content: string, target: string, n = 3): NearMi
 	// For very short single-line targets, also scan all lines (in case the
 	// match is at a line whose trimmed length differs significantly).
 	if (targetIsShortSingleLine && candidates.length < n) {
-		for (const [i, fileLine] of fileLines.entries()) {
-			const sim = lineSimilarity(target, fileLine);
-			if (sim < MIN_SIMILARITY) continue;
-			if (candidates.some((c) => c.line === i + 1)) continue;
-			candidates.push({
-				line: i + 1,
-				endLine: i + 1,
-				snippet: fileLine.trim().slice(0, 120),
-				lines: [fileLine],
-				similarity: sim,
-			});
-		}
+		addShortSingleLineCandidates(candidates, fileLines, target);
 	}
 
 	candidates.sort((a, b) => b.similarity - a.similarity);
@@ -84,6 +73,24 @@ export function findClosestSpans(content: string, target: string, n = 3): NearMi
 		if (dedup.length >= n) break;
 	}
 	return dedup;
+}
+
+/** For short single-line targets: scan every file line for a fuzzy match and
+ *  push new candidates in place (mutates `candidates`), skipping lines
+ *  already covered by a windowed candidate. */
+function addShortSingleLineCandidates(candidates: NearMiss[], fileLines: string[], target: string): void {
+	for (const [i, fileLine] of fileLines.entries()) {
+		const sim = lineSimilarity(target, fileLine);
+		if (sim < MIN_SIMILARITY) continue;
+		if (candidates.some((c) => c.line === i + 1)) continue;
+		candidates.push({
+			line: i + 1,
+			endLine: i + 1,
+			snippet: fileLine.trim().slice(0, 120),
+			lines: [fileLine],
+			similarity: sim,
+		});
+	}
 }
 
 /**

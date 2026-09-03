@@ -86,7 +86,12 @@ function localName(ts: TsModule, sf: TS.SourceFile, node: TS.Node): string {
 	if (named.name && (ts.isIdentifier(named.name) || ts.isPrivateIdentifier(named.name))) {
 		return named.name.getText(sf);
 	}
-	const p = node.parent;
+	// SAFETY: `typescript`'s own .d.ts types `Node.parent` as non-optional
+	// `Node`, but at runtime it is `undefined` for the SourceFile root and any
+	// node visited before binding — the compiler API's well-known type lie.
+	// Cast to the true runtime shape so the null guard below stays live
+	// instead of reading as an impossible branch.
+	const p = node.parent as TS.Node | undefined;
 	if (p && ts.isVariableDeclaration(p) && ts.isIdentifier(p.name)) return p.name.getText(sf);
 	if (p && ts.isPropertyAssignment(p)) return p.name.getText(sf);
 	if (p && ts.isPropertyDeclaration(p)) return p.name.getText(sf);
@@ -107,7 +112,9 @@ function qualifiedName(ts: TsModule, sf: TS.SourceFile, node: TS.Node): string {
 		if (isFunctionLike(ts, cur)) parts.unshift(localName(ts, sf, cur));
 		else if (ts.isClassDeclaration(cur) && cur.name) parts.unshift(cur.name.getText(sf));
 		else if (ts.isModuleDeclaration(cur)) parts.unshift(cur.name.getText(sf));
-		cur = cur.parent;
+		// SAFETY: see the `Node.parent` type-lie note in `localName` above —
+		// `.parent` is typed `Node` but is `undefined` at the SourceFile root.
+		cur = cur.parent as TS.Node | undefined;
 	}
 	return parts.length > 0 ? parts.join(".") : MODULE_QUALIFIED_NAME;
 }
@@ -141,7 +148,9 @@ interface ResolvedSite {
 
 function anonymousContextOrdinal(ts: TsModule, sf: TS.SourceFile, target: TS.Node): number {
 	let boundary: TS.Node = sf;
-	let cursor = target.parent;
+	// SAFETY: see the `Node.parent` type-lie note in `localName` above —
+	// `.parent` is typed `Node` but is `undefined` at the SourceFile root.
+	let cursor = target.parent as TS.Node | undefined;
 	while (cursor && cursor !== sf) {
 		if (
 			(isFunctionLike(ts, cursor) && localName(ts, sf, cursor) !== "(anonymous)") ||

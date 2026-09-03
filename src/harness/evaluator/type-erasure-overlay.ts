@@ -18,7 +18,7 @@ import { nonNull } from "../../lib/non-null.js";
 import { stripAllLiterals } from "../strip-helpers.js";
 
 /** A single new instance of a type-erasure pattern, keyed for diffing. */
-export interface TypeErasureFinding {
+interface TypeErasureFinding {
 	line: number;
 	column: number;
 	ruleId: string;

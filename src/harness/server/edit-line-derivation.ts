@@ -47,20 +47,29 @@ export function deriveEditedLineNumbers(
 		return linesContainingNeedle(postEditContent, newString);
 	}
 	if (toolName === TOOL_MULTI_EDIT) {
-		const editsRaw = (toolInput as { edits?: unknown }).edits;
-		if (!Array.isArray(editsRaw)) return undefined;
-		const all = new Set<number>();
-		for (const edit of editsRaw) {
-			if (typeof edit !== "object" || edit === null) continue;
-			const newString = readString(edit as JsonObject, "new_string");
-			if (newString === undefined) continue;
-			for (const line of linesContainingNeedle(postEditContent, newString)) {
-				all.add(line);
-			}
-		}
-		return all.size > 0 ? all : undefined;
+		return editedLinesForMultiEdit(toolInput, postEditContent);
 	}
 	return undefined;
+}
+
+/**
+ * Union of each `MultiEdit` edit's `new_string` line range in
+ * `postEditContent`, or `undefined` if `toolInput.edits` isn't a decodable
+ * array or no edit was located.
+ */
+function editedLinesForMultiEdit(toolInput: JsonObject, postEditContent: string): Set<number> | undefined {
+	const editsRaw = (toolInput as { edits?: unknown }).edits;
+	if (!Array.isArray(editsRaw)) return undefined;
+	const all = new Set<number>();
+	for (const edit of editsRaw) {
+		if (typeof edit !== "object" || edit === null) continue;
+		const newString = readString(edit as JsonObject, "new_string");
+		if (newString === undefined) continue;
+		for (const line of linesContainingNeedle(postEditContent, newString)) {
+			all.add(line);
+		}
+	}
+	return all.size > 0 ? all : undefined;
 }
 
 function allLineNumbers(content: string): Set<number> {

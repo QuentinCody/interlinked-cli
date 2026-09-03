@@ -181,6 +181,30 @@ function coveringTestsWithoutGraph(
 }
 
 /**
+ * One BFS hop: for `current`, visit its dependents (files that import it),
+ * enqueue any not-yet-visited one, and collect it into `tests` when it is a
+ * test file. Mutates `visited`, `queue`, and `tests` in place — extracted so
+ * the BFS driver loop in {@link selectAffectedTests} stays flat.
+ */
+function expandDependents(
+	current: string,
+	projectRoot: string,
+	depView: DependencyView,
+	visited: Set<string>,
+	queue: string[],
+	tests: Set<string>,
+): void {
+	for (const dependent of depView.getDependents(current)) {
+		const depAbs = isAbsolute(dependent) ? dependent : resolve(projectRoot, dependent);
+		if (visited.has(depAbs)) continue;
+		visited.add(depAbs);
+		queue.push(depAbs);
+		const rel = toRepoRel(depAbs, projectRoot);
+		if (rel && isTestPath(rel)) tests.add(rel);
+	}
+}
+
+/**
  * Select the test files transitively affected by an edit to `editedRelPath`.
  *
  * Algorithm: BFS the reverse import graph from the edited file. Each visited node
@@ -227,14 +251,7 @@ export function selectAffectedTests(input: SelectAffectedTestsInput): string[] |
 	for (; head < queue.length && head < MAX_TRANSITIVE_HOPS; head++) {
 		const current = queue[head];
 		if (current === undefined) break;
-		for (const dependent of depView.getDependents(current)) {
-			const depAbs = isAbsolute(dependent) ? dependent : resolve(projectRoot, dependent);
-			if (visited.has(depAbs)) continue;
-			visited.add(depAbs);
-			queue.push(depAbs);
-			const rel = toRepoRel(depAbs, projectRoot);
-			if (rel && isTestPath(rel)) tests.add(rel);
-		}
+		expandDependents(current, projectRoot, depView, visited, queue, tests);
 	}
 	// Cap hit with frontier remaining → the walk was TRUNCATED and `tests` may be
 	// missing affected tests beyond the cap. An incomplete subset must never be

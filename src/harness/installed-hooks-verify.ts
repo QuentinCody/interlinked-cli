@@ -133,6 +133,32 @@ function checkNativeArray(
 	}
 }
 
+/** Handle the case where the expected fragment node at `pathPrefix` is a
+ *  plain object: recurse into each expected key, then flag owned entries
+ *  under native keys the fragment does NOT declare (e.g. a deregistered
+ *  event still registered in the document). Extracted from
+ *  `checkFragmentShape` to keep its nesting shallow. */
+function handleExpectedObj(
+	pathPrefix: string,
+	expectedObj: Record<string, unknown>,
+	docNode: unknown,
+	binaryAbs: string,
+	problems: string[],
+): void {
+	const docObj = asObject(docNode);
+	for (const [key, value] of Object.entries(expectedObj)) {
+		const childPath = pathPrefix === "" ? key : `${pathPrefix}.${key}`;
+		checkFragmentShape(childPath, value, docObj?.[key], binaryAbs, problems);
+	}
+	if (docObj === null) return;
+	for (const [key, value] of Object.entries(docObj)) {
+		if (Object.hasOwn(expectedObj, key)) continue;
+		if (!containsOwnedBinary(value, binaryAbs)) continue;
+		const childPath = pathPrefix === "" ? key : `${pathPrefix}.${key}`;
+		problems.push(`${childPath}: owned hook entry at a native path the adapter no longer declares`);
+	}
+}
+
 /** Walk the expected fragment against the document AT THE SAME PATHS. */
 function checkFragmentShape(
 	pathPrefix: string,
@@ -147,22 +173,7 @@ function checkFragmentShape(
 	}
 	const expectedObj = asObject(expectedNode);
 	if (expectedObj !== null) {
-		const docObj = asObject(docNode);
-		for (const [key, value] of Object.entries(expectedObj)) {
-			const childPath = pathPrefix === "" ? key : `${pathPrefix}.${key}`;
-			checkFragmentShape(childPath, value, docObj?.[key], binaryAbs, problems);
-		}
-		// Owned entries under native keys the fragment does NOT declare — e.g.
-		// a deregistered event still registered in the document.
-		if (docObj !== null) {
-			for (const [key, value] of Object.entries(docObj)) {
-				if (Object.hasOwn(expectedObj, key)) continue;
-				if (containsOwnedBinary(value, binaryAbs)) {
-					const childPath = pathPrefix === "" ? key : `${pathPrefix}.${key}`;
-					problems.push(`${childPath}: owned hook entry at a native path the adapter no longer declares`);
-				}
-			}
-		}
+		handleExpectedObj(pathPrefix, expectedObj, docNode, binaryAbs, problems);
 		return;
 	}
 	if (!structurallyEqual(expectedNode, docNode)) {

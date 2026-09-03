@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bindSimplificationAgentCiHandoff } from "./simplification-agent-ci-request.js";
+import { bindSimplificationAgentCiHandoff } from "./simplification-agent-ci-request-canonical.js";
 import type { SimplificationDeepHandoffRequest } from "./simplification-types.js";
 
 const handoff: SimplificationDeepHandoffRequest = {

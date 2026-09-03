@@ -22,7 +22,7 @@ import { scanInPlaceAndPatchVerbs, withUnwrappedCommands } from "./pre-checks-ba
 
 // Parsing primitives live in ./pre-checks-bash-write-shared.ts (leaf module,
 // breaks the detect↔verbs import cycle). Re-exported for existing importers.
-export { CODE_FILE_EXT_RE, splitCommandSegments, splitShellWordsLoose, stripOuterQuotes };
+export { CODE_FILE_EXT_RE };
 
 /**
  * True when the write target lands INSIDE the guarded project root — the only

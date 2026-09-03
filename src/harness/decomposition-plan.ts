@@ -100,7 +100,7 @@ function pascal(word: string): string {
 }
 
 /** Up to `max` distinct identifiers from an expression, in source order, outside nested functions. */
-function identifiersOf(ts: TsModule, node: TS.Node | undefined, max = MAX_NAME_IDENTS): string[] {
+export function identifiersOf(ts: TsModule, node: TS.Node | undefined, max = MAX_NAME_IDENTS): string[] {
 	const found: string[] = [];
 	const visit = (n: TS.Node): void => {
 		if (found.length >= max || isFunctionLike(ts, n)) return;
@@ -115,7 +115,7 @@ function identifiersOf(ts: TsModule, node: TS.Node | undefined, max = MAX_NAME_I
 	return found;
 }
 
-function joinIdents(idents: readonly string[], fallback: string): string {
+export function joinIdents(idents: readonly string[], fallback: string): string {
 	const joined = idents.map(pascal).join("");
 	return joined.length === 0 ? fallback : joined;
 }

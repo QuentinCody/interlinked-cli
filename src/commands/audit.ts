@@ -15,6 +15,49 @@ import type { OptionValues } from "commander";
 import { verifyAuditChainStreaming } from "../lib/audit-chain.js";
 import { c } from "../lib/formatter.js";
 
+function printAuditText(
+	result: Awaited<ReturnType<typeof verifyAuditChainStreaming>>,
+	coveragePct: number | null,
+): void {
+	const status = result.valid ? c.green("VALID") : c.red("TAMPERED");
+	console.log(c.bold("Audit Chain Verification"));
+	console.log(`Status:                ${status}`);
+	console.log(`Total events:          ${result.total_events.toLocaleString()}`);
+	console.log(
+		`Guard decision events: ${result.guard_events.toLocaleString()}  (${coveragePct ?? 0}% hash-chained)`,
+	);
+	console.log(`Chained events:        ${result.chained_events.toLocaleString()}`);
+	if (result.unchained_guard_events > 0) {
+		console.log(
+			`${c.yellow("Legacy / unchained:")}    ${result.unchained_guard_events.toLocaleString()}  (written before the chain shipped)`,
+		);
+	}
+	if (result.last_hash) {
+		console.log(`Last hash:             ${result.last_hash.slice(0, 16)}…`);
+	}
+	if (!result.valid && result.first_bad_reason) {
+		console.log(c.red("\nTamper detected:"));
+		console.log(`  Chained event #${result.first_bad_index}`);
+		if (result.first_bad_line_number) {
+			console.log(`  activity.jsonl line ${result.first_bad_line_number}`);
+		}
+		console.log(`  Reason: ${result.first_bad_reason}`);
+		console.log(
+			c.dim(
+				"\nOWASP ASI11 (Agent Untraceability) — re-snapshotting from the last\nknown-good hash is the recovery path. Investigate writes to\n.interlinked/activity.jsonl between then and now.",
+			),
+		);
+	} else if (result.valid && result.chained_events > 0) {
+		console.log(
+			c.dim("OWASP ASI11 (Agent Untraceability) — chain intact, no rewrites detected."),
+		);
+	} else if (result.guard_events === 0) {
+		console.log(
+			c.dim("No guard decision events yet — run a session to populate the chain."),
+		);
+	}
+}
+
 export async function auditVerifyCommand(opts: OptionValues): Promise<void> {
 	const cwd = typeof opts.cwd === "string" ? opts.cwd : process.cwd();
 	const isJson = Boolean(opts.json);
@@ -39,43 +82,7 @@ export async function auditVerifyCommand(opts: OptionValues): Promise<void> {
 	if (isJson) {
 		console.log(JSON.stringify(data, null, 2));
 	} else {
-		const status = result.valid ? c.green("VALID") : c.red("TAMPERED");
-		console.log(c.bold("Audit Chain Verification"));
-		console.log(`Status:                ${status}`);
-		console.log(`Total events:          ${result.total_events.toLocaleString()}`);
-		console.log(
-			`Guard decision events: ${result.guard_events.toLocaleString()}  (${data.coverage_pct ?? 0}% hash-chained)`,
-		);
-		console.log(`Chained events:        ${result.chained_events.toLocaleString()}`);
-		if (result.unchained_guard_events > 0) {
-			console.log(
-				`${c.yellow("Legacy / unchained:")}    ${result.unchained_guard_events.toLocaleString()}  (written before the chain shipped)`,
-			);
-		}
-		if (result.last_hash) {
-			console.log(`Last hash:             ${result.last_hash.slice(0, 16)}…`);
-		}
-		if (!result.valid && result.first_bad_reason) {
-			console.log(c.red("\nTamper detected:"));
-			console.log(`  Chained event #${result.first_bad_index}`);
-			if (result.first_bad_line_number) {
-				console.log(`  activity.jsonl line ${result.first_bad_line_number}`);
-			}
-			console.log(`  Reason: ${result.first_bad_reason}`);
-			console.log(
-				c.dim(
-					"\nOWASP ASI11 (Agent Untraceability) — re-snapshotting from the last\nknown-good hash is the recovery path. Investigate writes to\n.interlinked/activity.jsonl between then and now.",
-				),
-			);
-		} else if (result.valid && result.chained_events > 0) {
-			console.log(
-				c.dim("OWASP ASI11 (Agent Untraceability) — chain intact, no rewrites detected."),
-			);
-		} else if (result.guard_events === 0) {
-			console.log(
-				c.dim("No guard decision events yet — run a session to populate the chain."),
-			);
-		}
+		printAuditText(result, data.coverage_pct);
 	}
 
 	if (!result.valid) {

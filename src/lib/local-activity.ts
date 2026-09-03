@@ -127,6 +127,34 @@ interface ReadActivityOpts {
 	cwd?: string | undefined;
 }
 
+/** One parsed activity line's disposition: a kept event, a signal to stop
+ *  scanning (lines are newest -> oldest, so `since` cutoff makes every
+ *  remaining line stale too), or `null` to skip this line and keep going
+ *  (malformed JSON, or filtered out by agent/type). */
+type ActivityLineResult = { event: LocalActivityEvent } | { stop: true } | null;
+
+/** Parse + filter one activity.jsonl line against the read options. Pulled out
+ *  of `readActivityStream`'s loop body so the loop itself stays flat. */
+function parseActivityLine(line: string, opts: ReadActivityOpts | undefined): ActivityLineResult {
+	try {
+		const event = parseLocalActivityEvent(JSON.parse(line));
+		if (!event) return null;
+		if (opts?.since && new Date(event.ts).getTime() < opts.since) {
+			return { stop: true };
+		}
+		if (opts?.agent && event.agent !== opts.agent) {
+			return null;
+		}
+		if (opts?.type && event.type !== opts.type) {
+			return null;
+		}
+		return { event };
+	} catch (_err) {
+		/* intentional: skip malformed JSONL lines to keep log readable */
+		return null;
+	}
+}
+
 /** Read + filter the legacy full-fidelity activity.jsonl stream (ALL event types). */
 function readActivityStream(opts?: ReadActivityOpts): LocalActivityEvent[] {
 	const path = getActivityPath(opts?.cwd);
@@ -138,25 +166,12 @@ function readActivityStream(opts?: ReadActivityOpts): LocalActivityEvent[] {
 	const events: LocalActivityEvent[] = [];
 
 	for (const line of lines) {
-		try {
-			const event = parseLocalActivityEvent(JSON.parse(line));
-			if (!event) continue;
-			if (opts?.since && new Date(event.ts).getTime() < opts.since) {
-				// We read newest -> oldest, so older lines won't match either.
-				break;
-			}
-			if (opts?.agent && event.agent !== opts.agent) {
-				continue;
-			}
-			if (opts?.type && event.type !== opts.type) {
-				continue;
-			}
-			events.push(event);
-			if (limit && events.length >= limit) {
-				break;
-			}
-		} catch (_err) {
-			/* intentional: skip malformed JSONL lines to keep log readable */
+		const result = parseActivityLine(line, opts);
+		if (!result) continue;
+		if ("stop" in result) break;
+		events.push(result.event);
+		if (limit && events.length >= limit) {
+			break;
 		}
 	}
 

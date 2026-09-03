@@ -74,6 +74,29 @@ const EMERGENCY_SHRINK_COOLDOWN_MS = 120_000;
 const IDLE_SHRINK_AFTER_MS = 5 * 60_000;
 
 /**
+ * Emergency valve: shrink the moment heap use crosses the pressure fraction —
+ * waiting for idleness or the RSS ceiling is what let spikes abort V8 (heap
+ * cap < RSS ceiling, storm postmortem 2026-08-17). Returns the (possibly
+ * updated) `lastEmergencyShrinkAt` timestamp for the caller to hold.
+ */
+function shrinkOnHeapPressure(
+	hooks: DaemonTimerHooks,
+	readHeap: () => { usedBytes: number; limitBytes: number },
+	lastEmergencyShrinkAt: number,
+): number {
+	if (!hooks.shrinkIdleMemory) return lastEmergencyShrinkAt;
+	const heap = readHeap();
+	const pressured = heap.limitBytes > 0 && heap.usedBytes / heap.limitBytes > EMERGENCY_HEAP_FRACTION;
+	if (!pressured || Date.now() - lastEmergencyShrinkAt < EMERGENCY_SHRINK_COOLDOWN_MS) {
+		return lastEmergencyShrinkAt;
+	}
+	const shrinkAt = Date.now();
+	hooks.shrinkIdleMemory();
+	hooks.onHeapPressure?.(Math.round(heap.usedBytes / BYTES_PER_MB), Math.round(heap.limitBytes / BYTES_PER_MB));
+	return shrinkAt;
+}
+
+/**
  * Start the daemon's background timers. Returns a stop function for tests.
  *
  * The memory timer is the hard backstop after removing compiler/test fanout
@@ -152,19 +175,7 @@ export function installDaemonTimers(hooks: DaemonTimerHooks): () => void {
 		// Emergency valve: shrink the moment heap use crosses the pressure
 		// fraction — waiting for idleness or the RSS ceiling is what let spikes
 		// abort V8 (heap cap < RSS ceiling, storm postmortem 2026-08-17).
-		if (hooks.shrinkIdleMemory) {
-			const heap = readHeap();
-			const pressured =
-				heap.limitBytes > 0 && heap.usedBytes / heap.limitBytes > EMERGENCY_HEAP_FRACTION;
-			if (pressured && Date.now() - lastEmergencyShrinkAt >= EMERGENCY_SHRINK_COOLDOWN_MS) {
-				lastEmergencyShrinkAt = Date.now();
-				hooks.shrinkIdleMemory();
-				hooks.onHeapPressure?.(
-					Math.round(heap.usedBytes / BYTES_PER_MB),
-					Math.round(heap.limitBytes / BYTES_PER_MB),
-				);
-			}
-		}
+		lastEmergencyShrinkAt = shrinkOnHeapPressure(hooks, readHeap, lastEmergencyShrinkAt);
 		if (!shouldRecycle(rss, ceiling)) {
 			return;
 		}

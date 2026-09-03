@@ -484,7 +484,7 @@ describe("mutationBaselineCommand", () => {
 		expect(out).not.toContain("more");
 	});
 
-	it("defaults cwd to process.cwd() when no --cwd is passed", () => {
+	it("mutationBaselineCommand defaults cwd to process.cwd() when no --cwd is passed", () => {
 		// Drive the `opts.cwd || process.cwd()` fallback for the baseline command.
 		// Spy rather than process.chdir() — see the sibling test above: chdir
 		// throws under Stryker's worker-thread pool and broke the mutation dry run.

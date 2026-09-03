@@ -184,7 +184,8 @@ The cap and the grandfather list live in `.interlinked/large-files-baseline.json
 (`files`) records a high-water line count per offender: a listed file may shrink
 or hold but not grow past its recorded count. Drop each entry once its file falls
 below `max_lines` (decompose it, or let it become `@codegen-data`-exempt) — the
-goal end-state is an empty list. Codegen DATA — the `.mjs` hook script carried as
+goal end-state is an empty list (reached 2026-09-02: 0 files over cap, list
+empty; keep it that way). Codegen DATA — the `.mjs` hook script carried as
 template strings under `src/lib/hook-template-chunks/`, large embedded data
 tables — is exempt via a `@codegen-data` header marker, NOT grandfathered; the
 marker is scoped to the line cap only (tsc/lint still run). Ratchet the cap down
@@ -533,7 +534,7 @@ sit at 54% (20/37), so backfill those first. Re-derive these numbers with
 | `src/harness/structure/adoption.ts` | Coverage calculation per category (0.0–1.0) |
 | `src/harness/structure/baseline.ts` | Baseline suppression matching, SHA-256 context hashing |
 | `src/harness/structure/extractors/` | 7 generic extractors: module, package, env, config, test, docs, examples |
-| `src/harness/structure/rules/` | 6 built-in rule families: public symbol companions, env/config key companions, layer/package boundaries, glossary residue |
+| `src/harness/structure/rules/` | 7 built-in rule families: public symbol companions, public symbol test-case, env/config key companions, layer/package boundaries, glossary residue |
 
 **Auto-generated reference docs** (run `npm run docs` to regenerate):
 | File | Contents |
@@ -1002,6 +1003,68 @@ cannot get from fixtures):
   new file now yields ONE "move in progress" note.
 - `ubs_string_concat_in_loop` fired on `cursor.offset += n`; numeric-named
   targets / numeric RHS evidence are now exempt.
+
+**Second live run (lines per file, 2026-09-02):** 30 over-cap files → 0, the
+grandfather list emptied, 56 new modules, 0 units failed. Each unit used
+`metrics split-plan` for the cut and a verify probe that ran
+`circular_imports` + `dead_exports` + `dead_type_exports` per file plus a
+whole-repo `interlinked deadcode` diff against a pre-campaign baseline: 0 new
+dead exports, 0 new unreachable files. Lessons:
+- **Exporter-first splits are inherently transient-noisy.** Between "sibling
+  written" and "parent block deleted" every duplicate detector fires
+  (`duplicate_type_declaration`, `code_clones`, `extracted_helper_duplicate`,
+  TS2323 redeclare). The move-in-progress classification now covers types as
+  well as functions; expect one note per sibling, not one per symbol.
+- **A probe that calls a 3-arg detector with 2 args reports `undefined`
+  findings.** Three units lost time to `checkDeadTypeExports(content, file)`
+  missing its `cwd`. A verify probe is code too: run it against a known-clean
+  file before trusting a red result.
+- **Concurrent units see each other's transient breakage** through the
+  project-wide tsc pass and `vitest related`. Verifiers must attribute a red
+  result to a file in their own unit before rejecting; the campaign's falsifier
+  prompt now requires file:line evidence for exactly that reason.
+- `write_without_mkdir` fired on writes directly inside a `mkdtempSync` dir;
+  fixed to recognize mkdtemp-created directories.
+
+**Deletion wave (2026-09-02, after the two campaigns):** what the deterministic
+detectors could and could not decide, measured:
+- `interlinked deadcode` dead exports: 41 → 0 (26 un-exported, 12 deleted);
+  typed dead branches 18 → 0 (5 impossible branches deleted, 8 were TYPES THAT
+  LIED — `Node.parent`, sparse-array holes, a null session a test proves —
+  where the guard stayed and the type was widened). Re-export shims left by
+  the splits: every test-only shim removed and the tests re-pointed.
+- Test-hygiene detectors were mostly wrong at the deletion decision:
+  `duplicate_test_names` 10 → 1 true duplicate (names match, bodies differ:
+  rename, not delete); `test_missing_sut_import` 87 → 0 orphans (it keys on
+  the filename stem, and black-box CLI/daemon tests import no module by
+  design); `assertion_free_test` 2 → 0 (assertion in a helper / two lines
+  down). They locate candidates; they do not adjudicate.
+- Product files with no non-test importer: 43 → 3 real orphans. The rest were
+  entry points (bin/exports/setupFiles/build entries/evals) or designed-but-
+  unwired modules. SEVEN carried a commit message or design doc claiming the
+  feature was live (`git log -S` showed six were never imported, one was
+  reverted and never re-landed). Decisions: Stop-phase self-heal, CRAP
+  telemetry, and `public_symbol_test_case` wired; agent-io primitives deleted
+  (spec kept); dead-code-signal, retrieval-cost, graph-prediction harvester
+  left as is. The generalizable check: "commit/doc says X now runs, nothing
+  imports X" — a claim-vs-import-graph detector, not yet built.
+- `interlinked deadcode`'s `testOnlyImporterFiles` lane over-reports ~3x
+  (147 vs 43): it does not count `export … from` barrels or dynamic imports
+  as importers. Fix before trusting it.
+
+**Third live run (cognitive 30 → 20, 2026-09-02):** 127 functions in 110
+files, 0 failed, ledger regenerated empty; distribution afterwards p95 12,
+p99 17, max 20, 293 over the advisory 15 (was 406). The cognitive planner
+(`cognitive-plan.ts`, wired as the `↳ plan:` line) was consulted before every
+edit: followed verbatim on 47 units, in substance on 15. Where agents deviated
+they were right to: a loop body that mutates caller state or carries
+`break`/`continue` cannot become a bare helper call, so they extracted the
+DEEPEST sub-block instead (the next rung on the same ladder). The estimator's
+residual-guard correction holds (delta 0 on hand-applied plans) but it does
+not price loop-local state that must be threaded through a helper's
+signature — the remaining source of 3–9 point over-estimates. 106 blocks,
+16 judged false positives, all transient exporter-first noise or
+cross-unit tsc attribution.
 
 ## Conventions
 

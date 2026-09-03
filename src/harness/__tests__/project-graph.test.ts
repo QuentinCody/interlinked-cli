@@ -17,7 +17,8 @@ vi.mock("node:fs", () => ({
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { nonNull } from "../../lib/non-null.js";
-import { ProjectGraph, parseExports, parseImports, tryResolveFile } from "../project-graph.js";
+import { ProjectGraph, parseExports, parseImports } from "../project-graph.js";
+import { tryResolveFile } from "../project-graph/resolve.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

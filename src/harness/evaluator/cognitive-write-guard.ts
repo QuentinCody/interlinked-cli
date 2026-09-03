@@ -25,6 +25,7 @@
 import { readFileSync } from "node:fs";
 import type { JsonObject } from "../../lib/json-types.js";
 import { type CognitiveComplexityEntry, computeCognitiveAst } from "../checks/cognitive-ast.js";
+import { cognitivePlanToMessage, planCognitiveFlattening } from "../cognitive-plan.js";
 import { makeGrandfatherResolver } from "../function-complexity-baseline.js";
 import { maxCognitiveFor, metricDef } from "../metric-caps.js";
 import { checkPerFunctionMetricWrite, type MetricGateSpec } from "./per-function-metric-gate.js";
@@ -158,7 +159,21 @@ const COGNITIVE_SPEC: MetricGateSpec<CognitiveComplexityEntry> = {
 		"Flatten: replace nested if/else with guard clauses (early return), or extract the " +
 		"deepest-nested block into its own named function — extracting it as-is without " +
 		"flattening only relocates the nesting cost, it doesn't remove it.",
+	planFor: cognitiveFlatteningHint,
 };
+
+/** The fewest flattening moves that bring `fnName` under `cap`, rendered as one
+ *  sentence for the `↳ plan:` sub-line (null = nothing to say). The cyclomatic
+ *  gate's twin is `decompositionPlanHint` in complexity-write-guard.ts. */
+function cognitiveFlatteningHint(
+	after: string,
+	filePath: string,
+	fnName: string,
+	cap: number,
+): string | null {
+	const plan = planCognitiveFlattening(after, filePath, fnName, cap);
+	return plan ? cognitivePlanToMessage(plan) : null;
+}
 
 /**
  * Block a Write/Edit/MultiEdit/apply_patch that introduces or worsens an

@@ -4,6 +4,10 @@
     "cyclomatic": {
       "cap": 16,
       "entries": []
+    },
+    "cognitive": {
+      "cap": 20,
+      "entries": []
     }
   }
 }

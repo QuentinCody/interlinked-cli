@@ -196,29 +196,27 @@ export function createTrajectoryDetector(opts?: TrajectoryOptions): TrajectoryDe
 // Detectors
 // ===========================================
 
-/** Tool-loop: same tool_name + similar tool_input called > 5 times in 60s
- *  with no observable state change in the intervening events. */
-function detectToolLoop(buffer: TrajectoryEvent[]): TrajectoryFinding | null {
-	const last = buffer[buffer.length - 1];
-	if (!last) return null;
-	const cutoff = last.ts_ms - TOOL_LOOP_WINDOW_MS;
-
-	// Count occurrences keyed by (tool_name, normalized_input) within the
-	// recent window AFTER the most recent state-change event. Tool calls
-	// before a state change are conceptually a fresh batch.
-	let stateChangeIdx = -1;
+/** Index of the most recent observable state change (Edit/Write/MultiEdit
+ *  PostToolUse) at or after `cutoff`; -1 when the window holds none. */
+function findLastStateChangeIndex(buffer: TrajectoryEvent[], cutoff: number): number {
 	for (let i = buffer.length - 1; i >= 0; i--) {
 		const e = buffer[i];
 		if (!e) continue;
 		if (e.ts_ms < cutoff) break;
-		if (STATE_CHANGE_TOOLS.has(e.tool_name) && e.hook_event === "PostToolUse") {
-			stateChangeIdx = i;
-			break;
-		}
+		if (STATE_CHANGE_TOOLS.has(e.tool_name) && e.hook_event === "PostToolUse") return i;
 	}
+	return -1;
+}
 
+/** Tally PreToolUse events from `startIdx` onward, keyed by tool name plus
+ *  normalized input, skipping anything older than `cutoff`. */
+function countCallsByInput(
+	buffer: TrajectoryEvent[],
+	startIdx: number,
+	cutoff: number,
+): Map<string, { count: number; events: TrajectoryEvent[] }> {
 	const counts = new Map<string, { count: number; events: TrajectoryEvent[] }>();
-	for (let i = stateChangeIdx + 1; i < buffer.length; i++) {
+	for (let i = startIdx; i < buffer.length; i++) {
 		const e = buffer[i];
 		if (!e) continue;
 		if (e.ts_ms < cutoff) continue;
@@ -232,6 +230,21 @@ function detectToolLoop(buffer: TrajectoryEvent[]): TrajectoryFinding | null {
 			counts.set(key, { count: 1, events: [e] });
 		}
 	}
+	return counts;
+}
+
+/** Tool-loop: same tool_name + similar tool_input called > 5 times in 60s
+ *  with no observable state change in the intervening events. */
+function detectToolLoop(buffer: TrajectoryEvent[]): TrajectoryFinding | null {
+	const last = buffer[buffer.length - 1];
+	if (!last) return null;
+	const cutoff = last.ts_ms - TOOL_LOOP_WINDOW_MS;
+
+	// Count occurrences keyed by (tool_name, normalized_input) within the
+	// recent window AFTER the most recent state-change event. Tool calls
+	// before a state change are conceptually a fresh batch.
+	const stateChangeIdx = findLastStateChangeIndex(buffer, cutoff);
+	const counts = countCallsByInput(buffer, stateChangeIdx + 1, cutoff);
 
 	for (const [key, entry] of counts) {
 		if (entry.count > TOOL_LOOP_THRESHOLD) {
@@ -294,6 +307,14 @@ function detectDestructiveSequence(buffer: TrajectoryEvent[]): TrajectoryFinding
  *  with the recreate temporally between the two rms. Stops scanning once
  *  `cutoff` is passed. Returns null if the window closes before both are
  *  found. */
+/** True when `cmd` matches `rx` and the first path it names overlaps
+ *  `lastTarget`. */
+function commandTouchesTarget(cmd: string, rx: RegExp, lastTarget: string): boolean {
+	if (!rx.test(cmd)) return false;
+	const target = extractFirstPath(cmd, rx);
+	return Boolean(target && pathsOverlap(target, lastTarget));
+}
+
 function findDestructiveCyclePrefix(
 	buffer: TrajectoryEvent[],
 	cutoff: number,
@@ -309,19 +330,13 @@ function findDestructiveCyclePrefix(
 		const cmd = readCommand(e.tool_input);
 		if (!cmd) continue;
 
-		if (recreateAt === -1 && RECREATE_RX.test(cmd)) {
-			const target = extractFirstPath(cmd, RECREATE_RX);
-			if (target && pathsOverlap(target, lastTarget)) {
-				recreateAt = i;
-			}
+		if (recreateAt === -1) {
+			if (commandTouchesTarget(cmd, RECREATE_RX, lastTarget)) recreateAt = i;
 			continue;
 		}
-		if (recreateAt !== -1 && DESTRUCTIVE_RX.test(cmd)) {
-			const target = extractFirstPath(cmd, DESTRUCTIVE_RX);
-			if (target && pathsOverlap(target, lastTarget)) {
-				earlierRmAt = i;
-				break;
-			}
+		if (commandTouchesTarget(cmd, DESTRUCTIVE_RX, lastTarget)) {
+			earlierRmAt = i;
+			break;
 		}
 	}
 

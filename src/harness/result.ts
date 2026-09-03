@@ -1,11 +1,7 @@
-import type {
-	AnyTaggedError,
-	TaggedErrorClass,
-	TaggedErrorInstance,
-} from "./result-tagged-error.js";
+import type { AnyTaggedError } from "./result-tagged-error.js";
 
 export { TaggedError } from "./result-tagged-error.js";
-export type { AnyTaggedError, TaggedErrorClass, TaggedErrorInstance };
+export type { AnyTaggedError };
 // ===========================================
 // Result<T, E> — Rust-style error handling for TypeScript
 // ===========================================

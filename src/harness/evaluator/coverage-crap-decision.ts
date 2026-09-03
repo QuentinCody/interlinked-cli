@@ -56,8 +56,9 @@ export function defaultCyclomaticFor(language: CoverageLanguage): CyclomaticAnal
 	}
 }
 
-/** One CRAP violation for an edited function — drives the block message. */
-interface CrapViolation {
+/** One CRAP violation for an edited function — drives the block message.
+ *  Exported so callers (the telemetry hook below) can type it. */
+export interface CrapViolation {
 	function: string;
 	line: number;
 	cyclomatic: number;
@@ -203,6 +204,13 @@ function blockForCrap(relPath: string, worst: CrapViolation): HarnessDecision {
 export function decideCrap(
 	input: CrapInput,
 	onDegrade: (relPath: string, why: string) => HarnessDecision,
+	/** Fired exactly once, only when a block is about to be returned, with the
+	 *  single violation that drives it (`blockForCrap` only ever surfaces the
+	 *  worst of the touched functions) — the telemetry hook's one shown-finding
+	 *  observation point. Never called on degrade/null paths: those aren't a
+	 *  CRAP finding being shown, just "couldn't measure" or "nothing over
+	 *  threshold". */
+	onShown?: (relPath: string, worst: CrapViolation) => void,
 ): HarnessDecision | null {
 	if (!input.analyzer) {
 		return onDegrade(input.relPath, "no cyclomatic analyzer for CRAP — fail-open");
@@ -219,5 +227,6 @@ export function decideCrap(
 		: crapViolationsPerFunction(input.relPath, touched, input.cov, input.threshold);
 	const worst = violations[0];
 	if (!worst) return null;
+	onShown?.(input.relPath, worst);
 	return blockForCrap(input.relPath, worst);
 }

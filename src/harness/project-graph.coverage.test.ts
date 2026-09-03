@@ -69,7 +69,8 @@ vi.mock("node:fs", () => ({
 }));
 
 import { nonNull } from "../lib/non-null.js";
-import { ProjectGraph, REACHABILITY_DEPTH_CAP } from "./project-graph.js";
+import { ProjectGraph } from "./project-graph.js";
+import { REACHABILITY_DEPTH_CAP } from "./project-graph-reachability.js";
 
 function resetFs(): void {
 	fileContents.clear();

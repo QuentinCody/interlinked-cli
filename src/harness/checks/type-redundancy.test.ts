@@ -26,13 +26,13 @@ afterEach(() => {
 });
 
 describe("checkDuplicateTypeDeclaration — positive (must fire)", () => {
-	it("P1: same name, identical body in a sibling module → merge guidance", () => {
+	it("P1: same name, identical body in a DIFFERENT-directory module → merge guidance (real homonym, not a split)", () => {
 		const content = "export interface Shape {\n\tid: string;\n}\n";
 		const cwd = fixture({
-			"src/a.ts": content,
-			"src/b.ts": "export interface Shape {\n\tid: string;\n}\n",
+			"src/a/mod.ts": content,
+			"src/b/mod.ts": "export interface Shape {\n\tid: string;\n}\n",
 		});
-		const out = checkDuplicateTypeDeclaration(content, join(cwd, "src/a.ts"), cwd);
+		const out = checkDuplicateTypeDeclaration(content, join(cwd, "src/a/mod.ts"), cwd);
 		expect(out).toHaveLength(1);
 		expect(out[0]?.text).toContain("IDENTICAL body");
 		expect(out[0]?.line).toBe(1);
@@ -47,6 +47,48 @@ describe("checkDuplicateTypeDeclaration — positive (must fire)", () => {
 		const out = checkDuplicateTypeDeclaration(content, join(cwd, "src/a.ts"), cwd);
 		expect(out).toHaveLength(1);
 		expect(out[0]?.text).toContain("DIFFERENT body");
+	});
+});
+
+describe("checkDuplicateTypeDeclaration — move in progress (positive, grouped)", () => {
+	it("P5: new file, one identical type still in a same-directory sibling → exactly one move-in-progress finding", () => {
+		const content = "export interface BindOptions {\n\tport: number;\n}\n";
+		const cwd = fixture({
+			"src/session-daemon-bind.ts": content,
+			"src/session-daemon.ts": "export interface BindOptions {\n\tport: number;\n}\n",
+		});
+		const out = checkDuplicateTypeDeclaration(
+			content,
+			join(cwd, "src/session-daemon-bind.ts"),
+			cwd,
+		);
+		expect(out).toHaveLength(1);
+		expect(out[0]?.text).toContain("move in progress: 1 type(s)");
+		expect(out[0]?.text).toContain("session-daemon.ts");
+	});
+
+	it("P6: seven identical types moved into one new sibling → still exactly one finding", () => {
+		const names = Array.from({ length: 7 }, (_, i) => `Survivor${i}`);
+		const decl = (n: string) => `export interface ${n} {\n\tid: string;\n}\n`;
+		const content = names.map(decl).join("\n");
+		const cwd = fixture({
+			"src/survivors-new.ts": content,
+			"src/survivors.ts": names.map(decl).join("\n"),
+		});
+		const out = checkDuplicateTypeDeclaration(content, join(cwd, "src/survivors-new.ts"), cwd);
+		expect(out).toHaveLength(1);
+		expect(out[0]?.text).toContain("move in progress: 7 type(s)");
+	});
+
+	it("N6: after the sibling's copy is deleted, nothing fires", () => {
+		const content = "export interface BindOptions {\n\tport: number;\n}\n";
+		const cwd = fixture({
+			"src/session-daemon-bind.ts": content,
+			"src/session-daemon.ts": "export const unrelated = 1;\n",
+		});
+		expect(
+			checkDuplicateTypeDeclaration(content, join(cwd, "src/session-daemon-bind.ts"), cwd),
+		).toEqual([]);
 	});
 });
 

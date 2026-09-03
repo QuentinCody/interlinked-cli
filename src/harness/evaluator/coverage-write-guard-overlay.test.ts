@@ -1,7 +1,12 @@
 // Unit tests for coverage-write-guard-overlay.ts — the overlay-run
 // sub-decisions extracted out of `runOverlayAndDecide`.
 
-import { describe, expect, it } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { FunctionComplexityEntry } from "../checks/cyclomatic.js";
+import { CRAP_TELEMETRY_FILENAME } from "../crap-telemetry.js";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
 import type { CoverageRunResult } from "../coverage-runner.js";
 import type { HarnessEvent } from "../types.js";
@@ -167,15 +172,100 @@ describe("evaluateCrapGate", () => {
 
 	it("P1: fail-open loud-degrades when block_on_crap is on but no analyzer exists", () => {
 		const ctx = baseCtx({ blockOnCrap: true });
-		const decision = evaluateCrapGate(ctx, deps(() => null), cov());
+		const decision = evaluateCrapGate(ctx, deps(() => null), cov(), event());
 		expect(decision?.decision).toBe("allow");
 		expect(decision?.warnings?.[0]).toContain("no cyclomatic analyzer for CRAP");
 	});
 
 	it("N1: skips entirely (null) when block_on_crap is off", () => {
 		const ctx = baseCtx({ blockOnCrap: false });
-		const decision = evaluateCrapGate(ctx, deps(() => null), cov());
+		const decision = evaluateCrapGate(ctx, deps(() => null), cov(), event());
 		expect(decision).toBeNull();
+	});
+
+	// ---------------------------------------------------------------------
+	// Telemetry wiring (2026-09-02): appendCrapTelemetry was exported but
+	// never called. `evaluateCrapGate` is the one place a CRAP finding is
+	// both COMPUTED and SHOWN to the agent — see the block comment on
+	// `recordCrapShown` above for why this site was chosen over the
+	// `snapshotCrap` pre-edit baseline in pre-tool-pipeline-stages.ts.
+	// ---------------------------------------------------------------------
+	let tmpRoot: string;
+	beforeEach(() => {
+		tmpRoot = mkdtempSync(join(tmpdir(), "crap-gate-telem-"));
+	});
+	afterEach(() => {
+		rmSync(tmpRoot, { recursive: true, force: true });
+	});
+
+	function riskyAnalyzer(): CoverageWriteDeps["cyclomaticFor"] {
+		const entry: FunctionComplexityEntry = {
+			name: "risky",
+			line: 1,
+			endLine: 5,
+			cyclomatic: 10,
+			language: "js_ts",
+		};
+		// `cyclomaticFor` is language -> analyzer; the analyzer itself is
+		// (content, filePath) -> entries. Two levels, easy to conflate.
+		return () => () => [entry];
+	}
+
+	function fullyUncoveredCov(): PerFileCoverage {
+		// SAFETY: same fixture-stub contract as `cov()` above — only the range
+		// fields crapViolationsPerLine reads are populated.
+		return {
+			coveredLines: new Set<number>(),
+			uncoveredLines: new Set([1, 2, 3, 4, 5]),
+			totalLines: 5,
+		} as unknown as PerFileCoverage;
+	}
+
+	function telemetryPath(): string {
+		return join(tmpRoot, ".interlinked", CRAP_TELEMETRY_FILENAME);
+	}
+
+	// P2: a real CRAP block (cyclomatic 10, 0% coverage → score 110 ≥ the
+	// default 30 threshold) appends exactly one telemetry entry describing
+	// the SAME worst violation the block reason names.
+	it("P2: appends one telemetry entry for the shown CRAP block", () => {
+		const ctx = baseCtx({ blockOnCrap: true, projectRoot: tmpRoot });
+		const decision = evaluateCrapGate(ctx, deps(riskyAnalyzer()), fullyUncoveredCov(), event());
+		expect(decision?.decision).toBe("block");
+		expect(existsSync(telemetryPath())).toBe(true);
+		const lines = readFileSync(telemetryPath(), "utf-8").trim().split("\n");
+		expect(lines).toHaveLength(1);
+		const entry = JSON.parse(lines[0] ?? "{}");
+		expect(entry.function).toBe("risky");
+		expect(entry.file).toBe("src/a.ts");
+		expect(entry.complexity).toBe(10);
+		expect(entry.coverage_pct).toBe(0);
+		expect(entry.shown).toBe(true);
+		expect(entry.phase).toBe("pre_tool_use");
+		expect(entry.session_id).toBe("sess-1");
+		expect(entry.threshold).toBe(30);
+	});
+
+	// N2: a degrade (no analyzer) never appends telemetry — onShown only fires
+	// when a violation is actually returned as a block, not on the fail-open path.
+	it("N2: a fail-open degrade writes no telemetry", () => {
+		const ctx = baseCtx({ blockOnCrap: true, projectRoot: tmpRoot });
+		evaluateCrapGate(ctx, deps(() => null), cov(), event());
+		expect(existsSync(telemetryPath())).toBe(false);
+	});
+
+	// N3: dry_run (the `interlinked harness test` simulation contract) must
+	// never persist telemetry, even though the block itself still fires.
+	it("N3: a dry-run block does not append telemetry", () => {
+		const ctx = baseCtx({ blockOnCrap: true, projectRoot: tmpRoot });
+		const decision = evaluateCrapGate(
+			ctx,
+			deps(riskyAnalyzer()),
+			fullyUncoveredCov(),
+			{ ...event(), dry_run: true },
+		);
+		expect(decision?.decision).toBe("block");
+		expect(existsSync(telemetryPath())).toBe(false);
 	});
 });
 

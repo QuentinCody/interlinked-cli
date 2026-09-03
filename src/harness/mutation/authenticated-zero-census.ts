@@ -83,7 +83,7 @@ export function mintAuthenticatedNoTestPolicy(
 		policyId !== undefined &&
 		isExactZeroCensus(envelope.census) &&
 		bundle.acceptance.approved_policy_ids.includes(policyId);
-	if (!authorized || policyId === undefined) return null;
+	if (!authorized) return null;
 	const binding = Object.freeze({
 		resultHash: envelope.result_hash,
 		targetFile: envelope.job.target_file,

@@ -28,21 +28,17 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import type { JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
-import {
-	extractApplyPatchRaw,
-	looksLikeApplyPatch,
-	parseApplyPatchSections,
-	reconstructAfterContent,
-} from "../apply-patch-content.js";
+import { extractApplyPatchRaw, looksLikeApplyPatch, parseApplyPatchSections } from "../apply-patch-content.js";
 import { appendPlanHints, type PlanHintFn } from "./metric-gate-plan-hints.js";
 import { type FileGrandfather, ledgerOverCapViolation } from "../function-complexity-baseline.js";
 import { ledgerBlockLines } from "./metric-gate-ledger-line.js";
 import { isCappableFile } from "../large-file-policy.js";
+import { processApplyPatchSection } from "./apply-patch-section-metric.js";
 
 /** The only structural requirement on a metric's per-function entry: a name.
  *  The numeric value is read through the spec's `metricOf`, so an entry may
  *  carry the metric under any field name. */
-interface NamedMetricEntry {
+export interface NamedMetricEntry {
 	name: string;
 }
 
@@ -425,32 +421,11 @@ function checkApplyPatch<E extends NamedMetricEntry>(
 	const cap = spec.capFor(cwd);
 	let lastGf: FileGrandfather | null = null;
 	for (const section of parseApplyPatchSections(raw)) {
-		const analyzer = spec.selectAnalyzer(section.path);
-		if (!analyzer) continue; // extension the metric can't analyze → skip
-		// Read before-content from the SOURCE path for a moved section — the
-		// destination doesn't exist yet, so reading it yields "" and the update
-		// hunks fail to reconstruct → the gate would silently fail open on a move
-		// that introduced an over-cap function (finding 2026-06).
-		const readPath = section.fromPath ?? section.path;
-		const abs = isAbsolute(readPath) ? readPath : resolve(cwd, readPath);
-		const before = existsSync(abs) ? (safeRead(abs) ?? "") : "";
-		const after = reconstructAfterContent(section, before);
-		if (after === null) continue; // can't reconstruct confidently → fail open for this file
-		if (!isCappableFile({ filePath: section.path, content: after, root: cwd })) continue;
-		const gf = spec.grandfatherFor?.(cwd, section.path) ?? null;
-		const fileViolations = metricViolations(
-			spec,
-			before,
-			after,
-			section.path,
-			analyzer,
-			cap,
-			observe,
-			gf,
-		);
-		if (fileViolations === null) return null; // analyzer unavailable → fail open entirely
-		for (const item of fileViolations) violations.push(`${section.path}: ${item}`);
-		if (fileViolations.length > 0) lastGf = gf;
+		const outcome = processApplyPatchSection(spec, section, cwd, cap, observe, metricViolations);
+		if (outcome === "fail-open") return null; // analyzer unavailable → fail open entirely
+		if (outcome === "skip") continue;
+		for (const item of outcome.items) violations.push(`${section.path}: ${item}`);
+		if (outcome.items.length > 0) lastGf = outcome.gf;
 	}
 	if (violations.length === 0) return null;
 	return { block: buildMetricBlock(spec, violations, cap, lastGf) };

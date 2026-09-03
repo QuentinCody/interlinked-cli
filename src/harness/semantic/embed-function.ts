@@ -1,11 +1,3 @@
-import { chunkFunctionInput } from "./chunker.js";
-import type {
-    EmbeddedFunction,
-    EmbeddingModelManifest,
-    FunctionEmbeddingInput,
-    LocalEmbeddingRuntime,
-} from "./types.js";
-
 export function normalizeVector(vector: Float32Array): Float32Array {
     let sum = 0;
     for (const value of vector) {
@@ -15,17 +7,6 @@ export function normalizeVector(vector: Float32Array): Float32Array {
     const norm = Math.sqrt(sum);
     if (!Number.isFinite(norm) || norm === 0) throw new Error("embedding has zero or invalid norm");
     return Float32Array.from(vector, (value) => value / norm);
-}
-
-export async function embedFunction(
-    input: FunctionEmbeddingInput,
-    manifest: EmbeddingModelManifest,
-    runtime: LocalEmbeddingRuntime,
-): Promise<EmbeddedFunction> {
-    const prepared = await chunkFunctionInput(input, manifest, runtime);
-    const vectors = await runtime.embed(prepared.chunks.map((chunk) => chunk.text));
-    const vector = aggregateFunctionVectors(vectors, prepared.chunks, manifest.dimension);
-    return { vector, modelTokens: prepared.modelTokens, chunks: prepared.chunks };
 }
 
 export function aggregateFunctionVectors(

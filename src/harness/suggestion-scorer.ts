@@ -79,76 +79,79 @@ function hotPathLikelihood(filePath: string): number {
 // Scoring
 // ===========================================
 
+type ScoreFindingsOpts = {
+	filePath: string;
+	session?: SessionTrajectory;
+	editStartLine?: number;
+	editEndLine?: number;
+	inlineSuppressions: InlineSuppressions;
+	fileSuppressions: FileSuppressions;
+	limit?: number;
+	threshold?: number;
+};
+
+/**
+ * Score one finding, or return null if it is suppressed.
+ * Extracted from scoreFindings' loop body — same logic, same order.
+ */
+function scoreSingleFinding(finding: Finding, opts: ScoreFindingsOpts): ScoredFinding | null {
+	// Suppression check — always wins
+	if (
+		isSuppressed(finding.check, finding.line, opts.inlineSuppressions, opts.fileSuppressions)
+	) {
+		return null;
+	}
+
+	const baseSeverity = BASE_SEVERITY[finding.check] ?? 0.5;
+
+	// File relevance: did the agent write this file in this session?
+	// When no session (e.g., verify command), default to 1.0 — we're intentionally scanning.
+	const fileRelevance = opts.session
+		? opts.session.files_written.has(opts.filePath)
+			? 1.0
+			: 0.5
+		: 1.0;
+
+	// Edit proximity: is the finding near the edited region?
+	let editProximity = 0.75; // default if we don't know the edit region
+	if (finding.line > 0 && opts.editStartLine && opts.editEndLine) {
+		const dist = Math.min(
+			Math.abs(finding.line - opts.editStartLine),
+			Math.abs(finding.line - opts.editEndLine),
+		);
+		if (dist < 20) {
+			editProximity = 1.0;
+		} else if (dist < 50) {
+			editProximity = 0.7;
+		} else {
+			editProximity = 0.5;
+		}
+	}
+
+	// Hot path boost for perf checks
+	let perfBoost = 1.0;
+	if (finding.check.startsWith("perf-")) {
+		perfBoost = hotPathLikelihood(opts.filePath);
+	}
+
+	const score = baseSeverity * fileRelevance * editProximity * perfBoost;
+
+	return { ...finding, score };
+}
+
 /**
  * Score, rank, and filter findings from all sources into the top N.
  * Suppressions are checked and respected (suppressed findings score 0).
  */
-export function scoreFindings(
-	findings: Finding[],
-	opts: {
-		filePath: string;
-		session?: SessionTrajectory;
-		editStartLine?: number;
-		editEndLine?: number;
-		inlineSuppressions: InlineSuppressions;
-		fileSuppressions: FileSuppressions;
-		limit?: number;
-		threshold?: number;
-	},
-): ScoredFinding[] {
+export function scoreFindings(findings: Finding[], opts: ScoreFindingsOpts): ScoredFinding[] {
 	const limit = opts.limit ?? DEFAULT_LIMIT;
 	const threshold = opts.threshold ?? DEFAULT_THRESHOLD;
 
 	const scored: ScoredFinding[] = [];
 
 	for (const finding of findings) {
-		// Suppression check — always wins
-		if (
-			isSuppressed(
-				finding.check,
-				finding.line,
-				opts.inlineSuppressions,
-				opts.fileSuppressions,
-			)
-		) {
-			continue;
-		}
-
-		const baseSeverity = BASE_SEVERITY[finding.check] ?? 0.5;
-
-		// File relevance: did the agent write this file in this session?
-		// When no session (e.g., verify command), default to 1.0 — we're intentionally scanning.
-		const fileRelevance = opts.session
-			? opts.session.files_written.has(opts.filePath)
-				? 1.0
-				: 0.5
-			: 1.0;
-
-		// Edit proximity: is the finding near the edited region?
-		let editProximity = 0.75; // default if we don't know the edit region
-		if (finding.line > 0 && opts.editStartLine && opts.editEndLine) {
-			const dist = Math.min(
-				Math.abs(finding.line - opts.editStartLine),
-				Math.abs(finding.line - opts.editEndLine),
-			);
-			if (dist < 20) {
-				editProximity = 1.0;
-			} else if (dist < 50) {
-				editProximity = 0.7;
-			} else {
-				editProximity = 0.5;
-			}
-		}
-
-		// Hot path boost for perf checks
-		let perfBoost = 1.0;
-		if (finding.check.startsWith("perf-")) {
-			perfBoost = hotPathLikelihood(opts.filePath);
-		}
-
-		const score = baseSeverity * fileRelevance * editProximity * perfBoost;
-
-		scored.push({ ...finding, score });
+		const result = scoreSingleFinding(finding, opts);
+		if (result) scored.push(result);
 	}
 
 	// Sort descending, take top N above threshold

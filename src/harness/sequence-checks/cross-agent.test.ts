@@ -944,7 +944,7 @@ describe("file_overwrite_after_other_agent", () => {
 		expect(fileOverwriteAfterOtherAgent.fn(session, candidate)).toEqual([]);
 	});
 
-	describe("subagent self-attribution — positive/negative (2026-09-02 false-positive fix)", () => {
+	describe("fileOverwriteAfterOtherAgent — subagent self-attribution — positive/negative (2026-09-02 false-positive fix)", () => {
 		it("N1: does not fire on a subagent's own prior write — same session_id, different agent_name", () => {
 			const filePath = "src/gate.ts";
 			const { session } = buildTrajectoryFixture(

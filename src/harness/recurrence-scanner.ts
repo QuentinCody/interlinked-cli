@@ -86,39 +86,7 @@ export function scanCodebaseForRecurrences(
 	const findings: ScanCodebaseFinding[] = [];
 
 	for (const rootRel of roots) {
-		const rootAbs = resolve(cwd, rootRel);
-		for (const fileAbs of walk(rootAbs)) {
-			if (!extensions.some((ext) => fileAbs.endsWith(ext))) continue;
-			const relPath = relative(cwd, fileAbs).split(sep).join("/");
-			let content: string;
-			try {
-				content = readFileSync(fileAbs, "utf-8");
-			} catch (_err) {
-				/* unreadable (permission, race) — skip */
-				continue;
-			}
-			// Inline detectors registered in CHECK_REGISTRY for the agent_safety
-			// pipeline. We pass relPath so detectors that gate on the file path
-			// (e.g. test-file detection) see the right shape.
-			const checks = buildAgentSafetyChecks(content, relPath);
-			for (const check of checks) {
-				let matches: Array<{ line: number; text: string }>;
-				try {
-					matches = check.fn();
-				} catch (_err) {
-					/* a single buggy detector must not break the whole scan */
-					continue;
-				}
-				for (const m of matches) {
-					findings.push({
-						file: relPath,
-						check_id: check.name,
-						line: m.line,
-						text: m.text,
-					});
-				}
-			}
-		}
+		findings.push(...scanRootForFindings(resolve(cwd, rootRel), cwd, extensions));
 	}
 
 	appendCIFindings(findings, options, cwd);
@@ -139,6 +107,50 @@ export function scanCodebaseForRecurrences(
 		}
 	}
 
+	return findings;
+}
+
+/** Walk one scan root and return every inline-detector hit found under it.
+ *  Extracted from `scanCodebaseForRecurrences`'s per-root loop so that loop
+ *  body's nesting doesn't count against the orchestrator's cognitive score. */
+function scanRootForFindings(
+	rootAbs: string,
+	cwd: string,
+	extensions: string[],
+): ScanCodebaseFinding[] {
+	const findings: ScanCodebaseFinding[] = [];
+	for (const fileAbs of walk(rootAbs)) {
+		if (!extensions.some((ext) => fileAbs.endsWith(ext))) continue;
+		const relPath = relative(cwd, fileAbs).split(sep).join("/");
+		let content: string;
+		try {
+			content = readFileSync(fileAbs, "utf-8");
+		} catch (_err) {
+			/* unreadable (permission, race) — skip */
+			continue;
+		}
+		// Inline detectors registered in CHECK_REGISTRY for the agent_safety
+		// pipeline. We pass relPath so detectors that gate on the file path
+		// (e.g. test-file detection) see the right shape.
+		const checks = buildAgentSafetyChecks(content, relPath);
+		for (const check of checks) {
+			let matches: Array<{ line: number; text: string }>;
+			try {
+				matches = check.fn();
+			} catch (_err) {
+				/* a single buggy detector must not break the whole scan */
+				continue;
+			}
+			for (const m of matches) {
+				findings.push({
+					file: relPath,
+					check_id: check.name,
+					line: m.line,
+					text: m.text,
+				});
+			}
+		}
+	}
 	return findings;
 }
 

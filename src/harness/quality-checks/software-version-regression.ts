@@ -414,6 +414,41 @@ function collectCargoDependencyRef(
 	};
 }
 
+function collectGenericAssignmentRefsForPattern(
+	line: string,
+	lineNo: number,
+	objectPath: string,
+	re: RegExp,
+): SoftwareVersionReference[] {
+	const found: SoftwareVersionReference[] = [];
+	re.lastIndex = 0;
+	for (const match of line.matchAll(re)) {
+		const key = match.groups?.key;
+		const value = match.groups?.value;
+		if (!key || !value) continue;
+		const hasSoftwareKey = SOFTWARE_KEY_RE.test(key);
+		if (!hasSoftwareKey && !MODEL_PROVIDER_RE.test(value)) continue;
+		const modelProvider = modelProviderOf(value);
+		const kind = classifyGenericKind(key, value);
+		if (!modelProvider && !looksComparable(value, kind)) continue;
+		const modelFamily = kind === "model" ? modelFamilyOf(value) : undefined;
+		const baseAnchor =
+			kind === "model"
+				? `model:${key.toLowerCase()}:${modelFamily ?? modelProvider ?? "unknown"}`
+				: `${kind}:${key.toLowerCase()}`;
+		const anchor = objectPath ? `${baseAnchor}@${objectPath}` : baseAnchor;
+		found.push({
+			anchor,
+			label: `${key}`,
+			kind,
+			version: value,
+			line: lineNo,
+			text: line.trim(),
+		});
+	}
+	return found;
+}
+
 function collectGenericAssignmentRefs(
 	line: string,
 	lineNo: number,
@@ -421,31 +456,7 @@ function collectGenericAssignmentRefs(
 ): SoftwareVersionReference[] {
 	const refs: SoftwareVersionReference[] = [];
 	for (const re of [GENERIC_ASSIGNMENT_RE, JSON_STRING_PROP_RE]) {
-		re.lastIndex = 0;
-		for (const match of line.matchAll(re)) {
-			const key = match.groups?.key;
-			const value = match.groups?.value;
-			if (!key || !value) continue;
-			const hasSoftwareKey = SOFTWARE_KEY_RE.test(key);
-			if (!hasSoftwareKey && !MODEL_PROVIDER_RE.test(value)) continue;
-			const modelProvider = modelProviderOf(value);
-			const kind = classifyGenericKind(key, value);
-			if (!modelProvider && !looksComparable(value, kind)) continue;
-			const modelFamily = kind === "model" ? modelFamilyOf(value) : undefined;
-			const baseAnchor =
-				kind === "model"
-					? `model:${key.toLowerCase()}:${modelFamily ?? modelProvider ?? "unknown"}`
-					: `${kind}:${key.toLowerCase()}`;
-			const anchor = objectPath ? `${baseAnchor}@${objectPath}` : baseAnchor;
-			refs.push({
-				anchor,
-				label: `${key}`,
-				kind,
-				version: value,
-				line: lineNo,
-				text: line.trim(),
-			});
-		}
+		refs.push(...collectGenericAssignmentRefsForPattern(line, lineNo, objectPath, re));
 	}
 	return refs;
 }

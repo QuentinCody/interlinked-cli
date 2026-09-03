@@ -100,33 +100,41 @@ function isExcluded(absPath: string): boolean {
 	return false;
 }
 
+/** Processes one directory popped from the scan stack: pushes its
+ *  subdirectories onto `stack` and returns true iff one of its files is a
+ *  shard whose source file exists (a match for the caller's scan). */
+function processStackLength(dir: string, stack: string[]): boolean {
+	if (isExcluded(dir)) return false;
+	let entries: import("node:fs").Dirent[];
+	try {
+		entries = readdirSync(dir, { withFileTypes: true, encoding: "utf8" }).sort((a, b) =>
+			a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+		);
+	} catch {
+		return false;
+	}
+	for (const ent of entries) {
+		const name = String(ent.name);
+		const full = join(dir, name);
+		if (ent.isDirectory()) {
+			if (SKIP_DESCEND_DIRS.has(name)) continue;
+			stack.push(full);
+			continue;
+		}
+		if (!ent.isFile()) continue;
+		if (!SHARD_RE.test(name)) continue;
+		if (isExcluded(full)) continue;
+		const sourcePath = sourcePathForShard(full);
+		if (sourcePath && existsSync(sourcePath)) return true;
+	}
+	return false;
+}
+
 function scanForShardNearSourcePair(absCwd: string): boolean {
 	const stack: string[] = [absCwd];
 	while (stack.length > 0) {
 		const dir = stack.pop() as string;
-		if (isExcluded(dir)) continue;
-		let entries: import("node:fs").Dirent[];
-		try {
-			entries = readdirSync(dir, { withFileTypes: true, encoding: "utf8" }).sort((a, b) =>
-				a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-			);
-		} catch {
-			continue;
-		}
-		for (const ent of entries) {
-			const name = String(ent.name);
-			const full = join(dir, name);
-			if (ent.isDirectory()) {
-				if (SKIP_DESCEND_DIRS.has(name)) continue;
-				stack.push(full);
-				continue;
-			}
-			if (!ent.isFile()) continue;
-			if (!SHARD_RE.test(name)) continue;
-			if (isExcluded(full)) continue;
-			const sourcePath = sourcePathForShard(full);
-			if (sourcePath && existsSync(sourcePath)) return true;
-		}
+		if (processStackLength(dir, stack)) return true;
 	}
 	return false;
 }

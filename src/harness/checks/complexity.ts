@@ -90,6 +90,44 @@ function findBraceLine(lines: string[], i: number): number {
 	return -1;
 }
 
+/** Mutable running state threaded through `processBraceBodyLine` by `analyzeBraceBody`. */
+interface BraceBodyState {
+	depth: number;
+	maxDepth: number;
+	branchCount: number;
+	bodyStarted: boolean;
+}
+
+/**
+ * Update `state` in place for one line of a function body: track brace depth,
+ * record the max nesting depth once the body has started, and tally branching
+ * statements (if/else-if, nested case labels, ternaries). Returns true once the
+ * function body has closed (`state.depth` returns to/below 0), signalling the
+ * caller to stop iterating — mirrors the original loop's `break` condition.
+ */
+function processBraceBodyLine(bodyLine: string, state: BraceBodyState): boolean {
+	for (const ch of bodyLine) {
+		if (ch === "{") {
+			state.depth++;
+			if (state.bodyStarted && state.depth > state.maxDepth) state.maxDepth = state.depth;
+			state.bodyStarted = true;
+		}
+		if (ch === "}") state.depth--;
+	}
+	if (state.bodyStarted && state.depth <= 0) return true;
+
+	// Count branching statements
+	if (/^\s*(if|else\s+if)\s*[\s(]/.test(bodyLine)) state.branchCount++;
+	// Only count case labels when nested (depth >= 3).
+	// A flat switch (depth 1-2) with many cases is readable;
+	// nested switch/case is genuinely complex.
+	if (state.depth >= 3 && /\bcase\s+/.test(bodyLine.trim())) state.branchCount++;
+	// Ternary operator (rough heuristic)
+	const ternaries = bodyLine.match(/[^?]\?[^?:]/g);
+	if (ternaries) state.branchCount += ternaries.length;
+	return false;
+}
+
 /**
  * Walk a function body from its opening-brace line, returning the maximum nesting
  * depth (relative to the function's own brace) and the count of branching
@@ -100,37 +138,15 @@ function analyzeBraceBody(
 	lines: string[],
 	braceLineIdx: number,
 ): { nestingDepth: number; branchCount: number } {
-	let depth = 0;
-	let maxDepth = 0;
-	let branchCount = 0;
-	let bodyStarted = false;
+	const state: BraceBodyState = { depth: 0, maxDepth: 0, branchCount: 0, bodyStarted: false };
 
 	for (let j = braceLineIdx; j < lines.length; j++) {
-		const bodyLine = nonNull(lines[j]);
-		for (const ch of bodyLine) {
-			if (ch === "{") {
-				depth++;
-				if (bodyStarted && depth > maxDepth) maxDepth = depth;
-				bodyStarted = true;
-			}
-			if (ch === "}") depth--;
-		}
-		if (bodyStarted && depth <= 0) break;
-
-		// Count branching statements
-		if (/^\s*(if|else\s+if)\s*[\s(]/.test(bodyLine)) branchCount++;
-		// Only count case labels when nested (depth >= 3).
-		// A flat switch (depth 1-2) with many cases is readable;
-		// nested switch/case is genuinely complex.
-		if (depth >= 3 && /\bcase\s+/.test(bodyLine.trim())) branchCount++;
-		// Ternary operator (rough heuristic)
-		const ternaries = bodyLine.match(/[^?]\?[^?:]/g);
-		if (ternaries) branchCount += ternaries.length;
+		if (processBraceBodyLine(nonNull(lines[j]), state)) break;
 	}
 
 	// maxDepth is relative to the function's opening brace depth.
 	// Subtract 1 because the function's own brace adds 1.
-	return { nestingDepth: maxDepth - 1, branchCount };
+	return { nestingDepth: state.maxDepth - 1, branchCount: state.branchCount };
 }
 
 /**

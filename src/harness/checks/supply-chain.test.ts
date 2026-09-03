@@ -751,13 +751,7 @@ describe("checkTyposquatDependencies — match cap, line attribution, message te
 //    `lineIdx === 0` (dep found on the very first line), and in that one
 //    case both branches evaluate to the same final value: `0 + 1 === 1`,
 //    identical to the `: 1` fallback the mutated condition takes instead.
-describe("supply-chain.ts — documented equivalent-mutant proofs (already covered by tests above)", () => {
-	it("sanity: the equivalence proofs above are backed by the passing tests in this file, not asserted directly", () => {
-		// No-op placeholder so the block above renders as a describe with
-		// at least one test — the actual verification is "every test above
-		// still passes with each of these mutants individually applied",
-		// confirmed via the mutation-sweep automation script, not a runtime
-		// assertion here.
-		expect(true).toBe(true);
-	});
-});
+// supply-chain.ts — documented equivalent-mutant proofs (already covered by
+// tests above). Not a test: the actual verification is "every test above
+// still passes with each of these mutants individually applied", confirmed
+// via the mutation-sweep automation script, not a runtime assertion here.

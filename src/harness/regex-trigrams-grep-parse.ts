@@ -253,66 +253,79 @@ function consumeDoubleQuoted(input: string, i: number, current: string): QuoteSt
  */
 const TOKENIZER_STOP_CHARS = new Set(["|", ";", "&", ">", "<"]);
 
+/** Mutable scan position threaded through `advanceTokenizerCursor`. */
+interface TokenizeCursor {
+	current: string;
+	i: number;
+	inSingle: boolean;
+	inDouble: boolean;
+}
+
+/**
+ * Advance `cursor` by one step against `input[cursor.i]`, pushing a completed
+ * token into `tokens` on whitespace. Mutates `cursor` in place. Returns true
+ * when a shell operator ends the scan (the caller must stop iterating).
+ */
+function advanceTokenizerCursor(input: string, cursor: TokenizeCursor, tokens: string[]): boolean {
+	const ch = nonNull(input[cursor.i]);
+
+	if (cursor.inSingle) {
+		const st = consumeSingleQuoted(input, cursor.i, cursor.current);
+		cursor.current = st.current;
+		cursor.i = st.i;
+		if (st.closed) cursor.inSingle = false;
+		return false;
+	}
+
+	if (cursor.inDouble) {
+		const st = consumeDoubleQuoted(input, cursor.i, cursor.current);
+		cursor.current = st.current;
+		cursor.i = st.i;
+		if (st.closed) cursor.inDouble = false;
+		return false;
+	}
+
+	if (ch === "'") {
+		cursor.inSingle = true;
+		cursor.i++;
+	} else if (ch === '"') {
+		cursor.inDouble = true;
+		cursor.i++;
+	} else if (ch === "\\") {
+		if (cursor.i + 1 < input.length) {
+			cursor.current += input[cursor.i + 1];
+			cursor.i += 2;
+		} else {
+			cursor.i++;
+		}
+	} else if (ch === " " || ch === "\t") {
+		if (cursor.current.length > 0) {
+			tokens.push(cursor.current);
+			cursor.current = "";
+		}
+		cursor.i++;
+	} else if (TOKENIZER_STOP_CHARS.has(ch)) {
+		cursor.i = input.length; // stop at shell operators
+		return true;
+	} else {
+		cursor.current += ch;
+		cursor.i++;
+	}
+	return false;
+}
+
 /**
  * Basic shell argument tokenizer.
  * Handles single quotes, double quotes, and backslash escapes.
  */
 function tokenizeShellArgs(input: string): string[] {
 	const tokens: string[] = [];
-	let current = "";
-	let i = 0;
-	let inSingle = false;
-	let inDouble = false;
-	const flush = (): void => {
-		if (current.length > 0) {
-			tokens.push(current);
-			current = "";
-		}
-	};
+	const cursor: TokenizeCursor = { current: "", i: 0, inSingle: false, inDouble: false };
 
-	while (i < input.length) {
-		const ch = nonNull(input[i]);
-
-		if (inSingle) {
-			const st = consumeSingleQuoted(input, i, current);
-			current = st.current;
-			i = st.i;
-			if (st.closed) inSingle = false;
-			continue;
-		}
-
-		if (inDouble) {
-			const st = consumeDoubleQuoted(input, i, current);
-			current = st.current;
-			i = st.i;
-			if (st.closed) inDouble = false;
-			continue;
-		}
-
-		if (ch === "'") {
-			inSingle = true;
-			i++;
-		} else if (ch === '"') {
-			inDouble = true;
-			i++;
-		} else if (ch === "\\") {
-			if (i + 1 < input.length) {
-				current += input[i + 1];
-				i += 2;
-			} else {
-				i++;
-			}
-		} else if (ch === " " || ch === "\t") {
-			flush();
-			i++;
-		} else if (TOKENIZER_STOP_CHARS.has(ch)) {
-			i = input.length; // stop at shell operators
-		} else {
-			current += ch;
-			i++;
-		}
+	while (cursor.i < input.length) {
+		if (advanceTokenizerCursor(input, cursor, tokens)) break;
 	}
 
-	flush();
+	if (cursor.current.length > 0) tokens.push(cursor.current);
 	return tokens;
 }

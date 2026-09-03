@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_MAX_LINES } from "../../harness/large-file-policy.js";
 import { resetUntestedFilesBaselineCache } from "../../harness/tested-file-policy.js";
 import { nonNull } from "../../lib/non-null.js";
-import type { MetricsCoverage } from "../metrics.js";
+import type { MetricsCoverage } from "../metrics-coverage.js";
 import { resetUntestedCoverageCache, runPerFileChecks } from "./file-checks.js";
 import { type CodeQualityResults, emptyResults } from "./tool-results-types.js";
 
@@ -23,7 +23,7 @@ const { loadMetricsCoverageMock } = vi.hoisted(() => ({
 // The per-file battery calls `coverageFor(cwd)` unconditionally (via
 // `collectUntestedFileFinding`) on every non-.d.ts/.json file, so every test
 // in this file needs a safe default return — see the top-level beforeEach.
-vi.mock("../metrics.js", () => ({
+vi.mock("../metrics-coverage.js", () => ({
 	loadMetricsCoverage: loadMetricsCoverageMock,
 }));
 

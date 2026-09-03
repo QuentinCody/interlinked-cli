@@ -3,8 +3,12 @@
 
 import { nonNull } from "../../lib/non-null.js";
 import {
+	countBooleanArgsFrom,
+	matchFunctionName,
+	signatureParamCount,
+} from "./taste-arg-scan.js";
+import {
 	collectFunctionSignature,
-	countTopLevelCommas,
 	getExtension,
 	type InlineMatch,
 	isTestFile,
@@ -67,29 +71,7 @@ function countTopLevelBooleanArgs(line: string): number {
 		callMatch = callPattern.exec(line)
 	) {
 		const start = callMatch.index + callMatch[0].length;
-		let depth = 0;
-		let boolCount = 0;
-		let argStart = start;
-
-		for (let j = start; j < line.length; j++) {
-			const ch = line[j];
-			if (ch === "(" || ch === "[" || ch === "{") {
-				depth++;
-			} else if (ch === ")" || ch === "]" || ch === "}") {
-				if (depth === 0) {
-					const arg = line.slice(argStart, j).trim();
-					if (arg === "true" || arg === "false") boolCount++;
-					break;
-				}
-				depth--;
-			} else if (ch === "," && depth === 0) {
-				const arg = line.slice(argStart, j).trim();
-				if (arg === "true" || arg === "false") boolCount++;
-				argStart = j + 1;
-			}
-		}
-
-		maxBoolCount = Math.max(maxBoolCount, boolCount);
+		maxBoolCount = Math.max(maxBoolCount, countBooleanArgsFrom(line, start));
 	}
 
 	return maxBoolCount;
@@ -128,29 +110,12 @@ export function checkFunctionArity(content: string, filePath: string): InlineMat
 		if (matches.length >= 10) break;
 		const trimmed = nonNull(lines[i]).trim();
 
-		let funcName: string | null = null;
-		for (const pat of funcPatterns) {
-			const m = trimmed.match(pat);
-			if (m) {
-				funcName = nonNull(m[1]);
-				break;
-			}
-		}
+		const funcName = matchFunctionName(trimmed, funcPatterns);
 		if (!funcName) continue;
 
-		const paramSig = collectFunctionSignature(lines, i);
-		const paramMatch = paramSig.match(/\(([^)]*)\)/);
-		if (!paramMatch) continue;
+		const paramCount = signatureParamCount(lines, i);
+		if (paramCount === null) continue;
 
-		const paramStr = nonNull(paramMatch[1]).trim();
-		if (paramStr.length === 0) continue;
-
-		// Skip destructured single-param: function f({ a, b, c, d, e })
-		if (/^\s*\{/.test(paramStr) && countTopLevelCommas(paramStr) === 1) continue;
-		// Also skip if only param is an object pattern (no top-level commas outside braces)
-		if (/^\s*\{[^}]*\}\s*$/.test(paramStr)) continue;
-
-		const paramCount = countTopLevelCommas(paramStr);
 		if (paramCount >= threshold) {
 			matches.push({
 				line: i + 1,

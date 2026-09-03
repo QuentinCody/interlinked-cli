@@ -51,69 +51,70 @@ function relTo(cwd: string, p: string): string {
 }
 
 // --- 1. structure init ---
-export async function structureInitCommand(opts: InitOpts): Promise<void> {
-	try {
-		const cwd = process.cwd();
-		const mode = opts.mode || "standard";
-		const { VALID_MODES } = await import("../harness/structure/types.js");
-		if (!(VALID_MODES as readonly string[]).includes(mode))
-			fatal(`Invalid mode "${mode}". Must be one of: ${VALID_MODES.join(", ")}`);
+async function runStructureInit(opts: InitOpts): Promise<void> {
+	const cwd = process.cwd();
+	const mode = opts.mode || "standard";
+	const { VALID_MODES } = await import("../harness/structure/types.js");
+	if (!(VALID_MODES as readonly string[]).includes(mode))
+		fatal(`Invalid mode "${mode}". Must be one of: ${VALID_MODES.join(", ")}`);
 
-		const cats = opts.with ? opts.with.split(",").map((s) => s.trim()) : [];
-		for (const cat of cats) {
-			if (!SCAFFOLDS[cat])
-				fatal(`Unknown category "${cat}". Available: ${Object.keys(SCAFFOLDS).join(", ")}`);
-		}
+	const cats = opts.with ? opts.with.split(",").map((s) => s.trim()) : [];
+	for (const cat of cats) {
+		if (!SCAFFOLDS[cat])
+			fatal(`Unknown category "${cat}". Available: ${Object.keys(SCAFFOLDS).join(", ")}`);
+	}
 
-		const dir = join(cwd, "interlinked");
-		const arts: Record<string, string> = {};
-		for (const cat of cats) arts[cat] = nonNull(SCAFFOLDS[cat]).file;
-		const cfg: JsonObject = { version: 1, mode };
-		if (Object.keys(arts).length > 0) cfg.artifacts = arts;
+	const dir = join(cwd, "interlinked");
+	const arts: Record<string, string> = {};
+	for (const cat of cats) arts[cat] = nonNull(SCAFFOLDS[cat]).file;
+	const cfg: JsonObject = { version: 1, mode };
+	if (Object.keys(arts).length > 0) cfg.artifacts = arts;
 
-		const files = [
-			{ path: join(dir, "structure.json"), data: cfg },
-			...cats.map((cat) => ({
-				path: join(dir, nonNull(SCAFFOLDS[cat]).file),
-				data: nonNull(SCAFFOLDS[cat]).content,
-			})),
-		];
-		const names = files.map((f) => relTo(cwd, f.path));
+	const files = [
+		{ path: join(dir, "structure.json"), data: cfg },
+		...cats.map((cat) => ({
+			path: join(dir, nonNull(SCAFFOLDS[cat]).file),
+			data: nonNull(SCAFFOLDS[cat]).content,
+		})),
+	];
+	const names = files.map((f) => relTo(cwd, f.path));
 
-		if (!opts.write) {
-			const lines = [
-				c.bold("Structure init (dry-run)"),
-				"",
-				`  Mode: ${c.cyan(mode)}`,
-				`  Categories: ${cats.length > 0 ? cats.join(", ") : c.dim("(none)")}`,
-				"",
-				c.bold("Files that would be created:"),
-			];
-			for (const f of files) {
-				const tag = existsSync(f.path) ? c.yellow("overwrite") : c.green("create");
-				lines.push(`  ${tag}  ${relTo(cwd, f.path)}`);
-			}
-			lines.push("", c.dim("Run with --write to create files."));
-			return out(
-				opts.json,
-				{ dry_run: true, mode, categories: cats, files: names },
-				lines.join("\n"),
-			);
-		}
-
-		for (const f of files) writeJson(f.path, f.data);
+	if (!opts.write) {
 		const lines = [
-			c.green("Structure initialized."),
+			c.bold("Structure init (dry-run)"),
 			"",
 			`  Mode: ${c.cyan(mode)}`,
-			"  Config: interlinked/structure.json",
-		];
-		if (cats.length > 0) lines.push(`  Artifacts: ${cats.join(", ")}`);
-		lines.push(
+			`  Categories: ${cats.length > 0 ? cats.join(", ") : c.dim("(none)")}`,
 			"",
-			c.dim("Next: run `interlinked structure scan` to build the artifact catalog."),
+			c.bold("Files that would be created:"),
+		];
+		for (const f of files) {
+			const tag = existsSync(f.path) ? c.yellow("overwrite") : c.green("create");
+			lines.push(`  ${tag}  ${relTo(cwd, f.path)}`);
+		}
+		lines.push("", c.dim("Run with --write to create files."));
+		return out(
+			opts.json,
+			{ dry_run: true, mode, categories: cats, files: names },
+			lines.join("\n"),
 		);
-		out(opts.json, { created: true, mode, categories: cats, files: names }, lines.join("\n"));
+	}
+
+	for (const f of files) writeJson(f.path, f.data);
+	const lines = [
+		c.green("Structure initialized."),
+		"",
+		`  Mode: ${c.cyan(mode)}`,
+		"  Config: interlinked/structure.json",
+	];
+	if (cats.length > 0) lines.push(`  Artifacts: ${cats.join(", ")}`);
+	lines.push("", c.dim("Next: run `interlinked structure scan` to build the artifact catalog."));
+	out(opts.json, { created: true, mode, categories: cats, files: names }, lines.join("\n"));
+}
+
+export async function structureInitCommand(opts: InitOpts): Promise<void> {
+	try {
+		await runStructureInit(opts);
 	} catch (e) {
 		if (process.exitCode === 1) return;
 		console.error(c.red(`structure init failed: ${(e as Error).message}`));

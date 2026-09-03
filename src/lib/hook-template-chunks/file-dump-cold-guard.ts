@@ -243,6 +243,14 @@ function fdcHasFollowFlag(tokens: string[]): boolean {
 	return false;
 }
 
+/** Pushes every remaining token from `startIndex` onto `files`, skipping
+ *  empty ones — the `--` separator's "rest are literal paths" rule. */
+function fdcCollectRestArgs(tokens: string[], startIndex: number, files: string[]): void {
+	for (let j = startIndex; j < tokens.length; j++) {
+		if (tokens[j]) files.push(tokens[j] || "");
+	}
+}
+
 /** File-path arguments of the dump verb. Returns null when a glob or a shell
  *  variable makes the target set unknowable — the guard then stands down
  *  rather than guessing. */
@@ -253,7 +261,7 @@ function fdcFilePaths(tokens: string[]): string[] | null {
 		const t = tokens[i];
 		if (!t) continue;
 		if (t === "--") {
-			for (let j = i + 1; j < tokens.length; j++) if (tokens[j]) files.push(tokens[j] || "");
+			fdcCollectRestArgs(tokens, i + 1, files);
 			break;
 		}
 		if (t.indexOf("-") === 0) {
@@ -470,6 +478,7 @@ export const FILE_DUMP_COLD_GUARD_SOURCE: string = [
 	fdcHasRedirect,
 	fdcHasDownstreamFilter,
 	fdcHasFollowFlag,
+	fdcCollectRestArgs,
 	fdcFilePaths,
 	fdcAbsolute,
 	fdcCountCatLines,

@@ -72,13 +72,13 @@ export function checkFullGitCommitSha(value: unknown, where: string): Reason {
 
 /** Opaque server-resolved source artifact id. Slashes and dots are excluded
  *  deliberately: this is not an R2 key or user-controlled path. */
-export function checkSourceArtifactId(value: unknown, where: string): Reason {
+function checkSourceArtifactId(value: unknown, where: string): Reason {
 	return typeof value === "string" && SOURCE_ARTIFACT_ID_RE.test(value)
 		? null
 		: `${where} must be an opaque source artifact id (src_<3..125 safe characters>)`;
 }
 
-export function checkSourceArtifactBytes(value: unknown, where: string): Reason {
+function checkSourceArtifactBytes(value: unknown, where: string): Reason {
 	return typeof value === "number" && Number.isSafeInteger(value) && value >= 1 && value <= MAX_SOURCE_ARTIFACT_BYTES
 		? null
 		: `${where} must be an integer from 1 through ${MAX_SOURCE_ARTIFACT_BYTES}`;

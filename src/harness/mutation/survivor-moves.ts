@@ -92,9 +92,8 @@ export interface SurvivorMove {
 
 // The AST half — `indexSource` / `offsetsOfLexeme` / `fingerprintAt` and the
 // `SourceIndex` / `SourceText` shapes — lives in ./survivor-fingerprint.ts
-// (extracted 2026-09-02, line cap) and is re-exported below for this layer's
-// existing importers.
-export { fingerprintAt, indexSource, offsetsOfLexeme, type SourceIndex, type SourceText } from "./survivor-fingerprint.js";
+// (extracted 2026-09-02, line cap); imported above (no external importer
+// resolves these names from this module's path).
 
 /** Every AST occurrence of each survivor's expression, as candidate raw
  *  mutants for identity re-derivation. Deduplicated: the ordinal is a rank of
@@ -363,7 +362,7 @@ export function reconcileSurvivorMoves(args: ReconcileArgs): SurvivorMove[] {
 
 /** The floor's survivors for one manifest key — `survived` and reviewed
  *  `equivalent`, the two statuses `acceptedSurvivors` accepts. */
-export function priorSurvivorsOf(manifest: MutationManifest, key: string): PriorSurvivor[] {
+function priorSurvivorsOf(manifest: MutationManifest, key: string): PriorSurvivor[] {
 	const out: PriorSurvivor[] = [];
 	for (const symbol of Object.values(fileRecords(manifest, key))) {
 		for (const m of Object.values(symbol.mutants)) {

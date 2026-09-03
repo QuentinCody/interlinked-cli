@@ -31,6 +31,35 @@ function fileEntry(v: unknown): { filePath: string; messages: unknown[] } | null
 	return { filePath, messages };
 }
 
+/** Converts one file entry's valid messages to `CheckResult`s. */
+function collectEntryResults(entry: { filePath: string; messages: unknown[] }, tool: CheckResult["tool"]): CheckResult[] {
+	const out: CheckResult[] = [];
+	for (const m of entry.messages) {
+		if (!isEslintJsonMessage(m) || typeof m.message !== "string") continue;
+		out.push({
+			tool,
+			severity: m.severity === 2 ? "error" : "warning",
+			file: entry.filePath,
+			line: typeof m.line === "number" ? m.line : 0,
+			column: typeof m.column === "number" ? m.column : 0,
+			message: m.ruleId ? `${m.message} [${m.ruleId}]` : m.message,
+			ruleId: m.ruleId ?? undefined,
+		});
+	}
+	return out;
+}
+
+/** Walks the parsed eslint array, converting each valid message to a `CheckResult`. */
+function processParsed(parsed: unknown[], tool: CheckResult["tool"]): CheckResult[] {
+	const results: CheckResult[] = [];
+	for (const raw of parsed) {
+		const entry = fileEntry(raw);
+		if (!entry) continue;
+		results.push(...collectEntryResults(entry, tool));
+	}
+	return results;
+}
+
 /**
  * Parse eslint's built-in `--format json` output. `tool` lets the typed
  * inert-code row attribute its findings separately from the generic lint row.
@@ -49,22 +78,5 @@ export function parseEslintJson(output: string, tool: CheckResult["tool"] = "esl
 		return [];
 	}
 	if (!Array.isArray(parsed)) return [];
-	const results: CheckResult[] = [];
-	for (const raw of parsed) {
-		const entry = fileEntry(raw);
-		if (!entry) continue;
-		for (const m of entry.messages) {
-			if (!isEslintJsonMessage(m) || typeof m.message !== "string") continue;
-			results.push({
-				tool,
-				severity: m.severity === 2 ? "error" : "warning",
-				file: entry.filePath,
-				line: typeof m.line === "number" ? m.line : 0,
-				column: typeof m.column === "number" ? m.column : 0,
-				message: m.ruleId ? `${m.message} [${m.ruleId}]` : m.message,
-				ruleId: m.ruleId ?? undefined,
-			});
-		}
-	}
-	return results;
+	return processParsed(parsed, tool);
 }

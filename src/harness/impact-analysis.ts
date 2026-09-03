@@ -63,18 +63,7 @@ export function runImpactAnalysis(
 	const exportSurfaceChanged = removedExports.length > 0 || oldNames.size !== newNames.size;
 
 	// Extract breaking files from structural results
-	const breakingFiles: string[] = [];
-	for (const result of structuralResults) {
-		if (
-			result.check === "export_surface" &&
-			result.affectedFiles &&
-			result.affectedFiles.length > 0
-		) {
-			for (const f of result.affectedFiles) {
-				if (!breakingFiles.includes(f)) breakingFiles.push(f);
-			}
-		}
-	}
+	const breakingFiles = collectBreakingFiles(structuralResults);
 
 	// Find test files covering this module
 	const testFiles = findTestFiles(filePath, view, graph);
@@ -112,6 +101,25 @@ export function runImpactAnalysis(
 		exportSurfaceChanged,
 		summary,
 	};
+}
+
+/**
+ * Collect deduplicated affected files from `export_surface` structural results.
+ */
+function collectBreakingFiles(structuralResults: StructuralCheckResult[]): string[] {
+	const breakingFiles: string[] = [];
+	for (const result of structuralResults) {
+		if (
+			result.check === "export_surface" &&
+			result.affectedFiles &&
+			result.affectedFiles.length > 0
+		) {
+			for (const f of result.affectedFiles) {
+				if (!breakingFiles.includes(f)) breakingFiles.push(f);
+			}
+		}
+	}
+	return breakingFiles;
 }
 
 // ===========================================

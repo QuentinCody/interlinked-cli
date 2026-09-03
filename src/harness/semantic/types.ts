@@ -1,6 +1,5 @@
 import type { FunctionDeclarationKind } from "../function-tokens/types.js";
 
-export const SEMANTIC_SCHEMA_VERSION = 1;
 const FUNCTION_EMBEDDING_SCHEMA = "function-embedding-v1" as const;
 const SEMANTIC_AGGREGATION_VERSION = "weighted-centroid-v1" as const;
 
@@ -81,12 +80,6 @@ export interface FunctionEmbeddingChunk {
     nonOverlapEnd: number;
     modelTokens: number;
     weightTokens: number;
-}
-
-export interface EmbeddedFunction {
-    vector: Float32Array;
-    modelTokens: number;
-    chunks: FunctionEmbeddingChunk[];
 }
 
 export interface IndexedFunctionRow {

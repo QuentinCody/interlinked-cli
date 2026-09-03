@@ -8,74 +8,47 @@
 import { isJsonObject } from "./json-types.js";
 import { isValidLineRange, parseHandoffSubmissionReason, parseReportCommand, parseRequestedRemedies } from "./simplification-schema-guards.js";
 import {
+	type FindingObjects,
+	type FindingScalars,
+	type ParsedValidationFields,
+	constructValidation,
+	findingValidationIsConsistent,
+	parseEvidenceList,
+	reportRelationsMatch,
+} from "./simplification-schema-report-relations.js";
+import {
+	COVERAGE_STATUSES,
+	EVIDENCE_STATES,
+	SCOPE_KINDS,
+	SOURCE_STATUSES,
+	VALIDATION_STATUSES,
+	finiteNumberOrNull,
+	isMember,
+	isSimplificationRepositoryPath,
+	nonNegativeInteger,
+	nullableString,
+	parsedList,
+	pathList,
+	requiredString,
+	stringList,
+	uniqueCanonicalStrings,
+} from "./simplification-schema-scope-kinds.js";
+import {
 	SIMPLIFICATION_HANDOFF_SCHEMA_VERSION,
 	SIMPLIFICATION_REMEDIES, SIMPLIFICATION_REPORT_SCHEMA_VERSION,
 	type SimplificationCoverageExclusion,
 	type SimplificationCoverageReceipt,
 	type SimplificationDeepHandoffRequest,
 	type SimplificationDelta,
-	type SimplificationEvidence,
-	type SimplificationEvidenceState,
 	type SimplificationFinding,
 	type SimplificationLanguageCoverage,
-	type SimplificationRemedy,
 	type SimplificationReport,
 	type SimplificationRepositoryIdentity,
 	type SimplificationScopeReceipt,
 	type SimplificationSourceCoverage,
 	type SimplificationSummary,
 	type SimplificationValidationReceipt,
-	type SimplificationValidationStatus,
 } from "./simplification-types.js";
-
-const EVIDENCE_STATES = ["candidate", "heuristic", "proven", "sandbox-validated"] as const;
-const SCOPE_KINDS = ["repository", "changed", "staged", "range"] as const;
-const VALIDATION_STATUSES = ["not_run", "passed", "failed", "inconclusive"] as const;
-const COVERAGE_STATUSES = ["complete", "partial", "unavailable"] as const;
-const SOURCE_STATUSES = ["checked", "partial", "skipped", "unavailable"] as const;
-
-function isMember<T extends string>(value: unknown, choices: readonly T[]): value is T {
-	return typeof value === "string" && choices.some((choice) => choice === value);
-}
-
-function requiredString(value: unknown): string | null {
-	return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function nullableString(value: unknown): string | null | undefined {
-	if (value === null) return null;
-	return requiredString(value) ?? undefined;
-}
-
-function stringList(value: unknown): string[] | null {
-	if (!Array.isArray(value)) return null;
-	return value.every((entry): entry is string => typeof entry === "string") ? [...value] : null;
-}
-
-function isSimplificationRepositoryPath(value: string): boolean {
-	if (value.length === 0 || value.startsWith("/") || value.includes("\\")) return false;
-	if (/^[A-Za-z]:/.test(value)) return false;
-	return value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
-}
-
-function pathList(value: unknown): string[] | null {
-	const values = stringList(value);
-	return values?.every(isSimplificationRepositoryPath) ? values : null;
-}
-
-function uniqueCanonicalStrings(values: readonly string[]): boolean {
-	return new Set(values).size === values.length
-		&& values.every((entry, index) => index === 0 || entry >= (values[index - 1] ?? ""));
-}
-
-function nonNegativeInteger(value: unknown): number | null {
-	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
-}
-
-function finiteNumberOrNull(value: unknown): number | null | undefined {
-	if (value === null) return null;
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
 
 export function parseSimplificationRepository(
 	value: unknown,
@@ -106,29 +79,11 @@ export function parseSimplificationScope(value: unknown): SimplificationScopeRec
 		: { kind: value.kind, range, base_sha, head_sha, selected_paths };
 }
 
-function parseEvidence(value: unknown): SimplificationEvidence | null {
-	if (!isJsonObject(value) || !isMember(value.state, EVIDENCE_STATES)) return null;
-	const kind = requiredString(value.kind);
-	const detail = requiredString(value.detail);
-	const path = nullableString(value.path);
-	return kind && detail && path !== undefined
-		&& (path === null || isSimplificationRepositoryPath(path))
-		? { kind, state: value.state, detail, path }
-		: null;
-}
-
 function parseDelta(value: unknown): SimplificationDelta | null {
 	if (!isJsonObject(value)) return null;
 	const loc = finiteNumberOrNull(value.loc);
 	const dependencies_removed = stringList(value.dependencies_removed);
 	return loc !== undefined && dependencies_removed !== null ? { loc, dependencies_removed } : null;
-}
-
-interface ParsedValidationFields {
-	executor: "local" | "sandbox" | null;
-	commands: string[];
-	artifact_sha: string | null;
-	notes: string[];
 }
 
 function parseValidationFields(value: Record<string, unknown>): ParsedValidationFields | null {
@@ -140,32 +95,6 @@ function parseValidationFields(value: Record<string, unknown>): ParsedValidation
 	const notes = stringList(value.notes);
 	if (commands === null || artifact_sha === undefined || notes === null) return null;
 	return { executor: value.executor, commands, artifact_sha, notes };
-}
-
-function constructValidation(
-	status: SimplificationValidationStatus,
-	fields: ParsedValidationFields,
-): SimplificationValidationReceipt | null {
-	if (status === "not_run") {
-		return fields.executor === null && fields.commands.length === 0 && fields.artifact_sha === null
-			? { status, executor: null, commands: [], artifact_sha: null, notes: fields.notes }
-			: null;
-	}
-	if (status === "passed") {
-		const firstCommand = fields.commands[0];
-		if (
-			fields.executor === null || firstCommand === undefined || fields.artifact_sha === null
-		) return null;
-		if (fields.commands.some((command) => command.length === 0)) return null;
-		return {
-			status,
-			executor: fields.executor,
-			commands: [firstCommand, ...fields.commands.slice(1)],
-			artifact_sha: fields.artifact_sha,
-			notes: fields.notes,
-		};
-	}
-	return { status, ...fields };
 }
 
 function parseValidation(value: unknown): SimplificationValidationReceipt | null {
@@ -187,17 +116,6 @@ function parseLocation(value: unknown): SimplificationFinding["location"] | null
 	if (start_line === undefined || end_line === undefined) return null;
 	if (!isValidLineRange(start_line, end_line)) return null;
 	return { path, start_line, end_line, tree_sha, working_tree_sha256 };
-}
-
-interface FindingScalars {
-	fingerprint: string;
-	source: string;
-	remedy: SimplificationRemedy;
-	evidence_state: SimplificationEvidenceState;
-	confidence: number;
-	summary: string;
-	replacement: string | null;
-	overlap_group: string | null;
 }
 
 function parseFindingScalars(value: unknown): FindingScalars | null {
@@ -229,24 +147,6 @@ function parseFindingScalars(value: unknown): FindingScalars | null {
 	};
 }
 
-function parseEvidenceList(value: unknown): SimplificationEvidence[] | null {
-	if (!Array.isArray(value)) return null;
-	const out: SimplificationEvidence[] = [];
-	for (const entry of value) {
-		const parsed = parseEvidence(entry);
-		if (!parsed) return null;
-		out.push(parsed);
-	}
-	return out;
-}
-
-interface FindingObjects {
-	location: SimplificationFinding["location"];
-	evidence: SimplificationEvidence[];
-	impact: SimplificationFinding["impact"];
-	validation: SimplificationValidationReceipt;
-}
-
 function parseFindingObjects(value: unknown): FindingObjects | null {
 	if (!isJsonObject(value) || !isJsonObject(value.impact)) return null;
 	const location = parseLocation(value.location);
@@ -257,18 +157,6 @@ function parseFindingObjects(value: unknown): FindingObjects | null {
 	if (!location || !evidence || !estimated || !validation) return null;
 	if (value.impact.validated !== null && !validated) return null;
 	return { location, evidence, impact: { estimated, validated }, validation };
-}
-
-function findingValidationIsConsistent(
-	scalars: FindingScalars,
-	objects: FindingObjects,
-): boolean {
-	const notRunIsConsistent = objects.validation.status !== "not_run" ||
-		objects.impact.validated === null;
-	const hasSandboxValidatedReceipt = objects.validation.status === "passed" &&
-		objects.validation.executor === "sandbox" && objects.impact.validated !== null;
-	return notRunIsConsistent &&
-		(scalars.evidence_state === "sandbox-validated") === hasSandboxValidatedReceipt;
 }
 
 export function parseSimplificationFinding(value: unknown): SimplificationFinding | null {
@@ -322,17 +210,6 @@ function parseSourceCoverage(value: unknown): SimplificationSourceCoverage | nul
 		|| analyzed_paths.some((path, index) => index > 0 && path.localeCompare(analyzed_paths[index - 1] ?? "") < 0)
 	) return null;
 	return { source, status: value.status, files_considered, analyzed_paths, findings_emitted, notes };
-}
-
-function parsedList<T>(value: unknown, parser: (entry: unknown) => T | null): T[] | null {
-	if (!Array.isArray(value)) return null;
-	const out: T[] = [];
-	for (const entry of value) {
-		const parsed = parser(entry);
-		if (parsed === null) return null;
-		out.push(parsed);
-	}
-	return out;
 }
 
 export function parseSimplificationCoverage(value: unknown): SimplificationCoverageReceipt | null {
@@ -406,69 +283,6 @@ function parseSummary(value: unknown): SimplificationSummary | null {
 			"sandbox-validated": sandbox,
 		},
 	};
-}
-
-function summaryMatchesFindings(
-	summary: SimplificationSummary,
-	findings: readonly SimplificationFinding[],
-): boolean {
-	const remedies: SimplificationSummary["by_remedy"] = {
-		delete: 0,
-		stdlib: 0,
-		native: 0,
-		yagni: 0,
-		shrink: 0,
-	};
-	const states: SimplificationSummary["by_evidence_state"] = {
-		candidate: 0,
-		heuristic: 0,
-		proven: 0,
-		"sandbox-validated": 0,
-	};
-	for (const finding of findings) {
-		remedies[finding.remedy]++;
-		states[finding.evidence_state]++;
-	}
-	return summary.findings === findings.length
-		&& SIMPLIFICATION_REMEDIES.every((remedy) => summary.by_remedy[remedy] === remedies[remedy])
-		&& EVIDENCE_STATES.every((state) =>
-			summary.by_evidence_state[state] === states[state]);
-}
-
-function findingLocationsMatchRepository(
-	repository: SimplificationRepositoryIdentity,
-	findings: readonly SimplificationFinding[],
-): boolean {
-	return findings.every((finding) =>
-		finding.location.tree_sha === repository.tree_sha
-		&& finding.location.working_tree_sha256 === repository.working_tree_sha256);
-}
-
-function handoffMatchesReport(
-	relations: Pick<ReportRelations, "handoff" | "repository" | "scope" | "findings">,
-): boolean {
-	const { handoff, repository, scope, findings } = relations;
-	if (handoff === null) return true;
-	return JSON.stringify(handoff.repository) === JSON.stringify(repository)
-		&& JSON.stringify(handoff.scope) === JSON.stringify(scope)
-		&& JSON.stringify(handoff.deterministic_finding_fingerprints)
-			=== JSON.stringify(findings.map((finding) => finding.fingerprint));
-}
-
-interface ReportRelations {
-	command: SimplificationReport["command"];
-	repository: SimplificationRepositoryIdentity;
-	scope: SimplificationScopeReceipt;
-	findings: SimplificationFinding[];
-	summary: SimplificationSummary;
-	handoff: SimplificationDeepHandoffRequest | null;
-}
-
-function reportRelationsMatch(relations: ReportRelations): boolean {
-	return summaryMatchesFindings(relations.summary, relations.findings)
-		&& findingLocationsMatchRepository(relations.repository, relations.findings)
-		&& handoffMatchesReport(relations)
-		&& (relations.command !== "scan" || relations.handoff === null);
 }
 
 export function parseSimplificationHandoff(value: unknown): SimplificationDeepHandoffRequest | null {

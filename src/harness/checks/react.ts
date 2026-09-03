@@ -109,6 +109,36 @@ export function checkDangerouslySetInnerHTML(content: string, filePath: string):
  * = `body { background-color: #fff; ... }`;` is the canonical static
  * CSS template-literal pattern.
  */
+/**
+ * Walk a template literal whose body starts at `start` (the position just
+ * after the opening backtick) and report whether it closes with NO `${...}`
+ * interpolation in its body. Returns false when the literal never closes.
+ */
+function hasUninterpolatedTemplateBody(content: string, start: number): boolean {
+	let i = start;
+	let depth = 0; // ${...} brace depth
+	while (i < content.length) {
+		const c = content[i];
+		if (c === "\\") {
+			i += 2;
+			continue;
+		}
+		if (depth === 0 && c === "`") {
+			// Closing backtick; success only if no `${` was seen.
+			return !content.slice(start, i).includes("${");
+		}
+		if (c === "$" && content[i + 1] === "{") {
+			depth++;
+			i += 2;
+			continue;
+		}
+		if (depth > 0 && c === "{") depth++;
+		if (depth > 0 && c === "}") depth--;
+		i++;
+	}
+	return false;
+}
+
 function isStaticStringConstant(content: string, name: string): boolean {
 	// Match `const <name> = ` followed by either a quoted string or a
 	// template literal. The template literal must contain NO `${`.
@@ -122,33 +152,10 @@ function isStaticStringConstant(content: string, name: string): boolean {
 	// one and verify no `${` appears in between.
 	const tplOpen = new RegExp(`\\bconst\\s+${escaped}\\s*=\\s*\``);
 	const m = tplOpen.exec(content);
-	if (m) {
-		// Find the matching backtick. Naive: walk forward from after the
-		// opening backtick, ignoring escaped backticks.
-		const start = m.index + m[0].length; // position immediately after the opening backtick
-		let i = start;
-		let depth = 0; // ${...} brace depth
-		while (i < content.length) {
-			const c = content[i];
-			if (c === "\\") {
-				i += 2;
-				continue;
-			}
-			if (depth === 0 && c === "`") {
-				// Closing backtick; success only if no `${` was seen.
-				return !content.slice(start, i).includes("${");
-			}
-			if (c === "$" && content[i + 1] === "{") {
-				depth++;
-				i += 2;
-				continue;
-			}
-			if (depth > 0 && c === "{") depth++;
-			if (depth > 0 && c === "}") depth--;
-			i++;
-		}
-	}
-	return false;
+	if (!m) return false;
+	// Find the matching backtick. Naive: walk forward from after the
+	// opening backtick, ignoring escaped backticks.
+	return hasUninterpolatedTemplateBody(content, m.index + m[0].length);
 }
 
 const DOM_ACCESS_RE =
@@ -168,6 +175,36 @@ function netBraceDelta(line: string): number {
 		else if (ch === "}") delta--;
 	}
 	return delta;
+}
+
+/**
+ * Carry the effect-callback brace depth across one stripped line. A line inside
+ * an open effect callback adjusts the running depth (floored at 0); otherwise an
+ * effect opener whose own line nets a positive delta seeds the depth.
+ */
+function nextEffectDepth(strippedLine: string, effectDepth: number): number {
+	if (effectDepth > 0) {
+		const carried = effectDepth + netBraceDelta(strippedLine);
+		return carried < 0 ? 0 : carried;
+	}
+	if (EFFECT_OPENER_RE.test(strippedLine)) {
+		const delta = netBraceDelta(strippedLine);
+		if (delta > 0) return delta;
+	}
+	return effectDepth;
+}
+
+/**
+ * Decide whether one stripped line is reportable direct DOM access. Exemptions:
+ * createPortal target node, or anywhere inside an effect callback (the opener
+ * line itself counts — `inEffect` is its pre-update state, so also check the
+ * same-line effect opener).
+ */
+function isReportableDomAccess(strippedLine: string, inEffect: boolean): boolean {
+	if (!DOM_ACCESS_RE.test(strippedLine)) return false;
+	if (CREATE_PORTAL_RE.test(strippedLine)) return false;
+	if (inEffect || EFFECT_OPENER_RE.test(strippedLine)) return false;
+	return true;
 }
 
 /**
@@ -201,22 +238,9 @@ export function checkDirectDomAccess(content: string, filePath: string): InlineM
 
 		const inEffect = effectDepth > 0;
 		// Update depth for THIS line before deciding the next iteration's state.
-		// An effect opener seeds the depth from this line's net brace delta;
-		// otherwise carry the running depth forward.
-		if (effectDepth > 0) {
-			effectDepth += netBraceDelta(strippedLine);
-			if (effectDepth < 0) effectDepth = 0;
-		} else if (EFFECT_OPENER_RE.test(strippedLine)) {
-			const delta = netBraceDelta(strippedLine);
-			if (delta > 0) effectDepth = delta;
-		}
+		effectDepth = nextEffectDepth(strippedLine, effectDepth);
 
-		if (!DOM_ACCESS_RE.test(strippedLine)) continue;
-		// Exemptions: createPortal target node, or anywhere inside an effect
-		// callback (the opener line itself counts — `inEffect` is its pre-update
-		// state, so also check the same-line effect opener).
-		if (CREATE_PORTAL_RE.test(strippedLine)) continue;
-		if (inEffect || EFFECT_OPENER_RE.test(strippedLine)) continue;
+		if (!isReportableDomAccess(strippedLine, inEffect)) continue;
 
 		matches.push({ line: i + 1, text: originalLine.trim().slice(0, 150) });
 	}

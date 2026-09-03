@@ -8,11 +8,14 @@
 // side effects (budget-estimate update still happens before the `!result.ok`
 // branch in the caller).
 
+import { join } from "node:path";
+import { appendCrapTelemetry, type CrapTelemetryEntry } from "../crap-telemetry.js";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
 import type { CoverageRunOpts, CoverageRunResult } from "../coverage-runner.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 import {
 	type CrapInput,
+	type CrapViolation,
 	DEFAULT_CRAP_THRESHOLD,
 	decideCrap,
 } from "./coverage-crap-decision.js";
@@ -89,21 +92,72 @@ export function missingCoverageDegrade(relPath: string): HarnessDecision {
  * uses the SAME overlay coverage just computed. It runs BEFORE the baseline is
  * persisted, so a CRAP block never poisons it with rejected content (finding 8).
  */
+/**
+ * Telemetry `onShown` hook for {@link decideCrap} — fires exactly once, only
+ * for the single worst violation that actually drives a returned block (this
+ * is the ONE site in the codebase where a CRAP finding is both COMPUTED and
+ * SHOWN to the agent as a PreToolUse block reason; the `snapshotCrap` call in
+ * `pre-tool-pipeline-stages.ts` is a different, earlier thing — an unconditional
+ * PRE-edit baseline snapshot used for diff-aware comparison, not a shown
+ * finding, and it runs on every write whether or not `block_on_crap` is even
+ * on). Honors `event.dry_run` per the repo-wide contract that a simulated
+ * `interlinked harness test` event must never persist state — a dry run
+ * exercises this exact code path with a synthetic threshold and would
+ * otherwise pollute the calibration stream with fictional findings.
+ */
+interface RecordCrapShownParams {
+	ctx: GateContext;
+	event: HarnessEvent;
+	threshold: number;
+	/** Injected wall clock — same `deps.clock` the estimate update above uses,
+	 *  so telemetry timestamps stay deterministic under the same test seam. */
+	clock: () => number;
+}
+
+function recordCrapShown(
+	params: RecordCrapShownParams,
+	relPath: string,
+	worst: CrapViolation,
+): void {
+	const { ctx, event, threshold, clock } = params;
+	if (event.dry_run) return;
+	const entry: CrapTelemetryEntry = {
+		ts: new Date(clock()).toISOString(),
+		session_id: event.session_id,
+		...(event.agent_name ? { agent_name: event.agent_name } : {}),
+		phase: "pre_tool_use",
+		file: relPath,
+		function: worst.function,
+		line: worst.line,
+		complexity: worst.cyclomatic,
+		coverage_pct: worst.coverage_pct,
+		crap_score: worst.crap_score,
+		stale: false,
+		shown: true,
+		threshold,
+	};
+	appendCrapTelemetry(join(ctx.projectRoot, ".interlinked"), [entry]);
+}
+
 export function evaluateCrapGate(
 	ctx: GateContext,
 	deps: CoverageWriteDeps,
 	cov: PerFileCoverage,
+	event: HarnessEvent,
 ): HarnessDecision | null {
 	if (!ctx.blockOnCrap) return null;
+	const threshold = ctx.crapThreshold ?? DEFAULT_CRAP_THRESHOLD;
 	const crapInput: CrapInput = {
 		relPath: ctx.relPath,
 		proposed: ctx.proposed,
 		cov,
 		editedLines: ctx.editedLines,
-		threshold: ctx.crapThreshold ?? DEFAULT_CRAP_THRESHOLD,
+		threshold,
 		analyzer: deps.cyclomaticFor(ctx.language),
 	};
-	return decideCrap(crapInput, loudDegrade);
+	return decideCrap(crapInput, loudDegrade, (relPath, worst) =>
+		recordCrapShown({ ctx, event, threshold, clock: deps.clock }, relPath, worst),
+	);
 }
 
 /**

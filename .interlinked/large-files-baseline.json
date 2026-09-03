@@ -1,9 +1,5 @@
 {
   "version": 1,
   "max_lines": 500,
-  "files": {
-    "src/harness/project-graph.ts": 504,
-    "src/harness/server.ts": 788,
-    "src/harness/types/config.ts": 521
-  }
+  "files": {}
 }

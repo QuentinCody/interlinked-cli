@@ -7,12 +7,11 @@ import {
 	installHooks,
 	installedEventsFor,
 	manifestPath,
-	mergeSettings,
 	readManifest,
 	readManifestState,
-	removeJsonPath,
 	uninstallHooks,
 } from "./installer.js";
+import { mergeSettings, removeJsonPath } from "./installer-merge-engine.js";
 import { getAdapter } from "./adapters/index.js";
 
 let tmp = "";

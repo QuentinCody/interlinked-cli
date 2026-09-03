@@ -9,7 +9,6 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative } from "node:path";
-import { isJsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 import {
@@ -23,6 +22,7 @@ import {
 	splitQueryTerms,
 } from "./search-query.js";
 import { renderFull, renderNormal } from "./search-render.js";
+import { processRipgrepLines, ripgrepStdoutLines } from "./search-ripgrep-json.js";
 
 // ===========================================
 // Config
@@ -91,143 +91,6 @@ const SKIP_DIRS = new Set([
 function hasRipgrep(): boolean {
 	const result = spawnSync("rg", ["--version"], { stdio: "pipe", timeout: 3000 });
 	return result.status === 0;
-}
-
-// ---- rg --json message parsing (boundary) --------------------------------
-// `rg --json` emits one JSON object per line; this command only reads the
-// "match" / "context" / "summary" message kinds (others, e.g. "begin"/"end",
-// are ignored). Each parser returns null on a shape it doesn't recognize so
-// the caller can skip that line rather than reading `undefined`/wrong-typed
-// fields through an unchecked cast.
-
-interface RipgrepMatchData {
-	path: string;
-	lineNumber: number;
-	text: string;
-	submatchStart: number | undefined;
-}
-
-interface RipgrepContextData {
-	path: string;
-	lineNumber: number;
-	text: string;
-}
-
-function parseRipgrepPathText(value: unknown): string | null {
-	if (!isJsonObject(value)) return null;
-	return typeof value.text === "string" ? value.text : null;
-}
-
-function parseRipgrepMatch(value: unknown): RipgrepMatchData | null {
-	if (!isJsonObject(value)) return null;
-	const data = value.data;
-	if (!isJsonObject(data)) return null;
-	const path = parseRipgrepPathText(data.path);
-	if (path === null) return null;
-	const lineNumber = data.line_number;
-	if (typeof lineNumber !== "number") return null;
-	const lines = data.lines;
-	if (!isJsonObject(lines) || typeof lines.text !== "string") return null;
-	const submatches = data.submatches;
-	let submatchStart: number | undefined;
-	if (Array.isArray(submatches)) {
-		const first: unknown = submatches[0];
-		if (isJsonObject(first) && typeof first.start === "number") {
-			submatchStart = first.start;
-		}
-	}
-	return { path, lineNumber, text: lines.text, submatchStart };
-}
-
-function parseRipgrepContext(value: unknown): RipgrepContextData | null {
-	if (!isJsonObject(value)) return null;
-	const data = value.data;
-	if (!isJsonObject(data)) return null;
-	const path = parseRipgrepPathText(data.path);
-	if (path === null) return null;
-	const lineNumber = data.line_number;
-	if (typeof lineNumber !== "number") return null;
-	const lines = data.lines;
-	if (!isJsonObject(lines) || typeof lines.text !== "string") return null;
-	return { path, lineNumber, text: lines.text };
-}
-
-/** `summary.data.stats.searches`, or 0 for a missing/malformed field —
- *  matches the original `?? 0` default for an absent stats block. */
-function parseRipgrepSearchedFiles(value: unknown): number {
-	if (!isJsonObject(value)) return 0;
-	const data = value.data;
-	if (!isJsonObject(data)) return 0;
-	const stats = data.stats;
-	if (!isJsonObject(stats)) return 0;
-	return typeof stats.searches === "number" ? stats.searches : 0;
-}
-
-// SAFETY: @types/node types spawnSync's `stdout` as non-nullable `Buffer`,
-// but it is actually `null` when the child fails to spawn (e.g. `rg`
-// missing from PATH — `result.error` is set in that case). This helper's
-// parameter type is the honest one; callers pass the raw spawnSync result.
-function ripgrepStdoutLines(result: { stdout: Buffer | null }): string[] {
-	return result.stdout ? result.stdout.toString("utf-8").split("\n").filter(Boolean) : [];
-}
-
-/** Parses ripgrep `--json` lines into matches + the searched-file count. */
-function processRipgrepLines(
-	lines: string[],
-	dir: string,
-	opts: { context: number },
-): { matches: SearchMatch[]; searchedFiles: number } {
-	const matches: SearchMatch[] = [];
-	let searchedFiles = 0;
-	// Accumulate leading context lines that appear before the next match
-	let pendingContext: string[] = [];
-
-	for (const line of lines) {
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(line);
-		} catch (_) {
-			/* intentional: ripgrep emits only well-formed JSON; skip on unexpected line */
-			continue;
-		}
-		if (!isJsonObject(parsed)) continue;
-
-		if (parsed.type === "match") {
-			const m = parseRipgrepMatch(parsed);
-			if (!m) continue;
-			matches.push({
-				file: relative(dir, m.path),
-				line: m.lineNumber,
-				column: m.submatchStart,
-				text: m.text.replace(/\n$/, ""),
-				context_before: pendingContext.length > 0 ? pendingContext : undefined,
-				context_after: [],
-			});
-			pendingContext = [];
-		} else if (parsed.type === "context") {
-			const ctx = parseRipgrepContext(parsed);
-			if (!ctx) continue;
-			const text = ctx.text.replace(/\n$/, "");
-			const ctxFile = relative(dir, ctx.path);
-			const last = matches[matches.length - 1];
-			// Trailing context: same file, line immediately after match (within context window)
-			if (
-				last &&
-				ctxFile === last.file &&
-				ctx.lineNumber > last.line &&
-				ctx.lineNumber <= last.line + opts.context
-			) {
-				if (!last.context_after) last.context_after = [];
-				last.context_after.push(text);
-			} else {
-				// Leading context for the next match (different file, or gap > context window)
-				pendingContext.push(text);
-			}
-		} else if (parsed.type === "summary") {
-			searchedFiles = parseRipgrepSearchedFiles(parsed);
-		}
-	}
-	return { matches, searchedFiles };
 }
 
 function searchWithRipgrep(
@@ -327,6 +190,34 @@ function sliceContextWindow(
 	};
 }
 
+/** Scans one file's lines for `regex` hits, stopping after `max` of them. */
+function scanLinesForMatches(
+	lines: string[],
+	relPath: string,
+	regex: RegExp,
+	context: number,
+	max: number,
+): SearchMatch[] {
+	const found: SearchMatch[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const lineText = nonNull(lines[i]);
+		if (!regex.test(lineText)) continue;
+		regex.lastIndex = 0; // Reset for next test
+		const { before, after } = sliceContextWindow(lines, i, context);
+
+		found.push({
+			file: relPath,
+			line: i + 1,
+			text: lineText,
+			context_before: before.length > 0 ? before : undefined,
+			context_after: after.length > 0 ? after : undefined,
+		});
+
+		if (found.length >= max) break;
+	}
+	return found;
+}
+
 function searchWithNative(
 	query: string,
 	dir: string,
@@ -373,26 +264,18 @@ function searchWithNative(
 			continue;
 		}
 
-		const lines = content.split("\n");
-		for (let i = 0; i < lines.length; i++) {
-			const lineText = nonNull(lines[i]);
-			if (regex.test(lineText)) {
-				regex.lastIndex = 0; // Reset for next test
-				const { before, after } = sliceContextWindow(lines, i, opts.context);
+		const cap = opts.limit * 2;
+		matches.push(
+			...scanLinesForMatches(
+				content.split("\n"),
+				relPath,
+				regex,
+				opts.context,
+				cap - matches.length,
+			),
+		);
 
-				matches.push({
-					file: relPath,
-					line: i + 1,
-					text: lineText,
-					context_before: before.length > 0 ? before : undefined,
-					context_after: after.length > 0 ? after : undefined,
-				});
-
-				if (matches.length >= opts.limit * 2) break;
-			}
-		}
-
-		if (matches.length >= opts.limit * 2) break;
+		if (matches.length >= cap) break;
 	}
 
 	const elapsed = performance.now() - start;

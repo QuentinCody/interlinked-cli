@@ -94,6 +94,30 @@ const LANG_TS = "ts" as const;
 const LANG_PYTHON = "python" as const;
 type HandlerLanguage = typeof LANG_TS | typeof LANG_PYTHON;
 
+/**
+ * Scan backward from `idx` (inclusive) up to `lookback` lines, looking for
+ * a `function NAME` / `const|let|var NAME =` declaration (with or without
+ * `export`/`export default`/`async`). Returns the first symbol found, or
+ * `undefined` when the scan exhausts its range without a match.
+ */
+function scanBackwardForHandlerSymbol(lines: string[], idx: number, lookback: number): string | undefined {
+	for (let i = idx; i >= Math.max(0, idx - lookback); i--) {
+		const line = lines[i];
+		if (line === undefined) continue;
+		let m = /^\s*export\s+default\s+(?:async\s+)?function\s+(\w+)/.exec(line);
+		if (m) return m[1];
+		m = /^\s*export\s+(?:async\s+)?function\s+(\w+)/.exec(line);
+		if (m) return m[1];
+		m = /^\s*export\s+(?:const|let|var)\s+(\w+)\s*=/.exec(line);
+		if (m) return m[1];
+		m = /^\s*(?:async\s+)?function\s+(\w+)/.exec(line);
+		if (m) return m[1];
+		m = /^\s*(?:const|let|var)\s+(\w+)\s*=/.exec(line);
+		if (m) return m[1];
+	}
+	return undefined;
+}
+
 export function findHandlerSymbol(
 	content: string,
 	routeLine: number,
@@ -114,21 +138,7 @@ export function findHandlerSymbol(
 		// Fall through if forward scan found nothing.
 	}
 
-	for (let i = idx; i >= Math.max(0, idx - lookback); i--) {
-		const line = lines[i];
-		if (line === undefined) continue;
-		let m = /^\s*export\s+default\s+(?:async\s+)?function\s+(\w+)/.exec(line);
-		if (m) return m[1];
-		m = /^\s*export\s+(?:async\s+)?function\s+(\w+)/.exec(line);
-		if (m) return m[1];
-		m = /^\s*export\s+(?:const|let|var)\s+(\w+)\s*=/.exec(line);
-		if (m) return m[1];
-		m = /^\s*(?:async\s+)?function\s+(\w+)/.exec(line);
-		if (m) return m[1];
-		m = /^\s*(?:const|let|var)\s+(\w+)\s*=/.exec(line);
-		if (m) return m[1];
-	}
-	return undefined;
+	return scanBackwardForHandlerSymbol(lines, idx, lookback);
 }
 
 /**

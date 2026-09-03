@@ -122,6 +122,46 @@ export function stripComments(content: string): string {
 }
 
 /**
+ * Consume one line of a multi-line template literal that is still open
+ * (`templateDepth > 0` on entry). Blanks the whole line and tracks backticks
+ * to detect the literal's close, returning the (possibly still nonzero)
+ * depth for the next line.
+ */
+function consumeTemplateLiteralLine(line: string, templateDepth: number): { line: string; templateDepth: number } {
+	for (let j = 0; j < line.length; j++) {
+		if (line[j] === "\\" && j + 1 < line.length) {
+			j++; // skip escaped char
+		} else if (line[j] === "`") {
+			templateDepth--;
+			if (templateDepth === 0) break;
+		}
+	}
+	return { line: "", templateDepth };
+}
+
+/**
+ * Strip single-line string literal content from `line` (double/single/backtick
+ * quoted), then detect whether a multi-line template literal opens on it
+ * (an odd count of unescaped backticks left after stripping). Only called
+ * when no template literal is already open on entry.
+ */
+function stripSingleLineStrings(line: string): { line: string; templateDepth: number } {
+	// Replace content inside double-quoted strings
+	line = line.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+	// Replace content inside single-quoted strings
+	line = line.replace(/'(?:[^'\\]|\\.)*'/g, "''");
+	// Replace content inside backtick template strings (single-line only)
+	line = line.replace(/`(?:[^`\\]|\\.)*`/g, "``");
+
+	// Check for unclosed backticks (multi-line template literal opening).
+	// Count unescaped backticks remaining — odd count means one is unclosed.
+	const remaining = (line.match(/(?<!\\)`/g) || []).length;
+	const templateDepth = remaining % 2 === 1 ? 1 : 0;
+
+	return { line, templateDepth };
+}
+
+/**
  * Strip string literal content from content, preserving line count.
  * Replaces the interior of string literals with empty content so that
  * patterns inside strings do not trigger false positive matches.
@@ -132,38 +172,15 @@ export function stripStrings(content: string): string {
 	const lines = content.split("\n");
 	let templateDepth = 0; // Track nested template literal depth
 	for (let i = 0; i < lines.length; i++) {
-		let line = lines[i];
+		const line = lines[i];
 		if (line === undefined) continue;
 
 		// Inside a multi-line template literal: blank the line, track backticks
-		if (templateDepth > 0) {
-			for (let j = 0; j < line.length; j++) {
-				if (line[j] === "\\" && j + 1 < line.length) {
-					j++; // skip escaped char
-				} else if (line[j] === "`") {
-					templateDepth--;
-					if (templateDepth === 0) break;
-				}
-			}
-			lines[i] = "";
-			continue;
-		}
+		const result =
+			templateDepth > 0 ? consumeTemplateLiteralLine(line, templateDepth) : stripSingleLineStrings(line);
 
-		// Replace content inside double-quoted strings
-		line = line.replace(/"(?:[^"\\]|\\.)*"/g, '""');
-		// Replace content inside single-quoted strings
-		line = line.replace(/'(?:[^'\\]|\\.)*'/g, "''");
-		// Replace content inside backtick template strings (single-line only)
-		line = line.replace(/`(?:[^`\\]|\\.)*`/g, "``");
-
-		// Check for unclosed backticks (multi-line template literal opening).
-		// Count unescaped backticks remaining — odd count means one is unclosed.
-		const remaining = (line.match(/(?<!\\)`/g) || []).length;
-		if (remaining % 2 === 1) {
-			templateDepth = 1;
-		}
-
-		lines[i] = line;
+		lines[i] = result.line;
+		templateDepth = result.templateDepth;
 	}
 	return lines.join("\n");
 }

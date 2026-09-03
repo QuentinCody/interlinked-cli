@@ -196,6 +196,22 @@ function parseReportRows(bytes: Uint8Array, targetFile: string): { rows: ReportR
 	return { rows };
 }
 
+/** One envelope mutant's disagreement with its report row, or null when it
+ *  matches. Extracted so the loop in `rowCorrespondenceFailure` stays flat. */
+function envMutantMismatch(m: V3MutantRow, reportById: Map<string, ReportRow>): string | null {
+	const reportRow = reportById.get(m.mutant_id);
+	if (reportRow === undefined) return `envelope mutant "${m.mutant_id}" is missing from the report`;
+	if (reportRow.status === "excluded") {
+		return `report marks executable mutant "${m.mutant_id}" as excluded`;
+	}
+	for (const key of EXECUTABLE_ROW_KEYS) {
+		if (reportRow[key] !== m[key]) {
+			return `report ${key} for "${m.mutant_id}" disagrees with the signed envelope`;
+		}
+	}
+	return null;
+}
+
 function rowCorrespondenceFailure(envelope: ParsedEnvelope, rows: ReportRow[]): string | null {
 	// SAFETY: keyed access across the union; report-requiring kinds carry these.
 	const record = envelope as unknown as Record<string, unknown>;
@@ -206,16 +222,8 @@ function rowCorrespondenceFailure(envelope: ParsedEnvelope, rows: ReportRow[]): 
 	}
 	const reportById = new Map(rows.map((r) => [r.mutant_id, r]));
 	for (const m of envMutants) {
-		const reportRow = reportById.get(m.mutant_id);
-		if (reportRow === undefined) return `envelope mutant "${m.mutant_id}" is missing from the report`;
-		if (reportRow.status === "excluded") {
-			return `report marks executable mutant "${m.mutant_id}" as excluded`;
-		}
-		for (const key of EXECUTABLE_ROW_KEYS) {
-			if (reportRow[key] !== m[key]) {
-				return `report ${key} for "${m.mutant_id}" disagrees with the signed envelope`;
-			}
-		}
+		const mismatch = envMutantMismatch(m, reportById);
+		if (mismatch !== null) return mismatch;
 	}
 	for (const e of envExcluded) {
 		const reportRow = reportById.get(e.mutant_id);

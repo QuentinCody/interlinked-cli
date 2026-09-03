@@ -119,6 +119,34 @@ interface WalkContext {
 	ignoredDirs?: ReadonlySet<string>;
 }
 
+/** Process one directory entry during the walk. Returns true when the caller
+ *  should stop iterating (budget exhausted, or a recursive descent tripped
+ *  the truncation flag) — mirrors the `return`/`continue` split that used to
+ *  live inline in `walkDir`'s loop body. */
+function processEntry(dir: string, entry: fs.Dirent, ctx: WalkContext): boolean {
+	// Hard cap: stop descending/iterating once the entry or time budget trips.
+	if (!consumeWalkEntry(ctx.budget)) return true;
+	if (entry.isDirectory()) {
+		const sub = path.join(dir, entry.name);
+		if (SKIP_DIRS.has(entry.name) || isRootScratchDir(ctx.repoRoot, sub) || ctx.ignoredDirs?.has(sub)) return false;
+		walkDir(sub, ctx);
+		return ctx.budget.truncated;
+	}
+	if (entry.isFile()) {
+		const ext = path.extname(entry.name);
+		if (!SOURCE_EXTENSIONS.has(ext)) return false;
+		const fullPath = path.join(dir, entry.name);
+		const relPath = path.relative(ctx.repoRoot, fullPath);
+		try {
+			const content = fs.readFileSync(fullPath, "utf-8");
+			scanFile(relPath, content, ctx.envKeys);
+		} catch (_err) {
+			void 0; /* intentional: skip unreadable files */
+		}
+	}
+	return false;
+}
+
 function walkDir(dir: string, ctx: WalkContext): void {
 	let entries: fs.Dirent[];
 	try {
@@ -127,25 +155,7 @@ function walkDir(dir: string, ctx: WalkContext): void {
 		return;
 	}
 	for (const entry of entries) {
-		// Hard cap: stop descending/iterating once the entry or time budget trips.
-		if (!consumeWalkEntry(ctx.budget)) return;
-		if (entry.isDirectory()) {
-			const sub = path.join(dir, entry.name);
-			if (SKIP_DIRS.has(entry.name) || isRootScratchDir(ctx.repoRoot, sub) || ctx.ignoredDirs?.has(sub)) continue;
-			walkDir(sub, ctx);
-			if (ctx.budget.truncated) return;
-		} else if (entry.isFile()) {
-			const ext = path.extname(entry.name);
-			if (!SOURCE_EXTENSIONS.has(ext)) continue;
-			const fullPath = path.join(dir, entry.name);
-			const relPath = path.relative(ctx.repoRoot, fullPath);
-			try {
-				const content = fs.readFileSync(fullPath, "utf-8");
-				scanFile(relPath, content, ctx.envKeys);
-			} catch (_err) {
-				void 0; /* intentional: skip unreadable files */
-			}
-		}
+		if (processEntry(dir, entry, ctx)) return;
 	}
 }
 

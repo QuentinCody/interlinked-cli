@@ -224,6 +224,35 @@ export function parseCountFlag(tokens: string[], shortFlag: "-n" | "-c"): number
 	return null;
 }
 
+/** One token's classification within {@link extractFilePaths}'s scan. */
+type FilePathTokenStep =
+	| { action: "none" }
+	| { action: "end-of-flags" }
+	| { action: "bail" }
+	| { action: "skip-flag-value" }
+	| { action: "skip" }
+	| { action: "value"; value: string };
+
+/**
+ * Classifies token `i` of an `extractFilePaths` scan: a flag to skip (with or
+ * without a trailing value), the `--` end-of-flags marker, a shape we can't
+ * safely stat (glob / command substitution — the caller bails the whole
+ * scan), or a plain positional value.
+ */
+function classifyFilePathToken(tokens: string[], i: number, flagsWithValue: Set<string>): FilePathTokenStep {
+	const t = tokens[i];
+	if (!t) return { action: "none" };
+	if (t === "--") return { action: "end-of-flags" };
+	if (t.startsWith("-")) {
+		// `-n 50` form: skip next token.
+		return flagsWithValue.has(t) ? { action: "skip-flag-value" } : { action: "skip" };
+	}
+	// Bail on shapes we can't stat reliably.
+	if (/[*?[\]]/.test(t)) return { action: "bail" };
+	if (t.includes("$(") || t.startsWith("`") || t.startsWith("$")) return { action: "bail" };
+	return { action: "value", value: t };
+}
+
 /**
  * Extracts positional file path arguments from the token stream. Returns
  * empty array when the args contain a glob, command substitution, or other
@@ -234,22 +263,19 @@ export function extractFilePaths(tokens: string[], verb: string): string[] {
 	// Flags that take a separate value argument.
 	const flagsWithValue = new Set(["-n", "-c", "--lines", "--bytes"]);
 	for (let i = 1; i < tokens.length; i++) {
-		const t = tokens[i];
-		if (!t) continue;
-		// End-of-flags marker
-		if (t === "--") {
+		const step = classifyFilePathToken(tokens, i, flagsWithValue);
+		if (step.action === "none" || step.action === "skip") continue;
+		if (step.action === "end-of-flags") {
+			// End-of-flags marker
 			for (const f of tokens.slice(i + 1)) if (f) out.push(f);
 			break;
 		}
-		if (t.startsWith("-")) {
-			// `-n 50` form: skip next token.
-			if (flagsWithValue.has(t)) i++;
+		if (step.action === "bail") return [];
+		if (step.action === "skip-flag-value") {
+			i++;
 			continue;
 		}
-		// Bail on shapes we can't stat reliably.
-		if (/[*?[\]]/.test(t)) return [];
-		if (t.includes("$(") || t.startsWith("`") || t.startsWith("$")) return [];
-		out.push(t);
+		out.push(step.value);
 	}
 	// `cat` reading stdin (no positional arg) is fine — return empty.
 	if (out.length === 0) return [];

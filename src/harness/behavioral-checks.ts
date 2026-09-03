@@ -245,25 +245,36 @@ interface EscalationGroup {
  * check (from both the single `line` slot and the `lines[]` array) and
  * the check's determinism tag. Legacy `string` entries contribute the
  * name only. */
+/** Fold one finding into its check's escalation group (creating the group
+ * on first sight): determinism tag (first seen wins), the single `line`
+ * slot, and every entry of the `lines[]` array. Legacy `string` entries
+ * contribute only the group's existence (name key). */
+function foldEscalationInput(
+	groups: Map<string, EscalationGroup>,
+	r: string | EscalationFinding,
+): void {
+	const name = typeof r === "string" ? r : r.name;
+	let group = groups.get(name);
+	if (!group) {
+		group = { lines: [] };
+		groups.set(name, group);
+	}
+	if (typeof r === "string") return;
+	if (group.determinism === undefined) group.determinism = r.determinism;
+	if (typeof r.line === "number" && Number.isFinite(r.line)) group.lines.push(r.line);
+	if (Array.isArray(r.lines)) {
+		for (const l of r.lines) {
+			if (typeof l === "number" && Number.isFinite(l)) group.lines.push(l);
+		}
+	}
+}
+
 function groupEscalationInputs(
 	currentResults: ReadonlyArray<string | EscalationFinding>,
 ): Map<string, EscalationGroup> {
 	const groups = new Map<string, EscalationGroup>();
 	for (const r of currentResults) {
-		const name = typeof r === "string" ? r : r.name;
-		let group = groups.get(name);
-		if (!group) {
-			group = { lines: [] };
-			groups.set(name, group);
-		}
-		if (typeof r === "string") continue;
-		if (group.determinism === undefined) group.determinism = r.determinism;
-		if (typeof r.line === "number" && Number.isFinite(r.line)) group.lines.push(r.line);
-		if (Array.isArray(r.lines)) {
-			for (const l of r.lines) {
-				if (typeof l === "number" && Number.isFinite(l)) group.lines.push(l);
-			}
-		}
+		foldEscalationInput(groups, r);
 	}
 	return groups;
 }

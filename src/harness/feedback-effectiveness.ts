@@ -19,6 +19,26 @@ export interface WarningEvidence {
 }
 
 /**
+ * Fold one evidence item into the per-check line accumulator, skipping
+ * operational deferrals (see `recordWarningsIssued`).
+ */
+function accumulateWarningEvidence(
+	linesByCheck: Map<string, number[]>,
+	item: string | WarningEvidence,
+): void {
+	const name = typeof item === "string" ? item : item.name;
+	// A capacity/backpressure notice is operational telemetry, not feedback
+	// the agent can resolve by changing this source file.
+	if (isOperationalCheckDeferral(name)) return;
+	const line = typeof item === "string" ? undefined : item.line;
+	if (!linesByCheck.has(name)) linesByCheck.set(name, []);
+	if (typeof line === "number" && Number.isFinite(line)) {
+		const list = linesByCheck.get(name);
+		if (list) list.push(line);
+	}
+}
+
+/**
  * Record that warnings were issued for specific checks on a file.
  * Called after PostToolUse checks produce warnings.
  *
@@ -34,16 +54,7 @@ export function recordWarningsIssued(
 ): void {
 	const linesByCheck = new Map<string, number[]>();
 	for (const item of evidence) {
-		const name = typeof item === "string" ? item : item.name;
-		// A capacity/backpressure notice is operational telemetry, not feedback
-		// the agent can resolve by changing this source file.
-		if (isOperationalCheckDeferral(name)) continue;
-		const line = typeof item === "string" ? undefined : item.line;
-		if (!linesByCheck.has(name)) linesByCheck.set(name, []);
-		if (typeof line === "number" && Number.isFinite(line)) {
-			const list = linesByCheck.get(name);
-			if (list) list.push(line);
-		}
+		accumulateWarningEvidence(linesByCheck, item);
 	}
 
 	for (const [checkName, lines] of linesByCheck) {

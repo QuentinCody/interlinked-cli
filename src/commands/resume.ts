@@ -11,6 +11,21 @@ import { getOutputMode, output, outputError } from "../lib/output.js";
 /** Max time (ms) to wait for `get_work_context` server fetch before falling back to local. */
 const SERVER_CONTEXT_TIMEOUT_MS = 3000;
 
+function checkpointFilesChangedLines(filesChanged: string[]): string[] {
+	const lines: string[] = [];
+	if (filesChanged.length > 0) {
+		lines.push("");
+		lines.push(c.bold("Files at checkpoint:"));
+		for (const f of filesChanged.slice(0, 10)) {
+			lines.push(`  ${c.dim(f)}`);
+		}
+		if (filesChanged.length > 10) {
+			lines.push(c.dim(`  ... and ${filesChanged.length - 10} more`));
+		}
+	}
+	return lines;
+}
+
 export async function resumeCommand(
 	checkpointId?: string,
 	opts?: { agent?: string; json?: boolean },
@@ -117,16 +132,7 @@ export async function resumeCommand(
 					}
 				}
 
-				if (checkpoint.files_changed.length > 0) {
-					lines.push("");
-					lines.push(c.bold("Files at checkpoint:"));
-					for (const f of checkpoint.files_changed.slice(0, 10)) {
-						lines.push(`  ${c.dim(f)}`);
-					}
-					if (checkpoint.files_changed.length > 10) {
-						lines.push(c.dim(`  ... and ${checkpoint.files_changed.length - 10} more`));
-					}
-				}
+				lines.push(...checkpointFilesChangedLines(checkpoint.files_changed));
 
 				if (serverContext) {
 					lines.push("");

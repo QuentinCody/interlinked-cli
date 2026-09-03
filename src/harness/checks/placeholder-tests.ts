@@ -122,6 +122,28 @@ function scanTestBodies(
 }
 
 /**
+ * Walk one line's characters from `startCol`, tracking brace depth from
+ * `depth`. Returns the updated depth after the line, and the column where
+ * depth reached zero (the matching close brace) — or `null` if the line
+ * closed no bracket back to zero.
+ */
+function scanLineForMatchingClose(
+	line: string,
+	startCol: number,
+	depth: number,
+): { depth: number; closeCol: number | null } {
+	for (let j = startCol; j < line.length; j++) {
+		const ch = nonNull(line[j]);
+		if (ch === "{") depth++;
+		else if (ch === "}") {
+			depth--;
+			if (depth === 0) return { depth, closeCol: j };
+		}
+	}
+	return { depth, closeCol: null };
+}
+
+/**
  * From a test-intro line, find the opening `{` and walk brace depth to its
  * matching close. Returns the stripped-content text strictly between the
  * opening and closing braces, plus the closing line index.
@@ -149,20 +171,15 @@ function extractTestBody(
 	let depth = 1;
 	let endLine = -1;
 	let endCol = -1;
-	outer: for (let i = openLine; i < strippedLines.length; i++) {
+	for (let i = openLine; i < strippedLines.length; i++) {
 		const line = nonNull(strippedLines[i]);
 		const startCol = i === openLine ? openCol + 1 : 0;
-		for (let j = startCol; j < line.length; j++) {
-			const ch = nonNull(line[j]);
-			if (ch === "{") depth++;
-			else if (ch === "}") {
-				depth--;
-				if (depth === 0) {
-					endLine = i;
-					endCol = j;
-					break outer;
-				}
-			}
+		const scan = scanLineForMatchingClose(line, startCol, depth);
+		depth = scan.depth;
+		if (scan.closeCol !== null) {
+			endLine = i;
+			endCol = scan.closeCol;
+			break;
 		}
 	}
 	if (endLine === -1) return null;

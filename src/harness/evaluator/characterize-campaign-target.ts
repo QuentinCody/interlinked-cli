@@ -222,7 +222,7 @@ export function hasTestSignalFor(
 	cwd: string,
 ): boolean {
 	if (!session) return false;
-	for (const w of session.files_written ?? []) {
+	for (const w of session.files_written) {
 		if (isCompanionOf(toAbs(w, cwd), srcAbs, cwd)) return true;
 	}
 	if (hasGreenCompanionRun(session, srcAbs, cwd)) return true;
@@ -250,7 +250,7 @@ function anyCommandNamesFile(
  *  sentinel is skipped (it says nothing about THIS file) and a red run is
  *  skipped (a failing test pins no behavior). */
 function hasGreenCompanionRun(session: SessionTrajectory, srcAbs: string, cwd: string): boolean {
-	for (const [run, record] of session.test_runs ?? []) {
+	for (const [run, record] of session.test_runs) {
 		if (run === ALL_TESTS_SENTINEL || record.status !== "pass") continue;
 		if (isCompanionOf(toAbs(run, cwd), srcAbs, cwd)) return true;
 	}

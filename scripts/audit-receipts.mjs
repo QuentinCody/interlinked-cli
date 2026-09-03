@@ -295,27 +295,42 @@ function getTranscript(sessionId) {
 	return t;
 }
 
+// Scans one transcript record's tool_use blocks for a command candidate.
+// Returns { best, bestDt } for the first qualifying block in this record
+// (all blocks in a record share the same dt, since dt is derived from the
+// record's own timestamp, not the block), or null if the record has none.
+function scanRecordForCommand(rec, blockTsMs) {
+	if (rec?.type !== "assistant") return null;
+	const ts = parseTs(rec.timestamp || "");
+	if (Number.isNaN(ts)) return null;
+	const content = rec.message?.content;
+	if (!Array.isArray(content)) return null;
+	let best = null;
+	let bestDt = Number.POSITIVE_INFINITY;
+	for (const block of content) {
+		if (block?.type !== "tool_use") continue;
+		if (!TOOL_USE_TOOLS.has(block.name)) continue;
+		const cmd = block.input?.command || block.input?.file_path || "";
+		if (!cmd) continue;
+		const dt = blockTsMs - ts;
+		if (dt >= 0 && dt < TRANSCRIPT_LOOKBACK_SECONDS * 1000 && dt < bestDt) {
+			best = { command: String(cmd), tool: block.name, ts: rec.timestamp };
+			bestDt = dt;
+		}
+	}
+	return best ? { best, bestDt } : null;
+}
+
 function findCommandForBlock(sessionId, blockTsMs) {
 	const transcript = getTranscript(sessionId);
 	if (!transcript) return null;
 	let best = null;
 	let bestDt = Number.POSITIVE_INFINITY;
 	for (const rec of transcript) {
-		if (rec?.type !== "assistant") continue;
-		const ts = parseTs(rec.timestamp || "");
-		if (Number.isNaN(ts)) continue;
-		const content = rec.message?.content;
-		if (!Array.isArray(content)) continue;
-		for (const block of content) {
-			if (block?.type !== "tool_use") continue;
-			if (!TOOL_USE_TOOLS.has(block.name)) continue;
-			const cmd = block.input?.command || block.input?.file_path || "";
-			if (!cmd) continue;
-			const dt = blockTsMs - ts;
-			if (dt >= 0 && dt < TRANSCRIPT_LOOKBACK_SECONDS * 1000 && dt < bestDt) {
-				best = { command: String(cmd), tool: block.name, ts: rec.timestamp };
-				bestDt = dt;
-			}
+		const found = scanRecordForCommand(rec, blockTsMs);
+		if (found && found.bestDt < bestDt) {
+			best = found.best;
+			bestDt = found.bestDt;
 		}
 	}
 	return best;

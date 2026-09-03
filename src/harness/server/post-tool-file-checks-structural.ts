@@ -29,6 +29,7 @@ import type {
 	ExportedSymbol,
 	HarnessDecision,
 	HarnessEvent,
+	ModuleRole,
 	SessionTrajectory,
 	StructuralCheckResult,
 	StructuralChecksConfig,
@@ -222,6 +223,78 @@ export function runImpactOrFallback(
 }
 
 /**
+ * Estimate the edited line number by locating `old_string` in the file's
+ * current on-disk content. Returns `undefined` when it can't be read or
+ * found — same fallback as the original inline try/catch.
+ */
+function estimateErrorLineStart(editedFilePath: string, oldStr: string | undefined): number | undefined {
+	if (!oldStr) return undefined;
+	try {
+		const content = readFileSync(editedFilePath, "utf-8");
+		const idx = content.indexOf(oldStr);
+		return idx >= 0 ? content.slice(0, idx).split("\n").length : undefined;
+	} catch (e) {
+		void e;
+		return undefined;
+	}
+}
+
+/**
+ * Record one error/warning structural finding in the cross-session error
+ * history. Extracted loop body of `recordStructuralErrorMemory` — a no-op
+ * for non-error/warning severities, matching the original inline guard.
+ */
+async function recordOneStructuralErrorMemory(
+	ctx: ServerRuntime,
+	checkEvent: HarnessEvent,
+	event: HarnessEvent,
+	session: SessionTrajectory,
+	editedFilePath: string,
+	fileGraph: ProjectGraph,
+	relPath: string,
+	fileRole: ModuleRole,
+	currentExports: string[],
+	dependentCount: number,
+	dependencyCount: number,
+	result: StructuralCheckResult,
+): Promise<void> {
+	if (result.severity !== "error" && result.severity !== "warning") return;
+
+	const editOldString = checkEvent.tool_input?.old_string as string | undefined;
+	const editNewString = checkEvent.tool_input?.new_string as string | undefined;
+	const editContent = checkEvent.tool_input?.content as string | undefined;
+	const diffContext = ErrorHistory.buildErrorContext({
+		file: relPath,
+		fileRole,
+		dependentCount,
+		dependencyCount,
+		exports: currentExports,
+		result,
+		...(editOldString !== undefined ? { oldString: editOldString } : {}),
+		...(editNewString !== undefined ? { newString: editNewString } : {}),
+		...(editContent !== undefined ? { content: editContent } : {}),
+	});
+	// Estimate line number from old_string position
+	const lineStart = estimateErrorLineStart(editedFilePath, checkEvent.tool_input?.old_string as string | undefined);
+
+	await ctx.errorHistory.recordError(
+		event.session_id,
+		session.agent_name,
+		relPath,
+		fileRole,
+		result,
+		diffContext,
+		{
+			...(lineStart !== undefined ? { line_start: lineStart } : {}),
+			co_edited_files: [...session.files_written]
+				.map((f) => fileGraph.toRelative(f))
+				.filter((f) => f !== relPath),
+			pre_error_sequence: [...session.tool_sequence],
+		},
+	);
+}
+
+/**
  * Record each error/warning structural finding in the cross-session error
  * history, deriving the edit's line number from `old_string` when readable.
  */
@@ -241,50 +314,20 @@ export async function recordStructuralErrorMemory(
 	const dependencyCount = fileGraph.getDependencies(editedFilePath).length;
 
 	for (const result of structuralResults) {
-		if (result.severity === "error" || result.severity === "warning") {
-			const editOldString = checkEvent.tool_input?.old_string as string | undefined;
-			const editNewString = checkEvent.tool_input?.new_string as string | undefined;
-			const editContent = checkEvent.tool_input?.content as string | undefined;
-			const diffContext = ErrorHistory.buildErrorContext({
-				file: relPath,
-				fileRole,
-				dependentCount,
-				dependencyCount,
-				exports: currentExports,
-				result,
-				...(editOldString !== undefined ? { oldString: editOldString } : {}),
-				...(editNewString !== undefined ? { newString: editNewString } : {}),
-				...(editContent !== undefined ? { content: editContent } : {}),
-			});
-			// Estimate line number from old_string position
-			let lineStart: number | undefined;
-			const oldStr = checkEvent.tool_input?.old_string as string | undefined;
-			if (oldStr) {
-				try {
-					const content = readFileSync(editedFilePath, "utf-8");
-					const idx = content.indexOf(oldStr);
-					if (idx >= 0) lineStart = content.slice(0, idx).split("\n").length;
-				} catch (e) {
-					void e;
-				}
-			}
-
-			await ctx.errorHistory.recordError(
-				event.session_id,
-				session.agent_name,
-				relPath,
-				fileRole,
-				result,
-				diffContext,
-				{
-					...(lineStart !== undefined ? { line_start: lineStart } : {}),
-					co_edited_files: [...session.files_written]
-						.map((f) => fileGraph.toRelative(f))
-						.filter((f) => f !== relPath),
-					pre_error_sequence: [...session.tool_sequence],
-				},
-			);
-		}
+		await recordOneStructuralErrorMemory(
+			ctx,
+			checkEvent,
+			event,
+			session,
+			editedFilePath,
+			fileGraph,
+			relPath,
+			fileRole,
+			currentExports,
+			dependentCount,
+			dependencyCount,
+			result,
+		);
 	}
 }
 

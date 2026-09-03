@@ -126,6 +126,58 @@ function processAlive(pid: number): boolean {
 	}
 }
 
+type DrainLeaseAttempt = { done: true; result: string | null } | { done: false };
+
+/** One attempt at the drain lock: acquire it, or claim+discard a stale holder. */
+function attemptDrainLease(lockPath: string): DrainLeaseAttempt {
+	const ownerToken = `${process.pid}-${randomUUID()}`;
+	try {
+		writeFileSync(
+			lockPath,
+			JSON.stringify({ pid: process.pid, at: Date.now(), owner_token: ownerToken }),
+			{ encoding: "utf-8", flag: "wx", mode: 0o600 },
+		);
+		return { done: true, result: ownerToken };
+	} catch {
+		// Inspect the existing holder below.
+	}
+
+	let stale = false;
+	try {
+		const holder: unknown = JSON.parse(readFileSync(lockPath, "utf-8"));
+		if (holder !== null && typeof holder === "object" && !Array.isArray(holder)) {
+			const row = holder as Record<string, unknown>;
+			stale =
+				typeof row.pid === "number" &&
+				typeof row.at === "number" &&
+				!processAlive(row.pid) &&
+				Date.now() - row.at > 1000;
+		} else {
+			stale = Date.now() - statSync(lockPath).mtimeMs > DRAIN_LOCK_TTL_MS;
+		}
+	} catch {
+		try {
+			stale = Date.now() - statSync(lockPath).mtimeMs > DRAIN_LOCK_TTL_MS;
+		} catch {
+			return { done: true, result: null };
+		}
+	}
+	if (!stale) return { done: true, result: null };
+
+	const staleClaim = `${lockPath}.stale-${randomUUID()}`;
+	try {
+		renameSync(lockPath, staleClaim);
+		try {
+			unlinkSync(staleClaim);
+		} catch {
+			// Best-effort stale-lock cleanup.
+		}
+	} catch {
+		return { done: true, result: null };
+	}
+	return { done: false };
+}
+
 function acquireDrainLease(dataDir: string): string | null {
 	const dir = spoolDir(dataDir);
 	try {
@@ -135,51 +187,8 @@ function acquireDrainLease(dataDir: string): string | null {
 	}
 	const lockPath = join(dir, DRAIN_LOCK_FILE);
 	for (let attempt = 0; attempt < 2; attempt++) {
-		const ownerToken = `${process.pid}-${randomUUID()}`;
-		try {
-			writeFileSync(
-				lockPath,
-				JSON.stringify({ pid: process.pid, at: Date.now(), owner_token: ownerToken }),
-				{ encoding: "utf-8", flag: "wx", mode: 0o600 },
-			);
-			return ownerToken;
-		} catch {
-			// Inspect the existing holder below.
-		}
-
-		let stale = false;
-		try {
-			const holder: unknown = JSON.parse(readFileSync(lockPath, "utf-8"));
-			if (holder !== null && typeof holder === "object" && !Array.isArray(holder)) {
-				const row = holder as Record<string, unknown>;
-				stale =
-					typeof row.pid === "number" &&
-					typeof row.at === "number" &&
-					!processAlive(row.pid) &&
-					Date.now() - row.at > 1000;
-			} else {
-				stale = Date.now() - statSync(lockPath).mtimeMs > DRAIN_LOCK_TTL_MS;
-			}
-		} catch {
-			try {
-				stale = Date.now() - statSync(lockPath).mtimeMs > DRAIN_LOCK_TTL_MS;
-			} catch {
-				return null;
-			}
-		}
-		if (!stale) return null;
-
-		const staleClaim = `${lockPath}.stale-${randomUUID()}`;
-		try {
-			renameSync(lockPath, staleClaim);
-			try {
-				unlinkSync(staleClaim);
-			} catch {
-				// Best-effort stale-lock cleanup.
-			}
-		} catch {
-			return null;
-		}
+		const outcome = attemptDrainLease(lockPath);
+		if (outcome.done) return outcome.result;
 	}
 	return null;
 }

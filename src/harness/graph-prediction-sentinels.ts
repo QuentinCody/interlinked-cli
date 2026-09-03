@@ -85,6 +85,47 @@ interface ParsedAckSubmission {
 	parse_error?: string;
 }
 
+interface AckParseState {
+	inAck: boolean;
+	inTriggers: boolean;
+	file: string;
+	triggers: string[];
+}
+
+/** Fold one raw YAML line into the running ack-parse state (mutates
+ *  `state` in place). Pulled out of `parseAckSubmission`'s loop body so
+ *  the line-by-line state machine reads at its own nesting level. */
+function applyAckLine(raw: string, state: AckParseState): void {
+	const line = raw.replace(/\r$/, "");
+	if (/^\s*#/.test(line)) return;
+	if (/^graph_prediction_ack:\s*$/.test(line)) {
+		state.inAck = true;
+		state.inTriggers = false;
+		return;
+	}
+	if (!state.inAck) return;
+	if (/^\S/.test(line)) {
+		state.inAck = false;
+		state.inTriggers = false;
+		return;
+	}
+	const fileMatch = line.match(/^\s+file:\s*(.+?)\s*$/);
+	if (fileMatch) {
+		state.file = nonNull(fileMatch[1]).replace(/^["']|["']$/g, "");
+		state.inTriggers = false;
+		return;
+	}
+	if (/^\s+acknowledged_triggers:\s*$/.test(line)) {
+		state.inTriggers = true;
+		return;
+	}
+	if (state.inTriggers) {
+		const itemMatch = line.match(/^\s+-\s+(.+?)\s*$/);
+		if (itemMatch) state.triggers.push(nonNull(itemMatch[1]).replace(/^["']|["']$/g, ""));
+		else if (/^\s+\S/.test(line)) state.inTriggers = false;
+	}
+}
+
 /** Minimal block-style YAML parser for the ack submission shape:
  *    graph_prediction_ack:
  *      file: <path>
@@ -100,44 +141,14 @@ export function parseAckSubmission(yaml: string): ParsedAckSubmission {
 		return { file: "", acknowledged_triggers: [], parse_error: "missing `graph_prediction_ack:` top-level key" };
 	}
 	const lines = yaml.split("\n");
-	let inAck = false;
-	let inTriggers = false;
-	let file = "";
-	const triggers: string[] = [];
+	const state: AckParseState = { inAck: false, inTriggers: false, file: "", triggers: [] };
 	for (const raw of lines) {
-		const line = raw.replace(/\r$/, "");
-		if (/^\s*#/.test(line)) continue;
-		if (/^graph_prediction_ack:\s*$/.test(line)) {
-			inAck = true;
-			inTriggers = false;
-			continue;
-		}
-		if (!inAck) continue;
-		if (/^\S/.test(line)) {
-			inAck = false;
-			inTriggers = false;
-			continue;
-		}
-		const fileMatch = line.match(/^\s+file:\s*(.+?)\s*$/);
-		if (fileMatch) {
-			file = nonNull(fileMatch[1]).replace(/^["']|["']$/g, "");
-			inTriggers = false;
-			continue;
-		}
-		if (/^\s+acknowledged_triggers:\s*$/.test(line)) {
-			inTriggers = true;
-			continue;
-		}
-		if (inTriggers) {
-			const itemMatch = line.match(/^\s+-\s+(.+?)\s*$/);
-			if (itemMatch) triggers.push(nonNull(itemMatch[1]).replace(/^["']|["']$/g, ""));
-			else if (/^\s+\S/.test(line)) inTriggers = false;
-		}
+		applyAckLine(raw, state);
 	}
-	if (!file) {
-		return { file: "", acknowledged_triggers: triggers, parse_error: "missing `file:` field" };
+	if (!state.file) {
+		return { file: "", acknowledged_triggers: state.triggers, parse_error: "missing `file:` field" };
 	}
-	return { file, acknowledged_triggers: triggers };
+	return { file: state.file, acknowledged_triggers: state.triggers };
 }
 
 export function handleAckSubmission(event: HarnessEvent, cwd: string, sentinel: SentinelMatch): DriveResult {
@@ -331,5 +342,3 @@ export function handleSentinelSubmission(event: HarnessEvent, cwd: string): Driv
 	};
 }
 
-// ── CaseResult re-export for consumers ──────────────────────────────────────
-export type { CaseResult };

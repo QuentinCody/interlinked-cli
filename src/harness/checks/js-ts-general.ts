@@ -136,6 +136,45 @@ function hasMeaningfulCodeAfterCatch(strippedLines: string[], closeIdx: number):
 }
 
 /** Detect catch blocks that only log — error is silently swallowed. */
+/**
+ * Inspect one line for a `} catch` opener and, if present, decide whether the
+ * catch body is a silent console-only swallow worth flagging. Returns `null`
+ * when the line isn't a catch opener, the opening brace can't be found, the
+ * body isn't a pure console-log swallow, or execution continues afterward
+ * with meaningful code.
+ */
+function findCatchLogMatchAt(
+	strippedLines: string[],
+	originalLines: string[],
+	i: number,
+): InlineMatch | null {
+	if (!/\}\s*catch\s*/.test(nonNull(strippedLines[i]))) return null;
+
+	let braceStart = -1;
+	for (let k = i; k < Math.min(i + 3, strippedLines.length); k++) {
+		if (nonNull(strippedLines[k]).includes("{")) {
+			braceStart = k;
+			break;
+		}
+	}
+	if (braceStart === -1) return null;
+
+	const { hasConsole, onlyConsole, foundClose, closeIdx } = scanCatchBody(
+		strippedLines,
+		braceStart,
+	);
+	if (!(hasConsole && onlyConsole && foundClose)) return null;
+
+	// If execution continues after the catch with meaningful code, the
+	// error isn't silently swallowed — don't flag it.
+	if (hasMeaningfulCodeAfterCatch(strippedLines, closeIdx)) return null;
+
+	return {
+		line: i + 1,
+		text: nonNull(originalLines[i]).trim().slice(0, 150),
+	};
+}
+
 export function checkCatchAndLog(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
 	const ext = getExtension(filePath);
@@ -152,32 +191,8 @@ export function checkCatchAndLog(content: string, filePath: string): InlineMatch
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
-		if (!/\}\s*catch\s*/.test(nonNull(strippedLines[i]))) continue;
-
-		let braceStart = -1;
-		for (let k = i; k < Math.min(i + 3, strippedLines.length); k++) {
-			if (nonNull(strippedLines[k]).includes("{")) {
-				braceStart = k;
-				break;
-			}
-		}
-		if (braceStart === -1) continue;
-
-		const { hasConsole, onlyConsole, foundClose, closeIdx } = scanCatchBody(
-			strippedLines,
-			braceStart,
-		);
-
-		if (hasConsole && onlyConsole && foundClose) {
-			// If execution continues after the catch with meaningful code, the
-			// error isn't silently swallowed — don't flag it.
-			if (hasMeaningfulCodeAfterCatch(strippedLines, closeIdx)) continue;
-
-			matches.push({
-				line: i + 1,
-				text: nonNull(originalLines[i]).trim().slice(0, 150),
-			});
-		}
+		const match = findCatchLogMatchAt(strippedLines, originalLines, i);
+		if (match) matches.push(match);
 	}
 
 	return matches;

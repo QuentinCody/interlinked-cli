@@ -222,28 +222,36 @@ export function readWarnings(v: unknown): Map<string, WarningRecord> {
 
 const TDD_STATES = new Set(["no_test", "red", "green", "regression"]);
 
+/** Builds one {@link TddCycle} record from a raw snapshot entry, or returns
+ *  `null` when the entry lacks a `source_file` (the caller's drop condition).
+ *  Extracted from {@link readTddCycles} to keep that loop body flat. */
+function buildTddCycle(raw: Record<string, unknown>): TddCycle | null {
+	const sourceFile = readString(raw.source_file);
+	if (!sourceFile) return null;
+	const stateStr = typeof raw.state === "string" ? raw.state : "no_test";
+	const state = (TDD_STATES.has(stateStr) ? stateStr : "no_test") as TddCycle["state"];
+	const prevStr = typeof raw.previous_state === "string" ? raw.previous_state : undefined;
+	const previous_state =
+		prevStr && TDD_STATES.has(prevStr) ? (prevStr as TddCycle["state"]) : undefined;
+	return {
+		source_file: sourceFile,
+		test_file: typeof raw.test_file === "string" ? raw.test_file : null,
+		state,
+		test_written_at: typeof raw.test_written_at === "number" ? raw.test_written_at : undefined,
+		red_at: typeof raw.red_at === "number" ? raw.red_at : undefined,
+		green_at: typeof raw.green_at === "number" ? raw.green_at : undefined,
+		impl_edits_before_test: readNumber(raw.impl_edits_before_test, 0),
+		previous_state,
+	};
+}
+
 export function readTddCycles(v: unknown): Map<string, TddCycle> {
 	const out = new Map<string, TddCycle>();
 	if (!isPlainObject(v)) return out;
 	for (const [key, raw] of Object.entries(v)) {
 		if (!isPlainObject(raw)) continue;
-		const sourceFile = readString(raw.source_file);
-		if (!sourceFile) continue;
-		const stateStr = typeof raw.state === "string" ? raw.state : "no_test";
-		const state = (TDD_STATES.has(stateStr) ? stateStr : "no_test") as TddCycle["state"];
-		const prevStr = typeof raw.previous_state === "string" ? raw.previous_state : undefined;
-		const previous_state =
-			prevStr && TDD_STATES.has(prevStr) ? (prevStr as TddCycle["state"]) : undefined;
-		out.set(key, {
-			source_file: sourceFile,
-			test_file: typeof raw.test_file === "string" ? raw.test_file : null,
-			state,
-			test_written_at: typeof raw.test_written_at === "number" ? raw.test_written_at : undefined,
-			red_at: typeof raw.red_at === "number" ? raw.red_at : undefined,
-			green_at: typeof raw.green_at === "number" ? raw.green_at : undefined,
-			impl_edits_before_test: readNumber(raw.impl_edits_before_test, 0),
-			previous_state,
-		});
+		const cycle = buildTddCycle(raw);
+		if (cycle) out.set(key, cycle);
 	}
 	return out;
 }

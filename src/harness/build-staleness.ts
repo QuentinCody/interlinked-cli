@@ -53,6 +53,31 @@ export interface DistStaleness {
 	buildMs: number;
 }
 
+/** Fold one directory listing into the walk: queue every eligible subdirectory
+ *  on `stack` and return the newest file mtime seen, starting from `newest`. */
+function foldDirectoryEntries(
+	current: string,
+	entries: import("node:fs").Dirent[],
+	stack: string[],
+	newest: number,
+): number {
+	let best = newest;
+	for (const entry of entries) {
+		if (entry.isDirectory()) {
+			if (!skipDirectory(entry.name)) stack.push(join(current, entry.name));
+		} else if (entry.isFile()) {
+			if (TEST_FILE_RE.test(entry.name)) continue;
+			try {
+				const m = statSync(join(current, entry.name)).mtimeMs;
+				if (m > best) best = m;
+			} catch {
+				/* best-effort */
+			}
+		}
+	}
+	return best;
+}
+
 /** Newest mtime under `dir`, bounded by entry count and a wall-clock budget so
  *  it never adds meaningful startup latency. Returns 0 if unreadable. */
 function newestMtimeUnder(dir: string): number {
@@ -70,19 +95,7 @@ function newestMtimeUnder(dir: string): number {
 		} catch {
 			continue;
 		}
-		for (const entry of entries) {
-			if (entry.isDirectory()) {
-				if (!skipDirectory(entry.name)) stack.push(join(current, entry.name));
-			} else if (entry.isFile()) {
-				if (TEST_FILE_RE.test(entry.name)) continue;
-				try {
-					const m = statSync(join(current, entry.name)).mtimeMs;
-					if (m > newest) newest = m;
-				} catch {
-					/* best-effort */
-				}
-			}
-		}
+		newest = foldDirectoryEntries(current, entries, stack, newest);
 	}
 	return newest;
 }

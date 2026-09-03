@@ -106,6 +106,10 @@ export interface StructureAdoptionConfig {
 
 export interface StructureBuiltinsConfig {
 	public_symbol_companions: boolean;
+	/** Complements `public_symbol_companions`: a companion test file was
+	 *  touched, but does it actually reference the symbol by name? See
+	 *  `structure/rules/public-symbol-test-case.ts`. */
+	public_symbol_test_case: boolean;
 	env_key_companions: boolean;
 	config_key_companions: boolean;
 	layer_boundary_violations: boolean;
@@ -397,6 +401,7 @@ export const DEFAULT_ADOPTION_THRESHOLDS: StructureAdoptionConfig["coverage_thre
 
 export const DEFAULT_BUILTINS: StructureBuiltinsConfig = {
 	public_symbol_companions: true,
+	public_symbol_test_case: true,
 	env_key_companions: true,
 	config_key_companions: true,
 	layer_boundary_violations: true,

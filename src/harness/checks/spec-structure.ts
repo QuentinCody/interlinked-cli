@@ -74,6 +74,40 @@ function isRefExternallyQualified(line: string, ref: SectionRef): boolean {
 /** Minimum numbered headings before §-refs are treated as same-file refs. */
 const MIN_NUMBERED_HEADINGS = 3;
 
+/** The heading-derived targets a §/Appendix ref resolves against. */
+interface HeadingTargets {
+	sectionNumbersList: string[];
+	sectionNumbers: Set<string>;
+	appendixLetters: Set<string | undefined>;
+}
+
+/** One §/Appendix ref judged against the file's headings: the finding, or null
+ *  when the ref resolves, is externally qualified, or its kind is not gated on
+ *  in this file (too few numbered headings / no appendices). */
+function danglingSectionRefFinding(
+	ref: SectionRef,
+	line: string,
+	targets: HeadingTargets,
+): InlineMatch | null {
+	// Skip refs qualified as pointing at another document (round-2 #24),
+	// evaluated per-ref (round-broaden sol #4).
+	if (isRefExternallyQualified(line, ref)) return null;
+	if (ref.kind === "section") {
+		if (targets.sectionNumbersList.length < MIN_NUMBERED_HEADINGS) return null;
+		if (sectionExists(ref.ref, targets.sectionNumbers)) return null;
+		return {
+			line: ref.line,
+			text: siteText(`${ref.raw} — no §${ref.ref} heading in this file`),
+		};
+	}
+	if (targets.appendixLetters.size === 0) return null;
+	if (targets.appendixLetters.has(ref.ref)) return null;
+	return {
+		line: ref.line,
+		text: siteText(`${ref.raw} — no Appendix ${ref.ref} heading in this file`),
+	};
+}
+
 /**
  * Dangling same-file references: anchor links to no heading slug, §/Section
  * refs to no numbered heading (only in section-numbered docs — a doc without
@@ -106,28 +140,19 @@ export function checkSpecDanglingAnchor(
 		facts.headings.map((h) => h.appendixLetter).filter(Boolean),
 	);
 	const contentLines = content.split("\n");
+	const targets: HeadingTargets = {
+		sectionNumbersList,
+		sectionNumbers,
+		appendixLetters,
+	};
 	for (const ref of facts.sectionRefs) {
 		if (out.length >= MAX_MATCHES) break;
-		// Skip refs qualified as pointing at another document (round-2 #24),
-		// evaluated per-ref (round-broaden sol #4).
-		if (isRefExternallyQualified(contentLines[ref.line - 1] ?? "", ref)) continue;
-		if (ref.kind === "section") {
-			if (sectionNumbersList.length < MIN_NUMBERED_HEADINGS) continue;
-			if (!sectionExists(ref.ref, sectionNumbers)) {
-				out.push({
-					line: ref.line,
-					text: siteText(`${ref.raw} — no §${ref.ref} heading in this file`),
-				});
-			}
-		} else {
-			if (appendixLetters.size === 0) continue;
-			if (!appendixLetters.has(ref.ref)) {
-				out.push({
-					line: ref.line,
-					text: siteText(`${ref.raw} — no Appendix ${ref.ref} heading in this file`),
-				});
-			}
-		}
+		const finding = danglingSectionRefFinding(
+			ref,
+			contentLines[ref.line - 1] ?? "",
+			targets,
+		);
+		if (finding) out.push(finding);
 	}
 	return out;
 }
@@ -229,6 +254,31 @@ function appendRegistryGapFinding(
 	});
 }
 
+/** Count claims that bind to ONE namespace but disagree with its id census. */
+function appendCountClaimFindings(
+	ns: SpecFacts["namespaces"][number],
+	facts: SpecFacts,
+	out: InlineMatch[],
+): void {
+	if (ns.uniqueCount < 2 || out.length >= MAX_MATCHES) return;
+	const defLines = defLineSet(ns);
+	// Format ids in the namespace's own notation (sol-max #26): a compact
+	// "B7" census must not be reported as dashed "B-7".
+	const fmtId = (n: number): string =>
+		ns.style === "compact" ? `${ns.prefix}${n}` : `${ns.prefix}-${n}`;
+	for (const claim of facts.countClaims) {
+		if (out.length >= MAX_MATCHES) break;
+		if (claim.value === ns.uniqueCount) continue;
+		if (!claimBindsToNamespace(claim, facts, ns, defLines)) continue;
+		out.push({
+			line: claim.line,
+			text: siteText(
+				`"${claim.raw}" vs ${ns.prefix} census: ${ns.uniqueCount} distinct ids (${fmtId(ns.min)}..${fmtId(ns.max)}). Either the claim is stale or the extra ids are vestigial.`,
+			),
+		});
+	}
+}
+
 /**
  * Same-file count/range claims vs the id census (the D-1/D-2 class within
  * one file): "six bets" while B1..B7 are enumerated; "FG-INV-01 through
@@ -244,23 +294,7 @@ export function checkSpecCountClaim(
 	const facts = factsFor(content, filePath);
 	const out: InlineMatch[] = [];
 	for (const ns of facts.namespaces) {
-		if (ns.uniqueCount < 2 || out.length >= MAX_MATCHES) continue;
-		const defLines = defLineSet(ns);
-		// Format ids in the namespace's own notation (sol-max #26): a compact
-		// "B7" census must not be reported as dashed "B-7".
-		const fmtId = (n: number): string =>
-			ns.style === "compact" ? `${ns.prefix}${n}` : `${ns.prefix}-${n}`;
-		for (const claim of facts.countClaims) {
-			if (out.length >= MAX_MATCHES) break;
-			if (claim.value === ns.uniqueCount) continue;
-			if (!claimBindsToNamespace(claim, facts, ns, defLines)) continue;
-			out.push({
-				line: claim.line,
-				text: siteText(
-					`"${claim.raw}" vs ${ns.prefix} census: ${ns.uniqueCount} distinct ids (${fmtId(ns.min)}..${fmtId(ns.max)}). Either the claim is stale or the extra ids are vestigial.`,
-				),
-			});
-		}
+		appendCountClaimFindings(ns, facts, out);
 	}
 	for (const claim of facts.rangeClaims) {
 		if (out.length >= MAX_MATCHES) break;

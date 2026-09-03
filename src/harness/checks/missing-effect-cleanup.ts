@@ -9,6 +9,44 @@ import { getExtension, type InlineMatch, isTestFile } from "./shared.js";
 // ===========================================
 
 /**
+ * Scan one useEffect block (lines[start..end)) for a subscription call
+ * with no cleanup return. Returns the flagged match, or null if the
+ * block is clean.
+ */
+function findEffectCleanupMatch(
+	lines: string[],
+	start: number,
+	end: number,
+	subscriptionPattern: RegExp,
+): InlineMatch | null {
+	let hasSubscription = false;
+	let hasReturn = false;
+
+	for (let i = start; i < end; i++) {
+		const lineAtI = nonNull(lines[i]);
+		const trimmed = lineAtI.trim();
+		if (subscriptionPattern.test(trimmed)) {
+			hasSubscription = true;
+		}
+		// Look for cleanup return — `return () =>` or `return function`
+		if (/\breturn\s+(function\b|\(\s*\)\s*=>|[\w]+\s*;)/.test(trimmed)) {
+			hasReturn = true;
+		}
+		// Also catch bare `return () =>` or `return cleanup;`
+		if (/^\s*return\s/.test(lineAtI)) {
+			hasReturn = true;
+		}
+	}
+
+	if (!hasSubscription || hasReturn) return null;
+
+	return {
+		line: start + 1,
+		text: `[useEffect with subscription but no cleanup — potential memory leak] ${nonNull(lines[start]).trim().slice(0, 100)}`,
+	};
+}
+
+/**
  * Detect useEffect hooks that set up subscriptions (addEventListener,
  * setInterval, setTimeout, subscribe, .on() ) but lack a cleanup return.
  *
@@ -42,30 +80,9 @@ export function checkMissingEffectCleanup(content: string, filePath: string): In
 		const start = nonNull(effectStarts[e]);
 		const end = e + 1 < effectStarts.length ? nonNull(effectStarts[e + 1]) : lines.length;
 
-		let hasSubscription = false;
-		let hasReturn = false;
-
-		for (let i = start; i < end; i++) {
-			const lineAtI = nonNull(lines[i]);
-			const trimmed = lineAtI.trim();
-			if (subscriptionPattern.test(trimmed)) {
-				hasSubscription = true;
-			}
-			// Look for cleanup return — `return () =>` or `return function`
-			if (/\breturn\s+(function\b|\(\s*\)\s*=>|[\w]+\s*;)/.test(trimmed)) {
-				hasReturn = true;
-			}
-			// Also catch bare `return () =>` or `return cleanup;`
-			if (/^\s*return\s/.test(lineAtI)) {
-				hasReturn = true;
-			}
-		}
-
-		if (hasSubscription && !hasReturn) {
-			matches.push({
-				line: start + 1,
-				text: `[useEffect with subscription but no cleanup — potential memory leak] ${nonNull(lines[start]).trim().slice(0, 100)}`,
-			});
+		const match = findEffectCleanupMatch(lines, start, end, subscriptionPattern);
+		if (match) {
+			matches.push(match);
 		}
 	}
 

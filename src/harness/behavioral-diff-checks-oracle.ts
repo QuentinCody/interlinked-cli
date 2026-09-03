@@ -267,6 +267,45 @@ function collectExpectations(lines: string[]): Map<string, Set<string>> {
 	return map;
 }
 
+/** Splits a unified diff into its removed/added content lines (header rows
+ *  dropped), for `collectExpectations` on each side. */
+function splitDiffLines(diff: string): { removed: string[]; added: string[] } {
+	const removed: string[] = [];
+	const added: string[] = [];
+	for (const line of diff.split("\n")) {
+		if (line.startsWith("+++") || line.startsWith("---")) continue;
+		if (line.startsWith("-")) removed.push(line.slice(1));
+		else if (line.startsWith("+")) added.push(line.slice(1));
+	}
+	return { removed, added };
+}
+
+/** Same subject/matcher pairs whose expected value changed between the
+ *  removed and added sides of one file's diff, capped at 3 findings. */
+function valueSwapFindingsForFile(file: string, diff: string): CheckResultEntry[] {
+	const { removed, added } = splitDiffLines(diff);
+	const before = collectExpectations(removed);
+	const after = collectExpectations(added);
+	const results: CheckResultEntry[] = [];
+	for (const [key, beforeArgs] of before) {
+		if (results.length >= 3) break;
+		const afterArgs = after.get(key);
+		if (!afterArgs) continue;
+		const changed = [...afterArgs].some((a) => !beforeArgs.has(a));
+		if (!changed) continue;
+		const [subject, matcher] = key.split("|");
+		results.push({
+			source: "structural",
+			name: "assertion_value_swap",
+			severity: "info",
+			message: `${basename(file)}: expect(${subject}).${matcher}(…) expected value changed in this diff (${[...beforeArgs].join(", ")} → ${[...afterArgs].join(", ")}). Legitimate if the spec changed — confirm the new value is specified, not observed.`,
+			file,
+			determinism: "heuristic",
+		});
+	}
+	return results;
+}
+
 /**
  * Public API — commit-gate check, severity info (never blocks). Same subject,
  * same matcher, different expected value within one staged diff: the single
@@ -281,33 +320,7 @@ export function checkAssertionValueSwap(
 		if (!TEST_FILE_RE.test(file)) continue;
 		const diff = deps.stagedDiff(file);
 		if (!diff) continue;
-		const removed: string[] = [];
-		const added: string[] = [];
-		for (const line of diff.split("\n")) {
-			if (line.startsWith("+++") || line.startsWith("---")) continue;
-			if (line.startsWith("-")) removed.push(line.slice(1));
-			else if (line.startsWith("+")) added.push(line.slice(1));
-		}
-		const before = collectExpectations(removed);
-		const after = collectExpectations(added);
-		let perFile = 0;
-		for (const [key, beforeArgs] of before) {
-			if (perFile >= 3) break;
-			const afterArgs = after.get(key);
-			if (!afterArgs) continue;
-			const changed = [...afterArgs].some((a) => !beforeArgs.has(a));
-			if (!changed) continue;
-			const [subject, matcher] = key.split("|");
-			results.push({
-				source: "structural",
-				name: "assertion_value_swap",
-				severity: "info",
-				message: `${basename(file)}: expect(${subject}).${matcher}(…) expected value changed in this diff (${[...beforeArgs].join(", ")} → ${[...afterArgs].join(", ")}). Legitimate if the spec changed — confirm the new value is specified, not observed.`,
-				file,
-				determinism: "heuristic",
-			});
-			perFile++;
-		}
+		results.push(...valueSwapFindingsForFile(file, diff));
 	}
 	return results;
 }

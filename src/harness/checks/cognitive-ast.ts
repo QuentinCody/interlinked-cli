@@ -53,7 +53,7 @@ function isLoop(ts: TsModule, node: TS.Node): boolean {
 	);
 }
 
-function logicalOpKind(ts: TsModule, node: TS.Node): TS.SyntaxKind | null {
+export function logicalOpKind(ts: TsModule, node: TS.Node): TS.SyntaxKind | null {
 	if (!ts.isBinaryExpression(node)) return null;
 	const op = node.operatorToken.kind;
 	if (
@@ -66,14 +66,14 @@ function logicalOpKind(ts: TsModule, node: TS.Node): TS.SyntaxKind | null {
 	return null;
 }
 
-function unwrapParens(ts: TsModule, node: TS.Node): TS.Node {
+export function unwrapParens(ts: TsModule, node: TS.Node): TS.Node {
 	let cur = node;
 	while (ts.isParenthesizedExpression(cur)) cur = cur.expression;
 	return cur;
 }
 
 /** Loop/switch/ternary/catch: the four constructs that add a nesting-paying increment. */
-function isNestingConstruct(ts: TsModule, node: TS.Node): boolean {
+export function isNestingConstruct(ts: TsModule, node: TS.Node): boolean {
 	return (
 		isLoop(ts, node) ||
 		ts.isSwitchStatement(node) ||
@@ -83,7 +83,7 @@ function isNestingConstruct(ts: TsModule, node: TS.Node): boolean {
 }
 
 /** A labeled `break`/`continue` — Sonar's +1 for jumping out of the immediate structure. */
-function isLabeledJump(ts: TsModule, node: TS.Node): boolean {
+export function isLabeledJump(ts: TsModule, node: TS.Node): boolean {
 	return (ts.isBreakStatement(node) || ts.isContinueStatement(node)) && !!node.label;
 }
 

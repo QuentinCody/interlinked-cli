@@ -89,7 +89,8 @@ vi.mock("../harness/evaluator/tdd-new-file-gate.js", () => ({
 // formatter is real (color-stripped under CI/NO_COLOR — tests assert plain text).
 
 import { nonNull } from "../lib/non-null.js";
-import { cyclomaticForMetrics, loadMetricsCoverage, metricsCommand } from "./metrics.js";
+import { loadMetricsCoverage } from "./metrics-coverage.js";
+import { cyclomaticForMetrics, metricsCommand } from "./metrics.js";
 
 function tokenReport(entries: Array<{ name: string; line: number; tokens: number }> = []): FunctionTokenMetricsReport {
 	const functions = entries.map((entry) => ({
@@ -388,7 +389,9 @@ describe("metricsCommand — canonical function-token metrics", () => {
 
 		logged = "";
 		await metricsCommand({ cwd: CWD, includeTests: true });
-		expect(logged).toContain("1 / 1 measured functions");
+		// The gate row colors the count on a color-capable terminal; assert on the
+		// text, not on whether this shell had NO_COLOR/CI set.
+		expect(logged.replace(/\x1b\[[0-9;]*m/g, "")).toContain("1 / 1 measured functions");
 	});
 });
 

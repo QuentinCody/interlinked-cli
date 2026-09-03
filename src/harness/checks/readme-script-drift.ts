@@ -123,6 +123,28 @@ function scriptRefsOnLine(line: string): Set<string> {
 	return refs;
 }
 
+/**
+ * Push findings for one markdown line's npm-script references into `matches`
+ * (mutated in place), skipping refs already satisfied by `scripts`. Stops
+ * early once `matches` reaches {@link MAX_MATCHES_PER_FILE}.
+ */
+function collectLineDrift(
+	line: string,
+	lineNumber: number,
+	scripts: ReadonlySet<string>,
+	matches: InlineMatch[],
+): void {
+	for (const script of scriptRefsOnLine(line)) {
+		if (matches.length >= MAX_MATCHES_PER_FILE) break;
+		if (scripts.has(script)) continue;
+		const command = script === "test" && !line.includes("npm run") ? "npm test" : `npm run ${script}`;
+		matches.push({
+			line: lineNumber,
+			text: `readme_script_drift: "${command}" references script "${script}" missing from package.json scripts — ${line.trim().slice(0, REPORT_LINE_TRUNC)}`,
+		});
+	}
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
@@ -155,15 +177,7 @@ export function detectReadmeScriptDrift(
 		if (fenceId !== null && foreignFences.has(fenceId)) continue; // data fence / other repo's setup
 
 		const line = lines[i] ?? "";
-		for (const script of scriptRefsOnLine(line)) {
-			if (matches.length >= MAX_MATCHES_PER_FILE) break;
-			if (scripts.has(script)) continue;
-			const command = script === "test" && !line.includes("npm run") ? "npm test" : `npm run ${script}`;
-			matches.push({
-				line: i + 1,
-				text: `readme_script_drift: "${command}" references script "${script}" missing from package.json scripts — ${line.trim().slice(0, REPORT_LINE_TRUNC)}`,
-			});
-		}
+		collectLineDrift(line, i + 1, scripts, matches);
 	}
 	return matches;
 }

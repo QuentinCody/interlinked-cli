@@ -46,8 +46,6 @@ export {
 	parseTestFailures,
 	resolveTestCommand,
 } from "./project-test-gate.js";
-export type { ResolvedTestCommand } from "./project-test-gate.js";
-
 const TYPECHECK_TIMEOUT_MS = 60_000;
 const MAX_DIAGS_REPORTED = 50;
 

@@ -4,11 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-    BIND_ATTEMPTS,
-    bindSessionSocket,
     claimSessionPid,
     startSessionDaemon,
 } from "./session-daemon.js";
+import { BIND_ATTEMPTS, bindSessionSocket } from "./session-daemon-bind.js";
 import type { EvaluateUnifiedContext } from "./evaluator-unified.js";
 import type { DaemonPaths } from "./session-paths.js";
 

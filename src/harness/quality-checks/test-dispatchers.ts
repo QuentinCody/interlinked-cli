@@ -164,39 +164,9 @@ async function runVitestDispatcher(input: TestDispatcherInput): Promise<TestDisp
 
 	// 2) Convention fallback
 	if (!ranViaRelated) {
-		const ext = extname(absPath);
-		const base = absPath.slice(0, -ext.length);
-		const dir = dirname(absPath);
-		const baseName = absPath.slice(dir.length + 1, -ext.length);
-		const candidates = buildTestCandidates(absPath, ext, base, dir, baseName, profile);
-		const testFile = candidates.find((t) => existsSync(t));
-		if (testFile) {
-			const relTest = testFile.startsWith(checkCwd)
-				? testFile.slice(checkCwd.length + 1)
-				: testFile;
-			const runnerParts = runnerCmd.split(/\s+/).filter(Boolean);
-			const run = await runBoundedTestProcess({
-				command: nonNull(runnerParts[0]),
-				args: [...runnerParts.slice(1), relTest, "--reporter=verbose"],
-				cwd: checkCwd,
-				timeoutMs,
-			});
-			if (run.kind === "deferred") return [...results, deferredTestResult(input, run.reason)];
-			const result = run;
-			if (result.code !== 0) {
-				const output = combinedOutput(result);
-				const classification = classifyTestFailure(`conv:${relTest}`, output, "typescript");
-				if (classification !== "pre-existing") {
-					results.push({
-						name: checkName,
-						severity,
-						message: `Tests failed for ${filePath} (${relTest})`,
-						file: filePath,
-						detail: truncateTail(output),
-					});
-				}
-			}
-		}
+		const fallback = await runConventionFallback(input);
+		if (fallback.deferred) return [...results, fallback.result];
+		results.push(...fallback.results);
 	}
 
 	// 3) Direct importers — bounded, additive to phases 1/2 above. A
@@ -206,6 +176,62 @@ async function runVitestDispatcher(input: TestDispatcherInput): Promise<TestDisp
 	results.push(...(await runDirectImporterCompanions(input)));
 
 	return results;
+}
+
+/** Result of {@link runConventionFallback} — a discriminated union so the
+ *  caller must branch on `deferred` before reading either payload field. */
+type ConventionFallbackOutcome =
+	| { deferred: true; result: TestDispatcherResult }
+	| { deferred: false; results: TestDispatcherResult[] };
+
+/**
+ * Phase 2 of {@link runVitestDispatcher}: filename-convention test lookup,
+ * used only when `vitest --related` itself was unavailable (`unknownOption`
+ * in the caller). Extracted verbatim from the pre-refactor inline block —
+ * behavior, including the early-return-on-deferred, is unchanged; the
+ * deferred case is surfaced via the discriminated return instead of an
+ * inline early `return` so the caller can still append it to `results`.
+ */
+async function runConventionFallback(
+	input: TestDispatcherInput,
+): Promise<ConventionFallbackOutcome> {
+	const { filePath, absPath, profile, checkCwd, timeoutMs, severity, checkName } = input;
+	const results: TestDispatcherResult[] = [];
+	const ext = extname(absPath);
+	const base = absPath.slice(0, -ext.length);
+	const dir = dirname(absPath);
+	const baseName = absPath.slice(dir.length + 1, -ext.length);
+	const candidates = buildTestCandidates(absPath, ext, base, dir, baseName, profile);
+	const testFile = candidates.find((t) => existsSync(t));
+	if (!testFile) return { deferred: false, results };
+
+	const relTest = testFile.startsWith(checkCwd) ? testFile.slice(checkCwd.length + 1) : testFile;
+	const runnerCmd = profile.test_runner?.command || "npx vitest run";
+	const runnerParts = runnerCmd.split(/\s+/).filter(Boolean);
+	const run = await runBoundedTestProcess({
+		command: nonNull(runnerParts[0]),
+		args: [...runnerParts.slice(1), relTest, "--reporter=verbose"],
+		cwd: checkCwd,
+		timeoutMs,
+	});
+	if (run.kind === "deferred") {
+		return { deferred: true, result: deferredTestResult(input, run.reason) };
+	}
+	const result = run;
+	if (result.code !== 0) {
+		const output = combinedOutput(result);
+		const classification = classifyTestFailure(`conv:${relTest}`, output, "typescript");
+		if (classification !== "pre-existing") {
+			results.push({
+				name: checkName,
+				severity,
+				message: `Tests failed for ${filePath} (${relTest})`,
+				file: filePath,
+				detail: truncateTail(output),
+			});
+		}
+	}
+	return { deferred: false, results };
 }
 
 /** Result of {@link capDependentTests} — a discriminated union so callers

@@ -119,44 +119,51 @@ function basenameLower(token: string): string {
 	return (slash >= 0 ? token.slice(slash + 1) : token).toLowerCase();
 }
 
+/** Outcome of classifying one token while walking toward the effective
+ *  command word: either skip forward to `nextIdx` and keep looking, or stop
+ *  with `result` as the answer (the command word, or `null` for "not a
+ *  command word token" — callers distinguish via `"result" in step`). */
+type CommandWordStep = { nextIdx: number; result?: string };
+
+/** Classify the token at `idx` and decide how far to advance. Mirrors the
+ *  original inline loop body exactly: env-assignment / wrapper / `env` /
+ *  `timeout`|`nice` / flag-like tokens are skipped (advancing `idx` past
+ *  any of their own consumed arguments); anything else is the answer. */
+function stepCommandWordToken(tokens: string[], idx: number): CommandWordStep {
+	const tok = tokens[idx] as string;
+	if (ENV_ASSIGN_RE.test(tok)) return { nextIdx: idx + 1 };
+	const base = basenameLower(tok);
+	if (WRAPPER_TOKENS.has(base)) return { nextIdx: idx + 1 };
+	if (base === "env") {
+		let next = idx + 1;
+		while (
+			next < tokens.length &&
+			(ENV_ASSIGN_RE.test(tokens[next] as string) || (tokens[next] as string).startsWith("-"))
+		)
+			next++;
+		return { nextIdx: next };
+	}
+	if (base === "timeout" || base === "nice") {
+		let next = idx + 1;
+		while (
+			next < tokens.length &&
+			((tokens[next] as string).startsWith("-") || /^\d/.test(tokens[next] as string))
+		)
+			next++;
+		return { nextIdx: next };
+	}
+	if (tok.startsWith("-") || tok.startsWith("<") || tok.startsWith(">")) return { nextIdx: idx + 1 };
+	return { nextIdx: idx, result: base };
+}
+
 /** Walk leading wrapper/assignment tokens and return the effective command
  *  word (lower-cased basename), or null when none is present. */
 function effectiveCommandWord(tokens: string[]): string | null {
 	let idx = 0;
 	while (idx < tokens.length) {
-		const tok = tokens[idx] as string;
-		if (ENV_ASSIGN_RE.test(tok)) {
-			idx++;
-			continue;
-		}
-		const base = basenameLower(tok);
-		if (WRAPPER_TOKENS.has(base)) {
-			idx++;
-			continue;
-		}
-		if (base === "env") {
-			idx++;
-			while (
-				idx < tokens.length &&
-				(ENV_ASSIGN_RE.test(tokens[idx] as string) || (tokens[idx] as string).startsWith("-"))
-			)
-				idx++;
-			continue;
-		}
-		if (base === "timeout" || base === "nice") {
-			idx++;
-			while (
-				idx < tokens.length &&
-				((tokens[idx] as string).startsWith("-") || /^\d/.test(tokens[idx] as string))
-			)
-				idx++;
-			continue;
-		}
-		if (tok.startsWith("-") || tok.startsWith("<") || tok.startsWith(">")) {
-			idx++;
-			continue;
-		}
-		return base;
+		const step = stepCommandWordToken(tokens, idx);
+		if (step.result !== undefined) return step.result;
+		idx = step.nextIdx;
 	}
 	return null;
 }

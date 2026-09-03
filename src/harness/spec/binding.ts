@@ -10,7 +10,7 @@ import type { CountClaim, IdNamespace, SpecFacts } from "./types.js";
 type Heading = SpecFacts["headings"][number];
 
 /** Lines on which any id of the namespace appears. */
-export function idLineSet(ns: IdNamespace): Set<number> {
+function idLineSet(ns: IdNamespace): Set<number> {
 	const set = new Set<number>();
 	for (const id of ns.ids) {
 		for (const line of id.sites) set.add(line);

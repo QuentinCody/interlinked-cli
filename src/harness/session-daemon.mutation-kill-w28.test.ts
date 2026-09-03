@@ -24,12 +24,11 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EvaluateUnifiedContext } from "./evaluator-unified.js";
 import {
-	BIND_BACKOFF_MS,
-	bindSessionSocket,
 	claimSessionPid,
 	type SessionDaemonHandle,
 	startSessionDaemon,
 } from "./session-daemon.js";
+import { BIND_BACKOFF_MS, bindSessionSocket } from "./session-daemon-bind.js";
 import type { DaemonPaths } from "./session-paths.js";
 import type { TsgoRunner } from "./tsgo-runner.js";
 

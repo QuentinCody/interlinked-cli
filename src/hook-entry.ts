@@ -34,6 +34,7 @@ import {
 } from "./hook-entry-daemon-gate.js";
 import { daemonRecoveryRootFresh } from "./hook-entry-daemon-probe.js";
 import { defaultTimeoutForPhase, isCodeEditEvent } from "./hook-entry-deadlines.js";
+import { attemptSelfHealOnStop } from "./hook-entry-stop-self-heal.js";
 import {
 	buildUnifiedHookEvent,
 	recordAdapterExecution,
@@ -102,6 +103,7 @@ export async function runHookEntry(opts: HookEntryOptions): Promise<HookEntryRes
 	// needs a fallback to `opts.cwd`/`process.cwd()` here.
 	const gateCwd = event.context.cwd;
 	recordAdapterExecution(adapter, event, gateCwd);
+	maybeSelfHealOnStop(event, gateCwd, opts.env);
 	// Discover the socket in the SAME project the daemon gate keys on (the event's
 	// cwd), not the hook process's cwd: a client that launches the hook binary
 	// from outside the repo would otherwise miss the healthy daemon under the
@@ -212,6 +214,30 @@ export function isStopHookReentry(eventName: string, nativeJson: unknown): boole
 	// guard exists to prevent would return for that runner alone.
 	const raw = nativeJson as { stop_hook_active?: unknown; stopHookActive?: unknown };
 	return raw.stop_hook_active === true || raw.stopHookActive === true;
+}
+
+/** Fires {@link attemptSelfHealOnStop} for a Stop/SubagentStop event and
+ *  discards the result — extracted so `runHookEntry` gains a single
+ *  unconditional call (no branch) rather than an inline `if`, keeping it
+ *  under the cyclomatic cap. `isStopHookReentry` already filtered the
+ *  re-entry pass upstream in `mainFromStdin`, so a genuine Stop reaches this
+ *  at most once. Purely observational: never changes the hook decision. */
+function maybeSelfHealOnStop(
+	event: UnifiedHookEvent,
+	cwd: string | undefined,
+	env: NodeJS.ProcessEnv,
+): void {
+	// Gate on phase HERE, not just inside attemptSelfHealOnStop: every other
+	// phase (pre-tool above all) is the hot path, and skipping the call
+	// entirely avoids paying resolveGateRoot/readGuardDisable/ledger-tail work
+	// on every tool call for a check that can only ever apply to Stop events.
+	if (event.phase !== "stop" && event.phase !== "subagent-stop") return;
+	try {
+		attemptSelfHealOnStop(event, cwd, env);
+	} catch {
+		// Best-effort recovery attempt only — an unexpected throw here must
+		// never take down the hook that is supposed to make things work.
+	}
 }
 
 async function mainFromStdin(): Promise<void> {

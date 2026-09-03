@@ -4,13 +4,6 @@
 // JSON-serializable (arrays, no Maps) so per-file facts can be cached and
 // merged into the cross-file ledger without a codec layer.
 
-/** One occurrence of a fact in a file. Line numbers are 1-based. */
-export interface FactSite {
-	line: number;
-	/** Trimmed source line, capped at 150 chars (InlineMatch convention). */
-	text: string;
-}
-
 /** One ID in a namespace, e.g. "FG-INV-07" in namespace "FG-INV". */
 export interface NamespaceId {
 	id: string;

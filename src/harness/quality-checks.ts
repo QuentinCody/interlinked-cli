@@ -69,7 +69,7 @@ export { classifyDeterminism, formatQualityWarnings } from "./quality-checks/war
 // ===========================================
 // Check Runner
 // ===========================================
-// QualityCheckResult / InlineFinding / ToolBreakdownEntry now live in
+// QualityCheckResult / ToolBreakdownEntry now live in
 // ./quality-checks/result-types.ts (imported above; ToolBreakdownEntry is
 // re-exported for back-compat). The per-check loop, the inline-check block,
 // the ratchet comparison, and the warning formatter live in sibling modules.

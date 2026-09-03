@@ -12,22 +12,28 @@ import {
 	simplificationExperimentManifestSha256,
 	type SimplificationExperimentManifest,
 } from "./simplification-agent-ci-experiment.js";
+import { sanitizeSimplificationPromptInput } from "./simplification-agent-ci-plan-primitives.js";
+import {
+	buildSimplificationAgentCiP5Plan,
+	parseSimplificationAgentCiP5Plan,
+	type SimplificationValidationCandidate,
+} from "./simplification-agent-ci-plan-validation.js";
 import {
 	buildSimplificationAgentCiP4Plan,
-	buildSimplificationAgentCiP5Plan,
 	parseSimplificationAgentCiP4Plan,
-	parseSimplificationAgentCiP5Plan,
-	sanitizeSimplificationPromptInput,
-	type SimplificationValidationCandidate,
 } from "./simplification-agent-ci-plan.js";
 import {
 	buildSimplificationAgentCiRequest,
 	canonicalSimplificationAgentCiCacheKey,
-	canonicalSimplificationAgentCiRequestHash,
 	parseSimplificationAgentCiRequest,
-	type SimplificationAgentCiRequestDraft,
-	type SimplificationAgentCiRequestV1,
 } from "./simplification-agent-ci-request.js";
+import {
+	canonicalSimplificationAgentCiRequestHash,
+} from "./simplification-agent-ci-request-canonical.js";
+import type {
+	SimplificationAgentCiRequestDraft,
+	SimplificationAgentCiRequestV1,
+} from "./simplification-agent-ci-request-schema.js";
 
 const SHA_A = "a".repeat(64);
 const SHA_B = "b".repeat(64);

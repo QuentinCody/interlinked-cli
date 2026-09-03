@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __resetCoverageFinalCache } from "../../harness/coverage-final-reader.js";
-import { loadMetricsCoverage } from "../metrics.js";
+import { discoverMetricSourceFiles, loadMetricsCoverage } from "../metrics-coverage.js";
 
 let tmp: string;
 
@@ -239,5 +239,36 @@ describe("loadMetricsCoverage — unambiguous summary keys (finding 2026-06)", (
 		);
 		const cov = loadMetricsCoverage(tmp);
 		expect(cov.linePct("src/foo.ts")).toBeNull();
+	});
+});
+
+describe("discoverMetricSourceFiles — scope resolution", () => {
+	it("includes an src/ source file and excludes its companion test", () => {
+		// test-contract: public-api — discoverMetricSourceFiles is the source
+		// enumeration `interlinked metrics` scans; src/ inclusion + test
+		// exclusion is the documented `isAnalyzableSource` contract.
+		mkdirSync(join(tmp, "src"), { recursive: true });
+		writeFileSync(join(tmp, "src", "widget.ts"), "export function f() {}\n");
+		writeFileSync(join(tmp, "src", "widget.test.ts"), "test('x', () => {});\n");
+		const cov = loadMetricsCoverage(tmp);
+		const files = discoverMetricSourceFiles(tmp, cov);
+		expect(files).toContain("src/widget.ts");
+		expect(files).not.toContain("src/widget.test.ts");
+	});
+
+	it("includes a non-src/ file only when the coverage report knows it (polyglot case)", () => {
+		// test-contract: public-api — a file outside src/ is in scope only via
+		// coverage.fileSet, per isAnalyzableSource's non-`src/` branch.
+		mkdirSync(join(tmp, "pkg"), { recursive: true });
+		writeFileSync(join(tmp, "pkg", "outside.py"), "def f():\n    pass\n");
+		const covAbsent = loadMetricsCoverage(tmp);
+		expect(discoverMetricSourceFiles(tmp, covAbsent)).not.toContain("pkg/outside.py");
+
+		writeFileSync(
+			join(tmp, "coverage", "coverage-final.json"),
+			JSON.stringify(istanbulFinal("pkg/outside.py")),
+		);
+		const covPresent = loadMetricsCoverage(tmp);
+		expect(discoverMetricSourceFiles(tmp, covPresent)).toContain("pkg/outside.py");
 	});
 });

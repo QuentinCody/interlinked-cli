@@ -17,6 +17,7 @@ function baseConfig(overrides: Partial<StructureConfig["builtins"]> = {}): Struc
 		adoption: {} as StructureConfig["adoption"],
 		builtins: {
 			public_symbol_companions: false,
+			public_symbol_test_case: false,
 			env_key_companions: false,
 			config_key_companions: false,
 			layer_boundary_violations: false,
@@ -364,6 +365,67 @@ describe("evaluateStructureRules", () => {
 		expect(findings).toHaveLength(1);
 		expect(nonNull(findings[0]).name).toBe("package_boundary_violation");
 		expect(nonNull(findings[0]).file).toBe("app/src/x.ts");
+	});
+
+	describe("public_symbol_test_case gating (2026-09-02: registered)", () => {
+		function buildUnreferencedSymbolGraph(): ArtifactGraph {
+			const g = new ArtifactGraph();
+			const sym = {
+				id: makeGlobalRef("public_symbol", "bar"),
+				kind: "public_symbol" as const,
+				label: "bar",
+				file: "src/bar.ts",
+				provenance: "declared" as const,
+				determinism_ceiling: "fully_deterministic" as const,
+			};
+			const test = {
+				id: makeGlobalRef("test", "bar.test"),
+				kind: "test" as const,
+				label: "bar.test",
+				file: "src/bar.test.ts",
+				provenance: "declared" as const,
+				determinism_ceiling: "fully_deterministic" as const,
+			};
+			g.addNode(sym);
+			g.addNode(test);
+			g.addEdge({
+				id: makeEdgeId(test.id, sym.id),
+				kind: "tests",
+				from: test.id,
+				to: sym.id,
+				provenance: "declared",
+				confidence: 1.0,
+			});
+			return g;
+		}
+
+		// P1: enabled + a real gap (companion test file exists, but never
+		// references the symbol by name) → the finding surfaces through the
+		// orchestrator, not just the standalone unit test.
+		it("P1: runs public_symbol_test_case and returns the exact finding when the flag is on", () => {
+			const g = buildUnreferencedSymbolGraph();
+			const findings = evaluateStructureRules(
+				g,
+				baseConfig({ public_symbol_test_case: true }),
+				["src/bar.ts"],
+			);
+			expect(findings).toHaveLength(1);
+			expect(nonNull(findings[0]).name).toBe("public_symbol_test_case_missing");
+			expect(nonNull(findings[0]).file).toBe("src/bar.ts");
+		});
+
+		// N1: same graph, same changed file — flag off ⇒ no findings. Proves
+		// the orchestrator actually gates the call rather than always running it.
+		it("N1: does not run public_symbol_test_case when the flag is off, even with a real gap", () => {
+			const g = buildUnreferencedSymbolGraph();
+			expect(
+				evaluateStructureRules(
+					g,
+					baseConfig({ public_symbol_test_case: false }),
+					["src/bar.ts"],
+				),
+			).toEqual([]);
+		});
 	});
 
 	describe("glossary_residue gating", () => {

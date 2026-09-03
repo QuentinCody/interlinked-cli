@@ -191,6 +191,51 @@ export function extractMockDefinitions(content: string, filePath: string): MockD
 }
 
 /**
+ * Parse one already-trimmed `export`-prefixed source line and return the
+ * symbol name(s) it declares. Mirrors the per-line branches previously
+ * inlined in `extractModuleExportNames`'s loop body, unchanged.
+ */
+function namesFromExportLine(trimmed: string): string[] {
+	// export function name / export async function name
+	const fn = trimmed.match(/^export\s+(?:async\s+)?function\s+(\w+)/);
+	if (fn) return [nonNull(fn[1])];
+
+	// export const/let/var name
+	const v = trimmed.match(/^export\s+(?:const|let|var)\s+(\w+)/);
+	if (v) return [nonNull(v[1])];
+
+	// export class name
+	const cls = trimmed.match(/^export\s+(?:abstract\s+)?class\s+(\w+)/);
+	if (cls) return [nonNull(cls[1])];
+
+	// export interface/type name
+	const iface = trimmed.match(/^export\s+(?:interface|type)\s+(\w+)/);
+	if (iface) return [nonNull(iface[1])];
+
+	// export enum name
+	const enm = trimmed.match(/^export\s+enum\s+(\w+)/);
+	if (enm) return [nonNull(enm[1])];
+
+	// export default
+	if (/^export\s+default\b/.test(trimmed)) return ["default"];
+
+	// export { a, b, c } or export type { a, b, c } (single-line)
+	const named = trimmed.match(/^export\s+(?:type\s+)?\{([^}]+)\}/);
+	if (!named) return [];
+	const names: string[] = [];
+	for (const n of nonNull(named[1]).split(",")) {
+		const name = n
+			.trim()
+			.replace(/^type\s+/, "")
+			.split(/\s+as\s+/)
+			.pop()
+			?.trim();
+		if (name) names.push(name);
+	}
+	return names;
+}
+
+/**
  * Extract exported symbol names from a module (for mock drift comparison).
  */
 export function extractModuleExportNames(content: string): string[] {
@@ -204,61 +249,7 @@ export function extractModuleExportNames(content: string): string[] {
 	for (const line of lines) {
 		const trimmed = line.trim();
 		if (!trimmed.startsWith("export")) continue;
-
-		// export function name / export async function name
-		const fn = trimmed.match(/^export\s+(?:async\s+)?function\s+(\w+)/);
-		if (fn) {
-			names.push(nonNull(fn[1]));
-			continue;
-		}
-
-		// export const/let/var name
-		const v = trimmed.match(/^export\s+(?:const|let|var)\s+(\w+)/);
-		if (v) {
-			names.push(nonNull(v[1]));
-			continue;
-		}
-
-		// export class name
-		const cls = trimmed.match(/^export\s+(?:abstract\s+)?class\s+(\w+)/);
-		if (cls) {
-			names.push(nonNull(cls[1]));
-			continue;
-		}
-
-		// export interface/type name
-		const iface = trimmed.match(/^export\s+(?:interface|type)\s+(\w+)/);
-		if (iface) {
-			names.push(nonNull(iface[1]));
-			continue;
-		}
-
-		// export enum name
-		const enm = trimmed.match(/^export\s+enum\s+(\w+)/);
-		if (enm) {
-			names.push(nonNull(enm[1]));
-			continue;
-		}
-
-		// export default
-		if (/^export\s+default\b/.test(trimmed)) {
-			names.push("default");
-			continue;
-		}
-
-		// export { a, b, c } or export type { a, b, c } (single-line)
-		const named = trimmed.match(/^export\s+(?:type\s+)?\{([^}]+)\}/);
-		if (named) {
-			for (const n of nonNull(named[1]).split(",")) {
-				const name = n
-					.trim()
-					.replace(/^type\s+/, "")
-					.split(/\s+as\s+/)
-					.pop()
-					?.trim();
-				if (name) names.push(name);
-			}
-		}
+		names.push(...namesFromExportLine(trimmed));
 	}
 
 	return names;

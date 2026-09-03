@@ -6,13 +6,10 @@
 // lifecycle actions (opened/closed/changed).
 
 import { isJsonObject } from "./json-types.js";
+import type { ManualDebtMarkerTransition } from "./manual-debt-marker-record.js";
+import { nonEmptyString, parseMarker } from "./manual-debt-marker-record-parse.js";
+import { markerChanged } from "./manual-debt-marker-record-transitions.js";
 import type { ManualDebtMarker } from "./manual-debt-markers.js";
-import {
-    markerChanged,
-    nonEmptyString,
-    parseMarker,
-    type ManualDebtMarkerTransition,
-} from "./manual-debt-marker-record.js";
 
 function tryOpenedTransition(
     action: unknown,

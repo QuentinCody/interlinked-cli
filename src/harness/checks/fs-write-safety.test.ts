@@ -153,6 +153,51 @@ describe("detectWriteWithoutMkdir — negative cases (must NOT fire)", () => {
 		].join("\n");
 		expect(detectWriteWithoutMkdir(code, TS)).toEqual([]);
 	});
+
+	it("N: mkdtempSync-created dir + two direct writes into it does not fire", () => {
+		// Real campaign FP shape: a temp dir just created by mkdtempSync, then
+		// two files written straight into it (no nesting below the temp dir).
+		const code = [
+			"import { mkdtempSync, writeFileSync } from 'node:fs';",
+			"import { tmpdir } from 'node:os';",
+			"import { join } from 'node:path';",
+			"function setup() {",
+			"  const dir = mkdtempSync(join(tmpdir(), 'x-'));",
+			"  writeFileSync(join(dir, '.env.example'), 'A=1');",
+			"  writeFileSync(join(dir, 'wrangler.jsonc'), '{}');",
+			"}",
+		].join("\n");
+		expect(detectWriteWithoutMkdir(code, TS)).toEqual([]);
+	});
+
+	it("N: await mkdtemp (async) variant does not fire for a direct write", () => {
+		const code = [
+			"import { writeFile } from 'node:fs/promises';",
+			"import { mkdtemp } from 'node:fs/promises';",
+			"import { tmpdir } from 'node:os';",
+			"import { join } from 'node:path';",
+			"async function setup() {",
+			"  const dir = await mkdtemp(join(tmpdir(), 'x-'));",
+			"  await writeFile(join(dir, 'config.json'), '{}');",
+			"}",
+		].join("\n");
+		expect(detectWriteWithoutMkdir(code, TS)).toEqual([]);
+	});
+
+	it("P: a write nested two segments below an mkdtemp dir still fires (no mkdir for the sub dir)", () => {
+		const code = [
+			"import { mkdtempSync, writeFileSync } from 'node:fs';",
+			"import { tmpdir } from 'node:os';",
+			"import { join } from 'node:path';",
+			"function setup() {",
+			"  const dir = mkdtempSync(join(tmpdir(), 'x-'));",
+			"  writeFileSync(join(dir, 'nested', 'f.txt'), 'x');",
+			"}",
+		].join("\n");
+		const out = detectWriteWithoutMkdir(code, TS);
+		expect(out.length).toBeGreaterThanOrEqual(1);
+		expect(out[0]?.line).toBe(6);
+	});
 });
 
 // ─── homedir_write_escape ────────────────────────────────────────────────────

@@ -11,7 +11,7 @@ import { canonicalSimplificationAgentCiJson } from "./simplification-agent-ci-re
 import {
 	SIMPLIFICATION_PROTECTED_BOUNDARIES,
 	type SimplificationProtectedBoundary,
-} from "./simplification-agent-ci-plan.js";
+} from "./simplification-agent-ci-plan-primitives.js";
 import {
 	SIMPLIFICATION_REMEDIES,
 	type SimplificationRemedy,

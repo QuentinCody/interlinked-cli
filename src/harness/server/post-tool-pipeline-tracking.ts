@@ -155,7 +155,12 @@ export function trackTestRun(
 	session: SessionTrajectory,
 	cwd: string,
 ): string | null {
-	if (!session) return null;
+	// `session` is typed as required `SessionTrajectory`, but the
+	// "falsy-session guard" test (post-tool-pipeline.test.ts) proves a
+	// degraded caller can genuinely pass a null session. Read it through
+	// `unknown` so the guard stays real instead of being lint-dead.
+	const sessionPresent: unknown = session;
+	if (!sessionPresent) return null;
 	const cmd = (event.tool_input?.command as string) || "";
 	const testRunFile = detectTestRunFile(cmd, cwd);
 	if (!testRunFile) return null;
@@ -283,7 +288,10 @@ function applyObservedOutcome(
  * unmarked commands with no failure signal) record nothing.
  */
 export function trackVerificationOutcome(event: HarnessEvent, session: SessionTrajectory): void {
-	if (!session) return;
+	// Same `session`-typed-non-null-but-genuinely-falsy case as `trackTestRun`
+	// above — see the "falsy-session guard" test.
+	const sessionPresent: unknown = session;
+	if (!sessionPresent) return;
 	const cmd = (event.tool_input?.command as string) || "";
 	if (!cmd) return;
 	const kind = observedCheckKindFor(cmd);

@@ -180,6 +180,38 @@ export function checkSwiftFatalErrorInGuard(content: string, filePath: string): 
  * scanning non-SwiftUI Swift files). Body detection uses brace-depth tracking
  * — when depth returns to zero (or below) we exit the body region.
  */
+/**
+ * Advance the `body`-region tracking state by one (already comment/string
+ * stripped) line and report whether that line contains a `print(...)` call
+ * while inside the body.
+ *
+ * Mirrors the original inline loop body exactly: a line that *opens* the
+ * `var body: some View {` region is consumed to seed `bodyDepth` and never
+ * itself checked for `print` (the original `continue`d past it); every
+ * subsequent line while `inBody` updates `bodyDepth` by its brace delta and
+ * is checked for `print`.
+ */
+function scanPrintInViewBodyLine(
+	line: string,
+	state: { inBody: boolean; bodyDepth: number },
+): { inBody: boolean; bodyDepth: number; matched: boolean } {
+	if (!state.inBody) {
+		if (!/\bvar\s+body\s*:\s*(?:some\s+)?View\s*\{/.test(line)) {
+			return { inBody: false, bodyDepth: state.bodyDepth, matched: false };
+		}
+		const opens = (line.match(/\{/g) || []).length;
+		const closes = (line.match(/\}/g) || []).length;
+		const bodyDepth = opens - closes;
+		return { inBody: bodyDepth > 0, bodyDepth, matched: false };
+	}
+
+	const opens = (line.match(/\{/g) || []).length;
+	const closes = (line.match(/\}/g) || []).length;
+	const bodyDepth = state.bodyDepth + opens - closes;
+	const matched = /\bprint\s*\(/.test(line);
+	return { inBody: bodyDepth > 0, bodyDepth, matched };
+}
+
 export function checkSwiftPrintInViewBody(content: string, filePath: string): InlineMatch[] {
 	if (getExtension(filePath) !== ".swift") return [];
 	if (isTestFile(filePath)) return [];
@@ -196,27 +228,12 @@ export function checkSwiftPrintInViewBody(content: string, filePath: string): In
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= MATCH_LIMIT) break;
 		const line = nonNull(strippedLines[i]);
-
-		if (!inBody) {
-			if (/\bvar\s+body\s*:\s*(?:some\s+)?View\s*\{/.test(line)) {
-				inBody = true;
-				const opens = (line.match(/\{/g) || []).length;
-				const closes = (line.match(/\}/g) || []).length;
-				bodyDepth = opens - closes;
-				if (bodyDepth <= 0) inBody = false;
-			}
-			continue;
-		}
-
-		const opens = (line.match(/\{/g) || []).length;
-		const closes = (line.match(/\}/g) || []).length;
-		bodyDepth += opens - closes;
-
-		if (/\bprint\s*\(/.test(line)) {
+		const next = scanPrintInViewBodyLine(line, { inBody, bodyDepth });
+		inBody = next.inBody;
+		bodyDepth = next.bodyDepth;
+		if (next.matched) {
 			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 		}
-
-		if (bodyDepth <= 0) inBody = false;
 	}
 	return matches;
 }

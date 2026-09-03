@@ -68,7 +68,7 @@ export { canonicalJson } from "./canonical.js";
 
 export { attestationPayload, computeResultHash, resultHashPayload } from "./verify-attestation.js";
 
-export { type V3KeyRecord, type V3KeyRegistry } from "./canonical.js";
+export { type V3KeyRegistry } from "./canonical.js";
 import type { V3KeyRegistry } from "./canonical.js";
 
 /** The envelope inside a verified bundle. Never the evaluator boundary by

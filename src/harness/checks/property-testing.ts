@@ -91,6 +91,30 @@ function verbRemainder(name: string, verb: string): string | null {
 	return null;
 }
 
+/**
+ * Exported (forward, inverse) name pairs for ONE verb pair: both halves share
+ * the same remainder once their verb affix is stripped. Declaration order is
+ * preserved (forward outer, inverse inner) so callers see a stable sequence.
+ */
+function verbPairMatches(
+	exported: ExportedName[],
+	fwdVerb: string,
+	invVerb: string,
+): Array<readonly [ExportedName, ExportedName]> {
+	const found: Array<readonly [ExportedName, ExportedName]> = [];
+	for (const fwd of exported) {
+		const rFwd = verbRemainder(fwd.name, fwdVerb);
+		if (rFwd === null) continue;
+		for (const inv of exported) {
+			if (inv.name === fwd.name) continue;
+			const rInv = verbRemainder(inv.name, invVerb);
+			if (rInv === null || rInv !== rFwd) continue;
+			found.push([fwd, inv]);
+		}
+	}
+	return found;
+}
+
 /** Find confirmed inverse pairs (both halves exported, remainders equal). */
 function findInversePairs(exported: ExportedName[]): InversePair[] {
 	const pairs: InversePair[] = [];
@@ -103,15 +127,8 @@ function findInversePairs(exported: ExportedName[]): InversePair[] {
 	};
 
 	for (const [fwdVerb, invVerb] of INVERSE_VERB_PAIRS) {
-		for (const fwd of exported) {
-			const rFwd = verbRemainder(fwd.name, fwdVerb);
-			if (rFwd === null) continue;
-			for (const inv of exported) {
-				if (inv.name === fwd.name) continue;
-				const rInv = verbRemainder(inv.name, invVerb);
-				if (rInv === null || rInv !== rFwd) continue;
-				add(fwd, inv, `${inv.name}(${fwd.name}(x)) === x`);
-			}
+		for (const [fwd, inv] of verbPairMatches(exported, fwdVerb, invVerb)) {
+			add(fwd, inv, `${inv.name}(${fwd.name}(x)) === x`);
 		}
 	}
 
@@ -263,10 +280,16 @@ function exportTakesArg(content: string, decl: ExportedName): boolean {
 		sig += line;
 		if (line.includes("{") || line.includes("=>")) break;
 	}
-	// First top-level parameter list after the function name. We scan the FIRST
-	// `(` group and capture its contents up to the matching close paren.
+	return firstParamList(sig).trim().length > 0;
+}
+
+/**
+ * Contents of the FIRST top-level `(…)` group in a signature, up to the
+ * matching close paren. Returns "" when the signature has no `(`.
+ */
+function firstParamList(sig: string): string {
 	const open = sig.indexOf("(");
-	if (open === -1) return false;
+	if (open === -1) return "";
 	let depth = 0;
 	let params = "";
 	for (let i = open; i < sig.length; i++) {
@@ -280,7 +303,7 @@ function exportTakesArg(content: string, decl: ExportedName): boolean {
 		}
 		if (depth >= 1) params += ch;
 	}
-	return params.trim().length > 0;
+	return params;
 }
 
 /** Whether any candidate test content references `name`. */

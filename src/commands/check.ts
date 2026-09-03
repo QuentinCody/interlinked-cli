@@ -11,6 +11,7 @@ import { CheckEngine, type CheckReport, type ToolId } from "../harness/check-eng
 import { RUNNABLE_TOOL_IDS } from "../harness/check-engine/tool-catalog.js";
 import { ProjectGraph } from "../harness/project-graph.js";
 import { containsSecrets, findAnyTypes } from "../harness/quality-checks.js";
+import type { ImportEdge } from "../harness/types.js";
 import { emitCheckOutput, printToolReportIfRequested, warnDroppedDiscoveryTools } from "./check-report.js";
 import { findDeadImports } from "./check-dead-imports.js";
 import { type StructuralCheckResult } from "./check-output.js";
@@ -46,26 +47,33 @@ function recordCycleFiles(ctx: CycleRecordContext): void {
 // the inline blocks that previously lived in checkCommand, extracted so the
 // orchestrator stays a thin dispatcher.
 
+type ImportEdgeVerdict = "ok" | "missing-file" | "missing-symbol";
+
+// Helper: judges one import edge in isolation. "ok" covers both a healthy edge
+// and an edge the scan ignores (unresolved, .json, node_modules).
+function classifyImportEdge(graph: ProjectGraph, edge: ImportEdge): ImportEdgeVerdict {
+	if (!edge.toFile) return "ok";
+	if (edge.specifier.endsWith(".json")) return "ok";
+	if (edge.toFile.includes("/node_modules/")) return "ok";
+	if (!existsSync(edge.toFile)) return "missing-file";
+	if (edge.symbols.length === 0) return "ok";
+	const targetExports = graph.getExports(edge.toFile);
+	const targetNames = new Set(targetExports.map((e) => e.name));
+	targetNames.add("default");
+	return hasMissingSymbol(edge.symbols, targetNames) ? "missing-symbol" : "ok";
+}
+
 function scanBrokenImports(graph: ProjectGraph): Set<string> {
 	const files = new Set<string>();
 	for (const file of graph.allFiles()) {
 		const edges = graph.getDependencies(file);
 		for (const edge of edges) {
-			if (!edge.toFile) continue;
-			if (edge.specifier.endsWith(".json")) continue;
-			if (edge.toFile.includes("/node_modules/")) continue;
-			if (!existsSync(edge.toFile)) {
-				files.add(graph.toRelative(file));
-				break;
-			}
-			if (edge.symbols.length > 0) {
-				const targetExports = graph.getExports(edge.toFile);
-				const targetNames = new Set(targetExports.map((e) => e.name));
-				targetNames.add("default");
-				if (hasMissingSymbol(edge.symbols, targetNames)) {
-					files.add(graph.toRelative(file));
-				}
-			}
+			const verdict = classifyImportEdge(graph, edge);
+			if (verdict === "ok") continue;
+			files.add(graph.toRelative(file));
+			// A missing target file stops the scan of this file's remaining edges;
+			// a missing symbol keeps looking (mirrors the original break/no-break).
+			if (verdict === "missing-file") break;
 		}
 	}
 	return files;
@@ -160,18 +168,23 @@ interface ContentScanOpts {
 // relative paths of files whose detector reports at least one finding. Shared
 // by the secrets and any-types scans (which differ in ext-filter, decl-skip,
 // test-dir skip, and detector). Unreadable files are skipped.
+// Helper: true when a file is outside the content scan's population (wrong
+// extension, a declaration file the scan skips, a test/spec module, or — when
+// the scan skips test dirs — anything under a test/mock directory).
+function isContentScanExempt(file: string, ext: string, scan: ContentScanOpts): boolean {
+	if (!scan.allowedExts.includes(ext)) return true;
+	if (scan.skipDecl && file.endsWith(".d.ts")) return true;
+	const base = basename(file, ext);
+	if (base.endsWith(".test") || base.endsWith(".spec")) return true;
+	if (!scan.skipTestDirs) return false;
+	if (file.includes("__tests__") || file.includes("__mocks__")) return true;
+	return file.includes("/test/") || file.includes("/tests/");
+}
+
 function scanFileContent(graph: ProjectGraph, scan: ContentScanOpts): Set<string> {
 	const files = new Set<string>();
 	for (const file of graph.allFiles()) {
-		const ext = extname(file);
-		if (!scan.allowedExts.includes(ext)) continue;
-		if (scan.skipDecl && file.endsWith(".d.ts")) continue;
-		const base = basename(file, ext);
-		if (base.endsWith(".test") || base.endsWith(".spec")) continue;
-		if (scan.skipTestDirs) {
-			if (file.includes("__tests__") || file.includes("__mocks__")) continue;
-			if (file.includes("/test/") || file.includes("/tests/")) continue;
-		}
+		if (isContentScanExempt(file, extname(file), scan)) continue;
 		try {
 			const content = readFileSync(file, "utf-8");
 			if (scan.detector(content)) {

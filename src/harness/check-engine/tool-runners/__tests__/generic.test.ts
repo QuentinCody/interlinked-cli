@@ -934,7 +934,7 @@ describe("runGitleaks (sync)", () => {
 		expect(runGitleaks(input(projectScope()))).toEqual([]);
 	});
 
-	it("treats a non-ENOENT spawn error as a real (non-zero) run and parses output", () => {
+	it("runGitleaks: treats a non-ENOENT spawn error as a real (non-zero) run and parses output", () => {
 		spawnSyncMock.mockReturnValue(
 			spawnResult({
 				status: 1,
@@ -1019,7 +1019,7 @@ describe("runGitleaks (sync)", () => {
 		expect(out[0]?.ruleId).toBe("aws-access-key");
 	});
 
-	it("returns [] from the catch block when spawnSync throws", () => {
+	it("runGitleaks: returns [] from the catch block when spawnSync throws", () => {
 		spawnSyncMock.mockImplementation(() => {
 			throw new Error("boom");
 		});

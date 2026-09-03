@@ -2,7 +2,8 @@ import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { cyclomaticForMetrics, loadMetricsCoverage } from "./metrics.js";
+import { loadMetricsCoverage } from "./metrics-coverage.js";
+import { cyclomaticForMetrics } from "./metrics.js";
 
 function mkTmp(): string {
 	return mkdtempSync(join(tmpdir(), "metrics-mkw55-"));

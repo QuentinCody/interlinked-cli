@@ -92,6 +92,49 @@ function recordFile(name: string, testRoot: string | null, out: WalkResult): voi
 }
 
 /**
+ * Reads one stack frame's directory entries, mutating `out` and pushing any
+ * subdirectory frames onto `stack`. Returns the remaining entry budget; a
+ * negative return means the budget was exhausted mid-directory (`out.truncated`
+ * is set before returning) and the caller must stop walking.
+ */
+function processDirFrame(
+	frame: { dir: string; depth: number; testRoot: string | null },
+	out: WalkResult,
+	stack: Array<{ dir: string; depth: number; testRoot: string | null }>,
+	budget: number,
+): number {
+	for (const entry of readdirSync(frame.dir, { withFileTypes: true })) {
+		budget -= 1;
+		if (budget < 0) {
+			// Entry-budget exhausted: results are partial. Flag it so the
+			// caller fails toward enforcement instead of reporting "none".
+			out.truncated = true;
+			return budget;
+		}
+		if (entry.isDirectory()) {
+			// Vendor/build/dot dirs are excluded BY DESIGN — not truncation.
+			if (shouldSkipDir(entry.name)) continue;
+			// Depth cap prunes this subtree: whatever is below is unseen, so
+			// the walk is partial. Flag it (distinct from the skip above).
+			if (frame.depth + 1 > MAX_WALK_DEPTH) {
+				out.truncated = true;
+				continue;
+			}
+			const enteringTestRoot =
+				frame.depth === 0 && TEST_DIR_ROOTS.includes(entry.name) ? entry.name : frame.testRoot;
+			stack.push({
+				dir: join(frame.dir, entry.name),
+				depth: frame.depth + 1,
+				testRoot: enteringTestRoot,
+			});
+		} else if (entry.isFile()) {
+			recordFile(entry.name, frame.testRoot, out);
+		}
+	}
+	return budget;
+}
+
+/**
  * Single bounded walk collecting every layout fact at once. Throws on fs
  * errors (unreadable root/subdir) — the caller maps that to the
  * fail-toward-enforcement profile. On a depth/entry-cap breach it sets
@@ -111,34 +154,8 @@ function walkForTests(projectRoot: string): WalkResult {
 	while (stack.length > 0) {
 		const frame = stack.pop();
 		if (frame === undefined) break;
-		for (const entry of readdirSync(frame.dir, { withFileTypes: true })) {
-			budget -= 1;
-			if (budget < 0) {
-				// Entry-budget exhausted: results are partial. Flag it so the
-				// caller fails toward enforcement instead of reporting "none".
-				out.truncated = true;
-				return out;
-			}
-			if (entry.isDirectory()) {
-				// Vendor/build/dot dirs are excluded BY DESIGN — not truncation.
-				if (shouldSkipDir(entry.name)) continue;
-				// Depth cap prunes this subtree: whatever is below is unseen, so
-				// the walk is partial. Flag it (distinct from the skip above).
-				if (frame.depth + 1 > MAX_WALK_DEPTH) {
-					out.truncated = true;
-					continue;
-				}
-				const enteringTestRoot =
-					frame.depth === 0 && TEST_DIR_ROOTS.includes(entry.name) ? entry.name : frame.testRoot;
-				stack.push({
-					dir: join(frame.dir, entry.name),
-					depth: frame.depth + 1,
-					testRoot: enteringTestRoot,
-				});
-			} else if (entry.isFile()) {
-				recordFile(entry.name, frame.testRoot, out);
-			}
-		}
+		budget = processDirFrame(frame, out, stack, budget);
+		if (budget < 0) return out;
 	}
 	return out;
 }

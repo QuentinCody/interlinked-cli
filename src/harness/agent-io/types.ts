@@ -153,30 +153,7 @@ export const SPAWN_TOOL_NAMES: ReadonlySet<string> = new Set([
 	"followup_task",
 ]);
 
-/** Fernet-token prefix. Codex encrypts the sub-agent `message` at rest, in
- *  both directions. Detected by SHAPE rather than assumed by tool name, so a
- *  future plaintext payload is captured instead of written off. */
-const FERNET_PREFIX = "gAAAAA";
-
-/** True when the value looks like a Fernet token rather than a task text. */
-export function isEncryptedByRunner(value: string): boolean {
-	return value.startsWith(FERNET_PREFIX);
-}
-
-/** Runner label per `agent_source` — the vocabulary of the `runner` field, and
- *  the same one the tool_event records use. Single definition: the agent-event
- *  capture path imports it from here rather than keeping a second copy. */
-export const PROVIDER_BY_SOURCE: Record<string, string> = {
-	claude: "claude-code",
-	gemini: "gemini-cli",
-	copilot: "copilot",
-	codex: "codex",
-	cursor: "cursor",
-};
-
-/** `agent_source` → runner label, falling back to the raw source for a runner
- *  the map does not know yet. */
-export function runnerForSource(source: string | undefined): string {
-	if (!source) return "unknown";
-	return PROVIDER_BY_SOURCE[source] ?? source;
-}
+// `isEncryptedByRunner` (Fernet-token detection) and `runnerForSource`
+// (agent_source -> runner label) were removed 2026-09-02: both existed only
+// to support the now-deleted capture.ts, and had zero other callers. Rebuild
+// from docs/design/agent-io-capture.md when the capture rollout resumes.

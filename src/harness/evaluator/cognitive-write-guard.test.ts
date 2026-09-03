@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resetMetricCapsCache } from "../metric-caps.js";
-import { cognitiveWriteWarning } from "./cognitive-write-guard.js";
+import { checkCognitiveComplexityWrite, cognitiveWriteWarning } from "./cognitive-write-guard.js";
 
 // depth-N nested ifs → cognitive 1+2+…+N (spec §5 oracle shape).
 function nested(name: string, depth: number): string {
@@ -97,5 +97,34 @@ describe("cognitiveWriteWarning", () => {
 		// entry to warn about.
 		const anon = "export const wired = register((a: number): number => {\n\tif (a) { if (a) { if (a) { return 1; } } }\n\treturn 0;\n});\n";
 		expect(cognitiveWriteWarning(abs, anon, tmp)).toBeNull();
+	});
+});
+
+// The `↳ plan:` sub-line comes from `planFor` on COGNITIVE_SPEC (cognitive-plan.ts),
+// appended by `appendPlanHints` to the first violation naming each over-cap
+// function. It is remediation for what BLOCKED — a held function is never planned.
+describe("checkCognitiveComplexityWrite — flattening-plan hint", () => {
+	let tmp: string;
+	beforeEach(() => {
+		tmp = mkdtempSync(join(tmpdir(), "cog-plan-"));
+		resetMetricCapsCache();
+	});
+	afterEach(() => {
+		rmSync(tmp, { recursive: true, force: true });
+		resetMetricCapsCache();
+	});
+
+	it("P: a blocking over-cap function carries a `↳ plan:` flattening sub-line", () => {
+		const file = join(tmp, "deep.ts");
+		const out = checkCognitiveComplexityWrite({ file_path: file, content: nested("deep", 8) }, tmp);
+		expect(out?.block).toContain("deep");
+		expect(out?.block).toContain("↳ plan:");
+		expect(out?.block).toContain("flatten:");
+	});
+
+	it("N: a held over-cap function is allowed, so it gets no plan at all", () => {
+		const file = join(tmp, "held.ts");
+		writeFileSync(file, nested("held", 8)); // already over the cap on disk
+		expect(checkCognitiveComplexityWrite({ file_path: file, content: nested("held", 8) }, tmp)).toBeNull();
 	});
 });

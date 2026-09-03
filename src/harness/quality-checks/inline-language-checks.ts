@@ -400,6 +400,5 @@ export const __test__ = {
 	C_INCLUDE_GUARD_SENTINEL,
 };
 
-// Keep imported-but-unused shape: `InlineCheckDef` documents the contract
-// this module reads, so the import anchors the type dependency for readers.
-export type { InlineCheckDef };
+// `InlineCheckDef` documents the contract this module reads (used above in
+// `runOneDef`'s signature); no external importer resolves it from this path.

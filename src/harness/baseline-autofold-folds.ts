@@ -75,7 +75,7 @@ export const FOLD_DETAIL_CAP = 20;
 /** Coverage reports this fold will read, newest-first preference. Deliberately
  *  a short literal list rather than an import from `src/commands/coverage.ts`:
  *  nothing under `src/harness/` imports from the command layer. */
-export const COVERAGE_SUMMARY_CANDIDATES = [
+const COVERAGE_SUMMARY_CANDIDATES = [
 	"coverage/coverage-summary.json",
 	".interlinked/coverage/coverage-summary.json",
 ];

@@ -61,28 +61,10 @@ export function queryIndex(
 	let result: Set<number> | null = null;
 
 	for (const tri of usable) {
-		const candidates = getCandidatesForTrigram(view, tri);
-
-		if (candidates.size === 0) {
-			return new Set(); // definitive miss — no file has this trigram
-		}
-
-		if (result === null) {
-			result = candidates;
-		} else {
-			// Intersect: keep only IDs in both sets. Snapshot first so the
-			// delete never mutates the Set we are iterating.
-			for (const id of [...result]) {
-				if (!candidates.has(id)) {
-					result.delete(id);
-				}
-			}
-		}
-
-		if (result.size === 0) return result; // early exit
-
-		// Early termination: candidate set small enough, further intersection unlikely to help
-		if (result.size <= EARLY_TERMINATION_THRESHOLD) break;
+		const step = stepQuery(view, tri, result);
+		result = step.result;
+		if (step.action === "return") return result; // definitive miss or early exit
+		if (step.action === "break") break; // candidate set small enough, further intersection unlikely to help
 	}
 
 	result = result ?? getAllFileIds(view);
@@ -96,6 +78,48 @@ export function queryIndex(
 		}
 	}
 
+	return result;
+}
+
+/**
+ * Process one required trigram against the running result set: fetch its
+ * candidates, intersect (or seed) into the accumulator, and report what the
+ * caller's loop should do next. Mirrors the original inline per-trigram body
+ * of queryIndex verbatim, just under a name instead of at loop depth.
+ */
+function stepQuery(
+	view: QueryView,
+	tri: number,
+	result: Set<number> | null,
+): { result: Set<number>; action: "continue" | "break" | "return" } {
+	const candidates = getCandidatesForTrigram(view, tri);
+
+	if (candidates.size === 0) {
+		return { result: new Set(), action: "return" }; // definitive miss — no file has this trigram
+	}
+
+	const next = result === null ? candidates : intersectResult(result, candidates);
+
+	if (next.size === 0) {
+		return { result: next, action: "return" }; // early exit
+	}
+
+	// Early termination: candidate set small enough, further intersection unlikely to help
+	if (next.size <= EARLY_TERMINATION_THRESHOLD) {
+		return { result: next, action: "break" };
+	}
+
+	return { result: next, action: "continue" };
+}
+
+/** Intersect `result` with `candidates` in place. Snapshot first so the
+ * delete never mutates the Set we are iterating. */
+function intersectResult(result: Set<number>, candidates: Set<number>): Set<number> {
+	for (const id of [...result]) {
+		if (!candidates.has(id)) {
+			result.delete(id);
+		}
+	}
 	return result;
 }
 

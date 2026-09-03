@@ -57,7 +57,7 @@ vi.mock("../../harness/daemon-process-identity.js", async (importOriginal) => {
 	};
 });
 
-import { reapOrphanHarnesses } from "../harness.js";
+import { reapOrphanHarnesses } from "../harness-process.js";
 import { harnessReapCommand } from "../harness-reap.js";
 
 interface CapturedStdio {

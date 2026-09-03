@@ -18,12 +18,8 @@ import {
 	rmSync,
 	writeFileSync,
 } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
+import type { Server, Socket } from "node:net";
 import { dirname } from "node:path";
-import {
-	readFileMutationProcessIdentity,
-	type FileMutationProcessIdentity,
-} from "../lib/file-mutation-lock-identity.js";
 import { readHarnessProcessIdentity } from "./daemon-process-identity.js";
 import { type DispatcherState, dispatchRpc } from "./daemon-dispatcher.js";
 import { pidFileNames, removePidFileIfOwned } from "./daemon-pid-ownership.js";
@@ -36,7 +32,20 @@ import {
 	splitFrames,
 } from "./daemon-protocol.js";
 import { reapZombieIncumbent } from "./server/anti-stomp.js";
-import { classifyDaemonSocket, type DaemonPaths } from "./session-paths.js";
+import { bindSessionSocket, sessionSocketState } from "./session-daemon-bind.js";
+import {
+	type ClaimLockAttempt,
+	claimLockIsCurrent,
+	claimLockRecord,
+	isProcessAlive,
+	liveClaimLockIsCurrent,
+	makeClaimLock,
+	readFileText,
+	recoverStaleClaimLock,
+	removeCurrentClaimLock,
+	type SessionClaimLock,
+} from "./session-daemon-claim-lock.js";
+import type { DaemonPaths } from "./session-paths.js";
 import type { HarnessSocketState } from "./socket-readiness.js";
 
 export interface SessionDaemonOptions {
@@ -78,22 +87,7 @@ export class DaemonOwnershipConflictError extends Error {
 
 export type SessionPidClaim = { claimed: true } | { claimed: false; ownerPid: number };
 
-interface SessionClaimLock {
-	path: string;
-	raw: string;
-	token: string;
-}
-
-interface ClaimLockRecord {
-	pid: number;
-	createdAtMs: number;
-	bootId: string | null;
-	processStartId: string | null;
-}
-
-type Retry = { retry: true };
-type ClaimLockAttempt = { lock: SessionClaimLock } | Retry;
-type LockedClaimAttempt = SessionPidClaim | Retry;
+type LockedClaimAttempt = SessionPidClaim | { retry: true };
 
 interface SessionPidClaimOptions {
 	ownerIsValid?: (pid: number) => boolean;
@@ -101,138 +95,7 @@ interface SessionPidClaimOptions {
 
 const CLAIM_LOCK_ATTEMPTS = 40;
 const CLAIM_LOCK_WAIT_MS = 2;
-const CLAIM_LOCK_STALE_MS = 5_000;
-let claimTokenSequence = 0;
 const claimWaitBuffer = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
-
-function makeClaimLock(pidPath: string): SessionClaimLock {
-	const createdAtMs = Date.now();
-	const token = `${process.pid}-${createdAtMs}-${process.hrtime.bigint()}-${++claimTokenSequence}`;
-	const identity = readFileMutationProcessIdentity(process.pid, createdAtMs);
-	return {
-		path: `${pidPath}.claim`,
-		raw: `${JSON.stringify({
-			pid: process.pid,
-			token,
-			created_at_ms: createdAtMs,
-			boot_id: identity.bootId,
-			process_start_id: identity.processStartId,
-		})}\n`,
-		token,
-	};
-}
-
-function readFileText(path: string): string | null {
-	try {
-		return readFileSync(path, "utf-8");
-	} catch {
-		return null;
-	}
-}
-
-function isUnknownRecord(value: unknown): value is Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function claimLockIdentity(value: Record<string, unknown>): {
-	bootId: string | null;
-	processStartId: string | null;
-} | null {
-	const { boot_id: bootId, process_start_id: processStartId } = value;
-	if (bootId !== null && typeof bootId !== "string") return null;
-	if (processStartId !== null && typeof processStartId !== "string") return null;
-	return { bootId, processStartId };
-}
-
-function claimLockRecord(raw: string | null): ClaimLockRecord | null {
-	if (raw === null) return null;
-	try {
-		const value: unknown = JSON.parse(raw);
-		if (!isUnknownRecord(value)) return null;
-		const { pid, token, created_at_ms: createdAtMs } = value;
-		if (typeof pid !== "number" || !Number.isSafeInteger(pid) || pid <= 0) return null;
-		if (typeof token !== "string" || token === "") return null;
-		if (typeof createdAtMs !== "number" || !Number.isSafeInteger(createdAtMs)) return null;
-		const identity = claimLockIdentity(value);
-		return identity === null ? null : { pid, createdAtMs, ...identity };
-	} catch {
-		return null;
-	}
-}
-
-function matchingKnownIdentity(
-	record: ClaimLockRecord,
-	current: FileMutationProcessIdentity,
-): boolean | null {
-	if (record.processStartId === null || current.processStartId === null) return null;
-	if (record.processStartId !== current.processStartId) return false;
-	if (record.bootId === null || current.bootId === null) return true;
-	return record.bootId === current.bootId;
-}
-
-function liveClaimLockIsCurrent(record: ClaimLockRecord | null): boolean {
-	if (record === null || !isProcessAlive(record.pid)) return false;
-	const identityMatch = matchingKnownIdentity(
-		record,
-		readFileMutationProcessIdentity(record.pid, Date.now()),
-	);
-	if (identityMatch !== null) return identityMatch;
-	const ageMs = Date.now() - record.createdAtMs;
-	return ageMs >= 0 && ageMs <= CLAIM_LOCK_STALE_MS;
-}
-
-function claimLockIsCurrent(lock: SessionClaimLock): boolean {
-	return readFileText(lock.path) === lock.raw;
-}
-
-function removeCurrentClaimLock(lock: SessionClaimLock): void {
-	if (claimLockIsCurrent(lock)) rmSync(lock.path, { force: true });
-}
-
-function restoreRacedClaimLock(lock: SessionClaimLock, quarantinePath: string): ClaimLockAttempt {
-	try {
-		// The canonical path contains our recovery marker, so replacing it with
-		// the record we accidentally moved cannot stomp another cooperative
-		// claimant. A failure preserves the quarantine bytes and is loud.
-		renameSync(quarantinePath, lock.path);
-		return { retry: true };
-	} catch (err) {
-		removeCurrentClaimLock(lock);
-		throw err;
-	}
-}
-
-function recoverStaleClaimLock(
-	lock: SessionClaimLock,
-	observedRaw: string | null,
-): ClaimLockAttempt {
-	const quarantinePath = `${lock.path}.${lock.token}.stale`;
-	try {
-		renameSync(lock.path, quarantinePath);
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "ENOENT") return { retry: true };
-		throw err;
-	}
-
-	const movedRaw = readFileText(quarantinePath);
-	try {
-		writeFileSync(lock.path, lock.raw, { flag: "wx" });
-	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-			// Another claimant filled the rename gap. The moved token is fenced:
-			// its holder verifies the canonical token before and after any PID
-			// mutation, so it cannot report ownership after losing this path.
-			rmSync(quarantinePath, { force: true });
-			return { retry: true };
-		}
-		// Do not erase the only copy of the moved record on an I/O failure.
-		throw err;
-	}
-
-	if (movedRaw !== observedRaw) return restoreRacedClaimLock(lock, quarantinePath);
-	rmSync(quarantinePath, { force: true });
-	return { lock };
-}
 
 function attemptClaimLock(lock: SessionClaimLock): ClaimLockAttempt {
 	try {
@@ -322,64 +185,6 @@ export function claimSessionPid(
 		waitForClaimTurn();
 	}
 	throw new Error(`Could not claim session pid file with a stable lock: ${pidPath}`);
-}
-
-/** Bind attempts before a listen failure is fatal. A cold start on a loaded
- *  machine races a still-exiting predecessor's socket teardown; retrying twice
- *  costs a couple of hundred milliseconds and converts the most common
- *  transient EADDRINUSE into a normal start instead of a dead daemon. */
-export const BIND_ATTEMPTS = 3;
-/** Backoff before attempt n+1, in ms. Indexed by the attempt that just failed;
- *  the last entry repeats if `attempts` is raised. */
-export const BIND_BACKOFF_MS = [50, 150];
-
-function closeQuietly(server: Server): void {
-	try {
-		server.close();
-	} catch (err) {
-		void err; /* intentional: a server that never listened throws here */
-	}
-}
-
-function listenOnce(server: Server, socketPath: string): Promise<void> {
-	return new Promise<void>((resolve, reject) => {
-		server.once("error", reject);
-		server.listen(socketPath, () => {
-			server.removeListener("error", reject);
-			resolve();
-		});
-	});
-}
-
-/** Decide whether another bind attempt can plausibly succeed, clearing a stale
- *  socket file when that is what stands in the way.
- *
- *  The ownership rule is the same one every anti-stomp check applies: a socket
- *  that ANSWERS belongs to a live incumbent and is never unlinked — that
- *  failure is terminal, and the caller must exit rather than stomp it. A
- *  socket file that answers nothing is a stale artifact from a dead
- *  predecessor: remove it and retry. A non-EADDRINUSE failure is some other
- *  transient (a directory being recreated, a slow unlink), so we simply retry
- *  it without touching anything. */
-async function prepareBindRetry(
-	err: unknown,
-	socketPath: string,
-	isServing: (socketPath: string) => Promise<boolean>,
-): Promise<boolean> {
-	if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") return true;
-	if (await isServing(socketPath)) return false;
-	rmSync(socketPath, { force: true });
-	return true;
-}
-
-async function sessionSocketState(socketPath: string): Promise<HarnessSocketState> {
-	const first = await classifyDaemonSocket(socketPath);
-	if (first !== "occupied_unready") return first;
-	return classifyDaemonSocket(socketPath);
-}
-
-async function sessionSocketIsOccupied(socketPath: string): Promise<boolean> {
-	return (await sessionSocketState(socketPath)) !== "absent";
 }
 
 type ObservedSessionSocketState = HarnessSocketState | "probe_failed";
@@ -519,53 +324,6 @@ function createSessionRpcRuntime(args: {
 	};
 }
 
-export interface BindSessionSocketOptions {
-	socketPath: string;
-	onConnection: (socket: Socket) => void;
-	/** Total attempts, including the first. Defaults to {@link BIND_ATTEMPTS}. */
-	attempts?: number;
-	/** Test seams. */
-	sleep?: (ms: number) => Promise<void>;
-	isServing?: (socketPath: string) => Promise<boolean>;
-}
-
-/**
- * Bind the session socket, retrying a bounded number of times.
- *
- * Every attempt uses a FRESH server object: a `net.Server` whose listen failed
- * carries the failure in its internal handle state, and reusing it makes the
- * retry's outcome depend on Node internals rather than on the socket path.
- *
- * Throws the LAST failure when every attempt is spent — the caller (and, above
- * it, the startup guard) turns that into a loud exit. It never returns a
- * server that is not listening.
- */
-export async function bindSessionSocket(opts: BindSessionSocketOptions): Promise<Server> {
-	const attempts = opts.attempts ?? BIND_ATTEMPTS;
-	const isServing = opts.isServing ?? sessionSocketIsOccupied;
-	const sleep =
-		opts.sleep ??
-		((ms: number) =>
-			new Promise<void>((resolve) => {
-				setTimeout(resolve, ms);
-			}));
-	let lastErr: unknown = new Error(`bind aborted before any attempt (${opts.socketPath})`);
-	for (let attempt = 0; attempt < attempts; attempt++) {
-		const server = createServer(opts.onConnection);
-		try {
-			await listenOnce(server, opts.socketPath);
-			return server;
-		} catch (err) {
-			lastErr = err;
-			closeQuietly(server);
-			if (attempt === attempts - 1) break;
-			if (!(await prepareBindRetry(err, opts.socketPath, isServing))) break;
-			await sleep(BIND_BACKOFF_MS[attempt] ?? BIND_BACKOFF_MS[BIND_BACKOFF_MS.length - 1] ?? 150);
-		}
-	}
-	throw lastErr;
-}
-
 export async function startSessionDaemon(opts: SessionDaemonOptions): Promise<SessionDaemonHandle> {
 	const { paths, session_id } = opts;
 	const idleMs = opts.idle_shutdown_ms ?? 15 * 60 * 1000;
@@ -637,14 +395,5 @@ function readPidFile(path: string): number | null {
 		return Number.isFinite(pid) && pid > 0 ? pid : null;
 	} catch {
 		return null;
-	}
-}
-
-function isProcessAlive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (err) {
-		return (err as NodeJS.ErrnoException).code === "EPERM";
 	}
 }

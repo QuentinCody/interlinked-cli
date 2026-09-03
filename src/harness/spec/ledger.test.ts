@@ -2,7 +2,8 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { resolveRelativeTarget, SpecLedger } from "./ledger.js";
+import { SpecLedger } from "./ledger.js";
+import { resolveRelativeTarget } from "./ledger-xref.js";
 
 const never = (): boolean => false;
 

@@ -23,20 +23,33 @@
 // `checkDestructiveCommand` can call the `dcg*` helpers regardless of the
 // order they're joined in. The `new Function` round-trip test in
 // `__tests__/destructive-command-guard.test.ts` pins this invariant.
+//
+// Split across sibling modules to stay under the per-file line cap
+// (destructive-command-guard-mask-state.ts, destructive-command-guard-git.ts)
+// — each exported function there is equally self-contained and equally
+// eligible for the `.toString()` serialization below; `import type` costs
+// nothing at runtime, so it doesn't violate that contract.
+
+import {
+	dcgMaskCommentStep,
+	dcgMaskInlineQuotedShell,
+	dcgMaskQuoteStep,
+	dcgMaskUnquotedStep,
+	dcgMatchesShutdown,
+} from "./destructive-command-guard-mask-state.js";
+import {
+	dcgCheckGitDataLoss,
+	dcgCheckGitDestruction,
+	dcgCheckGitInteractiveOrRewrite,
+} from "./destructive-command-guard-git.js";
 
 /** A destructive-command block verdict. `reason` is shown to the agent. */
-interface DestructiveCommandVerdict {
+export interface DestructiveCommandVerdict {
 	decision: "block";
 	reason: string;
 }
 
 type DestructiveCheck = (cmd: string) => DestructiveCommandVerdict | null;
-
-interface MaskState {
-	quote: string | null;
-	escaped: boolean;
-	comment: boolean;
-}
 
 /**
  * Agent-created worktrees are disabled by default. The daemon-side built-in
@@ -57,76 +70,6 @@ export function agentWorktreeCreationBlockReason(): string {
 function dcgCheckWorktreeCreation(cmd: string): DestructiveCommandVerdict | null {
 	if (!new RegExp(AGENT_WORKTREE_CREATE_COMMAND_PATTERN, "i").test(cmd)) return null;
 	return { decision: "block", reason: agentWorktreeCreationBlockReason() };
-}
-
-/** One character inside a `#...` shell comment: masked until end-of-line. */
-function dcgMaskCommentStep(ch: string, state: MaskState): string {
-	if (ch === "\n") {
-		state.comment = false;
-		return ch;
-	}
-	return " ";
-}
-
-/** One character inside a quoted span (`'`, `"`, or backtick): always masked. */
-function dcgMaskQuoteStep(ch: string, state: MaskState): string {
-	if (state.escaped) {
-		state.escaped = false;
-		return " ";
-	}
-	if (ch === "\\") {
-		state.escaped = true;
-		return " ";
-	}
-	if (ch === state.quote) state.quote = null;
-	return " ";
-}
-
-/** One character outside any quote/comment: detects the start of either. */
-function dcgMaskUnquotedStep(ch: string, i: number, value: string, state: MaskState): string {
-	const backtick = String.fromCharCode(96);
-	if (ch === "#" && (i === 0 || /\s/.test(value[i - 1] || ""))) {
-		state.comment = true;
-		return " ";
-	}
-	if (ch === "'" || ch === '"' || ch === backtick) {
-		state.quote = ch;
-		return " ";
-	}
-	return ch;
-}
-
-// Blank out quoted/escaped/commented spans so a destructive verb that only
-// appears as quoted DATA (e.g. 'echo "reboot"') is not mistaken for an
-// executable verb. Dispatches per-character to the three step helpers above
-// so no single function carries the whole state machine's complexity.
-function dcgMaskInlineQuotedShell(value: string): string {
-	const out: string[] = [];
-	const state: MaskState = { quote: null, escaped: false, comment: false };
-	for (let i = 0; i < value.length; i++) {
-		const ch = value[i] ?? "";
-		if (state.comment) {
-			out.push(dcgMaskCommentStep(ch, state));
-			continue;
-		}
-		if (state.quote) {
-			out.push(dcgMaskQuoteStep(ch, state));
-			continue;
-		}
-		out.push(dcgMaskUnquotedStep(ch, i, value, state));
-	}
-	return out.join("");
-}
-
-// Shutdown/reboot detection. Anchored to a command-start position and
-// tolerant of wrapper chains ('sudo', 'env VAR=v', 'bash -c "..."').
-function dcgMatchesShutdown(cmdValue: string): boolean {
-	const masked = dcgMaskInlineQuotedShell(cmdValue);
-	const directRe =
-		/(^|\|\||&&|[;|\n])\s*(?:(?:env(?:\s+[A-Za-z_]\w*=\S+)*|command|exec|nohup|sudo)\s+|(?:bash|sh)\s+-c\s*["']?\s*)*(shutdown|reboot|halt|poweroff|init\s+[06]|systemctl\s+(poweroff|reboot|halt))\b/i;
-	const quotedShellRe =
-		/(^|\|\||&&|[;|\n])\s*(?:(?:env(?:\s+[A-Za-z_]\w*=\S+)*|command|exec|nohup|sudo)\s+)*(?:bash|sh)\s+-c\s*["']\s*(?:(?:env(?:\s+[A-Za-z_]\w*=\S+)*|command|exec|nohup|sudo)\s+)*(shutdown|reboot|halt|poweroff|init\s+[06]|systemctl\s+(poweroff|reboot|halt))\b/i;
-	return directRe.test(masked) || quotedShellRe.test(cmdValue);
 }
 
 function dcgCheckSleep(cmd: string): DestructiveCommandVerdict | null {
@@ -224,91 +167,6 @@ function dcgCheckFilesystemDestruction(cmd: string): DestructiveCommandVerdict |
 	}
 	if (/\bsudo\s+rm\b/.test(cmd)) {
 		return { decision: "block", reason: "BLOCKED: sudo rm is extremely dangerous." };
-	}
-	return null;
-}
-
-function dcgCheckGitDestruction(cmd: string): DestructiveCommandVerdict | null {
-	if (/\bgit\s+push\s+.*--force(?!-with-lease)\b/i.test(cmd) || /\bgit\s+push\s+-f\b/i.test(cmd)) {
-		return { decision: "block", reason: "BLOCKED: git push --force. Use --force-with-lease instead." };
-	}
-	if (/\bgit\s+reset\s+--hard\b/.test(cmd)) {
-		return {
-			decision: "block",
-			reason: "BLOCKED: git reset --hard destroys all uncommitted changes. Use git stash first.",
-		};
-	}
-	if (/\bgit\s+clean\s+-[a-zA-Z]*f/.test(cmd) && !/\bgit\s+clean\s+.*(-n|--dry-run)/.test(cmd)) {
-		return {
-			decision: "block",
-			reason:
-				"BLOCKED: git clean -f permanently deletes untracked files. Use git clean -n (dry-run) first.",
-		};
-	}
-	if (/\bgit\s+checkout\s+--\s+\./.test(cmd)) {
-		return { decision: "block", reason: "BLOCKED: git checkout -- . discards all unstaged changes." };
-	}
-	if (/\bgit\s+restore\s+--worktree\s/.test(cmd)) {
-		return {
-			decision: "block",
-			reason: "BLOCKED: git restore --worktree discards working tree changes.",
-		};
-	}
-	if (/\bgit\s+branch\s+-D\s/.test(cmd)) {
-		return {
-			decision: "block",
-			reason: "BLOCKED: git branch -D force-deletes a branch without merge check. Use -d instead.",
-		};
-	}
-	if (/\bgit\s+stash\s+(drop|clear)/i.test(cmd)) {
-		return {
-			decision: "block",
-			reason: "BLOCKED: git stash drop/clear permanently removes stashed work.",
-		};
-	}
-	if (/\bgit\s+restore\s+\./.test(cmd)) {
-		return {
-			decision: "block",
-			reason: "BLOCKED: git restore . discards all unstaged changes. Use git stash first.",
-		};
-	}
-	if (/\bgit\s+filter-branch\b/i.test(cmd) || /\bgit\s+filter-repo\b/i.test(cmd)) {
-		return {
-			decision: "block",
-			reason: "BLOCKED: git filter-branch/filter-repo rewrites entire repository history.",
-		};
-	}
-	// 'git rebase' / 'git add' with an interactive flag. Three constraints
-	// shaped this pattern: a word-boundary before '-i' never matches a
-	// space-preceded flag (word char required before the dash); the scan must
-	// stop at the end of the command SEGMENT — the earlier '(?:\S+\s+)*' shape
-	// crossed newlines/';'/'&&'/'|', so any later standalone '-p'-ish token
-	// (classically 'mkdir -p') false-blocked the whole compound command
-	// (measured FP, 2026-07-24); and the span is a SINGLE flat quantifier
-	// (no '(?:A+B+)*' nesting) so the ReDoS guard stays quiet. The span
-	// excludes separators/redirects/newlines; the flag must sit at a token
-	// start (preceded by a space/tab) and end at whitespace/EOL/separator.
-	if (
-		/\bgit[^\S\r\n]+rebase(?![\w-])[^;&|<>\r\n]*?[^\S\r\n](?:-i|--interactive)(?=\s|$|[;&|<>])/i.test(
-			cmd,
-		)
-	) {
-		return {
-			decision: "block",
-			reason:
-				"BLOCKED: git rebase -i opens an interactive editor that hangs a non-interactive agent. Use a non-interactive rebase or run it yourself.",
-		};
-	}
-	if (
-		/\bgit[^\S\r\n]+add(?![\w-])[^;&|<>\r\n]*?[^\S\r\n](?:-i|-p|-e|--interactive|--patch|--edit)(?=\s|$|[;&|<>])/i.test(
-			cmd,
-		)
-	) {
-		return {
-			decision: "block",
-			reason:
-				"BLOCKED: git add -i/-p/-e opens an interactive prompt that hangs a non-interactive agent. Use git add <pathspec>.",
-		};
 	}
 	return null;
 }
@@ -443,6 +301,34 @@ function dcgCheckEmbeddedDestructive(cmd: string): DestructiveCommandVerdict | n
 	return null;
 }
 
+// Module-scope indirection for the two identifiers `checkDestructiveCommand`
+// references that now live in sibling modules (`dcgMatchesShutdown`,
+// `dcgCheckGitDestruction`). A bundler inlines a cross-module named-import
+// call as a bare identifier reference (verified against the tsup/esbuild
+// output, which is what actually ships), but a per-module dev transform can
+// rewrite an import's OWN name wherever it's used, including inside a
+// function whose source text later gets captured via `.toString()`. Routing
+// through a same-file alias keeps checkDestructiveCommand's serialized body
+// free of any identifier that isn't itself declared inside this joined
+// `DESTRUCTIVE_COMMAND_GUARD_SOURCE` blob — these two lines are re-declared
+// there verbatim, right below their `AGENT_WORKTREE_CREATE_COMMAND_PATTERN`
+// sibling.
+const dcgShutdownCheck = dcgMatchesShutdown;
+const dcgChecks: DestructiveCheck[] = [
+	dcgCheckSleep,
+	dcgCheckProcessKilling,
+	dcgCheckFilesystemDestruction,
+	dcgCheckWorktreeCreation,
+	dcgCheckGitDestruction,
+	dcgCheckDatabaseDestruction,
+	dcgCheckContainerOrchestration,
+	dcgCheckInfraAsCode,
+	dcgCheckCloudProvider,
+	dcgCheckSystemLevel,
+	dcgCheckRemoteExecution,
+	dcgCheckEmbeddedDestructive,
+];
+
 /**
  * Detect destructive shell commands — process killing, recursive deletes,
  * history-rewriting git, DROP/TRUNCATE, infra teardown, and so on. A pure
@@ -458,7 +344,7 @@ function dcgCheckEmbeddedDestructive(cmd: string): DestructiveCommandVerdict | n
  * function declarations rather than nested closures.
  */
 export function checkDestructiveCommand(cmd: string): DestructiveCommandVerdict | null {
-	if (dcgMatchesShutdown(cmd)) {
+	if (dcgShutdownCheck(cmd)) {
 		return { decision: "block", reason: "BLOCKED: System shutdown/reboot commands." };
 	}
 
@@ -469,21 +355,7 @@ export function checkDestructiveCommand(cmd: string): DestructiveCommandVerdict 
 		return null;
 	}
 
-	const checks: DestructiveCheck[] = [
-		dcgCheckSleep,
-		dcgCheckProcessKilling,
-		dcgCheckFilesystemDestruction,
-		dcgCheckWorktreeCreation,
-		dcgCheckGitDestruction,
-		dcgCheckDatabaseDestruction,
-		dcgCheckContainerOrchestration,
-		dcgCheckInfraAsCode,
-		dcgCheckCloudProvider,
-		dcgCheckSystemLevel,
-		dcgCheckRemoteExecution,
-		dcgCheckEmbeddedDestructive,
-	];
-	for (const check of checks) {
+	for (const check of dcgChecks) {
 		const verdict = check(cmd);
 		if (verdict) return verdict;
 	}
@@ -511,6 +383,8 @@ export const DESTRUCTIVE_COMMAND_GUARD_SOURCE: string = [
 	dcgCheckSleep,
 	dcgCheckProcessKilling,
 	dcgCheckFilesystemDestruction,
+	dcgCheckGitDataLoss,
+	dcgCheckGitInteractiveOrRewrite,
 	dcgCheckGitDestruction,
 	dcgCheckDatabaseDestruction,
 	dcgCheckContainerOrchestration,
@@ -519,6 +393,8 @@ export const DESTRUCTIVE_COMMAND_GUARD_SOURCE: string = [
 	dcgCheckSystemLevel,
 	dcgCheckRemoteExecution,
 	dcgCheckEmbeddedDestructive,
+	"const dcgShutdownCheck = dcgMatchesShutdown;",
+	"const dcgChecks = [dcgCheckSleep, dcgCheckProcessKilling, dcgCheckFilesystemDestruction, dcgCheckWorktreeCreation, dcgCheckGitDestruction, dcgCheckDatabaseDestruction, dcgCheckContainerOrchestration, dcgCheckInfraAsCode, dcgCheckCloudProvider, dcgCheckSystemLevel, dcgCheckRemoteExecution, dcgCheckEmbeddedDestructive];",
 	checkDestructiveCommand,
 ]
 	.map((entry) => (typeof entry === "function" ? entry.toString() : entry))

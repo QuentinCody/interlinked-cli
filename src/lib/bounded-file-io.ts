@@ -21,7 +21,6 @@ export {
 	readFileRange,
 } from "./bounded-file-core.js";
 export { copyFileRange, gzipFileRange } from "./bounded-file-transfer.js";
-export type { GzipRangeResult } from "./bounded-file-transfer.js";
 
 const NEWLINE = 0x0a;
 
