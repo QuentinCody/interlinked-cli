@@ -336,6 +336,56 @@ export function parseGoBuildOutput(output: string): CheckResult[] {
 	return results;
 }
 
+/** Parse `go test` output into per-failing-unit findings, falling back to a
+ *  generic whole-run finding when no unit can be isolated — any non-zero exit
+ *  still produces a [proven] verdict (never a silent clean). */
+export function parseGoTestOutput(output: string, status: number): CheckResult[] {
+	const results: CheckResult[] = [];
+	for (const line of output.split("\n")) {
+		const fail = line.match(/^--- FAIL:\s+(\S+)\s+\(([^)]*)\)/);
+		if (fail) {
+			results.push({
+				tool: "go-test",
+				severity: "error",
+				file: "",
+				line: 0,
+				message: `FAIL: ${nonNull(fail[1])} (${nonNull(fail[2])})`,
+			});
+			continue;
+		}
+		const pkg = line.match(/^FAIL\s+(\S+)\s/);
+		if (pkg) {
+			results.push({
+				tool: "go-test",
+				severity: "error",
+				file: nonNull(pkg[1]),
+				line: 0,
+				message: `package ${nonNull(pkg[1])} failed`,
+			});
+			continue;
+		}
+		if (/^panic:/.test(line)) {
+			results.push({ tool: "go-test", severity: "error", file: "", line: 0, message: line.trim() });
+		}
+	}
+	if (results.length === 0) {
+		const tail = output
+			.split("\n")
+			.map((l) => l.trim())
+			.filter(Boolean)
+			.slice(-6)
+			.join("\n");
+		results.push({
+			tool: "go-test",
+			severity: "error",
+			file: "",
+			line: 0,
+			message: `go test failed (exit ${status}): ${tail}`,
+		});
+	}
+	return results;
+}
+
 // -------------------------------------------
 // golangci-lint (golangci-lint run --out-format=json)
 // -------------------------------------------

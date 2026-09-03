@@ -23,6 +23,11 @@ import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-loc
 import { runBiomeOverlay } from "./tool-runners/biome.js";
 import { runDepAudit } from "./tool-runners/generic.js";
 import {
+	configNameForTool,
+	loadToolCommands,
+	toResolvedToolCommand,
+} from "./tool-commands.js";
+import {
 	clearTscOverlayCache,
 	runTscOverlayTyped,
 	type TscOverlayOutcome,
@@ -33,7 +38,9 @@ import type {
 	CheckReport,
 	CheckResult,
 	CheckScope,
+	ResolvedToolCommand,
 	ToolAvailability,
+	ToolCommandConfig,
 	ToolId,
 	ToolMetrics,
 } from "./types.js";
@@ -43,7 +50,9 @@ export { formatToolReport } from "./discovery.js";
 export type {
 	CheckReport,
 	CheckResult,
+	ResolvedToolCommand,
 	SkipEntry,
+	ToolCommandConfig,
 	ToolId,
 	ToolMetrics,
 } from "./types.js";
@@ -61,9 +70,40 @@ export class CheckEngine {
 	readonly projectRoot: string;
 	private toolsCache: ToolAvailability[] | null = null;
 	private singleToolCache = new Map<ToolId, ToolAvailability>();
+	private toolCommands: Record<string, ToolCommandConfig> | null = null;
 
 	constructor(projectRoot: string) {
 		this.projectRoot = projectRoot;
+	}
+
+	/** Lazy two-tier tool-commands view (loaded once per engine instance). */
+	private loadCommands(): Record<string, ToolCommandConfig> {
+		if (!this.toolCommands) this.toolCommands = loadToolCommands(this.projectRoot);
+		return this.toolCommands;
+	}
+
+	/** Resolve the command override for one tool, if the project configured it. */
+	private commandOverrideFor(tool: ToolAvailability): ResolvedToolCommand | undefined {
+		const name = configNameForTool(tool.id);
+		if (!name) return undefined;
+		const entry = this.loadCommands()[name];
+		return entry ? toResolvedToolCommand(entry) : undefined;
+	}
+
+	/**
+	 * Default-gate participation for tools in an UNFILTERED run.
+	 *
+	 * `go-test` is deliberately opt-in: a whole-suite run is heavyweight and has
+	 * no file-dispatch surface, so an unfiltered `interlinked check`/verify run
+	 * does not suddenly execute the project's full test suite. It auto-runs only
+	 * when the project configures `go_test` in `.interlinked/tool-commands*.json`
+	 * (the repo declaring "this is my test command"), or when explicitly
+	 * requested via options.tools. Discovery still lists it either way.
+	 */
+	private shouldRunByDefault(tool: ToolAvailability, options: CheckOptions | undefined): boolean {
+		if (tool.id !== "go-test") return true;
+		if (options?.tools?.includes("go-test")) return true;
+		return Boolean(this.loadCommands()["go_test"]);
 	}
 
 	/** Discover which tools are available. Cached per engine instance. */
@@ -151,6 +191,7 @@ export class CheckEngine {
 		const toolsToRun = available.filter((t) => {
 			if (!t.available) return false;
 			if (options?.tools && !options.tools.includes(t.id)) return false;
+			if (!this.shouldRunByDefault(t, options)) return false;
 			if (options?.skipTools?.includes(t.id)) return false;
 			return true;
 		});
@@ -164,7 +205,11 @@ export class CheckEngine {
 			if (!runner) continue;
 
 			const toolStart = Date.now();
-			const results = runner({ scope, timeoutMs: timeout });
+			const results = runner({
+				scope,
+				timeoutMs: timeout,
+				commandOverride: this.commandOverrideFor(tool),
+			});
 			metrics.push({
 				tool: tool.id,
 				elapsedMs: Date.now() - toolStart,
@@ -228,6 +273,7 @@ export class CheckEngine {
 		const toolsToRun = available.filter((t) => {
 			if (!t.available) return false;
 			if (options?.tools && !options.tools.includes(t.id)) return false;
+			if (!this.shouldRunByDefault(t, options)) return false;
 			if (options?.skipTools?.includes(t.id)) return false;
 			return true;
 		});
@@ -238,7 +284,12 @@ export class CheckEngine {
 		// runner failures and returns an explicit no-verdict skip, so the loop can
 		// continue without either rejecting the batch or reading a crash as clean.
 		const allRuns: Awaited<ReturnType<typeof runAsyncTool>>[] = [];
-		for (const tool of toolsToRun) allRuns.push(await runAsyncTool(tool, scope, timeout));
+		// One child at a time inside the admitted finite batch. `runOne` catches
+		// runner failures and returns an explicit no-verdict skip, so the loop can
+		// continue without either rejecting the batch or reading a crash as clean.
+		for (const tool of toolsToRun) {
+			allRuns.push(await runAsyncTool(tool, scope, timeout, this.commandOverrideFor(tool)));
+		}
 		const allResults = allRuns.flatMap((r) => r.results);
 		const metrics = allRuns.map((r) => r.metric);
 

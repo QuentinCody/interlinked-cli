@@ -34,7 +34,7 @@ import {
 	runSemgrep,
 	runSemgrepAsync,
 } from "./tool-runners/generic.js";
-import { runGoBuild, runGolangciLint } from "./tool-runners/go.js";
+import { runGoBuild, runGoBuildAsync, runGolangciLint, runGolangciLintAsync, runGoTest, runGoTestAsync } from "./tool-runners/go.js";
 import { runHadolint, runHadolintAsync } from "./tool-runners/hadolint.js";
 import { runLizard, runLizardAsync } from "./tool-runners/lizard.js";
 import {
@@ -197,6 +197,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
 		configNames: ["go_build"],
 		extensions: [".go"],
 		runner: runGoBuild,
+		runnerAsync: runGoBuildAsync,
 		concurrencySafe: false,
 		versionCmd: ["go", "version"],
 		versionRegex: /go(\d+\.\d+\.\d+)/,
@@ -208,10 +209,26 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
 		configNames: ["golangci_lint"],
 		extensions: [".go"],
 		runner: runGolangciLint,
+		runnerAsync: runGolangciLintAsync,
 		concurrencySafe: false,
 		versionCmd: ["golangci-lint", "--version"],
 		versionRegex: /(\d+\.\d+\.\d+)/,
 		configFiles: [".golangci.yml", ".golangci.yaml", ".golangci.json", ".golangci.toml"],
+	},
+	{
+		// Full-suite Go test runner (project-wide, opt-in — see
+		// CheckEngine.shouldRunByDefault: auto-runs only when the project
+		// configures `go_test` in .interlinked/tool-commands*.json, or when
+		// explicitly requested via --only go-test / --tools go-test).
+		id: "go-test",
+		configNames: ["go_test"],
+		runner: runGoTest,
+		runnerAsync: runGoTestAsync,
+		concurrencySafe: false,
+		versionCmd: ["go", "version"],
+		versionRegex: /go(\d+\.\d+\.\d+)/,
+		configFiles: ["go.mod"],
+		requiresConfig: true,
 	},
 	// --- C/C++ ---
 	{

@@ -399,6 +399,14 @@ hand.
   model reference, and source/test include policy.
 - **`.interlinked/semantic.local.json`** (gitignored): local-only CPU/runtime topology. Remote URLs,
   API tokens, and cloud fallbacks are rejected by the v1 schema.
+- **`.interlinked/tool-commands.json`** (committed): per-tool argv overrides for build/lint/test
+  runners (`go_build`, `go_test`, `golangci_lint`, …). Team tier may set `base_args` +
+  `timeout_ms` only (flags for a fixed binary / a bounded cap); `command` (arbitrary executable)
+  and `env` are personal-tier only — a violation is a `doctor` error.
+- **`.interlinked/tool-commands.local.json`** (gitignored): trusted personal tier; may add a full
+  `command` override or `env` wholesale, winning over the team entry for the same key. No shell
+  interpolation — argv must be written as the executed argument list (`-tags 'dev devaccounts'` is
+  one token `["-tags","dev devaccounts"]`).
 - **Env overrides** (win over both files): `INTERLINKED_SERVER_URL`,
   `INTERLINKED_ACCESS_TOKEN` (alias `INTERLINKED_TOKEN`), `INTERLINKED_AGENT_NAME`,
   `INTERLINKED_WORKSPACE_ID`, `INTERLINKED_SYNC_MODE`, `INTERLINKED_HOME` (relocates the whole

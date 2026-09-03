@@ -12,6 +12,9 @@
 //      spawning a process or touching disk.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { CheckEngine } from "../../harness/check-engine/index.js";
 import type {
@@ -47,6 +50,9 @@ const parseGitleaksJson = vi.fn<(o: string) => CheckResult[]>(() => parserReturn
 const parseOxlintJson = vi.fn<(o: string) => CheckResult[]>(() => parserReturn);
 const parseNpmAuditJson = vi.fn<(o: string) => AuditResult | null>(() => npmAuditReturn);
 const parseDocsCheckOutput = vi.fn<(o: string) => CheckResult[]>(() => parserReturn);
+const parseGoTestOutput = vi.fn<(o: string, status: number) => CheckResult[]>(
+	() => parserReturn,
+);
 vi.mock("../../harness/check-engine/output-parsers.js", () => ({
 	parseTscOutput: (o: string) => parseTscOutput(o),
 	parseBiomeOutput: (o: string) => parseBiomeOutput(o),
@@ -57,6 +63,7 @@ vi.mock("../../harness/check-engine/output-parsers.js", () => ({
 	parseOxlintJson: (o: string) => parseOxlintJson(o),
 	parseNpmAuditJson: (o: string) => parseNpmAuditJson(o),
 	parseDocsCheckOutput: (o: string) => parseDocsCheckOutput(o),
+	parseGoTestOutput: (o: string, s: number) => parseGoTestOutput(o, s),
 }));
 
 // streaming-output: the two subprocess runners + spinner frames. Each runner
@@ -225,6 +232,40 @@ describe("TOOLS_TO_RUN", () => {
 		const sample: ToolSpec = nonNull(TOOLS_TO_RUN[0]);
 		expect(sample).toHaveProperty("id");
 		expect(sample).toHaveProperty("cmd");
+	});
+});
+
+describe("streamExternalTools — go-test command resolution", () => {
+	it("--only go-test spawns the project's configured go_test argv (build tags)", async () => {
+		const tmp = mkdtempSync(join(tmpdir(), "verify-go-test-"));
+		mkdirSync(join(tmp, ".interlinked"), { recursive: true });
+		writeFileSync(
+			join(tmp, ".interlinked", "tool-commands.json"),
+			JSON.stringify({ go_test: { base_args: ["-tags", "dev", "devaccounts", "./..."] } }),
+			"utf-8",
+		);
+		try {
+			runnerScript["go-test"] = { output: "ok", status: 0 };
+			const summary: Array<{ label: string; count: number; color: string }> = [];
+			const flagged = new Set<string>();
+			const p = streamExternalTools({
+				engine: fakeEngine(["go-test"]),
+				cwd: tmp,
+				opts: { only: "go-test" },
+				skipChecks: new Set(["sca", "dep-audit"]),
+				summary,
+				allFlaggedFiles: flagged,
+				details: false,
+			});
+			await vi.runAllTimersAsync();
+			await p;
+			// The static placeholder cmd is replaced by the resolved argv.
+			const call = nonNull(runToolWithSpinner.mock.calls[0]);
+			const args = nonNull(call[0]) as { cmd: string[] };
+			expect(args.cmd).toEqual(["go", "test", "-tags", "dev", "devaccounts", "./..."]);
+		} finally {
+			rmSync(tmp, { recursive: true, force: true });
+		}
 	});
 });
 
@@ -734,6 +775,9 @@ describe("TOOLS_TO_RUN — exact command vectors", () => {
 			],
 			knip: ["npx", "knip", "--no-progress", "--reporter", "json"],
 			"docs-check": ["node", "scripts/check-docs.mjs"],
+			// Static placeholder — streamExternalTools resolves the real argv
+			// from .interlinked/tool-commands*.json before spawning.
+			"go-test": ["go", "test", "./..."],
 		};
 		const actual: Record<string, string[]> = {};
 		for (const t of TOOLS_TO_RUN) actual[t.id] = t.cmd;

@@ -277,6 +277,7 @@ export {
 	parseClangTidyOutput,
 	parseGccOutput,
 	parseGoBuildOutput,
+	parseGoTestOutput,
 	parseGolangciLintJson,
 	parseKnipJson,
 	parseMypyOutput,

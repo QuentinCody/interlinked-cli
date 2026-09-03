@@ -527,7 +527,7 @@ describe("checkCommand — --only rejection paths", () => {
 		const stderr = captureStderr();
 		await checkCommand({ cwd: "/proj", only: "totally-fake-check" });
 		expect(stderr.get()).toBe(
-			'Unknown check: "totally-fake-check". Available: broken-imports, cycles, duplicates, missing-tests, secrets, any-types, blast-radius, dead-imports, tsc, biome, eslint, oxlint, knip, semgrep, gitleaks, dep-audit, mypy, ruff, ruff-format, cargo-check, cargo-clippy, rustfmt, go-build, golangci-lint, c-compile, clang-tidy, shellcheck, actionlint, hadolint, taplo, swiftlint, swift-build, lizard, docs-check\n',
+			'Unknown check: "totally-fake-check". Available: broken-imports, cycles, duplicates, missing-tests, secrets, any-types, blast-radius, dead-imports, tsc, biome, eslint, oxlint, knip, semgrep, gitleaks, dep-audit, mypy, ruff, ruff-format, cargo-check, cargo-clippy, rustfmt, go-build, golangci-lint, go-test, c-compile, clang-tidy, shellcheck, actionlint, hadolint, taplo, swiftlint, swift-build, lizard, docs-check\n',
 		);
 		expect(process.exitCode).toBe(1);
 	});

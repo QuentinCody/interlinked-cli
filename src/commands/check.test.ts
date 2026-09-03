@@ -1283,7 +1283,7 @@ describe("checkCommand — mutation-targeted branch isolation", () => {
 		await checkCommand({ only: "not-a-real-check", cwd: "/abs" });
 		const { stdout, stderr, exitCode } = io.mocks();
 		expect(stderr).toBe(
-			`Unknown check: "not-a-real-check". Available: broken-imports, cycles, duplicates, missing-tests, secrets, any-types, blast-radius, dead-imports, tsc, biome, eslint, oxlint, knip, semgrep, gitleaks, dep-audit, mypy, ruff, ruff-format, cargo-check, cargo-clippy, rustfmt, go-build, golangci-lint, c-compile, clang-tidy, shellcheck, actionlint, hadolint, taplo, swiftlint, swift-build, lizard, docs-check\n`,
+			`Unknown check: "not-a-real-check". Available: broken-imports, cycles, duplicates, missing-tests, secrets, any-types, blast-radius, dead-imports, tsc, biome, eslint, oxlint, knip, semgrep, gitleaks, dep-audit, mypy, ruff, ruff-format, cargo-check, cargo-clippy, rustfmt, go-build, golangci-lint, go-test, c-compile, clang-tidy, shellcheck, actionlint, hadolint, taplo, swiftlint, swift-build, lizard, docs-check\n`,
 		);
 		expect(stdout).toBe("");
 		expect(exitCode).toBe(1);

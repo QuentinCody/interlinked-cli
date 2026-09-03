@@ -266,6 +266,7 @@ const ALL_TOOL_IDS = [
 	"rustfmt",
 	"go-build",
 	"golangci-lint",
+	"go-test",
 	"c-compile",
 	"clang-tidy",
 	"shellcheck",

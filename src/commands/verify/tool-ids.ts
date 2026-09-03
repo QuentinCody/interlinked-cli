@@ -16,6 +16,7 @@ export const TOOL_IDS = [
 	"cargo-clippy",
 	"go-build",
 	"golangci-lint",
+	"go-test",
 	"c-compile",
 	"clang-tidy",
 	"oxlint",

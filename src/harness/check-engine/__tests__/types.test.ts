@@ -24,6 +24,7 @@ describe("check-engine types", () => {
 			"cargo-clippy",
 			"go-build",
 			"golangci-lint",
+			"go-test",
 			"c-compile",
 			"clang-tidy",
 			"oxlint",

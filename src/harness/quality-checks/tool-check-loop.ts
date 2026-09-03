@@ -43,6 +43,7 @@ import {
 	runSoftwareVersionChecks,
 } from "./tool-check-loop-manifest-checks.js";
 import { deferredExternalCheck, runCommandCheck } from "./tool-command-check.js";
+import { resolveToolCommand } from "../check-engine/tool-commands.js";
 
 /**
  * Yield the Node event loop so other socket connections in the daemon can
@@ -313,6 +314,9 @@ async function runAffectedTests(
 	if (!dispatcher) return null;
 
 	const checkCwd = findProjectRoot(ctx.filePath, ctx.cwd) || ctx.cwd;
+	// Resolve the project's `go_test` command override so the touched-package
+	// run carries the configured tags/flags from .interlinked/tool-commands*.json.
+	const goTestOverride = resolveToolCommand(checkCwd, "go_test", ["go", "test"], ["./..."]);
 	const dispatched = await dispatcher({
 		filePath: ctx.filePath,
 		absPath,
@@ -324,6 +328,7 @@ async function runAffectedTests(
 		...(check.max_dependent_tests !== undefined
 			? { maxDependentTests: check.max_dependent_tests }
 			: {}),
+		...(goTestOverride ? { commandOverride: goTestOverride } : {}),
 	});
 	return dispatched.map((r) => ({
 		name: r.name,

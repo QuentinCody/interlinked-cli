@@ -450,6 +450,26 @@ describe("runGoTestDispatcher", () => {
 		);
 	});
 
+	it("carries configured go_test base_args (build tags) into the package run", async () => {
+		spawnSyncMock.mockReturnValue(mkSpawnResult({ status: 0 }));
+		const out = await dispatcher({
+			filePath,
+			absPath: "/repo/src/pkg/m.go",
+			profile,
+			checkCwd: "/repo",
+			timeoutMs: 15000,
+			severity: "error",
+			checkName: "affected_tests",
+			// `.interlinked/tool-commands.json` go_test entry — full-suite scope
+			// token replaced by the touched package so flags keep precedence.
+			commandOverride: { baseArgs: ["-tags", "dev", "devaccounts", "./..."] },
+		});
+		expect(out).toEqual([]);
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1] as string[];
+		expect(args).toEqual(["test", "-tags", "dev", "devaccounts", "-count=1", "./src/pkg"]);
+		expect(args).not.toContain("./...");
+	});
+
 	it("reports no verdict for an errored go process even when status is nonzero", async () => {
 		spawnSyncMock.mockReturnValue(
 			mkSpawnResult({

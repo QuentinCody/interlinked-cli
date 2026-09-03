@@ -37,6 +37,12 @@ vi.mock("node:fs", () => ({
 		}
 		return { mtimeMs: v };
 	},
+	// Tool-commands config is absent in this fixture world (no
+	// .interlinked/tool-commands*.json exists), so the resolver reads nothing.
+	existsSync: () => false,
+	readFileSync: (): string => {
+		throw new Error("readFileSync not mocked — no tool-commands files expected");
+	},
 }));
 
 // ---------------------------------------------------------------------------
@@ -179,7 +185,11 @@ vi.mock("./tool-runners/rust.js", () => ({
 
 vi.mock("./tool-runners/go.js", () => ({
 	runGoBuild: mkSyncRunner("go-build"),
+	runGoBuildAsync: mkAsyncRunner("go-build"),
 	runGolangciLint: mkSyncRunner("golangci-lint"),
+	runGolangciLintAsync: mkAsyncRunner("golangci-lint"),
+	runGoTest: mkSyncRunner("go-test"),
+	runGoTestAsync: mkAsyncRunner("go-test"),
 }));
 
 vi.mock("./tool-runners/c-cpp.js", () => ({

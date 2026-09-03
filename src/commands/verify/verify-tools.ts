@@ -13,6 +13,10 @@
 import { join } from "node:path";
 
 import type { CheckEngine, CheckResult } from "../../harness/check-engine/index.js";
+import {
+	buildToolCommandArgv,
+	resolveToolCommand,
+} from "../../harness/check-engine/tool-commands.js";
 import { loadFileSuppressions } from "../../harness/suppressions.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
@@ -28,6 +32,14 @@ export interface ToolSpec {
 	noun: string;
 	severity: string;
 	cmd: string[];
+	/** True when the tool runs only under an explicit `--only <id>` on the
+	 *  default streaming path (never in an unfiltered `interlinked verify`).
+	 *  The JSON path and `interlinked check` gate the same tool via
+	 *  CheckEngine.shouldRunByDefault instead. */
+	requestedOnly?: boolean;
+	/** Per-run timeout; falls back to DEFAULT_TOOL_TIMEOUT_MS. Filled from
+	 *  tool-commands `timeout_ms` for configurable tools at stream time. */
+	timeoutMs?: number;
 }
 
 export const TOOLS_TO_RUN: readonly ToolSpec[] = [
@@ -131,6 +143,19 @@ export const TOOLS_TO_RUN: readonly ToolSpec[] = [
 		severity: "31",
 		cmd: ["node", "scripts/check-docs.mjs"],
 	},
+	{
+		// Full-suite Go test runner (opt-in). `requestedOnly` keeps it out of
+		// unfiltered `interlinked verify` (the default gate debate is deferred);
+		// the cmd is resolved below from .interlinked/tool-commands*.json so a
+		// configured `go_test` (build tags etc.) is honored exactly.
+		id: "go-test",
+		label: "go test",
+		passLabel: "all tests passed",
+		noun: "failing tests",
+		severity: "31",
+		cmd: ["go", "test", "./..."],
+		requestedOnly: true,
+	},
 ];
 
 const DEFAULT_TOOL_TIMEOUT_MS = 60_000;
@@ -176,6 +201,7 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 		parseOxlintJson,
 		parseNpmAuditJson,
 		parseDocsCheckOutput,
+		parseGoTestOutput,
 	} = await import("../../harness/check-engine/output-parsers.js");
 
 	const toolParsers: Record<string, (output: string) => CheckResult[]> = {
@@ -189,7 +215,22 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 		"docs-check": (out) => parseDocsCheckOutput(out),
 	};
 
-	const availableTools = TOOLS_TO_RUN.filter((tool) => {
+	// Resolve configurable tools (go-test) against .interlinked/tool-commands*:
+	// the configured argv replaces the static placeholder so `--only go-test`
+	// runs the project's exact test command (tags etc.).
+	const toolsToRun = TOOLS_TO_RUN.map((tool) => {
+		if (tool.id !== "go-test") return tool;
+		const override = resolveToolCommand(cwd, "go_test", ["go", "test"], ["./..."]);
+		return {
+			...tool,
+			cmd: buildToolCommandArgv(override, ["go", "test"], ["./..."]),
+			timeoutMs: override?.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
+		};
+	});
+
+	const availableTools = toolsToRun.filter((tool) => {
+		// requestedOnly tools (go-test) never participate in an unfiltered run.
+		if (tool.requestedOnly && !opts.only) return false;
 		if (opts.only && opts.only !== tool.id && opts.only !== tool.label) return false;
 		if (skipChecks.has(tool.id)) return false;
 		const avail = engine.discoverTools().find((t) => t.id === tool.id);
@@ -273,6 +314,12 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 	}
 
 	function parseToolOutput(tool: ToolSpec, output: string, status: number | null): CheckResult[] {
+		if (tool.id === "go-test") {
+			// Go test: exit 0 = green; non-zero = parsed failing units (the
+			// parser emits a generic whole-run finding when no unit isolates).
+			if (status === 0) return [];
+			return parseGoTestOutput(output, status ?? -1);
+		}
 		if (
 			tool.id === "gitleaks" &&
 			status === 1 &&
@@ -292,7 +339,7 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 			label: tool.label,
 			cmd: tool.cmd,
 			cwd,
-			timeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
+			timeoutMs: tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
 			parseOutput: (output, status) => parseToolOutput(tool, output, status),
 		});
 		displayToolResult(tool, rawResults);
@@ -322,7 +369,7 @@ export async function streamExternalTools(args: StreamExternalToolsArgs): Promis
 			runToolSilent({
 				cmd: tool.cmd,
 				cwd,
-				timeoutMs: DEFAULT_TOOL_TIMEOUT_MS,
+				timeoutMs: tool.timeoutMs ?? DEFAULT_TOOL_TIMEOUT_MS,
 				parseOutput: (output, status) => parseToolOutput(tool, output, status),
 			}).then((rawResults) => {
 				process.stderr.write("\r\x1b[K");

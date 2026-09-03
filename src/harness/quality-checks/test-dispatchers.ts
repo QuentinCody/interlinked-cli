@@ -12,6 +12,7 @@ import { existsSync } from "node:fs";
 import { dirname, extname, relative, resolve, sep } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import type { LanguageId, LanguageProfile } from "../types.js";
+import type { ResolvedToolCommand } from "../check-engine/types.js";
 import { findDirectImporters } from "./direct-importers.js";
 import { buildTestCandidates, classifyTestFailure } from "./test-classifier.js";
 import { runBoundedTestProcess } from "./test-process-gate.js";
@@ -49,6 +50,11 @@ export interface TestDispatcherInput {
 	/** `affected_tests` only: cap on direct-importer companion test files
 	 *  (see {@link DEFAULT_MAX_DEPENDENT_TESTS}). Absent → the default. */
 	maxDependentTests?: number;
+	/** `affected_tests` only, Go: resolved `go_test` command override from
+	 *  `.interlinked/tool-commands*.json`. A full `command` argv is used
+	 *  verbatim; otherwise configured `base_args` carry the project's flags
+	 *  (e.g. build tags) into the touched-package run. */
+	commandOverride?: ResolvedToolCommand | undefined;
 }
 
 export interface TestDispatcherResult {
@@ -389,11 +395,22 @@ async function runGoTestDispatcher(input: TestDispatcherInput): Promise<TestDisp
 	// Prepend ./ to avoid accidental module-path interpretation.
 	const pkgArg = relPkg.startsWith(".") ? relPkg : `./${relPkg.split(sep).join("/")}`;
 
+	// Tool-commands override (see check-engine/tool-commands.ts): a full
+	// `command` argv is used verbatim (caller owns the run); otherwise the
+	// configured `base_args` (e.g. `-tags 'dev devaccounts'`) carry into the
+	// touched-package run, with any full-suite "./..." scope token replaced by
+	// the package scope so flags keep preceding the package pattern.
+	const override = input.commandOverride;
+	const args = override?.argv
+		? override.argv.slice(1)
+		: ["test", ...scopedGoTestArgs(override?.baseArgs ?? [], pkgArg)];
+	const bin = override?.argv?.[0] ?? "go";
+
 	const run = await runBoundedTestProcess({
-		command: "go",
-		args: ["test", "-count=1", pkgArg],
+		command: bin,
+		args,
 		cwd: input.checkCwd,
-		timeoutMs: input.timeoutMs,
+		timeoutMs: override?.timeoutMs ?? input.timeoutMs,
 	});
 	if (run.kind === "deferred") return [deferredTestResult(input, run.reason)];
 	if (run.code === 0) return [];
@@ -416,6 +433,14 @@ async function runGoTestDispatcher(input: TestDispatcherInput): Promise<TestDisp
 // ===========================================
 // Small local helpers
 // ===========================================
+
+/** Merge configured `go_test` base_args into a touched-package `go test`
+ *  invocation: remove any full-suite "./..." scope token (it will be replaced
+ *  by the package argument) and append `-count=1 <pkg>`. */
+function scopedGoTestArgs(baseArgs: string[], pkgArg: string): string[] {
+	const cleaned = baseArgs.filter((a) => a !== "./...");
+	return [...cleaned, "-count=1", pkgArg];
+}
 
 function findFirstExistingCandidate(
 	absPath: string,

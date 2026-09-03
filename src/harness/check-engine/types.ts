@@ -18,6 +18,7 @@ export type ToolId =
 	| "rustfmt"
 	| "go-build"
 	| "golangci-lint"
+	| "go-test"
 	| "c-compile"
 	| "clang-tidy"
 	| "oxlint"
@@ -109,6 +110,35 @@ export interface AuditResult {
 export interface ToolRunnerInput {
 	scope: CheckScope;
 	timeoutMs: number;
+	/** Resolved `.interlinked/tool-commands` override for this tool (see
+	 *  check-engine/tool-commands.ts). Runners merge it with their fixed
+	 *  prefix when present; when a full `argv` is supplied the runner uses it
+	 *  verbatim (the caller owns the command). */
+	commandOverride?: ResolvedToolCommand | undefined;
+}
+
+/** Resolved per-tool command override. Produced by `resolveToolCommand` in
+ *  check-engine/tool-commands.ts from the two-tier tool-commands config. */
+export interface ResolvedToolCommand {
+	/** Full argv override — the runner performs no merge (project owns argv). */
+	argv?: string[] | undefined;
+	/** base_args appended after the runner's fixed prefix, replacing its
+	 *  default scope. Empty when no base_args were configured. */
+	baseArgs: string[];
+	/** Extra/overriding env vars for the spawned process. */
+	env?: Record<string, string> | undefined;
+	/** Per-run cap in ms, already bounded by the hard CLI ceiling. */
+	timeoutMs?: number | undefined;
+}
+
+/** Raw per-tool entry from `.interlinked/tool-commands.json` /
+ *  `.interlinked/tool-commands.local.json`. Field names stay snake_case to
+ *  match the rest of the two-tier config vocabulary. */
+export interface ToolCommandConfig {
+	command?: string[] | undefined;
+	base_args?: string[] | undefined;
+	env?: Record<string, string> | undefined;
+	timeout_ms?: number | undefined;
 }
 
 /** A tool runner function: spawn tool, parse output, return results.

@@ -49,6 +49,38 @@ dep-audit (+ language tools as available) **plus** the FP-safe inline checks. `-
 adds the advisory tier (complexity, taste/smell, DRY clones, most `ubs_*`, test heuristics) —
 a **review tool, expect noise, not a gate**.
 
+## Custom build/test command overrides (`tool_commands`)
+
+A project can pin the **exact argv** Interlinked spawns for its build/lint/test tools in a
+dedicated two-tier config — `.interlinked/tool-commands.json` (committed, team) +
+`.interlinked/tool-commands.local.json` (gitignored, personal). This is how a Go project makes
+`check --only go-build`/`--only go-test` and PostToolUse run the same flags as its dev server
+(e.g. `-tags 'dev devaccounts'`, sharing air's Go build cache):
+
+```jsonc
+// .interlinked/tool-commands.json
+{
+  "version": 1,
+  "tool_commands": {
+    "go_build": { "base_args": ["-tags", "dev devaccounts", "./..."], "timeout_ms": 300000 },
+    "go_test":  { "base_args": ["-tags", "dev devaccounts", "./..."], "timeout_ms": 300000 }
+  }
+}
+```
+
+- Keyed by **check/config names** (`go_build`, `go_test`, `golangci_lint`, …); a full `command`
+  array wins over `base_args`, which REPLACE the runner's default scope (`./...`).
+  **No shell interpolation** — `-tags 'dev devaccounts'` is ONE argv token (`["-tags","dev devaccounts"]`),
+  not two (`["-tags","dev","devaccounts"]` treats `devaccounts` as a package pattern).
+- **Trust split** mirrors `merge.ts`: the committed team tier may set `base_args`/`timeout_ms`
+  (flags for a fixed binary; bounded cap), while `command`/`env` are personal-tier only
+  (arbitrary executable / runtime rewiring) — `interlinked doctor` reports violations.
+- `go-test` is a project-wide catalog tool that runs the full suite (`check --only go-test`,
+  `--tools go-test`, `verify --only go-test`). It is **opt-in**: unfiltered runs skip it until
+  `go_test` is configured (or it is explicitly requested); `check --report` lists it either way.
+- `affected_tests` PostToolUse carries `go_test` tags into the touched-package run
+  (`go test <tags> -count=1 ./<pkg>`, no full-suite `./...`).
+
 > **`interlinked verify` exits 0 even with findings.** It is a *reporting* tool, not a
 > pass/fail gate — do not `&&`-chain on its exit status. To gate programmatically, parse
 > `--json`, or use `interlinked write` / `verify-changeset` (which **do** exit nonzero on
