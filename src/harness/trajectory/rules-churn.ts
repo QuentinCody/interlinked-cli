@@ -9,21 +9,20 @@
 // non-progress is not deterministic harm and a blocked legitimate bisection /
 // refactor would fail the low-FP bar.
 
-import { commandFamily, commandHeads, isSourceCodeFile, normalizeCommand } from "./helpers.js";
+import {
+	commandFamily,
+	commandHeads,
+	isPostEdit,
+	isSourceCodeFile,
+	normalizeCommand,
+} from "./helpers.js";
 import type {
+	AnchorValueEntry,
 	EditRecord,
 	ShaEntry,
-	ToolEvent,
 	TrajectoryRule,
 	Verdict,
 } from "./types.js";
-
-function isPostEdit(event: ToolEvent): boolean {
-	return (
-		event.hook === "PostToolUse" &&
-		(event.tool === "Edit" || event.tool === "Write" || event.tool === "MultiEdit")
-	);
-}
 
 function verdict(
 	ruleId: string,
@@ -146,31 +145,40 @@ export const churnLiteralEditRevert: TrajectoryRule = (state, event) => {
 // ============================================================
 // Per-(file,anchor) value sequence holds A,B,A: current==value-2-ago != value-1-ago.
 // FP guard: suppress if a test/build ran between the toggles (= bisection).
+/**
+ * Does this anchor's value history show an A→B→A toggle with no intervening
+ * verify run? Returns the verdict reason text, or null if this anchor isn't
+ * (or isn't yet) an undo-war.
+ */
+function anchorToggleWarReason(file: string, seq: AnchorValueEntry[], stepCount: number): string | null {
+	const n = seq.length;
+	if (n < 3) return null;
+	const a = seq[n - 1];
+	const b = seq[n - 2];
+	const a2 = seq[n - 3];
+	if (!a || !b || !a2) return null;
+	if (a.valueHash !== a2.valueHash) return null;
+	if (a.valueHash === b.valueHash) return null;
+	// Only fire on the freshest toggle (the one this edit just produced).
+	if (a.atStep !== stepCount) return null;
+	// Bisection suppression: a test/build ran between the two A states.
+	if (a.verifyCountAtEntry > a2.verifyCountAtEntry) return null;
+	return (
+		`A region of ${file} is flapping between two values (A→B→A) with no test/build run ` +
+		"between the flips. This is an undo-war, not a bisection — pick one value and verify it, " +
+		"or change the surrounding code so the choice is forced."
+	);
+}
+
 export const churnUndoWarValueToggle: TrajectoryRule = (state, event) => {
 	if (!isPostEdit(event)) return null;
 	const file = event.input.file_path;
 	if (!file) return null;
 	for (const [key, seq] of state.anchorValueSeq) {
 		if (!key.startsWith(`${file} `)) continue;
-		const n = seq.length;
-		if (n < 3) continue;
-		const a = seq[n - 1];
-		const b = seq[n - 2];
-		const a2 = seq[n - 3];
-		if (!a || !b || !a2) continue;
-		if (a.valueHash !== a2.valueHash) continue;
-		if (a.valueHash === b.valueHash) continue;
-		// Only fire on the freshest toggle (the one this edit just produced).
-		if (a.atStep !== state.stepCount) continue;
-		// Bisection suppression: a test/build ran between the two A states.
-		if (a.verifyCountAtEntry > a2.verifyCountAtEntry) continue;
-		return verdict(
-			"churn_undo_war_value_toggle",
-			"high",
-			`A region of ${file} is flapping between two values (A→B→A) with no test/build run ` +
-				"between the flips. This is an undo-war, not a bisection — pick one value and verify it, " +
-				"or change the surrounding code so the choice is forced.",
-		);
+		const reason = anchorToggleWarReason(file, seq, state.stepCount);
+		if (!reason) continue;
+		return verdict("churn_undo_war_value_toggle", "high", reason);
 	}
 	return null;
 };

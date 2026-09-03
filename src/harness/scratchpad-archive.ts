@@ -228,6 +228,47 @@ function archiveOneFile(opts: {
 	return { entry: { path: relPath, size, sha256 } };
 }
 
+/** Resolve one candidate path's outcome against the running file-count cap,
+ *  then delegate to `archiveOneFile`. Keeps the file-cap check and the
+ *  per-file archive decision behind one call so the caller loop only
+ *  applies the result, rather than branching on both itself. */
+function resolveCandidateOutcome(opts: {
+	sourceDir: string;
+	blobsDir: string;
+	relPath: string;
+	budget: ArchiveBudget;
+	entriesCount: number;
+	totalSoFar: number;
+}): { entry: ManifestEntry | undefined; skip: ScratchpadArchiveSkip | undefined; truncate: boolean | undefined } {
+	const { sourceDir, blobsDir, relPath, budget, entriesCount, totalSoFar } = opts;
+	if (entriesCount >= budget.maxFiles) {
+		return { entry: undefined, skip: { path: relPath, reason: "file-cap" }, truncate: true };
+	}
+	const result = archiveOneFile({ sourceDir, blobsDir, relPath, budget, totalSoFar });
+	return { entry: result.entry, skip: result.skip, truncate: result.stop };
+}
+
+type CandidateOutcome = ReturnType<typeof resolveCandidateOutcome>;
+
+/** Apply one candidate's outcome to the running manifest state: push a new
+ *  entry or skip record into the caller's lists, and report how many bytes
+ *  to add to the running total. `truncated` stays the caller's own flag —
+ *  it's the only piece of state this doesn't own. */
+function applyCandidateResult(opts: {
+	result: CandidateOutcome;
+	entries: ManifestEntry[];
+	skipped: ScratchpadArchiveSkip[];
+}): number {
+	const { result, entries, skipped } = opts;
+	if (result.entry) {
+		entries.push(result.entry);
+	}
+	if (result.skip && (result.skip.reason === "file-cap" || skipped.length < SKIP_LIST_CAP)) {
+		skipped.push(result.skip);
+	}
+	return result.entry ? result.entry.size : 0;
+}
+
 /** Archive one scratchpad directory into `destRoot` (blobs + manifest).
  *  Pure-ish core shared by the SessionEnd wiring and tests; returns null when
  *  the source doesn't exist or isn't a directory. `clock` is injectable for
@@ -259,18 +300,16 @@ export function archiveScratchpadDir(opts: {
 	let totalBytes = 0;
 	let truncated = false;
 	for (const relPath of walk.files) {
-		if (entries.length >= budget.maxFiles) {
-			skipped.push({ path: relPath, reason: "file-cap" });
-			truncated = true;
-			continue;
-		}
-		const result = archiveOneFile({ sourceDir, blobsDir, relPath, budget, totalSoFar: totalBytes });
-		if (result.entry) {
-			entries.push(result.entry);
-			totalBytes += result.entry.size;
-		}
-		if (result.skip && skipped.length < SKIP_LIST_CAP) skipped.push(result.skip);
-		if (result.stop) truncated = true;
+		const result = resolveCandidateOutcome({
+			sourceDir,
+			blobsDir,
+			relPath,
+			budget,
+			entriesCount: entries.length,
+			totalSoFar: totalBytes,
+		});
+		totalBytes += applyCandidateResult({ result, entries, skipped });
+		if (result.truncate) truncated = true;
 	}
 
 	const safeId = sanitizeSessionId(sessionId) || "unknown-session";

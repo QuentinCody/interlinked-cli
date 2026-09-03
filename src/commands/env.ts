@@ -91,6 +91,35 @@ function getEnvVars(): EnvVarDoc[] {
 	];
 }
 
+/** Token-ish values are truncated so a secret never reaches the terminal in full. */
+function displayValueFor(name: string, currentValue: string): string {
+	return name.includes("TOKEN") || name.includes("ACCESS")
+		? `${currentValue.substring(0, 8)}...`
+		: currentValue;
+}
+
+function activeOverrideLines(setVars: EnvVarDoc[]): string[] {
+	const lines: string[] = [header("Active Overrides")];
+	for (const v of setVars) {
+		if (!v.currentValue) continue;
+		const displayVal = displayValueFor(v.name, v.currentValue);
+		lines.push(kvLine(v.name, c.green(displayVal)));
+		lines.push(`    ${c.dim(v.description)}`);
+	}
+	return lines;
+}
+
+function supportedVariableLines(vars: EnvVarDoc[]): string[] {
+	const lines: string[] = [header("All Supported Variables")];
+	for (const v of vars) {
+		const status = v.currentValue ? c.green("SET") : c.dim("not set");
+		lines.push(`  ${c.cyan(v.name)} ${status}`);
+		lines.push(`    ${c.dim(v.description)}`);
+		lines.push(`    ${c.dim(`Example: ${v.example}`)}`);
+	}
+	return lines;
+}
+
 export async function envCommand(options: EnvOptions): Promise<void> {
 	const mode = getOutputMode(options);
 	const vars = getEnvVars();
@@ -116,28 +145,12 @@ export async function envCommand(options: EnvOptions): Promise<void> {
 			lines.push(c.dim("─".repeat(40)));
 
 			if (setVars.length > 0) {
-				lines.push(header("Active Overrides"));
-				for (const v of setVars) {
-					if (!v.currentValue) continue;
-					const currentValue = v.currentValue;
-					const displayVal =
-						v.name.includes("TOKEN") || v.name.includes("ACCESS")
-							? `${currentValue.substring(0, 8)}...`
-							: currentValue;
-					lines.push(kvLine(v.name, c.green(displayVal)));
-					lines.push(`    ${c.dim(v.description)}`);
-				}
+				lines.push(...activeOverrideLines(setVars));
 			} else {
 				lines.push(c.dim("\n  No environment overrides active."));
 			}
 
-			lines.push(header("All Supported Variables"));
-			for (const v of vars) {
-				const status = v.currentValue ? c.green("SET") : c.dim("not set");
-				lines.push(`  ${c.cyan(v.name)} ${status}`);
-				lines.push(`    ${c.dim(v.description)}`);
-				lines.push(`    ${c.dim(`Example: ${v.example}`)}`);
-			}
+			lines.push(...supportedVariableLines(vars));
 
 			lines.push("");
 			lines.push(

@@ -17,17 +17,9 @@
 //   - `null` when the original `switch` arm fell through with `break`,
 //     i.e. the caller should continue into the Pre/Post evaluation path.
 
-import {
-	autoStripAllScopes,
-	defaultStripAuditLogPath,
-	describeReason as describeMalformedReason,
-} from "../../lib/settings-validator.js";
 import { scanUserPrompt } from "../content-scanner/prompt-scan.js";
 import { buildEditMechanicsStopNudge } from "../edit-mechanics-stop.js";
-import { resetProjectSetupWarningsCache } from "../evaluator/pre-tool.js";
-import { refreshPriorityIfStale as refreshFilePriorityIfStale } from "../file-priority.js";
 import { buildGateReachStopWarning } from "../gate-reach-collect.js";
-import { findRipgrep } from "../grep-accelerator.js";
 import { deleteLiveSnapshot } from "../live-snapshot.js";
 import {
 	maybeCaptureFromPreToolUse,
@@ -64,6 +56,11 @@ import {
 	handleSubagentStop,
 } from "./lifecycle-events-handlers.js";
 import * as lifecyclePersist from "./lifecycle-persist.js";
+import {
+	autoStripSessionStartPermissions,
+	refreshFilePriorityOnSessionStart,
+	refreshTrigramIndexOnSessionStart,
+} from "./lifecycle-session-start.js";
 import {
 	buildCommitCadenceNudge,
 	buildStaleBaselineNudge,
@@ -184,77 +181,10 @@ async function handleSessionStart(
 			cwd: ctx.cwd,
 		});
 	});
-	// Recency-weighted check depth (Mythos Phase 4): refresh the
-	// per-file priority map from git log if the cache is stale.
-	// Cold files (>180 days unchanged) skip advisory checks at
-	// PostToolUse via `shouldRunAdvisoryChecks`.
-	try {
-		const refreshed = refreshFilePriorityIfStale(ctx.cwd);
-		if (refreshed.size > 0) {
-			ctx.filePriorityMap = refreshed;
-			log(`File-priority map refreshed: ${refreshed.size} entries`);
-		}
-	} catch (err) {
-		log(`File-priority refresh failed (non-fatal): ${err}`);
-	}
-	// Incremental index update on session start (catches git changes between sessions)
-	if (ctx.trigramIndex) {
-		try {
-			const updated = ctx.trigramIndex.incrementalUpdate();
-			if (updated > 0) {
-				log(`Trigram index refreshed: ${updated} files updated`);
-			}
-		} catch (err) {
-			log(`Trigram index refresh failed (non-fatal): ${err}`);
-		}
-		// One-time warning if index exists but ripgrep is missing
-		if (!findRipgrep()) {
-			ctx.logAlways(
-				"[interlinked] Trigram index loaded but ripgrep (rg) not found — grep acceleration disabled. Install: brew install ripgrep (macOS), apt install ripgrep (Linux), or cargo install ripgrep",
-			);
-		}
-	}
-	// Auto-strip malformed permission rules from .claude/settings*.json
-	// (project + user scope), with an audit log so every removed entry
-	// is visible. The agent-write path is already blocked at PreToolUse
-	// (write-content-guards.ts), but Claude Code's "Always allow" UI
-	// writes settings.json internally without firing a tool hook — that
-	// path is invisible to PreToolUse, so SessionStart is the only
-	// surface where we can clean it. JSONL audit at
-	// .interlinked/permission-rule-strips.jsonl.
-	try {
-		const auditPath = defaultStripAuditLogPath(ctx.cwd);
-		const stripResult = autoStripAllScopes(ctx.cwd, auditPath);
-		if (stripResult.totalStripped > 0) {
-			// Invalidate the project-setup-warning cache so the next
-			// PreToolUse re-reads settings.json and stops emitting
-			// `[interlinked:setup]` for the entries just stripped.
-			// Without this, the daemon serves stale warning text for
-			// the rest of its process lifetime even though the file
-			// is now clean.
-			resetProjectSetupWarningsCache();
-			const previews = stripResult.entries.slice(0, 5).map((e) => {
-				const file = e.file.replace(/^.+?(\.claude\/.+)$/, "$1");
-				return `  - ${file} permissions.${e.bucket}[${e.index}] = ${JSON.stringify(e.rule)} (${describeMalformedReason(e.reason)})`;
-			});
-			const more =
-				stripResult.entries.length > previews.length
-					? `\n  ...and ${stripResult.entries.length - previews.length} more`
-					: "";
-			const relAudit = auditPath.startsWith(`${ctx.cwd}/`)
-				? auditPath.slice(ctx.cwd.length + 1)
-				: auditPath;
-			const warning =
-				`[interlinked:permission-strip] Auto-stripped ${stripResult.totalStripped} malformed permission rule(s) from Claude Code settings file(s) (full audit at ${relAudit}):\n${previews.join("\n")}${more}\n` +
-				"These rules came from Claude Code's permission UI; the upstream extractor occasionally emits bad parens / empty / missing-Tool() entries. The agent-write path is already blocked at PreToolUse — this strip handles the UI-write path that is invisible to hooks.";
-			log(
-				`Auto-stripped ${stripResult.totalStripped} malformed permission rule(s); audit at ${auditPath}`,
-			);
-			return { decision: "allow", warnings: [...heavyWarnings, warning] };
-		}
-	} catch (err) {
-		log(`Permission-rule auto-strip failed (non-fatal): ${err}`);
-	}
+	refreshFilePriorityOnSessionStart(ctx, log);
+	refreshTrigramIndexOnSessionStart(ctx, log);
+	const stripDecision = autoStripSessionStartPermissions(ctx, log, heavyWarnings);
+	if (stripDecision) return stripDecision;
 	return heavyWarnings.length > 0 ? { decision: "allow", warnings: heavyWarnings } : null;
 }
 

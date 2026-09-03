@@ -2,7 +2,11 @@
 // (spec-facts substrate). Feeds spec_dangling_anchor / spec_xref_integrity
 // (docs/design/spec-audit-runtime-checks.md §3.3, class B3).
 
-import { stripEmphasis } from "./emphasis-strip.js";
+import {
+	codePointEndingBefore,
+	codePointStartingAt,
+	stripEmphasis,
+} from "./emphasis-strip.js";
 import { decodeEntitiesRaw } from "./entity-names.js";
 import { MD_LINK_RE } from "./extract-refs-link-grammar.js";
 import {
@@ -279,28 +283,6 @@ const APPENDIX_RE = /\bAppendix\s+([A-Z])\b/g;
  *  ("éSection 7") is one word, not a boundary (round-6 #19). Boundary
  *  predicates test exactly one whole code point, never a lone surrogate. */
 const BOUNDARY_WORD_RE = /[\p{L}\p{N}\p{M}]/u;
-
-/** The whole code point (astral-safe) whose UTF-16 encoding STARTS at `pos`, or
- *  "" past end-of-string — `s[pos]` alone would yield just the high surrogate of
- *  an astral char. */
-function codePointStartingAt(s: string, pos: number): string {
-	const cp = s.codePointAt(pos);
-	return cp === undefined ? "" : String.fromCodePoint(cp);
-}
-
-/** The whole code point (astral-safe) whose UTF-16 encoding ENDS just before
- *  `pos`, or "" at start-of-string. Back-step to pos-2 ONLY for a real surrogate
- *  PAIR — a low surrogate at pos-1 with no high surrogate before it is an
- *  unpaired code unit and must be read alone, not fused with the char before it
- *  (round-5 verify: "x\uDC00Section 7" must still emit the ref). */
-function codePointEndingBefore(s: string, pos: number): string {
-	if (pos <= 0) return "";
-	const unit = s.charCodeAt(pos - 1);
-	const prev = pos >= 2 ? s.charCodeAt(pos - 2) : 0;
-	const isPair =
-		unit >= 0xdc00 && unit <= 0xdfff && prev >= 0xd800 && prev <= 0xdbff;
-	return codePointStartingAt(s, isPair ? pos - 2 : pos - 1);
-}
 
 /** Whether the char immediately AFTER match `m` runs the token into another
  *  letter OR digit (any Unicode, astral-safe) — the flat captures have no

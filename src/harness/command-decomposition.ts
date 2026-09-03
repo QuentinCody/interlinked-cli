@@ -7,16 +7,20 @@
 import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 import { type CohortManager, getActiveCohort } from "./cohort.js";
+import {
+	applyGuardRuleToSubcommand,
+	applyRewrite,
+	type CompoundEvalResult,
+	type MatchRuleFn,
+	safeRegex,
+	type SubcommandOutcome,
+} from "./command-rule-dispatch.js";
 import { classifyTopLevelSplit, nextBracketDepth } from "./command-split-classifiers.js";
 import { classifySpans } from "./evaluator/spans.js";
-import type {
-	AgentRole,
-	GuardRule,
-	HarnessEvent,
-	InputRewrite,
-	ToolConcurrencyClass,
-} from "./types.js";
+import type { AgentRole, GuardRule, HarnessEvent, ToolConcurrencyClass } from "./types.js";
 import { DANGEROUS_ENV_VARS, SAFE_ENV_VARS } from "./types.js";
+
+export { applyRewrite };
 
 // ===========================================
 // Compound Command Decomposition
@@ -158,40 +162,15 @@ export function stripEnvVarPrefix(command: string, mode: "deny" | "allow"): EnvS
 // Guard Rule Evaluation with Decomposition
 // ===========================================
 
-/** Callback type for custom rule matching (mirrors evaluator's matchesRule) */
-type MatchRuleFn = (
-	cmd: string,
-input: JsonObject,
-	rule: GuardRule,
-	extras?: Record<string, string[]>,
-) => boolean;
-
-interface CompoundEvalResult {
-	decision: "allow" | "block";
-	reason?: string | undefined;
-	warnings: string[];
-	updated_input?: JsonObject | undefined;
-	rule_id?: string | undefined;
-	severity?: "critical" | "high" | "medium" | "low" | undefined;
-	category?: string | undefined;
-}
-
-/** Per-subcommand verdict from {@link evaluateSubcommand}: either a block
- *  the caller must return immediately, or a rewritten command string to
- *  splice back into the subcommand list (absent when nothing matched). */
-interface SubcommandOutcome {
-	block?: CompoundEvalResult;
-	rewritten?: string;
-}
-
 /**
  * Evaluate one subcommand against every applicable guard rule.
  *
  * Extracted from {@link evaluateCompoundCommand} so the per-rule dispatch
  * (block/warn/rewrite) doesn't nest three levels inside the subcommand loop —
- * this function IS that nested body, callable and independently testable.
- * `warnings` is the caller's shared array; this function pushes onto it
- * directly rather than returning a copy.
+ * {@link applyGuardRuleToSubcommand} (in command-rule-dispatch.ts) IS that
+ * nested body, callable and independently testable. `warnings` is the
+ * caller's shared array; that function pushes onto it directly rather than
+ * returning a copy.
  *
  * Preserves the original's rewrite semantics exactly: each matching
  * `rewrite` rule is applied to the ORIGINAL `sub` text (not chained onto a
@@ -220,37 +199,12 @@ function evaluateSubcommand(
 		};
 	}
 
-	const subInput: JsonObject = { command: stripped };
 	let rewritten: string | null = null;
 
 	for (const rule of guardRules) {
-		if (!shouldEvaluateForBash(rule)) continue;
-		if (!matcher(stripped, subInput, rule, extraExceptions)) continue;
-
-		if (rule.action === "block") {
-			return {
-				block: {
-					decision: "block",
-					reason: `BLOCKED: ${rule.reason} (in subcommand: ${sub.slice(0, 80)})`,
-					warnings,
-					rule_id: rule.id,
-					severity: rule.severity,
-					category: rule.category,
-				},
-			};
-		}
-
-		if (rule.action === "warn") {
-			warnings.push(`[interlinked] Warning: ${rule.reason} (in subcommand: ${sub.slice(0, 60)})`);
-		}
-
-		if (rule.action === "rewrite" && rule.rewrite) {
-			const next = applyRewrite(sub, rule.rewrite);
-			if (next !== sub) {
-				rewritten = next;
-				warnings.push(`[interlinked:rewrite] Rewrote: ${sub.slice(0, 40)} → ${next.slice(0, 40)}`);
-			}
-		}
+		const outcome = applyGuardRuleToSubcommand(rule, sub, stripped, extraExceptions, matcher, warnings);
+		if (outcome.block) return outcome;
+		if (outcome.rewritten !== undefined) rewritten = outcome.rewritten;
 	}
 
 	return rewritten !== null ? { rewritten } : {};
@@ -297,62 +251,6 @@ export function evaluateCompoundCommand(
 		result.updated_input = { command: rewrittenParts.join(" && ") };
 	}
 	return result;
-}
-
-function shouldEvaluateForBash(rule: GuardRule): boolean {
-	if (!rule.enabled) return false;
-	if (rule.trigger !== "PreToolUse" && rule.trigger !== "both") return false;
-	if (rule.tool_match.includes("*")) return true;
-	return rule.tool_match.some((m) => {
-		const lower = m.toLowerCase();
-		return lower === "bash" || lower === "shell";
-	});
-}
-
-// ===========================================
-// Input Rewrite Application
-// ===========================================
-
-/** Apply an InputRewrite spec to a command string.
- *  Rewrite patterns come from trusted admin config (guard-rules.json), not user input.
- *  Regex length is capped to prevent accidental complexity from config errors. */
-export function applyRewrite(command: string, rewrite: InputRewrite): string {
-	if (rewrite.match.length > 200) return command;
-	try {
-		const regex = safeRegex(rewrite.match, "g");
-		return regex ? command.replace(regex, rewrite.replace) : command;
-	} catch {
-		return command;
-	}
-}
-
-// ===========================================
-// Trusted Config Regex Helper
-// ===========================================
-
-/**
- * Pre-compiled regex cache for trusted admin config patterns.
- * Guard rule patterns come from guard-rules.json files authored by
- * the project admin — they are NOT user/agent input.
- */
-const _regexCache = new Map<string, RegExp | null>();
-
-function safeRegex(pattern: string, flags: string): RegExp | null {
-	if (pattern.length > 200) return null;
-	const key = `${pattern}\0${flags}`;
-	const cached = _regexCache.get(key);
-	if (cached !== undefined) return cached;
-	try {
-		// Reason: pattern source is the admin-authored guard-rules file;
-		// length is capped above (≤200) and compile failures fall through.
-		// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-		const re = new RegExp(pattern, flags);
-		_regexCache.set(key, re);
-		return re;
-	} catch {
-		_regexCache.set(key, null);
-		return null;
-	}
 }
 
 /** Minimal rule matching for subcommand evaluation (mirrors evaluator's matchesRule).

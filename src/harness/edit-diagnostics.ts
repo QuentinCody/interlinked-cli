@@ -262,6 +262,27 @@ export function suggestUniqueAnchor(content: string, target: string): string | n
 	return extendUntilUnique(content, target, start, "backward");
 }
 
+/** Move the [lo, hi) window one full line further in `direction`. Returns
+ *  the new bounds, or null when the window can't be extended further (start
+ *  of file for "backward", no trailing newline for "forward"). */
+function extendWindowByOneLine(
+	content: string,
+	lo: number,
+	hi: number,
+	direction: "forward" | "backward",
+): { lo: number; hi: number } | null {
+	if (direction === "forward") {
+		const nextNl = content.indexOf("\n", hi);
+		if (nextNl === -1) return null;
+		const afterNl = nextNl + 1;
+		const lineEnd = content.indexOf("\n", afterNl);
+		return { lo, hi: lineEnd === -1 ? content.length : lineEnd };
+	}
+	const prevNl = content.lastIndexOf("\n", lo - 2);
+	if (lo <= 0 || prevNl === -1) return null;
+	return { lo: prevNl + 1, hi };
+}
+
 function extendUntilUnique(
 	content: string,
 	target: string,
@@ -271,17 +292,10 @@ function extendUntilUnique(
 	let lo = start;
 	let hi = start + target.length;
 	for (let extra = 0; extra < UNIQUE_ANCHOR_MAX_EXTRA_LINES; extra++) {
-		if (direction === "forward") {
-			const nextNl = content.indexOf("\n", hi);
-			if (nextNl === -1) return null;
-			hi = nextNl + 1;
-			const lineEnd = content.indexOf("\n", hi);
-			hi = lineEnd === -1 ? content.length : lineEnd;
-		} else {
-			const prevNl = content.lastIndexOf("\n", lo - 2);
-			if (lo <= 0 || prevNl === -1) return null;
-			lo = prevNl + 1;
-		}
+		const extended = extendWindowByOneLine(content, lo, hi, direction);
+		if (!extended) return null;
+		lo = extended.lo;
+		hi = extended.hi;
 		const candidate = content.slice(lo, hi);
 		if (countOccurrences(content, candidate) === 1) return candidate;
 	}

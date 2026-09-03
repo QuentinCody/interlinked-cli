@@ -91,34 +91,51 @@ export function evaluateManifestEdit(input: ManifestEditInput): HarnessDecision 
 	if (added.length === 0) return null;
 
 	for (const delta of added) {
-		const spec = classifyManifestValue(delta.ecosystem, delta.name, delta.value);
-		const dec = isPackageAllowed(input.allowlist, delta.ecosystem, spec);
-		if (!dec.allowed) {
-			return {
-				decision: "block",
-				reason: `[interlinked:supply-chain] ${name} adds new ${delta.ecosystem} dependency "${delta.name}": ${dec.reason ?? "unapproved"}`,
-				rule_id: "supply-chain-manifest-add",
-				severity: "high",
-				category: "supply-chain",
-			};
-		}
-		// License policy (warning, never blocks): re-check the license RECORDED
-		// at admission time against the committed SPDX allowlist. Catches
-		// entries admitted via --force and allowlists tightened after the
-		// grant. Reads only the stored field — the hook path never fetches.
-		if (spec.kind === "registry" && input.warnings) {
-			const entry = input.allowlist.packages[delta.ecosystem][spec.name];
-			if (
-				entry?.license !== undefined &&
-				!isLicenseAllowed(entry.license, effectiveLicenseAllowlist(input.allowlist))
-			) {
-				input.warnings.push(
-					`[interlinked:supply-chain] ${name} adds ${delta.ecosystem} dependency "${delta.name}" whose recorded license "${entry.license}" is outside the SPDX license allowlist. Review the grant or extend license_allowlist in .interlinked/package-allowlist.json.`,
-				);
-			}
-		}
+		const decision = decideAddedDep(input, name, delta);
+		if (decision) return decision;
 	}
 	return null;
+}
+
+/** One added dependency: block when the allowlist refuses it, otherwise record
+ *  any license finding and allow. */
+function decideAddedDep(
+	input: ManifestEditInput,
+	manifestName: string,
+	delta: DepDelta,
+): HarnessDecision | null {
+	const spec = classifyManifestValue(delta.ecosystem, delta.name, delta.value);
+	const dec = isPackageAllowed(input.allowlist, delta.ecosystem, spec);
+	if (!dec.allowed) {
+		return {
+			decision: "block",
+			reason: `[interlinked:supply-chain] ${manifestName} adds new ${delta.ecosystem} dependency "${delta.name}": ${dec.reason ?? "unapproved"}`,
+			rule_id: "supply-chain-manifest-add",
+			severity: "high",
+			category: "supply-chain",
+		};
+	}
+	warnOnRecordedLicense(input, manifestName, delta, spec);
+	return null;
+}
+
+/** License policy (warning, never blocks): re-check the license RECORDED at
+ *  admission time against the committed SPDX allowlist. Catches entries
+ *  admitted via --force and allowlists tightened after the grant. Reads only
+ *  the stored field — the hook path never fetches. */
+function warnOnRecordedLicense(
+	input: ManifestEditInput,
+	manifestName: string,
+	delta: DepDelta,
+	spec: PackageSpec,
+): void {
+	if (spec.kind !== "registry" || !input.warnings) return;
+	const entry = input.allowlist.packages[delta.ecosystem][spec.name];
+	if (entry?.license === undefined) return;
+	if (isLicenseAllowed(entry.license, effectiveLicenseAllowlist(input.allowlist))) return;
+	input.warnings.push(
+		`[interlinked:supply-chain] ${manifestName} adds ${delta.ecosystem} dependency "${delta.name}" whose recorded license "${entry.license}" is outside the SPDX license allowlist. Review the grant or extend license_allowlist in .interlinked/package-allowlist.json.`,
+	);
 }
 
 function safeRead(path: string): string {
@@ -285,33 +302,41 @@ function diffPyprojectToml(before: string, after: string): DepDelta[] {
 
 export function extractPyprojectDeps(content: string): Map<string, string> {
 	const deps = new Map<string, string>();
-	const lines = content.split(/\r?\n/);
 	let inDepsBlock = false;
 	const TARGET_HEADERS = /^\[(?:tool\.poetry\.(?:dev-)?dependencies|tool\.poetry\.group\.[^.\]]+\.dependencies|project\.optional-dependencies\.[^\]]+)\]/;
-	for (const raw of lines) {
+	for (const raw of content.split(/\r?\n/)) {
 		const line = raw.trim();
 		if (line.startsWith("[")) {
 			inDepsBlock = TARGET_HEADERS.test(line);
 			continue;
 		}
-		if (line.startsWith("#") || !line) continue;
-		// project.dependencies takes a different shape: an array of PEP 508 strings.
-		// We handle it via a separate parser below.
 		if (!inDepsBlock) continue;
-		const m = line.match(/^([A-Za-z0-9._-]+)\s*=\s*(.+?)(?:\s*#.*)?$/);
-		if (!m) continue;
-		if (m[1] === "python") continue; // not a dep — Python version pin
-		deps.set(nonNull(m[1]), nonNull(m[2]));
+		const dep = parsePoetryDepLine(line);
+		if (dep) deps.set(dep.name, dep.value);
 	}
-	// project.dependencies = [ "a==1", "b" ]
-	const projectDepsMatch = content.match(/(?:^|\n)\s*dependencies\s*=\s*\[([\s\S]*?)\]/);
-	if (projectDepsMatch) {
-		const items = nonNull(projectDepsMatch[1]).match(/"([^"]+)"/g) || [];
-		for (const it of items) {
-			const inner = it.slice(1, -1);
-			const nm = inner.match(/^([A-Za-z0-9._-]+)/);
-			if (nm) deps.set(nonNull(nm[1]), inner);
-		}
+	for (const [name, value] of extractPep508ArrayDeps(content)) deps.set(name, value);
+	return deps;
+}
+
+/** One `name = value` line of a Poetry dependencies table. Null for comments,
+ *  blank lines, non-assignments, and the `python` version pin. */
+function parsePoetryDepLine(line: string): { name: string; value: string } | null {
+	if (!line || line.startsWith("#")) return null;
+	const m = line.match(/^([A-Za-z0-9._-]+)\s*=\s*(.+?)(?:\s*#.*)?$/);
+	if (!m) return null;
+	if (m[1] === "python") return null; // not a dep — Python version pin
+	return { name: nonNull(m[1]), value: nonNull(m[2]) };
+}
+
+/** `project.dependencies = [ "a==1", "b" ]` — a PEP 508 string array, a different shape from the Poetry tables. */
+function extractPep508ArrayDeps(content: string): Map<string, string> {
+	const deps = new Map<string, string>();
+	const arrayMatch = content.match(/(?:^|\n)\s*dependencies\s*=\s*\[([\s\S]*?)\]/);
+	if (!arrayMatch) return deps;
+	for (const it of nonNull(arrayMatch[1]).match(/"([^"]+)"/g) || []) {
+		const inner = it.slice(1, -1);
+		const nm = inner.match(/^([A-Za-z0-9._-]+)/);
+		if (nm) deps.set(nonNull(nm[1]), inner);
 	}
 	return deps;
 }

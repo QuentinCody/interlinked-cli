@@ -86,7 +86,16 @@ export function findBlockEnd(strippedLines: string[], start: number): number {
 	const bodyOpenIdx = joined.indexOf("{", markerIdx);
 	if (bodyOpenIdx < 0) return strippedLines.length - 1;
 
-	// Walk from bodyOpenIdx balancing braces.
+	const matchLine = findMatchingBraceLine(joined, bodyOpenIdx, start);
+	return matchLine !== null ? matchLine : strippedLines.length - 1;
+}
+
+/**
+ * Walk `joined` from `bodyOpenIdx`, balancing braces, and return the line
+ * index (relative to the original `strippedLines`, offset by `start`) where
+ * the opening brace's match closes — or `null` if the braces never balance.
+ */
+function findMatchingBraceLine(joined: string, bodyOpenIdx: number, start: number): number | null {
 	let depth = 0;
 	let opened = false;
 	for (let p = bodyOpenIdx; p < joined.length; p++) {
@@ -103,7 +112,7 @@ export function findBlockEnd(strippedLines: string[], start: number): number {
 			}
 		}
 	}
-	return strippedLines.length - 1;
+	return null;
 }
 
 /** Fallback brace-counting for test starts that have no `=>`/`function` marker. */

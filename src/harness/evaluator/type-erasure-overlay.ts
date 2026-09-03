@@ -96,6 +96,48 @@ const PATTERNS: PatternSpec[] = [
 	},
 ];
 
+/** Every finding one pattern produces on a single line. `searchLine` is the text
+ *  the pattern matches against; `origLine` backs the guard and the match key. */
+function findingsOnLine(
+	spec: PatternSpec,
+	searchLine: string,
+	origLine: string,
+	lineNumber: number,
+): TypeErasureFinding[] {
+	const findings: TypeErasureFinding[] = [];
+	spec.pattern.lastIndex = 0;
+	let m: RegExpExecArray | null = spec.pattern.exec(searchLine);
+	while (m !== null) {
+		if (!spec.guard || spec.guard(origLine, m)) {
+			findings.push({
+				line: lineNumber,
+				column: m.index + 1,
+				ruleId: spec.ruleId,
+				message: spec.message,
+				matchKey: `${spec.ruleId}:${origLine.trim()}`,
+			});
+		}
+		m = spec.pattern.exec(searchLine);
+	}
+	return findings;
+}
+
+/** Every finding one pattern produces across the whole file. */
+function findingsForSpec(
+	spec: PatternSpec,
+	origLines: string[],
+	strippedLines: string[],
+): TypeErasureFinding[] {
+	const targetLines = spec.matchOriginal ? origLines : strippedLines;
+	const findings: TypeErasureFinding[] = [];
+	for (let i = 0; i < targetLines.length; i++) {
+		const searchLine = nonNull(targetLines[i]);
+		const origLine = origLines[i] ?? "";
+		findings.push(...findingsOnLine(spec, searchLine, origLine, i + 1));
+	}
+	return findings;
+}
+
 function findAll(content: string, filePath: string): TypeErasureFinding[] {
 	const stripped = stripAllLiterals(content);
 	const origLines = content.split("\n");
@@ -104,27 +146,45 @@ function findAll(content: string, filePath: string): TypeErasureFinding[] {
 	const findings: TypeErasureFinding[] = [];
 	for (const spec of PATTERNS) {
 		if (spec.skipTestFiles && isTestFile) continue;
-		const targetLines = spec.matchOriginal ? origLines : strippedLines;
-		for (let i = 0; i < targetLines.length; i++) {
-			const slLine = nonNull(targetLines[i]);
-			const origLine = origLines[i] ?? "";
-			spec.pattern.lastIndex = 0;
-			let m: RegExpExecArray | null = spec.pattern.exec(slLine);
-			while (m !== null) {
-				if (!spec.guard || spec.guard(origLine, m)) {
-					findings.push({
-						line: i + 1,
-						column: m.index + 1,
-						ruleId: spec.ruleId,
-						message: spec.message,
-						matchKey: `${spec.ruleId}:${origLine.trim()}`,
-					});
-				}
-				m = spec.pattern.exec(slLine);
-			}
-		}
+		findings.push(...findingsForSpec(spec, origLines, strippedLines));
 	}
 	return findings;
+}
+
+/** Pre-edit content: the caller's `preContent` when the key is present (even as
+ *  `undefined`), otherwise the on-disk file, otherwise undefined. */
+function resolvePreContent(
+	filePath: string,
+	options?: { preContent?: string | undefined },
+): string | undefined {
+	if (options && Object.hasOwn(options, "preContent")) return options.preContent;
+	try {
+		if (existsSync(filePath)) return readFileSync(filePath, "utf-8");
+	} catch (e) {
+		void e;
+	}
+	return undefined;
+}
+
+/** Multiset subtract on `matchKey`: the post findings with no pre counterpart. */
+function subtractPreFindings(
+	post: TypeErasureFinding[],
+	pre: TypeErasureFinding[],
+): TypeErasureFinding[] {
+	const preCounts = new Map<string, number>();
+	for (const f of pre) {
+		preCounts.set(f.matchKey, (preCounts.get(f.matchKey) ?? 0) + 1);
+	}
+	const newFindings: TypeErasureFinding[] = [];
+	for (const f of post) {
+		const remaining = preCounts.get(f.matchKey) ?? 0;
+		if (remaining > 0) {
+			preCounts.set(f.matchKey, remaining - 1);
+		} else {
+			newFindings.push(f);
+		}
+	}
+	return newFindings;
 }
 
 /**
@@ -148,33 +208,11 @@ export function evaluateTypeErasureOverlay(
 	const post = findAll(postContent, filePath);
 	if (post.length === 0) return { newFindings: [], applicable: true };
 
-	let preContent: string | undefined =
-		options && Object.hasOwn(options, "preContent") ? options.preContent : undefined;
-	if (preContent === undefined && !(options && Object.hasOwn(options, "preContent"))) {
-		try {
-			if (existsSync(filePath)) preContent = readFileSync(filePath, "utf-8");
-		} catch (e) {
-			void e;
-		}
-	}
-
+	const preContent = resolvePreContent(filePath, options);
 	if (preContent === undefined) {
 		return { newFindings: post, applicable: true };
 	}
 
 	const pre = findAll(preContent, filePath);
-	const preCounts = new Map<string, number>();
-	for (const f of pre) {
-		preCounts.set(f.matchKey, (preCounts.get(f.matchKey) ?? 0) + 1);
-	}
-	const newFindings: TypeErasureFinding[] = [];
-	for (const f of post) {
-		const remaining = preCounts.get(f.matchKey) ?? 0;
-		if (remaining > 0) {
-			preCounts.set(f.matchKey, remaining - 1);
-		} else {
-			newFindings.push(f);
-		}
-	}
-	return { newFindings, applicable: true };
+	return { newFindings: subtractPreFindings(post, pre), applicable: true };
 }

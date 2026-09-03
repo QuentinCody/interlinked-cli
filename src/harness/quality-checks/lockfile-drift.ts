@@ -60,6 +60,48 @@ interface LockfileDriftOptions {
 	now?: number;
 }
 
+/** The lockfile candidate that was found to exist alongside a manifest. */
+interface LockfileCandidate {
+	path: string;
+	name: string;
+}
+
+/**
+ * Compare an existing lockfile's mtime against the manifest's, and classify
+ * the result as "stale" (or "grace"-suppressed) drift. Returns null when the
+ * lockfile can't be stat'd, or its mtime isn't older than the manifest's —
+ * both cases fall through to the caller's clean "none" result.
+ */
+function resolveMtimeDriftResult(
+	lockfile: LockfileCandidate,
+	manifestMtime: number | null,
+	withinGrace: boolean,
+	fileName: string,
+): LockfileDriftResult | null {
+	try {
+		const lockfileMtime = statSync(lockfile.path).mtimeMs;
+		if (manifestMtime !== null && manifestMtime > lockfileMtime) {
+			if (withinGrace) {
+				return {
+					drifted: false,
+					manifest: fileName,
+					lockfile: lockfile.name,
+					reason: "grace",
+				};
+			}
+			return {
+				drifted: true,
+				manifest: fileName,
+				lockfile: lockfile.name,
+				reason: "stale",
+			};
+		}
+	} catch (_err) {
+		/* intentional: can't stat lockfile — best-effort, skip */
+	}
+	return null;
+}
+
 /**
  * Public API — consumed by quality-checks.runQualityChecks and verify.ts.
  *
@@ -115,27 +157,13 @@ export function checkLockfileDrift(
 	}
 
 	// Compare mtimes: if manifest is newer than lockfile, it's drifted
-	try {
-		const lockfileMtime = statSync(lockfilePath).mtimeMs;
-		if (manifestMtime !== null && manifestMtime > lockfileMtime) {
-			if (withinGrace) {
-				return {
-					drifted: false,
-					manifest: fileName,
-					lockfile: lockfileName,
-					reason: "grace",
-				};
-			}
-			return {
-				drifted: true,
-				manifest: fileName,
-				lockfile: lockfileName,
-				reason: "stale",
-			};
-		}
-	} catch (_err) {
-		/* intentional: can't stat lockfile — best-effort, skip */
-	}
+	const mtimeDrift = resolveMtimeDriftResult(
+		{ path: lockfilePath, name: lockfileName },
+		manifestMtime,
+		withinGrace,
+		fileName,
+	);
+	if (mtimeDrift) return mtimeDrift;
 
 	return { drifted: false, manifest: fileName, lockfile: lockfileName, reason: "none" };
 }

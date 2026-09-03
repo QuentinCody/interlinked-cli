@@ -133,32 +133,46 @@ export function startMutationCloudV3Background(
 		options.log(message);
 	};
 
+	/** One tick's work once the caller has confirmed it's safe to run: load
+	 * config, bail out (silently) if the background feature isn't opted in,
+	 * otherwise open a runtime and process one cycle. `setRuntime` hands the
+	 * opened runtime back to the caller immediately so it can still be closed
+	 * if this throws. */
+	const attemptOperation = async (
+		setRuntime: (runtime: BackgroundRuntime) => void,
+	): Promise<"disabled" | "processed" | "idle"> => {
+		const config = loadConfig(options.root);
+		// Manual mutation-cloud commands remain available with enabled:true, but
+		// the daemon must not amplify full manifest snapshots unless the operator
+		// separately accepts that current experimental resource profile.
+		if (config.backgroundEnabled !== true) {
+			lastDiagnostic = "";
+			return "disabled";
+		}
+		const runtime = openRuntime(options.root, config);
+		setRuntime(runtime);
+		const cycle = await runBackgroundCycle(runtime, options);
+		const message = cycleMessage(cycle);
+		if (message !== null) logOnce(message);
+		else lastDiagnostic = "";
+		return cycleDidWork(cycle) ? "processed" : "idle";
+	};
+
 	const tick = async (): Promise<"disabled" | "busy" | "idle" | "processed" | "failed"> => {
 		if (stopped || !configExists(configPath)) return "disabled";
 		if (running) return "busy";
 		running = true;
-		let runtime: BackgroundRuntime | null = null;
+		const runtimeBox: { current: BackgroundRuntime | null } = { current: null };
 		try {
-			const config = loadConfig(options.root);
-			// Manual mutation-cloud commands remain available with enabled:true, but
-			// the daemon must not amplify full manifest snapshots unless the operator
-			// separately accepts that current experimental resource profile.
-			if (config.backgroundEnabled !== true) {
-				lastDiagnostic = "";
-				return "disabled";
-			}
-			runtime = openRuntime(options.root, config);
-			const cycle = await runBackgroundCycle(runtime, options);
-			const message = cycleMessage(cycle);
-			if (message !== null) logOnce(message);
-			else lastDiagnostic = "";
-			return cycleDidWork(cycle) ? "processed" : "idle";
+			return await attemptOperation((opened) => {
+				runtimeBox.current = opened;
+			});
 		} catch (error) {
 			logOnce(`Mutation cloud background processing is paused: ${errorMessage(error)}`);
 			return "failed";
 		} finally {
 			try {
-				runtime?.close();
+				runtimeBox.current?.close();
 			} catch (error) {
 				logOnce(`Mutation cloud background runtime close failed: ${errorMessage(error)}`);
 			}

@@ -289,6 +289,54 @@ export function validateConfigFile(data: unknown): ValidationResult {
 // `allCanonicals` map. Mutates `termIds` and `allCanonicals` in place and
 // appends to `errors` — same shared-state-accumulator shape as the
 // `layers` validators below (`validateLayerDeclarations` / `validateLayerRules`).
+function validateTermId(t: JsonObject, tp: string, termIds: Set<string>): ValidationError[] {
+	if (typeof t.id !== "string") return [err(`${tp}.id`, "Must be a string")];
+	const errors = validateLocalId(t.id, `${tp}.id`);
+	if (termIds.has(t.id)) errors.push(err(`${tp}.id`, `Duplicate term ID "${t.id}"`));
+	termIds.add(t.id);
+	return errors;
+}
+
+// Validates a term's `canonical` field and registers its lowered form in
+// `allCanonicals`, reporting a collision with any name already registered.
+function validateTermCanonical(
+	t: JsonObject,
+	tp: string,
+	allCanonicals: Map<string, string>,
+): ValidationError[] {
+	if (typeof t.canonical !== "string" || t.canonical.length === 0) {
+		return [err(`${tp}.canonical`, "Must be a non-empty string")];
+	}
+	const errors: ValidationError[] = [];
+	const lower = t.canonical.toLowerCase();
+	if (allCanonicals.has(lower)) {
+		errors.push(
+			err(`${tp}.canonical`, `"${t.canonical}" collides with term "${allCanonicals.get(lower)}"`),
+		);
+	}
+	allCanonicals.set(lower, t.id as string);
+	return errors;
+}
+
+// Registers a term's alternate names (aliases or deprecated forms) in
+// `allCanonicals`, reporting each one that collides with a name already there.
+function registerTermVariants(
+	variants: string[],
+	path: string,
+	termId: string,
+	allCanonicals: Map<string, string>,
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	for (const variant of variants) {
+		const lower = variant.toLowerCase();
+		if (allCanonicals.has(lower)) {
+			errors.push(err(path, `"${variant}" collides with term "${allCanonicals.get(lower)}"`));
+		}
+		allCanonicals.set(lower, termId);
+	}
+	return errors;
+}
+
 function validateGlossaryTerm(
 	t: JsonObject,
 	tp: string,
@@ -297,52 +345,19 @@ function validateGlossaryTerm(
 	errors: ValidationError[],
 ): void {
 	errors.push(...checkUnknownKeys(t, ["id", "canonical", "aliases", "deprecated", "docs"], tp));
-
-	if (typeof t.id !== "string") errors.push(err(`${tp}.id`, "Must be a string"));
-	else {
-		errors.push(...validateLocalId(t.id, `${tp}.id`));
-		if (termIds.has(t.id)) errors.push(err(`${tp}.id`, `Duplicate term ID "${t.id}"`));
-		termIds.add(t.id);
-	}
-
-	if (typeof t.canonical !== "string" || t.canonical.length === 0) {
-		errors.push(err(`${tp}.canonical`, "Must be a non-empty string"));
-	} else {
-		const lower = t.canonical.toLowerCase();
-		if (allCanonicals.has(lower)) {
-			errors.push(
-				err(
-					`${tp}.canonical`,
-					`"${t.canonical}" collides with term "${allCanonicals.get(lower)}"`,
-				),
-			);
-		}
-		allCanonicals.set(lower, t.id as string);
-	}
+	errors.push(...validateTermId(t, tp, termIds));
+	errors.push(...validateTermCanonical(t, tp, allCanonicals));
 
 	errors.push(...validateStringArray(t.aliases || [], `${tp}.aliases`));
 	errors.push(...validateStringArray(t.deprecated || [], `${tp}.deprecated`));
 	errors.push(...validateStringArray(t.docs || [], `${tp}.docs`));
 
 	// Register aliases and deprecated for collision checking
-	for (const alias of (t.aliases as string[] | undefined) || []) {
-		const la = alias.toLowerCase();
-		if (allCanonicals.has(la)) {
-			errors.push(
-				err(`${tp}.aliases`, `"${alias}" collides with term "${allCanonicals.get(la)}"`),
-			);
-		}
-		allCanonicals.set(la, t.id as string);
-	}
-	for (const dep of (t.deprecated as string[] | undefined) || []) {
-		const ld = dep.toLowerCase();
-		if (allCanonicals.has(ld)) {
-			errors.push(
-				err(`${tp}.deprecated`, `"${dep}" collides with term "${allCanonicals.get(ld)}"`),
-			);
-		}
-		allCanonicals.set(ld, t.id as string);
-	}
+	const termId = t.id as string;
+	const aliases = (t.aliases as string[] | undefined) || [];
+	const deprecated = (t.deprecated as string[] | undefined) || [];
+	errors.push(...registerTermVariants(aliases, `${tp}.aliases`, termId, allCanonicals));
+	errors.push(...registerTermVariants(deprecated, `${tp}.deprecated`, termId, allCanonicals));
 }
 
 export function validateGlossaryFile(data: unknown): ValidationResult {

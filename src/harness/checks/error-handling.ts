@@ -122,6 +122,29 @@ export function checkThrowAsControlFlow(content: string, filePath: string): Inli
 	return matches;
 }
 
+/**
+ * True when a catch body narrows `varName` within the 10 lines after `catchLine`.
+ * Narrowing counts as instanceof, a tagged-error/code property read, typeof, or an
+ * `as ...Error` assertion. The scan stops at the first line that closes the block.
+ */
+function hasNarrowingAfterCatch(lines: string[], catchLine: number, varName: string): boolean {
+	const endSearch = Math.min(catchLine + 10, lines.length);
+	for (let j = catchLine + 1; j < endSearch; j++) {
+		const jLine = nonNull(lines[j]);
+		if (jLine.includes("}") && !jLine.includes("{")) break;
+		if (
+			jLine.includes("instanceof") ||
+			jLine.includes(`${varName}._tag`) ||
+			jLine.includes(`${varName}.code`) ||
+			jLine.includes(`typeof ${varName}`) ||
+			/\bas\s+\w+Error\b/.test(jLine)
+		) {
+			return true;
+		}
+	}
+	return false;
+}
+
 /** Detect untyped catch: catch (e) without type narrowing or instanceof check */
 export function checkUntypedCatch(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
@@ -138,24 +161,7 @@ export function checkUntypedCatch(content: string, filePath: string): InlineMatc
 		if (!catchMatch) continue;
 
 		const varName = catchMatch[1];
-		let hasNarrowing = false;
-		const endSearch = Math.min(i + 10, lines.length);
-		for (let j = i + 1; j < endSearch; j++) {
-			const jLine = nonNull(lines[j]);
-			if (nonNull(jLine).includes("}") && !nonNull(jLine).includes("{")) break;
-			if (
-				nonNull(jLine).includes("instanceof") ||
-				nonNull(jLine).includes(`${varName}._tag`) ||
-				nonNull(jLine).includes(`${varName}.code`) ||
-				nonNull(jLine).includes(`typeof ${varName}`) ||
-				/\bas\s+\w+Error\b/.test(jLine)
-			) {
-				hasNarrowing = true;
-				break;
-			}
-		}
-
-		if (!hasNarrowing) {
+		if (!hasNarrowingAfterCatch(lines, i, `${varName}`)) {
 			matches.push({
 				line: i + 1,
 				text: `untyped catch(${varName}) without narrowing — use instanceof, tagged errors, or error codes: ${nonNull(originalLines[i]).trim().slice(0, 100)}`,

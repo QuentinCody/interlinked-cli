@@ -14,25 +14,11 @@
 // of the most-misused APIs in the Node / Workers ecosystem.
 
 import { nonNull } from "../../lib/non-null.js";
-import {
-	getExtension,
-	type InlineMatch,
-	isGeneratedFile,
-	isTestFile,
-	JS_TS_EXTS,
-	stripCommentsAndStrings,
-} from "../checks/shared.js";
+import { type InlineMatch, stripCommentsAndStrings } from "../checks/shared.js";
+import { shouldSkipFootgunScan } from "./scan-helpers.js";
 import type { LibraryFootgunCheck } from "./types.js";
 
 const FETCH_CALL_RE = /(?<![.\w$])fetch\s*\(([^)]*)\)/g;
-
-function shouldSkip(filePath: string, content: string): boolean {
-	const ext = getExtension(filePath);
-	if (!JS_TS_EXTS.has(ext)) return true;
-	if (isTestFile(filePath)) return true;
-	if (isGeneratedFile(content)) return true;
-	return false;
-}
 
 /** True when the call forwards a caller-supplied init/options value —
  *  `fetch(u, init)`, `fetch(u, opts ?? {})`, or `fetch(...args)`. A
@@ -56,7 +42,7 @@ function isInitPassThrough(args: string): boolean {
  *  `signal`, `AbortSignal`, or `timeout`. Bare `fetch(url)` with no
  *  options object hangs indefinitely on a stalled server. */
 function detectNoTimeout(content: string, filePath: string): InlineMatch[] {
-	if (shouldSkip(filePath, content)) return [];
+	if (shouldSkipFootgunScan(filePath, content)) return [];
 	const out: InlineMatch[] = [];
 	const lines = content.split("\n");
 	// Match against comment/string-stripped content so a `fetch(` that exists
@@ -91,7 +77,7 @@ const FETCH_THEN_JSON_RE = /\bfetch\s*\([^)]*\)\s*\.then\s*\(\s*([\w$]+)\s*=>\s*
 /** Detect `fetch(url).then(r => r.json())` with no preceding `r.ok`
  *  check. A 500 with a JSON body looks like success otherwise. */
 function detectNoOkCheck(content: string, filePath: string): InlineMatch[] {
-	if (shouldSkip(filePath, content)) return [];
+	if (shouldSkipFootgunScan(filePath, content)) return [];
 	const out: InlineMatch[] = [];
 	const lines = content.split("\n");
 	// Strip comments/strings first (see detectNoTimeout) so a fetch-then-json

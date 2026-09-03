@@ -53,6 +53,28 @@ export interface DistStaleness {
 	buildMs: number;
 }
 
+/** Handle one directory entry: queue it on `stack` if it's an eligible
+ *  subdirectory, or fold its mtime into `best` if it's a non-test file. */
+function foldOneEntry(
+	current: string,
+	entry: import("node:fs").Dirent,
+	stack: string[],
+	best: number,
+): number {
+	if (entry.isDirectory()) {
+		if (!skipDirectory(entry.name)) stack.push(join(current, entry.name));
+		return best;
+	}
+	if (!entry.isFile()) return best;
+	if (TEST_FILE_RE.test(entry.name)) return best;
+	try {
+		const m = statSync(join(current, entry.name)).mtimeMs;
+		return m > best ? m : best;
+	} catch {
+		return best;
+	}
+}
+
 /** Fold one directory listing into the walk: queue every eligible subdirectory
  *  on `stack` and return the newest file mtime seen, starting from `newest`. */
 function foldDirectoryEntries(
@@ -63,17 +85,7 @@ function foldDirectoryEntries(
 ): number {
 	let best = newest;
 	for (const entry of entries) {
-		if (entry.isDirectory()) {
-			if (!skipDirectory(entry.name)) stack.push(join(current, entry.name));
-		} else if (entry.isFile()) {
-			if (TEST_FILE_RE.test(entry.name)) continue;
-			try {
-				const m = statSync(join(current, entry.name)).mtimeMs;
-				if (m > best) best = m;
-			} catch {
-				/* best-effort */
-			}
-		}
+		best = foldOneEntry(current, entry, stack, best);
 	}
 	return best;
 }

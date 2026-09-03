@@ -157,22 +157,28 @@ function collectFiles(dir: string, root: string, result: string[]): void {
 		if (SKIP_DIRS.has(entry)) continue;
 		if (entry.startsWith(".") && entry !== ".") continue;
 
-		const fullPath = join(dir, entry);
-		let stat;
-		try {
-			stat = statSync(fullPath);
-		} catch {
-			continue;
-		}
+		collectEntry(join(dir, entry), root, result);
+	}
+}
 
-		if (stat.isDirectory()) {
-			collectFiles(fullPath, root, result);
-		} else if (stat.isFile()) {
-			const ext = extname(entry).toLowerCase();
-			if (SEARCHABLE_EXTENSIONS.has(ext) && stat.size < 1024 * 1024) {
-				result.push(fullPath);
-			}
-		}
+/** Recurses into one directory entry, or appends it when it is a searchable file. */
+function collectEntry(fullPath: string, root: string, result: string[]): void {
+	let stat;
+	try {
+		stat = statSync(fullPath);
+	} catch {
+		return;
+	}
+
+	if (stat.isDirectory()) {
+		collectFiles(fullPath, root, result);
+		return;
+	}
+	if (!stat.isFile()) return;
+
+	const ext = extname(fullPath).toLowerCase();
+	if (SEARCHABLE_EXTENSIONS.has(ext) && stat.size < 1024 * 1024) {
+		result.push(fullPath);
 	}
 }
 
@@ -297,6 +303,24 @@ function searchWithNative(
 // Command
 // ===========================================
 
+/** Parses a numeric CLI option, clamping it into `[min, max]` around `fallback`. */
+function boundedOption(
+	raw: string | undefined,
+	fallback: number,
+	min: number,
+	max: number,
+): number {
+	const parsed = Number.parseInt(raw || String(fallback), 10) || fallback;
+	return Math.min(Math.max(min, parsed), max);
+}
+
+/** One-line `--short` summary of a search result. */
+function shortSummary(result: SearchResult): string {
+	if (result.matches.length === 0) return "No matches";
+	const plural = result.total !== 1 ? "es" : "";
+	return `${result.total} match${plural} in ${result.searched_files} files (${result.engine}, ${result.elapsed_ms}ms)`;
+}
+
 export function searchCommand(
 	query: string,
 	opts: {
@@ -319,14 +343,8 @@ export function searchCommand(
 	}
 
 	const dir = opts.path || process.cwd();
-	const limit = Math.min(
-		Math.max(1, Number.parseInt(opts.limit || String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT),
-		MAX_LIMIT,
-	);
-	const context = Math.min(
-		Math.max(0, Number.parseInt(opts.context || String(CONTEXT_LINES), 10) || CONTEXT_LINES),
-		10,
-	);
+	const limit = boundedOption(opts.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
+	const context = boundedOption(opts.context, CONTEXT_LINES, 0, 10);
 
 	// Choose engine
 	const useRipgrep = opts.engine !== "native" && hasRipgrep();
@@ -366,10 +384,7 @@ export function searchCommand(
 		{ ...result, rankings },
 		{
 			json: () => ({ ...result, rankings }),
-			short: () =>
-				result.matches.length === 0
-					? "No matches"
-					: `${result.total} match${result.total !== 1 ? "es" : ""} in ${result.searched_files} files (${result.engine}, ${result.elapsed_ms}ms)`,
+			short: () => shortSummary(result),
 			normal: () => renderNormal(result, rankings),
 			full: () => renderFull(result, rankings),
 		},

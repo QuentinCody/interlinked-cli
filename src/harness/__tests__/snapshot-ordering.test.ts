@@ -78,7 +78,13 @@ describe("processEvent snapshot ordering (Plan 08 review fix)", () => {
 		// silently skips the snapshot. Lock the ordering.
 		const fnIdx = EVENT_LOOP_TS.indexOf("async function evaluateEventLine(");
 		const fnSlice = EVENT_LOOP_TS.slice(fnIdx, fnIdx + 4000);
-		const sessionIdAssignIdx = fnSlice.indexOf("sessionIdForSnap = parsed.session_id");
+		// The capture was inlined as `sessionIdForSnap = parsed.session_id` until
+		// the 2026-09-03 cognitive-15 flattening moved the parse into
+		// `readEventLineSnapshotKeys` and destructured its result. The ORDERING
+		// invariant is unchanged — and the pin must keep failing if a future
+		// refactor moves the destructuring inside the try — so anchor on the
+		// binding itself rather than on one particular parse expression.
+		const sessionIdAssignIdx = fnSlice.indexOf("sessionId: sessionIdForSnap");
 		// The processEvent call sits inside the try that the finally guards; assert
 		// the session_id was captured before it. Anchor on the `const decision =`
 		// assignment rather than the exact call expression — the replay clock

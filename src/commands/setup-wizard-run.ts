@@ -59,6 +59,18 @@ export function realWizardDeps(): WizardDeps {
 // parseWizardCapOverrides) so the browser demo executes the same rules.
 
 /**
+ * The index one key press selects: ↑/↓ move with wrap-around, a letter jumps to
+ * the first label starting with it, anything else leaves the selection alone.
+ */
+function nextSelectionForKey(key: string, sel: number, labels: string[]): number {
+	if (key === "\x1b[A") return moveSelection(sel, -1, labels.length);
+	if (key === "\x1b[B") return moveSelection(sel, 1, labels.length);
+	if (!/^[a-z]$/i.test(key)) return sel;
+	const hit = labels.findIndex((l) => l.toLowerCase().startsWith(key.toLowerCase()));
+	return hit >= 0 ? hit : sel;
+}
+
+/**
  * Arrow-key single-select over `items`, rendered in place (ANSI cursor-up
  * rewrites). ↑/↓ move with wrap-around via the shared {@link moveSelection}
  * (the browser demo runs the SAME function, so navigation cannot drift);
@@ -109,13 +121,7 @@ async function selectFromList(args: {
 				stdin.setRawMode?.(wasRaw);
 				process.exit(130);
 			}
-			let next = sel;
-			if (s === "\x1b[A") next = moveSelection(sel, -1, labels.length);
-			else if (s === "\x1b[B") next = moveSelection(sel, 1, labels.length);
-			else if (/^[a-z]$/i.test(s)) {
-				const hit = labels.findIndex((l) => l.toLowerCase().startsWith(s.toLowerCase()));
-				if (hit >= 0) next = hit;
-			}
+			const next = nextSelectionForKey(s, sel, labels);
 			if (next !== sel) {
 				sel = next;
 				process.stdout.write("\x1b[1A"); // step back over the hint line

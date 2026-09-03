@@ -7,6 +7,7 @@ import type {
 	NamedExternalCandidate,
 } from "./change-set-external-candidates.js";
 import { pathMatchesCheck } from "./change-set-external-candidates.js";
+import { pushResult } from "./change-set-result-map.js";
 import { resolveDependencyAuditCommandAsync } from "./dependency-audit.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./result-types.js";
 import { classifyTestFailure, isLikelyTestFile } from "./test-classifier.js";
@@ -15,16 +16,6 @@ import { runBoundedTestProcess } from "./test-process-gate.js";
 interface NamedRunOptions {
 	outToolMetrics?: ToolBreakdownEntry[];
 	outChecksRan?: string[];
-}
-
-function pushResult(
-	results: Map<string, QualityCheckResult[]>,
-	filePath: string,
-	result: QualityCheckResult,
-): void {
-	const rows = results.get(filePath) ?? [];
-	rows.push(result);
-	results.set(filePath, rows);
 }
 
 function outputTail(stdout: string, stderr: string): string {

@@ -94,6 +94,10 @@ function terminateCompilerProcess(child: ChildProcess): Promise<void> {
 		let killTimer: ReturnType<typeof setTimeout> | null = null;
 		let reapTimer: ReturnType<typeof setTimeout> | null = null;
 		const processGroupId = process.platform === "win32" ? undefined : child.pid;
+		const clearPendingTimers = (): void => {
+			if (killTimer) clearTimeout(killTimer);
+			if (reapTimer) clearTimeout(reapTimer);
+		};
 		const finishAfterGroupExit = (): void => {
 			if (settled) return;
 			if (!childExited) return;
@@ -107,8 +111,7 @@ function terminateCompilerProcess(child: ChildProcess): Promise<void> {
 				return;
 			}
 			settled = true;
-			if (killTimer) clearTimeout(killTimer);
-			if (reapTimer) clearTimeout(reapTimer);
+			clearPendingTimers();
 			resolveExit();
 		};
 		const noteChildExit = (): void => {

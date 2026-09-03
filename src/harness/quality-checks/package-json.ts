@@ -16,6 +16,43 @@ interface PkgConsistencyIssue {
 	detail: string;
 }
 
+/** Packages listed in both dependencies and devDependencies. */
+function findDuplicateDeps(
+	deps: Record<string, string>,
+	devDeps: Record<string, string>,
+): PkgConsistencyIssue[] {
+	const issues: PkgConsistencyIssue[] = [];
+	for (const pkg of Object.keys(deps)) {
+		if (pkg in devDeps) {
+			issues.push({
+				kind: "duplicate",
+				pkg,
+				detail: `"${pkg}" in both dependencies (${deps[pkg]}) and devDependencies (${devDeps[pkg]})`,
+			});
+		}
+	}
+	return issues;
+}
+
+/** Entries of one dependency section whose version specifier is not semver-ish. */
+function findInvalidSemverInSection(
+	section: string,
+	sectionDeps: Record<string, string>,
+): PkgConsistencyIssue[] {
+	const issues: PkgConsistencyIssue[] = [];
+	for (const [pkg, version] of Object.entries(sectionDeps)) {
+		if (typeof version !== "string") continue;
+		if (!SEMVER_RE.test(version.trim())) {
+			issues.push({
+				kind: "invalid_semver",
+				pkg,
+				detail: `"${pkg}": "${version}" in ${section} is not a valid version specifier`,
+			});
+		}
+	}
+	return issues;
+}
+
 /**
  * Public API — consumed by quality-checks.runQualityChecks and verify.ts.
  *
@@ -40,15 +77,7 @@ export function checkPackageJsonConsistency(content: string): PkgConsistencyIssu
 
 	// 1. Duplicate detection: same package in both deps and devDeps
 	if (deps && devDeps) {
-		for (const pkg of Object.keys(deps)) {
-			if (pkg in devDeps) {
-				issues.push({
-					kind: "duplicate",
-					pkg,
-					detail: `"${pkg}" in both dependencies (${deps[pkg]}) and devDependencies (${devDeps[pkg]})`,
-				});
-			}
-		}
+		issues.push(...findDuplicateDeps(deps, devDeps));
 	}
 
 	// 2. Invalid semver across all dependency sections
@@ -61,16 +90,7 @@ export function checkPackageJsonConsistency(content: string): PkgConsistencyIssu
 
 	for (const [section, sectionDeps] of allSections) {
 		if (!sectionDeps) continue;
-		for (const [pkg, version] of Object.entries(sectionDeps)) {
-			if (typeof version !== "string") continue;
-			if (!SEMVER_RE.test(version.trim())) {
-				issues.push({
-					kind: "invalid_semver",
-					pkg,
-					detail: `"${pkg}": "${version}" in ${section} is not a valid version specifier`,
-				});
-			}
-		}
+		issues.push(...findInvalidSemverInSection(section, sectionDeps));
 	}
 
 	return issues;

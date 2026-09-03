@@ -29,6 +29,24 @@ const LOUD_REINTRO_RE =
 const REINTRO_LOG_TIMEOUT_MS = 3000;
 const REINTRO_LOOKBACK_COMMITS = 50;
 
+// Confirm ONE commit's diff actually removed the phrase (rather than added
+// it). Without this filter, the original-introduction commit also matches
+// `-S` and we'd false-positive.
+function commitDiffRemovesPhrase(repoCwd: string, sha: string, phrase: string): boolean {
+	const show = spawnSync(
+		"git",
+		["-C", repoCwd, "show", "--no-color", "--unified=0", sha],
+		{ encoding: "utf-8", timeout: REINTRO_LOG_TIMEOUT_MS },
+	);
+	if (show.status !== 0 || !show.stdout) return false;
+	for (const line of show.stdout.split("\n")) {
+		if (line.startsWith("-") && !line.startsWith("---") && line.includes(phrase)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 function gitLogContainsRemoval(repoCwd: string, phrase: string): string | null {
 	if (phrase.length < 8) return null;
 	try {
@@ -54,20 +72,7 @@ function gitLogContainsRemoval(repoCwd: string, phrase: string): string | null {
 		for (const commitLine of candidateCommits) {
 			const sha = commitLine.split(" ", 1)[0];
 			if (!sha) continue;
-			// Confirm THIS commit's diff actually removed the phrase (rather
-			// than added it). Without this filter, the original-introduction
-			// commit also matches `-S` and we'd false-positive.
-			const show = spawnSync(
-				"git",
-				["-C", repoCwd, "show", "--no-color", "--unified=0", sha],
-				{ encoding: "utf-8", timeout: REINTRO_LOG_TIMEOUT_MS },
-			);
-			if (show.status !== 0 || !show.stdout) continue;
-			for (const line of show.stdout.split("\n")) {
-				if (line.startsWith("-") && !line.startsWith("---") && line.includes(phrase)) {
-					return commitLine;
-				}
-			}
+			if (commitDiffRemovesPhrase(repoCwd, sha, phrase)) return commitLine;
 		}
 		return null;
 	} catch {

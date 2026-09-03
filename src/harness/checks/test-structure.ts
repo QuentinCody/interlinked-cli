@@ -110,6 +110,40 @@ function gateConditionsOf(chain: string): string[] {
 	return conditions;
 }
 
+/** Match the test/suite callsite starting at line `i`, or null when line `i`
+ *  is not a block start. `lineStart[k]` is the offset of `mLines[k]`'s first
+ *  character within `masked`; both are precomputed once by the caller and
+ *  shared across every line probed. */
+function matchTestBlockAt(
+	mLines: string[],
+	masked: string,
+	lineStart: number[],
+	i: number,
+): TestBlock | null {
+	if (!CALLEE_ON_LINE_RE.test(nonNull(mLines[i]))) return null;
+	const window = mLines.slice(i, i + START_WINDOW_LINES).join("\n");
+	const m = BLOCK_START_RE.exec(window);
+	if (!m) return null;
+	// The title-opening paren is the last `(` in the match (the match ends
+	// with `(\s*<quote>`, and nothing after that paren can contain one).
+	// The match can span window lines, so the paren's own line is
+	// startLine plus the newlines consumed before it.
+	const parenInWindow = m[0].lastIndexOf("(");
+	const openParen = nonNull(lineStart[i]) + parenInWindow;
+	const parenLine = i + (m[0].slice(0, parenInWindow).match(/\n/g) ?? []).length;
+	const endLine =
+		callExtentEndLine(masked, openParen, parenLine) ?? Math.max(i, findBlockEnd(mLines, i));
+	const chain = m[2] ?? "";
+	return {
+		kind: m[1] === "describe" || m[1] === "suite" || m[1] === "context" ? "suite" : "test",
+		startLine: i,
+		endLine,
+		unconditionalGate: UNCONDITIONAL_GATE_RE.test(chain),
+		gateConditions: gateConditionsOf(chain),
+		parent: -1,
+	};
+}
+
 /**
  * Extract every string-titled test/suite callsite from masked source lines,
  * with call extents, gate info, and parent containment. `mLines` MUST be
@@ -127,28 +161,8 @@ export function extractTestBlocks(mLines: string[]): TestBlock[] {
 
 	const blocks: TestBlock[] = [];
 	for (let i = 0; i < mLines.length; i++) {
-		if (!CALLEE_ON_LINE_RE.test(nonNull(mLines[i]))) continue;
-		const window = mLines.slice(i, i + START_WINDOW_LINES).join("\n");
-		const m = BLOCK_START_RE.exec(window);
-		if (!m) continue;
-		// The title-opening paren is the last `(` in the match (the match ends
-		// with `(\s*<quote>`, and nothing after that paren can contain one).
-		// The match can span window lines, so the paren's own line is
-		// startLine plus the newlines consumed before it.
-		const parenInWindow = m[0].lastIndexOf("(");
-		const openParen = nonNull(lineStart[i]) + parenInWindow;
-		const parenLine = i + (m[0].slice(0, parenInWindow).match(/\n/g) ?? []).length;
-		const endLine =
-			callExtentEndLine(masked, openParen, parenLine) ?? Math.max(i, findBlockEnd(mLines, i));
-		const chain = m[2] ?? "";
-		blocks.push({
-			kind: m[1] === "describe" || m[1] === "suite" || m[1] === "context" ? "suite" : "test",
-			startLine: i,
-			endLine,
-			unconditionalGate: UNCONDITIONAL_GATE_RE.test(chain),
-			gateConditions: gateConditionsOf(chain),
-			parent: -1,
-		});
+		const block = matchTestBlockAt(mLines, masked, lineStart, i);
+		if (block) blocks.push(block);
 	}
 
 	const stack: number[] = [];

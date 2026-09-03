@@ -61,7 +61,7 @@
 // - A test-runner command after `cd <dir> &&` resolves its arguments against
 //   `event.cwd`, not the hopped-to directory.
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, resolve, sep } from "node:path";
 import type { JsonObject } from "../../lib/json-types.js";
 import {
@@ -85,6 +85,7 @@ import type { StructuralChecksConfig } from "../types/config-structural.js";
 import { isTestRunnerCommand } from "../verification-stop-checks-predicates.js";
 import { companionTestCandidates, isCompanionFileName } from "./companion-test.js";
 import { projectContent, resolveFilePath } from "./per-function-metric-gate.js";
+import { safeReadFile } from "./safe-read-file.js";
 
 const JS_TS_RE = /\.(?:ts|tsx|js|jsx|mjs|cjs|mts|cts)$/i;
 const TEST_PATH_RE = /(\.test\.[cm]?[jt]sx?|\.spec\.[cm]?[jt]sx?)$|(^|\/)__tests__\//;
@@ -290,14 +291,6 @@ function firstTouchedTarget(
 	return null;
 }
 
-function safeRead(abs: string): string | null {
-	try {
-		return readFileSync(abs, "utf-8");
-	} catch {
-		return null;
-	}
-}
-
 /** One section's verdict against the ledger + trajectory: a `TouchedTarget`
  *  to block on, "allow" to keep looking at the next section, or "fail-open"
  *  to abandon the whole payload (the analyzer is unavailable). */
@@ -315,7 +308,7 @@ function evaluateApplyPatchSection(
 	const targets = campaignTargetsFor(ledger, rel);
 	if (targets.size === 0) return "allow";
 
-	const before = existsSync(srcAbs) ? safeRead(srcAbs) : "";
+	const before = existsSync(srcAbs) ? safeReadFile(srcAbs) : "";
 	if (before === null || before === "") return "allow"; // unreadable/creation → not this gate's territory
 	const after = reconstructAfterContent(section, before);
 	if (after === null) return "allow"; // can't reconstruct confidently → fail open for this file

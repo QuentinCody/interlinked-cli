@@ -217,34 +217,52 @@ export function stripRedirections(tokens: string[]): string[] {
 	return out;
 }
 
+/** Mutable scan state threaded through {@link consumeTokenChar}: the token
+ *  text accumulated so far and the active quote char (or null). */
+interface TokenizeState {
+	buf: string;
+	q: string | null;
+}
+
+/** Handle one character of `tokenize`'s scan, mutating `state` and pushing a
+ *  completed token onto `out` at a whitespace boundary. Quote characters are
+ *  consumed (not kept), and a quote preceded by a backslash does not close
+ *  the quoted run. */
+function consumeTokenChar(
+	ch: string,
+	prevCh: string | undefined,
+	state: TokenizeState,
+	out: string[],
+): void {
+	if (state.q) {
+		if (ch === state.q && prevCh !== "\\") {
+			state.q = null;
+			return;
+		}
+		state.buf += ch;
+		return;
+	}
+	if (ch === '"' || ch === "'") {
+		state.q = ch;
+		return;
+	}
+	if (/\s/.test(ch)) {
+		if (state.buf) {
+			out.push(state.buf);
+			state.buf = "";
+		}
+		return;
+	}
+	state.buf += ch;
+}
+
 function tokenize(seg: string): string[] {
 	const out: string[] = [];
-	let buf = "";
-	let q: string | null = null;
+	const state: TokenizeState = { buf: "", q: null };
 	for (let i = 0; i < seg.length; i++) {
-		const ch = nonNull(seg[i]);
-		if (q) {
-			if (ch === q && seg[i - 1] !== "\\") {
-				q = null;
-				continue;
-			}
-			buf += ch;
-			continue;
-		}
-		if (ch === '"' || ch === "'") {
-			q = ch;
-			continue;
-		}
-		if (/\s/.test(ch)) {
-			if (buf) {
-				out.push(buf);
-				buf = "";
-			}
-			continue;
-		}
-		buf += ch;
+		consumeTokenChar(nonNull(seg[i]), seg[i - 1], state, out);
 	}
-	if (buf) out.push(buf);
+	if (state.buf) out.push(state.buf);
 	return out;
 }
 
@@ -254,14 +272,27 @@ interface StripResult {
 	envVars: Record<string, string>;
 }
 
+/** Record one `NAME=value` assignment into `envVars`. An assignment with an
+ *  empty name (leading `=`) is ignored. */
+function consumeEnvVar(assignment: string, envVars: Record<string, string>): void {
+	const eq = assignment.indexOf("=");
+	if (eq <= 0) return;
+	envVars[assignment.slice(0, eq)] = assignment.slice(eq + 1);
+}
+
+/** Consume a leading `env` binary and every `NAME=value` assignment that
+ *  follows it, shifting them off `out` and recording them in `envVars`. */
+function consumeEnvPrefix(out: string[], envVars: Record<string, string>): void {
+	out.shift();
+	while (out[0] && /^[A-Za-z_]\w*=/.test(out[0])) {
+		const next = out.shift();
+		if (next) consumeEnvVar(next, envVars);
+	}
+}
+
 function stripWrappers(tokens: string[]): StripResult {
 	const out = tokens.slice();
 	const envVars: Record<string, string> = {};
-	const consumeEnvVar = (assignment: string): void => {
-		const eq = assignment.indexOf("=");
-		if (eq <= 0) return;
-		envVars[assignment.slice(0, eq)] = assignment.slice(eq + 1);
-	};
 	while (out.length) {
 		const t = nonNull(out[0]);
 		if (
@@ -275,16 +306,12 @@ function stripWrappers(tokens: string[]): StripResult {
 			continue;
 		}
 		if (t === "env") {
-			out.shift();
-			while (out[0] && /^[A-Za-z_]\w*=/.test(out[0])) {
-				const next = out.shift();
-				if (next) consumeEnvVar(next);
-			}
+			consumeEnvPrefix(out, envVars);
 			continue;
 		}
 		if (/^[A-Za-z_]\w*=/.test(t)) {
 			out.shift();
-			consumeEnvVar(t);
+			consumeEnvVar(t, envVars);
 			continue;
 		}
 		break;

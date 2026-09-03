@@ -235,13 +235,15 @@ function buildContext(event: ToolFailureEvent, suggestion?: RecoverySuggestion):
 			? ((event.tool_input as { file_path?: string }).file_path ?? "")
 			: "";
 	if (filePath) ctx.file = filePath;
-	if (suggestion?.extract && errorText) {
-		const match = suggestion.extract(errorText);
-		if (match?.groups) {
-			for (const [key, value] of Object.entries(match.groups)) {
-				if (typeof value === "string") ctx[key] = value;
-			}
-		}
-	}
+	applySuggestionExtract(ctx, suggestion, errorText);
 	return ctx;
+}
+
+function applySuggestionExtract(ctx: RecoveryContext, suggestion: RecoverySuggestion | undefined, errorText: string): void {
+	if (!suggestion?.extract || !errorText) return;
+	const match = suggestion.extract(errorText);
+	if (!match?.groups) return;
+	for (const [key, value] of Object.entries(match.groups)) {
+		if (typeof value === "string") ctx[key] = value;
+	}
 }

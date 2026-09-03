@@ -102,18 +102,29 @@ function runOneDef(def: InlineCheckDef, ctx: LangCheckContext): InlineLangCheckR
 
 	const out: InlineLangCheckResult[] = [];
 	for (const { lineNum } of findLineMatches(ctx.strippedLines, re)) {
-		const rawLine = ctx.rawLines[lineNum - 1] ?? "";
-		const prevLine = ctx.rawLines[lineNum - 2];
-		if (exemptRe && (exemptRe.test(rawLine) || (prevLine && exemptRe.test(prevLine)))) continue;
-		out.push({
-			name: def.name,
-			severity: def.severity,
-			message: `${basename(ctx.filePath)}:${lineNum} — ${def.description}`,
-			file: ctx.filePath,
-			detail: `  L${lineNum}: ${rawLine.trim().slice(0, 160)}\n  ${def.fix_instruction}`,
-		});
+		const result = matchResultForLine(lineNum, def, ctx, exemptRe);
+		if (result) out.push(result);
 	}
 	return out;
+}
+
+/** Builds the finding for one matched line, or null if it's exempted by `exemptRe`. */
+function matchResultForLine(
+	lineNum: number,
+	def: InlineCheckDef,
+	ctx: LangCheckContext,
+	exemptRe: RegExp | null,
+): InlineLangCheckResult | null {
+	const rawLine = ctx.rawLines[lineNum - 1] ?? "";
+	const prevLine = ctx.rawLines[lineNum - 2];
+	if (exemptRe && (exemptRe.test(rawLine) || (prevLine && exemptRe.test(prevLine)))) return null;
+	return {
+		name: def.name,
+		severity: def.severity,
+		message: `${basename(ctx.filePath)}:${lineNum} — ${def.description}`,
+		file: ctx.filePath,
+		detail: `  L${lineNum}: ${rawLine.trim().slice(0, 160)}\n  ${def.fix_instruction}`,
+	};
 }
 
 /**

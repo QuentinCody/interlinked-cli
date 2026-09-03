@@ -125,7 +125,7 @@ function commitPathspecs(rest: string[]): string[] {
 	for (let i = 0; i < rest.length; i++) {
 		const t = nonNull(rest[i]);
 		if (t === "--") {
-			for (let k = i + 1; k < rest.length; k++) paths.push(nonNull(rest[k]));
+			paths.push(...rest.slice(i + 1).map((v) => nonNull(v)));
 			break;
 		}
 		// The SEPARATE-value form consumes its file argument too — without the `i++`
@@ -138,7 +138,7 @@ function commitPathspecs(rest: string[]): string[] {
 		}
 		if (t.startsWith("--pathspec-from-file=")) continue;
 		if (t.startsWith("-")) {
-			if (COMMIT_VALUE_FLAGS.has(t) || shortClusterTakesValue(t)) i++; // its value is not a pathspec
+			i += COMMIT_VALUE_FLAGS.has(t) || shortClusterTakesValue(t) ? 1 : 0; // its value is not a pathspec
 			continue;
 		}
 		paths.push(t); // bare positional → pathspec
@@ -170,27 +170,32 @@ function addSegmentPaths(segment: string): { paths: string[]; broad: boolean; up
 	let allish = false;
 	let updateOnly = false;
 	let fromFile = false;
+	// A `switch(true)` over the mutually-exclusive token classes, not an if-chain:
+	// each case's `break` matches the original if-chain's `continue` exactly (the
+	// switch's own body IS the whole loop body, so both hand control back to the
+	// next iteration), and the `default` matches the trailing `paths.push(t)`.
 	for (const t of tokens.slice(subIdx + 1)) {
-		if (t === "-A" || t === "--all") {
-			allish = true;
-			continue;
+		switch (true) {
+			case t === "-A" || t === "--all":
+				allish = true;
+				break;
+			case t === "-u" || t === "--update":
+				allish = true;
+				updateOnly = true;
+				break;
+			// File-mediated pathspecs (`--pathspec-from-file files.txt`, `=<file>`, or
+			// `-` for stdin): the real staged paths live INSIDE the file, which a static
+			// parse cannot read — so this add is BROAD, never "the list file is the path"
+			// (finding 2026-06: the gate evaluated files.txt itself and the named sources
+			// bypassed). Same indirection class as pip's `-r requirements.txt`.
+			case t === "--pathspec-from-file" || t.startsWith("--pathspec-from-file="):
+				fromFile = true;
+				break;
+			case t === "--" || t.startsWith("-"): // separator / other add flags
+				break;
+			default:
+				paths.push(t);
 		}
-		if (t === "-u" || t === "--update") {
-			allish = true;
-			updateOnly = true;
-			continue;
-		}
-		// File-mediated pathspecs (`--pathspec-from-file files.txt`, `=<file>`, or
-		// `-` for stdin): the real staged paths live INSIDE the file, which a static
-		// parse cannot read — so this add is BROAD, never "the list file is the path"
-		// (finding 2026-06: the gate evaluated files.txt itself and the named sources
-		// bypassed). Same indirection class as pip's `-r requirements.txt`.
-		if (t === "--pathspec-from-file" || t.startsWith("--pathspec-from-file=")) {
-			fromFile = true;
-			continue;
-		}
-		if (t === "--" || t.startsWith("-")) continue; // separator / other add flags
-		paths.push(t);
 	}
 	return { paths, broad: fromFile || (allish && paths.length === 0), updateOnly };
 }

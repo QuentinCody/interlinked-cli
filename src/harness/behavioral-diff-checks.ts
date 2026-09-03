@@ -9,6 +9,7 @@
 import { extname, basename as pathBasename } from "node:path";
 import { nonNull } from "../lib/non-null.js";
 import { extractAddedLines, getStagedDiff } from "./behavioral-checks.js";
+import { extractRemovedLines } from "./behavioral-checks-tdd-diff-lines.js";
 import { checkReintroducesRemovedCode } from "./behavioral-diff-checks-reintro.js";
 import { checkTestTimeoutInflation } from "./behavioral-diff-checks-timeouts.js";
 import type { CheckResultEntry, SessionTrajectory } from "./types.js";
@@ -20,6 +21,24 @@ const TEST_FILE_RE = /\.(test|spec)\.|__tests__\/|\/tests\//;
 
 function basename(p: string): string {
 	return p.split("/").pop() || p;
+}
+
+/**
+ * Count the diff lines on one side (`+` additions or `-` removals) that match
+ * `re`. File headers (`+++` / `---`) never count.
+ */
+function countDiffLinesMatching(diff: string, sign: "+" | "-", re: RegExp): number {
+	let count = 0;
+	for (const line of diff.split("\n")) {
+		if (line.startsWith("+++") || line.startsWith("---")) continue;
+		if (line.startsWith(sign) && re.test(line)) count++;
+	}
+	return count;
+}
+
+/** Net directive delta for `re`: matching additions minus matching removals. */
+function netAddedLinesMatching(diff: string, re: RegExp): number {
+	return countDiffLinesMatching(diff, "+", re) - countDiffLinesMatching(diff, "-", re);
 }
 
 // ==========================================================================
@@ -38,14 +57,7 @@ export function checkDisabledTestDelta(session: SessionTrajectory): CheckResultE
 		if (!TEST_FILE_RE.test(file)) continue;
 		const diff = getStagedDiff(file);
 		if (!diff) continue;
-		let added = 0;
-		let removed = 0;
-		for (const line of diff.split("\n")) {
-			if (line.startsWith("+++") || line.startsWith("---")) continue;
-			if (line.startsWith("+") && DISABLE_DIRECTIVES_RE.test(line)) added++;
-			else if (line.startsWith("-") && DISABLE_DIRECTIVES_RE.test(line)) removed++;
-		}
-		const delta = added - removed;
+		const delta = netAddedLinesMatching(diff, DISABLE_DIRECTIVES_RE);
 		if (delta <= 0) continue;
 		results.push({
 			source: "structural",
@@ -93,13 +105,8 @@ export function checkAssertionStrengthWeakening(
 		if (!TEST_FILE_RE.test(file)) continue;
 		const diff = getStagedDiff(file);
 		if (!diff) continue;
-		let strongRemoved = 0;
-		let weakAdded = 0;
-		for (const line of diff.split("\n")) {
-			if (line.startsWith("+++") || line.startsWith("---")) continue;
-			if (line.startsWith("-") && STRONG_MATCHER_RE.test(line)) strongRemoved++;
-			else if (line.startsWith("+") && WEAK_MATCHER_RE.test(line)) weakAdded++;
-		}
+		const strongRemoved = countDiffLinesMatching(diff, "-", STRONG_MATCHER_RE);
+		const weakAdded = countDiffLinesMatching(diff, "+", WEAK_MATCHER_RE);
 		// Heuristic: a strong matcher removed AND a weak matcher added in
 		// the same diff is an assertion-weakening tell. Don't fire on
 		// pure additions or pure deletions.
@@ -160,15 +167,6 @@ function isTestPath(file: string): boolean {
 
 function isProdSource(file: string): boolean {
 	return PROD_EXTS.has(extname(file)) && !isTestPath(file);
-}
-
-function extractRemovedLines(diff: string): string {
-	const out: string[] = [];
-	for (const line of diff.split("\n")) {
-		if (!line.startsWith("-") || line.startsWith("---")) continue;
-		out.push(line.slice(1));
-	}
-	return out.join("\n");
 }
 
 function isCommentOrWhitespaceOnly(text: string): boolean {
@@ -382,14 +380,7 @@ export function checkClockMockAdded(session: SessionTrajectory): CheckResultEntr
 		if (!TEST_FILE_RE.test(file)) continue;
 		const diff = getStagedDiff(file);
 		if (!diff) continue;
-		let added = 0;
-		let removed = 0;
-		for (const line of diff.split("\n")) {
-			if (line.startsWith("+++") || line.startsWith("---")) continue;
-			if (line.startsWith("+") && VI_SET_SYSTEM_TIME_RE.test(line)) added++;
-			else if (line.startsWith("-") && VI_SET_SYSTEM_TIME_RE.test(line)) removed++;
-		}
-		const net = added - removed;
+		const net = netAddedLinesMatching(diff, VI_SET_SYSTEM_TIME_RE);
 		if (net <= 0) continue;
 		results.push({
 			source: "structural",

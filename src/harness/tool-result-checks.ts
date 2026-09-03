@@ -41,43 +41,47 @@ interface BloatHit {
  *     each text block and re-parse.
  */
 function extractJsonCandidates(toolResponse: unknown): JsonObject[] {
-	const out: JsonObject[] = [];
-
-	const tryParse = (s: string): void => {
-		const trimmed = s.trim();
-		if (!trimmed.startsWith("{")) return;
-		try {
-			const parsed = JSON.parse(trimmed);
-			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-				out.push(parsed as JsonObject);
-			}
-		} catch (e) {
-			void e;
-		}
-	};
-
 	if (typeof toolResponse === "string") {
-		tryParse(toolResponse);
-		return out;
+		const parsed = parseJsonObject(toolResponse);
+		return parsed ? [parsed] : [];
 	}
-	if (!toolResponse || typeof toolResponse !== "object") return out;
+	if (!toolResponse || typeof toolResponse !== "object") return [];
+	if (Array.isArray(toolResponse)) return [];
 
-	if (!Array.isArray(toolResponse)) {
-		out.push(toolResponse as JsonObject);
-
-		// MCP content blocks
-		const content = (toolResponse as JsonObject).content;
-		if (Array.isArray(content)) {
-			for (const block of content) {
-				if (block && typeof block === "object") {
-					const text = (block as JsonObject).text;
-					if (typeof text === "string") tryParse(text);
-				}
-			}
-		}
+	const out: JsonObject[] = [toolResponse as JsonObject];
+	for (const text of mcpTextBlockTexts(toolResponse as JsonObject)) {
+		const parsed = parseJsonObject(text);
+		if (parsed) out.push(parsed);
 	}
-
 	return out;
+}
+
+/** Parse a string as a JSON object; null when it is not JSON-object-shaped. */
+function parseJsonObject(s: string): JsonObject | null {
+	const trimmed = s.trim();
+	if (!trimmed.startsWith("{")) return null;
+	try {
+		const parsed = JSON.parse(trimmed);
+		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+			return parsed as JsonObject;
+		}
+	} catch (e) {
+		void e;
+	}
+	return null;
+}
+
+/** Text payloads of an MCP tool result's `content` blocks, in order. */
+function mcpTextBlockTexts(obj: JsonObject): string[] {
+	const content = obj.content;
+	if (!Array.isArray(content)) return [];
+	const texts: string[] = [];
+	for (const block of content) {
+		if (!block || typeof block !== "object") continue;
+		const text = (block as JsonObject).text;
+		if (typeof text === "string") texts.push(text);
+	}
+	return texts;
 }
 
 /**

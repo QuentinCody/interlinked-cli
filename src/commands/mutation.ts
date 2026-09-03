@@ -22,6 +22,7 @@ import {
 } from "../harness/mutation-gate.js";
 import type { MeasureOutcome } from "../harness/mutation/measure.js";
 import { measureOneFile, renderMeasureCommand } from "./mutation-measure-support.js";
+import { parseChangedFiles } from "../lib/changed-files-option.js";
 import { getConfigDir } from "../lib/config.js";
 import { c, header, kvLine } from "../lib/formatter.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
@@ -155,14 +156,6 @@ function resolveReportPath(cwd: string, explicit?: string): string | null {
 		if (existsSync(resolved)) return resolved;
 	}
 	return null;
-}
-
-function parseChangedFiles(raw?: string): string[] | undefined {
-	if (!raw) return undefined;
-	return raw
-		.split(",")
-		.map((s) => s.trim())
-		.filter(Boolean);
 }
 
 function clampScore(raw: number): number {

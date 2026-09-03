@@ -102,6 +102,45 @@ async function tryEndpoint(
  */
 const UNREACHABLE_ROUNDS_BEFORE_GIVING_UP = 3;
 
+/** Outcome of trying every configured endpoint once, in order. */
+type EndpointsRoundResult =
+	| { kind: "done"; outcome: RequestOutcome }
+	| { kind: "continue"; reachedSomeone: boolean };
+
+/**
+ * Try each endpoint in turn for one round. Returns as soon as any endpoint
+ * gives a definitive (non-busy, reachable) answer; otherwise reports whether
+ * at least one endpoint was reachable (busy counts as reached — it is a
+ * disconnected host, not a bad answer, that should not count toward the
+ * unreachable-rounds budget).
+ */
+async function attemptAllEndpoints(
+	endpoints: string[],
+	body: string,
+	headers: Record<string, string>,
+	fetchImpl: FetchLike,
+	requestTimeoutMs: number,
+): Promise<EndpointsRoundResult> {
+	let reachedSomeone = false;
+	for (const url of endpoints) {
+		const endpointAttempt = await tryEndpoint(url, body, headers, fetchImpl, requestTimeoutMs);
+		if (endpointAttempt.kind === "busy") {
+			reachedSomeone = true;
+			continue;
+		}
+		if (endpointAttempt.kind === "unreachable") continue;
+		const res = endpointAttempt.res;
+		// Quote the runner rather than reducing it to a status code. This path
+		// is the SWEEP's, distinct from cloud-runner.ts's (the per-edit gate's)
+		// — the same defect existed in both, and a live 719-file sweep found
+		// this copy by reporting a bare `runner HTTP 500` for a file whose
+		// runner had explained itself perfectly well.
+		if (!res.ok) return { kind: "done", outcome: { ok: false, reason: await describeErrorResponse(res) } };
+		return { kind: "done", outcome: { ok: true, body: await res.json() } };
+	}
+	return { kind: "continue", reachedSomeone };
+}
+
 function requestBody(args: RequestArgs): string {
 	return JSON.stringify({
 		file: args.file,
@@ -137,24 +176,9 @@ export async function requestWholeFileReport(args: RequestArgs): Promise<Request
 	let attempt = 0;
 	let allUnreachableRounds = 0;
 	while (now() < deadline) {
-		let reachedSomeone = false;
-		for (const url of args.endpoints) {
-			const endpointAttempt = await tryEndpoint(url, body, headers, args.fetchImpl, args.requestTimeoutMs);
-			if (endpointAttempt.kind === "busy") {
-				reachedSomeone = true;
-				continue;
-			}
-			if (endpointAttempt.kind === "unreachable") continue;
-			const res = endpointAttempt.res;
-			// Quote the runner rather than reducing it to a status code. This path
-			// is the SWEEP's, distinct from cloud-runner.ts's (the per-edit gate's)
-			// — the same defect existed in both, and a live 719-file sweep found
-			// this copy by reporting a bare `runner HTTP 500` for a file whose
-			// runner had explained itself perfectly well.
-			if (!res.ok) return { ok: false, reason: await describeErrorResponse(res) };
-			return { ok: true, body: await res.json() };
-		}
-		allUnreachableRounds = reachedSomeone ? 0 : allUnreachableRounds + 1;
+		const round = await attemptAllEndpoints(args.endpoints, body, headers, args.fetchImpl, args.requestTimeoutMs);
+		if (round.kind === "done") return round.outcome;
+		allUnreachableRounds = round.reachedSomeone ? 0 : allUnreachableRounds + 1;
 		if (allUnreachableRounds >= UNREACHABLE_ROUNDS_BEFORE_GIVING_UP) {
 			return {
 				ok: false,

@@ -157,6 +157,24 @@ function collectOverloadKeys(ts: TsModule, sf: TS.SourceFile): Set<string> {
 
 // ─── Per-function check ──────────────────────────────────────────────────────
 
+/**
+ * The drifted parameter name a `@param` tag names, or null when the tag is
+ * not a reportable drift: mid-prose "@param" mentions, and tags whose name
+ * matches an actual (or underscore-stripped) parameter.
+ */
+function tagDriftName(
+	ts: TsModule,
+	sf: TS.SourceFile,
+	tag: TS.JSDocParameterTag,
+	rawLines: string[],
+	nameSet: Set<string>,
+): string | null {
+	if (!tagStartsJsdocLine(sf, tag, rawLines)) return null; // "@param" mid-prose
+	const tagName = tagSimpleName(ts, tag);
+	if (tagName === null || nameSet.has(tagName)) return null;
+	return tagName;
+}
+
 function checkFunctionNode(
 	ts: TsModule,
 	sf: TS.SourceFile,
@@ -182,9 +200,8 @@ function checkFunctionNode(
 
 	for (const tag of paramTags) {
 		if (matches.length >= MAX_MATCHES_PER_FILE) return;
-		if (!tagStartsJsdocLine(sf, tag, rawLines)) continue; // "@param" mid-prose
-		const tagName = tagSimpleName(ts, tag);
-		if (tagName === null || nameSet.has(tagName)) continue;
+		const tagName = tagDriftName(ts, sf, tag, rawLines, nameSet);
+		if (tagName === null) continue;
 
 		const lineNo = sf.getLineAndCharacterOfPosition(tag.getStart(sf)).line + 1;
 		const fnLabel = functionNameOf(ts, node) || "(anonymous)";

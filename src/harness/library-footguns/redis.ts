@@ -5,34 +5,14 @@
 // expiration option silently leaks data forever. Production
 // Redis is finite — every set-without-TTL is a future incident.
 
-import { getExtension, type InlineMatch, isGeneratedFile, isTestFile, JS_TS_EXTS } from "../checks/shared.js";
+import type { InlineMatch } from "../checks/shared.js";
+import { balancedArgList, shouldSkipFootgunScan } from "./scan-helpers.js";
 import type { LibraryFootgunCheck } from "./types.js";
 
 const REDIS_SET_OPEN_RE = /\b(?:redis|client|cache|kv)\s*\.\s*set\s*\(/g;
 
-function balancedArgList(content: string, openIdx: number): string | null {
-	let depth = 1;
-	let i = openIdx + 1;
-	while (i < content.length && depth > 0) {
-		const ch = content[i];
-		if (ch === "(") depth++;
-		else if (ch === ")") depth--;
-		i++;
-	}
-	if (depth !== 0) return null;
-	return content.slice(openIdx + 1, i - 1);
-}
-
-function shouldSkip(filePath: string, content: string): boolean {
-	const ext = getExtension(filePath);
-	if (!JS_TS_EXTS.has(ext)) return true;
-	if (isTestFile(filePath)) return true;
-	if (isGeneratedFile(content)) return true;
-	return false;
-}
-
 function detectSetWithoutExpire(content: string, filePath: string): InlineMatch[] {
-	if (shouldSkip(filePath, content)) return [];
+	if (shouldSkipFootgunScan(filePath, content)) return [];
 	const out: InlineMatch[] = [];
 	const lines = content.split("\n");
 	REDIS_SET_OPEN_RE.lastIndex = 0;

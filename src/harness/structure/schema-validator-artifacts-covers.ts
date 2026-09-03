@@ -10,7 +10,7 @@
 // from the parent).
 
 import type { JsonObject } from "../../lib/json-types.js";
-import type { ValidationResult } from "./schema-validator-helpers.js";
+import type { ValidationError, ValidationResult } from "./schema-validator-helpers.js";
 import {
 	checkUnknownKeys,
 	err,
@@ -23,6 +23,40 @@ import {
 	validateStringArray,
 } from "./schema-validator-helpers.js";
 import { VALID_DOC_KINDS, VALID_TEST_KINDS } from "./types.js";
+
+// -------------------------------------------
+// Shared entry-field validators
+// -------------------------------------------
+
+/**
+ * Validates one entry's `id` field: string type, local-id grammar, and
+ * uniqueness within the file. Records the id in `seenIds` so later entries
+ * see it as a duplicate.
+ */
+function validateEntryId(
+	entry: JsonObject,
+	path: string,
+	seenIds: Set<string>,
+	label: string,
+): ValidationError[] {
+	if (typeof entry.id !== "string") return [err(`${path}.id`, "Must be a string")];
+	const errors = validateLocalId(entry.id, `${path}.id`);
+	if (seenIds.has(entry.id)) {
+		errors.push(err(`${path}.id`, `Duplicate ${label} ID "${entry.id}"`));
+	}
+	seenIds.add(entry.id);
+	return errors;
+}
+
+/** Validates that an entry's named path field is a repo-relative POSIX string. */
+function validateEntryPath(entry: JsonObject, path: string, key: string): ValidationError[] {
+	const value = entry[key];
+	if (typeof value !== "string") return [err(`${path}.${key}`, "Must be a string")];
+	if (!isRepoRelativePath(value)) {
+		return [err(`${path}.${key}`, "Must be a repo-relative POSIX path")];
+	}
+	return [];
+}
 
 // -------------------------------------------
 // tests
@@ -48,15 +82,8 @@ export function validateTestsFile(data: unknown): ValidationResult {
 		const tp = `$.tests[${i}]`;
 		errors.push(...checkUnknownKeys(t, ["id", "file", "kind", "covers"], tp));
 
-		if (typeof t.id !== "string") errors.push(err(`${tp}.id`, "Must be a string"));
-		else {
-			errors.push(...validateLocalId(t.id, `${tp}.id`));
-			if (testIds.has(t.id)) errors.push(err(`${tp}.id`, `Duplicate test ID "${t.id}"`));
-			testIds.add(t.id);
-		}
-		if (typeof t.file !== "string") errors.push(err(`${tp}.file`, "Must be a string"));
-		else if (!isRepoRelativePath(t.file))
-			errors.push(err(`${tp}.file`, "Must be a repo-relative POSIX path"));
+		errors.push(...validateEntryId(t, tp, testIds, "test"));
+		errors.push(...validateEntryPath(t, tp, "file"));
 
 		if (!includes(VALID_TEST_KINDS, t.kind)) {
 			errors.push(err(`${tp}.kind`, `Must be one of: ${VALID_TEST_KINDS.join(", ")}`));
@@ -92,15 +119,8 @@ export function validateDocsFile(data: unknown): ValidationResult {
 		const dp = `$.docs[${i}]`;
 		errors.push(...checkUnknownKeys(d, ["id", "file", "kind", "covers"], dp));
 
-		if (typeof d.id !== "string") errors.push(err(`${dp}.id`, "Must be a string"));
-		else {
-			errors.push(...validateLocalId(d.id, `${dp}.id`));
-			if (docIds.has(d.id)) errors.push(err(`${dp}.id`, `Duplicate doc ID "${d.id}"`));
-			docIds.add(d.id);
-		}
-		if (typeof d.file !== "string") errors.push(err(`${dp}.file`, "Must be a string"));
-		else if (!isRepoRelativePath(d.file))
-			errors.push(err(`${dp}.file`, "Must be a repo-relative POSIX path"));
+		errors.push(...validateEntryId(d, dp, docIds, "doc"));
+		errors.push(...validateEntryPath(d, dp, "file"));
 
 		if (!includes(VALID_DOC_KINDS, d.kind)) {
 			errors.push(err(`${dp}.kind`, `Must be one of: ${VALID_DOC_KINDS.join(", ")}`));
@@ -136,15 +156,8 @@ export function validateExamplesFile(data: unknown): ValidationResult {
 		const ep = `$.examples[${i}]`;
 		errors.push(...checkUnknownKeys(e, ["id", "file", "covers"], ep));
 
-		if (typeof e.id !== "string") errors.push(err(`${ep}.id`, "Must be a string"));
-		else {
-			errors.push(...validateLocalId(e.id, `${ep}.id`));
-			if (exIds.has(e.id)) errors.push(err(`${ep}.id`, `Duplicate example ID "${e.id}"`));
-			exIds.add(e.id);
-		}
-		if (typeof e.file !== "string") errors.push(err(`${ep}.file`, "Must be a string"));
-		else if (!isRepoRelativePath(e.file))
-			errors.push(err(`${ep}.file`, "Must be a repo-relative POSIX path"));
+		errors.push(...validateEntryId(e, ep, exIds, "example"));
+		errors.push(...validateEntryPath(e, ep, "file"));
 
 		errors.push(
 			...validateCoversArray(Array.isArray(e.covers) ? e.covers : [], `${ep}.covers`),
@@ -177,15 +190,8 @@ export function validatePackagesFile(data: unknown): ValidationResult {
 		const pp = `$.packages[${i}]`;
 		errors.push(...checkUnknownKeys(p, ["id", "root", "entrypoints"], pp));
 
-		if (typeof p.id !== "string") errors.push(err(`${pp}.id`, "Must be a string"));
-		else {
-			errors.push(...validateLocalId(p.id, `${pp}.id`));
-			if (pkgIds.has(p.id)) errors.push(err(`${pp}.id`, `Duplicate package ID "${p.id}"`));
-			pkgIds.add(p.id);
-		}
-		if (typeof p.root !== "string") errors.push(err(`${pp}.root`, "Must be a string"));
-		else if (!isRepoRelativePath(p.root))
-			errors.push(err(`${pp}.root`, "Must be a repo-relative POSIX path"));
+		errors.push(...validateEntryId(p, pp, pkgIds, "package"));
+		errors.push(...validateEntryPath(p, pp, "root"));
 
 		errors.push(...validateStringArray(p.entrypoints || [], `${pp}.entrypoints`));
 	}

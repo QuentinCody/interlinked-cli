@@ -147,6 +147,36 @@ function braceCountDelta(line: string): number {
 	return delta;
 }
 
+/** Scan state for one `it(`/`test(` block being walked line by line. */
+interface TestBlockScanState {
+	inTestBlock: boolean;
+	testStartLine: number;
+	braceDepth: number;
+	hasAssertion: boolean;
+	testName: string;
+}
+
+/** True when the line carries an assertion in any supported flavour. */
+function lineHasAssertion(trimmed: string): boolean {
+	return (
+		/\b(expect|assert)\s*\(/.test(trimmed) ||
+		/\.should\./.test(trimmed) ||
+		/\bthrows\s*\(/.test(trimmed)
+	);
+}
+
+/** Open a test block on `state` when the line starts one; otherwise leave `state` alone. */
+function tryEnterTestBlock(line: string, lineIndex: number, state: TestBlockScanState): void {
+	const trimmed = line.trim();
+	if (!/^(?:it|test)\s*\(/.test(trimmed)) return;
+	state.inTestBlock = true;
+	state.testStartLine = lineIndex;
+	state.hasAssertion = false;
+	state.testName = trimmed.slice(0, 80);
+	// Count braces on the opening line (arrow function body brace)
+	state.braceDepth = braceCountDelta(line);
+}
+
 /**
  * Detect test blocks without assertions.
  * `it(` or `test(` blocks without `expect(`, `assert(`, or `.should.`.
@@ -157,49 +187,39 @@ export function checkAssertionFreeTests(content: string, filePath: string): Inli
 
 	const matches: InlineMatch[] = [];
 	const lines = content.split("\n");
-	let inTestBlock = false;
-	let testStartLine = 0;
-	let braceDepth = 0;
-	let hasAssertion = false;
-	let testName = "";
+	const state: TestBlockScanState = {
+		inTestBlock: false,
+		testStartLine: 0,
+		braceDepth: 0,
+		hasAssertion: false,
+		testName: "",
+	};
 
 	for (let i = 0; i < lines.length; i++) {
-		const trimmed = nonNull(lines[i]).trim();
+		const line = nonNull(lines[i]);
 
-		if (!inTestBlock) {
-			const testMatch = trimmed.match(/^(?:it|test)\s*\(/);
-			if (testMatch) {
-				inTestBlock = true;
-				testStartLine = i;
-				hasAssertion = false;
-				testName = trimmed.slice(0, 80);
-				// Count braces on the opening line (arrow function body brace)
-				braceDepth = braceCountDelta(nonNull(lines[i]));
-			}
+		if (!state.inTestBlock) {
+			tryEnterTestBlock(line, i, state);
 			continue;
 		}
 
 		// Count braces
-		braceDepth += braceCountDelta(nonNull(lines[i]));
+		state.braceDepth += braceCountDelta(line);
 
 		// Check for assertions
-		if (
-			/\b(expect|assert)\s*\(/.test(trimmed) ||
-			/\.should\./.test(trimmed) ||
-			/\bthrows\s*\(/.test(trimmed)
-		) {
-			hasAssertion = true;
+		if (lineHasAssertion(line.trim())) {
+			state.hasAssertion = true;
 		}
 
 		// End of test block
-		if (braceDepth <= 0 && i > testStartLine) {
-			if (!hasAssertion && matches.length < 10) {
+		if (state.braceDepth <= 0 && i > state.testStartLine) {
+			if (!state.hasAssertion && matches.length < 10) {
 				matches.push({
-					line: testStartLine + 1,
-					text: testName,
+					line: state.testStartLine + 1,
+					text: state.testName,
 				});
 			}
-			inTestBlock = false;
+			state.inTestBlock = false;
 		}
 	}
 
@@ -287,10 +307,7 @@ function scanLineForSyncIoInAsync(
 	}
 
 	if (state.inAsyncFn) {
-		for (const ch of line) {
-			if (ch === "{") state.braceDepth++;
-			if (ch === "}") state.braceDepth--;
-		}
+		state.braceDepth += braceCountDelta(line);
 		if (state.braceDepth <= 0 && lineIndex > 0) {
 			state.inAsyncFn = false;
 		}

@@ -199,6 +199,26 @@ function positionalPackagesBlock(
 	return null;
 }
 
+// Step 1 of snapshotMismatchBlock: does any entry's lockfile have a matching
+// snapshot on disk? Extracted so the depth-2 loop doesn't nest inside the
+// caller's own branching.
+function anyLockfileSnapshotMatches(
+	entries: ManifestSearchEntry[],
+	effectiveCwd: string,
+	allowlist: Allowlist,
+	fixedSnapshotCanAllow: boolean,
+): boolean {
+	for (const entry of entries) {
+		for (const lf of entry.lockfiles) {
+			const p = join(effectiveCwd, lf);
+			if (isExistingFile(p) && matchSnapshot(allowlist, lf, p) && fixedSnapshotCanAllow) {
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 // Manifest/lockfile snapshot gate for a no-positional sync (`npm ci`, bare
 // `npm install`, `pip install -r`, …). Returns null when a stored snapshot
 // matches a present lockfile (preferred) or the manifest; otherwise a block.
@@ -216,13 +236,8 @@ function snapshotMismatchBlock(
 		globManifests.every((name) => matchSnapshot(allowlist, name, join(effectiveCwd, name)));
 	const fixedSnapshotCanAllow = globManifests.length === 0 || globManifestsMatch;
 	// 1. Prefer lockfiles when one exists (stronger guarantee than manifest).
-	for (const entry of entries) {
-		for (const lf of entry.lockfiles) {
-			const p = join(effectiveCwd, lf);
-			if (isExistingFile(p) && matchSnapshot(allowlist, lf, p) && fixedSnapshotCanAllow) {
-				return null;
-			}
-		}
+	if (anyLockfileSnapshotMatches(entries, effectiveCwd, allowlist, fixedSnapshotCanAllow)) {
+		return null;
 	}
 	// 2. Fall back to manifest snapshot when no lockfile snapshot matched.
 	for (const entry of entries) {

@@ -209,6 +209,21 @@ function maxSameDirCount(files: Iterable<string>): number {
 	return max;
 }
 
+/** How one scanned event affects the read-storm run: `continue` past it,
+ *  `break` the run (an edit occurred), `stop` the whole rule (a re-read of
+ *  the crossing file), or carry the newly-seen distinct file path to add. */
+type ReadStormStep = "continue" | "break" | "stop" | { readonly add: string };
+
+function classifyReadStormEvent(e: ToolEvent | undefined, event: ToolEvent, file: string): ReadStormStep {
+	if (!e || e.hook !== "PostToolUse") return "continue";
+	if (EDIT_TOOLS.has(e.tool)) return "break"; // an edit ends the run
+	if (e.tool !== "Read" || !e.input.file_path) return "continue";
+	// A prior in-run read of the same file means this is a re-read, not a
+	// new distinct file — never the crossing event.
+	if (e !== event && e.input.file_path === file) return "stop";
+	return { add: e.input.file_path };
+}
+
 export const rebReadStormNoEdit: TrajectoryRule = (state, event) => {
 	if (event.hook !== "PostToolUse" || event.tool !== "Read") return null;
 	const file = event.input.file_path;
@@ -217,13 +232,11 @@ export const rebReadStormNoEdit: TrajectoryRule = (state, event) => {
 	const ev = state.recentEvents;
 	for (let i = ev.length - 1; i >= 0; i--) {
 		const e = ev[i];
-		if (!e || e.hook !== "PostToolUse") continue;
-		if (EDIT_TOOLS.has(e.tool)) break; // an edit ends the run
-		if (e.tool !== "Read" || !e.input.file_path) continue;
-		// A prior in-run read of the same file means this is a re-read, not a
-		// new distinct file — never the crossing event.
-		if (e !== event && e.input.file_path === file) return null;
-		distinct.add(e.input.file_path);
+		const step = classifyReadStormEvent(e, event, file);
+		if (step === "continue") continue;
+		if (step === "break") break;
+		if (step === "stop") return null;
+		distinct.add(step.add);
 	}
 	if (distinct.size !== READ_STORM_DISTINCT) return null;
 	// Catalog FP-guard: fire only on a LOW-dependency-density run (unrelated

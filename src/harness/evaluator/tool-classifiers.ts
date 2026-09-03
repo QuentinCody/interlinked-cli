@@ -110,6 +110,28 @@ export function normalizeToolToOp(toolName: string): string {
 // Glob Matching (simple, no dependencies)
 // ===========================================
 
+/** The tail of a `*.ext` pattern with its leading `*` already stripped (e.g.
+ *  ".env*"). A trailing `*` means "name contains this core" ("**\/*.env*"
+ *  matches files carrying ".env" anywhere in the name); otherwise the path
+ *  must end with the suffix. */
+function matchesExtensionSuffix(filePath: string, suffix: string): boolean {
+	if (suffix.endsWith("*")) {
+		const core = suffix.slice(0, -1); // ".env"
+		return filePath.includes(core);
+	}
+	return filePath.endsWith(suffix);
+}
+
+/** The remainder of a `**​/` pattern with the `**​/` prefix already stripped.
+ *  `*.ext` degrades to an extension match; anything else matches the path's
+ *  final segment (or the whole path when it has no directory part). */
+function matchesRecursivePattern(filePath: string, rest: string): boolean {
+	if (rest.startsWith("*.")) {
+		return matchesExtensionSuffix(filePath, rest.slice(1)); // e.g., ".env*"
+	}
+	return filePath.endsWith(`/${rest}`) || filePath === rest;
+}
+
 /** Public API — consumed by evaluator sub-modules to match file paths against
  *  the subset of glob patterns used in guard-rules.json + file_reminders. */
 export function globMatch(filePath: string, pattern: string): boolean {
@@ -123,27 +145,12 @@ export function globMatch(filePath: string, pattern: string): boolean {
 
 	// "**/*.ext" — match any file with that extension
 	if (pattern.startsWith("**/")) {
-		const rest = pattern.slice(3);
-		if (rest.startsWith("*.")) {
-			const suffix = rest.slice(1); // e.g., ".env*"
-			if (suffix.endsWith("*")) {
-				// "**/*.env*" — match files containing ".env" in the name
-				const core = suffix.slice(0, -1); // ".env"
-				return filePath.includes(core);
-			}
-			return filePath.endsWith(suffix);
-		}
-		return filePath.endsWith(`/${rest}`) || filePath === rest;
+		return matchesRecursivePattern(filePath, pattern.slice(3));
 	}
 
 	// "*.ext" — match files with that extension (any directory)
 	if (pattern.startsWith("*.")) {
-		const suffix = pattern.slice(1);
-		if (suffix.endsWith("*")) {
-			const core = suffix.slice(0, -1);
-			return filePath.includes(core);
-		}
-		return filePath.endsWith(suffix);
+		return matchesExtensionSuffix(filePath, pattern.slice(1));
 	}
 
 	// "dir/**" — match anything under dir
@@ -282,6 +289,20 @@ function classifyMcpVerbExternality(toolName: string): ToolExternality | null {
 	return null;
 }
 
+/** Bash-family tools refine by inspecting the command string. A missing or
+ *  empty command stays at the cautious mid-tier. */
+function classifyBashCommandExternality(toolInput: JsonObject | undefined): ToolExternality {
+	const command = typeof toolInput?.command === "string" ? toolInput.command : "";
+	if (!command) return "local_write";
+	// `git push origin main`, `git push --force`, etc. — handled as a
+	// dedicated prefix check (case-sensitive on `git`; the action is
+	// always the lowercase verb).
+	const trimmed = command.trim();
+	if (/^git\s+push\b/.test(trimmed)) return "external_action";
+	if (BASH_EXTERNAL_ACTION_REGEX.test(command)) return "external_action";
+	return "local_write";
+}
+
 /** Public API — coarse-grained externality classifier for guard-rule gating.
  *  See module header for the externality tiers. Unknown tools default to
  *  `local_write` (cautious mid-tier). */
@@ -292,17 +313,7 @@ export function classifyToolExternality(
 	if (!toolName) return "local_write";
 
 	// Bash-family tools refine by inspecting the command string.
-	if (isBash(toolName)) {
-		const command = typeof toolInput?.command === "string" ? toolInput.command : "";
-		if (!command) return "local_write";
-		// `git push origin main`, `git push --force`, etc. — handled as a
-		// dedicated prefix check (case-sensitive on `git`; the action is
-		// always the lowercase verb).
-		const trimmed = command.trim();
-		if (/^git\s+push\b/.test(trimmed)) return "external_action";
-		if (BASH_EXTERNAL_ACTION_REGEX.test(command)) return "external_action";
-		return "local_write";
-	}
+	if (isBash(toolName)) return classifyBashCommandExternality(toolInput);
 
 	if (PURE_READ_TOOL_NAMES.has(toolName)) return "pure_read";
 	if (LOCAL_WRITE_TOOL_NAMES.has(toolName)) return "local_write";

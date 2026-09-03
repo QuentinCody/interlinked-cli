@@ -292,37 +292,42 @@ export function classifyPipSpec(spec: string): PackageSpec {
 // ===========================================================
 // poetry
 // ===========================================================
+function parsePoetryAdd(
+	args: string[],
+	envVars: Record<string, string>,
+): InstallCommand {
+	const positionals: string[] = [];
+	let customRegistry: string | undefined;
+	for (let i = 0; i < args.length; i++) {
+		const a = args[i];
+		if (a === "--source") {
+			customRegistry = args[i + 1];
+			i++;
+			continue;
+		}
+		if (nonNull(a).startsWith("-")) continue;
+		positionals.push(nonNull(a));
+	}
+	if (!customRegistry) customRegistry = envRegistryFor("pypi", envVars);
+	return {
+		ecosystem: "pypi",
+		manager: "poetry",
+		action: "add",
+		packages: positionals.map(classifyPipSpec),
+		fromLockfile: false,
+		fromManifest: false,
+		customRegistry,
+		notes: [],
+	};
+}
+
 export function parsePoetry(
 	tokens: string[],
 	envVars: Record<string, string>,
 ): InstallCommand | null {
 	const sub = tokens[1] || "";
 	const args = tokens.slice(2);
-	if (sub === "add") {
-		const positionals: string[] = [];
-		let customRegistry: string | undefined;
-		for (let i = 0; i < args.length; i++) {
-			const a = args[i];
-			if (a === "--source") {
-				customRegistry = args[i + 1];
-				i++;
-				continue;
-			}
-			if (nonNull(a).startsWith("-")) continue;
-			positionals.push(nonNull(a));
-		}
-		if (!customRegistry) customRegistry = envRegistryFor("pypi", envVars);
-		return {
-			ecosystem: "pypi",
-			manager: "poetry",
-			action: "add",
-			packages: positionals.map(classifyPipSpec),
-			fromLockfile: false,
-			fromManifest: false,
-			customRegistry,
-			notes: [],
-		};
-	}
+	if (sub === "add") return parsePoetryAdd(args, envVars);
 	if (sub === "install") {
 		let fromLockfile = false;
 		for (const a of args) {
@@ -357,6 +362,37 @@ export function parsePoetry(
 // ===========================================================
 // uv
 // ===========================================================
+function parseUvPip(
+	args: string[],
+	envVars: Record<string, string>,
+): InstallCommand | null {
+	const inner = args[0] || "";
+	if (inner !== "install") return null;
+	const sub2 = parsePip("pip", ["pip", ...args], envVars);
+	if (sub2 && !sub2.customRegistry)
+		sub2.customRegistry = envRegistryFor("pypi", envVars);
+	return sub2;
+}
+
+function parseUvTool(
+	args: string[],
+	envVars: Record<string, string>,
+): InstallCommand | null {
+	const inner = args[0] || "";
+	if (inner !== "install") return null;
+	const positionals = args.slice(1).filter((a) => !a.startsWith("-"));
+	return {
+		ecosystem: "pypi",
+		manager: "uv",
+		action: "install_global",
+		packages: positionals.map(classifyPipSpec),
+		fromLockfile: false,
+		fromManifest: false,
+		customRegistry: envRegistryFor("pypi", envVars),
+		notes: [],
+	};
+}
+
 export function parseUv(
 	tokens: string[],
 	envVars: Record<string, string>,
@@ -390,31 +426,7 @@ export function parseUv(
 			notes: [],
 		};
 	}
-	if (sub === "pip") {
-		const inner = args[0] || "";
-		if (inner === "install") {
-			const sub2 = parsePip("pip", ["pip", ...args], envVars);
-			if (sub2 && !sub2.customRegistry)
-				sub2.customRegistry = envRegistryFor("pypi", envVars);
-			return sub2;
-		}
-		return null;
-	}
-	if (sub === "tool") {
-		const inner = args[0] || "";
-		if (inner === "install") {
-			const positionals = args.slice(1).filter((a) => !a.startsWith("-"));
-			return {
-				ecosystem: "pypi",
-				manager: "uv",
-				action: "install_global",
-				packages: positionals.map(classifyPipSpec),
-				fromLockfile: false,
-				fromManifest: false,
-				customRegistry: envRegistryFor("pypi", envVars),
-				notes: [],
-			};
-		}
-	}
+	if (sub === "pip") return parseUvPip(args, envVars);
+	if (sub === "tool") return parseUvTool(args, envVars);
 	return null;
 }

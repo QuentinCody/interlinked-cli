@@ -105,6 +105,50 @@ function findEarlyExitOffset(window: string, cleanupRe: RegExp): number | null {
 }
 
 /**
+ * Yield the offset (in `stripped`) of every early throw/return that bypasses
+ * the cleanup of a name-bound acquisition (`const t = setInterval(...)` and
+ * friends). Lazy: the caller stops pulling once it has enough matches.
+ */
+function* namedAcquisitionExits(stripped: string): Generator<number> {
+	for (const { acqRe, cleanupReFor } of NAMED_ACQUISITIONS) {
+		const re = new RegExp(acqRe.source, "g");
+		let acqHit: RegExpExecArray | null;
+		while ((acqHit = re.exec(stripped))) {
+			const name = nonNull(acqHit[1]);
+			const acqEnd = acqHit.index + acqHit[0].length;
+			const windowEnd = Math.min(stripped.length, acqHit.index + LOOKAHEAD_CHARS);
+			const window = stripped.slice(acqEnd, windowEnd);
+
+			const exitIndex = findEarlyExitOffset(window, cleanupReFor(name));
+			if (exitIndex === null) continue;
+			yield acqEnd + exitIndex;
+		}
+	}
+}
+
+/**
+ * Yield the offset (in `stripped`) of every early throw/return that bypasses
+ * a matching `removeEventListener`. There is no const-binding here, so the
+ * pairing is by receiver: strings have been stripped, so we can't match the
+ * event name, and receiver-equality is a sufficient heuristic.
+ */
+function* eventListenerExits(stripped: string): Generator<number> {
+	const addRe = /\b([\w$.]+)\.addEventListener\s*\(/g;
+	let addHit: RegExpExecArray | null;
+	while ((addHit = addRe.exec(stripped))) {
+		const receiver = nonNull(addHit[1]).replace(/[.]/g, "\\.");
+		const acqEnd = addHit.index + addHit[0].length;
+		const windowEnd = Math.min(stripped.length, addHit.index + LOOKAHEAD_CHARS);
+		const window = stripped.slice(acqEnd, windowEnd);
+
+		const removeRe = new RegExp(`\\b${receiver}\\.removeEventListener\\s*\\(`);
+		const exitIndex = findEarlyExitOffset(window, removeRe);
+		if (exitIndex === null) continue;
+		yield acqEnd + exitIndex;
+	}
+}
+
+/**
  * Detect resource acquisitions whose paired cleanup is bypassed on a
  * throw/return path with no try/finally wrap.
  *
@@ -135,38 +179,12 @@ export function checkCleanupSkippedOnEarlyExit(
 		return matches.length >= MAX_MATCHES_PER_FILE;
 	};
 
-	for (const { acqRe, cleanupReFor } of NAMED_ACQUISITIONS) {
-		const re = new RegExp(acqRe.source, "g");
-		let acqHit: RegExpExecArray | null;
-		while ((acqHit = re.exec(stripped))) {
-			if (matches.length >= MAX_MATCHES_PER_FILE) return matches;
-			const name = nonNull(acqHit[1]);
-			const acqEnd = acqHit.index + acqHit[0].length;
-			const windowEnd = Math.min(stripped.length, acqHit.index + LOOKAHEAD_CHARS);
-			const window = stripped.slice(acqEnd, windowEnd);
-
-			const exitIndex = findEarlyExitOffset(window, cleanupReFor(name));
-			if (exitIndex === null) continue;
-			if (recordExit(acqEnd + exitIndex)) return matches;
-		}
+	for (const exitOffset of namedAcquisitionExits(stripped)) {
+		if (recordExit(exitOffset)) return matches;
 	}
 
-	// addEventListener / removeEventListener pairing — no const-binding,
-	// match by receiver. Strings have been stripped, so we can't match the
-	// event name; receiver-equality is a sufficient pairing heuristic.
-	const addRe = /\b([\w$.]+)\.addEventListener\s*\(/g;
-	let addHit: RegExpExecArray | null;
-	while ((addHit = addRe.exec(stripped))) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return matches;
-		const receiver = nonNull(addHit[1]).replace(/[.]/g, "\\.");
-		const acqEnd = addHit.index + addHit[0].length;
-		const windowEnd = Math.min(stripped.length, addHit.index + LOOKAHEAD_CHARS);
-		const window = stripped.slice(acqEnd, windowEnd);
-
-		const removeRe = new RegExp(`\\b${receiver}\\.removeEventListener\\s*\\(`);
-		const exitIndex = findEarlyExitOffset(window, removeRe);
-		if (exitIndex === null) continue;
-		if (recordExit(acqEnd + exitIndex)) return matches;
+	for (const exitOffset of eventListenerExits(stripped)) {
+		if (recordExit(exitOffset)) return matches;
 	}
 
 	return matches;

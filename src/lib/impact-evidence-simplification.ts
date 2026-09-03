@@ -74,6 +74,30 @@ function reconcileAuthoritativeSimplificationScope(
 	}
 }
 
+interface ParsedSimplificationReceiptLines {
+	receipts: SimplificationRunReceipt[];
+	receiptRows: number;
+	malformedReceipts: number;
+}
+
+function parseSimplificationReceiptLines(content: string): ParsedSimplificationReceiptLines {
+	const receipts: SimplificationRunReceipt[] = [];
+	let receiptRows = 0;
+	let malformedReceipts = 0;
+	for (const line of content.split("\n")) {
+		if (!line.trim()) continue;
+		receiptRows++;
+		try {
+			const receipt = parseSimplificationRunReceipt(JSON.parse(line));
+			if (receipt) receipts.push(receipt);
+			else malformedReceipts++;
+		} catch {
+			malformedReceipts++;
+		}
+	}
+	return { receipts, receiptRows, malformedReceipts };
+}
+
 export function readSimplificationReceipts(cwd: string): ParsedSimplificationReceipts {
 	const path = simplificationRunsPath(cwd);
 	const baseEvidence: SimplificationReceiptEvidence = {
@@ -103,20 +127,7 @@ export function readSimplificationReceipts(cwd: string): ParsedSimplificationRec
 			latest: [],
 		};
 	}
-	const receipts: SimplificationRunReceipt[] = [];
-	let receiptRows = 0;
-	let malformedReceipts = 0;
-	for (const line of content.split("\n")) {
-		if (!line.trim()) continue;
-		receiptRows++;
-		try {
-			const receipt = parseSimplificationRunReceipt(JSON.parse(line));
-			if (receipt) receipts.push(receipt);
-			else malformedReceipts++;
-		} catch {
-			malformedReceipts++;
-		}
-	}
+	const { receipts, receiptRows, malformedReceipts } = parseSimplificationReceiptLines(content);
 	const latestByFingerprint = new Map<string, SimplificationFinding>();
 	let findingObservations = 0;
 	for (const receipt of receipts) {

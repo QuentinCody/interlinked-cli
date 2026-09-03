@@ -354,23 +354,21 @@ export function evaluateManifestEditGuard(
 	toolInput: ToolInput,
 	warnings: string[],
 ): HarnessDecision | null {
-	if (process.env.INTERLINKED_DISABLE_PACKAGE_GUARD !== "1" && isFileWrite(toolName)) {
-		const mfPath = (toolInput.file_path as string) || (toolInput.path as string) || "";
-		if (mfPath) {
-			const mfCwd = event.cwd || process.cwd();
-			const absPath = isAbsolute(mfPath) ? mfPath : resolve(mfCwd, mfPath);
-			const fullNewContent = computeFullNewContent(absPath, toolInput);
-			if (fullNewContent !== null) {
-				const manifestBlock = evaluateManifestEdit({
-					filePath: absPath,
-					newContent: fullNewContent,
-					allowlist: loadAllowlist(mfCwd),
-					cwd: mfCwd,
-					warnings,
-				});
-				if (manifestBlock) return manifestBlock;
-			}
-		}
+	if (process.env.INTERLINKED_DISABLE_PACKAGE_GUARD === "1" || !isFileWrite(toolName)) {
+		return null;
 	}
-	return null;
+	const mfPath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	if (!mfPath) return null;
+	const mfCwd = event.cwd || process.cwd();
+	const absPath = isAbsolute(mfPath) ? mfPath : resolve(mfCwd, mfPath);
+	const fullNewContent = computeFullNewContent(absPath, toolInput);
+	if (fullNewContent === null) return null;
+	const manifestBlock = evaluateManifestEdit({
+		filePath: absPath,
+		newContent: fullNewContent,
+		allowlist: loadAllowlist(mfCwd),
+		cwd: mfCwd,
+		warnings,
+	});
+	return manifestBlock ? manifestBlock : null;
 }

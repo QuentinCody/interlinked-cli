@@ -265,25 +265,34 @@ const OBSERVED_CHECK_STATUSES = new Set(["red", "green"]);
  *  fields are omitted (not set to undefined) to respect
  *  exactOptionalPropertyTypes. Returns an empty Map for non-object input so a
  *  snapshot predating this field hydrates cleanly. */
+/** Builds one {@link ObservedCheck} record from a raw snapshot entry, or
+ *  returns `null` when the entry's kind/status is unknown (the caller's drop
+ *  condition). Extracted from {@link readObservedChecks} to keep that loop
+ *  body flat. */
+function buildObservedCheck(raw: Record<string, unknown>): ObservedCheck | null {
+	const kindStr = typeof raw.kind === "string" ? raw.kind : "";
+	const statusStr = typeof raw.status === "string" ? raw.status : "";
+	if (!OBSERVED_CHECK_KINDS.has(kindStr) || !OBSERVED_CHECK_STATUSES.has(statusStr)) return null;
+	const entry: ObservedCheck = {
+		kind: kindStr as ObservedCheck["kind"],
+		status: statusStr as ObservedCheck["status"],
+	};
+	if (typeof raw.red_at === "number" && Number.isFinite(raw.red_at)) entry.red_at = raw.red_at;
+	if (typeof raw.green_at === "number" && Number.isFinite(raw.green_at)) {
+		entry.green_at = raw.green_at;
+	}
+	const detail = readString(raw.detail);
+	if (detail) entry.detail = detail;
+	return entry;
+}
+
 export function readObservedChecks(v: unknown): Map<string, ObservedCheck> {
 	const out = new Map<string, ObservedCheck>();
 	if (!isPlainObject(v)) return out;
 	for (const [key, raw] of Object.entries(v)) {
 		if (!isPlainObject(raw)) continue;
-		const kindStr = typeof raw.kind === "string" ? raw.kind : "";
-		const statusStr = typeof raw.status === "string" ? raw.status : "";
-		if (!OBSERVED_CHECK_KINDS.has(kindStr) || !OBSERVED_CHECK_STATUSES.has(statusStr)) continue;
-		const entry: ObservedCheck = {
-			kind: kindStr as ObservedCheck["kind"],
-			status: statusStr as ObservedCheck["status"],
-		};
-		if (typeof raw.red_at === "number" && Number.isFinite(raw.red_at)) entry.red_at = raw.red_at;
-		if (typeof raw.green_at === "number" && Number.isFinite(raw.green_at)) {
-			entry.green_at = raw.green_at;
-		}
-		const detail = readString(raw.detail);
-		if (detail) entry.detail = detail;
-		out.set(key, entry);
+		const entry = buildObservedCheck(raw);
+		if (entry) out.set(key, entry);
 	}
 	return out;
 }
@@ -401,6 +410,38 @@ export function serializeCapturedPlan(plan: CapturedPlan): JsonObject {
  *  missing, or malformed shapes so older snapshots (predating this
  *  field) hydrate cleanly. Unknown step statuses default to "pending";
  *  unknown sources default to "TaskCreate" so we never crash. */
+/** Builds one {@link PlanStep} from a raw serialized step, or returns `null`
+ *  when the step carries no intent (the caller's drop condition). Unknown
+ *  statuses default to "pending"; absent hints are omitted (not set to
+ *  undefined) to respect exactOptionalPropertyTypes. */
+function buildPlanStep(raw: JsonObject): PlanStep | null {
+	const intent = readString(raw.intent);
+	if (!intent) return null;
+	const statusRaw = typeof raw.status === "string" ? raw.status : "pending";
+	const status = PLAN_STEP_STATUSES.has(statusRaw as PlanStepStatus)
+		? (statusRaw as PlanStepStatus)
+		: "pending";
+	const step: PlanStep = { intent, status };
+	const toolHint = readString(raw.tool_hint);
+	if (toolHint) step.tool_hint = toolHint;
+	const targetHint = readString(raw.target_hint);
+	if (targetHint) step.target_hint = targetHint;
+	return step;
+}
+
+/** Coerces the serialized `steps` array, dropping non-object and
+ *  intent-less entries. Returns an empty array for a missing/malformed field. */
+function readPlanSteps(v: unknown): PlanStep[] {
+	if (!Array.isArray(v)) return [];
+	const steps: PlanStep[] = [];
+	for (const raw of v) {
+		if (!isPlainObject(raw)) continue;
+		const step = buildPlanStep(raw);
+		if (step) steps.push(step);
+	}
+	return steps;
+}
+
 export function readCapturedPlan(v: unknown): CapturedPlan | undefined {
 	if (!isPlainObject(v)) return undefined;
 	const sessionId = readString(v.session_id);
@@ -411,29 +452,12 @@ export function readCapturedPlan(v: unknown): CapturedPlan | undefined {
 	const source = PLAN_SOURCES.has(sourceRaw as PlanSource)
 		? (sourceRaw as PlanSource)
 		: "TaskCreate";
-	const stepsRaw = Array.isArray(v.steps) ? v.steps : [];
-	const steps: PlanStep[] = [];
-	for (const raw of stepsRaw) {
-		if (!isPlainObject(raw)) continue;
-		const intent = readString(raw.intent);
-		if (!intent) continue;
-		const statusRaw = typeof raw.status === "string" ? raw.status : "pending";
-		const status = PLAN_STEP_STATUSES.has(statusRaw as PlanStepStatus)
-			? (statusRaw as PlanStepStatus)
-			: "pending";
-		const step: PlanStep = { intent, status };
-		const toolHint = readString(raw.tool_hint);
-		if (toolHint) step.tool_hint = toolHint;
-		const targetHint = readString(raw.target_hint);
-		if (targetHint) step.target_hint = targetHint;
-		steps.push(step);
-	}
 	return {
 		session_id: sessionId,
 		agent_name: agentName,
 		created_at_iso: createdAtIso,
 		created_at_step: readNumber(v.created_at_step, 0),
 		source,
-		steps,
+		steps: readPlanSteps(v.steps),
 	};
 }

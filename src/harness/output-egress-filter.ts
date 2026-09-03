@@ -24,7 +24,7 @@
 //   * The function is deterministic and side-effect-free — safe to call from
 //     any hook path (no latency floor, no I/O).
 
-import { scanSecrets } from "./signatures.js";
+import { type SignatureMatch, scanSecrets } from "./signatures.js";
 
 // ===========================================
 // Types
@@ -79,6 +79,38 @@ function escapeRegex(literal: string): string {
 	return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** The substring this match should redact, or null when the match must be
+ *  skipped: an ignored rule id, a missing/non-string `matched_text`, or a
+ *  needle that no longer occurs in `text`. */
+function redactableNeedle(
+	match: SignatureMatch,
+	ignoredRuleIds: ReadonlySet<string>,
+	text: string,
+): string | null {
+	if (ignoredRuleIds.has(match.rule_id)) return null;
+	const needle = match.matched_text;
+	if (!needle || typeof needle !== "string") return null;
+	if (text.indexOf(needle) === -1) return null; // gracefully skip absent matches
+	return needle;
+}
+
+/** Replace every occurrence of `needle` in `text` with `marker`, reporting how
+ *  many replacements were made. String.replaceAll requires Node 15+; this
+ *  project targets ES2022, so the replacement is explicitly global. */
+function replaceAllOccurrences(
+	text: string,
+	needle: string,
+	marker: string,
+): { text: string; occurrences: number } {
+	const pattern = new RegExp(escapeRegex(needle), "g");
+	let occurrences = 0;
+	const replaced = text.replace(pattern, () => {
+		occurrences += 1;
+		return marker;
+	});
+	return { text: replaced, occurrences };
+}
+
 // ===========================================
 // Public API
 // ===========================================
@@ -122,24 +154,15 @@ export function filterOutputEgress(
 	let redactionCount = 0;
 
 	for (const match of matches) {
-		if (ignored.has(match.rule_id)) continue;
-
-		const needle = match.matched_text;
-		if (!needle || typeof needle !== "string") continue;
-		if (filtered.indexOf(needle) === -1) continue; // gracefully skip absent matches
+		const needle = redactableNeedle(match, ignored, filtered);
+		if (needle === null) continue;
 
 		// Replace ALL occurrences across the full content (not just the slice).
-		// String.replaceAll requires Node 15+; this project targets ES2022.
-		const pattern = new RegExp(escapeRegex(needle), "g");
-		const before = filtered;
-		let occurrences = 0;
-		filtered = before.replace(pattern, () => {
-			occurrences += 1;
-			return marker;
-		});
+		const replaced = replaceAllOccurrences(filtered, needle, marker);
+		filtered = replaced.text;
 
-		if (occurrences > 0) {
-			redactionCount += occurrences;
+		if (replaced.occurrences > 0) {
+			redactionCount += replaced.occurrences;
 			if (!ruleIdsAdded.has(match.rule_id)) {
 				ruleIdsSeen.push(match.rule_id);
 				ruleIdsAdded.add(match.rule_id);

@@ -6,7 +6,37 @@
 
 import { basename, extname } from "node:path";
 import type { ProjectGraph } from "../project-graph.js";
-import type { StructuralCheckResult } from "../types.js";
+import type { ExportedSymbol, StructuralCheckResult } from "../types.js";
+
+/**
+ * Builds the result for a file with zero importers in the project graph —
+ * skips known entry points, and reports every non-default/wildcard export
+ * as dead when the file isn't one.
+ */
+function buildNoImporterResult(
+	filePath: string,
+	relPath: string,
+	exports: ExportedSymbol[],
+	deleteSuffix: string,
+): StructuralCheckResult[] {
+	// Skip index/barrel files and entry points
+	const base = basename(filePath, extname(filePath));
+	if (base === "index" || base === "main" || base === "server" || base === "worker") return [];
+
+	const exportNames = exports
+		.filter((e) => e.name !== "default" && e.name !== "*")
+		.map((e) => e.name);
+	if (exportNames.length === 0) return [];
+
+	return [
+		{
+			check: "dead_exports",
+			severity: "info",
+			message: `${relPath} exports ${exportNames.length} symbol(s) but has no importers in the project. Exports: \`${exportNames.slice(0, 5).join("`, `")}\`${exportNames.length > 5 ? ` +${exportNames.length - 5} more` : ""}.${deleteSuffix}`,
+			file: filePath,
+		},
+	];
+}
 
 /**
  * Public API — consumed by structural-checks.runStructuralChecks.
@@ -40,24 +70,7 @@ export function checkDeadExports(
 
 	// If no importers at all, all exports are dead
 	if (importers.length === 0) {
-		// Skip index/barrel files and entry points
-		const base = basename(filePath, extname(filePath));
-		if (base === "index" || base === "main" || base === "server" || base === "worker")
-			return [];
-
-		const exportNames = exports
-			.filter((e) => e.name !== "default" && e.name !== "*")
-			.map((e) => e.name);
-		if (exportNames.length === 0) return [];
-
-		return [
-			{
-				check: "dead_exports",
-				severity: "info",
-				message: `${relPath} exports ${exportNames.length} symbol(s) but has no importers in the project. Exports: \`${exportNames.slice(0, 5).join("`, `")}\`${exportNames.length > 5 ? ` +${exportNames.length - 5} more` : ""}.${deleteSuffix}`,
-				file: filePath,
-			},
-		];
+		return buildNoImporterResult(filePath, relPath, exports, deleteSuffix);
 	}
 
 	// Find exports that no importer references

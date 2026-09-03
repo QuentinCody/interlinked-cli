@@ -67,37 +67,32 @@ function scanFile(filePath: string, content: string, envKeys: EnvKeyMap): void {
 	}
 }
 
-/** Classify ONE file into its env_key nodes: declared keys from `.env.example`,
- *  or extracted `process.env.X`-style refs from a source file. Reads the file
- *  (catch → no keys) so it works per-edited-file in the incremental refresh;
- *  aggregate dedup is the caller's job. `extract` keeps its own walk + ordering
- *  (`.env.example` first so declared wins). */
-export function classifyFile(repoRoot: string, relPath: string): ExtractorResult {
-	const name = path.basename(relPath);
-	const envKeys: EnvKeyMap = new Map();
-	if (name === ".env.example") {
-		try {
-			const content = fs.readFileSync(path.join(repoRoot, relPath), "utf-8");
-			for (const line of content.split("\n")) {
-				const trimmed = line.trim();
-				if (trimmed === "" || trimmed.startsWith("#")) continue;
-				const eqIdx = trimmed.indexOf("=");
-				const key = eqIdx >= 0 ? trimmed.slice(0, eqIdx).trim() : trimmed;
-				if (/^[A-Z][A-Z0-9_]*$/.test(key)) {
-					envKeys.set(key, { provenance: "declared", file: relPath });
-				}
-			}
-		} catch {
-			return { nodes: [], edges: [] };
-		}
-	} else if (SOURCE_EXTENSIONS.has(path.extname(name))) {
-		try {
-			const content = fs.readFileSync(path.join(repoRoot, relPath), "utf-8");
-			scanFile(relPath, content, envKeys);
-		} catch {
-			return { nodes: [], edges: [] };
+/** Record every `KEY=value` / bare `KEY` line of a `.env.example` body as a
+ *  declared env key. Blank lines and `#` comments are skipped; a key that does
+ *  not match the upper-snake shape is ignored. */
+function collectDeclaredEnvKeys(content: string, file: string, envKeys: EnvKeyMap): void {
+	for (const line of content.split("\n")) {
+		const trimmed = line.trim();
+		if (trimmed === "" || trimmed.startsWith("#")) continue;
+		const eqIdx = trimmed.indexOf("=");
+		const key = eqIdx >= 0 ? trimmed.slice(0, eqIdx).trim() : trimmed;
+		if (/^[A-Z][A-Z0-9_]*$/.test(key)) {
+			envKeys.set(key, { provenance: "declared", file });
 		}
 	}
+}
+
+/** Read a file as UTF-8, or null when it is missing/unreadable. */
+function readFileOrNull(absPath: string): string | null {
+	try {
+		return fs.readFileSync(absPath, "utf-8");
+	} catch {
+		return null;
+	}
+}
+
+/** Render the collected env keys as artifact nodes, one per key. */
+function toEnvKeyNodes(envKeys: EnvKeyMap): ArtifactNode[] {
 	const nodes: ArtifactNode[] = [];
 	for (const [key, info] of envKeys) {
 		nodes.push({
@@ -109,7 +104,28 @@ export function classifyFile(repoRoot: string, relPath: string): ExtractorResult
 			determinism_ceiling: "partially_deterministic",
 		});
 	}
-	return { nodes, edges: [] };
+	return nodes;
+}
+
+/** Classify ONE file into its env_key nodes: declared keys from `.env.example`,
+ *  or extracted `process.env.X`-style refs from a source file. Reads the file
+ *  (catch → no keys) so it works per-edited-file in the incremental refresh;
+ *  aggregate dedup is the caller's job. `extract` keeps its own walk + ordering
+ *  (`.env.example` first so declared wins). */
+export function classifyFile(repoRoot: string, relPath: string): ExtractorResult {
+	const name = path.basename(relPath);
+	const envKeys: EnvKeyMap = new Map();
+	const absPath = path.join(repoRoot, relPath);
+	if (name === ".env.example") {
+		const content = readFileOrNull(absPath);
+		if (content === null) return { nodes: [], edges: [] };
+		collectDeclaredEnvKeys(content, relPath, envKeys);
+	} else if (SOURCE_EXTENSIONS.has(path.extname(name))) {
+		const content = readFileOrNull(absPath);
+		if (content === null) return { nodes: [], edges: [] };
+		scanFile(relPath, content, envKeys);
+	}
+	return { nodes: toEnvKeyNodes(envKeys), edges: [] };
 }
 
 interface WalkContext {
@@ -160,21 +176,9 @@ function walkDir(dir: string, ctx: WalkContext): void {
 }
 
 function scanEnvExample(repoRoot: string, envKeys: EnvKeyMap): void {
-	const examplePath = path.join(repoRoot, ".env.example");
-	try {
-		const content = fs.readFileSync(examplePath, "utf-8");
-		for (const line of content.split("\n")) {
-			const trimmed = line.trim();
-			if (trimmed === "" || trimmed.startsWith("#")) continue;
-			const eqIdx = trimmed.indexOf("=");
-			const key = eqIdx >= 0 ? trimmed.slice(0, eqIdx).trim() : trimmed;
-			if (/^[A-Z][A-Z0-9_]*$/.test(key)) {
-				envKeys.set(key, { provenance: "declared", file: ".env.example" });
-			}
-		}
-	} catch (_err) {
-		void 0; /* intentional: no .env.example present */
-	}
+	const content = readFileOrNull(path.join(repoRoot, ".env.example"));
+	if (content === null) return; /* intentional: no .env.example present */
+	collectDeclaredEnvKeys(content, ".env.example", envKeys);
 }
 
 export function extract(repoRoot: string, budget: WalkBudget = createWalkBudget()): ExtractorResult {
@@ -182,16 +186,5 @@ export function extract(repoRoot: string, budget: WalkBudget = createWalkBudget(
 	scanEnvExample(repoRoot, envKeys);
 	walkDir(repoRoot, { repoRoot, envKeys, budget, ignoredDirs: resolveIgnoredDirs(repoRoot) });
 	if (budget.truncated) warnWalkTruncated(metadata.name, repoRoot);
-	const nodes: ArtifactNode[] = [];
-	for (const [key, info] of envKeys) {
-		nodes.push({
-			id: makeGlobalRef("env_key", key),
-			kind: "env_key",
-			label: key,
-			file: info.file,
-			provenance: info.provenance,
-			determinism_ceiling: "partially_deterministic",
-		});
-	}
-	return { nodes, edges: [] };
+	return { nodes: toEnvKeyNodes(envKeys), edges: [] };
 }

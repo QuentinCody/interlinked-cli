@@ -8,7 +8,8 @@
 // "ask" semantics are limited, so Interlinked collapses it to deny.
 
 import { formatAskReasonWithTargets } from "../evaluator/rule-matching.js";
-import { type ClassifierOverrides, classifyFromToolName } from "../tool-class-classifier.js";
+import type { ClassifierOverrides } from "../tool-class-classifier.js";
+import { adapterToolClassifier } from "./adapter-tool-class.js";
 import type { JsonObject } from "../../lib/json-types.js";
 import { buildHookCommand } from "./hook-command.js";
 import { buildStandardAction, normalizeNativeHookEvent } from "./normalization.js";
@@ -61,13 +62,7 @@ export function createCopilotCliAdapter(opts: CopilotCliAdapterOptions = {}): Ru
 			});
 		},
 
-		classifyToolClass(toolName, toolInput) {
-			return classifyFromToolName(
-				toolName,
-				toolInput,
-				opts.overrides ? { overrides: opts.overrides } : {},
-			);
-		},
+		classifyToolClass: adapterToolClassifier(opts.overrides),
 
 		renderSettingsFragment(binaryPath, _scope): SettingsFragment {
 			const hooks: Record<string, unknown[]> = {};

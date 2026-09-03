@@ -77,27 +77,7 @@ export async function sponsorEnableAction(
 	if (opts.feedUrl) sponsor.feed_url = opts.feedUrl;
 
 	if (opts.spinner) {
-		const verb = await resolveSpinnerVerb(
-			sponsor.feed_url ?? DEFAULT_FEED_URL,
-			fetchImpl,
-		);
-		if (verb) {
-			const res = addSponsorSpinnerVerb(claudeSettingsPath, verb);
-			if (res.ok && res.written) {
-				sponsor.spinner = true;
-				const written = new Set(prior.spinner_verbs_written ?? []);
-				written.add(res.written);
-				sponsor.spinner_verbs_written = [...written];
-				console.log(c.green(`Spinner verb installed: "${res.written}"`));
-				console.log(c.dim("Claude Code reads spinnerVerbs at boot — restart to see it."));
-			} else {
-				console.error(c.yellow(`Spinner surface skipped: ${res.reason ?? "unknown"}`));
-			}
-		} else {
-			console.error(
-				c.yellow("Spinner surface skipped: no verified feed/creative available yet."),
-			);
-		}
+		await applySpinnerOptIn(sponsor, claudeSettingsPath, fetchImpl);
 	}
 
 	updateLocalConfig({ install_id: installId, sponsor }, cwd);
@@ -179,6 +159,36 @@ export async function sponsorStatusAction(
 		console.log(c.dim(`  showing: ${live.creative} — ${live.text ?? ""}`));
 	}
 	return 0;
+}
+
+/**
+ * Install the current creative's spinner verb into ~/.claude/settings.json and
+ * record it on `sponsor`. Leaves `sponsor` untouched when no verb is available
+ * or the settings write is skipped.
+ */
+async function applySpinnerOptIn(
+	sponsor: SponsorConfig,
+	claudeSettingsPath: string,
+	fetchImpl: typeof fetch,
+): Promise<void> {
+	const verb = await resolveSpinnerVerb(sponsor.feed_url ?? DEFAULT_FEED_URL, fetchImpl);
+	if (!verb) {
+		console.error(
+			c.yellow("Spinner surface skipped: no verified feed/creative available yet."),
+		);
+		return;
+	}
+	const res = addSponsorSpinnerVerb(claudeSettingsPath, verb);
+	if (!res.ok || !res.written) {
+		console.error(c.yellow(`Spinner surface skipped: ${res.reason ?? "unknown"}`));
+		return;
+	}
+	sponsor.spinner = true;
+	const written = new Set(sponsor.spinner_verbs_written ?? []);
+	written.add(res.written);
+	sponsor.spinner_verbs_written = [...written];
+	console.log(c.green(`Spinner verb installed: "${res.written}"`));
+	console.log(c.dim("Claude Code reads spinnerVerbs at boot — restart to see it."));
 }
 
 /** Fetch + verify the feed once (admission-time network) and derive the verb. */

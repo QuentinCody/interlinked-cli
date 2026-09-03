@@ -108,6 +108,54 @@ function isOtherAgent(
 	return true;
 }
 
+/** True when `ev` is a write to `filePath` performed by an actor other than
+ *  the trajectory under evaluation. The three-way test (write tool, other
+ *  actor, same file) shared by the two cross-session scans below. */
+function isOtherAgentWriteTo(
+	ev: WorkspaceActivityEvent,
+	filePath: string,
+	trajectory: Readonly<SessionTrajectory>,
+): boolean {
+	if (!ev.tool_name || !WRITE_TOOLS.has(ev.tool_name)) return false;
+	if (!isOtherAgent(ev, trajectory)) return false;
+	return fileMatches(eventFilePath(ev), filePath);
+}
+
+/** Every other-agent write to `filePath` whose timestamp is after
+ *  `trajectory.started_at`, in event order. */
+function otherAgentWritesSinceStart(
+	events: readonly WorkspaceActivityEvent[],
+	filePath: string,
+	trajectory: Readonly<SessionTrajectory>,
+): WorkspaceActivityEvent[] {
+	const offending: WorkspaceActivityEvent[] = [];
+	for (const ev of events) {
+		if (!isOtherAgentWriteTo(ev, filePath, trajectory)) continue;
+		if (!isAfter(ev.timestamp, trajectory.started_at)) continue;
+		offending.push(ev);
+	}
+	return offending;
+}
+
+/** The most recent other-agent write to `filePath` at or after
+ *  `windowStartMs`, scanning newest-first; `null` when there is none. */
+function latestOtherAgentWriteInWindow(
+	events: readonly WorkspaceActivityEvent[],
+	filePath: string,
+	trajectory: Readonly<SessionTrajectory>,
+	windowStartMs: number,
+): WorkspaceActivityEvent | null {
+	for (let i = events.length - 1; i >= 0; i--) {
+		const ev = events[i];
+		if (!ev) continue;
+		if (!isOtherAgentWriteTo(ev, filePath, trajectory)) continue;
+		const evMs = Date.parse(ev.timestamp);
+		if (Number.isNaN(evMs) || evMs < windowStartMs) continue;
+		return ev;
+	}
+	return null;
+}
+
 // ============================================================
 // §3.4 stale_read_then_write (pre_warn)
 // ============================================================
@@ -141,14 +189,7 @@ export const staleReadThenWrite: SequenceDetector = {
 		const cwd = candidate.cwd;
 		if (!cwd) return [];
 		const events = loadRecentWorkspaceEvents(cwd, trajectory.started_at);
-		const offending: WorkspaceActivityEvent[] = [];
-		for (const ev of events) {
-			if (!ev.tool_name || !WRITE_TOOLS.has(ev.tool_name)) continue;
-			if (!isOtherAgent(ev, trajectory)) continue;
-			if (!fileMatches(eventFilePath(ev), filePath)) continue;
-			if (!isAfter(ev.timestamp, trajectory.started_at)) continue;
-			offending.push(ev);
-		}
+		const offending = otherAgentWritesSinceStart(events, filePath, trajectory);
 		if (offending.length === 0) return [];
 		// "No re-read since": file_read_at stores tool_call_count of the
 		// most recent read. We can't time-correlate it directly; the
@@ -299,30 +340,21 @@ export const fileOverwriteAfterOtherAgent: SequenceDetector = {
 		const windowStartMs = now() - OVERWRITE_RECENT_WINDOW_MS;
 		const sinceIso = new Date(windowStartMs).toISOString();
 		const events = loadRecentWorkspaceEvents(cwd, sinceIso);
-		for (let i = events.length - 1; i >= 0; i--) {
-			const ev = events[i];
-			if (!ev) continue;
-			if (!ev.tool_name || !WRITE_TOOLS.has(ev.tool_name)) continue;
-			if (!isOtherAgent(ev, trajectory)) continue;
-			if (!fileMatches(eventFilePath(ev), filePath)) continue;
-			const evMs = Date.parse(ev.timestamp);
-			if (Number.isNaN(evMs)) continue;
-			if (evMs < windowStartMs) continue;
-			const otherAgent = ev.agent_name ?? "another agent";
-			return [
-				{
-					prior_event_count: 1,
-					prior_summary: `${otherAgent} wrote ${filePath} at ${ev.timestamp}`,
-					message:
-						`About to write ${filePath}, but ${otherAgent} wrote it within the last hour ` +
-						"and this session has not read it. Read the current contents first to confirm " +
-						"the overwrite is intended, or acknowledge with " +
-						"`// interlinked: defer file_overwrite_after_other_agent -- <reason>`.",
-					evidence: [filePath, ev.timestamp],
-				},
-			];
-		}
-		return [];
+		const ev = latestOtherAgentWriteInWindow(events, filePath, trajectory, windowStartMs);
+		if (!ev) return [];
+		const otherAgent = ev.agent_name ?? "another agent";
+		return [
+			{
+				prior_event_count: 1,
+				prior_summary: `${otherAgent} wrote ${filePath} at ${ev.timestamp}`,
+				message:
+					`About to write ${filePath}, but ${otherAgent} wrote it within the last hour ` +
+					"and this session has not read it. Read the current contents first to confirm " +
+					"the overwrite is intended, or acknowledge with " +
+					"`// interlinked: defer file_overwrite_after_other_agent -- <reason>`.",
+				evidence: [filePath, ev.timestamp],
+			},
+		];
 	},
 };
 

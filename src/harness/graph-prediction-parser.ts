@@ -232,23 +232,31 @@ function attachListItem(
 	return { ok: false, error: `orphan list item "${item.value}" — no parent key found` };
 }
 
+/** Tokenizes one raw source line into `tokens`, mutating it in place.
+ *  Returns an error message if the line is malformed or can't attach
+ *  to a parent, or `null` on success (including blank/comment lines,
+ *  which are simply skipped). */
+function tokenizeBodyLine(raw: string, tokens: KeyValueLine[]): string | null {
+	if (raw.trim() === "" || raw.trim().startsWith("#")) return null;
+	const kv = tokenizeKeyValue(raw);
+	if (kv) {
+		tokens.push(kv);
+		return null;
+	}
+	const li = tokenizeListItem(raw);
+	if (li) {
+		const result = attachListItem(tokens, li);
+		return result.ok ? null : (result.error ?? "list item attach failed");
+	}
+	return `malformed line: ${raw.trim().slice(0, 80)}`;
+}
+
 function tokenizeBody(body: string): { tokens: KeyValueLine[]; error: string | null } {
 	const lines = body.split("\n");
 	const tokens: KeyValueLine[] = [];
 	for (const raw of lines) {
-		if (raw.trim() === "" || raw.trim().startsWith("#")) continue;
-		const kv = tokenizeKeyValue(raw);
-		if (kv) {
-			tokens.push(kv);
-			continue;
-		}
-		const li = tokenizeListItem(raw);
-		if (li) {
-			const result = attachListItem(tokens, li);
-			if (!result.ok) return { tokens, error: result.error ?? "list item attach failed" };
-			continue;
-		}
-		return { tokens, error: `malformed line: ${raw.trim().slice(0, 80)}` };
+		const error = tokenizeBodyLine(raw, tokens);
+		if (error) return { tokens, error };
 	}
 	// Post-process: synthesize a flow-list `rest` for any token with collected
 	// blockItems so parseInlineValue treats both YAML forms uniformly.

@@ -142,6 +142,28 @@ export function collectDirtyDependentWarning(cwd: string, graph: ProjectGraph): 
  *  String.replace (dollar-pattern interpretation) is wrong here. */
 const applyReplacement = applyLiteralReplacement;
 
+/** Read the on-disk content the replacements apply to: "" for a file that
+ *  does not exist yet, null when the read itself fails (the caller treats
+ *  null as "no computable content"). */
+function readCurrentFileContent(absPath: string): string | null {
+	if (!existsSync(absPath)) return "";
+	try {
+		return readFileSync(absPath, "utf-8");
+	} catch {
+		return null;
+	}
+}
+
+/** Apply one MultiEdit `edits[]` entry. An entry that does not carry a
+ *  string old/new pair leaves the content unchanged. */
+function applyEditEntry(content: string, edit: unknown): string {
+	if (!edit || typeof edit !== "object") return content;
+	const oldS = (edit as JsonObject).old_string;
+	const newS = (edit as JsonObject).new_string;
+	if (typeof oldS !== "string" || typeof newS !== "string") return content;
+	return applyReplacement(content, oldS, newS, (edit as JsonObject).replace_all === true);
+}
+
 /**
  * Compute the full post-write content of a file from a Write / Edit /
  * MultiEdit tool_input. Returns null when the operation's shape doesn't
@@ -154,16 +176,8 @@ export function computeFullNewContent(
 	toolInput: JsonObject,
 ): string | null {
 	if (typeof toolInput.content === "string") return toolInput.content;
-	const readCurrent = (): string | null => {
-		if (!existsSync(absPath)) return "";
-		try {
-			return readFileSync(absPath, "utf-8");
-		} catch {
-			return null;
-		}
-	};
 	if (typeof toolInput.new_string === "string" && typeof toolInput.old_string === "string") {
-		const current = readCurrent();
+		const current = readCurrentFileContent(absPath);
 		if (current === null) return null;
 		return applyReplacement(
 			current,
@@ -173,18 +187,10 @@ export function computeFullNewContent(
 		);
 	}
 	if (Array.isArray(toolInput.edits)) {
-		const current = readCurrent();
+		const current = readCurrentFileContent(absPath);
 		if (current === null) return null;
 		let result = current;
-		for (const edit of toolInput.edits as unknown[]) {
-			if (edit && typeof edit === "object") {
-				const oldS = (edit as JsonObject).old_string;
-				const newS = (edit as JsonObject).new_string;
-				if (typeof oldS === "string" && typeof newS === "string") {
-					result = applyReplacement(result, oldS, newS, (edit as JsonObject).replace_all === true);
-				}
-			}
-		}
+		for (const edit of toolInput.edits as unknown[]) result = applyEditEntry(result, edit);
 		return result;
 	}
 	return null;

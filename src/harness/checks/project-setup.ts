@@ -2,6 +2,7 @@
 // Extracted from generic-checks.ts.
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import type { Dirent } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { JsonObject } from "../../lib/json-types.js";
 import { describeReason, suggestRuleFix, validateSettingsFile } from "../../lib/settings-validator.js";
@@ -65,6 +66,29 @@ function readDirEntries(dir: string) {
 	}
 }
 
+/** Whether a directory basename is first-party source the walk should
+ *  descend into — excludes {@link NON_SOURCE_DIRS} and any dotfile dir. */
+function isProjectSourceDir(name: string): boolean {
+	return !NON_SOURCE_DIRS.has(name) && !name.startsWith(".");
+}
+
+/** Handle one directory entry during the walk: queue a source subdirectory
+ *  onto `stack`, or run `visit` on a file. Returns `true` only when `visit`
+ *  matched, signaling the walk to stop. */
+function processDirEntry(
+	entry: Dirent,
+	dir: string,
+	stack: string[],
+	visit: (absPath: string) => boolean,
+): boolean {
+	const full = resolve(dir, entry.name);
+	if (entry.isDirectory()) {
+		if (isProjectSourceDir(entry.name)) stack.push(full);
+		return false;
+	}
+	return entry.isFile() && visit(full);
+}
+
 /**
  * Bounded, skip-list-aware recursive walk of the project subtree rooted at
  * `root`. Invokes `visit` for every file and stops early (returning `true`)
@@ -79,14 +103,7 @@ function walkProjectFiles(root: string, visit: (absPath: string) => boolean): bo
 		const dir = stack.pop() as string;
 		for (const entry of readDirEntries(dir)) {
 			if (--budget <= 0) return false;
-			const full = resolve(dir, entry.name);
-			if (entry.isDirectory()) {
-				if (!NON_SOURCE_DIRS.has(entry.name) && !entry.name.startsWith(".")) {
-					stack.push(full);
-				}
-			} else if (entry.isFile() && visit(full)) {
-				return true;
-			}
+			if (processDirEntry(entry, dir, stack, visit)) return true;
 		}
 	}
 	return false;

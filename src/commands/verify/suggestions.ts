@@ -92,6 +92,17 @@ interface RunSuggestionsArgs {
 	threshold: number;
 }
 
+/** Run every registered scored-suggestion detector over one file's content. */
+function collectRawFindings(content: string, file: string): Finding[] {
+	const findings: Finding[] = [];
+	for (const { check, source, fn } of buildChecks(content, file)) {
+		for (const m of fn()) {
+			findings.push({ check, line: m.line, message: m.text, source });
+		}
+	}
+	return findings;
+}
+
 /**
  * Public API — consumed by `verify.ts` (opt-in `--suggestions` flag).
  *
@@ -120,12 +131,7 @@ export function runSuggestions(args: RunSuggestionsArgs): Map<string, Finding[]>
 		const inlineSup = scanInlineSuppressions(content);
 		const fileSup = loadFileSuppressions(interlinkedDir, relPath);
 
-		const findings: Finding[] = [];
-		for (const { check, source, fn } of buildChecks(content, file)) {
-			for (const m of fn()) {
-				findings.push({ check, line: m.line, message: m.text, source });
-			}
-		}
+		const findings = collectRawFindings(content, file);
 
 		if (findings.length === 0) continue;
 		const scored = scoreFindings(findings, {

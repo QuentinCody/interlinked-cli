@@ -303,6 +303,22 @@ function resolveFileMutationOutcome(
 	return { kind: "same-or-improved", relPath, score, entry, prior, belowFloor };
 }
 
+/** Builds the below-floor finding for one non-skipped outcome. Pure — no accounting. */
+function buildBelowFloorFinding(
+	outcome: Exclude<FileMutationOutcome, { kind: "skip" }>,
+	config: MutationGateConfig,
+): MutationFinding {
+	const priorScore = outcome.kind === "new" ? 0 : outcome.prior.score;
+	return {
+		name: "mutation_score_below_floor",
+		severity: "warning",
+		file: outcome.relPath,
+		baseline_score: round(priorScore),
+		current_score: round(outcome.score),
+		message: `Mutation score for ${outcome.relPath} is ${(outcome.score * 100).toFixed(1)}% (floor: ${(config.min_score * 100).toFixed(0)}%). Add tests that kill the surviving mutants.`,
+	};
+}
+
 export function compareMutation(
 	report: MutationReport,
 	baseline: MutationBaseline,
@@ -325,15 +341,7 @@ export function compareMutation(
 
 		filesChecked++;
 		if (outcome.belowFloor) {
-			const priorScore = outcome.kind === "new" ? 0 : outcome.prior.score;
-			findings.push({
-				name: "mutation_score_below_floor",
-				severity: "warning",
-				file: outcome.relPath,
-				baseline_score: round(priorScore),
-				current_score: round(outcome.score),
-				message: `Mutation score for ${outcome.relPath} is ${(outcome.score * 100).toFixed(1)}% (floor: ${(config.min_score * 100).toFixed(0)}%). Add tests that kill the surviving mutants.`,
-			});
+			findings.push(buildBelowFloorFinding(outcome, config));
 			filesBelowFloor++;
 		}
 
@@ -355,10 +363,11 @@ export function compareMutation(
 			filesDecreased++;
 			// Preserve high-water mark.
 			nextFiles[outcome.relPath] = outcome.prior;
-		} else {
-			if (outcome.score > outcome.prior.score) filesImproved++;
-			nextFiles[outcome.relPath] = { score: outcome.score, killed: Math.max(outcome.entry.killed, outcome.prior.killed) };
+			continue;
 		}
+
+		if (outcome.score > outcome.prior.score) filesImproved++;
+		nextFiles[outcome.relPath] = { score: outcome.score, killed: Math.max(outcome.entry.killed, outcome.prior.killed) };
 	}
 
 	return {

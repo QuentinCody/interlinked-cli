@@ -51,6 +51,30 @@ function relTo(cwd: string, p: string): string {
 }
 
 // --- 1. structure init ---
+function printInitDryRun(
+	opts: InitOpts,
+	cwd: string,
+	mode: string,
+	cats: string[],
+	files: Array<{ path: string; data: JsonObject }>,
+	names: string[],
+): void {
+	const lines = [
+		c.bold("Structure init (dry-run)"),
+		"",
+		`  Mode: ${c.cyan(mode)}`,
+		`  Categories: ${cats.length > 0 ? cats.join(", ") : c.dim("(none)")}`,
+		"",
+		c.bold("Files that would be created:"),
+	];
+	for (const f of files) {
+		const tag = existsSync(f.path) ? c.yellow("overwrite") : c.green("create");
+		lines.push(`  ${tag}  ${relTo(cwd, f.path)}`);
+	}
+	lines.push("", c.dim("Run with --write to create files."));
+	out(opts.json, { dry_run: true, mode, categories: cats, files: names }, lines.join("\n"));
+}
+
 async function runStructureInit(opts: InitOpts): Promise<void> {
 	const cwd = process.cwd();
 	const mode = opts.mode || "standard";
@@ -80,24 +104,7 @@ async function runStructureInit(opts: InitOpts): Promise<void> {
 	const names = files.map((f) => relTo(cwd, f.path));
 
 	if (!opts.write) {
-		const lines = [
-			c.bold("Structure init (dry-run)"),
-			"",
-			`  Mode: ${c.cyan(mode)}`,
-			`  Categories: ${cats.length > 0 ? cats.join(", ") : c.dim("(none)")}`,
-			"",
-			c.bold("Files that would be created:"),
-		];
-		for (const f of files) {
-			const tag = existsSync(f.path) ? c.yellow("overwrite") : c.green("create");
-			lines.push(`  ${tag}  ${relTo(cwd, f.path)}`);
-		}
-		lines.push("", c.dim("Run with --write to create files."));
-		return out(
-			opts.json,
-			{ dry_run: true, mode, categories: cats, files: names },
-			lines.join("\n"),
-		);
+		return printInitDryRun(opts, cwd, mode, cats, files, names);
 	}
 
 	for (const f of files) writeJson(f.path, f.data);

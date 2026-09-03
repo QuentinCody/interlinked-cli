@@ -215,6 +215,26 @@ export function parseLcov(content: string, opts: ParseLcovOptions = {}): Canonic
 	return { files, source: "lcov" };
 }
 
+/**
+ * Merge one function name's positionally-paired (start-line, hits) entries
+ * into the shared by-(name,line) accumulator, summing hits when a name is
+ * repeated at the same line (e.g. across merged reports).
+ */
+function mergeFnStartLines(
+	byKey: Map<string, { name: string; line: number; hits: number }>,
+	name: string,
+	lines: number[],
+	hitsList: number[],
+): void {
+	for (const [k, line] of lines.entries()) {
+		const hits = hitsList[k] ?? 0;
+		const key = `${name}@${line}`;
+		const existing = byKey.get(key);
+		if (existing) existing.hits += hits;
+		else byKey.set(key, { name, line, hits });
+	}
+}
+
 function finalizeFile(path: string, acc: FileAcc): CanonicalFileCoverage {
 	let linesCovered = 0;
 	for (const hits of acc.lineHits.values()) if (hits > 0) linesCovered++;
@@ -229,13 +249,7 @@ function finalizeFile(path: string, acc: FileAcc): CanonicalFileCoverage {
 	const byKey = new Map<string, { name: string; line: number; hits: number }>();
 	for (const [name, lines] of acc.fnStartLines) {
 		const hitsList = acc.fnEntryHits.get(name) ?? [];
-		for (const [k, line] of lines.entries()) {
-			const hits = hitsList[k] ?? 0;
-			const key = `${name}@${line}`;
-			const existing = byKey.get(key);
-			if (existing) existing.hits += hits;
-			else byKey.set(key, { name, line, hits });
-		}
+		mergeFnStartLines(byKey, name, lines, hitsList);
 	}
 	const perFunction: CanonicalFunction[] = [];
 	let functionsCovered = 0;

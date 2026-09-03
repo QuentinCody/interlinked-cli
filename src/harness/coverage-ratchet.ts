@@ -265,6 +265,36 @@ function compareFileEntry(
 	};
 }
 
+/** Per-entry context threaded through {@link processCoverageEntry} — grouped
+ * so the helper takes one context object rather than four loose params. */
+interface CoverageEntryContext {
+	repoRoot: string;
+	changedSet: Set<string> | null;
+	baseline: CoverageBaseline;
+	allowDecreasePct: number;
+}
+
+/**
+ * Resolve one `summary` entry to a comparable file, or `null` if it should
+ * be skipped (the synthetic `total` bucket, an unresolvable path, or a path
+ * outside `changedSet` when diff-scoping is active). Isolates every
+ * skip-guard for one loop iteration so the caller's loop body is a flat
+ * accumulate step.
+ */
+function processCoverageEntry(
+	rawPath: string,
+	entry: FileCoverageEntry | undefined,
+	ctx: CoverageEntryContext,
+): { relPath: string; outcome: FileComparison } | null {
+	if (!entry || rawPath === "total") return null;
+	const relPath = normalizePath(rawPath, ctx.repoRoot);
+	if (!relPath) return null;
+	if (ctx.changedSet && !ctx.changedSet.has(relPath)) return null;
+
+	const outcome = compareFileEntry(relPath, entry, ctx.baseline.files[relPath], ctx.allowDecreasePct);
+	return { relPath, outcome };
+}
+
 export function compareCoverage(
 	summary: CoverageSummary,
 	baseline: CoverageBaseline,
@@ -281,7 +311,12 @@ export function compareCoverage(
 	const nextFiles: Record<string, { lines_pct: number; branches_pct: number }> = {
 		...baseline.files,
 	};
-	const changedSet = changedFiles ? new Set(changedFiles) : null;
+	const ctx: CoverageEntryContext = {
+		repoRoot,
+		changedSet: changedFiles ? new Set(changedFiles) : null,
+		baseline,
+		allowDecreasePct: config.allow_decrease_pct,
+	};
 
 	let filesChecked = 0;
 	let filesNew = 0;
@@ -289,23 +324,15 @@ export function compareCoverage(
 	let filesImproved = 0;
 
 	for (const [rawPath, entry] of Object.entries(summary)) {
-		if (!entry || rawPath === "total") continue;
-		const relPath = normalizePath(rawPath, repoRoot);
-		if (!relPath) continue;
-		if (changedSet && !changedSet.has(relPath)) continue;
+		const result = processCoverageEntry(rawPath, entry, ctx);
+		if (!result) continue;
 
 		filesChecked++;
-		const outcome = compareFileEntry(
-			relPath,
-			entry,
-			baseline.files[relPath],
-			config.allow_decrease_pct,
-		);
-		findings.push(...outcome.findings);
-		nextFiles[relPath] = outcome.nextEntry;
-		if (outcome.isNew) filesNew++;
-		if (outcome.decreased) filesDecreased++;
-		if (outcome.improved) filesImproved++;
+		findings.push(...result.outcome.findings);
+		nextFiles[result.relPath] = result.outcome.nextEntry;
+		if (result.outcome.isNew) filesNew++;
+		if (result.outcome.decreased) filesDecreased++;
+		if (result.outcome.improved) filesImproved++;
 	}
 
 	return {

@@ -55,6 +55,8 @@ export interface CodeQualityResults {
 	duplicateTypeDeclaration: CodeQualityIssue[];
 	newExportWithoutImporter: CodeQualityIssue[];
 	extractedHelperDuplicate: CodeQualityIssue[];
+	/** Private, single-call-site, <=3-statement helpers with an uninformative name. */
+	singleUseTrivialHelper: CodeQualityIssue[];
 	circularImports: CodeQualityIssue[];
 	untestedInversePair: CodeQualityIssue[];
 	untestedIdempotent: CodeQualityIssue[];

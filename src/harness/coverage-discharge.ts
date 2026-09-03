@@ -24,7 +24,6 @@
 // inference), total / never throws: discharge bookkeeping must never crash the
 // PostToolUse pipeline.
 
-import { statSync } from "node:fs";
 import { join } from "node:path";
 import { nonNull } from "../lib/non-null.js";
 import { lcovReportPaths } from "./coverage-adapters.js";
@@ -34,6 +33,7 @@ import {
 	readOpenCoverageObligations,
 	recordCoverageDischarge,
 } from "./coverage-obligation-ledger.js";
+import { mtimeOrZero } from "./mtime-or-zero.js";
 import { shellSplit, splitSegments, stripLeadingPrefix } from "./shell-structure.js";
 
 // ===========================================
@@ -129,6 +129,19 @@ function hasCoverageFlagToken(argv: string[]): boolean {
 	);
 }
 
+/** Verdict for a coverage-wrapper head (`nyc`/`c8`) wrapping the rest of the
+ *  segment's argv. Skips the wrapper's own leading flags (`c8
+ *  --reporter=lcov mocha`) — a separate-value flag leaves its value in
+ *  argv[0] and the runner check then fails, which is the safe
+ *  under-matching direction (obligation stays open) — then rejects an empty
+ *  or report-only wrapped command before checking for a real runner. */
+function isCoverageWrapperSuiteInvocation(argv: string[]): boolean {
+	const wrapped = argv.slice(1);
+	while (wrapped.length > 0 && nonNull(wrapped[0]).startsWith("-")) wrapped.shift();
+	if (wrapped.length === 0 || REPORT_ONLY_SUBCOMMANDS.has(nonNull(wrapped[0]))) return false;
+	return isRunnerInvocation(wrapped);
+}
+
 /** One segment's verdict; see {@link isCoverageSuiteCommand}. */
 function isCoverageSuiteSegment(argv: string[]): boolean {
 	if (argv.length === 0) return false;
@@ -142,16 +155,7 @@ function isCoverageSuiteSegment(argv: string[]): boolean {
 	}
 	const pythonCoverageArgv = pythonCoverageModuleArgv(argv);
 	if (pythonCoverageArgv) return isCoverageSuiteSegment(pythonCoverageArgv);
-	if (COVERAGE_WRAPPER_HEADS.has(head)) {
-		// Skip the wrapper's own leading flags (`c8 --reporter=lcov mocha`). A
-		// separate-value flag leaves its value in argv[0] and the runner check
-		// then fails — under-matching is the safe direction (obligation stays
-		// open) — while report-only subcommands and non-test programs never pass.
-		const wrapped = argv.slice(1);
-		while (wrapped.length > 0 && nonNull(wrapped[0]).startsWith("-")) wrapped.shift();
-		if (wrapped.length === 0 || REPORT_ONLY_SUBCOMMANDS.has(nonNull(wrapped[0]))) return false;
-		return isRunnerInvocation(wrapped);
-	}
+	if (COVERAGE_WRAPPER_HEADS.has(head)) return isCoverageWrapperSuiteInvocation(argv);
 	return isRunnerInvocation(argv) && hasCoverageFlagToken(argv);
 }
 
@@ -198,15 +202,6 @@ export interface MeasuredReport {
 	mtimeMs: number;
 }
 
-/** A report file's mtime, or 0 when unreadable (fails the freshness guard). */
-function mtimeOf(path: string): number {
-	try {
-		return statSync(path).mtimeMs;
-	} catch {
-		return 0;
-	}
-}
-
 /**
  * Every existing coverage report's measured-file set: the istanbul
  * `coverage-final.json` plus each LCOV report (canonical + per-language —
@@ -217,11 +212,11 @@ export function measuredCoverageFiles(projectRoot: string): MeasuredReport[] {
 	const reports: MeasuredReport[] = [];
 	const finalPath = join(projectRoot, "coverage", "coverage-final.json");
 	const finalCov = loadCoverageFinal(finalPath, projectRoot);
-	if (finalCov) reports.push({ files: new Set(finalCov.keys()), mtimeMs: mtimeOf(finalPath) });
+	if (finalCov) reports.push({ files: new Set(finalCov.keys()), mtimeMs: mtimeOrZero(finalPath) });
 	for (const rel of lcovReportPaths()) {
 		const path = join(projectRoot, rel);
 		const lcov = loadLcovFile(path, { cwd: projectRoot });
-		if (lcov) reports.push({ files: new Set(lcov.files.keys()), mtimeMs: mtimeOf(path) });
+		if (lcov) reports.push({ files: new Set(lcov.files.keys()), mtimeMs: mtimeOrZero(path) });
 	}
 	return reports;
 }

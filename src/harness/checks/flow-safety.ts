@@ -143,7 +143,36 @@ export function checkCleanupReentrancy(content: string, filePath: string): Inlin
 	const matches: InlineMatch[] = [];
 	const seen = new Set<number>();
 
-	// Class method recursing into self: `<name>() { ... this.<name>(...) ... }`.
+	if (scanSelfRecursingCleanupMethod(stripped, lines, matches, seen)) return matches;
+	scanEffectCleanupStateMutation(stripped, lines, matches, seen);
+
+	return matches;
+}
+
+// Offset of the `this.<name>(` self-call inside the cleanup method whose
+// header `methodHit` matched, or null when the method never recurses.
+function findSelfRecursionOffset(stripped: string, methodHit: RegExpExecArray): number | null {
+	const name = methodHit[1];
+	const openBrace = methodHit.index + methodHit[0].length - 1;
+	const closeBrace = findMatchingBrace(stripped, openBrace, METHOD_BODY_SCAN_BUDGET);
+	if (closeBrace < 0) return null;
+
+	const body = stripped.slice(openBrace + 1, closeBrace);
+	const recurseRe = new RegExp(String.raw`\bthis\s*\.\s*${name}\s*\(`);
+	const recurseHit = body.match(recurseRe);
+	if (!recurseHit || recurseHit.index === undefined) return null;
+
+	return openBrace + 1 + recurseHit.index;
+}
+
+// Class method recursing into self: `<name>() { ... this.<name>(...) ... }`.
+// Returns true when the per-file match cap was hit (caller should stop).
+function scanSelfRecursingCleanupMethod(
+	stripped: string,
+	lines: string[],
+	matches: InlineMatch[],
+	seen: Set<number>,
+): boolean {
 	const methodNameAlt = CLEANUP_METHOD_NAMES.join("|");
 	const methodHeaderRe = new RegExp(
 		String.raw`\b(${methodNameAlt})\s*\([^)]*\)\s*(?::\s*\w+)?\s*\{`,
@@ -151,38 +180,46 @@ export function checkCleanupReentrancy(content: string, filePath: string): Inlin
 	);
 	let methodHit: RegExpExecArray | null;
 	while ((methodHit = methodHeaderRe.exec(stripped))) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return matches;
-		const name = methodHit[1];
-		const openBrace = methodHit.index + methodHit[0].length - 1;
-		const closeBrace = findMatchingBrace(stripped, openBrace, METHOD_BODY_SCAN_BUDGET);
-		if (closeBrace < 0) continue;
-
-		const body = stripped.slice(openBrace + 1, closeBrace);
-		const recurseRe = new RegExp(String.raw`\bthis\s*\.\s*${name}\s*\(`);
-		const recurseHit = body.match(recurseRe);
-		if (!recurseHit || recurseHit.index === undefined) continue;
-
-		const offset = openBrace + 1 + recurseHit.index;
-		if (recordLine(stripped, lines, offset, matches, seen)) return matches;
+		if (matches.length >= MAX_MATCHES_PER_FILE) return true;
+		const offset = findSelfRecursionOffset(stripped, methodHit);
+		if (offset === null) continue;
+		if (recordLine(stripped, lines, offset, matches, seen)) return true;
 	}
+	return false;
+}
 
-	// useEffect cleanup that contains state mutation. Heuristic: an arrow
-	// returned from useEffect's effect, whose body calls `set<Capital>(...)`
-	// or `dispatch(...)` (canonical React state mutators).
-	const effectCleanupRe = /\buseEffect\s*\(\s*\([^)]*\)\s*=>\s*\{[\s\S]{0,4000}?return\s*\(\s*\)\s*=>\s*\{([\s\S]{0,2000}?)\}/g;
+// Offset of the React state mutator inside the useEffect cleanup arrow whose
+// shape `effectHit` matched, or null when the cleanup mutates no state.
+function findCleanupStateMutatorOffset(effectHit: RegExpExecArray): number | null {
+	const cleanupBody = effectHit[1];
+	const stateMutator = nonNull(cleanupBody).match(/\b(?:set[A-Z]\w*|dispatch)\s*\(/);
+	if (!stateMutator || stateMutator.index === undefined) return null;
+	// Locate the offset of the mutator within the original stripped string.
+	const cleanupStart =
+		effectHit.index + effectHit[0].indexOf("{", effectHit[0].lastIndexOf("=>")) + 1;
+	return cleanupStart + stateMutator.index;
+}
+
+// useEffect cleanup that contains state mutation. Heuristic: an arrow
+// returned from useEffect's effect, whose body calls `set<Capital>(...)`
+// or `dispatch(...)` (canonical React state mutators).
+// Returns true when the per-file match cap was hit.
+function scanEffectCleanupStateMutation(
+	stripped: string,
+	lines: string[],
+	matches: InlineMatch[],
+	seen: Set<number>,
+): boolean {
+	const effectCleanupRe =
+		/\buseEffect\s*\(\s*\([^)]*\)\s*=>\s*\{[\s\S]{0,4000}?return\s*\(\s*\)\s*=>\s*\{([\s\S]{0,2000}?)\}/g;
 	let effectHit: RegExpExecArray | null;
 	while ((effectHit = effectCleanupRe.exec(stripped))) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return matches;
-		const cleanupBody = effectHit[1];
-		const stateMutator = nonNull(cleanupBody).match(/\b(?:set[A-Z]\w*|dispatch)\s*\(/);
-		if (!stateMutator || stateMutator.index === undefined) continue;
-		// Locate the offset of the mutator within the original stripped string.
-		const cleanupStart = effectHit.index + effectHit[0].indexOf("{", effectHit[0].lastIndexOf("=>")) + 1;
-		const offset = cleanupStart + stateMutator.index;
-		if (recordLine(stripped, lines, offset, matches, seen)) return matches;
+		if (matches.length >= MAX_MATCHES_PER_FILE) return true;
+		const offset = findCleanupStateMutatorOffset(effectHit);
+		if (offset === null) continue;
+		if (recordLine(stripped, lines, offset, matches, seen)) return true;
 	}
-
-	return matches;
+	return false;
 }
 
 // ===========================================

@@ -103,6 +103,23 @@ export interface PropagationCost {
 	cost: number;
 }
 
+/** Size of the transitive closure reachable from `start`, excluding `start` itself. */
+function reachableCount(start: string, adj: Map<string, string[]>): number {
+	const visited = new Set<string>([start]);
+	const queue = [start];
+	while (queue.length > 0) {
+		const cur = queue.pop();
+		if (cur === undefined) break;
+		for (const next of adj.get(cur) ?? []) {
+			if (!visited.has(next)) {
+				visited.add(next);
+				queue.push(next);
+			}
+		}
+	}
+	return visited.size - 1;
+}
+
 /** BFS closure per node; self counts only as the excluded start, never as reach. */
 export function computePropagationCost(edges: Edge[]): PropagationCost {
 	const adj = new Map<string, string[]>();
@@ -118,19 +135,7 @@ export function computePropagationCost(edges: Edge[]): PropagationCost {
 	if (n === 0) return { files: 0, cost: 0 };
 	let totalReach = 0;
 	for (const start of nodes) {
-		const visited = new Set<string>([start]);
-		const queue = [start];
-		while (queue.length > 0) {
-			const cur = queue.pop();
-			if (cur === undefined) break;
-			for (const next of adj.get(cur) ?? []) {
-				if (!visited.has(next)) {
-					visited.add(next);
-					queue.push(next);
-				}
-			}
-		}
-		totalReach += visited.size - 1;
+		totalReach += reachableCount(start, adj);
 	}
 	return { files: n, cost: totalReach / (n * n) };
 }

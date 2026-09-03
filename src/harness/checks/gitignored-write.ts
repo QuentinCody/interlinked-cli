@@ -102,21 +102,35 @@ function isCloseBracket(ch: string | undefined): boolean {
 	return ch === ")" || ch === "]" || ch === "}";
 }
 
-/**
- * Split a raw comma-separated argument list into top-level argument strings,
- * respecting nested parens, brackets, braces, and string literals.
- * Returns the list of raw argument tokens (un-trimmed).
- */
-function splitTopLevelArgs(argsRaw: string): string[] {
-	const args: string[] = [];
-	let depth = 0;
-	let inStr: string | null = null;
-	let start = 0;
+/** Signed change in nesting depth this character causes (0 for non-brackets). */
+function bracketDelta(ch: string | undefined): number {
+	if (isOpenBracket(ch)) return 1;
+	if (isCloseBracket(ch)) return -1;
+	return 0;
+}
 
-	for (let i = 0; i < argsRaw.length; i++) {
-		const ch = argsRaw[i];
+/**
+ * Walk `text` from `start`, skipping over string literals and tracking bracket
+ * depth (which begins at `initialDepth`). `visit` is called for every character
+ * outside a string literal, with the depth AFTER that character is accounted
+ * for; returning true stops the scan.
+ *
+ * Returns the index of the character that stopped the scan, or null when the
+ * text ran out without `visit` ever stopping it.
+ */
+function scanOutsideStrings(
+	text: string,
+	start: number,
+	initialDepth: number,
+	visit: (ch: string, index: number, depth: number) => boolean,
+): number | null {
+	let depth = initialDepth;
+	let inStr: string | null = null;
+
+	for (let i = start; i < text.length; i++) {
+		const ch = text[i];
 		if (inStr !== null) {
-			const step = stepInsideStringLiteral(ch, inStr, i + 1 < argsRaw.length);
+			const step = stepInsideStringLiteral(ch, inStr, i + 1 < text.length);
 			inStr = step.inStr;
 			if (step.skipNext) i++; // skip escaped char
 			continue;
@@ -125,19 +139,29 @@ function splitTopLevelArgs(argsRaw: string): string[] {
 			inStr = ch ?? null;
 			continue;
 		}
-		if (isOpenBracket(ch)) {
-			depth++;
-			continue;
-		}
-		if (isCloseBracket(ch)) {
-			depth--;
-			continue;
-		}
-		if (ch === "," && depth === 0) {
-			args.push(argsRaw.slice(start, i));
-			start = i + 1;
-		}
+		depth += bracketDelta(ch);
+		if (visit(ch ?? "", i, depth)) return i;
 	}
+	return null;
+}
+
+/**
+ * Split a raw comma-separated argument list into top-level argument strings,
+ * respecting nested parens, brackets, braces, and string literals.
+ * Returns the list of raw argument tokens (un-trimmed).
+ */
+function splitTopLevelArgs(argsRaw: string): string[] {
+	const args: string[] = [];
+	let start = 0;
+
+	scanOutsideStrings(argsRaw, 0, 0, (ch, index, depth) => {
+		if (ch === "," && depth === 0) {
+			args.push(argsRaw.slice(start, index));
+			start = index + 1;
+		}
+		return false; // every top-level comma splits — never stop early
+	});
+
 	// Last segment
 	if (start <= argsRaw.length) {
 		args.push(argsRaw.slice(start));
@@ -222,41 +246,19 @@ const WRITE_API_RE =
  * The offset should point at the character AFTER the opening `(` of the call.
  */
 function extractFirstArg(content: string, openParenOffset: number): string | null {
-	let depth = 1; // we're already one level inside the `(`
-	let inStr: string | null = null;
-	let i = openParenOffset;
+	// Depth starts at 1 — we're already one level inside the `(`.
+	const argEnd = scanOutsideStrings(content, openParenOffset, 1, endsFirstArg);
+	if (argEnd === null) return null;
+	return content.slice(openParenOffset, argEnd).trim();
+}
 
-	const argStart = i;
-	for (; i < content.length; i++) {
-		const ch = content[i];
-		if (inStr !== null) {
-			const step = stepInsideStringLiteral(ch, inStr, i + 1 < content.length);
-			inStr = step.inStr;
-			if (step.skipNext) i++;
-			continue;
-		}
-		if (isQuoteChar(ch)) {
-			inStr = ch ?? null;
-			continue;
-		}
-		if (isOpenBracket(ch)) {
-			depth++;
-			continue;
-		}
-		if (isCloseBracket(ch)) {
-			depth--;
-			if (depth === 0) {
-				// Closing paren — the first arg ends here (no comma was found).
-				return content.slice(argStart, i).trim();
-			}
-			continue;
-		}
-		if (ch === "," && depth === 1) {
-			// Top-level comma — first arg ends here.
-			return content.slice(argStart, i).trim();
-		}
-	}
-	return null;
+/**
+ * True when this character ends the call's first argument: either the call's
+ * own closing paren (depth back to 0, no comma was found) or a top-level comma.
+ */
+function endsFirstArg(ch: string, _index: number, depth: number): boolean {
+	if (isCloseBracket(ch)) return depth === 0;
+	return ch === "," && depth === 1;
 }
 
 /**

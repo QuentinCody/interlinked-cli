@@ -129,6 +129,52 @@ function isSignificantEntry(entry: string): boolean {
 	return true;
 }
 
+/** One matchable tool_sequence entry plus its pre-computed token set. */
+interface PoolEntry {
+	entry: string;
+	tokens: Set<string>;
+}
+
+/** Outcome of the greedy step→action matching pass. */
+interface StepMatchResult {
+	matchedCount: number;
+	matchedEntries: Set<string>;
+	missingSteps: PlanStep[];
+}
+
+/**
+ * Greedy match: each declared step claims the FIRST pool entry it overlaps
+ * with (Jaccard > threshold); the claimed entry is spliced out of `pool` so
+ * two steps cannot match the same action. Steps that claim nothing are
+ * reported as missing.
+ */
+function matchStepsToActions(steps: readonly PlanStep[], pool: PoolEntry[]): StepMatchResult {
+	const matchedEntries = new Set<string>();
+	const missingSteps: PlanStep[] = [];
+	let matchedCount = 0;
+
+	for (const step of steps) {
+		const stepTokens = tokenizeStep(step);
+		let bestIdx = -1;
+		for (let i = 0; i < pool.length; i++) {
+			const candidate = pool[i];
+			if (jaccard(stepTokens, nonNull(candidate).tokens) > JACCARD_MATCH_THRESHOLD) {
+				bestIdx = i;
+				break;
+			}
+		}
+		if (bestIdx === -1) {
+			missingSteps.push(step);
+		} else {
+			matchedCount++;
+			matchedEntries.add(nonNull(pool[bestIdx]).entry);
+			pool.splice(bestIdx, 1);
+		}
+	}
+
+	return { matchedCount, matchedEntries, missingSteps };
+}
+
 /**
  * Public — detect drift between session.declared_plan and the actual
  * tool_sequence. Returns null when no plan was declared (nothing to
@@ -191,32 +237,14 @@ export function detectPlanDrift(session: SessionTrajectory): PlanDriftReport | n
 	// said "edit" that file. Without this filter a step like
 	// "Edit src/foo.ts" would be falsely satisfied by "Read:src/foo.ts"
 	// because the two share enough tokens to clear the Jaccard threshold.
-	const pool: Array<{ entry: string; tokens: Set<string> }> = sequence
+	const pool: PoolEntry[] = sequence
 		.filter(isSignificantEntry)
 		.map((entry) => ({ entry, tokens: tokenize(entry) }));
 
-	const matchedEntries = new Set<string>();
-	const missingSteps: PlanStep[] = [];
-	let matchedCount = 0;
-
-	for (const step of declaredPlan.steps) {
-		const stepTokens = tokenizeStep(step);
-		let bestIdx = -1;
-		for (let i = 0; i < pool.length; i++) {
-			const candidate = pool[i];
-			if (jaccard(stepTokens, nonNull(candidate).tokens) > JACCARD_MATCH_THRESHOLD) {
-				bestIdx = i;
-				break;
-			}
-		}
-		if (bestIdx === -1) {
-			missingSteps.push(step);
-		} else {
-			matchedCount++;
-			matchedEntries.add(nonNull(pool[bestIdx]).entry);
-			pool.splice(bestIdx, 1);
-		}
-	}
+	const { matchedCount, matchedEntries, missingSteps } = matchStepsToActions(
+		declaredPlan.steps,
+		pool,
+	);
 
 	// Unexpected actions: significant entries that no step claimed.
 	const unexpected: string[] = [];

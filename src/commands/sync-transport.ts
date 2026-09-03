@@ -227,6 +227,39 @@ async function handleBatchError(
 	return "fail";
 }
 
+type BatchAttemptResult = "retry" | "success" | "failure" | "auth_failed";
+
+/** Run one send attempt for a batch, mutating `delta` with its accounting. */
+async function runBatchAttempt(
+	args: BatchSendArgs,
+	ctx: AttemptContext,
+	delta: BatchDelta,
+): Promise<BatchAttemptResult> {
+	try {
+		const response = await fetchBatchResponse(args);
+		if (response.ok) {
+			const receipt = readBatchReceipt(response.body, args.batchSize);
+			if (!receipt.ok) {
+				recordInvalidReceipt(receipt.reason, ctx, delta);
+				return "failure";
+			}
+			delta.accepted += receipt.receipt.accepted;
+			delta.skipped += receipt.receipt.skipped;
+			delta.batchesSent++;
+			return "success";
+		}
+
+		const outcome = await handleNonOkResponse(response, ctx, delta);
+		if (outcome === "auth_failed") return "auth_failed";
+		if (outcome === "retry") return "retry";
+		return "failure";
+	} catch (error) {
+		const outcome = await handleBatchError(error, ctx, delta);
+		if (outcome === "retry") return "retry";
+		return "failure";
+	}
+}
+
 /** Send one batch with bounded retry/backoff and strict receipt accounting. */
 export async function sendOneBatch(args: BatchSendArgs): Promise<BatchSendOutcome> {
 	const { batchNum, batchSize, mode } = args;
@@ -242,33 +275,12 @@ export async function sendOneBatch(args: BatchSendArgs): Promise<BatchSendOutcom
 
 	for (let attempt = 1; attempt <= MAX_BATCH_RETRIES; attempt++) {
 		const ctx: AttemptContext = { batchNum, attempt, batchSize, mode };
-		try {
-			const response = await fetchBatchResponse(args);
-			if (response.ok) {
-				const receipt = readBatchReceipt(response.body, batchSize);
-				if (!receipt.ok) {
-					recordInvalidReceipt(receipt.reason, ctx, delta);
-					batchFailureCounted = true;
-					break;
-				}
-				delta.accepted += receipt.receipt.accepted;
-				delta.skipped += receipt.receipt.skipped;
-				delta.batchesSent++;
-				batchSucceeded = true;
-				break;
-			}
-
-			const outcome = await handleNonOkResponse(response, ctx, delta);
-			if (outcome === "auth_failed") return { kind: "auth_failed" };
-			if (outcome === "retry") continue;
-			batchFailureCounted = true;
-			break;
-		} catch (error) {
-			const outcome = await handleBatchError(error, ctx, delta);
-			if (outcome === "retry") continue;
-			batchFailureCounted = true;
-			break;
-		}
+		const result = await runBatchAttempt(args, ctx, delta);
+		if (result === "retry") continue;
+		if (result === "auth_failed") return { kind: "auth_failed" };
+		if (result === "success") batchSucceeded = true;
+		else batchFailureCounted = true;
+		break;
 	}
 
 	if (!batchSucceeded && !batchFailureCounted) delta.errors += batchSize;

@@ -40,6 +40,7 @@ import {
 	type RotationClaim,
 	verifyClaimedSegment,
 } from "./compact-rotation-claim.js";
+import { segmentFromClaim, verifyPreparedGzip } from "./compact-rotation-segment.js";
 
 function recoverPendingPlainRotation(
 	log: PlainLogName,
@@ -105,21 +106,6 @@ function unlinkTemporary(path: string): void {
 	}
 }
 
-function plainSegmentFromClaim(
-	claim: RotationClaim,
-	pending?: ArchiveSegment["pending_live_drop"],
-): ArchiveSegment {
-	return {
-		seq: claim.seq,
-		file: claim.file,
-		bytes: claim.cut_bytes,
-		gz_bytes: claim.gz_bytes,
-		records: claim.records,
-		created_at: claim.created_at,
-		...(pending ? { pending_live_drop: pending } : {}),
-	};
-}
-
 function plainSegmentMatchesClaim(
 	log: PlainLogName,
 	segment: ArchiveSegment,
@@ -170,15 +156,6 @@ function assertPlainPendingMatchesClaim(
 	}
 }
 
-function verifyPreparedPlainGzip(path: string, claim: RotationClaim): void {
-	if (statSync(path).size !== claim.gz_bytes || sha256File(path) !== claim.gzip_sha256) {
-		throw new RotationSegmentMismatchError(
-			claim.file,
-			"cannot be reproduced from the recorded live-file prefix",
-		);
-	}
-}
-
 function storeClaimedPlainSegment(
 	log: PlainLogName,
 	cwd: string,
@@ -186,7 +163,7 @@ function storeClaimedPlainSegment(
 	replacement: FileIdentity,
 ): ArchiveSegment {
 	const manifest = loadOrRebuildPlainManifest(log, cwd);
-	const claimed = plainSegmentFromClaim(claim, {
+	const claimed = segmentFromClaim(claim, {
 		cut_bytes: claim.cut_bytes,
 		source: claim.source,
 		replacement,
@@ -232,7 +209,7 @@ function finishPreviouslyReplacedPlainLog(
 ): PlainCompactResult {
 	const finalPath = join(archiveDir, claim.file);
 	const verifiedFinal = verifyClaimedSegment(finalPath, claim);
-	let completed = plainSegmentFromClaim(claim);
+	let completed = segmentFromClaim(claim);
 	withFileMutationLock(logPath, () => {
 		if (!sameFileIdentity(fileIdentity(logPath), claim.replacement)) {
 			throw new Error(`${log}.jsonl changed while finalizing a claimed rotation`);
@@ -246,7 +223,7 @@ function finishPreviouslyReplacedPlainLog(
 		const manifest = loadOrRebuildPlainManifest(log, cwd);
 		const stored = manifest.segments.find((entry) => entry.file === claim.file);
 		if (!stored || stored.recovered) {
-			completed = plainSegmentFromClaim(claim);
+			completed = segmentFromClaim(claim);
 			if (stored) manifest.segments[manifest.segments.indexOf(stored)] = completed;
 			else manifest.segments.push(completed);
 			writePlainManifest(log, cwd, manifest);
@@ -288,9 +265,9 @@ function recoverClaimedPlainRotation(
 		`.${log}-recovery-${process.pid}-${randomUUID()}.jsonl.gz.tmp`,
 	);
 	gzipFileRange(logPath, 0, claim.cut_bytes, gzipTemporary);
-	let completed = plainSegmentFromClaim(claim);
+	let completed = segmentFromClaim(claim);
 	try {
-		verifyPreparedPlainGzip(gzipTemporary, claim);
+		verifyPreparedGzip(gzipTemporary, claim);
 		const verifiedExisting = existsSync(finalPath)
 			? verifyClaimedSegment(finalPath, claim)
 			: undefined;

@@ -81,20 +81,31 @@ interface WalkState {
 	projectRoot: string;
 }
 
-function walkDir({ dir, result, depth, currentBoundary, ignoredDirs, projectRoot }: WalkState): void {
+/**
+ * Project boundary that applies to `dir`: the directory itself when it carries
+ * its own tsconfig.json or package.json, otherwise the inherited boundary (or
+ * the project root, which is always the default boundary).
+ */
+function boundaryForDir(dir: string, currentBoundary: string | undefined, projectRoot: string): string {
+	const inherited = currentBoundary ?? projectRoot;
+	if (dir === projectRoot) return inherited;
+	const hasTsconfig = existsSync(join(dir, "tsconfig.json"));
+	const hasPackageJson = existsSync(join(dir, "package.json"));
+	return hasTsconfig || hasPackageJson ? dir : inherited;
+}
+
+/** True when a subdirectory of `state.dir` is excluded from the scan: a
+ * `SKIP_DIRS` name, root-local `scratch/`, or a `resolveIgnoredDirs` entry. */
+function isSkippedScanDir(entryName: string, fullPath: string, state: WalkState): boolean {
+	const isRootScratch = state.dir === state.projectRoot && ROOT_SCAN_SKIP_DIRS.has(entryName);
+	return SKIP_DIRS.has(entryName) || isRootScratch || state.ignoredDirs.has(fullPath);
+}
+
+function walkDir(state: WalkState): void {
+	const { dir, result, depth, currentBoundary, ignoredDirs, projectRoot } = state;
 	if (depth > 20) return; // Safety limit
 	try {
-		// Determine the project boundary for this directory.
-		// A directory is a sub-project boundary if it has its own tsconfig.json or package.json.
-		// The main project root is always the default boundary.
-		let boundary = currentBoundary ?? projectRoot;
-		if (dir !== projectRoot) {
-			const hasTsconfig = existsSync(join(dir, "tsconfig.json"));
-			const hasPackageJson = existsSync(join(dir, "package.json"));
-			if (hasTsconfig || hasPackageJson) {
-				boundary = dir;
-			}
-		}
+		const boundary = boundaryForDir(dir, currentBoundary, projectRoot);
 
 		const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
 			a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
@@ -102,8 +113,7 @@ function walkDir({ dir, result, depth, currentBoundary, ignoredDirs, projectRoot
 		for (const entry of entries) {
 			const fullPath = join(dir, entry.name);
 			if (entry.isDirectory()) {
-				const isRootScratch = dir === projectRoot && ROOT_SCAN_SKIP_DIRS.has(entry.name);
-				if (SKIP_DIRS.has(entry.name) || isRootScratch || ignoredDirs.has(fullPath)) continue;
+				if (isSkippedScanDir(entry.name, fullPath, state)) continue;
 				walkDir({
 					dir: fullPath,
 					result,
@@ -112,11 +122,10 @@ function walkDir({ dir, result, depth, currentBoundary, ignoredDirs, projectRoot
 					ignoredDirs,
 					projectRoot,
 				});
-			} else if (entry.isFile()) {
-				const ext = extname(entry.name);
-				if (TS_JS_EXTENSIONS.has(ext)) {
-					result.push({ file: fullPath, boundary });
-				}
+				continue;
+			}
+			if (entry.isFile() && TS_JS_EXTENSIONS.has(extname(entry.name))) {
+				result.push({ file: fullPath, boundary });
 			}
 		}
 	} catch (err) {

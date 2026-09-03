@@ -115,13 +115,25 @@ export class SpecLedger {
 			// private field doesn't survive that — the getter call keeps this a
 			// live re-read every iteration, which is the actual required behavior.
 			if (this.wasTruncated) return;
-			const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
-			if (entry.isDirectory()) {
-				if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith(".")) continue;
-				this.walk(join(absDir, entry.name), rel, depth + 1);
-			} else if (entry.isFile() && isSpecEligibleFile(entry.name)) {
-				this.loadFile(join(absDir, entry.name), rel);
-			}
+			this.visitEntry(entry, absDir, relDir, depth);
+		}
+	}
+
+	/** Descend into one eligible subdirectory or load one eligible spec file.
+	 *  Excluded and dot-prefixed directories, and every non-spec file, are
+	 *  no-ops (the `continue` of the walk loop). */
+	private visitEntry(
+		entry: import("node:fs").Dirent,
+		absDir: string,
+		relDir: string,
+		depth: number,
+	): void {
+		const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+		if (entry.isDirectory()) {
+			if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith(".")) return;
+			this.walk(join(absDir, entry.name), rel, depth + 1);
+		} else if (entry.isFile() && isSpecEligibleFile(entry.name)) {
+			this.loadFile(join(absDir, entry.name), rel);
 		}
 	}
 
@@ -379,7 +391,11 @@ export class SpecLedger {
 		return out;
 	}
 
-	private declaredFactDrift(scope?: string): SpecDriftFinding[] {
+	/** Every declared-fact site in the ledger, grouped by fact name. */
+	private declaredFactSitesByName(): Map<
+		string,
+		Array<{ file: string; line: number; value: string }>
+	> {
 		const sites = new Map<
 			string,
 			Array<{ file: string; line: number; value: string }>
@@ -392,6 +408,11 @@ export class SpecLedger {
 				else sites.set(fact.name, [site]);
 			}
 		}
+		return sites;
+	}
+
+	private declaredFactDrift(scope?: string): SpecDriftFinding[] {
+		const sites = this.declaredFactSitesByName();
 		// Only fact NAMES the scoped file declares can involve scope (sol-max #19:
 		// every such site is at/related to a same-name site).
 		const scopeNames = scope === undefined ? null : this.declaredFactNamesOf(scope);

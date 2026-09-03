@@ -42,6 +42,24 @@ export function checkInfiniteRetryLoop(content: string, filePath: string): Inlin
 }
 
 /**
+ * Check a single line for a hardcoded localhost URL, skipping comments and
+ * lines that look like a guarded fallback (env-driven default, dev-only).
+ * Returns the InlineMatch for this line, or null if the line doesn't qualify.
+ */
+function matchLocalhostInLine(line: string, lineIndex: number): InlineMatch | null {
+	// Skip comments
+	if (/^\s*(\/\/|\/?\*|\*)/.test(line)) return null;
+	// Match hardcoded localhost URLs with ports (not just localhost in a comment)
+	if (!/https?:\/\/(localhost|127\.0\.0\.1):\d+/.test(line)) return null;
+	// Don't flag if it's inside a condition or default/fallback pattern
+	if (/\?\?|process\.env|fallback|default|development|DEV/i.test(line)) return null;
+	return {
+		line: lineIndex + 1,
+		text: line.trim().slice(0, 150),
+	};
+}
+
+/**
  * Detect hardcoded localhost URLs in production source (not test/config files).
  * Agents leave debug URLs like http://localhost:8787 in production code.
  */
@@ -58,17 +76,8 @@ export function checkHardcodedLocalhost(content: string, filePath: string): Inli
 
 	for (const [i, line] of lines.entries()) {
 		if (matches.length >= 5) break;
-		// Skip comments
-		if (/^\s*(\/\/|\/?\*|\*)/.test(line)) continue;
-		// Match hardcoded localhost URLs with ports (not just localhost in a comment)
-		if (/https?:\/\/(localhost|127\.0\.0\.1):\d+/.test(line)) {
-			// Don't flag if it's inside a condition or default/fallback pattern
-			if (/\?\?|process\.env|fallback|default|development|DEV/i.test(line)) continue;
-			matches.push({
-				line: i + 1,
-				text: line.trim().slice(0, 150),
-			});
-		}
+		const match = matchLocalhostInLine(line, i);
+		if (match) matches.push(match);
 	}
 	return matches;
 }

@@ -202,9 +202,24 @@ export function checkPackageJsonPublishInvariants(
 	// metadata is harmless.
 	if (pre.private === true) return [];
 
-	const findings: InlineMatch[] = [];
 	const postLines = content.split("\n");
 
+	return [
+		...collectRemovedTopLevelFieldFindings(pre, post, postLines),
+		...collectRemovedPublishScriptFindings(pre, post, postLines),
+	];
+}
+
+/**
+ * One finding per publish-critical top-level field that was present pre-edit
+ * and is gone post-edit.
+ */
+function collectRemovedTopLevelFieldFindings(
+	pre: JsonObject,
+	post: JsonObject,
+	postLines: string[],
+): InlineMatch[] {
+	const findings: InlineMatch[] = [];
 	for (const field of TOP_LEVEL_FIELDS) {
 		if (!isPresent(pre[field])) continue; // wasn't present pre-edit, nothing to lose
 		if (isPresent(post[field])) continue; // still present post-edit, fine
@@ -213,7 +228,19 @@ export function checkPackageJsonPublishInvariants(
 			text: `[package_json_publish_invariants] Pre-edit package.json had \`${field}\` but it was removed by this edit. Restore the field or publish will ship a broken tarball.`,
 		});
 	}
+	return findings;
+}
 
+/**
+ * One finding per publish-critical `scripts.<key>` that was present pre-edit
+ * and is gone post-edit.
+ */
+function collectRemovedPublishScriptFindings(
+	pre: JsonObject,
+	post: JsonObject,
+	postLines: string[],
+): InlineMatch[] {
+	const findings: InlineMatch[] = [];
 	for (const scriptKey of SCRIPT_FIELDS) {
 		const preScript = getScript(pre, scriptKey);
 		const postScript = getScript(post, scriptKey);
@@ -224,7 +251,6 @@ export function checkPackageJsonPublishInvariants(
 			text: `[package_json_publish_invariants] Pre-edit package.json had \`scripts.${scriptKey}\` but it was removed by this edit. Restore the script or pre-publish safety gates will no longer run.`,
 		});
 	}
-
 	return findings;
 }
 

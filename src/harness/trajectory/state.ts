@@ -310,6 +310,16 @@ const INSPECT_VERBS: ReadonlySet<string> = new Set([
  * PATTERN that looks path-ish) only ever suppresses the read/edit-balance
  * rules, so loose token matching is FP-safe by construction.
  */
+/** Record a pseudo-read for each non-flag, path-shaped token among a search/inspect
+ *  segment's arguments (the deepest-nested block of `foldBashReadBalance`). */
+function recordPathLikeTokenReads(state: TrajectoryState, argToks: string[]): void {
+	for (const raw of argToks) {
+		const t = raw.replace(/^['"]|['"]$/g, "");
+		if (t.startsWith("-")) continue;
+		if (t.includes("/") || /\.[A-Za-z0-9]{1,8}$/.test(t)) recordRead(state, t);
+	}
+}
+
 function foldBashReadBalance(state: TrajectoryState, cmd: string): void {
 	for (const seg of splitSegments(cmd)) {
 		const toks = seg.split(/\s+/).filter((t) => t.length > 0);
@@ -317,11 +327,7 @@ function foldBashReadBalance(state: TrajectoryState, cmd: string): void {
 		const isSearch = SEARCH_VERBS.has(head);
 		if (isSearch) state.searchCount += 1;
 		if (!isSearch && !INSPECT_VERBS.has(head)) continue;
-		for (const raw of toks.slice(1)) {
-			const t = raw.replace(/^['"]|['"]$/g, "");
-			if (t.startsWith("-")) continue;
-			if (t.includes("/") || /\.[A-Za-z0-9]{1,8}$/.test(t)) recordRead(state, t);
-		}
+		recordPathLikeTokenReads(state, toks.slice(1));
 	}
 }
 

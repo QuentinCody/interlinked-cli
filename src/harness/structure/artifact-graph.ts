@@ -101,6 +101,33 @@ export class ArtifactGraph {
 
 	// -- Companion traversal --
 
+	// Resolves one companion edge relative to `globalRef`, following companion
+	// edges in both directions:
+	// - artifact -> companion (e.g., public_symbol:X -> doc:Y)
+	// - companion -> artifact (e.g., doc:Y covers public_symbol:X)
+	// Returns null when the edge is not a companion edge for this ref, or the
+	// companion has already been seen / can't be resolved to a node. Marks the
+	// resolved companion ref as seen as a side effect.
+	private resolveCompanionEdge(
+		edge: ArtifactEdge,
+		globalRef: string,
+		seen: Set<string>,
+	): { kind: "documents" | "tests" | "illustrates"; node: ArtifactNode } | null {
+		if (edge.kind !== "documents" && edge.kind !== "tests" && edge.kind !== "illustrates")
+			return null;
+
+		let companionRef: string | null = null;
+		if (edge.from === globalRef) companionRef = edge.to;
+		else if (edge.to === globalRef) companionRef = edge.from;
+		if (!companionRef || seen.has(companionRef)) return null;
+
+		const companionNode = this.nodes.get(companionRef);
+		if (!companionNode) return null;
+		seen.add(companionRef);
+
+		return { kind: edge.kind, node: companionNode };
+	}
+
 	getCompanions(globalRef: string): {
 		docs: ArtifactNode[];
 		tests: ArtifactNode[];
@@ -112,24 +139,12 @@ export class ArtifactGraph {
 		const seen = new Set<string>();
 
 		for (const edge of this.edges) {
-			if (edge.kind !== "documents" && edge.kind !== "tests" && edge.kind !== "illustrates")
-				continue;
+			const resolved = this.resolveCompanionEdge(edge, globalRef, seen);
+			if (!resolved) continue;
 
-			// Follow companion edges in both directions:
-			// - artifact -> companion (e.g., public_symbol:X -> doc:Y)
-			// - companion -> artifact (e.g., doc:Y covers public_symbol:X)
-			let companionRef: string | null = null;
-			if (edge.from === globalRef) companionRef = edge.to;
-			else if (edge.to === globalRef) companionRef = edge.from;
-			if (!companionRef || seen.has(companionRef)) continue;
-
-			const companionNode = this.nodes.get(companionRef);
-			if (!companionNode) continue;
-			seen.add(companionRef);
-
-			if (edge.kind === "documents") docs.push(companionNode);
-			else if (edge.kind === "tests") tests.push(companionNode);
-			else examples.push(companionNode);
+			if (resolved.kind === "documents") docs.push(resolved.node);
+			else if (resolved.kind === "tests") tests.push(resolved.node);
+			else examples.push(resolved.node);
 		}
 
 		return { docs, tests, examples };

@@ -295,6 +295,60 @@ function isEscalationEligible(name: string, determinism: Determinism | undefined
 	return determinism !== "heuristic";
 }
 
+// Diff-aware attribution radius (see `checkPersistentWarningEscalation` doc
+// comment, gate 1): a finding's line must sit within this many lines of an
+// edited line for the agent to be held responsible for it.
+const ESCALATION_PROXIMITY_RADIUS = 3;
+
+/**
+ * Decide whether one check's persistent finding should escalate to an error,
+ * and build the resulting `CheckResultEntry` if so. Pulled out of
+ * `checkPersistentWarningEscalation`'s loop body to keep the loop itself flat
+ * — this is the single per-check gate-and-build step, unchanged in behavior.
+ * Marks `record.escalation_emitted` as a side effect on escalation, exactly
+ * as the inline loop body did.
+ */
+function buildEscalationFinding(
+	session: SessionTrajectory,
+	filePath: string,
+	name: string,
+	group: EscalationGroup,
+	haveEditData: boolean,
+	editedLines: ReadonlySet<number> | undefined,
+): CheckResultEntry | null {
+	// Tier gate: never amplify advisory-tier / heuristic findings.
+	if (!isEscalationEligible(name, group.determinism)) return null;
+	const currentLines = group.lines;
+	const key = `${filePath}::${name}`;
+	const record = session.warnings_issued.get(key);
+	if (!record || record.issue_count < 1) return null;
+	if (record.escalation_emitted) return null;
+
+	// Diff-aware attribution gate. When we know which lines the edit
+	// touched, the agent is responsible for a finding ONLY if one of its
+	// lines sits within ESCALATION_PROXIMITY_RADIUS of an edited line. Fail
+	// closed: a finding with no recoverable line (or no nearby edit) is not
+	// the agent's to answer for, so we do not amplify it. The legacy
+	// fall-back (escalate on issue_count alone) applies only when there is
+	// no edit data at all.
+	if (haveEditData) {
+		if (currentLines.length === 0) return null;
+		if (!anyFindingNearEditedLine(currentLines, nonNull(editedLines), ESCALATION_PROXIMITY_RADIUS)) {
+			return null;
+		}
+	}
+
+	record.escalation_emitted = true;
+	return {
+		source: "structural",
+		name: "persistent_warning_escalation",
+		severity: "error",
+		message: `Warning "${name}" persists after re-edit (issued ${record.issue_count + 1} times). Fix the underlying issue.`,
+		file: filePath,
+		determinism: "fully_deterministic",
+	};
+}
+
 export function checkPersistentWarningEscalation(
 	session: SessionTrajectory,
 	filePath: string,
@@ -302,42 +356,12 @@ export function checkPersistentWarningEscalation(
 	editedLines?: ReadonlySet<number>,
 ): CheckResultEntry[] {
 	const escalated: CheckResultEntry[] = [];
-	const PROXIMITY_RADIUS = 3;
 	const groups = groupEscalationInputs(currentResults);
 	const haveEditData = editedLines !== undefined && editedLines.size > 0;
 
 	for (const [name, group] of groups) {
-		// Tier gate: never amplify advisory-tier / heuristic findings.
-		if (!isEscalationEligible(name, group.determinism)) continue;
-		const currentLines = group.lines;
-		const key = `${filePath}::${name}`;
-		const record = session.warnings_issued.get(key);
-		if (!record || record.issue_count < 1) continue;
-		if (record.escalation_emitted) continue;
-
-		// Diff-aware attribution gate. When we know which lines the edit
-		// touched, the agent is responsible for a finding ONLY if one of its
-		// lines sits within PROXIMITY_RADIUS of an edited line. Fail closed:
-		// a finding with no recoverable line (or no nearby edit) is not the
-		// agent's to answer for, so we do not amplify it. The legacy fall-back
-		// (escalate on issue_count alone) applies only when there is no edit
-		// data at all.
-		if (haveEditData) {
-			if (currentLines.length === 0) continue;
-			if (!anyFindingNearEditedLine(currentLines, editedLines, PROXIMITY_RADIUS)) {
-				continue;
-			}
-		}
-
-		escalated.push({
-			source: "structural",
-			name: "persistent_warning_escalation",
-			severity: "error",
-			message: `Warning "${name}" persists after re-edit (issued ${record.issue_count + 1} times). Fix the underlying issue.`,
-			file: filePath,
-			determinism: "fully_deterministic",
-		});
-		record.escalation_emitted = true;
+		const finding = buildEscalationFinding(session, filePath, name, group, haveEditData, editedLines);
+		if (finding) escalated.push(finding);
 	}
 
 	return escalated;

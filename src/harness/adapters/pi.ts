@@ -1,10 +1,8 @@
 // Pi extension adapter. Pi auto-loads project extensions from
 // `.pi/extensions/` and user extensions from `~/.pi/agent/extensions/`.
 
-import {
-	type ClassifierOverrides,
-	classifyFromToolName,
-} from "../tool-class-classifier.js";
+import type { ClassifierOverrides } from "../tool-class-classifier.js";
+import { adapterToolClassifier } from "./adapter-tool-class.js";
 import { buildStandardAction, normalizeNativeHookEvent } from "./normalization.js";
 import {
 	encodeProviderBridgeDecision,
@@ -218,13 +216,7 @@ export function createPiAdapter(opts: PiAdapterOptions = {}): RunnerAdapter {
 			});
 		},
 
-		classifyToolClass(toolName, toolInput) {
-			return classifyFromToolName(
-				toolName,
-				toolInput,
-				opts.overrides ? { overrides: opts.overrides } : {},
-			);
-		},
+		classifyToolClass: adapterToolClassifier(opts.overrides),
 
 		renderSettingsFragment(binaryPath, scope): SettingsFragment {
 			return {

@@ -14,9 +14,13 @@
 
 import { hasPublicHttpUrl } from "../evaluator/network-hosts.js";
 import type { TaintProvenance } from "../types.js";
+import {
+	CONFIDENTIAL_LEVELS,
+	getCommand,
+	isBashCandidate,
+	planHintsContainTool,
+} from "./candidate-helpers.js";
 import type { SequenceDetector, SequenceMatch } from "./types.js";
-
-const CONFIDENTIAL_LEVELS = new Set(["Confidential", "HighlyConfidential"]);
 
 const UNTRUSTED_PROVENANCE: ReadonlySet<TaintProvenance> = new Set<TaintProvenance>([
 	"fetched_external",
@@ -45,16 +49,6 @@ const PUBLIC_WRITEABLE_HOST_RE =
  *  `--public` flag is sometimes redundant on those installs but is still a
  *  positive signal. */
 const GIST_CREATE_RE = /\bgh\s+gist\s+create\b/i;
-
-function getCommand(toolInput: { command?: unknown } | undefined): string {
-	if (!toolInput) return "";
-	const cmd = toolInput.command;
-	return typeof cmd === "string" ? cmd : "";
-}
-
-function isBashCandidate(toolName: string | undefined): boolean {
-	return toolName === "Bash";
-}
 
 function isReadCandidate(toolName: string | undefined): boolean {
 	return toolName === "Read";
@@ -272,19 +266,6 @@ export const githubIssueBodyThenAction: SequenceDetector = {
 // §3.15 plan_vs_trajectory_drift (injection-flavored)
 // ============================================================
 
-function candidateAlignsWithPlan(
-	candidateTool: string | undefined,
-	plan: { steps?: ReadonlyArray<{ tool_hint?: string }> } | undefined,
-): boolean {
-	const hints = plan?.steps
-		?.map((s) => s.tool_hint)
-		.filter((h): h is string => typeof h === "string" && h.length > 0);
-	if (!hints || hints.length === 0) return true;
-	if (!candidateTool) return true;
-	const normalized = candidateTool.toLowerCase();
-	return hints.some((h) => h.toLowerCase() === normalized);
-}
-
 export const planVsTrajectoryDrift: SequenceDetector = {
 	id: "plan_vs_trajectory_drift",
 	description:
@@ -296,7 +277,7 @@ export const planVsTrajectoryDrift: SequenceDetector = {
 	fn: (trajectory, candidate) => {
 		const plan = trajectory.declared_plan;
 		if (!plan) return [];
-		if (candidateAlignsWithPlan(candidate.tool_name, plan)) return [];
+		if (planHintsContainTool(candidate.tool_name, plan)) return [];
 		const planAtStep = plan.created_at_step;
 		const subsequentUntrusted = trajectory.taint_sources.filter(
 			(s) => s.at_step >= planAtStep && UNTRUSTED_PROVENANCE.has(s.provenance),

@@ -51,6 +51,32 @@ interface StreamCqSectionArgs {
 }
 
 /**
+ * Write one flagged file's line, plus its per-issue detail lines when
+ * `details` is set. Extracted from `streamCqSection` to keep the section
+ * loop flat.
+ */
+function writeFlaggedFileDetail(
+	file: string,
+	issues: CodeQualityIssue[],
+	details: boolean,
+): void {
+	process.stderr.write(`\x1b[2m         ${file}\x1b[0m\n`);
+	if (!details) return;
+	const fileItems = issues.filter((r) => r.file === file);
+	for (const item of fileItems.slice(0, MAX_FILE_DETAIL_LINES)) {
+		const loc = item.line > 0 ? `L${item.line}: ` : "";
+		process.stderr.write(
+			`\x1b[2m           ${loc}${item.message.slice(0, MESSAGE_MAX_LENGTH)}\x1b[0m\n`,
+		);
+	}
+	if (fileItems.length > MAX_FILE_DETAIL_LINES) {
+		process.stderr.write(
+			`\x1b[2m           ... and ${fileItems.length - MAX_FILE_DETAIL_LINES} more\x1b[0m\n`,
+		);
+	}
+}
+
+/**
  * Public API — consumed by `verify.ts`.
  *
  * Display a code-quality section on stderr with file names always shown.
@@ -76,20 +102,7 @@ export function streamCqSection(args: StreamCqSectionArgs): void {
 		`    \x1b[${color}m!\x1b[0m \x1b[${color}m${issues.length}\x1b[0m ${noun} in \x1b[${color}m${issueFiles.size}\x1b[0m files\n`,
 	);
 	for (const file of [...issueFiles].sort().slice(0, MAX_LISTED_FILES)) {
-		process.stderr.write(`\x1b[2m         ${file}\x1b[0m\n`);
-		if (!details) continue;
-		const fileItems = issues.filter((r) => r.file === file);
-		for (const item of fileItems.slice(0, MAX_FILE_DETAIL_LINES)) {
-			const loc = item.line > 0 ? `L${item.line}: ` : "";
-			process.stderr.write(
-				`\x1b[2m           ${loc}${item.message.slice(0, MESSAGE_MAX_LENGTH)}\x1b[0m\n`,
-			);
-		}
-		if (fileItems.length > MAX_FILE_DETAIL_LINES) {
-			process.stderr.write(
-				`\x1b[2m           ... and ${fileItems.length - MAX_FILE_DETAIL_LINES} more\x1b[0m\n`,
-			);
-		}
+		writeFlaggedFileDetail(file, issues, details);
 	}
 	if (issueFiles.size > MAX_LISTED_FILES) {
 		process.stderr.write(

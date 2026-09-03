@@ -84,6 +84,16 @@ function fdcSplitPipeline(s: string): string[] {
 	return out;
 }
 
+/** Advance past one quoted char: closes the quote on a match, else appends it. */
+function fdcAdvanceQuoted(ch: string | undefined, q: string, buf: string): { q: string | null; buf: string } {
+	if (ch === q) return { q: null, buf };
+	return { q, buf: buf + ch };
+}
+/** Push `buf` onto `out` as a completed token when non-empty; returns "". */
+function fdcPushIfNonEmpty(out: string[], buf: string): string {
+	if (buf) out.push(buf);
+	return "";
+}
 /** Split one pipeline segment into whitespace-separated tokens, dropping the
  *  quote characters themselves. */
 function fdcTokenize(seg: string): string[] {
@@ -93,11 +103,9 @@ function fdcTokenize(seg: string): string[] {
 	for (let i = 0; i < seg.length; i++) {
 		const ch = seg[i];
 		if (q) {
-			if (ch === q) {
-				q = null;
-				continue;
-			}
-			buf += ch;
+			const r = fdcAdvanceQuoted(ch, q, buf);
+			q = r.q;
+			buf = r.buf;
 			continue;
 		}
 		if (ch === '"' || ch === "'") {
@@ -105,10 +113,7 @@ function fdcTokenize(seg: string): string[] {
 			continue;
 		}
 		if (/\s/.test(ch || "")) {
-			if (buf) {
-				out.push(buf);
-				buf = "";
-			}
+			buf = fdcPushIfNonEmpty(out, buf);
 			continue;
 		}
 		buf += ch;
@@ -469,8 +474,7 @@ export function checkFileDumpCold(
  * Declarations hoist, so the join order does not matter.
  */
 export const FILE_DUMP_COLD_GUARD_SOURCE: string = [
-	fdcSplitPipeline,
-	fdcTokenize,
+	fdcSplitPipeline, fdcAdvanceQuoted, fdcPushIfNonEmpty, fdcTokenize,
 	fdcStripWrappers,
 	fdcCountOf,
 	fdcParseCount,

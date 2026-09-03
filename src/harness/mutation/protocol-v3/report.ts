@@ -212,6 +212,21 @@ function envMutantMismatch(m: V3MutantRow, reportById: Map<string, ReportRow>): 
 	return null;
 }
 
+/** One envelope exclusion's disagreement with its report row, or null when it
+ *  matches. Extracted so the loop in `rowCorrespondenceFailure` stays flat. */
+function envExcludedMismatch(e: V3ExcludedRow, reportById: Map<string, ReportRow>): string | null {
+	const reportRow = reportById.get(e.mutant_id);
+	if (reportRow?.status !== "excluded") {
+		return `envelope exclusion "${e.mutant_id}" is not an excluded row in the report`;
+	}
+	for (const key of [...EXECUTABLE_ROW_KEYS.filter((field) => field !== "status"), "policy_id"] as const) {
+		if (reportRow[key] !== e[key]) {
+			return `report ${key} for excluded mutant "${e.mutant_id}" disagrees with the signed envelope`;
+		}
+	}
+	return null;
+}
+
 function rowCorrespondenceFailure(envelope: ParsedEnvelope, rows: ReportRow[]): string | null {
 	// SAFETY: keyed access across the union; report-requiring kinds carry these.
 	const record = envelope as unknown as Record<string, unknown>;
@@ -226,15 +241,8 @@ function rowCorrespondenceFailure(envelope: ParsedEnvelope, rows: ReportRow[]): 
 		if (mismatch !== null) return mismatch;
 	}
 	for (const e of envExcluded) {
-		const reportRow = reportById.get(e.mutant_id);
-		if (reportRow?.status !== "excluded") {
-			return `envelope exclusion "${e.mutant_id}" is not an excluded row in the report`;
-		}
-		for (const key of [...EXECUTABLE_ROW_KEYS.filter((field) => field !== "status"), "policy_id"] as const) {
-			if (reportRow[key] !== e[key]) {
-				return `report ${key} for excluded mutant "${e.mutant_id}" disagrees with the signed envelope`;
-			}
-		}
+		const mismatch = envExcludedMismatch(e, reportById);
+		if (mismatch !== null) return mismatch;
 	}
 	if (rows.length !== envMutants.length + envExcluded.length) {
 		return `report carries ${rows.length} row(s) but the envelope accounts for exactly ${envMutants.length + envExcluded.length} (mutants + exclusions)`;

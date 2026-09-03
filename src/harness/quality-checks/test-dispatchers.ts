@@ -11,6 +11,7 @@
 import { existsSync } from "node:fs";
 import { dirname, extname, relative, sep } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
+import { goBuildTagArgs, goToolTags } from "../check-engine/tool-runners/go-invocation.js";
 import type { LanguageId, LanguageProfile } from "../types.js";
 import { findDirectImporters } from "./direct-importers.js";
 import { buildTestCandidates, classifyTestFailure } from "./test-classifier.js";
@@ -408,16 +409,22 @@ async function runCargoTestDispatcher(input: TestDispatcherInput): Promise<TestD
 // ===========================================
 // Scopes to the edited file's package. Running `go test ./...` on every
 // edit is too slow and pollutes output with failures in unrelated packages.
+//
+// Build tags come from the shared Go invocation policy so this compile lands
+// in the SAME build-cache key set as `go build` / golangci-lint in
+// check-engine/tool-runners/go.ts. Without that, three per-edit Go
+// compilations each populate a different cache and re-do each other's work.
 
 async function runGoTestDispatcher(input: TestDispatcherInput): Promise<TestDispatcherResult[]> {
 	const pkgDir = dirname(input.absPath);
 	const relPkg = relative(input.checkCwd, pkgDir) || ".";
 	// Prepend ./ to avoid accidental module-path interpretation.
 	const pkgArg = relPkg.startsWith(".") ? relPkg : `./${relPkg.split(sep).join("/")}`;
+	const tagArgs = goBuildTagArgs(goToolTags(process.env));
 
 	const run = await runBoundedTestProcess({
 		command: "go",
-		args: ["test", "-count=1", pkgArg],
+		args: ["test", "-count=1", ...tagArgs, pkgArg],
 		cwd: input.checkCwd,
 		timeoutMs: input.timeoutMs,
 	});

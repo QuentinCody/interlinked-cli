@@ -190,6 +190,28 @@ export function checkEmptyFunctionBody(content: string, filePath: string): Inlin
 }
 
 /**
+ * Net brace-depth change across one line: each `{` adds one, each `}` subtracts
+ * one. Pure helper for {@link countFnBodyLines}.
+ */
+function braceDelta(line: string): number {
+	let delta = 0;
+	for (const ch of line) {
+		if (ch === "{") delta++;
+		if (ch === "}") delta--;
+	}
+	return delta;
+}
+
+/**
+ * True when a body line counts toward the function's size — a blank line or a
+ * lone `}` does not. Pure helper for {@link countFnBodyLines}.
+ */
+function isCountableBodyLine(line: string): boolean {
+	const trimmedBody = line.trim();
+	return trimmedBody.length > 0 && trimmedBody !== "}";
+}
+
+/**
  * Count the non-trivial body lines of the function opening at `fnIndex`,
  * scanning forward up to 8 lines and tracking brace depth. A blank line or a
  * lone `}` does not count. Pure helper for {@link checkDeprecationNotice}.
@@ -199,17 +221,10 @@ function countFnBodyLines(lines: string[], fnIndex: number): number {
 	let braceDepth = 0;
 	let bodyStarted = false;
 	for (let k = fnIndex; k < Math.min(fnIndex + 8, lines.length); k++) {
-		for (const ch of nonNull(lines[k])) {
-			if (ch === "{") {
-				bodyStarted = true;
-				braceDepth++;
-			}
-			if (ch === "}") braceDepth--;
-		}
-		if (bodyStarted && k > fnIndex) {
-			const trimmedBody = nonNull(lines[k]).trim();
-			if (trimmedBody.length > 0 && trimmedBody !== "}") bodyLines++;
-		}
+		const text = nonNull(lines[k]);
+		if (text.includes("{")) bodyStarted = true;
+		braceDepth += braceDelta(text);
+		if (bodyStarted && k > fnIndex && isCountableBodyLine(text)) bodyLines++;
 		if (bodyStarted && braceDepth === 0) break;
 	}
 	return bodyLines;

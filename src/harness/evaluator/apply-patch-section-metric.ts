@@ -12,13 +12,14 @@
 // no runtime dependency back on per-function-metric-gate.ts — only type-only
 // imports, which avoids a value-level circular import between the two files.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import type { ApplyPatchSection } from "../apply-patch-content.js";
 import { reconstructAfterContent } from "../apply-patch-content.js";
 import type { FileGrandfather } from "../function-complexity-baseline.js";
 import { isCappableFile } from "../large-file-policy.js";
 import type { MetricAnalyzer, MetricGateSpec, MetricObserver, NamedMetricEntry } from "./per-function-metric-gate.js";
+import { safeReadFile } from "./safe-read-file.js";
 
 /** Outcome of reconstructing + metric-checking one apply_patch section against
  *  `spec`: `"skip"` when the section can't or shouldn't be analyzed under this
@@ -29,14 +30,6 @@ export type ApplyPatchSectionOutcome =
 	| "skip"
 	| "fail-open"
 	| { items: string[]; gf: FileGrandfather | null };
-
-function safeReadSection(abs: string): string | null {
-	try {
-		return readFileSync(abs, "utf-8");
-	} catch {
-		return null;
-	}
-}
 
 /** Reconstruct one apply_patch section's post-edit content and run the same
  *  metric comparison an explicit file_path edit gets. `computeViolations` is
@@ -66,7 +59,7 @@ export function processApplyPatchSection<E extends NamedMetricEntry>(
 	// that introduced an over-cap function (finding 2026-06).
 	const readPath = section.fromPath ?? section.path;
 	const abs = isAbsolute(readPath) ? readPath : resolve(cwd, readPath);
-	const before = existsSync(abs) ? (safeReadSection(abs) ?? "") : "";
+	const before = existsSync(abs) ? (safeReadFile(abs) ?? "") : "";
 	const after = reconstructAfterContent(section, before);
 	if (after === null) return "skip"; // can't reconstruct confidently → fail open for this file
 	if (!isCappableFile({ filePath: section.path, content: after, root: cwd })) return "skip";

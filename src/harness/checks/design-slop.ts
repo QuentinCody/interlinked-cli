@@ -262,6 +262,34 @@ function detectMarketingBuzzwords(content: string): { message: string } | null {
 	};
 }
 
+/** True when `matcher` has at least one hit on `line` that survives its own `test`. */
+function lineMatcherFires(matcher: LineMatcher, line: string): boolean {
+	const re = new RegExp(matcher.regex.source, matcher.regex.flags);
+	let hit: RegExpExecArray | null;
+	while ((hit = re.exec(line)) !== null) {
+		if (matcher.test && !matcher.test(hit, line)) continue;
+		return true;
+	}
+	return false;
+}
+
+/** Records one finding per (rule, line) into `matches`, capped at {@link MAX_MATCHES_PER_FILE}. */
+function createMatchRecorder(
+	matches: InlineMatch[],
+): (rule: string, lineNo: number, message: string, excerpt: string) => void {
+	const seen = new Set<string>();
+	return (rule, lineNo, message, excerpt) => {
+		if (matches.length >= MAX_MATCHES_PER_FILE) return;
+		const key = `${rule}:${lineNo}`;
+		if (seen.has(key)) return;
+		seen.add(key);
+		matches.push({
+			line: lineNo,
+			text: `[${rule}] ${message} — ${excerpt.trim().slice(0, EXCERPT_TRUNC)}`,
+		});
+	};
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -279,31 +307,15 @@ export function detectDesignSlop(content: string, filePath: string): InlineMatch
 
 	const matches: InlineMatch[] = [];
 	const lines = content.split("\n");
-	const seen = new Set<string>();
-
-	const record = (rule: string, lineNo: number, message: string, excerpt: string): void => {
-		if (matches.length >= MAX_MATCHES_PER_FILE) return;
-		const key = `${rule}:${lineNo}`;
-		if (seen.has(key)) return;
-		seen.add(key);
-		matches.push({
-			line: lineNo,
-			text: `[${rule}] ${message} — ${excerpt.trim().slice(0, EXCERPT_TRUNC)}`,
-		});
-	};
+	const record = createMatchRecorder(matches);
 
 	// Per-line matchers.
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i] ?? "";
 		for (const matcher of LINE_MATCHERS) {
 			if (matches.length >= MAX_MATCHES_PER_FILE) break;
-			const re = new RegExp(matcher.regex.source, matcher.regex.flags);
-			let hit: RegExpExecArray | null;
-			while ((hit = re.exec(line)) !== null) {
-				if (matcher.test && !matcher.test(hit, line)) continue;
-				record(matcher.rule, i + 1, matcher.message, line);
-				break; // one finding per (rule, line) is enough
-			}
+			// one finding per (rule, line) is enough
+			if (lineMatcherFires(matcher, line)) record(matcher.rule, i + 1, matcher.message, line);
 		}
 	}
 

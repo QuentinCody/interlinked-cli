@@ -13,6 +13,7 @@
 
 // NOTE: All detectors are pure functions over arrays — no side effects, no I/O.
 import { nonNull } from "../lib/non-null.js";
+import { tallySequence } from "./pattern-detector-sequence-tally.js";
 import { harnessNow } from "./replay/harness-clock.js";
 import type { ErrorRecord, SessionTrajectory } from "./types.js";
 
@@ -344,42 +345,8 @@ function getSequenceWarning(records: ErrorRecord[], currentSequence: string[]): 
  */
 function extractSequenceFeatures(sequence: string[]): string[] {
 	const features: string[] = [];
-
-	// Count tool types in the sequence
-	let editCount = 0;
-	let readCount = 0;
-	let bashCount = 0;
-	let _testCount = 0;
-	let lastEditFile = "";
-	let consecutiveEditsToSameFile = 0;
-	let maxConsecutiveEdits = 0;
-	let editsSinceLastTest = 0;
-
-	for (const entry of sequence) {
-		const parts = entry.split(":", 2);
-		const tool = nonNull(parts[0]);
-		const target = parts[1];
-
-		if (isEditTool(tool)) {
-			editCount++;
-			editsSinceLastTest++;
-			if (target === lastEditFile) {
-				consecutiveEditsToSameFile++;
-				maxConsecutiveEdits = Math.max(maxConsecutiveEdits, consecutiveEditsToSameFile);
-			} else {
-				consecutiveEditsToSameFile = 1;
-				lastEditFile = target || "";
-			}
-		} else if (isReadTool(tool)) {
-			readCount++;
-		} else if (isBashCommand(tool)) {
-			bashCount++;
-			if (isTestCommand(target || "")) {
-				_testCount++;
-				editsSinceLastTest = 0;
-			}
-		}
-	}
+	const { editCount, readCount, bashCount, maxConsecutiveEdits, editsSinceLastTest } =
+		tallySequence(sequence);
 
 	// Pattern: Multiple edits to same file without re-reading
 	if (maxConsecutiveEdits >= 3) {
@@ -406,32 +373,6 @@ function extractSequenceFeatures(sequence: string[]): string[] {
 	}
 
 	return features;
-}
-
-function isEditTool(tool: string): boolean {
-	return [
-		"Write",
-		"Edit",
-		"WriteFile",
-		"EditFile",
-		"write_file",
-		"edit_file",
-		"NotebookEdit",
-	].includes(tool);
-}
-
-function isReadTool(tool: string): boolean {
-	return ["Read", "ReadFile", "read_file", "Glob", "Grep"].includes(tool);
-}
-
-function isBashCommand(tool: string): boolean {
-	return ["Bash", "Shell", "shell", "run_command"].includes(tool);
-}
-
-function isTestCommand(target: string): boolean {
-	return /\b(test|vitest|jest|mocha|pytest|cargo test|go test|npm run test|npx vitest)\b/i.test(
-		target,
-	);
 }
 
 // ===========================================

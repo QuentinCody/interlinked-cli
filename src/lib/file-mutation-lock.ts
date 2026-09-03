@@ -341,28 +341,61 @@ function tryCreateLease(
 	}
 }
 
+interface LockTimings {
+	waitMs: number;
+	retryMs: number;
+	staleMs: number;
+	clock: () => number;
+}
+
+/** Normalize the caller's wait/retry/stale budget and clock to their defaults. */
+function resolveLockTimings(options: FileMutationLockOptions): LockTimings {
+	return {
+		waitMs: Math.max(0, options.waitMs ?? DEFAULT_WAIT_MS),
+		retryMs: Math.max(1, options.retryMs ?? DEFAULT_RETRY_MS),
+		staleMs: Math.max(1, options.staleMs ?? DEFAULT_STALE_MS),
+		clock: options.clock ?? Date.now,
+	};
+}
+
+/** Build this process's owner record, carrying only the identity fields the
+ * platform actually reported. */
+function buildLockOwner(
+	token: string,
+	acquiredAtMs: number,
+	identity: FileMutationProcessIdentity,
+): LockOwner {
+	return {
+		pid: process.pid,
+		token,
+		acquired_at_ms: acquiredAtMs,
+		...(identity.bootId ? { boot_id: identity.bootId } : {}),
+		...(identity.processStartId ? { process_start_id: identity.processStartId } : {}),
+	};
+}
+
+/** The optional stale-observation test seam, as a spreadable fragment. */
+function retireObservedHook(
+	options: FileMutationLockOptions,
+): Pick<FileMutationLockOptions, "beforeRetireObserved"> {
+	return options.beforeRetireObserved
+		? { beforeRetireObserved: options.beforeRetireObserved }
+		: {};
+}
+
 function acquireFileMutationLock(
 	path: string,
 	options: FileMutationLockOptions,
 ): FileMutationLease {
 	const lockPath = fileMutationLockPath(path);
-	const waitMs = Math.max(0, options.waitMs ?? DEFAULT_WAIT_MS);
-	const retryMs = Math.max(1, options.retryMs ?? DEFAULT_RETRY_MS);
-	const staleMs = Math.max(1, options.staleMs ?? DEFAULT_STALE_MS);
-	const clock = options.clock ?? Date.now;
+	const { waitMs, retryMs, staleMs, clock } = resolveLockTimings(options);
 	const startedAt = clock();
 	const token = (options.tokenFactory ?? randomUUID)();
 	if (!validToken(token)) throw new TypeError("file-mutation lock token is not path-safe");
 	const identityProvider =
 		options.identityProvider ?? ((pid: number) => readFileMutationProcessIdentity(pid, clock()));
 	const identity = observedIdentity(identityProvider, process.pid);
-	const owner: LockOwner = {
-		pid: process.pid,
-		token,
-		acquired_at_ms: startedAt,
-		...(identity.bootId ? { boot_id: identity.bootId } : {}),
-		...(identity.processStartId ? { process_start_id: identity.processStartId } : {}),
-	};
+	const owner: LockOwner = buildLockOwner(token, startedAt, identity);
 
 	// `for (;;)` rather than `while (true)`: same infinite-retry loop (exited only
 	// via the `return`/`throw` below), but sidesteps no-unnecessary-condition
@@ -377,9 +410,7 @@ function acquireFileMutationLock(
 				staleMs,
 				now: clock(),
 				identityProvider,
-				...(options.beforeRetireObserved
-					? { beforeRetireObserved: options.beforeRetireObserved }
-					: {}),
+				...retireObservedHook(options),
 			})
 		) continue;
 		if (clock() - startedAt >= waitMs) {

@@ -139,6 +139,17 @@ function isConsoleDebugExempt(filePath: string, content: string): boolean {
  * `fmt.Println` occurrences — too few to read as debug sprawl rather than
  * intentional output).
  */
+/**
+ * C/C++ branch of {@link consoleDebugPatternFor}: printf is standard output,
+ * so skip main files and example/demo dirs before flagging it as debug noise.
+ */
+function cCppDebugPatternFor(fileName: string, normalized: string): RegExp | null {
+	if (fileName.startsWith("main.")) return null;
+	if (/\b(examples?|samples?|demos?)\b/i.test(normalized)) return null;
+	if (/\b(example|demo|sample)/i.test(fileName)) return null;
+	return /\bprintf\s*\(/;
+}
+
 function consoleDebugPatternFor(
 	ext: string,
 	fileName: string,
@@ -170,10 +181,7 @@ function consoleDebugPatternFor(
 	}
 	// C/C++ — printf is standard output. Skip main files, example/demo dirs.
 	if ([".c", ".cpp", ".cc", ".cxx", ".h", ".hpp"].includes(ext)) {
-		if (fileName.startsWith("main.")) return null;
-		if (/\b(examples?|samples?|demos?)\b/i.test(normalized)) return null;
-		if (/\b(example|demo|sample)/i.test(fileName)) return null;
-		return /\bprintf\s*\(/;
+		return cCppDebugPatternFor(fileName, normalized);
 	}
 	// Swift — flag debug-intent APIs only. `print(` is too common (CLIs,
 	// SwiftPM tools, examples) to flag globally; `debugPrint(` / `dump(` /

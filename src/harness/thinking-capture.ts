@@ -129,6 +129,45 @@ function parseAssistantModel(value: unknown): string | null {
 }
 
 /**
+ * Read and parse whatever new transcript bytes exist since the cursor,
+ * persist the advanced cursor, and return the combined SCRUBBED thinking
+ * text (or null when there is none). May throw — the caller fails open.
+ */
+function collectNewThinking(transcriptPath: string, cursorPath: string): string | null {
+	const size = statSync(transcriptPath).size;
+	const cursor = readCursor(cursorPath);
+	let offset = cursor.offsets[transcriptPath] ?? 0;
+	if (offset > size) offset = 0;
+	if (offset === size) return null;
+
+	const readStart = Math.max(offset, size - MAX_THINKING_TRANSCRIPT_BYTES);
+	const buf = readBytes(transcriptPath, readStart, size - readStart);
+	let text = buf.toString("utf-8");
+	if (readStart > offset) {
+		const firstNewline = text.indexOf("\n");
+		text = firstNewline === -1 ? "" : text.slice(firstNewline + 1);
+	}
+
+	const parts: string[] = [];
+	for (const line of text.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const blocks = parseAssistantThinkingBlocks(JSON.parse(line));
+			if (blocks) parts.push(...blocks);
+		} catch (e) {
+			void e; // a truncated final line is normal — skip it
+		}
+	}
+
+	// Persist the cursor even when no thinking was found, so we don't re-scan.
+	writeFileSync(cursorPath, JSON.stringify(updatedCursor(cursor, transcriptPath, size)));
+	if (parts.length === 0) return null;
+
+	const combined = parts.join("\n---\n");
+	return redactPii(scrubSecrets(combined).text).text;
+}
+
+/**
  * Return the SCRUBBED reasoning recorded in `transcriptPath` since the last call
  * (tracked by the cursor at `cursorPath`), or null when there is no new thinking
  * (or the transcript is missing/unreadable). Advances the cursor to EOF. Never
@@ -137,37 +176,7 @@ function parseAssistantModel(value: unknown): string | null {
 export function extractNewThinking(transcriptPath: string, cursorPath: string): string | null {
 	if (!transcriptPath || !existsSync(transcriptPath)) return null;
 	try {
-		const size = statSync(transcriptPath).size;
-		const cursor = readCursor(cursorPath);
-		let offset = cursor.offsets[transcriptPath] ?? 0;
-		if (offset > size) offset = 0;
-		if (offset === size) return null;
-
-		const readStart = Math.max(offset, size - MAX_THINKING_TRANSCRIPT_BYTES);
-		const buf = readBytes(transcriptPath, readStart, size - readStart);
-		let text = buf.toString("utf-8");
-		if (readStart > offset) {
-			const firstNewline = text.indexOf("\n");
-			text = firstNewline === -1 ? "" : text.slice(firstNewline + 1);
-		}
-
-		const parts: string[] = [];
-		for (const line of text.split("\n")) {
-			if (!line.trim()) continue;
-			try {
-				const blocks = parseAssistantThinkingBlocks(JSON.parse(line));
-				if (blocks) parts.push(...blocks);
-			} catch (e) {
-				void e; // a truncated final line is normal — skip it
-			}
-		}
-
-		// Persist the cursor even when no thinking was found, so we don't re-scan.
-		writeFileSync(cursorPath, JSON.stringify(updatedCursor(cursor, transcriptPath, size)));
-		if (parts.length === 0) return null;
-
-		const combined = parts.join("\n---\n");
-		return redactPii(scrubSecrets(combined).text).text;
+		return collectNewThinking(transcriptPath, cursorPath);
 	} catch (e) {
 		void e;
 		return null;

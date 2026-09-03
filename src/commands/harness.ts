@@ -231,6 +231,33 @@ export async function harnessRestartCommand(opts: {
 // harness status
 // ===========================================
 
+/**
+ * Render the operational-signal rows of `harness status` — RSS, build
+ * staleness, configured mode, last event. Each row is omitted when its signal
+ * is absent, in the same order the status report has always printed them.
+ */
+function operationalSignalLines(signals: {
+	rssMb: number | null;
+	staleness: ReturnType<typeof distStaleness>;
+	activeMode: string | null;
+	lastEventAt: string | null;
+}): string[] {
+	const { rssMb, staleness, activeMode, lastEventAt } = signals;
+	const lines: string[] = [];
+	if (rssMb !== null) {
+		lines.push(kvLine("RSS", `${rssMb} MB`));
+	}
+	const sw = stalenessWarning(staleness);
+	if (sw) lines.push(kvLine("Build", c.yellow(sw)));
+	if (activeMode !== null) {
+		lines.push(kvLine("Mode", activeMode));
+	}
+	if (lastEventAt !== null) {
+		lines.push(kvLine("Last event", lastEventAt));
+	}
+	return lines;
+}
+
 export async function harnessStatusCommand(opts: { json?: boolean }): Promise<void> {
 	const mode = getOutputMode(opts);
 	const cwd = process.cwd();
@@ -318,17 +345,9 @@ export async function harnessStatusCommand(opts: { json?: boolean }): Promise<vo
 				if (liveness === "zombie") lines.push(c.red(`  ${zombieWarningLine(processStatus.pid)}`));
 				if (protocolStatus) lines.push(...protocolStatusLines(protocolStatus));
 				lines.push(...framedSocketLines(framedSockets));
-				if (rssMb !== null) {
-					lines.push(kvLine("RSS", `${rssMb} MB`));
-				}
-				const sw = stalenessWarning(staleness);
-				if (sw) lines.push(kvLine("Build", c.yellow(sw)));
-				if (activeMode !== null) {
-					lines.push(kvLine("Mode", activeMode));
-				}
-				if (lastEventAt !== null) {
-					lines.push(kvLine("Last event", lastEventAt));
-				}
+				lines.push(
+					...operationalSignalLines({ rssMb, staleness, activeMode, lastEventAt }),
+				);
 				const orphanLine =
 					orphanInfo.candidates.length === 0
 						? c.dim("0")

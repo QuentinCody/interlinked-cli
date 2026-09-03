@@ -201,6 +201,63 @@ describe("checkDuplicateTestNames — comment / string / data-file FP regression
 	});
 });
 
+// 2026-09-03: split the verdict — a same-title collision only reads as a
+// "duplicate" (delete one) when the two case bodies are also equivalent.
+// A same-title collision with a DIFFERENT body is a naming bug (rename one
+// title), not a duplicate. Cross-describe title reuse where each describe
+// scopes a different subject was already a non-finding (2026-09-02
+// adjudication) — pinned again here alongside the two new outcomes so all
+// three verdicts for "same title" sit next to each other.
+describe("checkDuplicateTestNames — body-equivalence verdict — positive (must fire)", () => {
+	it("P1: identical title AND equivalent body reports a genuine duplicate", () => {
+		const code = `describe("A", () => {\n\tit("dup", () => { expect(f(1)).toBe(2); });\n\tit("dup", () => { expect(f(1)).toBe(2); });\n});`;
+		const matches = checkDuplicateTestNames(code, TEST);
+		expect(matches).toHaveLength(1);
+		expect(nonNull(matches[0]).text).toContain("with an equivalent body");
+		expect(nonNull(matches[0]).text).toContain("Rename one or merge the cases.");
+	});
+
+	it("P2: bodies that differ only by whitespace/comments still count as equivalent (still a duplicate)", () => {
+		const code = [
+			`describe("A", () => {`,
+			`\tit("dup", () => {`,
+			`\t\t// a comment`,
+			`\t\texpect(f(1)).toBe(2);`,
+			`\t});`,
+			`\tit("dup", () => { expect(f(1)).toBe(2); });`,
+			`});`,
+		].join("\n");
+		const matches = checkDuplicateTestNames(code, TEST);
+		expect(matches).toHaveLength(1);
+		expect(nonNull(matches[0]).text).toContain("with an equivalent body");
+	});
+});
+
+describe("checkDuplicateTestNames — body-equivalence verdict — negative (must not fire as 'duplicate')", () => {
+	it("N1: identical title, materially different body → a rename message, not a duplicate finding", () => {
+		const code = `describe("A", () => {\n\tit("dup", () => { expect(f(1)).toBe(2); });\n\tit("dup", () => { expect(g(9)).toBe(-1); });\n});`;
+		const matches = checkDuplicateTestNames(code, TEST);
+		expect(matches).toHaveLength(1);
+		const text = nonNull(matches[0]).text;
+		expect(text).not.toContain("duplicate test name");
+		expect(text).not.toContain("with an equivalent body");
+		expect(text).toContain("naming collision, not a duplicate");
+		expect(text).toContain("Rename one of the two titles");
+	});
+
+	it("N2: same title in two different describe blocks scoping different subjects is not a finding at all", () => {
+		const code = [
+			`describe("widget A", () => {`,
+			`\tit("renders", () => { expect(f(1)).toBe(2); });`,
+			`});`,
+			`describe("widget B", () => {`,
+			`\tit("renders", () => { expect(g(9)).toBe(-1); });`,
+			`});`,
+		].join("\n");
+		expect(checkDuplicateTestNames(code, TEST)).toEqual([]);
+	});
+});
+
 describe("checkTestMissingSutImport", () => {
 	it("flags a foo.test.ts that does not import ./foo", () => {
 		const code = `
@@ -624,7 +681,7 @@ describe("checkDuplicateTestNames — regex quantifier robustness (TEST_BLOCK_IN
 		expect(matches).toEqual([
 			{
 				line: 2,
-				text: 'duplicate test name "dup" — first declared on line 1 in the same describe scope. Rename one or merge the cases.',
+				text: 'duplicate test name "dup" — first declared on line 1 in the same describe scope, with an equivalent body. Rename one or merge the cases.',
 			},
 		]);
 	});
@@ -750,7 +807,7 @@ describe("checkDuplicateTestNames — brace/quote scanning robustness", () => {
 		expect(matches).toEqual([
 			{
 				line: 5,
-				text: 'duplicate test name "dup" — first declared on line 4 in the same describe scope. Rename one or merge the cases.',
+				text: 'duplicate test name "dup" — first declared on line 4 in the same describe scope, with an equivalent body. Rename one or merge the cases.',
 			},
 		]);
 	});
@@ -763,7 +820,7 @@ describe("checkDuplicateTestNames — exact match-array assertions (line/text ar
 		expect(matches).toEqual([
 			{
 				line: 2,
-				text: 'duplicate test name "dup" — first declared on line 1 in the same describe scope. Rename one or merge the cases.',
+				text: 'duplicate test name "dup" — first declared on line 1 in the same describe scope, with an equivalent body. Rename one or merge the cases.',
 			},
 		]);
 	});
@@ -777,7 +834,7 @@ describe("checkDuplicateTestNames — exact match-array assertions (line/text ar
 		expect(matches).toEqual([
 			{
 				line: 2,
-				text: 'duplicate test name "dup" — first declared on line 1 in the same describe scope. Rename one or merge the cases.',
+				text: 'duplicate test name "dup" — first declared on line 1 in the same describe scope, with an equivalent body. Rename one or merge the cases.',
 			},
 		]);
 	});
@@ -789,7 +846,7 @@ describe("checkDuplicateTestNames — exact match-array assertions (line/text ar
 		expect(matches).toEqual([
 			{
 				line: 2,
-				text: `duplicate test name "${longName.slice(0, 80)}" — first declared on line 1 in the same describe scope. Rename one or merge the cases.`,
+				text: `duplicate test name "${longName.slice(0, 80)}" — first declared on line 1 in the same describe scope, with an equivalent body. Rename one or merge the cases.`,
 			},
 		]);
 	});

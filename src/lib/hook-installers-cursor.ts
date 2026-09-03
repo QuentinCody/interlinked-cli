@@ -148,6 +148,32 @@ function safeReadCursorConfig(path: string): CursorConfig | null {
 	return parseCursorConfigShape(raw);
 }
 
+// Bring one event's entry list in line with the desired hook command and
+// fail-closed posture: refresh our existing entry if there is one, otherwise
+// append a fresh entry.
+function upsertCursorHookEntry(
+	entries: CursorHookEntry[],
+	eventName: string,
+	hookCommand: string,
+): void {
+	const expectedFailClosed = CURSOR_FAIL_CLOSED_EVENTS.has(eventName);
+	const existing = entries.find((e) => e.command.includes(INTERLINKED_MARKER));
+	if (!existing) {
+		const entry: CursorHookEntry = { command: hookCommand, type: "command" };
+		if (expectedFailClosed) {
+			entry.failClosed = true;
+		}
+		entries.push(entry);
+		return;
+	}
+	if (existing.command !== hookCommand) {
+		existing.command = hookCommand;
+	}
+	if ((existing.failClosed || false) !== expectedFailClosed) {
+		existing.failClosed = expectedFailClosed;
+	}
+}
+
 /**
  * Public API — consumed by `src/lib/hooks.ts` (registered in CLIENT_INSTALL_REGISTRY).
  * Install Interlinked hooks into Cursor's `.cursor/hooks.json`.
@@ -172,28 +198,27 @@ export function installCursorHooks(cwd: string, hookScriptPath: string): void {
 
 	for (const eventName of CURSOR_HOOK_EVENTS) {
 		if (!config.hooks[eventName]) config.hooks[eventName] = [];
-		const entries = config.hooks[eventName];
-
-		const existing = entries.find((e) => e.command.includes(INTERLINKED_MARKER));
-		if (existing) {
-			if (existing.command !== hookCommand) {
-				existing.command = hookCommand;
-			}
-			const expectedFailClosed = CURSOR_FAIL_CLOSED_EVENTS.has(eventName);
-			if ((existing.failClosed || false) !== expectedFailClosed) {
-				existing.failClosed = expectedFailClosed;
-			}
-			continue;
-		}
-
-		const entry: CursorHookEntry = { command: hookCommand, type: "command" };
-		if (CURSOR_FAIL_CLOSED_EVENTS.has(eventName)) {
-			entry.failClosed = true;
-		}
-		entries.push(entry);
+		upsertCursorHookEntry(config.hooks[eventName], eventName, hookCommand);
 	}
 
 	config.version = 1;
+	writeFileSync(hooksPath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
+// Persist the post-removal config: delete the file when no hook of any client
+// survives, otherwise drop the now-empty event arrays and rewrite it.
+function pruneAndPersistCursorConfig(hooksPath: string, config: CursorConfig): void {
+	const hasHooks = Object.values(config.hooks).some(
+		(arr) => Array.isArray(arr) && arr.length > 0,
+	);
+	if (!hasHooks) {
+		rmSync(hooksPath, { force: true });
+		return;
+	}
+	// Drop empty arrays so the file is minimal post-uninstall.
+	for (const k of Object.keys(config.hooks)) {
+		if (nonNull(config.hooks[k]).length === 0) delete config.hooks[k];
+	}
 	writeFileSync(hooksPath, `${JSON.stringify(config, null, 2)}\n`);
 }
 
@@ -220,18 +245,7 @@ export function uninstallCursorHooks(cwd: string): boolean {
 	}
 
 	if (changed) {
-		const hasHooks = Object.values(config.hooks).some(
-			(arr) => Array.isArray(arr) && arr.length > 0,
-		);
-		if (!hasHooks) {
-			rmSync(hooksPath, { force: true });
-		} else {
-			// Drop empty arrays so the file is minimal post-uninstall.
-			for (const k of Object.keys(config.hooks)) {
-				if (nonNull(config.hooks[k]).length === 0) delete config.hooks[k];
-			}
-			writeFileSync(hooksPath, `${JSON.stringify(config, null, 2)}\n`);
-		}
+		pruneAndPersistCursorConfig(hooksPath, config);
 	}
 
 	return changed;

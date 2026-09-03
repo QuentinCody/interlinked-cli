@@ -94,6 +94,33 @@ function isStatementPositionExpect(strippedLines: string[], i: number): boolean 
 	return prev === null || !CONTINUATION_SUFFIX_RE.test(prev);
 }
 
+/**
+ * Check whether stripped line `i` is a statement-position `expect(...)`
+ * whose chain is an unawaited `.rejects`/`.resolves` matcher, and if so
+ * build the finding for it. Returns null when line `i` is not a match.
+ */
+function matchUnawaitedAsyncAssertion(
+	strippedLines: string[],
+	rawLines: string[],
+	stripped: string,
+	lineStartOffset: number,
+	i: number,
+): InlineMatch | null {
+	const line = strippedLines[i] ?? "";
+	const startMatch = LINE_STARTS_WITH_EXPECT_RE.exec(line);
+	if (!startMatch || !isStatementPositionExpect(strippedLines, i)) return null;
+
+	const openOffset = lineStartOffset + line.indexOf("(", startMatch[1]?.length ?? 0);
+	const afterClose = skipBalancedParens(stripped, openOffset);
+	if (afterClose === -1 || !chainIsAsyncMatcher(stripped, afterClose)) return null;
+
+	const rawText = (rawLines[i] ?? "").trim().slice(0, REPORT_LINE_TRUNC);
+	return {
+		line: i + 1,
+		text: `unawaited_async_assertion: expect(...).rejects/.resolves chain is not awaited/returned — the matcher promise floats and this test passes no matter what. Prefix with \`await\` (or \`return\` the chain) — ${rawText}`,
+	};
+}
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
@@ -124,18 +151,10 @@ export function detectUnawaitedAsyncAssertions(
 	let lineStartOffset = 0;
 	for (let i = 0; i < strippedLines.length; i++) {
 		const line = strippedLines[i] ?? "";
-		const startMatch = LINE_STARTS_WITH_EXPECT_RE.exec(line);
-		if (startMatch && isStatementPositionExpect(strippedLines, i)) {
-			const openOffset = lineStartOffset + line.indexOf("(", startMatch[1]?.length ?? 0);
-			const afterClose = skipBalancedParens(stripped, openOffset);
-			if (afterClose !== -1 && chainIsAsyncMatcher(stripped, afterClose)) {
-				const rawText = (rawLines[i] ?? "").trim().slice(0, REPORT_LINE_TRUNC);
-				matches.push({
-					line: i + 1,
-					text: `unawaited_async_assertion: expect(...).rejects/.resolves chain is not awaited/returned — the matcher promise floats and this test passes no matter what. Prefix with \`await\` (or \`return\` the chain) — ${rawText}`,
-				});
-				if (matches.length >= MAX_MATCHES_PER_FILE) return matches;
-			}
+		const match = matchUnawaitedAsyncAssertion(strippedLines, rawLines, stripped, lineStartOffset, i);
+		if (match) {
+			matches.push(match);
+			if (matches.length >= MAX_MATCHES_PER_FILE) return matches;
 		}
 		lineStartOffset += line.length + 1;
 	}

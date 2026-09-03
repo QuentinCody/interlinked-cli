@@ -100,6 +100,47 @@ function extractBashPattern(cmd: string): string | null {
 	return `Bash(${first} *)`;
 }
 
+/** What one segment of an &&-chain contributes to the skeleton: a command name
+ *  to keep, a deny-listed command that voids the whole pattern, or nothing. */
+type SegmentVerdict = { kind: "skip" } | { kind: "deny" } | { kind: "keep"; entry: string };
+
+/** Index of the first token that is a real command, skipping leading variable
+ *  assignments (`FOO=bar`, `FOO=$(...)`). */
+function commandStartIndex(segParts: string[]): number {
+	let cmdStart = 0;
+	while (cmdStart < segParts.length && /^[A-Z_]+=/.test(nonNull(segParts[cmdStart]))) {
+		cmdStart++;
+	}
+	return cmdStart;
+}
+
+/** Skeleton entry for a tool whose subcommand is meaningful (`git status`),
+ *  falling back to the bare command when no subcommand token is present. */
+function multiSubcommandEntry(segParts: string[], cmdStart: number, core: string): string {
+	const subCmd = segParts.find(
+		(p, i) => i > cmdStart && !p.startsWith("-") && !p.startsWith("$") && !p.startsWith('"'),
+	);
+	return subCmd ? `${core} ${subCmd}` : core;
+}
+
+/** Reduce one &&-chain segment to its skeleton contribution. */
+function classifyCompoundSegment(seg: string): SegmentVerdict {
+	const segParts = seg.trim().split(/\s+/);
+	const cmdStart = commandStartIndex(segParts);
+	const core = segParts[cmdStart] || "";
+	if (!core) return { kind: "skip" };
+
+	// Abort if any segment triggers the deny-list
+	if (DANGEROUS_COMMANDS.has(core)) return { kind: "deny" };
+	const sub = segParts[cmdStart + 1] || "";
+	if (sub && DANGEROUS_COMMANDS.has(`${core} ${sub}`)) return { kind: "deny" };
+
+	if (MULTI_SUBCOMMAND_TOOLS.has(core)) {
+		return { kind: "keep", entry: multiSubcommandEntry(segParts, cmdStart, core) };
+	}
+	return { kind: "keep", entry: core };
+}
+
 /** Build a skeleton from an &&-chained compound command, e.g.
  *  `BOOT=$(mktemp -d) && cp src/* $BOOT/ && git -C $BOOT init && git commit`
  *  becomes `Bash(mktemp && cp && git init && git commit *)`. */
@@ -108,30 +149,9 @@ function extractCompoundBashPattern(cmd: string): string | null {
 	const skeleton: string[] = [];
 
 	for (const seg of segments) {
-		const segParts = seg.trim().split(/\s+/);
-		// Skip leading variable assignments (FOO=bar, FOO=$(...)).
-		let cmdStart = 0;
-		while (cmdStart < segParts.length && /^[A-Z_]+=/.test(nonNull(segParts[cmdStart]))) {
-			cmdStart++;
-		}
-		const core = segParts[cmdStart] || "";
-		if (!core) continue;
-
-		// Abort if any segment triggers the deny-list
-		if (DANGEROUS_COMMANDS.has(core)) return null;
-		const sub = segParts[cmdStart + 1] || "";
-		if (sub && DANGEROUS_COMMANDS.has(`${core} ${sub}`)) return null;
-
-		if (MULTI_SUBCOMMAND_TOOLS.has(core)) {
-			// Include subcommand for known multi-command tools
-			const subCmd = segParts.find(
-				(p, i) =>
-					i > cmdStart && !p.startsWith("-") && !p.startsWith("$") && !p.startsWith('"'),
-			);
-			skeleton.push(subCmd ? `${core} ${subCmd}` : core);
-		} else {
-			skeleton.push(core);
-		}
+		const verdict = classifyCompoundSegment(seg);
+		if (verdict.kind === "deny") return null;
+		if (verdict.kind === "keep") skeleton.push(verdict.entry);
 	}
 
 	if (skeleton.length >= 2) {

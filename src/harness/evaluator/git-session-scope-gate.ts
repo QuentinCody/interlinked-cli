@@ -142,16 +142,7 @@ export function evaluateGitScopeGateSync(
 	// recorded by session-state, so we test both shapes per op-file.
 	const sessionFiles = session.files_written;
 
-	const baseline = session.git_session_baseline;
-	const baselineDirty = new Set<string>();
-	if (baseline) {
-		for (const f of baseline.modified) baselineDirty.add(f);
-		for (const f of baseline.staged) baselineDirty.add(f);
-	}
-	// Remove paths the session has since written from baselineDirty — once
-	// the session has touched a pre-existing dirty file, the agent has
-	// authored the current state and we should not ask about it.
-	for (const f of sessionFiles) baselineDirty.delete(f);
+	const baselineDirty = preSessionDirtyPaths(session);
 
 	const unauthorized: string[] = [];
 	const baselineHits: string[] = [];
@@ -186,6 +177,21 @@ export function evaluateGitScopeGateSync(
 		unauthorized_files: unauthorized,
 		baseline_files: baselineHits,
 	};
+}
+
+/** Paths that were already dirty or staged when the session started AND that
+ *  the session has not written since. Once the session has touched a
+ *  pre-existing dirty file, the agent has authored the current state and we
+ *  should not ask about it. */
+function preSessionDirtyPaths(session: SessionTrajectory): Set<string> {
+	const baseline = session.git_session_baseline;
+	const baselineDirty = new Set<string>();
+	if (baseline) {
+		for (const f of baseline.modified) baselineDirty.add(f);
+		for (const f of baseline.staged) baselineDirty.add(f);
+	}
+	for (const f of session.files_written) baselineDirty.delete(f);
+	return baselineDirty;
 }
 
 // ============================================================
@@ -306,16 +312,20 @@ function shellSplit(input: string): string[] {
 			continue;
 		}
 		if (/\s/.test(c) && !inSingle && !inDouble) {
-			if (cur.length > 0) {
-				out.push(cur);
-				cur = "";
-			}
+			flushToken(out, cur);
+			cur = "";
 			continue;
 		}
 		cur += c;
 	}
-	if (cur.length > 0) out.push(cur);
+	flushToken(out, cur);
 	return out;
+}
+
+/** Appends the token `shellSplit` has accumulated so far, skipping the empty
+ *  token that runs of whitespace would otherwise produce. */
+function flushToken(out: string[], token: string): void {
+	if (token.length > 0) out.push(token);
 }
 
 // ============================================================

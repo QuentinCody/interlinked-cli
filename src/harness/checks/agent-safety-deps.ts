@@ -259,20 +259,33 @@ export function checkPhantomDependencies(pkgJsonPath: string): InlineMatch[] {
 
 	for (const dep of depNames) {
 		if (matches.length >= 10) break;
-
-		// Skip @types/* (type-only, never imported at runtime)
-		if (dep.startsWith("@types/")) continue;
-
-		if (!_isDepReferencedInProject(dep, searchRoot)) {
-			const lineIdx = lines.findIndex((l) => l.includes(`"${dep}"`));
-			matches.push({
-				line: lineIdx >= 0 ? lineIdx + 1 : 1,
-				text: `Phantom dependency: "${dep}" is in dependencies but never referenced in project source. Supply chain risk — dependencies should be imported somewhere.`,
-			});
-		}
+		const finding = _phantomDependencyFinding(dep, searchRoot, lines);
+		if (finding) matches.push(finding);
 	}
 
 	return matches;
+}
+
+/**
+ * Decide whether a single dependency is a phantom dependency and, if so,
+ * build its finding. Returns null for `@types/*` packages (type-only, never
+ * imported at runtime) and for any dependency that IS referenced in project
+ * source.
+ */
+function _phantomDependencyFinding(
+	dep: string,
+	searchRoot: string,
+	lines: string[],
+): InlineMatch | null {
+	// Skip @types/* (type-only, never imported at runtime)
+	if (dep.startsWith("@types/")) return null;
+	if (_isDepReferencedInProject(dep, searchRoot)) return null;
+
+	const lineIdx = lines.findIndex((l) => l.includes(`"${dep}"`));
+	return {
+		line: lineIdx >= 0 ? lineIdx + 1 : 1,
+		text: `Phantom dependency: "${dep}" is in dependencies but never referenced in project source. Supply chain risk — dependencies should be imported somewhere.`,
+	};
 }
 
 /**

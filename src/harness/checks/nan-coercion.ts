@@ -166,6 +166,19 @@ function detectInlineShape(
 
 // ─── Pass 2: two-step (assign then compare) ───────────────────────────────────
 
+/** The text being scanned, plus its precomputed offset→line index. */
+interface ScanSource {
+	stripped: string;
+	rawLines: string[];
+	lineIndex: ReturnType<typeof buildLineIndex>;
+}
+
+/** Where findings accumulate: the output list plus its dedup-by-line set. */
+interface MatchSink {
+	matches: InlineMatch[];
+	seen: Set<number>;
+}
+
 function detectTwoStepShape(
 	stripped: string,
 	rawLines: string[],
@@ -174,8 +187,8 @@ function detectTwoStepShape(
 ): void {
 	// Repeated offset→line lookups over one string plus window slicing off the
 	// same table — the precomputed form, not the one-shot scan.
-	const lineIndex = buildLineIndex(stripped);
-	const lineOffsets = lineIndex.lineStarts;
+	const source: ScanSource = { stripped, rawLines, lineIndex: buildLineIndex(stripped) };
+	const sink: MatchSink = { matches, seen };
 	const assignRe = new RegExp(TWO_STEP_ASSIGN_RE.source, "g");
 
 	let assignHit: RegExpExecArray | null;
@@ -184,40 +197,55 @@ function detectTwoStepShape(
 		const varName = assignHit[1];
 		if (varName === undefined) continue;
 
-		const assignLineNo = lineIndex.lineAt(assignHit.index);
-		const windowStart = assignHit.index + assignHit[0].length;
-		const lookaheadEndLine = assignLineNo + TWO_STEP_LOOKAHEAD_LINES;
-		const windowEnd =
-			lookaheadEndLine - 1 < lineOffsets.length
-				? (lineOffsets[lookaheadEndLine - 1] ?? stripped.length)
-				: stripped.length;
+		scanRelationalUsesOfAssignedVar(source, assignHit, varName, sink);
+	}
+}
 
-		const window = stripped.slice(windowStart, windowEnd);
-		const escaped = escapeForRegex(varName);
+/**
+ * For one `const n = coerce(...)` assignment hit, scan the lookahead window
+ * for an unguarded relational use of `varName` and record each one found.
+ */
+function scanRelationalUsesOfAssignedVar(
+	source: ScanSource,
+	assignHit: RegExpExecArray,
+	varName: string,
+	sink: MatchSink,
+): void {
+	const { stripped, rawLines, lineIndex } = source;
+	const lineOffsets = lineIndex.lineStarts;
+	const assignLineNo = lineIndex.lineAt(assignHit.index);
+	const windowStart = assignHit.index + assignHit[0].length;
+	const lookaheadEndLine = assignLineNo + TWO_STEP_LOOKAHEAD_LINES;
+	const windowEnd =
+		lookaheadEndLine - 1 < lineOffsets.length
+			? (lineOffsets[lookaheadEndLine - 1] ?? stripped.length)
+			: stripped.length;
 
-		// Relational comparison using the variable.
-		// Must be `<varName> <op>` or `<op> <varName>` — not inside a subscript.
-		const relUseRe = new RegExp(
-			String.raw`(?:(?<!\[)\b${escaped}\s*(?:<=|>=|<(?!=)|>(?!=))|(?:<=|>=|<(?!=)|>(?!=))\s*${escaped}\b)`,
-			"g",
+	const window = stripped.slice(windowStart, windowEnd);
+	const escaped = escapeForRegex(varName);
+
+	// Relational comparison using the variable.
+	// Must be `<varName> <op>` or `<op> <varName>` — not inside a subscript.
+	const relUseRe = new RegExp(
+		String.raw`(?:(?<!\[)\b${escaped}\s*(?:<=|>=|<(?!=)|>(?!=))|(?:<=|>=|<(?!=)|>(?!=))\s*${escaped}\b)`,
+		"g",
+	);
+
+	let useHit: RegExpExecArray | null;
+	while ((useHit = relUseRe.exec(window)) !== null) {
+		if (sink.matches.length >= MAX_MATCHES_PER_FILE) return;
+		const useAbsoluteOffset = windowStart + useHit.index;
+		// Everything between the assignment and the use — guards must precede the use.
+		const between = stripped.slice(windowStart, useAbsoluteOffset);
+		if (hasGuardForName(between, varName)) continue;
+		recordMatch(
+			stripped,
+			rawLines,
+			useAbsoluteOffset,
+			`nan_coercion_guard: "${varName}" from coercion used in relational comparison without Number.isFinite / isNaN guard`,
+			sink.matches,
+			sink.seen,
 		);
-
-		let useHit: RegExpExecArray | null;
-		while ((useHit = relUseRe.exec(window)) !== null) {
-			if (matches.length >= MAX_MATCHES_PER_FILE) break;
-			const useAbsoluteOffset = windowStart + useHit.index;
-			// Everything between the assignment and the use — guards must precede the use.
-			const between = stripped.slice(windowStart, useAbsoluteOffset);
-			if (hasGuardForName(between, varName)) continue;
-			recordMatch(
-				stripped,
-				rawLines,
-				useAbsoluteOffset,
-				`nan_coercion_guard: "${varName}" from coercion used in relational comparison without Number.isFinite / isNaN guard`,
-				matches,
-				seen,
-			);
-		}
 	}
 }
 

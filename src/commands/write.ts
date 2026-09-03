@@ -363,6 +363,27 @@ function exitWithError(useJson: boolean, err: unknown, exitCode: number, prefix:
 }
 
 /**
+ * Resolve the entries the gate will judge from the invocation mode — a
+ * `--batch` manifest or a single `<path>`. Throws a usage error when the mode
+ * and the positional argument disagree; the caller maps that to `EXIT_USAGE`.
+ */
+async function resolveWriteEntries(
+	targetPath: string | undefined,
+	opts: WriteCommandOptions,
+): Promise<GateInputEntry[]> {
+	if (opts.batch) {
+		if (targetPath) {
+			throw new Error("Do not pass a path positional argument when --batch is used.");
+		}
+		return loadBatchManifest(opts.batch);
+	}
+	if (!targetPath) {
+		throw new Error("Provide a <path> argument (with --stdin or --from-file) or use --batch.");
+	}
+	return [await resolveSingleFileEntry(targetPath, opts)];
+}
+
+/**
  * Entry point wired into `src/index.ts`. Thin: parses options, dispatches to
  * single-file or batch mode, runs the gate, writes atomically on success.
  */
@@ -375,20 +396,7 @@ export async function writeCommand(
 	// Resolve entries from the supplied mode.
 	let entries: GateInputEntry[];
 	try {
-		if (opts.batch) {
-			if (targetPath) {
-				throw new Error("Do not pass a path positional argument when --batch is used.");
-			}
-			entries = loadBatchManifest(opts.batch);
-		} else {
-			if (!targetPath) {
-				throw new Error(
-					"Provide a <path> argument (with --stdin or --from-file) or use --batch.",
-				);
-			}
-			const entry = await resolveSingleFileEntry(targetPath, opts);
-			entries = [entry];
-		}
+		entries = await resolveWriteEntries(targetPath, opts);
 	} catch (err) {
 		exitWithError(useJson, err, EXIT_USAGE, "interlinked write: ");
 	}

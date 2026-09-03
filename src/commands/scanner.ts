@@ -26,25 +26,26 @@ import { join } from "node:path";
 import {
 	listPendingReviews,
 	type ReviewDecision,
-	readReview,
 	writeDecision,
 } from "../harness/content-scanner/review-files.js";
 import { getConfigDir } from "../lib/config.js";
 import { c } from "../lib/formatter.js";
 import type { JsonObject } from "../lib/json-types.js";
-import { getOutputMode, output, outputError } from "../lib/output.js";
+import { getOutputMode, output, outputError, type OutputMode } from "../lib/output.js";
 import type { StatusSnapshot, ToggleContext } from "./scanner-render.js";
 import {
 	isPickError,
 	pickFlagDecision,
-	pickReview,
-	promptForDecision,
 	REVIEW_DECISION_TO_ACTION,
-	renderReview,
 	renderStatus,
 	renderToggleResult,
 	SKIP_DECISION,
 } from "./scanner-render.js";
+import {
+	resolveReviewDecision,
+	resolveTargetReview,
+	type TargetReview,
+} from "./scanner-review-steps.js";
 
 const LOCAL_RULES_FILE = "guard-rules.local.json";
 const AUDIT_LOG_FILE = "content-scanner.audit.jsonl";
@@ -401,94 +402,74 @@ export async function scannerReviewCommand(opts: ScannerReviewOptions): Promise<
 			return;
 		}
 
-		const picked = pickReview(reviews, o.key);
-		if (picked === null) {
-			outputError(mode, "no pending reviews matched");
-			process.exitCode = 1;
-			return;
-		}
-		if (isPickError(picked)) {
-			outputError(mode, picked.error);
-			process.exitCode = 1;
-			return;
-		}
+		const target = resolveTargetReview({ cwd, mode, reviews, key: o.key });
+		if (target === null) return;
 
-		const review = readReview(cwd, picked.key);
-		if (!review) {
-			outputError(mode, `pending review for key ${picked.key} could not be read`);
-			process.exitCode = 1;
-			return;
-		}
+		const decision = await resolveReviewDecision(mode, flagPick, target);
+		if (decision === null) return;
 
-		let decision: ReviewDecision | "skip";
-		if (flagPick) {
-			decision = flagPick;
-		} else if (mode === "json" || !process.stdin.isTTY) {
-			// Machine-readable / non-interactive callers must supply an explicit
-			// decision flag. Falling through to renderReview()+promptForDecision()
-			// here would (a) print the ANSI review UI to stdout and contaminate
-			// the JSON document, and (b) block forever on stdin.
-			outputError(
-				mode,
-				"non-interactive scanner review requires an explicit --allow, --redact, or --block flag",
-				{
-					pending_key: picked.key,
-					url: review.url,
-					finding_count: review.findings.length,
-				},
-			);
-			return;
-		} else {
-			console.log(renderReview(review));
-			decision = await promptForDecision();
-		}
-
-		const action = REVIEW_DECISION_TO_ACTION[decision];
-
-		// Skip leaves the review file in place. We still record the audit
-		// entry so "I looked at this and deferred" is queryable later.
-		if (decision === SKIP_DECISION) {
-			appendAudit(cwd, buildAuditEntry({ action, reason: o.reason ?? null }));
-			const payload: ReviewResultPayload = {
-				pending: reviews.length,
-				cache_key: picked.key,
-				decision: SKIP_DECISION,
-				url: review.url,
-				finding_count: review.findings.length,
-				action,
-			};
-			output(mode, payload, {
-				json: () => payload,
-				short: () => SKIP_DECISION,
-				normal: () => c.dim("Skipped — review left in place."),
-			});
-			return;
-		}
-
-		const info = userInfo();
-		writeDecision({
+		recordReviewDecision({
 			cwd,
-			key: picked.key,
-			decision,
-			actor: { user: info.username, host: hostname(), tty: resolveTty() },
-		});
-		appendAudit(cwd, buildAuditEntry({ action, reason: o.reason ?? null }));
-
-		const payload: ReviewResultPayload = {
+			mode,
 			pending: reviews.length,
-			cache_key: picked.key,
+			target,
 			decision,
-			url: review.url,
-			finding_count: review.findings.length,
-			action,
-		};
-		output(mode, payload, {
-			json: () => payload,
-			short: () => decision,
-			normal: () =>
-				c.green(
-					`Recorded: ${decision} for ${review.url} (${review.findings.length} finding(s))`,
-				) + `\n${c.dim("Re-invoke the WebFetch in your agent session to apply.")}`,
+			reason: o.reason ?? null,
 		});
 	}, opts);
+}
+
+interface ReviewRecordContext {
+	cwd: string;
+	mode: OutputMode;
+	/** How many reviews were pending when this one was picked. */
+	pending: number;
+	target: TargetReview;
+	decision: ReviewDecision | "skip";
+	reason: string | null;
+}
+
+/** Third stage of `scanner review`: write the decision file (unless the user
+ *  skipped), append the audit entry, and report the outcome. */
+function recordReviewDecision(ctx: ReviewRecordContext): void {
+	const { cwd, mode, decision, reason } = ctx;
+	const { key, review } = ctx.target;
+	const action = REVIEW_DECISION_TO_ACTION[decision];
+	const payload: ReviewResultPayload = {
+		pending: ctx.pending,
+		cache_key: key,
+		decision,
+		url: review.url,
+		finding_count: review.findings.length,
+		action,
+	};
+
+	// Skip leaves the review file in place. We still record the audit
+	// entry so "I looked at this and deferred" is queryable later.
+	if (decision === SKIP_DECISION) {
+		appendAudit(cwd, buildAuditEntry({ action, reason }));
+		output(mode, payload, {
+			json: () => payload,
+			short: () => SKIP_DECISION,
+			normal: () => c.dim("Skipped — review left in place."),
+		});
+		return;
+	}
+
+	const info = userInfo();
+	writeDecision({
+		cwd,
+		key,
+		decision,
+		actor: { user: info.username, host: hostname(), tty: resolveTty() },
+	});
+	appendAudit(cwd, buildAuditEntry({ action, reason }));
+
+	output(mode, payload, {
+		json: () => payload,
+		short: () => decision,
+		normal: () =>
+			c.green(`Recorded: ${decision} for ${review.url} (${review.findings.length} finding(s))`) +
+			`\n${c.dim("Re-invoke the WebFetch in your agent session to apply.")}`,
+	});
 }

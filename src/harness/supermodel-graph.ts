@@ -68,6 +68,22 @@ export function shardPathFor(sourcePath: string): string {
 	return `${stem}.graph${ext}`;
 }
 
+/** Resolve a source path to absolute. Returns null when the path is relative
+ *  and no `cwd` was supplied to resolve it against. */
+function resolveSourcePath(sourcePath: string, cwd?: string): string | null {
+	if (isAbsolute(sourcePath)) return resolvePath(sourcePath);
+	if (!cwd) return null;
+	return resolvePath(cwd, sourcePath);
+}
+
+/** True when `absSource` is `cwd` itself or lives beneath it — the defensive
+ *  traversal check applied whenever a `cwd` is provided. */
+function isWithinCwd(absSource: string, cwd: string): boolean {
+	const absCwd = resolvePath(cwd);
+	const cwdPrefix = absCwd.endsWith(sep) ? absCwd : absCwd + sep;
+	return absSource === absCwd || absSource.startsWith(cwdPrefix);
+}
+
 /** Read + parse a shard file for a source path.
  *
  *  `sourcePath` may be absolute or relative. `cwd` is required when the path
@@ -88,19 +104,9 @@ export function shardPathFor(sourcePath: string): string {
 export function loadGraphForFile(sourcePath: string, cwd?: string): SupermodelGraph | null {
 	if (!sourcePath || sourcePath.trim() === "") return null;
 
-	let absSource: string;
-	if (isAbsolute(sourcePath)) {
-		absSource = resolvePath(sourcePath);
-	} else {
-		if (!cwd) return null;
-		absSource = resolvePath(cwd, sourcePath);
-	}
-
-	if (cwd) {
-		const absCwd = resolvePath(cwd);
-		const cwdPrefix = absCwd.endsWith(sep) ? absCwd : absCwd + sep;
-		if (absSource !== absCwd && !absSource.startsWith(cwdPrefix)) return null;
-	}
+	const absSource = resolveSourcePath(sourcePath, cwd);
+	if (absSource === null) return null;
+	if (cwd && !isWithinCwd(absSource, cwd)) return null;
 
 	const absShard = shardPathFor(absSource);
 
@@ -166,6 +172,20 @@ function stripCommentPrefix(rawLines: string[], cursor: number, prefix: string):
 	return stripped;
 }
 
+/** The three shard sections this reader understands. */
+type SectionName = "deps" | "calls" | "impact";
+
+/** Classify one uncommented line as a section header. Returns the known
+ *  section name, `"unknown"` for any other `[...]` header, or null when the
+ *  line is section body text rather than a header. */
+function sectionHeaderFor(line: string): SectionName | "unknown" | null {
+	if (line === "[deps]") return "deps";
+	if (line === "[calls]") return "calls";
+	if (line === "[impact]") return "impact";
+	if (line.startsWith("[") && line.endsWith("]")) return "unknown";
+	return null;
+}
+
 interface SectionBuckets {
 	sawSection: boolean;
 	depsLines: string[];
@@ -178,39 +198,26 @@ interface SectionBuckets {
  *  current section to null so their body lines are dropped without affecting
  *  known sections. */
 function bucketSections(stripped: string[]): SectionBuckets {
-	let currentSection: "deps" | "calls" | "impact" | null = null;
+	let currentSection: SectionName | null = null;
 	let sawSection = false;
-	const depsLines: string[] = [];
-	const callsLines: string[] = [];
-	const impactLines: string[] = [];
+	const lines: Record<SectionName, string[]> = { deps: [], calls: [], impact: [] };
 
 	for (const line of stripped) {
 		if (line === "") continue;
-		if (line === "[deps]") {
-			currentSection = "deps";
-			sawSection = true;
-			continue;
-		}
-		if (line === "[calls]") {
-			currentSection = "calls";
-			sawSection = true;
-			continue;
-		}
-		if (line === "[impact]") {
-			currentSection = "impact";
-			sawSection = true;
-			continue;
-		}
-		if (line.startsWith("[") && line.endsWith("]")) {
+		const header = sectionHeaderFor(line);
+		if (header === "unknown") {
 			currentSection = null;
 			continue;
 		}
-		if (currentSection === "deps") depsLines.push(line);
-		else if (currentSection === "calls") callsLines.push(line);
-		else if (currentSection === "impact") impactLines.push(line);
+		if (header !== null) {
+			currentSection = header;
+			sawSection = true;
+			continue;
+		}
+		if (currentSection !== null) lines[currentSection].push(line);
 	}
 
-	return { sawSection, depsLines, callsLines, impactLines };
+	return { sawSection, depsLines: lines.deps, callsLines: lines.calls, impactLines: lines.impact };
 }
 
 /** Parse shard text. Exported for tests. Tolerant: unknown lines are ignored,
@@ -305,28 +312,46 @@ function parseCallTarget(rest: string): { other: string; file: string; line: num
 	return { other: rest, file: "", line: 0 };
 }
 
+/** One parsed `[calls]` edge: the subject function, the direction of the
+ *  arrow, and the other end (name plus optional file:line site). */
+interface CallEdge {
+	direction: CallDirection;
+	fn: string;
+	other: string;
+	file: string;
+	line: number;
+}
+
+/** Parse one `[calls]` line into a call edge. Returns null when the line is
+ *  blank, carries no arrow glyph, or is missing either side of the arrow. */
+function parseCallLine(line: string): CallEdge | null {
+	const trimmed = line.trim();
+	if (!trimmed) return null;
+
+	const detected = detectCallDirection(trimmed);
+	if (!detected) return null;
+
+	const fn = trimmed.slice(0, detected.arrowIdx).trim();
+	const rest = trimmed.slice(detected.arrowIdx + 3).trim();
+	if (!fn || !rest) return null;
+
+	const target = parseCallTarget(rest);
+	if (!target) return null;
+
+	return { direction: detected.direction, fn, other: target.other, file: target.file, line: target.line };
+}
+
 function parseCalls(lines: string[]): CallsSection | null {
 	if (lines.length === 0) return null;
 	const callers: CallsSection["callers"] = [];
 	const callees: CallsSection["callees"] = [];
 
 	for (const line of lines) {
-		const trimmed = line.trim();
-		if (!trimmed) continue;
-
-		const detected = detectCallDirection(trimmed);
-		if (!detected) continue;
-		const { direction, arrowIdx } = detected;
-
-		const fn = trimmed.slice(0, arrowIdx).trim();
-		const rest = trimmed.slice(arrowIdx + 3).trim();
-		if (!fn || !rest) continue;
-
-		const target = parseCallTarget(rest);
-		if (!target) continue;
-
-		if (direction === "caller") callers.push({ fn, caller: target.other, file: target.file, line: target.line });
-		else callees.push({ fn, callee: target.other, file: target.file, line: target.line });
+		const edge = parseCallLine(line);
+		if (!edge) continue;
+		const site = { file: edge.file, line: edge.line };
+		if (edge.direction === "caller") callers.push({ fn: edge.fn, caller: edge.other, ...site });
+		else callees.push({ fn: edge.fn, callee: edge.other, ...site });
 	}
 
 	if (callers.length === 0 && callees.length === 0) return null;

@@ -362,6 +362,22 @@ export function checkEndpointSsrfShape(
 	return findings;
 }
 
+// Python signature args appear in `body` because handler scope starts at
+// the decorator and continues into the function body — match the
+// `def name(arg1, arg2):` signature line and pick out URL-shaped names.
+function collectPythonDefUrlParamNames(body: string): string[] {
+	const found: string[] = [];
+	const pyDefRe = /^\s*(?:async\s+)?def\s+\w+\s*\(([^)]*)\)/m;
+	const pyDef = pyDefRe.exec(body);
+	if (!pyDef) return found;
+	const args = nonNull(pyDef[1]).split(",");
+	for (const arg of args) {
+		const name = nonNull(nonNull(arg.split(":")[0]).split("=")[0]).trim();
+		if (name && URL_PARAM_NAME_RE.test(name)) found.push(name);
+	}
+	return found;
+}
+
 /** Collect URL-shaped param names from both the declared params and the
  * handler body. Body-based detection is needed because Express/Hono
  * extractors only emit path params; query/body URL fields live in the
@@ -377,18 +393,7 @@ function collectUrlParamNames(endpoint: Endpoint, body: string): string[] {
 	for (let m = re.exec(body); m !== null; m = re.exec(body)) {
 		if (URL_PARAM_NAME_RE.test(nonNull(m[1]))) names.add(nonNull(m[1]));
 	}
-	// Python signature args appear in `body` because handler scope starts
-	// at the decorator and continues into the function body — match the
-	// `def name(arg1, arg2):` signature line.
-	const pyDefRe = /^\s*(?:async\s+)?def\s+\w+\s*\(([^)]*)\)/m;
-	const pyDef = pyDefRe.exec(body);
-	if (pyDef) {
-		const args = nonNull(pyDef[1]).split(",");
-		for (const arg of args) {
-			const name = nonNull(nonNull(arg.split(":")[0]).split("=")[0]).trim();
-			if (name && URL_PARAM_NAME_RE.test(name)) names.add(name);
-		}
-	}
+	for (const name of collectPythonDefUrlParamNames(body)) names.add(name);
 	return Array.from(names);
 }
 

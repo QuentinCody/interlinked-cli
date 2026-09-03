@@ -64,6 +64,35 @@ export function uniquePaths(paths: readonly string[]): string[] {
 	return [...new Set(paths.filter((path) => path.length > 0))];
 }
 
+type CheckClassification =
+	| { readonly kind: "ignored" }
+	| { readonly kind: "affected_tests" }
+	| { readonly kind: "dependency_audit" }
+	| { readonly kind: "deferred"; readonly reason: string }
+	| { readonly kind: "batch"; readonly toolId: ToolId };
+
+/** Decide what one configured check contributes, given the paths in the change set. */
+function classifyCheck(
+	name: string,
+	check: QualityCheckConfig,
+	paths: readonly string[],
+): CheckClassification {
+	if (!check.enabled) return { kind: "ignored" };
+	if (!paths.some((path) => pathMatchesCheck(path, check))) return { kind: "ignored" };
+	if (name === "affected_tests") return { kind: "affected_tests" };
+	if (name === "dependency_audit") return { kind: "dependency_audit" };
+	if (!check.command) return { kind: "ignored" };
+	const toolId = configNameToToolId(name);
+	if (!toolId || toolId === "dep-audit") return { kind: "ignored" };
+	if (!PROJECT_BATCH_TOOLS.has(toolId)) {
+		return {
+			kind: "deferred",
+			reason: "the configured runner is file-only and has no bounded multi-file mode",
+		};
+	}
+	return { kind: "batch", toolId };
+}
+
 export function candidateChecks(options: {
 	paths: readonly string[];
 	checks: Record<string, QualityCheckConfig>;
@@ -79,29 +108,23 @@ export function candidateChecks(options: {
 	let dependencyAudit: NamedExternalCandidate | undefined;
 	const seenTools = new Set<ToolId>();
 	for (const [name, check] of Object.entries(options.checks)) {
-		if (!check.enabled) continue;
-		if (!options.paths.some((path) => pathMatchesCheck(path, check))) continue;
-		if (name === "affected_tests") {
+		const classified = classifyCheck(name, check, options.paths);
+		if (classified.kind === "ignored") continue;
+		if (classified.kind === "affected_tests") {
 			affectedTests = { name, check };
 			continue;
 		}
-		if (name === "dependency_audit") {
+		if (classified.kind === "dependency_audit") {
 			dependencyAudit = { name, check };
 			continue;
 		}
-		if (!check.command) continue;
-		const toolId = configNameToToolId(name);
-		if (!toolId || toolId === "dep-audit") continue;
-		if (!PROJECT_BATCH_TOOLS.has(toolId)) {
-			deferred.push({
-				name,
-				reason: "the configured runner is file-only and has no bounded multi-file mode",
-			});
+		if (classified.kind === "deferred") {
+			deferred.push({ name, reason: classified.reason });
 			continue;
 		}
-		if (seenTools.has(toolId)) continue;
-		seenTools.add(toolId);
-		candidates.push({ name, check, toolId });
+		if (seenTools.has(classified.toolId)) continue;
+		seenTools.add(classified.toolId);
+		candidates.push({ name, check, toolId: classified.toolId });
 	}
 	return {
 		candidates,

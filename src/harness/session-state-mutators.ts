@@ -51,6 +51,20 @@ export function mergeVerificationObserved(from: SessionTrajectory, to: SessionTr
 }
 
 /**
+ * Gap-fill the subagent's observed_checks into the parent, like tdd_cycles: a
+ * red/green the parent already tracks for a check kind is newer than the
+ * subagent's, so it is never overwritten. Extracted from
+ * rollUpVerificationSignals; lazily allocates the parent's map on first use.
+ */
+export function mergeObservedChecks(from: SessionTrajectory, to: SessionTrajectory): void {
+	if (!from.observed_checks || from.observed_checks.size === 0) return;
+	if (!to.observed_checks) to.observed_checks = new Map();
+	for (const [kind, observed] of from.observed_checks) {
+		if (!to.observed_checks.has(kind)) to.observed_checks.set(kind, { ...observed });
+	}
+}
+
+/**
  * Append the subagent's introduced stubs onto the parent, honoring the global
  * STUB_INTRODUCED_CAP. Extracted from rollUpVerificationSignals; lazily
  * allocates the parent's array on first use.

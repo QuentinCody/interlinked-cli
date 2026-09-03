@@ -104,7 +104,7 @@ export interface EditRecord {
 }
 
 /** One value an anchor held at a point in time (for undo-war A,B,A detection). */
-interface AnchorValueEntry {
+export interface AnchorValueEntry {
 	/** sha256 of the new_string written at this anchor. */
 	valueHash: string;
 	atStep: number;

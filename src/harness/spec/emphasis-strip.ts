@@ -25,8 +25,9 @@ const WS_RE = /\s/u;
 
 /** The whole code point (astral-safe) whose UTF-16 encoding STARTS at `pos`,
  *  or "" past end-of-string — `s[pos]` alone would yield just the high
- *  surrogate of an astral char. */
-function codePointStartingAt(s: string, pos: number): string {
+ *  surrogate of an astral char. Shared with extract-refs.ts' own boundary
+ *  predicates (round-6 #19 / round-5 #17) — one astral-safe implementation. */
+export function codePointStartingAt(s: string, pos: number): string {
 	const cp = s.codePointAt(pos);
 	return cp === undefined ? "" : String.fromCodePoint(cp);
 }
@@ -34,8 +35,8 @@ function codePointStartingAt(s: string, pos: number): string {
 /** The whole code point (astral-safe) whose UTF-16 encoding ENDS just before
  *  `pos`, or "" at start-of-string. Back-step to pos-2 ONLY for a real
  *  surrogate PAIR — an unpaired low surrogate is read alone, not fused with
- *  the char before it. */
-function codePointEndingBefore(s: string, pos: number): string {
+ *  the char before it. Shared with extract-refs.ts (same rationale as above). */
+export function codePointEndingBefore(s: string, pos: number): string {
 	if (pos <= 0) return "";
 	const unit = s.charCodeAt(pos - 1);
 	const prev = pos >= 2 ? s.charCodeAt(pos - 2) : 0;

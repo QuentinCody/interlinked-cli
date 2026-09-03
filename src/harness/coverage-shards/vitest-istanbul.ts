@@ -125,6 +125,22 @@ function lineAndStatementElements(
 	return { lines, statements };
 }
 
+/** Record one istanbul branch entry's per-path hit counts into `branches`. */
+function recordBranchPathHits(
+	branches: Map<string, number>,
+	id: string,
+	branch: JsonObject,
+	hitsArr: unknown[],
+): void {
+	const locations = Array.isArray(branch.locations) ? branch.locations : [];
+	const fallbackLine = typeof branch.line === "number" ? branch.line : (locLine(branch.loc) ?? 0);
+	for (let i = 0; i < hitsArr.length; i++) {
+		const hits = hitsArr[i];
+		if (typeof hits !== "number") continue;
+		branches.set(`${locLine(locations[i]) ?? fallbackLine}:${id}:${i}`, hits);
+	}
+}
+
 /** Branch elements keyed `line:branchId:pathIndex` from istanbul branch data. */
 function branchElements(fc: IstanbulFileCoverage): Map<string, number> {
 	const branches = new Map<string, number>();
@@ -135,13 +151,7 @@ function branchElements(fc: IstanbulFileCoverage): Map<string, number> {
 		if (!isRecord(branch)) continue;
 		const hitsArr = b[id];
 		if (!Array.isArray(hitsArr)) continue;
-		const locations = Array.isArray(branch.locations) ? branch.locations : [];
-		const fallbackLine = typeof branch.line === "number" ? branch.line : (locLine(branch.loc) ?? 0);
-		for (let i = 0; i < hitsArr.length; i++) {
-			const hits = hitsArr[i];
-			if (typeof hits !== "number") continue;
-			branches.set(`${locLine(locations[i]) ?? fallbackLine}:${id}:${i}`, hits);
-		}
+		recordBranchPathHits(branches, id, branch, hitsArr);
 	}
 	return branches;
 }

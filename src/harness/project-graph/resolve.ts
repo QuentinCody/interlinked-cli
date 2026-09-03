@@ -63,6 +63,26 @@ export function resolveImportPath(
 }
 
 /**
+ * Map a .js/.mjs specifier to its TypeScript source file (common in ESM
+ * TypeScript projects). Extracted from tryResolveFile so the extension-
+ * mapping branches don't add to the caller's nesting depth (2026-09
+ * cognitive-complexity flattening).
+ */
+function tryResolveJsMapping(candidate: string): string | null {
+	if (candidate.endsWith(".js")) {
+		const tsCandidate = `${candidate.slice(0, -3)}.ts`;
+		if (existsSync(tsCandidate)) return tsCandidate;
+		const tsxCandidate = `${candidate.slice(0, -3)}.tsx`;
+		if (existsSync(tsxCandidate)) return tsxCandidate;
+	}
+	if (candidate.endsWith(".mjs")) {
+		const mtsCandidate = `${candidate.slice(0, -4)}.mts`;
+		if (existsSync(mtsCandidate)) return mtsCandidate;
+	}
+	return null;
+}
+
+/**
  * Public API — consumed by resolveImportPath and ProjectGraph.
  *
  * Try resolving a path by appending extensions or /index.
@@ -74,17 +94,8 @@ export function tryResolveFile(candidate: string): string | null {
 		return candidate;
 	}
 
-	// Handle .js → .ts/.tsx mapping (common in ESM TypeScript projects)
-	if (candidate.endsWith(".js")) {
-		const tsCandidate = `${candidate.slice(0, -3)}.ts`;
-		if (existsSync(tsCandidate)) return tsCandidate;
-		const tsxCandidate = `${candidate.slice(0, -3)}.tsx`;
-		if (existsSync(tsxCandidate)) return tsxCandidate;
-	}
-	if (candidate.endsWith(".mjs")) {
-		const mtsCandidate = `${candidate.slice(0, -4)}.mts`;
-		if (existsSync(mtsCandidate)) return mtsCandidate;
-	}
+	const mapped = tryResolveJsMapping(candidate);
+	if (mapped) return mapped;
 
 	// Try extensions
 	for (const ext of RESOLVE_EXTENSIONS) {

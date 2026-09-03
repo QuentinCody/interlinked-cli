@@ -12,7 +12,7 @@
 // results. `--update-baseline` explicitly persists the new state; without it,
 // any per-file drop surfaces as a finding and exits non-zero.
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { loadCheckPolicy } from "../harness/check-policy.js";
 import { coverageSetupGuidance, lcovReportPaths } from "../harness/coverage-adapters.js";
@@ -29,9 +29,11 @@ import {
 	type PartialReportVerdict,
 	saveBaseline,
 } from "../harness/coverage-ratchet.js";
+import { parseChangedFiles } from "../lib/changed-files-option.js";
 import { getConfigDir } from "../lib/config.js";
 import { c, header, kvLine } from "../lib/formatter.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
+import { reportMtimeMs } from "../lib/report-mtime.js";
 
 /** The istanbul/v8 fallbacks for a JS run that hasn't emitted lcov. The LCOV
  *  candidates come from `lcovReportPaths()` (canonical + per-language). */
@@ -57,72 +59,84 @@ export async function coverageCheckCommand(opts: CoverageCheckOptions): Promise<
 	const configDir = getConfigDir(cwd);
 
 	try {
-		const reportPaths = resolveReportPaths(cwd, opts.report);
-		if (reportPaths.length === 0) {
-			outputError(
-				mode,
-				`No coverage report found. Expected one of:\n  ${defaultReportPaths()
-					.map((p) => `- ${p}`)
-					.join("\n  ")}\n\n` +
-					`Generate one — each command emits LCOV at a per-language path the ratchet merges:\n${coverageSetupGuidance(cwd)}`,
-			);
-			process.exitCode = 1;
-			return;
-		}
-
-		const loaded = loadMergedReport(reportPaths, cwd);
-		if (loaded.failedPath !== null) {
-			outputError(mode, `Failed to parse coverage report at ${loaded.failedPath}`);
-			process.exitCode = 1;
-			return;
-		}
-		const summary = loaded.summary;
-		const reportPath = reportPaths.join(" + ");
-
-		const policy = loadCheckPolicy(cwd);
-		const baseline = loadBaseline(configDir);
-		const changedFiles = parseChangedFiles(opts.changedFiles);
-		const result = compareCoverage(summary, baseline, {
-			config: policy.coverage_ratchet,
-			repoRoot: cwd,
-			...(changedFiles !== undefined ? { changedFiles } : {}),
-		});
-
-		output(mode, buildJsonPayload(reportPath, result), {
-			json: () => buildJsonPayload(reportPath, result),
-			normal: () => renderNormal(reportPath, result),
-		});
-
-		// A partial/scoped report (see `detectPartialReport`) is UNMEASURED, not
-		// clean — `result.nextBaseline` is already the input baseline unchanged
-		// (compareCoverage guarantees this), so persisting it is a safe no-op,
-		// but skip the write and the misleading "updated" banner entirely: this
-		// run measured nothing, so there is nothing to accept.
-		if (opts.updateBaseline && !result.partialReport?.partial) {
-			saveBaseline(configDir, result.nextBaseline);
-			if (mode !== "json") {
-				process.stderr.write(
-					`\n  ${c.green("✓")} Baseline updated at ${join(".interlinked", "coverage-baseline.json")}\n`,
-				);
-			}
-		} else if (opts.updateBaseline && mode !== "json") {
-			process.stderr.write(
-				`\n  ${c.yellow("⚠")} Baseline NOT updated — the report looks partial/scoped (see above).\n`,
-			);
-		}
-
-		// A partial report can never fail the run: there is nothing measurable
-		// to regress against. Fail to UNMEASURED, never to REGRESSED.
-		if (!result.partialReport?.partial) {
-			const hasErrors = result.findings.some((f) => f.severity === "error");
-			const hasWarnings = result.findings.length > 0;
-			if (hasErrors || (opts.strict && hasWarnings)) {
-				process.exitCode = 1;
-			}
-		}
+		runCoverageCheck(mode, cwd, configDir, opts);
 	} catch (err) {
 		outputError(mode, err instanceof Error ? err.message : String(err));
 		process.exitCode = 1;
+	}
+}
+
+/** The body of `coverageCheckCommand`'s try-block: resolve reports, compare
+ *  against the baseline, render, and persist. Errors propagate to the
+ *  caller's catch — this function does not handle them itself. */
+function runCoverageCheck(
+	mode: ReturnType<typeof getOutputMode>,
+	cwd: string,
+	configDir: string,
+	opts: CoverageCheckOptions,
+): void {
+	const reportPaths = resolveReportPaths(cwd, opts.report);
+	if (reportPaths.length === 0) {
+		outputError(
+			mode,
+			`No coverage report found. Expected one of:\n  ${defaultReportPaths()
+				.map((p) => `- ${p}`)
+				.join("\n  ")}\n\n` +
+				`Generate one — each command emits LCOV at a per-language path the ratchet merges:\n${coverageSetupGuidance(cwd)}`,
+		);
+		process.exitCode = 1;
+		return;
+	}
+
+	const loaded = loadMergedReport(reportPaths, cwd);
+	if (loaded.failedPath !== null) {
+		outputError(mode, `Failed to parse coverage report at ${loaded.failedPath}`);
+		process.exitCode = 1;
+		return;
+	}
+	const summary = loaded.summary;
+	const reportPath = reportPaths.join(" + ");
+
+	const policy = loadCheckPolicy(cwd);
+	const baseline = loadBaseline(configDir);
+	const changedFiles = parseChangedFiles(opts.changedFiles);
+	const result = compareCoverage(summary, baseline, {
+		config: policy.coverage_ratchet,
+		repoRoot: cwd,
+		...(changedFiles !== undefined ? { changedFiles } : {}),
+	});
+
+	output(mode, buildJsonPayload(reportPath, result), {
+		json: () => buildJsonPayload(reportPath, result),
+		normal: () => renderNormal(reportPath, result),
+	});
+
+	// A partial/scoped report (see `detectPartialReport`) is UNMEASURED, not
+	// clean — `result.nextBaseline` is already the input baseline unchanged
+	// (compareCoverage guarantees this), so persisting it is a safe no-op,
+	// but skip the write and the misleading "updated" banner entirely: this
+	// run measured nothing, so there is nothing to accept.
+	if (opts.updateBaseline && !result.partialReport?.partial) {
+		saveBaseline(configDir, result.nextBaseline);
+		if (mode !== "json") {
+			process.stderr.write(
+				`\n  ${c.green("✓")} Baseline updated at ${join(".interlinked", "coverage-baseline.json")}\n`,
+			);
+		}
+	} else if (opts.updateBaseline && mode !== "json") {
+		process.stderr.write(
+			`\n  ${c.yellow("⚠")} Baseline NOT updated — the report looks partial/scoped (see above).\n`,
+		);
+	}
+
+	// A partial report can never fail the run: there is nothing measurable
+	// to regress against. Fail to UNMEASURED, never to REGRESSED.
+	if (!result.partialReport?.partial) {
+		const hasErrors = result.findings.some((f) => f.severity === "error");
+		const hasWarnings = result.findings.length > 0;
+		if (hasErrors || (opts.strict && hasWarnings)) {
+			process.exitCode = 1;
+		}
 	}
 }
 
@@ -226,15 +240,6 @@ export function resolveReportPaths(cwd: string, explicit?: string): string[] {
 	return paths;
 }
 
-/** A report file's mtime, or 0 when unreadable (sorts oldest — least trusted). */
-function reportMtimeMs(path: string): number {
-	try {
-		return statSync(path).mtimeMs;
-	} catch {
-		return 0;
-	}
-}
-
 /**
  * Load and MERGE the resolved reports. Files merge oldest-first so a FRESHER
  * report's per-file entries win any overlap (per-language reports are normally
@@ -277,14 +282,6 @@ export function loadMergedReport(
 		}
 	}
 	return { summary: merged, failedPath: null };
-}
-
-function parseChangedFiles(raw?: string): string[] | undefined {
-	if (!raw) return undefined;
-	return raw
-		.split(",")
-		.map((s) => s.trim())
-		.filter(Boolean);
 }
 
 interface CoverageCheckJson {

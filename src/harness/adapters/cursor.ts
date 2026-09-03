@@ -39,10 +39,8 @@
 
 import type { JsonObject } from "../../lib/json-types.js";
 import { formatAskReasonWithTargets } from "../evaluator/rule-matching.js";
-import {
-	type ClassifierOverrides,
-	classifyFromToolName,
-} from "../tool-class-classifier.js";
+import type { ClassifierOverrides } from "../tool-class-classifier.js";
+import { adapterToolClassifier } from "./adapter-tool-class.js";
 import { buildCursorAction } from "./cursor-actions.js";
 import { buildHookCommand } from "./hook-command.js";
 import { normalizeNativeHookEvent } from "./normalization.js";
@@ -117,13 +115,7 @@ export function createCursorAdapter(opts: CursorAdapterOptions = {}): RunnerAdap
 			});
 		},
 
-		classifyToolClass(toolName, toolInput) {
-			return classifyFromToolName(
-				toolName,
-				toolInput,
-				opts.overrides ? { overrides: opts.overrides } : {},
-			);
-		},
+		classifyToolClass: adapterToolClassifier(opts.overrides),
 
 		renderSettingsFragment(binaryPath, scope): SettingsFragment {
 			// Cursor's hook config file is `hooks.json` (not `settings.json`);

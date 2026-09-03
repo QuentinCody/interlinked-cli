@@ -39,6 +39,18 @@ interface ParsedIndexData {
 	builtAt: string;
 }
 
+/** Encode one posting list's file-id/loc-mask/next-mask triples into its packed 6-byte-per-entry buffer. */
+function encodePostingEntry(posting: PostingList): Buffer {
+	const count = posting.fileIds.length;
+	const entryBuf = Buffer.alloc(count * 6);
+	for (const [i, fileId] of posting.fileIds.entries()) {
+		entryBuf.writeUInt32LE(fileId, i * 6);
+		entryBuf.writeUInt8(nonNull(posting.locMasks[i]), i * 6 + 4);
+		entryBuf.writeUInt8(nonNull(posting.nextMasks[i]), i * 6 + 5);
+	}
+	return entryBuf;
+}
+
 /**
  * Save the index to disk in .interlinked/index/.
  *
@@ -91,12 +103,7 @@ export function saveIndex(
 
 	for (const entry of sortedEntries) {
 		const count = entry.posting.fileIds.length;
-		const entryBuf = Buffer.alloc(count * 6);
-		for (const [i, fileId] of entry.posting.fileIds.entries()) {
-			entryBuf.writeUInt32LE(fileId, i * 6);
-			entryBuf.writeUInt8(nonNull(entry.posting.locMasks[i]), i * 6 + 4);
-			entryBuf.writeUInt8(nonNull(entry.posting.nextMasks[i]), i * 6 + 5);
-		}
+		const entryBuf = encodePostingEntry(entry.posting);
 		postingsChunks.push(entryBuf);
 
 		lookupData.push({

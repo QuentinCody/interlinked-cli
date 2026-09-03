@@ -285,21 +285,21 @@ function rankValue(node: TS.Node, ctx: TraceCtx, depth: number, seen: Set<string
 	return rankChildrenValue(node, ctx, depth, seen);
 }
 
-/** Build the local `name -> initializer` map for a test body (incl. destructuring). */
+// Destructured names inherit the RHS provenance too (deintroverter's destructure rule).
+function recordVariableDeclarationBinding(ts: TsModule, name: TS.BindingName, init: TS.Expression, bindings: Map<string, TS.Expression>): void {
+	if (ts.isIdentifier(name)) {
+		bindings.set(name.text, init);
+	} else if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+		for (const el of name.elements) {
+			if (ts.isBindingElement(el) && ts.isIdentifier(el.name)) bindings.set(el.name.text, init);
+		}
+	}
+}
 function collectBindings(ts: TsModule, body: TS.Node): Map<string, TS.Expression> {
 	const bindings = new Map<string, TS.Expression>();
 	const visit = (node: TS.Node): void => {
 		if (ts.isVariableDeclaration(node) && node.initializer) {
-			const init = node.initializer;
-			if (ts.isIdentifier(node.name)) {
-				bindings.set(node.name.text, init);
-			} else if (ts.isObjectBindingPattern(node.name) || ts.isArrayBindingPattern(node.name)) {
-				// `const { a } = sut.f()` / `const [x] = sut.f()` — each bound name
-				// inherits the RHS provenance (matches deintroverter's destructure rule).
-				for (const el of node.name.elements) {
-					if (ts.isBindingElement(el) && ts.isIdentifier(el.name)) bindings.set(el.name.text, init);
-				}
-			}
+			recordVariableDeclarationBinding(ts, node.name, node.initializer, bindings);
 		}
 		ts.forEachChild(node, visit);
 	};

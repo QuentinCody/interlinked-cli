@@ -278,26 +278,34 @@ export function isFeatureEnabled(
 	path: string,
 	config: SharedConfig | null = readSharedConfig(),
 ): boolean {
-	if (config?.harness) {
-		const segments = path.split(".");
-		// Path always starts with "harness."; skip the first segment.
-		if (segments[0] === "harness") {
-			let cursor: boolean | FeatureNode | null | undefined = config.harness;
-			for (let i = 1; i < segments.length; i++) {
-				// `null` is a legal on-disk branch value; the predicate folds the
-				// typeof + null checks so the walk reads as "still a branch?".
-				if (!isFeatureNode(cursor)) {
-					cursor = undefined;
-					break;
-				}
-				cursor = cursor[segments[i] as string];
-				if (cursor === undefined || cursor === null) break;
-			}
-			if (typeof cursor === "boolean") return cursor;
-		}
-	}
+	const override = config?.harness
+		? readHarnessOverride(config.harness, path)
+		: undefined;
+	if (override !== undefined) return override;
 	const fallback = FEATURE_DEFAULTS[path];
 	return fallback ?? false;
+}
+
+/**
+ * Walk `config.harness` along a dotted feature path and return the boolean
+ * override stored there, or `undefined` when the path has no boolean leaf.
+ */
+function readHarnessOverride(
+	harness: FeatureNode,
+	path: string,
+): boolean | undefined {
+	const segments = path.split(".");
+	// Path always starts with "harness."; skip the first segment.
+	if (segments[0] !== "harness") return undefined;
+	let cursor: boolean | FeatureNode | null | undefined = harness;
+	for (let i = 1; i < segments.length; i++) {
+		// `null` is a legal on-disk branch value; the predicate folds the
+		// typeof + null checks so the walk reads as "still a branch?".
+		if (!isFeatureNode(cursor)) return undefined;
+		cursor = cursor[segments[i] as string];
+		if (cursor === undefined || cursor === null) break;
+	}
+	return typeof cursor === "boolean" ? cursor : undefined;
 }
 
 function writeLocalConfig(config: LocalConfig, cwd?: string): void {

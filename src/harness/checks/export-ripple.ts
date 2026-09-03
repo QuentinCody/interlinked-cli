@@ -66,6 +66,64 @@ interface RippleTarget {
 }
 
 /**
+ * Check one importer line for a named import of `target`'s module that
+ * references a name no longer in `target.currentExports`. Returns the broken
+ * references found on this single line (usually empty).
+ */
+function matchBrokenImportsInLine(
+	importerRel: string,
+	importerLine: string,
+	lineIndex: number,
+	importerDir: string,
+	target: RippleTarget,
+): InlineMatch[] {
+	const { cwd, noExt, baseName, currentExports } = target;
+	const trimmed = importerLine.trim();
+
+	// Match: import { A, B, C } from "..." or import type { A } from "..."
+	const importMatch = trimmed.match(
+		/^import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+["']([^"']+)["']/,
+	);
+	if (!importMatch) return [];
+
+	const specifier = nonNull(importMatch[2]);
+	// Only check relative imports
+	if (!specifier.startsWith(".") && !specifier.startsWith("@/")) return [];
+
+	// Resolve the import specifier relative to the importer's directory
+	// to verify it actually points to our file (not a different file with the same basename)
+	const specBase = specifier.replace(/\.(js|ts|tsx|jsx|mjs|cjs)$/, "");
+	const specTail = specBase.split("/").pop() || "";
+	if (specTail !== baseName) return [];
+
+	// Resolve the full path and check if it's actually our target file
+	const resolvedImport = resolve(importerDir, specBase);
+	const targetNoExt = resolve(cwd, noExt);
+	if (resolvedImport !== targetNoExt) return [];
+
+	// Parse named imports
+	const namedImports = nonNull(importMatch[1])
+		.split(",")
+		.map((n) => {
+			const parts = n.trim().split(/\s+as\s+/);
+			return nonNull(parts[0]).trim().replace(/^type\s+/, ""); // Strip inline type prefix and 'as' alias
+		})
+		.filter((n) => n.length > 0);
+
+	// Check each imported name against current exports
+	const found: InlineMatch[] = [];
+	for (const name of namedImports) {
+		if (!currentExports.has(name)) {
+			found.push({
+				line: 0,
+				text: `${importerRel}:${lineIndex + 1} imports "${name}" which no longer exists in exports`,
+			});
+		}
+	}
+	return found;
+}
+
+/**
  * Scan one importer file's lines for named imports of `target`'s module that
  * reference a name no longer in `target.currentExports`.
  *
@@ -82,54 +140,13 @@ function collectImporterMatches(
 	target: RippleTarget,
 	startCount: number,
 ): InlineMatch[] {
-	const { cwd, noExt, baseName, currentExports } = target;
 	const importerLines = importerContent.split("\n");
-	const importerDir = dirname(join(cwd, importerRel));
+	const importerDir = dirname(join(target.cwd, importerRel));
 	const found: InlineMatch[] = [];
 
 	for (const [i, importerLine] of importerLines.entries()) {
 		if (startCount + found.length >= 15) break;
-		const trimmed = importerLine.trim();
-
-		// Match: import { A, B, C } from "..." or import type { A } from "..."
-		const importMatch = trimmed.match(
-			/^import\s+(?:type\s+)?\{([^}]+)\}\s+from\s+["']([^"']+)["']/,
-		);
-		if (!importMatch) continue;
-
-		const specifier = nonNull(importMatch[2]);
-		// Only check relative imports
-		if (!specifier.startsWith(".") && !specifier.startsWith("@/")) continue;
-
-		// Resolve the import specifier relative to the importer's directory
-		// to verify it actually points to our file (not a different file with the same basename)
-		const specBase = specifier.replace(/\.(js|ts|tsx|jsx|mjs|cjs)$/, "");
-		const specTail = specBase.split("/").pop() || "";
-		if (specTail !== baseName) continue;
-
-		// Resolve the full path and check if it's actually our target file
-		const resolvedImport = resolve(importerDir, specBase);
-		const targetNoExt = resolve(cwd, noExt);
-		if (resolvedImport !== targetNoExt) continue;
-
-		// Parse named imports
-		const namedImports = nonNull(importMatch[1])
-			.split(",")
-			.map((n) => {
-				const parts = n.trim().split(/\s+as\s+/);
-				return nonNull(parts[0]).trim().replace(/^type\s+/, ""); // Strip inline type prefix and 'as' alias
-			})
-			.filter((n) => n.length > 0);
-
-		// Check each imported name against current exports
-		for (const name of namedImports) {
-			if (!currentExports.has(name)) {
-				found.push({
-					line: 0,
-					text: `${importerRel}:${i + 1} imports "${name}" which no longer exists in exports`,
-				});
-			}
-		}
+		found.push(...matchBrokenImportsInLine(importerRel, importerLine, i, importerDir, target));
 	}
 
 	return found;

@@ -19,6 +19,12 @@ import { appendChainedAuditRecord } from "../../lib/audit-chain.js";
 import type { JsonObject } from "../../lib/json-types.js";
 import { appendActivityRecordOnly, type LocalActivityEvent } from "../../lib/local-activity.js";
 import { eventAttributionFields } from "../event-attribution-fields.js";
+import {
+	actorKeyFor,
+	bridgeGuardBlockToRecurrence,
+	recallActorModel,
+	rememberActorModel,
+} from "./guard-telemetry-enrichment.js";
 import { extractNewThinking, latestTranscriptModel, resolveTranscriptPath } from "../thinking-capture.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 
@@ -288,7 +294,12 @@ export function writeActivityRecord(event: HarnessEvent, fallbackCwd: string): v
 				const thinking = extractNewThinking(tp, join(cwd, ".interlinked", "thinking-cursor.json"));
 				if (thinking) rec.thinking = thinking;
 				const model = latestTranscriptModel(tp);
-				if (model) rec.model = model;
+				if (model) {
+					rec.model = model;
+					// Cache it so guard verdicts can be attributed to a model
+					// without re-reading the transcript on the hot path.
+					rememberActorModel(actorKeyFor(event), model);
+				}
 			}
 		}
 		appendActivityRecordOnly(rec, event.cwd ?? fallbackCwd);
@@ -400,7 +411,13 @@ export function writeGuardDecisionRecord(
 	try {
 		const rec = mapDecisionToGuardRecord(event, decision, fallbackCwd);
 		if (!rec) return;
+		const model = recallActorModel(actorKeyFor(event));
+		if (model) rec.model = model;
 		appendChainedAuditRecord(rec, event.cwd ?? fallbackCwd);
+		// A refused rule is a repeat-pattern observation, not just an audit row:
+		// feed it to the recurrence ledger so `recurrence list` ranks rules by
+		// how often agents run into them.
+		bridgeGuardBlockToRecurrence(event, decision, fallbackCwd);
 	} catch {
 		// Best-effort -- a failed guard-telemetry write must never break the
 		// daemon pipeline (feedback_safety_continuity).

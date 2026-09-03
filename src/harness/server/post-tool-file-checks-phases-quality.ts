@@ -318,93 +318,108 @@ export function runScoredSuggestionsPhase(
 	decision: HarnessDecision,
 	acc: PerFileCheckCtx,
 ): void {
+	// ── Scored suggestions (non-deterministic heuristics, top 1-3) ──
+	if (!editedFilePath || !existsSync(editedFilePath)) return;
+	try {
+		applyScoredSuggestions(ctx, checkEvent, editedFilePath, session, decision, acc);
+	} catch (e) {
+		void e;
+	}
+}
+
+/**
+ * Reads the edited file, collects + scores suggestion findings, and records
+ * warnings/telemetry. Split out of `runScoredSuggestionsPhase` so the try/catch
+ * wrapper stays a thin shell; body is byte-identical to the prior inline try block.
+ */
+function applyScoredSuggestions(
+	ctx: ServerRuntime,
+	checkEvent: HarnessEvent,
+	editedFilePath: string,
+	session: SessionTrajectory | undefined,
+	decision: HarnessDecision,
+	acc: PerFileCheckCtx,
+): void {
 	const CWD = ctx.cwd;
 	const log = ctx.log;
 	const rules = ctx.rules;
 	const { allCheckResults } = acc;
+	const suggContent = readFileSync(editedFilePath, "utf-8");
+	const inlineSup = scanInlineSuppressions(suggContent);
+	const relPath = relative(CWD, editedFilePath);
+	const fileSup = loadFileSuppressions(join(CWD, ".interlinked"), relPath);
 
-	// ── Scored suggestions (non-deterministic heuristics, top 1-3) ──
-	if (!editedFilePath || !existsSync(editedFilePath)) return;
-	try {
-		const suggContent = readFileSync(editedFilePath, "utf-8");
-		const inlineSup = scanInlineSuppressions(suggContent);
-		const relPath = relative(CWD, editedFilePath);
-		const fileSup = loadFileSuppressions(join(CWD, ".interlinked"), relPath);
+	// Collect findings from regex heuristics (30+ checks).
+	// Registry lives in ./server/suggestion-checks.ts for auditing.
+	const allFindings: Finding[] = collectSuggestionFindings(
+		suggContent,
+		editedFilePath,
+	);
 
-		// Collect findings from regex heuristics (30+ checks).
-		// Registry lives in ./server/suggestion-checks.ts for auditing.
-		const allFindings: Finding[] = collectSuggestionFindings(
-			suggContent,
-			editedFilePath,
-		);
-
-		// --- Deletion hygiene (Layer 2): diff-aware zombie detectors ---
-		// These compare old_string vs new_string to catch the agent hedging.
-		allFindings.push(
-			...collectDeletionHygieneDiffFindings({
-				oldString: checkEvent.tool_input?.old_string as string | undefined,
-				newString: checkEvent.tool_input?.new_string as string | undefined,
-				filePath: editedFilePath,
-			}),
-		);
-
-		if (allFindings.length === 0) return;
-
-		// Compute edit region for proximity scoring
-		const oldStr = checkEvent.tool_input?.old_string as string | undefined;
-		const editRegion = computeEditRegion(suggContent, oldStr);
-
-		const rawScored = scoreFindings(allFindings, {
+	// --- Deletion hygiene (Layer 2): diff-aware zombie detectors ---
+	// These compare old_string vs new_string to catch the agent hedging.
+	allFindings.push(
+		...collectDeletionHygieneDiffFindings({
+			oldString: checkEvent.tool_input?.old_string as string | undefined,
+			newString: checkEvent.tool_input?.new_string as string | undefined,
 			filePath: editedFilePath,
-			...(session ? { session } : {}),
-			...(editRegion
-				? { editStartLine: editRegion.editStartLine, editEndLine: editRegion.editEndLine }
-				: {}),
-			inlineSuppressions: inlineSup,
-			fileSuppressions: fileSup,
-			limit: rules.suggestion_limit ?? 3,
-			threshold: rules.suggestion_threshold ?? 0.5,
-		});
+		}),
+	);
 
-		// Session-ack suppression for suggestions (always warning severity).
-		// No session to check acknowledgement against means nothing is
-		// acknowledged yet — keep every finding rather than dereferencing.
-		const scored = session
-			? rawScored.filter((s) => !isAcknowledged(session, editedFilePath, s.check))
-			: rawScored;
+	if (allFindings.length === 0) return;
 
-		if (scored.length > 0) {
-			for (const s of scored) {
-				allCheckResults.push({
-					source: "suggestion",
-					name: s.check,
-					severity: "warning",
-					message: s.message,
-					file: editedFilePath || undefined,
-					score: s.score,
-					line: s.line,
-					determinism: "heuristic",
-				});
-			}
-			const suggWarnings = formatScoredFindings(scored);
-			decision.warnings = [
-				...(decision.warnings || []),
-				...suggWarnings,
-			];
-			log(
-				`Suggestions: ${scored.map((s) => `${s.check}(${s.score.toFixed(2)})`).join(", ")}`,
-			);
+	// Compute edit region for proximity scoring
+	const oldStr = checkEvent.tool_input?.old_string as string | undefined;
+	const editRegion = computeEditRegion(suggContent, oldStr);
+
+	const rawScored = scoreFindings(allFindings, {
+		filePath: editedFilePath,
+		...(session ? { session } : {}),
+		...(editRegion
+			? { editStartLine: editRegion.editStartLine, editEndLine: editRegion.editEndLine }
+			: {}),
+		inlineSuppressions: inlineSup,
+		fileSuppressions: fileSup,
+		limit: rules.suggestion_limit ?? 3,
+		threshold: rules.suggestion_threshold ?? 0.5,
+	});
+
+	// Session-ack suppression for suggestions (always warning severity).
+	// No session to check acknowledgement against means nothing is
+	// acknowledged yet — keep every finding rather than dereferencing.
+	const scored = session
+		? rawScored.filter((s) => !isAcknowledged(session, editedFilePath, s.check))
+		: rawScored;
+
+	if (scored.length > 0) {
+		for (const s of scored) {
+			allCheckResults.push({
+				source: "suggestion",
+				name: s.check,
+				severity: "warning",
+				message: s.message,
+				file: editedFilePath || undefined,
+				score: s.score,
+				line: s.line,
+				determinism: "heuristic",
+			});
 		}
-
-		// Telemetry (non-blocking)
-		writeTelemetry(allFindings, scored, {
-			interlinkedDir: join(CWD, ".interlinked"),
-			sessionId: checkEvent.session_id,
-			agentName: session?.agent_name || "unknown",
-			filePath: relPath,
-			threshold: rules.suggestion_threshold ?? 0.5,
-		});
-	} catch (e) {
-		void e;
+		const suggWarnings = formatScoredFindings(scored);
+		decision.warnings = [
+			...(decision.warnings || []),
+			...suggWarnings,
+		];
+		log(
+			`Suggestions: ${scored.map((s) => `${s.check}(${s.score.toFixed(2)})`).join(", ")}`,
+		);
 	}
+
+	// Telemetry (non-blocking)
+	writeTelemetry(allFindings, scored, {
+		interlinkedDir: join(CWD, ".interlinked"),
+		sessionId: checkEvent.session_id,
+		agentName: session?.agent_name || "unknown",
+		filePath: relPath,
+		threshold: rules.suggestion_threshold ?? 0.5,
+	});
 }

@@ -348,23 +348,31 @@ export function reconstructEditContent(
  *     to catch the regression).
  *   - Anything else → null (gate not applicable).
  */
+/** Reconstruct proposed content for the non-`content` (Edit/Update) tool-input
+ *  shape: reads disk and applies old_string → new_string. Returns null when
+ *  the shape doesn't carry a usable old/new string pair, on ambiguous
+ *  old_string matches, or when the file isn't present on disk. */
+function reconstructProposedFromOldNew(
+	filePath: string,
+	cwd: string | undefined,
+	toolInput: JsonObject,
+): string | null {
+	const oldString = toolInput.old_string as string | undefined;
+	const newString = toolInput.new_string as string | undefined;
+	if (typeof oldString !== "string" || typeof newString !== "string") return null;
+	const disk = readDiskContent(filePath, cwd);
+	if (disk === null) return null;
+	return reconstructEditContent(disk, oldString, newString);
+}
+
 export function evaluateConfigLooseningForEvent(event: HarnessEvent): HarnessDecision | null {
 	const toolInput = event.tool_input || {};
 	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
 	if (!filePath || !isConfigFile(filePath)) return null;
 
-	let proposed: string | null = null;
 	const content = toolInput.content as string | undefined;
-	if (typeof content === "string") {
-		proposed = content;
-	} else {
-		const oldString = toolInput.old_string as string | undefined;
-		const newString = toolInput.new_string as string | undefined;
-		if (typeof oldString === "string" && typeof newString === "string") {
-			const disk = readDiskContent(filePath, event.cwd);
-			if (disk !== null) proposed = reconstructEditContent(disk, oldString, newString);
-		}
-	}
+	const proposed =
+		typeof content === "string" ? content : reconstructProposedFromOldNew(filePath, event.cwd, toolInput);
 	if (proposed === null) return null;
 
 	const head = readHeadVersion(filePath);

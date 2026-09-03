@@ -35,6 +35,34 @@ interface TraceDocument {
 // Export
 // ===========================================
 
+/** Build one trace span from a local activity event. Split out of
+ *  `exportTrace`'s map callback purely to bring it under the cognitive
+ *  complexity cap — same fallbacks, same field order, same output. */
+function buildTraceSpan(e: LocalActivityEvent, i: number): TraceSpan {
+	// `readLocalActivity` is a mockable/injectable boundary; a caller can
+	// supply an event whose `ts` is missing despite the required `string`
+	// type (see the mutation-kill fallback coverage for this file). Read
+	// it through `unknown` so the fallbacks below stay real.
+	const rawTs: unknown = e.ts;
+	const ts = typeof rawTs === "string" ? rawTs : undefined;
+	return {
+		trace_id: e.session || `trace-${ts?.slice(0, 10) || "unknown"}`,
+		span_id: `span-${i}-${ts?.replace(/\D/g, "").slice(0, 14) || i}`,
+		name: e.type || "unknown",
+		timestamp: e.ts,
+		duration_ms: e.duration_ms || undefined,
+		attributes: {
+			agent: e.agent,
+			tool: e.tool || undefined,
+			summary: e.summary || undefined,
+			hook: e.hook || undefined,
+			...(e.tokens ? { tokens: e.tokens } : {}),
+			...(e.parent_agent ? { parent_agent: e.parent_agent } : {}),
+			...(e.subagent_id ? { subagent_id: e.subagent_id } : {}),
+		},
+	};
+}
+
 /**
  * Export local activity events as trace spans.
  */
@@ -53,30 +81,7 @@ export function exportTrace(opts?: {
 		cwd: opts?.cwd,
 	});
 
-	const spans: TraceSpan[] = events.map((e, i) => {
-		// `readLocalActivity` is a mockable/injectable boundary; a caller can
-		// supply an event whose `ts` is missing despite the required `string`
-		// type (see the mutation-kill fallback coverage for this file). Read
-		// it through `unknown` so the fallbacks below stay real.
-		const rawTs: unknown = e.ts;
-		const ts = typeof rawTs === "string" ? rawTs : undefined;
-		return {
-			trace_id: e.session || `trace-${ts?.slice(0, 10) || "unknown"}`,
-			span_id: `span-${i}-${ts?.replace(/\D/g, "").slice(0, 14) || i}`,
-			name: e.type || "unknown",
-			timestamp: e.ts,
-			duration_ms: e.duration_ms || undefined,
-			attributes: {
-				agent: e.agent,
-				tool: e.tool || undefined,
-				summary: e.summary || undefined,
-				hook: e.hook || undefined,
-				...(e.tokens ? { tokens: e.tokens } : {}),
-				...(e.parent_agent ? { parent_agent: e.parent_agent } : {}),
-				...(e.subagent_id ? { subagent_id: e.subagent_id } : {}),
-			},
-		};
-	});
+	const spans: TraceSpan[] = events.map((e, i) => buildTraceSpan(e, i));
 
 	if (opts?.format === "jsonl") {
 		return `${spans.map((s) => JSON.stringify(s)).join("\n")}\n`;

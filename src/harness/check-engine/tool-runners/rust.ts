@@ -11,15 +11,27 @@ import { filterResultsToFile, parseCargoJson } from "../output-parsers.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
 
 // -------------------------------------------
-// cargo check
+// cargo check / cargo clippy — one JSON-diagnostic protocol
 // -------------------------------------------
 
-export function runCargoCheck(input: ToolRunnerInput): CheckResult[] {
+/**
+ * Run a cargo subcommand that reports diagnostics through
+ * `--message-format=json`. `cargo check` and `cargo clippy` speak the SAME
+ * protocol — same spawn options, same ENOENT short-circuit, same "exit 0 =
+ * clean" rule (101 = compilation errors), same stdout+stderr concatenation and
+ * the same `parseCargoJson` reader. Only the argv and the reported tool id
+ * differ, so both are data here rather than behaviour switches.
+ */
+function runCargoJsonSubcommand(
+	input: ToolRunnerInput,
+	args: string[],
+	toolId: "cargo-check" | "cargo-clippy",
+): CheckResult[] {
 	const { scope, timeoutMs } = input;
 
 	try {
-		// cargo check is always project-wide
-		const result = spawnSync("cargo", ["check", "--message-format=json"], {
+		// cargo check/clippy are always project-wide
+		const result = spawnSync("cargo", args, {
 			cwd: scope.projectRoot,
 			timeout: timeoutMs,
 			encoding: "utf-8",
@@ -29,11 +41,10 @@ export function runCargoCheck(input: ToolRunnerInput): CheckResult[] {
 		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
 			return [];
 		}
-		// Exit 0 = clean, exit 101 = compilation errors
 		if (result.status === 0) return [];
 
 		const output = (result.stdout || "") + (result.stderr || "");
-		const results = parseCargoJson(output, "cargo-check");
+		const results = parseCargoJson(output, toolId);
 
 		// In file mode, filter to the target file
 		if (scope.mode === "file" && scope.targetFile && scope.filterToFile) {
@@ -45,40 +56,16 @@ export function runCargoCheck(input: ToolRunnerInput): CheckResult[] {
 	}
 }
 
-// -------------------------------------------
-// cargo clippy
-// -------------------------------------------
+export function runCargoCheck(input: ToolRunnerInput): CheckResult[] {
+	return runCargoJsonSubcommand(input, ["check", "--message-format=json"], "cargo-check");
+}
 
 export function runCargoClippy(input: ToolRunnerInput): CheckResult[] {
-	const { scope, timeoutMs } = input;
-
-	try {
-		const result = spawnSync(
-			"cargo",
-			["clippy", "--message-format=json", "--", "-W", "clippy::all"],
-			{
-				cwd: scope.projectRoot,
-				timeout: timeoutMs,
-				encoding: "utf-8",
-				stdio: ["pipe", "pipe", "pipe"],
-			},
-		);
-
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
-			return [];
-		}
-		if (result.status === 0) return [];
-
-		const output = (result.stdout || "") + (result.stderr || "");
-		const results = parseCargoJson(output, "cargo-clippy");
-
-		if (scope.mode === "file" && scope.targetFile && scope.filterToFile) {
-			return filterResultsToFile(results, scope.targetFile);
-		}
-		return results;
-	} catch {
-		return [];
-	}
+	return runCargoJsonSubcommand(
+		input,
+		["clippy", "--message-format=json", "--", "-W", "clippy::all"],
+		"cargo-clippy",
+	);
 }
 
 // -------------------------------------------

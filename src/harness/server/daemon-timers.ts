@@ -74,6 +74,23 @@ const EMERGENCY_SHRINK_COOLDOWN_MS = 120_000;
 const IDLE_SHRINK_AFTER_MS = 5 * 60_000;
 
 /**
+ * Idle shrink: fire once per idle period. `lastShrinkAt < lastEvent` means
+ * "no shrink since the last event" — firing stamps lastShrinkAt past the
+ * idle period's event, and only a NEWER event re-arms the comparison.
+ * Returns the (possibly updated) `lastShrinkAt` timestamp for the caller to hold.
+ */
+function shrinkOnIdle(hooks: DaemonTimerHooks, lastShrinkAt: number): number {
+	if (!hooks.lastEventAtMs || !hooks.shrinkIdleMemory) return lastShrinkAt;
+	const lastEvent = hooks.lastEventAtMs();
+	if (Date.now() - lastEvent < IDLE_SHRINK_AFTER_MS || lastShrinkAt >= lastEvent) {
+		return lastShrinkAt;
+	}
+	const shrinkAt = Date.now();
+	hooks.shrinkIdleMemory();
+	return shrinkAt;
+}
+
+/**
  * Emergency valve: shrink the moment heap use crosses the pressure fraction —
  * waiting for idleness or the RSS ceiling is what let spikes abort V8 (heap
  * cap < RSS ceiling, storm postmortem 2026-08-17). Returns the (possibly
@@ -165,13 +182,7 @@ export function installDaemonTimers(hooks: DaemonTimerHooks): () => void {
 		if (delta > SPIKE_DELTA_BYTES) {
 			hooks.onSpike?.(Math.round(rss / BYTES_PER_MB), Math.round(delta / BYTES_PER_MB));
 		}
-		if (hooks.lastEventAtMs && hooks.shrinkIdleMemory) {
-			const lastEvent = hooks.lastEventAtMs();
-			if (Date.now() - lastEvent >= IDLE_SHRINK_AFTER_MS && lastShrinkAt < lastEvent) {
-				lastShrinkAt = Date.now();
-				hooks.shrinkIdleMemory();
-			}
-		}
+		lastShrinkAt = shrinkOnIdle(hooks, lastShrinkAt);
 		// Emergency valve: shrink the moment heap use crosses the pressure
 		// fraction — waiting for idleness or the RSS ceiling is what let spikes
 		// abort V8 (heap cap < RSS ceiling, storm postmortem 2026-08-17).

@@ -65,23 +65,25 @@ function applyWorkspaceLocalConfig(workspaceId: string): void {
 	updateLocalConfig({ workspace_id: workspaceId });
 }
 
+// Renders the "linked" case for buildRemoteStatusLines.
+function handleRemoteStatus(remote: RemoteOnboardingResult, result: AttachResult): string[] {
+	const lines: string[] = [];
+	const lifecycle = remote.isNewAgent ? "new" : remote.reclaimedAgent ? "reclaimed" : "existing";
+	const name = remote.agentName || result.agent_name || "agent";
+	lines.push(kvLine("Remote", c.green(`${name} linked (${lifecycle})`)));
+	if (remote.agentHandle) {
+		lines.push(kvLine("Agent handle", remote.agentHandle));
+	}
+	return lines;
+}
+
 // Map remote status+reason pairs to the user-facing lines shown in `attach` output.
 // Keeps the render path table-driven so new reasons are one-row additions.
 function buildRemoteStatusLines(remote: RemoteOnboardingResult, result: AttachResult): string[] {
 	const lines: string[] = [];
 
 	if (remote.status === "linked") {
-		const lifecycle = remote.isNewAgent
-			? "new"
-			: remote.reclaimedAgent
-				? "reclaimed"
-				: "existing";
-		const name = remote.agentName || result.agent_name || "agent";
-		lines.push(kvLine("Remote", c.green(`${name} linked (${lifecycle})`)));
-		if (remote.agentHandle) {
-			lines.push(kvLine("Agent handle", remote.agentHandle));
-		}
-		return lines;
+		return handleRemoteStatus(remote, result);
 	}
 
 	const skippedReasons: Record<string, { label: string; help?: string }> = {

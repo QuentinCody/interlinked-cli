@@ -248,6 +248,7 @@ describe("DEFAULT_ADVISORY_SKIPS", () => {
 				"same_typed_primitive_params",
 				"sequential_awaits",
 				"single_implementation_interface",
+				"single_use_trivial_helper",
 				"suppression_block_span",
 				"test_regressions",
 				// Bun-regression detector pack (2026-07-20): assert-erasure siblings

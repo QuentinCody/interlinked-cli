@@ -162,39 +162,78 @@ export function resetSiblingDedupForTests(): void {
 export function expandSiblings(args: ExpandSiblingsArgs): SiblingFinding[] {
 	const specs = args.triggerSpecs ?? DEFAULT_TRIGGERS;
 	const specByName = new Map(specs.map((s) => [s.triggerName, s]));
-	const maxSiblings = args.maxSiblingsPerTrigger ?? DEFAULT_MAX_SIBLINGS_PER_TRIGGER;
-	const maxCandidates = args.maxCandidates ?? DEFAULT_MAX_CANDIDATES;
-	const emittedKeys = args.emittedKeys ?? defaultEmittedSiblingKeys;
+	const limits = resolveSiblingLimits(args);
 
-	const triggerNames = new Set<string>();
-	const originFiles = new Set<string>();
-	for (const t of args.triggers) {
-		triggerNames.add(t.name);
-		if (t.file) originFiles.add(toRelative(t.file, args.cwd));
-	}
+	const triggerNames = new Set(args.triggers.map((t) => t.name));
+	const originFiles = collectOriginFiles(args.triggers, args.cwd);
 
 	const out: SiblingFinding[] = [];
 	for (const name of triggerNames) {
 		const spec = specByName.get(name);
 		if (!spec) continue;
-
-		const decomp = decomposePattern(spec.anchor, false);
-		if (decomp.requiredTrigrams.length === 0) continue;
-
-		const candidatePaths = args.index
-			.queryCandidatePaths(decomp.requiredTrigrams)
-			.slice(0, maxCandidates);
-
-		let emittedForTrigger = 0;
-		for (const candidatePath of candidatePaths) {
-			if (emittedForTrigger >= maxSiblings) break;
-			const sibling = tryBuildSibling(candidatePath, spec, originFiles, args.reader, emittedKeys);
-			if (!sibling) continue;
-			out.push(sibling);
-			emittedForTrigger++;
-		}
+		out.push(...siblingsForTrigger(spec, args, originFiles, limits));
 	}
 	return out;
+}
+
+/** The three caller-overridable caps of one fan-out, resolved once so the
+ *  public entry point reads as policy rather than defaulting. */
+interface SiblingLimits {
+	maxSiblings: number;
+	maxCandidates: number;
+	emittedKeys: Set<string>;
+}
+
+function resolveSiblingLimits(args: ExpandSiblingsArgs): SiblingLimits {
+	return {
+		maxSiblings: args.maxSiblingsPerTrigger ?? DEFAULT_MAX_SIBLINGS_PER_TRIGGER,
+		maxCandidates: args.maxCandidates ?? DEFAULT_MAX_CANDIDATES,
+		emittedKeys: args.emittedKeys ?? defaultEmittedSiblingKeys,
+	};
+}
+
+/** Repo-relative paths of the files the triggering findings came from — the
+ *  primary finding already names them, so they never emit as siblings. */
+function collectOriginFiles(
+	triggers: ExpandSiblingsArgs["triggers"],
+	cwd: string,
+): Set<string> {
+	const originFiles = new Set<string>();
+	for (const t of triggers) {
+		if (t.file) originFiles.add(toRelative(t.file, cwd));
+	}
+	return originFiles;
+}
+
+/** Sibling rows for one trigger spec: seed the trigram lookup from the
+ *  spec's anchor, then qualify candidate files until the per-trigger cap is
+ *  reached. Empty when the anchor decomposes to no trigrams. */
+function siblingsForTrigger(
+	spec: SiblingTrigger,
+	args: ExpandSiblingsArgs,
+	originFiles: Set<string>,
+	limits: SiblingLimits,
+): SiblingFinding[] {
+	const decomp = decomposePattern(spec.anchor, false);
+	if (decomp.requiredTrigrams.length === 0) return [];
+
+	const candidatePaths = args.index
+		.queryCandidatePaths(decomp.requiredTrigrams)
+		.slice(0, limits.maxCandidates);
+
+	const found: SiblingFinding[] = [];
+	for (const candidatePath of candidatePaths) {
+		if (found.length >= limits.maxSiblings) break;
+		const sibling = tryBuildSibling(
+			candidatePath,
+			spec,
+			originFiles,
+			args.reader,
+			limits.emittedKeys,
+		);
+		if (sibling) found.push(sibling);
+	}
+	return found;
 }
 
 /** Answers "does this candidate path produce a sibling finding for this

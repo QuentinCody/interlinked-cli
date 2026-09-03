@@ -3,7 +3,7 @@
 // ===========================================
 // Per-file pool heuristic: compare git diff stat before and after agent runs.
 
-import { execSync } from "node:child_process";
+import { gitShell } from "./git-shell.js";
 import { nonNull } from "./non-null.js";
 
 // ===========================================
@@ -27,19 +27,10 @@ export interface PreRunSnapshot {
 // Helpers
 // ===========================================
 
-function git(args: string, cwd: string): string {
-	return execSync(`git ${args}`, {
-		cwd,
-		encoding: "utf-8",
-		timeout: 10000,
-		stdio: ["pipe", "pipe", "pipe"],
-	}).trim();
-}
-
 function getDiffStat(cwd: string): Record<string, number> {
 	const files: Record<string, number> = {};
 	try {
-		const output = git("diff --numstat HEAD", cwd);
+		const output = gitShell("diff --numstat HEAD", cwd);
 		if (!output) return files;
 		for (const line of output.split("\n")) {
 			const parts = line.split("\t");
@@ -52,10 +43,10 @@ function getDiffStat(cwd: string): Record<string, number> {
 		}
 
 		// Also include untracked files
-		const untracked = git("ls-files --others --exclude-standard", cwd);
+		const untracked = gitShell("ls-files --others --exclude-standard", cwd);
 		for (const file of untracked.split("\n").filter(Boolean)) {
 			try {
-				const wc = git(`diff --no-index /dev/null "${file}" -- | wc -l`, cwd);
+				const wc = gitShell(`diff --no-index /dev/null "${file}" -- | wc -l`, cwd);
 				files[file] = Number.parseInt(wc, 10) || 1;
 			} catch (_err) {
 				/* intentional: wc failure — fall back to assuming 1 added line */
@@ -134,7 +125,7 @@ export function readAttributionTrailer(commitSha?: string, cwd?: string): Attrib
 	const ref = commitSha || "HEAD";
 
 	try {
-		const msg = git(`log -1 --format=%B ${ref}`, resolvedCwd);
+		const msg = gitShell(`log -1 --format=%B ${ref}`, resolvedCwd);
 		const match = msg.match(
 			/Interlinked-Attribution:\s*(\d+)%\s*agent\s*\((\d+)\/(\d+)\s*lines?\)/,
 		);

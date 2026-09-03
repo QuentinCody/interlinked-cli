@@ -68,6 +68,13 @@ export const coreSections: readonly SectionSpec[] = [
 		color: "33",
 	},
 	{
+		label: "single-use trivial helpers",
+		key: "singleUseTrivialHelper",
+		noun: "private one-call-site helpers whose name adds nothing the call site lacks",
+		passLabel: "every private helper earns its name",
+		color: "33",
+	},
+	{
 		label: "circular imports",
 		key: "circularImports",
 		noun: "import cycles involving this file",

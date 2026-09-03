@@ -97,6 +97,16 @@ const LCS_CELL_BUDGET = 4_000_000;
  * identified exactly. Beyond `LCS_CELL_BUDGET` it falls back to "every after-line
  * edited" (strict — safe direction).
  */
+/** Fill row `i` of the LCS `dp` table from the already-computed row `i + 1`. */
+function fillLcsDpRow(i: number, a: string[], b: string[], dp: number[][]): void {
+	for (let j = b.length - 1; j >= 0; j--) {
+		nonNull(dp[i])[j] =
+			a[i] === b[j]
+				? nonNull(nonNull(dp[i + 1])[j + 1]) + 1
+				: Math.max(nonNull(nonNull(dp[i + 1])[j]), nonNull(nonNull(dp[i])[j + 1]));
+	}
+}
+
 function addedLineNumbers(before: string, after: string): Set<number> {
 	const a = before.split("\n");
 	const b = after.split("\n");
@@ -110,12 +120,7 @@ function addedLineNumbers(before: string, after: string): Set<number> {
 	// dp[i][j] = LCS length of a[i:] and b[j:].
 	const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
 	for (let i = n - 1; i >= 0; i--) {
-		for (let j = m - 1; j >= 0; j--) {
-			nonNull(dp[i])[j] =
-				a[i] === b[j]
-					? nonNull(nonNull(dp[i + 1])[j + 1]) + 1
-					: Math.max(nonNull(nonNull(dp[i + 1])[j]), nonNull(nonNull(dp[i])[j + 1]));
-		}
+		fillLcsDpRow(i, a, b, dp);
 	}
 	// Walk the alignment: an after-line with no matching before-line is inserted.
 	const edited = new Set<number>();

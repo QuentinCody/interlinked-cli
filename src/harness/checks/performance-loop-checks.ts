@@ -290,6 +290,25 @@ export function checkCloneInLoop(content: string, filePath: string): InlineMatch
 }
 
 /**
+ * Scan one loop body for the first line matching `pattern`, returning it as
+ * an InlineMatch (or null if the loop body has no match).
+ */
+function findFirstSortMatch(
+	loop: ReturnType<typeof getLoopBodies>[number],
+	pattern: RegExp,
+): InlineMatch | null {
+	for (let i = 0; i < loop.bodyLines.length; i++) {
+		if (pattern.test(nonNull(loop.bodyLines[i]))) {
+			return {
+				line: loop.startLine + i,
+				text: nonNull(loop.originalBodyLines[i]).trim().slice(0, 150),
+			};
+		}
+	}
+	return null;
+}
+
+/**
  * Detect .sort() / sorted() inside loop bodies — O(n² log n) total.
  * Sort once before the loop, or use a heap/priority queue.
  */
@@ -317,16 +336,9 @@ export function checkSortInLoop(content: string, filePath: string): InlineMatch[
 
 	const matches: InlineMatch[] = [];
 	for (const loop of bodies) {
-		for (let i = 0; i < loop.bodyLines.length; i++) {
-			if (matches.length >= 10) break;
-			if (pattern.test(nonNull(loop.bodyLines[i]))) {
-				matches.push({
-					line: loop.startLine + i,
-					text: nonNull(loop.originalBodyLines[i]).trim().slice(0, 150),
-				});
-				break; // One per loop
-			}
-		}
+		if (matches.length >= 10) break;
+		const match = findFirstSortMatch(loop, pattern);
+		if (match) matches.push(match);
 	}
 
 	return matches;

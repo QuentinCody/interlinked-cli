@@ -70,6 +70,16 @@ const NPM_FLAG_TAKES_VALUE = new Set([
 	"--save-prefix",
 ]);
 
+// Advance past flag `a` at index `i`; null means `a` isn't a flag (positional).
+function skipNpmFlagArg(args: string[], i: number, a: string): number | null {
+	if (!a.startsWith("-")) return null;
+	if (!NPM_FLAG_TAKES_VALUE.has(a)) return i;
+	// Empty value (`--prefix ""`) IS the value; test absence, not `/^[^-]/` (misses "").
+	const next = args[i + 1];
+	if (next !== undefined && !next.startsWith("-")) return i + 1;
+	return i;
+}
+
 // Walk the post-verb args of an npm-family command, separating positional package
 // specs from flags. Captures a custom --registry and any frozen/immutable flag.
 function scanNpmFlags(args: string[]): NpmFlagScan {
@@ -93,16 +103,9 @@ function scanNpmFlags(args: string[]): NpmFlagScan {
 			frozenLockfile = true;
 			continue;
 		}
-		if (a.startsWith("-")) {
-			if (NPM_FLAG_TAKES_VALUE.has(a)) {
-				// A present-but-empty value (`--prefix ""`) IS the value, not a
-				// package — test for absence, not for a leading non-dash char. The
-				// old `/^[^-]/`-based check failed to match an empty string (it
-				// requires >=1 char), so it fell through and the empty string was
-				// collected as a phantom package with an empty name.
-				const next = args[i + 1];
-				if (next !== undefined && !next.startsWith("-")) i++;
-			}
+		const skipTo = skipNpmFlagArg(args, i, a);
+		if (skipTo !== null) {
+			i = skipTo;
 			continue;
 		}
 		positionals.push(a);

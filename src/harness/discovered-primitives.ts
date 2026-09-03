@@ -196,41 +196,56 @@ export function countBareBuiltinCalls(
 
 	// Excise each wrapper's body so internal builtin calls are skipped.
 	for (const name of wrapperNames) {
-		const declRe = new RegExp(
-			`(?:function\\s+${escapeRegex(name)}\\s*[<(]|\\b(?:const|let|var)\\s+${escapeRegex(name)}\\s*=\\s*(?:async\\s*)?(?:<[^>]+>\\s*)?\\()`,
-			"g",
-		);
-		let m: RegExpExecArray | null = declRe.exec(stripped);
-		while (m !== null) {
-			const start = m.index;
-			const bodyOpen = stripped.indexOf("{", start);
-			if (bodyOpen === -1) {
-				m = declRe.exec(stripped);
-				continue;
-			}
-			let depth = 1;
-			let i = bodyOpen + 1;
-			while (i < stripped.length && depth > 0) {
-				const ch = stripped[i];
-				if (ch === "{") depth++;
-				else if (ch === "}") depth--;
-				i++;
-			}
-			const bodyEnd = i;
-			// Replace body with spaces so indices don't shift.
-			stripped =
-				stripped.slice(0, bodyOpen) +
-				" ".repeat(bodyEnd - bodyOpen) +
-				stripped.slice(bodyEnd);
-			declRe.lastIndex = bodyEnd;
-			m = declRe.exec(stripped);
-		}
+		stripped = eraseWrapperBodies(stripped, name);
 	}
 
 	builtin.callRegex.lastIndex = 0;
 	let count = 0;
 	while (builtin.callRegex.exec(stripped) !== null) count++;
 	return count;
+}
+
+/** Replace every occurrence of `name`'s function/arrow body in
+ *  `stripped` with spaces (so indices don't shift), for each
+ *  declaration of `name` found. Used to excise a wrapper's own
+ *  implementation before counting bare builtin calls. */
+function eraseWrapperBodies(stripped: string, name: string): string {
+	const declRe = new RegExp(
+		`(?:function\\s+${escapeRegex(name)}\\s*[<(]|\\b(?:const|let|var)\\s+${escapeRegex(name)}\\s*=\\s*(?:async\\s*)?(?:<[^>]+>\\s*)?\\()`,
+		"g",
+	);
+	let m: RegExpExecArray | null = declRe.exec(stripped);
+	while (m !== null) {
+		const start = m.index;
+		const bodyOpen = stripped.indexOf("{", start);
+		if (bodyOpen === -1) {
+			m = declRe.exec(stripped);
+			continue;
+		}
+		const bodyEnd = findMatchingBraceEnd(stripped, bodyOpen);
+		// Replace body with spaces so indices don't shift.
+		stripped =
+			stripped.slice(0, bodyOpen) +
+			" ".repeat(bodyEnd - bodyOpen) +
+			stripped.slice(bodyEnd);
+		declRe.lastIndex = bodyEnd;
+		m = declRe.exec(stripped);
+	}
+	return stripped;
+}
+
+/** Given the index of an opening `{`, return the index just past
+ *  its matching closing `}` (brace-depth scan). */
+function findMatchingBraceEnd(stripped: string, bodyOpen: number): number {
+	let depth = 1;
+	let i = bodyOpen + 1;
+	while (i < stripped.length && depth > 0) {
+		const ch = stripped[i];
+		if (ch === "{") depth++;
+		else if (ch === "}") depth--;
+		i++;
+	}
+	return i;
 }
 
 /** Run a full discovery pass over the repo. Returns the list of

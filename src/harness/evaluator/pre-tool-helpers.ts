@@ -143,6 +143,29 @@ export function isGraphPredictionEnabled(config: SharedConfig | null): boolean {
 	return block?.enabled === true;
 }
 
+/** Formats the HIGH-risk variant of the Supermodel graph warning. Split out
+ *  of `getSupermodelGraphWarning` to keep that function's cognitive
+ *  complexity under the per-function cap — behavior is unchanged. */
+function formatHighRiskGraphWarning(
+	relPath: string,
+	direct: number,
+	transitive: number,
+	domains: string[],
+	affects: string[],
+): string {
+	const domainsClause =
+		domains.length > 0 ? ` across domains ${domains.join(" · ")}` : "";
+	const affectsClause =
+		affects.length > 0
+			? ` Affects: ${affects.slice(0, 5).join(" · ")}${affects.length > 5 ? " · …" : ""}.`
+			: "";
+	return (
+		`[interlinked:supermodel-graph] ${relPath}: ` +
+		`HIGH-risk edit per .graph shard: ${direct} dependent file(s), ${transitive} transitive${domainsClause}.` +
+		`${affectsClause} Confirm this is intentional.`
+	);
+}
+
 /** Read-only consumer of Supermodel-emitted `.graph.*` shards. Returns one
  *  warning string when a HIGH or MEDIUM impact section is present for the
  *  edited file; returns null on LOW, missing shards, parse failures, or any
@@ -159,17 +182,7 @@ export function getSupermodelGraphWarning(filePath: string, cwd?: string): strin
 		: graph.sourcePath;
 
 	if (risk === "HIGH") {
-		const domainsClause =
-			domains.length > 0 ? ` across domains ${domains.join(" · ")}` : "";
-		const affectsClause =
-			affects.length > 0
-				? ` Affects: ${affects.slice(0, 5).join(" · ")}${affects.length > 5 ? " · …" : ""}.`
-				: "";
-		return (
-			`[interlinked:supermodel-graph] ${relPath}: ` +
-			`HIGH-risk edit per .graph shard: ${direct} dependent file(s), ${transitive} transitive${domainsClause}.` +
-			`${affectsClause} Confirm this is intentional.`
-		);
+		return formatHighRiskGraphWarning(relPath, direct, transitive, domains, affects);
 	}
 
 	const domainsClause =

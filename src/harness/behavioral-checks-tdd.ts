@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, extname, join, basename as pathBasename } from "node:path";
 import { nonNull } from "../lib/non-null.js";
 import { checkAssertionDensity, countAssertions } from "./behavioral-checks-tdd-assertions.js";
+import { extractAddedLines } from "./behavioral-checks-tdd-diff-lines.js";
 import {
 	checkProdTestLocRatio,
 	gitNumstatDelta,
@@ -327,14 +328,7 @@ export function getStagedDiff(file: string): string {
 	}
 }
 
-export function extractAddedLines(diff: string): string {
-	const out: string[] = [];
-	for (const line of diff.split("\n")) {
-		if (!line.startsWith("+") || line.startsWith("+++")) continue;
-		out.push(line.slice(1));
-	}
-	return out.join("\n");
-}
+export { extractAddedLines };
 
 /**
  * Commit gate: flag commits that introduce ≥2 heavy TPP transformations

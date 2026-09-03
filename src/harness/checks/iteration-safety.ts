@@ -193,24 +193,50 @@ export function checkIteratorInvalidation(content: string, filePath: string): In
 	const seen = new Set<number>();
 	for (const { collection, headerIdx, callParenIdx } of candidates) {
 		if (matches.length >= 10) break;
-		const range = resolveLoopBodyRange(stripped, headerIdx, callParenIdx);
-		if (!range) continue;
-
-		const found = findMutationOffsets(stripped, collection, range.bodyOpen, range.bodyClose);
-
-		for (const offset of found) {
-			if (matches.length >= 10) break;
-			if (seen.has(offset)) continue;
-			seen.add(offset);
-			const lineNo = stripped.slice(0, offset).split("\n").length;
-			matches.push({
-				line: lineNo,
-				text: (lines[lineNo - 1] || "").trim().slice(0, REPORT_LINE_TRUNC),
-			});
-		}
+		collectIteratorInvalidationMatches(
+			stripped,
+			lines,
+			collection,
+			headerIdx,
+			callParenIdx,
+			seen,
+			matches,
+		);
 	}
 
 	return matches;
+}
+
+/**
+ * Resolve one iteration candidate's loop body and append any mutation
+ * matches it contains to `matches` (deduping via `seen`, capped at 10
+ * total). Mutates `matches`/`seen` in place — the caller loop's shared
+ * accumulators.
+ */
+function collectIteratorInvalidationMatches(
+	stripped: string,
+	lines: string[],
+	collection: string,
+	headerIdx: number,
+	callParenIdx: number | undefined,
+	seen: Set<number>,
+	matches: InlineMatch[],
+): void {
+	const range = resolveLoopBodyRange(stripped, headerIdx, callParenIdx);
+	if (!range) return;
+
+	const found = findMutationOffsets(stripped, collection, range.bodyOpen, range.bodyClose);
+
+	for (const offset of found) {
+		if (matches.length >= 10) break;
+		if (seen.has(offset)) continue;
+		seen.add(offset);
+		const lineNo = stripped.slice(0, offset).split("\n").length;
+		matches.push({
+			line: lineNo,
+			text: (lines[lineNo - 1] || "").trim().slice(0, REPORT_LINE_TRUNC),
+		});
+	}
 }
 
 // ===========================================

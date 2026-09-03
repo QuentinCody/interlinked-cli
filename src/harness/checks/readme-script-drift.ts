@@ -185,6 +185,24 @@ export function detectReadmeScriptDrift(
 // ─── Production resolver ─────────────────────────────────────────────────────
 
 /**
+ * Read the `scripts` keys of one package.json. Returns null when the manifest
+ * is unreadable, malformed, or carries no `scripts` object (fail-open).
+ */
+function readManifestScriptNames(manifestPath: string): ReadonlySet<string> | null {
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
+		const scripts =
+			typeof parsed === "object" && parsed !== null
+				? (parsed as { scripts?: unknown }).scripts
+				: undefined;
+		if (typeof scripts !== "object" || scripts === null) return null;
+		return new Set(Object.keys(scripts));
+	} catch {
+		return null; // malformed manifest → fail open
+	}
+}
+
+/**
  * Resolve the `scripts` keys of the NEAREST package.json walking up from the
  * markdown file's directory, stopping at `stopDir` (the repo root / verify
  * cwd — never walk above it). Returns null when no package.json is found
@@ -202,19 +220,7 @@ export function resolveNearestPackageScripts(
 
 	for (;;) {
 		const manifest = join(dir, "package.json");
-		if (existsSync(manifest)) {
-			try {
-				const parsed: unknown = JSON.parse(readFileSync(manifest, "utf-8"));
-				const scripts =
-					typeof parsed === "object" && parsed !== null
-						? (parsed as { scripts?: unknown }).scripts
-						: undefined;
-				if (typeof scripts !== "object" || scripts === null) return null;
-				return new Set(Object.keys(scripts));
-			} catch {
-				return null; // malformed manifest → fail open
-			}
-		}
+		if (existsSync(manifest)) return readManifestScriptNames(manifest);
 		if (dir === stop) return null;
 		const parent = dirname(dir);
 		if (parent === dir) return null; // filesystem root safety stop

@@ -206,6 +206,21 @@ function parseRows(data: string): IndexedFunctionRow[] {
     });
 }
 
+function validateRowIdentities(rows: IndexedFunctionRow[]): void {
+    const ids = new Set<string>();
+    for (const [indexNumber, row] of rows.entries()) {
+        if (ids.has(row.id)) throw new Error(`duplicate semantic function id: ${row.id}`);
+        ids.add(row.id);
+        if (row.vectorOffset !== indexNumber) throw new Error("semantic vector offset is out of order");
+    }
+}
+
+function validateVectorsFinite(vectors: Float32Array): void {
+    for (const value of vectors) {
+        if (!Number.isFinite(value)) throw new Error("semantic vector file contains a non-finite value");
+    }
+}
+
 function validateIndex(index: LoadedSemanticIndex, functionData: string, vectorData: Buffer): void {
     const { meta, rows } = index;
     // `schemaVersion`/`byteOrder` are literal-typed on `SemanticIndexMeta`
@@ -223,15 +238,8 @@ function validateIndex(index: LoadedSemanticIndex, functionData: string, vectorD
     if (rows.length !== meta.functionCount || rows.length !== meta.vectorCount || rows.length !== vectorData.byteLength / rowBytes) {
         throw new Error("semantic row and vector counts disagree");
     }
-    const ids = new Set<string>();
-    for (const [indexNumber, row] of rows.entries()) {
-        if (ids.has(row.id)) throw new Error(`duplicate semantic function id: ${row.id}`);
-        ids.add(row.id);
-        if (row.vectorOffset !== indexNumber) throw new Error("semantic vector offset is out of order");
-    }
-    for (const value of index.vectors) {
-        if (!Number.isFinite(value)) throw new Error("semantic vector file contains a non-finite value");
-    }
+    validateRowIdentities(rows);
+    validateVectorsFinite(index.vectors);
 }
 
 export function loadSemanticIndex(root: string, expectedFingerprint?: string): LoadedSemanticIndex {

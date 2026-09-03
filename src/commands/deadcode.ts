@@ -126,8 +126,40 @@ function entryPoints(cwd: string, files: readonly string[]): Set<string> {
 	return entries;
 }
 
-const REEXPORT_FROM_RE = /export\s+(?:\*|\{[^}]*\}|type\s+\{[^}]*\})\s+from\s+["']([^"']+)["']/g;
+/** Every syntactic form that makes one file reference another by relative
+ *  specifier. `from` covers BOTH `import … from` and `export … from` (the
+ *  barrel edge the project graph never records — it parses import statements
+ *  only); the lookbehind keeps `Array.from(` and `.from"` out. */
+const FROM_SPEC_RE = /(?<![.\w])from\s*["']([^"']+)["']/g;
 const DYNAMIC_IMPORT_RE = /import\s*\(\s*["']([^"']+)["']/g;
+const REQUIRE_RE = /(?<![.\w])require\s*\(\s*["']([^"']+)["']/g;
+const SIDE_EFFECT_IMPORT_RE = /(?:^|\n)\s*import\s+["']([^"']+)["']/g;
+const SPEC_PATTERNS = [FROM_SPEC_RE, DYNAMIC_IMPORT_RE, REQUIRE_RE, SIDE_EFFECT_IMPORT_RE];
+
+/** Drop comment LINES before specifier matching so a commented-out or merely
+ *  documented import never counts as a live edge (that would hide a real dead
+ *  file). Line-shaped on purpose: a span-matching block-comment strip
+ *  mis-pairs against regex literals and template strings and then swallows the
+ *  real import block — measured on `structural-checks.ts`, where it hid all 16
+ *  specifiers and left a barrel-re-exported file looking test-only. */
+function stripComments(content: string): string {
+	return content
+		.split("\n")
+		.filter((line) => !/^\s*(?:\/\/|\/\*|\*)/.test(line))
+		.join("\n");
+}
+
+function isTestPath(path: string): boolean {
+	return TEST_OR_FIXTURE_RE.test(path.split(sep).join("/"));
+}
+
+/** Relative-specifier targets, split by whether the REFERENCING file is a
+ *  test/fixture. `byNonTest` is what disqualifies a file from the test-only
+ *  bucket; `byTest` is what puts it there. */
+export interface ReferenceSets {
+	byTest: Set<string>;
+	byNonTest: Set<string>;
+}
 
 /** Mark every relative specifier the pattern captures as a reached file,
  *  under each resolvable extension. */
@@ -136,32 +168,42 @@ function markSpecTargets(reached: Set<string>, dir: string, content: string, re:
 		const spec = m[1];
 		if (!spec || !spec.startsWith(".")) continue;
 		const base = join(dir, spec).split(sep).join("/").replace(/\.js$/, "");
-		for (const ext of [".ts", ".tsx", ".js", ".jsx", "/index.ts"]) {
+		for (const ext of ["", ".ts", ".tsx", ".js", ".jsx", "/index.ts", "/index.tsx", "/index.js"]) {
 			reached.add(`${base}${ext}`);
 		}
 	}
 }
 
-/** Files consumed through `export … from` barrels or dynamic `import()`:
- *  the project graph tracks static import statements only, so both edge
- *  kinds need their own pass (the checks/<family> barrel made every family
- *  file look importerless; the lazily-loaded categorizer module repeated the
- *  class for dynamic imports). */
-function reExportTargets(cwd: string, files: string[]): Set<string> {
-	const reached = new Set<string>();
-	for (const rel of files) {
+/** Resolve EVERY relative specifier in every scanned file, split by whether
+ *  the referencing file is a test. The project graph records static import
+ *  statements only, so `export … from` barrel edges and dynamic `import()`
+ *  are invisible to it — a file reached only through either looked
+ *  importerless (layer 1) AND looked test-only (the categorizer signal),
+ *  which is how the test-only bucket over-reported 142 against a
+ *  ground truth of 43 (campaign 2026-09-02).
+ *
+ *  Deliberately ONE HOP, matching the ground-truth resolution: any reference
+ *  from a non-test file clears the target, even when that referencer is
+ *  itself dead. Propagating "the barrel is test-only too" needs a reachability
+ *  fixpoint seeded from a COMPLETE entry set, and this repo's entry discovery
+ *  is incomplete (npm scripts naming dist/*.js are not mapped back to src),
+ *  so the fixpoint would over-report far worse than the bug it fixes. */
+export function collectReferences(cwd: string, files: readonly string[]): ReferenceSets {
+	const refs: ReferenceSets = { byTest: new Set<string>(), byNonTest: new Set<string>() };
+	for (const relRaw of files) {
+		const rel = relRaw.split(sep).join("/");
 		let content: string;
 		try {
-			content = readFileSync(join(cwd, rel), "utf-8");
+			content = stripComments(readFileSync(join(cwd, rel), "utf-8"));
 		} catch (err) {
 			void err; // unreadable — no edges from it
 			continue;
 		}
 		const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".";
-		markSpecTargets(reached, dir, content, REEXPORT_FROM_RE);
-		markSpecTargets(reached, dir, content, DYNAMIC_IMPORT_RE);
+		const into = isTestPath(rel) ? refs.byTest : refs.byNonTest;
+		for (const re of SPEC_PATTERNS) markSpecTargets(into, dir, content, re);
 	}
-	return reached;
+	return refs;
 }
 
 /** Discovery is git-first: `git ls-files` covers every tracked/untracked
@@ -198,24 +240,33 @@ function buildDeadExportsRepo(cwd: string, importerFiles: string[]): {
 }
 
 /** Reachability classification for one file (layer 1 + the test-only signal). */
+/** Who references `rel`, over BOTH mechanisms: the resolved specifier sets
+ *  (barrels, dynamic import, require, static) and the project graph's static
+ *  import edges. The graph is the backstop for anything the regexes miss. */
+function reachFlags(
+	importers: readonly { fromFile: string }[],
+	refs: ReferenceSets,
+	rel: string,
+): { nonTest: boolean; fromTest: boolean } {
+	return {
+		nonTest: refs.byNonTest.has(rel) || importers.some((e) => !isTestPath(e.fromFile)),
+		fromTest: refs.byTest.has(rel) || importers.some((e) => isTestPath(e.fromFile)),
+	};
+}
+
 function classifyFileReachability(
 	graph: ProjectGraph,
 	entries: Set<string>,
-	reExported: Set<string>,
+	refs: ReferenceSets,
 	rel: string,
 	abs: string,
 	out: { unreachableFiles: string[]; testOnlyImporterFiles: string[] },
 ): void {
 	const importers = graph.getImporters(abs);
-	if (!entries.has(rel) && !reExported.has(rel) && importers.length === 0) {
-		out.unreachableFiles.push(rel);
-	}
-	if (
-		importers.length > 0 &&
-		importers.every((e) => TEST_OR_FIXTURE_RE.test(e.fromFile.split(sep).join("/")))
-	) {
-		out.testOnlyImporterFiles.push(rel);
-	}
+	const { nonTest, fromTest } = reachFlags(importers, refs, rel);
+	const isEntry = entries.has(rel);
+	if (!isEntry && !nonTest && !fromTest) out.unreachableFiles.push(rel);
+	if (fromTest && !nonTest && !isEntry) out.testOnlyImporterFiles.push(rel);
 }
 
 /** Sweep the repo once and report the reachability-layer candidates. */
@@ -225,7 +276,7 @@ export function scanDeadCode(cwd: string): DeadCodeReport {
 	const files = discoverScanFiles(cwd);
 	const entries = entryPoints(cwd, files.map((f) => f.split(sep).join("/")));
 	const { repo: deadExportsRepo, prime } = buildDeadExportsRepo(cwd, getGitSourceFiles(cwd));
-	const reExported = reExportTargets(cwd, files);
+	const refs = collectReferences(cwd, files);
 	const out = {
 		unreachableFiles: [] as string[],
 		deadImportBindings: [] as DeadImportBinding[],
@@ -244,7 +295,7 @@ export function scanDeadCode(cwd: string): DeadCodeReport {
 		prime(rel, content);
 		out.scannedPaths.push(rel);
 
-		classifyFileReachability(graph, entries, reExported, rel, abs, out);
+		classifyFileReachability(graph, entries, refs, rel, abs, out);
 		for (const binding of findDeadImports(content)) {
 			out.deadImportBindings.push({ file: rel, binding });
 		}

@@ -490,6 +490,7 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	// measured homonyms.
 	"duplicate_type_declaration",
 	"new_export_without_importer", // helper-hygiene (2026-09-01): exporter-first edits are legitimately unconsumed for one edit — nudge, not gate
+	"single_use_trivial_helper", // over-extraction (2026-09-03): whether a short helper's NAME earns its hop is a judgement, not a proof — the caps' counterweight reports, never blocks
 	"extracted_helper_duplicate", // helper-hygiene (2026-09-01): 0.90 shingle-Jaccard is a taste bar (DRY class is advisory as code_clones); pending dogfood calibration
 ]);
 

@@ -92,6 +92,27 @@ function parseRepeat(raw) {
 	return n;
 }
 
+function applyFlag(opts, flag, readValue) {
+	if (flag === "--tasks") opts.tasks = parseList(readValue());
+	else if (flag === "--arms") opts.arms = parseList(readValue());
+	else if (flag === "--runners") opts.runners = parseList(readValue());
+	else if (flag === "--repeat") opts.repeat = parseRepeat(readValue());
+	else if (flag === "--dry-run") opts.dryRun = true;
+	else if (flag === "--json") opts.json = true;
+	else if (flag === "--keep") opts.keep = true;
+	else if (flag === "--help" || flag === "-h") opts.help = true;
+	else throw new Error(`unknown flag: ${flag} (see --help)`);
+}
+
+function validateOpts(opts) {
+	for (const arm of opts.arms) {
+		if (arm !== "on" && arm !== "off") throw new Error(`invalid arm "${arm}" (use on/off)`);
+	}
+	for (const runner of opts.runners) {
+		if (!RUNNERS[runner]) throw new Error(`unknown runner "${runner}" (have: ${Object.keys(RUNNERS).join(", ")})`);
+	}
+}
+
 function parseArgs(argv) {
 	const opts = {
 		tasks: null,
@@ -110,22 +131,9 @@ function parseArgs(argv) {
 			if (i >= argv.length) throw new Error(`${flag} needs a value`);
 			return argv[i];
 		};
-		if (flag === "--tasks") opts.tasks = parseList(next());
-		else if (flag === "--arms") opts.arms = parseList(next());
-		else if (flag === "--runners") opts.runners = parseList(next());
-		else if (flag === "--repeat") opts.repeat = parseRepeat(next());
-		else if (flag === "--dry-run") opts.dryRun = true;
-		else if (flag === "--json") opts.json = true;
-		else if (flag === "--keep") opts.keep = true;
-		else if (flag === "--help" || flag === "-h") opts.help = true;
-		else throw new Error(`unknown flag: ${flag} (see --help)`);
+		applyFlag(opts, flag, next);
 	}
-	for (const arm of opts.arms) {
-		if (arm !== "on" && arm !== "off") throw new Error(`invalid arm "${arm}" (use on/off)`);
-	}
-	for (const runner of opts.runners) {
-		if (!RUNNERS[runner]) throw new Error(`unknown runner "${runner}" (have: ${Object.keys(RUNNERS).join(", ")})`);
-	}
+	validateOpts(opts);
 	return opts;
 }
 

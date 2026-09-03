@@ -107,6 +107,26 @@ function authenticatedCandidateStillOwnsPid(args: {
 }
 
 /**
+ * Send one signal to one daemon PID. Returns true when the signal was delivered,
+ * so the caller can record the PID as awaiting exit. An ESRCH means the process
+ * is already gone, which counts as reaped and is reported through `markKilled`;
+ * a permission error is neither delivered nor reaped.
+ */
+function signalDaemon(
+	pid: number,
+	signal: "SIGTERM" | "SIGKILL",
+	markKilled: (pid: number) => void,
+): boolean {
+	try {
+		process.kill(pid, signal);
+		return true;
+	} catch (err) {
+		if (isNoSuchProcessError(err)) markKilled(pid);
+		return false;
+	}
+}
+
+/**
  * SIGTERM every candidate, wait under one shared deadline, then SIGKILL only the
  * survivors and wait again. Returns the PIDs confirmed gone (an ESRCH at any
  * signalling step counts as reaped; a permission error does not). Batching all
@@ -149,12 +169,8 @@ export function terminateCandidates(
 		// Signal every candidate before waiting. With per-candidate waits, N
 		// SIGTERM-deaf orphans cost N * (TERM grace + KILL grace) and later daemons
 		// were not even signalled until earlier timeouts expired.
-		try {
-			process.kill(candidate.pid, "SIGTERM");
+		if (signalDaemon(candidate.pid, "SIGTERM", markKilled)) {
 			termSent.set(candidate.pid, expectedIdentity);
-		} catch (termErr) {
-			// Already gone counts as reaped; permission errors do not.
-			if (isNoSuchProcessError(termErr)) markKilled(candidate.pid);
 		}
 	}
 
@@ -168,12 +184,7 @@ export function terminateCandidates(
 			markKilled(pid);
 			continue;
 		}
-		try {
-			process.kill(pid, "SIGKILL");
-			killSent.set(pid, expectedIdentity);
-		} catch (killErr) {
-			if (isNoSuchProcessError(killErr)) markKilled(pid);
-		}
+		if (signalDaemon(pid, "SIGKILL", markKilled)) killSent.set(pid, expectedIdentity);
 	}
 	waitForIdentityExit(cwd, killSent, REAP_KILL_GRACE_MS, markKilled, identify);
 	return killed;
@@ -235,41 +246,53 @@ function isNoSuchProcessError(err: unknown): boolean {
  *  unreadable files are skipped silently. */
 export function clearOrphanedPidFiles(cwd: string, killedPids: number[]): void {
 	const killedSet = new Set(killedPids);
-	const dir = join(cwd, ".interlinked");
-	const candidates: string[] = [];
+	for (const pidPath of harnessPidFilePaths(join(cwd, ".interlinked"))) {
+		removeStalePidFile(pidPath, killedSet);
+	}
+}
+
+/** Every `harness.pid` / `harness-<name>.pid` path in `dir`. An unreadable
+ *  directory yields no paths, so cleanup becomes a no-op. */
+function harnessPidFilePaths(dir: string): string[] {
+	const paths: string[] = [];
 	try {
 		for (const name of readdirSync(dir)) {
 			if (name === "harness.pid" || /^harness-.+\.pid$/.test(name)) {
-				candidates.push(join(dir, name));
+				paths.push(join(dir, name));
 			}
 		}
 	} catch {
+		return [];
+	}
+	return paths;
+}
+
+/** Drop one pid file, and its paired socket, when it names a reaped PID that no
+ *  process owns any more. Best-effort: unreadable or already-removed files are
+ *  skipped silently. */
+function removeStalePidFile(pidPath: string, killedSet: ReadonlySet<number>): void {
+	let pidStr = "";
+	try {
+		pidStr = readFileSync(pidPath, "utf-8").trim();
+	} catch {
 		return;
 	}
-	for (const pidPath of candidates) {
-		let pidStr = "";
-		try {
-			pidStr = readFileSync(pidPath, "utf-8").trim();
-		} catch {
-			continue;
-		}
-		const filePid = Number.parseInt(pidStr, 10);
-		if (!Number.isFinite(filePid)) continue;
-		if (!killedSet.has(filePid)) continue;
-		// A numeric PID can be reused between termination and cleanup. Never
-		// delete metadata (or its socket) while any process now owns that PID.
-		if (hasProcess(filePid)) continue;
-		try {
-			rmSync(pidPath, { force: true });
-		} catch {
-			/* intentional: best-effort cleanup — already-removed pid is fine */
-		}
-		// Pair with its socket file — same prefix, .sock suffix.
-		const sockPath = pidPath.replace(/\.pid$/, ".sock");
-		try {
-			if (existsSync(sockPath)) rmSync(sockPath, { force: true });
-		} catch {
-			/* intentional: best-effort cleanup — already-removed socket is fine */
-		}
+	const filePid = Number.parseInt(pidStr, 10);
+	if (!Number.isFinite(filePid)) return;
+	if (!killedSet.has(filePid)) return;
+	// A numeric PID can be reused between termination and cleanup. Never
+	// delete metadata (or its socket) while any process now owns that PID.
+	if (hasProcess(filePid)) return;
+	try {
+		rmSync(pidPath, { force: true });
+	} catch {
+		/* intentional: best-effort cleanup — already-removed pid is fine */
+	}
+	// Pair with its socket file — same prefix, .sock suffix.
+	const sockPath = pidPath.replace(/\.pid$/, ".sock");
+	try {
+		if (existsSync(sockPath)) rmSync(sockPath, { force: true });
+	} catch {
+		/* intentional: best-effort cleanup — already-removed socket is fine */
 	}
 }

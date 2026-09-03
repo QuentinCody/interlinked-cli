@@ -19,6 +19,15 @@ import {
 import { blankRange, isCodeMatch, isSkippedOrTodoCall, maskCommentsAndStrings } from "./test-hygiene-masking.js";
 import { findCallSpan } from "./test-hygiene-shared.js";
 
+/** Comments stripped, then all whitespace runs collapsed to one space and
+ *  trimmed — two case bodies that differ only by formatting/comments hash to
+ *  the same normalized string. Used to tell a genuine copy-paste duplicate
+ *  (same title AND equivalent body) from a same-title collision whose bodies
+ *  actually diverged (a naming bug — rename, don't delete). */
+function normalizeBody(body: string): string {
+	return stripComments(body).replace(/\s+/g, " ").trim();
+}
+
 export { checkMockOnlyTest } from "./test-hygiene-quality-mock-only.js";
 export {
 	checkMockingTheSutSelf,
@@ -101,9 +110,11 @@ function findDescribeRanges(
 	return ranges;
 }
 
-/** Skip forward to the next top-level `{` after `start`, ignoring any `{`
- *  that appears inside a `"…"` / `'…'` / `` `…` `` string. -1 if none. */
-function scanForOpenBraceSkippingStrings(content: string, start: number): number {
+/** Yields every index from `start` onward whose character sits in CODE — i.e.
+ *  outside any `"…"` / `'…'` / `` `…` `` string literal (escapes honored).
+ *  The single quote-state walker both brace scanners below share, so neither
+ *  has to re-implement "is this brace real?". */
+function* codeCharIndices(content: string, start: number): Generator<number> {
 	let inQuote: '"' | "'" | "`" | null = null;
 	for (let i = start; i < content.length; i++) {
 		const ch = content[i];
@@ -119,7 +130,15 @@ function scanForOpenBraceSkippingStrings(content: string, start: number): number
 			inQuote = ch;
 			continue;
 		}
-		if (ch === "{") return i;
+		yield i;
+	}
+}
+
+/** Skip forward to the next top-level `{` after `start`, ignoring any `{`
+ *  that appears inside a `"…"` / `'…'` / `` `…` `` string. -1 if none. */
+function scanForOpenBraceSkippingStrings(content: string, start: number): number {
+	for (const i of codeCharIndices(content, start)) {
+		if (content[i] === "{") return i;
 	}
 	return -1;
 }
@@ -129,21 +148,8 @@ function scanForOpenBraceSkippingStrings(content: string, start: number): number
  *  matching `}`, or -1 if unbalanced. */
 function findMatchingCloseBraceSkippingStrings(content: string, openIdx: number): number {
 	let depth = 0;
-	let inQuote: '"' | "'" | "`" | null = null;
-	for (let i = openIdx; i < content.length; i++) {
+	for (const i of codeCharIndices(content, openIdx)) {
 		const ch = content[i];
-		if (inQuote) {
-			if (ch === "\\") {
-				i++;
-				continue;
-			}
-			if (ch === inQuote) inQuote = null;
-			continue;
-		}
-		if (ch === '"' || ch === "'" || ch === "`") {
-			inQuote = ch;
-			continue;
-		}
 		if (ch === "{") depth++;
 		else if (ch === "}") {
 			depth--;
@@ -173,6 +179,74 @@ function innermostDescribeAt(
 	return best;
 }
 
+/** One `it()` / `test()` declaration, with the dedup scope it belongs to.
+ *  `scopeKey` is the bodyStart of the enclosing describe, or "" for file-root.
+ *  `bodyNorm` is the call's argument list (everything after the name string,
+ *  up to the closing paren) with comments stripped and whitespace collapsed —
+ *  the equivalence key that separates a genuine copy-paste duplicate from a
+ *  same-title collision whose cases actually diverged. */
+type TestDeclaration = { name: string; scopeKey: string; lineIdx: number; bodyNorm: string };
+
+/** The call body text for the `it(`/`test(` match at `m` — everything from
+ *  just after the name string through the call's closing paren — or "" if
+ *  the call span can't be resolved (unbalanced/pathological; equivalence
+ *  then falls back to "always different", the safe direction: it never
+ *  turns a real duplicate into a silent non-finding, it only ever demotes a
+ *  duplicate to a rename-suggestion). `codeMask` (comments/strings blanked,
+ *  length-preserving) is what the balance scan walks so a paren/brace inside
+ *  a string never miscounts; `content` (raw) is what gets sliced for text. */
+function declarationBody(content: string, codeMask: string, m: RegExpExecArray): string {
+	const openParen = content.indexOf("(", m.index);
+	if (openParen === -1) return "";
+	const span = findCallSpan(codeMask, openParen + 1);
+	if (span === null) return "";
+	return content.slice(m.index + m[0].length, span.end);
+}
+
+/**
+ * Every named `it()` / `test()` declaration in source order. Matches on RAW
+ * content — the test name is a string literal we must read intact — but skips
+ * any `it(` whose opener is blanked in the length-preserving `codeMask`, i.e.
+ * it lives inside a comment or a string. Unnamed cases are dropped.
+ */
+function collectTestDeclarations(
+	content: string,
+	codeMask: string,
+	describeRanges: ReadonlyArray<{ bodyStart: number; bodyEnd: number }>,
+): TestDeclaration[] {
+	const declarations: TestDeclaration[] = [];
+	TEST_BLOCK_INTRO_RE.lastIndex = 0;
+	let m: RegExpExecArray | null = TEST_BLOCK_INTRO_RE.exec(content);
+	while (m !== null) {
+		const offset = m.index;
+		const name = nonNull(m[2]).trim();
+		if (codeMask[offset] !== " " && name.length > 0) {
+			const enclosing = innermostDescribeAt(offset, describeRanges);
+			declarations.push({
+				name,
+				scopeKey: enclosing ? String(enclosing.bodyStart) : "",
+				lineIdx: (content.slice(0, offset).match(/\n/g) || []).length,
+				bodyNorm: normalizeBody(declarationBody(content, codeMask, m)),
+			});
+		}
+		m = TEST_BLOCK_INTRO_RE.exec(content);
+	}
+	return declarations;
+}
+
+/** The per-scope `seen` map for `scopeKey`, created on first use. */
+function scopeSeenMap(
+	seenByScope: Map<string, Map<string, { lineIdx: number; bodyNorm: string }>>,
+	scopeKey: string,
+): Map<string, { lineIdx: number; bodyNorm: string }> {
+	let scope = seenByScope.get(scopeKey);
+	if (!scope) {
+		scope = new Map();
+		seenByScope.set(scopeKey, scope);
+	}
+	return scope;
+}
+
 /** Public API — flags duplicate `it()` / `test()` names within the SAME
  *  enclosing `describe()` scope. Sibling describes can reuse a test name. */
 export function checkDuplicateTestNames(content: string, filePath: string): InlineMatch[] {
@@ -183,49 +257,31 @@ export function checkDuplicateTestNames(content: string, filePath: string): Inli
 	const describeRanges = findDescribeRanges(content, stripped);
 	const codeMask = codeOnlyMask(content);
 
-	// Scope key: bodyStart of the enclosing describe, or "" for file-root.
 	// Per-scope `seen` map gives us "same name in the same describe" while
 	// allowing the same name across sibling describes.
-	const seenByScope = new Map<string, Map<string, number>>();
+	const seenByScope = new Map<string, Map<string, { lineIdx: number; bodyNorm: string }>>();
 	const matches: InlineMatch[] = [];
 	const MAX_MATCHES = 10;
 
-	// Match declarations on RAW content — the test name is a string literal we
-	// must read intact — but skip any `it(` whose opener is blanked in the
-	// length-preserving codeMask, i.e. it lives inside a comment or a string.
-	TEST_BLOCK_INTRO_RE.lastIndex = 0;
-	let m: RegExpExecArray | null = TEST_BLOCK_INTRO_RE.exec(content);
-	while (m !== null) {
-		const offset = m.index;
-		if (codeMask[offset] === " ") {
-			m = TEST_BLOCK_INTRO_RE.exec(content);
+	for (const decl of collectTestDeclarations(content, codeMask, describeRanges)) {
+		const scope = scopeSeenMap(seenByScope, decl.scopeKey);
+		const prev = scope.get(decl.name);
+		if (prev === undefined) {
+			scope.set(decl.name, { lineIdx: decl.lineIdx, bodyNorm: decl.bodyNorm });
 			continue;
 		}
-		const name = nonNull(m[2]).trim();
-		if (name.length === 0) {
-			m = TEST_BLOCK_INTRO_RE.exec(content);
-			continue;
-		}
-		const enclosing = innermostDescribeAt(offset, describeRanges);
-		const scopeKey = enclosing ? String(enclosing.bodyStart) : "";
-		const lineIdx = (content.slice(0, offset).match(/\n/g) || []).length;
-
-		let scope = seenByScope.get(scopeKey);
-		if (!scope) {
-			scope = new Map();
-			seenByScope.set(scopeKey, scope);
-		}
-		const prev = scope.get(name);
-		if (prev !== undefined) {
-			matches.push({
-				line: lineIdx + 1,
-				text: `duplicate test name "${name.slice(0, 80)}" — first declared on line ${prev + 1} in the same describe scope. Rename one or merge the cases.`,
-			});
-			if (matches.length >= MAX_MATCHES) break;
-		} else {
-			scope.set(name, lineIdx);
-		}
-		m = TEST_BLOCK_INTRO_RE.exec(content);
+		const truncatedName = decl.name.slice(0, 80);
+		// Equal bodies (after whitespace/comment normalization) → a genuine
+		// copy-paste duplicate: same title, same behavior, one case is
+		// redundant. Different bodies → the title was reused for a case that
+		// actually diverged — a naming collision, not a duplicate; the fix
+		// is to rename one title, not to delete either case.
+		const text =
+			decl.bodyNorm.length > 0 && decl.bodyNorm === prev.bodyNorm
+				? `duplicate test name "${truncatedName}" — first declared on line ${prev.lineIdx + 1} in the same describe scope, with an equivalent body. Rename one or merge the cases.`
+				: `test name "${truncatedName}" reused on line ${prev.lineIdx + 1} in the same describe scope, but the case bodies differ — this is a naming collision, not a duplicate. Rename one of the two titles so the reporter output stays unambiguous.`;
+		matches.push({ line: decl.lineIdx + 1, text });
+		if (matches.length >= MAX_MATCHES) break;
 	}
 	return matches;
 }

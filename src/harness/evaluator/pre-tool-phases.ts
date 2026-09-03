@@ -60,38 +60,51 @@ export function evaluatePreChecksSelfKillEnv(
 	warnings: string[],
 ): HarnessDecision | null {
 	const eventCwd = event.cwd || process.cwd();
-	if (isBash(toolName)) {
-		const command = (toolInput.command as string) || "";
-		if (command) {
-			const selfKillResult = checkSelfKill(command);
-			if (selfKillResult?.block) {
-				return {
-					decision: "block",
-					reason: selfKillResult.block,
-					rule_id: "self-kill-protection",
-					severity: "critical",
-					category: "process-killing",
-				};
-			}
-		}
+	const selfKillBlock = blockSelfKillCommand(toolName, toolInput);
+	if (selfKillBlock) return selfKillBlock;
+	return blockEnvLeakToGitWrite(toolName, toolInput, eventCwd, warnings);
+}
+
+/** Self-kill pre-check for a Bash command. Non-Bash / empty commands are a
+ *  no-op (null), so the caller needs no surrounding branch. */
+function blockSelfKillCommand(toolName: string, toolInput: ToolInput): HarnessDecision | null {
+	if (!isBash(toolName)) return null;
+	const command = (toolInput.command as string) || "";
+	if (!command) return null;
+	const selfKillResult = checkSelfKill(command);
+	if (!selfKillResult?.block) return null;
+	return {
+		decision: "block",
+		reason: selfKillResult.block,
+		rule_id: "self-kill-protection",
+		severity: "critical",
+		category: "process-killing",
+	};
+}
+
+/** Env-leak-to-git pre-check for a file write. Blocks, or pushes the advisory
+ *  warning by reference; a no-op (null) for non-writes / pathless inputs. */
+function blockEnvLeakToGitWrite(
+	toolName: string,
+	toolInput: ToolInput,
+	eventCwd: string,
+	warnings: string[],
+): HarnessDecision | null {
+	if (!isFileWrite(toolName)) return null;
+	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	if (!filePath) return null;
+	const content = (toolInput.content as string) || (toolInput.new_string as string);
+	const envResult = checkEnvLeakToGit(filePath, content, eventCwd);
+	if (envResult?.block) {
+		return {
+			decision: "block",
+			reason: envResult.block,
+			rule_id: "env-leak-to-git",
+			severity: "high",
+			category: "security",
+		};
 	}
-	if (isFileWrite(toolName)) {
-		const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
-		const content = (toolInput.content as string) || (toolInput.new_string as string);
-		if (filePath) {
-			const envResult = checkEnvLeakToGit(filePath, content, eventCwd);
-			if (envResult?.block) {
-				return {
-					decision: "block",
-					reason: envResult.block,
-					rule_id: "env-leak-to-git",
-					severity: "high",
-					category: "security",
-				};
-			}
-			if (envResult?.warning) warnings.push(envResult.warning);
-		}
-	}
+	if (envResult?.warning) warnings.push(envResult.warning);
 	return null;
 }
 
@@ -318,28 +331,37 @@ export function evaluatePermissionPatternDetection(
 	toolInput: ToolInput,
 	warnings: string[],
 ): void {
-	if (session) {
-		const pattern = extractPermissionPattern(toolName, toolInput);
-		if (pattern && !session.suggested_permissions.has(pattern)) {
-			if (session.consecutive_pattern?.pattern === pattern) {
-				session.consecutive_pattern.count++;
-			} else {
-				session.consecutive_pattern = { pattern, count: 1 };
-			}
-			if (session.consecutive_pattern.count >= PERMISSION_PATTERN_THRESHOLD) {
-				session.suggested_permissions.add(pattern);
-				const added = addPermissionToSettings(pattern);
-				if (added) {
-					warnings.push(
-						`[interlinked:permissions] Added "${pattern}" to .claude/settings.json — you won't be prompted for this again.`,
-					);
-				}
-				session.consecutive_pattern = null;
-			}
-		} else if (pattern === null) {
-			session.consecutive_pattern = null;
-		}
+	if (!session) return;
+	const pattern = extractPermissionPattern(toolName, toolInput);
+	if (pattern === null) {
+		session.consecutive_pattern = null;
+		return;
 	}
+	if (!pattern || session.suggested_permissions.has(pattern)) return;
+	if (session.consecutive_pattern?.pattern === pattern) {
+		session.consecutive_pattern.count++;
+	} else {
+		session.consecutive_pattern = { pattern, count: 1 };
+	}
+	if (session.consecutive_pattern.count < PERMISSION_PATTERN_THRESHOLD) return;
+	suggestPermission(session, pattern, warnings);
+}
+
+/** Record the run of identical permission patterns as a settings allowlist
+ *  entry and reset the run counter. Called once the threshold is reached. */
+function suggestPermission(
+	session: SessionTrajectory,
+	pattern: string,
+	warnings: string[],
+): void {
+	session.suggested_permissions.add(pattern);
+	const added = addPermissionToSettings(pattern);
+	if (added) {
+		warnings.push(
+			`[interlinked:permissions] Added "${pattern}" to .claude/settings.json — you won't be prompted for this again.`,
+		);
+	}
+	session.consecutive_pattern = null;
 }
 
 /**
@@ -361,29 +383,30 @@ export function evaluateErrorMemory(
 	// partially-constructed rules object (test fixtures modeling that state,
 	// and potentially a partial hot-reload merge) can omit it.
 	const errorMemory = rules.error_memory as GuardRulesConfig["error_memory"] | undefined;
-	if (
-		errorHistory &&
-		errorMemory?.enabled &&
-		(isFileWrite(toolName) || isReadOperation(toolName))
-	) {
-		const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
-		if (filePath && graph) {
-			const relPath = graph.toRelative(filePath);
-			const historyWarning = errorHistory.getFileHistoryWarning(relPath);
-			if (historyWarning) warnings.push(historyWarning);
-			if (session) {
-				let editLine: number | undefined;
-				if (toolName === "Edit" && toolInput.old_string && filePath) {
-					editLine = estimateEditLine(filePath, toolInput.old_string as string);
-				}
-				const patternWarnings = getPatternWarnings(
-					errorHistory.getRecords(),
-					relPath,
-					session,
-					editLine,
-				);
-				warnings.push(...patternWarnings);
-			}
-		}
-	}
+	if (!errorHistory || !errorMemory?.enabled) return;
+	if (!isFileWrite(toolName) && !isReadOperation(toolName)) return;
+	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	if (!filePath || !graph) return;
+	const relPath = graph.toRelative(filePath);
+	const historyWarning = errorHistory.getFileHistoryWarning(relPath);
+	if (historyWarning) warnings.push(historyWarning);
+	if (!session) return;
+	const patternWarnings = getPatternWarnings(
+		errorHistory.getRecords(),
+		relPath,
+		session,
+		editedLineNumber(toolName, toolInput, filePath),
+	);
+	warnings.push(...patternWarnings);
+}
+
+/** The 1-based line an Edit targets, for pattern-warning locality. Undefined
+ *  for any tool other than Edit, or when the edit carries no `old_string`. */
+function editedLineNumber(
+	toolName: string,
+	toolInput: ToolInput,
+	filePath: string,
+): number | undefined {
+	if (toolName !== "Edit" || !toolInput.old_string || !filePath) return undefined;
+	return estimateEditLine(filePath, toolInput.old_string as string);
 }

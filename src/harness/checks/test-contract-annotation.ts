@@ -138,6 +138,28 @@ function isCoveredByAdjacentComment(scanLines: string[], blockLineIdx: number): 
  * {@link hasSystematicAdoption}) — the convention's own documented scope,
  * see file header.
  */
+/**
+ * Build the finding for one scan line if it is an `it()`/`test()` block with
+ * no `test-contract:` comment directly above it, or `null` when the line
+ * doesn't qualify (not a test block, comment-only, or already covered).
+ */
+function matchUnannotatedTestBlock(
+	scanLines: string[],
+	rawLines: string[],
+	lineIdx: number,
+): InlineMatch | null {
+	const line = scanLines[lineIdx];
+	if (line === undefined) return null;
+	if (isCommentOnlyLine(line.trim()) || !TEST_BLOCK_RE.test(line)) return null;
+	if (isCoveredByAdjacentComment(scanLines, lineIdx)) return null;
+
+	const text = (rawLines[lineIdx] ?? "").trim().slice(0, REPORT_LINE_TRUNC);
+	return {
+		line: lineIdx + 1,
+		text: `test_contract_annotation: it(/test( block has no test-contract: comment directly above it — ${text}`,
+	};
+}
+
 export function detectTestContractAnnotation(content: string, filePath: string): InlineMatch[] {
 	if (!isStrictTestFile(filePath)) return [];
 	if (!MUTATION_DIRECTED_PATH_RE.test(filePath.replace(/\\/g, "/"))) return [];
@@ -153,16 +175,8 @@ export function detectTestContractAnnotation(content: string, filePath: string):
 
 	for (let i = 0; i < scanLines.length; i++) {
 		if (matches.length >= MAX_MATCHES_PER_FILE) break;
-		const line = scanLines[i];
-		if (line === undefined) continue;
-		if (isCommentOnlyLine(line.trim()) || !TEST_BLOCK_RE.test(line)) continue;
-		if (isCoveredByAdjacentComment(scanLines, i)) continue;
-
-		const text = (rawLines[i] ?? "").trim().slice(0, REPORT_LINE_TRUNC);
-		matches.push({
-			line: i + 1,
-			text: `test_contract_annotation: it(/test( block has no test-contract: comment directly above it — ${text}`,
-		});
+		const match = matchUnannotatedTestBlock(scanLines, rawLines, i);
+		if (match) matches.push(match);
 	}
 
 	return matches;

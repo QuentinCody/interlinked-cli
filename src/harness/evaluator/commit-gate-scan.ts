@@ -8,11 +8,11 @@
 // also needs `loudDegrade` + the analyzer type) stays in `commit-gate.ts` and calls
 // these. REUSES `crapScore` / `computeCrap` from `checks/crap.ts` — never reimplemented.
 
-import { computeCrap, crapScore } from "../checks/crap.js";
 import type { FunctionComplexityEntry } from "../checks/cyclomatic.js";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
 import type { CoverageLanguage } from "../coverage-runner.js";
 import { DEFAULT_MAX_CYCLOMATIC } from "../metric-caps.js";
+import { crapViolationsPerFunction, crapViolationsPerLine } from "./crap-violations.js";
 
 /**
  * DEFAULT per-function cyclomatic cap at commit time — used when no caller
@@ -61,87 +61,6 @@ function firstUncoveredFunction(cov: PerFileCoverage): { name: string; line: num
 		if (fn.hits === 0 || fn.statement_pct === 0) return { name: fn.name, line: fn.line };
 	}
 	return null;
-}
-
-/** Count how many of [start,end] (inclusive) appear in `lines`. */
-function countInRange(lines: ReadonlySet<number>, start: number, end: number): number {
-	let n = 0;
-	for (const ln of lines) {
-		if (ln >= start && ln <= end) n++;
-	}
-	return n;
-}
-
-/** One CRAP violation for a changed file (worst-first ranked by the callers). */
-interface CrapHit {
-	function: string;
-	line: number;
-	cyclomatic: number;
-	coverage_pct: number;
-	crap_score: number;
-}
-
-/**
- * CRAP violations for a PER-FUNCTION (istanbul / JS) coverage report. REUSES
- * `computeCrap` — exact formula + the ±3-line name/line matching — never
- * reimplemented here. Returns the worst-first list at/above `threshold`.
- */
-function crapHitsPerFunction(
-	relPath: string,
-	complexities: FunctionComplexityEntry[],
-	cov: PerFileCoverage,
-	threshold: number,
-): CrapHit[] {
-	const findings = computeCrap({
-		complexities,
-		coverage: cov.functions,
-		filePath: relPath,
-		fileMtime: 0,
-		coverageMtime: null, // fresh: this is THIS run's coverage
-		threshold,
-		staleTolerance: "include",
-	});
-	return findings.map((f) => ({
-		function: f.function,
-		line: f.line,
-		cyclomatic: f.complexity,
-		coverage_pct: f.coverage_pct,
-		crap_score: f.crap_score,
-	}));
-}
-
-/**
- * CRAP violations for a PER-LINE (Python / coverage.py) coverage report. No
- * function ranges exist, so per-function coverage is the covered lines inside each
- * analyzer-reported body range over its executable lines. Scores via the REUSED
- * `crapScore`. Sorted worst-first.
- */
-function crapHitsPerLine(
-	complexities: FunctionComplexityEntry[],
-	cov: PerFileCoverage,
-	threshold: number,
-): CrapHit[] {
-	const covered = cov.coveredLines ?? new Set<number>();
-	const uncovered = cov.uncoveredLines ?? new Set<number>();
-	const hits: CrapHit[] = [];
-	for (const fn of complexities) {
-		const inCovered = countInRange(covered, fn.line, fn.endLine);
-		const inUncovered = countInRange(uncovered, fn.line, fn.endLine);
-		const executable = inCovered + inUncovered;
-		if (executable === 0) continue;
-		const covPct = (inCovered / executable) * 100;
-		const score = crapScore(fn.cyclomatic, covPct);
-		if (score < threshold) continue;
-		hits.push({
-			function: fn.name,
-			line: fn.line,
-			cyclomatic: fn.cyclomatic,
-			coverage_pct: covPct,
-			crap_score: score,
-		});
-	}
-	hits.sort((a, b) => b.crap_score - a.crap_score);
-	return hits;
 }
 
 /** The worst (first) over-cap cyclomatic function for a file, or null. `cap` is
@@ -219,6 +138,15 @@ function braceDelta(line: string): number {
 	return depth;
 }
 
+/** Advances a multi-line type-alias continuation (`type X =\n  ...;`) past one
+ *  more source line: folds the line's brace delta into `depth` and reports
+ *  whether the continuation has closed (a trailing `;` ends it; anything else
+ *  keeps it open). Extracted ONLY to satisfy the 15-point cognitive cap that the
+ *  file's other edits in this unit re-armed; behavior is the inline original. */
+function advanceContinuationLine(line: string, depth: number): { depth: number; continuation: boolean } {
+	return { depth: depth + braceDelta(line), continuation: !line.endsWith(";") };
+}
+
 /**
  * True when a changed source has NO runtime behavior of its own — only imports,
  * type/interface/declare declarations, re-exports, and comments. This is the ONLY
@@ -243,8 +171,9 @@ export function isTypeOnlySource(content: string): boolean {
 			continue; // type-level body line
 		}
 		if (continuation) {
-			depth += braceDelta(line);
-			if (line.endsWith(";")) continuation = false;
+			const advanced = advanceContinuationLine(line, depth);
+			depth = advanced.depth;
+			continuation = advanced.continuation;
 			continue;
 		}
 		// Side-effect import — runs the module at load: executable.
@@ -286,8 +215,8 @@ export function crapViolation(
 	threshold: number,
 ): Violation | null {
 	const hits = hasPerLineData(cov)
-		? crapHitsPerLine(complexities, cov, threshold)
-		: crapHitsPerFunction(source.relPath, complexities, cov, threshold);
+		? crapViolationsPerLine(complexities, cov, threshold)
+		: crapViolationsPerFunction(source.relPath, complexities, cov, threshold);
 	const worst = hits[0];
 	if (!worst) return null;
 	return {

@@ -104,6 +104,25 @@ function inheritedDirection(stack: readonly DescribeFrame[]): CaseDirection | nu
 	return stack.length > 0 ? stack[stack.length - 1]?.direction ?? null : null;
 }
 
+/** Mutable scan state threaded line-by-line through {@link parseLabeledCases}. */
+interface ParseState {
+	readonly stack: DescribeFrame[];
+	readonly cases: LabeledCase[];
+	depth: number;
+}
+
+/** Apply every block opener found on one line to the running parse state. */
+function applyLineOpeners(line: string, lineNumber: number, state: ParseState): void {
+	for (const opener of scanBlockOpeners(line)) {
+		if (opener.kind === "describe") {
+			state.stack.push({ direction: directionFromTitle(opener.title), closesAt: state.depth });
+			continue;
+		}
+		const direction = directionFromTitle(opener.title) ?? inheritedDirection(state.stack);
+		if (direction) state.cases.push({ direction, title: opener.title, line: lineNumber });
+	}
+}
+
 /**
  * Extract every labeled test case from test-file source.
  *
@@ -112,29 +131,20 @@ function inheritedDirection(stack: readonly DescribeFrame[]): CaseDirection | nu
  */
 export function parseLabeledCases(source: string): LabeledCase[] {
 	const lines = source.split("\n");
-	const cases: LabeledCase[] = [];
-	const stack: DescribeFrame[] = [];
-	let depth = 0;
+	const state: ParseState = { stack: [], cases: [], depth: 0 };
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i] ?? "";
-		popClosedFrames(stack, depth);
+		popClosedFrames(state.stack, state.depth);
 
 		if (!isCommentLine(line.trim())) {
-			for (const opener of scanBlockOpeners(line)) {
-				if (opener.kind === "describe") {
-					stack.push({ direction: directionFromTitle(opener.title), closesAt: depth });
-					continue;
-				}
-				const direction = directionFromTitle(opener.title) ?? inheritedDirection(stack);
-				if (direction) cases.push({ direction, title: opener.title, line: i + 1 });
-			}
+			applyLineOpeners(line, i + 1, state);
 		}
 
-		depth += braceDelta(line);
+		state.depth += braceDelta(line);
 	}
 
-	return cases;
+	return state.cases;
 }
 
 /**

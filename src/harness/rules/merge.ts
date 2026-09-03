@@ -247,13 +247,7 @@ export function mergeLocalOverrides(
 	}
 	// Local can override quality checks (e.g., disable tsc on slow machines)
 	if (local.quality_checks) {
-		for (const [key, check] of Object.entries(local.quality_checks)) {
-			if (config.quality_checks[key]) {
-				Object.assign(config.quality_checks[key], check);
-			} else {
-				config.quality_checks[key] = check;
-			}
-		}
+		applyLocalQualityCheckOverrides(config, local.quality_checks);
 	}
 	// Local can override project-wide checks (e.g., disable on slow machines)
 	if (local.project_wide_checks && config.project_wide_checks) {
@@ -347,6 +341,25 @@ export function mergeLocalOverrides(
 	// to guard-rules.local.json (2026-08-30); the section must merge locally or
 	// the personal mode switch is the silently-dropped class again.
 	mergeOptionalSection(config, local, "commit_cadence");
+}
+
+/**
+ * Local config may change ANY field on a quality check and may add new check
+ * entries — unlike team config, guard-rules.local.json is not attacker-reachable
+ * via a PR. Extracted from `mergeLocalOverrides` (its deepest-nested block).
+ */
+function applyLocalQualityCheckOverrides(
+	config: GuardRulesConfig,
+	localQualityChecks: GuardRulesConfig["quality_checks"],
+): void {
+	for (const [key, check] of Object.entries(localQualityChecks)) {
+		const existing = config.quality_checks[key];
+		if (existing) {
+			Object.assign(existing, check);
+		} else {
+			config.quality_checks[key] = check;
+		}
+	}
 }
 
 /**

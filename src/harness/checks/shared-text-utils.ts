@@ -33,21 +33,31 @@ export { stripForBraceScan };
  * everything after it (including the string's own closing quote) is blanked,
  * which then prevents `stripStrings` from recognising the literal at all.
  * Regex literals are not tracked — a pre-existing limitation of this stripper.
+ *
+ * The string-literal skipping itself lives in {@link closingQuoteIndex}.
  */
-function firstUnquotedCommentIndex(line: string): number {
-	let quote: string | null = null;
-	for (let i = 0; i < line.length; i++) {
-		const ch = line[i];
-		if (quote !== null) {
-			if (ch === "\\" && i + 1 < line.length) {
-				i++; // skip the escaped character
-			} else if (ch === quote) {
-				quote = null;
-			}
+/**
+ * Index of the quote closing the string literal that opens at `start`, honouring
+ * backslash escapes. Returns `line.length` when the literal is never closed on
+ * this line — the caller's scan then runs off the end, as it did when the state
+ * machine was inline.
+ */
+function closingQuoteIndex(line: string, start: number, quote: string): number {
+	for (let i = start + 1; i < line.length; i++) {
+		if (line[i] === "\\" && i + 1 < line.length) {
+			i++; // skip the escaped character
 			continue;
 		}
+		if (line[i] === quote) return i;
+	}
+	return line.length;
+}
+
+function firstUnquotedCommentIndex(line: string): number {
+	for (let i = 0; i < line.length; i++) {
+		const ch = line[i];
 		if (ch === '"' || ch === "'" || ch === "`") {
-			quote = ch;
+			i = closingQuoteIndex(line, i, ch);
 			continue;
 		}
 		if (ch === "/" && line[i + 1] === "/") {
@@ -60,6 +70,63 @@ function firstUnquotedCommentIndex(line: string): number {
 	return -1;
 }
 
+/**
+ * Blank a line that starts inside an already-open block comment, up to and
+ * including the closing marker. `stillOpen` says whether the block comment
+ * continues past this line.
+ */
+function blankUntilBlockCommentEnd(line: string): { line: string; stillOpen: boolean } {
+	const endIdx = line.indexOf("*/");
+	if (endIdx === -1) {
+		// Entire line is inside a block comment — blank it
+		return { line: " ".repeat(line.length), stillOpen: true };
+	}
+	return { line: " ".repeat(endIdx + 2) + line.slice(endIdx + 2), stillOpen: false };
+}
+
+/** Blank Python single-line docstrings on `line`: `""" ... """` or `''' ... '''`. */
+function blankSingleLineDocstrings(line: string): string {
+	return line
+		.replace(/"""[^"]*"""/g, (m) => " ".repeat(m.length))
+		.replace(/'''[^']*'''/g, (m) => " ".repeat(m.length));
+}
+
+/**
+ * Blank every block comment that opens on `line` (possibly several). When the
+ * last one has no closing marker on this line, everything from its opener is
+ * blanked and `opensBlockComment` reports that the comment runs on.
+ */
+function blankSameLineBlockComments(line: string): { line: string; opensBlockComment: boolean } {
+	let searchFrom = 0;
+	while (searchFrom < line.length) {
+		const openIdx = line.indexOf("/*", searchFrom);
+		if (openIdx === -1) break;
+		const closeIdx = line.indexOf("*/", openIdx + 2);
+		if (closeIdx === -1) {
+			// Block comment opens and continues to next line(s)
+			return { line: line.slice(0, openIdx) + " ".repeat(line.length - openIdx), opensBlockComment: true };
+		}
+		// Same-line block comment
+		const before = line.slice(0, openIdx);
+		const blanked = " ".repeat(closeIdx + 2 - openIdx);
+		const after = line.slice(closeIdx + 2);
+		line = before + blanked + after;
+		searchFrom = openIdx + blanked.length;
+	}
+	return { line, opensBlockComment: false };
+}
+
+/**
+ * Blank a trailing `//` (JS/TS/Rust/Go/C/Java) or `#` (Python) line comment.
+ * String-aware so the // inside a "https://..." URL literal — or a # inside any
+ * string — is not mistaken for a comment.
+ */
+function blankLineComment(line: string): string {
+	const commentStart = firstUnquotedCommentIndex(line);
+	if (commentStart === -1) return line;
+	return line.slice(0, commentStart) + " ".repeat(line.length - commentStart);
+}
+
 export function stripComments(content: string): string {
 	const lines = content.split("\n");
 	let inBlockComment = false;
@@ -69,53 +136,20 @@ export function stripComments(content: string): string {
 		if (line === undefined) continue;
 
 		if (inBlockComment) {
-			const endIdx = line.indexOf("*/");
-			if (endIdx === -1) {
-				// Entire line is inside a block comment — blank it
-				lines[i] = " ".repeat(line.length);
-				continue;
-			}
-			// Blank up to and including the closing */
-			const blanked = " ".repeat(endIdx + 2) + line.slice(endIdx + 2);
-			lines[i] = blanked;
-			line = blanked;
+			const resumed = blankUntilBlockCommentEnd(line);
+			lines[i] = resumed.line;
+			if (resumed.stillOpen) continue;
+			line = resumed.line;
 			inBlockComment = false;
 		}
 
-		// Python single-line docstrings: """ ... """ or ''' ... '''
-		line = line.replace(/"""[^"]*"""/g, (m) => " ".repeat(m.length));
-		line = line.replace(/'''[^']*'''/g, (m) => " ".repeat(m.length));
+		line = blankSingleLineDocstrings(line);
 
-		// Handle /* ... */ that open and close on the same line (possibly multiple)
-		let searchFrom = 0;
-		while (searchFrom < line.length) {
-			const openIdx = line.indexOf("/*", searchFrom);
-			if (openIdx === -1) break;
-			const closeIdx = line.indexOf("*/", openIdx + 2);
-			if (closeIdx === -1) {
-				// Block comment opens and continues to next line(s)
-				line = line.slice(0, openIdx) + " ".repeat(line.length - openIdx);
-				inBlockComment = true;
-				break;
-			}
-			// Same-line block comment
-			const before = line.slice(0, openIdx);
-			const blanked = " ".repeat(closeIdx + 2 - openIdx);
-			const after = line.slice(closeIdx + 2);
-			line = before + blanked + after;
-			searchFrom = openIdx + blanked.length;
-		}
+		const scanned = blankSameLineBlockComments(line);
+		line = scanned.line;
+		inBlockComment = scanned.opensBlockComment;
 
-		// Single-line comments: // (JS/TS/Rust/Go/C/Java) and # (Python).
-		// String-aware so the // inside a "https://..." URL literal — or a #
-		// inside any string — is not mistaken for a comment.
-		const commentStart = firstUnquotedCommentIndex(line);
-
-		if (commentStart !== -1) {
-			line = line.slice(0, commentStart) + " ".repeat(line.length - commentStart);
-		}
-
-		lines[i] = line;
+		lines[i] = blankLineComment(line);
 	}
 
 	return lines.join("\n");

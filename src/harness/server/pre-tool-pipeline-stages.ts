@@ -75,62 +75,74 @@ export function runTddCommitGate(
 		event.tool_name === "Bash" &&
 		/\bgit\s+commit\b/.test((event.tool_input?.command as string) || "")
 	) {
-		// `GuardRulesConfig.structural_checks` is declared required, but a
-		// hot-reload / partial-merge window (and the test fixtures that model
-		// it — see "uses the warn default when structural_checks is absent")
-		// can genuinely hand this function an incompletely-populated rules
-		// object. Widening the local binding to `| undefined` keeps that
-		// honest instead of asserting a guarantee the runtime doesn't have.
-		// SAFETY: `as` (not a plain annotation) is required here — a plain
-		// `: T | undefined` binding still narrows via the initializer's real
-		// (non-optional) type, defeating the point of this cast.
-		const structuralChecks = rules.structural_checks as
-			| { test_first_mode?: "nudge" | "warn" | "enforce" }
-			| undefined;
-		const testFirstMode = structuralChecks?.test_first_mode || "warn";
-		const commitMessage = parseCommitMessageFromBash(
-			(event.tool_input?.command as string) || "",
-		);
-		const gateResults = [
-			...(session.tdd_cycles.size > 0 ? checkTddCommitGate(session, testFirstMode) : []),
-			...checkProdDeltaWithoutTestDelta(session),
-			...checkProdTestLocRatio(session),
-			...checkTppLeapfrog(session),
-			// Batch 3: diff-aware commit gates.
-			...checkDisabledTestDelta(session),
-			...checkTestBlockCountRegression(session, undefined, commitMessage?.type ?? null),
-			...checkAssertionStrengthWeakening(session),
-			// Test-oracle integrity (docs/design/test-oracle-integrity.md §4.3).
-			...checkAssertionCountRegression(session),
-			...checkAssertionValueSwap(session),
-			...checkTestTimeoutInflation(session),
-			...checkClockMockAdded(session),
-			...checkConventionalCommitCoherence(session, commitMessage),
-			// Batch 4: trajectory commit gates.
-			...checkReintroducesRemovedCode(session),
-			...checkDoneWithoutVerify(session),
-		];
-		if (gateResults.length > 0) {
-			const warnings = preDecision.warnings || [];
-			for (const r of gateResults) {
-				warnings.push(`[interlinked:${r.name}] ${r.message}`);
-			}
-			preDecision.warnings = warnings;
+		applyTddCommitGateToDecision(rules, event, session, preDecision);
+	}
+}
 
-			if (
-				testFirstMode === "enforce" &&
-				gateResults.some((r) => r.severity === "error")
-			) {
-				preDecision.decision = "block";
-				preDecision.rule_id ??= "commit-test-first-gate";
-				preDecision.reason =
-					"BLOCKED: Tests must pass before committing. " +
-					gateResults
-						.filter((r) => r.severity === "error")
-						.map((r) => r.message)
-						.join(" ");
-			}
-		}
+/**
+ * Runs the TDD/test-oracle commit gates for a detected `git commit` command
+ * and applies their results (warnings + possible block) to `preDecision`.
+ * Extracted verbatim from `runTddCommitGate`'s if-body; no logic changes.
+ */
+function applyTddCommitGateToDecision(
+	rules: ServerRuntime["rules"],
+	event: HarnessEvent,
+	session: SessionTrajectory,
+	preDecision: HarnessDecision,
+): void {
+	// `GuardRulesConfig.structural_checks` is declared required, but a
+	// hot-reload / partial-merge window (and the test fixtures that model
+	// it — see "uses the warn default when structural_checks is absent")
+	// can genuinely hand this function an incompletely-populated rules
+	// object. Widening the local binding to `| undefined` keeps that
+	// honest instead of asserting a guarantee the runtime doesn't have.
+	// SAFETY: `as` (not a plain annotation) is required here — a plain
+	// `: T | undefined` binding still narrows via the initializer's real
+	// (non-optional) type, defeating the point of this cast.
+	const structuralChecks = rules.structural_checks as
+		| { test_first_mode?: "nudge" | "warn" | "enforce" }
+		| undefined;
+	const testFirstMode = structuralChecks?.test_first_mode || "warn";
+	const commitMessage = parseCommitMessageFromBash(
+		(event.tool_input?.command as string) || "",
+	);
+	const gateResults = [
+		...(session.tdd_cycles.size > 0 ? checkTddCommitGate(session, testFirstMode) : []),
+		...checkProdDeltaWithoutTestDelta(session),
+		...checkProdTestLocRatio(session),
+		...checkTppLeapfrog(session),
+		// Batch 3: diff-aware commit gates.
+		...checkDisabledTestDelta(session),
+		...checkTestBlockCountRegression(session, undefined, commitMessage?.type ?? null),
+		...checkAssertionStrengthWeakening(session),
+		// Test-oracle integrity (docs/design/test-oracle-integrity.md §4.3).
+		...checkAssertionCountRegression(session),
+		...checkAssertionValueSwap(session),
+		...checkTestTimeoutInflation(session),
+		...checkClockMockAdded(session),
+		...checkConventionalCommitCoherence(session, commitMessage),
+		// Batch 4: trajectory commit gates.
+		...checkReintroducesRemovedCode(session),
+		...checkDoneWithoutVerify(session),
+	];
+	if (gateResults.length === 0) {
+		return;
+	}
+	const warnings = preDecision.warnings || [];
+	for (const r of gateResults) {
+		warnings.push(`[interlinked:${r.name}] ${r.message}`);
+	}
+	preDecision.warnings = warnings;
+
+	if (testFirstMode === "enforce" && gateResults.some((r) => r.severity === "error")) {
+		preDecision.decision = "block";
+		preDecision.rule_id ??= "commit-test-first-gate";
+		preDecision.reason =
+			"BLOCKED: Tests must pass before committing. " +
+			gateResults
+				.filter((r) => r.severity === "error")
+				.map((r) => r.message)
+				.join(" ");
 	}
 }
 

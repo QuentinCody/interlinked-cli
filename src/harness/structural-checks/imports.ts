@@ -52,26 +52,40 @@ export function checkImportResolution(
 		}
 
 		// Check imported symbols exist in the target's exports
-		if (edge.symbols.length > 0) {
-			const targetExports = graph.getExports(edge.toFile);
-			const targetNames = new Set(targetExports.map((e) => e.name));
-			// Also allow "default" for default imports
-			targetNames.add("default");
-
-			for (const sym of edge.symbols) {
-				if (!targetNames.has(sym)) {
-					results.push({
-						check: "import_resolution",
-						severity: "warning",
-						message: `${relPath} imports \`${sym}\` from \`${edge.specifier}\`, but ${graph.toRelative(edge.toFile)} does not export it.`,
-						file: filePath,
-						affectedFiles: [edge.toFile],
-					});
-				}
-			}
-		}
+		results.push(...checkImportedSymbolsExist(edge, filePath, relPath, graph));
 	}
 
+	return results;
+}
+
+/**
+ * The subset of `edge.symbols` not found in the target file's exports (`"default"` is
+ * always allowed, covering default imports), one finding per missing symbol. Returns
+ * `[]` when the edge imports no named symbols — same as the caller's prior `if
+ * (edge.symbols.length > 0)` guard.
+ */
+function checkImportedSymbolsExist(
+	edge: ImportEdge,
+	filePath: string,
+	relPath: string,
+	graph: ProjectGraph,
+): StructuralCheckResult[] {
+	if (edge.symbols.length === 0) return [];
+	const targetExports = graph.getExports(edge.toFile);
+	const targetNames = new Set(targetExports.map((e) => e.name));
+	targetNames.add("default");
+
+	const results: StructuralCheckResult[] = [];
+	for (const sym of edge.symbols) {
+		if (targetNames.has(sym)) continue;
+		results.push({
+			check: "import_resolution",
+			severity: "warning",
+			message: `${relPath} imports \`${sym}\` from \`${edge.specifier}\`, but ${graph.toRelative(edge.toFile)} does not export it.`,
+			file: filePath,
+			affectedFiles: [edge.toFile],
+		});
+	}
 	return results;
 }
 
@@ -188,11 +202,7 @@ function collectImportBindings(lines: string[]): {
 
 		// Handle multiline imports
 		if (buffer) {
-			buffer += ` ${trimmed}`;
-			if (/from\s+['"]/.test(buffer) || /['"]/.test(buffer)) {
-				processImportLine(buffer, importBindings);
-				buffer = "";
-			}
+			buffer = appendMultilineImport(trimmed, buffer, importBindings);
 			lastImportLine = i;
 			continue;
 		}
@@ -223,6 +233,26 @@ function collectImportBindings(lines: string[]): {
 	if (buffer) processImportLine(buffer, importBindings);
 
 	return { importBindings, lastImportLine };
+}
+
+/**
+ * Append one line to a buffered multi-line import statement (an `import { ... }`
+ * that opened a brace on an earlier line) and flush it via {@link processImportLine}
+ * once the buffer reaches its terminating quote — the same completion signal for
+ * both a `from '...'` clause and a bare re-export string literal. Returns the
+ * flushed (empty) buffer, or the still-accumulating buffer when not yet complete.
+ */
+function appendMultilineImport(
+	trimmed: string,
+	buffer: string,
+	importBindings: Array<{ name: string }>,
+): string {
+	const next = `${buffer} ${trimmed}`;
+	if (/from\s+['"]/.test(next) || /['"]/.test(next)) {
+		processImportLine(next, importBindings);
+		return "";
+	}
+	return next;
 }
 
 /** Extract local binding names from an import statement line. */

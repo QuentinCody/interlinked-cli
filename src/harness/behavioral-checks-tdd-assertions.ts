@@ -84,16 +84,34 @@ function importedAssertNames(content: string): Set<string> {
 	return out;
 }
 
-export function countAssertions(rawContent: string): AssertionCounts {
-	// Strip comments + strings so a comment that mentions `expect(` or a
-	// string containing `assert.ok(` doesn't inflate counts.
-	const stripped = stripCommentsAndStrings(rawContent);
+// Per-file empty-block count, keyed off the exact `AssertionCounts` object
+// `countAssertions` hands back for that snapshot. Kept OUT of the
+// `AssertionCounts` type/serialization surface on purpose — that shape is
+// shared with `session-state.ts` snapshot round-tripping and other call
+// sites (`behavioral-diff-checks-oracle.ts`) that assert its exact fields,
+// so widening it would ripple into files this check does not own. A
+// WeakMap keyed by the returned object self-cleans: once
+// `checkAssertionDensity` overwrites `session.assertion_counts.get(file)`
+// with a newer snapshot, the old object (and its WeakMap entry) becomes
+// unreachable and is collected — no unbounded growth on a long-running
+// daemon. A cache miss (object never seen, e.g. a `before` restored from a
+// pre-this-fix session snapshot) reads as "0 empty blocks", the safe
+// default for the delta comparison below.
+const emptyBlocksByCounts = new WeakMap<AssertionCounts, number>();
 
+/** Index positions (into `stripped`) of every test-block header match. */
+function testBlockStarts(stripped: string): Array<{ start: number; end: number }> {
 	TEST_BLOCK_RE.lastIndex = 0;
-	ASSERTION_RE.lastIndex = 0;
+	return [...stripped.matchAll(TEST_BLOCK_RE)].map((m) => ({
+		start: m.index,
+		end: m.index + m[0].length,
+	}));
+}
 
-	const blocks = (stripped.match(TEST_BLOCK_RE) || []).length;
-	let assertions = (stripped.match(ASSERTION_RE) || []).length;
+/** Index positions of every assertion-call match (built-in + named-import). */
+function assertionStarts(stripped: string, rawContent: string): number[] {
+	ASSERTION_RE.lastIndex = 0;
+	const indices = [...stripped.matchAll(ASSERTION_RE)].map((m) => m.index);
 
 	// Named-import credit — only for names actually imported from node:assert.
 	// Use the *raw* content for import detection (strip can mangle import
@@ -101,10 +119,64 @@ export function countAssertions(rawContent: string): AssertionCounts {
 	const named = importedAssertNames(rawContent);
 	if (named.size > 0) {
 		const namedRe = new RegExp(`\\b(?:${[...named].join("|")})\\s*\\(`, "g");
-		assertions += (stripped.match(namedRe) || []).length;
+		indices.push(...[...stripped.matchAll(namedRe)].map((m) => m.index));
 	}
+	return indices;
+}
 
-	return { blocks, assertions };
+/**
+ * Count test blocks whose body (from its header to the next block header,
+ * or EOF) contains no assertion call. This is the structural signal that
+ * lets `checkAssertionDensity` tell "blocks were split and their
+ * assertions moved with them" (every new block still has ≥1 assertion)
+ * apart from "a genuinely new block was added with none" (it doesn't) —
+ * something the pre-fix file-level `blocks`/`assertions` totals alone
+ * cannot distinguish, since a pure split conserves the total.
+ */
+function countEmptyBlocks(stripped: string, rawContent: string): number {
+	const blocks = testBlockStarts(stripped);
+	const assertions = assertionStarts(stripped, rawContent);
+	let empty = 0;
+	for (let i = 0; i < blocks.length; i++) {
+		const segEnd = i + 1 < blocks.length ? nonNull(blocks[i + 1]).start : stripped.length;
+		const segStart = nonNull(blocks[i]).end;
+		const hasAssertion = assertions.some((idx) => idx >= segStart && idx < segEnd);
+		if (!hasAssertion) empty++;
+	}
+	return empty;
+}
+
+export function countAssertions(rawContent: string): AssertionCounts {
+	// Strip comments + strings so a comment that mentions `expect(` or a
+	// string containing `assert.ok(` doesn't inflate counts.
+	const stripped = stripCommentsAndStrings(rawContent);
+
+	const blocks = testBlockStarts(stripped).length;
+	const assertions = assertionStarts(stripped, rawContent).length;
+
+	const result: AssertionCounts = { blocks, assertions };
+	emptyBlocksByCounts.set(result, countEmptyBlocks(stripped, rawContent));
+	return result;
+}
+
+/**
+ * True when a zero net assertion delta is fully explained by assertions
+ * moving between blocks rather than any block ending up genuinely empty —
+ * e.g. one `it()` split into several `it()`s that each keep a share of the
+ * original `expect()` calls. Compares the *count of assertion-free blocks*
+ * before vs after (via `emptyBlocksByCounts`, keyed off the exact
+ * `AssertionCounts` objects involved): a pure split conserves that count
+ * (every new block still has ≥1 assertion), while a genuinely new
+ * assertion-free block raises it. A cache miss on either side (object
+ * never passed through `countAssertions`, e.g. a `before` restored from an
+ * older session snapshot) reads as 0 — the same "assume nothing moved,
+ * still allow a real positive to fire" default the rest of this check
+ * uses for missing history.
+ */
+function assertionsWereRedistributed(before: AssertionCounts, after: AssertionCounts): boolean {
+	const beforeEmpty = emptyBlocksByCounts.get(before) ?? 0;
+	const afterEmpty = emptyBlocksByCounts.get(after) ?? 0;
+	return afterEmpty - beforeEmpty <= 0;
 }
 
 /**
@@ -112,7 +184,9 @@ export function countAssertions(rawContent: string): AssertionCounts {
  * adding any assertions. Heuristic, warning-severity, session-delta-based:
  * the first sight of any test file silently establishes baseline; the check
  * fires on the *second* same-session edit when blocks grew but assertions
- * did not.
+ * did not — unless every added block still carries an assertion, meaning
+ * the zero delta is a split/redistribution rather than an empty block (see
+ * `assertionsWereRedistributed`).
  *
  * Brand-new assertion-free test files are an accepted blind spot — see
  * `docs/plans/09-local-runtime-quality-hooks.md` (Failure modes table).
@@ -143,20 +217,19 @@ export function checkAssertionDensity(
 	const dBlocks = after.blocks - before.blocks;
 	const dAssertions = after.assertions - before.assertions;
 
-	if (dBlocks > 0 && dAssertions <= 0) {
-		const assertionPart =
-			dAssertions === 0
-				? "0 new assertions"
-				: `${-dAssertions} fewer assertion${-dAssertions === 1 ? "" : "s"}`;
-		return {
-			source: "structural",
-			name: "assertion_density",
-			severity: "warning",
-			message: `Added ${dBlocks} test block(s) with ${assertionPart}. Each it()/test() block typically needs at least one expect()/assert*() call.`,
-			file: filePath,
-			determinism: "heuristic",
-		};
-	}
+	if (dBlocks <= 0 || dAssertions > 0) return null;
+	if (dAssertions === 0 && assertionsWereRedistributed(before, after)) return null;
 
-	return null;
+	const assertionPart =
+		dAssertions === 0
+			? "0 new assertions"
+			: `${-dAssertions} fewer assertion${-dAssertions === 1 ? "" : "s"}`;
+	return {
+		source: "structural",
+		name: "assertion_density",
+		severity: "warning",
+		message: `Added ${dBlocks} test block(s) with ${assertionPart}. Each it()/test() block typically needs at least one expect()/assert*() call.`,
+		file: filePath,
+		determinism: "heuristic",
+	};
 }

@@ -30,6 +30,25 @@ function computeEnvDocRoots(projectRoot: string): string[] {
 	return roots;
 }
 
+/**
+ * Read one `.env.example`-style file and add every `KEY=` name it declares
+ * (commented-out lines included) to `documented` in place. A missing or
+ * unreadable file contributes nothing.
+ */
+function addEnvExampleKeys(envPath: string, fs: EnvDocFs, documented: Set<string>): void {
+	const { existsSync, readFileSync } = fs;
+	if (!existsSync(envPath)) return;
+	try {
+		const content = readFileSync(envPath, "utf-8");
+		for (const line of content.split("\n")) {
+			const m = line.match(/^#?\s*([A-Z][A-Z0-9_]+)\s*=/);
+			if (m) documented.add(nonNull(m[1]));
+		}
+	} catch {
+		/* intentional: unreadable env docs should not break env discovery */
+	}
+}
+
 /** Scan `.env.example` / `.env.sample` / `.env.template` across every root. */
 function scanEnvExampleFiles(
 	roots: string[],
@@ -37,21 +56,9 @@ function scanEnvExampleFiles(
 	join: PathJoin,
 	documented: Set<string>,
 ): void {
-	const { existsSync, readFileSync } = fs;
 	for (const root of roots) {
 		for (const name of [".env.example", ".env.sample", ".env.template"]) {
-			const envPath = join(root, name);
-			if (existsSync(envPath)) {
-				try {
-					const content = readFileSync(envPath, "utf-8");
-					for (const line of content.split("\n")) {
-						const m = line.match(/^#?\s*([A-Z][A-Z0-9_]+)\s*=/);
-						if (m) documented.add(nonNull(m[1]));
-					}
-				} catch {
-					/* intentional: unreadable env docs should not break env discovery */
-				}
-			}
+			addEnvExampleKeys(join(root, name), fs, documented);
 		}
 	}
 }
@@ -140,6 +147,19 @@ function scanWranglerConfigs(
 	}
 }
 
+/**
+ * Extract `env:`-block keys and `${{ secrets.X }}` references from the body of
+ * one GitHub Actions workflow file, adding each to `documented` in place.
+ */
+function extractWorkflowEnvVars(content: string, documented: Set<string>): void {
+	// env: blocks
+	const envMatches = content.matchAll(/^\s+([A-Z][A-Z0-9_]+)\s*:/gm);
+	for (const m of envMatches) documented.add(nonNull(m[1]));
+	// ${{ secrets.VAR }}
+	const secretMatches = content.matchAll(/\$\{\{\s*secrets\.([A-Z][A-Z0-9_]+)\s*\}\}/g);
+	for (const m of secretMatches) documented.add(nonNull(m[1]));
+}
+
 /** Scan GitHub Actions workflow files (`env:` blocks + `${{ secrets.X }}` refs) across every root. */
 function scanGithubWorkflowEnvVars(
 	roots: string[],
@@ -154,15 +174,7 @@ function scanGithubWorkflowEnvVars(
 		try {
 			for (const file of readdirSync(workflowDir)) {
 				if (!file.endsWith(".yml") && !file.endsWith(".yaml")) continue;
-				const content = readFileSync(join(workflowDir, file), "utf-8");
-				// env: blocks
-				const envMatches = content.matchAll(/^\s+([A-Z][A-Z0-9_]+)\s*:/gm);
-				for (const m of envMatches) documented.add(nonNull(m[1]));
-				// ${{ secrets.VAR }}
-				const secretMatches = content.matchAll(
-					/\$\{\{\s*secrets\.([A-Z][A-Z0-9_]+)\s*\}\}/g,
-				);
-				for (const m of secretMatches) documented.add(nonNull(m[1]));
+				extractWorkflowEnvVars(readFileSync(join(workflowDir, file), "utf-8"), documented);
 			}
 		} catch {
 			/* intentional: unreadable workflow files should not break env discovery */

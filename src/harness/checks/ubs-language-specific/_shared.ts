@@ -67,6 +67,26 @@ function consumeQuotedChar(
 	return { quote, escaped };
 }
 
+/** What to do with one character that is outside a block comment and a string literal. */
+type PlainCharAction =
+	| { kind: "quoteStart"; quote: QuoteChar }
+	| { kind: "blockStart" }
+	| { kind: "lineCommentBreak" }
+	| { kind: "append" };
+
+/**
+ * Classify a character that is neither inside a block comment nor inside a
+ * string literal: does it open a string, open a block comment, start a line
+ * comment (ending the line), or just get appended verbatim?
+ */
+function classifyPlainChar(ch: string, next: string | undefined): PlainCharAction {
+	if (ch === "'" || ch === "\"" || ch === "`") return { kind: "quoteStart", quote: ch };
+	if (ch === "/" && next === "*") return { kind: "blockStart" };
+	if (ch === "/" && next === "/") return { kind: "lineCommentBreak" };
+	if (ch === "#") return { kind: "lineCommentBreak" };
+	return { kind: "append" };
+}
+
 /**
  * Strip comments from a single line, given whether the line starts already
  * inside a multi-line block comment. String-literal state (`quote`) never
@@ -90,18 +110,18 @@ function stripLineComments(line: string, inBlock: boolean): { stripped: string; 
 			({ quote, escaped } = consumeQuotedChar(nonNull(ch), quote, escaped));
 			continue;
 		}
-		if (ch === "'" || ch === "\"" || ch === "`") {
-			quote = ch;
+		const action = classifyPlainChar(nonNull(ch), next);
+		if (action.kind === "quoteStart") {
+			quote = action.quote;
 			stripped += ch;
 			continue;
 		}
-		if (ch === "/" && next === "*") {
+		if (action.kind === "blockStart") {
 			inBlock = true;
 			i++;
 			continue;
 		}
-		if (ch === "/" && next === "/") break;
-		if (ch === "#") break;
+		if (action.kind === "lineCommentBreak") break;
 		stripped += ch;
 	}
 	return { stripped, inBlock };

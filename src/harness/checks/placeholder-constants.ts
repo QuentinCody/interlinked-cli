@@ -252,6 +252,41 @@ function skipRustCharLiteral(rawLine: string, code: string[], start: number): nu
 	return start + 1;
 }
 
+/**
+ * Advance the scan past one character: dispatches to line-comment start,
+ * block-comment start, string-literal start, or Rust char-literal start.
+ * Returns the next scan index and whether a `//` comment ended the line.
+ */
+function advanceCodeScan(
+	rawLine: string,
+	code: string[],
+	i: number,
+	lang: CLang,
+	state: LineScanState,
+	comments: string[],
+): { next: number; stop: boolean } {
+	const ch = rawLine.charAt(i);
+	if (ch === "/") {
+		const next = rawLine.charAt(i + 1);
+		if (next === "/") {
+			comments.push(rawLine.slice(i));
+			blankRange(code, i, rawLine.length);
+			return { next: rawLine.length, stop: true };
+		}
+		if (next === "*") {
+			return { next: consumeBlockComment(rawLine, code, comments, i, state), stop: false };
+		}
+		return { next: i + 1, stop: false };
+	}
+	if (LANG_QUOTES[lang].includes(ch)) {
+		return { next: consumeStringLiteral(rawLine, code, i, lang, state), stop: false };
+	}
+	if (lang === "rust" && ch === "'") {
+		return { next: skipRustCharLiteral(rawLine, code, i), stop: false };
+	}
+	return { next: i + 1, stop: false };
+}
+
 /** Scan one line: blank comments/strings from code, collect comment text. */
 function scanCodeLine(rawLine: string, lang: CLang, state: LineScanState): ScannedLine {
 	const code = rawLine.split("");
@@ -260,30 +295,9 @@ function scanCodeLine(rawLine: string, lang: CLang, state: LineScanState): Scann
 	if (state.stringDelim !== null) i = resumeMultilineString(rawLine, code, lang, state);
 	if (state.inBlockComment) i = consumeBlockComment(rawLine, code, comments, i, state);
 	while (i < rawLine.length && !state.inBlockComment && state.stringDelim === null) {
-		const ch = rawLine.charAt(i);
-		if (ch === "/") {
-			const next = rawLine.charAt(i + 1);
-			if (next === "/") {
-				comments.push(rawLine.slice(i));
-				blankRange(code, i, rawLine.length);
-				break;
-			}
-			if (next === "*") {
-				i = consumeBlockComment(rawLine, code, comments, i, state);
-				continue;
-			}
-			i++;
-			continue;
-		}
-		if (LANG_QUOTES[lang].includes(ch)) {
-			i = consumeStringLiteral(rawLine, code, i, lang, state);
-			continue;
-		}
-		if (lang === "rust" && ch === "'") {
-			i = skipRustCharLiteral(rawLine, code, i);
-			continue;
-		}
-		i++;
+		const result = advanceCodeScan(rawLine, code, i, lang, state, comments);
+		i = result.next;
+		if (result.stop) break;
 	}
 	return { code: code.join(""), comment: comments.length > 0 ? comments.join(" ") : null };
 }

@@ -87,6 +87,21 @@ interface RawFileEntry {
 }
 
 /**
+ * Read one candidate file as text, or return null when it must be skipped:
+ * unreadable, larger than `maxFileSize`, or binary.
+ */
+function readIndexableContent(absPath: string, maxFileSize: number): string | null {
+	try {
+		const stat = readFileSync(absPath);
+		if (stat.length > maxFileSize) return null;
+		if (isBinaryContent(stat)) return null;
+		return stat.toString("utf-8");
+	} catch {
+		return null; // unreadable file, skip
+	}
+}
+
+/**
  * Read each candidate file from disk, apply the skip/oversize/binary rules,
  * and extract per-file trigram masks plus a running trigram→file-count tally
  * (input to the stop-trigram cutoff). Split out of `build()` because this is
@@ -107,16 +122,8 @@ function collectFileEntries(
 		const relPath = nonNull(filePaths[i]);
 		if (shouldSkipFile(relPath)) continue;
 
-		const absPath = join(cwd, relPath);
-		let content: string;
-		try {
-			const stat = readFileSync(absPath);
-			if (stat.length > maxFileSize) continue;
-			if (isBinaryContent(stat)) continue;
-			content = stat.toString("utf-8");
-		} catch {
-			continue; // unreadable file, skip
-		}
+		const content = readIndexableContent(join(cwd, relPath), maxFileSize);
+		if (content === null) continue;
 
 		const masks = extractTrigramsWithMasks(content);
 		if (masks.size === 0) continue;
@@ -134,6 +141,46 @@ function collectFileEntries(
 	}
 
 	return { fileEntries, trigramCounts };
+}
+
+/**
+ * Invert the per-file trigram masks into the on-disk posting-list shape,
+ * dropping stop trigrams. A file's ID is its index in `fileEntries`.
+ */
+function buildPostingLists(
+	fileEntries: RawFileEntry[],
+	stopTrigrams: Set<number>,
+): Map<number, PostingList> {
+	const builder = new Map<
+		number,
+		{ fileIds: number[]; locMasks: number[]; nextMasks: number[] }
+	>();
+
+	for (let fileId = 0; fileId < fileEntries.length; fileId++) {
+		const { masks } = nonNull(fileEntries[fileId]);
+		for (const [tri, m] of masks) {
+			if (stopTrigrams.has(tri)) continue;
+			let entry = builder.get(tri);
+			if (!entry) {
+				entry = { fileIds: [], locMasks: [], nextMasks: [] };
+				builder.set(tri, entry);
+			}
+			entry.fileIds.push(fileId);
+			entry.locMasks.push(m.locMask);
+			entry.nextMasks.push(m.nextMask);
+		}
+	}
+
+	// Convert to typed arrays for compactness
+	const postings = new Map<number, PostingList>();
+	for (const [tri, data] of builder) {
+		postings.set(tri, {
+			fileIds: new Uint32Array(data.fileIds),
+			locMasks: new Uint8Array(data.locMasks),
+			nextMasks: new Uint8Array(data.nextMasks),
+		});
+	}
+	return postings;
 }
 
 // ===========================================
@@ -226,38 +273,8 @@ export class TrigramIndex {
 		}
 
 		// Build inverted index with masks (excluding stop trigrams)
-		const postingsBuilder = new Map<
-			number,
-			{ fileIds: number[]; locMasks: number[]; nextMasks: number[] }
-		>();
-		const files: string[] = [];
-
-		for (let fileId = 0; fileId < fileEntries.length; fileId++) {
-			const { path, masks } = nonNull(fileEntries[fileId]);
-			files.push(path);
-
-			for (const [tri, m] of masks) {
-				if (stopTrigrams.has(tri)) continue;
-				let entry = postingsBuilder.get(tri);
-				if (!entry) {
-					entry = { fileIds: [], locMasks: [], nextMasks: [] };
-					postingsBuilder.set(tri, entry);
-				}
-				entry.fileIds.push(fileId);
-				entry.locMasks.push(m.locMask);
-				entry.nextMasks.push(m.nextMask);
-			}
-		}
-
-		// Convert to typed arrays for compactness
-		const postings = new Map<number, PostingList>();
-		for (const [tri, data] of postingsBuilder) {
-			postings.set(tri, {
-				fileIds: new Uint32Array(data.fileIds),
-				locMasks: new Uint8Array(data.locMasks),
-				nextMasks: new Uint8Array(data.nextMasks),
-			});
-		}
+		const files = fileEntries.map((entry) => entry.path);
+		const postings = buildPostingLists(fileEntries, stopTrigrams);
 
 		// Get base commit
 		const baseCommit = getHeadCommit(cwd);

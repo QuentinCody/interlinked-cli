@@ -38,6 +38,30 @@ function isInsideStringLiteral(text: string, idx: number): boolean {
 }
 
 /**
+ * Count the backticks on `line` that are not backslash-escaped. An odd count
+ * toggles whether the following lines sit inside a multi-line template literal.
+ */
+function countUnescapedBackticks(line: string): number {
+	return (line.match(/(?<!\\)`/g) || []).length;
+}
+
+/**
+ * True when the buffered multi-line `import { … }` statement has absorbed its
+ * quoted module specifier, so the buffer is a complete collapsed import line.
+ */
+function bufferHasSpecifier(buffer: string): boolean {
+	return /from\s+['"][^'"]+['"]/.test(buffer) || /['"][^'"]+['"]/.test(buffer);
+}
+
+/**
+ * True when `trimmed` opens a named import whose closing `}` lands on a later
+ * line, so the collapse pass must start buffering.
+ */
+function opensMultiLineNamedImport(trimmed: string): boolean {
+	return trimmed.startsWith("import") && /\{/.test(trimmed) && !/\}/.test(trimmed);
+}
+
+/**
  * Phase 1 of {@link parseImports}: collapse multi-line `import { … }` statements
  * onto a single line and drop lines that live inside multi-line template
  * literals (codegen that emits `import "./x.js"` as string content must not be
@@ -51,29 +75,22 @@ function collapseImportLines(lines: string[]): string[] {
 	for (const line of lines) {
 		const trimmed = line.trim();
 
-		// Track multi-line template literal boundaries.
-		// Count unescaped backticks — odd count toggles in/out of template literal.
-		const backticks = (trimmed.match(/(?<!\\)`/g) || []).length;
-		if (inTemplateLiteral) {
-			if (backticks % 2 === 1) inTemplateLiteral = false;
-			continue; // Skip lines inside template literals
-		}
-		if (backticks % 2 === 1) {
-			// Check if the backtick opens a template that doesn't close on this line
-			// (i.e., not a single-line template like `hello ${world}`)
-			inTemplateLiteral = true;
-			// Still process this line — the import may be before the opening backtick
-		}
+		// Track multi-line template literal boundaries. An odd backtick count
+		// toggles in/out of the literal; a line that opens one is still processed,
+		// because the import may sit before the opening backtick.
+		const startedInTemplateLiteral = inTemplateLiteral;
+		if (countUnescapedBackticks(trimmed) % 2 === 1) inTemplateLiteral = !inTemplateLiteral;
+		if (startedInTemplateLiteral) continue; // Skip lines inside template literals
 
 		if (buffer) {
 			buffer += ` ${trimmed}`;
-			if (/from\s+['"][^'"]+['"]/.test(buffer) || /['"][^'"]+['"]/.test(buffer)) {
+			if (bufferHasSpecifier(buffer)) {
 				collapsed.push(buffer);
 				buffer = "";
 			}
 			continue;
 		}
-		if (trimmed.startsWith("import") && /\{/.test(trimmed) && !/\}/.test(trimmed)) {
+		if (opensMultiLineNamedImport(trimmed)) {
 			buffer = trimmed;
 			continue;
 		}

@@ -87,6 +87,16 @@ export function isLabeledJump(ts: TsModule, node: TS.Node): boolean {
 	return (ts.isBreakStatement(node) || ts.isContinueStatement(node)) && !!node.label;
 }
 
+/**
+ * +1 when a logical-operator node starts a new run (i.e. its left operand is
+ * not the same operator kind — parens end a run, per Sonar's sequences
+ * rule); 0 when it continues the same run. `op` is the node's own kind.
+ */
+function logicalOpRunDelta(ts: TsModule, node: TS.Node, op: TS.SyntaxKind): number {
+	const left = unwrapParens(ts, (node as TS.BinaryExpression).left);
+	return logicalOpKind(ts, left) !== op ? 1 : 0;
+}
+
 /** A direct self-call by name, used for the one-time recursion +1. */
 function isRecursiveCall(ts: TsModule, node: TS.Node, unitName: string, recursable: boolean): boolean {
 	return (
@@ -155,10 +165,7 @@ function scoreUnit(ts: TsModule, fn: TS.Node, unitName: string, initialNesting: 
 		}
 		const op = logicalOpKind(ts, node);
 		if (op !== null) {
-			// +1 per run transition: increment unless the left operand continues
-			// the same operator run. Parens end a run (Sonar's sequences rule).
-			const left = unwrapParens(ts, (node as TS.BinaryExpression).left);
-			if (logicalOpKind(ts, left) !== op) cognitive += 1;
+			cognitive += logicalOpRunDelta(ts, node, op);
 			descend(node, nesting);
 			return;
 		}

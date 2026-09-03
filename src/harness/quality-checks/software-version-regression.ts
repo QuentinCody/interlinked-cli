@@ -414,6 +414,27 @@ function collectCargoDependencyRef(
 	};
 }
 
+function buildGenericAssignmentRef(
+	key: string,
+	value: string,
+	lineNo: number,
+	objectPath: string,
+	line: string,
+): SoftwareVersionReference | undefined {
+	const hasSoftwareKey = SOFTWARE_KEY_RE.test(key);
+	if (!hasSoftwareKey && !MODEL_PROVIDER_RE.test(value)) return undefined;
+	const modelProvider = modelProviderOf(value);
+	const kind = classifyGenericKind(key, value);
+	if (!modelProvider && !looksComparable(value, kind)) return undefined;
+	const modelFamily = kind === "model" ? modelFamilyOf(value) : undefined;
+	const baseAnchor =
+		kind === "model"
+			? `model:${key.toLowerCase()}:${modelFamily ?? modelProvider ?? "unknown"}`
+			: `${kind}:${key.toLowerCase()}`;
+	const anchor = objectPath ? `${baseAnchor}@${objectPath}` : baseAnchor;
+	return { anchor, label: `${key}`, kind, version: value, line: lineNo, text: line.trim() };
+}
+
 function collectGenericAssignmentRefsForPattern(
 	line: string,
 	lineNo: number,
@@ -426,25 +447,8 @@ function collectGenericAssignmentRefsForPattern(
 		const key = match.groups?.key;
 		const value = match.groups?.value;
 		if (!key || !value) continue;
-		const hasSoftwareKey = SOFTWARE_KEY_RE.test(key);
-		if (!hasSoftwareKey && !MODEL_PROVIDER_RE.test(value)) continue;
-		const modelProvider = modelProviderOf(value);
-		const kind = classifyGenericKind(key, value);
-		if (!modelProvider && !looksComparable(value, kind)) continue;
-		const modelFamily = kind === "model" ? modelFamilyOf(value) : undefined;
-		const baseAnchor =
-			kind === "model"
-				? `model:${key.toLowerCase()}:${modelFamily ?? modelProvider ?? "unknown"}`
-				: `${kind}:${key.toLowerCase()}`;
-		const anchor = objectPath ? `${baseAnchor}@${objectPath}` : baseAnchor;
-		found.push({
-			anchor,
-			label: `${key}`,
-			kind,
-			version: value,
-			line: lineNo,
-			text: line.trim(),
-		});
+		const ref = buildGenericAssignmentRef(key, value, lineNo, objectPath, line);
+		if (ref) found.push(ref);
 	}
 	return found;
 }

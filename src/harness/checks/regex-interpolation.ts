@@ -91,6 +91,21 @@ function skipQuoted(text: string, start: number): number {
 	return -1;
 }
 
+/** Consume one `${...}` substitution starting at its `$`; pushes its source
+ *  onto `collect` when provided. Index just past the substitution's `}`, or
+ *  -1 malformed/over-budget. */
+function consumeTemplateSubstitution(
+	text: string,
+	dollarIdx: number,
+	depth: number,
+	collect: string[] | undefined,
+): number {
+	const subEnd = scanSubstitution(text, dollarIdx + 2, depth);
+	if (subEnd === -1) return -1;
+	if (collect) collect.push(text.slice(dollarIdx + 2, subEnd));
+	return subEnd + 1;
+}
+
 /** Skip a template literal from its backtick, pushing TOP-LEVEL `${...}` sub
  *  texts onto `collect`; index past the close, or -1 malformed/over-budget. */
 function scanTemplate(
@@ -109,10 +124,9 @@ function scanTemplate(
 		if (ch === "\\") {
 			j += 2;
 		} else if (ch === "$" && text.charAt(j + 1) === "{") {
-			const subEnd = scanSubstitution(text, j + 2, depth);
-			if (subEnd === -1) return -1;
-			if (collect) collect.push(text.slice(j + 2, subEnd));
-			j = subEnd + 1;
+			const next = consumeTemplateSubstitution(text, j, depth, collect);
+			if (next === -1) return -1;
+			j = next;
 		} else {
 			j++;
 		}

@@ -25,6 +25,7 @@ import {
 	uniquePaths,
 } from "./change-set-external-candidates.js";
 import { runNamedChecksAdmitted } from "./change-set-external-named.js";
+import { pushResult } from "./change-set-result-map.js";
 
 export { MULTI_FILE_NAMED_EXTERNAL_CHECKS } from "./change-set-external-candidates.js";
 
@@ -81,16 +82,6 @@ function engineRows(projectRoot: string, rows: readonly CheckResult[]): EngineFi
 		line: row.line,
 		message: row.message,
 	}));
-}
-
-function pushResult(
-	results: Map<string, QualityCheckResult[]>,
-	filePath: string,
-	result: QualityCheckResult,
-): void {
-	const rows = results.get(filePath) ?? [];
-	rows.push(result);
-	results.set(filePath, rows);
 }
 
 function rowsForTouchedFile(

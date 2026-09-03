@@ -16,6 +16,7 @@
  *   not silently disabled on the large/deep repos this scan exists for.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
+import type { Dirent } from "node:fs";
 import { join, resolve } from "node:path";
 
 interface RepoProfile {
@@ -97,6 +98,38 @@ function recordFile(name: string, testRoot: string | null, out: WalkResult): voi
  * negative return means the budget was exhausted mid-directory (`out.truncated`
  * is set before returning) and the caller must stop walking.
  */
+/**
+ * Handles one directory entry from `frame`: records a matching test file,
+ * or pushes a subdirectory onto `stack` (skipping vendor/dot dirs and
+ * anything past the depth cap, which flags `out.truncated`).
+ */
+function processDirEntry(
+	entry: Dirent,
+	frame: { dir: string; depth: number; testRoot: string | null },
+	out: WalkResult,
+	stack: Array<{ dir: string; depth: number; testRoot: string | null }>,
+): void {
+	if (entry.isDirectory()) {
+		// Vendor/build/dot dirs are excluded BY DESIGN — not truncation.
+		if (shouldSkipDir(entry.name)) return;
+		// Depth cap prunes this subtree: whatever is below is unseen, so
+		// the walk is partial. Flag it (distinct from the skip above).
+		if (frame.depth + 1 > MAX_WALK_DEPTH) {
+			out.truncated = true;
+			return;
+		}
+		const enteringTestRoot =
+			frame.depth === 0 && TEST_DIR_ROOTS.includes(entry.name) ? entry.name : frame.testRoot;
+		stack.push({
+			dir: join(frame.dir, entry.name),
+			depth: frame.depth + 1,
+			testRoot: enteringTestRoot,
+		});
+	} else if (entry.isFile()) {
+		recordFile(entry.name, frame.testRoot, out);
+	}
+}
+
 function processDirFrame(
 	frame: { dir: string; depth: number; testRoot: string | null },
 	out: WalkResult,
@@ -111,25 +144,7 @@ function processDirFrame(
 			out.truncated = true;
 			return budget;
 		}
-		if (entry.isDirectory()) {
-			// Vendor/build/dot dirs are excluded BY DESIGN — not truncation.
-			if (shouldSkipDir(entry.name)) continue;
-			// Depth cap prunes this subtree: whatever is below is unseen, so
-			// the walk is partial. Flag it (distinct from the skip above).
-			if (frame.depth + 1 > MAX_WALK_DEPTH) {
-				out.truncated = true;
-				continue;
-			}
-			const enteringTestRoot =
-				frame.depth === 0 && TEST_DIR_ROOTS.includes(entry.name) ? entry.name : frame.testRoot;
-			stack.push({
-				dir: join(frame.dir, entry.name),
-				depth: frame.depth + 1,
-				testRoot: enteringTestRoot,
-			});
-		} else if (entry.isFile()) {
-			recordFile(entry.name, frame.testRoot, out);
-		}
+		processDirEntry(entry, frame, out, stack);
 	}
 	return budget;
 }

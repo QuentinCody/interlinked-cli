@@ -8,7 +8,7 @@
 // stderr/stdout → CheckResult[] mapping and the file-scope filter branch.
 
 import type { SpawnSyncReturns } from "node:child_process";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import type { CheckScope, ToolRunnerInput } from "../types.js";
 
@@ -90,7 +90,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("runGoBuild", () => {
-	it("invokes `go build ./...` with cwd, timeout and pipes", () => {
+	it("invokes `go build` scoped to the edited package, with cwd, timeout and pipes", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runGoBuild(input(fileScope(), 8_888));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
@@ -100,13 +100,18 @@ describe("runGoBuild", () => {
 			Record<string, unknown>,
 		];
 		expect(cmd).toBe("go");
-		expect(args).toEqual(["build", "./..."]);
+		// Scoped: findings outside TARGET are discarded by filterToFile anyway,
+		// so `./...` only bought a second project-wide compile per edit.
+		expect(args).toEqual(["build", "./cmd/server"]);
 		expect(opts).toMatchObject({
 			cwd: PROJECT_ROOT,
 			timeout: 8_888,
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
 		});
+		// The env is passed EXPLICITLY so all three Go invocations share one
+		// GOCACHE instead of inheriting whatever launched the daemon.
+		expect(opts.env).toBeDefined();
 	});
 
 	it("returns [] when the binary is absent (error.code === ENOENT)", () => {
@@ -200,7 +205,7 @@ describe("runGoBuild", () => {
 // ---------------------------------------------------------------------------
 
 describe("runGolangciLint", () => {
-	it("invokes golangci-lint with json out-format + ./... , cwd, timeout, pipes", () => {
+	it("invokes golangci-lint with json out-format scoped to the edited package", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runGolangciLint(input(fileScope(), 7_777));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
@@ -210,7 +215,7 @@ describe("runGolangciLint", () => {
 			Record<string, unknown>,
 		];
 		expect(cmd).toBe("golangci-lint");
-		expect(args).toEqual(["run", "--out-format=json", "./..."]);
+		expect(args).toEqual(["run", "--out-format=json", "./cmd/server"]);
 		expect(opts).toMatchObject({
 			cwd: PROJECT_ROOT,
 			timeout: 7_777,
@@ -306,5 +311,111 @@ describe("runGolangciLint", () => {
 			throw new Error("boom");
 		});
 		expect(runGolangciLint(input(fileScope()))).toEqual([]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Per-edit compile cost: package scope, build-tag parity, environment parity
+// ---------------------------------------------------------------------------
+// The defect: every `.go` edit ran `go build ./...` AND `golangci-lint run
+// ./...` (plus `go test` on the package) — three project-wide compiles with
+// three different loader configurations, so each populated its own build-cache
+// key set and re-did what the others had just done.
+
+/** argv of the single recorded spawnSync call. */
+function recordedArgs(): string[] {
+	const call = spawnSyncMock.mock.calls[0] as [string, string[], Record<string, unknown>];
+	return call[1];
+}
+
+/** spawnSync options of the single recorded call. */
+function recordedOpts(): Record<string, unknown> {
+	const call = spawnSyncMock.mock.calls[0] as [string, string[], Record<string, unknown>];
+	return call[2];
+}
+
+describe("Go package scoping — positive (must fire)", () => {
+	beforeEach(() => spawnSyncMock.mockReturnValue(spawnResult({ status: 0 })));
+
+	it("P1: go build narrows to the edited package in filtered file mode", () => {
+		runGoBuild(input(fileScope()));
+		expect(recordedArgs()).toContain("./cmd/server");
+		expect(recordedArgs()).not.toContain("./...");
+	});
+
+	it("P2: golangci-lint narrows to the edited package in filtered file mode", () => {
+		runGolangciLint(input(fileScope()));
+		expect(recordedArgs()).toContain("./cmd/server");
+		expect(recordedArgs()).not.toContain("./...");
+	});
+});
+
+describe("Go package scoping — negative (must not fire)", () => {
+	beforeEach(() => spawnSyncMock.mockReturnValue(spawnResult({ status: 0 })));
+
+	it("N1: project mode still compiles the whole module (go build)", () => {
+		runGoBuild(input(fileScope({ mode: "project" })));
+		expect(recordedArgs()).toEqual(["build", "./..."]);
+	});
+
+	it("N2: project mode still lints the whole module (golangci-lint)", () => {
+		runGolangciLint(input(fileScope({ mode: "project" })));
+		expect(recordedArgs()).toEqual(["run", "--out-format=json", "./..."]);
+	});
+
+	it("N3: file mode WITHOUT filterToFile keeps the whole module — narrowing there would drop findings", () => {
+		runGoBuild(input(fileScope({ filterToFile: false })));
+		expect(recordedArgs()).toEqual(["build", "./..."]);
+	});
+});
+
+describe("Go build-tag + environment parity", () => {
+	const savedFlags = process.env.INTERLINKED_GOFLAGS;
+	const savedCache = process.env.INTERLINKED_GOCACHE;
+
+	beforeEach(() => spawnSyncMock.mockReturnValue(spawnResult({ status: 0 })));
+
+	afterEach(() => {
+		if (savedFlags === undefined) delete process.env.INTERLINKED_GOFLAGS;
+		else process.env.INTERLINKED_GOFLAGS = savedFlags;
+		if (savedCache === undefined) delete process.env.INTERLINKED_GOCACHE;
+		else process.env.INTERLINKED_GOCACHE = savedCache;
+	});
+
+	it("P1: threads -tags into go build", () => {
+		process.env.INTERLINKED_GOFLAGS = "-tags=integration";
+		runGoBuild(input(fileScope()));
+		expect(recordedArgs()).toEqual(["build", "-tags=integration", "./cmd/server"]);
+	});
+
+	it("P2: threads --build-tags into golangci-lint (it ignores GOFLAGS -tags)", () => {
+		process.env.INTERLINKED_GOFLAGS = "-tags=integration";
+		runGolangciLint(input(fileScope()));
+		expect(recordedArgs()).toEqual([
+			"run",
+			"--out-format=json",
+			"--build-tags=integration",
+			"./cmd/server",
+		]);
+	});
+
+	it("P3: passes the overridden GOCACHE explicitly to go build", () => {
+		process.env.INTERLINKED_GOCACHE = "/shell/gocache";
+		runGoBuild(input(fileScope()));
+		const env = recordedOpts().env as NodeJS.ProcessEnv;
+		expect(env.GOCACHE).toBe("/shell/gocache");
+	});
+
+	it("N1: adds no tag argv when no build tags are configured", () => {
+		delete process.env.INTERLINKED_GOFLAGS;
+		runGoBuild(input(fileScope()));
+		expect(recordedArgs()).toEqual(["build", "./cmd/server"]);
+	});
+
+	it("N2: does not invent a GOCACHE when none is configured", () => {
+		delete process.env.INTERLINKED_GOCACHE;
+		runGolangciLint(input(fileScope()));
+		const env = recordedOpts().env as NodeJS.ProcessEnv;
+		expect(env.GOCACHE).toBe(process.env.GOCACHE);
 	});
 });

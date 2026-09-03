@@ -233,16 +233,24 @@ export function blindEditSpan(
 	if (content === null) return null;
 
 	for (const oldString of anchorStrings(toolInput)) {
-		const at = content.indexOf(oldString);
-		if (at === -1) continue; // doom guard's territory, not provenance's
-		let startLine = 1;
-		for (let i = 0; i < at; i++) if (content.charCodeAt(i) === NEWLINE_CODE) startLine++;
-		const endLine = startLine + (oldString.split("\n").length - 1);
-		if (!insideDisplayedRanges(view.ranges, startLine, endLine)) {
-			return { file: filePath, startLine, endLine };
-		}
+		const span = blindSpanForAnchor(content, view.ranges, oldString);
+		if (span) return { file: filePath, ...span };
 	}
 	return null;
+}
+
+/** Locates one anchor's line span and reports it only if outside every displayed range. */
+function blindSpanForAnchor(
+	content: string,
+	ranges: Array<[number, number]>,
+	oldString: string,
+): { startLine: number; endLine: number } | null {
+	const at = content.indexOf(oldString);
+	if (at === -1) return null; // doom guard's territory, not provenance's
+	let startLine = 1;
+	for (let i = 0; i < at; i++) if (content.charCodeAt(i) === NEWLINE_CODE) startLine++;
+	const endLine = startLine + (oldString.split("\n").length - 1);
+	return insideDisplayedRanges(ranges, startLine, endLine) ? null : { startLine, endLine };
 }
 
 /** The old_string anchors carried by an Edit or MultiEdit input. */

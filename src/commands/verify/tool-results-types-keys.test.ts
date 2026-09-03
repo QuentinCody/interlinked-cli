@@ -44,6 +44,6 @@ describe("tool-results-types-keys", () => {
 		// Guards the population size directly: 231 declared keys today. Paired
 		// with P4 (no blank entries) and P2 (no duplicates), this pins the list
 		// to precisely 231 distinct, non-empty, well-formed identifiers.
-		expect(CQ_RESULT_KEYS.length).toBe(235);
+		expect(CQ_RESULT_KEYS.length).toBe(236);
 	});
 });

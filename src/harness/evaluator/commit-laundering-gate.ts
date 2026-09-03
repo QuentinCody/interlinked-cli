@@ -88,6 +88,33 @@ function launderingReason(file: string, checkId: string): string {
 }
 
 /**
+ * Resolve the repo root and scan its staged files for a still-present violation
+ * of an armed rule. Returns a block decision or null (allow / not-applicable).
+ */
+function attemptLaunderingScan(
+	commandCwd: string,
+	armedRuleIds: ReadonlySet<string>,
+	git: GitReader,
+	resolveRoot: (dir: string) => string | null,
+): HarnessDecision | null {
+	const repoRoot = resolveRoot(commandCwd);
+	if (!repoRoot) return null;
+	const nameList = git(repoRoot, ["diff", "--cached", "--name-only"]);
+	if (nameList === null) return null;
+	const staged = nameList
+		.split("\n")
+		.map((s) => s.trim())
+		.filter(Boolean)
+		.slice(0, MAX_STAGED_FILES);
+
+	for (const rel of staged) {
+		const hit = launderingHitInFile(repoRoot, rel, armedRuleIds, git);
+		if (hit) return { decision: "block", rule_id: "workaround_laundering", reason: launderingReason(hit.file, hit.checkId) };
+	}
+	return null;
+}
+
+/**
  * Block a `git commit` whose staged content still contains a violation of a rule
  * that blocked earlier this session. Returns a block decision or null (allow /
  * not-applicable). Never throws.
@@ -111,21 +138,7 @@ export function runCommitLaunderingGate(
 	try {
 		const baseCwd = event.cwd || process.cwd();
 		const commandCwd = parse.cwd ? resolve(baseCwd, parse.cwd) : baseCwd;
-		const repoRoot = resolveRoot(commandCwd);
-		if (!repoRoot) return null;
-		const nameList = git(repoRoot, ["diff", "--cached", "--name-only"]);
-		if (nameList === null) return null;
-		const staged = nameList
-			.split("\n")
-			.map((s) => s.trim())
-			.filter(Boolean)
-			.slice(0, MAX_STAGED_FILES);
-
-		for (const rel of staged) {
-			const hit = launderingHitInFile(repoRoot, rel, armedRuleIds, git);
-			if (hit) return { decision: "block", rule_id: "workaround_laundering", reason: launderingReason(hit.file, hit.checkId) };
-		}
-		return null;
+		return attemptLaunderingScan(commandCwd, armedRuleIds, git, resolveRoot);
 	} catch (err) {
 		void err; // fail-open on any git / check error
 		return null;

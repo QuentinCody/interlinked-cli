@@ -30,6 +30,43 @@ function clampToCwd(candidate: string | null, harnessCwd: string): string | null
 }
 
 /**
+ * Walks up from `absPath` looking for `marker`, stopping as soon as the walk
+ * leaves `resolvedCwd` or reaches the filesystem root. Returns the first
+ * directory that holds the marker, or `null`.
+ */
+function findMarkerDirWithinCwd(
+	absPath: string,
+	marker: string,
+	resolvedCwd: string,
+): string | null {
+	const withinCwd = (candidate: string): boolean =>
+		candidate === resolvedCwd || candidate.startsWith(resolvedCwd + sep);
+
+	let dir = dirname(absPath);
+	const fsRoot = dirname(dir) === dir ? dir : "/";
+
+	while (dir !== fsRoot && dir.length > 1 && withinCwd(dir)) {
+		if (existsSync(resolve(dir, marker))) return dir;
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return null;
+}
+
+/**
+ * Returns the language-profile project root for `absPath`, clamped to
+ * `resolvedCwd`, or `null` when there is no profile or no in-tree root.
+ */
+function profileProjectRoot(absPath: string, resolvedCwd: string): string | null {
+	const profile = getProfileForFile(absPath);
+	if (!profile) return null;
+	const root = findProjectRootForLanguage(absPath, profile);
+	if (!root) return null;
+	return clampToCwd(root, resolvedCwd);
+}
+
+/**
  * Public API — consumed by quality-checks.runQualityChecks.
  *
  * Walk up from a file path to find the project root.
@@ -43,38 +80,17 @@ function clampToCwd(candidate: string | null, harnessCwd: string): string | null
 export function findProjectRoot(filePath: string, harnessCwd: string): string | null {
 	const absPath = isAbsolute(filePath) ? filePath : resolve(harnessCwd, filePath);
 	const resolvedCwd = resolve(harnessCwd);
-	const profile = getProfileForFile(absPath);
-	if (profile) {
-		const root = findProjectRootForLanguage(absPath, profile);
-		if (root) {
-			const clamped = clampToCwd(root, resolvedCwd);
-			if (clamped) return clamped;
-		}
-	}
+	const fromProfile = profileProjectRoot(absPath, resolvedCwd);
+	if (fromProfile) return fromProfile;
 
 	// Fallback: walk up looking for tsconfig.json then package.json.
-	// The loop stops once `dir` leaves `harnessCwd` — both for correctness
-	// (never adopt a foreign root) and for perf (no walk to `$HOME`).
-	const withinCwd = (dir: string): boolean =>
-		dir === resolvedCwd || dir.startsWith(resolvedCwd + sep);
+	// Each walk stops once the directory leaves `harnessCwd` — both for
+	// correctness (never adopt a foreign root) and for perf (no walk to `$HOME`).
+	const tsconfigDir = findMarkerDirWithinCwd(absPath, "tsconfig.json", resolvedCwd);
+	if (tsconfigDir) return clampToCwd(tsconfigDir, resolvedCwd);
 
-	let dir = dirname(absPath);
-	const fsRoot = dirname(dir) === dir ? dir : "/";
-
-	while (dir !== fsRoot && dir.length > 1 && withinCwd(dir)) {
-		if (existsSync(resolve(dir, "tsconfig.json"))) return clampToCwd(dir, resolvedCwd);
-		const parent = dirname(dir);
-		if (parent === dir) break;
-		dir = parent;
-	}
-
-	dir = dirname(absPath);
-	while (dir !== fsRoot && dir.length > 1 && withinCwd(dir)) {
-		if (existsSync(resolve(dir, "package.json"))) return clampToCwd(dir, resolvedCwd);
-		const parent = dirname(dir);
-		if (parent === dir) break;
-		dir = parent;
-	}
+	const packageDir = findMarkerDirWithinCwd(absPath, "package.json", resolvedCwd);
+	if (packageDir) return clampToCwd(packageDir, resolvedCwd);
 
 	return null;
 }

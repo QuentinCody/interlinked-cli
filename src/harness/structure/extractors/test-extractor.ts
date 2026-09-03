@@ -2,12 +2,11 @@
 // Test Extractor — discovers test files by naming conventions
 // ===========================================
 
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { makeEdgeId, makeGlobalRef } from "../artifact-graph.js";
 import type { ArtifactEdge, ArtifactNode, ExtractorMetadata, ExtractorResult } from "../types.js";
-import { consumeWalkEntry, createWalkBudget, type WalkBudget, warnWalkTruncated } from "./bounded-walk.js";
-import { isRootScratchDir, resolveIgnoredDirs, SHARED_SKIP_DIRS } from "./skip-dirs.js";
+import { createWalkBudget, type WalkBudget } from "./bounded-walk.js";
+import { walkAndClassify } from "./walk-classify.js";
 
 const TEST_PATTERNS = [
 	/\.test\.[tj]sx?$/,
@@ -18,8 +17,6 @@ const TEST_PATTERNS = [
 ];
 
 const TEST_DIRS = new Set(["__tests__", "tests", "test"]);
-
-const SKIP_DIRS = SHARED_SKIP_DIRS;
 
 export const metadata: ExtractorMetadata = {
 	name: "test-extractor",
@@ -99,42 +96,6 @@ export function classifyFile(_repoRoot: string, relPath: string): ExtractorResul
 	return { nodes, edges };
 }
 
-interface WalkContext {
-	repoRoot: string;
-	nodes: ArtifactNode[];
-	edges: ArtifactEdge[];
-	budget: WalkBudget;
-	ignoredDirs?: ReadonlySet<string>;
-}
-
-function walkDir(dir: string, ctx: WalkContext): void {
-	let entries: fs.Dirent[];
-	try {
-		entries = fs.readdirSync(dir, { withFileTypes: true });
-	} catch {
-		return;
-	}
-	for (const entry of entries) {
-		// Hard cap: stop descending/iterating once the entry or time budget trips.
-		if (!consumeWalkEntry(ctx.budget)) return;
-		if (entry.isDirectory()) {
-			const sub = path.join(dir, entry.name);
-			if (SKIP_DIRS.has(entry.name) || isRootScratchDir(ctx.repoRoot, sub) || ctx.ignoredDirs?.has(sub)) continue;
-			walkDir(sub, ctx);
-			if (ctx.budget.truncated) return;
-		} else if (entry.isFile()) {
-			const relPath = path.relative(ctx.repoRoot, path.join(dir, entry.name));
-			const result = classifyFile(ctx.repoRoot, relPath);
-			ctx.nodes.push(...result.nodes);
-			ctx.edges.push(...result.edges);
-		}
-	}
-}
-
 export function extract(repoRoot: string, budget: WalkBudget = createWalkBudget()): ExtractorResult {
-	const nodes: ArtifactNode[] = [];
-	const edges: ArtifactEdge[] = [];
-	walkDir(repoRoot, { repoRoot, nodes, edges, budget, ignoredDirs: resolveIgnoredDirs(repoRoot) });
-	if (budget.truncated) warnWalkTruncated(metadata.name, repoRoot);
-	return { nodes, edges };
+	return walkAndClassify(repoRoot, { classify: classifyFile, budget, extractorName: metadata.name });
 }

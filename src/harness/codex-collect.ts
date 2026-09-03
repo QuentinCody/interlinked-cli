@@ -8,7 +8,7 @@
 // means re-running only appends genuinely new records, so it is safe to call on
 // a timer or after every `codex exec` review.
 
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, type Stats, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFileRange } from "../lib/bounded-file-io.js";
@@ -35,6 +35,34 @@ export function codexSessionsDir(): string {
 	return join(homedir(), ".codex", "sessions");
 }
 
+/** Directory entries, or null when the subtree is missing or unreadable. */
+function readEntriesOrNull(dir: string): string[] | null {
+	try {
+		return readdirSync(dir);
+	} catch {
+		return null;
+	}
+}
+
+/** `statSync` result, or null when the entry vanished or is unreadable. */
+function statOrNull(path: string): Stats | null {
+	try {
+		return statSync(path);
+	} catch {
+		return null;
+	}
+}
+
+/** A `rollout-*.jsonl` file, and (when `sinceMs` is set) modified at/after it. */
+function isWantedRollout(
+	name: string,
+	st: Stats,
+	sinceMs: number | undefined,
+): boolean {
+	if (!/^rollout-.*\.jsonl$/.test(name)) return false;
+	return sinceMs === undefined || st.mtimeMs >= sinceMs;
+}
+
 /** All `rollout-*.jsonl` files under `dir` (recursive), optionally only those
  *  modified at/after `sinceMs`. Bounded, depth-first, never throws on a missing
  *  or unreadable subtree. */
@@ -42,25 +70,14 @@ export function findCodexRollouts(dir: string, sinceMs?: number): string[] {
 	const out: string[] = [];
 	const walk = (d: string, depth: number): void => {
 		if (depth > 6) return; // .../YYYY/MM/DD/file — 4 is enough; 6 is slack
-		let entries: string[];
-		try {
-			entries = readdirSync(d);
-		} catch {
-			return;
-		}
+		const entries = readEntriesOrNull(d);
+		if (entries === null) return;
 		for (const name of entries) {
 			const full = join(d, name);
-			let st: ReturnType<typeof statSync>;
-			try {
-				st = statSync(full);
-			} catch {
-				continue;
-			}
-			if (st.isDirectory()) {
-				walk(full, depth + 1);
-			} else if (/^rollout-.*\.jsonl$/.test(name)) {
-				if (sinceMs === undefined || st.mtimeMs >= sinceMs) out.push(full);
-			}
+			const st = statOrNull(full);
+			if (st === null) continue;
+			if (st.isDirectory()) walk(full, depth + 1);
+			else if (isWantedRollout(name, st, sinceMs)) out.push(full);
 		}
 	};
 	walk(dir, 0);

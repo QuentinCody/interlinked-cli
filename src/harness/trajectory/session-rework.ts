@@ -49,21 +49,26 @@ export function sessionReworkSummary(state: TrajectoryState): SessionReworkSumma
 	};
 }
 
+/** Does hist[index] repeat exact content seen earlier, across a non-whitespace-only span? */
+function isContentRevisit(hist: ReadonlyArray<{ sha: string; normSha: string }>, index: number): boolean {
+	const cur = hist[index];
+	if (!cur) return false;
+	let seenBefore = false;
+	let allWhitespace = true;
+	for (let j = 0; j < index; j++) {
+		const prior = hist[j];
+		if (!prior) continue;
+		if (prior.sha === cur.sha) seenBefore = true;
+		if (prior.normSha !== cur.normSha) allWhitespace = false;
+	}
+	return seenBefore && !allWhitespace;
+}
+
 /** Revisit = exact-content recurrence, unless the whole span is whitespace-only. */
 function countRevisits(hist: ReadonlyArray<{ sha: string; normSha: string }>): number {
 	let revisits = 0;
 	for (let i = 1; i < hist.length; i++) {
-		const cur = hist[i];
-		if (!cur) continue;
-		let seenBefore = false;
-		let allWhitespace = true;
-		for (let j = 0; j < i; j++) {
-			const prior = hist[j];
-			if (!prior) continue;
-			if (prior.sha === cur.sha) seenBefore = true;
-			if (prior.normSha !== cur.normSha) allWhitespace = false;
-		}
-		if (seenBefore && !allWhitespace) revisits++;
+		if (isContentRevisit(hist, i)) revisits++;
 	}
 	return revisits;
 }

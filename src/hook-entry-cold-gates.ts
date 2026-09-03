@@ -179,20 +179,23 @@ export function coldDestructiveCommandBlockReason(event: UnifiedHookEvent): stri
  *  (`lib/hook-template-chunks/package-install-cold-guard.ts`). Sharing either
  *  implementation would change enforcement — this path would stop honoring
  *  approved packages, or the .mjs would have to run code it cannot reach. */
+/** Resolve the shell command text for the package-install cold gate, or ""
+ *  when the event isn't a recognized bash-shaped call. Mirrors the same
+ *  action-shape handling as `coldDestructiveCommandBlockReason` — extracted
+ *  here so the caller's own branching stays flat. */
+function resolveColdPackageInstallCommand(event: UnifiedHookEvent): string {
+	const action = event.action;
+	if (action.kind === ACTION_SHELL_COMMAND) return action.command;
+	if (action.kind !== ACTION_TOOL_CALL) return "";
+	if (!COLD_BASH_TOOL_NAMES.has(action.tool_name)) return "";
+	const ti = (action.tool_input ?? {}) as { command?: unknown };
+	return typeof ti.command === "string" ? ti.command : "";
+}
+
 export function coldPackageInstallBlockReason(event: UnifiedHookEvent): string | null {
 	if (process.env.INTERLINKED_DISABLE_PACKAGE_GUARD === "1") return null;
 	if (event.phase !== PHASE_PRE_TOOL) return null;
-	const action = event.action;
-	let command = "";
-	if (action.kind === ACTION_SHELL_COMMAND) {
-		command = action.command;
-	} else if (action.kind === ACTION_TOOL_CALL) {
-		if (!COLD_BASH_TOOL_NAMES.has(action.tool_name)) return null;
-		const ti = (action.tool_input ?? {}) as { command?: unknown };
-		command = typeof ti.command === "string" ? ti.command : "";
-	} else {
-		return null;
-	}
+	const command = resolveColdPackageInstallCommand(event);
 	if (!command) return null;
 	const installCommands = parseInstallCommands(command);
 	if (installCommands.length === 0) return null;

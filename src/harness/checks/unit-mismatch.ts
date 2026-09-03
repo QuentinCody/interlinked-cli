@@ -73,41 +73,66 @@ function isMsName(name: string): boolean {
 
 // ─── Argument extraction ──────────────────────────────────────────────────────
 
+/** Opens a nesting level inside a call argument list. */
+function isOpenBracket(ch: string): boolean {
+	return ch === "(" || ch === "[" || ch === "{";
+}
+
+/** Closes a nesting level inside a call argument list. */
+function isCloseBracket(ch: string): boolean {
+	return ch === ")" || ch === "]" || ch === "}";
+}
+
+/**
+ * Walk a timer call's argument list from the char right AFTER the opening
+ * paren, balancing parens/brackets/braces so a multi-line callback first
+ * argument is skipped correctly. Reports the offsets of the first two
+ * top-level commas and of the closing paren (`-1` when the scan window ends
+ * before the call closes).
+ */
+function scanCallBoundaries(
+	stripped: string,
+	afterParen: number,
+	end: number,
+): { commas: number[]; closeParen: number } {
+	let depth = 1;
+	const commas: number[] = [];
+	for (let i = afterParen; i < end; i++) {
+		const ch = stripped.charAt(i);
+		if (isOpenBracket(ch)) {
+			depth++;
+			continue;
+		}
+		if (isCloseBracket(ch)) {
+			depth--;
+			if (depth === 0) return { commas, closeParen: i };
+			continue;
+		}
+		if (ch === "," && depth === 1 && commas.length < 2) commas.push(i);
+	}
+	return { commas, closeParen: -1 };
+}
+
 /**
  * Extract the delay argument (position 2) of a timer call, given the offset
- * of the char right AFTER the opening paren. Walks the source balancing
- * parens/brackets/braces so a multi-line callback first argument is skipped
- * correctly. Returns the argument text and its absolute start offset, or
- * null when there is no second argument in the scan window.
+ * of the char right AFTER the opening paren. Returns the argument text and
+ * its absolute start offset, or null when there is no second argument in the
+ * scan window.
  */
 function extractDelayArg(
 	stripped: string,
 	afterParen: number,
 ): { text: string; offset: number } | null {
 	const end = Math.min(stripped.length, afterParen + ARG_SCAN_WINDOW);
-	let depth = 1;
-	let commaCount = 0;
-	let argStart = -1;
-	for (let i = afterParen; i < end; i++) {
-		const ch = stripped.charAt(i);
-		if (ch === "(" || ch === "[" || ch === "{") depth++;
-		else if (ch === ")" || ch === "]" || ch === "}") {
-			depth--;
-			if (depth === 0) {
-				// Call closed — second arg (if started) ends here.
-				return argStart >= 0
-					? { text: stripped.slice(argStart, i).trim(), offset: argStart }
-					: null;
-			}
-		} else if (ch === "," && depth === 1) {
-			commaCount++;
-			if (commaCount === 1) argStart = i + 1;
-			// A second top-level comma ends the delay arg (extra callback params).
-			else if (commaCount === 2)
-				return { text: stripped.slice(argStart, i).trim(), offset: argStart };
-		}
-	}
-	return null;
+	const { commas, closeParen } = scanCallBoundaries(stripped, afterParen, end);
+	const firstComma = commas[0];
+	if (firstComma === undefined) return null;
+	const argStart = firstComma + 1;
+	// A second top-level comma ends the delay arg (extra callback params);
+	// otherwise the closing paren does.
+	const argEnd = commas[1] ?? closeParen;
+	if (argEnd < 0) return null;
+	return { text: stripped.slice(argStart, argEnd).trim(), offset: argStart };
 }
 
 // ─── Classification ───────────────────────────────────────────────────────────

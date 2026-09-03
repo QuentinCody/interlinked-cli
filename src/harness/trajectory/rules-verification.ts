@@ -15,7 +15,13 @@
 // block: "no verifier observed" is a discipline signal, not deterministic harm,
 // so a blocked legitimate commit would fail the low-FP bar.
 
-import { isSourceCodeFile, isTestFile, isVerifyCommand, splitSegments } from "./helpers.js";
+import {
+	isPostEdit,
+	isSourceCodeFile,
+	isTestFile,
+	isVerifyCommand,
+	splitSegments,
+} from "./helpers.js";
 import type { ToolEvent, TrajectoryRule, Verdict } from "./types.js";
 
 function nudge(ruleId: string, severity: Verdict["severity"], reason: string): Verdict {
@@ -37,12 +43,6 @@ function editLines(event: ToolEvent): number {
 	return lineCount(added) + lineCount(removed);
 }
 
-function isPostEdit(event: ToolEvent): boolean {
-	return (
-		event.hook === "PostToolUse" &&
-		(event.tool === "Edit" || event.tool === "Write" || event.tool === "MultiEdit")
-	);
-}
 function isPostSourceEdit(event: ToolEvent): boolean {
 	return isPostEdit(event) && !!event.input.file_path && isSourceCodeFile(event.input.file_path);
 }
@@ -65,16 +65,22 @@ function isGitCommitOrPush(cmd: string): boolean {
 		const toks = seg.split(/\s+/).filter((t) => t.length > 0);
 		const gi = toks.findIndex((t) => t === "git" || t.endsWith("/git"));
 		if (gi === -1) continue;
-		for (let i = gi + 1; i < toks.length; i++) {
-			const t = toks[i] ?? "";
-			if (t === "-C" || t === "-c") {
-				i++; // this global option consumes its argument
-				continue;
-			}
-			if (t.startsWith("-")) continue; // other flags
-			if (t === "commit" || t === "push") return true;
-			break; // the first real subcommand isn't commit/push
+		if (segmentSubcommandIsCommitOrPush(toks, gi)) return true;
+	}
+	return false;
+}
+
+/** True when the first real subcommand after the `git` token (at index `gi`) is commit/push. */
+function segmentSubcommandIsCommitOrPush(toks: string[], gi: number): boolean {
+	for (let i = gi + 1; i < toks.length; i++) {
+		const t = toks[i] ?? "";
+		if (t === "-C" || t === "-c") {
+			i++; // this global option consumes its argument
+			continue;
 		}
+		if (t.startsWith("-")) continue; // other flags
+		if (t === "commit" || t === "push") return true;
+		break; // the first real subcommand isn't commit/push
 	}
 	return false;
 }

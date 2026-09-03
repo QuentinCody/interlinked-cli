@@ -157,6 +157,21 @@ export function isCommitAllFlag(arg: string): boolean {
 }
 
 /** Strip `commit` flags + their values, returning only positional args. */
+/** For a `git commit` flag token, how many *additional* argv slots it
+ *  consumes (its own value, if any) — or `null` if `tok` is not a flag at
+ *  all (i.e. it is positional). */
+function commitFlagValueSkip(tok: string): number | null {
+	if (!tok.startsWith("-")) return null;
+	// `--flag=value` — already self-contained.
+	if (tok.includes("=")) return 0;
+	if (COMMIT_FLAGS_TAKING_VALUE.has(tok)) return 1; // skip value
+	// Combined short flag like `-am` followed by the message.
+	if (/^-[A-Za-z]+$/.test(tok) && tok.includes("m") && tok !== "--message") {
+		return 1; // the next arg is the message body, skip it
+	}
+	return 0;
+}
+
 export function stripCommitFlags(args: string[]): string[] {
 	const positional: string[] = [];
 	let sawDashDash = false;
@@ -170,19 +185,9 @@ export function stripCommitFlags(args: string[]): string[] {
 			sawDashDash = true;
 			continue;
 		}
-		if (tok.startsWith("-")) {
-			// `--flag=value` — already self-contained.
-			if (tok.includes("=")) continue;
-			if (COMMIT_FLAGS_TAKING_VALUE.has(tok)) {
-				i++; // skip value
-				continue;
-			}
-			// Combined short flag like `-am` followed by the message.
-			if (/^-[A-Za-z]+$/.test(tok) && tok.includes("m") && tok !== "--message") {
-				// The next arg is the message body, skip it.
-				i++;
-				continue;
-			}
+		const valueSkip = commitFlagValueSkip(tok);
+		if (valueSkip !== null) {
+			i += valueSkip;
 			continue;
 		}
 		positional.push(tok);

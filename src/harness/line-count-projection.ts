@@ -100,6 +100,40 @@ function projectEdit(toolInput: JsonObject, filePath: string): LineCountProjecti
 	};
 }
 
+/** Result of applying one MultiEdit step: the line-count delta it
+ *  contributes and the running `afterText` after this step. */
+interface MultiEditStepResult {
+	lineDelta: number;
+	afterText: string;
+}
+
+/** Apply a single MultiEdit entry against the ORIGINAL text (for occurrence
+ *  counting, matching the long-standing approximation) and the running
+ *  `afterText` accumulator (for the sequential text projection). Returns
+ *  null for a malformed entry, which the caller skips. */
+function applyMultiEditStep(
+	raw: unknown,
+	originalText: string,
+	afterText: string,
+): MultiEditStepResult | null {
+	if (typeof raw !== "object" || raw === null) return null;
+	const edit = raw as JsonObject;
+	if (typeof edit.old_string !== "string" || typeof edit.new_string !== "string") {
+		return null;
+	}
+	const occurrences =
+		edit.replace_all === true ? countOccurrences(originalText, edit.old_string) : 1;
+	const lineDelta = (countLines(edit.new_string) - countLines(edit.old_string)) * occurrences;
+	if (edit.old_string.length === 0) {
+		return { lineDelta, afterText };
+	}
+	const nextAfterText =
+		edit.replace_all === true
+			? afterText.split(edit.old_string).join(edit.new_string)
+			: replaceFirst(afterText, edit.old_string, edit.new_string);
+	return { lineDelta, afterText: nextAfterText };
+}
+
 /** Projection for the MultiEdit shape (a sequence of edits applied in order).
  *  The numeric delta keeps the long-standing approximation (occurrences
  *  counted against the ORIGINAL text); `afterText` applies the edits
@@ -111,20 +145,10 @@ function projectMultiEdit(toolInput: JsonObject, filePath: string): LineCountPro
 	let lineDelta = 0;
 	let afterText = current.text;
 	for (const raw of toolInput.edits) {
-		if (typeof raw !== "object" || raw === null) continue;
-		const edit = raw as JsonObject;
-		if (typeof edit.old_string !== "string" || typeof edit.new_string !== "string") {
-			continue;
-		}
-		const occurrences =
-			edit.replace_all === true ? countOccurrences(current.text, edit.old_string) : 1;
-		lineDelta += (countLines(edit.new_string) - countLines(edit.old_string)) * occurrences;
-		if (edit.old_string.length > 0) {
-			afterText =
-				edit.replace_all === true
-					? afterText.split(edit.old_string).join(edit.new_string)
-					: replaceFirst(afterText, edit.old_string, edit.new_string);
-		}
+		const step = applyMultiEditStep(raw, current.text, afterText);
+		if (!step) continue;
+		lineDelta += step.lineDelta;
+		afterText = step.afterText;
 	}
 	return {
 		before: current.lines,

@@ -9,22 +9,11 @@
 //   - same_command_thrice_no_observe (§3.9, pre_warn)
 
 import { isNetworkCommand } from "../taint-tracker.js";
+import { CONFIDENTIAL_LEVELS, getCommand, isBashCandidate } from "./candidate-helpers.js";
 import type { SequenceDetector } from "./types.js";
-
-const CONFIDENTIAL_LEVELS = new Set(["Confidential", "HighlyConfidential"]);
 
 /** Test if the candidate Bash command targets localhost / loopback. */
 const LOCALHOST_RE = /\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0|::1)\b/;
-
-function isBashCandidate(toolName: string | undefined): boolean {
-	return toolName === "Bash";
-}
-
-function getCommand(toolInput: { command?: unknown } | undefined): string {
-	if (!toolInput) return "";
-	const cmd = toolInput.command;
-	return typeof cmd === "string" ? cmd : "";
-}
 
 // ============================================================
 // §3.1 secret_read_then_network_call

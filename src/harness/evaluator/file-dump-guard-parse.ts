@@ -21,6 +21,16 @@
  */
 import { nonNull } from "../../lib/non-null.js";
 
+/**
+ * True when the (unquoted) character at `i` opens a command-group boundary:
+ * `;`, a newline, or a doubled `&&` / `||`.
+ */
+function isGroupBoundary(command: string, i: number): boolean {
+	const ch = command[i];
+	if (ch === ";" || ch === "\n") return true;
+	return (ch === "&" || ch === "|") && command[i + 1] === ch;
+}
+
 export function firstCommandGroup(command: string): string {
 	let q: '"' | "'" | "`" | null = null;
 	for (let i = 0; i < command.length; i++) {
@@ -33,8 +43,7 @@ export function firstCommandGroup(command: string): string {
 			q = ch;
 			continue;
 		}
-		if (ch === ";" || ch === "\n") return command.slice(0, i);
-		if ((ch === "&" || ch === "|") && command[i + 1] === ch) return command.slice(0, i);
+		if (isGroupBoundary(command, i)) return command.slice(0, i);
 	}
 	return command;
 }
@@ -254,6 +263,14 @@ function classifyFilePathToken(tokens: string[], i: number, flagsWithValue: Set<
 }
 
 /**
+ * The positional paths that follow a `--` end-of-flags marker at index `i`
+ * (empty tokens dropped, exactly as the caller's scan did).
+ */
+function pathsAfterEndOfFlags(tokens: string[], i: number): string[] {
+	return tokens.slice(i + 1).filter((t) => t.length > 0);
+}
+
+/**
  * Extracts positional file path arguments from the token stream. Returns
  * empty array when the args contain a glob, command substitution, or other
  * shape we can't safely stat — so the guard fails open on uncertain inputs.
@@ -267,7 +284,7 @@ export function extractFilePaths(tokens: string[], verb: string): string[] {
 		if (step.action === "none" || step.action === "skip") continue;
 		if (step.action === "end-of-flags") {
 			// End-of-flags marker
-			for (const f of tokens.slice(i + 1)) if (f) out.push(f);
+			out.push(...pathsAfterEndOfFlags(tokens, i));
 			break;
 		}
 		if (step.action === "bail") return [];

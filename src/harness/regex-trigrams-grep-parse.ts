@@ -72,6 +72,44 @@ const SHELL_OPERATOR_CHARS = new Set([
 	"\n",
 ]);
 
+/** Whether the scan in `hasUnquotedShellOperator` currently sits inside a quoted run. */
+interface ShellQuoteState {
+	inSingle: boolean;
+	inDouble: boolean;
+}
+
+/**
+ * Consume `argsStr[i]` when the scan is inside a quoted run, closing the run on
+ * its terminator and stepping over a backslash escape inside double quotes.
+ * Returns the index to continue from, or null when the scan is not in a quote.
+ */
+function skipQuotedChar(argsStr: string, i: number, quotes: ShellQuoteState): number | null {
+	const ch = nonNull(argsStr[i]);
+	if (quotes.inSingle) {
+		if (ch === "'") quotes.inSingle = false;
+		return i + 1;
+	}
+	if (quotes.inDouble) {
+		if (ch === "\\") return i + 2;
+		if (ch === '"') quotes.inDouble = false;
+		return i + 1;
+	}
+	return null;
+}
+
+/** Open a quoted run when `ch` is a quote character. True when `quotes` changed. */
+function openQuotedRun(ch: string, quotes: ShellQuoteState): boolean {
+	if (ch === "'") {
+		quotes.inSingle = true;
+		return true;
+	}
+	if (ch === '"') {
+		quotes.inDouble = true;
+		return true;
+	}
+	return false;
+}
+
 /** True when `argsStr` contains a shell operator OUTSIDE quotes — i.e. the
  *  command is a pipeline or compound command (`rg … | …`, `rg … && …`,
  *  `$(…)`, backticks, brace/paren groups). The accelerator can only answer the
@@ -79,34 +117,27 @@ const SHELL_OPERATOR_CHARS = new Set([
  *  command, so these must run natively. Quoted operators (e.g. the `|` in the
  *  regex `'a|b'`) are part of the pattern and are ignored. */
 function hasUnquotedShellOperator(argsStr: string): boolean {
-	let inSingle = false;
-	let inDouble = false;
-	for (let i = 0; i < argsStr.length; i++) {
+	const quotes: ShellQuoteState = { inSingle: false, inDouble: false };
+	let i = 0;
+	while (i < argsStr.length) {
+		const afterQuoted = skipQuotedChar(argsStr, i, quotes);
+		if (afterQuoted !== null) {
+			i = afterQuoted;
+			continue;
+		}
 		const ch = nonNull(argsStr[i]);
-		if (inSingle) {
-			if (ch === "'") inSingle = false;
-			continue;
-		}
-		if (inDouble) {
-			if (ch === "\\") i++;
-			else if (ch === '"') inDouble = false;
-			continue;
-		}
-		if (ch === "'") {
-			inSingle = true;
-			continue;
-		}
-		if (ch === '"') {
-			inDouble = true;
+		if (openQuotedRun(ch, quotes)) {
+			i++;
 			continue;
 		}
 		if (ch === "\\") {
-			i++; // escaped char is literal
+			i += 2; // escaped char is literal
 			continue;
 		}
 		if (SHELL_OPERATOR_CHARS.has(ch)) {
 			return true;
 		}
+		i++;
 	}
 	return false;
 }
@@ -135,6 +166,46 @@ function applyGrepFlag(
 		return { i: i + 1, patternFromFlag: true };
 	}
 	return { i, patternFromFlag: false };
+}
+
+/** What one pass over the argument tokens yielded, once flags were applied. */
+interface GrepTokenScan {
+	positionals: string[];
+	/** True when `-e PATTERN` supplied the pattern, so no positional is needed for it. */
+	patternFromFlag: boolean;
+}
+
+/**
+ * Walk `tokens`, applying every safe flag to `result` and collecting the
+ * positionals. `--` ends flag parsing. Returns null to decline (an unmodeled
+ * flag or a dangling `-e`); the caller then falls through to native.
+ */
+function scanGrepTokens(tokens: string[], result: ParsedGrepCommand): GrepTokenScan | null {
+	const positionals: string[] = [];
+	let patternFromFlag = false;
+	let endOfFlags = false;
+
+	for (let i = 0; i < tokens.length; i++) {
+		const tok = nonNull(tokens[i]);
+
+		// `--` ends flag parsing; everything after is positional.
+		if (!endOfFlags && tok === "--") {
+			endOfFlags = true;
+			continue;
+		}
+
+		if (endOfFlags || tok.length <= 1 || !tok.startsWith("-")) {
+			positionals.push(tok);
+			continue;
+		}
+
+		const applied = applyGrepFlag(tok, tokens, i, result);
+		if (applied === "decline") return null;
+		i = applied.i;
+		if (applied.patternFromFlag) patternFromFlag = true;
+	}
+
+	return { positionals, patternFromFlag };
 }
 
 /**
@@ -189,32 +260,10 @@ export function parseGrepCommand(command: string): ParsedGrepCommand | null {
 		caseInsensitive: false,
 	};
 
-	const tokens = tokenizeShellArgs(argsStr);
-	const positionals: string[] = [];
-	let patternFromFlag = false;
-	let endOfFlags = false;
+	const scan = scanGrepTokens(tokenizeShellArgs(argsStr), result);
+	if (!scan) return null;
 
-	for (let i = 0; i < tokens.length; i++) {
-		const tok = nonNull(tokens[i]);
-
-		// `--` ends flag parsing; everything after is positional.
-		if (!endOfFlags && tok === "--") {
-			endOfFlags = true;
-			continue;
-		}
-
-		if (!endOfFlags && tok.length > 1 && tok.startsWith("-")) {
-			const applied = applyGrepFlag(tok, tokens, i, result);
-			if (applied === "decline") return null;
-			i = applied.i;
-			if (applied.patternFromFlag) patternFromFlag = true;
-			continue;
-		}
-
-		positionals.push(tok);
-	}
-
-	return assignGrepPositionals(result, positionals, patternFromFlag) ? result : null;
+	return assignGrepPositionals(result, scan.positionals, scan.patternFromFlag) ? result : null;
 }
 
 /** Result of consuming one character inside a quoted run. */
@@ -262,19 +311,17 @@ interface TokenizeCursor {
 }
 
 /**
- * Advance `cursor` by one step against `input[cursor.i]`, pushing a completed
- * token into `tokens` on whitespace. Mutates `cursor` in place. Returns true
- * when a shell operator ends the scan (the caller must stop iterating).
+ * Consume one character of an already-open quoted run, updating `cursor` and
+ * clearing the flag when the run closes. Returns false when the cursor is not
+ * inside a quoted run, so the caller handles the character itself.
  */
-function advanceTokenizerCursor(input: string, cursor: TokenizeCursor, tokens: string[]): boolean {
-	const ch = nonNull(input[cursor.i]);
-
+function advanceInsideQuotedRun(input: string, cursor: TokenizeCursor): boolean {
 	if (cursor.inSingle) {
 		const st = consumeSingleQuoted(input, cursor.i, cursor.current);
 		cursor.current = st.current;
 		cursor.i = st.i;
 		if (st.closed) cursor.inSingle = false;
-		return false;
+		return true;
 	}
 
 	if (cursor.inDouble) {
@@ -282,8 +329,21 @@ function advanceTokenizerCursor(input: string, cursor: TokenizeCursor, tokens: s
 		cursor.current = st.current;
 		cursor.i = st.i;
 		if (st.closed) cursor.inDouble = false;
-		return false;
+		return true;
 	}
+
+	return false;
+}
+
+/**
+ * Advance `cursor` by one step against `input[cursor.i]`, pushing a completed
+ * token into `tokens` on whitespace. Mutates `cursor` in place. Returns true
+ * when a shell operator ends the scan (the caller must stop iterating).
+ */
+function advanceTokenizerCursor(input: string, cursor: TokenizeCursor, tokens: string[]): boolean {
+	const ch = nonNull(input[cursor.i]);
+
+	if (advanceInsideQuotedRun(input, cursor)) return false;
 
 	if (ch === "'") {
 		cursor.inSingle = true;

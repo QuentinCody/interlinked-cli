@@ -101,6 +101,74 @@ function completedFromPrior(
     };
 }
 
+type SemanticSource = ReturnType<typeof discoverSemanticSources>[number];
+type SemanticConfig = ReturnType<typeof loadSemanticConfig>;
+
+interface SourceRows {
+    /** Rows whose vector was reused from the prior generation. */
+    reused: CompletedRow[];
+    /** Rows still needing an embedding pass. */
+    pending: PreparedRow[];
+    /** One entry per function whose chunking threw. */
+    notIndexedReasons: Array<{ file: string; symbol: string; reason: string }>;
+}
+
+/**
+ * Prepares every function row for one source file, or returns null when the
+ * file is unsupported (inexact source, or no extractable function tokens).
+ */
+async function prepareSourceRows(
+    source: SemanticSource,
+    config: SemanticConfig,
+    runtime: LocalEmbeddingRuntime,
+    reusable: Map<string, CompletedRow>,
+): Promise<SourceRows | null> {
+    if (!source.exact) return null;
+    const entries = computeFunctionTokens(source.content, source.relativePath);
+    if (entries === null) return null;
+    const result: SourceRows = { reused: [], pending: [], notIndexedReasons: [] };
+    const ordinals = new Map<string, number>();
+    for (const entry of entries) {
+        const ordinalKey = `${entry.qualifiedName}\0${entry.declarationKind}`;
+        const ordinal = ordinals.get(ordinalKey) ?? 0;
+        ordinals.set(ordinalKey, ordinal + 1);
+        const input = buildFunctionEmbeddingInput(source.content, entry, config.manifest);
+        const base = {
+            id: stableId(source.relativePath, entry.qualifiedName, entry.declarationKind, ordinal),
+            file: source.relativePath,
+            qualifiedName: entry.qualifiedName,
+            declarationKind: entry.declarationKind,
+            language: entry.language,
+            line: entry.line,
+            endLine: entry.endLine,
+            canonicalTokens: entry.canonicalTokens,
+            contentHash: input.contentHash,
+            inputHash: input.inputHash,
+        };
+        const cached = reusable.get(input.inputHash);
+        if (cached !== undefined) {
+            result.reused.push(completedFromPrior(base, cached));
+            continue;
+        }
+        try {
+            const prepared = await chunkFunctionInput(input, config.manifest, runtime);
+            result.pending.push({
+                row: base,
+                chunks: prepared.chunks,
+                modelTokens: prepared.modelTokens,
+                code: input.code,
+            });
+        } catch (error) {
+            result.notIndexedReasons.push({
+                file: source.relativePath,
+                symbol: entry.qualifiedName,
+                reason: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+    return result;
+}
+
 async function prepareRows(
     root: string,
     runtime: LocalEmbeddingRuntime,
@@ -124,56 +192,16 @@ async function prepareRows(
     const notIndexedReasons: Array<{ file: string; symbol: string; reason: string }> = [];
     let reused = 0;
     for (const source of sources) {
-        if (!source.exact) {
+        const sourceRows = await prepareSourceRows(source, config, runtime, reusable);
+        if (sourceRows === null) {
             unsupported++;
             continue;
         }
-        const entries = computeFunctionTokens(source.content, source.relativePath);
-        if (entries === null) {
-            unsupported++;
-            continue;
-        }
-        const ordinals = new Map<string, number>();
-        for (const entry of entries) {
-            const ordinalKey = `${entry.qualifiedName}\0${entry.declarationKind}`;
-            const ordinal = ordinals.get(ordinalKey) ?? 0;
-            ordinals.set(ordinalKey, ordinal + 1);
-            const input = buildFunctionEmbeddingInput(source.content, entry, config.manifest);
-            const base = {
-                id: stableId(source.relativePath, entry.qualifiedName, entry.declarationKind, ordinal),
-                file: source.relativePath,
-                qualifiedName: entry.qualifiedName,
-                declarationKind: entry.declarationKind,
-                language: entry.language,
-                line: entry.line,
-                endLine: entry.endLine,
-                canonicalTokens: entry.canonicalTokens,
-                contentHash: input.contentHash,
-                inputHash: input.inputHash,
-            };
-            const cached = reusable.get(input.inputHash);
-            if (cached !== undefined) {
-                completed.push(completedFromPrior(base, cached));
-                reused++;
-                continue;
-            }
-            try {
-                const prepared = await chunkFunctionInput(input, config.manifest, runtime);
-                pending.push({
-                    row: base,
-                    chunks: prepared.chunks,
-                    modelTokens: prepared.modelTokens,
-                    code: input.code,
-                });
-            } catch (error) {
-                notIndexed++;
-                notIndexedReasons.push({
-                    file: source.relativePath,
-                    symbol: entry.qualifiedName,
-                    reason: error instanceof Error ? error.message : String(error),
-                });
-            }
-        }
+        completed.push(...sourceRows.reused);
+        reused += sourceRows.reused.length;
+        pending.push(...sourceRows.pending);
+        notIndexed += sourceRows.notIndexedReasons.length;
+        notIndexedReasons.push(...sourceRows.notIndexedReasons);
     }
     return {
         completed,

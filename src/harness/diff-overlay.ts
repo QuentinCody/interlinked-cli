@@ -233,6 +233,42 @@ export function _isRelativeModuleNotFound(f: CheckResult): boolean {
 }
 
 /**
+ * The pre-edit tsc baseline for a file that exists on disk: either the
+ * diagnostics to diff against, or the reason there is nothing to diff.
+ */
+type PreEditTscBaseline =
+	| { status: "ok"; findings: CheckResult[] }
+	| { status: "skipped" }
+	| { status: "unavailable"; reason: string };
+
+/**
+ * Pre-edit snapshot via LS overlay against disk content. Cached so we
+ * don't re-run for every edit to the same file.
+ */
+function preEditTscBaseline(
+	engine: ReturnType<typeof getOrCreateEngine>,
+	filePath: string,
+	onDisk: string,
+	cacheKey: string,
+): PreEditTscBaseline {
+	const cached = preEditTscCache.get(cacheKey);
+	if (cached) return { status: "ok", findings: cached };
+
+	const preOutcome = engine.getTscDiagnosticsForOverlayTyped(filePath, onDisk);
+	if (preOutcome.status === "unavailable") {
+		// Never cache an unavailable run as "no diagnostics" — that would
+		// poison the baseline for the cooldown window. Report honestly.
+		return { status: "unavailable", reason: preOutcome.reason };
+	}
+	// "skipped" (non-TS file / mode off): nothing to diff — the check
+	// deliberately does not apply here, distinct from checked-clean.
+	if (preOutcome.status === "skipped") return { status: "skipped" };
+
+	preEditTscCache.set(cacheKey, preOutcome.findings);
+	return { status: "ok", findings: preOutcome.findings };
+}
+
+/**
  * Evaluate whether the proposed overlay content introduces new tsc
  * diagnostics relative to the file on disk.
  *
@@ -271,27 +307,15 @@ export function evaluateTscDiffOverlay(
 
 	const engine = getOrCreateEngine(projectRoot);
 
-	// Pre-edit snapshot via LS overlay against disk content. Cached so we
-	// don't re-run for every edit to the same file.
 	const cacheKey = tscCacheKey(filePath);
 	let preEdit: CheckResult[] = [];
 	if (existsOnDisk) {
-		const cached = preEditTscCache.get(cacheKey);
-		if (cached) {
-			preEdit = cached;
-		} else {
-			const preOutcome = engine.getTscDiagnosticsForOverlayTyped(filePath, onDisk);
-			if (preOutcome.status === "unavailable") {
-				// Never cache an unavailable run as "no diagnostics" — that would
-				// poison the baseline for the cooldown window. Report honestly.
-				return { ...empty, checkerUnavailable: preOutcome.reason };
-			}
-			// "skipped" (non-TS file / mode off): nothing to diff — the check
-			// deliberately does not apply here, distinct from checked-clean.
-			if (preOutcome.status === "skipped") return empty;
-			preEdit = preOutcome.findings;
-			preEditTscCache.set(cacheKey, preEdit);
+		const baseline = preEditTscBaseline(engine, filePath, onDisk, cacheKey);
+		if (baseline.status === "unavailable") {
+			return { ...empty, checkerUnavailable: baseline.reason };
 		}
+		if (baseline.status === "skipped") return empty;
+		preEdit = baseline.findings;
 	}
 
 	const start = Date.now();

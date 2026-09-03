@@ -54,6 +54,25 @@ interface WalkContext {
 	ignoredDirs?: ReadonlySet<string>;
 }
 
+/** Process one directory entry during the package walk. Returns true when the
+ *  caller should stop iterating, i.e. a recursive descent tripped the
+ *  truncation flag — mirrors the `return`/`continue` split that used to live
+ *  inline in `findPackages`'s loop body. */
+function processEntry(entry: fs.Dirent, dir: string, ctx: WalkContext): boolean {
+	if (entry.isDirectory()) {
+		const sub = path.join(dir, entry.name);
+		if (SKIP_DIRS.has(entry.name) || isRootScratchDir(ctx.repoRoot, sub) || ctx.ignoredDirs?.has(sub)) return false;
+		findPackages(sub, ctx);
+		return ctx.budget.truncated;
+	}
+	if (entry.isFile() && PACKAGE_MARKERS.includes(entry.name)) {
+		const relDir = path.relative(ctx.repoRoot, dir) || ".";
+		const relFile = path.relative(ctx.repoRoot, path.join(dir, entry.name));
+		ctx.results.push({ relDir, file: relFile });
+	}
+	return false;
+}
+
 function findPackages(dir: string, ctx: WalkContext): void {
 	let entries: fs.Dirent[];
 	try {
@@ -64,16 +83,7 @@ function findPackages(dir: string, ctx: WalkContext): void {
 	for (const entry of entries) {
 		// Hard cap: stop descending/iterating once the entry or time budget trips.
 		if (!consumeWalkEntry(ctx.budget)) return;
-		if (entry.isDirectory()) {
-			const sub = path.join(dir, entry.name);
-			if (SKIP_DIRS.has(entry.name) || isRootScratchDir(ctx.repoRoot, sub) || ctx.ignoredDirs?.has(sub)) continue;
-			findPackages(sub, ctx);
-			if (ctx.budget.truncated) return;
-		} else if (entry.isFile() && PACKAGE_MARKERS.includes(entry.name)) {
-			const relDir = path.relative(ctx.repoRoot, dir) || ".";
-			const relFile = path.relative(ctx.repoRoot, path.join(dir, entry.name));
-			ctx.results.push({ relDir, file: relFile });
-		}
+		if (processEntry(entry, dir, ctx)) return;
 	}
 }
 

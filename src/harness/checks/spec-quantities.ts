@@ -17,6 +17,27 @@ const ADDRESSED_RE =
 	/\bwraps? (?:at|after)\b|\bwiden\b|\bprohibit|\bnever reused\b|\bsaturat|\bexplicit(?:ly)? (?:bounded|capped)/i;
 
 /**
+ * One finding per bounded bit field named on a single reuse/counter line — ALL
+ * of them, not just the first (round-2 #28): a line naming two bounded fields
+ * must flag both.
+ */
+function bitFieldFindings(line: string, lineNumber: number): InlineMatch[] {
+	const found: InlineMatch[] = [];
+	for (const m of line.matchAll(BIT_FIELD_RE_G)) {
+		const bits = Number(m[1]);
+		if (!Number.isFinite(bits) || bits < 2 || bits > 64) continue;
+		const capacity = bits >= 53 ? `2^${bits}` : `${2 ** bits}`;
+		found.push({
+			line: lineNumber,
+			text: siteText(
+				`${bits}-bit field with reuse/counter semantics wraps at ${capacity} — state where reuse is prohibited, the field is widened, or wraparound is handled`,
+			),
+		});
+	}
+	return found;
+}
+
+/**
  * Capacity-wrap obligation: an N-bit field discussed alongside reuse/counter
  * vocabulary, with no wrap/widen/prohibition statement on the same line.
  * Emits the wrap point (2^N) as a pointed question, never a verdict.
@@ -31,19 +52,9 @@ export function checkSpecCapacityClaims(
 	for (let i = 0; i < lines.length && out.length < MAX_MATCHES; i++) {
 		const line = lines[i] ?? "";
 		if (!REUSE_VOCAB_RE.test(line) || ADDRESSED_RE.test(line)) continue;
-		// ALL bit fields on the line, not just the first (round-2 #28): a line
-		// naming two bounded fields must flag both.
-		for (const m of line.matchAll(BIT_FIELD_RE_G)) {
+		for (const finding of bitFieldFindings(line, i + 1)) {
 			if (out.length >= MAX_MATCHES) break;
-			const bits = Number(m[1]);
-			if (!Number.isFinite(bits) || bits < 2 || bits > 64) continue;
-			const capacity = bits >= 53 ? `2^${bits}` : `${2 ** bits}`;
-			out.push({
-				line: i + 1,
-				text: siteText(
-					`${bits}-bit field with reuse/counter semantics wraps at ${capacity} — state where reuse is prohibited, the field is widened, or wraparound is handled`,
-				),
-			});
+			out.push(finding);
 		}
 	}
 	return out;
@@ -100,6 +111,22 @@ function collectTables(lines: string[]): TableBlock[] {
 	return tables;
 }
 
+/** Sum one column across data rows, plus how many of its cells were numeric. */
+function columnSum(
+	dataRows: TableBlock["rows"],
+	col: number,
+): { sum: number; numericCount: number } {
+	let sum = 0;
+	let numericCount = 0;
+	for (const row of dataRows) {
+		const v = numericCell(row.cells[col] ?? "");
+		if (v === null) continue;
+		numericCount++;
+		sum += v;
+	}
+	return { sum, numericCount };
+}
+
 /** Check one table's Total/Sum rows against each numeric column. */
 function checkTable(table: TableBlock, out: InlineMatch[]): void {
 	const totalRow = table.rows.find((r) => TOTAL_LABEL_RE.test(r.cells[0] ?? ""));
@@ -108,14 +135,7 @@ function checkTable(table: TableBlock, out: InlineMatch[]): void {
 	for (let col = 1; col < totalRow.cells.length; col++) {
 		const stated = numericCell(totalRow.cells[col] ?? "");
 		if (stated === null) continue;
-		let sum = 0;
-		let numericCount = 0;
-		for (const row of dataRows) {
-			const v = numericCell(row.cells[col] ?? "");
-			if (v === null) continue;
-			numericCount++;
-			sum += v;
-		}
+		const { sum, numericCount } = columnSum(dataRows, col);
 		if (numericCount < 2) continue;
 		if (Math.abs(sum - stated) <= SUM_EPSILON) continue;
 		out.push({

@@ -203,6 +203,42 @@ function subjectBlockFor(blocks: TestBlock[], line: number): number {
 	return below !== -1 ? below : inner;
 }
 
+/** Comment-view lines (index-aligned with `content`) whose text narrates
+ *  platform-conditional behavior. */
+function findNarratedLines(content: string): number[] {
+	const commentView = stripLiteralsKeepComments(content).split("\n");
+	const narrated: number[] = [];
+	for (let i = 0; i < commentView.length; i++) {
+		const line = nonNull(commentView[i]);
+		if (!COMMENT_LINE_RE.test(line)) continue;
+		if (PLATFORM_NARRATION_RES.some((re) => re.test(line))) narrated.push(i);
+	}
+	return narrated;
+}
+
+/** Shared read-only context for evidence lookups across narrated lines. */
+interface NarrationContext {
+	blocks: TestBlock[];
+	mLines: string[];
+	masked: string;
+	constNames: readonly string[];
+	platformGates: (condition: string) => boolean;
+}
+
+/** Whether the test/suite that narrated line `i` is ABOUT already has
+ *  platform evidence (a gate, a platform reference, or an unconditional
+ *  skip) — see `subjectBlockFor` for how the subject block is chosen. */
+function isNarrationEvidenced(ctx: NarrationContext, i: number): boolean {
+	const subject = subjectBlockFor(ctx.blocks, i);
+	if (subject === -1) {
+		// File-level prose: accept platform awareness anywhere in real code.
+		return hasPlatformEvidence(ctx.masked, ctx.constNames);
+	}
+	const b = nonNull(ctx.blocks[subject]);
+	const slice = ctx.mLines.slice(b.startLine, b.endLine + 1).join("\n");
+	return gatedByChain(ctx.blocks, subject, ctx.platformGates) || hasPlatformEvidence(slice, ctx.constNames);
+}
+
 /**
  * Flag test files whose comments NARRATE platform-conditional behavior while
  * the test they describe never branches on it — the assertions silently
@@ -216,13 +252,7 @@ export function checkPlatformConditionalAssertion(
 	filePath: string,
 ): InlineMatch[] {
 	if (!isStrictTestFile(filePath) || !isJsTs(filePath)) return [];
-	const commentView = stripLiteralsKeepComments(content).split("\n");
-	const narrated: number[] = [];
-	for (let i = 0; i < commentView.length; i++) {
-		const line = nonNull(commentView[i]);
-		if (!COMMENT_LINE_RE.test(line)) continue;
-		if (PLATFORM_NARRATION_RES.some((re) => re.test(line))) narrated.push(i);
-	}
+	const narrated = findNarratedLines(content);
 	if (narrated.length === 0) return [];
 
 	const masked = stripAllLiterals(content);
@@ -231,21 +261,12 @@ export function checkPlatformConditionalAssertion(
 	const constNames = platformConstantNames(masked);
 	const platformGates = (condition: string): boolean => isPlatformCondition(condition, constNames);
 	const originalLines = content.split("\n");
+	const ctx: NarrationContext = { blocks, mLines, masked, constNames, platformGates };
 
 	const matches: InlineMatch[] = [];
 	for (const i of narrated) {
 		if (matches.length >= MAX_MATCHES) break;
-		const subject = subjectBlockFor(blocks, i);
-		let evidenced: boolean;
-		if (subject === -1) {
-			// File-level prose: accept platform awareness anywhere in real code.
-			evidenced = hasPlatformEvidence(masked, constNames);
-		} else {
-			const b = nonNull(blocks[subject]);
-			const slice = mLines.slice(b.startLine, b.endLine + 1).join("\n");
-			evidenced = gatedByChain(blocks, subject, platformGates) || hasPlatformEvidence(slice, constNames);
-		}
-		if (evidenced) continue;
+		if (isNarrationEvidenced(ctx, i)) continue;
 		matches.push({
 			line: i + 1,
 			text:

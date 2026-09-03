@@ -63,20 +63,37 @@ export async function modeCommand(
 		return;
 	}
 
-	if (options.diff || (!options.force && !options.json)) {
-		const changes = computeDiff(cwd, name, preset);
-		renderDiff(name, changes, options);
-		if (options.diff) return;
-		if (!options.force && !confirm(`\nApply ${name} mode?`)) {
-			process.stdout.write("Aborted.\n");
-			return;
-		}
-	}
+	if (!previewApproved(cwd, name, preset, options)) return;
 
 	if (!writeMode(cwd, name, options.local === true)) {
 		fail(`mode ${name} not applied — see the error above; neither file was changed`, options);
 		return;
 	}
+	reportModeApplied(cwd, name, options);
+}
+
+/** Render the current → target preview when the invocation asks for one, then
+ *  ask before writing. False means stop: `--diff` is preview-only, and an
+ *  unconfirmed prompt aborts. */
+function previewApproved(
+	cwd: string,
+	name: ModeName,
+	preset: ModePreset | null,
+	options: ModeCommandOptions,
+): boolean {
+	if (!options.diff && (options.force || options.json)) return true;
+	const changes = computeDiff(cwd, name, preset);
+	renderDiff(name, changes, options);
+	if (options.diff) return false;
+	if (!options.force && !confirm(`\nApply ${name} mode?`)) {
+		process.stdout.write("Aborted.\n");
+		return false;
+	}
+	return true;
+}
+
+/** Report the applied mode in the invocation's output format. */
+function reportModeApplied(cwd: string, name: ModeName, options: ModeCommandOptions): void {
 	if (options.json) {
 		process.stdout.write(
 			`${JSON.stringify(
@@ -90,10 +107,10 @@ export async function modeCommand(
 				2,
 			)}\n`,
 		);
-	} else {
-		const scope = options.local ? "personal override" : "shared config";
-		process.stdout.write(`[interlinked] Mode set to ${name} (${scope}).\n`);
+		return;
 	}
+	const scope = options.local ? "personal override" : "shared config";
+	process.stdout.write(`[interlinked] Mode set to ${name} (${scope}).\n`);
 }
 
 // -----------------------------------------------------------------------------

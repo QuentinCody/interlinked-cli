@@ -23,6 +23,7 @@ const EXPECTED_KEY_ORDER = [
 	"duplicateTypeDeclaration",
 	"newExportWithoutImporter",
 	"extractedHelperDuplicate",
+	"singleUseTrivialHelper",
 	"circularImports",
 	"untestedInversePair",
 	"untestedIdempotent",

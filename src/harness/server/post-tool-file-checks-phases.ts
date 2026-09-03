@@ -220,6 +220,72 @@ export function runShotgunSurgeryPhase(
 }
 
 /**
+ * Records one structure-check run's outputs: check results, the `structure`
+ * warning row, and the pending completions the run discovered.
+ */
+function recordStructureResults(
+	structResult: ReturnType<typeof runStructureChecks>,
+	session: SessionTrajectory,
+	decision: HarnessDecision,
+	acc: PerFileCheckCtx,
+): void {
+	const { allCheckResults, checksRan } = acc;
+	for (const r of structResult.results) {
+		allCheckResults.push(r);
+	}
+	if (structResult.findings.length > 0) {
+		checksRan.push("structure");
+		if (!decision.warnings) decision.warnings = [];
+		decision.warnings.push(...formatStructureWarnings(structResult.findings));
+	}
+	// Record structure pending completions into session state
+	for (const pc of structResult.pendingCompletions) {
+		session.pending_completions.set(`struct:${pc.source_artifact_ref}`, {
+			source_file: pc.source_file,
+			affected_files: pc.required_companion_files,
+			resolved_files: new Set(pc.resolved_companion_files),
+			recorded_at_tool_call: session.tool_call_count,
+			description: `[structure] ${pc.finding_class}: ${pc.source_artifact_ref}`,
+		});
+	}
+}
+
+/**
+ * Builds/refreshes the artifact graph rooted at the edited file's project and
+ * records the run's findings. Structure checks are guidance only, so any
+ * failure is logged and swallowed rather than surfaced to the agent.
+ */
+function runStructureChecksForFile(
+	ctx: ServerRuntime,
+	editedFilePath: string,
+	session: SessionTrajectory,
+	decision: HarnessDecision,
+	acc: PerFileCheckCtx,
+): void {
+	const CWD = ctx.cwd;
+	const log = ctx.log;
+	try {
+		const structRepoRoot = findProjectRoot(editedFilePath, CWD) || CWD;
+		const structResult = runStructureChecks(
+			editedFilePath,
+			structRepoRoot,
+			ctx.structureGraph,
+			ctx.structureConfigCache,
+			session.files_written,
+		);
+		ctx.structureGraph = structResult.graph;
+		if (!ctx.structureConfigCache) {
+			ctx.structureConfigCache = loadStructureConfig(structRepoRoot).config;
+		}
+		recordStructureResults(structResult, session, decision, acc);
+	} catch (structErr) {
+		log(
+			`Structure check error: ${structErr instanceof Error ? structErr.message : String(structErr)}`,
+		);
+	}
+}
+
+/**
  * Structure checks phase (non-blocking guidance) + the `scored_suggestions`
  * phase mark that closes out the scored-suggestions/structure window. Mutates
  * `ctx.structureGraph` / `ctx.structureConfigCache` caches in place.
@@ -232,9 +298,7 @@ export function runStructureChecksPhase(
 	decision: HarnessDecision,
 	acc: PerFileCheckCtx,
 ): void {
-	const CWD = ctx.cwd;
-	const log = ctx.log;
-	const { allCheckResults, checksRan, markPhase } = acc;
+	const { markPhase } = acc;
 
 	// --- Structure checks phase (non-blocking guidance) ---
 	// Skip cold graph build if existing checks already consumed most of the time budget.
@@ -253,50 +317,37 @@ export function runStructureChecksPhase(
 		editedFileInRepo &&
 		(hasCachedGraph || structElapsed < STRUCT_TIME_BUDGET_MS)
 	) {
-		try {
-			const structRepoRoot = findProjectRoot(editedFilePath, CWD) || CWD;
-			const structResult = runStructureChecks(
-				editedFilePath,
-				structRepoRoot,
-				ctx.structureGraph,
-				ctx.structureConfigCache,
-				session.files_written,
-			);
-			ctx.structureGraph = structResult.graph;
-			if (!ctx.structureConfigCache) {
-				ctx.structureConfigCache = loadStructureConfig(structRepoRoot).config;
-			}
-			for (const r of structResult.results) {
-				allCheckResults.push(r);
-			}
-			if (structResult.findings.length > 0) {
-				checksRan.push("structure");
-				if (!decision.warnings) decision.warnings = [];
-				decision.warnings.push(
-					...formatStructureWarnings(structResult.findings),
-				);
-			}
-			// Record structure pending completions into session state
-			for (const pc of structResult.pendingCompletions) {
-				session.pending_completions.set(`struct:${pc.source_artifact_ref}`, {
-					source_file: pc.source_file,
-					affected_files: pc.required_companion_files,
-					resolved_files: new Set(pc.resolved_companion_files),
-					recorded_at_tool_call: session.tool_call_count,
-					description: `[structure] ${pc.finding_class}: ${pc.source_artifact_ref}`,
-				});
-			}
-		} catch (structErr) {
-			log(
-				`Structure check error: ${structErr instanceof Error ? structErr.message : String(structErr)}`,
-			);
-		}
+		runStructureChecksForFile(ctx, editedFilePath, session, decision, acc);
 	}
 	// Phase mark — everything between project_wide_sweep and here was
 	// the scored-suggestions pipeline (scanInlineSuppressions,
 	// loadFileSuppressions, runStructureChecks). One of these is
 	// re-loading state per event and is the load-bearing tax.
 	markPhase("scored_suggestions");
+}
+
+/**
+ * Reads the post-edit file once for the behavioral phase and counts its
+ * suppression directives. Both `countSuppressionDirectives` and
+ * `checkAssertionDensity` need the same content — reading twice would double
+ * the I/O on every PostToolUse Edit. A missing/unreadable file yields
+ * `undefined` content and a zero count.
+ */
+function readEditedFileForBehavioral(editedFilePath: string): {
+	fileContent: string | undefined;
+	currentSuppressionCount: number;
+} {
+	let fileContent: string | undefined;
+	let currentSuppressionCount = 0;
+	try {
+		if (existsSync(editedFilePath)) {
+			fileContent = readFileSync(editedFilePath, "utf-8");
+			currentSuppressionCount = countSuppressionDirectives(fileContent);
+		}
+	} catch (e) {
+		void e;
+	}
+	return { fileContent, currentSuppressionCount };
 }
 
 /**
@@ -324,16 +375,8 @@ export function runBehavioralPhase(
 	// Capture fileContent once — both `countSuppressionDirectives`
 	// and `checkAssertionDensity` need it. Reading twice would
 	// double the I/O on every PostToolUse Edit.
-	let fileContent: string | undefined;
-	let currentSuppressionCount = 0;
-	try {
-		if (existsSync(editedFilePath)) {
-			fileContent = readFileSync(editedFilePath, "utf-8");
-			currentSuppressionCount = countSuppressionDirectives(fileContent);
-		}
-	} catch (e) {
-		void e;
-	}
+	const { fileContent, currentSuppressionCount } =
+		readEditedFileForBehavioral(editedFilePath);
 	// Refinement 2026-05: derive the set of lines this edit actually
 	// touched from tool_input + post-edit file content. Threaded into
 	// `runBehavioralChecks` → `checkPersistentWarningEscalation` so

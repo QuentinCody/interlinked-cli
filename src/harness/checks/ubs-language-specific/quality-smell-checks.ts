@@ -11,6 +11,7 @@ import {
 	stripCommentsAndStrings,
 } from "../shared.js";
 import { isJsTsFile, isPyFile, MATCH_LIMIT } from "./_shared.js";
+import { findDeeplyNestedCallbackLines } from "./callback-nesting.js";
 
 /**
  * `ubs_string_concat_in_loop` — `result += chunk` inside a loop is O(n²) in
@@ -158,46 +159,46 @@ export function checkUbsStringConcatInLoop(content: string, filePath: string): I
  * cascade — typically a sign of missing polymorphism. Flags 3+ consecutive
  * `instanceof` lines or `compareTo` lines in the same scope. post / warning.
  */
+/** Internal: does this stripped line carry `instanceof` or a `compareTo(` call? */
+function isComparisonChainLine(sl: string): boolean {
+	return /\binstanceof\b/.test(sl) || /\bcompareTo\s*\(/.test(sl);
+}
+
+/**
+ * Internal: line indices (0-based, ascending) that start a run of 3+ consecutive
+ * comparison lines. Blank or brace-only lines are tolerated inside a run;
+ * anything else ends it.
+ */
+function findComparisonChainRunStarts(strippedLines: string[]): number[] {
+	const runStarts: number[] = [];
+	let runStart = -1;
+	let runLen = 0;
+	for (const [i, sl] of strippedLines.entries()) {
+		if (isComparisonChainLine(sl)) {
+			if (runStart === -1) runStart = i;
+			runLen++;
+			continue;
+		}
+		if (/^\s*[}\s]*$/.test(sl)) continue;
+		if (runLen >= 3 && runStart !== -1) runStarts.push(runStart);
+		runStart = -1;
+		runLen = 0;
+	}
+	if (runLen >= 3 && runStart !== -1) runStarts.push(runStart);
+	return runStarts;
+}
+
 export function checkNumericComparisonChain(content: string, filePath: string): InlineMatch[] {
 	if (getExtension(filePath) !== ".java") return [];
 
 	const stripped = stripCommentsAndStrings(content);
 	const originalLines = content.split("\n");
-	const strippedLines = stripped.split("\n");
-	const matches: InlineMatch[] = [];
+	const runStarts = findComparisonChainRunStarts(stripped.split("\n"));
 
-	// Run-length scan: if 3+ consecutive lines (allowing closing braces between)
-	// contain `instanceof` or `compareTo`, flag the first line of the run.
-	let runStart = -1;
-	let runLen = 0;
-	for (const [i, sl] of strippedLines.entries()) {
-		if (matches.length >= MATCH_LIMIT) break;
-		const has =
-			/\binstanceof\b/.test(sl) ||
-			/\bcompareTo\s*\(/.test(sl);
-		if (has) {
-			if (runStart === -1) runStart = i;
-			runLen++;
-		} else if (/^\s*[}\s]*$/.test(sl)) {
-			// blank or brace-only line: tolerate inside a run
-		} else {
-			if (runLen >= 3 && runStart !== -1) {
-				matches.push({
-					line: runStart + 1,
-					text: nonNull(originalLines[runStart]).trim().slice(0, 150),
-				});
-			}
-			runStart = -1;
-			runLen = 0;
-		}
-	}
-	if (runLen >= 3 && runStart !== -1 && matches.length < MATCH_LIMIT) {
-		matches.push({
-			line: runStart + 1,
-			text: nonNull(originalLines[runStart]).trim().slice(0, 150),
-		});
-	}
-	return matches;
+	return runStarts.slice(0, MATCH_LIMIT).map((runStart) => ({
+		line: runStart + 1,
+		text: nonNull(originalLines[runStart]).trim().slice(0, 150),
+	}));
 }
 
 /**
@@ -422,44 +423,12 @@ export function checkDeeplyNestedCallback(content: string, filePath: string): In
 
 	const stripped = stripCommentsAndStrings(content);
 	const originalLines = content.split("\n");
-	const strippedLines = stripped.split("\n");
-	const matches: InlineMatch[] = [];
+	const nestedLines = findDeeplyNestedCallbackLines(stripped.split("\n"), MATCH_LIMIT);
 
-	const NESTING_LIMIT = 4;
-	let funcDepth = 0;
-	let braceDepth = 0;
-	const funcOpenStack: number[] = [];
-
-	for (const [i, line] of strippedLines.entries()) {
-		if (matches.length >= MATCH_LIMIT) break;
-
-		// Count function-opener occurrences on this line. We treat `function`,
-		// `function (`, and `=>` as candidates.
-		const funcOpens = ((line.match(/\bfunction\b|=>/g) || [])).length;
-		const opens = (line.match(/\{/g) || []).length;
-		const closes = (line.match(/\}/g) || []).length;
-
-		// If this line introduces a function and opens a brace, push.
-		if (funcOpens > 0 && opens > 0) {
-			for (let k = 0; k < Math.min(funcOpens, opens); k++) {
-				funcOpenStack.push(braceDepth);
-				funcDepth++;
-			}
-		}
-
-		braceDepth += opens - closes;
-
-		// Pop funcs whose entry depth is now ≥ current.
-		while (funcOpenStack.length > 0 && nonNull(funcOpenStack[funcOpenStack.length - 1]) >= braceDepth) {
-			funcOpenStack.pop();
-			funcDepth = funcOpenStack.length;
-		}
-
-		if (funcDepth >= NESTING_LIMIT) {
-			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-		}
-	}
-	return matches;
+	return nestedLines.map((i) => ({
+		line: i + 1,
+		text: nonNull(originalLines[i]).trim().slice(0, 150),
+	}));
 }
 
 /**

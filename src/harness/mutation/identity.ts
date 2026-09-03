@@ -166,9 +166,12 @@ function anonymousContextOrdinal(ts: TsModule, sf: TS.SourceFile, target: TS.Nod
 	let answer = 0;
 	const visit = (node: TS.Node): void => {
 		if (node !== boundary) {
-			if (ts.isClassDeclaration(node) || ts.isModuleDeclaration(node)) return;
+			// A pruned node opens its OWN anonymous-numbering context, so neither
+			// it nor its subtree participates in this walk.
+			if (prunesOrdinalWalk(ts, sf, node)) return;
+			// Anything function-like still standing is anonymous — the named case
+			// was pruned above — so this is the next ordinal in the context.
 			if (isFunctionLike(ts, node)) {
-				if (localName(ts, sf, node) !== "(anonymous)") return;
 				if (node === target) answer = ordinal;
 				ordinal++;
 			}
@@ -177,6 +180,16 @@ function anonymousContextOrdinal(ts: TsModule, sf: TS.SourceFile, target: TS.Nod
 	};
 	visit(boundary);
 	return answer;
+}
+
+/** Whether `node` and its subtree are excluded from the enclosing context's
+ *  anonymous-ordinal walk. A nested class or namespace, and any NAMED
+ *  function, starts a numbering context of its own; only anonymous
+ *  function-like nodes are counted by the caller. Extracted from `visit` so
+ *  the walk reads as prune-then-count instead of three nested conditionals. */
+function prunesOrdinalWalk(ts: TsModule, sf: TS.SourceFile, node: TS.Node): boolean {
+	if (ts.isClassDeclaration(node) || ts.isModuleDeclaration(node)) return true;
+	return isFunctionLike(ts, node) && localName(ts, sf, node) !== "(anonymous)";
 }
 
 /** Stable disambiguator for symbols whose display name is not unique. Named

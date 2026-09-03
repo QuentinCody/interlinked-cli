@@ -158,24 +158,29 @@ function resolveAbs(editedRelPath: string, projectRoot: string): string {
  *  glob never found them, and 37 verified kills measured as zero effect. The
  *  same reduced-companion principle as the over-cap decline applies — the
  *  graph can't answer, but the co-location convention still can. */
+/** The test-file names directly inside `dir` (repo-relative, POSIX), or `[]`
+ *  when `dir` doesn't exist — the loop body `unknownFileDecline` runs once
+ *  per candidate directory (the SUT's own dir and its `__tests__/`). */
+function testFilesInDir(dir: string, projectRoot: string): string[] {
+	let names: string[] = [];
+	try {
+		names = readdirSync(resolveAbs(dir || ".", projectRoot));
+	} catch (err) {
+		void err; // absent dir — no candidates from it
+		return [];
+	}
+	return names
+		.filter((name) => /\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(name))
+		.map((name) => (dir ? `${dir}/${name}` : name));
+}
+
 function unknownFileDecline(editedRelPath: string, projectRoot: string): MutationTestScopeResult {
 	const sut = editedRelPath.replace(/\\/g, "/");
 	const slash = sut.lastIndexOf("/");
 	const sutDir = slash >= 0 ? sut.slice(0, slash) : "";
 	const candidates: string[] = [];
 	for (const dir of [sutDir, sutDir ? `${sutDir}/__tests__` : "__tests__"]) {
-		let names: string[] = [];
-		try {
-			names = readdirSync(resolveAbs(dir || ".", projectRoot));
-		} catch (err) {
-			void err; // absent dir — no candidates from it
-			continue;
-		}
-		for (const name of names) {
-			if (/\.(?:test|spec)\.[cm]?[jt]sx?$/i.test(name)) {
-				candidates.push(dir ? `${dir}/${name}` : name);
-			}
-		}
+		candidates.push(...testFilesInDir(dir, projectRoot));
 	}
 	const companionScope = companionKillTests(sut, candidates);
 	return {

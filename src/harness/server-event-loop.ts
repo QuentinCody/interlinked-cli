@@ -111,6 +111,44 @@ function replayClockFor(parsed: JsonObject): number | null {
 	return Number.isFinite(ms) ? ms : null;
 }
 
+/** The fields `evaluateEventLine` needs before it hands the raw line to
+ *  `processEvent`: the session/hook/tool identity that the durability
+ *  `finally` writes its snapshot under, plus the replay clock. Parsed
+ *  separately (and fail-open) from the pipeline's own parse so a malformed
+ *  line still leaves the snapshot path with whatever it could read. */
+interface EventLineSnapshotKeys {
+	readonly sessionId: string | null;
+	readonly hookEvent: string | undefined;
+	readonly toolUseId: string | null;
+	readonly replayClockMs: number | null;
+}
+
+const NO_SNAPSHOT_KEYS: EventLineSnapshotKeys = {
+	sessionId: null,
+	hookEvent: undefined,
+	toolUseId: null,
+	replayClockMs: null,
+};
+
+/** Read the snapshot keys off a raw hook line. Never throws: an unparseable
+ *  or non-object line yields the all-empty keys, exactly as the inline
+ *  `try { … } catch { void e }` this replaces did. */
+function readEventLineSnapshotKeys(line: string): EventLineSnapshotKeys {
+	try {
+		const parsed: unknown = JSON.parse(line);
+		if (!isJsonObject(parsed)) return NO_SNAPSHOT_KEYS;
+		return {
+			sessionId: typeof parsed.session_id === "string" ? parsed.session_id : null,
+			hookEvent: typeof parsed.hook_event === "string" ? parsed.hook_event : undefined,
+			toolUseId: typeof parsed.tool_use_id === "string" ? parsed.tool_use_id : null,
+			replayClockMs: replayClockFor(parsed),
+		};
+	} catch (e) {
+		void e;
+		return NO_SNAPSHOT_KEYS;
+	}
+}
+
 /** Build the per-event evaluation pipeline. Returns the entry points the raw
  *  and framed socket servers call. All daemon state is reached through `deps`
  *  — the function bodies are moved verbatim from the monolithic server.ts. */
@@ -340,21 +378,12 @@ export function createEventLoop(deps: EventLoopDeps): EventLoop {
 		// even when `processEvent` throws — the session was already created (or
 		// hydrated) by the time recordEvent ran, so a snapshot is safe to write.
 		// hook_event/tool_use_id ride along for the G2 replay-snapshot wiring.
-		let sessionIdForSnap: string | null = null;
-		let hookEventForSnap: string | undefined;
-		let toolUseIdForSnap: string | null = null;
-		let replayClockMs: number | null = null;
-		try {
-			const parsed: unknown = JSON.parse(line);
-			if (isJsonObject(parsed)) {
-				if (typeof parsed.session_id === "string") sessionIdForSnap = parsed.session_id;
-				if (typeof parsed.hook_event === "string") hookEventForSnap = parsed.hook_event;
-				if (typeof parsed.tool_use_id === "string") toolUseIdForSnap = parsed.tool_use_id;
-				replayClockMs = replayClockFor(parsed);
-			}
-		} catch (e) {
-			void e;
-		}
+		const {
+			sessionId: sessionIdForSnap,
+			hookEvent: hookEventForSnap,
+			toolUseId: toolUseIdForSnap,
+			replayClockMs,
+		} = readEventLineSnapshotKeys(line);
 
 		try {
 			const decision =

@@ -227,6 +227,28 @@ export function checkDeletionCommentAdded(
 // Layer 3: Session-Level Orphaned Tests Check
 // ===========================================
 
+const isWordChar = (ch: string) => /\w/.test(ch);
+
+/**
+ * True when `symbol` occurs in `content` delimited by non-word characters.
+ * Uses indexOf + boundary checks instead of a dynamic RegExp (semgrep ReDoS concern).
+ */
+function referencesSymbolAsWord(content: string, symbol: string): boolean {
+	let searchFrom = 0;
+	while (searchFrom < content.length) {
+		const idx = content.indexOf(symbol, searchFrom);
+		if (idx === -1) return false;
+		const before = idx > 0 ? nonNull(content[idx - 1]) : " ";
+		const after =
+			idx + symbol.length < content.length
+				? nonNull(content[idx + symbol.length])
+				: " ";
+		if (!isWordChar(before) && !isWordChar(after)) return true;
+		searchFrom = idx + 1;
+	}
+	return false;
+}
+
 /**
  * After structural checks detect removed exports, check if test files
  * for those exports were also cleaned up.
@@ -251,36 +273,15 @@ export function checkOrphanedTests(
 
 	const findings: Finding[] = [];
 
-	// Word characters for boundary checking
-	const isWordChar = (ch: string) => /\w/.test(ch);
-
 	for (const symbol of removedSymbols) {
-		// Check if the test file still references this symbol using indexOf + word boundary check
-		// Avoids dynamic RegExp (semgrep ReDoS concern)
-		let searchFrom = 0;
-		let found = false;
-		while (searchFrom < testFileContent.length) {
-			const idx = testFileContent.indexOf(symbol, searchFrom);
-			if (idx === -1) break;
-			const before = idx > 0 ? nonNull(testFileContent[idx - 1]) : " ";
-			const after =
-				idx + symbol.length < testFileContent.length
-					? nonNull(testFileContent[idx + symbol.length])
-					: " ";
-			if (!isWordChar(before) && !isWordChar(after)) {
-				found = true;
-				break;
-			}
-			searchFrom = idx + 1;
-		}
-		if (found) {
-			findings.push({
-				check: "orphaned-test-reference",
-				line: 0,
-				message: `"${symbol}" was removed but ${testFilePath} still references it. Delete or update the test.`,
-				source: "quality",
-			});
-		}
+		// Does the test file still reference this symbol as a whole word?
+		if (!referencesSymbolAsWord(testFileContent, symbol)) continue;
+		findings.push({
+			check: "orphaned-test-reference",
+			line: 0,
+			message: `"${symbol}" was removed but ${testFilePath} still references it. Delete or update the test.`,
+			source: "quality",
+		});
 	}
 
 	// Cap at 5 findings to avoid noise

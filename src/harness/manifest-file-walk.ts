@@ -43,27 +43,49 @@ const WALK_IGNORE_DIRS = new Set([
 ]);
 const MAX_WALK_DEPTH = 8;
 
-export function findManifestFiles(root: string, match: (name: string) => boolean): string[] {
+function readDirSorted(dir: string): Dirent[] | null {
+	try {
+		return readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+			a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+		);
+	} catch {
+		return null;
+	}
+}
+
+// Recursion state threaded alongside each entry: where we are (dir/rel/depth)
+// and what counts as a match. Bundled so walkEntry takes one context param
+// instead of three separate positional values a caller would have to track.
+type WalkContext = {
+	dir: string;
+	rel: string;
+	depth: number;
+	match: (name: string) => boolean;
+};
+
+// One entry's contribution to the walk: itself (if a matching file) or its
+// whole subtree (if a directory worth descending into).
+function walkEntry(e: Dirent, ctx: WalkContext): string[] {
+	const childRel = ctx.rel ? `${ctx.rel}/${e.name}` : e.name;
+	if (e.isDirectory()) {
+		if (ctx.depth >= MAX_WALK_DEPTH || WALK_IGNORE_DIRS.has(e.name)) return [];
+		return walk(join(ctx.dir, e.name), childRel, ctx.depth + 1, ctx.match);
+	}
+	if (e.isFile() && ctx.match(e.name)) return [childRel];
+	return [];
+}
+
+function walk(dir: string, rel: string, depth: number, match: (name: string) => boolean): string[] {
+	const entries = readDirSorted(dir);
+	if (!entries) return [];
+	const ctx: WalkContext = { dir, rel, depth, match };
 	const out: string[] = [];
-	const walk = (dir: string, rel: string, depth: number): void => {
-		let entries: Dirent[];
-		try {
-			entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-				a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-			);
-		} catch {
-			return;
-		}
-		for (const e of entries) {
-			const childRel = rel ? `${rel}/${e.name}` : e.name;
-			if (e.isDirectory()) {
-				if (depth >= MAX_WALK_DEPTH || WALK_IGNORE_DIRS.has(e.name)) continue;
-				walk(join(dir, e.name), childRel, depth + 1);
-			} else if (e.isFile() && match(e.name)) {
-				out.push(childRel);
-			}
-		}
-	};
-	walk(root, "", 0);
+	for (const e of entries) {
+		out.push(...walkEntry(e, ctx));
+	}
 	return out;
+}
+
+export function findManifestFiles(root: string, match: (name: string) => boolean): string[] {
+	return walk(root, "", 0, match);
 }

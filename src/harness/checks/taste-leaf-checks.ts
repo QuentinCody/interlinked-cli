@@ -61,6 +61,60 @@ export function checkNarrativeNaming(content: string, filePath: string): InlineM
 	return matches;
 }
 
+const NOISE_WORDS = new Set([
+	"work",
+	"works",
+	"working",
+	"correct",
+	"correctly",
+	"proper",
+	"properly",
+	"right",
+	"good",
+	"fine",
+	"ok",
+	"okay",
+	"handle",
+	"handles",
+	"test",
+	"tests",
+	"testing",
+	"it",
+	"should",
+	"does",
+	"the",
+	"a",
+	"an",
+	"is",
+	"be",
+	"do",
+	"can",
+	"will",
+	"basic",
+	"simple",
+	"stuff",
+	"things",
+	"function",
+	"method",
+	"check",
+	"verify",
+]);
+
+/** True when every alphabetic word of the description is a noise word. */
+function isAllNoiseWords(desc: string): boolean {
+	const words = desc
+		.toLowerCase()
+		.replace(/[^a-z\s]/g, "")
+		.split(/\s+/)
+		.filter((w) => w.length > 0);
+	return words.length > 0 && words.every((w) => NOISE_WORDS.has(w));
+}
+
+/** A description is vague when it is too short or carries only noise words. */
+function isVagueTestDescription(desc: string): boolean {
+	return desc.length < 10 || isAllNoiseWords(desc);
+}
+
 /**
  * Detect vague or tautological test descriptions.
  * `it("works")` or `test("should work correctly")` tells you nothing
@@ -81,45 +135,6 @@ export function checkTestDescriptionQuality(content: string, filePath: string): 
 	const originalLines = content.split("\n");
 	const matches: InlineMatch[] = [];
 
-	const NOISE_WORDS = new Set([
-		"work",
-		"works",
-		"working",
-		"correct",
-		"correctly",
-		"proper",
-		"properly",
-		"right",
-		"good",
-		"fine",
-		"ok",
-		"okay",
-		"handle",
-		"handles",
-		"test",
-		"tests",
-		"testing",
-		"it",
-		"should",
-		"does",
-		"the",
-		"a",
-		"an",
-		"is",
-		"be",
-		"do",
-		"can",
-		"will",
-		"basic",
-		"simple",
-		"stuff",
-		"things",
-		"function",
-		"method",
-		"check",
-		"verify",
-	]);
-
 	// Match it("..."), test("..."), describe("...")
 	const testPattern = /\b(?:it|test|describe)\s*\(\s*(?:"([^"]+)"|'([^']+)'|`([^`]+)`)/;
 	// Skip skipped/todo tests
@@ -138,27 +153,12 @@ export function checkTestDescriptionQuality(content: string, filePath: string): 
 
 		const desc = nonNull((m[1] || m[2] || m[3])).trim();
 
-		// Too short
-		if (desc.length < 10) {
-			matches.push({
-				line: i + 1,
-				text: `[vague test name: "${desc}"] ${trimmed.slice(0, 120)}`,
-			});
-			continue;
-		}
+		if (!isVagueTestDescription(desc)) continue;
 
-		// All noise words
-		const words = desc
-			.toLowerCase()
-			.replace(/[^a-z\s]/g, "")
-			.split(/\s+/)
-			.filter((w) => w.length > 0);
-		if (words.length > 0 && words.every((w) => NOISE_WORDS.has(w))) {
-			matches.push({
-				line: i + 1,
-				text: `[vague test name: "${desc}"] ${trimmed.slice(0, 120)}`,
-			});
-		}
+		matches.push({
+			line: i + 1,
+			text: `[vague test name: "${desc}"] ${trimmed.slice(0, 120)}`,
+		});
 	}
 
 	return matches;
@@ -179,6 +179,37 @@ const GOD_FILE_MIN_VALUE_EXPORTS = 5;
 const GOD_FILE_EXPORTS_X_LINES_THRESHOLD = 3000;
 const GOD_FILE_BARREL_REEXPORT_RATIO = 0.8;
 
+/**
+ * Count the file's value exports and re-exports.
+ * Type-only exports (`export type`, `export interface`) count as neither —
+ * they carry no runtime surface.
+ */
+function countExports(lines: string[]): { valueExports: number; reExports: number } {
+	let valueExports = 0;
+	let reExports = 0;
+
+	for (const line of lines) {
+		const trimmed = line.trim();
+		if (!trimmed.startsWith("export")) continue;
+
+		// Re-exports: export { ... } from or export * from
+		if (/^export\s+(\{[^}]*\}\s+from|type\s+\{[^}]*\}\s+from|\*\s+from)/.test(trimmed)) {
+			reExports++;
+			continue;
+		}
+
+		// Type-only exports: export type/interface/enum
+		if (/^export\s+(type|interface)\s/.test(trimmed)) continue;
+
+		// Value exports
+		if (/^export\s+(function|async\s+function|const|let|var|class|default|enum)\b/.test(trimmed)) {
+			valueExports++;
+		}
+	}
+
+	return { valueExports, reExports };
+}
+
 export function checkGodFile(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
 	if (filePath.endsWith(".d.ts")) return [];
@@ -194,29 +225,7 @@ export function checkGodFile(content: string, filePath: string): InlineMatch[] {
 	if (/@generated|auto-generated|DO NOT EDIT/i.test(header)) return [];
 
 	// Count value exports (not type/interface exports)
-	let valueExportCount = 0;
-	let reExportCount = 0;
-
-	for (const line of lines) {
-		const trimmed = line.trim();
-		if (!trimmed.startsWith("export")) continue;
-
-		// Re-exports: export { ... } from or export * from
-		if (/^export\s+(\{[^}]*\}\s+from|type\s+\{[^}]*\}\s+from|\*\s+from)/.test(trimmed)) {
-			reExportCount++;
-			continue;
-		}
-
-		// Type-only exports: export type/interface/enum
-		if (/^export\s+(type|interface)\s/.test(trimmed)) continue;
-
-		// Value exports
-		if (
-			/^export\s+(function|async\s+function|const|let|var|class|default|enum)\b/.test(trimmed)
-		) {
-			valueExportCount++;
-		}
-	}
+	const { valueExports: valueExportCount, reExports: reExportCount } = countExports(lines);
 
 	// Skip barrel files: re-exports dominate the file. `totalExports > 0` guards
 	// the division — checked before reaching the ratio comparison.

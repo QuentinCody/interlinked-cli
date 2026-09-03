@@ -244,6 +244,32 @@ function generateSequenceDetectorsDoc(): string {
 // Configuration Reference
 // ===========================================
 
+type GuardRulesConfig = ReturnType<typeof getDefaultConfig>;
+
+function buildDiffAwareLines(da: GuardRulesConfig["diff_aware"]): string[] {
+	if (!da) return [];
+	const lines: string[] = [`| \`enabled\` | \`${da.enabled}\` | Master switch for diff-aware filtering |`];
+	if (da.missing_return_types) lines.push(`| \`missing_return_types\` | \`"${da.missing_return_types}"\` | Only report new findings via pre-edit baseline subtraction |`);
+	if (da.complexity) lines.push(`| \`complexity\` | \`"${da.complexity}"\` | Only report complex functions in the edited region |`);
+	if (da.no_test_file) lines.push(`| \`no_test_file\` | \`"${da.no_test_file}"\` | Only fire on new file creation (Write), not edits |`);
+	if (da.undefined_env_vars) lines.push(`| \`undefined_env_vars\` | \`"${da.undefined_env_vars}"\` | Only report env vars introduced by the edit |`);
+	return lines;
+}
+
+function buildStructuralCheckLines(sc: GuardRulesConfig["structural_checks"]): string[] {
+	const lines: string[] = [];
+	for (const [key, value] of Object.entries(sc)) {
+		if (typeof value === "boolean") {
+			const meta = STRUCTURAL_CHECK_META[key];
+			const desc = meta ? meta.description : key;
+			lines.push(`| \`${key}\` | \`${value}\` | ${desc} |`);
+		} else if (typeof value === "number") {
+			lines.push(`| \`${key}\` | \`${value}\` | Threshold setting |`);
+		}
+	}
+	return lines;
+}
+
 function generateConfigReference(): string {
 	const config = getDefaultConfig();
 	const lines: string[] = [
@@ -259,35 +285,16 @@ function generateConfigReference(): string {
 		"",
 		"| Setting | Default | Description |",
 		"|---------|---------|-------------|",
+		...buildDiffAwareLines(config.diff_aware),
+		"",
+		"## Structural Checks",
+		"",
+		"| Setting | Default | Description |",
+		"|---------|---------|-------------|",
+		...buildStructuralCheckLines(config.structural_checks),
+		"",
 	];
 
-	const da = config.diff_aware;
-	if (da) {
-		lines.push(`| \`enabled\` | \`${da.enabled}\` | Master switch for diff-aware filtering |`);
-		if (da.missing_return_types) lines.push(`| \`missing_return_types\` | \`"${da.missing_return_types}"\` | Only report new findings via pre-edit baseline subtraction |`);
-		if (da.complexity) lines.push(`| \`complexity\` | \`"${da.complexity}"\` | Only report complex functions in the edited region |`);
-		if (da.no_test_file) lines.push(`| \`no_test_file\` | \`"${da.no_test_file}"\` | Only fire on new file creation (Write), not edits |`);
-		if (da.undefined_env_vars) lines.push(`| \`undefined_env_vars\` | \`"${da.undefined_env_vars}"\` | Only report env vars introduced by the edit |`);
-	}
-
-	lines.push("");
-	lines.push("## Structural Checks");
-	lines.push("");
-	lines.push("| Setting | Default | Description |");
-	lines.push("|---------|---------|-------------|");
-
-	const sc = config.structural_checks;
-	for (const [key, value] of Object.entries(sc)) {
-		if (typeof value === "boolean") {
-			const meta = STRUCTURAL_CHECK_META[key];
-			const desc = meta ? meta.description : key;
-			lines.push(`| \`${key}\` | \`${value}\` | ${desc} |`);
-		} else if (typeof value === "number") {
-			lines.push(`| \`${key}\` | \`${value}\` | Threshold setting |`);
-		}
-	}
-
-	lines.push("");
 	return lines.join("\n");
 }
 

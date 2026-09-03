@@ -141,6 +141,58 @@ interface MockDefinition {
 	text: string;
 }
 
+/**
+ * Advance from a `{` just past a `vi.mock`/`jest.mock` factory's opening
+ * brace to the index just past its matching closing brace, honoring nested
+ * `{`/`}` pairs inside the factory body.
+ */
+function findMockFactoryBodyEnd(fullText: string, bodyStart: number): number {
+	let depth = 1;
+	let i = bodyStart;
+	while (i < fullText.length && depth > 0) {
+		if (fullText[i] === "{") depth++;
+		else if (fullText[i] === "}") depth--;
+		i++;
+	}
+	return i;
+}
+
+/**
+ * Build the `MockDefinition` for one `vi.mock`/`jest.mock(...)` match, or
+ * `null` when it doesn't qualify (non-relative module path, or no
+ * `name: vi.fn()`/`name: jest.fn()` properties in the factory body).
+ */
+function extractOneMockDefinition(
+	fullText: string,
+	lines: string[],
+	match: RegExpMatchArray,
+): MockDefinition | null {
+	const startIdx = nonNull(match.index);
+	const modulePath = nonNull(match[1]);
+	if (!modulePath.startsWith(".") && !modulePath.startsWith("@/")) return null;
+
+	// Find the matching closing })
+	const bodyStart = startIdx + match[0].length;
+	const bodyEnd = findMockFactoryBodyEnd(fullText, bodyStart);
+	const body = fullText.slice(bodyStart, bodyEnd - 1);
+
+	// Extract property names: `name: vi.fn()` or `name: jest.fn()`
+	const mockedNames: string[] = [];
+	for (const pm of body.matchAll(/(\w+)\s*:\s*(?:vi|jest)\.fn\(/g)) {
+		mockedNames.push(nonNull(pm[1]));
+	}
+
+	if (mockedNames.length === 0) return null;
+
+	const line = fullText.slice(0, startIdx).split("\n").length;
+	return {
+		line,
+		modulePath,
+		mockedNames,
+		text: lines[line - 1]?.trim().slice(0, 150) || "",
+	};
+}
+
 export function extractMockDefinitions(content: string, filePath: string): MockDefinition[] {
 	if (!isTestFile(filePath)) return [];
 	const ext = getExtension(filePath);
@@ -155,36 +207,8 @@ export function extractMockDefinitions(content: string, filePath: string): MockD
 	const mockPattern = /\b(?:vi|jest)\.mock\(\s*["']([^"']+)["']\s*,\s*\(\)\s*=>\s*\(\{/g;
 
 	for (const match of fullText.matchAll(mockPattern)) {
-		const startIdx = match.index;
-		const modulePath = nonNull(match[1]);
-		if (!modulePath.startsWith(".") && !modulePath.startsWith("@/")) continue;
-
-		// Find the matching closing })
-		const bodyStart = startIdx + match[0].length;
-		let depth = 1;
-		let i = bodyStart;
-		while (i < fullText.length && depth > 0) {
-			if (fullText[i] === "{") depth++;
-			else if (fullText[i] === "}") depth--;
-			i++;
-		}
-		const body = fullText.slice(bodyStart, i - 1);
-
-		// Extract property names: `name: vi.fn()` or `name: jest.fn()`
-		const mockedNames: string[] = [];
-		for (const pm of body.matchAll(/(\w+)\s*:\s*(?:vi|jest)\.fn\(/g)) {
-			mockedNames.push(nonNull(pm[1]));
-		}
-
-		if (mockedNames.length > 0) {
-			const line = fullText.slice(0, startIdx).split("\n").length;
-			mocks.push({
-				line,
-				modulePath,
-				mockedNames,
-				text: lines[line - 1]?.trim().slice(0, 150) || "",
-			});
-		}
+		const mock = extractOneMockDefinition(fullText, lines, match);
+		if (mock) mocks.push(mock);
 	}
 
 	return mocks;

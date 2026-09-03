@@ -14,7 +14,6 @@
 // locating, loading, and merging coverage reports; `metrics.ts` owns the
 // report-building orchestration that consumes it.
 
-import { statSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 import { lcovReportPaths } from "../harness/coverage-adapters.js";
 import {
@@ -28,6 +27,7 @@ import {
 	perFileCoverageFromCanonical,
 } from "../harness/coverage-lcov.js";
 import { type CoverageSummary, loadCoverageSummary } from "../harness/coverage-ratchet.js";
+import { reportMtimeMs } from "../lib/report-mtime.js";
 import { discoverFiles } from "./verify/file-discovery.js";
 
 /** Source extensions the AST/regex complexity pass + coverage adapters cover. */
@@ -124,15 +124,6 @@ interface CoverageSource {
 	fileSet: ReadonlySet<string>;
 	perFile: MetricsCoverage["perFile"];
 	linePct: MetricsCoverage["linePct"];
-}
-
-/** The report file's mtime, or 0 when unreadable (sorts oldest — least trusted). */
-function reportMtimeMs(path: string): number {
-	try {
-		return statSync(path).mtimeMs;
-	} catch {
-		return 0;
-	}
 }
 
 /** The istanbul `coverage-final.json` report as a CoverageSource, or null. */

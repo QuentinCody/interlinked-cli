@@ -106,21 +106,42 @@ export async function trajectoryListCommand(opts: CommonOpts = {}): Promise<void
 	}
 }
 
-export async function trajectoryShowCommand(opts: ShowOpts = {}): Promise<void> {
-	const cwd = opts.cwd ?? process.cwd();
-	const snapshots = listSnapshots(cwd);
+/** Pick the snapshot named by `--session`, or the most recent one when the
+ *  flag is absent. Throws the same message the command reported inline. */
+function resolveSnapshot(
+	snapshots: ListedSnapshot[],
+	sessionId: string | undefined,
+): ListedSnapshot {
 	let target: ListedSnapshot | undefined;
-	if (opts.session) {
-		target = snapshots.find((s) => s.session_id === opts.session);
+	if (sessionId) {
+		target = snapshots.find((s) => s.session_id === sessionId);
 	} else {
 		target = snapshots[0];
 	}
 	if (!target) {
-		const msg = opts.session
-			? `no trajectory snapshot found for session ${opts.session}`
+		const msg = sessionId
+			? `no trajectory snapshot found for session ${sessionId}`
 			: "no trajectory snapshots on disk";
 		throw new Error(msg);
 	}
+	return target;
+}
+
+/** Print every snapshot field except the two already shown in the header,
+ *  skipping empty values and values with no one-line summary. */
+function printSnapshotFields(parsed: SnapshotShape): void {
+	for (const [k, v] of Object.entries(parsed)) {
+		if (k === "session_id" || k === "agent_name") continue;
+		if (v === null || v === undefined) continue;
+		const summary = summarizeValue(v);
+		if (summary === null) continue;
+		console.log(`${k}: ${summary}`);
+	}
+}
+
+export async function trajectoryShowCommand(opts: ShowOpts = {}): Promise<void> {
+	const cwd = opts.cwd ?? process.cwd();
+	const target = resolveSnapshot(listSnapshots(cwd), opts.session);
 	const raw = readFileSync(target.path, "utf-8");
 	if (opts.json) {
 		console.log(raw);
@@ -136,13 +157,7 @@ export async function trajectoryShowCommand(opts: ShowOpts = {}): Promise<void> 
 	}
 	console.log(`session_id: ${parsed.session_id ?? target.session_id}`);
 	console.log(`agent_name: ${parsed.agent_name ?? "—"}`);
-	for (const [k, v] of Object.entries(parsed)) {
-		if (k === "session_id" || k === "agent_name") continue;
-		if (v === null || v === undefined) continue;
-		const summary = summarizeValue(v);
-		if (summary === null) continue;
-		console.log(`${k}: ${summary}`);
-	}
+	printSnapshotFields(parsed);
 }
 
 function summarizeValue(v: unknown): string | null {
@@ -193,24 +208,23 @@ function parseHarnessEvent(value: unknown, lineNumber: number): HarnessEvent {
 	};
 }
 
-/**
- * Replay an events.jsonl through the dispatcher. For each event, the
- * trajectory is updated via `SessionTracker.recordEvent`; the dispatcher
- * is then invoked with that event as the candidate. Findings from every
- * phase are accumulated and printed.
- *
- * When `--phase` is provided, only that phase is exercised (default: all
- * three). When `--check <id>` is provided, only matching detectors fire.
- */
-export async function trajectoryReplayCommand(opts: ReplayOpts): Promise<void> {
-	const cwd = opts.cwd ?? process.cwd();
-	const filePath = isAbsolute(opts.file) ? opts.file : resolve(cwd, opts.file);
-	const raw = readFileSync(filePath, "utf-8");
+type ReplayPhase = "pre_block" | "pre_warn" | "stop";
+
+interface ReplayFinding {
+	event_index: number;
+	phase: string;
+	detector_id: string;
+	message: string;
+}
+
+/** Parse every non-blank line of an events.jsonl into a HarnessEvent,
+ *  reporting the 1-based line number of the first bad row. */
+function parseEventLines(raw: string): HarnessEvent[] {
 	const lines = raw
 		.split("\n")
 		.map((l) => l.trim())
 		.filter((l) => l.length > 0);
-	const events: HarnessEvent[] = lines.map((line, i) => {
+	return lines.map((line, i) => {
 		let parsed: unknown;
 		try {
 			parsed = JSON.parse(line);
@@ -219,27 +233,21 @@ export async function trajectoryReplayCommand(opts: ReplayOpts): Promise<void> {
 		}
 		return parseHarnessEvent(parsed, i + 1);
 	});
+}
 
+/** Feed every event through a fresh SessionTracker and collect the findings
+ *  each requested phase reports for it. */
+function collectReplayFindings(
+	events: HarnessEvent[],
+	phases: ReplayPhase[],
+	isCheckMatch: (id: string) => boolean,
+): ReplayFinding[] {
 	const tracker = new SessionTracker();
-	const phases: Array<ReplayOpts["phase"]> = opts.phase
-		? [opts.phase]
-		: ["pre_block", "pre_warn", "stop"];
-	const findings: Array<{
-		event_index: number;
-		phase: string;
-		detector_id: string;
-		message: string;
-	}> = [];
-
-	const isCheckMatch = opts.check
-		? (id: string) => id === opts.check
-		: () => true;
-
+	const findings: ReplayFinding[] = [];
 	for (let i = 0; i < events.length; i++) {
 		const event = events[i] as HarnessEvent;
 		const trajectory: SessionTrajectory = tracker.recordEvent(event);
 		for (const phase of phases) {
-			if (!phase) continue;
 			const out = runSequenceDetectorsForPhase({
 				phase,
 				trajectory,
@@ -256,6 +264,30 @@ export async function trajectoryReplayCommand(opts: ReplayOpts): Promise<void> {
 			}
 		}
 	}
+	return findings;
+}
+
+/**
+ * Replay an events.jsonl through the dispatcher. For each event, the
+ * trajectory is updated via `SessionTracker.recordEvent`; the dispatcher
+ * is then invoked with that event as the candidate. Findings from every
+ * phase are accumulated and printed.
+ *
+ * When `--phase` is provided, only that phase is exercised (default: all
+ * three). When `--check <id>` is provided, only matching detectors fire.
+ */
+export async function trajectoryReplayCommand(opts: ReplayOpts): Promise<void> {
+	const cwd = opts.cwd ?? process.cwd();
+	const filePath = isAbsolute(opts.file) ? opts.file : resolve(cwd, opts.file);
+	const events = parseEventLines(readFileSync(filePath, "utf-8"));
+
+	const phases: ReplayPhase[] = opts.phase
+		? [opts.phase]
+		: ["pre_block", "pre_warn", "stop"];
+	const isCheckMatch = opts.check
+		? (id: string) => id === opts.check
+		: () => true;
+	const findings = collectReplayFindings(events, phases, isCheckMatch);
 
 	if (opts.json) {
 		console.log(

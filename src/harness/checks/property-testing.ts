@@ -162,6 +162,41 @@ function pairHasRoundTripTest(a: string, b: string, testContents: string[]): boo
 }
 
 /**
+ * Contents of the project test files that could plausibly exercise `filePath`.
+ *
+ * Path-prefilter (no read): test files whose path mentions this module's
+ * basename — a test usually imports the module, so the import path carries the
+ * basename. Bounds reads to the handful of co-located suites. Returns null when
+ * the file lies outside `cwd`, which callers treat as "nothing to report".
+ */
+function readCompanionTestContents(filePath: string, cwd: string): string[] | null {
+	const absPath = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
+	const relFromRoot = relative(cwd, absPath);
+	if (relFromRoot.startsWith("..")) return null;
+	const baseNoExt = (relFromRoot.split("/").pop() || "").replace(
+		/\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/,
+		"",
+	);
+
+	const candidates = baseNoExt
+		? getGitSourceFiles(cwd)
+				.filter((f) => f !== relFromRoot && isTestFile(f) && f.includes(baseNoExt))
+				.slice(0, 50)
+		: [];
+	const testContents: string[] = [];
+	for (const rel of candidates) {
+		let tc: string;
+		try {
+			tc = readFileSync(join(cwd, rel), "utf-8");
+		} catch {
+			continue;
+		}
+		testContents.push(tc);
+	}
+	return testContents;
+}
+
+/**
  * Detect exported inverse pairs (encode/decode, serialize/deserialize,
  * to<X>/from<X>, …) that no project test file round-trips. The hot path returns
  * with ZERO file reads when the edited file has no inverse pair (the common
@@ -182,32 +217,8 @@ export function checkUntestedInversePair(
 	const pairs = findInversePairs(exported);
 	if (pairs.length === 0) return [];
 
-	const absPath = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
-	const relFromRoot = relative(cwd, absPath);
-	if (relFromRoot.startsWith("..")) return [];
-	const baseNoExt = (relFromRoot.split("/").pop() || "").replace(
-		/\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/,
-		"",
-	);
-
-	// Path-prefilter (no read): test files whose path mentions this module's
-	// basename — the round-trip test usually imports it, so the import path
-	// carries the basename. Bounds reads to the handful of co-located suites.
-	const candidates = baseNoExt
-		? getGitSourceFiles(cwd)
-				.filter((f) => f !== relFromRoot && isTestFile(f) && f.includes(baseNoExt))
-				.slice(0, 50)
-		: [];
-	const testContents: string[] = [];
-	for (const rel of candidates) {
-		let tc: string;
-		try {
-			tc = readFileSync(join(cwd, rel), "utf-8");
-		} catch {
-			continue;
-		}
-		testContents.push(tc);
-	}
+	const testContents = readCompanionTestContents(filePath, cwd);
+	if (testContents === null) return [];
 
 	const matches: InlineMatch[] = [];
 	for (const pair of pairs) {
@@ -343,32 +354,8 @@ export function checkUntestedIdempotent(
 	);
 	if (idempotent.length === 0) return [];
 
-	const absPath = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);
-	const relFromRoot = relative(cwd, absPath);
-	if (relFromRoot.startsWith("..")) return [];
-	const baseNoExt = (relFromRoot.split("/").pop() || "").replace(
-		/\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/,
-		"",
-	);
-
-	// Path-prefilter (no read): test files whose path mentions this module's
-	// basename — the property test usually imports it, so the import path
-	// carries the basename. Bounds reads to the handful of co-located suites.
-	const candidates = baseNoExt
-		? getGitSourceFiles(cwd)
-				.filter((f) => f !== relFromRoot && isTestFile(f) && f.includes(baseNoExt))
-				.slice(0, 50)
-		: [];
-	const testContents: string[] = [];
-	for (const rel of candidates) {
-		let tc: string;
-		try {
-			tc = readFileSync(join(cwd, rel), "utf-8");
-		} catch {
-			continue;
-		}
-		testContents.push(tc);
-	}
+	const testContents = readCompanionTestContents(filePath, cwd);
+	if (testContents === null) return [];
 
 	const matches: InlineMatch[] = [];
 	for (const fn of idempotent) {

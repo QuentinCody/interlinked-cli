@@ -35,12 +35,12 @@ export function parseExports(content: string): ExportedSymbol[] {
 
 		// Handle multiline export { ... } statements
 		if (exportBuffer) {
-			exportBuffer += ` ${trimmed}`;
-			if (trimmed.includes("}")) {
-				// Multiline export complete — process the accumulated buffer
-				processExportStatement(exportBuffer, exportBufferStartLine, exports);
-				exportBuffer = "";
-			}
+			exportBuffer = continueMultilineExport(
+				exportBuffer,
+				trimmed,
+				exportBufferStartLine,
+				exports,
+			);
 			continue;
 		}
 
@@ -57,19 +57,47 @@ export function parseExports(content: string): ExportedSymbol[] {
 		const lineNum = i + 1;
 
 		// Dispatch the single-line export forms through cohesive matchers.
-		const reExport = matchReExportOrStar(trimmed, lineNum);
-		if (reExport) {
-			exports.push(...reExport);
-			continue;
-		}
-
-		const declaration = matchExportDeclaration(trimmed, lineNum);
-		if (declaration) {
-			exports.push(...declaration);
+		const symbols = matchSingleLineExport(trimmed, lineNum);
+		if (symbols) {
+			exports.push(...symbols);
 		}
 	}
 
 	return exports;
+}
+
+/**
+ * Accumulate one more line of an in-progress multiline `export { ... }`.
+ *
+ * Internal helper for {@link parseExports}. Appends the line to the buffer and,
+ * once the closing brace arrives, processes the completed statement into
+ * `exports`. Returns the buffer to carry into the next line — `""` once the
+ * statement is complete.
+ */
+function continueMultilineExport(
+	buffer: string,
+	trimmed: string,
+	startLine: number,
+	exports: ExportedSymbol[],
+): string {
+	const next = `${buffer} ${trimmed}`;
+	if (!trimmed.includes("}")) return next;
+	// Multiline export complete — process the accumulated buffer
+	processExportStatement(next, startLine, exports);
+	return "";
+}
+
+/**
+ * Match any single-line export form on a trimmed line.
+ *
+ * Internal helper for {@link parseExports}. Tries the brace / star re-export
+ * family first, then the single-symbol declaration forms. Returns `null` when
+ * the line is neither.
+ */
+function matchSingleLineExport(trimmed: string, lineNum: number): ExportedSymbol[] | null {
+	const reExport = matchReExportOrStar(trimmed, lineNum);
+	if (reExport) return reExport;
+	return matchExportDeclaration(trimmed, lineNum);
 }
 
 /**

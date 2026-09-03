@@ -99,6 +99,15 @@ const UNTRUSTED_PROVENANCE: ReadonlySet<TaintProvenance> = new Set<TaintProvenan
 ]);
 
 /**
+ * Recurse into a plain-object value's own values, feeding each back through
+ * `walk` — the depth-2 branch of {@link flattenToolInputToString}'s traversal,
+ * split out to keep `walk` itself flat.
+ */
+function walkObjectValues(v: JsonObject, walk: (v: unknown) => void): void {
+	for (const e of Object.values(v)) walk(e);
+}
+
+/**
  * Flatten the tool_input into a single searchable string — every value in
  * the JsonObject is concatenated so substring matching can find a tainted
  * file path regardless of which key it was passed under (`file_path`,
@@ -128,7 +137,7 @@ function flattenToolInputToString(toolInput: JsonObject): string {
 			return;
 		}
 		if (typeof v === "object") {
-			for (const e of Object.values(v as JsonObject)) walk(e);
+			walkObjectValues(v as JsonObject, walk);
 		}
 	};
 	walk(toolInput);

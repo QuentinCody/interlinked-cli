@@ -204,11 +204,7 @@ export async function syncCommand(opts: {
 					}
 
 					// Time range
-					if (earliest && latest) {
-						lines.push("");
-						lines.push(c.bold("  Time Range"));
-						lines.push(`    ${c.dim(fmtTime(earliest))} → ${c.dim(fmtTime(latest))}`);
-					}
+					lines.push(...renderTimeRangeLines(earliest, latest));
 
 					// Event type breakdown
 					const typeEntries = Object.entries(byType).sort((a, b) => b[1] - a[1]);
@@ -224,23 +220,10 @@ export async function syncCommand(opts: {
 					lines.push(...renderTopToolsSection(renderedTopTools, byTool));
 
 					// Sessions
-					if (sessions.size > 0) {
-						lines.push("");
-						lines.push(
-							kvLine(
-								progress.summaryOmissions.sessionOccurrences > 0
-									? "Sessions (retained)"
-									: "Sessions",
-								String(sessions.size),
-							),
-						);
-					}
+					lines.push(...renderSessionsLines(sessions.size, progress.summaryOmissions));
 					lines.push(...renderSummaryTruncation(progress.summaryOmissions));
 
-					if (progress.errors > 0) {
-						lines.push("");
-						lines.push(c.yellow("  Failed batch remains pending. Re-run to retry."));
-					}
+					lines.push(...renderErrorsFooterLines(progress.errors));
 					return lines.join("\n");
 				},
 			},
@@ -248,4 +231,28 @@ export async function syncCommand(opts: {
 	} catch (err) {
 		outputError(mode, err instanceof Error ? err.message : String(err));
 	}
+}
+
+function renderTimeRangeLines(earliest: string | undefined, latest: string | undefined): string[] {
+	if (!earliest || !latest) return [];
+	return [
+		"",
+		c.bold("  Time Range"),
+		`    ${c.dim(fmtTime(earliest))} → ${c.dim(fmtTime(latest))}`,
+	];
+}
+
+function renderSessionsLines(
+	sessionCount: number,
+	summaryOmissions: SummaryOmissions,
+): string[] {
+	if (sessionCount === 0) return [];
+	const label =
+		summaryOmissions.sessionOccurrences > 0 ? "Sessions (retained)" : "Sessions";
+	return ["", kvLine(label, String(sessionCount))];
+}
+
+function renderErrorsFooterLines(errors: number): string[] {
+	if (errors === 0) return [];
+	return ["", c.yellow("  Failed batch remains pending. Re-run to retry.")];
 }

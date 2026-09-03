@@ -41,8 +41,10 @@ function applyDelta(
 	blocks: Map<number, JsonObject>,
 	jsonBuf: Map<number, string>,
 	index: number,
-	delta: JsonObject,
+	data: JsonObject,
 ): void {
+	const delta = asObject(data.delta);
+	if (!delta) return;
 	const block = blocks.get(index) ?? {};
 	blocks.set(index, block);
 	switch (delta.type) {
@@ -95,7 +97,8 @@ function closeBlock(
 
 /** Merge a message_delta event: stop_reason/stop_sequence on the shell,
  *  output-side usage folded into the usage object from message_start. */
-function applyMessageDelta(shell: JsonObject, data: JsonObject): void {
+function applyMessageDelta(shell: JsonObject | null, data: JsonObject): void {
+	if (!shell) return;
 	const delta = asObject(data.delta);
 	if (delta) {
 		if (delta.stop_reason !== undefined) shell.stop_reason = delta.stop_reason;
@@ -109,6 +112,20 @@ function applyMessageDelta(shell: JsonObject, data: JsonObject): void {
 	}
 }
 
+/** Build the message shell from a message_start event's `message` field. */
+function buildMessageShell(data: JsonObject): JsonObject {
+	const msg = asObject(data.message);
+	if (!msg) return {};
+	return { ...msg };
+}
+
+/** Build a fresh block from a content_block_start event's `content_block` field. */
+function buildContentBlockShell(data: JsonObject): JsonObject {
+	const cb = asObject(data.content_block);
+	if (!cb) return {};
+	return { ...cb };
+}
+
 /** Create a reassembler for ONE streamed message. Feed raw SSE text chunks in
  *  arrival order; chunk boundaries need not align with event boundaries. */
 export function createSseReassembler(): SseReassembler {
@@ -120,26 +137,20 @@ export function createSseReassembler(): SseReassembler {
 	function handleEvent(data: JsonObject): void {
 		const index = typeof data.index === "number" ? data.index : 0;
 		switch (data.type) {
-			case "message_start": {
-				const msg = asObject(data.message);
-				shell = msg ? { ...msg } : {};
+			case "message_start":
+				shell = buildMessageShell(data);
 				return;
-			}
-			case "content_block_start": {
-				const cb = asObject(data.content_block);
-				blocks.set(index, cb ? { ...cb } : {});
+			case "content_block_start":
+				blocks.set(index, buildContentBlockShell(data));
 				return;
-			}
-			case "content_block_delta": {
-				const delta = asObject(data.delta);
-				if (delta) applyDelta(blocks, jsonBuf, index, delta);
+			case "content_block_delta":
+				applyDelta(blocks, jsonBuf, index, data);
 				return;
-			}
 			case "content_block_stop":
 				closeBlock(blocks, jsonBuf, index);
 				return;
 			case "message_delta":
-				if (shell) applyMessageDelta(shell, data);
+				applyMessageDelta(shell, data);
 				return;
 			default:
 				// ping / message_stop / error / unknown — nothing to accumulate.

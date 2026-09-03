@@ -161,7 +161,7 @@ async function runSuites(ctx: GateContext, deps: CommitGateDeps): Promise<SuiteO
 		}
 		if (result.testsPassed === false) {
 			anyRed = true;
-			if (result.failingTests) failingTests.push(...result.failingTests);
+			failingTests.push(...(result.failingTests ?? []));
 		}
 		for (const [k, v] of result.perFile) perFile.set(k, v);
 	}
@@ -205,6 +205,29 @@ function collectViolations(
 }
 
 /**
+ * Decide the RED bar for a finished suite run: a block decision when the suite is
+ * red and `block_on_test_failure` is on (baseline-aware — pre-existing red recorded
+ * at adopt time does not block wholesale; only NEW failures do), otherwise null so
+ * the scan proceeds. With the flag off the red bar is SURFACED as a warning and the
+ * scan runs on the red run's coverage — under-reporting can only ADD violations,
+ * never hide one (finding 2026-06: the commit gate blocked red unconditionally).
+ */
+function decideRedBarOrWarn(ctx: GateContext, outcome: SuiteOutcome): HarnessDecision | null {
+	if (!outcome.anyRed) return null;
+	if (!ctx.blockOnTestFailure) {
+		ctx.warnings.push(
+			"[interlinked:commit-gate] NOTE: the full suite is RED " +
+				`(${failingTestPhrase(outcome.failingTests)}) but block_on_test_failure is off — ` +
+				"not blocking on the red bar.",
+		);
+		return null;
+	}
+	// The baseline lives under the REAL repo root's `.interlinked/` (`ledgerRoot`),
+	// never a materialized snapshot that omits it.
+	return decideRedBar(outcome.failingTests, ctx.warnings, ctx.ledgerRoot ?? ctx.projectRoot);
+}
+
+/**
  * Run the FULL suite under coverage for the languages spanned by the changed
  * sources, then scan each changed file for violations. Returns a block decision
  * or null (allow). Split out of `checkCommitGate` so the entry stays
@@ -219,31 +242,10 @@ export async function runSuiteAndScan(
 
 	// Red bar first — a failing suite is a harder failure than a coverage gap.
 	// Only when opted in (`block_on_test_failure`, the same flag the per-edit gate
-	// honors — finding 2026-06: the commit gate blocked red unconditionally). With
-	// the flag off the red bar is SURFACED as a warning and the scan proceeds on
-	// the red run's coverage — under-reporting can only ADD violations, never hide
-	// one — while the clean-pass discharge below is withheld.
-	if (outcome.anyRed) {
-		if (ctx.blockOnTestFailure) {
-			// Baseline-aware: pre-existing red (recorded at adopt time — foreign repos
-			// arrive with a red suite) does not block wholesale; only NEW failures do.
-			// No baseline / green baseline keeps the historical unconditional block.
-			// The baseline lives under the REAL repo root's `.interlinked/`
-			// (`ledgerRoot`), never a materialized snapshot that omits it.
-			const redDecision = decideRedBar(
-				outcome.failingTests,
-				ctx.warnings,
-				ctx.ledgerRoot ?? ctx.projectRoot,
-			);
-			if (redDecision) return redDecision;
-		} else {
-			ctx.warnings.push(
-				"[interlinked:commit-gate] NOTE: the full suite is RED " +
-					`(${failingTestPhrase(outcome.failingTests)}) but block_on_test_failure is off — ` +
-					"not blocking on the red bar.",
-			);
-		}
-	}
+	// honors). With the flag off the scan proceeds on the red run's coverage while
+	// the clean-pass discharge below is withheld.
+	const redDecision = decideRedBarOrWarn(ctx, outcome);
+	if (redDecision) return redDecision;
 
 	const violations = collectViolations(ctx, outcome.perFile, deps);
 	if (violations.length > 0) return blockForViolations(violations, ctx.warnings);

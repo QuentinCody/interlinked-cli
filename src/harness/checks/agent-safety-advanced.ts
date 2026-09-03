@@ -48,6 +48,46 @@ export { checkDeadExports } from "./dead-exports-inline.js";
  *     contract in each case.
  *   - Test files, `.d.ts`, non-JS/TS extensions.
  */
+const DEFAULT_EXPORT_ANON_FORMS = [
+	/^export\s+default\s+function\s*\(/, // function () {
+	/^export\s+default\s+async\s+function\s*\(/, // async function () {
+	/^export\s+default\s+class(?:\s+extends\s+\S+)?\s*\{/, // class { or class extends X {
+	/^export\s+default\s+\(/, // (args) =>  OR (expr)
+	/^export\s+default\s+\{/, // object literal
+	/^export\s+default\s+\[/, // array literal
+];
+const DEFAULT_EXPORT_NAMED_FORM =
+	/^export\s+default\s+(?:async\s+)?(?:function\s*\*?\s+|class\s+)?([A-Za-z_$][\w$]*)\s*[\s({]?/;
+
+// Checks one stripped source line for a `default_export`-flaggable form.
+// Returns the match for that line, or null when the line doesn't qualify.
+function matchDefaultExportLine(
+	line: string,
+	originalLine: string | undefined,
+	lineNo: number,
+	base: string,
+): InlineMatch | null {
+	if (!line.startsWith("export default")) return null;
+
+	// Anonymous forms — always flag.
+	if (DEFAULT_EXPORT_ANON_FORMS.some((re) => re.test(line))) {
+		return {
+			line: lineNo,
+			text: `anonymous default export: ${originalLine?.trim().slice(0, 120) ?? ""}`,
+		};
+	}
+
+	// Named form — flag when the symbol name doesn't match the filename.
+	const named = DEFAULT_EXPORT_NAMED_FORM.exec(line);
+	if (!named) return null;
+	const sym = nonNull(named[1]);
+	if (sym.toLowerCase() === base.toLowerCase()) return null;
+	return {
+		line: lineNo,
+		text: `default export '${sym}' does not match filename '${base}' — grep-hostile for cold readers`,
+	};
+}
+
 export function checkDefaultExport(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
@@ -69,42 +109,11 @@ export function checkDefaultExport(content: string, filePath: string): InlineMat
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
 
-	const ANON_FORMS = [
-		/^export\s+default\s+function\s*\(/, // function () {
-		/^export\s+default\s+async\s+function\s*\(/, // async function () {
-		/^export\s+default\s+class(?:\s+extends\s+\S+)?\s*\{/, // class { or class extends X {
-		/^export\s+default\s+\(/, // (args) =>  OR (expr)
-		/^export\s+default\s+\{/, // object literal
-		/^export\s+default\s+\[/, // array literal
-	];
-	const NAMED_FORM =
-		/^export\s+default\s+(?:async\s+)?(?:function\s*\*?\s+|class\s+)?([A-Za-z_$][\w$]*)\s*[\s({]?/;
-
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
 		const line = nonNull(strippedLines[i]).trim();
-		if (!line.startsWith("export default")) continue;
-
-		// Anonymous forms — always flag.
-		if (ANON_FORMS.some((re) => re.test(line))) {
-			matches.push({
-				line: i + 1,
-				text: `anonymous default export: ${originalLines[i]?.trim().slice(0, 120) ?? ""}`,
-			});
-			continue;
-		}
-
-		// Named form — flag when the symbol name doesn't match the filename.
-		const named = NAMED_FORM.exec(line);
-		if (named) {
-			const sym = nonNull(named[1]);
-			if (sym.toLowerCase() !== base.toLowerCase()) {
-				matches.push({
-					line: i + 1,
-					text: `default export '${sym}' does not match filename '${base}' — grep-hostile for cold readers`,
-				});
-			}
-		}
+		const match = matchDefaultExportLine(line, originalLines[i], i + 1, base);
+		if (match) matches.push(match);
 	}
 
 	return matches;

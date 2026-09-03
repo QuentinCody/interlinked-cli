@@ -9,6 +9,7 @@ import {
 	isTestFile,
 	stripCommentsAndStrings,
 } from "./shared.js";
+import { ifBlockHasMatchingElse, maxTernaryNestingDepth } from "./taste-smell-scanners.js";
 
 export { checkSameTypedPrimitiveParams } from "./taste-smell-same-typed-params.js";
 
@@ -116,36 +117,6 @@ function lineHasBareMagicNumber(line: string, allowed: Set<string>): boolean {
 }
 
 /**
- * Scan forward from the line at index `i` (already known to open an
- * `if (!x) {` block) tracking brace depth; the moment the if-block's own
- * opening brace closes, check whether an `else` immediately follows —
- * either later on the same line or at the start of the next line. Bounded
- * to a 50-line window; returns false if no closing point is found within it.
- *
- * Extracted from `checkNegatedConditionWithElse` — this is the "does the
- * if-block that starts here have a matching else" question in isolation.
- */
-function ifBlockHasMatchingElse(strippedLines: string[], i: number): boolean {
-	let braceDepth = 0;
-	for (let j = i; j < Math.min(i + 50, strippedLines.length); j++) {
-		const scanLine = nonNull(strippedLines[j]);
-		for (let k = 0; k < scanLine.length; k++) {
-			const ch = scanLine[k];
-			if (ch === "{") braceDepth++;
-			if (ch !== "}") continue;
-			braceDepth--;
-			// j === i && k === 0 mirrors the original scanner's guard against
-			// the very first character examined (parity, not reachable in practice).
-			if (braceDepth !== 0 || (j === i && k === 0)) continue;
-			const remaining = scanLine.slice(k + 1);
-			if (/\belse\b/.test(remaining)) return true;
-			return j + 1 < strippedLines.length && /^\s*else\b/.test(nonNull(strippedLines[j + 1]));
-		}
-	}
-	return false;
-}
-
-/**
  * Detect `if (!condition) { ... } else { ... }` — negated condition with else.
  * The reader must mentally double-negate. Just flip the branches.
  *
@@ -176,43 +147,6 @@ export function checkNegatedConditionWithElse(content: string, filePath: string)
 	}
 
 	return matches;
-}
-
-/**
- * Walk one (already comment/string-stripped) line and answer: what is the
- * deepest ternary-operator nesting reached on it? Optional chaining (`?.`),
- * nullish coalescing (`??`), and generic type params (`<T>`) are skipped so
- * none of them are mistaken for a ternary `?`.
- */
-function maxTernaryNestingDepth(line: string): number {
-	let ternaryDepth = 0;
-	let maxTernaryDepth = 0;
-	let inGeneric = 0;
-
-	for (let j = 0; j < line.length; j++) {
-		const ch = line[j];
-		if (ch === "<") inGeneric++;
-		if (ch === ">") inGeneric = Math.max(0, inGeneric - 1);
-		if (inGeneric > 0) continue;
-
-		// Skip optional chaining ?.
-		if (ch === "?" && j + 1 < line.length && line[j + 1] === ".") continue;
-		// Skip nullish coalescing ??
-		if (ch === "?" && j + 1 < line.length && line[j + 1] === "?") {
-			j++; // skip next ?
-			continue;
-		}
-
-		if (ch === "?") {
-			ternaryDepth++;
-			maxTernaryDepth = Math.max(maxTernaryDepth, ternaryDepth);
-		}
-		if (ch === ":") {
-			if (ternaryDepth > 0) ternaryDepth--;
-		}
-	}
-
-	return maxTernaryDepth;
 }
 
 /**

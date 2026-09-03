@@ -170,20 +170,25 @@ function runVerify(repo, timeoutMs) {
 	});
 }
 
+function checkFindingEntry(key, value) {
+	if (NON_CHECK_KEYS.has(key)) return null;
+	if (!value || typeof value !== "object") return null;
+	const issues = Number.isFinite(value.issues) ? value.issues : 0;
+	if (issues <= 0) return null;
+	const details = Array.isArray(value.details) ? value.details : [];
+	return {
+		issues,
+		files: Array.isArray(value.files) ? value.files.length : 0,
+		sample: details.slice(0, MAX_DETAILS_PER_CHECK),
+	};
+}
+
 function extractFindings(verifyJson) {
 	const out = {};
 	if (!verifyJson || typeof verifyJson !== "object") return out;
 	for (const [key, value] of Object.entries(verifyJson)) {
-		if (NON_CHECK_KEYS.has(key)) continue;
-		if (!value || typeof value !== "object") continue;
-		const issues = Number.isFinite(value.issues) ? value.issues : 0;
-		if (issues <= 0) continue;
-		const details = Array.isArray(value.details) ? value.details : [];
-		out[key] = {
-			issues,
-			files: Array.isArray(value.files) ? value.files.length : 0,
-			sample: details.slice(0, MAX_DETAILS_PER_CHECK),
-		};
+		const entry = checkFindingEntry(key, value);
+		if (entry) out[key] = entry;
 	}
 	return out;
 }

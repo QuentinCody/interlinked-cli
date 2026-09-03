@@ -57,8 +57,6 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { computeCyclomaticAst } from "../checks/cyclomatic-ast.js";
-import { computeCyclomaticPython } from "../checks/cyclomatic-python.js";
 import { recordCoverageDischarge } from "../coverage-obligation-ledger.js";
 import { type CoverageLanguage, coverageRunnerFor } from "../coverage-runner.js";
 import { crapThresholdFor } from "../metric-caps.js";
@@ -71,14 +69,14 @@ import {
 	rebaseConstructedPaths,
 	selectChangedSources,
 } from "./commit-gate-changes.js";
-import {
-	type CyclomaticAnalyzer,
-	degradeWithWarnings,
-	noVerifyWarnings,
-} from "./commit-gate-decision.js";
+import { degradeWithWarnings, noVerifyWarnings } from "./commit-gate-decision.js";
 import { type CommitGateDeps, runSuiteAndScan } from "./commit-gate-suite.js";
 import { parseGitCommit } from "./commit-parse.js";
 import type { CommitParse } from "./commit-parse.js";
+// The language → cyclomatic-analyzer mapping has ONE home (the per-edit CRAP
+// module). The commit gate used to carry a byte-identical private copy; both
+// enforcement surfaces must resolve the same analyzer for the same language.
+import { defaultCyclomaticFor } from "./coverage-crap-decision.js";
 import { materializeIndexSnapshot } from "./staged-snapshot.js";
 
 export { defaultGitChangedFiles, defaultResolveRepoRoot } from "./commit-gate-changes.js";
@@ -88,19 +86,6 @@ export { COMMIT_RUN_TIMEOUT_MS, type CommitGateDeps } from "./commit-gate-suite.
 // Re-export the parser + selection surfaces so existing call sites / tests import
 // them from the gate module too.
 export { parseGitCommit } from "./commit-parse.js";
-
-/** The real cyclomatic analyzer for a coverage language, or null to skip. */
-function defaultCyclomaticFor(language: CoverageLanguage): CyclomaticAnalyzer | null {
-	switch (language) {
-		case "js":
-		case "ts":
-			return computeCyclomaticAst;
-		case "python":
-			return computeCyclomaticPython;
-		default:
-			return null;
-	}
-}
 
 /** Production defaults — real runner factory, git diff, analyzer, clock, reader. */
 const DEFAULT_DEPS: CommitGateDeps = {

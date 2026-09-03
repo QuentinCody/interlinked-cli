@@ -93,6 +93,34 @@ function identityMismatch(row: V3MutantIdentityProvenance, derived: PortableMuta
 	return null;
 }
 
+type IndexIdentityRowEntry = {
+	row: V3MutantIdentityProvenance | undefined;
+	identity: PortableMutantIdentity | undefined;
+	raw: RawMutant | undefined;
+};
+
+type IndexIdentityRowResult =
+	| { ok: false; reason: string }
+	| { ok: true; adaptedMutant: AdaptedMutant | null };
+
+function processIndexIdentityRow(
+	entry: IndexIdentityRowEntry,
+	isExecutableRow: boolean,
+	executable: V3MutantRow | undefined,
+): IndexIdentityRowResult {
+	const { row, identity, raw } = entry;
+	if (row === undefined || identity === undefined || raw === undefined) {
+		return { ok: false, reason: "mutant identity derivation returned a short result" };
+	}
+	const mismatch = identityMismatch(row, identity);
+	if (mismatch !== null) return { ok: false, reason: mismatch };
+	if (!isExecutableRow) return { ok: true, adaptedMutant: null };
+	if (executable === undefined) {
+		return { ok: false, reason: "executable mutant mapping returned a short result" };
+	}
+	return { ok: true, adaptedMutant: { raw, status: executable.status } };
+}
+
 function adaptedRows(
 	rows: readonly V3MutantRow[],
 	excluded: readonly V3ExcludedRow[],
@@ -115,19 +143,11 @@ function adaptedRows(
 	}
 	const adapted: AdaptedMutant[] = [];
 	for (let index = 0; index < identityRows.length; index++) {
-		const row = identityRows[index];
-		const identity = identities[index];
-		const raw = raws[index];
-		if (row === undefined || identity === undefined || raw === undefined) {
-			return { ok: false, reason: "mutant identity derivation returned a short result" };
-		}
-		const mismatch = identityMismatch(row, identity);
-		if (mismatch !== null) return { ok: false, reason: mismatch };
-		if (index < rows.length) {
-			const executable = rows[index];
-			if (executable === undefined) return { ok: false, reason: "executable mutant mapping returned a short result" };
-			adapted.push({ raw, status: executable.status });
-		}
+		const entry: IndexIdentityRowEntry = { row: identityRows[index], identity: identities[index], raw: raws[index] };
+		const isExecutableRow = index < rows.length;
+		const result = processIndexIdentityRow(entry, isExecutableRow, isExecutableRow ? rows[index] : undefined);
+		if (!result.ok) return result;
+		if (result.adaptedMutant !== null) adapted.push(result.adaptedMutant);
 	}
 	return { ok: true, run: { mutants: adapted } };
 }

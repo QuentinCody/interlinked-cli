@@ -7,7 +7,8 @@
 // (`;`, `&&`, backticks, etc.). The argv-array form via
 // `spawn()` / `execFile()` is the safe alternative.
 
-import { getExtension, type InlineMatch, isGeneratedFile, isTestFile, JS_TS_EXTS } from "../checks/shared.js";
+import type { InlineMatch } from "../checks/shared.js";
+import { collectRegexLineMatches, shouldSkipFootgunScan } from "./scan-helpers.js";
 import type { LibraryFootgunCheck } from "./types.js";
 
 // Match `exec(` / `execSync(` whose argument starts with a
@@ -16,29 +17,9 @@ import type { LibraryFootgunCheck } from "./types.js";
 const EXEC_INTERPOLATED_RE =
 	/(?<![.\w$])exec(?:Sync)?\s*\(\s*(?:`[^`]*\$\{|["'][^"']*["']\s*\+|\w+\s*\+)/g;
 
-function shouldSkip(filePath: string, content: string): boolean {
-	const ext = getExtension(filePath);
-	if (!JS_TS_EXTS.has(ext)) return true;
-	if (isTestFile(filePath)) return true;
-	if (isGeneratedFile(content)) return true;
-	return false;
-}
-
 function detectExecInterpolated(content: string, filePath: string): InlineMatch[] {
-	if (shouldSkip(filePath, content)) return [];
-	const out: InlineMatch[] = [];
-	const lines = content.split("\n");
-	EXEC_INTERPOLATED_RE.lastIndex = 0;
-	let m: RegExpExecArray | null = EXEC_INTERPOLATED_RE.exec(content);
-	while (m !== null) {
-		const lineNo = content.slice(0, m.index).split("\n").length;
-		out.push({
-			line: lineNo,
-			text: (lines[lineNo - 1] || "").trim().slice(0, 150),
-		});
-		m = EXEC_INTERPOLATED_RE.exec(content);
-	}
-	return out;
+	if (shouldSkipFootgunScan(filePath, content)) return [];
+	return collectRegexLineMatches(content, EXEC_INTERPOLATED_RE);
 }
 
 export const CHILD_PROCESS_FOOTGUNS: LibraryFootgunCheck[] = [

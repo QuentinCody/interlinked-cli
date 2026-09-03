@@ -272,6 +272,35 @@ export function findLineBoundaryAtOrBefore(
 	return { offset, records };
 }
 
+interface TailScanState {
+	/** Whether the record after the byte under inspection has any non-blank content. */
+	nonEmpty: boolean;
+	/** Non-blank records counted so far, scanning backwards from EOF. */
+	found: number;
+}
+
+/**
+ * Scans one chunk backwards, counting non-blank records into `state`.
+ * Returns the chunk-relative start offset of the `maxLines`-th record, or -1 if not reached.
+ */
+function scanChunkBackwardForTailStart(
+	chunk: Buffer,
+	length: number,
+	state: TailScanState,
+	maxLines: number,
+): number {
+	for (let i = length - 1; i >= 0; i--) {
+		const byte = chunk[i] as number;
+		if (byte !== NEWLINE) {
+			if (!isAsciiWhitespace(byte)) state.nonEmpty = true;
+			continue;
+		}
+		if (state.nonEmpty && ++state.found >= maxLines) return i + 1;
+		state.nonEmpty = false;
+	}
+	return -1;
+}
+
 /** Byte offset that retains the final `maxLines` non-blank records. */
 export function findTailStartForLines(
 	path: string,
@@ -284,26 +313,15 @@ export function findTailStartForLines(
 	const fd = openSync(path, "r");
 	const buffer = Buffer.allocUnsafe(Math.min(Math.max(1, chunkBytes), fileSize));
 	let position = fileSize;
-	let nonEmpty = false;
-	let found = 0;
+	const state: TailScanState = { nonEmpty: false, found: 0 };
 	try {
 		while (position > 0) {
 			const requested = Math.min(buffer.length, position);
 			position -= requested;
 			const read = readSync(fd, buffer, 0, requested, position);
 			if (read !== requested) throw new Error(`short read while scanning tail at byte ${position}`);
-			for (let i = read - 1; i >= 0; i--) {
-				const byte = buffer[i] as number;
-				if (byte === NEWLINE) {
-					if (nonEmpty) {
-						found++;
-						if (found >= maxLines) return position + i + 1;
-					}
-					nonEmpty = false;
-				} else if (!isAsciiWhitespace(byte)) {
-					nonEmpty = true;
-				}
-			}
+			const tailStart = scanChunkBackwardForTailStart(buffer, read, state, maxLines);
+			if (tailStart >= 0) return position + tailStart;
 		}
 		return 0;
 	} finally {

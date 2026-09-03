@@ -21,6 +21,34 @@ interface DoctestBlock {
 /** The info-string marker a fence must carry to be run. */
 const DOCTEST_TAG = "doctest";
 
+type OpenDoctestBlock = { lang: string; line: number; body: string[] };
+
+/**
+ * Handle one line while a doctest block is already open: close it (pushing
+ * the finished block onto `blocks`) if this line is a closing fence — bare
+ * (``` `~~~ ` with no info string) or one carrying its own info string —
+ * otherwise append the line to the open block's body. Returns the block's
+ * new open state: the same block (still open) or `null` (just closed).
+ */
+function advanceOpenDoctestBlock(
+	open: OpenDoctestBlock,
+	fence: RegExpMatchArray | null,
+	raw: string,
+	blocks: DoctestBlock[],
+): OpenDoctestBlock | null {
+	if (fence && (fence[1] ?? "").trim() === "") {
+		blocks.push({ lang: open.lang, code: open.body.join("\n"), line: open.line });
+		return null;
+	}
+	if (/^\s*(?:```|~~~)/.test(raw)) {
+		// A fence with an info string closes nothing — treat as body end guard.
+		blocks.push({ lang: open.lang, code: open.body.join("\n"), line: open.line });
+		return null;
+	}
+	open.body.push(raw);
+	return open;
+}
+
 /**
  * Extract every fenced block whose info string includes the `doctest` tag.
  * Handles ``` and ~~~ fences; nested/indented fences are not supported (kept
@@ -29,21 +57,12 @@ const DOCTEST_TAG = "doctest";
 export function extractDoctestBlocks(markdown: string): DoctestBlock[] {
 	const lines = markdown.split("\n");
 	const blocks: DoctestBlock[] = [];
-	let open: { lang: string; line: number; body: string[] } | null = null;
+	let open: OpenDoctestBlock | null = null;
 	for (let i = 0; i < lines.length; i++) {
 		const raw = lines[i] ?? "";
 		const fence = raw.match(/^\s*(?:```|~~~)\s*(.*)$/);
 		if (open) {
-			if (fence && (fence[1] ?? "").trim() === "") {
-				blocks.push({ lang: open.lang, code: open.body.join("\n"), line: open.line });
-				open = null;
-			} else if (/^\s*(?:```|~~~)/.test(raw)) {
-				// A fence with an info string closes nothing — treat as body end guard.
-				blocks.push({ lang: open.lang, code: open.body.join("\n"), line: open.line });
-				open = null;
-			} else {
-				open.body.push(raw);
-			}
+			open = advanceOpenDoctestBlock(open, fence, raw, blocks);
 			continue;
 		}
 		if (fence) {

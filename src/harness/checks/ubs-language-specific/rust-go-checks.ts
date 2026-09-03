@@ -157,6 +157,20 @@ export function checkGoroutineNoWaitgroup(content: string, filePath: string): In
 }
 
 /**
+ * Count how many entries at the top of `loopStack` were opened at a
+ * brace-depth that is now >= `braceDepth` — those loops have closed.
+ * Pure: does not mutate `loopStack`.
+ */
+function countClosedLoopFrames(loopStack: number[], braceDepth: number): number {
+	let count = 0;
+	for (let i = loopStack.length - 1; i >= 0; i--) {
+		if (nonNull(loopStack[i]) < braceDepth) break;
+		count++;
+	}
+	return count;
+}
+
+/**
  * `ubs_defer_in_loop` — Go `defer` inside a `for` loop accumulates calls
  * until the function returns; if the loop iterates many times you blow up
  * memory / leak file handles before any defer executes. post / warning.
@@ -204,10 +218,9 @@ export function checkDeferInLoop(content: string, filePath: string): InlineMatch
 		braceDepth += openCount - closeCount;
 
 		// Pop loops whose entry depth is now above the current depth.
-		while (loopStack.length > 0 && nonNull(loopStack[loopStack.length - 1]) >= braceDepth) {
-			loopStack.pop();
-			loopDepth--;
-		}
+		const closedFrames = countClosedLoopFrames(loopStack, braceDepth);
+		loopStack.length -= closedFrames;
+		loopDepth -= closedFrames;
 	}
 	return matches;
 }

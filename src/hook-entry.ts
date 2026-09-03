@@ -76,6 +76,35 @@ export interface HookEntryResult {
 	fell_back: boolean;
 }
 
+/** Applies the post-tool synchronous-delivery acknowledgement to `decision`'s
+ *  warnings when this event carries a post-delivery token and a resolvable
+ *  data dir. Returns `decision` unchanged otherwise. */
+function applyPostDeliveryAcknowledgement(
+	decision: HarnessDecision,
+	postDeliveryToken: string | null,
+	dataDir: string | null,
+): HarnessDecision {
+	if (!postDeliveryToken || !dataDir) return decision;
+	return {
+		...decision,
+		warnings: acknowledgeSynchronousPostToolResult(
+			dataDir,
+			postDeliveryToken,
+			decision.warnings ?? [],
+		),
+	};
+}
+
+/** Merges any late-arriving PostToolUse warnings into `decision`'s warnings,
+ *  deduplicated. Returns `decision` unchanged when there are none. */
+function mergeLateWarnings(decision: HarnessDecision, lateWarnings: string[]): HarnessDecision {
+	if (lateWarnings.length === 0) return decision;
+	return {
+		...decision,
+		warnings: [...new Set([...(decision.warnings ?? []), ...lateWarnings])],
+	};
+}
+
 /** Run a single hook invocation end-to-end, returning the encoded output.
  *  Does not read from process.stdin or write to process.stdout — that is the
  *  CLI wrapper's job. Keeps the core logic easily testable. */
@@ -154,22 +183,8 @@ export async function runHookEntry(opts: HookEntryOptions): Promise<HookEntryRes
 		);
 	}
 
-	if (postDeliveryToken && dataDir) {
-		decision = {
-			...decision,
-			warnings: acknowledgeSynchronousPostToolResult(
-				dataDir,
-				postDeliveryToken,
-				decision.warnings ?? [],
-			),
-		};
-	}
-	if (lateWarnings.length > 0) {
-		decision = {
-			...decision,
-			warnings: [...new Set([...(decision.warnings ?? []), ...lateWarnings])],
-		};
-	}
+	decision = applyPostDeliveryAcknowledgement(decision, postDeliveryToken, dataDir);
+	decision = mergeLateWarnings(decision, lateWarnings);
 
 	// Feed the statusline's kinetic row (`.interlinked/last-check.txt`) —
 	// the same artifact the generated .mjs hook writes. The socket lives at

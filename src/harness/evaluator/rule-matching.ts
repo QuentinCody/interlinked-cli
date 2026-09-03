@@ -303,34 +303,44 @@ function pushTarget(
 	return acc.length >= MAX_RESOLVED_TARGETS;
 }
 
-function tokenizeShell(cmd: string): string[] {
-	const tokens: string[] = [];
-	let current = "";
-	let quote: '"' | "'" | null = null;
-	for (const ch of cmd) {
-		if (quote) {
-			if (ch === quote) {
-				quote = null;
-			} else {
-				current += ch;
-			}
-			continue;
+/** Mutable in-progress state for {@link tokenizeShell}'s character-by-character scan. */
+interface ShellTokenizerState {
+	tokens: string[];
+	current: string;
+	quote: '"' | "'" | null;
+}
+
+/** Advance the tokenizer state by one character of shell input. */
+function consumeShellChar(ch: string, state: ShellTokenizerState): void {
+	if (state.quote) {
+		if (ch === state.quote) {
+			state.quote = null;
+		} else {
+			state.current += ch;
 		}
-		if (ch === '"' || ch === "'") {
-			quote = ch;
-			continue;
-		}
-		if (ch === " " || ch === "\t" || ch === "\n") {
-			if (current) {
-				tokens.push(current);
-				current = "";
-			}
-			continue;
-		}
-		current += ch;
+		return;
 	}
-	if (current) tokens.push(current);
-	return tokens;
+	if (ch === '"' || ch === "'") {
+		state.quote = ch;
+		return;
+	}
+	if (ch === " " || ch === "\t" || ch === "\n") {
+		if (state.current) {
+			state.tokens.push(state.current);
+			state.current = "";
+		}
+		return;
+	}
+	state.current += ch;
+}
+
+function tokenizeShell(cmd: string): string[] {
+	const state: ShellTokenizerState = { tokens: [], current: "", quote: null };
+	for (const ch of cmd) {
+		consumeShellChar(ch, state);
+	}
+	if (state.current) state.tokens.push(state.current);
+	return state.tokens;
 }
 
 function extractRmTargets(cmd: string, acc: ResolvedTarget[]): void {

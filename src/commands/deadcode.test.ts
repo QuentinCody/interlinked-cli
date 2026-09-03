@@ -108,3 +108,107 @@ describe("scanDeadCode — negative (must not report)", () => {
 		expect(r.unreachableFiles).not.toContain("src/leaf2.ts");
 	});
 });
+
+// The test-only signal feeds `--categorize`: a file in this bucket is
+// presented as "alive only because tests import it", i.e. a deletion lead.
+// Campaign 2026-09-02 measured 142 rows against a ground truth of 43 — the
+// classifier read the project graph only, and the graph records static
+// import statements, so a barrel `export … from` edge or a dynamic
+// `import()` from live product code was invisible.
+describe("scanDeadCode testOnlyImporterFiles — positive (must fire)", () => {
+	// test-contract: behavior — the true positive the bucket exists for
+	it("P3: a module imported only from a *.test.ts IS test-only", () => {
+		seed("src/only-tested.ts", "export const onlyTested = 1;\n");
+		seed(
+			"src/only-tested.test.ts",
+			'import { onlyTested } from "./only-tested.js";\nconsole.log(onlyTested);\n',
+		);
+		const r = scanDeadCode(tmp);
+		expect(r.testOnlyImporterFiles).toContain("src/only-tested.ts");
+	});
+
+	// test-contract: boundary — the test-file predicate is path-shaped, not
+	// suffix-only: a __tests__/ importer counts as a test importer too
+	it("P4: a module imported only from __tests__/ IS test-only", () => {
+		seed("src/nested-only.ts", "export const nestedOnly = 1;\n");
+		seed(
+			"src/__tests__/nested-only.spec.ts",
+			'import { nestedOnly } from "../nested-only.js";\nconsole.log(nestedOnly);\n',
+		);
+		const r = scanDeadCode(tmp);
+		expect(r.testOnlyImporterFiles).toContain("src/nested-only.ts");
+	});
+});
+
+describe("scanDeadCode testOnlyImporterFiles — negative (must not fire)", () => {
+	// test-contract: bug-class — barrel re-export edges are invisible to the
+	// project graph, so the leaf looked test-only (deadcode over-report 3x)
+	it("N5: a module reached only through `export … from` in a non-test barrel is NOT test-only", () => {
+		seed("src/pbarrel.ts", 'export * from "./pleaf.js";\nexport { pick2 } from "./pleaf2.js";\n');
+		seed("src/pleaf.ts", "export const viaProductBarrel = 1;\n");
+		seed("src/pleaf2.ts", "export const pick2 = 2;\n");
+		seed(
+			"src/pleaf.test.ts",
+			'import { viaProductBarrel } from "./pleaf.js";\nconsole.log(viaProductBarrel);\n',
+		);
+		seed("src/pleaf2.test.ts", 'import { pick2 } from "./pleaf2.js";\nconsole.log(pick2);\n');
+		const r = scanDeadCode(tmp);
+		expect(r.testOnlyImporterFiles).not.toContain("src/pleaf.ts");
+		expect(r.testOnlyImporterFiles).not.toContain("src/pleaf2.ts");
+	});
+
+	// test-contract: bug-class — the lazily-loaded module class (the CLI's own
+	// `await import("./deadcode-categorize.js")` was the live FP)
+	it("N6: a module reached only via dynamic import() from product code is NOT test-only", () => {
+		seed(
+			"src/dyn-host.ts",
+			'export async function load(): Promise<unknown> {\n\treturn import("./dyn-leaf.js");\n}\n',
+		);
+		seed("src/dyn-leaf.ts", "export const lazily = 1;\n");
+		seed(
+			"src/dyn-leaf.test.ts",
+			'import { lazily } from "./dyn-leaf.js";\nconsole.log(lazily);\n',
+		);
+		const r = scanDeadCode(tmp);
+		expect(r.testOnlyImporterFiles).not.toContain("src/dyn-leaf.ts");
+	});
+
+	// test-contract: boundary — a commented-out import is not a live edge, so
+	// the broadened specifier scan must not launder a true positive away
+	it("N7: a commented-out product import does not clear a genuinely test-only module", () => {
+		seed("src/cmt-host.ts", '// import { commented } from "./cmt-leaf.js";\nexport const x = 1;\n');
+		seed("src/cmt-leaf.ts", "export const commented = 1;\n");
+		seed(
+			"src/cmt-leaf.test.ts",
+			'import { commented } from "./cmt-leaf.js";\nconsole.log(commented);\n',
+		);
+		const r = scanDeadCode(tmp);
+		expect(r.testOnlyImporterFiles).toContain("src/cmt-leaf.ts");
+	});
+
+	// test-contract: bug-class — a span-matching block-comment strip mis-pairs
+	// on regex literals / template strings and swallows the whole import
+	// block, which silently restored the over-report (measured on
+	// structural-checks.ts: 16 specifiers lost)
+	it("N8: a barrel carrying JSDoc and a regex literal still clears its leaf", () => {
+		seed(
+			"src/doc-barrel.ts",
+			[
+				"/**",
+				" * Barrel with a doc comment above the re-export.",
+				" */",
+				'export const SPLAT = /\\/\\*|\\*\\//;',
+				"",
+				'export { docLeafValue } from "./doc-leaf.js";',
+				"",
+			].join("\n"),
+		);
+		seed("src/doc-leaf.ts", "export const docLeafValue = 1;\n");
+		seed(
+			"src/doc-leaf.test.ts",
+			'import { docLeafValue } from "./doc-leaf.js";\nconsole.log(docLeafValue);\n',
+		);
+		const r = scanDeadCode(tmp);
+		expect(r.testOnlyImporterFiles).not.toContain("src/doc-leaf.ts");
+	});
+});

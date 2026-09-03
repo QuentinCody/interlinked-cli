@@ -130,6 +130,10 @@ export function isEditEvent(event: { tool: string }): boolean {
 export function isBashEvent(event: { tool: string }): boolean {
 	return event.tool === "Bash";
 }
+/** A PostToolUse event for a tool that produces a file edit on disk. */
+export function isPostEdit(event: { hook: string; tool: string }): boolean {
+	return event.hook === "PostToolUse" && isEditEvent(event);
+}
 
 // ===========================================
 // Egress verbs + host / IP classification

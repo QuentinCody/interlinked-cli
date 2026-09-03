@@ -71,6 +71,13 @@ interface BraceScan {
 	flagAt: number | null;
 }
 
+/** Pop every loop whose body opened at exactly `depth` — that body closes here. */
+function popLoopsClosingAt(loopStack: number[], depth: number): void {
+	while (loopStack.length > 0 && loopStack[loopStack.length - 1] === depth) {
+		loopStack.pop();
+	}
+}
+
 function scanBracesForLoop(
 	line: string,
 	startDepth: number,
@@ -89,9 +96,7 @@ function scanBracesForLoop(
 				if (loopStack.length >= 3 && flagAt === null) flagAt = pendingLoopLine;
 			}
 		} else if (ch === "}") {
-			while (loopStack.length > 0 && loopStack[loopStack.length - 1] === depth) {
-				loopStack.pop();
-			}
+			popLoopsClosingAt(loopStack, depth);
 			depth = Math.max(0, depth - 1);
 		}
 	}
@@ -260,6 +265,21 @@ export function checkFuzzyResponsibilityName(content: string, filePath: string):
 
 const TRAIN_WRECK = /[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*|\?\.[A-Za-z_$][\w$]*){4,}/;
 
+/**
+ * Chains that look like train wrecks but are canonical platform access:
+ * `import.meta.*`, `Object.prototype.*`, and the Cloudflare Worker /
+ * DurableObject API shape `this.ctx.storage.sql.exec(...)`,
+ * `this.ctx.storage.put(...)`, `this.ctx.exports.facetName.method()` — the base
+ * class exposes exactly this shape, so DO code can't and shouldn't flatten it.
+ */
+function isCanonicalChain(wreck: string, sLine: string): boolean {
+	return (
+		wreck.startsWith("import.meta.") ||
+		sLine.includes("Object.prototype.") ||
+		wreck.startsWith("this.ctx.")
+	);
+}
+
 export function checkLawOfDemeter(content: string, filePath: string): InlineMatch[] {
 	if (!isJsTs(filePath) || isTestFile(filePath)) return [];
 	const stripped = stripCommentsAndStrings(content);
@@ -271,12 +291,7 @@ export function checkLawOfDemeter(content: string, filePath: string): InlineMatc
 		if (/^\s*(?:\/\/|\*|\/\*)/.test(lines[i] ?? "")) continue; // comment line belt-and-braces
 		const m = TRAIN_WRECK.exec(sLine);
 		if (!m) continue;
-		if (m[0].startsWith("import.meta.")) continue;
-		if (sLine.includes("Object.prototype.")) continue;
-		// Cloudflare Worker / DurableObject canonical access: `this.ctx.storage.sql.exec(...)`,
-		// `this.ctx.storage.put(...)`, `this.ctx.exports.facetName.method()`. The base
-		// class exposes this exact API shape — DO code can't and shouldn't flatten it.
-		if (m[0].startsWith("this.ctx.")) continue;
+		if (isCanonicalChain(m[0], sLine)) continue;
 		push(matches, i, lines, 5);
 	}
 	return matches;

@@ -161,23 +161,7 @@ export async function guardCheckCommand(opts: { files?: string[]; json?: boolean
 		const guardMode = getGuardMode();
 
 		// Find conflicts
-		const conflicts: Conflict[] = [];
-		for (const file of files) {
-			for (const reservation of reservations) {
-				// Skip own reservations
-				if (agentName && reservation.agent_name === agentName) {
-					continue;
-				}
-				if (patternsOverlap(file, reservation.path_pattern)) {
-					conflicts.push({
-						file,
-						reservation_pattern: reservation.path_pattern,
-						reserved_by: reservation.agent_name,
-						expires_at: reservation.expires_at,
-					});
-				}
-			}
-		}
+		const conflicts = findReservationConflicts(files, reservations, agentName);
 
 		const result: GuardCheckResult = {
 			conflicts,
@@ -372,6 +356,32 @@ export async function guardUninstallCommand(opts: { json?: boolean }): Promise<v
 // ===========================================
 // Helpers
 // ===========================================
+
+/** Every (file, other agent's reservation) pair whose pattern covers the file. */
+function findReservationConflicts(
+	files: string[],
+	reservations: Reservation[],
+	agentName: string | undefined,
+): Conflict[] {
+	const conflicts: Conflict[] = [];
+	for (const file of files) {
+		for (const reservation of reservations) {
+			// Skip own reservations
+			if (agentName && reservation.agent_name === agentName) {
+				continue;
+			}
+			if (patternsOverlap(file, reservation.path_pattern)) {
+				conflicts.push({
+					file,
+					reservation_pattern: reservation.path_pattern,
+					reserved_by: reservation.agent_name,
+					expires_at: reservation.expires_at,
+				});
+			}
+		}
+	}
+	return conflicts;
+}
 
 function getGuardMode(): string {
 	const local = readLocalConfig();

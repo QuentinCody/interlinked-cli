@@ -113,15 +113,20 @@ export function removeJsonPath(target: unknown, path: string): boolean {
 	if (last === undefined) return false;
 	if (cursor == null) return false;
 	if (last.kind === "index") {
-		if (!Array.isArray(cursor)) return false;
-		if (last.value < 0 || last.value >= cursor.length) return false;
-		cursor.splice(last.value, 1);
-		return true;
+		return removeIndexSegment(cursor, last.value);
 	}
 	if (typeof cursor !== "object" || Array.isArray(cursor)) return false;
 	const obj = cursor as JsonObject;
 	if (!Object.hasOwn(obj, last.value)) return false;
 	delete obj[last.value];
+	return true;
+}
+
+/** Remove the element at `index` from `cursor` if it is an in-range array. */
+function removeIndexSegment(cursor: unknown, index: number): boolean {
+	if (!Array.isArray(cursor)) return false;
+	if (index < 0 || index >= cursor.length) return false;
+	cursor.splice(index, 1);
 	return true;
 }
 

@@ -16,7 +16,8 @@ import { hookTimeoutSecondsFor } from "../../lib/hook-timeouts.js";
 import { agentWorktreeCreationBlockReason } from "../../lib/hook-template-chunks/destructive-command-guard.js";
 import { CLAUDE_CODE_WRITE_TOOLS } from "../../lib/write-tool-registry.js";
 import { formatAskReasonWithTargets } from "../evaluator/rule-matching.js";
-import { type ClassifierOverrides, classifyFromToolName } from "../tool-class-classifier.js";
+import type { ClassifierOverrides } from "../tool-class-classifier.js";
+import { adapterToolClassifier } from "./adapter-tool-class.js";
 import type { HarnessDecision } from "../types.js";
 import type { UnifiedHookEvent } from "../unified-event.js";
 import { buildDetachedHookCommand, buildHookCommand } from "./hook-command.js";
@@ -96,13 +97,7 @@ export function createClaudeCodeAdapter(opts: ClaudeCodeAdapterOptions = {}): Ru
 			});
 		},
 
-		classifyToolClass(toolName, toolInput) {
-			return classifyFromToolName(
-				toolName,
-				toolInput,
-				opts.overrides ? { overrides: opts.overrides } : {},
-			);
-		},
+		classifyToolClass: adapterToolClassifier(opts.overrides),
 
 		renderSettingsFragment(binaryPath, scope): SettingsFragment {
 			const path = scope === "user" ? "~/.claude/settings.json" : ".claude/settings.json";
@@ -170,25 +165,7 @@ function encodeClaudeDecision(
 	}
 
 	if (decision.decision === "block") {
-		const reason = claudeBlockReason(decision);
-		if (isPre) {
-			return {
-				stdout: JSON.stringify({
-					hookSpecificOutput: {
-						hookEventName,
-						permissionDecision: "deny",
-						permissionDecisionReason: reason,
-					},
-				}),
-				stderr: stderr || undefined,
-				exit_code: 0,
-			};
-		}
-		return {
-			stdout: JSON.stringify({ decision: "block", reason }),
-			stderr: stderr || undefined,
-			exit_code: 0,
-		};
+		return encodeClaudeBlockDecision(decision, hookEventName, isPre, stderr);
 	}
 
 	if (decision.decision === "ask") {
@@ -223,6 +200,33 @@ function encodeClaudeDecision(
 				additionalContext: contextParts.join("\n"),
 			},
 		}),
+		stderr: stderr || undefined,
+		exit_code: 0,
+	};
+}
+
+function encodeClaudeBlockDecision(
+	decision: HarnessDecision,
+	hookEventName: string,
+	isPre: boolean,
+	stderr: string,
+): AdapterOutput {
+	const reason = claudeBlockReason(decision);
+	if (isPre) {
+		return {
+			stdout: JSON.stringify({
+				hookSpecificOutput: {
+					hookEventName,
+					permissionDecision: "deny",
+					permissionDecisionReason: reason,
+				},
+			}),
+			stderr: stderr || undefined,
+			exit_code: 0,
+		};
+	}
+	return {
+		stdout: JSON.stringify({ decision: "block", reason }),
 		stderr: stderr || undefined,
 		exit_code: 0,
 	};

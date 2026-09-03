@@ -44,6 +44,7 @@ const VERIFY_SUBMODULES = [
 	// continue seeing every wired check.
 	"file-checks-agent-safety.ts",
 	"file-checks-type-redundancy.ts",
+	"file-checks-over-extraction.ts",
 	"file-checks-react-test.ts",
 	"file-checks-ubs.ts",
 	"file-checks-endpoint-laziness.ts",
@@ -746,6 +747,7 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 			"duplicateTypeDeclaration",
 			"newExportWithoutImporter",
 			"extractedHelperDuplicate",
+			"singleUseTrivialHelper",
 			"snapshotHygiene",
 			"designSlop",
 			"payloadFieldCasing",

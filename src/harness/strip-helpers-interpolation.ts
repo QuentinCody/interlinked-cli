@@ -18,6 +18,51 @@ export function extractTemplateInterpolationExpressions(content: string): string
 	return expressions;
 }
 
+type TemplateScanContext = {
+	expressions: string[];
+	recursionDepth: number;
+};
+
+/**
+ * Advance one step of `scanTemplateLiterals`'s top-level scan: skip
+ * comment/string state via `stepPastCommentOrString`, then dispatch on the
+ * current character (comment/string start, or a template literal to hand
+ * off to `collectTemplateExpressions`). Returns the next index to resume
+ * scanning from. Extracted so the caller's loop stays flat — the per-state
+ * dispatch that used to nest inside the loop now lives at this function's
+ * top level instead.
+ */
+function advanceTemplateLiteralScan(
+	content: string,
+	i: number,
+	state: CommentStringLexerState,
+	ctx: TemplateScanContext,
+): number {
+	const stepped = stepPastCommentOrString(content, i, state);
+	if (stepped !== null) return stepped;
+
+	const ch = content[i];
+	const next = content[i + 1];
+
+	if (ch === "/" && next === "/") {
+		state.inLineComment = true;
+		return i + 2;
+	}
+	if (ch === "/" && next === "*") {
+		state.inBlockComment = true;
+		return i + 2;
+	}
+	if (ch === '"' || ch === "'") {
+		state.inString = ch;
+		return i + 1;
+	}
+	if (ch === "`") {
+		const end = collectTemplateExpressions(content, i + 1, ctx.expressions, ctx.recursionDepth);
+		return end === null ? content.length : end + 1;
+	}
+	return i + 1;
+}
+
 function scanTemplateLiterals(
 	content: string,
 	expressions: string[],
@@ -32,37 +77,10 @@ function scanTemplateLiterals(
 		inBlockComment: false,
 		inString: null,
 	};
+	const ctx: TemplateScanContext = { expressions, recursionDepth };
 
 	while (i < content.length) {
-		const stepped = stepPastCommentOrString(content, i, state);
-		if (stepped !== null) {
-			i = stepped;
-			continue;
-		}
-		const ch = content[i];
-		const next = content[i + 1];
-
-		if (ch === "/" && next === "/") {
-			state.inLineComment = true;
-			i += 2;
-			continue;
-		}
-		if (ch === "/" && next === "*") {
-			state.inBlockComment = true;
-			i += 2;
-			continue;
-		}
-		if (ch === '"' || ch === "'") {
-			state.inString = ch;
-			i++;
-			continue;
-		}
-		if (ch === "`") {
-			const end = collectTemplateExpressions(content, i + 1, expressions, recursionDepth);
-			i = end === null ? content.length : end + 1;
-			continue;
-		}
-		i++;
+		i = advanceTemplateLiteralScan(content, i, state, ctx);
 	}
 }
 

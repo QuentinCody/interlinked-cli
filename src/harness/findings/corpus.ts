@@ -266,25 +266,40 @@ export interface LoadOpts {
 /** Materialize the corpus: last-write-wins per id. Reads the system-of-record
  *  (local) LAST so it wins over the derived global cache. Torn lines skipped. */
 export function loadFindings(cwd: string, opts: LoadOpts = {}): Finding[] {
-	const scope = opts.scope ?? "local";
+	const byId = new Map<string, Finding>();
+	for (const path of corpusPathsForScope(opts.scope ?? "local", cwd)) {
+		indexCorpusFile(path, byId);
+	}
+	return [...byId.values()];
+}
+
+/** Read order IS the merge policy: the local system-of-record comes last so it
+ *  wins over the derived global cache. */
+function corpusPathsForScope(scope: NonNullable<LoadOpts["scope"]>, cwd: string): string[] {
 	const paths: string[] = [];
 	if (scope === "global" || scope === "both") paths.push(globalCorpusPath());
 	if (scope === "local" || scope === "both") paths.push(findingsCorpusPath(cwd));
+	return paths;
+}
 
-	const byId = new Map<string, Finding>();
-	for (const path of paths) {
-		if (!existsSync(path)) continue;
-		for (const rawLine of readFileSync(path, "utf-8").split("\n")) {
-			if (!rawLine.trim()) continue;
-			try {
-				const finding = parseFinding(JSON.parse(rawLine));
-				if (finding) byId.set(finding.id, finding);
-			} catch (e) {
-				void e; // torn JSONL — skip, never throw (matches recurrence.ts)
-			}
-		}
+/** Index one corpus file into `byId`, last-write-wins. A missing file is empty. */
+function indexCorpusFile(path: string, byId: Map<string, Finding>): void {
+	if (!existsSync(path)) return;
+	for (const rawLine of readFileSync(path, "utf-8").split("\n")) {
+		const finding = parseCorpusLine(rawLine);
+		if (finding) byId.set(finding.id, finding);
 	}
-	return [...byId.values()];
+}
+
+/** One JSONL line → Finding, or null for a blank or torn line. */
+function parseCorpusLine(rawLine: string): Finding | null {
+	if (!rawLine.trim()) return null;
+	try {
+		return parseFinding(JSON.parse(rawLine));
+	} catch (e) {
+		void e; // torn JSONL — skip, never throw (matches recurrence.ts)
+		return null;
+	}
 }
 
 export function getFinding(id: string, cwd: string, opts: LoadOpts = {}): Finding | null {

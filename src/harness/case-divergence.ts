@@ -162,6 +162,44 @@ function variableKind(ts: TsModule, flags: TS.NodeFlags): SymbolKind {
 	return "var";
 }
 
+/** The zero-or-more `SymbolLoc`s a single top-level statement declares —
+ *  a function/class/type/interface/enum declaration yields one, a
+ *  `const`/`let`/`var` statement yields one per binding, anything else
+ *  yields none. */
+function symbolsForStatement(
+	ts: TsModule,
+	stmt: TS.Statement,
+	file: string,
+	lineOf: (node: TS.Node) => number,
+): SymbolLoc[] {
+	if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+		return [{ name: stmt.name.text, kind: "function", file, line: lineOf(stmt) }];
+	}
+	if (ts.isClassDeclaration(stmt) && stmt.name) {
+		return [{ name: stmt.name.text, kind: "class", file, line: lineOf(stmt) }];
+	}
+	if (ts.isTypeAliasDeclaration(stmt)) {
+		return [{ name: stmt.name.text, kind: "type", file, line: lineOf(stmt) }];
+	}
+	if (ts.isInterfaceDeclaration(stmt)) {
+		return [{ name: stmt.name.text, kind: "interface", file, line: lineOf(stmt) }];
+	}
+	if (ts.isEnumDeclaration(stmt)) {
+		return [{ name: stmt.name.text, kind: "enum", file, line: lineOf(stmt) }];
+	}
+	if (ts.isVariableStatement(stmt)) {
+		const kind = variableKind(ts, stmt.declarationList.flags);
+		const out: SymbolLoc[] = [];
+		for (const d of stmt.declarationList.declarations) {
+			if (ts.isIdentifier(d.name)) {
+				out.push({ name: d.name.text, kind, file, line: lineOf(d) });
+			}
+		}
+		return out;
+	}
+	return [];
+}
+
 /** Extract module-top-level declared symbols (functions, classes, types,
  *  interfaces, enums, and each `const`/`let`/`var` binding) from one file. */
 export function extractTopLevelSymbols(
@@ -170,29 +208,12 @@ export function extractTopLevelSymbols(
 	file: string,
 ): SymbolLoc[] {
 	const sf = parseTsSourceWith(ts, content, file);
-	const out: SymbolLoc[] = [];
 	const lineOf = (node: TS.Node): number =>
 		sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
 
+	const out: SymbolLoc[] = [];
 	for (const stmt of sf.statements) {
-		if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-			out.push({ name: stmt.name.text, kind: "function", file, line: lineOf(stmt) });
-		} else if (ts.isClassDeclaration(stmt) && stmt.name) {
-			out.push({ name: stmt.name.text, kind: "class", file, line: lineOf(stmt) });
-		} else if (ts.isTypeAliasDeclaration(stmt)) {
-			out.push({ name: stmt.name.text, kind: "type", file, line: lineOf(stmt) });
-		} else if (ts.isInterfaceDeclaration(stmt)) {
-			out.push({ name: stmt.name.text, kind: "interface", file, line: lineOf(stmt) });
-		} else if (ts.isEnumDeclaration(stmt)) {
-			out.push({ name: stmt.name.text, kind: "enum", file, line: lineOf(stmt) });
-		} else if (ts.isVariableStatement(stmt)) {
-			const kind = variableKind(ts, stmt.declarationList.flags);
-			for (const d of stmt.declarationList.declarations) {
-				if (ts.isIdentifier(d.name)) {
-					out.push({ name: d.name.text, kind, file, line: lineOf(d) });
-				}
-			}
-		}
+		out.push(...symbolsForStatement(ts, stmt, file, lineOf));
 	}
 	return out;
 }

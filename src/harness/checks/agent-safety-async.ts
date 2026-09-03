@@ -140,6 +140,34 @@ function extractCallLeafId(trimmed: string): string | null {
 }
 
 /**
+ * Per-line body of {@link checkFloatingPromises} pass 2: decide whether the
+ * stripped line at index `i` is an unhandled call to a known-async identifier,
+ * and if so build the {@link InlineMatch} for it. Returns null for every
+ * non-match reason (empty line, syntactic skip, unknown callee, already
+ * `.catch`/`.finally`-handled).
+ */
+function matchFloatingPromiseAt(
+	strippedLines: string[],
+	originalLines: string[],
+	i: number,
+	asyncIds: Set<string>,
+): InlineMatch | null {
+	const trimmed = nonNull(strippedLines[i]).trim();
+	if (!trimmed) return null;
+	if (shouldSkipFloatingLine(strippedLines, i, trimmed)) return null;
+
+	const leafId = extractCallLeafId(trimmed);
+	if (!leafId) return null;
+	if (!asyncIds.has(leafId) && !BUILTIN_ASYNC_IDS.has(leafId)) return null;
+
+	// Already-handled chain: `.catch(` or `.finally(` anywhere on this line.
+	if (/\.catch\s*\(/.test(trimmed)) return null;
+	if (/\.finally\s*\(/.test(trimmed)) return null;
+
+	return { line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) };
+}
+
+/**
  * Detect floating promises: calls to async-declared functions (or known promise-
  * returning globals like fetch) at statement position without await, return,
  * void, yield, throw, assignment, or a trailing .catch()/.finally() handler.
@@ -179,19 +207,8 @@ export function checkFloatingPromises(content: string, filePath: string): Inline
 	const matches: InlineMatch[] = [];
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
-		const trimmed = nonNull(strippedLines[i]).trim();
-		if (!trimmed) continue;
-		if (shouldSkipFloatingLine(strippedLines, i, trimmed)) continue;
-
-		const leafId = extractCallLeafId(trimmed);
-		if (!leafId) continue;
-		if (!asyncIds.has(leafId) && !BUILTIN_ASYNC_IDS.has(leafId)) continue;
-
-		// Already-handled chain: `.catch(` or `.finally(` anywhere on this line.
-		if (/\.catch\s*\(/.test(trimmed)) continue;
-		if (/\.finally\s*\(/.test(trimmed)) continue;
-
-		matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
+		const match = matchFloatingPromiseAt(strippedLines, originalLines, i, asyncIds);
+		if (match) matches.push(match);
 	}
 
 	return matches;

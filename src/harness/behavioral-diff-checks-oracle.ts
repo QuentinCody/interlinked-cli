@@ -203,6 +203,18 @@ export function checkTestBlockCountRegression(
 	return results;
 }
 
+/** Sums added/removed assertion counts across one file's staged diff lines. */
+function countDiffAssertions(diff: string): { plus: number; minus: number } {
+	let plus = 0;
+	let minus = 0;
+	for (const line of diff.split("\n")) {
+		if (line.startsWith("+++") || line.startsWith("---")) continue;
+		if (line.startsWith("+")) plus += countAssertions(line.slice(1)).assertions;
+		else if (line.startsWith("-")) minus += countAssertions(line.slice(1)).assertions;
+	}
+	return { plus, minus };
+}
+
 /**
  * Public API — commit-gate check. Net assertion count across staged TEST files
  * dropped while non-test source also changed. Catches the lone deleted
@@ -224,11 +236,9 @@ export function checkAssertionCountRegression(
 			continue;
 		}
 		sampleFile = sampleFile || file;
-		for (const line of diff.split("\n")) {
-			if (line.startsWith("+++") || line.startsWith("---")) continue;
-			if (line.startsWith("+")) plus += countAssertions(line.slice(1)).assertions;
-			else if (line.startsWith("-")) minus += countAssertions(line.slice(1)).assertions;
-		}
+		const counts = countDiffAssertions(diff);
+		plus += counts.plus;
+		minus += counts.minus;
 	}
 	const net = plus - minus;
 	if (net >= 0 || !sourceChanged || !sampleFile) return [];

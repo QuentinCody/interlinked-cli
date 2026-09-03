@@ -20,12 +20,12 @@ export function countBooleanArgsFrom(line: string, start: number): number {
 			depth++;
 		} else if (ch === ")" || ch === "]" || ch === "}") {
 			if (depth === 0) {
-				if (isBooleanLiteralArg(line.slice(argStart, j))) boolCount++;
+				boolCount += Number(isBooleanLiteralArg(line.slice(argStart, j)));
 				break;
 			}
 			depth--;
 		} else if (ch === "," && depth === 0) {
-			if (isBooleanLiteralArg(line.slice(argStart, j))) boolCount++;
+			boolCount += Number(isBooleanLiteralArg(line.slice(argStart, j)));
 			argStart = j + 1;
 		}
 	}

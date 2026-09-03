@@ -97,20 +97,37 @@ export function typeNodeToDiscriminatedUnion(
 	for (const t of node.types) {
 		const lit = unwrapTypeLiteral(ts, t);
 		if (!lit) return null;
-		for (const key of DISCRIMINANT_KEYS) {
-			const tag = readLiteralPropTag(ts, lit, key);
-			if (tag === null) continue;
-			let acc = perKey.get(key);
-			if (!acc) {
-				acc = [];
-				perKey.set(key, acc);
-			}
-			acc.push(tag);
-		}
+		collectDiscriminantTags(ts, lit, perKey);
 	}
+	return pickDiscriminant(perKey, node.types.length);
+}
+
+/** Append each recognized discriminant key's literal tag on `lit` into `perKey`. */
+function collectDiscriminantTags(
+	ts: TsModule,
+	lit: import("typescript").TypeLiteralNode,
+	perKey: Map<string, string[]>,
+): void {
+	for (const key of DISCRIMINANT_KEYS) {
+		const tag = readLiteralPropTag(ts, lit, key);
+		if (tag === null) continue;
+		let acc = perKey.get(key);
+		if (!acc) {
+			acc = [];
+			perKey.set(key, acc);
+		}
+		acc.push(tag);
+	}
+}
+
+/** First key whose tags cover every union member and hold >= 2 distinct values. */
+function pickDiscriminant(
+	perKey: Map<string, string[]>,
+	memberCount: number,
+): DiscriminatedUnion | null {
 	for (const key of DISCRIMINANT_KEYS) {
 		const tags = perKey.get(key);
-		if (!tags || tags.length !== node.types.length) continue;
+		if (!tags || tags.length !== memberCount) continue;
 		const deduped = Array.from(new Set(tags)).sort();
 		if (deduped.length >= 2) return { discriminant: key, tags: deduped };
 	}

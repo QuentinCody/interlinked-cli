@@ -1416,3 +1416,54 @@ describe("dispatcher survivor contracts", () => {
 		expect(nonNull(out[0]).message).not.toContain("Tests failed");
 	});
 });
+
+// ---------------------------------------------------------------------------
+// Go build-tag parity with the check-engine Go runners
+// ---------------------------------------------------------------------------
+// `go test` must compile with the SAME build tags as `go build` and
+// golangci-lint, or the per-edit Go work populates three different build-cache
+// key sets and each invocation re-does what the others just did.
+
+describe("runGoTestDispatcher — build-tag parity", () => {
+	const profile = getProfileForFile("/repo/src/pkg/m.go");
+	if (!profile) throw new Error("go profile missing");
+	const dispatcher = TEST_DISPATCHERS.go;
+	if (!dispatcher) throw new Error("go dispatcher not registered");
+
+	// An arrow const, not a function declaration: TS keeps the `profile` /
+	// `dispatcher` narrowing from the guards above for a const-bound closure.
+	const argvWithGoflags = async (goflags: string | undefined): Promise<string[]> => {
+		const saved = process.env.INTERLINKED_GOFLAGS;
+		if (goflags === undefined) delete process.env.INTERLINKED_GOFLAGS;
+		else process.env.INTERLINKED_GOFLAGS = goflags;
+		try {
+			spawnSyncMock.mockReturnValue(mkSpawnResult({ status: 0 }));
+			await dispatcher({
+				filePath: "/repo/src/pkg/m.go",
+				absPath: "/repo/src/pkg/m.go",
+				profile,
+				checkCwd: "/repo",
+				timeoutMs: 15000,
+				severity: "error",
+				checkName: "affected_tests",
+			});
+			return nonNull(spawnSyncMock.mock.calls[0])[1] as string[];
+		} finally {
+			if (saved === undefined) delete process.env.INTERLINKED_GOFLAGS;
+			else process.env.INTERLINKED_GOFLAGS = saved;
+		}
+	};
+
+	it("P1: threads the configured -tags into `go test`, before the package arg", async () => {
+		expect(await argvWithGoflags("-tags=integration")).toEqual([
+			"test",
+			"-count=1",
+			"-tags=integration",
+			"./src/pkg",
+		]);
+	});
+
+	it("N1: adds no tag argv when no build tags are configured", async () => {
+		expect(await argvWithGoflags(undefined)).toEqual(["test", "-count=1", "./src/pkg"]);
+	});
+});

@@ -98,6 +98,20 @@ function mentionsAsImpl(content: string, name: string): boolean {
 	return false;
 }
 
+function findImplementors(name: string, filePath: string, graph: ProjectGraph): string[] {
+	const implementors: string[] = [];
+	for (const other of graph.allFiles()) {
+		if (other === filePath) continue;
+		const oc = safeRead(other);
+		if (!oc) continue;
+		if (mentionsAsImpl(oc, name)) {
+			implementors.push(other);
+			if (implementors.length > 1) break;
+		}
+	}
+	return implementors;
+}
+
 export function checkSingleImplementationInterface(
 	filePath: string,
 	_relPath: string,
@@ -109,16 +123,7 @@ export function checkSingleImplementationInterface(
 
 	const results: StructuralCheckResult[] = [];
 	for (const iface of interfaces) {
-		const implementors: string[] = [];
-		for (const other of graph.allFiles()) {
-			if (other === filePath) continue;
-			const oc = safeRead(other);
-			if (!oc) continue;
-			if (mentionsAsImpl(oc, iface.name)) {
-				implementors.push(other);
-				if (implementors.length > 1) break;
-			}
-		}
+		const implementors = findImplementors(iface.name, filePath, graph);
 		if (implementors.length !== 1) continue;
 		results.push({
 			check: "single_implementation_interface",

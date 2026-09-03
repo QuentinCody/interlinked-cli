@@ -53,17 +53,28 @@ export interface HookVerification {
  *  are not part of a settings document's meaning; array order remains exact. */
 function structurallyEqual(a: unknown, b: unknown): boolean {
 	if (Object.is(a, b)) return true;
-	if (Array.isArray(a)) {
-		if (!Array.isArray(b) || a.length !== b.length) return false;
-		for (let i = 0; i < a.length; i++) {
-			if (!structurallyEqual(a[i], b[i])) return false;
-		}
-		return true;
-	}
+	if (Array.isArray(a)) return arraysStructurallyEqual(a, b);
 	if (Array.isArray(b)) return false;
 	const aObject = asObject(a);
 	const bObject = asObject(b);
 	if (aObject === null || bObject === null) return false;
+	return objectsStructurallyEqual(aObject, bObject);
+}
+
+/** Arrays match element-for-element in exact order. */
+function arraysStructurallyEqual(a: readonly unknown[], b: unknown): boolean {
+	if (!Array.isArray(b) || a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		if (!structurallyEqual(a[i], b[i])) return false;
+	}
+	return true;
+}
+
+/** Objects match on their JSON-visible keys, insertion order aside. */
+function objectsStructurallyEqual(
+	aObject: Record<string, unknown>,
+	bObject: Record<string, unknown>,
+): boolean {
 	// JSON serialization omits object properties whose value is undefined;
 	// adapter fragments may retain such optional properties before installation.
 	const aKeys = Object.keys(aObject).filter((key) => aObject[key] !== undefined);

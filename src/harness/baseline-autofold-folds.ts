@@ -19,7 +19,7 @@
 //
 // Orchestration, budget, audit log and config live in `baseline-autofold.ts`.
 
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { loadCheckPolicy } from "./check-policy.js";
 import {
@@ -42,6 +42,7 @@ import {
 	saveUntestedFilesBaseline,
 	type UntestedFilesBaseline,
 } from "./tested-file-policy.js";
+import { mtimeOrZero } from "./mtime-or-zero.js";
 
 /** Which water-line a fold moved. Stable — this is the audit-row contract. */
 export type FoldKind = "coverage" | "coverage_edit" | "untested_files" | "large_files";
@@ -80,14 +81,6 @@ const COVERAGE_SUMMARY_CANDIDATES = [
 	".interlinked/coverage/coverage-summary.json",
 ];
 
-function mtimeMs(path: string): number {
-	try {
-		return statSync(path).mtimeMs;
-	} catch {
-		return 0;
-	}
-}
-
 function skippedOutcome(kind: FoldKind, skipped: FoldSkipReason, refused = 0): FoldOutcome {
 	return { kind, changed: 0, refused, skipped, details: [], dryRun: false };
 }
@@ -102,7 +95,7 @@ export function findCoverageSummary(cwd: string): string | null {
 		existsSync(p),
 	);
 	if (present.length === 0) return null;
-	return present.sort((a, b) => mtimeMs(b) - mtimeMs(a))[0] ?? null;
+	return present.sort((a, b) => mtimeOrZero(b) - mtimeOrZero(a))[0] ?? null;
 }
 
 /**
@@ -160,8 +153,8 @@ export function foldCoverage(opts: {
 	const reportPath = findCoverageSummary(opts.cwd);
 	if (!reportPath) return skippedOutcome("coverage", "no-input");
 	const fresh = isCoverageReportFresh({
-		reportMtimeMs: mtimeMs(reportPath),
-		baselineMtimeMs: mtimeMs(baselinePath(opts.interlinkedDir)),
+		reportMtimeMs: mtimeOrZero(reportPath),
+		baselineMtimeMs: mtimeOrZero(baselinePath(opts.interlinkedDir)),
 		sessionStartMs: opts.sessionStartMs,
 	});
 	if (!fresh) return skippedOutcome("coverage", "stale-report");
@@ -234,6 +227,24 @@ function parseEditBaselineFile(editPath: string): Record<string, unknown> {
  * measured under narrower test scopes. Idempotent, so no freshness gate: a
  * no-op fold reports "no-change" and writes nothing.
  */
+/**
+ * Decide what one full-run entry does to the per-edit baseline: skip (no
+ * finite value, or not a rise), refuse (a lower full-run number vs the
+ * existing high-water), or raise (write the new fraction). Kept pure so the
+ * fold loop only applies the decision, not re-derives it.
+ */
+function decideEditFoldEntry(
+	entry: { lines_pct: number },
+	existing: number | null,
+): { action: "skip" } | { action: "refuse" } | { action: "raise"; fraction: number; existing: number | null } {
+	if (!Number.isFinite(entry.lines_pct)) return { action: "skip" };
+	const fraction = entry.lines_pct / 100;
+	if (existing !== null && fraction <= existing) {
+		return fraction < existing ? { action: "refuse" } : { action: "skip" };
+	}
+	return { action: "raise", fraction, existing };
+}
+
 export function foldCoverageEditBaseline(opts: {
 	interlinkedDir: string;
 	dryRun: boolean;
@@ -248,17 +259,17 @@ export function foldCoverageEditBaseline(opts: {
 	let raised = 0;
 	let refused = 0;
 	for (const [file, entry] of entries) {
-		if (!Number.isFinite(entry.lines_pct)) continue;
-		const fraction = entry.lines_pct / 100;
-		const existing = editBaselineFraction(prior[file]);
-		if (existing !== null && fraction <= existing) {
-			if (fraction < existing) refused++;
+		const decision = decideEditFoldEntry(entry, editBaselineFraction(prior[file]));
+		if (decision.action === "skip") continue;
+		if (decision.action === "refuse") {
+			refused++;
 			continue;
 		}
-		next[file] = fraction;
+		next[file] = decision.fraction;
 		raised++;
 		if (details.length < FOLD_DETAIL_CAP) {
-			details.push(`${file}: ${existing === null ? "new" : existing.toFixed(2)}→${fraction.toFixed(2)}`);
+			const from = decision.existing === null ? "new" : decision.existing.toFixed(2);
+			details.push(`${file}: ${from}→${decision.fraction.toFixed(2)}`);
 		}
 	}
 	if (raised === 0) return skippedOutcome("coverage_edit", "no-change", refused);

@@ -257,6 +257,23 @@ function uniquePendingAttribution(
     return matches.values().next().value?.parsed.attribution ?? null;
 }
 
+/** Process one rollout path against the event: returns the attribution on an
+ * exact execution-id match, else records a pending-call candidate (if any)
+ * and returns null so the caller's loop continues. */
+function processRolloutPathForAttribution(
+    path: string,
+    event: HarnessEvent,
+    eventMs: number,
+    pendingByActor: Map<string, PendingAttributionMatch>,
+): CodexSubagentAttribution | null {
+    const parsed = readRollout(path);
+    if (!parsed?.attribution || (parsed.cwd && event.cwd && parsed.cwd !== event.cwd)) return null;
+    if (event.tool_use_id && parsed.executionIds.has(event.tool_use_id)) return parsed.attribution;
+    const call = pendingMatch(parsed, event, eventMs);
+    if (call) rememberPendingActor(pendingByActor, parsed, call);
+    return null;
+}
+
 /** Resolve the acting Codex collaboration subagent. Exact execution-id
  * correlation wins; PreToolUse falls back to the matching pending call. */
 export function resolveCodexSubagentAttribution(
@@ -272,11 +289,8 @@ export function resolveCodexSubagentAttribution(
         ?? recentRolloutPaths(root, nowMs, options.maxAgeMs ?? DEFAULT_MAX_AGE_MS);
     const pendingByActor = new Map<string, PendingAttributionMatch>();
     for (const path of paths) {
-        const parsed = readRollout(path);
-        if (!parsed?.attribution || (parsed.cwd && event.cwd && parsed.cwd !== event.cwd)) continue;
-        if (event.tool_use_id && parsed.executionIds.has(event.tool_use_id)) return parsed.attribution;
-        const call = pendingMatch(parsed, event, eventMs);
-        if (call) rememberPendingActor(pendingByActor, parsed, call);
+        const attribution = processRolloutPathForAttribution(path, event, eventMs, pendingByActor);
+        if (attribution) return attribution;
     }
     return uniquePendingAttribution(pendingByActor);
 }

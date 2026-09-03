@@ -36,6 +36,7 @@ import {
 	type RotationClaim,
 	verifyClaimedSegment,
 } from "./compact-rotation-claim.js";
+import { segmentFromClaim, verifyPreparedGzip } from "./compact-rotation-segment.js";
 export type {
 	ActivityRecoveryDeps,
 	ActivityRotationConflict,
@@ -185,21 +186,6 @@ export function resumePendingActivityRotation(
 	return { ...recoverClaimedActivityRotation(deps, claim), recovered: true };
 }
 
-function segmentFromClaim(
-	claim: RotationClaim,
-	pending?: ArchiveSegment["pending_live_drop"],
-): ArchiveSegment {
-	return {
-		seq: claim.seq,
-		file: claim.file,
-		bytes: claim.cut_bytes,
-		gz_bytes: claim.gz_bytes,
-		records: claim.records,
-		created_at: claim.created_at,
-		...(pending ? { pending_live_drop: pending } : {}),
-	};
-}
-
 function activitySegmentMatchesClaim(
 	segment: ArchiveSegment,
 	claim: RotationClaim,
@@ -243,15 +229,6 @@ function assertActivityPendingMatchesClaim(
 		throw new RotationSegmentMismatchError(
 			segment.file,
 			"does not match its pending manifest and durable claim",
-		);
-	}
-}
-
-function verifyPreparedGzip(path: string, claim: RotationClaim): void {
-	if (statSync(path).size !== claim.gz_bytes || sha256File(path) !== claim.gzip_sha256) {
-		throw new RotationSegmentMismatchError(
-			claim.file,
-			"cannot be reproduced from the recorded live-file prefix",
 		);
 	}
 }

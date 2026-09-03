@@ -72,6 +72,51 @@ export function checkThrowLiteral(content: string, filePath: string): InlineMatc
  *
  * Skips test files and non-JS/TS files.
  */
+// Scan the lines after a JSON-parse assignment and report whether `varName`
+// reaches a property access BEFORE any validation call. Validation (a schema
+// method, a file-local `parseX`/`isX`/`validateX`/`normalizeX` call, or an
+// `Array.isArray` gate) resolves the value as safe; anything else (returned,
+// passed on, never used) is unknown and reports false.
+const JSON_BOUNDARY_SCAN_AHEAD = 15;
+
+function reachesPropertyAccessBeforeValidation(
+	strippedLines: string[],
+	start: number,
+	varName: string,
+): boolean {
+	// Regex escape via alternation: varName is an identifier, safe.
+	const propAccess = new RegExp(`\\b${varName}\\.[A-Za-z_$]`);
+	// Schema-library method call. `(?<!JSON)` keeps a RE-parse
+	// (`JSON.parse(v)`) from counting as validation — JSON.parse asserts
+	// nothing about shape.
+	const validated = new RegExp(
+		`(?<!JSON)\\.(?:parse|safeParse|decode|check|validate)\\s*\\(\\s*${varName}\\b`,
+	);
+	// Local validator (boundary-parser campaign): a bare `parseX(v)` /
+	// `isX(v)` / `validateX(v)` / `normalizeX(v)` call with the value as
+	// first argument IS the validation this check demands — the swept
+	// pattern routes JSON through `parseFoo(v: unknown): Foo | null`
+	// instead of a schema library. The lookbehind rejects dotted calls
+	// (`JSON.parse`, `foo.isX`) so only file-local helpers count.
+	const localValidator = new RegExp(
+		`(?<![.\\w$])(?:is|parse|validate|normalize)[\\w$]*\\s*\\(\\s*${varName}\\b`,
+	);
+	// An Array.isArray gate is shape validation too — the per-element
+	// mapper after it is usually a bare function REFERENCE
+	// (`parsed.map(parseRow)`), which call-shaped recognition can't see.
+	const arrayGate = new RegExp(`\\bArray\\.isArray\\s*\\(\\s*${varName}\\b`);
+
+	const stop = Math.min(strippedLines.length, start + 1 + JSON_BOUNDARY_SCAN_AHEAD);
+	for (let j = start + 1; j < stop; j++) {
+		const forward = nonNull(strippedLines[j]);
+		if (validated.test(forward) || localValidator.test(forward) || arrayGate.test(forward)) {
+			return false;
+		}
+		if (propAccess.test(forward)) return true;
+	}
+	return false;
+}
+
 export function checkUnvalidatedJsonBoundary(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
@@ -80,7 +125,6 @@ export function checkUnvalidatedJsonBoundary(content: string, filePath: string):
 	const originalLines = content.split("\n");
 	const strippedLines = stripped.split("\n");
 	const matches: InlineMatch[] = [];
-	const SCAN_AHEAD = 15;
 
 	// Assignment form: `const/let/var <v> = (await )?(JSON.parse|<ident>.json)(`.
 	const ASSIGN =
@@ -92,44 +136,9 @@ export function checkUnvalidatedJsonBoundary(content: string, filePath: string):
 
 		const m = ASSIGN.exec(line);
 		if (!m) continue;
-		const varName = m[1];
+		const varName = nonNull(m[1]);
 
-		// Regex escape via alternation: varName is an identifier, safe.
-		const propAccess = new RegExp(`\\b${varName}\\.[A-Za-z_$]`);
-		// Schema-library method call. `(?<!JSON)` keeps a RE-parse
-		// (`JSON.parse(v)`) from counting as validation — JSON.parse asserts
-		// nothing about shape.
-		const validated = new RegExp(
-			`(?<!JSON)\\.(?:parse|safeParse|decode|check|validate)\\s*\\(\\s*${varName}\\b`,
-		);
-		// Local validator (boundary-parser campaign): a bare `parseX(v)` /
-		// `isX(v)` / `validateX(v)` / `normalizeX(v)` call with the value as
-		// first argument IS the validation this check demands — the swept
-		// pattern routes JSON through `parseFoo(v: unknown): Foo | null`
-		// instead of a schema library. The lookbehind rejects dotted calls
-		// (`JSON.parse`, `foo.isX`) so only file-local helpers count.
-		const localValidator = new RegExp(
-			`(?<![.\\w$])(?:is|parse|validate|normalize)[\\w$]*\\s*\\(\\s*${varName}\\b`,
-		);
-		// An Array.isArray gate is shape validation too — the per-element
-		// mapper after it is usually a bare function REFERENCE
-		// (`parsed.map(parseRow)`), which call-shaped recognition can't see.
-		const arrayGate = new RegExp(`\\bArray\\.isArray\\s*\\(\\s*${varName}\\b`);
-
-		let flag = false;
-		for (let j = i + 1; j < Math.min(strippedLines.length, i + 1 + SCAN_AHEAD); j++) {
-			const forward = nonNull(strippedLines[j]);
-			if (validated.test(forward) || localValidator.test(forward) || arrayGate.test(forward)) {
-				flag = false;
-				break;
-			}
-			if (propAccess.test(forward)) {
-				flag = true;
-				break;
-			}
-		}
-
-		if (flag) {
+		if (reachesPropertyAccessBeforeValidation(strippedLines, i, varName)) {
 			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 		}
 	}
@@ -224,6 +233,31 @@ function asyncBodyIsAcceptable(
 	return false;
 }
 
+// True when line `i` declares an `async function` whose body never awaits and
+// is not one of the shapes asyncBodyIsAcceptable forgives. Next.js App Router
+// route handlers (GET/POST/…) are exempt — the convention requires async.
+function declaresAsyncFunctionWithoutAwait(
+	strippedLines: string[],
+	originalLines: string[],
+	i: number,
+): boolean {
+	const trimmed = nonNull(strippedLines[i]).trim();
+
+	// Match async function declarations (not arrow functions — those are harder to scope)
+	if (!/\basync\s+function\b/.test(trimmed)) return false;
+
+	// Skip Next.js route handlers — must be async by App Router convention
+	const fnName = trimmed.match(/\basync\s+function\s+(\w+)/)?.[1] ?? "";
+	if (/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$/.test(fnName)) return false;
+
+	const { bodyStarted, bodyEnd } = findBlockEndByBrace(strippedLines, i);
+	if (!bodyStarted) return false;
+
+	const bodyText = strippedLines.slice(i, bodyEnd + 1).join("\n");
+	const originalBodyText = originalLines.slice(i, bodyEnd + 1).join("\n");
+	return !asyncBodyIsAcceptable(bodyText, originalBodyText, bodyEnd - i);
+}
+
 export function checkRequireAwait(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
@@ -237,21 +271,7 @@ export function checkRequireAwait(content: string, filePath: string): InlineMatc
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
-		const trimmed = nonNull(strippedLines[i]).trim();
-
-		// Match async function declarations (not arrow functions — those are harder to scope)
-		if (!/\basync\s+function\b/.test(trimmed)) continue;
-
-		// Skip Next.js route handlers — must be async by App Router convention
-		const fnName = trimmed.match(/\basync\s+function\s+(\w+)/)?.[1] ?? "";
-		if (/^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)$/.test(fnName)) continue;
-
-		const { bodyStarted, bodyEnd } = findBlockEndByBrace(strippedLines, i);
-		if (!bodyStarted) continue;
-
-		const bodyText = strippedLines.slice(i, bodyEnd + 1).join("\n");
-		const originalBodyText = originalLines.slice(i, bodyEnd + 1).join("\n");
-		if (asyncBodyIsAcceptable(bodyText, originalBodyText, bodyEnd - i)) continue;
+		if (!declaresAsyncFunctionWithoutAwait(strippedLines, originalLines, i)) continue;
 		matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 	}
 	return matches;

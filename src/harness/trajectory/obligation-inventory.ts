@@ -273,6 +273,35 @@ function mergeKeyDelta(
 	else ledger.set(key, cur);
 }
 
+/** Nets one edit event's added-vs-removed obligation occurrences into
+ *  `ledger`, mutating it (and `lastWrite`, for the repeated-Write diff-against-
+ *  prior-content case) in place. Exempt/codegen files and texts are skipped. */
+function applyEditEvent(
+	ev: ToolEvent,
+	ledger: Map<string, LedgerEntry>,
+	lastWrite: Map<string, string>,
+): void {
+	const file = ev.input.file_path ?? "";
+	if (!file || isExemptPath(file)) return;
+
+	const addedText = ev.input.new_string ?? ev.input.content ?? "";
+	const isWrite = ev.input.content !== undefined && ev.input.new_string === undefined;
+	let removedText = ev.input.old_string ?? "";
+	if (isWrite) {
+		const prev = lastWrite.get(file);
+		if (prev !== undefined) removedText = prev;
+		lastWrite.set(file, addedText);
+	}
+	if (textLooksLikeCodegen(addedText) || textLooksLikeCodegen(removedText)) return;
+
+	const added = countByKey(extractOccurrences(addedText), file);
+	const removed = countByKey(extractOccurrences(removedText), file);
+	const keys = new Set<string>([...added.keys(), ...removed.keys()]);
+	for (const key of keys) {
+		mergeKeyDelta(ledger, key, added, removed);
+	}
+}
+
 /** Walk the session's edits in order, netting opened against closed
  *  obligations into a per-`(file, kind, signature)` ledger. */
 function buildLedger(events: readonly ToolEvent[]): Map<string, LedgerEntry> {
@@ -282,25 +311,7 @@ function buildLedger(events: readonly ToolEvent[]): Map<string, LedgerEntry> {
 	const lastWrite = new Map<string, string>();
 
 	for (const ev of editEvents(events)) {
-		const file = ev.input.file_path ?? "";
-		if (!file || isExemptPath(file)) continue;
-
-		const addedText = ev.input.new_string ?? ev.input.content ?? "";
-		const isWrite = ev.input.content !== undefined && ev.input.new_string === undefined;
-		let removedText = ev.input.old_string ?? "";
-		if (isWrite) {
-			const prev = lastWrite.get(file);
-			if (prev !== undefined) removedText = prev;
-			lastWrite.set(file, addedText);
-		}
-		if (textLooksLikeCodegen(addedText) || textLooksLikeCodegen(removedText)) continue;
-
-		const added = countByKey(extractOccurrences(addedText), file);
-		const removed = countByKey(extractOccurrences(removedText), file);
-		const keys = new Set<string>([...added.keys(), ...removed.keys()]);
-		for (const key of keys) {
-			mergeKeyDelta(ledger, key, added, removed);
-		}
+		applyEditEvent(ev, ledger, lastWrite);
 	}
 	return ledger;
 }

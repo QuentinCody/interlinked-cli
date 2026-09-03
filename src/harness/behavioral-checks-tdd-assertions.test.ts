@@ -146,11 +146,70 @@ describe("checkAssertionDensity", () => {
 		expect(result).toBeNull();
 	});
 
-	it("fires with '0 new assertions' when blocks grew but assertions did not (dAssertions === 0)", () => {
+	// P1 (must fire): a genuinely new it() block with no assertions in it —
+	// the "b" block is new (dBlocks=1) and stays empty, so even though the
+	// file total is unchanged (dAssertions=0), the empty-block count rose
+	// from 0 to 1. Not a redistribution — must still fire.
+	it("P1: fires with '0 new assertions' when a genuinely new block has no assertions (dAssertions === 0)", () => {
 		const s = session([["src/lib/foo.test.ts", { blocks: 1, assertions: 1 }]]);
 		const content = `
 			it("a", () => { expect(1).toBe(1); });
 			it("b", () => {});
+		`;
+		const result = checkAssertionDensity(s, "src/lib/foo.test.ts", content);
+		expect(result).toEqual({
+			source: "structural",
+			name: "assertion_density",
+			severity: "warning",
+			message:
+				"Added 1 test block(s) with 0 new assertions. Each it()/test() block typically needs at least one expect()/assert*() call.",
+			file: "src/lib/foo.test.ts",
+			determinism: "heuristic",
+		});
+	});
+
+	// N1 (must NOT fire): one it() split into several, its assertions
+	// redistributed across the new blocks with no net change. Every new
+	// block still carries an assertion (empty-block count stays 0 → 0), so
+	// this must be credited, not reported as "0 new assertions".
+	it("N1: returns null when one it() is split into several and assertions move with them (redistribution)", () => {
+		const s = session([["src/lib/foo.test.ts", { blocks: 1, assertions: 2 }]]);
+		const content = `
+			it("a — part 1", () => { expect(1).toBe(1); });
+			it("a — part 2", () => { expect(2).toBe(2); });
+		`;
+		const result = checkAssertionDensity(s, "src/lib/foo.test.ts", content);
+		expect(result).toBeNull();
+	});
+
+	// N2: a wider split (1 block → 5) with assertions fully redistributed
+	// and no block left empty — same "must not fire" guarantee at a larger
+	// fan-out, matching the statusline-snapshot incident this fix targets.
+	it("N2: returns null when one it() is split into five focused blocks with no block left empty", () => {
+		const s = session([["src/lib/foo.test.ts", { blocks: 1, assertions: 5 }]]);
+		const content = `
+			it("renders idle", () => { expect(1).toBe(1); });
+			it("renders loading", () => { expect(1).toBe(1); });
+			it("renders success", () => { expect(1).toBe(1); });
+			it("renders error", () => { expect(1).toBe(1); });
+			it("renders empty", () => { expect(1).toBe(1); });
+		`;
+		const result = checkAssertionDensity(s, "src/lib/foo.test.ts", content);
+		expect(result).toBeNull();
+	});
+
+	// P2 (must still fire): a split where ONE of the new blocks is left
+	// genuinely empty (not just redistributed) — the empty-block count
+	// still rises even though the file-level assertion total held steady
+	// overall (2 before, 1 assertion carried into "part 1", 1 lost from
+	// "part 2"). Proves the redistribution credit doesn't blanket-suppress
+	// every dAssertions===0 case — it only credits blocks that keep an
+	// assertion.
+	it("P2: fires when a split leaves one of the new blocks genuinely empty", () => {
+		const s = session([["src/lib/foo.test.ts", { blocks: 1, assertions: 1 }]]);
+		const content = `
+			it("a — part 1", () => { expect(1).toBe(1); });
+			it("a — part 2", () => {});
 		`;
 		const result = checkAssertionDensity(s, "src/lib/foo.test.ts", content);
 		expect(result).toEqual({

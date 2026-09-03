@@ -83,20 +83,32 @@ export function detectInPlaceEditorVerbs(cmd: string): VerbWriteHit | null {
 		if (args.length < 2) continue;
 		const verb = nonNull(args[0]).split("/").pop() ?? nonNull(args[0]);
 		const rest = args.slice(1);
-		const isPerlInPlace =
-			verb === "perl" && rest.some((a) => /^-[A-Za-z]*i/.test(a) && !a.startsWith("--"));
-		const isAwkInPlace =
-			(verb === "awk" || verb === "gawk") &&
-			rest.some((a, k) => a === "-i" && rest[k + 1] === "inplace");
-		const isBatchEditor = verb === "ex" || verb === "ed";
-		if (!isPerlInPlace && !isAwkInPlace && !isBatchEditor) continue;
-		for (let i = rest.length - 1; i >= 0; i--) {
-			const arg = nonNull(rest[i]);
-			if (arg.startsWith("-")) continue;
-			if (CODE_FILE_EXT_RE.test(arg)) {
-				return { target: arg, mechanism: `${verb} (in-place edit)` };
-			}
-		}
+		if (!editsInPlace(verb, rest)) continue;
+		const target = lastCodeFilePositional(rest);
+		if (target !== null) return { target, mechanism: `${verb} (in-place edit)` };
+	}
+	return null;
+}
+
+/** True when `verb` plus its arguments form an in-place edit: `perl -pi`,
+ *  `awk|gawk -i inplace`, or the batch editors `ex` / `ed`. */
+function editsInPlace(verb: string, rest: string[]): boolean {
+	const isPerlInPlace =
+		verb === "perl" && rest.some((a) => /^-[A-Za-z]*i/.test(a) && !a.startsWith("--"));
+	const isAwkInPlace =
+		(verb === "awk" || verb === "gawk") &&
+		rest.some((a, k) => a === "-i" && rest[k + 1] === "inplace");
+	const isBatchEditor = verb === "ex" || verb === "ed";
+	return isPerlInPlace || isAwkInPlace || isBatchEditor;
+}
+
+/** The last positional argument naming a code file — the edit target, by the
+ *  same convention `sed -i` uses. Null when no argument qualifies. */
+function lastCodeFilePositional(args: string[]): string | null {
+	for (let i = args.length - 1; i >= 0; i--) {
+		const arg = nonNull(args[i]);
+		if (arg.startsWith("-")) continue;
+		if (CODE_FILE_EXT_RE.test(arg)) return arg;
 	}
 	return null;
 }

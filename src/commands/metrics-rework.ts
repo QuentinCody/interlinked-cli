@@ -27,22 +27,35 @@ export interface FileHunks {
 
 const HUNK_RE = /^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@/;
 
+/** `--- ` line → the FileHunks it starts (null for /dev/null), or undefined if not a header line. */
+function parseFileHeaderLine(line: string): FileHunks | null | undefined {
+	if (!line.startsWith("--- ")) return undefined;
+	const old = line.slice(4).trim();
+	return old === "/dev/null" ? null : { file: old.replace(/^a\//, ""), ranges: [] };
+}
+
+/** `@@ -start,lines +… @@` line → its old-side range, or null when absent/empty. */
+function parseHunkRange(line: string): { start: number; lines: number } | null {
+	const m = HUNK_RE.exec(line);
+	if (!m?.[1]) return null;
+	const lines = m[2] === undefined ? 1 : Number(m[2]);
+	return lines > 0 ? { start: Number(m[1]), lines } : null;
+}
+
 /** Old-side ranges per file from `git diff -U0` text; new files are skipped. */
 export function parseUnifiedZeroHunks(diffText: string): FileHunks[] {
 	const out: FileHunks[] = [];
 	let cur: FileHunks | null = null;
 	for (const line of diffText.split("\n")) {
-		if (line.startsWith("--- ")) {
-			const old = line.slice(4).trim();
-			cur = old === "/dev/null" ? null : { file: old.replace(/^a\//, ""), ranges: [] };
+		const header = parseFileHeaderLine(line);
+		if (header !== undefined) {
+			cur = header;
 			if (cur) out.push(cur);
 			continue;
 		}
 		if (!cur) continue;
-		const m = HUNK_RE.exec(line);
-		if (!m?.[1]) continue;
-		const lines = m[2] === undefined ? 1 : Number(m[2]);
-		if (lines > 0) cur.ranges.push({ start: Number(m[1]), lines });
+		const range = parseHunkRange(line);
+		if (range) cur.ranges.push(range);
 	}
 	return out.filter((f) => f.ranges.length > 0);
 }

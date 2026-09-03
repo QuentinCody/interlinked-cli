@@ -99,18 +99,15 @@ export function scanProjectSwitchDiscriminants(reads: FileContent[]): Structural
 	return results;
 }
 
-/**
- * Scan every file once for `export interface X`, count implementors across
- * other files, flag interfaces with exactly one implementor.
- */
-export function scanProjectSingleImplInterfaces(reads: FileContent[]): StructuralCheckResult[] {
-	interface IfaceInfo {
-		file: string;
-		name: string;
-		line: number;
-	}
-	const interfaces: IfaceInfo[] = [];
+interface IfaceInfo {
+	file: string;
+	name: string;
+	line: number;
+}
 
+/** Collect every `export interface X` declaration in the non-test files. */
+function collectExportedInterfaces(reads: FileContent[]): IfaceInfo[] {
+	const interfaces: IfaceInfo[] = [];
 	for (const { file, content, isTest } of reads) {
 		if (isTest) continue;
 		for (const m of content.matchAll(IFACE_DECL)) {
@@ -121,14 +118,18 @@ export function scanProjectSingleImplInterfaces(reads: FileContent[]): Structura
 			});
 		}
 	}
-	if (interfaces.length === 0) return [];
+	return interfaces;
+}
 
-	// Pre-index implements/extends occurrences by name.
+/** Pre-index `implements`/`extends` occurrences: implemented name → files naming it. */
+function indexImplementorsByName(reads: FileContent[]): Map<string, Set<string>> {
 	const implsByName = new Map<string, Set<string>>();
 	for (const { file, content, isTest } of reads) {
 		if (isTest) continue;
 		for (const m of content.matchAll(IMPL_EXTENDS)) {
-			const names = nonNull(m[1]).split(",").map((n) => n.trim());
+			const names = nonNull(m[1])
+				.split(",")
+				.map((n) => n.trim());
 			for (const name of names) {
 				const set = implsByName.get(name) ?? new Set<string>();
 				set.add(file);
@@ -136,6 +137,18 @@ export function scanProjectSingleImplInterfaces(reads: FileContent[]): Structura
 			}
 		}
 	}
+	return implsByName;
+}
+
+/**
+ * Scan every file once for `export interface X`, count implementors across
+ * other files, flag interfaces with exactly one implementor.
+ */
+export function scanProjectSingleImplInterfaces(reads: FileContent[]): StructuralCheckResult[] {
+	const interfaces = collectExportedInterfaces(reads);
+	if (interfaces.length === 0) return [];
+
+	const implsByName = indexImplementorsByName(reads);
 
 	const results: StructuralCheckResult[] = [];
 	for (const iface of interfaces) {

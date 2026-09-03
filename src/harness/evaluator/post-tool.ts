@@ -456,15 +456,23 @@ function collectCommitCadenceWarning(
 	}
 	session.non_doc_files_edited_since_commit = set;
 
-	if (!session.mid_session_nudge_emitted) {
-		const msg = formatMidSessionBackstop({
-			uncommittedNonDocCount: set.size,
-			threshold: cadence.mid_session_threshold,
-		});
-		if (msg !== null) {
-			warnings.push(msg);
-			session.mid_session_nudge_emitted = true;
-		}
-	}
+	appendMidSessionNudgeWarning(session, cadence, set.size, warnings);
 	return warnings;
+}
+
+/** Emits the one-shot mid-session backstop warning into `warnings`, if due. */
+function appendMidSessionNudgeWarning(
+	session: SessionTrajectory,
+	cadence: NonNullable<GuardRulesConfig["commit_cadence"]>,
+	uncommittedNonDocCount: number,
+	warnings: string[],
+): void {
+	if (session.mid_session_nudge_emitted) return;
+	const msg = formatMidSessionBackstop({
+		uncommittedNonDocCount,
+		threshold: cadence.mid_session_threshold,
+	});
+	if (msg === null) return;
+	warnings.push(msg);
+	session.mid_session_nudge_emitted = true;
 }

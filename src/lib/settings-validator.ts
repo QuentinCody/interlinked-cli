@@ -203,6 +203,26 @@ export function defaultSettingsPaths(cwd: string): string[] {
 	];
 }
 
+/** Classify every string rule in one permission bucket, recording the
+ *  scanned count and any malformed entries into `result`. Non-string
+ *  entries are skipped (they are not rules). Extracted from
+ *  `validateSettingsFile` so the bucket walk stays flat. */
+function scanBucketRules(
+	bucket: PermissionBucket,
+	list: readonly unknown[],
+	result: SettingsValidationResult,
+): void {
+	for (let i = 0; i < list.length; i++) {
+		const rule = list[i];
+		if (typeof rule !== "string") continue;
+		result.totalRules++;
+		const reason = classifyRule(rule);
+		if (reason !== null) {
+			result.malformed.push({ bucket, index: i, rule, reason });
+		}
+	}
+}
+
 export function validateSettingsFile(filePath: string): SettingsValidationResult {
 	const result: SettingsValidationResult = {
 		filePath,
@@ -231,15 +251,7 @@ export function validateSettingsFile(filePath: string): SettingsValidationResult
 	for (const bucket of ["allow", "deny", "ask"] as const) {
 		const list = perms[bucket];
 		if (!Array.isArray(list)) continue;
-		for (let i = 0; i < list.length; i++) {
-			const rule = list[i];
-			if (typeof rule !== "string") continue;
-			result.totalRules++;
-			const reason = classifyRule(rule);
-			if (reason !== null) {
-				result.malformed.push({ bucket, index: i, rule, reason });
-			}
-		}
+		scanBucketRules(bucket, list, result);
 	}
 	return result;
 }
@@ -276,6 +288,40 @@ export interface StripResult {
  * Preserves field order and the file's existing 2-space indentation.
  * No-op when there are no offenders.
  */
+/** Outcome of stripping one permission bucket: the rules that survive,
+ *  in order, plus an audit record per removed rule. */
+interface BucketStripOutcome {
+	cleaned: unknown[];
+	removed: StripAuditRecord[];
+}
+
+/** Split one permission bucket into kept rules and audit records for
+ *  the malformed ones. Non-string entries are kept untouched (they are
+ *  not rules). Extracted from `stripMalformedRulesAudited` so the
+ *  bucket walk stays flat. */
+function stripBucketRules(
+	bucket: PermissionBucket,
+	list: readonly unknown[],
+	filePath: string,
+	timestamp: string,
+): BucketStripOutcome {
+	const outcome: BucketStripOutcome = { cleaned: [], removed: [] };
+	for (let i = 0; i < list.length; i++) {
+		const r = list[i];
+		if (typeof r !== "string") {
+			outcome.cleaned.push(r);
+			continue;
+		}
+		const reason = classifyRule(r);
+		if (reason === null) {
+			outcome.cleaned.push(r);
+			continue;
+		}
+		outcome.removed.push({ timestamp, file: filePath, bucket, index: i, rule: r, reason });
+	}
+	return outcome;
+}
+
 export function stripMalformedRulesAudited(filePath: string): StripResult {
 	const result: StripResult = { stripped: 0, entries: [] };
 	if (!existsSync(filePath)) return result;
@@ -297,28 +343,9 @@ export function stripMalformedRulesAudited(filePath: string): StripResult {
 	for (const bucket of ["allow", "deny", "ask"] as const) {
 		const list = perms[bucket];
 		if (!Array.isArray(list)) continue;
-		const cleaned: unknown[] = [];
-		for (let i = 0; i < list.length; i++) {
-			const r = list[i];
-			if (typeof r !== "string") {
-				cleaned.push(r);
-				continue;
-			}
-			const reason = classifyRule(r);
-			if (reason === null) {
-				cleaned.push(r);
-				continue;
-			}
-			result.entries.push({
-				timestamp: now,
-				file: filePath,
-				bucket,
-				index: i,
-				rule: r,
-				reason,
-			});
-			result.stripped++;
-		}
+		const { cleaned, removed } = stripBucketRules(bucket, list, filePath, now);
+		result.entries.push(...removed);
+		result.stripped += removed.length;
 		if (result.stripped > 0) perms[bucket] = cleaned;
 	}
 

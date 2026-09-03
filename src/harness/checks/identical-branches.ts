@@ -178,6 +178,13 @@ function isTernaryQuestion(scan: string, i: number): boolean {
 	return next !== "." && next !== "?" && next !== ":" && prev !== "?";
 }
 
+/** Bracket-depth change a character contributes: +1 opener, -1 closer, else 0. */
+function bracketDelta(ch: string | undefined): number {
+	if (ch === "(" || ch === "[" || ch === "{") return 1;
+	if (ch === ")" || ch === "]" || ch === "}") return -1;
+	return 0;
+}
+
 /**
  * From a ternary `?` at `qIdx`, return the index of its matching `:` at the same
  * bracket depth, or -1 when it isn't a clean (non-nested) ternary — a nested
@@ -189,15 +196,16 @@ function findTernaryColon(scan: string, qIdx: number): number {
 	const end = Math.min(scan.length, qIdx + TERNARY_SCAN_LIMIT);
 	for (let i = qIdx + 1; i < end; i++) {
 		const ch = scan[i];
-		if (ch === "(" || ch === "[" || ch === "{") depth += 1;
-		else if (ch === ")" || ch === "]" || ch === "}") {
-			depth -= 1;
+		const delta = bracketDelta(ch);
+		if (delta !== 0) {
+			depth += delta;
 			if (depth < 0) return -1; // left the enclosing expression
-		} else if (depth === 0) {
-			if (ch === ":") return i;
-			if (ch === ";") return -1; // statement ended before any colon
-			if (isTernaryQuestion(scan, i)) return -1; // nested ternary — skip
+			continue;
 		}
+		if (depth !== 0) continue;
+		if (ch === ":") return i;
+		if (ch === ";") return -1; // statement ended before any colon
+		if (isTernaryQuestion(scan, i)) return -1; // nested ternary — skip
 	}
 	return -1;
 }

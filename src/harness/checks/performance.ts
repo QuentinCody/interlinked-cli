@@ -145,6 +145,33 @@ export function extractBraceLoopBodies(content: string): LoopBody[] {
 }
 
 /**
+ * Capture the lines making up an indent-delimited loop body, starting from
+ * `bodyStart`, until a non-blank line's indent drops to or below `headIndent`.
+ */
+function captureIndentLoopBody(
+	strippedLines: string[],
+	originalLines: string[],
+	bodyStart: number,
+	headIndent: number,
+): { bodyStrippedLines: string[]; bodyOriginalLines: string[] } {
+	const bodyStrippedLines: string[] = [];
+	const bodyOriginalLines: string[] = [];
+	for (let j = bodyStart; j < strippedLines.length; j++) {
+		const line = nonNull(strippedLines[j]);
+		if (line.trim() === "") {
+			bodyStrippedLines.push(line);
+			bodyOriginalLines.push(nonNull(originalLines[j]));
+			continue; // Blank lines don't break indent
+		}
+		const indent = line.search(/\S/);
+		if (indent <= headIndent) break; // Exited the loop body
+		bodyStrippedLines.push(line);
+		bodyOriginalLines.push(nonNull(originalLines[j]));
+	}
+	return { bodyStrippedLines, bodyOriginalLines };
+}
+
+/**
  * Extract loop bodies from Python (indent-delimited).
  * Finds for/while heads, captures all lines at deeper indent.
  */
@@ -164,21 +191,12 @@ export function extractIndentLoopBodies(content: string): LoopBody[] {
 		if (headIndent < 0) continue;
 
 		const bodyStart = i + 1;
-		const bodyStrippedLines: string[] = [];
-		const bodyOriginalLines: string[] = [];
-
-		for (let j = bodyStart; j < strippedLines.length; j++) {
-			const line = nonNull(strippedLines[j]);
-			if (line.trim() === "") {
-				bodyStrippedLines.push(line);
-				bodyOriginalLines.push(nonNull(originalLines[j]));
-				continue; // Blank lines don't break indent
-			}
-			const indent = line.search(/\S/);
-			if (indent <= headIndent) break; // Exited the loop body
-			bodyStrippedLines.push(line);
-			bodyOriginalLines.push(nonNull(originalLines[j]));
-		}
+		const { bodyStrippedLines, bodyOriginalLines } = captureIndentLoopBody(
+			strippedLines,
+			originalLines,
+			bodyStart,
+			headIndent,
+		);
 
 		if (bodyStrippedLines.length > 0) {
 			bodies.push({

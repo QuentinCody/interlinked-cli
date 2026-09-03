@@ -28,48 +28,69 @@ const FLAG_TOKEN_RE = /^--?[\w-]+\s+/;
 /** Bare-word argument: no whitespace, quotes, or shell metacharacters. */
 const INERT_BARE_WORD_RE = /^[^\s;&|<>`$()\\'"]+$/;
 
-/** True when `tail` is exactly one inert argument (plus optional leading
- *  flags): a single-quoted string, a double-quoted string free of
- *  expansion/substitution characters, or a bare metacharacter-free word.
- *  Anything after the argument — chaining, redirects, a second argument —
- *  disqualifies. */
-function isInertArgumentTail(tail: string): boolean {
+/** Drops the leading option tokens, returning the argument tail. */
+function stripLeadingFlags(tail: string): string {
 	let rest = tail.trim();
 	let flagMatch = FLAG_TOKEN_RE.exec(rest);
 	while (flagMatch) {
 		rest = rest.slice(flagMatch[0].length);
 		flagMatch = FLAG_TOKEN_RE.exec(rest);
 	}
-	if (!rest) return false;
+	return rest;
+}
 
-	if (rest.startsWith("'")) {
-		// Single quotes are literal in shell — content is inert by construction.
-		const close = rest.indexOf("'", 1);
-		if (close === -1) return false;
-		return rest.slice(close + 1).trim() === "";
-	}
+/** True when `rest` is one single-quoted argument and nothing follows it.
+ *  Single quotes are literal in shell — content is inert by construction. */
+function isLoneSingleQuotedArgument(rest: string): boolean {
+	const close = rest.indexOf("'", 1);
+	if (close === -1) return false;
+	return rest.slice(close + 1).trim() === "";
+}
 
-	if (rest.startsWith('"')) {
-		// Double quotes still expand `$…` and backticks in the OUTER shell —
-		// `interlinked harness test "$(rm -rf /)"` executes. Reject both.
-		let i = 1;
-		let body = "";
-		while (i < rest.length) {
-			const ch = rest[i];
-			if (ch === "\\" && i + 1 < rest.length) {
-				body += rest[i + 1];
-				i += 2;
-				continue;
-			}
-			if (ch === '"') break;
-			body += ch;
-			i++;
+/** Scans the double-quoted argument opening at index 0, resolving backslash
+ *  escapes. Returns the unescaped body and the index of the closing quote,
+ *  or null when the quote is unterminated. */
+function readDoubleQuotedArgument(
+	rest: string,
+): { body: string; closeIndex: number } | null {
+	let i = 1;
+	let body = "";
+	while (i < rest.length) {
+		const ch = rest[i];
+		if (ch === "\\" && i + 1 < rest.length) {
+			body += rest[i + 1];
+			i += 2;
+			continue;
 		}
-		if (i >= rest.length) return false; // unterminated
-		if (/[$`]/.test(body)) return false;
-		return rest.slice(i + 1).trim() === "";
+		if (ch === '"') break;
+		body += ch;
+		i++;
 	}
+	if (i >= rest.length) return null; // unterminated
+	return { body, closeIndex: i };
+}
 
+/** True when `rest` is one double-quoted argument, free of expansion, and
+ *  nothing follows it. Double quotes still expand `$…` and backticks in the
+ *  OUTER shell — `interlinked harness test "$(rm -rf /)"` executes. Reject
+ *  both. */
+function isLoneDoubleQuotedArgument(rest: string): boolean {
+	const scanned = readDoubleQuotedArgument(rest);
+	if (!scanned) return false;
+	if (/[$`]/.test(scanned.body)) return false;
+	return rest.slice(scanned.closeIndex + 1).trim() === "";
+}
+
+/** True when `tail` is exactly one inert argument (plus optional leading
+ *  flags): a single-quoted string, a double-quoted string free of
+ *  expansion/substitution characters, or a bare metacharacter-free word.
+ *  Anything after the argument — chaining, redirects, a second argument —
+ *  disqualifies. */
+function isInertArgumentTail(tail: string): boolean {
+	const rest = stripLeadingFlags(tail);
+	if (!rest) return false;
+	if (rest.startsWith("'")) return isLoneSingleQuotedArgument(rest);
+	if (rest.startsWith('"')) return isLoneDoubleQuotedArgument(rest);
 	return INERT_BARE_WORD_RE.test(rest);
 }
 

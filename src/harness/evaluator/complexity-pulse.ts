@@ -181,6 +181,42 @@ function namedDeltas(
 }
 
 /**
+ * The `; fnΔ N; Δ fns: …` segment to append to the pulse line, or "" when no
+ * function moved. Split out of `formatComplexityPulse` so that function's
+ * cognitive complexity stays legible.
+ *
+ * fnΔ — how many distinct functions this ONE edit moved.
+ *
+ * Ambient measurement, not a gate (2026-07-28). Every per-edit ratchet
+ * (cyclomatic slew +2/edit, coverage delta, mutation site count) is
+ * calibrated on the resolution of a single edit; an edit that moves
+ * eight functions at once is gated as one aggregate delta rather than
+ * eight steps. Whether that actually correlates with worse outcomes is
+ * unknown, so this counts it and says nothing — see
+ * docs/design/per-edit-symbol-resolution.md for the question this is
+ * collecting evidence for, and the query that answers it.
+ *
+ * UNDERCOUNTS on purpose: derived from the complexity deltas already
+ * computed here, so it sees a function added, removed, or changed in
+ * branch count — NOT one whose body changed without moving its
+ * cyclomatic number (a renamed local, a different string). A cheap
+ * lower bound beats a second AST walk on the hot path.
+ */
+function namedDeltaSegment(
+	before: readonly FunctionComplexityEntry[],
+	after: readonly FunctionComplexityEntry[],
+): string {
+	const deltas = namedDeltas(before, after);
+	if (deltas.length === 0) return "";
+	const shown = deltas
+		.slice(0, MAX_NAMED_DELTAS)
+		.map((d) => d.label)
+		.join(", ");
+	const more = deltas.length - MAX_NAMED_DELTAS;
+	return `; fnΔ ${deltas.length}; Δ fns: ${shown}${more > 0 ? `, +${more} more` : ""}`;
+}
+
+/**
  * The one-line pulse, or null when there is nothing to say (no functions on
  * either side). `beforeFns === null` means no pre-edit snapshot was available
  * (stash miss) — absolutes only, no Δ.
@@ -204,32 +240,7 @@ export function formatComplexityPulse(
 	}
 
 	if (beforeFns) {
-		const deltas = namedDeltas(beforeFns, afterFns);
-		if (deltas.length > 0) {
-			// fnΔ — how many distinct functions this ONE edit moved.
-			//
-			// Ambient measurement, not a gate (2026-07-28). Every per-edit ratchet
-			// (cyclomatic slew +2/edit, coverage delta, mutation site count) is
-			// calibrated on the resolution of a single edit; an edit that moves
-			// eight functions at once is gated as one aggregate delta rather than
-			// eight steps. Whether that actually correlates with worse outcomes is
-			// unknown, so this counts it and says nothing — see
-			// docs/design/per-edit-symbol-resolution.md for the question this is
-			// collecting evidence for, and the query that answers it.
-			//
-			// UNDERCOUNTS on purpose: derived from the complexity deltas already
-			// computed here, so it sees a function added, removed, or changed in
-			// branch count — NOT one whose body changed without moving its
-			// cyclomatic number (a renamed local, a different string). A cheap
-			// lower bound beats a second AST walk on the hot path.
-			line += `; fnΔ ${deltas.length}`;
-			const shown = deltas
-				.slice(0, MAX_NAMED_DELTAS)
-				.map((d) => d.label)
-				.join(", ");
-			const more = deltas.length - MAX_NAMED_DELTAS;
-			line += `; Δ fns: ${shown}${more > 0 ? `, +${more} more` : ""}`;
-		}
+		line += namedDeltaSegment(beforeFns, afterFns);
 	}
 
 	// The repo's effective cap, not the hard-coded default (deep-round #11):

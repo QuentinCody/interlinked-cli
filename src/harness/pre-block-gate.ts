@@ -166,6 +166,69 @@ export function fileSuppressionsFor(filePath: string, projectRoot: string | unde
 	return loadFileSuppressions(join(projectRoot, ".interlinked"), rel);
 }
 
+/** Lazily-populated state shared across one gate run's check loop: the
+ *  suppression scans (each computed at most once) and the baseline check
+ *  run (computed at most once, only if some new-content check fired). */
+interface PreBlockLazyState {
+	inline: InlineSuppressions | null;
+	fileSup: FileSuppressions | null;
+	baselineByCheck: Map<string, InlineMatch[]> | null;
+}
+
+/** Evaluate one pre_block check's raw findings against suppressions and the
+ *  baseline, returning the outcome to record — or null when the check found
+ *  nothing, or everything it found is suppressed. Populates `state`'s lazy
+ *  caches on first use so the whole check loop pays for each of them once. */
+function evaluatePreBlockCheck(
+	check: { name: string; severity: "error" | "warning"; fn: () => InlineMatch[] },
+	content: string,
+	filePath: string,
+	baselineContent: string | null | undefined,
+	projectRoot: string | undefined,
+	instructions: Record<string, string>,
+	state: PreBlockLazyState,
+): PreBlockCheckOutcome | null {
+	const rawMatches = check.fn();
+	if (rawMatches.length === 0) return null;
+
+	// Suppression filter (lazy scans, shared across checks). Suppressed
+	// findings are dropped entirely — "a suppressed finding is never
+	// shown" (suppressions.ts) — and the suppression ratchet keeps the
+	// directives themselves loud.
+	state.inline ??= scanInlineSuppressions(content);
+	state.fileSup ??= fileSuppressionsFor(filePath, projectRoot);
+	const inlineSup = state.inline;
+	const fileSupSet = state.fileSup;
+	const matches = rawMatches.filter(
+		(m) => !isSuppressed(check.name, m.line, inlineSup, fileSupSet),
+	);
+	if (matches.length === 0) return null;
+
+	// Baseline findings (lazy, one pass for all fired checks). The
+	// baseline run applies the SAME registry pipeline so old and new
+	// findings are comparable; suppressions are not subtracted from the
+	// baseline — a directive only exempts lines in the proposed content.
+	if (state.baselineByCheck === null) {
+		state.baselineByCheck = new Map();
+		if (baselineContent != null && baselineContent !== "") {
+			for (const old of buildAgentSafetyChecks(baselineContent, filePath, "pre_block")) {
+				state.baselineByCheck.set(old.name, old.fn());
+			}
+		}
+	}
+	const { introduced, preexisting } = splitIntroduced(
+		matches,
+		state.baselineByCheck.get(check.name) ?? [],
+	);
+	return {
+		checkId: check.name,
+		introduced,
+		preexisting,
+		instruction: instructions[check.name] ?? "",
+		deferrable: DEFERRABLE_CHECK_IDS.has(check.name),
+	};
+}
+
 /**
  * Run every pre_block registry check against the proposed content and return
  * one outcome per check that (still) has findings after suppression
@@ -180,51 +243,19 @@ export function runPreBlockRegistryGate(args: PreBlockGateArgs): PreBlockCheckOu
 	const checks = buildAgentSafetyChecks(content, filePath, "pre_block");
 	const instructions = buildCheckInstructions();
 	const outcomes: PreBlockCheckOutcome[] = [];
-
-	let inline: InlineSuppressions | null = null;
-	let fileSup: FileSuppressions | null = null;
-	let baselineByCheck: Map<string, InlineMatch[]> | null = null;
+	const state: PreBlockLazyState = { inline: null, fileSup: null, baselineByCheck: null };
 
 	for (const check of checks) {
-		const rawMatches = check.fn();
-		if (rawMatches.length === 0) continue;
-
-		// Suppression filter (lazy scans, shared across checks). Suppressed
-		// findings are dropped entirely — "a suppressed finding is never
-		// shown" (suppressions.ts) — and the suppression ratchet keeps the
-		// directives themselves loud.
-		inline ??= scanInlineSuppressions(content);
-		fileSup ??= fileSuppressionsFor(filePath, projectRoot);
-		const inlineSup = inline;
-		const fileSupSet = fileSup;
-		const matches = rawMatches.filter(
-			(m) => !isSuppressed(check.name, m.line, inlineSup, fileSupSet),
+		const outcome = evaluatePreBlockCheck(
+			check,
+			content,
+			filePath,
+			baselineContent,
+			projectRoot,
+			instructions,
+			state,
 		);
-		if (matches.length === 0) continue;
-
-		// Baseline findings (lazy, one pass for all fired checks). The
-		// baseline run applies the SAME registry pipeline so old and new
-		// findings are comparable; suppressions are not subtracted from the
-		// baseline — a directive only exempts lines in the proposed content.
-		if (baselineByCheck === null) {
-			baselineByCheck = new Map();
-			if (baselineContent != null && baselineContent !== "") {
-				for (const old of buildAgentSafetyChecks(baselineContent, filePath, "pre_block")) {
-					baselineByCheck.set(old.name, old.fn());
-				}
-			}
-		}
-		const { introduced, preexisting } = splitIntroduced(
-			matches,
-			baselineByCheck.get(check.name) ?? [],
-		);
-		outcomes.push({
-			checkId: check.name,
-			introduced,
-			preexisting,
-			instruction: instructions[check.name] ?? "",
-			deferrable: DEFERRABLE_CHECK_IDS.has(check.name),
-		});
+		if (outcome) outcomes.push(outcome);
 	}
 	return outcomes;
 }

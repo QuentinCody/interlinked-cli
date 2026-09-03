@@ -21,6 +21,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import {
+	type ApplyPatchSection,
 	extractApplyPatchRaw,
 	parseApplyPatchSections,
 	reconstructAfterContent,
@@ -206,6 +207,36 @@ interface ApplyPatchDoom {
  * is ambiguous), which is exactly when Codex's own apply fails. Warnings are
  * capped; every uncertain case stays silent.
  */
+/**
+ * Evaluate one "update" apply_patch section against the live file. Returns
+ * the doom finding for that section, or null when it is fine (or the file
+ * can't be read at all — fail open, same as the caller's original `continue`).
+ */
+function evaluateApplyPatchUpdateSection(section: ApplyPatchSection): ApplyPatchDoom | null {
+	const abs = resolveSectionPath(section.fromPath ?? section.path);
+	let before: string;
+	try {
+		if (!existsSync(abs)) {
+			return {
+				path: section.path,
+				warning: `[interlinked:apply-patch-doom][heuristic] Update section targets ${section.path}, which does not exist — apply_patch will likely fail. Re-check the path (or use an Add File section).`,
+			};
+		}
+		before = readFileSync(abs, "utf-8");
+	} catch {
+		return null;
+	}
+	if (reconstructAfterContent(section, before) === null) {
+		const misses = findClosestSpans(before, firstOldBlock(section.body), DOOM_NEAR_MISS_MATCHES);
+		const rescue = misses.length > 0 ? `\n${formatRescue(misses, firstOldBlock(section.body))}` : "";
+		return {
+			path: section.path,
+			warning: `[interlinked:apply-patch-doom][heuristic] The hunk context for ${section.path} does not match the live file (or is ambiguous) — apply_patch will likely fail. Re-read the file and rebuild the hunk from current content.${rescue}`,
+		};
+	}
+	return null;
+}
+
 export function analyzeApplyPatchDoom(toolName: string, toolInput: ToolInput): ApplyPatchDoom[] {
 	if (toolName !== "apply_patch") return [];
 	const raw = extractApplyPatchRaw(toolInput);
@@ -214,28 +245,8 @@ export function analyzeApplyPatchDoom(toolName: string, toolInput: ToolInput): A
 	for (const section of parseApplyPatchSections(raw)) {
 		if (dooms.length >= APPLY_PATCH_WARNING_CAP) break;
 		if (section.op !== "update") continue;
-		const abs = resolveSectionPath(section.fromPath ?? section.path);
-		let before: string;
-		try {
-			if (!existsSync(abs)) {
-				dooms.push({
-					path: section.path,
-					warning: `[interlinked:apply-patch-doom][heuristic] Update section targets ${section.path}, which does not exist — apply_patch will likely fail. Re-check the path (or use an Add File section).`,
-				});
-				continue;
-			}
-			before = readFileSync(abs, "utf-8");
-		} catch {
-			continue;
-		}
-		if (reconstructAfterContent(section, before) === null) {
-			const misses = findClosestSpans(before, firstOldBlock(section.body), DOOM_NEAR_MISS_MATCHES);
-			const rescue = misses.length > 0 ? `\n${formatRescue(misses, firstOldBlock(section.body))}` : "";
-			dooms.push({
-				path: section.path,
-				warning: `[interlinked:apply-patch-doom][heuristic] The hunk context for ${section.path} does not match the live file (or is ambiguous) — apply_patch will likely fail. Re-read the file and rebuild the hunk from current content.${rescue}`,
-			});
-		}
+		const doom = evaluateApplyPatchUpdateSection(section);
+		if (doom) dooms.push(doom);
 	}
 	return dooms;
 }

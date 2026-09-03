@@ -52,6 +52,37 @@ function nearestPackageName(startDir: string): string | null {
 }
 
 /**
+ * Extract the specifier out of an `import ... from <spec>` / `export ... from
+ * <spec>` line, or `null` if the line isn't that shape.
+ *
+ * Strings get stripped to empty `""` for comment-filtering, so the leading-
+ * keyword check runs on the stripped line while specifier extraction reads
+ * from the original.
+ */
+function extractImportSpecifier(strippedLine: string, originalLine: string): string | null {
+	const strippedTrimmed = strippedLine.trim();
+	if (!/^(?:import|export)\b/.test(strippedTrimmed)) return null;
+	const fromMatch = originalLine.match(/\bfrom\s+['"]([^'"]+)['"]/);
+	if (!fromMatch) return null;
+	return nonNull(fromMatch[1]);
+}
+
+/** Build the finding text for one specifier, or `null` if it isn't a barrel/own-package import. */
+function matchBarrelSpecifier(
+	specifier: string,
+	originalLine: string,
+	ownPackageName: string | null,
+): string | null {
+	if (BARREL_LOCAL_SPECIFIERS.has(specifier)) {
+		return `imports from own-directory barrel '${specifier}' — import from the sibling submodule directly: ${originalLine.trim().slice(0, 120)}`;
+	}
+	if (ownPackageName !== null && specifier === ownPackageName) {
+		return `imports from own package '${ownPackageName}' — use a deep submodule path instead: ${originalLine.trim().slice(0, 120)}`;
+	}
+	return null;
+}
+
+/**
  * Detect imports from the file's own package barrel.
  *
  * Two patterns flagged, both forming latent module-init-order hazards:
@@ -88,30 +119,14 @@ export function checkImportFromOwnBarrel(content: string, filePath: string): Inl
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 5) break;
-		const strippedTrimmed = nonNull(strippedLines[i]).trim();
-		if (!/^(?:import|export)\b/.test(strippedTrimmed)) continue;
+		const originalLine = originalLines[i] ?? "";
 		// Confirm it's actually an `import ... from <spec>` or `export ... from <spec>`
 		// shape, not e.g. `export function ...`. The original line carries the spec.
-		const originalLine = originalLines[i] ?? "";
-		const fromMatch = originalLine.match(/\bfrom\s+['"]([^'"]+)['"]/);
-		if (!fromMatch) continue;
-		const specifier = nonNull(fromMatch[1]);
-
-		if (BARREL_LOCAL_SPECIFIERS.has(specifier)) {
-			matches.push({
-				line: i + 1,
-				text: `imports from own-directory barrel '${specifier}' — import from the sibling submodule directly: ${(originalLines[i] ?? "").trim().slice(0, 120)}`,
-			});
-			continue;
-		}
-
-		if (ownPackageName !== null && specifier === ownPackageName) {
-			matches.push({
-				line: i + 1,
-				text: `imports from own package '${ownPackageName}' — use a deep submodule path instead: ${(originalLines[i] ?? "").trim().slice(0, 120)}`,
-			});
-			continue;
-		}
+		const specifier = extractImportSpecifier(nonNull(strippedLines[i]), originalLine);
+		if (specifier === null) continue;
+		const text = matchBarrelSpecifier(specifier, originalLine, ownPackageName);
+		if (text === null) continue;
+		matches.push({ line: i + 1, text });
 	}
 
 	return matches;

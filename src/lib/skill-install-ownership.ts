@@ -225,6 +225,23 @@ function restoreWrite(cwd: string, plan: PlannedWrite): void {
     writeFileSync(target, plan.previous);
 }
 
+/** Undo already-applied writes and restore manifest entries after a transaction failure. */
+function rollbackAppliedWrites(
+    cwd: string,
+    manifest: SkillInstallManifest,
+    applied: readonly PlannedWrite[],
+): void {
+    for (const plan of [...applied].reverse()) {
+        try {
+            restoreWrite(cwd, plan);
+        } catch {
+            // Best effort: retain the original error, which explains the failed transaction.
+        }
+        if (plan.previousEntry) manifest.files[plan.spec.relPath] = plan.previousEntry;
+        else delete manifest.files[plan.spec.relPath];
+    }
+}
+
 /** Write a target group transactionally and persist ownership only on success. */
 export function writeManagedSkillFiles(
     cwd: string,
@@ -254,15 +271,7 @@ export function writeManagedSkillFiles(
         saveSkillInstallManifest(cwd, manifest);
         return { changed };
     } catch (err) {
-        for (const plan of applied.reverse()) {
-            try {
-                restoreWrite(cwd, plan);
-            } catch {
-                // Best effort: retain the original error, which explains the failed transaction.
-            }
-            if (plan.previousEntry) manifest.files[plan.spec.relPath] = plan.previousEntry;
-            else delete manifest.files[plan.spec.relPath];
-        }
+        rollbackAppliedWrites(cwd, manifest, applied);
         throw err;
     }
 }

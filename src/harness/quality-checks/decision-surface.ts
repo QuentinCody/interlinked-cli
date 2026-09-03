@@ -94,6 +94,29 @@ export function detectDecisionSurface(
 // Signal extraction
 // ===========================================
 
+function parsePackageJsonObject(content: string): JsonObject | null {
+	try {
+		const raw: unknown = JSON.parse(content);
+		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+		return raw as JsonObject;
+	} catch {
+		return null; // Malformed package.json — silently drop this source
+	}
+}
+
+function addDependencyNameSignals(
+	deps: JsonObject,
+	buckets: Record<DecisionSurfaceCategory, Set<string>>,
+): void {
+	for (const name of Object.keys(deps)) {
+		const entry = PACKAGE_ENTRIES[name];
+		if (!entry) continue;
+		for (const cat of entry.categories) {
+			buckets[cat].add(entry.canonical);
+		}
+	}
+}
+
 function addPackageJsonSignals(
 	projectRoot: string,
 	readFile: (path: string) => string | null,
@@ -102,25 +125,13 @@ function addPackageJsonSignals(
 	const content = readFile(join(projectRoot, "package.json"));
 	if (content === null) return;
 
-	let parsed: JsonObject;
-	try {
-		const raw: unknown = JSON.parse(content);
-		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return;
-		parsed = raw as JsonObject;
-	} catch {
-		return; // Malformed package.json — silently drop this source
-	}
+	const parsed = parsePackageJsonObject(content);
+	if (!parsed) return;
 
 	for (const section of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
 		const deps = parsed[section];
 		if (deps === null || typeof deps !== "object" || Array.isArray(deps)) continue;
-		for (const name of Object.keys(deps)) {
-			const entry = PACKAGE_ENTRIES[name];
-			if (!entry) continue;
-			for (const cat of entry.categories) {
-				buckets[cat].add(entry.canonical);
-			}
-		}
+		addDependencyNameSignals(deps as JsonObject, buckets);
 	}
 }
 

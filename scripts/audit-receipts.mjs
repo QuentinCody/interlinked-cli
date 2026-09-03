@@ -295,6 +295,18 @@ function getTranscript(sessionId) {
 	return t;
 }
 
+// Reads one tool_use block as a command candidate within the lookback window.
+// Returns { command, tool, dt } or null when the block carries no usable command.
+function commandCandidateFromBlock(block, recordTsMs, blockTsMs) {
+	if (block?.type !== "tool_use") return null;
+	if (!TOOL_USE_TOOLS.has(block.name)) return null;
+	const cmd = block.input?.command || block.input?.file_path || "";
+	if (!cmd) return null;
+	const dt = blockTsMs - recordTsMs;
+	if (dt < 0 || dt >= TRANSCRIPT_LOOKBACK_SECONDS * 1000) return null;
+	return { command: String(cmd), tool: block.name, dt };
+}
+
 // Scans one transcript record's tool_use blocks for a command candidate.
 // Returns { best, bestDt } for the first qualifying block in this record
 // (all blocks in a record share the same dt, since dt is derived from the
@@ -308,15 +320,10 @@ function scanRecordForCommand(rec, blockTsMs) {
 	let best = null;
 	let bestDt = Number.POSITIVE_INFINITY;
 	for (const block of content) {
-		if (block?.type !== "tool_use") continue;
-		if (!TOOL_USE_TOOLS.has(block.name)) continue;
-		const cmd = block.input?.command || block.input?.file_path || "";
-		if (!cmd) continue;
-		const dt = blockTsMs - ts;
-		if (dt >= 0 && dt < TRANSCRIPT_LOOKBACK_SECONDS * 1000 && dt < bestDt) {
-			best = { command: String(cmd), tool: block.name, ts: rec.timestamp };
-			bestDt = dt;
-		}
+		const candidate = commandCandidateFromBlock(block, ts, blockTsMs);
+		if (!candidate || candidate.dt >= bestDt) continue;
+		best = { command: candidate.command, tool: candidate.tool, ts: rec.timestamp };
+		bestDt = candidate.dt;
 	}
 	return best ? { best, bestDt } : null;
 }
@@ -382,6 +389,17 @@ function buildVerifiedRows(byRule) {
 	return verifiedRows;
 }
 
+// Resolves one logged block event back to the command that triggered it.
+// Returns { verdict, cmd } — cmd is null when the transcript can't answer.
+function resolveEventVerdict(ruleId, e) {
+	const blockTs = parseTs(e.ts || "");
+	const session = e.session || "";
+	if (!session || Number.isNaN(blockTs)) return { verdict: "transcript_missing", cmd: null };
+	const resolved = findCommandForBlock(session, blockTs);
+	if (!resolved) return { verdict: "transcript_missing", cmd: null };
+	return { verdict: classify(ruleId, resolved.command), cmd: resolved.command };
+}
+
 function buildDroppedRows(byRule) {
 	const droppedRows = [];
 	for (const ruleId of FP_HEAVY_RULES) {
@@ -389,17 +407,7 @@ function buildDroppedRows(byRule) {
 		const verdicts = {};
 		const samples = [];
 		for (const e of events) {
-			const blockTs = parseTs(e.ts || "");
-			const session = e.session || "";
-			let verdict = "transcript_missing";
-			let cmd = null;
-			if (session && !Number.isNaN(blockTs)) {
-				const resolved = findCommandForBlock(session, blockTs);
-				if (resolved) {
-					cmd = resolved.command;
-					verdict = classify(ruleId, cmd);
-				}
-			}
+			const { verdict, cmd } = resolveEventVerdict(ruleId, e);
 			verdicts[verdict] = (verdicts[verdict] || 0) + 1;
 			if (samples.length < 3 && cmd) {
 				samples.push({ verdict, command: cmd.replace(/\s+/g, " ").slice(0, 120), ts: e.ts });

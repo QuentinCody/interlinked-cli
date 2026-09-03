@@ -246,6 +246,38 @@ export function envRegistryFor(
 // Pre-verb flag dropper (used by npm-like parser)
 // ---------------------------------------------------------------------------
 
+/** How many tokens a flag at position `a` consumes: 1 for a bare flag or
+ *  a `--flag=val` form, 2 for `--flag VAL` where VAL doesn't look like a
+ *  flag or the verb itself. Returns null when `a` isn't a flag at all. */
+function flagTokenSpan(
+	a: string,
+	next: string | undefined,
+	verbRecognizer: (s: string) => boolean,
+): number | null {
+	if (a.startsWith("--") && a.includes("=")) return 1;
+	if (a.startsWith("-")) {
+		// Looks-like-takes-value: next token is non-flag → consume pair
+		if (next && !next.startsWith("-") && !verbRecognizer(next)) return 2;
+		return 1;
+	}
+	return null;
+}
+
+/** Yarn's two documented pre-verb shapes: `workspace <name> <verb>` (skip
+ *  the name, 2 tokens) and `workspaces` (plural — not an install shape,
+ *  signal the caller to bail). Returns null for every other bin/token. */
+function yarnPreVerbSpan(
+	bin: string,
+	a: string,
+	next: string | undefined,
+	verbRecognizer: (s: string) => boolean,
+): number | "bail" | null {
+	if (bin !== "yarn") return null;
+	if (a === "workspace" && next && !verbRecognizer(next)) return 2;
+	if (a === "workspaces") return "bail";
+	return null;
+}
+
 /** Drop pre-verb flags (and their values) until we land on the first
  *  argument-shaped token. Used to handle `npm --prefix app install evil`,
  *  `pnpm --filter app add evil`, `yarn workspace app add evil`.
@@ -267,28 +299,17 @@ export function dropPreVerbFlags(
 			out.push(...args.slice(i));
 			return out;
 		}
-		if (nonNull(a).startsWith("--") && nonNull(a).includes("=")) {
-			i++;
+		const flagSpan = flagTokenSpan(a, args[i + 1], verbRecognizer);
+		if (flagSpan !== null) {
+			i += flagSpan;
 			continue;
 		}
-		if (nonNull(a).startsWith("-")) {
-			// Looks-like-takes-value: next token is non-flag → consume pair
-			const next = args[i + 1];
-			if (next && !next.startsWith("-") && !verbRecognizer(next)) {
-				i += 2;
-				continue;
-			}
-			i++;
+		const yarnSpan = yarnPreVerbSpan(bin, a, args[i + 1], verbRecognizer);
+		if (yarnSpan === "bail") return [];
+		if (yarnSpan !== null) {
+			i += yarnSpan;
 			continue;
 		}
-		// Yarn-only: `yarn workspace <name> <subverb>` — eat the workspace name
-		if (bin === "yarn" && a === "workspace" && args[i + 1] && !verbRecognizer(nonNull(args[i + 1]))) {
-			i += 2;
-			continue;
-		}
-		// Yarn `workspaces` (plural) — followed by `foreach` / `info` / etc., not a verb
-		// We bail and let the parent fail, since these aren't installs.
-		if (bin === "yarn" && a === "workspaces") return [];
 		break;
 	}
 	return out;

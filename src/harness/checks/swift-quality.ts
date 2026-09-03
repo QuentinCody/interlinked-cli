@@ -17,6 +17,19 @@ import {
 const MATCH_LIMIT = 10;
 
 /**
+ * Report whether the `catch ... {` opened at `openIndex` has an empty body:
+ * the first non-blank line within the next 4 lines is a bare `}`.
+ */
+function isCatchBodyEmptyBelow(strippedLines: string[], openIndex: number): boolean {
+	for (let j = openIndex + 1; j < Math.min(openIndex + 5, strippedLines.length); j++) {
+		const next = nonNull(strippedLines[j]).trim();
+		if (next === "") continue;
+		return next === "}";
+	}
+	return false;
+}
+
+/**
  * Detect `catch { }` with an empty body — silently swallows the error.
  *
  * Matches:
@@ -51,14 +64,7 @@ export function checkSwiftEmptyCatch(content: string, filePath: string): InlineM
 		// Multi-line: `catch ... {` on this line, `}` on a later non-empty line
 		// with nothing between (whitespace/blank lines only).
 		if (!/\bcatch\b[^{]*\{\s*$/.test(line)) continue;
-		let emptyBody = false;
-		for (let j = i + 1; j < Math.min(i + 5, strippedLines.length); j++) {
-			const next = nonNull(strippedLines[j]).trim();
-			if (next === "") continue;
-			if (next === "}") emptyBody = true;
-			break;
-		}
-		if (emptyBody) {
+		if (isCatchBodyEmptyBelow(strippedLines, i)) {
 			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 		}
 	}
@@ -143,6 +149,15 @@ export function checkSwiftNsurlLegacyBridge(content: string, filePath: string): 
  * Allows up to 3 lines between the `guard` and the `fatalError` body since
  * `guard` with multi-clause conditions wraps onto multiple lines.
  */
+function guardElseBodyCallsFatalError(strippedLines: string[], guardIndex: number): boolean {
+	for (let j = guardIndex; j < Math.min(guardIndex + 4, strippedLines.length); j++) {
+		const line = nonNull(strippedLines[j]);
+		if (/\bfatalError\s*\(/.test(line)) return true;
+		if (j > guardIndex && /^\s*\}/.test(line)) return false;
+	}
+	return false;
+}
+
 export function checkSwiftFatalErrorInGuard(content: string, filePath: string): InlineMatch[] {
 	if (getExtension(filePath) !== ".swift") return [];
 	if (isTestFile(filePath)) return [];
@@ -157,12 +172,8 @@ export function checkSwiftFatalErrorInGuard(content: string, filePath: string): 
 		const line = nonNull(strippedLines[i]);
 		if (!/\bguard\b.*\belse\s*\{/.test(line)) continue;
 		// Look in this line + next 3 for fatalError.
-		for (let j = i; j < Math.min(i + 4, strippedLines.length); j++) {
-			if (/\bfatalError\s*\(/.test(nonNull(strippedLines[j]))) {
-				matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-				break;
-			}
-			if (j > i && /^\s*\}/.test(nonNull(strippedLines[j]))) break;
+		if (guardElseBodyCallsFatalError(strippedLines, i)) {
+			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 		}
 	}
 	return matches;

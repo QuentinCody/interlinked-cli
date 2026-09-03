@@ -10,38 +10,15 @@
 //     `list_complete` flag — only the first page (default 1000)
 //     of results is returned; downstream code silently truncates.
 
-import { getExtension, type InlineMatch, isGeneratedFile, isTestFile, JS_TS_EXTS } from "../checks/shared.js";
+import type { InlineMatch } from "../checks/shared.js";
+import { balancedArgList, shouldSkipFootgunScan } from "./scan-helpers.js";
 import type { LibraryFootgunCheck } from "./types.js";
 
 const KV_PUT_OPEN_RE = /\b(?:env\s*\.\s*\w+|\w+\s*\.\s*KV)\s*\.\s*put\s*\(/g;
 const KV_LIST_RE = /\b(?:env\s*\.\s*\w+|\w+\s*\.\s*KV)\s*\.\s*list\s*\(/g;
 
-/** Extract the argument-list text between the `(` at openIdx and
- *  its matching `)`, respecting nested parens. Returns null if no
- *  balanced match. */
-function balancedArgList(content: string, openIdx: number): string | null {
-	let depth = 1;
-	let i = openIdx + 1;
-	while (i < content.length && depth > 0) {
-		const ch = content[i];
-		if (ch === "(") depth++;
-		else if (ch === ")") depth--;
-		i++;
-	}
-	if (depth !== 0) return null;
-	return content.slice(openIdx + 1, i - 1);
-}
-
-function shouldSkip(filePath: string, content: string): boolean {
-	const ext = getExtension(filePath);
-	if (!JS_TS_EXTS.has(ext)) return true;
-	if (isTestFile(filePath)) return true;
-	if (isGeneratedFile(content)) return true;
-	return false;
-}
-
 function detectPutNoTtl(content: string, filePath: string): InlineMatch[] {
-	if (shouldSkip(filePath, content)) return [];
+	if (shouldSkipFootgunScan(filePath, content)) return [];
 	const out: InlineMatch[] = [];
 	const lines = content.split("\n");
 	KV_PUT_OPEN_RE.lastIndex = 0;
@@ -65,7 +42,7 @@ function detectPutNoTtl(content: string, filePath: string): InlineMatch[] {
 }
 
 function detectListNoCursor(content: string, filePath: string): InlineMatch[] {
-	if (shouldSkip(filePath, content)) return [];
+	if (shouldSkipFootgunScan(filePath, content)) return [];
 	const out: InlineMatch[] = [];
 	const lines = content.split("\n");
 	KV_LIST_RE.lastIndex = 0;

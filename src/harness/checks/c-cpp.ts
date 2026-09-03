@@ -18,6 +18,17 @@ function isCFile(filePath: string): boolean {
 }
 
 /**
+ * True when the match is really the bounded variant (strncpy, strncat, snprintf):
+ * the unsafe pattern matches their tail, so the preceding character decides.
+ */
+function isBoundedStringVariant(line: string, m: RegExpExecArray): boolean {
+	const funcName = m[1];
+	if (funcName !== "strcpy" && funcName !== "strcat" && funcName !== "sprintf") return false;
+	const charBefore = m.index > 0 ? line[m.index - 1] : "";
+	return charBefore === "n";
+}
+
+/**
  * Detect unsafe C functions: strcpy, strcat, gets, sprintf, stpcpy, vsprintf.
  * These have no bounds checking and are common sources of buffer overflows.
  */
@@ -33,15 +44,11 @@ export function checkCUnsafeFunctions(content: string, filePath: string): Inline
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
-		const m = unsafePattern.exec(nonNull(strippedLines[i]));
+		const line = nonNull(strippedLines[i]);
+		const m = unsafePattern.exec(line);
 		if (!m) continue;
 		// Ensure we didn't match the safe variant (strncpy, strncat, snprintf)
-		const funcName = m[1];
-		if (funcName === "strcpy" || funcName === "strcat" || funcName === "sprintf") {
-			// Check the character before the match is not 'n' (strncpy, strncat, snprintf)
-			const charBefore = m.index > 0 ? nonNull(strippedLines[i])[m.index - 1] : "";
-			if (charBefore === "n") continue;
-		}
+		if (isBoundedStringVariant(line, m)) continue;
 		matches.push({
 			line: i + 1,
 			text: nonNull(originalLines[i]).trim().slice(0, 150),
@@ -108,6 +115,24 @@ export function checkCStrcmpBooleanMisuse(content: string, filePath: string): In
 }
 
 /**
+ * True when one of the 3 lines after the allocation null-checks `varName`.
+ * Common null-check patterns: if (!ptr), if (ptr == NULL), if (ptr != NULL), if (ptr).
+ */
+function hasNullCheckAfterAlloc(
+	strippedLines: string[],
+	allocIndex: number,
+	varName: string,
+): boolean {
+	const lookAhead = Math.min(allocIndex + 4, strippedLines.length);
+	for (let j = allocIndex + 1; j < lookAhead; j++) {
+		const ahead = nonNull(strippedLines[j]);
+		if (!ahead.includes(varName)) continue;
+		if (/\b(if|assert)\s*\(/.test(ahead) || /==\s*NULL|!=\s*NULL/.test(ahead)) return true;
+	}
+	return false;
+}
+
+/**
  * Detect malloc/calloc/realloc calls where the return value is not null-checked
  * within the next 3 lines. C-only (not C++ where `new` is standard).
  */
@@ -129,25 +154,11 @@ export function checkCUncheckedMalloc(content: string, filePath: string): Inline
 		// Only match simple C identifiers to avoid regex injection
 		if (!/^\w+$/.test(varName)) continue;
 		// Look ahead 3 lines for a null check on this variable
-		let hasNullCheck = false;
-		const lookAhead = Math.min(i + 4, strippedLines.length);
-		for (let j = i + 1; j < lookAhead; j++) {
-			const ahead = nonNull(strippedLines[j]);
-			// Common null-check patterns: if (!ptr), if (ptr == NULL), if (ptr != NULL), if (ptr)
-			if (
-				ahead.includes(varName) &&
-				(/\b(if|assert)\s*\(/.test(ahead) || /==\s*NULL|!=\s*NULL/.test(ahead))
-			) {
-				hasNullCheck = true;
-				break;
-			}
-		}
-		if (!hasNullCheck) {
-			matches.push({
-				line: i + 1,
-				text: nonNull(originalLines[i]).trim().slice(0, 150),
-			});
-		}
+		if (hasNullCheckAfterAlloc(strippedLines, i, varName)) continue;
+		matches.push({
+			line: i + 1,
+			text: nonNull(originalLines[i]).trim().slice(0, 150),
+		});
 	}
 
 	return matches;

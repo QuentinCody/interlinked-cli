@@ -72,6 +72,43 @@ type PiiScanOpts = {
 	customPatterns?: Array<{ name: string; pattern: string; severity?: string }>;
 };
 
+/** Resolve named opt-in patterns to their definitions, dropping names that match no known pattern. */
+function selectOptInPiiPatterns(names: string[]): PiiPattern[] {
+	const selected: PiiPattern[] = [];
+	for (const name of names) {
+		const found = OPTIN_PII_PATTERNS.find((p) => p.name === name);
+		if (found) selected.push(found);
+	}
+	return selected;
+}
+
+/**
+ * Compile admin-authored custom patterns (length-capped at 200 chars);
+ * patterns that fail to compile are dropped rather than aborting the whole
+ * rule load.
+ */
+function compileCustomPiiPatterns(customPatterns: NonNullable<PiiScanOpts["customPatterns"]>): PiiPattern[] {
+	const compiled: PiiPattern[] = [];
+	for (const cp of customPatterns) {
+		if (typeof cp.pattern !== "string" || cp.pattern.length > 200) continue;
+		try {
+			// Reason: opts.customPatterns is admin-authored config;
+			// length-capped at 200 and compile failures fall through.
+			// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
+			const pattern = new RegExp(cp.pattern);
+			compiled.push({
+				name: cp.name,
+				pattern,
+				severity: (cp.severity as PiiPattern["severity"]) || "medium",
+			});
+		} catch {
+			// intentional: drop user-supplied patterns that fail to
+			// compile rather than aborting the whole rule load.
+		}
+	}
+	return compiled;
+}
+
 /**
  * Resolve the full set of active PII patterns for a scan: the default-on set,
  * plus any named opt-in patterns, plus any admin-authored custom patterns
@@ -80,35 +117,21 @@ type PiiScanOpts = {
  */
 function resolveActivePiiPatterns(opts?: PiiScanOpts): PiiPattern[] {
 	const activePatterns: PiiPattern[] = [...DEFAULT_PII_PATTERNS];
-
-	if (opts?.optIn) {
-		for (const name of opts.optIn) {
-			const found = OPTIN_PII_PATTERNS.find((p) => p.name === name);
-			if (found) activePatterns.push(found);
-		}
-	}
-
-	if (opts?.customPatterns) {
-		for (const cp of opts.customPatterns) {
-			if (typeof cp.pattern !== "string" || cp.pattern.length > 200) continue;
-			try {
-				// Reason: opts.customPatterns is admin-authored config;
-				// length-capped at 200 and compile failures fall through.
-				// nosemgrep: javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp
-				const compiled = new RegExp(cp.pattern);
-				activePatterns.push({
-					name: cp.name,
-					pattern: compiled,
-					severity: (cp.severity as PiiPattern["severity"]) || "medium",
-				});
-			} catch {
-				// intentional: drop user-supplied patterns that fail to
-				// compile rather than aborting the whole rule load.
-			}
-		}
-	}
-
+	if (opts?.optIn) activePatterns.push(...selectOptInPiiPatterns(opts.optIn));
+	if (opts?.customPatterns) activePatterns.push(...compileCustomPiiPatterns(opts.customPatterns));
 	return activePatterns;
+}
+
+/**
+ * True when a comment-stripped line carries PII for this pattern: the pattern
+ * matches, its false-positive skip pattern does not, and the line is not
+ * documenting the format (e.g. "format: EMP-XXXXXX").
+ */
+function lineHasPiiMatch(piiPattern: PiiPattern, line: string): boolean {
+	if (!piiPattern.pattern.test(line)) return false;
+	if (piiPattern.skip?.test(line)) return false;
+	if (/format:|example:|e\.g\.|placeholder|XXXX|sample/i.test(line)) return false;
+	return true;
 }
 
 /**
@@ -129,12 +152,7 @@ export function checkPiiInSource(content: string, filePath: string, opts?: PiiSc
 	for (const piiPattern of activePatterns) {
 		for (let i = 0; i < strippedLines.length; i++) {
 			if (matches.length >= 20) return matches;
-			const line = nonNull(strippedLines[i]);
-			if (!piiPattern.pattern.test(line)) continue;
-			// Check skip pattern for false positive suppression
-			if (piiPattern.skip?.test(line)) continue;
-			// Skip lines that document the format (e.g., "format: EMP-XXXXXX")
-			if (/format:|example:|e\.g\.|placeholder|XXXX|sample/i.test(line)) continue;
+			if (!lineHasPiiMatch(piiPattern, nonNull(strippedLines[i]))) continue;
 			matches.push({
 				line: i + 1,
 				text: `[pii:${piiPattern.name}] ${nonNull(originalLines[i]).trim().slice(0, 120)}`,
@@ -150,6 +168,11 @@ const MIXED_STRATEGY_FUNC_START =
 const MIXED_STRATEGY_THROW_PAT = /\bthrow\s+(?:new\s+\w+|err|e|error)\b/;
 const MIXED_STRATEGY_RETURN_ERROR_PAT =
 	/\breturn\s+\{[^}]*(?:success\s*:\s*false|error\s*:|err\s*:)|return\s+(?:null|undefined)\s*;?\s*\/\/.*error/i;
+
+/** True when a line opens a function body: a function-start shape plus the opening brace. */
+function startsFunctionBody(line: string): boolean {
+	return MIXED_STRATEGY_FUNC_START.test(line) && line.includes("{");
+}
 
 /** Net brace-depth change contributed by a single (comment-stripped) line. */
 function braceDeltaForLine(line: string): number {
@@ -228,8 +251,9 @@ export function checkMixedErrorStrategy(content: string, filePath: string): Inli
 	for (let i = 0; i < lines.length; i++) {
 		const line = nonNull(lines[i]);
 
-		// Detect function start
-		if (!inFunc && MIXED_STRATEGY_FUNC_START.test(line) && line.includes("{")) {
+		// Outside a function body, wait for a function start; then track this same line.
+		if (!inFunc) {
+			if (!startsFunctionBody(line)) continue;
 			inFunc = true;
 			funcStartLine = i;
 			funcDepth = 0;
@@ -237,17 +261,14 @@ export function checkMixedErrorStrategy(content: string, filePath: string): Inli
 			returnErrorLines = [];
 		}
 
-		if (inFunc) {
-			funcDepth += braceDeltaForLine(line);
-			trackErrorExitAtDepth(line, i, funcDepth, throwLines, returnErrorLines);
+		funcDepth += braceDeltaForLine(line);
+		trackErrorExitAtDepth(line, i, funcDepth, throwLines, returnErrorLines);
 
-			// Function ended
-			if (funcDepth <= 0) {
-				recordMixedStrategyIfPresent(throwLines, returnErrorLines, funcStartLine, originalLines, matches);
-				inFunc = false;
-				if (matches.length >= 5) break;
-			}
-		}
+		// Function ended
+		if (funcDepth > 0) continue;
+		recordMixedStrategyIfPresent(throwLines, returnErrorLines, funcStartLine, originalLines, matches);
+		inFunc = false;
+		if (matches.length >= 5) break;
 	}
 
 	return matches;

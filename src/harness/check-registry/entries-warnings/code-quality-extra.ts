@@ -13,6 +13,7 @@ import {
 	checkNewExportWithoutImporter,
 } from "../../checks/helper-hygiene.js";
 import { checkAnonymousRegistration } from "../../checks/anonymous-registration.js";
+import { checkSingleUseTrivialHelper } from "../../checks/over-extraction.js";
 import { detectPayloadFieldCasing } from "../../checks/payload-casing.js";
 import {
 	checkExcessiveUseEffect,
@@ -340,6 +341,22 @@ export const CODE_QUALITY_ENTRIES_EXTRA: CheckRegistration[] = [
 			"Import and reuse the existing sibling helper instead of adding a near-copy; if the two genuinely differ, name the difference in the new helper's name.",
 		fn: checkExtractedHelperDuplicate,
 		resultsPropName: "extractedHelperDuplicate",
+		content_keywords: ["function", "=>"],
+	},
+	{
+		id: "single_use_trivial_helper",
+		name: "Single-use trivial helper",
+		description:
+			"Detects a NON-exported function with exactly one call site in its own file whose body is ≤3 statements AND whose name carries no information the call site lacks — a generic verb over a shape word (processItems, handleData, buildResult) or a name that merely restates the single call it wraps (parseJson → JSON.parse). The counterweight to the complexity caps: every metric gate is satisfied by extracting, and nothing pushed back, so a helper that bought a metric point and charged the reader a hop looked identical to one that earned its name. Advisory by design — a helper naming a domain rule the call site lacks, or one long enough that inlining re-inflates the caller, is silent.",
+		tier: 2,
+		determinism: "heuristic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		phase: "post",
+		fix_instruction:
+			"Either inline this helper at its single call site, or rename it to state the rule it encodes — a name the call site does not already imply. Never delete a helper that genuinely shrinks a large caller; this check only flags trivial ones whose name adds nothing.",
+		fn: checkSingleUseTrivialHelper,
+		resultsPropName: "singleUseTrivialHelper",
 		content_keywords: ["function", "=>"],
 	},
 ];

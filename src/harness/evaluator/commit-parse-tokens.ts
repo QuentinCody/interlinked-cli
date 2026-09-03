@@ -21,36 +21,55 @@ import { nonNull } from "../../lib/non-null.js";
  * these instead of regex-matching raw command strings, where quoted/echoed
  * text matches as if it were a command (finding 2026-06, round 6).
  */
+/** Mutable scan state for {@link shellSplit}'s per-character helper. */
+interface ShellSplitScan {
+	cur: string;
+	inSingle: boolean;
+	inDouble: boolean;
+}
+
+/**
+ * Handle a backslash-escape or a quote toggle at character `c` for
+ * {@link shellSplit}. Unlike {@link consumeQuoteOrEscape} (which keeps the
+ * quote characters themselves, for segment splitting) this drops them — a
+ * shell token never contains its own delimiting quotes. Returns the number of
+ * EXTRA characters consumed (1 for an escape that swallowed the next char, 0
+ * for a quote toggle), or `null` when `c` is neither. Mutates `scan` in place.
+ */
+function consumeShellQuoteOrEscape(scan: ShellSplitScan, c: string, next: string | undefined): number | null {
+	if (c === "\\" && next !== undefined && !scan.inSingle) {
+		scan.cur += next;
+		return 1;
+	}
+	if (c === "'" && !scan.inDouble) {
+		scan.inSingle = !scan.inSingle;
+		return 0;
+	}
+	if (c === '"' && !scan.inSingle) {
+		scan.inDouble = !scan.inDouble;
+		return 0;
+	}
+	return null;
+}
+
 export function shellSplit(input: string): string[] {
 	const out: string[] = [];
-	let cur = "";
-	let inSingle = false;
-	let inDouble = false;
+	const scan: ShellSplitScan = { cur: "", inSingle: false, inDouble: false };
 	for (let i = 0; i < input.length; i++) {
 		const c = nonNull(input[i]);
-		if (c === "\\" && i + 1 < input.length && !inSingle) {
-			cur += input[i + 1];
-			i++;
+		const next = input[i + 1];
+		const consumed = consumeShellQuoteOrEscape(scan, c, next);
+		if (consumed !== null) {
+			i += consumed;
 			continue;
 		}
-		if (c === "'" && !inDouble) {
-			inSingle = !inSingle;
+		if (/\s/.test(c) && !scan.inSingle && !scan.inDouble) {
+			scan.cur = pushSegment(out, scan.cur);
 			continue;
 		}
-		if (c === '"' && !inSingle) {
-			inDouble = !inDouble;
-			continue;
-		}
-		if (/\s/.test(c) && !inSingle && !inDouble) {
-			if (cur.length > 0) {
-				out.push(cur);
-				cur = "";
-			}
-			continue;
-		}
-		cur += c;
+		scan.cur += c;
 	}
-	if (cur.length > 0) out.push(cur);
+	pushSegment(out, scan.cur);
 	return out;
 }
 

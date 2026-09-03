@@ -19,7 +19,7 @@ import { getDataDir } from "../lib/config.js";
 import { c, shortTimestamp } from "../lib/formatter.js";
 import { isJsonObject } from "../lib/json-types.js";
 import { readLocalActivity } from "../lib/local-activity.js";
-import { getOutputMode, output, outputError } from "../lib/output.js";
+import { getOutputMode, output, outputError, type OutputMode } from "../lib/output.js";
 
 /** `watchFile` poll interval (ms) — how often to ask the OS whether the file changed. */
 const WATCH_FILE_INTERVAL_MS = 500;
@@ -203,6 +203,23 @@ async function tailFollow(activityPath: string, opts: LogsOptions): Promise<void
 	});
 }
 
+/**
+ * Resolves `--since` into a millisecond timestamp cutoff. Reports the error via
+ * `outputError` and signals `error: true` on an invalid duration string.
+ */
+function resolveSinceTs(
+	since: string | undefined,
+	mode: OutputMode,
+): { ts: number | undefined; error: boolean } {
+	if (!since) return { ts: undefined, error: false };
+	try {
+		return { ts: Date.now() - parseDuration(since), error: false };
+	} catch (e) {
+		outputError(mode, e instanceof Error ? e.message : String(e));
+		return { ts: undefined, error: true };
+	}
+}
+
 export async function logsCommand(opts: LogsOptions): Promise<void> {
 	const cwd = process.cwd();
 	const mode = getOutputMode(opts);
@@ -226,15 +243,9 @@ export async function logsCommand(opts: LogsOptions): Promise<void> {
 		return;
 	}
 
-	let sinceTs: number | undefined;
-	if (opts.since) {
-		try {
-			sinceTs = Date.now() - parseDuration(opts.since);
-		} catch (e) {
-			outputError(mode, e instanceof Error ? e.message : String(e));
-			return;
-		}
-	}
+	const sinceResult = resolveSinceTs(opts.since, mode);
+	if (sinceResult.error) return;
+	const sinceTs = sinceResult.ts;
 
 	// Read from local JSONL (already reads newest-first)
 	let events = readLocalActivity({

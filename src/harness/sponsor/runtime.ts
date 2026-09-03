@@ -125,15 +125,19 @@ export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime
 			}
 			log("[sponsor] fetched feed failed verification — ignoring");
 		}
-		if (feed === null) {
-			// Cold start with no network: the disk cache is still
-			// signature-checked, so local tampering cannot inject content.
-			const cached = loadCachedWire(opts.interlinkedDir);
-			if (cached) {
-				feed = verifyWire(cached);
-				if (feed) log("[sponsor] using verified cached feed");
-			}
-		}
+		if (feed === null) feed = loadVerifiedCachedFeed();
+	}
+
+	/**
+	 * Cold start with no network: the disk cache is still signature-checked,
+	 * so local tampering cannot inject content.
+	 */
+	function loadVerifiedCachedFeed(): SponsorFeed | null {
+		const cached = loadCachedWire(opts.interlinkedDir);
+		if (!cached) return null;
+		const verified = verifyWire(cached);
+		if (verified) log("[sponsor] using verified cached feed");
+		return verified;
 	}
 
 	function recordImpression(
@@ -168,40 +172,52 @@ export function startSponsorRuntime(opts: SponsorRuntimeOptions): SponsorRuntime
 		await flushBeacons(opts.interlinkedDir, url, fetchImpl);
 	}
 
+	/** Write the disabled marker once per state change, not every tick. */
+	function markDisabled(): void {
+		if (wasEnabled !== false) {
+			clearSponsorStatus(opts.interlinkedDir);
+			wasEnabled = false;
+		}
+	}
+
+	/**
+	 * Publish this window's creative to `sponsor.status`, or clear the status
+	 * when the feed has nothing to show, then count the impression.
+	 */
+	async function publishCurrentCreative(settings: SponsorRuntimeSettings): Promise<void> {
+		const current = feed === null ? null : selectCreative(feed, now());
+		if (!current) {
+			clearSponsorStatus(opts.interlinkedDir);
+			return;
+		}
+		// telemetry on: click routes through the Worker (countable, carries
+		// the anonymous install id). telemetry off: direct link, no routing.
+		const clickUrl = settings.telemetry
+			? (buildClickUrl(settings.feedUrl, current.id, settings.installId) ?? current.url)
+			: current.url;
+		writeSponsorStatus(opts.interlinkedDir, {
+			enabled: true,
+			creative: current,
+			clickUrl,
+		});
+		if (settings.telemetry) {
+			recordImpression(settings, current.id, current.campaign);
+			await maybeFlush(settings);
+		}
+	}
+
 	async function tick(): Promise<void> {
 		if (inFlight) return;
 		inFlight = true;
 		try {
 			const settings = opts.readSettings();
 			if (!settings?.enabled) {
-				// Write the disabled marker once per state change, not every tick.
-				if (wasEnabled !== false) {
-					clearSponsorStatus(opts.interlinkedDir);
-					wasEnabled = false;
-				}
+				markDisabled();
 				return;
 			}
 			wasEnabled = true;
 			await refreshFeed(settings.feedUrl);
-			const current = feed === null ? null : selectCreative(feed, now());
-			if (!current) {
-				clearSponsorStatus(opts.interlinkedDir);
-				return;
-			}
-			// telemetry on: click routes through the Worker (countable, carries
-			// the anonymous install id). telemetry off: direct link, no routing.
-			const clickUrl = settings.telemetry
-				? (buildClickUrl(settings.feedUrl, current.id, settings.installId) ?? current.url)
-				: current.url;
-			writeSponsorStatus(opts.interlinkedDir, {
-				enabled: true,
-				creative: current,
-				clickUrl,
-			});
-			if (settings.telemetry) {
-				recordImpression(settings, current.id, current.campaign);
-				await maybeFlush(settings);
-			}
+			await publishCurrentCreative(settings);
 		} catch (e) {
 			// Prime directive: sponsor work never disturbs the daemon.
 			void e;

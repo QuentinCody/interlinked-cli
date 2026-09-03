@@ -109,6 +109,58 @@ function fileContextLine(
 	pendingContext.push(text);
 }
 
+/** Parses one raw `rg --json` line into a JSON object, or null for a line
+ *  that fails to parse or isn't an object (ripgrep is expected to emit only
+ *  well-formed JSON objects; this tolerates an unexpected line instead of
+ *  throwing). */
+function parseRipgrepLine(line: string): Record<string, unknown> | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(line);
+	} catch (_) {
+		return null;
+	}
+	return isJsonObject(parsed) ? parsed : null;
+}
+
+/** Builds a match record from a `match` line and appends it to `matches`.
+ *  Returns the pendingContext array subsequent lines should accumulate into:
+ *  a fresh empty array after a successful append (the old array is now
+ *  owned by the appended record's `context_before`), or the same array
+ *  unchanged if the line didn't parse as a match. */
+function appendMatchLine(
+	parsed: Record<string, unknown>,
+	dir: string,
+	matches: SearchMatch[],
+	pendingContext: string[],
+): string[] {
+	const m = parseRipgrepMatch(parsed);
+	if (!m) return pendingContext;
+	matches.push({
+		file: relative(dir, m.path),
+		line: m.lineNumber,
+		column: m.submatchStart,
+		text: m.text.replace(/\n$/, ""),
+		context_before: pendingContext.length > 0 ? pendingContext : undefined,
+		context_after: [],
+	});
+	return [];
+}
+
+/** Files a `context` line onto `matches`/`pendingContext` (see
+ *  `fileContextLine`), or does nothing if the line doesn't parse. */
+function appendContextLine(
+	parsed: Record<string, unknown>,
+	dir: string,
+	contextWindow: number,
+	matches: SearchMatch[],
+	pendingContext: string[],
+): void {
+	const ctx = parseRipgrepContext(parsed);
+	if (!ctx) return;
+	fileContextLine(matches, pendingContext, ctx, dir, contextWindow);
+}
+
 /** Parses ripgrep `--json` lines into matches + the searched-file count. */
 export function processRipgrepLines(
 	lines: string[],
@@ -121,31 +173,13 @@ export function processRipgrepLines(
 	let pendingContext: string[] = [];
 
 	for (const line of lines) {
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(line);
-		} catch (_) {
-			/* intentional: ripgrep emits only well-formed JSON; skip on unexpected line */
-			continue;
-		}
-		if (!isJsonObject(parsed)) continue;
+		const parsed = parseRipgrepLine(line);
+		if (!parsed) continue;
 
 		if (parsed.type === "match") {
-			const m = parseRipgrepMatch(parsed);
-			if (!m) continue;
-			matches.push({
-				file: relative(dir, m.path),
-				line: m.lineNumber,
-				column: m.submatchStart,
-				text: m.text.replace(/\n$/, ""),
-				context_before: pendingContext.length > 0 ? pendingContext : undefined,
-				context_after: [],
-			});
-			pendingContext = [];
+			pendingContext = appendMatchLine(parsed, dir, matches, pendingContext);
 		} else if (parsed.type === "context") {
-			const ctx = parseRipgrepContext(parsed);
-			if (!ctx) continue;
-			fileContextLine(matches, pendingContext, ctx, dir, opts.context);
+			appendContextLine(parsed, dir, opts.context, matches, pendingContext);
 		} else if (parsed.type === "summary") {
 			searchedFiles = parseRipgrepSearchedFiles(parsed);
 		}

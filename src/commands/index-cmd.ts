@@ -9,6 +9,7 @@ import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Command } from "commander";
 import { TrigramIndex } from "../harness/trigram-index.js";
+import type { IndexStats } from "../harness/trigram-primitives.js";
 
 export function registerIndexCommand(program: Command): void {
 	const index = program
@@ -96,12 +97,7 @@ export function registerIndexCommand(program: Command): void {
 			const meta = TrigramIndex.loadMeta(cwd);
 
 			if (!meta) {
-				if (opts.json) {
-					console.log(JSON.stringify({ exists: false }));
-				} else {
-					console.log("No trigram index found.");
-					console.log("Run `interlinked index build` to create one.");
-				}
+				printNoIndexFound(Boolean(opts.json));
 				return;
 			}
 
@@ -118,29 +114,8 @@ export function registerIndexCommand(program: Command): void {
 			console.log(`  Base commit: ${meta.baseCommit.slice(0, 8)}`);
 			console.log(`  Built at:    ${meta.builtAt}`);
 
-			if (meta.avgLocMaskBits !== undefined) {
-				console.log(`  Avg locMask:  ${meta.avgLocMaskBits.toFixed(1)} bits/entry`);
-				console.log(`  Avg nextMask: ${meta.avgNextMaskBits?.toFixed(1)} bits/entry`);
-			}
-			if (meta.lookupSizeBytes !== undefined) {
-				console.log(`  Lookup file:  ${formatBytes(meta.lookupSizeBytes)}`);
-				console.log(`  Postings:     ${formatBytes(meta.postingsSizeBytes ?? 0)}`);
-			}
-
-			// Check freshness
-			const indexPath = join(cwd, ".interlinked", "index", "trigram.lookup");
-			if (existsSync(indexPath)) {
-				const { mtimeMs } = statSync(indexPath);
-				const ageMinutes = Math.floor((Date.now() - mtimeMs) / 60000);
-				if (ageMinutes < 1) {
-					console.log("  Freshness:   just built");
-				} else if (ageMinutes < 60) {
-					console.log(`  Freshness:   ${ageMinutes}min ago`);
-				} else {
-					const ageHours = Math.floor(ageMinutes / 60);
-					console.log(`  Freshness:   ${ageHours}h ago`);
-				}
-			}
+			printMaskAndSizeBreakdown(meta);
+			printIndexFreshness(cwd);
 		});
 
 	// --- query (debug/test) ---
@@ -185,6 +160,47 @@ export function registerIndexCommand(program: Command): void {
 				}
 			}
 		});
+}
+
+/** Tell the user no index exists yet, in whichever format they asked for. */
+function printNoIndexFound(asJson: boolean): void {
+	if (asJson) {
+		console.log(JSON.stringify({ exists: false }));
+		return;
+	}
+	console.log("No trigram index found.");
+	console.log("Run `interlinked index build` to create one.");
+}
+
+/** Print the optional posting-mask averages and on-disk size breakdown. */
+function printMaskAndSizeBreakdown(meta: IndexStats): void {
+	if (meta.avgLocMaskBits !== undefined) {
+		console.log(`  Avg locMask:  ${meta.avgLocMaskBits.toFixed(1)} bits/entry`);
+		console.log(`  Avg nextMask: ${meta.avgNextMaskBits?.toFixed(1)} bits/entry`);
+	}
+	if (meta.lookupSizeBytes !== undefined) {
+		console.log(`  Lookup file:  ${formatBytes(meta.lookupSizeBytes)}`);
+		console.log(`  Postings:     ${formatBytes(meta.postingsSizeBytes ?? 0)}`);
+	}
+}
+
+/** Print how long ago the lookup file was written, when it is present. */
+function printIndexFreshness(cwd: string): void {
+	const indexPath = join(cwd, ".interlinked", "index", "trigram.lookup");
+	if (!existsSync(indexPath)) return;
+
+	const { mtimeMs } = statSync(indexPath);
+	const ageMinutes = Math.floor((Date.now() - mtimeMs) / 60000);
+	if (ageMinutes < 1) {
+		console.log("  Freshness:   just built");
+		return;
+	}
+	if (ageMinutes < 60) {
+		console.log(`  Freshness:   ${ageMinutes}min ago`);
+		return;
+	}
+	const ageHours = Math.floor(ageMinutes / 60);
+	console.log(`  Freshness:   ${ageHours}h ago`);
 }
 
 const BYTES_PER_KB = 1024;

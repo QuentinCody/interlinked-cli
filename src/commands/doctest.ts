@@ -13,30 +13,43 @@ import { join } from "node:path";
 import type { Command } from "commander";
 import { type DoctestExec, extractDoctestBlocks, runDocExamples } from "../harness/doctest.js";
 
+/** Reads directory entries, or null if `dir` can't be read (missing/permission). */
+function safeReadNames(dir: string): string[] | null {
+	try {
+		return readdirSync(dir);
+	} catch (err) {
+		void err;
+		return null;
+	}
+}
+
+/** Checks whether `path` is a directory, or null if it can't be stat'd. */
+function safeIsDirectory(path: string): boolean | null {
+	try {
+		return statSync(path).isDirectory();
+	} catch (err) {
+		void err;
+		return null;
+	}
+}
+
+/** Visits one directory entry: recurses into subdirectories, collects `*.md` files. */
+function visitDirEntry(dir: string, name: string, out: string[], recurse: (d: string) => void): void {
+	if (name === "node_modules" || name === ".git" || name === "dist") return;
+	const full = join(dir, name);
+	const isDir = safeIsDirectory(full);
+	if (isDir === null) return;
+	if (isDir) recurse(full);
+	else if (name.endsWith(".md")) out.push(full);
+}
+
 /** Recursively collect `*.md` files under `root` (skips node_modules/.git/dist). */
 export function findMarkdownFiles(root: string): string[] {
 	const out: string[] = [];
 	const walk = (dir: string): void => {
-		let names: string[];
-		try {
-			names = readdirSync(dir);
-		} catch (err) {
-			void err;
-			return;
-		}
-		for (const name of names) {
-			if (name === "node_modules" || name === ".git" || name === "dist") continue;
-			const full = join(dir, name);
-			let isDir = false;
-			try {
-				isDir = statSync(full).isDirectory();
-			} catch (err) {
-				void err;
-				continue;
-			}
-			if (isDir) walk(full);
-			else if (name.endsWith(".md")) out.push(full);
-		}
+		const names = safeReadNames(dir);
+		if (names === null) return;
+		for (const name of names) visitDirEntry(dir, name, out, walk);
 	};
 	walk(root);
 	return out;

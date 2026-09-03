@@ -19,6 +19,16 @@ interface Workspace {
 
 const WORKSPACE_ID_PATTERN = /^ws_[A-Za-z0-9]+$/;
 
+function formatWorkspaceRow(w: Workspace, activeWorkspaceId: string | undefined): string[] {
+	const isActive = activeWorkspaceId === w.id;
+	const marker = isActive ? c.green("*") : " ";
+	const name = w.name || c.dim("-");
+	const role = w.role ? badge(w.role) : c.dim("-");
+	const projects = w.project_count != null ? String(w.project_count) : c.dim("-");
+	const agents = w.agent_count != null ? String(w.agent_count) : c.dim("-");
+	return [marker, name, role, projects, agents, w.id != null ? String(w.id) : c.dim("-")];
+}
+
 // ===========================================
 // workspace list
 // ===========================================
@@ -46,22 +56,7 @@ export async function workspaceListCommand(opts: { json?: boolean }): Promise<vo
 					return lines.join("\n");
 				}
 
-				const rows = workspaces.map((w) => {
-					const isActive = config.workspace_id === w.id;
-					const marker = isActive ? c.green("*") : " ";
-					const name = w.name || c.dim("-");
-					const role = w.role ? badge(w.role) : c.dim("-");
-					const projects = w.project_count != null ? String(w.project_count) : c.dim("-");
-					const agents = w.agent_count != null ? String(w.agent_count) : c.dim("-");
-					return [
-						marker,
-						name,
-						role,
-						projects,
-						agents,
-						w.id != null ? String(w.id) : c.dim("-"),
-					];
-				});
+				const rows = workspaces.map((w) => formatWorkspaceRow(w, config.workspace_id));
 
 				lines.push(table(["", "Name", "Role", "Projects", "Agents", "ID"], rows));
 

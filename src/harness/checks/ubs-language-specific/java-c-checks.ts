@@ -35,6 +35,32 @@ function isOptionalGetGuarded(
 }
 
 /**
+ * Finds the first unguarded `<name>.get()` reference on one line, scanning
+ * `optionalNames` in declaration order, and returns the match to surface —
+ * or `null` when the line has no unguarded `.get()` call. One finding per
+ * line is enough, so the first hit wins.
+ */
+function findUnguardedOptionalGetOnLine(
+	line: string,
+	originalLine: string,
+	lineIndex: number,
+	optionalNames: Set<string>,
+	strippedLines: string[],
+): InlineMatch | null {
+	for (const name of optionalNames) {
+		const callRe = new RegExp(`\\b${name}\\.get\\s*\\(\\s*\\)`);
+		if (!callRe.test(line)) continue;
+
+		// Accept if a guard for this name appears earlier in the file or on
+		// the same line.
+		if (isOptionalGetGuarded(name, callRe, line, strippedLines, lineIndex)) continue;
+
+		return { line: lineIndex + 1, text: originalLine.trim().slice(0, 150) };
+	}
+	return null;
+}
+
+/**
  * Row 29: Java `Optional<T>....get()` without an `isPresent()` / `orElse()`
  * guard is a NullPointerException risk. Flagged on `.java` files only.
  *
@@ -68,21 +94,14 @@ export function checkJavaOptionalGet(content: string, filePath: string): InlineM
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= 10) break;
 		const line = nonNull(strippedLines[i]);
-		// Find `<name>.get()` references in this line.
-		for (const name of optionalNames) {
-			const callRe = new RegExp(`\\b${name}\\.get\\s*\\(\\s*\\)`);
-			if (!callRe.test(line)) continue;
-
-			// Accept if a guard for this name appears earlier in the file or on
-			// the same line.
-			if (isOptionalGetGuarded(name, callRe, line, strippedLines, i)) continue;
-
-			matches.push({
-				line: i + 1,
-				text: nonNull(originalLines[i]).trim().slice(0, 150),
-			});
-			break; // one finding per line is enough
-		}
+		const match = findUnguardedOptionalGetOnLine(
+			line,
+			nonNull(originalLines[i]),
+			i,
+			optionalNames,
+			strippedLines,
+		);
+		if (match) matches.push(match);
 	}
 	return matches;
 }

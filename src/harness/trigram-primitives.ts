@@ -138,6 +138,16 @@ export function extractTrigrams(content: string): Set<number> {
  * Returns a Map: packed trigram → { locMask, nextMask }.
  * Used during build() to populate enhanced posting lists.
  */
+/** Bloom bit for the character right after a trigram at position `i`, or 0 if
+ *  there is no next character or it's non-ASCII/control (extracted from
+ *  extractTrigramsWithMasks to flatten its loop body). */
+function nextCharBitAt(lower: string, i: number, len: number): number {
+	if (i + 3 >= len) return 0;
+	const nc = lower.charCodeAt(i + 3);
+	if (nc > 0x7f || isControlChar(nc)) return 0;
+	return nextCharBit(nc);
+}
+
 export function extractTrigramsWithMasks(
 	content: string,
 ): Map<number, { locMask: number; nextMask: number }> {
@@ -157,15 +167,7 @@ export function extractTrigramsWithMasks(
 
 		const packed = packTrigram(c0, c1, c2);
 		const locBit = 1 << (i & 7); // position mod 8
-
-		// Next character bloom bit
-		let nBit = 0;
-		if (i + 3 < len) {
-			const nc = lower.charCodeAt(i + 3);
-			if (nc <= 0x7f && !isControlChar(nc)) {
-				nBit = nextCharBit(nc);
-			}
-		}
+		const nBit = nextCharBitAt(lower, i, len);
 
 		const existing = result.get(packed);
 		if (existing) {

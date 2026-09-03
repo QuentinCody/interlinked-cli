@@ -315,33 +315,65 @@ function commandTouchesTarget(cmd: string, rx: RegExp, lastTarget: string): bool
 	return Boolean(target && pathsOverlap(target, lastTarget));
 }
 
-function findDestructiveCyclePrefix(
+/** Index of the newest Bash event at or before `from` whose command satisfies
+ *  `matches`. Stops scanning once `cutoff` is passed; returns -1 when the
+ *  window closes before a match. */
+function scanBackWithinWindow(
 	buffer: TrajectoryEvent[],
+	from: number,
 	cutoff: number,
-	lastTarget: string,
-): { recreateAt: number; earlierRmAt: number } | null {
-	let recreateAt = -1;
-	let earlierRmAt = -1;
-	for (let i = buffer.length - 2; i >= 0; i--) {
+	matches: (cmd: string) => boolean,
+): number {
+	for (let i = from; i >= 0; i--) {
 		const e = buffer[i];
 		if (!e) continue;
 		if (e.ts_ms < cutoff) break;
 		if (e.tool_name !== "Bash") continue;
 		const cmd = readCommand(e.tool_input);
 		if (!cmd) continue;
+		if (matches(cmd)) return i;
+	}
+	return -1;
+}
 
-		if (recreateAt === -1) {
-			if (commandTouchesTarget(cmd, RECREATE_RX, lastTarget)) recreateAt = i;
-			continue;
-		}
-		if (commandTouchesTarget(cmd, DESTRUCTIVE_RX, lastTarget)) {
-			earlierRmAt = i;
+function findDestructiveCyclePrefix(
+	buffer: TrajectoryEvent[],
+	cutoff: number,
+	lastTarget: string,
+): { recreateAt: number; earlierRmAt: number } | null {
+	const recreateAt = scanBackWithinWindow(buffer, buffer.length - 2, cutoff, (cmd) =>
+		commandTouchesTarget(cmd, RECREATE_RX, lastTarget),
+	);
+	if (recreateAt === -1) return null;
+
+	const earlierRmAt = scanBackWithinWindow(buffer, recreateAt - 1, cutoff, (cmd) =>
+		commandTouchesTarget(cmd, DESTRUCTIVE_RX, lastTarget),
+	);
+	if (earlierRmAt === -1) return null;
+
+	return { recreateAt, earlierRmAt };
+}
+
+/** Walk backwards from the trailing event and collect the consecutive
+ *  PostToolUseFailure events carrying `lastCmd`. Any non-failure event or a
+ *  different command ends the run. Returns null when a `sleep`/`wait` sits
+ *  between the attempts — the retries WERE backed off. */
+function collectTrailingFailureRun(buffer: TrajectoryEvent[], lastCmd: string): TrajectoryEvent[] | null {
+	const run: TrajectoryEvent[] = [];
+	for (let i = buffer.length - 1; i >= 0; i--) {
+		const e = buffer[i];
+		if (!e) break;
+		if (e.tool_name !== "Bash") break;
+		const cmd = readCommand(e.tool_input);
+		if (!cmd) break;
+		if (e.hook_event !== "PostToolUseFailure") {
+			if (UNBACKED_RETRY_SLEEP_RX.test(cmd)) return null;
 			break;
 		}
+		if (cmd !== lastCmd) break;
+		run.push(e);
 	}
-
-	if (recreateAt === -1 || earlierRmAt === -1) return null;
-	return { recreateAt, earlierRmAt };
+	return run;
 }
 
 /** Unbacked-off retry: 3+ consecutive trailing PostToolUseFailure events
@@ -354,32 +386,9 @@ function detectUnbackedoffRetry(buffer: TrajectoryEvent[]): TrajectoryFinding | 
 	const lastCmd = readCommand(last.tool_input);
 	if (!lastCmd) return null;
 
-	// Walk backwards from the trailing event. Count consecutive
-	// PostToolUseFailures with the same command. Any non-failure or
-	// different command, OR any sleep/wait between them, breaks the run.
-	let consecutive = 0;
-	const evidenceEvents: TrajectoryEvent[] = [];
-	for (let i = buffer.length - 1; i >= 0; i--) {
-		const e = buffer[i];
-		if (!e) break;
-		if (e.tool_name !== "Bash") break;
-		const cmd = readCommand(e.tool_input);
-		if (!cmd) break;
-		if (e.hook_event === "PostToolUseFailure") {
-			if (cmd !== lastCmd) break;
-			consecutive += 1;
-			evidenceEvents.push(e);
-			continue;
-		}
-		// Non-failure event in the trailing run. If it's a sleep/wait, the
-		// retries WERE backed off and we abort cleanly. If it's anything
-		// else (success, unrelated tool call), the run is also broken.
-		if (UNBACKED_RETRY_SLEEP_RX.test(cmd)) {
-			return null;
-		}
-		break;
-	}
-
+	const evidenceEvents = collectTrailingFailureRun(buffer, lastCmd);
+	if (evidenceEvents === null) return null;
+	const consecutive = evidenceEvents.length;
 	if (consecutive < UNBACKED_RETRY_THRESHOLD) return null;
 
 	const evidence = evidenceEvents.slice(0, EVIDENCE_MAX_ITEMS).map((e) => quoteEvidence(summarizeInput(e)));

@@ -100,6 +100,23 @@ function isExcluded(absPath: string): boolean {
 	return false;
 }
 
+/** Examines one directory entry: pushes a descendable subdirectory onto
+ *  `stack`, and reports true iff the entry is a shard whose source file
+ *  exists (a match for the caller's scan). */
+function scanDirEntry(ent: import("node:fs").Dirent, dir: string, stack: string[]): boolean {
+	const name = String(ent.name);
+	const full = join(dir, name);
+	if (ent.isDirectory()) {
+		if (!SKIP_DESCEND_DIRS.has(name)) stack.push(full);
+		return false;
+	}
+	if (!ent.isFile()) return false;
+	if (!SHARD_RE.test(name)) return false;
+	if (isExcluded(full)) return false;
+	const sourcePath = sourcePathForShard(full);
+	return sourcePath !== null && existsSync(sourcePath);
+}
+
 /** Processes one directory popped from the scan stack: pushes its
  *  subdirectories onto `stack` and returns true iff one of its files is a
  *  shard whose source file exists (a match for the caller's scan). */
@@ -114,18 +131,7 @@ function processStackLength(dir: string, stack: string[]): boolean {
 		return false;
 	}
 	for (const ent of entries) {
-		const name = String(ent.name);
-		const full = join(dir, name);
-		if (ent.isDirectory()) {
-			if (SKIP_DESCEND_DIRS.has(name)) continue;
-			stack.push(full);
-			continue;
-		}
-		if (!ent.isFile()) continue;
-		if (!SHARD_RE.test(name)) continue;
-		if (isExcluded(full)) continue;
-		const sourcePath = sourcePathForShard(full);
-		if (sourcePath && existsSync(sourcePath)) return true;
+		if (scanDirEntry(ent, dir, stack)) return true;
 	}
 	return false;
 }

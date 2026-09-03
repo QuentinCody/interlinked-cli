@@ -138,6 +138,52 @@ export function appendCountDrift(
 	}
 }
 
+/** Range drift for a single claim against the global census — the per-claim
+ *  body of appendRangeDrift, extracted so the outer loop carries none of this
+ *  nesting (cognitive-complexity split; no behavior change). Returns the
+ *  number of findings emitted for this claim (0 or 1). */
+function appendRangeDriftForClaim(
+	claim: SpecFacts["rangeClaims"][number],
+	out: SpecDriftFinding[],
+	file: string,
+	global: Map<string, GlobalNamespace>,
+	localByKey: Map<string, IdNamespace>,
+	minCache: Map<string, number>,
+): number {
+	// Compare only against the namespace of the claim's OWN notation
+	// (sol-max #10): a compact "A1..A3" must not be checked against a
+	// dashed "A-01, A-02, A-04" registry sharing the prefix.
+	const style = claim.style;
+	const key = `${style} ${claim.prefix}`;
+	const g = global.get(key);
+	if (!g || g.nums.size < 2) return 0;
+	if (claim.to === g.max) return 0;
+	// A claim STARTING ABOVE the census min is an intentional sub-range (a
+	// slice, not drift). A claim starting AT or BELOW the min asserts the
+	// whole registry extent — and starting below it OVERCLAIMS ids that do
+	// not exist, which is drift, not a slice (sol-max #14).
+	let gmin = minCache.get(key);
+	if (gmin === undefined) {
+		gmin = Math.min(...g.nums);
+		minCache.set(key, gmin);
+	}
+	if (claim.from > gmin) return 0;
+	const local = localByKey.get(key);
+	// Purely-local range drift (this file's registry IS the whole census) is
+	// the inline check's beat — suppress the ledger's duplicate (sol-max #13).
+	// Compare census SIZE, not max: another file contributing lower ids makes
+	// the census cross-file even when the maxima match (sol-max #5).
+	if (local && g.nums.size === local.uniqueCount) return 0;
+	out.push({
+		kind: "range_claim_drift",
+		file,
+		line: claim.line,
+		message: `"${claim.raw}" (${file}:${claim.line}) but the ${g.prefix} census reaches ${g.prefix}-${g.max} across ${formatFileList(g.definingFiles.length > 0 ? g.definingFiles : g.files)}. Update the range or reconcile the registry.`,
+		relatedFiles: uniqueOthers(g.files, file),
+	});
+	return 1;
+}
+
 /** Range-claim drift for one file against the global census. */
 export function appendRangeDrift(
 	out: SpecDriftFinding[],
@@ -151,40 +197,7 @@ export function appendRangeDrift(
 	let emitted = 0;
 	for (const claim of facts.rangeClaims) {
 		if (emitted >= MAX_DRIFT_FINDINGS) break;
-		{
-			// Compare only against the namespace of the claim's OWN notation
-			// (sol-max #10): a compact "A1..A3" must not be checked against a
-			// dashed "A-01, A-02, A-04" registry sharing the prefix.
-			const style = claim.style;
-			const key = `${style} ${claim.prefix}`;
-			const g = global.get(key);
-			if (!g || g.nums.size < 2) continue;
-			if (claim.to === g.max) continue;
-			// A claim STARTING ABOVE the census min is an intentional sub-range (a
-			// slice, not drift). A claim starting AT or BELOW the min asserts the
-			// whole registry extent — and starting below it OVERCLAIMS ids that do
-			// not exist, which is drift, not a slice (sol-max #14).
-			let gmin = minCache.get(key);
-			if (gmin === undefined) {
-				gmin = Math.min(...g.nums);
-				minCache.set(key, gmin);
-			}
-			if (claim.from > gmin) continue;
-			const local = localByKey.get(key);
-			// Purely-local range drift (this file's registry IS the whole census) is
-			// the inline check's beat — suppress the ledger's duplicate (sol-max #13).
-			// Compare census SIZE, not max: another file contributing lower ids makes
-			// the census cross-file even when the maxima match (sol-max #5).
-			if (local && g.nums.size === local.uniqueCount) continue;
-			out.push({
-				kind: "range_claim_drift",
-				file,
-				line: claim.line,
-				message: `"${claim.raw}" (${file}:${claim.line}) but the ${g.prefix} census reaches ${g.prefix}-${g.max} across ${formatFileList(g.definingFiles.length > 0 ? g.definingFiles : g.files)}. Update the range or reconcile the registry.`,
-				relatedFiles: uniqueOthers(g.files, file),
-			});
-			emitted++;
-		}
+		emitted += appendRangeDriftForClaim(claim, out, file, global, localByKey, minCache);
 	}
 }
 

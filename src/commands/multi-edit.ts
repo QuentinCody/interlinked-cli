@@ -68,6 +68,57 @@ export { normalizeManifest } from "./multi-edit-manifest.js";
 // Top-level orchestrator (pure: returns a result, doesn't print)
 // ───────────────────────────────────────────────
 
+/** One successfully read-and-applied batch, ready for gating/writing. */
+type AppliedBatch = { path: string; content: string; priorContent: string };
+
+/**
+ * Read a batch's file and apply its edits in order. Returns the resulting
+ * buffer entry, or the `MultiEditResult` failure to return immediately
+ * (read error, ambiguous match, or missing match) — extracted so
+ * `runMultiEdit`'s per-batch loop is a single guard clause.
+ */
+function readAndApplyBatch(
+	batch: EditBatch,
+): { ok: true; entry: AppliedBatch } | { ok: false; result: MultiEditResult } {
+	const absPath = isAbsolute(batch.path) ? batch.path : resolve(process.cwd(), batch.path);
+	let prior: string;
+	try {
+		prior = readFileSync(absPath, "utf-8");
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		return {
+			ok: false,
+			result: {
+				ok: false,
+				error_code: MULTI_EDIT_ERROR_CODES.READ_FAILED,
+				file_changes_applied: [],
+				error_detail: { path: absPath, message: msg },
+			},
+		};
+	}
+	const applied = applyEditsToBuffer(prior, batch.edits);
+	if (!applied.ok) {
+		const isAmbiguous = applied.code === MULTI_EDIT_ERROR_CODES.AMBIGUOUS_OLD_STRING;
+		return {
+			ok: false,
+			result: {
+				ok: false,
+				error_code: applied.code,
+				file_changes_applied: [],
+				error_detail: {
+					path: absPath,
+					edit_index: applied.index,
+					match_count: applied.matches,
+					message: isAmbiguous
+						? `Edit ${applied.index}: old_string matches ${applied.matches} locations in the current buffer; require exactly one match (ambiguity evaluated AFTER prior edits in this manifest).`
+						: `Edit ${applied.index}: old_string not found in the current buffer.`,
+				},
+			},
+		};
+	}
+	return { ok: true, entry: { path: absPath, content: applied.content, priorContent: prior } };
+}
+
 /**
  * Orchestrate the full multi-edit flow. Returns a `MultiEditResult` so
  * callers (CLI command, tests) can print / assert on the outcome uniformly.
@@ -85,41 +136,12 @@ export function runMultiEdit(
 	batches: EditBatch[],
 	opts: { projectRoot?: string } = {},
 ): MultiEditResult {
-	// Step 1 — read pre-edit content.
-	const finals: Array<{ path: string; content: string; priorContent: string }> = [];
+	// Steps 1–2 — read pre-edit content and apply edits, per batch.
+	const finals: AppliedBatch[] = [];
 	for (const batch of batches) {
-		const absPath = isAbsolute(batch.path) ? batch.path : resolve(process.cwd(), batch.path);
-		let prior: string;
-		try {
-			prior = readFileSync(absPath, "utf-8");
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			return {
-				ok: false,
-				error_code: MULTI_EDIT_ERROR_CODES.READ_FAILED,
-				file_changes_applied: [],
-				error_detail: { path: absPath, message: msg },
-			};
-		}
-		// Step 2 — apply edits.
-		const applied = applyEditsToBuffer(prior, batch.edits);
-		if (!applied.ok) {
-			const isAmbiguous = applied.code === MULTI_EDIT_ERROR_CODES.AMBIGUOUS_OLD_STRING;
-			return {
-				ok: false,
-				error_code: applied.code,
-				file_changes_applied: [],
-				error_detail: {
-					path: absPath,
-					edit_index: applied.index,
-					match_count: applied.matches,
-					message: isAmbiguous
-						? `Edit ${applied.index}: old_string matches ${applied.matches} locations in the current buffer; require exactly one match (ambiguity evaluated AFTER prior edits in this manifest).`
-						: `Edit ${applied.index}: old_string not found in the current buffer.`,
-				},
-			};
-		}
-		finals.push({ path: absPath, content: applied.content, priorContent: prior });
+		const outcome = readAndApplyBatch(batch);
+		if (!outcome.ok) return outcome.result;
+		finals.push(outcome.entry);
 	}
 
 	// Step 3 — gate. If the final content is identical to on-disk (no-op

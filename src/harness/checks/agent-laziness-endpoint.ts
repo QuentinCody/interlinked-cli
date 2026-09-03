@@ -216,6 +216,32 @@ function isBindingFetchCall(line: string): boolean {
 	return !FETCH_GLOBAL_NS.test(receiver);
 }
 
+/**
+ * Evaluates one stripped source line for a missing-timeout fetch/axios call.
+ * Returns the finding for that line, or `null` when the line doesn't apply
+ * (not a fetch/axios call, a Worker handler declaration, a binding member
+ * call, or a call that already has a timeout/signal in its context window).
+ */
+function evaluateFetchTimeoutLine(strippedLines: string[], i: number): InlineMatch | null {
+	const line = nonNull(strippedLines[i]);
+	const isFetch = FETCH_CALL_RE.test(line);
+	const isAxios = AXIOS_CALL_RE.test(line);
+	if (!isFetch && !isAxios) return null;
+	// Skip Cloudflare Worker entry handler — the `fetch(req: Request, ...)`
+	// method declaration on the default ExportedHandler is invoked by the
+	// runtime, not a `fetch()` call we'd want to add a timeout to.
+	if (isFetch && FETCH_HANDLER_DECL_RE.test(line)) return null;
+	// Skip runtime binding member calls (`env.ASSETS.fetch(request)`, service /
+	// DO stubs) — they don't accept a per-call AbortSignal/timeout.
+	if (isFetch && isBindingFetchCall(line)) return null;
+	if (fetchHasTimeoutInWindow(strippedLines, i)) return null;
+	const label = isFetch ? "fetch()" : "axios call";
+	return {
+		line: i + 1,
+		text: `${label} without signal: / timeout: option — slow upstreams will leak request handles. Pass an AbortController.signal or per-call timeout.`,
+	};
+}
+
 /** Public API — flags fetch / axios calls without an abort signal or timeout. */
 export function checkFetchWithoutTimeout(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
@@ -228,23 +254,8 @@ export function checkFetchWithoutTimeout(content: string, filePath: string): Inl
 
 	for (let i = 0; i < strippedLines.length; i++) {
 		if (matches.length >= MAX_MATCHES) break;
-		const line = nonNull(strippedLines[i]);
-		const isFetch = FETCH_CALL_RE.test(line);
-		const isAxios = AXIOS_CALL_RE.test(line);
-		if (!isFetch && !isAxios) continue;
-		// Skip Cloudflare Worker entry handler — the `fetch(req: Request, ...)`
-		// method declaration on the default ExportedHandler is invoked by the
-		// runtime, not a `fetch()` call we'd want to add a timeout to.
-		if (isFetch && FETCH_HANDLER_DECL_RE.test(line)) continue;
-		// Skip runtime binding member calls (`env.ASSETS.fetch(request)`, service /
-		// DO stubs) — they don't accept a per-call AbortSignal/timeout.
-		if (isFetch && isBindingFetchCall(line)) continue;
-		if (fetchHasTimeoutInWindow(strippedLines, i)) continue;
-		const label = isFetch ? "fetch()" : "axios call";
-		matches.push({
-			line: i + 1,
-			text: `${label} without signal: / timeout: option — slow upstreams will leak request handles. Pass an AbortController.signal or per-call timeout.`,
-		});
+		const match = evaluateFetchTimeoutLine(strippedLines, i);
+		if (match) matches.push(match);
 	}
 	return matches;
 }

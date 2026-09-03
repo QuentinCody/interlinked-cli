@@ -104,14 +104,7 @@ function scanTestBodies(
 		const residue = body.strippedText.replace(/[{}()\s,;]/g, "");
 		if (residue.length > 0) continue;
 
-		// Look at the original source (not stripped — comments are blanked in stripped)
-		// for TODO/FIXME markers between the opening and closing line inclusive.
-		let hasPlaceholderMarker = false;
-		for (let j = i; j <= body.endLine && !hasPlaceholderMarker; j++) {
-			if (PLACEHOLDER_BODY_MARKER_RE.test(nonNull(originalLines[j]))) hasPlaceholderMarker = true;
-		}
-
-		const reason = hasPlaceholderMarker
+		const reason = hasPlaceholderMarker(originalLines, i, body.endLine)
 			? "Test body contains only TODO/FIXME markers"
 			: "Empty test body";
 		matches.push({
@@ -119,6 +112,22 @@ function scanTestBodies(
 			text: `${reason}: ${nonNull(originalLines[i]).trim().slice(0, 110)}`,
 		});
 	}
+}
+
+/**
+ * True when any ORIGINAL source line from `startLine` to `endLine` inclusive
+ * carries a TODO/FIXME/XXX/HACK/STUB marker. The original lines are read (not
+ * the stripped ones) because stripping blanks comments, where these markers live.
+ */
+function hasPlaceholderMarker(
+	originalLines: string[],
+	startLine: number,
+	endLine: number,
+): boolean {
+	for (let j = startLine; j <= endLine; j++) {
+		if (PLACEHOLDER_BODY_MARKER_RE.test(nonNull(originalLines[j]))) return true;
+	}
+	return false;
 }
 
 /**

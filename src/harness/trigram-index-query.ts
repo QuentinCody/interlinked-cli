@@ -169,24 +169,38 @@ function passesAdjacencyCheck(view: QueryView, fileId: number, sequences: number
 		for (let i = 0; i < seq.length - 1; i++) {
 			const triA = nonNull(seq[i]);
 			const triB = nonNull(seq[i + 1]);
-
-			// Skip check for stop trigrams (no masks available)
-			if (view.stopTrigrams.has(triA) || view.stopTrigrams.has(triB)) continue;
-
-			const masksA = getMasksForFile(view, triA, fileId);
-			const masksB = getMasksForFile(view, triB, fileId);
-			if (!masksA || !masksB) continue; // not in base postings, skip
-
-			// Position adjacency: rotate A's locMask left by 1, must overlap with B's
-			const rotated = ((masksA.locMask << 1) | (masksA.locMask >>> 7)) & 0xff;
-			if ((rotated & masksB.locMask) === 0) return false;
-
-			// Next-char check: the 3rd char of triB should be in A's nextMask
-			const thirdCharOfB = triB & 0xff; // lowest byte = 3rd character
-			if ((masksA.nextMask & nextCharBit(thirdCharOfB)) === 0) return false;
+			if (!canFollowInFile(view, fileId, triA, triB)) return false;
 		}
 	}
 	return true;
+}
+
+/**
+ * Whether `triB` can immediately follow `triA` in this file, per the
+ * probabilistic locMask / nextMask filters. A pair whose masks are unavailable
+ * (stop trigram, or a dirty file that carries no masks) is unverifiable and
+ * therefore passes — the same "skip this pair" outcome as before.
+ */
+function canFollowInFile(
+	view: QueryView,
+	fileId: number,
+	triA: number,
+	triB: number,
+): boolean {
+	// Skip check for stop trigrams (no masks available)
+	if (view.stopTrigrams.has(triA) || view.stopTrigrams.has(triB)) return true;
+
+	const masksA = getMasksForFile(view, triA, fileId);
+	const masksB = getMasksForFile(view, triB, fileId);
+	if (!masksA || !masksB) return true; // not in base postings, skip
+
+	// Position adjacency: rotate A's locMask left by 1, must overlap with B's
+	const rotated = ((masksA.locMask << 1) | (masksA.locMask >>> 7)) & 0xff;
+	if ((rotated & masksB.locMask) === 0) return false;
+
+	// Next-char check: the 3rd char of triB should be in A's nextMask
+	const thirdCharOfB = triB & 0xff; // lowest byte = 3rd character
+	return (masksA.nextMask & nextCharBit(thirdCharOfB)) !== 0;
 }
 
 /**

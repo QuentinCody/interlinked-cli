@@ -254,6 +254,22 @@ function extractBracedOrStatement(lines: string[], startIdx: number): string {
 	return out.join("\n");
 }
 
+/** Scan one line's characters for the signature/body boundary: the first
+ *  `{` that opens the function body while paren depth is 0 (so an inline
+ *  object-type param like `(x: { a: string })` doesn't trigger an early
+ *  cutoff). Returns the cut column (-1 if the line has no such brace) and
+ *  the paren depth carried into the next line. */
+function findSignatureBodyCut(line: string, parenDepthIn: number): { cut: number; parenDepth: number } {
+	let parenDepth = parenDepthIn;
+	for (let c = 0; c < line.length; c++) {
+		const ch = line[c];
+		if (ch === "(") parenDepth++;
+		else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
+		else if (ch === "{" && parenDepth === 0) return { cut: c, parenDepth };
+	}
+	return { cut: -1, parenDepth };
+}
+
 /** `function`/`const`/`let`/`var`: capture only the SIGNATURE — params and
  *  return-type annotation — stopping at the first `{` that opens the
  *  function body (tracked via paren depth, so an inline object-type param
@@ -266,16 +282,8 @@ function extractSignaturePrefix(lines: string[], startIdx: number): string {
 	const out: string[] = [];
 	for (let i = startIdx; i < lines.length && i - startIdx < SIGNATURE_SPAN_LINE_CAP; i++) {
 		const line = lines[i] ?? "";
-		let cut = -1;
-		for (let c = 0; c < line.length; c++) {
-			const ch = line[c];
-			if (ch === "(") parenDepth++;
-			else if (ch === ")") parenDepth = Math.max(0, parenDepth - 1);
-			else if (ch === "{" && parenDepth === 0) {
-				cut = c;
-				break;
-			}
-		}
+		const { cut, parenDepth: nextParenDepth } = findSignatureBodyCut(line, parenDepth);
+		parenDepth = nextParenDepth;
 		if (cut >= 0) {
 			out.push(line.slice(0, cut));
 			return out.join("\n");

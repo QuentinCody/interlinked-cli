@@ -68,18 +68,21 @@ export function restoreSessionStep(opts: {
 	return { tree: row.tree, state_found: state !== null, baselines_written: baselinesWritten };
 }
 
+function grantTxnForLogEvent(row: JsonObject, file: string, agent: string): ReservationTxn | null {
+	if (!file || !agent) return null;
+	const ts = typeof row.ts === "string" ? row.ts : "";
+	const expires = typeof row.expires_at === "string" ? row.expires_at : ts;
+	return row.cohort === "remote"
+		? { kind: "grant_remote", file, agent, reservedAt: ts, expiresAt: expires }
+		: { kind: "grant_local", file, agent, reservedAt: ts, expiresAt: expires };
+}
+
 function txnForLogEvent(row: JsonObject): ReservationTxn | null {
 	const file = typeof row.file === "string" ? row.file : "";
 	const agent = typeof row.agent_name === "string" ? row.agent_name : "";
 	switch (row.action) {
-		case "grant": {
-			if (!file || !agent) return null;
-			const ts = typeof row.ts === "string" ? row.ts : "";
-			const expires = typeof row.expires_at === "string" ? row.expires_at : ts;
-			return row.cohort === "remote"
-				? { kind: "grant_remote", file, agent, reservedAt: ts, expiresAt: expires }
-				: { kind: "grant_local", file, agent, reservedAt: ts, expiresAt: expires };
-		}
+		case "grant":
+			return grantTxnForLogEvent(row, file, agent);
 		case "release":
 			return file && agent ? { kind: "release", file, agent } : null;
 		case "release_all":

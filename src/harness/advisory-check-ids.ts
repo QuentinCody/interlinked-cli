@@ -175,6 +175,7 @@ export const ADVISORY_CHECK_IDS: ReadonlySet<string> = new Set<string>([
 	"dead_type_exports",
 	"duplicate_type_declaration",
 	"new_export_without_importer",
+	"single_use_trivial_helper",
 	"extracted_helper_duplicate",
 ]);
 

@@ -56,6 +56,7 @@ import {
 import { loadMetricsCoverage, type MetricsCoverage } from "../metrics-coverage.js";
 import { JS_TS_EXTS } from "./advisory.js";
 import { runAgentSafetyChecks, runCrapCheck } from "./file-checks-agent-safety.js";
+import { runOverExtractionChecks } from "./file-checks-over-extraction.js";
 import { runTypeRedundancyChecks } from "./file-checks-type-redundancy.js";
 import { runEndpointAndLazinessChecks } from "./file-checks-endpoint-laziness.js";
 import { runReactAndTasteChecks } from "./file-checks-react-test.js";
@@ -428,6 +429,7 @@ function collectPerFileFindings(args: RunFileChecksArgs): void {
 	runCrapCheck(ctx);
 	runAgentSafetyChecks(ctx);
 	runTypeRedundancyChecks(ctx);
+	runOverExtractionChecks(ctx);
 	runReactAndTasteChecks(ctx);
 	runUbsChecks(ctx);
 	runEndpointAndLazinessChecks(ctx);

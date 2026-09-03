@@ -1,4 +1,31 @@
 {
+  "rules": [
+    {
+      "id": "repo-scratch-is-write-only",
+      "enabled": true,
+      "trigger": "PreToolUse",
+      "tool_match": ["Bash", "Shell", "run_command"],
+      "action": "block",
+      "patterns": [
+        {
+          "field": "command",
+          "regex": "(^|;|&&|\\|\\||\\|(?!\\|)|\\n)\\s*(?:sudo\\s+)?rm(?:dir)?\\s+(?:-[a-zA-Z]+\\s+)*[^\\s;|&]*\\bscratch/",
+          "flags": "i",
+          "executed_only": true
+        },
+        {
+          "field": "command",
+          "regex": "INTERLINKED_ALLOW_SCRATCH_DELETE=1",
+          "negate": true,
+          "executed_only": true
+        }
+      ],
+      "reason": "BLOCKED: do not delete anything under <repo>/scratch/. Probe scripts, analysis drivers, and campaign artifacts are meant to accumulate there: the directory is gitignored, quality-gated, rg-searchable, and archived at SessionEnd, so a leftover probe costs nothing and a deleted one destroys evidence. Leave the file in place and move on.",
+      "suggestion": "Just leave it. If a probe name collides, write the next one under a new name. Genuine cleanup is an operator decision — set INTERLINKED_ALLOW_SCRATCH_DELETE=1 for one command if you have been told to.",
+      "severity": "medium",
+      "category": "workspace-hygiene"
+    }
+  ],
   "file_reminders": [
     {
       "id": "repo-skill-impact-review",

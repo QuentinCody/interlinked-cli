@@ -98,19 +98,7 @@ export function buildExperience(opts: BuildExperienceOptions): BuiltExperience {
 		: new Map<string, IxGuardAnnotation>();
 
 	const state = { truncated: 0, episodes: 0, toolCalls: 0 };
-	const spine: (ExperienceSpineRecord | IxExperienceRecord)[] = [];
-	let episode = -1;
-	for (const row of timeline.rows) {
-		const record = spineFromTimeline(row, truncateChars, state);
-		if (!record) continue;
-		if (row.category === "user_prompt") episode++;
-		if (wantIx) {
-			const ix = ixAnnotationsFor(row, collection, guards, Math.max(episode, 0));
-			if (Object.keys(ix).length > 0) (record as IxExperienceRecord & { ix?: IxAnnotations }).ix = ix;
-		}
-		spine.push(record);
-	}
-	state.episodes = episode + 1;
+	const spine = buildSpineRecords(timeline.rows, truncateChars, wantIx, collection, guards, state);
 
 	const meta = buildMeta(timeline.rows, opts, state, spine.length, guards, truncateChars);
 	return {
@@ -123,6 +111,31 @@ export function buildExperience(opts: BuildExperienceOptions): BuiltExperience {
 			scan_truncated: timeline.truncated,
 		},
 	};
+}
+
+/** Projects timeline rows to spine records, annotating with ix data when requested; sets state.episodes. */
+function buildSpineRecords(
+	rows: TimelineRow[],
+	truncateChars: number | null,
+	wantIx: boolean,
+	collection: Map<string, CollectionJoin>,
+	guards: Map<string, IxGuardAnnotation>,
+	state: { truncated: number; episodes: number; toolCalls: number },
+): (ExperienceSpineRecord | IxExperienceRecord)[] {
+	const spine: (ExperienceSpineRecord | IxExperienceRecord)[] = [];
+	let episode = -1;
+	for (const row of rows) {
+		const record = spineFromTimeline(row, truncateChars, state);
+		if (!record) continue;
+		if (row.category === "user_prompt") episode++;
+		if (wantIx) {
+			const ix = ixAnnotationsFor(row, collection, guards, Math.max(episode, 0));
+			if (Object.keys(ix).length > 0) (record as IxExperienceRecord & { ix?: IxAnnotations }).ix = ix;
+		}
+		spine.push(record);
+	}
+	state.episodes = episode + 1;
+	return spine;
 }
 
 // --- Loaders (bounded scans, newest-first → reversed to chronological) ---

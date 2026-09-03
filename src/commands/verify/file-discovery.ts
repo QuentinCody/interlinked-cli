@@ -129,19 +129,26 @@ export function discoverFiles(root: string): string[] {
 		".venv",
 		"venv",
 	]);
+	/** Recurses into a directory entry, or collects it when it is a discoverable
+	 *  file. Throws whatever `statSync` throws — `walk` owns the catch. */
+	function visitEntry(dir: string, entry: string, relPrefix: string): void {
+		const full = join(dir, entry);
+		const rel = relPrefix ? `${relPrefix}/${entry}` : entry;
+		const stat = statSync(full);
+		if (stat.isDirectory()) {
+			walk(full, rel);
+			return;
+		}
+		if (stat.isFile() && stat.size < MAX_FILE_BYTES && shouldDiscover(rel)) {
+			files.push(full);
+		}
+	}
 	function walk(dir: string, relPrefix: string): void {
 		if (files.length >= MAX_WALK_ENTRIES) return;
 		try {
 			for (const entry of readdirSync(dir)) {
 				if (skip.has(entry) || entry.startsWith(".") || entry === INTERLINKED_DIR) continue;
-				const full = join(dir, entry);
-				const rel = relPrefix ? `${relPrefix}/${entry}` : entry;
-				const stat = statSync(full);
-				if (stat.isDirectory()) {
-					walk(full, rel);
-				} else if (stat.isFile() && stat.size < MAX_FILE_BYTES && shouldDiscover(rel)) {
-					files.push(full);
-				}
+				visitEntry(dir, entry, relPrefix);
 			}
 		} catch {
 			/* intentional: fall back to a filesystem walk outside git worktrees */

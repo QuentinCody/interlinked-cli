@@ -146,28 +146,31 @@ export async function verifyCommand(opts: VerifyOpts): Promise<void> {
 	}
 
 	if (opts.target) {
-		const targetPath = isAbsolute(opts.target)
-			? opts.target
-			: resolve(opts.cwd || process.cwd(), opts.target);
-		if (!existsSync(targetPath)) {
-			process.stderr.write(
-				`Target not found: ${opts.target}\n` +
-					"  For remote repos, use a full URL: interlinked verify https://github.com/owner/repo\n",
-			);
-			process.exitCode = 1;
-			return;
-		}
-		const stat = statSync(targetPath);
-		if (stat.isDirectory()) {
-			await runVerify(targetPath, opts);
-		} else {
-			process.stderr.write(`Target is not a directory: ${opts.target}\n`);
-			process.exitCode = 1;
-		}
+		await runLocalTargetVerify(opts.target, opts);
 		return;
 	}
 
 	await runVerify(cwd, opts);
+}
+
+/** Resolves an explicit local `--target` path and verifies it when it is a directory. */
+async function runLocalTargetVerify(target: string, opts: VerifyOpts): Promise<void> {
+	const targetPath = isAbsolute(target) ? target : resolve(opts.cwd || process.cwd(), target);
+	if (!existsSync(targetPath)) {
+		process.stderr.write(
+			`Target not found: ${target}\n` +
+				"  For remote repos, use a full URL: interlinked verify https://github.com/owner/repo\n",
+		);
+		process.exitCode = 1;
+		return;
+	}
+	const stat = statSync(targetPath);
+	if (stat.isDirectory()) {
+		await runVerify(targetPath, opts);
+	} else {
+		process.stderr.write(`Target is not a directory: ${target}\n`);
+		process.exitCode = 1;
+	}
 }
 
 function displaySuppressions(interlinkedDir: string): void {

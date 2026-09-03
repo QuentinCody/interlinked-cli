@@ -81,6 +81,16 @@ type CatchBodyScan = {
 	closeIdx: number;
 };
 
+/** Net brace-nesting change contributed by one line: `{` opens, `}` closes. */
+function braceDepthDelta(line: string): number {
+	let delta = 0;
+	for (const ch of line) {
+		if (ch === "{") delta++;
+		if (ch === "}") delta--;
+	}
+	return delta;
+}
+
 /**
  * Scan up to 8 lines from the catch block's opening brace at `braceStart`,
  * tracking brace depth. Reports whether the body contains only `console.*`
@@ -95,10 +105,7 @@ function scanCatchBody(strippedLines: string[], braceStart: number): CatchBodySc
 
 	for (let j = braceStart; j < Math.min(braceStart + 8, strippedLines.length); j++) {
 		const sLine = nonNull(strippedLines[j]);
-		for (const ch of sLine) {
-			if (ch === "{") depth++;
-			if (ch === "}") depth--;
-		}
+		depth += braceDepthDelta(sLine);
 		if (j > braceStart) {
 			const trimmed = sLine.trim();
 			if (trimmed === "}" || trimmed === "") {
@@ -208,6 +215,20 @@ const CATCH_CLOSE = new RegExp("(?:^\\s*|\\}\\s*)catch\\b");
 const JSON_PARSE = new RegExp("\\bJSON\\.parse\\s*\\(");
 const INLINE_TRY_PARSE_CATCH = new RegExp("\\btry\\s*\\{.*\\bJSON\\.parse\\b.*\\}\\s*catch\\b");
 
+/** How one line relates to the JSON.parse guard scan. */
+type JsonParseLineKind = "no-parse" | "inline-guarded" | "guarded" | "unguarded";
+
+/**
+ * Classify one line for the JSON.parse guard scan, given the try-nesting depth
+ * already open at that line. `inline-guarded` is a single-line
+ * `try { JSON.parse(…) } catch` — its own `catch` must not close an outer try.
+ */
+function classifyJsonParseLine(line: string, tryDepth: number): JsonParseLineKind {
+	if (!JSON_PARSE.test(line)) return "no-parse";
+	if (INLINE_TRY_PARSE_CATCH.test(line)) return "inline-guarded";
+	return tryDepth <= 0 ? "unguarded" : "guarded";
+}
+
 /** Detect JSON.parse without try-catch — throws on malformed input. */
 export function checkJsonParseUnsafe(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
@@ -229,19 +250,17 @@ export function checkJsonParseUnsafe(content: string, filePath: string): InlineM
 			tryDepth++;
 		}
 
-		if (JSON_PARSE.test(line)) {
-			if (INLINE_TRY_PARSE_CATCH.test(line)) continue;
-			if (tryDepth <= 0) {
-				matches.push({
-					line: i + 1,
-					text: nonNull(originalLines[i]).trim().slice(0, 150),
-				});
-			}
+		const kind = classifyJsonParseLine(line, tryDepth);
+		if (kind === "unguarded") {
+			matches.push({
+				line: i + 1,
+				text: nonNull(originalLines[i]).trim().slice(0, 150),
+			});
+		} else if (kind === "inline-guarded") {
+			continue;
 		}
 
-		if (CATCH_CLOSE.test(line)) {
-			if (tryDepth > 0) tryDepth--;
-		}
+		if (CATCH_CLOSE.test(line) && tryDepth > 0) tryDepth--;
 	}
 
 	return matches;
@@ -287,6 +306,20 @@ export function checkDisabledTests(content: string, filePath: string): InlineMat
 	return findSkipMarkers(content, filePath);
 }
 
+/**
+ * Does the JSX/HTML element around line `index` carry a `rel` with noopener or
+ * noreferrer? Scans ±5 lines (target and rel often sit on separate lines of one
+ * element) and stops forward scanning at the element's closing `>` or a new one.
+ */
+function hasNoopenerRelNearby(lines: string[], index: number): boolean {
+	for (let j = Math.max(0, index - 5); j < Math.min(lines.length, index + 6); j++) {
+		const nearby = nonNull(lines[j]);
+		if (/rel=["'][^"']*(noopener|noreferrer)/.test(nearby)) return true;
+		if (j > index && /^\s*[<>]/.test(nearby)) break;
+	}
+	return false;
+}
+
 /** Detect target="_blank" without rel="noopener noreferrer" — tabnabbing risk. */
 export function checkTargetBlankNoRel(content: string, filePath: string): InlineMatch[] {
 	if (isTestFile(filePath)) return [];
@@ -301,20 +334,7 @@ export function checkTargetBlankNoRel(content: string, filePath: string): Inline
 		const line = nonNull(originalLines[i]);
 		if (!/target=["']_blank["']/.test(line)) continue;
 
-		// Check surrounding JSX element context (±5 lines) for rel attribute.
-		// In JSX, target and rel are often on different lines of the same element.
-		let hasRel = false;
-		for (let j = Math.max(0, i - 5); j < Math.min(originalLines.length, i + 6); j++) {
-			const nearby = nonNull(originalLines[j]);
-			if (/rel=["'][^"']*(noopener|noreferrer)/.test(nearby)) {
-				hasRel = true;
-				break;
-			}
-			// Stop scanning if we hit the element's closing > or a new element
-			if (j > i && /^\s*[<>]/.test(nearby)) break;
-		}
-
-		if (!hasRel) {
+		if (!hasNoopenerRelNearby(originalLines, i)) {
 			matches.push({
 				line: i + 1,
 				text: nonNull(originalLines[i]).trim().slice(0, 150),

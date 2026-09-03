@@ -167,6 +167,77 @@ async function fetchRubygemsLatestMetadata(
 	};
 }
 
+async function fetchNpmVersionMetadata(
+	name: string,
+	version: string,
+	opts: NetworkOptions,
+): Promise<RegistryPackageMetadata | null> {
+	const escaped = name.startsWith("@") ? name.replace("/", "%2F") : name;
+	const json = rec(
+		await fetchJson(`https://registry.npmjs.org/${escaped}/${encodeURIComponent(version)}`, opts),
+	);
+	if (Object.keys(json).length === 0) return null;
+	return { latestVersion: str(json.version), license: str(json.license) };
+}
+
+async function fetchPypiVersionMetadata(
+	name: string,
+	version: string,
+	opts: NetworkOptions,
+): Promise<RegistryPackageMetadata | null> {
+	const json = rec(
+		await fetchJson(
+			`https://pypi.org/pypi/${encodeURIComponent(name)}/${encodeURIComponent(version)}/json`,
+			opts,
+		),
+	);
+	const info = rec(json.info);
+	if (Object.keys(info).length === 0) return null;
+	return {
+		latestVersion: str(info.version),
+		license: str(info.license_expression) ?? str(info.license),
+	};
+}
+
+async function fetchCargoVersionMetadata(
+	name: string,
+	version: string,
+	opts: NetworkOptions,
+): Promise<RegistryPackageMetadata | null> {
+	// The crate response already carries every version's license.
+	const json = rec(
+		await fetchJson(`https://crates.io/api/v1/crates/${encodeURIComponent(name)}`, opts),
+	);
+	const versions = Array.isArray(json.versions) ? json.versions : [];
+	const match = versions.map(rec).find((v) => str(v.num) === version);
+	if (!match) return null;
+	return {
+		latestVersion: version,
+		license: str(match.license)?.replace(/\s*\/\s*/g, " OR "),
+	};
+}
+
+async function fetchRubygemsVersionMetadata(
+	name: string,
+	version: string,
+	opts: NetworkOptions,
+): Promise<RegistryPackageMetadata | null> {
+	const json = rec(
+		await fetchJson(
+			`https://rubygems.org/api/v2/rubygems/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}.json`,
+			opts,
+		),
+	);
+	if (Object.keys(json).length === 0) return null;
+	const licenses = Array.isArray(json.licenses)
+		? json.licenses.filter((l): l is string => typeof l === "string" && l.trim() !== "")
+		: [];
+	return {
+		latestVersion: version,
+		license: licenses.length > 0 ? licenses.join(" OR ") : undefined,
+	};
+}
+
 /**
  * Fetch the declared license of ONE SPECIFIC version. The admission screens
  * must inspect the version the allowlist actually approves: `--version-range`
@@ -182,57 +253,14 @@ export async function fetchVersionMetadata(
 	opts: NetworkOptions = {},
 ): Promise<RegistryPackageMetadata | null> {
 	switch (ecosystem) {
-		case "npm": {
-			const escaped = name.startsWith("@") ? name.replace("/", "%2F") : name;
-			const json = rec(
-				await fetchJson(`https://registry.npmjs.org/${escaped}/${encodeURIComponent(version)}`, opts),
-			);
-			if (Object.keys(json).length === 0) return null;
-			return { latestVersion: str(json.version), license: str(json.license) };
-		}
-		case "pypi": {
-			const json = rec(
-				await fetchJson(
-					`https://pypi.org/pypi/${encodeURIComponent(name)}/${encodeURIComponent(version)}/json`,
-					opts,
-				),
-			);
-			const info = rec(json.info);
-			if (Object.keys(info).length === 0) return null;
-			return {
-				latestVersion: str(info.version),
-				license: str(info.license_expression) ?? str(info.license),
-			};
-		}
-		case "cargo": {
-			// The crate response already carries every version's license.
-			const json = rec(
-				await fetchJson(`https://crates.io/api/v1/crates/${encodeURIComponent(name)}`, opts),
-			);
-			const versions = Array.isArray(json.versions) ? json.versions : [];
-			const match = versions.map(rec).find((v) => str(v.num) === version);
-			if (!match) return null;
-			return {
-				latestVersion: version,
-				license: str(match.license)?.replace(/\s*\/\s*/g, " OR "),
-			};
-		}
-		case "rubygems": {
-			const json = rec(
-				await fetchJson(
-					`https://rubygems.org/api/v2/rubygems/${encodeURIComponent(name)}/versions/${encodeURIComponent(version)}.json`,
-					opts,
-				),
-			);
-			if (Object.keys(json).length === 0) return null;
-			const licenses = Array.isArray(json.licenses)
-				? json.licenses.filter((l): l is string => typeof l === "string" && l.trim() !== "")
-				: [];
-			return {
-				latestVersion: version,
-				license: licenses.length > 0 ? licenses.join(" OR ") : undefined,
-			};
-		}
+		case "npm":
+			return fetchNpmVersionMetadata(name, version, opts);
+		case "pypi":
+			return fetchPypiVersionMetadata(name, version, opts);
+		case "cargo":
+			return fetchCargoVersionMetadata(name, version, opts);
+		case "rubygems":
+			return fetchRubygemsVersionMetadata(name, version, opts);
 		default:
 			return null;
 	}

@@ -70,6 +70,7 @@ import {
 import {
 	appendStubsCapped,
 	createFreshSession,
+	mergeObservedChecks,
 	mergeVerificationObserved,
 	trackCommand,
 	trackErrorOutcome,
@@ -194,16 +195,7 @@ export class SessionTracker {
 			if (!to.tdd_cycles.has(file)) to.tdd_cycles.set(file, { ...cycle });
 		}
 
-		// observed_checks: gap-fill like tdd_cycles. A red/green the parent
-		// already tracks for a check kind is newer than the subagent's, so
-		// never overwrite it. Lazily allocate the parent's map on first use.
-		if (from.observed_checks && from.observed_checks.size > 0) {
-			if (!to.observed_checks) to.observed_checks = new Map();
-			for (const [kind, observed] of from.observed_checks) {
-				if (!to.observed_checks.has(kind)) to.observed_checks.set(kind, { ...observed });
-			}
-		}
-
+		mergeObservedChecks(from, to);
 		appendStubsCapped(from, to);
 		return true;
 	}

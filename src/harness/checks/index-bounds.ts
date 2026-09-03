@@ -76,6 +76,49 @@ function buildGuardPattern(name: string): RegExp {
 }
 
 /**
+ * Process one two-step assignment match: scan the lookahead window for a
+ * later `<receiver>[<name>]` index use with no guard between the assignment
+ * and the use, recording each unguarded use found.
+ */
+function processTwoStepAssignment(
+	assignHit: RegExpExecArray,
+	stripped: string,
+	lineOffsets: number[],
+	recordMatch: (offset: number) => void,
+	hasCapacity: () => boolean,
+): void {
+	const name = assignHit[1];
+	const assignOffset = assignHit.index;
+	const assignLineNo = stripped.slice(0, assignOffset).split("\n").length;
+
+	const windowStart = assignOffset + assignHit[0].length;
+	const lookaheadEndLine = assignLineNo + TWO_STEP_LOOKAHEAD_LINES;
+	const windowEnd =
+		lookaheadEndLine - 1 < lineOffsets.length
+			? lineOffsets[lookaheadEndLine - 1]
+			: stripped.length;
+
+	const window = stripped.slice(windowStart, windowEnd);
+	const escaped = nonNull(name).replace(/[$]/g, "\\$");
+	// `<receiver>[<name>]` — index access where the bracket contains
+	// only the name (and optional whitespace).
+	const indexUseRe = new RegExp(
+		String.raw`[A-Za-z_$][\w$]*\s*\[\s*${escaped}\s*\]`,
+		"g",
+	);
+	const guardRe = buildGuardPattern(nonNull(name));
+
+	let useHit: RegExpExecArray | null;
+	while ((useHit = indexUseRe.exec(window))) {
+		const useAbsoluteOffset = windowStart + useHit.index;
+		const between = stripped.slice(windowStart, useAbsoluteOffset);
+		if (guardRe.test(between)) continue;
+		recordMatch(useAbsoluteOffset);
+		if (!hasCapacity()) break;
+	}
+}
+
+/**
  * Detect external-input numeric values reaching array subscripts without a
  * Number.isFinite or length-bound guard.
  *
@@ -103,6 +146,7 @@ export function checkIndexBoundsUnchecked(
 			text: (lines[lineNo - 1] || "").trim().slice(0, REPORT_LINE_TRUNC),
 		});
 	};
+	const hasCapacity = () => matches.length < MAX_MATCHES_PER_FILE;
 
 	// --- Pass 1: inline coercion-as-index ---
 	const inlineRe = new RegExp(INLINE_PATTERN.source, "g");
@@ -124,36 +168,14 @@ export function checkIndexBoundsUnchecked(
 	const assignRe = new RegExp(ASSIGNMENT_PATTERN.source, "g");
 	let assignHit: RegExpExecArray | null;
 	while ((assignHit = assignRe.exec(stripped))) {
-		if (matches.length >= MAX_MATCHES_PER_FILE) break;
-		const name = assignHit[1];
-		const assignOffset = assignHit.index;
-		const assignLineNo = stripped.slice(0, assignOffset).split("\n").length;
-
-		const windowStart = assignOffset + assignHit[0].length;
-		const lookaheadEndLine = assignLineNo + TWO_STEP_LOOKAHEAD_LINES;
-		const windowEnd =
-			lookaheadEndLine - 1 < lineOffsets.length
-				? lineOffsets[lookaheadEndLine - 1]
-				: stripped.length;
-
-		const window = stripped.slice(windowStart, windowEnd);
-		const escaped = nonNull(name).replace(/[$]/g, "\\$");
-		// `<receiver>[<name>]` — index access where the bracket contains
-		// only the name (and optional whitespace).
-		const indexUseRe = new RegExp(
-			String.raw`[A-Za-z_$][\w$]*\s*\[\s*${escaped}\s*\]`,
-			"g",
+		if (!hasCapacity()) break;
+		processTwoStepAssignment(
+			assignHit,
+			stripped,
+			lineOffsets,
+			recordMatch,
+			hasCapacity,
 		);
-		const guardRe = buildGuardPattern(nonNull(name));
-
-		let useHit: RegExpExecArray | null;
-		while ((useHit = indexUseRe.exec(window))) {
-			const useAbsoluteOffset = windowStart + useHit.index;
-			const between = stripped.slice(windowStart, useAbsoluteOffset);
-			if (guardRe.test(between)) continue;
-			recordMatch(useAbsoluteOffset);
-			if (matches.length >= MAX_MATCHES_PER_FILE) break;
-		}
 	}
 
 	return matches;

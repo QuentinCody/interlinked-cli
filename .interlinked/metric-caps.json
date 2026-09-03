@@ -3,5 +3,5 @@
   "max_cyclomatic": 16,
   "crap_threshold": 25,
   "max_predicate_drift": 0,
-  "max_cognitive": 20
+  "max_cognitive": 15
 }

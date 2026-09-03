@@ -11,7 +11,7 @@ import { CheckEngine, type CheckReport, type ToolId } from "../harness/check-eng
 import { RUNNABLE_TOOL_IDS } from "../harness/check-engine/tool-catalog.js";
 import { ProjectGraph } from "../harness/project-graph.js";
 import { containsSecrets, findAnyTypes } from "../harness/quality-checks.js";
-import type { ImportEdge } from "../harness/types.js";
+import type { ExportedSymbol, ImportEdge } from "../harness/types.js";
 import { emitCheckOutput, printToolReportIfRequested, warnDroppedDiscoveryTools } from "./check-report.js";
 import { findDeadImports } from "./check-dead-imports.js";
 import { type StructuralCheckResult } from "./check-output.js";
@@ -93,32 +93,50 @@ function scanCycles(graph: ProjectGraph): Set<string> {
 	return files;
 }
 
-function scanDuplicates(graph: ProjectGraph): Set<string> {
-	const files = new Set<string>();
-	const symbolIndex = new Map<string, string[]>();
-	for (const file of graph.allFiles()) {
-		const boundary = graph.getProjectBoundary(file);
-		const exports = graph.getExports(file);
-		for (const exp of exports) {
-			if (exp.name === "default" || exp.name === "*" || exp.isTypeOnly) continue;
-			if (exp.kind === "re-export") continue;
-			const key = `${exp.name}::${boundary}`;
-			const existing = symbolIndex.get(key);
-			if (existing) {
-				existing.push(file);
-			} else {
-				symbolIndex.set(key, [file]);
-			}
+// Maps "<symbol name>::<project boundary>" to every file exporting it.
+type ExportSymbolIndex = Map<string, string[]>;
+
+// Helper: true when an export counts for the duplicate-symbol scan — named
+// value exports only (default/star/type-only/re-export are not duplicates).
+function isDuplicateScanExport(exp: ExportedSymbol): boolean {
+	if (exp.name === "default" || exp.name === "*" || exp.isTypeOnly) return false;
+	return exp.kind !== "re-export";
+}
+
+// Helper: records one file's duplicate-scan exports under their symbol keys.
+function indexFileExports(graph: ProjectGraph, file: string, index: ExportSymbolIndex): void {
+	const boundary = graph.getProjectBoundary(file);
+	const exports = graph.getExports(file);
+	for (const exp of exports) {
+		if (!isDuplicateScanExport(exp)) continue;
+		const key = `${exp.name}::${boundary}`;
+		const existing = index.get(key);
+		if (existing) {
+			existing.push(file);
+		} else {
+			index.set(key, [file]);
 		}
 	}
-	for (const [, dupes] of symbolIndex) {
-		if (dupes.length > 1) {
-			for (const f of dupes) {
-				files.add(graph.toRelative(f));
-			}
+}
+
+// Helper: relative paths of the files that share a symbol key with another file.
+function filesSharingSymbolKeys(graph: ProjectGraph, index: ExportSymbolIndex): Set<string> {
+	const files = new Set<string>();
+	for (const [, dupes] of index) {
+		if (dupes.length <= 1) continue;
+		for (const f of dupes) {
+			files.add(graph.toRelative(f));
 		}
 	}
 	return files;
+}
+
+function scanDuplicates(graph: ProjectGraph): Set<string> {
+	const symbolIndex: ExportSymbolIndex = new Map();
+	for (const file of graph.allFiles()) {
+		indexFileExports(graph, file, symbolIndex);
+	}
+	return filesSharingSymbolKeys(graph, symbolIndex);
 }
 
 // Helper: true if a source file is exempt from the missing-tests scan by path

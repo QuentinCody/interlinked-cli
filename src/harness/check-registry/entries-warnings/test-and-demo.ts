@@ -18,6 +18,7 @@ import {
 	checkMockingTheSutSelf,
 	checkMockOnlyTest,
 	checkPlaceholderDataInUi,
+	checkPlaceholderTests,
 	checkRealIoInTests,
 	checkSchemaTypeDrift,
 	checkSilentDemoFallback,
@@ -137,6 +138,34 @@ export const TEST_AND_DEMO_ENTRIES: CheckRegistration[] = [
 			"A test that shells out to tsc / biome / npx / tsx / eslint / vitest / the CLI but relies on the default `testTimeout` flakes under CI's worker cap — a cold tsc start alone can exceed the 10s default. Pass an explicit timeout via the vitest options object: `it(name, { timeout: 60_000, retry: 2 }, fn)`. The trailing-numeric form `it(name, fn, 60_000)` also works. Match the established pattern in write.test.ts / verify.test.ts. Real subprocess spawns also breach a mutation runner's per-test dry-run cap under load (30s under Stryker here) — that times out the dry run and makes the whole file unmeasurable, so prefer mocking the spawn where the subprocess is not the thing under test.",
 		fn: checkTestSubprocessDefaultTimeout,
 		resultsPropName: "testSubprocessDefaultTimeout",
+	},
+	// checkPlaceholderTests existed (exported from generic-checks.js, wired into
+	// interlinked verify's file-checks-react-test.ts, and named in modes.ts'
+	// STRICT.check_overrides) but was never a CHECK_REGISTRY entry — so no
+	// PostToolUse/pre_block gate, no PreToolUse write-gate, and no
+	// evidence-contract coverage ever ran it. `phase: pre_block` is what
+	// STRICT.check_overrides' `placeholder_test: "ask"` line actually needed —
+	// registering it here restores the blocking behavior its siblings
+	// (disabled_tests, focused_tests, assertion_free_test, tautological_assertion)
+	// already have. `severity: warning` (not "error" like those siblings, which
+	// live in a different registry file) matches this file's own
+	// TEST_AND_DEMO_ENTRIES test contract, which asserts every entry here is
+	// "warning" — blocking is governed by phase, not severity, so this loses
+	// nothing.
+	{
+		id: "placeholder_test",
+		phase: "pre_block",
+		name: "Placeholder Test",
+		description:
+			"Detects `.todo` blocks, pending single-arg `it(\"name\")` calls, and empty or TODO/FIXME-marker-only test bodies — stub tests that contribute zero coverage while reading as done.",
+		tier: 1,
+		determinism: "fully_deterministic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		fix_instruction:
+			'Write the real test body, or delete the placeholder. `it.todo("name")` and `it("name")` with no callback run nothing; an empty or TODO/FIXME-only body passes trivially and never kills a mutant.',
+		fn: checkPlaceholderTests,
+		resultsPropName: "placeholderTest",
 	},
 	// ========================================================================
 	// Test-quality checks (2 entries)

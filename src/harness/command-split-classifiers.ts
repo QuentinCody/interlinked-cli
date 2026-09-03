@@ -37,6 +37,54 @@ interface TopLevelSplitAction {
 }
 
 /**
+ * A newline at top level: `\` line continuations and heredoc header newlines
+ * glue to the current segment; every other newline is a split boundary.
+ */
+function classifyNewline(
+	command: string,
+	i: number,
+	heredocStartsAt: (idx: number) => boolean,
+): TopLevelSplitAction {
+	if (command[i - 1] === "\\" || heredocStartsAt(i + 1)) {
+		return { extraChars: 0, append: "\n", split: false };
+	}
+	return { extraChars: 0, append: "", split: true };
+}
+
+/**
+ * A separator operator (`&&`, `||`, `;`, `|`) glues when a heredoc is still
+ * pending on this line (its body has not been consumed yet); otherwise it
+ * ends the segment.
+ */
+function glueWhenHeredocPending(
+	i: number,
+	operator: string,
+	extraChars: number,
+	pendingHeredocOnLine: (idx: number) => boolean,
+): TopLevelSplitAction {
+	if (pendingHeredocOnLine(i)) {
+		return { extraChars, append: operator, split: false };
+	}
+	return { extraChars, append: "", split: true };
+}
+
+/**
+ * A lone `&`: background operator (a split boundary) unless it is part of the
+ * `2>&1` / `&>` fd-redirect forms, or a heredoc is still pending on this line.
+ */
+function classifyBackgroundAmpersand(
+	command: string,
+	i: number,
+	next: string | undefined,
+	pendingHeredocOnLine: (idx: number) => boolean,
+): TopLevelSplitAction {
+	if (command[i - 1] === ">" || next === ">") {
+		return { extraChars: 0, append: "&", split: false };
+	}
+	return glueWhenHeredocPending(i, "&", 0, pendingHeredocOnLine);
+}
+
+/**
  * Classify what a compound-operator character (`\n`, `&&`, `||`, `;`, `|`,
  * background `&`) does at top-level nesting: glue to the current segment
  * (line continuation, a heredoc header line, or an fd-redirect `&` form) or
@@ -51,34 +99,15 @@ export function classifyTopLevelSplit(
 	heredocStartsAt: (idx: number) => boolean,
 	pendingHeredocOnLine: (idx: number) => boolean,
 ): TopLevelSplitAction | null {
-	if (ch === "\n") {
-		// `\` line continuations and heredoc header newlines glue.
-		if (command[i - 1] === "\\" || heredocStartsAt(i + 1)) {
-			return { extraChars: 0, append: ch, split: false };
-		}
-		return { extraChars: 0, append: "", split: true };
-	}
+	if (ch === "\n") return classifyNewline(command, i, heredocStartsAt);
 	if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) {
-		if (pendingHeredocOnLine(i)) {
-			return { extraChars: 1, append: ch + next, split: false };
-		}
-		return { extraChars: 1, append: "", split: true };
+		return glueWhenHeredocPending(i, ch + next, 1, pendingHeredocOnLine);
 	}
 	if (ch === ";" || ch === "|") {
-		if (pendingHeredocOnLine(i)) {
-			return { extraChars: 0, append: ch, split: false };
-		}
-		return { extraChars: 0, append: "", split: true };
+		return glueWhenHeredocPending(i, ch, 0, pendingHeredocOnLine);
 	}
 	if (ch === "&") {
-		// Background `&` — but not the `2>&1` / `&>` redirect forms.
-		if (command[i - 1] === ">" || next === ">") {
-			return { extraChars: 0, append: ch, split: false };
-		}
-		if (pendingHeredocOnLine(i)) {
-			return { extraChars: 0, append: ch, split: false };
-		}
-		return { extraChars: 0, append: "", split: true };
+		return classifyBackgroundAmpersand(command, i, next, pendingHeredocOnLine);
 	}
 	return null;
 }

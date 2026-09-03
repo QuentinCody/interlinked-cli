@@ -6,7 +6,8 @@
 // Payload shape is provisional. When Gemini CLI ships 1.0 this adapter needs
 // a revisit — see docs/design/cli-hook-normalization.md.
 
-import { type ClassifierOverrides, classifyFromToolName } from "../tool-class-classifier.js";
+import type { ClassifierOverrides } from "../tool-class-classifier.js";
+import { adapterToolClassifier } from "./adapter-tool-class.js";
 import { buildHookCommand } from "./hook-command.js";
 import { buildStandardAction, normalizeNativeHookEvent } from "./normalization.js";
 import { GEMINI_CLI_CAPABILITIES, installedEventNames } from "./provider-capabilities.js";
@@ -50,13 +51,7 @@ export function createGeminiCliAdapter(opts: GeminiCliAdapterOptions = {}): Runn
 			});
 		},
 
-		classifyToolClass(toolName, toolInput) {
-			return classifyFromToolName(
-				toolName,
-				toolInput,
-				opts.overrides ? { overrides: opts.overrides } : {},
-			);
-		},
+		classifyToolClass: adapterToolClassifier(opts.overrides),
 
 		renderSettingsFragment(binaryPath, scope): SettingsFragment {
 			const path = scope === "user" ? "~/.gemini/settings.json" : ".gemini/settings.json";

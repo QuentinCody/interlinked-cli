@@ -21,6 +21,7 @@ import { existsSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 
 import type { TaintProvenance } from "../types.js";
+import { planHintsContainTool } from "./candidate-helpers.js";
 import { addThenRevertLoop } from "./quality-revert-loop.js";
 import type { SequenceDetector, SequenceMatch } from "./types.js";
 
@@ -277,6 +278,18 @@ const COVERAGE_SOURCE_FILE_THRESHOLD = 5;
  *  bare string equality. */
 const TEST_RUN_STATUS_PASS = "pass";
 
+/** Non-test source files from a session's `files_written` list — the
+ *  candidate set the silent-coverage detector checks against test activity. */
+function collectNonTestSourceFilesWritten(filesWritten: Iterable<string>): string[] {
+	const sourceFilesWritten: string[] = [];
+	for (const file of filesWritten) {
+		if (!isSourceFile(file)) continue;
+		if (isTestFilePath(file)) continue;
+		sourceFilesWritten.push(file);
+	}
+	return sourceFilesWritten;
+}
+
 /**
  * Fires at Stop when (a) >5 source files were written this session,
  * (b) no test file appears in either `files_written` or `files_read`, and
@@ -292,12 +305,7 @@ export const coverageSilentRegression: SequenceDetector = {
 	default_enabled: true,
 	determinism: "fully_deterministic",
 	fn: (trajectory) => {
-		const sourceFilesWritten: string[] = [];
-		for (const file of trajectory.files_written) {
-			if (!isSourceFile(file)) continue;
-			if (isTestFilePath(file)) continue;
-			sourceFilesWritten.push(file);
-		}
+		const sourceFilesWritten = collectNonTestSourceFilesWritten(trajectory.files_written);
 		if (sourceFilesWritten.length <= COVERAGE_SOURCE_FILE_THRESHOLD) return [];
 		// Any test file touched this session disqualifies the finding.
 		for (const file of trajectory.files_written) {
@@ -376,19 +384,6 @@ const UNTRUSTED_PROVENANCE_QUALITY: ReadonlySet<TaintProvenance> =
 		"document_content",
 		"user_provided",
 	]);
-
-function planHintsContainTool(
-	candidateTool: string | undefined,
-	plan: { steps?: ReadonlyArray<{ tool_hint?: string }> } | undefined,
-): boolean {
-	const hints = plan?.steps
-		?.map((s) => s.tool_hint)
-		.filter((h): h is string => typeof h === "string" && h.length > 0);
-	if (!hints || hints.length === 0) return true;
-	if (!candidateTool) return true;
-	const normalized = candidateTool.toLowerCase();
-	return hints.some((h) => h.toLowerCase() === normalized);
-}
 
 /**
  * Mirror of `planVsTrajectoryDrift` (injection.ts §3.15) — same divergence

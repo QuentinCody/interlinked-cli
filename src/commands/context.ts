@@ -119,26 +119,10 @@ function renderNormalOutput(data: ContextRenderData, rawAgentHandle: string | un
 		),
 	);
 	lines.push(kvLine("Token source", data.auth.token_source));
-	if (data.auth.expires_at) {
-		const expires = new Date(data.auth.expires_at);
-		const isExpired = expires < new Date();
-		lines.push(
-			kvLine(
-				"Expires",
-				isExpired ? c.red(`${data.auth.expires_at} (EXPIRED)`) : data.auth.expires_at,
-			),
-		);
-	}
+	pushAuthExpiryLine(lines, data.auth.expires_at);
 
 	lines.push(header("Hooks"));
-	if (data.hooks.installed_version) {
-		const staleLabel = data.hooks.stale
-			? c.yellow(` → ${data.hooks.current_version} available (run: interlinked enable)`)
-			: c.green(" (current)");
-		lines.push(kvLine("Installed version", `${data.hooks.installed_version}${staleLabel}`));
-	} else {
-		lines.push(kvLine("Status", c.yellow("not installed (run: interlinked enable)")));
-	}
+	pushHooksStatusLines(lines, data.hooks);
 
 	lines.push(header("Clients"));
 	for (const client of data.clients.all) {
@@ -159,6 +143,35 @@ function renderNormalOutput(data: ContextRenderData, rawAgentHandle: string | un
 	}
 
 	return lines.join("\n");
+}
+
+/**
+ * Appends the auth-token expiry line, if present. Extracted from the
+ * "Authentication" section of `renderNormalOutput` (same behavior, just
+ * pushed to the passed-in `lines` array instead of the closure's own).
+ */
+function pushAuthExpiryLine(lines: string[], expiresAt: string | null): void {
+	if (!expiresAt) return;
+	const expires = new Date(expiresAt);
+	const isExpired = expires < new Date();
+	lines.push(
+		kvLine("Expires", isExpired ? c.red(`${expiresAt} (EXPIRED)`) : expiresAt),
+	);
+}
+
+/**
+ * Appends the "Hooks" section's status line(s). Extracted verbatim from
+ * `renderNormalOutput`.
+ */
+function pushHooksStatusLines(lines: string[], hooks: ContextRenderData["hooks"]): void {
+	if (hooks.installed_version) {
+		const staleLabel = hooks.stale
+			? c.yellow(` → ${hooks.current_version} available (run: interlinked enable)`)
+			: c.green(" (current)");
+		lines.push(kvLine("Installed version", `${hooks.installed_version}${staleLabel}`));
+	} else {
+		lines.push(kvLine("Status", c.yellow("not installed (run: interlinked enable)")));
+	}
 }
 
 /**

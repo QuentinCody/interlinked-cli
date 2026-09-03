@@ -326,6 +326,20 @@ interface ListOpts {
 	json?: boolean;
 }
 
+function printEcosystemEntries(
+	ecosystem: Ecosystem,
+	entries: Allowlist["packages"][Ecosystem],
+): void {
+	const rows = Object.entries(entries);
+	if (rows.length === 0) return;
+	process.stdout.write(`${ecosystem}:\n`);
+	for (const [name, meta] of rows) {
+		process.stdout.write(
+			`  ${name}  (by ${meta.approved_by}${meta.reason ? `, ${meta.reason}` : ""}${meta.license ? `, license ${meta.license}` : ""})\n`,
+		);
+	}
+}
+
 export function listAllowlistCommand(opts: ListOpts): void {
 	const al = loadAllowlist(opts.cwd);
 	const filtered: Allowlist = opts.ecosystem
@@ -352,14 +366,7 @@ export function listAllowlistCommand(opts: ListOpts): void {
 		return;
 	}
 	for (const e of ECOSYSTEMS) {
-		const entries = Object.entries(filtered.packages[e]);
-		if (entries.length === 0) continue;
-		process.stdout.write(`${e}:\n`);
-		for (const [name, meta] of entries) {
-			process.stdout.write(
-				`  ${name}  (by ${meta.approved_by}${meta.reason ? `, ${meta.reason}` : ""}${meta.license ? `, license ${meta.license}` : ""})\n`,
-			);
-		}
+		printEcosystemEntries(e, filtered.packages[e]);
 	}
 	const snaps = Object.entries(filtered.lockfile_snapshots);
 	if (snaps.length > 0) {
