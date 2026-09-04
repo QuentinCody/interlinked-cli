@@ -107,7 +107,15 @@ jobs:
   package:
     name: package (Linux / Node 22)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 35, not 20: this lane runs SIX sequential installs/builds — npm ci, build,
+    # publint, attw, `npm pack`, then a full tarball-install smoke and a full
+    # git-clone onboarding smoke that each do their own install+build. Measured
+    # on run 33822162421 (2026-09-04): 11min to reach the tarball smoke, 7min for
+    # the tarball smoke itself, leaving `npm link` inside the onboarding smoke
+    # only 86s before the 20min cap killed it as an orphan — every step had
+    # PASSED, the job just ran out of wall clock. The same smoke completes
+    # locally under the pre-push gate, so this is budget, not a hang.
+    timeout-minutes: 35
     steps:
       - name: Checkout
         uses: actions/checkout@v6
