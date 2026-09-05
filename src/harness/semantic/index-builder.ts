@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { basename } from "node:path";
 import { computeFunctionTokens, CANONICAL_TOKENIZER_ID } from "../function-tokens/index.js";
+import { functionTokenProvenance } from "../function-tokens/provenance.js";
 import { chunkFunctionInput } from "./chunker.js";
 import { loadSemanticConfig } from "./config.js";
 import { aggregateFunctionVectors } from "./embed-function.js";
@@ -273,6 +274,7 @@ export async function buildSemanticIndex(root: string, options: SemanticBuildOpt
         {
             modelFingerprint: runtime.fingerprint,
             canonicalTokenizer: CANONICAL_TOKENIZER_ID,
+            tokenMeasurement: functionTokenProvenance(rows.map(row => row.language)),
             repositoryIdentity: repositoryIdentity(root),
             sourceHash: prepared.sourceHash,
             dimension: config.manifest.dimension,

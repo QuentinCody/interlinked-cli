@@ -135,7 +135,7 @@ function tokenReport(entries: Array<{ name: string; line: number; tokens: number
 	}];
 	return {
 		schemaVersion: 1,
-		tokenizer: "interlinked-code-v1",
+		tokenizer: "interlinked-code-v2",
 		cap: 500,
 		elapsedMs: 0,
 		scope: {
@@ -628,7 +628,7 @@ describe("metricsCommand — output modes", () => {
 		expect(logged).toContain("CRAP ≥ 30");
 		expect(logged).toContain("cyclomatic > 25");
 		expect(logged).toContain("CRAP distribution");
-		expect(logged).toContain("Function-token distribution (interlinked-code-v1)");
+		expect(logged).toContain("Function-token distribution (interlinked-code-v2)");
 		expect(logged).toContain("summedFunctionTokens=");
 		expect(logged).toContain("files by summed function tokens");
 		// no coverage → "files no coverage" line is suppressed.

@@ -166,7 +166,7 @@ export const METRIC_DEFS: readonly MetricDef[] = [
 		defaultValue: DEFAULT_MAX_FUNCTION_TOKENS,
 		definition:
 			"The number of non-trivia lexical code tokens in one implementation under " +
-			"the stable interlinked-code-v1 contract. It is independent of any embedding " +
+			"the interlinked-code-v2 contract (parser-resolved syntax tokens for JS/TS). It is independent of any embedding " +
 			"model tokenizer: 500 passes, 501 is over the shipped absolute ceiling.",
 		howToConfigure:
 			"`interlinked caps set function-tokens <n>` (or .interlinked/metric-caps.json → max_function_tokens)",

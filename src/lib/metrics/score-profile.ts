@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
+import { TYPESCRIPT_TOKENIZER_ID } from "../../harness/function-tokens/types.js";
 
 /** Experimental structural burden only; no authorship, model or local-cap input. */
 export const STRUCTURE_PROFILE = {
     id: "interlinked-structure-js-ts-v1",
     scope: "authored-product-functions-v1",
-    tokenizer: "interlinked-ts-ast-v1",
+    tokenizer: TYPESCRIPT_TOKENIZER_ID,
     documentation: "exclude-ast-jsdoc-v1",
     meanShare: .75,
     tailShare: .25,

@@ -1,6 +1,6 @@
 import type { JsonObject } from "../../lib/json-types.js";
 import { selectFunctionTokenAnalyzer } from "../function-tokens/index.js";
-import type { FunctionTokenEntry } from "../function-tokens/types.js";
+import { CANONICAL_TOKENIZER_ID, type FunctionTokenEntry } from "../function-tokens/types.js";
 import {
     DEFAULT_MAX_FUNCTION_TOKENS,
     maxFunctionTokensFor,
@@ -21,7 +21,7 @@ function warnAnalyzerUnavailable(language: string): void {
     warnedLanguages.add(language);
     process.stderr.write(
         `[interlinked:function-tokens:not-measured] ${language} source was allowed because ` +
-            "an exact interlinked-code-v1 function analyzer was unavailable. " +
+            `an exact ${CANONICAL_TOKENIZER_ID} before/after measurement was unavailable. ` +
             `The ${DEFAULT_MAX_FUNCTION_TOKENS}-token cap was not evaluated for that language.\n`,
     );
 }
@@ -34,7 +34,8 @@ const FUNCTION_TOKEN_SPEC: MetricGateSpec<FunctionTokenEntry> = {
     selectAnalyzer: selectFunctionTokenAnalyzer,
     capFor: maxFunctionTokensFor,
     onAnalyzerUnavailable: warnAnalyzerUnavailable,
-    limitPhrase: "canonical function-token limit",
+    requireMeasuredBefore: true,
+    limitPhrase: `canonical function-token limit (${CANONICAL_TOKENIZER_ID})`,
     unitPlural: "token(s)",
     unitAdj: "token",
     advice: "Split the function into cohesive named helpers, then retry.",

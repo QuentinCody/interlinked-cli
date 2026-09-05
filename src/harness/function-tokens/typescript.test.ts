@@ -7,7 +7,7 @@ function entries(source: string, file = "src/example.ts") {
     return result ?? [];
 }
 
-describe("interlinked-code-v1 TypeScript adapter", () => {
+describe("interlinked-ts-ast-v1 TypeScript adapter", () => {
     it("extracts implementation functions and excludes declarations", () => {
         const result = entries(`
             declare function absent(value: string): void;

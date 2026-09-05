@@ -31,7 +31,7 @@ Interpolate between knots and clamp at the ends. Successfully measured functions
 
 For each component, weight functions by exclusively owned syntax tokens. Combine 75% of the exposure-weighted mean burden with 25% of the worst-decile exposure-weighted burden, then multiply by 100. Include a fractional final function at the decile boundary. The structural composite uses the shares above. Lower means less measured structural burden.
 
-Function size includes nested implementations; ownership assigns each token to its innermost implementation so aggregation does not double-count exposure. Parser-resolved tokenization handles templates, regexes and JSX. JSDoc is excluded from token and Halstead tallies. Ordinary comments and identifier length do not increase syntax-token counts. These units differ from the existing scanner-based edit-gate tokenizer; historical pilot scores are not directly comparable.
+Function size includes nested implementations; ownership assigns each token to its innermost implementation so aggregation does not double-count exposure. Parser-resolved tokenization handles templates, regexes and JSX. JSDoc is excluded from token and Halstead tallies. Ordinary comments and identifier length do not increase syntax-token counts. The `interlinked-code-v2` edit/commit gates and metric inventory now share this JS/TS counter. Historical scanner counts and earlier pilot profiles are not directly comparable; this migration preserves the structural profile's weights, knots and scores. See [function-token migration](function-token-migration.md).
 
 ## Corpus results
 

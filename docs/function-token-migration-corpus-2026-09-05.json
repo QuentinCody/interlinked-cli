@@ -1,0 +1,1045 @@
+{
+  "schemaVersion": 1,
+  "modelCalls": 0,
+  "repositoryCodeExecuted": false,
+  "legacy": "interlinked-code-v1",
+  "measurement": {
+    "contract": "interlinked-code-v2",
+    "adapters": [
+      {
+        "language": "typescript",
+        "tokenizer": "interlinked-ts-ast-v1",
+        "parserVersion": "5.9.3"
+      }
+    ]
+  },
+  "repositories": [
+    {
+      "name": "mesqueeb/is-what",
+      "commit": "dadd235f03d201ffbd8fd73dcc5d1891d754fcd4",
+      "pinned": true,
+      "files": 45,
+      "functions": 43,
+      "oldOverCap": 0,
+      "currentOverCap": 0,
+      "newlyOverCap": 0,
+      "noLongerOverCap": 0,
+      "changedFunctions": 1,
+      "sourceHash": "a5f400cef0cc9db49b764d2e770f775fe82d8e7560956c5185dcd26676501bc2",
+      "unmeasured": [],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "src/isHexDecimal.ts",
+          "sha256": "6ec3aadac45f41e6d9f674cf997f8c3ac426553005fcb25f3048cb45ac9afc3b",
+          "name": "isHexDecimal",
+          "line": 7,
+          "old": 65,
+          "current": 51
+        }
+      ]
+    },
+    {
+      "name": "antfu/diff-match-patch-es",
+      "commit": "4f35fb7fd57df68d69068cdee0780bb779f5497f",
+      "pinned": true,
+      "files": 8,
+      "functions": 42,
+      "oldOverCap": 9,
+      "currentOverCap": 9,
+      "newlyOverCap": 0,
+      "noLongerOverCap": 0,
+      "changedFunctions": 15,
+      "sourceHash": "caadfd51d7eec9042da3a6cf64781f36d36e4babdda15f7a940c19c13c1b2930",
+      "unmeasured": [],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "src/patch.ts",
+          "sha256": "a375334d4818f372bce0aee2bf0e7833931cc8c9b6b8016869eff3ea980361c5",
+          "name": "patchFromText",
+          "line": 534,
+          "old": 134,
+          "current": 398
+        },
+        {
+          "file": "src/patch.ts",
+          "sha256": "a375334d4818f372bce0aee2bf0e7833931cc8c9b6b8016869eff3ea980361c5",
+          "name": "createPatch",
+          "line": 618,
+          "old": 146,
+          "current": 248
+        },
+        {
+          "file": "src/patch.ts",
+          "sha256": "a375334d4818f372bce0aee2bf0e7833931cc8c9b6b8016869eff3ea980361c5",
+          "name": "createPatch.(callback)",
+          "line": 633,
+          "old": 104,
+          "current": 203
+        }
+      ]
+    },
+    {
+      "name": "caderek/aocrunner",
+      "commit": "7eaba95faa8708b4b0b9c79b0b3eaf13347ead57",
+      "pinned": true,
+      "files": 36,
+      "functions": 83,
+      "oldOverCap": 0,
+      "currentOverCap": 2,
+      "newlyOverCap": 2,
+      "noLongerOverCap": 0,
+      "changedFunctions": 34,
+      "sourceHash": "17357c292321a9ee55a76c6391d9ff3cba82728aa9e5d1b342a6b9ca04fc2268",
+      "unmeasured": [],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "src/io/api.ts",
+          "sha256": "936081b7be83f83d0249e58f408576f887c10df2f7c50c1b8d540e434210d28d",
+          "name": "sendSolution",
+          "line": 115,
+          "old": 171,
+          "current": 610
+        },
+        {
+          "file": "src/actions/dev.ts",
+          "sha256": "087f4f7d0655f5f8c155747cbb44ffc4270c829ee5ffdc9a8e31d2b8ee4b5e1b",
+          "name": "dev",
+          "line": 140,
+          "old": 116,
+          "current": 544
+        },
+        {
+          "file": "src/io/api.ts",
+          "sha256": "936081b7be83f83d0249e58f408576f887c10df2f7c50c1b8d540e434210d28d",
+          "name": "sendSolution.(callback)",
+          "line": 151,
+          "old": 115,
+          "current": 411
+        }
+      ]
+    },
+    {
+      "name": "sergiodxa/remix-auth-oauth2",
+      "commit": "6e7bfd2a5741f5b04dafd4f9f57c83775936a39a",
+      "pinned": true,
+      "files": 4,
+      "functions": 24,
+      "oldOverCap": 0,
+      "currentOverCap": 0,
+      "newlyOverCap": 0,
+      "noLongerOverCap": 0,
+      "changedFunctions": 4,
+      "sourceHash": "b657ea8bf4941b90f2e7d42b36450cf4455955a5b4e1ff666b41e8049ff80ec9",
+      "unmeasured": [],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "src/index.ts",
+          "sha256": "460c6d38e39bf82863521000c0cf33b068767db4199b1fd0cabb9bd925c00c68",
+          "name": "OAuth2Strategy.discover",
+          "line": 231,
+          "old": 173,
+          "current": 302
+        },
+        {
+          "file": "scripts/exports.ts",
+          "sha256": "cd74a5b8e7c9e2b40faa12da0f6bb77587341e1b0b32dc6fad528d83a5f2f549",
+          "name": "main",
+          "line": 1,
+          "old": 322,
+          "current": 311
+        },
+        {
+          "file": "scripts/exports.ts",
+          "sha256": "cd74a5b8e7c9e2b40faa12da0f6bb77587341e1b0b32dc6fad528d83a5f2f549",
+          "name": "main.(callback)",
+          "line": 19,
+          "old": 44,
+          "current": 33
+        }
+      ]
+    },
+    {
+      "name": "JNKKKK/pianochord.io",
+      "commit": "568efa33124a034d131e787fd20c28b298780433",
+      "pinned": true,
+      "files": 50,
+      "functions": 239,
+      "oldOverCap": 2,
+      "currentOverCap": 2,
+      "newlyOverCap": 0,
+      "noLongerOverCap": 0,
+      "changedFunctions": 65,
+      "sourceHash": "c6c99caa3bb4364a30ce362602d09009a8964d21598b766bff8a2560bb475601",
+      "unmeasured": [
+        {
+          "file": "src/scss/About.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/App.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/ChordDetail.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/ChordSelector.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/ChordThumbnail.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/IndexPage.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/KeyBoard.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/KeySelector.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/Modal.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/Nav.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/Notification.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/Playbox.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/UI.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/Whiteboard.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/colors.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/scss/reset.scss",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        }
+      ],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "src/pages/WhiteBoardPage.tsx",
+          "sha256": "ccb6fcda70a9c73420038c7b649f157cd48e93ded9aafe31956eca69774edc59",
+          "name": "WhiteBoardPage.render",
+          "line": 191,
+          "old": 2551,
+          "current": 2641
+        },
+        {
+          "file": "src/pages/AboutPage.tsx",
+          "sha256": "9003221c5dea586b55e9b0bc7bebd689114f4e273c3ff733501c46a4bd201d49",
+          "name": "AboutPage.render",
+          "line": 12,
+          "old": 246,
+          "current": 181
+        },
+        {
+          "file": "src/libs/audio.ts",
+          "sha256": "90f2c82be9b91714c9408f211da5dd0ce4f27ab9797ae068541688d9ea508168",
+          "name": "Piano.loadSample",
+          "line": 50,
+          "old": 54,
+          "current": 109
+        }
+      ]
+    },
+    {
+      "name": "QuentinCody/interlinked-cli",
+      "commit": "a2d4e41fb1ccb0a6514e9e177170f0386e399f06",
+      "pinned": true,
+      "files": 1519,
+      "functions": 15593,
+      "oldOverCap": 22,
+      "currentOverCap": 52,
+      "newlyOverCap": 33,
+      "noLongerOverCap": 3,
+      "changedFunctions": 4915,
+      "sourceHash": "1c9d9c687e36ea8e5c978e1feb60c37d3247534b199ca3a1202f4df3f341c371",
+      "unmeasured": [
+        {
+          "file": "evals/fixtures/python/app/__init__.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "evals/fixtures/python/app/loader.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "evals/fixtures/python/app/parser.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "evals/fixtures/python/app/validator.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "scripts/ci-local.sh",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "scripts/ci-packaging.sh",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "scripts/smoke-onboarding.sh",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "scripts/smoke-tarball-install.sh",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/harness/checks/__fixtures__/bun-regressions/bss-placeholder-constant.rs",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/harness/checks/__fixtures__/bun-regressions/cast-slice-odd-length.rs",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/harness/checks/__fixtures__/bun-regressions/debug-assert-side-effect.rs",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/harness/content-scanner/sidecars/opf-sidecar.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        }
+      ],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "src/commands/verify/output-json.ts",
+          "sha256": "eeb102ab33905edc8cf6e9464880086dca9ac7742efa4947005ec6395b4ff53e",
+          "name": "outputJson",
+          "line": 65,
+          "old": 286,
+          "current": 1941
+        },
+        {
+          "file": "src/harness/coverage-shards/vitest.ts",
+          "sha256": "605ea7e7b7184ff6229161b85fce92c0c5501755abe7848adba7335fead6ed2b",
+          "name": "captureProviderSource",
+          "line": 62,
+          "old": 907,
+          "current": 40
+        },
+        {
+          "file": "src/commands/sync.ts",
+          "sha256": "00054ec418c499005c075f67c4a4681666e119bee88ac772ff85a44feab4b605",
+          "name": "syncCommand",
+          "line": 55,
+          "old": 403,
+          "current": 1110
+        }
+      ]
+    },
+    {
+      "name": "figma/vite-plugin-yaml",
+      "commit": "2273c3f46fdfdb4de2dc9a273e8ee062e54dff35",
+      "pinned": true,
+      "files": 6,
+      "functions": 7,
+      "oldOverCap": 0,
+      "currentOverCap": 0,
+      "newlyOverCap": 0,
+      "noLongerOverCap": 0,
+      "changedFunctions": 5,
+      "sourceHash": "7a8db8b37769ed3e30a328e6cb3d29de13f6b2718d41135e2fdc57246b527253",
+      "unmeasured": [
+        {
+          "file": "example/src/App.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "example/src/index.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        }
+      ],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "example/src/importContent.tsx",
+          "sha256": "313346d9955251bd3146422f12fa1dbef7d77c71c519f869bc13b3cb35bc87ab",
+          "name": "importContent",
+          "line": 13,
+          "old": 103,
+          "current": 123
+        },
+        {
+          "file": "example/src/importContent.tsx",
+          "sha256": "313346d9955251bd3146422f12fa1dbef7d77c71c519f869bc13b3cb35bc87ab",
+          "name": "importContent.(callback)",
+          "line": 20,
+          "old": 56,
+          "current": 73
+        },
+        {
+          "file": "src/index.ts",
+          "sha256": "1ddb44119746901e3edcaf0bcbd18d17dfa241e0d0293e32a64d75f4db674538",
+          "name": "(callback)",
+          "line": 49,
+          "old": 150,
+          "current": 162
+        }
+      ]
+    },
+    {
+      "name": "jokull/python-ts-graphql-demo",
+      "commit": "52d4fb5a9bf2143c7585fadc43bbaa574e59e3db",
+      "pinned": true,
+      "files": 6,
+      "functions": 21,
+      "oldOverCap": 0,
+      "currentOverCap": 0,
+      "newlyOverCap": 0,
+      "noLongerOverCap": 0,
+      "changedFunctions": 10,
+      "sourceHash": "2e2ff68e3e78ba7e2d9cbed9ad6dd709749b30d79b7716db6958f808cf318251",
+      "unmeasured": [
+        {
+          "file": "app.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "models.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "operation.graphql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "schema.graphql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "styles/globals.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        }
+      ],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "pages/index.tsx",
+          "sha256": "7ae67c206494b90d21174a3e44ab29efa31b37673d2ce56ca6043e3213a0db45",
+          "name": "Input",
+          "line": 23,
+          "old": 34,
+          "current": 92
+        },
+        {
+          "file": "pages/index.tsx",
+          "sha256": "7ae67c206494b90d21174a3e44ab29efa31b37673d2ce56ca6043e3213a0db45",
+          "name": "Tasks",
+          "line": 55,
+          "old": 122,
+          "current": 136
+        },
+        {
+          "file": "pages/index.tsx",
+          "sha256": "7ae67c206494b90d21174a3e44ab29efa31b37673d2ce56ca6043e3213a0db45",
+          "name": "AddTask",
+          "line": 111,
+          "old": 228,
+          "current": 235
+        }
+      ]
+    },
+    {
+      "name": "dcodesdev/LetterSpace",
+      "commit": "5e9b3391bcae33ab9069b0821c3fce85a57c0e47",
+      "pinned": true,
+      "files": 247,
+      "functions": 925,
+      "oldOverCap": 30,
+      "currentOverCap": 44,
+      "newlyOverCap": 14,
+      "noLongerOverCap": 0,
+      "changedFunctions": 318,
+      "sourceHash": "0b84ec7f5642074f0a8e3804d5792ddc23f784589e292bead47b39504d739838",
+      "unmeasured": [
+        {
+          "file": ".cursor/rules/general.mdc",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": ".cursor/rules/refactor.mdc",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/entrypoint.sh",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250504151654_init/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250507150657_double_opt_in/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250507232701_unsubscribe_count_per_campaign/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250508171024_creating_state_for_campaign/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250509113341_cleanup_interval_to_90_days/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250516125759_indexed_updated_for_message/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250530052056_message_status_update/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250621063438_webhooks/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250621145433_add_awaiting_webhook_status/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250621153723_add_webhook_logs/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250621175427_add_transformed_payload_to_webhook_logs/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/migrations/20250621191015_remove_webhook_url_field/migration.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/schema.prisma",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/sql/countDbSize.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/sql/countDistinctRecipients.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/sql/countDistinctRecipientsInTimeRange.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/backend/prisma/sql/subscriberGrowthQuery.sql",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/landing-page/src/app/globals.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "apps/web/src/index.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "packages/ui/shadcn-add.sh",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "packages/ui/src/index.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        }
+      ],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "apps/web/src/pages/dashboard/campaigns/page.tsx",
+          "sha256": "4fdc09c520829f5d5eed2dda6b3371dc63b74b7102cb4fba15332e629680d8c7",
+          "name": "CampaignsPage",
+          "line": 51,
+          "old": 146,
+          "current": 1762
+        },
+        {
+          "file": "apps/web/src/pages/dashboard/settings/webhook-details.tsx",
+          "sha256": "0beb99f7206d1118c0d70b8d9062325f7ae2a76ab2a0c4256b522fa36a41afae",
+          "name": "WebhookDetails",
+          "line": 28,
+          "old": 213,
+          "current": 1429
+        },
+        {
+          "file": "apps/backend/src/api/server.ts",
+          "sha256": "28b152b6da5cf450e9c9e69f94ed95e9ad7dbb8e116814bda2c42f99466c884e",
+          "name": "(callback)",
+          "line": 112,
+          "old": 395,
+          "current": 1582
+        }
+      ]
+    },
+    {
+      "name": "wobsoriano/solid-sonner",
+      "commit": "4082d5e52074a846d5e139fcbeccb75addb6871b",
+      "pinned": true,
+      "files": 19,
+      "functions": 254,
+      "oldOverCap": 3,
+      "currentOverCap": 6,
+      "newlyOverCap": 3,
+      "noLongerOverCap": 0,
+      "changedFunctions": 44,
+      "sourceHash": "8af53c32dfceaf9e29faa1924d2869e320a433661f535ee9d889f59896925cc9",
+      "unmeasured": [
+        {
+          "file": "dev/components/CodeBlock/code-block.module.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "dev/components/Footer/footer.module.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "dev/components/Hero/hero.module.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "dev/components/Installation/installation.module.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "dev/components/Other/other.module.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "dev/styles.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/styles.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        }
+      ],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "src/index.tsx",
+          "sha256": "34cde3b595cee1e690366a006e4338f1eadc315e1d69377adceb8e63baf9cf5e",
+          "name": "Toast",
+          "line": 183,
+          "old": 1790,
+          "current": 3303
+        },
+        {
+          "file": "src/index.tsx",
+          "sha256": "34cde3b595cee1e690366a006e4338f1eadc315e1d69377adceb8e63baf9cf5e",
+          "name": "Toaster",
+          "line": 656,
+          "old": 1052,
+          "current": 1762
+        },
+        {
+          "file": "src/state.ts",
+          "sha256": "523ed561ca8480c4048023e9d085622870159a4131d3900a528edf5d661fa0f7",
+          "name": "Observer.promise",
+          "line": 193,
+          "old": 230,
+          "current": 758
+        }
+      ]
+    },
+    {
+      "name": "mk12/vscode-better-git-line-blame",
+      "commit": "20528d8fadb681b5598cefc7b84b891583dc4643",
+      "pinned": true,
+      "files": 1,
+      "functions": 67,
+      "oldOverCap": 0,
+      "currentOverCap": 1,
+      "newlyOverCap": 1,
+      "noLongerOverCap": 0,
+      "changedFunctions": 20,
+      "sourceHash": "465cc712539510c0da5f4d7832c5c0520d8866bcf9ff21adb4d1adc7be52be36",
+      "unmeasured": [],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "src/extension.ts",
+          "sha256": "3b8857e365b12a77bbba4fea489de3ba7a5a8bece97238985b656db255cd17d1",
+          "name": "loadBlameForFile",
+          "line": 707,
+          "old": 69,
+          "current": 689
+        },
+        {
+          "file": "src/extension.ts",
+          "sha256": "3b8857e365b12a77bbba4fea489de3ba7a5a8bece97238985b656db255cd17d1",
+          "name": "activate",
+          "line": 57,
+          "old": 136,
+          "current": 445
+        },
+        {
+          "file": "src/extension.ts",
+          "sha256": "3b8857e365b12a77bbba4fea489de3ba7a5a8bece97238985b656db255cd17d1",
+          "name": "activate.initialize",
+          "line": 69,
+          "old": 32,
+          "current": 281
+        }
+      ]
+    },
+    {
+      "name": "gmickel/turborepo-shadcn-nextjs",
+      "commit": "c1f19e41b36f84cd731d8a3a62b9ca5a7436b3d0",
+      "pinned": true,
+      "files": 39,
+      "functions": 32,
+      "oldOverCap": 0,
+      "currentOverCap": 0,
+      "newlyOverCap": 0,
+      "noLongerOverCap": 0,
+      "changedFunctions": 15,
+      "sourceHash": "1df77f5c4766263dc1bc2b405a4956dd2cc799705a3d005923f1a39319f0c350",
+      "unmeasured": [
+        {
+          "file": "apps/storybook/src/styles/globals.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "packages/ui/src/globals.css",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        }
+      ],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "apps/storybook/src/pages/index.tsx",
+          "sha256": "88da6b6829763f3faa445eec3c43762175ae52dd7477e1baa2fdfa8afa91fd23",
+          "name": "Home",
+          "line": 6,
+          "old": 20,
+          "current": 397
+        },
+        {
+          "file": "packages/utils/src/toSlug.ts",
+          "sha256": "724a65e6210f1115964e2b8df560eb2956302762df755fa5263147ce878f1181",
+          "name": "toSlug",
+          "line": 7,
+          "old": 112,
+          "current": 86
+        },
+        {
+          "file": "apps/web/src/app/components/WelcomeCard.tsx",
+          "sha256": "c49b45bfce2ea1d5d9b5237a480fd422685e5de97d1c307263878c2fc9934763",
+          "name": "WelcomeCard",
+          "line": 17,
+          "old": 156,
+          "current": 145
+        }
+      ]
+    },
+    {
+      "name": "interlinked-cli working tree",
+      "commit": "5222e4541f286e2d49274a00f55e1aeb8b1e3523",
+      "pinned": false,
+      "files": 1624,
+      "functions": 16659,
+      "oldOverCap": 21,
+      "currentOverCap": 52,
+      "newlyOverCap": 34,
+      "noLongerOverCap": 3,
+      "changedFunctions": 5180,
+      "sourceHash": "c2731e288f2e71ec771bbcb3c6a485fe898a48af55b9115e5cc48ed39fe3e3b4",
+      "unmeasured": [
+        {
+          "file": "src/lib/metrics/ast-tokens.ts",
+          "reason": "ENOENT: no such file or directory, lstat '/Users/quentincody/interlinked-cli/src/lib/metrics/ast-tokens.ts'"
+        },
+        {
+          "file": "evals/fixtures/python/app/__init__.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "evals/fixtures/python/app/loader.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "evals/fixtures/python/app/parser.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "evals/fixtures/python/app/validator.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "scripts/ci-local.sh",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "scripts/ci-packaging.sh",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "scripts/smoke-onboarding.sh",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "scripts/smoke-tarball-install.sh",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/harness/checks/__fixtures__/bun-regressions/bss-placeholder-constant.rs",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/harness/checks/__fixtures__/bun-regressions/cast-slice-odd-length.rs",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/harness/checks/__fixtures__/bun-regressions/debug-assert-side-effect.rs",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        },
+        {
+          "file": "src/harness/content-scanner/sidecars/opf-sidecar.py",
+          "reason": "JS/TS comparison unavailable: unsupported language or parser recovery"
+        }
+      ],
+      "discoveryIssues": [],
+      "largestCountChanges": [
+        {
+          "file": "src/commands/verify/output-json.ts",
+          "sha256": "eeb102ab33905edc8cf6e9464880086dca9ac7742efa4947005ec6395b4ff53e",
+          "name": "outputJson",
+          "line": 65,
+          "old": 286,
+          "current": 1941
+        },
+        {
+          "file": "src/harness/coverage-shards/vitest.ts",
+          "sha256": "541dd9dc0c12252a668239ea6de5f082d60c47d2125cbfa0ee954d52e9ea67ac",
+          "name": "captureProviderSource",
+          "line": 62,
+          "old": 907,
+          "current": 40
+        },
+        {
+          "file": "src/commands/sync.ts",
+          "sha256": "00054ec418c499005c075f67c4a4681666e119bee88ac772ff85a44feab4b605",
+          "name": "syncCommand",
+          "line": 55,
+          "old": 403,
+          "current": 1110
+        }
+      ]
+    }
+  ],
+  "fullComparisonSha256": "7cab4c32dca595c8cafc168e97f1cd02ed0b80db19e778eb8abfcd77478d3b6a",
+  "scoringValidation": "All 12 structural scores, component aggregates, profile hashes and source hashes match the previous corpus run exactly.",
+  "benchmarks": {
+    "legacy": {
+      "adapter": "legacy",
+      "node": "v22.22.0",
+      "platform": "darwin",
+      "arch": "arm64",
+      "cpu": "Apple M4 Pro",
+      "gcExposed": true,
+      "timing": "synchronous before+after adapter calls; cold resets AST cache, not Node module cache; warm reuses parsed trees",
+      "memory": "sampled process heap/RSS, not isolated allocator attribution; GC/JIT and other processes affect results",
+      "rows": [
+        {
+          "file": "src/harness/evaluator/function-token-write-guard.ts",
+          "bytes": 2691,
+          "sha256": "f7b9f3d70022bdcaeb060117051c296aa0726e6a7687ffee67d55e0073922a48",
+          "samples": [
+            {
+              "mode": "cold-parse",
+              "repetitions": 80,
+              "medianMs": 0.5585419999999885,
+              "p95Ms": 1.655290999999977,
+              "retainedHeapDeltaBytes": 851032,
+              "sampledHeapGrowthBytes": 16929600,
+              "sampledPeakRssBytes": 215580672
+            },
+            {
+              "mode": "warm-pair",
+              "repetitions": 80,
+              "medianMs": 0.09520800000001373,
+              "p95Ms": 0.15229199999998855,
+              "retainedHeapDeltaBytes": 78168,
+              "sampledHeapGrowthBytes": 7313232,
+              "sampledPeakRssBytes": 215777280
+            }
+          ]
+        },
+        {
+          "file": "src/commands/verify/output-json.ts",
+          "bytes": 15805,
+          "sha256": "eeb102ab33905edc8cf6e9464880086dca9ac7742efa4947005ec6395b4ff53e",
+          "samples": [
+            {
+              "mode": "cold-parse",
+              "repetitions": 80,
+              "medianMs": 1.448082999999997,
+              "p95Ms": 3.0322909999999865,
+              "retainedHeapDeltaBytes": 838888,
+              "sampledHeapGrowthBytes": 57035512,
+              "sampledPeakRssBytes": 259440640
+            },
+            {
+              "mode": "warm-pair",
+              "repetitions": 80,
+              "medianMs": 0.3880420000000413,
+              "p95Ms": 0.49675000000002,
+              "retainedHeapDeltaBytes": 78112,
+              "sampledHeapGrowthBytes": 9637144,
+              "sampledPeakRssBytes": 259702784
+            }
+          ]
+        },
+        {
+          "file": "src/commands/verify/verify-tools.ts",
+          "bytes": 11991,
+          "sha256": "4a9d8fe765c6eff6a34cb2724ea1cee9813cf1c19e1f28570d1594135b001bd7",
+          "samples": [
+            {
+              "mode": "cold-parse",
+              "repetitions": 80,
+              "medianMs": 1.693125000000009,
+              "p95Ms": 3.38308399999994,
+              "retainedHeapDeltaBytes": 886128,
+              "sampledHeapGrowthBytes": 57585136,
+              "sampledPeakRssBytes": 261373952
+            },
+            {
+              "mode": "warm-pair",
+              "repetitions": 80,
+              "medianMs": 0.5561669999999594,
+              "p95Ms": 0.6599999999999682,
+              "retainedHeapDeltaBytes": 15072,
+              "sampledHeapGrowthBytes": 16409840,
+              "sampledPeakRssBytes": 261406720
+            }
+          ]
+        }
+      ]
+    },
+    "current": {
+      "adapter": "current",
+      "node": "v22.22.0",
+      "platform": "darwin",
+      "arch": "arm64",
+      "cpu": "Apple M4 Pro",
+      "gcExposed": true,
+      "timing": "synchronous before+after adapter calls; cold resets AST cache, not Node module cache; warm reuses parsed trees",
+      "memory": "sampled process heap/RSS, not isolated allocator attribution; GC/JIT and other processes affect results",
+      "rows": [
+        {
+          "file": "src/harness/evaluator/function-token-write-guard.ts",
+          "bytes": 2691,
+          "sha256": "f7b9f3d70022bdcaeb060117051c296aa0726e6a7687ffee67d55e0073922a48",
+          "samples": [
+            {
+              "mode": "cold-parse",
+              "repetitions": 80,
+              "medianMs": 0.7979579999999942,
+              "p95Ms": 10.365792000000056,
+              "retainedHeapDeltaBytes": 927088,
+              "sampledHeapGrowthBytes": 25008824,
+              "sampledPeakRssBytes": 224509952
+            },
+            {
+              "mode": "warm-pair",
+              "repetitions": 80,
+              "medianMs": 0.06620799999996052,
+              "p95Ms": 0.08724999999992633,
+              "retainedHeapDeltaBytes": 88520,
+              "sampledHeapGrowthBytes": 1303520,
+              "sampledPeakRssBytes": 224755712
+            }
+          ]
+        },
+        {
+          "file": "src/commands/verify/output-json.ts",
+          "bytes": 15805,
+          "sha256": "eeb102ab33905edc8cf6e9464880086dca9ac7742efa4947005ec6395b4ff53e",
+          "samples": [
+            {
+              "mode": "cold-parse",
+              "repetitions": 80,
+              "medianMs": 3.4530410000000984,
+              "p95Ms": 14.734958000000006,
+              "retainedHeapDeltaBytes": 897352,
+              "sampledHeapGrowthBytes": 120212904,
+              "sampledPeakRssBytes": 324239360
+            },
+            {
+              "mode": "warm-pair",
+              "repetitions": 80,
+              "medianMs": 0.3163750000001073,
+              "p95Ms": 1.3790000000001328,
+              "retainedHeapDeltaBytes": 16448,
+              "sampledHeapGrowthBytes": 1448736,
+              "sampledPeakRssBytes": 324288512
+            }
+          ]
+        },
+        {
+          "file": "src/commands/verify/verify-tools.ts",
+          "bytes": 11991,
+          "sha256": "4a9d8fe765c6eff6a34cb2724ea1cee9813cf1c19e1f28570d1594135b001bd7",
+          "samples": [
+            {
+              "mode": "cold-parse",
+              "repetitions": 80,
+              "medianMs": 5.197375000000193,
+              "p95Ms": 31.913999999999987,
+              "retainedHeapDeltaBytes": 797568,
+              "sampledHeapGrowthBytes": 117403816,
+              "sampledPeakRssBytes": 325697536
+            },
+            {
+              "mode": "warm-pair",
+              "repetitions": 80,
+              "medianMs": 0.3805409999999938,
+              "p95Ms": 6.99108299999989,
+              "retainedHeapDeltaBytes": 33248,
+              "sampledHeapGrowthBytes": 3766632,
+              "sampledPeakRssBytes": 325697536
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

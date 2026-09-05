@@ -88,13 +88,23 @@ exempt: `.d.ts`, anything under `.interlinked/`, root `scratch/`, non-code exten
 content), test/spec paths, and `@codegen-data`-marked modules.
 
 **Function tokens** — a deterministic, model-independent size cap. Interlinked counts complete
-implementation spans with the versioned `interlinked-code-v1` lexer: comments and whitespace do
-not count, while code tokens do. The shipped ceiling is inclusive (`500` passes, `501` is over)
+implementation spans with the `interlinked-code-v2` contract. JS/TS uses the shared
+`interlinked-ts-ast-v1` parser-resolved counter; Python retains its standard-library
+`interlinked-python-tokenize-v1` policy. Comments, whitespace, JSDoc and empty parser markers
+do not count in JS/TS; written tokens, types and nested implementations do. The shipped ceiling
+is inclusive (`500` passes, `501` is over)
 and may be ratcheted down but never raised above 500. The edit comparison has brownfield delta
 semantics: a pre-existing over-cap function may hold or shrink, but may not grow; a new or newly
 over-cap function blocks. TypeScript/JavaScript and Python have exact adapters. Unsupported or
 unavailable languages fail open with a visible `not-measured` warning because heuristic spans are
 not eligible for a hard block. There is no suppression or model-tokenizer fallback.
+
+Migration recounts both before and after source with the same counter. A function newly
+revealed as oversized by v2 is existing debt and may hold or shrink. New over-cap functions,
+growth, and relocation into new oversized helpers still block. A recovered/unavailable parse
+on either side produces a visible unmeasured comparison, never an empty baseline. Reports retain
+`canonicalTokens` and publish v2 plus adapter/parser-version provenance; do not relabel historical
+receipts or compare v1 numbers directly with v2. No size baseline needs to be manually reset.
 
 This count is not an embedding context-window estimate. `interlinked semantic` records a selected
 model's separate `modelTokens` value and chunks inputs that do not fit; semantic availability,
@@ -600,8 +610,9 @@ The experimental `interlinked-structure-js-ts-v1` profile uses parser-resolved
 `interlinked-ts-ast-v1` tokens, including templates, regexes and JSX, with JSDoc excluded from
 token and Halstead tallies. Exclusive ownership avoids
 counting nested function tokens twice in exposure; function-size measurements include the whole
-implementation. Existing `interlinked-code-v1` edit gates and their baselines retain their current
-contract. Do not compare numbers across tokenizer/profile versions as if their units were identical.
+implementation. Edit gates, commit checks, verification and metric inventories now share this
+JS/TS counter through `interlinked-code-v2`. Scoring weights, knots and its AST tokenizer ID did
+not change. Do not compare old scanner counts across tokenizer versions as identical units.
 
 Scoring uses the handwritten product path/content policy and function-adapter path eligibility.
 Extensionless files, tests, declarations, generated/vendor/build outputs and metadata outside that

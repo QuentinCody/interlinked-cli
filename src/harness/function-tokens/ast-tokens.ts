@@ -1,5 +1,5 @@
 import type * as TS from "typescript";
-import { functionName, isImplementationFunction, type ParsedTsSource } from "../../harness/checks/cyclomatic-ast.js";
+import { functionName, isImplementationFunction, type ParsedTsSource } from "../checks/cyclomatic-ast.js";
 
 export interface AstImplementation {
     name: string;
@@ -11,8 +11,15 @@ export interface AstImplementation {
     exposure: number;
 }
 export interface DocumentationSpan { startOffset: number; endOffset: number; }
-export interface AstTokenCounts { astTokens: number; functions: AstImplementation[]; documentation: DocumentationSpan[]; }
+export interface AstTokenCounts {
+    readonly astTokens: number;
+    readonly functions: readonly Readonly<AstImplementation>[];
+    readonly documentation: readonly Readonly<DocumentationSpan>[];
+}
 interface TokenContext { parsed: ParsedTsSource; functions: AstImplementation[]; documentation: DocumentationSpan[]; }
+// SourceFile identity binds bytes/parser/ScriptKind through the shared parse cache.
+// Weak keys release counts with evicted trees; frozen results cannot contaminate later checks.
+const countsBySource = new WeakMap<TS.SourceFile, AstTokenCounts>();
 
 function implementation(node: TS.Node, parsed: ParsedTsSource): AstImplementation {
     const startOffset = node.getStart(parsed.sf);
@@ -48,6 +55,20 @@ function visitAst(node: TS.Node, enclosing: AstImplementation | undefined, conte
 
 /** Parser-resolved tokens correctly delimit regexes, JSX and interpolated templates. */
 export function countAstImplementations(parsed: ParsedTsSource): AstTokenCounts {
+    const cached = countsBySource.get(parsed.sf);
+    if (cached) return cached;
     const context: TokenContext = { parsed, functions: [], documentation: [] };
-    return { astTokens: visitAst(parsed.sf, undefined, context), functions: context.functions, documentation: context.documentation };
+    const astTokens = visitAst(parsed.sf, undefined, context);
+    const result = Object.freeze({ astTokens,
+        functions: Object.freeze(context.functions.map(fn => Object.freeze(fn))),
+        documentation: Object.freeze(context.documentation.map(span => Object.freeze(span))),
+    });
+    countsBySource.set(parsed.sf, result);
+    return result;
+}
+
+/** Recovery trees cannot certify an exact size or an empty function population. */
+export function hasExactSyntax(parsed: ParsedTsSource): boolean {
+    const diagnostics: unknown = Reflect.get(parsed.sf, "parseDiagnostics");
+    return Array.isArray(diagnostics) && diagnostics.length === 0;
 }

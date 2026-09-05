@@ -118,7 +118,7 @@ export async function semanticStatusAction(options: CommonOptions): Promise<numb
             }
             if (status.reason !== null) console.log(`  ${status.reason}`);
         }
-        return status.state === "corrupt" || status.state === "model-mismatch" ? 1 : 0;
+        return ["corrupt", "model-mismatch", "measurement-mismatch"].includes(status.state) ? 1 : 0;
     } catch (error) {
         return printError(error, options.json === true);
     }

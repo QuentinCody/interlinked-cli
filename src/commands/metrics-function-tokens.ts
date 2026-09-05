@@ -15,6 +15,7 @@ import {
     isTestOrSpecPath,
 } from "../harness/large-file-policy.js";
 import { maxFunctionTokensFor } from "../harness/metric-caps.js";
+import { functionTokenProvenance, type FunctionTokenProvenance } from "../harness/function-tokens/provenance.js";
 import { discoverFunctionTokenFiles } from "./verify/file-discovery.js";
 
 type FunctionTokenSourceScope = "product" | "test";
@@ -75,6 +76,7 @@ interface FunctionTokenNotMeasured {
 export interface FunctionTokenMetricsReport {
     schemaVersion: 1;
     tokenizer: typeof CANONICAL_TOKENIZER_ID;
+    measurement?: FunctionTokenProvenance;
     cap: number;
     elapsedMs: number;
     scope: {
@@ -445,6 +447,7 @@ export function buildFunctionTokenMetricsReport(args: {
     return {
         schemaVersion: 1,
         tokenizer: CANONICAL_TOKENIZER_ID,
+        measurement: functionTokenProvenance(measurement.measured.map(item => item.source.status.language)),
         cap,
         elapsedMs: Date.now() - startedAt,
         scope: reportScope({ includeTests, discovery, functions, files, notMeasured }),

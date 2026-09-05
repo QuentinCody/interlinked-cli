@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { computeFunctionTokens, functionTokenAnalyzerStatus } from "../function-tokens/index.js";
-import type { FunctionTokenEntry } from "../function-tokens/types.js";
+import { CANONICAL_TOKENIZER_ID, type FunctionTokenEntry } from "../function-tokens/types.js";
 import { isCappableFile } from "../large-file-policy.js";
 import { maxFunctionTokensFor } from "../metric-caps.js";
 import { extractAllEditedFilePaths } from "../server-tool-helpers.js";
@@ -81,7 +81,7 @@ export function formatFunctionTokenPulse(
     const overCap = after.filter((entry) => entry.canonicalTokens > cap).length;
     if (reviewBand > 0) line += `; review band ${reviewBand}`;
     if (overCap > 0) line += `; over cap ${overCap}`;
-    return line;
+    return `${line}; tokenizer ${CANONICAL_TOKENIZER_ID}`;
 }
 
 function pulseForFile(sessionId: string, cwd: string, absolutePath: string): string | null {

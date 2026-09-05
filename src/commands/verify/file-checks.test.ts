@@ -210,13 +210,22 @@ describe("runPerFileChecks — function-token cap", () => {
 		const result = run("/tmp/huge-function.ts", `export function huge() {\n${statements}\n}\n`);
 		const finding = result.complexity.find((issue) => issue.check === "function_tokens");
 		expect(finding?.line).toBe(1);
-		expect(finding?.message).toMatch(/huge has \d+ canonical code tokens \(cap 500, tokenizer interlinked-code-v1\)/);
+		expect(finding?.message).toMatch(/huge has \d+ canonical code tokens \(cap 500, tokenizer interlinked-code-v2\)/);
 	});
 
 	it("keeps test functions advisory by excluding them from the default verify gate", () => {
 		const statements = Array.from({ length: 130 }, (_, index) => `let value${index} = ${index};`).join("\n");
 		const result = run("/tmp/huge-function.test.ts", `function huge() {\n${statements}\n}\n`);
 		expect(result.complexity.some((issue) => issue.check === "function_tokens")).toBe(false);
+	});
+
+	it("reports corrected template counts and makes malformed syntax explicitly unmeasured", () => {
+		const source = "function target(x){return `a${x}b`;" + ";".repeat(520) + "}";
+		const measured = run("/tmp/template-size.ts", source);
+		expect(measured.complexity.find(row => row.check === "function_tokens")?.message).toContain("532 canonical code tokens");
+		const invalid = run("/tmp/template-size.ts", "function broken( {");
+		expect(invalid.complexity.some(row => row.check === "function_tokens_not_measured")).toBe(true);
+		expect(invalid.complexity.some(row => row.check === "function_tokens")).toBe(false);
 	});
 });
 

@@ -1,4 +1,5 @@
 import type { FunctionDeclarationKind } from "../function-tokens/types.js";
+import type { FunctionTokenProvenance } from "../function-tokens/provenance.js";
 
 const FUNCTION_EMBEDDING_SCHEMA = "function-embedding-v1" as const;
 const SEMANTIC_AGGREGATION_VERSION = "weighted-centroid-v1" as const;
@@ -103,6 +104,8 @@ export interface SemanticIndexMeta {
     schemaVersion: 1;
     modelFingerprint: string;
     canonicalTokenizer: string;
+    /** Absent in legacy generations; those counts require a metadata refresh. */
+    tokenMeasurement?: FunctionTokenProvenance;
     repositoryIdentity: string;
     sourceHash: string;
     functionCount: number;
@@ -139,6 +142,7 @@ export type SemanticIndexState =
     | "stale"
     | "corrupt"
     | "model-mismatch"
+    | "measurement-mismatch"
     | "model-missing"
     | "runtime-missing";
 

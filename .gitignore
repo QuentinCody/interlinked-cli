@@ -125,6 +125,9 @@ src/lib/_write_integration/
 # blocks NEW additions. Drop a `!scripts/foo.mjs` carve-out below if a
 # new file in this directory needs to ship to the repo.
 scripts/*
+!scripts/function-token-migration.ts
+!scripts/function-token-migration-legacy.ts
+!scripts/function-token-migration-benchmark.ts
 !scripts/build-atomic.mjs
 !scripts/build-atomic-cli.mjs
 !scripts/build-atomic.test.mjs

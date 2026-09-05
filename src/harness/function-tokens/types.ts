@@ -1,4 +1,6 @@
-export const CANONICAL_TOKENIZER_ID = "interlinked-code-v1" as const;
+export const CANONICAL_TOKENIZER_ID = "interlinked-code-v2" as const;
+export const TYPESCRIPT_TOKENIZER_ID = "interlinked-ts-ast-v1" as const;
+export const PYTHON_TOKENIZER_ID = "interlinked-python-tokenize-v1" as const;
 
 export type FunctionDeclarationKind =
     | "function"

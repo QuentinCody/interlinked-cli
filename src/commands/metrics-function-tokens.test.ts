@@ -104,7 +104,7 @@ describe("buildFunctionTokenMetricsReport", () => {
 
         const report = buildFunctionTokenMetricsReport({ cwd: root, topN: 2 });
         expect(report.schemaVersion).toBe(1);
-        expect(report.tokenizer).toBe("interlinked-code-v1");
+        expect(report.tokenizer).toBe("interlinked-code-v2");
         expect(report.scope.includeTests).toBe(false);
         expect(report.functions.map((row) => row.qualifiedName)).toEqual([
             "config",

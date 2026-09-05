@@ -83,6 +83,8 @@ export interface MetricGateSpec<E extends NamedMetricEntry> {
 	capFor: (cwd: string) => number;
 	/** Called (fail-open) when the analyzer for `language` is unavailable. */
 	onAnalyzerUnavailable?: (language: string) => void;
+	/** Exact token comparisons must not treat an unparseable baseline as empty. */
+	requireMeasuredBefore?: boolean;
 	/** The grandfather ledger's view of `filePath` (function-complexity-baseline.ts),
 	 *  or null for legacy delta semantics. When present it is AUTHORITATIVE over
 	 *  the cap band: a listed function may hold/shrink at its recorded value; an
@@ -343,7 +345,12 @@ export function metricViolations<E extends NamedMetricEntry>(
 		spec.onAnalyzerUnavailable?.(analyzer.language);
 		return null;
 	}
-	const beforeEntries = analyzer.compute(before, filePath) ?? [];
+	const measuredBefore = analyzer.compute(before, filePath);
+	if (measuredBefore === null && spec.requireMeasuredBefore) {
+		spec.onAnalyzerUnavailable?.(analyzer.language);
+		return null;
+	}
+	const beforeEntries = measuredBefore ?? [];
 	// Hand the already-paid parses to the telemetry observer (decision unaffected).
 	observe?.(filePath, beforeEntries, afterEntries, after);
 

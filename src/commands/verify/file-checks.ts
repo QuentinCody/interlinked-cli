@@ -240,7 +240,7 @@ function collectFunctionTokenFindings(
 			line: entry.line,
 			message:
 				`${entry.qualifiedName} has ${entry.canonicalTokens} canonical code tokens ` +
-				`(cap ${cap}, tokenizer interlinked-code-v1). Split it into cohesive named helpers.`,
+				`(cap ${cap}, tokenizer interlinked-code-v2). Split it into cohesive named helpers.`,
 		});
 	}
 }

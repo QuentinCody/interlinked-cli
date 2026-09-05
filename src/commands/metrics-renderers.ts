@@ -25,7 +25,7 @@ export interface FnMetric {
 	coveragePct: number | null;
 	/** null when no coverage data is available (CRAP needs coverage). */
 	crap: number | null;
-	/** Model-independent interlinked-code-v1 count; null when not measured. */
+	/** Model-independent interlinked-code-v2 count; null when not measured. */
 	canonicalTokens?: number | null;
 }
 
@@ -130,7 +130,7 @@ function functionTokenGateLines(r: MetricsReport): string[] {
 function functionTokenDistributionLines(r: MetricsReport): string[] {
 	if (r.functionTokenMetrics) return renderFunctionTokenSummaryLines(r.functionTokenMetrics);
 	if (!r.distributions.functionTokens) return [];
-	const lines = ["", c.bold("  Function-token distribution (interlinked-code-v1)")];
+	const lines = ["", c.bold("  Function-token distribution (interlinked-code-v2)")];
 	for (const [bucket, n] of Object.entries(r.distributions.functionTokens)) {
 		lines.push(`    ${bucket.padEnd(10)} ${n}`);
 	}

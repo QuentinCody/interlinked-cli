@@ -27,7 +27,7 @@ The number of lines in a single hand-written code file. Large files are harder f
 
 ## canonical function size (per function) (`function-tokens`)
 
-The number of non-trivia lexical code tokens in one implementation under the stable interlinked-code-v1 contract. It is independent of any embedding model tokenizer: 500 passes, 501 is over the shipped absolute ceiling.
+The number of non-trivia lexical code tokens in one implementation under the interlinked-code-v2 contract (parser-resolved syntax tokens for JS/TS). It is independent of any embedding model tokenizer: 500 passes, 501 is over the shipped absolute ceiling.
 
 - **Shipped default:** 500 tokens (lower is stricter)
 - **Configure:** `interlinked caps set function-tokens <n>` (or .interlinked/metric-caps.json → max_function_tokens)

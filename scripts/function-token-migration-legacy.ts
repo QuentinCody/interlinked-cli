@@ -1,17 +1,20 @@
+// Frozen interlinked-code-v1 JS/TS adapter for migration validation only.
+// Preserves the original scanner and implementation discovery; never used by gates.
+import { extname } from "node:path";
 import type * as TS from "typescript";
-import { nonNull } from "../../lib/non-null.js";
-import { countAstImplementations, hasExactSyntax } from "./ast-tokens.js";
 import {
     functionName,
     isFunctionLike,
     isImplementationFunction,
     parseTsSource,
     type TsModule,
-} from "../checks/cyclomatic-ast.js";
+} from "../src/harness/checks/cyclomatic-ast.js";
 import type {
     FunctionDeclarationKind,
     FunctionTokenEntry,
-} from "./types.js";
+} from "../src/harness/function-tokens/types.js";
+
+const JSX_EXTENSIONS = new Set([".jsx", ".tsx"]);
 
 function declarationKind(ts: TsModule, node: TS.Node): FunctionDeclarationKind {
     if (ts.isConstructorDeclaration(node)) return "constructor";
@@ -51,6 +54,27 @@ function qualifiedName(ts: TsModule, node: TS.Node, sf: TS.SourceFile): string {
     return segments.reverse().join(".");
 }
 
+function countCanonicalTokens(
+    ts: TsModule,
+    source: string,
+    filePath: string,
+    start: number,
+    end: number,
+): number {
+    const variant = JSX_EXTENSIONS.has(extname(filePath).toLowerCase())
+        ? ts.LanguageVariant.JSX
+        : ts.LanguageVariant.Standard;
+    const scanner = ts.createScanner(
+        ts.ScriptTarget.Latest,
+        true,
+        variant,
+        source.slice(start, end),
+    );
+    let count = 0;
+    while (scanner.scan() !== ts.SyntaxKind.EndOfFileToken) count++;
+    return count;
+}
+
 function finalizeIdentity(entries: FunctionTokenEntry[]): void {
     const counts = new Map<string, number>();
     for (const entry of entries) {
@@ -62,14 +86,13 @@ function finalizeIdentity(entries: FunctionTokenEntry[]): void {
     }
 }
 
-export function computeTypeScriptFunctionTokens(
+export function computeLegacyFunctionTokens(
     content: string,
     filePath: string,
 ): FunctionTokenEntry[] | null {
     const parsed = parseTsSource(content, filePath);
-    if (!parsed || !hasExactSyntax(parsed)) return null;
+    if (!parsed) return null;
     const { ts, sf } = parsed;
-    const counts = new Map(countAstImplementations(parsed).functions.map(fn => [fn.startOffset, fn.tokens]));
     const entries: FunctionTokenEntry[] = [];
     const walk = (node: TS.Node): void => {
         if (isImplementationFunction(ts, node)) {
@@ -86,7 +109,7 @@ export function computeTypeScriptFunctionTokens(
                 endOffset,
                 line: start.line + 1,
                 endLine: end.line + 1,
-                canonicalTokens: nonNull(counts.get(startOffset), "AST implementation count is missing"),
+                canonicalTokens: countCanonicalTokens(ts, content, filePath, startOffset, endOffset),
                 identityKind: "named",
             });
         }

@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { interlinkedPath } from "../../lib/interlinked-path.js";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import type { IndexedFunctionRow, LoadedSemanticIndex, SemanticIndexMeta } from "./types.js";
+import { isFunctionTokenProvenance, type FunctionTokenProvenance } from "../function-tokens/provenance.js";
 
 const GENERATION_PATTERN = /^[A-Za-z0-9._-]+$/;
 
@@ -44,6 +45,7 @@ function generationId(): string {
 export interface GenerationMetadataInput {
     modelFingerprint: string;
     canonicalTokenizer: string;
+    tokenMeasurement?: FunctionTokenProvenance;
     repositoryIdentity: string;
     sourceHash: string;
     dimension: number;
@@ -66,6 +68,7 @@ function buildMeta(
         schemaVersion: 1,
         modelFingerprint: input.modelFingerprint,
         canonicalTokenizer: input.canonicalTokenizer,
+        ...(input.tokenMeasurement ? { tokenMeasurement: input.tokenMeasurement } : {}),
         repositoryIdentity: input.repositoryIdentity,
         sourceHash: input.sourceHash,
         functionCount: rows.length,
@@ -158,6 +161,7 @@ function validMetaIdentity(meta: JsonObject): boolean {
     return meta.schemaVersion === 1
         && typeof meta.modelFingerprint === "string"
         && typeof meta.canonicalTokenizer === "string"
+        && (meta.tokenMeasurement === undefined || isFunctionTokenProvenance(meta.tokenMeasurement))
         && typeof meta.repositoryIdentity === "string"
         && typeof meta.sourceHash === "string"
         && meta.byteOrder === "little-endian";

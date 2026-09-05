@@ -9,10 +9,13 @@ Interlinked can embed complete functions into a repository-local vector index an
 meaning or similarity. The v1 subsystem is **experimental, explicit, and local-only**: no source,
 query, vector, or model inference is sent to the Interlinked MCP Server or a cloud provider.
 
-This is independent from the hard function-token gate. The gate uses the stable
-`interlinked-code-v1` canonical lexer and an inclusive 500-token ceiling. The semantic index uses
+This is independent from the hard function-token gate. The gate uses the
+`interlinked-code-v2` contract (parser-resolved JS/TS syntax, Python stdlib tokenization)
+and an inclusive 500-token ceiling, without an embedding model. The semantic index uses
 the active model's real tokenizer, records `modelTokens`, and syntax-chunks long inputs before
 weighted-centroid aggregation. Model context changes never redefine or bypass the hard cap.
+The semantic runtime's `llama-tokenize` path currently requires the installed GGUF artifact
+and local llama.cpp commands, even though tokenization itself does not run neural inference.
 
 ## Command surface
 
@@ -65,11 +68,16 @@ gitignored and are not included in sync.
 - `index` scans confined, ignored-aware product source with exact function adapters. Tests are
   excluded unless team config or `--include-tests` enables them; generated/vendor/data paths stay
   excluded. `--rebuild` disables unchanged-input vector reuse.
-- Every generation binds the exact model/runtime fingerprint, input schema, canonical lexer,
+- Every generation binds the exact model/runtime fingerprint, input schema, canonical counter,
   chunk aggregation policy, dimension, hashes, and source census. An interrupted build leaves the
   previous `CURRENT` generation readable.
 - `status` distinguishes `absent`, `building`, `current`, `stale`, `corrupt`, `model-mismatch`,
-  `model-missing`, and `runtime-missing`.
+  `model-missing`, `runtime-missing`, and `measurement-mismatch`.
+- New metadata includes `tokenMeasurement` with the contract, language adapters and parser
+  versions. Legacy/mismatched measurement metadata cannot be queried as current counts;
+  `status` reports `measurement-mismatch` and exits 1. Run `semantic index` to refresh it.
+  Unchanged full inputs and model/runtime fingerprints can reuse vectors while canonical counts
+  and provenance are recomputed. `--rebuild` remains the explicit no-reuse option.
 - `search` embeds the query locally and exact-scans cosine similarity. `similar` uses the stored
   vector of the innermost indexed function containing the requested line and excludes itself.
   Results sort by descending score, then file, line, and symbol.
@@ -92,5 +100,7 @@ blocking hook response and do not offer remote inference, hybrid ranking, or an 
 4. For `stale`, run `semantic index`; the last generation is still readable meanwhile.
 5. For `corrupt` or `model-mismatch`, run `semantic index --rebuild` after the configured exact
    model/runtime is available. Do not hand-edit vectors, metadata, `CURRENT`, or fingerprints.
+6. For `measurement-mismatch`, run `semantic index` with the configured model/runtime available;
+   this refreshes measurement metadata without forcing compatible inputs to be re-embedded.
 
 Related skill: **interlinked-quality-gates** owns the separate deterministic 500-token ratchet.

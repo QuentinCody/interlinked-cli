@@ -1,10 +1,12 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { CANONICAL_TOKENIZER_ID } from "../function-tokens/types.js";
+import { functionTokenProvenance } from "../function-tokens/provenance.js";
 import { loadSemanticConfig, modelArtifactPath } from "./config.js";
 import { discoverSemanticSources, semanticSourceHash } from "./index-discovery.js";
 import { semanticModelInstalled, verifySemanticModelArtifact } from "./model-install.js";
 import { createLlamaRuntime } from "./runtime.js";
-import type { ResolvedSemanticConfig, SemanticStatus } from "./types.js";
+import type { LoadedSemanticIndex, ResolvedSemanticConfig, SemanticStatus } from "./types.js";
 import { loadSemanticIndex, semanticBuildInProgress, semanticIndexRoot } from "./vector-store.js";
 
 async function resolveMissingIndexStatus(config: ResolvedSemanticConfig, expectedModel: string): Promise<SemanticStatus> {
@@ -22,6 +24,18 @@ async function resolveMissingIndexStatus(config: ResolvedSemanticConfig, expecte
                 : `model artifact is absent from ${modelArtifactPath(config.manifest)}`
             : null,
         meta: null,
+    };
+}
+
+function measurementMismatch(index: LoadedSemanticIndex): SemanticStatus | null {
+    const expected = functionTokenProvenance(index.rows.map(row => row.language));
+    const available = expected.adapters.every(adapter => adapter.parserVersion !== null);
+    if (available && index.meta.canonicalTokenizer === CANONICAL_TOKENIZER_ID
+        && JSON.stringify(index.meta.tokenMeasurement) === JSON.stringify(expected)) return null;
+    return {
+        schemaVersion: 1, state: "measurement-mismatch", generation: index.generation,
+        modelFingerprint: index.meta.modelFingerprint, meta: index.meta,
+        reason: "function-token contract or parser version changed; run interlinked semantic index to refresh counts",
     };
 }
 
@@ -47,6 +61,8 @@ export async function semanticIndexStatus(root: string): Promise<SemanticStatus>
             meta: null,
         };
     }
+    const mismatch = measurementMismatch(index);
+    if (mismatch) return mismatch;
     if (!semanticModelInstalled(config.manifest)) {
         return {
             schemaVersion: 1,

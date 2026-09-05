@@ -2,7 +2,7 @@ import type * as TS from "typescript";
 import { computeCyclomaticAst, parseTsSource, type ParsedTsSource } from "../../harness/checks/cyclomatic-ast.js";
 import { computeCognitiveAst } from "../../harness/checks/cognitive-ast.js";
 import { computeMaintainability } from "../../harness/checks/maintainability.js";
-import { countAstImplementations, type AstImplementation, type DocumentationSpan } from "./ast-tokens.js";
+import { countAstImplementations, hasExactSyntax, type AstImplementation, type DocumentationSpan } from "../../harness/function-tokens/ast-tokens.js";
 
 export interface StructureFunction extends AstImplementation {
     cyclomatic: number;
@@ -56,7 +56,7 @@ function typeDiagnostics(parsed: ParsedTsSource): TypeDiagnostics {
     return result;
 }
 
-function joinMeasurements(content: string, file: string, implementations: AstImplementation[]): StructureFunction[] {
+function joinMeasurements(content: string, file: string, implementations: readonly AstImplementation[]): StructureFunction[] {
     const cc = computeCyclomaticAst(content, file);
     const cognitive = computeCognitiveAst(content, file);
     const maintainability = computeMaintainability(content, file, 0);
@@ -72,7 +72,7 @@ function joinMeasurements(content: string, file: string, implementations: AstImp
     });
 }
 
-function withoutDocumentation(content: string, documentation: DocumentationSpan[]): string {
+function withoutDocumentation(content: string, documentation: readonly DocumentationSpan[]): string {
     let cursor = 0;
     const parts: string[] = [];
     for (const span of documentation) {
@@ -87,9 +87,7 @@ export function measureStructure(content: string, file: string): StructureMeasur
     try {
         const parsed = parseTsSource(content, file);
         if (!parsed) return { state: "unavailable", reason: "TypeScript AST parser is unavailable" };
-        // TypeScript keeps parseDiagnostics on SourceFile at runtime, outside its public type.
-        const diagnostics: unknown = Reflect.get(parsed.sf, "parseDiagnostics");
-        if (!Array.isArray(diagnostics) || diagnostics.length > 0) return { state: "unavailable", reason: "Source did not parse without recovery" };
+        if (!hasExactSyntax(parsed)) return { state: "unavailable", reason: "Source did not parse without recovery" };
         const tokens = countAstImplementations(parsed);
         const code = withoutDocumentation(content, tokens.documentation);
         return {

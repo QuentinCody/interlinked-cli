@@ -18,9 +18,12 @@ Interlinked gates edits at **three moments**, and they run different check sets:
   writer tools are routed by their observed filesystem ChangeSet, not merely command parsing.
 
 `interlinked verify` is the **on-demand, whole-project** run of that same check catalog.
-Its `function_tokens` finding uses exact canonical adapters and reports every current
+Its `function_tokens` finding uses the shared `interlinked-code-v2` adapters and reports every current
 product-source implementation over the effective cap. Unsupported languages are reported as
 not measured; semantic-model token counts are unrelated and never substitute for this check.
+JS/TS counts match `metrics score` function size, edit gates and commit checks. Recovered source
+syntax remains unmeasured. Verify is an inventory of current over-cap functions; edit/commit
+ratchets separately allow existing debt to hold or shrink, including debt revealed by migration.
 
 ## Load this when
 - You want to verify a batch of edits before declaring done.
