@@ -12,6 +12,7 @@ import { isSpecEligibleFile } from "../spec/types.js";
 import type { Determinism, HarnessDecision, SessionTrajectory } from "../types.js";
 import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import type { ServerRuntime } from "./runtime-context.js";
+import { captureSpecDrift } from "./spec-drift-capture.js";
 
 // Module-level shared handle so PreToolUse guards (pure functions with no
 // ServerRuntime access) can consult the ledger — the complexity-pulse
@@ -31,10 +32,6 @@ export function setSharedSpecLedgerForTesting(ledger: SpecLedger | null): void {
 
 /** Max drift warnings surfaced per edit — the rest wait for Stop/verify. */
 const MAX_WARNINGS_PER_EVENT = 5;
-/** Cap on the session's outstanding-drift stash (Stop nudge payload). */
-const STASH_CAP = 10;
-/** Per-entry message cap inside the session stash. */
-const STASH_MESSAGE_CHARS = 200;
 
 /** Determinism per finding kind (quality-checks tagging convention):
  *  declared markers and anchor/file existence are exact; count/range drift
@@ -136,7 +133,8 @@ export function runSpecLedgerPhase(
 		const scoped = all.filter(
 			(f) => f.file === rel || f.relatedFiles.includes(rel),
 		);
-		recordFindings({ rel, all, scoped, session, decision, acc });
+		captureSpecDrift(ctx.cwd, rel, all, session);
+		recordFindings({ rel, scoped, decision, acc, session });
 	} catch (err) {
 		ctx.log(
 			`Spec-ledger phase error: ${err instanceof Error ? err.message : String(err)}`,
@@ -146,27 +144,17 @@ export function runSpecLedgerPhase(
 
 interface RecordFindingsArgs {
 	rel: string;
-	/** Every outstanding finding repo-wide — the Stop-stash source of truth. */
-	all: SpecDriftFinding[];
 	/** Findings involving the edited file — the per-edit warning set. */
 	scoped: SpecDriftFinding[];
-	session: SessionTrajectory;
 	decision: HarnessDecision;
 	acc: PerFileCheckCtx;
+	session: SessionTrajectory;
 }
 
-function recordFindings({ rel, all, scoped, session, decision, acc }: RecordFindingsArgs): void {
-	// Stash the GLOBAL outstanding set for the Stop nudge — recomputed from
-	// the ledger each edit, so it neither forgets earlier files' drift nor
-	// keeps entries that were since resolved.
-	session.spec_drift_outstanding = all.slice(0, STASH_CAP).map((f) => ({
-		file: f.file,
-		line: f.line,
-		message: f.message.slice(0, STASH_MESSAGE_CHARS),
-	}));
+function recordFindings({ rel, scoped, decision, acc, session }: RecordFindingsArgs): void {
 	const findings = scoped;
-	if (findings.length === 0) return;
 	acc.checksRan.push("spec_ledger");
+	if (findings.length === 0) return;
 	if (!decision.warnings) decision.warnings = [];
 	for (const f of findings.slice(0, MAX_WARNINGS_PER_EVENT)) {
 		decision.warnings.push(

@@ -498,7 +498,7 @@ describe("computeDrift scoping (sol-max #19)", () => {
 				"plan.md": SEVEN_BETS,
 				"readme.md": "The composition of six bets does the work.",
 				"gates.md": SEVEN_GATES,
-				"notes.md": "We ship six gates in total.",
+				"notes.md": "We ship six gates in total. See [registry](gates.md).",
 			},
 			never,
 		);

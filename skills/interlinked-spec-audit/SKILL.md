@@ -93,6 +93,16 @@ above a B1..B7 census), `spec_pitfall` (curated spec falsehoods), `spec_claim_un
 count/range/declared-fact/xref drift *involving the edited file* (≤5/edit; the rest deferred to
 Stop).
 
+Generic count claims use a scoped identifier census. A README may describe its directory;
+other documents must mention the namespace or link to its home near the claim before sibling
+files enter the census. Nearby explicit links can select another document set. A shared noun
+such as “gates” does not join an unrelated repository-wide identifier namespace. Stop reports
+a repository snapshot; it does not claim
+that the current session introduced every finding. Full comparisons, related files, stable
+finding IDs and observation provenance are retained in `spec-drift.jsonl` and can be searched
+with `interlinked data search --source spec-drift`. The prior session stash is bounded, so
+first observation is not evidence of when a defect was introduced.
+
 **PreToolUse spec pre-gates** (arm after the session's first markdown edit builds the ledger):
 - **Introduced declared-marker drift → decision `ask`** (`[interlinked:spec-marker]`, exact-match,
   zero-FP): a write setting `<!-- fact:NAME -->` to a value conflicting with other files prompts

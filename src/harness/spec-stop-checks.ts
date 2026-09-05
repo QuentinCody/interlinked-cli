@@ -32,9 +32,9 @@ export function formatSpecDriftWarning(
 			? `\n  …and ${outstanding.length - MAX_SHOWN} more`
 			: "";
 	return (
-		`[interlinked:spec-drift] ${outstanding.length} cross-file spec fact finding(s) still outstanding from this session's markdown edits:\n` +
+		`[interlinked:spec-drift] ${outstanding.length} retained cross-file spec fact finding(s) outstanding in the repository snapshot (session causation unmeasured):\n` +
 		`${shown}${more}\n` +
-		`  Resolve them (update the stale side) or leave a note where the value is defined if the disagreement is deliberate. They also appear in \`interlinked verify\`.`
+		`  Inspect the compared definitions before editing. Full observed findings and provenance: \`interlinked query spec-drift\`. Deliberate disagreements can be documented at their definition.`
 	);
 }
 

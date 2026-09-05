@@ -14,9 +14,10 @@ describe("formatSpecDriftWarning", () => {
 		const out = formatSpecDriftWarning([
 			{ file: "README.md", line: 2, message: '"six bets" vs the B census: 7 ids' },
 		]);
-		expect(out).toContain("1 cross-file spec fact finding(s)");
+		expect(out).toContain("1 retained cross-file spec fact finding(s)");
 		expect(out).toContain("README.md:2");
-		expect(out).toContain("interlinked verify");
+		expect(out).toContain("interlinked query spec-drift");
+		expect(out).toContain("session causation unmeasured");
 		expect(out).not.toMatch(/auto-?fix/i);
 	});
 

@@ -301,10 +301,12 @@ export class SpecLedger {
 						max: 0,
 						files: [],
 						definingFiles: [],
+						byFile: new Map<string, Set<number>>(),
 					};
 					global.set(key, g);
 				}
 				for (const id of ns.ids) g.nums.add(id.num);
+				g.byFile?.set(file, new Set(ns.ids.map((id) => id.num)));
 				g.max = Math.max(g.max, ns.max);
 				g.files.push(file);
 				if (ns.ids.some((i) => i.defSites.length > 0)) g.definingFiles.push(file);

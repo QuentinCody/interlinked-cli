@@ -7,6 +7,7 @@
 // finding (round-5 #3).
 
 import type { CountClaim, IdNamespace, SpecFacts } from "./types.js";
+import { scopedCountCensus } from "./count-census-scope.js";
 
 /** The cross-file drift kinds the ledger emits (source "spec" in
  *  CheckResultEntry). Authoritative list for the check-inventory spec_ledger
@@ -34,6 +35,7 @@ export interface SpecDriftFinding {
 
 /** A namespace merged across every ledger file. */
 export interface GlobalNamespace {
+	byFile?: Map<string, Set<number>>;
 	prefix: string;
 	style: "dashed" | "compact";
 	nums: Set<number>;
@@ -58,11 +60,19 @@ export function foldLooseDefinedIds(
 			const g = global.get(`${loose.style} ${loose.prefix}`);
 			if (!g) continue;
 			g.nums.add(loose.num);
+			addFileNumber(g, file, loose.num);
 			g.max = Math.max(g.max, loose.num);
 			if (!g.files.includes(file)) g.files.push(file);
 			if (!g.definingFiles.includes(file)) g.definingFiles.push(file);
 		}
 	}
+}
+
+function addFileNumber(namespace: GlobalNamespace, file: string, value: number): void {
+    if (!namespace.byFile) return;
+    const numbers = namespace.byFile.get(file) ?? new Set<number>();
+    numbers.add(value);
+    namespace.byFile.set(file, numbers);
 }
 
 /** Count-claim drift for a single claim against the global census — the
@@ -134,7 +144,8 @@ export function appendCountDrift(
 	let emitted = 0;
 	for (const claim of facts.countClaims) {
 		if (emitted >= MAX_DRIFT_FINDINGS) break;
-		emitted += appendCountDriftForClaim(claim, out, file, global, bindings, localByKey);
+		const scoped = scopedCountCensus({ file, facts, claim, global });
+		emitted += appendCountDriftForClaim(claim, out, file, scoped, bindings, localByKey);
 	}
 }
 
