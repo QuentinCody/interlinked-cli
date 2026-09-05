@@ -55,8 +55,10 @@ vi.mock("./adopt.js", () => ({
 }));
 
 const thinkingCaptureCheckMock = vi.fn();
-vi.mock("./doctor-capture.js", () => ({
-	thinkingCaptureCheck: (cwd: string) => thinkingCaptureCheckMock(cwd),
+// Keep this summary-rendering fixture's check list explicit. Real producer
+// coverage is exercised against temporary directories in doctor-data.test.ts.
+vi.mock("./doctor-data.js", () => ({
+	captureChecks: (cwd: string) => [thinkingCaptureCheckMock(cwd)],
 }));
 
 const authTokenCheckMock = vi.fn();

@@ -18,8 +18,7 @@
 // there lets us confirm, on real traffic, that the key only ever collides
 // on genuine re-deliveries (sub-second) before flipping to live skipping.
 
-import { appendFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendCapturedData } from "../lib/data/capture.js";
 import type { HarnessEvent } from "./types.js";
 
 /** Re-deliveries of one call arrive within milliseconds; nothing legitimate
@@ -135,19 +134,20 @@ export function recordDeliveryForShadow(event: HarnessEvent): ShadowObservation 
  *  `.interlinked` is missing/unwritable; the caller's outer catch handles
  *  that (fail-open — telemetry never disturbs evaluation). */
 function appendShadowRecord(event: HarnessEvent, dk: DedupKey, prior: SeenEntry): void {
+	if (!event.cwd || event.dry_run) return;
 	const record = {
 		ts: new Date(prior.lastTs).toISOString(),
 		key_kind: dk.kind,
 		key: dk.key,
 		tool: event.tool_name ?? null,
 		hook_event: event.hook_event,
+		session_id: event.session_id,
+		agent_source: event.agent_source,
+		agent_name: event.agent_name,
 		delivery_index: prior.count,
 		ms_since_first: prior.lastTs - prior.firstTs,
 	};
-	appendFileSync(
-		join(process.cwd(), ".interlinked", "dedup-shadow.jsonl"),
-		`${JSON.stringify(record)}\n`,
-	);
+	if (!appendCapturedData({ cwd: event.cwd, producer: "harness/event-dedup", session: event.session_id }, "dedup-shadow", [record])) throw new Error("shadow observation write failed");
 }
 
 /** Test hook — clears the in-memory window between cases. */

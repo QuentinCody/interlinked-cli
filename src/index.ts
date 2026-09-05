@@ -27,6 +27,7 @@ import { registerCapsCommands } from "./registrars/caps.js";
 import { registerCheckpointCommands } from "./registrars/checkpoints.js";
 import { registerCoordinationCommands } from "./registrars/coordination.js";
 import { registerDebtImpactCommands } from "./registrars/debt-impact.js";
+import { registerDataCommands } from "./registrars/data.js";
 import { registerExperienceCommands } from "./registrars/experience.js";
 import { registerHarnessCommands } from "./registrars/harness.js";
 import { registerMcpCommands } from "./registrars/mcp.js";
@@ -86,6 +87,7 @@ Quick start:
 // Command registration (grouped by domain)
 // ===========================================
 registerActivityCommands(program);
+registerDataCommands(program);
 registerObservabilityLogCommands(program);
 registerDebtImpactCommands(program);
 registerSupplyChainCommands(program);

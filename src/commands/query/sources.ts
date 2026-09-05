@@ -11,8 +11,9 @@
 import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { getDataDir } from "../../lib/config.js";
+import { DATA_CATALOG } from "../../lib/data/catalog.js";
 
-interface QuerySource {
+export interface QuerySource {
 	name: string;
 	file: string;
 	/** Identity filter — what makes a record part of this source. */
@@ -90,7 +91,7 @@ export const QUERY_SOURCES: QuerySource[] = [
 		name: "tests",
 		file: "tests.jsonl",
 		where: [],
-		fields: ["kind", "ok", "command"],
+		fields: ["kind", "outcome", "command"],
 		hint: "verification runs (vitest/tsc/lint/build)",
 	},
 	{
@@ -108,6 +109,12 @@ export const QUERY_SOURCES: QuerySource[] = [
 		hint: "scored advisory findings",
 	},
 ];
+
+// Preserve the curated views and add every logical source from the shared catalog.
+for (const source of DATA_CATALOG) {
+    if (QUERY_SOURCES.some((entry) => entry.name === source.name)) continue;
+    QUERY_SOURCES.push({ name: source.name, file: source.path, where: [], fields: source.fields, hint: source.description });
+}
 
 export interface ResolvedTarget {
 	file: string;

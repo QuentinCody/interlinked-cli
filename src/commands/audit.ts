@@ -19,7 +19,7 @@ function printAuditText(
 	result: Awaited<ReturnType<typeof verifyAuditChainStreaming>>,
 	coveragePct: number | null,
 ): void {
-	const status = result.valid ? c.green("VALID") : c.red("TAMPERED");
+	const status = result.valid ? c.green("VALID") : c.red("INVALID");
 	console.log(c.bold("Audit Chain Verification"));
 	console.log(`Status:                ${status}`);
 	console.log(`Total events:          ${result.total_events.toLocaleString()}`);
@@ -36,7 +36,7 @@ function printAuditText(
 		console.log(`Last hash:             ${result.last_hash.slice(0, 16)}…`);
 	}
 	if (!result.valid && result.first_bad_reason) {
-		console.log(c.red("\nTamper detected:"));
+		console.log(c.red("\nIntegrity or continuity failure:"));
 		console.log(`  Chained event #${result.first_bad_index}`);
 		if (result.first_bad_line_number) {
 			console.log(`  activity.jsonl line ${result.first_bad_line_number}`);
@@ -44,7 +44,7 @@ function printAuditText(
 		console.log(`  Reason: ${result.first_bad_reason}`);
 		console.log(
 			c.dim(
-				"\nOWASP ASI11 (Agent Untraceability) — re-snapshotting from the last\nknown-good hash is the recovery path. Investigate writes to\n.interlinked/activity.jsonl between then and now.",
+				"\nRun 'interlinked data audit diagnose' for the physical source and offset.\nInvestigate before recording an explicit 'interlinked data audit checkpoint'.\nA checkpoint preserves the historical failure; it never rewrites the chain.",
 			),
 		);
 	} else if (result.valid && result.chained_events > 0) {

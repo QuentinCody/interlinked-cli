@@ -23,7 +23,6 @@ import {
 import {
 	matchesAll,
 	parseWhereClause,
-	recordTimestampMs,
 	resolveTimeBound,
 	type WhereClause,
 } from "./query/filters.js";
@@ -34,6 +33,7 @@ import {
 	type TailScanStats,
 } from "./query/reverse-reader.js";
 import { QUERY_SOURCES, type ResolvedTarget, resolveTarget } from "./query/sources.js";
+import { createTimeCoverage, observeQueryTime, type QueryTimeCoverage } from "./query/time-coverage.js";
 
 const DEFAULT_LIMIT = 20;
 const DEFAULT_LAST_RECORDS = 20_000;
@@ -68,6 +68,7 @@ export interface QueryParams {
 }
 
 export interface QueryRunResult {
+	timeCoverage: QueryTimeCoverage;
 	rows: Record<string, unknown>[];
 	aggregate?: AggregateRow[];
 	stats: TailScanStats;
@@ -80,18 +81,9 @@ export function runQuery(file: string, params: QueryParams): QueryRunResult {
 	const aggState = params.by === undefined ? undefined : createAggregateState();
 	const byPath = params.by ?? "";
 	const rows: Record<string, unknown>[] = [];
-	// Boxed in an object so TS's control-flow narrowing doesn't collapse this
-	// to a literal `false` at the read below — the scan callback mutates it
-	// synchronously, but TS can't see across the `scanJsonlTail` call boundary.
-	const scanState = { sinceStopped: false };
+	const timeCoverage = createTimeCoverage();
 	const stats = scanJsonlTail(file, params.budget, (record) => {
-		if (params.sinceMs !== undefined) {
-			const tsMs = recordTimestampMs(record);
-			if (tsMs !== undefined && tsMs < params.sinceMs) {
-				scanState.sinceStopped = true;
-				return false;
-			}
-		}
+		if (!observeQueryTime(timeCoverage, record, params.sinceMs)) return true;
 		if (!matchesAll(record, params.clauses)) return true;
 		if (aggState !== undefined) {
 			foldRecord(aggState, record, byPath, params.sum);
@@ -101,10 +93,11 @@ export function runQuery(file: string, params: QueryParams): QueryRunResult {
 		return rows.length < params.limit;
 	});
 	rows.reverse();
-	const sinceStopped = scanState.sinceStopped;
+	const sinceStopped = false;
 	const limitStopped = aggState === undefined && !sinceStopped && stats.stopReason === "caller";
 	return {
 		rows,
+		timeCoverage,
 		...(aggState !== undefined ? { aggregate: finalizeAggregate(aggState, params.limit) } : {}),
 		stats,
 		sinceStopped,
@@ -200,6 +193,8 @@ function emitResult(mode: OutputMode, view: QueryView): void {
 		file: resolved.file,
 		stats: {
 			...result.stats,
+			...result.timeCoverage,
+			scope: "physical append tail within budgets; event timestamps may be out of order",
 			since_stopped: result.sinceStopped,
 			limit_stopped: result.limitStopped,
 		},

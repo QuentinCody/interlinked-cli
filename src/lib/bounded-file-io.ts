@@ -54,7 +54,7 @@ function isAsciiWhitespace(byte: number): boolean {
 	return byte === 0x20 || byte === 0x09 || byte === 0x0a || byte === 0x0d;
 }
 
-interface FileLine {
+export interface FileLine {
 	start: number;
 	end: number;
 	nextOffset: number;
@@ -72,7 +72,7 @@ interface ScanFileLinesOptions {
 	includeFinalLine?: boolean;
 }
 
-class LineAccumulator {
+export class LineAccumulator {
 	private captured: Buffer[] = [];
 	private capturedBytes = 0;
 	private nonEmpty = false;

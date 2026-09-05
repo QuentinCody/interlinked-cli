@@ -4,9 +4,8 @@
 // Small JSONL-backed primitive for grouping repeated harness findings and
 // user-reported misses into actionable recurrence rows.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { interlinkedPath } from "../lib/interlinked-path.js";
+import { recordRecurrenceEvent } from "./recurrence-io.js";
+export { recordRecurrenceEvent, recurrencesPath, loadRecurrenceEvents, iterateRecurrenceEvents } from "./recurrence-io.js";
 import { isOperationalCheckDeferral } from "./operational-check-deferrals.js";
 import {
 	deriveSignature,
@@ -49,6 +48,10 @@ export type OutcomeSignal =
 	| "check_reverted";
 
 export interface RecurrenceEvent {
+	scan_id?: string;
+	snapshot_id?: string;
+	finding_id?: string;
+	observation?: "introduced" | "changed";
 	ts: string;
 	kind: RecurrenceKind;
 	check_id?: string | undefined;
@@ -106,13 +109,10 @@ export interface RecurrenceAction {
 	detail: string;
 }
 
-const RECURRENCES_FILE = "recurrences.jsonl";
-
 export function aggregateRecurrences(
-	events: readonly RecurrenceEvent[],
+	events: Iterable<RecurrenceEvent>,
 	filters: RecurrenceFilters = {},
 ): Recurrence[] {
-	const filtered = events.filter((event) => matchesFilters(event, filters));
 	const buckets = new Map<
 		string,
 		{
@@ -132,7 +132,8 @@ export function aggregateRecurrences(
 		}
 	>();
 
-	for (const event of filtered) {
+	for (const event of events) {
+		if (!matchesFilters(event, filters)) continue;
 		const signature = deriveSignature(event);
 		// Bucket by (kind, signature), not signature alone (round-12 sol #1);
 		// `kind` is a newline-free enum, so the newline separator is unambiguous.
@@ -221,34 +222,6 @@ export function proposeAction(row: Recurrence): RecurrenceAction {
 		detail:
 			"Promote or tune the recurring check in guard-rules.local.json so repeated agent mistakes become harder to reintroduce.",
 	};
-}
-
-export function recurrencesPath(cwd: string): string {
-	return interlinkedPath(cwd, RECURRENCES_FILE);
-}
-
-export function recordRecurrenceEvent(event: RecurrenceEvent, cwd: string): void {
-	const path = recurrencesPath(cwd);
-	mkdirSync(dirname(path), { recursive: true });
-	appendFileSync(path, `${JSON.stringify(event)}\n`, "utf-8");
-}
-
-export function loadRecurrenceEvents(cwd: string): RecurrenceEvent[] {
-	const path = recurrencesPath(cwd);
-	if (!existsSync(path)) return [];
-	const lines = readFileSync(path, "utf-8").split("\n");
-	const out: RecurrenceEvent[] = [];
-	for (const line of lines) {
-		if (!line.trim()) continue;
-		try {
-			const parsed: unknown = JSON.parse(line);
-			if (isRecurrenceEvent(parsed)) out.push(parsed);
-		} catch (_err) {
-			/* intentional: JSONL may be torn if a process died mid-write — skip bad lines */
-			void _err;
-		}
-	}
-	return out;
 }
 
 function matchesFilters(event: RecurrenceEvent, filters: RecurrenceFilters): boolean {
@@ -464,18 +437,5 @@ export function recordHarnessMissed(opts: {
 			message: opts.message,
 		},
 		opts.cwd ?? process.cwd(),
-	);
-}
-
-function isRecurrenceEvent(value: unknown): value is RecurrenceEvent {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-	const event = value as Partial<RecurrenceEvent>;
-	return (
-		typeof event.ts === "string" &&
-		(event.kind === "harness_caught" ||
-			event.kind === "harness_missed" ||
-			event.kind === "codebase_existing" ||
-			event.kind === "outcome_marker" ||
-			event.kind === "tool_failure")
 	);
 }

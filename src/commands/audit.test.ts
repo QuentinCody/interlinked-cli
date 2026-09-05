@@ -277,13 +277,13 @@ describe("auditVerifyCommand — human output, tampered chain", () => {
 		await auditVerifyCommand({});
 
 		const text = out();
-		expect(text).toContain("Status:                TAMPERED");
-		expect(text).toContain("Tamper detected:");
+		expect(text).toContain("Status:                INVALID");
+		expect(text).toContain("Integrity or continuity failure:");
 		expect(text).toContain("Chained event #17");
 		expect(text).toContain("activity.jsonl line 42");
 		expect(text).toContain("Reason: hash mismatch at chained event #17");
-		expect(text).toContain("OWASP ASI11 (Agent Untraceability)");
-		expect(text).toContain("re-snapshotting from the last");
+		expect(text).toContain("interlinked data audit diagnose");
+		expect(text).toContain("preserves the historical failure");
 		// Tamper path is mutually exclusive with the valid footers.
 		expect(text).not.toContain("chain intact");
 		expect(process.exitCode).toBe(1);
@@ -323,8 +323,8 @@ describe("auditVerifyCommand — human output, tampered chain", () => {
 		await auditVerifyCommand({});
 
 		const text = out();
-		expect(text).toContain("TAMPERED");
-		expect(text).not.toContain("Tamper detected:");
+		expect(text).toContain("INVALID");
+		expect(text).not.toContain("Integrity or continuity failure:");
 		expect(text).not.toContain("chain intact");
 		expect(text).not.toContain("No guard decision events yet");
 		expect(process.exitCode).toBe(1);

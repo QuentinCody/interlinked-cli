@@ -5,6 +5,76 @@ description: "Inspect what AI agents did — the local, offline-first activity l
 
 # interlinked-observability — inspect what agents did
 
+## Search and organize all local evidence
+
+Use `interlinked data catalog` to discover registered and unknown JSONL files recursively,
+including numeric rotations and gzip archives. `data health` distinguishes observed writes,
+unsupported/disabled/idle producers, failures, and unmeasured populated files. Its receipt
+window is bounded; a quiet event-driven feed is not automatically broken. `doctor` reports
+capture failures and unmeasured coverage.
+
+```bash
+interlinked data index --max-mb 256 --max-records 250000 --json
+interlinked data status --json
+interlinked data search "compiler import" --since 7d --json
+interlinked data search --source check-results --session SESSION --json
+interlinked data show RECORD_ID
+interlinked data investigate --session SESSION --json
+interlinked data investigate --file src/app.ts --json
+interlinked data checks --check typescript --json
+interlinked data usage --session SESSION --json
+interlinked data suggestions --json
+interlinked data recurrence-inventory --json
+```
+
+Indexing is incremental and bounded: repeat until the retained backlog is covered. `--rebuild`
+clears only derived tables. SQLite/FTS5 loads lazily; use a Node runtime with built-in SQLite
+(Node 22.13+ avoids needing the earlier experimental flag). Search includes retained archives;
+`--no-archives` restricts it to live files. `--fts` opts into FTS5 query grammar. Structured
+filters include source/category/session/actor/provider/model/file/check/call/kind/decision/origin.
+Unknown event timestamps are excluded by time bounds. The older `query` command scans a
+bounded physical tail of one file and reports its scope; it does not promise archive coverage.
+
+Each indexed answer carries a record ID; `data show` retrieves the original JSON and verifies
+its SHA-256. Projection text/field traversal is bounded, and oversized or malformed rows are
+reported without deleting their raw bytes. Check `data status` for freshness and parse failures.
+Exact duplicate raw records within one logical source share an indexed record but retain all
+physical locations. Cross-stream observations are not automatically independent executions.
+
+`data sessions/files/checks/usage/schema/suggestions` expose evidence aggregates. `investigate`
+correlates exact provider/session/actor/call identities and labels missing phases; a file filter
+also strictly folds the obligations ledger. A block count is not a prevented-defect estimate.
+Suggestion `shown` means selected for presentation, not acknowledged; later absence is an
+observation, not proof of a fix. Usage has unknown values and no invented prices; never add
+overlapping timeline and costs totals. Recurrence inventory is separate from incident counts.
+
+`data maintain` previews retention. `data maintain --execute --compact` imports a bounded batch
+and losslessly rotates eligible collection/timeline history while translating indexed evidence
+pointers. It never deletes evidence or automatically compacts activity/state ledgers/corpora.
+Activity still requires the existing cursor-aware `compact` workflow. After an external
+compactor, rerun `data index` to discover replacement files and archives.
+
+Rotation prepares the bulk retained suffix before acquiring the append lock. Identity is
+rechecked under the lock, and only a bounded catch-up plus the atomic rename exclude writers.
+An excessive append burst or competing replacement aborts safely for retry. Maintenance
+operation failures are recorded in capture health.
+
+`data configure --auto-index on` opts into bounded SessionEnd background indexing;
+`--auto-compact on` additionally enables collection/timeline rotation. Both default off.
+Defaults are 256 MiB/250,000 records per pass, a 256 MiB rotation threshold, and a 64 MiB live
+tail. Configure via `--index-mb`, `--index-records`, `--compact-at-mb`, `--keep-live-mb`.
+Settings live in `data.config.json` under the resolved data directory; capture itself continues
+independently. Load new daemon capture code through the normal build/reload workflow.
+
+`data audit diagnose` locates the first historical failure by physical source/offset and does
+not infer tampering intent. After investigation, `data audit checkpoint --reason TEXT` records
+an explicit payload-verified live observation boundary. `data audit verify --checkpoint ID`
+checks subsequent retained evidence, including after rotation. The historical verdict stays
+unchanged; checkpoints never rewrite or reset the old chain.
+
+See [the operator guide](../../docs/data-observability.md) and
+[generated source catalog](../../docs/generated/data-catalog.md) for the full contract.
+
 Interlinked captures normalized tool-call events that configured Claude Code,
 Codex, Copilot CLI, Gemini CLI, Cursor, OpenCode, and Pi integrations deliver —
 locally via hooks, offline-first, into append-only JSONL under `.interlinked/`.
@@ -95,8 +165,8 @@ Data dir: `INTERLINKED_DATA_DIR` → `config.local.json.data_dir` → `INTERLINK
 | File | Holds |
 |---|---|
 | `activity.jsonl` | **Full-fidelity legacy stream — ALL event types** (lifecycle, prompts, tokens, guard telemetry, tool events). Also the hash-chained audit log. |
-| `collection.jsonl` | **Canonical normalized records for TOOL events only** (richer projection). Non-tool types are not here. |
-| `timeline.jsonl` | Unified time-sorted records of everything an agent did (incl. thinking/text); cross-model. `collect` target. |
+| `collection.jsonl` | Canonical normalized tool and agent lifecycle records with provider attribution. |
+| `timeline.jsonl` | Transcript records including provider-exposed summaries/text and usage; live appends and backfill can arrive out of event-time order. `collect` target. |
 | `sessions/<id>.json` | Per-session state: agent, phase, tool_count, files, tokens. |
 | `sync-state.json` | Sync cursor = **byte offset** into activity.jsonl. |
 | `costs.jsonl` | Incremental per-call token rows read from provider transcripts at Stop/SessionEnd. |

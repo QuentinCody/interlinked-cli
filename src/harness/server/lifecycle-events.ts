@@ -18,6 +18,7 @@
 //     i.e. the caller should continue into the Pre/Post evaluation path.
 
 import { scanUserPrompt } from "../content-scanner/prompt-scan.js";
+import { captureProviderCapabilities } from "../data-capture-capabilities.js";
 import { buildEditMechanicsStopNudge } from "../edit-mechanics-stop.js";
 import { buildGateReachStopWarning } from "../gate-reach-collect.js";
 import { deleteLiveSnapshot } from "../live-snapshot.js";
@@ -169,6 +170,7 @@ async function handleSessionStart(
 ): Promise<HarnessDecision | null> {
 	const { cohort, log } = ctx;
 	cohort.agentJoined(event);
+	captureProviderCapabilities(ctx.cwd, event);
 	log(`Agent joined: ${event.agent_name || event.session_id} (${event.agent_source})`);
 	// Surface any completed SessionEnd heavy-job reports (fuzz-smoke failures,
 	// bench regressions) as SessionStart context — never a mid-session surprise.

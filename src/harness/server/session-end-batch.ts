@@ -14,6 +14,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 import os from "node:os";
 import { dirname, resolve } from "node:path";
+import { dataMaintenanceJobs } from "../../lib/data/maintenance.js";
 import { planResources, type ResourcePlan } from "../resource-governor.js";
 import type { HarnessEvent } from "../types.js";
 import type { ServerRuntime } from "./runtime-context.js";
@@ -167,7 +168,7 @@ export function runSessionEndJobs(
 	const activeJobs = deps.activeJobs ?? (deps.spawn === undefined
 		? ACTIVE_SESSION_END_JOBS
 		: new Set<string>());
-	for (const job of SESSION_END_JOBS) {
+	for (const job of [...SESSION_END_JOBS, ...dataMaintenanceJobs(ctx.cwd)]) {
 		spawnGovernedJob({ ctx, plan, spawn, execPath, cliEntry, job, activeJobs });
 	}
 }

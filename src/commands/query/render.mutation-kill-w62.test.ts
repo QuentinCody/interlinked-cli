@@ -29,7 +29,7 @@ function baseStats(overrides: Partial<TailScanStats> = {}): TailScanStats {
 describe("renderRows — positive (must fire)", () => {
 	// test-contract: public-api — renderRows row header contract (typeof record.ts === "string" guard)
 	it("renders '--' when record.ts is not a string (undefined)", () => {
-		const out = renderRows([{ ts: 123 }], ["ts"], false);
+		const out = renderRows([{}], ["ts"], false);
 		expect(strip(out[0] ?? "")).toContain("--");
 	});
 

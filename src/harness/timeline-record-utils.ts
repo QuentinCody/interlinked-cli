@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { getDataDir } from "../lib/config.js";
 import type { TimelineRecord } from "./transcript-record.js";
 
 export const TIMELINE_FILENAME = "timeline.jsonl";
@@ -7,7 +8,7 @@ const LINE_SEPARATOR = String.fromCharCode(0x2028);
 const PARAGRAPH_SEPARATOR = String.fromCharCode(0x2029);
 
 export function timelinePath(cwd: string): string {
-	return join(cwd, ".interlinked", TIMELINE_FILENAME);
+	return join(getDataDir(cwd), TIMELINE_FILENAME);
 }
 
 export function recordKey(record: TimelineRecord): string {

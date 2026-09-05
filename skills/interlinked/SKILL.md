@@ -49,6 +49,8 @@ Everything is per-`cwd` under `<repo>/.interlinked/`. Key files:
 | `findings/simplification-runs.jsonl`, `debt/manual-marker-snapshots.jsonl` | local | explicit simplification-run and manual-marker snapshot receipts |
 | `semantic.json` / `.local.json` | team / local | optional local semantic-index policy / machine runtime topology |
 | `index/functions/` | local | generation-scoped function metadata and vectors; never synced |
+| `index/data/search.sqlite`, `data.config.json` | local | rebuildable JSONL/archives search projection and bounded maintenance settings |
+| `capture-receipts.jsonl`, `capture-capabilities.jsonl`, `capture/state/` | local | producer write/availability evidence and derived lifecycle state |
 | `activity.jsonl`, `collection.jsonl`, `timeline.jsonl` | local | captured agent activity (`enable` gitignores the first two) |
 | `hook-runtime.json` | local | payload-free proof that each provider executed its current hook definition |
 | `harness.sock` / `harness.pid` | — | the running daemon |
@@ -84,7 +86,7 @@ A **block reason is always surfaced.** Allow-time warnings are surfaced but easy
 | Installing a local embedding model; building, inspecting, searching, or repairing the optional function-vector index | **interlinked-semantic-index** |
 | An `npm/pip/cargo/…` install or manifest edit was blocked; the package **allowlist** | **interlinked-supply-chain** |
 | Spec/doc facts, drift, invariants, review **findings**, `doctest`; `[interlinked:spec-*]` | **interlinked-spec-audit** |
-| Inspect activity/logs, tail live, guard-block history, **recurrence**, `viz`, tamper-chain `audit`, evidence-classed `impact`, `sync` | **interlinked-observability** |
+| Inspect activity/logs, **`data` catalog/health/index/search/investigate/views/maintenance**, **recurrence**, `viz`, chain `audit`, evidence-classed `impact`, `sync` | **interlinked-observability** |
 | Server-backed **tasks/messages/reservations/handoff**; local **checkpoints** (git-mutating!) | **interlinked-coordination** |
 | Distill AGENTS.md / CLAUDE.md guidance into enforced harness rules | **enforce** (`/enforce`) |
 

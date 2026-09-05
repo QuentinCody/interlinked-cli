@@ -364,7 +364,7 @@ describe("writeTelemetry", () => {
 
 		const cat = records.find((r) => r.check === "silent-catch");
 		expect(cat.shown).toBe(false);
-		expect(cat.score).toBe(0); // not in shown set => fallback 0
+		expect(cat.score).toBeCloseTo(0.225, 6); // hidden candidates retain their measured score
 		expect(cat.line).toBe(9);
 	});
 
@@ -432,6 +432,6 @@ describe("writeTelemetry", () => {
 		expect(near.shown).toBe(true);
 		expect(near.score).toBeGreaterThan(0);
 		expect(far.shown).toBe(false);
-		expect(far.score).toBe(0);
+		expect(far.score).toBeCloseTo(0.425, 6);
 	});
 });

@@ -70,7 +70,7 @@ describe("appendCollection", () => {
 			path.join("/my/repo", ".interlinked"),
 			{ recursive: true },
 		);
-		expect(mockFs.appendFileSync).toHaveBeenCalledTimes(1);
+		expect(mockFs.appendFileSync).toHaveBeenCalledTimes(2);
 
 		const written = (mockFs.appendFileSync.mock.calls[0] as [string, string])[1];
 		expect(written.endsWith("\n")).toBe(true);
@@ -78,6 +78,9 @@ describe("appendCollection", () => {
 		const parsed = JSON.parse(written.trim());
 		expect(parsed.schema).toBe("collection.v1");
 		expect(parsed.tool_class).toBe("shell_exec");
+		expect(parsed.capture).toMatchObject({ version: 1, producer: "lib/collection/writer" });
+		const receipt = JSON.parse(String(mockFs.appendFileSync.mock.calls[1]?.[1]).trim());
+		expect(receipt).toMatchObject({ source: "collection", status: "written", records: 1 });
 	});
 
 	it("skips mkdir when directory exists", () => {

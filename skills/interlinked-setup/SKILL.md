@@ -104,6 +104,13 @@ for interpreting the warning.
 
 ## Operating the daemon
 
+Local data maintenance has its own `data.config.json` in the resolved data directory.
+`interlinked data configure --auto-index on` enables bounded SessionEnd index jobs;
+`--auto-compact on` also enables lossless collection/timeline rotation. Both default off.
+These settings are reread per maintenance job and do not alter capture, sync, or guard policy.
+Use `data health`/`data status` for producer coverage and index freshness; load
+**interlinked-observability** for budgets, search, archive behavior and audit checkpoints.
+
 | Command | Purpose |
 |---|---|
 | `interlinked harness start [--verbose] [--json]` | Start the daemon (background). Reaps orphans first and auto-rebuilds stale `dist/`, so a cold start can take a few seconds. Freshness recursively checks non-test product files, including edits to existing nested files. Readiness requires live connections to every required listener; a socket inode alone is not ready. |

@@ -162,6 +162,14 @@ function readArchivedSegmentPointers(cwd: string): ArchivedSegmentPointer[] {
 	});
 }
 
+/** Manifest order is authoritative; diagnostics additionally retain physical source paths. */
+export function auditEvidenceSources(cwd: string): Array<{ path: string; source: string }> {
+    const sources = readArchivedSegmentPointers(cwd).map((segment) => ({ path: segment.path, source: `archive/${segment.file}` }));
+    const live = join(getDataDir(cwd), "activity.jsonl");
+    if (existsSync(live)) sources.push({ path: live, source: "activity.jsonl" });
+    return sources;
+}
+
 function* iterateArchivedAuditLines(cwd: string): Generator<string> {
 	for (const segment of readArchivedSegmentPointers(cwd)) {
 		let unzipped: Buffer;

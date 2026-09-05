@@ -9,8 +9,8 @@
 //   1. Deterministic findings: always shown, no scoring (tsc, biome, exports, imports)
 //   2. Scored suggestions: top 1-3 above threshold from regex heuristics
 
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { rememberCandidateScore } from "./suggestion-candidate-scores.js";
+export { writeSuggestionTelemetry as writeTelemetry } from "./suggestion-telemetry.js";
 import { type FileSuppressions, type InlineSuppressions, isSuppressed } from "./suppressions.js";
 import type { SessionTrajectory } from "./types.js";
 
@@ -94,14 +94,7 @@ type ScoreFindingsOpts = {
  * Score one finding, or return null if it is suppressed.
  * Extracted from scoreFindings' loop body — same logic, same order.
  */
-function scoreSingleFinding(finding: Finding, opts: ScoreFindingsOpts): ScoredFinding | null {
-	// Suppression check — always wins
-	if (
-		isSuppressed(finding.check, finding.line, opts.inlineSuppressions, opts.fileSuppressions)
-	) {
-		return null;
-	}
-
+function scoreSingleFinding(finding: Finding, opts: ScoreFindingsOpts): ScoredFinding {
 	const baseSeverity = BASE_SEVERITY[finding.check] ?? 0.5;
 
 	// File relevance: did the agent write this file in this session?
@@ -151,7 +144,9 @@ export function scoreFindings(findings: Finding[], opts: ScoreFindingsOpts): Sco
 
 	for (const finding of findings) {
 		const result = scoreSingleFinding(finding, opts);
-		if (result) scored.push(result);
+		const suppressed = isSuppressed(finding.check, finding.line, opts.inlineSuppressions, opts.fileSuppressions);
+		rememberCandidateScore(finding, { score: result.score, suppressed });
+		if (!suppressed) scored.push(result);
 	}
 
 	// Sort descending, take top N above threshold
@@ -185,51 +180,3 @@ export function formatScoredFindings(findings: ScoredFinding[]): string[] {
  * Write suggestion telemetry for all findings (shown and unshown).
  * Append-only JSONL, non-blocking, non-fatal.
  */
-export function writeTelemetry(
-	allFindings: Finding[],
-	shownFindings: ScoredFinding[],
-	opts: {
-		interlinkedDir: string;
-		sessionId: string;
-		agentName: string;
-		filePath: string;
-		threshold: number;
-	},
-): void {
-	try {
-		const telemetryPath = join(opts.interlinkedDir, "suggestion-telemetry.jsonl");
-		const dir = dirname(telemetryPath);
-		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-
-		const shownSet = new Set(shownFindings.map((f) => `${f.check}:${f.line}`));
-		const ts = new Date().toISOString();
-
-		const lines: string[] = [];
-		for (const f of allFindings) {
-			const key = `${f.check}:${f.line}`;
-			const shown = shownSet.has(key);
-			const scored = shownFindings.find((s) => s.check === f.check && s.line === f.line);
-			lines.push(
-				JSON.stringify({
-					ts,
-					session_id: opts.sessionId,
-					agent_name: opts.agentName,
-					file: opts.filePath,
-					check: f.check,
-					line: f.line,
-					score: scored?.score ?? 0,
-					shown,
-					outcome: null, // determined on next PostToolUse
-					threshold: opts.threshold,
-					message: f.message.slice(0, 200),
-				}),
-			);
-		}
-
-		if (lines.length > 0) {
-			appendFileSync(telemetryPath, `${lines.join("\n")}\n`);
-		}
-	} catch (err) {
-		void err; /* intentional: telemetry is non-fatal — it should never block the agent */
-	}
-}

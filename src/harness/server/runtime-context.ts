@@ -29,6 +29,7 @@ import type { FileContentCache } from "../grep-accelerator.js";
 import type { LearnedRulesStore } from "../learned-rules.js";
 import type { ClassifierSessionState } from "../policy-classifier.js";
 import { ProjectGraph } from "../project-graph.js";
+import { captureProjectGraph } from "../data-capture-graph.js";
 import { findProjectRoot, type ProjectWideSweepState } from "../quality-checks.js";
 import type { ReservationManager } from "../reservations.js";
 import type { RouteMap } from "../route-map.js";
@@ -122,6 +123,7 @@ export function getGraphForFile(ctx: ServerRuntime, filePath: string): ProjectGr
 		}
 		ctx.graphCache.set(projectRoot, g);
 	}
+	captureProjectGraph(ctx.cwd, projectRoot, g);
 	return g;
 }
 

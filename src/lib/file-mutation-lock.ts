@@ -445,3 +445,15 @@ export function appendFileWithMutationLock(
 ): void {
 	withFileMutationLock(path, () => appendFileSync(path, data), options);
 }
+
+/** Hold the ownership lease until asynchronous work finishes. Contention fails
+ * immediately by default so a background import cannot block the event loop. */
+export async function withAsyncFileMutationLock<T>(
+    path: string,
+    action: () => Promise<T>,
+    options: FileMutationLockOptions = { waitMs: 0 },
+): Promise<T> {
+    const lease = acquireFileMutationLock(path, options);
+    try { return await action(); }
+    finally { releaseOwnedLock(lease); }
+}

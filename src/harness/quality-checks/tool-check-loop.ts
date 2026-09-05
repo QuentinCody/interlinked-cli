@@ -43,6 +43,7 @@ import {
 	runSoftwareVersionChecks,
 } from "./tool-check-loop-manifest-checks.js";
 import { deferredExternalCheck, runCommandCheck } from "./tool-command-check.js";
+export { runToolCheckLoop } from "./tool-check-loop-run.js";
 
 /**
  * Yield the Node event loop so other socket connections in the daemon can
@@ -374,7 +375,7 @@ const NAMED_CHECK_HANDLERS: Record<string, NamedCheckHandler> = {
  * Guards evaluated before the per-check event-loop yield. Skipping here costs
  * no yield and emits no boundary, exactly as the original inline `continue`s.
  */
-function skipBeforeYield(
+export function skipBeforeYield(
 	ctx: ToolCheckLoopContext,
 	name: string,
 	check: QualityCheckConfig,
@@ -397,7 +398,7 @@ function skipBeforeYield(
  * content checks (secrets, strong_typing, software_version_regression, the
  * inline-checks block) carry no `command` and still run for out-of-tree files.
  */
-function skipAfterYield(ctx: ToolCheckLoopContext, check: QualityCheckConfig): boolean {
+export function skipAfterYield(ctx: ToolCheckLoopContext, check: QualityCheckConfig): boolean {
 	if (check.skip_test_files && isLikelyTestFile(ctx.testCheckBaseName, ctx.absForTestCheck)) {
 		return true;
 	}
@@ -409,14 +410,14 @@ function skipAfterYield(ctx: ToolCheckLoopContext, check: QualityCheckConfig): b
  * label the caller should emit (`null` when the check signalled "skip the
  * boundary", i.e. the original inline `continue`).
  */
-async function runOneCheck(
+export async function runOneCheck(
 	ctx: ToolCheckLoopContext,
 	name: string,
 	check: QualityCheckConfig,
-): Promise<{ boundary: string | null; findings: QualityCheckResult[] }> {
+): Promise<{ boundary: string | null; findings: QualityCheckResult[]; status: string }> {
 	const findings: QualityCheckResult[] = [];
+	const handler = NAMED_CHECK_HANDLERS[name];
 	try {
-		const handler = NAMED_CHECK_HANDLERS[name];
 		let outcome: QualityCheckResult[] | null;
 		if (handler) {
 			outcome = await handler(ctx, name, check);
@@ -425,10 +426,10 @@ async function runOneCheck(
 		} else {
 			outcome = [];
 		}
-		if (outcome === null) return { boundary: null, findings };
+		if (outcome === null) return { boundary: null, findings, status: "skipped_by_handler" };
 		findings.push(...outcome);
 		if (outcome.some((result) => isOperationalCheckDeferral(result.name))) {
-			return { boundary: `deferred_${name}`, findings };
+			return { boundary: `deferred_${name}`, findings, status: "deferred" };
 		}
 		// Unknown config entries have neither a handler nor a command and do
 		// not represent a check execution, even though their no-op iteration is
@@ -440,9 +441,14 @@ async function runOneCheck(
 		// deferred rather than completed.
 		const msg = err instanceof Error ? err.message : String(err);
 		findings.push(...deferredExternalCheck(ctx.filePath, name, `check handler threw: ${msg}`));
-		return { boundary: `deferred_${name}`, findings };
+		return { boundary: `deferred_${name}`, findings, status: "error" };
 	}
-	return { boundary: `inline_${name}`, findings };
+	return { boundary: `inline_${name}`, findings, status: checkRunStatus(Boolean(handler || check.command), findings.length) };
+}
+
+function checkRunStatus(executed: boolean, findings: number): string {
+    if (!executed) return "unsupported_configuration";
+    return findings > 0 ? "finding" : "completed_no_reported_findings";
 }
 
 /**
@@ -453,39 +459,3 @@ async function runOneCheck(
  * a handler returning `null` reproduces the original inline `continue` that
  * skipped the trailing onCheckBoundary.
  */
-export async function runToolCheckLoop(ctx: ToolCheckLoopContext): Promise<QualityCheckResult[]> {
-	const results: QualityCheckResult[] = [];
-	const { checks, onCheckBoundary } = ctx;
-
-	for (const [name, check] of Object.entries(checks)) {
-		if (skipBeforeYield(ctx, name, check)) continue;
-
-		// Yield to the event loop between checks so concurrent socket
-		// connections can be serviced. The cost is one microtask boundary
-		// per check; the saving is that an in-flight 20s pipeline no
-		// longer starves other connections (closing the ~23s
-		// `guard_harness_ms` vs `checks_timing_ms` gap measured in 24h
-		// of production telemetry).
-		await yieldEventLoop();
-		// Diagnostic: close the yield window into a separate bucket so the
-		// check body's own time isn't conflated with whatever the event loop
-		// serviced during the yield. If `yield_<name>` is large while
-		// `inline_<name>` is small, the time was event-loop contention,
-		// not the check's regex/AST work.
-		onCheckBoundary?.(`yield_${name}`);
-
-		if (skipAfterYield(ctx, check)) continue;
-
-		// Per-check phase boundary for diagnostic instrumentation. `inline_<name>`
-		// fires when the check completed (or the config entry was an unknown
-		// no-op); a no-verdict attempt reports `deferred_<name>` instead, so
-		// timing telemetry never labels it as completed. `null` reproduces the
-		// original inline `continue` that emitted no boundary at all.
-		const { boundary, findings } = await runOneCheck(ctx, name, check);
-		results.push(...findings);
-		if (boundary === null) continue;
-		onCheckBoundary?.(boundary);
-	}
-
-	return results;
-}

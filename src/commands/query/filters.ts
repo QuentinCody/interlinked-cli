@@ -8,6 +8,7 @@
 // entry with that id. Multiple clauses AND together.
 
 import { parseDuration } from "../../lib/activity-utils.js";
+import { dataTimestampMs } from "../../lib/data-time.js";
 
 type WhereOp = "=" | "!=" | "~=" | ">" | "<" | ">=" | "<=";
 
@@ -96,10 +97,7 @@ export function resolveTimeBound(spec: string, nowMs: number = Date.now()): numb
 	return parsed;
 }
 
-/** Epoch ms of a record's `ts` (or `timestamp`) field, if parseable. */
+/** Epoch milliseconds using the retained ledger timestamp mappings. */
 export function recordTimestampMs(record: Record<string, unknown>): number | undefined {
-	const ts = record.ts ?? record.timestamp;
-	if (typeof ts !== "string") return undefined;
-	const ms = Date.parse(ts);
-	return Number.isFinite(ms) ? ms : undefined;
+	return dataTimestampMs(record);
 }

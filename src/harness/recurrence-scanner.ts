@@ -18,7 +18,7 @@ import { buildAgentSafetyChecks } from "./check-registry/index.js";
 import type { DetectorFinding } from "./checks/endpoint-security.js";
 import { extractCICommands, isCIFile } from "./ci-command-extractor.js";
 import { matchesRule } from "./evaluator/rule-matching.js";
-import { recordRecurrenceEvent } from "./recurrence.js";
+import { recordRecurrenceScan } from "./recurrence-scan-capture.js";
 import { loadRules } from "./rules-loader.js";
 import type { GuardRule } from "./types.js";
 
@@ -92,19 +92,7 @@ export function scanCodebaseForRecurrences(
 	appendCIFindings(findings, options, cwd);
 
 	if (options.recordEvents) {
-		const ts = new Date().toISOString();
-		for (const f of findings) {
-			recordRecurrenceEvent(
-				{
-					ts,
-					kind: "codebase_existing",
-					check_id: f.check_id,
-					file: f.file,
-					message: f.text,
-				},
-				cwd,
-			);
-		}
+		recordRecurrenceScan({ cwd, roots, extensions, includeCI: options.includeCI !== false, findings });
 	}
 
 	return findings;

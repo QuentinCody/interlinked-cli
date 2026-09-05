@@ -98,6 +98,452 @@ Commands:
   help [command]                             display help for command
 ```
 
+## Data
+
+```
+Usage: interlinked data [options] [command]
+
+Discover, assess, index and search all local JSONL evidence
+
+Options:
+  -h, --help                      display help for command
+
+Commands:
+  audit                           Locate historical audit failures and record
+                                  explicit observation boundaries
+  maintain [options]              Plan evidence-class retention; optionally
+                                  index and losslessly rotate supported logs
+  configure [options]             Show or update local data automation and
+                                  import budgets
+  recurrence-inventory [options]  Latest scoped finding inventory, distinct
+                                  from incident counts
+  investigate [options]           Correlate session/call/file evidence, missing
+                                  phases and folded file obligations
+  catalog [options]               Registered source contracts and recursively
+                                  discovered files
+  health [options]                Producer receipts, unknowns, storage and
+                                  index coverage
+  status [options]                Index freshness, incomplete sources and parse
+                                  failures
+  index [options]                 Incrementally index live files and gzip
+                                  archives; repeat to resume
+  search [options] [text]         Full-text and structured search over the
+                                  local index
+  show [options] <id>             Retrieve original evidence bytes and verify
+                                  the indexed hash
+  sessions [options]              Indexed sessions evidence with coverage and
+                                  provenance
+  files [options]                 Indexed files evidence with coverage and
+                                  provenance
+  checks [options]                Indexed checks evidence with coverage and
+                                  provenance
+  usage [options]                 Indexed usage evidence with coverage and
+                                  provenance
+  schema [options]                Indexed schema evidence with coverage and
+                                  provenance
+  suggestions [options]           Indexed suggestions evidence with coverage
+                                  and provenance
+  help [command]                  display help for command
+```
+
+### data catalog
+
+```
+Usage: interlinked data catalog [options]
+
+Registered source contracts and recursively discovered files
+
+Options:
+  --cwd <path>  Project root
+  --json        Machine-readable output
+  --short       Compact JSON
+  -h, --help    display help for command
+```
+
+### data health
+
+```
+Usage: interlinked data health [options]
+
+Producer receipts, unknowns, storage and index coverage
+
+Options:
+  --cwd <path>  Project root
+  --json        Machine-readable output
+  --short       Compact JSON
+  -h, --help    display help for command
+```
+
+### data status
+
+```
+Usage: interlinked data status [options]
+
+Index freshness, incomplete sources and parse failures
+
+Options:
+  --cwd <path>  Project root
+  --json        Machine-readable output
+  --short       Compact JSON
+  -h, --help    display help for command
+```
+
+### data index
+
+```
+Usage: interlinked data index [options]
+
+Incrementally index live files and gzip archives; repeat to resume
+
+Options:
+  --max-mb <n>       Expanded byte budget per run (configured default: 256)
+  --max-records <n>  Record budget per run (configured default: 250000)
+  --rebuild          Clear and rebuild only the derived index; raw evidence is
+                     preserved
+  --source <name>    One logical source
+  --no-archives      Skip archive segments
+  --cwd <path>       Project root
+  --json             Machine-readable output
+  --short            Compact JSON
+  -h, --help         display help for command
+```
+
+### data search
+
+```
+Usage: interlinked data search [options] [text]
+
+Full-text and structured search over the local index
+
+Options:
+  --source <value>    Exact source filter
+  --category <value>  Exact category filter
+  --session <value>   Exact session filter
+  --actor <value>     Exact actor filter
+  --provider <value>  Exact provider filter
+  --model <value>     Exact model filter
+  --file <value>      Exact file filter
+  --check <value>     Exact check filter
+  --kind <value>      Exact kind filter
+  --decision <value>  Exact decision filter
+  --origin <value>    Exact origin filter
+  --call <value>      Exact call filter
+  --since <time>      Event time: duration or ISO timestamp; excludes undated
+                      records
+  --until <time>      Latest event time: duration or ISO timestamp
+  --limit <n>         Maximum results (1..1000)
+  --no-archives       Only retained live-source evidence
+  --cwd <path>        Project root
+  --json              Machine-readable output
+  --short             Compact JSON
+  --fts               Interpret text as SQLite FTS5 grammar
+  --offset <n>        Result offset
+  -h, --help          display help for command
+```
+
+### data show
+
+```
+Usage: interlinked data show [options] <id>
+
+Retrieve original evidence bytes and verify the indexed hash
+
+Options:
+  --cwd <path>  Project root
+  --json        Machine-readable output
+  --short       Compact JSON
+  -h, --help    display help for command
+```
+
+### data investigate
+
+```
+Usage: interlinked data investigate [options]
+
+Correlate session/call/file evidence, missing phases and folded file
+obligations
+
+Options:
+  --source <value>    Exact source filter
+  --category <value>  Exact category filter
+  --session <value>   Exact session filter
+  --actor <value>     Exact actor filter
+  --provider <value>  Exact provider filter
+  --model <value>     Exact model filter
+  --file <value>      Exact file filter
+  --check <value>     Exact check filter
+  --kind <value>      Exact kind filter
+  --decision <value>  Exact decision filter
+  --origin <value>    Exact origin filter
+  --call <value>      Exact call filter
+  --since <time>      Event time: duration or ISO timestamp; excludes undated
+                      records
+  --until <time>      Latest event time: duration or ISO timestamp
+  --limit <n>         Maximum results (1..1000)
+  --no-archives       Only retained live-source evidence
+  --cwd <path>        Project root
+  --json              Machine-readable output
+  --short             Compact JSON
+  -h, --help          display help for command
+```
+
+### data sessions
+
+```
+Usage: interlinked data sessions [options]
+
+Indexed sessions evidence with coverage and provenance
+
+Options:
+  --source <value>    Exact source filter
+  --category <value>  Exact category filter
+  --session <value>   Exact session filter
+  --actor <value>     Exact actor filter
+  --provider <value>  Exact provider filter
+  --model <value>     Exact model filter
+  --file <value>      Exact file filter
+  --check <value>     Exact check filter
+  --kind <value>      Exact kind filter
+  --decision <value>  Exact decision filter
+  --origin <value>    Exact origin filter
+  --call <value>      Exact call filter
+  --since <time>      Event time: duration or ISO timestamp; excludes undated
+                      records
+  --until <time>      Latest event time: duration or ISO timestamp
+  --limit <n>         Maximum results (1..1000)
+  --no-archives       Only retained live-source evidence
+  --cwd <path>        Project root
+  --json              Machine-readable output
+  --short             Compact JSON
+  -h, --help          display help for command
+```
+
+### data files
+
+```
+Usage: interlinked data files [options]
+
+Indexed files evidence with coverage and provenance
+
+Options:
+  --source <value>    Exact source filter
+  --category <value>  Exact category filter
+  --session <value>   Exact session filter
+  --actor <value>     Exact actor filter
+  --provider <value>  Exact provider filter
+  --model <value>     Exact model filter
+  --file <value>      Exact file filter
+  --check <value>     Exact check filter
+  --kind <value>      Exact kind filter
+  --decision <value>  Exact decision filter
+  --origin <value>    Exact origin filter
+  --call <value>      Exact call filter
+  --since <time>      Event time: duration or ISO timestamp; excludes undated
+                      records
+  --until <time>      Latest event time: duration or ISO timestamp
+  --limit <n>         Maximum results (1..1000)
+  --no-archives       Only retained live-source evidence
+  --cwd <path>        Project root
+  --json              Machine-readable output
+  --short             Compact JSON
+  -h, --help          display help for command
+```
+
+### data checks
+
+```
+Usage: interlinked data checks [options]
+
+Indexed checks evidence with coverage and provenance
+
+Options:
+  --source <value>    Exact source filter
+  --category <value>  Exact category filter
+  --session <value>   Exact session filter
+  --actor <value>     Exact actor filter
+  --provider <value>  Exact provider filter
+  --model <value>     Exact model filter
+  --file <value>      Exact file filter
+  --check <value>     Exact check filter
+  --kind <value>      Exact kind filter
+  --decision <value>  Exact decision filter
+  --origin <value>    Exact origin filter
+  --call <value>      Exact call filter
+  --since <time>      Event time: duration or ISO timestamp; excludes undated
+                      records
+  --until <time>      Latest event time: duration or ISO timestamp
+  --limit <n>         Maximum results (1..1000)
+  --no-archives       Only retained live-source evidence
+  --cwd <path>        Project root
+  --json              Machine-readable output
+  --short             Compact JSON
+  -h, --help          display help for command
+```
+
+### data usage
+
+```
+Usage: interlinked data usage [options]
+
+Indexed usage evidence with coverage and provenance
+
+Options:
+  --source <value>    Exact source filter
+  --category <value>  Exact category filter
+  --session <value>   Exact session filter
+  --actor <value>     Exact actor filter
+  --provider <value>  Exact provider filter
+  --model <value>     Exact model filter
+  --file <value>      Exact file filter
+  --check <value>     Exact check filter
+  --kind <value>      Exact kind filter
+  --decision <value>  Exact decision filter
+  --origin <value>    Exact origin filter
+  --call <value>      Exact call filter
+  --since <time>      Event time: duration or ISO timestamp; excludes undated
+                      records
+  --until <time>      Latest event time: duration or ISO timestamp
+  --limit <n>         Maximum results (1..1000)
+  --no-archives       Only retained live-source evidence
+  --cwd <path>        Project root
+  --json              Machine-readable output
+  --short             Compact JSON
+  -h, --help          display help for command
+```
+
+### data schema
+
+```
+Usage: interlinked data schema [options]
+
+Indexed schema evidence with coverage and provenance
+
+Options:
+  --source <value>    Exact source filter
+  --category <value>  Exact category filter
+  --session <value>   Exact session filter
+  --actor <value>     Exact actor filter
+  --provider <value>  Exact provider filter
+  --model <value>     Exact model filter
+  --file <value>      Exact file filter
+  --check <value>     Exact check filter
+  --kind <value>      Exact kind filter
+  --decision <value>  Exact decision filter
+  --origin <value>    Exact origin filter
+  --call <value>      Exact call filter
+  --since <time>      Event time: duration or ISO timestamp; excludes undated
+                      records
+  --until <time>      Latest event time: duration or ISO timestamp
+  --limit <n>         Maximum results (1..1000)
+  --no-archives       Only retained live-source evidence
+  --cwd <path>        Project root
+  --json              Machine-readable output
+  --short             Compact JSON
+  -h, --help          display help for command
+```
+
+### data suggestions
+
+```
+Usage: interlinked data suggestions [options]
+
+Indexed suggestions evidence with coverage and provenance
+
+Options:
+  --source <value>    Exact source filter
+  --category <value>  Exact category filter
+  --session <value>   Exact session filter
+  --actor <value>     Exact actor filter
+  --provider <value>  Exact provider filter
+  --model <value>     Exact model filter
+  --file <value>      Exact file filter
+  --check <value>     Exact check filter
+  --kind <value>      Exact kind filter
+  --decision <value>  Exact decision filter
+  --origin <value>    Exact origin filter
+  --call <value>      Exact call filter
+  --since <time>      Event time: duration or ISO timestamp; excludes undated
+                      records
+  --until <time>      Latest event time: duration or ISO timestamp
+  --limit <n>         Maximum results (1..1000)
+  --no-archives       Only retained live-source evidence
+  --cwd <path>        Project root
+  --json              Machine-readable output
+  --short             Compact JSON
+  -h, --help          display help for command
+```
+
+### data recurrence-inventory
+
+```
+Usage: interlinked data recurrence-inventory [options]
+
+Latest scoped finding inventory, distinct from incident counts
+
+Options:
+  --cwd <path>  Project root
+  --json        Machine-readable output
+  --short       Compact JSON
+  -h, --help    display help for command
+```
+
+### data configure
+
+```
+Usage: interlinked data configure [options]
+
+Show or update local data automation and import budgets
+
+Options:
+  --auto-index <on|off>    Index in the governed background lane at session end
+  --auto-compact <on|off>  Losslessly rotate supported event logs during
+                           maintenance
+  --index-mb <n>           Expanded byte budget per index pass
+  --index-records <n>      Record budget per index pass
+  --keep-live-mb <n>       Retained live tail size
+  --compact-at-mb <n>      Live-size threshold for eligible logs
+  --cwd <path>             Project root
+  --json                   Machine-readable output
+  -h, --help               display help for command
+```
+
+### data maintain
+
+```
+Usage: interlinked data maintain [options]
+
+Plan evidence-class retention; optionally index and losslessly rotate supported
+logs
+
+Options:
+  --execute     Run the bounded index and configured maintenance
+  --compact     Also rotate eligible collection/timeline logs; retains gzip
+                evidence
+  --cwd <path>  Project root
+  --json        Machine-readable output
+  -h, --help    display help for command
+```
+
+### data audit
+
+```
+Usage: interlinked data audit [options] [command]
+
+Locate historical audit failures and record explicit observation boundaries
+
+Options:
+  -h, --help            display help for command
+
+Commands:
+  verify [options]      Verify retained evidence after an explicit checkpoint,
+                        including after rotation
+  diagnose [options]    Verify archives/live data and locate the first failing
+                        physical record
+  checkpoint [options]  Record a verified live-tail boundary; historical
+                        verdict stays unchanged
+  help [command]        display help for command
+```
+
 ## Structure
 
 ```

@@ -37,6 +37,9 @@ import {
 	type TimelineRewriteBasis,
 } from "./timeline-rewrite.js";
 import type { TimelineRecord } from "./transcript-record.js";
+import { captureEnvelope, recordCaptureReceipt } from "../lib/data/capture.js";
+import { captureTimelineUsage } from "./data-capture-usage.js";
+import { assertCaptureIsolation } from "../lib/data/capture-isolation.js";
 
 export {
 	dedupeTimeline,
@@ -70,15 +73,21 @@ export const MAX_EXISTING_TIMELINE_KEYS = 250_000;
  *  in-memory dedup state only after durable-enough filesystem success. */
 export function appendTimelineRecords(records: TimelineRecord[], cwd: string): boolean {
 	if (records.length === 0) return true;
+	assertCaptureIsolation(timelinePath(cwd));
 	try {
 		const path = timelinePath(cwd);
 		mkdirSync(dirname(path), { recursive: true });
 		assertTimelineMaterializationBounds(records, "timeline append input");
-		const body = records.map(serializeRecord).join("\n");
+		const body = records.map((record) => serializeRecord(Object.assign({}, record, {
+			capture: captureEnvelope({ cwd, producer: "harness/timeline-writer", session: record.session }),
+		}))).join("\n");
 		appendFileWithMutationLock(path, `${body}\n`);
+		recordCaptureReceipt({ cwd, producer: "harness/timeline-writer" }, { source: "timeline", status: "written", records: records.length, bytes: Buffer.byteLength(body) + 1 });
+		captureTimelineUsage(cwd, records);
 		return true;
 	} catch (err) {
-		void err; // best-effort capture — a write hiccup must never break the pipeline
+		void err;
+		recordCaptureReceipt({ cwd, producer: "harness/timeline-writer" }, { source: "timeline", status: "failed", error: "append-failed" });
 		return false;
 	}
 }

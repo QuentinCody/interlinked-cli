@@ -10,7 +10,7 @@
 
 import { c, shortTimestamp } from "../../lib/formatter.js";
 import type { AggregateRow } from "./aggregate.js";
-import { getPath, stringifyValue } from "./filters.js";
+import { getPath, recordTimestampMs, stringifyValue } from "./filters.js";
 import type { TailScanStats } from "./reverse-reader.js";
 
 const CELL_MAX_CHARS = 120;
@@ -23,7 +23,8 @@ export function renderRows(
 	full: boolean,
 ): string[] {
 	return records.map((record) => {
-		const ts = typeof record.ts === "string" ? shortTimestamp(record.ts) : "--";
+		const timestamp = recordTimestampMs(record);
+		const ts = timestamp === undefined ? "--" : shortTimestamp(new Date(timestamp).toISOString());
 		const cells = fields.map((field) => renderCell(record, field, full));
 		return `${c.dim(ts)}  ${cells.join("  ")}`;
 	});

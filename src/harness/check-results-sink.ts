@@ -10,8 +10,9 @@
 // fire-and-forget. It must never throw or block — a sink failure can never be
 // allowed to affect the agent's tool loop.
 
-import { appendFileSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { appendCapturedData } from "../lib/data/capture.js";
+import { captureNativeToolData } from "./data-capture-native.js";
+import { checkExecutionEvidence } from "./check-execution-evidence.js";
 import { eventAttributionFields } from "./event-attribution-fields.js";
 import type { HarnessDecision } from "./types/decisions.js";
 import type { HarnessEvent } from "./types/events.js";
@@ -24,6 +25,12 @@ interface CheckRowEntry {
 }
 
 interface CheckRow {
+	schema: "check-results.v2";
+	execution: ReturnType<typeof checkExecutionEvidence>;
+	coverage: string;
+	actual_decision: HarnessDecision["decision"];
+	finding_details: HarnessDecision["check_results"];
+	timing: { total_ms: number | null; tools: HarnessDecision["tool_breakdown"]; phases: HarnessDecision["phase_breakdown"] };
 	ts: string;
 	tool_use_id: string;
 	/** Session the call belonged to — lets consumers slice check noise per
@@ -67,7 +74,7 @@ export function buildCheckRow(event: HarnessEvent, decision: HarnessDecision): C
 
 	const findings = decision.check_results ?? [];
 	const ranList = decision.checks_ran ?? [];
-	if (findings.length === 0 && ranList.length === 0) return null;
+	if (findings.length === 0 && ranList.length === 0 && !decision.checks_skipped?.length) return null;
 
 	const checks: CheckRowEntry[] = findings.map((c) => {
 		const entry: CheckRowEntry = {
@@ -80,6 +87,10 @@ export function buildCheckRow(event: HarnessEvent, decision: HarnessDecision): C
 	});
 
 	const row: CheckRow = {
+		schema: "check-results.v2", execution: checkExecutionEvidence(decision),
+		coverage: "reported executions; no finding does not prove clean beyond diff-aware scope",
+		actual_decision: decision.decision, finding_details: decision.check_results,
+		timing: { total_ms: decision.checks_timing_ms ?? null, tools: decision.tool_breakdown, phases: decision.phase_breakdown },
 		ts: event.timestamp,
 		tool_use_id: toolUseId,
 		decision: decision.decision === "allow" ? "allow" : "block",
@@ -101,11 +112,11 @@ export function buildCheckRow(event: HarnessEvent, decision: HarnessDecision): C
  */
 export function appendCheckResults(cwd: string, event: HarnessEvent, decision: HarnessDecision): void {
 	try {
+		if (event.dry_run) return;
+		captureNativeToolData(cwd, event);
 		const row = buildCheckRow(event, decision);
 		if (!row) return;
-		const path = join(cwd, ".interlinked", "check-results.jsonl");
-		mkdirSync(dirname(path), { recursive: true });
-		appendFileSync(path, `${JSON.stringify(row)}\n`);
+		appendCapturedData({ cwd, producer: "harness/check-results-sink", session: event.session_id, provider: event.agent_source }, "check-results", [row]);
 	} catch (err) {
 		void err; /* fire-and-forget: a sink failure must never affect the agent */
 	}

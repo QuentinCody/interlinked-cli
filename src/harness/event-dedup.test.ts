@@ -1,6 +1,13 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { __resetDedupForTesting, dedupKey, recordDeliveryForShadow } from "./event-dedup.js";
 import type { HarnessEvent } from "./types.js";
+
+let sandboxRoot: string;
+beforeEach(() => { sandboxRoot = mkdtempSync(join(tmpdir(), "dedup-shadow-")); });
+afterEach(() => { rmSync(sandboxRoot, { recursive: true, force: true }); });
 
 /** Minimal HarnessEvent for de-dup tests — only the fields the module reads. */
 function ev(p: Partial<HarnessEvent>): HarnessEvent {
@@ -11,6 +18,7 @@ function ev(p: Partial<HarnessEvent>): HarnessEvent {
 		tool_name: "Edit",
 		tool_input: { file_path: "/a.ts" },
 		timestamp: "2026-05-17T00:00:00Z",
+		cwd: sandboxRoot,
 		...p,
 	} as unknown as HarnessEvent;
 }

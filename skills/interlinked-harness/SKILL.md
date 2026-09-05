@@ -5,6 +5,12 @@ description: "Understand and respond to the Interlinked PreToolUse guard — the
 
 # interlinked-harness — the guard: what blocks you & how to respond
 
+Guard audit records retain references for repeated warning text. Use `interlinked data search
+--source warning-occurrences` to inspect full first/changed messages, hashes and occurrence
+counts; `data show ID` opens their raw evidence. This bounds repetition in the activity mirror
+without changing the guard decision or the warning returned by the evaluator. A later
+`not-reported` observation does not prove that the underlying issue was fixed.
+
 Interlinked runs a **local daemon** that evaluates each pre-execution event the installed
 runner exposes to its hook surface (PreToolUse). It is **default-permit with targeted
 forbid**: it allows everything except known-dangerous shapes, which it refuses with an

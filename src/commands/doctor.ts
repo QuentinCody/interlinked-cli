@@ -11,7 +11,7 @@ import { getOutputMode, output } from "../lib/output.js";
 import { adoptionArtifactChecks } from "./adopt.js";
 import { resolve } from "node:path";
 import { resolveHookBinaryPath } from "../lib/hooks.js";
-import { thinkingCaptureCheck } from "./doctor-capture.js";
+import { captureChecks } from "./doctor-data.js";
 import { installedHookDriftChecks } from "./doctor-install-drift.js";
 import { postureEnumChecks } from "./doctor-posture.js";
 import {
@@ -193,7 +193,7 @@ export async function doctorCommand(opts: { fix?: boolean; json?: boolean }): Pr
 	// 4d. Thinking-capture health — are recent tool calls carrying reasoning
 	// traces? Catches a silent regression of the live hook→daemon capture path
 	// (the class that went unnoticed for weeks before the live-capture port).
-	results.push(thinkingCaptureCheck(cwd));
+	results.push(...captureChecks(cwd));
 
 	// 4b. Hook script version check (only when the .interlinked hook exists)
 	results.push(...hookVersionChecks(cwd, opts.fix === true));

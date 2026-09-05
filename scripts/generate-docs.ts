@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { STRUCTURAL_CHECK_META } from "../src/harness/check-metadata.js";
 import { METRIC_DEFS } from "../src/harness/metric-caps.js";
+import { renderDataCatalogMarkdown } from "../src/lib/data/catalog.js";
 // Import data structures from the harness
 import { getBuiltinRules, getDefaultConfig } from "../src/harness/rules-loader.js";
 import { ALL_SEQUENCE_DETECTORS } from "../src/harness/sequence-checks/registry.js";
@@ -345,6 +346,7 @@ function generateCliReference(): string {
 
 	// Extract top-level command names from help output
 	const commandNames = [
+		"data",
 		"structure",
 		"verify",
 		"metrics",
@@ -360,6 +362,7 @@ function generateCliReference(): string {
 
 	// Commands with subcommands — mirror the groups registered in src/index.ts.
 	const commandsWithSubs: Record<string, string[]> = {
+		data: ["catalog", "health", "status", "index", "search", "show", "investigate", "sessions", "files", "checks", "usage", "schema", "suggestions", "recurrence-inventory", "configure", "maintain", "audit"],
 		structure: ["init", "scan", "status", "accept", "doctor", "baseline"],
 		metrics: ["coupling", "arch", "rework", "complexity", "split-plan", "score"],
 		checkpoint: ["list", "show", "compare", "prune", "archive"],
@@ -454,6 +457,7 @@ const files = [
 	{ name: "configuration.md", generator: generateConfigReference },
 	{ name: "cli-reference.md", generator: generateCliReference },
 	{ name: "metrics.md", generator: generateMetrics },
+	{ name: "data-catalog.md", generator: renderDataCatalogMarkdown },
 ];
 
 let generated = 0;

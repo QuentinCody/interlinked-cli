@@ -127,6 +127,7 @@ vi.mock("node:fs", () => ({
 	readFileSync: mockReadFileSync,
 	readdirSync: mockReaddirSync,
 	statSync: mockStatSync,
+	realpathSync: (path: string) => path,
 }));
 
 // Identity color helpers so emitted strings are stable regardless of

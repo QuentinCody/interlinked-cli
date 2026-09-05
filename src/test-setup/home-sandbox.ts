@@ -20,6 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const sandboxHome = mkdtempSync(join(tmpdir(), "interlinked-test-home-"));
+process.env.INTERLINKED_TEST_PROJECT_ROOT = process.cwd();
 process.env.HOME = sandboxHome;
 process.env.USERPROFILE = sandboxHome; // win32 homedir() source
 // Deliberately NOT set: INTERLINKED_HOME. It is not a fake-home knob — it

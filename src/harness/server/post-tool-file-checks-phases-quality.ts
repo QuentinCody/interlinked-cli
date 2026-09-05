@@ -366,8 +366,6 @@ function applyScoredSuggestions(
 		}),
 	);
 
-	if (allFindings.length === 0) return;
-
 	// Compute edit region for proximity scoring
 	const oldStr = checkEvent.tool_input?.old_string as string | undefined;
 	const editRegion = computeEditRegion(suggContent, oldStr);

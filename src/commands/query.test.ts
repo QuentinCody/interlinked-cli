@@ -122,7 +122,7 @@ describe("runQuery", () => {
 		]);
 	});
 
-	it("stops scanning at the --since bound", () => {
+	it("filters by event time while scanning the complete bounded append history", () => {
 		const result = runQuery(join(dir, ".interlinked", "activity.jsonl"), {
 			...baseParams({ sinceMs: Date.parse("2026-07-24T10:02:00Z") }),
 		});
@@ -130,11 +130,9 @@ describe("runQuery", () => {
 			"2026-07-24T10:02:00Z",
 			"2026-07-24T10:03:00Z",
 		]);
-		expect(result.sinceStopped).toBe(true);
-		// Scanning stops right after the first out-of-bound record (10:01), not
-		// before (immediate stop) or after (full scan to 10:00).
-		expect(result.stats.recordsParsed).toBe(3);
-		// A since-triggered stop is never also reported as a limit-triggered stop.
+		expect(result.sinceStopped).toBe(false);
+		expect(result.stats.recordsParsed).toBe(4);
+		// Historical timestamps do not prove that earlier appends are older.
 		expect(result.limitStopped).toBe(false);
 	});
 
@@ -179,16 +177,13 @@ describe("queryCommand", () => {
 		await queryCommand(undefined, { cwd: dir });
 		// Stripping ANSI color codes.
 		const stripped = logs.join("\n").replace(/\x1b\[[0-9]+m/g, "");
-		// "costs" (5 chars) is one of the shortest source names; "reservations"
-		// (12 chars) is the longest, so nameWidth must be 12 — 7 padding + 2
-		// separator = 9 spaces after "costs" at the start of a catalog row.
-		const nameMatch = stripped.match(/^ {2}costs( +)/m);
-		expect((nameMatch?.[1] ?? "").length).toBe(9);
-		// "costs.jsonl" (11 chars) is one of the shortest file names;
-		// "suggestion-telemetry.jsonl" (26 chars) is the longest, so fileWidth
-		// must be 26 — 15 padding + 2 separator = 17 spaces after "costs.jsonl".
-		const fileMatch = stripped.match(/costs\.jsonl( +)/);
-		expect((fileMatch?.[1] ?? "").length).toBe(17);
+		// The shared catalog can grow; its file and description columns must
+		// stay aligned for short and long names rather than pinning old widths.
+		const costRow = stripped.split("\n").find((line) => /^ {2}costs +/.test(line)) ?? "";
+		const reservationRow = stripped.split("\n").find((line) => /^ {2}reservations +/.test(line)) ?? "";
+		expect(costRow.indexOf("costs.jsonl")).toBe(reservationRow.indexOf("reservation-events.jsonl"));
+		expect(costRow.indexOf("token spend")).toBe(reservationRow.indexOf("multi-agent file leases"));
+		expect(costRow.indexOf("costs.jsonl")).toBeGreaterThan("  reservations  ".length);
 	});
 
 	it("errors with the known-source list on an unknown source", async () => {

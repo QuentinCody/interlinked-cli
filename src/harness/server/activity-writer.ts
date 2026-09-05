@@ -27,6 +27,7 @@ import {
 } from "./guard-telemetry-enrichment.js";
 import { extractNewThinking, latestTranscriptModel, resolveTranscriptPath } from "../thinking-capture.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
+import { captureGuardWarnings } from "../warning-evidence.js";
 
 const ACTIVITY_SUMMARY_MAX_CHARS = 200;
 
@@ -409,8 +410,10 @@ export function writeGuardDecisionRecord(
 	fallbackCwd: string,
 ): void {
 	try {
+		const warnings = captureGuardWarnings(event.cwd ?? fallbackCwd, event, decision);
 		const rec = mapDecisionToGuardRecord(event, decision, fallbackCwd);
 		if (!rec) return;
+		rec.guard_warnings = warnings;
 		const model = recallActorModel(actorKeyFor(event));
 		if (model) rec.model = model;
 		appendChainedAuditRecord(rec, event.cwd ?? fallbackCwd);

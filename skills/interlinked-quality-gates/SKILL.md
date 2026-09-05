@@ -20,6 +20,13 @@ across 17+ sessions of the strongest available models, at an identical per-edit 
 is a property of how models write branchy code, not of one codebase.)
 
 ## The gates you bump into at edit time
+
+Execution evidence is available through `interlinked data checks` and `data investigate`.
+`check-results.jsonl` retains per-call findings and reported execution coverage;
+`check-executions.jsonl` records each configured quality-loop entry, including disabled,
+skipped, deferred, error, and completed states. A completed check with no reported findings
+is not necessarily a clean whole-file verdict because diff-aware filtering applies. Other
+check pipelines have separate coverage. Capture does not change any gate decision.
 These run before an edit lands. The local metric ratchets use **delta semantics**: holding or
 reducing existing debt is allowed. Per-edit mutation is separately configurable as off, warn,
 or block.

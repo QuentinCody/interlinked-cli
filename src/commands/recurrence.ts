@@ -14,7 +14,7 @@
 
 import {
 	aggregateRecurrences,
-	loadRecurrenceEvents,
+	iterateRecurrenceEvents,
 	proposeAction,
 	type Recurrence,
 	type RecurrenceEvent,
@@ -71,7 +71,7 @@ function buildFilters(opts: ListOpts): RecurrenceFilters {
 }
 
 function loadAndAggregate(opts: ListOpts): Recurrence[] {
-	const events = loadRecurrenceEvents(opts.cwd ?? process.cwd());
+	const events = iterateRecurrenceEvents(opts.cwd ?? process.cwd());
 	const rows = aggregateRecurrences(events, buildFilters(opts));
 	const top = opts.top ? Number.parseInt(opts.top, 10) : undefined;
 	return top && Number.isFinite(top) && top > 0 ? rows.slice(0, top) : rows;
@@ -124,8 +124,9 @@ export async function recurrenceDetailCommand(
 	signature: string,
 	opts: CommonOpts,
 ): Promise<void> {
-	const events = loadRecurrenceEvents(opts.cwd ?? process.cwd());
-	const matching = events.filter((e: RecurrenceEvent) => signatureOf(e) === signature);
+	const events = iterateRecurrenceEvents(opts.cwd ?? process.cwd());
+	const matching: RecurrenceEvent[] = [];
+	for (const event of events) if (signatureOf(event) === signature) matching.push(event);
 	if (opts.json) {
 		console.log(JSON.stringify(matching));
 		return;
@@ -215,7 +216,7 @@ export async function recurrenceProposeCommand(
 	signature: string,
 	opts: CommonOpts,
 ): Promise<void> {
-	const events = loadRecurrenceEvents(opts.cwd ?? process.cwd());
+	const events = iterateRecurrenceEvents(opts.cwd ?? process.cwd());
 	const rows = aggregateRecurrences(events);
 	const row = rows.find((r: Recurrence) => r.signature === signature);
 	if (!row) {
