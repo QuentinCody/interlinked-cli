@@ -1,11 +1,27 @@
 ---
 name: interlinked-observability
-description: "Inspect what AI agents did — the local, offline-first activity log, evidence-classed impact facts, and observability commands. Load this when you want to see what happened this session, separate observed change from potential or causal claims, tail activity live, review what the guard blocked/warned, find recurring mistakes, inspect a specific session/event, view the dependency graph, backfill external (Codex) sessions, verify the tamper-evident guard-decision log, or push buffered events to the server. Covers `status`, `activity`, `impact`, `logs` (with `--type`/`--follow`), `explain`, `watch`, `telemetry`, `trace`, `search`, `recurrence`, `viz`, `audit`, `collect`, `compact`, `sync`, and the activity.jsonl / collection.jsonl / timeline.jsonl event-log model."
+description: "Investigate agent activity and local JSONL evidence, including gzip archives. Load for data catalog/health/index/search/show/investigate, session or file history, missed checks, repeated warnings, suggestion outcomes, token usage, capture gaps, index freshness, lossless log rotation, audit integrity, and evidence-backed handoffs. Also covers status, activity, impact, logs, explain, watch, telemetry, trace, code search, recurrence, viz, audit, collect, compact, and optional server sync. Use recorded observations without treating missing capture as absence or correlation as causation."
 ---
 
 # interlinked-observability — inspect what agents did
 
 ## Search and organize all local evidence
+
+When history can help diagnose a failure or explain prior work, use the logs as evidence:
+
+1. Establish scope: project, session/call or file, and time window. Read `data status --json`
+   and `data health --json` before interpreting missing results.
+2. If relevant files are stale or incomplete, run `data index --json`; repeat bounded passes
+   as needed. An active session can keep appending, so report the coverage actually reached.
+3. Search with exact filters and a small `--limit`; correlate relevant records with
+   `data investigate`, then retrieve supporting IDs with `data show ID --json`.
+4. Report what was observed, the evidence IDs and hash-verification result, and capture or
+   search limits. Recheck the current code before claiming an old failure is fixed.
+
+Read [evidence investigation workflows](references/evidence-workflows.md) for task-specific
+recipes, source selection, pagination, and a concrete handoff checklist. Prefer bounded JSON
+results over dumping whole logs into context. Evidence payloads may contain user/code content;
+retrieve only relevant records and keep local evidence local unless sharing is authorized.
 
 Use `interlinked data catalog` to discover registered and unknown JSONL files recursively,
 including numeric rotations and gzip archives. `data health` distinguishes observed writes,
@@ -47,12 +63,23 @@ also strictly folds the obligations ledger. A block count is not a prevented-def
 Suggestion `shown` means selected for presentation, not acknowledged; later absence is an
 observation, not proof of a fix. Usage has unknown values and no invented prices; never add
 overlapping timeline and costs totals. Recurrence inventory is separate from incident counts.
+Aggregate limits bound returned groups, not necessarily database work; narrow supported
+filters first. `schema` is a source-wide observed field census: only `--source` and `--limit`
+affect its scope, even though its CLI accepts the shared filter flags.
 
 `data maintain` previews retention. `data maintain --execute --compact` imports a bounded batch
 and losslessly rotates eligible collection/timeline history while translating indexed evidence
 pointers. It never deletes evidence or automatically compacts activity/state ledgers/corpora.
 Activity still requires the existing cursor-aware `compact` workflow. After an external
 compactor, rerun `data index` to discover replacement files and archives.
+
+Preserve evidence indefinitely: do not delete, expire, truncate, sample away, or rewrite raw
+records, archives, manifests, or integrity checkpoints to reclaim space or hide bad rows.
+Lossless rotation changes physical placement while retaining every record. A smaller live
+file is not less retained history. Search archives with `data search`; older live-file readers
+cannot answer questions about the complete retained history. `--rebuild` replaces derived
+index tables only and is not a routine retention operation. Index storage can exceed raw-log
+storage substantially; the per-pass import budget is not a cap on total index size.
 
 Rotation prepares the bulk retained suffix before acquiring the append lock. Identity is
 rechecked under the lock, and only a bounded catch-up plus the atomic rename exclude writers.
@@ -65,6 +92,9 @@ Defaults are 256 MiB/250,000 records per pass, a 256 MiB rotation threshold, and
 tail. Configure via `--index-mb`, `--index-records`, `--compact-at-mb`, `--keep-live-mb`.
 Settings live in `data.config.json` under the resolved data directory; capture itself continues
 independently. Load new daemon capture code through the normal build/reload workflow.
+SessionEnd is an actual provider lifecycle event, not each assistant Stop. This automation
+does not continuously watch files or refresh a long-running active session on a timer. Run an
+explicit index pass when recent evidence matters; a deferred background job is not freshness.
 
 `data audit diagnose` locates the first historical failure by physical source/offset and does
 not infer tampering intent. After investigation, `data audit checkpoint --reason TEXT` records
@@ -72,8 +102,10 @@ an explicit payload-verified live observation boundary. `data audit verify --che
 checks subsequent retained evidence, including after rotation. The historical verdict stays
 unchanged; checkpoints never rewrite or reset the old chain.
 
-See [the operator guide](../../docs/data-observability.md) and
-[generated source catalog](../../docs/generated/data-catalog.md) for the full contract.
+The bundled [workflow reference](references/evidence-workflows.md) is available in installed
+skills. In the Interlinked CLI source repository, `docs/data-observability.md` and
+`docs/generated/data-catalog.md` provide the operator contract and generated source catalog;
+in another project, use `data catalog --json` to inspect its sources.
 
 Interlinked captures normalized tool-call events that configured Claude Code,
 Codex, Copilot CLI, Gemini CLI, Cursor, OpenCode, and Pi integrations deliver —

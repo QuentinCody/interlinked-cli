@@ -86,7 +86,7 @@ A **block reason is always surfaced.** Allow-time warnings are surfaced but easy
 | Installing a local embedding model; building, inspecting, searching, or repairing the optional function-vector index | **interlinked-semantic-index** |
 | An `npm/pip/cargo/…` install or manifest edit was blocked; the package **allowlist** | **interlinked-supply-chain** |
 | Spec/doc facts, drift, invariants, review **findings**, `doctest`; `[interlinked:spec-*]` | **interlinked-spec-audit** |
-| Inspect activity/logs, **`data` catalog/health/index/search/investigate/views/maintenance**, **recurrence**, `viz`, chain `audit`, evidence-classed `impact`, `sync` | **interlinked-observability** |
+| Explain earlier work, investigate failed/missed checks or file/session history, assess capture gaps, search JSONL/archives, retain logs, inspect **`data` views**, **recurrence**, `viz`, chain `audit`, evidence-classed `impact`, `sync` | **interlinked-observability** |
 | Server-backed **tasks/messages/reservations/handoff**; local **checkpoints** (git-mutating!) | **interlinked-coordination** |
 | Distill AGENTS.md / CLAUDE.md guidance into enforced harness rules | **enforce** (`/enforce`) |
 
@@ -98,6 +98,8 @@ interlinked status          # dashboard: sessions, recent activity, health
 interlinked doctor          # is everything installed & the daemon answering?
 interlinked harness status  # liveness: answering / ZOMBIE / not running
 interlinked harness checks   # how many checks / rules are active
+interlinked data status --json # is retained evidence indexed through the relevant events?
+interlinked data health --json # what capture is observed, failed, or unmeasured?
 interlinked --help          # full command list
 ```
 
@@ -105,6 +107,12 @@ interlinked --help          # full command list
 > (process alive, nothing answering) means the guard is off — `interlinked harness restart`.
 > For Codex, doctor also compares `.codex/hooks.json` with the last executed definition hash;
 > review changed hooks through `/hooks`, then run a hooked action.
+
+When prior evidence is relevant, load **interlinked-observability** and use its bundled
+investigation workflows. Check freshness, search a specific session/file/check, and verify
+supporting raw records by ID. Automatic indexing runs at SessionEnd; recent active-session
+records may need `data index`. Retain raw logs and archives indefinitely. Lossless rotation
+keeps history available through `data search`; ordinary live-tail readers have narrower scope.
 
 ## Golden rules for an agent in a guarded repo
 1. **When blocked, read the `Suggestion:` and take the safe path** — don't rewrite to dodge the pattern.

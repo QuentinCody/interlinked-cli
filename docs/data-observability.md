@@ -23,6 +23,10 @@ The index lives at `index/data/search.sqlite` under the resolved data directory.
 SQLite and FTS5 load only when needed. Node 22.13 or newer avoids the earlier SQLite flag
 requirement. No package installation, embedding model, network service or API key is required.
 
+Agents should follow the bundled [investigation workflows](../skills/interlinked-observability/references/evidence-workflows.md):
+check capture and index coverage, search a bounded question, verify supporting raw records,
+then report evidence and limitations. Installed skills include this reference locally.
+
 ## Search, inspect and correlate
 
 ```bash
@@ -117,6 +121,14 @@ stale, missing, malformed and oversized sources. Search results reflect indexed 
 can lag an actively growing directory. `data index --rebuild` clears only the derived projection.
 Per-file import errors exit nonzero; a normal bounded pass with remaining backlog can exit zero.
 
+Import budgets bound work per pass, not total storage. The index retains normalized rows,
+search text, full-text structures, dimensions and physical evidence locations; it can occupy
+substantially more disk than compressed source logs. Compression savings on the raw logs do
+not imply savings across the entire data directory. `--limit` bounds returned results or
+groups; aggregate queries can still inspect many indexed rows. Narrow supported filters first.
+The schema view only applies source and limit filters and describes observed shapes, not schema
+validation or per-session coverage.
+
 ## Retention and background operation
 
 ```bash
@@ -129,6 +141,9 @@ interlinked data configure --auto-compact on --compact-at-mb 256 --keep-live-mb 
 
 Configuration is stored in `data.config.json`. Both automation flags default off. Enabled jobs
 use the existing SessionEnd background resource governor, outside the hook decision path.
+SessionEnd is the provider's session lifecycle event, not every assistant Stop. There is no
+continuous watcher or periodic active-session refresh. Before investigating recent events,
+check `data status` and run explicit bounded index passes if the relevant files are stale.
 `maintain` without `--execute` previews the plan. Execution indexes a bounded batch and can
 losslessly rotate collection/timeline into gzip archives once they reach the threshold. The
 default retained live tail is 64 MiB. Existing index pointers are translated during rotation;
@@ -144,6 +159,14 @@ preservation policy deliberately favors full capture over diagnostic sampling or
 After external compaction, rerun the importer. A crash between physical rotation and projection
 translation leaves raw evidence recoverable; rebuilding the index reconstructs its pointers.
 Ordinary domain commands that only read a live file retain their documented scope.
+
+Retain raw evidence indefinitely. Do not delete archives, expire old records, discard unknown
+sources, or rewrite malformed rows as a storage optimization. Preserve manifests and integrity
+checkpoints with the logs. Lossless rotation relocates the complete archived prefix and keeps
+the recent suffix live; it is not an expiry policy. The derived index can be rebuilt from
+retained evidence, but rebuilding is separate from retention and is not needed after every
+rotation. Search archived history through `data search`, rather than assuming a live-tail
+command includes it.
 
 ## Audit investigation
 
