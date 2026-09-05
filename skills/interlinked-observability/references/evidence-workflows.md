@@ -19,6 +19,11 @@ without a receipt is unmeasured. An idle event-driven source is not necessarily 
 The catalog identifies exact logical source names, producers, categories and retention classes.
 Unknown discovered files are searchable; their meaning is not automatically known.
 
+For `spec-drift`, inspect the finding kind and `stop_eligible`. Inferred prose count/range
+comparisons remain searchable advisory evidence, while Stop summarizes structural marker/link
+findings. Quoted examples can explain older false positives; preserve those original records
+and review documents. Absence of a Stop nudge is not proof that all prose was verified.
+
 If relevant evidence has not been indexed, run `interlinked data index --json` and inspect the
 result. Repeat bounded passes if needed; exit zero alone does not mean the backlog is covered.
 For one known source, use `data index --source SOURCE --json`. SessionEnd automation can be

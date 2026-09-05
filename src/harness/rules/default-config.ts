@@ -178,9 +178,8 @@ export const DEFAULT_CONFIG: GuardRulesConfig = {
 		warn_stubs_introduced: true,
 		warn_fixture_leaks: true,
 		warn_unresolved_red: true,
-		// warn_spec_drift: cross-file spec-fact drift (count/range claims,
-		// declared fact markers, cross-file anchors) still outstanding at
-		// Stop — captured by the spec-ledger phase at PostToolUse.
+		// warn_spec_drift: structural marker/link drift captured at PostToolUse.
+		// Inferred prose counts/ranges remain advisory evidence, not Stop nudges.
 		warn_spec_drift: true,
 		// warn_review_findings: ingested review findings (interlinked
 		// findings ingest) with neither a touching edit nor an ack.

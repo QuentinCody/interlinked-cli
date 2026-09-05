@@ -26,6 +26,7 @@ import {
 	maskCommentsKeepCode,
 } from "./extract-refs-masking.js";
 import type { SpecFacts } from "./types.js";
+import { maskExampleFields, maskQuotedFactText } from "./fact-context.js";
 
 /**
  * A markdown table row — `| a | b |`. Requires two pipes so a line that merely
@@ -43,6 +44,7 @@ function isTableRow(line: string): boolean {
  */
 export function extractSpecFacts(content: string, filePath: string): SpecFacts {
 	const lines = content.split("\n");
+	const exampleLines = maskExampleFields(lines);
 	const fencedBlocks = extractFencedBlocks(lines);
 	const fenced = fencedLineSet(fencedBlocks);
 	// Comment visibility is applied ONCE here so the count/id/range extractors
@@ -51,9 +53,10 @@ export function extractSpecFacts(content: string, filePath: string): SpecFacts {
 	// VISIBLE (the census deliberately reads fenced/inline code). "<!-- Six
 	// bets B1 B2 B3 -->" produces neither a count claim nor a B namespace.
 	const commentHidden = htmlCommentBlockLines(lines, fenced);
-	const censusLines = lines.map((l, i) =>
+	const visibleLines = exampleLines.map((l, i) =>
 		commentHidden.has(i + 1) ? "" : maskCommentsKeepCode(l),
 	);
+	const censusLines = visibleLines.map(maskQuotedFactText);
 	// Prose-shaped facts exclude fenced lines (round-2 #21): count/range
 	// claims inside a documented example are illustration, not assertions.
 	// ID censuses still scan fences (registry tables are often examples).
@@ -80,13 +83,13 @@ export function extractSpecFacts(content: string, filePath: string): SpecFacts {
 		countClaims: extractCountClaims(proseLines),
 		rangeClaims,
 		headings: extractHeadings(lines, fenced),
-		sectionRefs: extractSectionRefs(lines, fenced),
-		anchorLinks: extractAnchorLinks(lines, fenced),
+		sectionRefs: extractSectionRefs(exampleLines, fenced),
+		anchorLinks: extractAnchorLinks(exampleLines, fenced),
 		// Path refs and claim sentences don't mask comments internally (unlike
 		// headings/refs/links), so feed them the comment-hidden census view — a
 		// path or claim inside "<!-- … -->" is not a live fact (round-7 #9).
-		pathRefs: extractPathRefs(censusLines, fenced),
-		declaredFacts: extractDeclaredFacts(lines),
+		pathRefs: extractPathRefs(visibleLines, fenced),
+		declaredFacts: extractDeclaredFacts(exampleLines),
 		fencedBlocks,
 		claimSentences: extractClaimSentences(censusLines, fenced),
 	};

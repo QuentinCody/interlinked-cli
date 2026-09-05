@@ -12,9 +12,9 @@ describe("formatSpecDriftWarning", () => {
 
 	it("lists findings with file:line and reflective wording", () => {
 		const out = formatSpecDriftWarning([
-			{ file: "README.md", line: 2, message: '"six bets" vs the B census: 7 ids' },
+			{ kind: "declared_fact_drift", file: "README.md", line: 2, message: 'fact:mode differs from plan.md' },
 		]);
-		expect(out).toContain("1 retained cross-file spec fact finding(s)");
+		expect(out).toContain("1 retained structural spec finding(s)");
 		expect(out).toContain("README.md:2");
 		expect(out).toContain("interlinked query spec-drift");
 		expect(out).toContain("session causation unmeasured");
@@ -23,6 +23,7 @@ describe("formatSpecDriftWarning", () => {
 
 	it("caps the quoted list and reports the remainder count", () => {
 		const entries = Array.from({ length: 5 }, (_, i) => ({
+			kind: "xref_missing_file",
 			file: `f${i}.md`,
 			line: i + 1,
 			message: `finding ${i}`,
@@ -32,6 +33,23 @@ describe("formatSpecDriftWarning", () => {
 		expect(out).toContain("f2.md:3");
 		expect(out).not.toContain("f3.md");
 		expect(out).toContain("…and 2 more");
+	});
+
+	it("never promotes heuristic or unclassified legacy entries into Stop warnings", () => {
+		expect(formatSpecDriftWarning([{ file: "review.md", line: 1, message: "legacy example" }])).toBeNull();
+		for (const kind of ["count_claim_drift", "range_claim_drift", "unknown"]) {
+			expect(formatSpecDriftWarning([{ kind, file: "review.md", line: 1, message: "quoted example" }])).toBeNull();
+		}
+	});
+
+	it("counts only structural findings in a mixed retained snapshot", () => {
+		const out = formatSpecDriftWarning([
+			{ kind: "range_claim_drift", file: "review.md", line: 1, message: "example" },
+			{ kind: "xref_missing_anchor", file: "guide.md", line: 2, message: "missing target heading" },
+		]);
+		expect(out).toContain("1 retained structural");
+		expect(out).toContain("guide.md:2");
+		expect(out).not.toContain("review.md");
 	});
 });
 

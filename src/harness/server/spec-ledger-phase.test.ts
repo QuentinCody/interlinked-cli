@@ -105,7 +105,7 @@ describe("runSpecLedgerPhase", () => {
 		expect(decision.warnings ?? []).toEqual([]);
 	});
 
-	it("editing the registry file surfaces sibling drift and records obligations", () => {
+	it("editing the registry file records heuristic drift without imposing sibling obligations", () => {
 		const { root, ctx, session, decision, acc } = makeFixture();
 		fixtures.push(root);
 		runSpecLedgerPhase(ctx, join(root, "PLAN.md"), true, session, decision, acc);
@@ -115,10 +115,10 @@ describe("runSpecLedgerPhase", () => {
 		expect(acc.allCheckResults[0]).toEqual(
 			expect.objectContaining({ source: "spec", severity: "warning" }),
 		);
-		// The finding is anchored in README.md — a sibling obligation.
+		// A heuristic binding is review evidence, not an obligation to edit a sibling.
 		const keys = [...session.pending_completions.keys()];
 		expect(keys.some((k) => k.startsWith("spec:count_claim_drift:README.md"))).toBe(
-			true,
+			false,
 		);
 		expect(session.spec_drift_outstanding?.length).toBeGreaterThan(0);
 	});

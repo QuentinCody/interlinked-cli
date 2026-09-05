@@ -91,7 +91,13 @@ above a B1..B7 census), `spec_pitfall` (curated spec falsehoods), `spec_claim_un
 
 **PostToolUse cross-file drift** — on a markdown edit, `[interlinked:spec-drift]` for
 count/range/declared-fact/xref drift *involving the edited file* (≤5/edit; the rest deferred to
-Stop).
+the evidence log and review agenda).
+
+Quoted code examples, quoted phrases and explicit `Evidence:`/`Example:`/input/output fields
+do not assert live numeric facts or contribute example IDs to the census. Individually
+formatted identifiers and count tokens remain supported. These rules depend on content,
+not repository names or review-directory paths. Declared `fact:` markers must be live markup:
+markers inside inline code, fenced code or blockquotes are examples, not declarations.
 
 Generic count claims use a scoped identifier census. A README may describe its directory;
 other documents must mention the namespace or link to its home near the claim before sibling
@@ -115,11 +121,26 @@ first observation is not evidence of when a defect was introduced.
 `[interlinked:disputed-ground] <file> carries N open review finding(s)… you are building on
 disputed ground`.
 
-**Stop nudges** (stderr, never block): outstanding cross-file spec findings, and ingested review
-findings with neither a touching edit nor an ack.
+**Stop nudges** (stderr, never block): retained structural marker/link findings, and ingested
+review findings with neither a touching edit nor an ack. Inferred count/range comparisons are
+heuristic evidence and never become spec Stop nudges or automatic sibling-edit obligations.
+Unclassified legacy stash entries also do not qualify. Structural findings take priority before
+the bounded Stop stash is capped, so advisory volume cannot crowd them out. Old inferred
+completion entries remain preserved but do not trigger completion reminders or code-signature
+Stop warnings.
 
-**How to respond:** for count/drift — decide *which side is stale* (the claim or the
-enumeration), fix it, recount, then check sibling docs stating the same fact. For dangling
+All observed drift remains append-only in `spec-drift.jsonl`, including heuristic findings;
+`stop_eligible` records whether its kind qualifies for a Stop nudge. Search with
+`interlinked data search --source spec-drift --json`, or inspect the live tail with
+`interlinked query spec-drift`. A quiet Stop does not certify that all prose agrees.
+After upgrading Interlinked CLI, use the normal build/update and `reload` workflow in each
+running project so its daemon loads the new parser and Stop policy. Existing log history and
+review documents are preserved; the next markdown observation refreshes the derived stash.
+
+**How to respond:** for inferred count/range drift, first check whether the text is an example,
+historical quotation, sub-range or a live assertion about the same registry. Preserve quoted
+review evidence. Only after establishing a real contradiction decide which side is stale,
+fix it, recount, then check sibling docs stating the same fact. For dangling
 anchors — fix or qualify the ref. For a marker `ask` — update all sites, retry. For
 disputed-ground/open findings — resolve with an edit, or `interlinked findings ack <id> --reason`.
 

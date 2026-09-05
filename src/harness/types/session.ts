@@ -208,7 +208,7 @@ export interface SessionTrajectory {
 	 * recent markdown edit (captured at PostToolUse by the spec-ledger phase,
 	 * consumed by the Stop nudge). Replaced per edit, capped at 10 entries.
 	 */
-	spec_drift_outstanding?: Array<{ file: string; line: number; message: string; scope?: "repository"; relation?: "edited-file" | "other-file"; observation?: "first-observed" | "previously-observed"; related_files?: string[] }>;
+	spec_drift_outstanding?: Array<{ kind?: string; file: string; line: number; message: string; scope?: "repository"; relation?: "edited-file" | "other-file"; observation?: "first-observed" | "previously-observed"; related_files?: string[] }>;
 	/**
 	 * Most recently captured plan declared by the agent — populated by
 	 * `plan-capture.ts` on PreToolUse (TaskCreate / ExitPlanMode) or

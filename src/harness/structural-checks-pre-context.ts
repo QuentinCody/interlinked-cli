@@ -15,6 +15,7 @@ import { resolveDependencyView } from "./dependency-view.js";
 import { checkFollowUpViolation } from "./impact-analysis.js";
 import type { ProjectGraph } from "./project-graph.js";
 import { harnessNow } from "./replay/harness-clock.js";
+import { isAdvisorySpecCompletion } from "./spec/drift-confidence.js";
 import type { RouteMap } from "./route-map.js";
 import type { SessionTracker } from "./session-state.js";
 import { findTestFileForSource } from "./structural-checks/export-surface.js";
@@ -265,7 +266,8 @@ export function preCheckCompletionTracking(
 	if (!(config.completion_tracking && session)) return [];
 
 	const warnings: string[] = [];
-	for (const [_sourceFile, completion] of session.pending_completions) {
+	for (const [sourceFile, completion] of session.pending_completions) {
+		if (isAdvisorySpecCompletion(sourceFile)) continue;
 		const remaining = completion.affected_files.filter((f) => !completion.resolved_files.has(f));
 		if (remaining.length === 0) continue;
 		const toolCallsSince = session.tool_call_count - completion.recorded_at_tool_call;

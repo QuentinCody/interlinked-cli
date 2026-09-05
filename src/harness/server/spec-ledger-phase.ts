@@ -13,6 +13,7 @@ import type { Determinism, HarnessDecision, SessionTrajectory } from "../types.j
 import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import type { ServerRuntime } from "./runtime-context.js";
 import { captureSpecDrift } from "./spec-drift-capture.js";
+import { isProvenSpecDrift } from "../spec/drift-confidence.js";
 
 // Module-level shared handle so PreToolUse guards (pure functions with no
 // ServerRuntime access) can consult the ledger — the complexity-pulse
@@ -37,9 +38,7 @@ const MAX_WARNINGS_PER_EVENT = 5;
  *  declared markers and anchor/file existence are exact; count/range drift
  *  rests on heuristic census binding. */
 function driftDeterminism(kind: SpecDriftFinding["kind"]): Determinism {
-	return kind === "declared_fact_drift" ||
-		kind === "xref_missing_anchor" ||
-		kind === "xref_missing_file"
+	return isProvenSpecDrift(kind)
 		? "fully_deterministic"
 		: "partially_deterministic";
 }
@@ -172,7 +171,7 @@ function recordFindings({ rel, scoped, decision, acc, session }: RecordFindingsA
 	}
 	if (findings.length > MAX_WARNINGS_PER_EVENT) {
 		decision.warnings.push(
-			`[interlinked:spec-drift] …and ${findings.length - MAX_WARNINGS_PER_EVENT} more cross-file finding(s); they resurface at Stop and in \`interlinked verify\`.`,
+			`[interlinked:spec-drift] …and ${findings.length - MAX_WARNINGS_PER_EVENT} more cross-file finding(s); inspect \`interlinked query spec-drift\` or \`interlinked spec agenda\`. Stop summarizes structural findings only.`,
 		);
 	}
 	recordSiblingCompletions(rel, findings, session);
@@ -186,7 +185,7 @@ function recordSiblingCompletions(
 	session: SessionTrajectory,
 ): void {
 	for (const f of findings) {
-		if (f.file === rel) continue;
+		if (f.file === rel || !isProvenSpecDrift(f.kind)) continue;
 		session.pending_completions.set(`spec:${f.kind}:${f.file}:${f.line}`, {
 			source_file: rel,
 			affected_files: [f.file],

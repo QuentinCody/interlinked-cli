@@ -4,35 +4,38 @@
 // lifecycle-stop-warnings.ts — stderr-only, never blocks, signals captured
 // at PostToolUse by the spec-ledger phase (never a content scan at Stop).
 
+import { isProvenSpecDrift } from "./spec/drift-confidence.js";
+
 /** Max drift entries quoted in the Stop nudge. */
 const MAX_SHOWN = 3;
 
 interface SpecDriftStashEntry {
+	kind?: string;
 	file: string;
 	line: number;
 	message: string;
 }
 
 /**
- * Outstanding cross-file spec-fact drift at Stop: the session's last
- * markdown edit left claims/facts disagreeing across files. Reflective
- * wording — resolving or explicitly deferring are both legitimate; the
- * findings also surface in `interlinked verify`.
+ * Retained structural drift at Stop. Inferred prose comparisons remain
+ * review evidence; missing classification in an older snapshot is not proof.
+ * Full findings remain in the append-only log and the review agenda.
  */
 export function formatSpecDriftWarning(
 	outstanding: SpecDriftStashEntry[] | undefined,
 ): string | null {
-	if (!outstanding || outstanding.length === 0) return null;
-	const shown = outstanding
+	const proven = outstanding?.filter((finding) => isProvenSpecDrift(finding.kind)) ?? [];
+	if (proven.length === 0) return null;
+	const shown = proven
 		.slice(0, MAX_SHOWN)
 		.map((f) => `  - ${f.file}:${f.line} — ${f.message}`)
 		.join("\n");
 	const more =
-		outstanding.length > MAX_SHOWN
-			? `\n  …and ${outstanding.length - MAX_SHOWN} more`
+		proven.length > MAX_SHOWN
+			? `\n  …and ${proven.length - MAX_SHOWN} more`
 			: "";
 	return (
-		`[interlinked:spec-drift] ${outstanding.length} retained cross-file spec fact finding(s) outstanding in the repository snapshot (session causation unmeasured):\n` +
+		`[interlinked:spec-drift][proven] ${proven.length} retained structural spec finding(s) outstanding in the repository snapshot (session causation unmeasured):\n` +
 		`${shown}${more}\n` +
 		`  Inspect the compared definitions before editing. Full observed findings and provenance: \`interlinked query spec-drift\`. Deliberate disagreements can be documented at their definition.`
 	);

@@ -36,8 +36,8 @@ export interface VerificationStopChecksConfig {
 	warn_stubs_introduced: boolean;
 	warn_fixture_leaks: boolean;
 	warn_unresolved_red: boolean;
-	/** Stop nudge for outstanding cross-file spec drift (ledger findings
-	 *  captured at PostToolUse; optional for config back-compat, default on). */
+	/** Stop nudge for structural marker/link drift captured at PostToolUse.
+	 *  Inferred prose counts/ranges are advisory only. Optional, default on. */
 	warn_spec_drift?: boolean;
 	/** Stop nudge for ingested review findings with neither a touching edit
 	 *  nor an ack (optional for config back-compat, default on). */

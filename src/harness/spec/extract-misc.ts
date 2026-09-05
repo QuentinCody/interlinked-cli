@@ -10,6 +10,8 @@ import type {
 	PathRef,
 	PathTense,
 } from "./types.js";
+import { codeSpanIntervals, maskCodeSpans } from "./extract-refs-masking.js";
+import { factQuoteIntervals } from "./fact-context.js";
 
 // Info string is the FULL rest of the line (round-2 #22): CommonMark allows
 // more than one token ("```ts title=\"demo\""); capturing only `\S*` left the
@@ -136,19 +138,27 @@ export function extractPathRefs(
 const DECLARED_FACT_RE =
 	/<!--\s*fact:([a-z0-9_.-]+)\s*-->([^<]{0,2048}?)<!--\s*\/fact:\1\s*-->/g;
 
-/** Declared fact markers (checked inside fences too — markers are meta). */
+function declaredFactsOnLine(line: string, lineNo: number): DeclaredFact[] {
+	const spans = [...codeSpanIntervals(line), ...factQuoteIntervals(maskCodeSpans(line))].sort((a, b) => a[0] - b[0]);
+	let span = 0;
+	const out: DeclaredFact[] = [];
+	DECLARED_FACT_RE.lastIndex = 0;
+	for (const match of line.matchAll(DECLARED_FACT_RE)) {
+		while (span < spans.length && (spans[span]?.[1] ?? 0) <= match.index) span++;
+		if (spans[span] && (spans[span]?.[0] ?? 0) <= match.index) continue;
+		out.push({ name: match[1] ?? "", value: (match[2] ?? "").trim(), line: lineNo });
+	}
+	return out;
+}
+
+/** Live declared markers. Code examples and blockquotes do not declare facts. */
 export function extractDeclaredFacts(lines: string[]): DeclaredFact[] {
 	const out: DeclaredFact[] = [];
+	const fenced = fencedLineSet(extractFencedBlocks(lines));
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i] ?? "";
-		DECLARED_FACT_RE.lastIndex = 0;
-		for (const m of line.matchAll(DECLARED_FACT_RE)) {
-			out.push({
-				name: m[1] ?? "",
-				value: (m[2] ?? "").trim(),
-				line: i + 1,
-			});
-		}
+		if (fenced.has(i + 1) || /^\s*>/.test(line)) continue;
+		out.push(...declaredFactsOnLine(line, i + 1));
 	}
 	return out;
 }

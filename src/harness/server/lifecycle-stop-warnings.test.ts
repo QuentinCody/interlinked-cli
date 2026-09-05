@@ -1479,7 +1479,7 @@ describe("checkReviewFindings", () => {
 // ===========================================================================
 describe("checkSpecDrift", () => {
 	const drift = [
-		{ file: "README.md", line: 2, message: '"six bets" vs the B census: 7 ids' },
+		{ kind: "declared_fact_drift", file: "README.md", line: 2, message: "fact:mode conflicts with plan.md" },
 	];
 
 	it("surfaces the spec-drift stash at Stop", () => {

@@ -96,7 +96,7 @@ export const signatureChangeCallersNotUpdated: SequenceDetector = {
 	fn: (trajectory) => {
 		const matches: SequenceMatch[] = [];
 		for (const [sourceFile, completion] of trajectory.pending_completions) {
-			if (completion.affected_files.length === 0) continue;
+			if (sourceFile.startsWith("spec:") || completion.affected_files.length === 0) continue;
 			const unresolved = completion.affected_files.filter(
 				(f) => !completion.resolved_files.has(f),
 			);
@@ -355,7 +355,7 @@ export const unusedHelperIntroduced: SequenceDetector = {
 	fn: (trajectory) => {
 		const matches: SequenceMatch[] = [];
 		for (const [sourceFile, completion] of trajectory.pending_completions) {
-			if (completion.affected_files.length > 0) continue;
+			if (sourceFile.startsWith("spec:") || completion.affected_files.length > 0) continue;
 			matches.push({
 				prior_event_count: 1,
 				prior_summary: `helper added to ${sourceFile} with 0 known callers`,
