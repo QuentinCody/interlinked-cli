@@ -80,6 +80,7 @@ A **block reason is always surfaced.** Allow-time warnings are surfaced but easy
 | Running `interlinked verify`; a `pre_block` check blocked an edit; landing a cross-file refactor; scratch scripts | **interlinked-verify** |
 | Blocked by a **line-cap / function-token / coverage / complexity / CRAP / mutation** ratchet; configuring report, per-edit, or durable `mutation cloud` work; operating the mutation journal; "can't lower a baseline"; `adopt`; automatic obligation or manual marker debt; **dead code** (`deadcode` scan + `--categorize` deletion-safety buckets, per-edit `dead_code_action`) | **interlinked-quality-gates** |
 | Finding, reviewing, recording, or auditing opportunities to delete, replace, defer, or shrink code; `simplify …`; simplification coverage/evidence/deep handoff | **interlinked-simplification** |
+| Offline `metrics score`, its experimental structural profile, unmeasured inputs, or repeatable repository corpus measurements | **interlinked-quality-gates** |
 | Installing a local embedding model; building, inspecting, searching, or repairing the optional function-vector index | **interlinked-semantic-index** |
 | An `npm/pip/cargo/…` install or manifest edit was blocked; the package **allowlist** | **interlinked-supply-chain** |
 | Spec/doc facts, drift, invariants, review **findings**, `doctest`; `[interlinked:spec-*]` | **interlinked-spec-audit** |

@@ -3,6 +3,15 @@ import { describe, expect, it } from "vitest";
 import { extractBindings, findDeadImports } from "./check-dead-imports.js";
 
 describe("findDeadImports", () => {
+    it("does not call an annotated, used import dead", () => {
+        const content = "import { /* tree-shaking no-side-effects-when-called */ isOneOf } from './isOneOf.js';\nexport const nullable = isOneOf(isNull, isUndefined);";
+        expect(findDeadImports(content)).toEqual([]);
+    });
+
+    it("extracts real aliases when comments contain commas, braces and as", () => {
+        const content = "import { /* }, fake as wrong */ original as Used, /* explain */ Unused } from './source';\nconsole.log(Used);";
+        expect(findDeadImports(content)).toEqual(["Unused"]);
+    });
 	it.each([
 		["blank line", ""],
 		["JSDoc continuation", "* documentation"],

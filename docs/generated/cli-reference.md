@@ -30,6 +30,7 @@ Commands:
   context [options]                          Show effective configuration (merged from all sources)
   coverage                                   Per-file coverage ratchet — fails on any file whose coverage drops
   daemons [options]                          List active harness daemons, PID liveness, socket paths, and health
+  data                                       Discover, assess, index and search all local JSONL evidence
   deadcode [options]                         Scan the whole repo for dead-code candidates: unreachable files, unused import bindings, unused exports
   debt                                       Inspect pair-scoped TDD debts (coverage / red_suite) from the obligation ledger
   design [options] [path]                    Run Impeccable's deterministic design-slop detector (overused fonts, accent stripes, gradient text, AI palettes, bounce easing, broken images, copy tells) on frontend files. Requires the optional `impeccable` CLI on PATH; degrades gracefully when absent. The built-in `design_slop` check covers a regex subset natively.
@@ -242,23 +243,37 @@ Scan the whole codebase: function tokens, companion-test presence, coverage,
 complexity, and CRAP
 
 Options:
-  --cwd <path>        Project root (default: current directory)
-  --top <n>           Number of function/file token and CRAP hotspots to show
-                      (default: 25)
-  --include-tests     Include test/spec functions as advisory token
-                      measurements
-  --json              Machine-readable output (full per-file + per-function)
-  --short             One-line summary
-  --full              Show every per-file and per-function token measurement
-  -h, --help          display help for command
+  --cwd <path>                 Project root (default: current directory)
+  --top <n>                    Number of function/file token and CRAP hotspots
+                               to show (default: 25)
+  --include-tests              Include test/spec functions as advisory token
+                               measurements
+  --json                       Machine-readable output (full per-file +
+                               per-function)
+  --short                      One-line summary
+  --full                       Show every per-file and per-function token
+                               measurement
+  -h, --help                   display help for command
 
 Commands:
-  coupling [options]  Change coupling from git history — co-changed file pairs;
-                      pairs with no import edge are flagged 'hidden'
-  arch [options]      Martin metrics per directory (Ca/Ce/instability) +
-                      propagation cost from the import graph
-  rework [options]    Churn age from git blame — share of changed lines whose
-                      previous version was written in the last --window days
+  coupling [options]           Change coupling from git history — co-changed
+                               file pairs; pairs with no import edge are
+                               flagged 'hidden'
+  arch [options]               Martin metrics per directory (Ca/Ce/instability)
+                               + propagation cost from the import graph
+  rework [options]             Churn age from git blame — share of changed
+                               lines whose previous version was written in the
+                               last --window days
+  complexity [options]         Complexity census: percentiles, histograms,
+                               top-N hotspots, per-file mass, and over-cap
+                               counts for cyclomatic / cognitive / lines
+  split-plan [options] <file>  Where to cut one over-cap file: intra-file
+                               reference graph (TS AST) → 2–4 cohesive modules
+                               with line count, ΣCC, imports, a suggested
+                               filename each, and the cross-module references
+                               the split creates
+  score [options]              Experimental structural burden scores from local
+                               AST analysis; no model calls
 ```
 
 ### metrics coupling
@@ -315,6 +330,54 @@ Options:
   --json                  Machine-readable output
   --short                 One-line summary
   -h, --help              display help for command
+```
+
+### metrics complexity
+
+```
+Usage: interlinked metrics complexity [options]
+
+Complexity census: percentiles, histograms, top-N hotspots, per-file mass, and
+over-cap counts for cyclomatic / cognitive / lines
+
+Options:
+  --cwd <path>     Project root (default: current directory)
+  --top <n>        Hotspots per metric and files by mass (default: 20)
+  --metric <name>  cyclomatic | cognitive | lines | all (default: all)
+  --json           Machine-readable output
+  --short          One-line summary
+  -h, --help       display help for command
+```
+
+### metrics split-plan
+
+```
+Usage: interlinked metrics split-plan [options] <file>
+
+Where to cut one over-cap file: intra-file reference graph (TS AST) → 2–4
+cohesive modules with line count, ΣCC, imports, a suggested filename each, and
+the cross-module references the split creates
+
+Options:
+  --cwd <path>        Project root (default: current directory)
+  --max-clusters <n>  Upper bound on proposed modules, 2–4 (default: 4)
+  --json              Machine-readable output
+  --short             One-line summary
+  -h, --help          display help for command
+```
+
+### metrics score
+
+```
+Usage: interlinked metrics score [options]
+
+Experimental structural burden scores from local AST analysis; no model calls
+
+Options:
+  --cwd <path>  Project root (default: current directory)
+  --json        Full measurements, profile, hashes and explicit evidence gaps
+  --short       One-line structural score and measurement status
+  -h, --help    display help for command
 ```
 
 ## Harness

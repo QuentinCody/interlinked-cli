@@ -1,0 +1,728 @@
+{
+  "schemaVersion": 1,
+  "modelCalls": 0,
+  "repositoryCodeExecuted": false,
+  "uniformProfile": true,
+  "repositories": [
+    {
+      "name": "mesqueeb/is-what",
+      "commit": "dadd235f03d201ffbd8fd73dcc5d1891d754fcd4",
+      "stars": 200,
+      "artifact": "001.json",
+      "status": "measured",
+      "structuralScore": 2.694410271067369,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "a5f400cef0cc9db49b764d2e770f775fe82d8e7560956c5185dcd26676501bc2",
+      "files": 45,
+      "functions": 43,
+      "unmeasuredFiles": 0,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 2.701809324982603,
+            "mean": 1.1238691718858733,
+            "tail": 7.43562978427279,
+            "exposure": 1437
+          },
+          "rawMax": 8
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 4.51635351426583,
+            "mean": 1.51356993736952,
+            "tail": 13.524704244954764,
+            "exposure": 1437
+          },
+          "rawMax": 12
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 0,
+            "mean": 0,
+            "tail": 0,
+            "exposure": 1437
+          },
+          "rawMax": 132
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 4.004413025648672,
+            "mean": 1.5508706962256023,
+            "tail": 11.365040013917884,
+            "exposure": 1437
+          },
+          "rawMax": 30.875
+        }
+      ]
+    },
+    {
+      "name": "antfu/diff-match-patch-es",
+      "commit": "4f35fb7fd57df68d69068cdee0780bb779f5497f",
+      "stars": 199,
+      "artifact": "002.json",
+      "status": "measured",
+      "structuralScore": 50.21556277288518,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "caadfd51d7eec9042da3a6cf64781f36d36e4babdda15f7a940c19c13c1b2930",
+      "files": 8,
+      "functions": 42,
+      "unmeasuredFiles": 0,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 36.96985007496252,
+            "mean": 25.55980009995003,
+            "tail": 71.2,
+            "exposure": 10005
+          },
+          "rawMax": 32
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 58.148534066300186,
+            "mean": 45.548758953856414,
+            "tail": 95.94785940363151,
+            "exposure": 10005
+          },
+          "rawMax": 58
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 44.84148425787106,
+            "mean": 35.2119673496585,
+            "tail": 73.73003498250874,
+            "exposure": 10005
+          },
+          "rawMax": 769
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 62.90999499672392,
+            "mean": 52.006264495707434,
+            "tail": 95.62118649977337,
+            "exposure": 10005
+          },
+          "rawMax": 174
+        }
+      ]
+    },
+    {
+      "name": "caderek/aocrunner",
+      "commit": "7eaba95faa8708b4b0b9c79b0b3eaf13347ead57",
+      "stars": 199,
+      "artifact": "003.json",
+      "status": "measured",
+      "structuralScore": 15.884194185862828,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "17357c292321a9ee55a76c6391d9ff3cba82728aa9e5d1b342a6b9ca04fc2268",
+      "files": 36,
+      "functions": 83,
+      "unmeasuredFiles": 0,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 10.164152237270702,
+            "mean": 5.79590262300703,
+            "tail": 23.268901080061717,
+            "exposure": 5833
+          },
+          "rawMax": 15
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 14.195582604720268,
+            "mean": 7.819703983084748,
+            "tail": 33.32321846962684,
+            "exposure": 5833
+          },
+          "rawMax": 19
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 22.92560432024687,
+            "mean": 12.673281330361736,
+            "tail": 53.682573289902265,
+            "exposure": 5833
+          },
+          "rawMax": 610
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 15.417166738834299,
+            "mean": 9.515398908179511,
+            "tail": 33.12247023079866,
+            "exposure": 5833
+          },
+          "rawMax": 52.75247524752476
+        }
+      ]
+    },
+    {
+      "name": "sergiodxa/remix-auth-oauth2",
+      "commit": "6e7bfd2a5741f5b04dafd4f9f57c83775936a39a",
+      "stars": 200,
+      "artifact": "004.json",
+      "status": "measured",
+      "structuralScore": 11.317757302404209,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "b657ea8bf4941b90f2e7d42b36450cf4455955a5b4e1ff666b41e8049ff80ec9",
+      "files": 4,
+      "functions": 24,
+      "unmeasuredFiles": 0,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 5.808606337271751,
+            "mean": 3.578141783029001,
+            "tail": 12.5,
+            "exposure": 1862
+          },
+          "rawMax": 10
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 12.84074024346581,
+            "mean": 7.898764769065522,
+            "tail": 27.666666666666668,
+            "exposure": 1862
+          },
+          "rawMax": 16
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 17.327712137486575,
+            "mean": 11.936949516648767,
+            "tail": 33.5,
+            "exposure": 1862
+          },
+          "rawMax": 390
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 8.289752785630968,
+            "mean": 5.127077788248697,
+            "tail": 17.77777777777778,
+            "exposure": 1862
+          },
+          "rawMax": 34.22222222222222
+        }
+      ]
+    },
+    {
+      "name": "JNKKKK/pianochord.io",
+      "commit": "568efa33124a034d131e787fd20c28b298780433",
+      "stars": 200,
+      "artifact": "005.json",
+      "status": "partial",
+      "structuralScore": 18.44137027385048,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "c6c99caa3bb4364a30ce362602d09009a8964d21598b766bff8a2560bb475601",
+      "files": 50,
+      "functions": 239,
+      "unmeasuredFiles": 16,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 4.044034298669007,
+            "mean": 1.2671859002486472,
+            "tail": 12.374579493930087,
+            "exposure": 13674
+          },
+          "rawMax": 14
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 7.01108246794403,
+            "mean": 2.271988201452879,
+            "tail": 21.22836526741748,
+            "exposure": 13674
+          },
+          "rawMax": 19
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 33.552877724148026,
+            "mean": 13.83156842669787,
+            "tail": 92.71680561649846,
+            "exposure": 13674
+          },
+          "rawMax": 2641
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 28.608062714702477,
+            "mean": 11.801376456784583,
+            "tail": 79.02812148845615,
+            "exposure": 13674
+          },
+          "rawMax": 130.453488372093
+        }
+      ]
+    },
+    {
+      "name": "QuentinCody/interlinked-cli",
+      "commit": "a2d4e41fb1ccb0a6514e9e177170f0386e399f06",
+      "stars": 171,
+      "artifact": "006.json",
+      "status": "partial",
+      "structuralScore": 11.621288874335415,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "1c9d9c687e36ea8e5c978e1feb60c37d3247534b199ca3a1202f4df3f341c371",
+      "files": 1519,
+      "functions": 15593,
+      "unmeasuredFiles": 12,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 7.961352138276853,
+            "mean": 4.448280717774435,
+            "tail": 18.500566399784105,
+            "exposure": 1274718
+          },
+          "rawMax": 16
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 9.407510131652646,
+            "mean": 5.364284492727023,
+            "tail": 21.537187048429516,
+            "exposure": 1274718
+          },
+          "rawMax": 15
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 14.93300231567558,
+            "mean": 6.605892845842511,
+            "tail": 39.91433072517479,
+            "exposure": 1274718
+          },
+          "rawMax": 1941
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 14.089576986244207,
+            "mean": 8.236521987873719,
+            "tail": 31.648741981355677,
+            "exposure": 1274718
+          },
+          "rawMax": 126.11111111111111
+        }
+      ]
+    },
+    {
+      "name": "figma/vite-plugin-yaml",
+      "commit": "2273c3f46fdfdb4de2dc9a273e8ee062e54dff35",
+      "stars": 100,
+      "artifact": "007.json",
+      "status": "partial",
+      "structuralScore": 1.398988413547237,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "7a8db8b37769ed3e30a328e6cb3d29de13f6b2718d41135e2fdc57246b527253",
+      "files": 6,
+      "functions": 7,
+      "unmeasuredFiles": 2,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 0,
+            "mean": 0,
+            "tail": 0,
+            "exposure": 425
+          },
+          "rawMax": 4
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 3.264705882352941,
+            "mean": 1.852941176470588,
+            "tail": 7.5,
+            "exposure": 425
+          },
+          "rawMax": 8
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 0.2814117647058825,
+            "mean": 0.08658823529411767,
+            "tail": 0.8658823529411768,
+            "exposure": 425
+          },
+          "rawMax": 162
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 2.2708890374331547,
+            "mean": 1.4180035650623877,
+            "tail": 4.829545454545455,
+            "exposure": 425
+          },
+          "rawMax": 23.863636363636363
+        }
+      ]
+    },
+    {
+      "name": "jokull/python-ts-graphql-demo",
+      "commit": "52d4fb5a9bf2143c7585fadc43bbaa574e59e3db",
+      "stars": 100,
+      "artifact": "008.json",
+      "status": "partial",
+      "structuralScore": 1.607980892694383,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "2e2ff68e3e78ba7e2d9cbed9ad6dd709749b30d79b7716db6958f808cf318251",
+      "files": 6,
+      "functions": 21,
+      "unmeasuredFiles": 5,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 0,
+            "mean": 0,
+            "tail": 0,
+            "exposure": 1172
+          },
+          "rawMax": 4
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 0,
+            "mean": 0,
+            "tail": 0,
+            "exposure": 1172
+          },
+          "rawMax": 3
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 5.050227531285552,
+            "mean": 2.9558589306029575,
+            "tail": 11.333333333333332,
+            "exposure": 1172
+          },
+          "rawMax": 235
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 0.9231296030177836,
+            "mean": 0.28403987785162566,
+            "tail": 2.8403987785162568,
+            "exposure": 1172
+          },
+          "rawMax": 23.026315789473685
+        }
+      ]
+    },
+    {
+      "name": "dcodesdev/LetterSpace",
+      "commit": "5e9b3391bcae33ab9069b0821c3fce85a57c0e47",
+      "stars": 100,
+      "artifact": "009.json",
+      "status": "partial",
+      "structuralScore": 30.638712032942486,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "0b84ec7f5642074f0a8e3804d5792ddc23f784589e292bead47b39504d739838",
+      "files": 247,
+      "functions": 925,
+      "unmeasuredFiles": 24,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 15.720993279048724,
+            "mean": 6.482370427814398,
+            "tail": 43.4368618327517,
+            "exposure": 77370
+          },
+          "rawMax": 25
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 21.056167334453498,
+            "mean": 8.221644909741073,
+            "tail": 59.55973460859077,
+            "exposure": 77370
+          },
+          "rawMax": 77
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 51.377413403127825,
+            "mean": 35.16988453750376,
+            "tail": 100,
+            "exposure": 77370
+          },
+          "rawMax": 1762
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 32.2781317041414,
+            "mean": 19.180119317063987,
+            "tail": 71.57216886537364,
+            "exposure": 77370
+          },
+          "rawMax": 117.8956043956044
+        }
+      ]
+    },
+    {
+      "name": "wobsoriano/solid-sonner",
+      "commit": "4082d5e52074a846d5e139fcbeccb75addb6871b",
+      "stars": 100,
+      "artifact": "010.json",
+      "status": "partial",
+      "structuralScore": 29.758507350042485,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "8af53c32dfceaf9e29faa1924d2869e320a433661f535ee9d889f59896925cc9",
+      "files": 19,
+      "functions": 254,
+      "unmeasuredFiles": 7,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 20.339818953956193,
+            "mean": 8.966204738489047,
+            "tail": 54.46066160035763,
+            "exposure": 11185
+          },
+          "rawMax": 27
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 27.50821412606169,
+            "mean": 11.604455371777679,
+            "tail": 75.21949038891373,
+            "exposure": 11185
+          },
+          "rawMax": 53
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 41.398296826106396,
+            "mean": 21.864395768141858,
+            "tail": 100,
+            "exposure": 11185
+          },
+          "rawMax": 3303
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 28.336374827538062,
+            "mean": 14.711086334275297,
+            "tail": 69.21224030732637,
+            "exposure": 11185
+          },
+          "rawMax": 95.29245283018867
+        }
+      ]
+    },
+    {
+      "name": "mk12/vscode-better-git-line-blame",
+      "commit": "20528d8fadb681b5598cefc7b84b891583dc4643",
+      "stars": 100,
+      "artifact": "011.json",
+      "status": "measured",
+      "structuralScore": 27.175129858348644,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "465cc712539510c0da5f4d7832c5c0520d8866bcf9ff21adb4d1adc7be52be36",
+      "files": 1,
+      "functions": 67,
+      "unmeasuredFiles": 0,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 26.98678374878601,
+            "mean": 13.849044998381348,
+            "tail": 66.39999999999999,
+            "exposure": 6178
+          },
+          "rawMax": 29
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 35.44717815905902,
+            "mean": 17.04068198985648,
+            "tail": 90.66666666666666,
+            "exposure": 6178
+          },
+          "rawMax": 52
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 28.63341089349304,
+            "mean": 15.211214524657384,
+            "tail": 68.9,
+            "exposure": 6178
+          },
+          "rawMax": 689
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 16.258113599376927,
+            "mean": 9.580139666425874,
+            "tail": 36.292035398230084,
+            "exposure": 6178
+          },
+          "rawMax": 51.292035398230084
+        }
+      ]
+    },
+    {
+      "name": "gmickel/turborepo-shadcn-nextjs",
+      "commit": "c1f19e41b36f84cd731d8a3a62b9ca5a7436b3d0",
+      "stars": 100,
+      "artifact": "012.json",
+      "status": "partial",
+      "structuralScore": 6.591117756064689,
+      "slopScore": null,
+      "profileHash": "e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56",
+      "sourceHash": "1df77f5c4766263dc1bc2b405a4956dd2cc799705a3d005923f1a39319f0c350",
+      "files": 39,
+      "functions": 32,
+      "unmeasuredFiles": 2,
+      "metrics": [
+        {
+          "id": "cyclomatic",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 0,
+            "mean": 0,
+            "tail": 0,
+            "exposure": 1908
+          },
+          "rawMax": 2
+        },
+        {
+          "id": "cognitive",
+          "weight": 0.25,
+          "aggregate": {
+            "score": 0,
+            "mean": 0,
+            "tail": 0,
+            "exposure": 1908
+          },
+          "rawMax": 1
+        },
+        {
+          "id": "tokens",
+          "weight": 0.2777777777777778,
+          "aggregate": {
+            "score": 14.029147012578616,
+            "mean": 7.188862683438154,
+            "tail": 34.550000000000004,
+            "exposure": 1908
+          },
+          "rawMax": 397
+        },
+        {
+          "id": "difficulty",
+          "weight": 0.2222222222222222,
+          "aggregate": {
+            "score": 12.123596136567832,
+            "mean": 6.21241389637616,
+            "tail": 29.857142857142854,
+            "exposure": 1908
+          },
+          "rawMax": 44.857142857142854
+        }
+      ]
+    }
+  ]
+}

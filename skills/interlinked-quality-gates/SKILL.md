@@ -536,6 +536,8 @@ Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline 
 | `interlinked caps status` | Ledger burn-down per metric: cap, entries remaining, top offenders, delta vs the previous snapshot. |
 | `interlinked caps propose` | Data-driven cap proposals from a live census: percentile ladder and the count each candidate cap would grandfather. |
 | `interlinked metrics complexity [--metric <m>] [--top <n>]` | Complexity census: percentiles, histograms, hotspots, per-file mass, over-cap counts. |
+| `interlinked metrics score [--cwd <path>] [--json\|--short]` | Experimental local AST structural burden, individual metric scores, source/profile hashes, and explicit missing full-score evidence; no model calls or target execution. |
+| `interlinked metrics arch [--cwd <path>] [--json]` | Import graph statistics including isolated modules; graphVersion 2 retains N² propagation cost and adds normalizedReach with N(N−1). |
 | `interlinked metrics split-plan <file>` | Where to cut one over-cap file: 2–4 cohesive modules from the intra-file reference graph. |
 | `interlinked coverage check [--update-baseline] [--json]` | Full-suite per-file coverage ratchet vs `coverage-baseline.json`. |
 | `interlinked mutation check [--report <p>] [--update-baseline]` | Per-file mutation-score ratchet vs `mutation-baseline.json` (needs a Stryker report). |
@@ -578,6 +580,54 @@ for the whole file. Nested implementations intentionally count once in their own
 inside the enclosing function's span, and imports/types/top-level statements outside functions
 are absent. Use `maxFunctionTokens` to judge the cap and the summed value to understand the
 nested-inclusive function payload carried by a file.
+
+### Model-free structural scoring and corpus runs
+
+`interlinked metrics score` computes cyclomatic, cognitive, AST function-size and Halstead
+burden scores locally. No model API, embedding model, credentials, network request or target
+repository execution is needed. Code tokens mean lexical syntax units, not billed model tokens.
+Mutation generation and test execution also require no LLM: existing mutation runners mechanically
+mutate code and observe the tests. Their CPU/runtime cost is separate from model usage.
+
+The experimental `interlinked-structure-js-ts-v1` profile uses parser-resolved
+`interlinked-ts-ast-v1` tokens, including templates, regexes and JSX, with JSDoc excluded from
+token and Halstead tallies. Exclusive ownership avoids
+counting nested function tokens twice in exposure; function-size measurements include the whole
+implementation. Existing `interlinked-code-v1` edit gates and their baselines retain their current
+contract. Do not compare numbers across tokenizer/profile versions as if their units were identical.
+
+Scoring uses the handwritten product path/content policy and function-adapter path eligibility.
+Extensionless files, tests, declarations, generated/vendor/build outputs and metadata outside that
+policy are excluded; the JSON lists exclusions. Unsupported product extensions, unreadable or
+oversized sources, parser recovery and incomplete discovery remain explicit gaps. The filesystem
+fallback does not follow symlinks; source reads are limited to 2 MiB. Top-level code outside
+functions and normalized file size are not scored by this profile.
+
+`structuralScore` summarizes only measured functions; `status: partial` exposes missing source
+measurements. `slopScore: null` and `rankEligible: false` are intentional: coverage/mutation,
+test integrity, semantic architecture, correctness/security, type soundness, redundancy and contract
+burdens do not yet have complete scoring adapters. `unknown`, physical line counts and assertions
+are diagnostics, not automatic penalties. No missing report is inferred as zero coverage or a clean
+result. JSON includes the frozen profile/weights, per-function measurements, per-file hashes and
+source/profile hashes. The structural score is advisory and does not control edit gates.
+
+For repeatable offline corpus measurements in this source repository:
+
+```bash
+node --import tsx scripts/metrics-corpus.ts --manifest <manifest.json> --out <report-directory>
+```
+
+The manifest has `repositories: [{name, path, commit, stars?}]`; paths resolve relative to the
+manifest and `commit` is a full Git SHA. The runner requires clean pinned clones, writes individual
+JSON reports plus `corpus.json`, records failures, and never clones, installs dependencies, executes
+target scripts or calls a model. Repository selection and a larger sample do not establish calibrated
+quality percentiles. Run only configured test/mutation tools when collecting behavioral evidence.
+
+`metrics arch` now retains isolated modules in directory and propagation populations. Its existing
+`propagation.cost` still uses N² with self excluded from reach. `normalizedReach` uses N(N−1), or
+zero for a fully inventoried singleton/empty graph. The JSON identifies `graphVersion: 2`; old and
+new node populations are not interchangeable. These are import-reach diagnostics, not proven change
+impact or an architecture quality score. Type-only/runtime edge qualification remains separate work.
 
 ## Automatic obligations vs manual debt markers
 

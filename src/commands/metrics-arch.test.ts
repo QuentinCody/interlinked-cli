@@ -74,6 +74,14 @@ describe("computeDirMetrics", () => {
 });
 
 describe("computePropagationCost", () => {
+    it("includes isolated modules in the measured population", () => {
+        const graph = [{ from: "a", to: "b" }, { from: "b", to: "c" }];
+        expect(computePropagationCost(graph, ["a", "b", "c", "isolated"])).toEqual({ files: 4, cost: 3 / 16 });
+        expect(computePropagationCost([], ["isolated"])).toEqual({ files: 1, cost: 0 });
+        expect(computeDirMetrics([], 2, ["src/isolated.ts"])).toEqual([
+            { dir: "src", files: 1, ca: 0, ce: 0, instability: null },
+        ]);
+    });
 	it("chain a→b→c: reachable sets are 2,1,0 → cost = 3/9", () => {
 		const cost = computePropagationCost([
 			{ from: "a", to: "b" },
@@ -193,6 +201,21 @@ describe("metricsArchCommand — JSON output", () => {
 		expect(harness).toMatchObject({ ca: 1, ce: 1, instability: 0.5 });
 	});
 
+    it("retains an isolated module in the live graph and normalized denominator", async () => {
+        const root = buildFixtureProject();
+        try {
+            writeFileSync(join(root, "src/lib/isolated.ts"), "export const isolated = 1;\n");
+            const { out } = await runArch({ cwd: root, json: true });
+            const payload = JSON.parse(out);
+            expect(payload.graphVersion).toBe(2);
+            expect(payload.propagation).toEqual({ files: 4, cost: 3 / 16 });
+            expect(payload.normalizedReach).toBeCloseTo(3 / 12, 8);
+            expect(payload.dirs.find((row: { dir: string }) => row.dir === "src/lib").files).toBe(2);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
 	it("counts the test file into `files` only when --include-tests is set", async () => {
 		const withoutTests = await runArch({ cwd: project, json: true, includeTests: false });
 		const withTests = await runArch({ cwd: project, json: true, includeTests: true });
@@ -231,7 +254,7 @@ describe("metricsArchCommand — human-readable rendering", () => {
 	it("renders the header line with file count and propagation cost", async () => {
 		const { out } = await runArch({ cwd: project });
 		expect(out).toContain("Architecture — 3 files, propagation cost 33.3%");
-		expect(out).toContain("(mean share of the codebase a change can reach)");
+		expect(out).toContain("(mean share of modules transitively imported; isolated modules included)");
 	});
 
 	it("renders the table header and one row per dir", async () => {

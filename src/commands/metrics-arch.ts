@@ -47,7 +47,7 @@ export function isProductionSource(path: string): boolean {
 }
 
 /** Ca/Ce/I per folded directory; intra-dir edges are ignored. */
-export function computeDirMetrics(edges: Edge[], depth: number): DirMetrics[] {
+export function computeDirMetrics(edges: Edge[], depth: number, files: readonly string[] = []): DirMetrics[] {
 	const filesByDir = new Map<string, Set<string>>();
 	const inbound = new Map<string, Set<string>>();
 	const outbound = new Map<string, Set<string>>();
@@ -61,6 +61,7 @@ export function computeDirMetrics(edges: Edge[], depth: number): DirMetrics[] {
 		set.add(file);
 	};
 
+	for (const file of files) note(dirAtDepth(file, depth), file);
 	for (const e of edges) {
 		const fromDir = dirAtDepth(e.from, depth);
 		const toDir = dirAtDepth(e.to, depth);
@@ -121,9 +122,9 @@ function reachableCount(start: string, adj: Map<string, string[]>): number {
 }
 
 /** BFS closure per node; self counts only as the excluded start, never as reach. */
-export function computePropagationCost(edges: Edge[]): PropagationCost {
+export function computePropagationCost(edges: Edge[], files: readonly string[] = []): PropagationCost {
 	const adj = new Map<string, string[]>();
-	const nodes = new Set<string>();
+	const nodes = new Set<string>(files);
 	for (const e of edges) {
 		nodes.add(e.from);
 		nodes.add(e.to);
@@ -148,23 +149,25 @@ interface MetricsArchOpts {
 	short?: boolean;
 }
 
-function extractEdges(cwd: string, includeTests: boolean): Edge[] | null {
+function extractGraph(cwd: string, includeTests: boolean): { edges: Edge[]; files: string[] } | null {
 	try {
 		const graph = new ProjectGraph(cwd);
 		graph.initialize();
 		const keep = (rel: string): boolean =>
 			!rel.startsWith("..") && (includeTests || isProductionSource(rel));
 		const edges: Edge[] = [];
+		const files: string[] = [];
 		for (const abs of graph.allFiles()) {
 			const from = graph.toRelative(abs);
 			if (!keep(from)) continue;
+			files.push(from);
 			for (const edge of graph.getDependencies(join(cwd, from))) {
 				const to = graph.toRelative(edge.toFile);
 				if (!keep(to)) continue;
 				edges.push({ from, to });
 			}
 		}
-		return edges;
+		return { edges, files };
 	} catch {
 		return null;
 	}
@@ -174,7 +177,7 @@ function renderArch(rows: DirMetrics[], prop: PropagationCost, depth: number): s
 	const lines: string[] = [];
 	lines.push(
 		`Architecture — ${prop.files} files, propagation cost ${(prop.cost * 100).toFixed(1)}% ` +
-			"(mean share of the codebase a change can reach)",
+			"(mean share of modules transitively imported; isolated modules included)",
 	);
 	lines.push("");
 	lines.push("  dir" + " ".repeat(Math.max(1, 30 - 3)) + "files    Ca    Ce     I");
@@ -194,16 +197,18 @@ export async function metricsArchCommand(opts: MetricsArchOpts): Promise<void> {
 	const cwd = opts.cwd || process.cwd();
 	const depth = Number(opts.depth ?? "") || 2;
 	const mode = getOutputMode(opts);
-	const edges = extractEdges(cwd, opts.includeTests === true);
-	if (edges === null) {
+	const graph = extractGraph(cwd, opts.includeTests === true);
+	if (graph === null) {
 		process.stderr.write("project graph unavailable (initialize failed)\n");
 		process.exitCode = 1;
 		return;
 	}
-	const rows = computeDirMetrics(edges, depth);
-	const prop = computePropagationCost(edges);
+	const rows = computeDirMetrics(graph.edges, depth, graph.files);
+	const prop = computePropagationCost(graph.edges, graph.files);
+	// cost preserves the published N² definition; normalizedReach excludes self in both terms.
+	const normalizedReach = prop.files > 1 ? prop.cost * prop.files / (prop.files - 1) : 0;
 	output(mode, rows, {
-		json: () => ({ depth, propagation: prop, dirs: rows }),
+		json: () => ({ depth, graphVersion: 2, propagation: prop, normalizedReach, dirs: rows }),
 		short: () =>
 			`${prop.files} files, propagation ${(prop.cost * 100).toFixed(1)}%, ${rows.length} dirs`,
 		normal: () => renderArch(rows, prop, depth),

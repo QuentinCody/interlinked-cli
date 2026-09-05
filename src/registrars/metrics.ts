@@ -93,6 +93,19 @@ function registerReworkCommand(metrics: Command): void {
         });
 }
 
+function registerScoreCommand(metrics: Command): void {
+    metrics
+        .command("score")
+        .description("Experimental structural burden scores from local AST analysis; no model calls")
+        .option("--cwd <path>", "Project root (default: current directory)")
+        .option("--json", "Full measurements, profile, hashes and explicit evidence gaps")
+        .option("--short", "One-line structural score and measurement status")
+        .action(async (opts: OptionValues, command: Command) => {
+            const { metricsScoreCommand } = await import("../commands/metrics-score.js");
+            metricsScoreCommand(parentAndChildOptions(opts, command));
+        });
+}
+
 export function registerMetricsCommands(program: Command): void {
     const metrics = program
         .command("metrics")
@@ -115,4 +128,5 @@ export function registerMetricsCommands(program: Command): void {
     registerReworkCommand(metrics);
     registerComplexityCommand(metrics);
     registerSplitPlanCommand(metrics);
+    registerScoreCommand(metrics);
 }

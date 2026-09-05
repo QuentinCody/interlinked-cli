@@ -4,6 +4,7 @@
 // ===========================================
 
 import { nonNull } from "../lib/non-null.js";
+import { parseTsSource } from "../harness/checks/cyclomatic-ast.js";
 
 // Helper: true for lines that precede / interleave with imports but are not
 // themselves import statements (blank, JSDoc/star comments, shebang).
@@ -94,7 +95,7 @@ export function findDeadImports(content: string): string[] {
 	return filterDeadBindings(state.bindings, body);
 }
 
-export function extractBindings(line: string, bindings: string[]): void {
+function extractSimpleBindings(line: string, bindings: string[]): void {
 	const trimmed = line.trim();
 	if (trimmed.startsWith("//")) return;
 	if (/^import\s+['"]/.test(trimmed)) return;
@@ -123,4 +124,27 @@ export function extractBindings(line: string, bindings: string[]): void {
 	if (defaultName && defaultName !== "type") {
 		bindings.push(defaultName);
 	}
+}
+
+function commentedImportBindings(line: string): string[] {
+    const parsed = parseTsSource(line, "import-bindings.ts");
+    if (!parsed) return [];
+    const statement = parsed.sf.statements[0];
+    if (!statement || !parsed.ts.isImportDeclaration(statement)) return [];
+    const clause = statement.importClause;
+    if (!clause) return [];
+    const named = clause.namedBindings;
+    if (named && parsed.ts.isNamedImports(named)) {
+        return named.elements.map(element => element.name.text).filter(name => name !== "type" && name.length > 0);
+    }
+    return clause.name && clause.name.text !== "type" ? [clause.name.text] : [];
+}
+
+/** Comments inside an import list are trivia, never part of a binding name. */
+export function extractBindings(line: string, bindings: string[]): void {
+    if (line.includes("/*")) {
+        bindings.push(...commentedImportBindings(line));
+        return;
+    }
+    extractSimpleBindings(line, bindings);
 }
