@@ -1,0 +1,60 @@
+{
+	"$id": "shadow-v1/scanner_policy.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 persisted record \"scanner_policy\", generated from types-core.ts.",
+	"properties": {
+		"binary_sha256": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "scanner-binary"
+			}
+		},
+		"invocation_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "scanner-invocation"
+			}
+		},
+		"on_error": {
+			"const": "unavailable"
+		},
+		"repo_config_effect": {
+			"const": "ignored"
+		},
+		"ruleset_bytes_sha256": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "scanner-ruleset"
+			}
+		},
+		"scanner": {
+			"const": "interlinked-shadow-scanner"
+		},
+		"schema_version": {
+			"const": 1
+		}
+	},
+	"required": [
+		"binary_sha256",
+		"invocation_hash",
+		"on_error",
+		"repo_config_effect",
+		"ruleset_bytes_sha256",
+		"scanner",
+		"schema_version"
+	],
+	"title": "ScannerPolicyV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "scanner_policy",
+		"kind": "persisted",
+		"module": "types-core.ts",
+		"type": "ScannerPolicyV1"
+	}
+}

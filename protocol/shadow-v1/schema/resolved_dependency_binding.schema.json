@@ -1,0 +1,108 @@
+{
+	"$id": "shadow-v1/resolved_dependency_binding.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"anyOf": [
+		{
+			"additionalProperties": false,
+			"properties": {
+				"mode": {
+					"const": "none"
+				}
+			},
+			"required": [
+				"mode"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"input_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "dependency-input"
+					}
+				},
+				"mode": {
+					"const": "npm-v1"
+				},
+				"source": {
+					"const": "fresh"
+				},
+				"tree_algo": {
+					"const": "shadow-dependency-tree-v1"
+				},
+				"tree_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "dependency-tree"
+					}
+				}
+			},
+			"required": [
+				"input_hash",
+				"mode",
+				"source",
+				"tree_algo",
+				"tree_hash"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"cache_record_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "dependency-cache-record"
+					}
+				},
+				"input_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "dependency-input"
+					}
+				},
+				"mode": {
+					"const": "npm-v1"
+				},
+				"source": {
+					"const": "cache"
+				},
+				"tree_algo": {
+					"const": "shadow-dependency-tree-v1"
+				},
+				"tree_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "dependency-tree"
+					}
+				}
+			},
+			"required": [
+				"cache_record_hash",
+				"input_hash",
+				"mode",
+				"source",
+				"tree_algo",
+				"tree_hash"
+			],
+			"type": "object"
+		}
+	],
+	"description": "Shadow protocol v1 wire record \"resolved_dependency_binding\", generated from types-core.ts.",
+	"title": "ResolvedDependencyBindingV1",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "resolved_dependency_binding",
+		"kind": "wire",
+		"module": "types-core.ts",
+		"type": "ResolvedDependencyBindingV1"
+	}
+}

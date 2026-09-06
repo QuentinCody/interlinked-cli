@@ -1,0 +1,497 @@
+{
+	"$id": "shadow-v1/execution_request.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 wire record \"execution_request\", generated from types-transport.ts.",
+	"properties": {
+		"bundle_id": {
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "opaque-id"
+			}
+		},
+		"changeset": {
+			"additionalProperties": false,
+			"properties": {
+				"post_image_set_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "post-image-set"
+					}
+				},
+				"pre_tree_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "pre-tree"
+					}
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"touched_paths": {
+					"items": {
+						"type": "string",
+						"x-brand": {
+							"__brand": "canonical-path"
+						}
+					},
+					"type": "array"
+				}
+			},
+			"required": [
+				"post_image_set_hash",
+				"pre_tree_hash",
+				"schema_version",
+				"touched_paths"
+			],
+			"type": "object"
+		},
+		"deadline_at": {
+			"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "rfc3339"
+			}
+		},
+		"execution_claim": {
+			"additionalProperties": false,
+			"properties": {
+				"base_ref": {
+					"pattern": "^[0-9a-f]{40}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "gitsha"
+					}
+				},
+				"dependencies": {
+					"anyOf": [
+						{
+							"additionalProperties": false,
+							"properties": {
+								"mode": {
+									"const": "none"
+								}
+							},
+							"required": [
+								"mode"
+							],
+							"type": "object"
+						},
+						{
+							"additionalProperties": false,
+							"properties": {
+								"input_hash": {
+									"pattern": "^[0-9a-f]{64}$",
+									"type": "string",
+									"x-brand": {
+										"__digest": "dependency-input"
+									}
+								},
+								"mode": {
+									"const": "npm-v1"
+								}
+							},
+							"required": [
+								"input_hash",
+								"mode"
+							],
+							"type": "object"
+						}
+					]
+				},
+				"mirror": {
+					"additionalProperties": false,
+					"properties": {
+						"key": {
+							"additionalProperties": false,
+							"properties": {
+								"kind": {
+									"const": "synthetic_full_tree"
+								},
+								"repository_id": {
+									"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+									"type": "string",
+									"x-brand": {
+										"__brand": "opaque-id"
+									}
+								},
+								"session_id": {
+									"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+									"type": "string",
+									"x-brand": {
+										"__brand": "opaque-id"
+									}
+								}
+							},
+							"required": [
+								"kind",
+								"repository_id",
+								"session_id"
+							],
+							"type": "object"
+						},
+						"version": {
+							"minimum": 0,
+							"type": "integer"
+						}
+					},
+					"required": [
+						"key",
+						"version"
+					],
+					"type": "object"
+				},
+				"overlay_algo": {
+					"const": "shadow-overlay-v1"
+				},
+				"overlay_bytes_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "overlay-bytes"
+					}
+				},
+				"overlay_manifest_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "overlay-manifest"
+					}
+				},
+				"post_image_algo": {
+					"const": "shadow-postimages-v1"
+				},
+				"post_image_set_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "post-image-set"
+					}
+				},
+				"post_tree_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "post-tree"
+					}
+				},
+				"pre_tree_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "pre-tree"
+					}
+				},
+				"tree_algo": {
+					"const": "shadow-tree-v1"
+				}
+			},
+			"required": [
+				"base_ref",
+				"dependencies",
+				"mirror",
+				"overlay_algo",
+				"overlay_bytes_hash",
+				"overlay_manifest_hash",
+				"post_image_algo",
+				"post_image_set_hash",
+				"post_tree_hash",
+				"pre_tree_hash",
+				"tree_algo"
+			],
+			"type": "object"
+		},
+		"execution_profile_id": {
+			"const": "shadow-typecheck-v1"
+		},
+		"expected_bundle_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "input-bundle"
+			}
+		},
+		"freshness_claim": {
+			"additionalProperties": false,
+			"properties": {
+				"base_local_head": {
+					"pattern": "^[0-9a-f]{40}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "gitsha"
+					}
+				},
+				"input_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "tool-input"
+					}
+				},
+				"local_head": {
+					"pattern": "^[0-9a-f]{40}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "gitsha"
+					}
+				},
+				"local_overlay_manifest_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "overlay-manifest"
+					}
+				},
+				"local_post_image_set_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "post-image-set"
+					}
+				},
+				"local_pre_tree_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "pre-tree"
+					}
+				}
+			},
+			"required": [
+				"base_local_head",
+				"input_hash",
+				"local_head",
+				"local_overlay_manifest_hash",
+				"local_post_image_set_hash",
+				"local_pre_tree_hash"
+			],
+			"type": "object"
+		},
+		"idempotency_key": {
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "opaque-id"
+			}
+		},
+		"lane": {
+			"enum": [
+				"sync-probe",
+				"async"
+			],
+			"type": "string"
+		},
+		"request_id": {
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "opaque-id"
+			}
+		},
+		"schema_version": {
+			"const": 1
+		},
+		"tool_input": {
+			"anyOf": [
+				{
+					"additionalProperties": false,
+					"properties": {
+						"client": {
+							"const": "claude-code"
+						},
+						"content": {
+							"type": "string"
+						},
+						"file_path": {
+							"type": "string",
+							"x-brand": {
+								"__brand": "canonical-path"
+							}
+						},
+						"schema": {
+							"const": "shadow-tool-input-v1"
+						},
+						"semantics_version": {
+							"const": 1
+						},
+						"tool": {
+							"const": "Write"
+						}
+					},
+					"required": [
+						"client",
+						"content",
+						"file_path",
+						"schema",
+						"semantics_version",
+						"tool"
+					],
+					"type": "object"
+				},
+				{
+					"additionalProperties": false,
+					"properties": {
+						"client": {
+							"const": "claude-code"
+						},
+						"file_path": {
+							"type": "string",
+							"x-brand": {
+								"__brand": "canonical-path"
+							}
+						},
+						"new_string": {
+							"type": "string"
+						},
+						"old_string": {
+							"type": "string"
+						},
+						"replace_all": {
+							"type": "boolean"
+						},
+						"schema": {
+							"const": "shadow-tool-input-v1"
+						},
+						"semantics_version": {
+							"const": 1
+						},
+						"tool": {
+							"const": "Edit"
+						}
+					},
+					"required": [
+						"client",
+						"file_path",
+						"new_string",
+						"old_string",
+						"replace_all",
+						"schema",
+						"semantics_version",
+						"tool"
+					],
+					"type": "object"
+				},
+				{
+					"additionalProperties": false,
+					"properties": {
+						"client": {
+							"const": "claude-code"
+						},
+						"edits": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"new_string": {
+										"type": "string"
+									},
+									"old_string": {
+										"type": "string"
+									},
+									"replace_all": {
+										"type": "boolean"
+									}
+								},
+								"required": [
+									"new_string",
+									"old_string",
+									"replace_all"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"file_path": {
+							"type": "string",
+							"x-brand": {
+								"__brand": "canonical-path"
+							}
+						},
+						"schema": {
+							"const": "shadow-tool-input-v1"
+						},
+						"semantics_version": {
+							"const": 1
+						},
+						"tool": {
+							"const": "MultiEdit"
+						}
+					},
+					"required": [
+						"client",
+						"edits",
+						"file_path",
+						"schema",
+						"semantics_version",
+						"tool"
+					],
+					"type": "object"
+				},
+				{
+					"additionalProperties": false,
+					"properties": {
+						"client": {
+							"const": "codex"
+						},
+						"patch": {
+							"type": "string"
+						},
+						"raw_source_field": {
+							"enum": [
+								"command",
+								"patch",
+								"_raw_patch",
+								"content"
+							],
+							"type": "string"
+						},
+						"schema": {
+							"const": "shadow-tool-input-v1"
+						},
+						"semantics_version": {
+							"const": 1
+						},
+						"tool": {
+							"const": "apply_patch"
+						}
+					},
+					"required": [
+						"client",
+						"patch",
+						"raw_source_field",
+						"schema",
+						"semantics_version",
+						"tool"
+					],
+					"type": "object"
+				}
+			]
+		}
+	},
+	"required": [
+		"bundle_id",
+		"changeset",
+		"deadline_at",
+		"execution_claim",
+		"execution_profile_id",
+		"expected_bundle_hash",
+		"freshness_claim",
+		"idempotency_key",
+		"lane",
+		"request_id",
+		"schema_version",
+		"tool_input"
+	],
+	"title": "ShadowExecutionRequestV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "execution_request",
+		"kind": "wire",
+		"module": "types-transport.ts",
+		"type": "ShadowExecutionRequestV1"
+	}
+}

@@ -139,6 +139,22 @@ scripts/*
 # Note: the parent ignore is `scripts/*` (not `scripts/`) so these re-
 # includes actually take effect — gitignore can't re-include children of
 # a fully-excluded parent directory.
+# The shadow-protocol generators ship. CLAUDE.md and protocol/shadow-v1/README
+# document them as the way to regenerate the fixtures and the JSON Schema, and a
+# documented command absent from a fresh checkout is a broken instruction
+# (review 2026-09-04). The ORACLE especially: it is the second implementation
+# the fixtures are validated against, so a checkout without it cannot
+# regenerate — or re-audit — the corpus at all.
+!scripts/gen-shadow-corpus.mts
+!scripts/gen-shadow-corpus-binding.mts
+!scripts/gen-shadow-corpus-malformed.mts
+!scripts/gen-shadow-schema.mts
+!scripts/gen-shadow-contract-digest.mts
+!scripts/shadow-projection-oracle.mts
+!scripts/shadow-projection-oracle-hunks.mts
+!scripts/shadow-projection-oracle-hunks.test.mts
+!scripts/gen-shadow-corpus-rows.mts
+!scripts/gen-shadow-corpus-rows.test.mts
 !scripts/setup-git-hooks.mjs
 !scripts/git-hooks/
 !scripts/backfill-thinking.mjs

@@ -1,0 +1,304 @@
+{
+	"generated_by": "scripts/gen-shadow-schema.mts",
+	"protocol": "shadow-v1",
+	"records": [
+		{
+			"file": "attestation.schema.json",
+			"id": "attestation",
+			"kind": "wire",
+			"module": "types-attestation.ts",
+			"type": "AuthoringAttestationV1"
+		},
+		{
+			"file": "cancel_ack.schema.json",
+			"id": "cancel_ack",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "CancelAckV1"
+		},
+		{
+			"file": "cancel_request.schema.json",
+			"id": "cancel_request",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "CancelRequestV1"
+		},
+		{
+			"file": "change_set.schema.json",
+			"id": "change_set",
+			"kind": "wire",
+			"module": "types-core.ts",
+			"type": "ShadowChangeSetV1"
+		},
+		{
+			"file": "deletion_receipt.schema.json",
+			"id": "deletion_receipt",
+			"kind": "persisted",
+			"module": "types-lifecycle.ts",
+			"type": "DeletionReceipt"
+		},
+		{
+			"file": "dependency_cache_record.schema.json",
+			"id": "dependency_cache_record",
+			"kind": "persisted",
+			"module": "types-core.ts",
+			"type": "DependencyTreeCacheRecordV1"
+		},
+		{
+			"file": "dependency_request.schema.json",
+			"id": "dependency_request",
+			"kind": "wire",
+			"module": "types-core.ts",
+			"type": "DependencyRequestV1"
+		},
+		{
+			"file": "exec_config.schema.json",
+			"id": "exec_config",
+			"kind": "persisted",
+			"module": "types-core.ts",
+			"type": "ShadowExecConfigV1"
+		},
+		{
+			"file": "execution_binding.schema.json",
+			"id": "execution_binding",
+			"kind": "wire",
+			"module": "types-binding.ts",
+			"type": "ShadowExecutionBinding"
+		},
+		{
+			"file": "execution_claim.schema.json",
+			"id": "execution_claim",
+			"kind": "wire",
+			"module": "types-binding.ts",
+			"type": "ShadowExecutionClaimV1"
+		},
+		{
+			"file": "execution_manifest.schema.json",
+			"id": "execution_manifest",
+			"kind": "wire",
+			"module": "types-core.ts",
+			"type": "ExecutionManifestV1"
+		},
+		{
+			"file": "execution_request.schema.json",
+			"id": "execution_request",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "ShadowExecutionRequestV1"
+		},
+		{
+			"file": "expected_policy.schema.json",
+			"id": "expected_policy",
+			"kind": "wire",
+			"module": "types-binding.ts",
+			"type": "ExpectedExecutionPolicyV1"
+		},
+		{
+			"file": "freshness_binding.schema.json",
+			"id": "freshness_binding",
+			"kind": "wire",
+			"module": "types-binding.ts",
+			"type": "ShadowFreshnessBinding"
+		},
+		{
+			"file": "input_finalize_request.schema.json",
+			"id": "input_finalize_request",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "ShadowInputFinalizeRequestV1"
+		},
+		{
+			"file": "input_finalize_response.schema.json",
+			"id": "input_finalize_response",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "ShadowInputFinalizeResponseV1"
+		},
+		{
+			"file": "input_prepare_request.schema.json",
+			"id": "input_prepare_request",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "ShadowInputPrepareRequestV1"
+		},
+		{
+			"file": "input_prepare_response.schema.json",
+			"id": "input_prepare_response",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "ShadowInputPrepareResponseV1"
+		},
+		{
+			"file": "local_freshness_check.schema.json",
+			"id": "local_freshness_check",
+			"kind": "persisted",
+			"module": "types-binding.ts",
+			"type": "LocalFreshnessCheckV1"
+		},
+		{
+			"file": "manifest_entry.schema.json",
+			"id": "manifest_entry",
+			"kind": "internal",
+			"module": "types-core.ts",
+			"type": "ManifestEntryV1"
+		},
+		{
+			"file": "manifest_upload_init_request.schema.json",
+			"id": "manifest_upload_init_request",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "ManifestUploadInitRequestV1"
+		},
+		{
+			"file": "manifest_upload_init_response.schema.json",
+			"id": "manifest_upload_init_response",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "ManifestUploadInitResponseV1"
+		},
+		{
+			"file": "mirror_binding.schema.json",
+			"id": "mirror_binding",
+			"kind": "persisted",
+			"module": "types-transport.ts",
+			"type": "MirrorBindingV1"
+		},
+		{
+			"file": "mirror_finalize_request.schema.json",
+			"id": "mirror_finalize_request",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "MirrorFinalizeRequestV1"
+		},
+		{
+			"file": "mirror_finalize_response.schema.json",
+			"id": "mirror_finalize_response",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "MirrorFinalizeResponseV1"
+		},
+		{
+			"file": "mirror_finalize_status.schema.json",
+			"id": "mirror_finalize_status",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "MirrorFinalizeStatusResponseV1"
+		},
+		{
+			"file": "mirror_prepare_request.schema.json",
+			"id": "mirror_prepare_request",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "MirrorPrepareRequestV1"
+		},
+		{
+			"file": "mirror_prepare_response.schema.json",
+			"id": "mirror_prepare_response",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "MirrorPrepareResponseV1"
+		},
+		{
+			"file": "mirror_status.schema.json",
+			"id": "mirror_status",
+			"kind": "persisted",
+			"module": "types-lifecycle.ts",
+			"type": "MirrorStatusV1"
+		},
+		{
+			"file": "missing_blob_page.schema.json",
+			"id": "missing_blob_page",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "MissingBlobPageV1"
+		},
+		{
+			"file": "missing_blob_page_request.schema.json",
+			"id": "missing_blob_page_request",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "MissingBlobPageRequestV1"
+		},
+		{
+			"file": "missing_blob_page_response.schema.json",
+			"id": "missing_blob_page_response",
+			"kind": "wire",
+			"module": "types-transport.ts",
+			"type": "MissingBlobPageResponseV1"
+		},
+		{
+			"file": "outcome.schema.json",
+			"id": "outcome",
+			"kind": "wire",
+			"module": "types-outcome.ts",
+			"type": "ShadowOutcome"
+		},
+		{
+			"file": "overlay_entry.schema.json",
+			"id": "overlay_entry",
+			"kind": "internal",
+			"module": "types-core.ts",
+			"type": "OverlayEntryV1"
+		},
+		{
+			"file": "overlay_manifest.schema.json",
+			"id": "overlay_manifest",
+			"kind": "internal",
+			"module": "types-core.ts",
+			"type": "OverlayManifestV1"
+		},
+		{
+			"file": "post_image_entry.schema.json",
+			"id": "post_image_entry",
+			"kind": "internal",
+			"module": "types-core.ts",
+			"type": "PostImageEntryV1"
+		},
+		{
+			"file": "resolved_dependency_binding.schema.json",
+			"id": "resolved_dependency_binding",
+			"kind": "wire",
+			"module": "types-core.ts",
+			"type": "ResolvedDependencyBindingV1"
+		},
+		{
+			"file": "retention_consent.schema.json",
+			"id": "retention_consent",
+			"kind": "persisted",
+			"module": "types-lifecycle.ts",
+			"type": "RetentionConsentV1"
+		},
+		{
+			"file": "scanner_policy.schema.json",
+			"id": "scanner_policy",
+			"kind": "persisted",
+			"module": "types-core.ts",
+			"type": "ScannerPolicyV1"
+		},
+		{
+			"file": "shadow_env.schema.json",
+			"id": "shadow_env",
+			"kind": "persisted",
+			"module": "types-binding.ts",
+			"type": "ShadowEnvV1"
+		},
+		{
+			"file": "tool_input.schema.json",
+			"id": "tool_input",
+			"kind": "wire",
+			"module": "types-core.ts",
+			"type": "NormalizedToolInputV1"
+		},
+		{
+			"file": "verifier_result.schema.json",
+			"id": "verifier_result",
+			"kind": "wire",
+			"module": "types-outcome.ts",
+			"type": "CompleteShadowTscResultV1"
+		}
+	],
+	"schema_version": 1,
+	"source_of_truth": "src/harness/shadow/protocol/registry.ts",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient."
+}

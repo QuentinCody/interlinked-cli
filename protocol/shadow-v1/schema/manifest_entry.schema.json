@@ -1,0 +1,48 @@
+{
+	"$id": "shadow-v1/manifest_entry.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 internal record \"manifest_entry\", generated from types-core.ts.",
+	"properties": {
+		"blob_digest": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "blob"
+			}
+		},
+		"bytes": {
+			"minimum": 0,
+			"type": "integer"
+		},
+		"mode": {
+			"enum": [
+				"100644",
+				"100755"
+			],
+			"type": "string"
+		},
+		"path": {
+			"type": "string",
+			"x-brand": {
+				"__brand": "canonical-path"
+			}
+		}
+	},
+	"required": [
+		"blob_digest",
+		"bytes",
+		"mode",
+		"path"
+	],
+	"title": "ManifestEntryV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "manifest_entry",
+		"kind": "internal",
+		"module": "types-core.ts",
+		"type": "ManifestEntryV1"
+	}
+}

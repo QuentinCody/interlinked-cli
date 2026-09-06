@@ -1,0 +1,95 @@
+{
+	"$id": "shadow-v1/mirror_finalize_response.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"anyOf": [
+		{
+			"additionalProperties": false,
+			"properties": {
+				"accepted": {
+					"const": true
+				},
+				"attempt_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"status_url": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"accepted",
+				"attempt_id",
+				"schema_version",
+				"status_url"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"accepted": {
+					"const": false
+				},
+				"current_version": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"reason": {
+					"const": "version_conflict"
+				},
+				"schema_version": {
+					"const": 1
+				}
+			},
+			"required": [
+				"accepted",
+				"current_version",
+				"reason",
+				"schema_version"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"accepted": {
+					"const": false
+				},
+				"reason": {
+					"enum": [
+						"expired",
+						"idempotency_conflict",
+						"in_progress",
+						"unknown_upload"
+					],
+					"type": "string"
+				},
+				"schema_version": {
+					"const": 1
+				}
+			},
+			"required": [
+				"accepted",
+				"reason",
+				"schema_version"
+			],
+			"type": "object"
+		}
+	],
+	"description": "Shadow protocol v1 wire record \"mirror_finalize_response\", generated from types-transport.ts.",
+	"title": "MirrorFinalizeResponseV1",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "mirror_finalize_response",
+		"kind": "wire",
+		"module": "types-transport.ts",
+		"type": "MirrorFinalizeResponseV1"
+	}
+}

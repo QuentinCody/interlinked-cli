@@ -1,0 +1,331 @@
+[
+	{
+		"id": "tree-empty",
+		"algo": "shadow-tree-v1",
+		"reviewed": "the empty tree hashes the sha-256 of zero bytes, not a sentinel",
+		"entries": [],
+		"hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	},
+	{
+		"id": "tree-mixed-modes",
+		"algo": "shadow-tree-v1",
+		"reviewed": "both admitted modes appear; the 6 ASCII mode bytes are inside the hashed record",
+		"entries": [
+			{
+				"path": "src/a.ts",
+				"mode": "100644",
+				"blob_digest": "037ecd1db38c230c248787e60fd7bfc0cb0101b187b59535b6e7483be762d350",
+				"bytes": 20
+			},
+			{
+				"path": "bin/run.sh",
+				"mode": "100755",
+				"blob_digest": "a59c47872b71f12589942892464e764c0db350c20b72228645615cc36e0a0725",
+				"bytes": 20
+			},
+			{
+				"path": "README.md",
+				"mode": "100644",
+				"blob_digest": "7cedfe9b4e9e2e59742bca88bcbb7f79ad3ad05695d3f1db1f452c644c3d3e4a",
+				"bytes": 7
+			}
+		],
+		"hash": "7f11b006e60c25046c5eafb21e1e114b1ed58509b3b0a7e3530ae68ad881b56b"
+	},
+	{
+		"id": "tree-reordered-input-same-hash",
+		"algo": "shadow-tree-v1",
+		"reviewed": "the same three entries in reverse input order hash IDENTICALLY — the grammar sorts",
+		"entries": [
+			{
+				"path": "README.md",
+				"mode": "100644",
+				"blob_digest": "7cedfe9b4e9e2e59742bca88bcbb7f79ad3ad05695d3f1db1f452c644c3d3e4a",
+				"bytes": 7
+			},
+			{
+				"path": "bin/run.sh",
+				"mode": "100755",
+				"blob_digest": "a59c47872b71f12589942892464e764c0db350c20b72228645615cc36e0a0725",
+				"bytes": 20
+			},
+			{
+				"path": "src/a.ts",
+				"mode": "100644",
+				"blob_digest": "037ecd1db38c230c248787e60fd7bfc0cb0101b187b59535b6e7483be762d350",
+				"bytes": 20
+			}
+		],
+		"hash": "7f11b006e60c25046c5eafb21e1e114b1ed58509b3b0a7e3530ae68ad881b56b"
+	},
+	{
+		"id": "tree-utf8-byte-order",
+		"algo": "shadow-tree-v1",
+		"reviewed": "U+FF21 sorts BEFORE U+10000 (EF < F0) even though JavaScript string order puts the astral path first",
+		"entries": [
+			{
+				"path": "docs/Ａ.md",
+				"mode": "100644",
+				"blob_digest": "3fbaa46785501009b6f0cc4c6069887b03572f1675719d74f3af91aa0ff3ecff",
+				"bytes": 14
+			},
+			{
+				"path": "docs/𐀀.md",
+				"mode": "100644",
+				"blob_digest": "5cc892e8dd79d45dfef21f9a87e7955896c96ab9b791f2345e5a456bca444f61",
+				"bytes": 7
+			}
+		],
+		"hash": "356305e06e3b5494889a1cea9c5fcdc22aa90526319ccd382958f7f2c6dcb8e2"
+	},
+	{
+		"id": "tree-utf8-byte-order-reversed-input",
+		"algo": "shadow-tree-v1",
+		"reviewed": "same digest as the row above: input order cannot change the hash",
+		"entries": [
+			{
+				"path": "docs/𐀀.md",
+				"mode": "100644",
+				"blob_digest": "5cc892e8dd79d45dfef21f9a87e7955896c96ab9b791f2345e5a456bca444f61",
+				"bytes": 7
+			},
+			{
+				"path": "docs/Ａ.md",
+				"mode": "100644",
+				"blob_digest": "3fbaa46785501009b6f0cc4c6069887b03572f1675719d74f3af91aa0ff3ecff",
+				"bytes": 14
+			}
+		],
+		"hash": "356305e06e3b5494889a1cea9c5fcdc22aa90526319ccd382958f7f2c6dcb8e2"
+	},
+	{
+		"id": "tree-traversal-path-rejected",
+		"algo": "shadow-tree-v1",
+		"reviewed": "a `..` segment is REJECTED by the grammar, not normalized away",
+		"entries": [
+			{
+				"path": "../escape.ts",
+				"mode": "100644",
+				"blob_digest": "73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac",
+				"bytes": 2
+			}
+		],
+		"hash": "rejected(invalid_tree)"
+	},
+	{
+		"id": "tree-absolute-path-rejected",
+		"algo": "shadow-tree-v1",
+		"reviewed": "a leading `/` is REJECTED",
+		"entries": [
+			{
+				"path": "/etc/passwd",
+				"mode": "100644",
+				"blob_digest": "73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac",
+				"bytes": 2
+			}
+		],
+		"hash": "rejected(invalid_tree)"
+	},
+	{
+		"id": "tree-file-under-file-rejected",
+		"algo": "shadow-tree-v1",
+		"reviewed": "`a` and `a/b.ts` are each a valid canonical path, and TOGETHER they are impossible — `a` cannot be both a regular file and another entry's parent directory. REJECTED as invalid_tree; a full tree is the surface that can see it, so this is where the rule lives (the PARTIAL tagged grammars deliberately do not check: deleting `a` and writing `a/b.ts` in one set is legal)",
+		"entries": [
+			{
+				"path": "a",
+				"mode": "100644",
+				"blob_digest": "73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac",
+				"bytes": 2
+			},
+			{
+				"path": "a/b.ts",
+				"mode": "100644",
+				"blob_digest": "3bb2abb69ebb27fbfe63c7639624c6ec5e331b841a5bc8c3ebc10b9285e90877",
+				"bytes": 2
+			}
+		],
+		"hash": "rejected(invalid_tree)"
+	},
+	{
+		"id": "tree-sibling-prefix-not-conflict",
+		"algo": "shadow-tree-v1",
+		"reviewed": "the guard against over-rejecting: `a`, `a.ts` and `ab/c.ts` all ACCEPT. A string prefix without the `/` boundary is not an ancestor — without this row the rule above could be `startsWith(path)` and still look right",
+		"entries": [
+			{
+				"path": "a",
+				"mode": "100644",
+				"blob_digest": "73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac",
+				"bytes": 2
+			},
+			{
+				"path": "a.ts",
+				"mode": "100644",
+				"blob_digest": "3bb2abb69ebb27fbfe63c7639624c6ec5e331b841a5bc8c3ebc10b9285e90877",
+				"bytes": 2
+			},
+			{
+				"path": "ab/c.ts",
+				"mode": "100644",
+				"blob_digest": "c865f6c5ab8d1b0bcd383a5e1e3879d22681c96bf462c269b7581d523fbe70ab",
+				"bytes": 2
+			}
+		],
+		"hash": "d7b23897472b04f9ee751cba55fe38f395bf70be50c12868b2aad410048e299a"
+	},
+	{
+		"id": "postimages-write-and-delete",
+		"algo": "shadow-postimages-v1",
+		"reviewed": "the D record hashes mode 000000 and 32 zero bytes — absence would mean untouched",
+		"entries": [
+			{
+				"tag": "W",
+				"path": "src/a.ts",
+				"mode": "100644",
+				"blob_digest": "e7941bea8a31800905dafb6c805ee05f090c641163880f0ef3cfd732f1bc86d2",
+				"bytes": 20
+			},
+			{
+				"tag": "D",
+				"path": "src/gone.ts"
+			}
+		],
+		"hash": "2fc26f67b69fb257d79000a17c868a5c1439f351250a7d274df6ec2cc64b3fb6"
+	},
+	{
+		"id": "postimages-empty-set",
+		"algo": "shadow-postimages-v1",
+		"reviewed": "the empty (no-op) post-image set — the identity a create-then-delete collapses to",
+		"entries": [],
+		"hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	},
+	{
+		"id": "postimages-rename-pair",
+		"algo": "shadow-postimages-v1",
+		"reviewed": "a rename is one D and one W; the digest is over BOTH records",
+		"entries": [
+			{
+				"tag": "D",
+				"path": "src/a.ts"
+			},
+			{
+				"tag": "W",
+				"path": "src/moved.ts",
+				"mode": "100644",
+				"blob_digest": "95befdd6e691d4d89031a2a2901cc74fc6242109980b060e08ddf87829924483",
+				"bytes": 13
+			}
+		],
+		"hash": "7568feba67e5e64074c127aac081a765d4eb756f39440e721e8c9a7e5171cc96"
+	},
+	{
+		"id": "postimages-duplicate-path-rejected",
+		"algo": "shadow-postimages-v1",
+		"reviewed": "one path may carry at most one record — REJECTED, so add-then-delete is unrepresentable",
+		"entries": [
+			{
+				"tag": "W",
+				"path": "src/a.ts",
+				"mode": "100644",
+				"blob_digest": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7",
+				"bytes": 2
+			},
+			{
+				"tag": "D",
+				"path": "src/a.ts"
+			}
+		],
+		"hash": "rejected(invalid_tree)"
+	},
+	{
+		"id": "overlay-write-and-delete",
+		"algo": "shadow-overlay-v1",
+		"reviewed": "the overlay grammar is byte-identical to the post-image grammar; only the algorithm id differs",
+		"entries": [
+			{
+				"tag": "W",
+				"path": "src/a.ts",
+				"mode": "100644",
+				"blob_digest": "e7941bea8a31800905dafb6c805ee05f090c641163880f0ef3cfd732f1bc86d2",
+				"bytes": 20
+			},
+			{
+				"tag": "D",
+				"path": "src/gone.ts"
+			}
+		],
+		"hash": "2fc26f67b69fb257d79000a17c868a5c1439f351250a7d274df6ec2cc64b3fb6"
+	},
+	{
+		"id": "overlay-create-then-delete-absent",
+		"algo": "shadow-overlay-v1",
+		"reviewed": "a file created and then deleted locally contributes NO record — this digest equals the empty-set digest",
+		"entries": [],
+		"hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+	},
+	{
+		"id": "missing-set-empty",
+		"algo": "shadow-missing-set-v1",
+		"reviewed": "a frozen set with nothing missing still hashes an ENVELOPE (domain + count 0), never the sha-256 of zero bytes — so 'no blobs missing' cannot collide with 'hashed nothing at all'",
+		"digests": [],
+		"hash": "abb452190f0969e4de9a1a4f623ca0a104dfd9b4f465c7e2c6bbd46f56fd5989"
+	},
+	{
+		"id": "missing-set-three-blobs",
+		"algo": "shadow-missing-set-v1",
+		"reviewed": "three unique digests, already in bytewise order; the raw 32 bytes of each are what the envelope embeds, not their hex spelling",
+		"digests": [
+			"03d10ef47598302c98fbabcd5e23ddadc05c69878d5c1208f27d61abd175b797",
+			"70445a68da1c2ff41819601b8a3fe84dde9374cb73e86c1a489f80b010d92b90",
+			"f097684cb146a30ba2d8c28f9b553397230a81fb21f35c2676ece0b6776e2a31"
+		],
+		"hash": "61ddc68427eafa8a0c07bbeb09f93cf4128ad3a43848d028f75e5b60587ff065"
+	},
+	{
+		"id": "missing-set-reordered-input-same-hash",
+		"algo": "shadow-missing-set-v1",
+		"reviewed": "the same three digests in reverse order hash IDENTICALLY — pagination cannot change the set's identity by walking it in another order",
+		"digests": [
+			"f097684cb146a30ba2d8c28f9b553397230a81fb21f35c2676ece0b6776e2a31",
+			"70445a68da1c2ff41819601b8a3fe84dde9374cb73e86c1a489f80b010d92b90",
+			"03d10ef47598302c98fbabcd5e23ddadc05c69878d5c1208f27d61abd175b797"
+		],
+		"hash": "61ddc68427eafa8a0c07bbeb09f93cf4128ad3a43848d028f75e5b60587ff065"
+	},
+	{
+		"id": "missing-set-one-fewer-differs",
+		"algo": "shadow-missing-set-v1",
+		"reviewed": "dropping one digest changes the hash — the count is inside the envelope, so a truncated page cannot pass as the frozen set",
+		"digests": [
+			"03d10ef47598302c98fbabcd5e23ddadc05c69878d5c1208f27d61abd175b797",
+			"70445a68da1c2ff41819601b8a3fe84dde9374cb73e86c1a489f80b010d92b90"
+		],
+		"hash": "c59f62b5dceadbffe564a3f2c39229c6701e070882a431ecb52062457b2c6c7d"
+	},
+	{
+		"id": "missing-set-duplicate-rejected",
+		"algo": "shadow-missing-set-v1",
+		"reviewed": "a repeated digest is REJECTED, never deduplicated: silently absorbing it would make this set hash like a genuinely smaller one",
+		"digests": [
+			"70445a68da1c2ff41819601b8a3fe84dde9374cb73e86c1a489f80b010d92b90",
+			"03d10ef47598302c98fbabcd5e23ddadc05c69878d5c1208f27d61abd175b797",
+			"70445a68da1c2ff41819601b8a3fe84dde9374cb73e86c1a489f80b010d92b90"
+		],
+		"hash": "rejected(mirror_integrity)"
+	},
+	{
+		"id": "missing-set-uppercase-rejected",
+		"algo": "shadow-missing-set-v1",
+		"reviewed": "an uppercase hex digest is REJECTED — one spelling per digest, or two clients hash the same set differently",
+		"digests": [
+			"70445A68DA1C2FF41819601B8A3FE84DDE9374CB73E86C1A489F80B010D92B90"
+		],
+		"hash": "rejected(mirror_integrity)"
+	},
+	{
+		"id": "manifest-digest-exact-uploaded-bytes",
+		"algo": "shadow-manifest-digest-v1",
+		"reviewed": "sha-256 over the bytes AS SENT: the keys are NOT in canonical order, there is insignificant whitespace and a trailing newline, and all three are inside the digest — the broker compares what it stored, so a canonical re-encoding would hash something the client never sent",
+		"bytes_hex": "7b22736368656d615f76657273696f6e223a312c202262223a322c2261223a317d0a",
+		"hash": "41ae947b190ff9cafba06c0e48c7d618067bc29b904244a5b4b50b962e1002fa"
+	}
+]

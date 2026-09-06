@@ -1,0 +1,79 @@
+{
+	"$id": "shadow-v1/expected_policy.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 wire record \"expected_policy\", generated from types-binding.ts.",
+	"properties": {
+		"broker_scanner_policy_digest": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "scanner-policy"
+			}
+		},
+		"deadline_at": {
+			"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "rfc3339"
+			}
+		},
+		"dependency_cache_record_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "dependency-cache-record"
+			}
+		},
+		"env_digest": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "env"
+			}
+		},
+		"exec_config_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "exec-config"
+			}
+		},
+		"overlay_algo": {
+			"const": "shadow-overlay-v1"
+		},
+		"overlay_manifest_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "overlay-manifest"
+			}
+		},
+		"post_image_algo": {
+			"const": "shadow-postimages-v1"
+		},
+		"tree_algo": {
+			"const": "shadow-tree-v1"
+		}
+	},
+	"required": [
+		"broker_scanner_policy_digest",
+		"deadline_at",
+		"env_digest",
+		"exec_config_hash",
+		"overlay_algo",
+		"overlay_manifest_hash",
+		"post_image_algo",
+		"tree_algo"
+	],
+	"title": "ExpectedExecutionPolicyV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "expected_policy",
+		"kind": "wire",
+		"module": "types-binding.ts",
+		"type": "ExpectedExecutionPolicyV1"
+	}
+}

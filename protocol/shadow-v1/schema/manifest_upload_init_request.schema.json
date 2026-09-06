@@ -1,0 +1,146 @@
+{
+	"$id": "shadow-v1/manifest_upload_init_request.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 wire record \"manifest_upload_init_request\", generated from types-transport.ts.",
+	"properties": {
+		"declared_bytes": {
+			"minimum": 0,
+			"type": "integer"
+		},
+		"declared_digest": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "snapshot-manifest"
+			}
+		},
+		"idempotency_key": {
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "opaque-id"
+			}
+		},
+		"schema_version": {
+			"const": 1
+		},
+		"scope": {
+			"anyOf": [
+				{
+					"additionalProperties": false,
+					"properties": {
+						"kind": {
+							"const": "mirror"
+						},
+						"mirror_key": {
+							"additionalProperties": false,
+							"properties": {
+								"kind": {
+									"const": "synthetic_full_tree"
+								},
+								"repository_id": {
+									"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+									"type": "string",
+									"x-brand": {
+										"__brand": "opaque-id"
+									}
+								},
+								"session_id": {
+									"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+									"type": "string",
+									"x-brand": {
+										"__brand": "opaque-id"
+									}
+								}
+							},
+							"required": [
+								"kind",
+								"repository_id",
+								"session_id"
+							],
+							"type": "object"
+						}
+					},
+					"required": [
+						"kind",
+						"mirror_key"
+					],
+					"type": "object"
+				},
+				{
+					"additionalProperties": false,
+					"properties": {
+						"kind": {
+							"const": "input"
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						}
+					},
+					"required": [
+						"kind",
+						"mirror"
+					],
+					"type": "object"
+				}
+			]
+		}
+	},
+	"required": [
+		"declared_bytes",
+		"declared_digest",
+		"idempotency_key",
+		"schema_version",
+		"scope"
+	],
+	"title": "ManifestUploadInitRequestV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "manifest_upload_init_request",
+		"kind": "wire",
+		"module": "types-transport.ts",
+		"type": "ManifestUploadInitRequestV1"
+	}
+}

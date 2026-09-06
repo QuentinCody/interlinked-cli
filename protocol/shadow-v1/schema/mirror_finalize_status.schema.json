@@ -1,0 +1,181 @@
+{
+	"$id": "shadow-v1/mirror_finalize_status.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"anyOf": [
+		{
+			"additionalProperties": false,
+			"properties": {
+				"attempt_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"state": {
+					"enum": [
+						"prepared",
+						"blobs_verified",
+						"publication_reserved",
+						"objects_created",
+						"ref_updated"
+					],
+					"type": "string"
+				}
+			},
+			"required": [
+				"attempt_id",
+				"schema_version",
+				"state"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"attempt_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"base_ref": {
+					"pattern": "^[0-9a-f]{40}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "gitsha"
+					}
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"state": {
+					"const": "version_committed"
+				},
+				"tree_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "pre-tree"
+					}
+				},
+				"version": {
+					"additionalProperties": false,
+					"properties": {
+						"key": {
+							"additionalProperties": false,
+							"properties": {
+								"kind": {
+									"const": "synthetic_full_tree"
+								},
+								"repository_id": {
+									"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+									"type": "string",
+									"x-brand": {
+										"__brand": "opaque-id"
+									}
+								},
+								"session_id": {
+									"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+									"type": "string",
+									"x-brand": {
+										"__brand": "opaque-id"
+									}
+								}
+							},
+							"required": [
+								"kind",
+								"repository_id",
+								"session_id"
+							],
+							"type": "object"
+						},
+						"version": {
+							"minimum": 0,
+							"type": "integer"
+						}
+					},
+					"required": [
+						"key",
+						"version"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"attempt_id",
+				"base_ref",
+				"schema_version",
+				"state",
+				"tree_hash",
+				"version"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"attempt_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"failure": {
+					"additionalProperties": false,
+					"properties": {
+						"detail": {
+							"type": "string"
+						},
+						"reason": {
+							"enum": [
+								"digest_mismatch",
+								"secrets",
+								"scanner_unavailable",
+								"limits",
+								"invalid_tree",
+								"provider_error",
+								"no_atomic_push",
+								"lease_failed"
+							],
+							"type": "string"
+						}
+					},
+					"required": [
+						"detail",
+						"reason"
+					],
+					"type": "object"
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"state": {
+					"const": "failed"
+				}
+			},
+			"required": [
+				"attempt_id",
+				"failure",
+				"schema_version",
+				"state"
+			],
+			"type": "object"
+		}
+	],
+	"description": "Shadow protocol v1 wire record \"mirror_finalize_status\", generated from types-transport.ts.",
+	"title": "MirrorFinalizeStatusResponseV1",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "mirror_finalize_status",
+		"kind": "wire",
+		"module": "types-transport.ts",
+		"type": "MirrorFinalizeStatusResponseV1"
+	}
+}

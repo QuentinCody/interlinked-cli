@@ -1,0 +1,4921 @@
+[
+	{
+		"id": "change-set-unknown-field-top",
+		"parser": "change_set",
+		"class": "unknown_field",
+		"note": "an unrecognized top-level field is a version we do not implement or an injection",
+		"reviewed": "the parser REJECTS rather than stripping `extra` — silently dropping an unknown field would let a newer sender lose data and still be signed for",
+		"value": {
+			"schema_version": 1,
+			"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_image_set_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"touched_paths": [
+				"src/a.ts"
+			],
+			"extra": 1
+		}
+	},
+	{
+		"id": "change-set-unknown-version",
+		"parser": "change_set",
+		"class": "unknown_version",
+		"note": "schema_version is a literal discriminator, not a range",
+		"reviewed": "schema_version 2 is refused outright; there is no forward-compatible fallback to v1",
+		"value": {
+			"schema_version": 2,
+			"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_image_set_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		}
+	},
+	{
+		"id": "change-set-empty-brand",
+		"parser": "change_set",
+		"class": "empty_brand",
+		"note": "no empty-string value is ever a valid brand",
+		"reviewed": "the refusal is on EMPTINESS, not on length alone — no empty-string sentinel is ever a valid brand",
+		"value": {
+			"schema_version": 1,
+			"pre_tree_hash": "",
+			"post_image_set_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		}
+	},
+	{
+		"id": "change-set-traversal-path",
+		"parser": "change_set",
+		"class": "invalid_path",
+		"note": "a touched path that escapes the repo root",
+		"reviewed": "a `..` segment is refused, never normalized away",
+		"value": {
+			"schema_version": 1,
+			"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_image_set_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"touched_paths": [
+				"../outside.ts"
+			]
+		}
+	},
+	{
+		"id": "execution-manifest-nested-unknown-field",
+		"parser": "execution_manifest",
+		"class": "unknown_field_nested",
+		"note": "unknown keys are refused at EVERY level, not only the top",
+		"reviewed": "the unknown field is NESTED — the parser must recurse, not just check the top level",
+		"value": {
+			"schema_version": 1,
+			"mirror": {
+				"key": {
+					"repository_id": "repo_01",
+					"session_id": "sess_01",
+					"kind": "synthetic_full_tree",
+					"extra": 1
+				},
+				"version": 7
+			},
+			"overlay_manifest": {
+				"schema_version": 1,
+				"include_rules": [],
+				"deny_ruleset_id": "shadow-overlay-deny-v1"
+			},
+			"overlay": [],
+			"post_images": []
+		}
+	},
+	{
+		"id": "execution-manifest-negative-version",
+		"parser": "execution_manifest",
+		"class": "out_of_range",
+		"note": "integers are safe and non-negative, checked before allocation",
+		"reviewed": "the bound is integer AND non-negative, not merely `typeof value === number`",
+		"value": {
+			"schema_version": 1,
+			"mirror": {
+				"key": {
+					"repository_id": "repo_01",
+					"session_id": "sess_01",
+					"kind": "synthetic_full_tree"
+				},
+				"version": -1
+			},
+			"overlay_manifest": {
+				"schema_version": 1,
+				"include_rules": [],
+				"deny_ruleset_id": "shadow-overlay-deny-v1"
+			},
+			"overlay": [],
+			"post_images": []
+		}
+	},
+	{
+		"id": "execution-manifest-symlink-mode",
+		"parser": "execution_manifest",
+		"class": "refused_mode",
+		"note": "mode 120000 is refused everywhere in v0 (memo §12.3)",
+		"reviewed": "mode 120000 is refused everywhere in v0 (memo §5.1), and the reason names the mode — the overlay manifest carries one valid rule so THIS is the rule that fires",
+		"value": {
+			"schema_version": 1,
+			"mirror": {
+				"key": {
+					"repository_id": "repo_01",
+					"session_id": "sess_01",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7
+			},
+			"overlay_manifest": {
+				"schema_version": 1,
+				"include_rules": [
+					{
+						"kind": "exact",
+						"path": ".interlinked/metric-caps.json"
+					}
+				],
+				"deny_ruleset_id": "shadow-overlay-deny-v1"
+			},
+			"overlay": [
+				{
+					"tag": "W",
+					"path": "src/link",
+					"mode": "120000",
+					"blob_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"bytes": 4
+				}
+			],
+			"post_images": []
+		}
+	},
+	{
+		"id": "overlay-manifest-foreign-deny-ruleset",
+		"parser": "overlay_manifest",
+		"class": "wrong_literal",
+		"note": "the deny ruleset is broker-owned; its id is a literal the daemon cannot choose",
+		"reviewed": "the deny ruleset id is broker-owned; a daemon-supplied id must never be honored — the manifest carries one valid rule so the literal check, not the empty-list check, is what refuses",
+		"value": {
+			"schema_version": 1,
+			"include_rules": [
+				{
+					"kind": "exact",
+					"path": ".interlinked/metric-caps.json"
+				}
+			],
+			"deny_ruleset_id": "caller-chosen-deny"
+		}
+	},
+	{
+		"id": "tool-input-unknown-tool",
+		"parser": "tool_input",
+		"class": "unsupported_shape",
+		"note": "the union is closed at four client/tool shapes",
+		"reviewed": "an unsupported tool is refused, not degraded into a generic write",
+		"value": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "NotebookEdit",
+			"semantics_version": 1,
+			"file_path": "a.ipynb",
+			"content": "x"
+		}
+	},
+	{
+		"id": "tool-input-cross-shape-field",
+		"parser": "tool_input",
+		"class": "unknown_field",
+		"note": "a Write carrying Edit's fields is not a Write",
+		"reviewed": "a field that is valid on ANOTHER variant of the union is still unknown on this one",
+		"value": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Write",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"content": "x",
+			"replace_all": true
+		}
+	},
+	{
+		"id": "tool-input-unknown-semantics-version",
+		"parser": "tool_input",
+		"class": "unknown_version",
+		"note": "semantics_version pins how the operation is interpreted",
+		"reviewed": "semantics_version is a literal, not a minimum",
+		"value": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Write",
+			"semantics_version": 2,
+			"file_path": "src/a.ts",
+			"content": "x"
+		}
+	},
+	{
+		"id": "claim-carries-env-digest",
+		"parser": "claim",
+		"class": "unknown_field",
+		"note": "the daemon cannot know the environment digest before anything runs (memo §8.0)",
+		"reviewed": "the daemon cannot know an env digest, so a claim carrying one is refused (memo §8.0, facts belong to the party that can know them)",
+		"value": {
+			"mirror": {
+				"key": {
+					"repository_id": "repo_01",
+					"session_id": "sess_01",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7
+			},
+			"base_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"tree_algo": "shadow-tree-v1",
+			"post_image_algo": "shadow-postimages-v1",
+			"overlay_algo": "shadow-overlay-v1",
+			"overlay_manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"overlay_bytes_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_image_set_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"dependencies": {
+				"mode": "npm-v1",
+				"input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			},
+			"env_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		}
+	},
+	{
+		"id": "dependency-request-carries-tree-hash",
+		"parser": "dependency_request",
+		"class": "unknown_field",
+		"note": "nobody holds a resolved tree hash before the install runs — the asymmetry is the point",
+		"reviewed": "the REQUEST side can never carry a tree hash — nobody holds one before the install runs",
+		"value": {
+			"mode": "npm-v1",
+			"input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		}
+	},
+	{
+		"id": "freshness-empty-head",
+		"parser": "freshness",
+		"class": "empty_brand",
+		"note": "an empty git sha would compare equal to another empty one",
+		"reviewed": "an empty string is not a head; the freshness check would otherwise compare disk against nothing",
+		"value": {
+			"base_local_head": "",
+			"local_head": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"local_pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"local_overlay_manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"local_post_image_set_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		}
+	},
+	{
+		"id": "outcome-reason-phase-mismatch",
+		"parser": "outcome",
+		"class": "reason_phase_mismatch",
+		"note": "`projection` is declared only for the project phase; reported from fetch, one of the two fields is wrong",
+		"reviewed": "the reason is legal and the phase is legal, but not TOGETHER — check REASON_PHASES is consulted, not just the two enums",
+		"value": {
+			"schema_version": 1,
+			"status": "unavailable",
+			"request_id": "req_01",
+			"phase": "fetch",
+			"detail": "no",
+			"duration_ms": 12,
+			"reason": "projection"
+		}
+	},
+	{
+		"id": "outcome-binding-mismatch-empty-list",
+		"parser": "outcome",
+		"class": "empty_non_empty_list",
+		"note": "binding_mismatch with no mismatch is a contradiction",
+		"reviewed": "a binding-mismatch outcome with an empty mismatch list is unrepresentable — it would report a failure naming no field",
+		"value": {
+			"schema_version": 1,
+			"status": "unavailable",
+			"request_id": "req_01",
+			"phase": "materialize",
+			"detail": "no",
+			"duration_ms": 12,
+			"reason": "binding_mismatch",
+			"execution_claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo_01",
+						"session_id": "sess_01",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"overlay_bytes_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"post_image_set_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"post_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"dependencies": {
+					"mode": "none"
+				}
+			},
+			"mismatches": []
+		}
+	},
+	{
+		"id": "outcome-attestation-without-verifier",
+		"parser": "outcome",
+		"class": "unrepresentable_combination",
+		"note": "an attestation with no verifier result is unrepresentable — the signature would attest nothing",
+		"reviewed": "an attestation with no verifier result is unrepresentable — the signature would attest to nothing",
+		"value": {
+			"schema_version": 1,
+			"status": "unavailable",
+			"request_id": "req_01",
+			"phase": "verify",
+			"detail": "no",
+			"duration_ms": 12,
+			"reason": "verifier_incomplete",
+			"attestation": {
+				"signed": {},
+				"signature": "x"
+			}
+		}
+	},
+	{
+		"id": "tool-input-absolute-file-path",
+		"parser": "tool_input",
+		"class": "invalid_path",
+		"note": "an absolute file_path escapes the workspace the post-image set is defined over",
+		"reviewed": "refused before projection, not confined after it — a path this shape must never reach the materializer",
+		"value": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Write",
+			"semantics_version": 1,
+			"file_path": "/etc/passwd",
+			"content": "x\n"
+		}
+	},
+	{
+		"id": "tool-input-traversal-file-path",
+		"parser": "tool_input",
+		"class": "invalid_path",
+		"note": "a `..` segment in a tool input escapes the workspace",
+		"reviewed": "the rule the tree grammar applies to entries applies to tool inputs too — separate code paths, check both",
+		"value": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Edit",
+			"semantics_version": 1,
+			"file_path": "../escape.ts",
+			"old_string": "a",
+			"new_string": "b",
+			"replace_all": false
+		}
+	},
+	{
+		"id": "tool-input-apply-patch-unknown-source-field",
+		"parser": "tool_input",
+		"class": "wrong_literal",
+		"note": "raw_source_field is a closed set of runner payload keys",
+		"reviewed": "the four accepted keys are the ones apply-patch-content.ts knows; a fifth would be an unaudited precedence rule",
+		"value": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** End Patch",
+			"raw_source_field": "stdin"
+		}
+	},
+	{
+		"id": "tool-input-multiedit-edit-unknown-field",
+		"parser": "tool_input",
+		"class": "unknown_field_nested",
+		"note": "an unknown field inside a MultiEdit entry, two levels down",
+		"reviewed": "the recursion reaches ARRAY ELEMENTS, not only nested objects",
+		"value": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "MultiEdit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"edits": [
+				{
+					"old_string": "a",
+					"new_string": "b",
+					"replace_all": false,
+					"note": "x"
+				}
+			]
+		}
+	},
+	{
+		"id": "change-set-duplicate-touched-path",
+		"parser": "change_set",
+		"class": "out_of_range",
+		"note": "one path may appear at most once in touched_paths",
+		"reviewed": "identity is byte-equality over the three fields, so a duplicate would make two encodings of one change compare unequal",
+		"value": {
+			"schema_version": 1,
+			"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_image_set_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"touched_paths": [
+				"src/a.ts",
+				"src/a.ts"
+			]
+		}
+	},
+	{
+		"id": "change-set-short-digest",
+		"parser": "change_set",
+		"class": "out_of_range",
+		"note": "a digest that is not 64 lowercase hex characters",
+		"reviewed": "63 characters is refused — check the bound is an exact width, not a minimum",
+		"value": {
+			"schema_version": 1,
+			"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_image_set_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		}
+	},
+	{
+		"id": "change-set-unsorted-touched-paths",
+		"parser": "change_set",
+		"class": "non_canonical_order",
+		"note": "touched_paths must be strictly ascending by UTF-8 bytes",
+		"reviewed": "the refusal is on ORDER, not on content — the same two paths ascending are accepted, which is what makes the encoding canonical",
+		"value": {
+			"schema_version": 1,
+			"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_image_set_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"touched_paths": [
+				"src/b.ts",
+				"src/a.ts"
+			]
+		}
+	},
+	{
+		"id": "change-set-touched-paths-utf16-order",
+		"parser": "change_set",
+		"class": "non_canonical_order",
+		"note": "sorted by UTF-16 code units, which a naive .sort() produces; UTF-8 orders the astral path LAST",
+		"reviewed": "THE row that separates the two orderings — an implementation comparing with String#< instead of bytes accepts it",
+		"value": {
+			"schema_version": 1,
+			"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_image_set_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"touched_paths": [
+				"docs/𐀀.md",
+				"docs/Ａ.md"
+			]
+		}
+	},
+	{
+		"id": "tool-input-multiedit-empty-edits",
+		"parser": "tool_input",
+		"class": "empty_non_empty_list",
+		"note": "a MultiEdit with no edits changes nothing (no_edits) and must not reach admission",
+		"reviewed": "the refusal is on the EMPTY list, not on the shape — the same record with one edit is accepted",
+		"value": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "MultiEdit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"edits": []
+		}
+	},
+	{
+		"id": "overlay-manifest-empty-include-rules",
+		"parser": "overlay_manifest",
+		"class": "empty_non_empty_list",
+		"note": "an overlay manifest must name at least one include rule",
+		"reviewed": "the canonicalizer and the wire parser now agree — an empty allowlist is a manifest that ships nothing and hashes as if it were meant",
+		"value": {
+			"schema_version": 1,
+			"include_rules": [],
+			"deny_ruleset_id": "shadow-overlay-deny-v1"
+		}
+	},
+	{
+		"id": "overlay-manifest-impossible-class",
+		"parser": "overlay_manifest",
+		"class": "invalid_path",
+		"note": "a gitwildmatch-v1 pattern with an out-of-order character class ([z-a])",
+		"reviewed": "refused by the glob validator, not accepted as a bounded string — a pattern the matcher cannot compile must never reach selection",
+		"value": {
+			"schema_version": 1,
+			"include_rules": [
+				{
+					"kind": "gitwildmatch-v1",
+					"pattern": "[z-a]"
+				}
+			],
+			"deny_ruleset_id": "shadow-overlay-deny-v1"
+		}
+	},
+	{
+		"id": "overlay-manifest-duplicate-exact-rule",
+		"parser": "overlay_manifest",
+		"class": "non_canonical_order",
+		"note": "the same exact path twice is a duplicate rule",
+		"reviewed": "the duplicate is measured on the exact path bytewise; the second copy is refused, not deduplicated",
+		"value": {
+			"schema_version": 1,
+			"include_rules": [
+				{
+					"kind": "exact",
+					"path": "src/a.ts"
+				},
+				{
+					"kind": "exact",
+					"path": "src/a.ts"
+				}
+			],
+			"deny_ruleset_id": "shadow-overlay-deny-v1"
+		}
+	},
+	{
+		"id": "overlay-manifest-duplicate-pattern-after-normalization",
+		"parser": "overlay_manifest",
+		"class": "non_canonical_order",
+		"note": "scratch/** and /scratch/** normalize to one rule, so listing both is a duplicate",
+		"reviewed": "the duplicate is measured AFTER normalization — two spellings of one pattern are one rule",
+		"value": {
+			"schema_version": 1,
+			"include_rules": [
+				{
+					"kind": "gitwildmatch-v1",
+					"pattern": "scratch/**"
+				},
+				{
+					"kind": "gitwildmatch-v1",
+					"pattern": "/scratch/**"
+				}
+			],
+			"deny_ruleset_id": "shadow-overlay-deny-v1"
+		}
+	},
+	{
+		"id": "overlay-manifest-pattern-before-exact",
+		"parser": "overlay_manifest",
+		"class": "non_canonical_order",
+		"note": "a wire manifest must arrive canonical: exact rules precede pattern rules",
+		"reviewed": "the canonicalizer sorts this; the PARSER refuses it — the sender must canonicalize or its hash cannot match",
+		"value": {
+			"schema_version": 1,
+			"include_rules": [
+				{
+					"kind": "gitwildmatch-v1",
+					"pattern": "scratch/**"
+				},
+				{
+					"kind": "exact",
+					"path": "src/a.ts"
+				}
+			],
+			"deny_ruleset_id": "shadow-overlay-deny-v1"
+		}
+	},
+	{
+		"id": "overlay-manifest-exact-rules-unsorted",
+		"parser": "overlay_manifest",
+		"class": "non_canonical_order",
+		"note": "exact rules must be in bytewise path order on the wire",
+		"reviewed": "same canonicalizer caveat: accepted by the sorter, refused by the wire parser",
+		"value": {
+			"schema_version": 1,
+			"include_rules": [
+				{
+					"kind": "exact",
+					"path": "src/b.ts"
+				},
+				{
+					"kind": "exact",
+					"path": "src/a.ts"
+				}
+			],
+			"deny_ruleset_id": "shadow-overlay-deny-v1"
+		}
+	},
+	{
+		"id": "overlay-manifest-unnormalized-pattern",
+		"parser": "overlay_manifest",
+		"class": "non_canonical_order",
+		"note": "a redundant leading '/' on a multi-segment pattern is not canonical spelling",
+		"reviewed": "the sender must send scratch/**; the canonicalizer would normalize, the wire parser refuses",
+		"value": {
+			"schema_version": 1,
+			"include_rules": [
+				{
+					"kind": "gitwildmatch-v1",
+					"pattern": "/scratch/**"
+				}
+			],
+			"deny_ruleset_id": "shadow-overlay-deny-v1"
+		}
+	},
+	{
+		"id": "overlay-manifest-over-rule-cap",
+		"parser": "overlay_manifest",
+		"class": "out_of_range",
+		"note": "1025 include rules exceed the canonicalizer's MAX_OVERLAY_INCLUDE_RULES (1024)",
+		"reviewed": "the parser uses the same cap as the canonicalizer, not the 100000-entry content cap — the rules are canonical (sorted, unique), so the COUNT is the only thing that refuses",
+		"value": {
+			"schema_version": 1,
+			"include_rules": [
+				{
+					"kind": "exact",
+					"path": "f0000.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0001.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0002.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0003.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0004.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0005.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0006.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0007.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0008.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0009.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0010.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0011.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0012.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0013.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0014.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0015.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0016.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0017.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0018.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0019.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0020.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0021.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0022.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0023.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0024.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0025.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0026.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0027.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0028.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0029.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0030.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0031.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0032.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0033.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0034.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0035.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0036.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0037.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0038.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0039.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0040.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0041.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0042.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0043.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0044.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0045.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0046.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0047.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0048.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0049.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0050.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0051.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0052.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0053.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0054.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0055.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0056.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0057.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0058.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0059.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0060.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0061.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0062.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0063.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0064.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0065.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0066.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0067.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0068.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0069.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0070.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0071.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0072.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0073.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0074.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0075.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0076.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0077.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0078.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0079.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0080.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0081.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0082.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0083.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0084.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0085.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0086.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0087.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0088.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0089.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0090.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0091.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0092.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0093.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0094.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0095.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0096.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0097.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0098.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0099.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0100.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0101.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0102.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0103.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0104.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0105.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0106.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0107.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0108.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0109.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0110.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0111.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0112.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0113.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0114.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0115.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0116.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0117.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0118.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0119.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0120.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0121.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0122.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0123.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0124.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0125.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0126.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0127.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0128.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0129.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0130.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0131.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0132.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0133.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0134.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0135.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0136.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0137.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0138.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0139.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0140.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0141.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0142.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0143.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0144.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0145.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0146.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0147.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0148.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0149.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0150.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0151.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0152.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0153.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0154.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0155.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0156.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0157.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0158.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0159.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0160.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0161.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0162.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0163.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0164.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0165.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0166.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0167.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0168.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0169.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0170.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0171.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0172.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0173.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0174.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0175.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0176.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0177.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0178.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0179.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0180.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0181.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0182.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0183.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0184.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0185.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0186.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0187.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0188.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0189.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0190.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0191.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0192.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0193.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0194.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0195.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0196.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0197.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0198.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0199.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0200.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0201.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0202.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0203.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0204.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0205.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0206.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0207.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0208.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0209.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0210.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0211.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0212.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0213.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0214.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0215.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0216.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0217.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0218.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0219.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0220.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0221.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0222.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0223.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0224.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0225.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0226.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0227.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0228.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0229.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0230.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0231.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0232.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0233.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0234.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0235.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0236.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0237.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0238.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0239.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0240.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0241.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0242.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0243.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0244.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0245.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0246.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0247.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0248.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0249.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0250.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0251.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0252.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0253.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0254.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0255.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0256.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0257.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0258.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0259.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0260.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0261.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0262.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0263.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0264.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0265.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0266.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0267.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0268.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0269.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0270.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0271.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0272.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0273.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0274.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0275.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0276.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0277.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0278.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0279.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0280.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0281.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0282.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0283.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0284.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0285.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0286.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0287.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0288.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0289.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0290.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0291.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0292.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0293.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0294.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0295.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0296.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0297.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0298.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0299.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0300.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0301.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0302.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0303.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0304.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0305.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0306.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0307.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0308.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0309.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0310.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0311.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0312.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0313.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0314.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0315.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0316.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0317.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0318.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0319.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0320.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0321.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0322.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0323.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0324.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0325.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0326.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0327.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0328.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0329.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0330.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0331.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0332.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0333.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0334.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0335.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0336.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0337.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0338.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0339.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0340.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0341.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0342.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0343.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0344.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0345.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0346.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0347.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0348.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0349.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0350.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0351.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0352.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0353.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0354.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0355.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0356.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0357.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0358.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0359.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0360.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0361.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0362.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0363.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0364.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0365.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0366.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0367.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0368.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0369.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0370.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0371.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0372.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0373.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0374.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0375.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0376.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0377.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0378.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0379.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0380.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0381.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0382.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0383.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0384.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0385.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0386.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0387.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0388.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0389.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0390.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0391.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0392.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0393.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0394.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0395.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0396.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0397.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0398.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0399.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0400.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0401.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0402.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0403.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0404.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0405.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0406.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0407.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0408.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0409.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0410.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0411.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0412.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0413.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0414.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0415.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0416.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0417.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0418.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0419.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0420.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0421.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0422.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0423.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0424.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0425.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0426.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0427.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0428.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0429.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0430.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0431.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0432.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0433.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0434.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0435.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0436.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0437.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0438.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0439.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0440.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0441.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0442.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0443.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0444.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0445.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0446.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0447.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0448.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0449.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0450.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0451.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0452.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0453.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0454.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0455.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0456.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0457.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0458.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0459.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0460.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0461.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0462.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0463.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0464.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0465.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0466.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0467.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0468.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0469.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0470.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0471.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0472.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0473.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0474.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0475.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0476.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0477.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0478.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0479.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0480.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0481.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0482.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0483.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0484.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0485.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0486.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0487.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0488.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0489.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0490.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0491.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0492.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0493.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0494.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0495.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0496.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0497.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0498.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0499.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0500.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0501.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0502.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0503.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0504.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0505.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0506.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0507.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0508.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0509.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0510.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0511.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0512.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0513.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0514.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0515.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0516.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0517.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0518.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0519.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0520.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0521.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0522.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0523.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0524.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0525.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0526.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0527.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0528.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0529.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0530.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0531.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0532.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0533.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0534.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0535.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0536.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0537.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0538.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0539.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0540.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0541.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0542.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0543.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0544.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0545.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0546.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0547.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0548.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0549.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0550.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0551.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0552.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0553.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0554.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0555.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0556.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0557.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0558.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0559.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0560.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0561.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0562.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0563.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0564.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0565.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0566.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0567.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0568.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0569.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0570.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0571.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0572.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0573.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0574.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0575.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0576.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0577.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0578.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0579.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0580.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0581.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0582.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0583.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0584.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0585.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0586.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0587.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0588.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0589.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0590.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0591.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0592.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0593.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0594.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0595.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0596.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0597.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0598.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0599.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0600.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0601.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0602.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0603.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0604.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0605.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0606.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0607.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0608.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0609.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0610.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0611.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0612.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0613.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0614.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0615.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0616.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0617.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0618.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0619.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0620.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0621.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0622.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0623.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0624.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0625.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0626.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0627.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0628.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0629.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0630.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0631.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0632.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0633.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0634.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0635.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0636.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0637.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0638.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0639.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0640.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0641.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0642.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0643.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0644.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0645.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0646.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0647.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0648.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0649.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0650.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0651.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0652.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0653.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0654.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0655.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0656.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0657.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0658.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0659.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0660.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0661.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0662.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0663.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0664.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0665.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0666.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0667.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0668.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0669.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0670.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0671.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0672.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0673.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0674.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0675.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0676.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0677.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0678.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0679.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0680.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0681.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0682.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0683.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0684.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0685.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0686.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0687.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0688.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0689.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0690.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0691.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0692.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0693.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0694.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0695.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0696.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0697.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0698.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0699.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0700.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0701.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0702.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0703.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0704.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0705.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0706.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0707.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0708.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0709.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0710.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0711.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0712.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0713.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0714.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0715.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0716.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0717.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0718.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0719.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0720.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0721.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0722.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0723.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0724.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0725.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0726.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0727.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0728.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0729.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0730.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0731.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0732.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0733.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0734.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0735.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0736.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0737.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0738.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0739.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0740.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0741.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0742.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0743.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0744.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0745.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0746.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0747.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0748.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0749.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0750.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0751.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0752.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0753.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0754.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0755.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0756.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0757.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0758.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0759.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0760.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0761.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0762.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0763.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0764.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0765.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0766.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0767.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0768.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0769.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0770.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0771.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0772.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0773.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0774.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0775.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0776.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0777.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0778.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0779.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0780.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0781.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0782.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0783.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0784.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0785.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0786.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0787.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0788.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0789.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0790.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0791.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0792.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0793.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0794.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0795.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0796.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0797.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0798.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0799.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0800.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0801.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0802.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0803.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0804.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0805.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0806.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0807.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0808.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0809.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0810.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0811.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0812.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0813.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0814.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0815.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0816.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0817.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0818.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0819.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0820.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0821.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0822.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0823.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0824.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0825.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0826.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0827.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0828.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0829.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0830.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0831.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0832.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0833.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0834.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0835.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0836.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0837.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0838.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0839.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0840.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0841.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0842.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0843.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0844.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0845.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0846.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0847.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0848.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0849.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0850.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0851.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0852.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0853.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0854.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0855.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0856.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0857.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0858.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0859.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0860.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0861.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0862.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0863.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0864.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0865.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0866.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0867.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0868.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0869.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0870.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0871.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0872.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0873.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0874.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0875.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0876.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0877.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0878.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0879.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0880.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0881.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0882.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0883.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0884.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0885.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0886.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0887.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0888.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0889.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0890.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0891.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0892.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0893.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0894.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0895.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0896.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0897.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0898.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0899.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0900.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0901.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0902.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0903.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0904.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0905.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0906.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0907.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0908.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0909.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0910.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0911.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0912.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0913.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0914.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0915.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0916.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0917.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0918.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0919.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0920.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0921.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0922.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0923.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0924.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0925.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0926.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0927.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0928.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0929.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0930.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0931.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0932.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0933.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0934.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0935.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0936.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0937.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0938.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0939.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0940.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0941.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0942.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0943.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0944.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0945.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0946.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0947.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0948.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0949.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0950.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0951.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0952.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0953.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0954.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0955.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0956.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0957.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0958.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0959.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0960.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0961.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0962.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0963.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0964.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0965.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0966.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0967.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0968.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0969.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0970.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0971.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0972.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0973.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0974.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0975.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0976.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0977.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0978.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0979.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0980.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0981.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0982.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0983.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0984.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0985.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0986.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0987.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0988.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0989.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0990.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0991.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0992.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0993.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0994.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0995.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0996.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0997.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0998.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f0999.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1000.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1001.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1002.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1003.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1004.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1005.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1006.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1007.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1008.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1009.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1010.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1011.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1012.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1013.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1014.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1015.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1016.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1017.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1018.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1019.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1020.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1021.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1022.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1023.json"
+				},
+				{
+					"kind": "exact",
+					"path": "f1024.json"
+				}
+			],
+			"deny_ruleset_id": "shadow-overlay-deny-v1"
+		}
+	},
+	{
+		"id": "change-set-uppercase-digest",
+		"parser": "change_set",
+		"class": "out_of_range",
+		"note": "an uppercase-hex digest is not a lowercase 64-hex sha-256",
+		"reviewed": "schema pattern AND parser both reject — this pins the digest pattern in the shared corpus",
+		"value": {
+			"schema_version": 1,
+			"pre_tree_hash": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"post_image_set_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		}
+	},
+	{
+		"id": "execution-manifest-fractional-entry-bytes",
+		"parser": "execution_manifest",
+		"class": "out_of_range",
+		"note": "an overlay entry whose byte count is not an integer",
+		"reviewed": "schema `type: integer` and the parser's safe-non-negative-integer check both reject 1.5",
+		"value": {
+			"schema_version": 1,
+			"mirror": {
+				"key": {
+					"repository_id": "repo_01",
+					"session_id": "sess_01",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7
+			},
+			"overlay_manifest": {
+				"schema_version": 1,
+				"include_rules": [
+					{
+						"kind": "exact",
+						"path": ".interlinked/metric-caps.json"
+					}
+				],
+				"deny_ruleset_id": "shadow-overlay-deny-v1"
+			},
+			"overlay": [
+				{
+					"tag": "W",
+					"path": "src/a.ts",
+					"mode": "100644",
+					"blob_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"bytes": 1.5
+				}
+			],
+			"post_images": []
+		}
+	},
+	{
+		"id": "execution-manifest-fractional-version",
+		"parser": "execution_manifest",
+		"class": "out_of_range",
+		"note": "a fractional mirror version",
+		"reviewed": "the integer half of the bound the negative-version row pins — 1.5 is refused by schema and parser alike",
+		"value": {
+			"schema_version": 1,
+			"mirror": {
+				"key": {
+					"repository_id": "repo_01",
+					"session_id": "sess_01",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 1.5
+			},
+			"overlay_manifest": {
+				"schema_version": 1,
+				"include_rules": [
+					{
+						"kind": "exact",
+						"path": ".interlinked/metric-caps.json"
+					}
+				],
+				"deny_ruleset_id": "shadow-overlay-deny-v1"
+			},
+			"overlay": [],
+			"post_images": []
+		}
+	},
+	{
+		"id": "dependency-cache-record-rfc3339-shape",
+		"parser": "dependency_cache_record",
+		"class": "invalid_timestamp",
+		"note": "a persisted record whose created_at is not RFC3339-shaped (space instead of T)",
+		"reviewed": "the shape rule — schema pattern and parser both reject; a stored record is decoded as strictly as a wire one",
+		"value": {
+			"schema_version": 1,
+			"input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"image_manifest_digest": "sha256:image",
+			"npm_version": "10.9.0",
+			"registry_policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"broker_scanner_policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"tree_algo": "shadow-dependency-tree-v1",
+			"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"backup_handle": "handle-1",
+			"expires_at": "2026-10-01T00:00:00Z",
+			"created_at": "2026-09-04 00:00:00Z"
+		}
+	},
+	{
+		"id": "dependency-cache-record-impossible-instant",
+		"parser": "dependency_cache_record",
+		"class": "invalid_timestamp",
+		"note": "an RFC3339-shaped instant that does not exist on the calendar (February 30)",
+		"reviewed": "schema ACCEPTS (the pattern is shape-only); the parser's calendar rule rejects — this row belongs to the pinned schema gap",
+		"value": {
+			"schema_version": 1,
+			"input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"image_manifest_digest": "sha256:image",
+			"npm_version": "10.9.0",
+			"registry_policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"broker_scanner_policy_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"tree_algo": "shadow-dependency-tree-v1",
+			"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"backup_handle": "handle-1",
+			"expires_at": "2026-10-01T00:00:00Z",
+			"created_at": "2026-02-30T12:00:00Z"
+		}
+	},
+	{
+		"id": "claim-opaque-id-leading-dash",
+		"parser": "claim",
+		"class": "invalid_id",
+		"note": "an OpaqueId starting with '-'",
+		"reviewed": "schema pattern and parser both reject — a leading dash would read as a flag anywhere the id reaches a command line",
+		"value": {
+			"mirror": {
+				"key": {
+					"repository_id": "-lead",
+					"session_id": "sess_01",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7
+			},
+			"base_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"tree_algo": "shadow-tree-v1",
+			"post_image_algo": "shadow-postimages-v1",
+			"overlay_algo": "shadow-overlay-v1",
+			"overlay_manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"overlay_bytes_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_image_set_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"dependencies": {
+				"mode": "npm-v1",
+				"input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			}
+		}
+	},
+	{
+		"id": "claim-opaque-id-space",
+		"parser": "claim",
+		"class": "invalid_id",
+		"note": "an OpaqueId containing a space",
+		"reviewed": "schema pattern and parser both reject — the id grammar is URL-safe, and a space is never a byte of it",
+		"value": {
+			"mirror": {
+				"key": {
+					"repository_id": "has space",
+					"session_id": "sess_01",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7
+			},
+			"base_ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			"tree_algo": "shadow-tree-v1",
+			"post_image_algo": "shadow-postimages-v1",
+			"overlay_algo": "shadow-overlay-v1",
+			"overlay_manifest_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"overlay_bytes_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"pre_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_image_set_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"post_tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			"dependencies": {
+				"mode": "npm-v1",
+				"input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			}
+		}
+	}
+]

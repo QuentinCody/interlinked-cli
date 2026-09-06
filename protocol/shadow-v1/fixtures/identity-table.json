@@ -1,0 +1,152 @@
+[
+	{
+		"id": "replace-all-differs",
+		"same": false,
+		"note": "replace_all true vs the one-occurrence byte state → different post-images → different identity",
+		"reviewed": "the two post_image_set_hash values differ; this is the row the mutation-gate replace_all bug would have caught",
+		"a": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "98c182b3c87c83ec54295fcfdece8d1cf7e7f5fdae436c72ce21d605ad9d704e",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		},
+		"b": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "438f211ce370b5bdfa2859a4fc3aea1c000dc99dec06b2cdf9203cd5b5fb6fd0",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		}
+	},
+	{
+		"id": "multiedit-order-irrelevant",
+		"same": true,
+		"note": "reordered MultiEdit entries producing the same bytes → SAME identity (correct)",
+		"reviewed": "identity is over post-images, not over the operation list",
+		"a": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "211fc7f25656e3e99fae2fd00275fde43f378836d22b709f0d3c24c0badc2d53",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		},
+		"b": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "211fc7f25656e3e99fae2fd00275fde43f378836d22b709f0d3c24c0badc2d53",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		}
+	},
+	{
+		"id": "rename-equals-delete-plus-create",
+		"same": true,
+		"note": "a rename and a delete-plus-create with the same final state are the same identity (correct — not a collision)",
+		"reviewed": "both sides are one D and one W over the same two paths with the same bytes",
+		"a": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "30378eec8e03aed7337e601337c9c1328cdede2eb50833223158eed936679246",
+			"touched_paths": [
+				"src/keep.ts",
+				"src/renamed.ts"
+			]
+		},
+		"b": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "30378eec8e03aed7337e601337c9c1328cdede2eb50833223158eed936679246",
+			"touched_paths": [
+				"src/keep.ts",
+				"src/renamed.ts"
+			]
+		}
+	},
+	{
+		"id": "create-then-delete-is-the-no-op",
+		"same": true,
+		"note": "create-then-delete touches no path, so its identity IS the no-op identity",
+		"reviewed": "touched_paths is empty on both sides",
+		"a": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			"touched_paths": []
+		},
+		"b": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			"touched_paths": []
+		}
+	},
+	{
+		"id": "no-op-differs-from-a-write",
+		"same": false,
+		"note": "the empty set is not the same identity as any write",
+		"reviewed": "guards the row above from being vacuously true",
+		"a": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			"touched_paths": []
+		},
+		"b": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "211fc7f25656e3e99fae2fd00275fde43f378836d22b709f0d3c24c0badc2d53",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		}
+	},
+	{
+		"id": "different-pre-tree",
+		"same": false,
+		"note": "identical post-images against a different pre-tree → different identity (a post-image set is PARTIAL)",
+		"reviewed": "only pre_tree_hash differs between a and b",
+		"a": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "211fc7f25656e3e99fae2fd00275fde43f378836d22b709f0d3c24c0badc2d53",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		},
+		"b": {
+			"schema_version": 1,
+			"pre_tree_hash": "98c182b3c87c83ec54295fcfdece8d1cf7e7f5fdae436c72ce21d605ad9d704e",
+			"post_image_set_hash": "211fc7f25656e3e99fae2fd00275fde43f378836d22b709f0d3c24c0badc2d53",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		}
+	},
+	{
+		"id": "self",
+		"same": true,
+		"note": "identity is reflexive",
+		"reviewed": "the trivial row — if this fails, the comparator is broken",
+		"a": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "211fc7f25656e3e99fae2fd00275fde43f378836d22b709f0d3c24c0badc2d53",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		},
+		"b": {
+			"schema_version": 1,
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_image_set_hash": "211fc7f25656e3e99fae2fd00275fde43f378836d22b709f0d3c24c0badc2d53",
+			"touched_paths": [
+				"src/a.ts"
+			]
+		}
+	}
+]

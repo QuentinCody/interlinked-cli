@@ -1,0 +1,150 @@
+{
+	"$id": "shadow-v1/local_freshness_check.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 persisted record \"local_freshness_check\", generated from types-binding.ts.",
+	"properties": {
+		"checked_at": {
+			"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "rfc3339"
+			}
+		},
+		"claimed": {
+			"additionalProperties": false,
+			"properties": {
+				"base_local_head": {
+					"pattern": "^[0-9a-f]{40}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "gitsha"
+					}
+				},
+				"input_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "tool-input"
+					}
+				},
+				"local_head": {
+					"pattern": "^[0-9a-f]{40}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "gitsha"
+					}
+				},
+				"local_overlay_manifest_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "overlay-manifest"
+					}
+				},
+				"local_post_image_set_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "post-image-set"
+					}
+				},
+				"local_pre_tree_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "pre-tree"
+					}
+				}
+			},
+			"required": [
+				"base_local_head",
+				"input_hash",
+				"local_head",
+				"local_overlay_manifest_hash",
+				"local_post_image_set_hash",
+				"local_pre_tree_hash"
+			],
+			"type": "object"
+		},
+		"matches": {
+			"type": "boolean"
+		},
+		"measured_from_disk": {
+			"additionalProperties": false,
+			"properties": {
+				"base_local_head": {
+					"pattern": "^[0-9a-f]{40}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "gitsha"
+					}
+				},
+				"input_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "tool-input"
+					}
+				},
+				"local_head": {
+					"pattern": "^[0-9a-f]{40}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "gitsha"
+					}
+				},
+				"local_overlay_manifest_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "overlay-manifest"
+					}
+				},
+				"local_post_image_set_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "post-image-set"
+					}
+				},
+				"local_pre_tree_hash": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "pre-tree"
+					}
+				}
+			},
+			"required": [
+				"base_local_head",
+				"input_hash",
+				"local_head",
+				"local_overlay_manifest_hash",
+				"local_post_image_set_hash",
+				"local_pre_tree_hash"
+			],
+			"type": "object"
+		},
+		"schema_version": {
+			"const": 1
+		}
+	},
+	"required": [
+		"checked_at",
+		"claimed",
+		"matches",
+		"measured_from_disk",
+		"schema_version"
+	],
+	"title": "LocalFreshnessCheckV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "local_freshness_check",
+		"kind": "persisted",
+		"module": "types-binding.ts",
+		"type": "LocalFreshnessCheckV1"
+	}
+}

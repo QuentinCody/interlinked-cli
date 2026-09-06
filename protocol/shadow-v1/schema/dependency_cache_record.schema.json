@@ -1,0 +1,92 @@
+{
+	"$id": "shadow-v1/dependency_cache_record.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 persisted record \"dependency_cache_record\", generated from types-core.ts.",
+	"properties": {
+		"backup_handle": {
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "opaque-id"
+			}
+		},
+		"broker_scanner_policy_digest": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "scanner-policy"
+			}
+		},
+		"created_at": {
+			"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "rfc3339"
+			}
+		},
+		"expires_at": {
+			"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "rfc3339"
+			}
+		},
+		"image_manifest_digest": {
+			"type": "string"
+		},
+		"input_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "dependency-input"
+			}
+		},
+		"npm_version": {
+			"type": "string"
+		},
+		"registry_policy_digest": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "registry-policy"
+			}
+		},
+		"schema_version": {
+			"const": 1
+		},
+		"tree_algo": {
+			"const": "shadow-dependency-tree-v1"
+		},
+		"tree_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "dependency-tree"
+			}
+		}
+	},
+	"required": [
+		"backup_handle",
+		"broker_scanner_policy_digest",
+		"created_at",
+		"expires_at",
+		"image_manifest_digest",
+		"input_hash",
+		"npm_version",
+		"registry_policy_digest",
+		"schema_version",
+		"tree_algo",
+		"tree_hash"
+	],
+	"title": "DependencyTreeCacheRecordV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "dependency_cache_record",
+		"kind": "persisted",
+		"module": "types-core.ts",
+		"type": "DependencyTreeCacheRecordV1"
+	}
+}

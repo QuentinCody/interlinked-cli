@@ -1,0 +1,187 @@
+{
+	"$id": "shadow-v1/tool_input.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"anyOf": [
+		{
+			"additionalProperties": false,
+			"properties": {
+				"client": {
+					"const": "claude-code"
+				},
+				"content": {
+					"type": "string"
+				},
+				"file_path": {
+					"type": "string",
+					"x-brand": {
+						"__brand": "canonical-path"
+					}
+				},
+				"schema": {
+					"const": "shadow-tool-input-v1"
+				},
+				"semantics_version": {
+					"const": 1
+				},
+				"tool": {
+					"const": "Write"
+				}
+			},
+			"required": [
+				"client",
+				"content",
+				"file_path",
+				"schema",
+				"semantics_version",
+				"tool"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"client": {
+					"const": "claude-code"
+				},
+				"file_path": {
+					"type": "string",
+					"x-brand": {
+						"__brand": "canonical-path"
+					}
+				},
+				"new_string": {
+					"type": "string"
+				},
+				"old_string": {
+					"type": "string"
+				},
+				"replace_all": {
+					"type": "boolean"
+				},
+				"schema": {
+					"const": "shadow-tool-input-v1"
+				},
+				"semantics_version": {
+					"const": 1
+				},
+				"tool": {
+					"const": "Edit"
+				}
+			},
+			"required": [
+				"client",
+				"file_path",
+				"new_string",
+				"old_string",
+				"replace_all",
+				"schema",
+				"semantics_version",
+				"tool"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"client": {
+					"const": "claude-code"
+				},
+				"edits": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"new_string": {
+								"type": "string"
+							},
+							"old_string": {
+								"type": "string"
+							},
+							"replace_all": {
+								"type": "boolean"
+							}
+						},
+						"required": [
+							"new_string",
+							"old_string",
+							"replace_all"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"file_path": {
+					"type": "string",
+					"x-brand": {
+						"__brand": "canonical-path"
+					}
+				},
+				"schema": {
+					"const": "shadow-tool-input-v1"
+				},
+				"semantics_version": {
+					"const": 1
+				},
+				"tool": {
+					"const": "MultiEdit"
+				}
+			},
+			"required": [
+				"client",
+				"edits",
+				"file_path",
+				"schema",
+				"semantics_version",
+				"tool"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"client": {
+					"const": "codex"
+				},
+				"patch": {
+					"type": "string"
+				},
+				"raw_source_field": {
+					"enum": [
+						"command",
+						"patch",
+						"_raw_patch",
+						"content"
+					],
+					"type": "string"
+				},
+				"schema": {
+					"const": "shadow-tool-input-v1"
+				},
+				"semantics_version": {
+					"const": 1
+				},
+				"tool": {
+					"const": "apply_patch"
+				}
+			},
+			"required": [
+				"client",
+				"patch",
+				"raw_source_field",
+				"schema",
+				"semantics_version",
+				"tool"
+			],
+			"type": "object"
+		}
+	],
+	"description": "Shadow protocol v1 wire record \"tool_input\", generated from types-core.ts.",
+	"title": "NormalizedToolInputV1",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "tool_input",
+		"kind": "wire",
+		"module": "types-core.ts",
+		"type": "NormalizedToolInputV1"
+	}
+}

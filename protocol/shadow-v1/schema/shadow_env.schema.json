@@ -1,0 +1,228 @@
+{
+	"$id": "shadow-v1/shadow_env.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 persisted record \"shadow_env\", generated from types-binding.ts.",
+	"properties": {
+		"argv": {
+			"items": {
+				"type": "string"
+			},
+			"type": "array"
+		},
+		"broker_scanner_policy_digest": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "scanner-policy"
+			}
+		},
+		"cwd": {
+			"type": "string"
+		},
+		"egress_policy_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "egress-policy"
+			}
+		},
+		"env_allowlist": {
+			"items": {
+				"type": "string"
+			},
+			"type": "array"
+		},
+		"exec_config_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "exec-config"
+			}
+		},
+		"image_manifest_digest": {
+			"type": "string"
+		},
+		"provisioner_version": {
+			"type": "string"
+		},
+		"registry_policy": {
+			"additionalProperties": false,
+			"properties": {
+				"host": {
+					"type": "string"
+				},
+				"replace_registry_host": {
+					"const": "always"
+				}
+			},
+			"required": [
+				"host",
+				"replace_registry_host"
+			],
+			"type": "object"
+		},
+		"resource_limits": {
+			"additionalProperties": false,
+			"properties": {
+				"backup_archive_bytes": {
+					"const": 268435456
+				},
+				"command_stdin_toolinput_bytes": {
+					"const": 1048576
+				},
+				"dependency_tree_bytes": {
+					"const": 805306368
+				},
+				"diagnostics_bytes": {
+					"const": 5242880
+				},
+				"diagnostics_count": {
+					"const": 10000
+				},
+				"entries": {
+					"const": 100000
+				},
+				"git_logical_object_bytes": {
+					"const": 1073741824
+				},
+				"git_response_compressed_bytes": {
+					"const": 268435456
+				},
+				"git_temp_bytes": {
+					"const": 134217728
+				},
+				"manifest_object_bytes": {
+					"const": 33554432
+				},
+				"missing_blobs_page_size": {
+					"const": 500
+				},
+				"outcome_record_bytes": {
+					"const": 8388608
+				},
+				"overlay_bytes": {
+					"const": 52428800
+				},
+				"path_bytes": {
+					"const": 4096
+				},
+				"path_component_bytes": {
+					"const": 255
+				},
+				"post_image_set_bytes": {
+					"const": 52428800
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"single_entry_bytes": {
+					"const": 10485760
+				},
+				"stdio_head_bytes": {
+					"const": 65536
+				},
+				"sync_eligible_entries": {
+					"const": 200
+				},
+				"sync_eligible_http_requests": {
+					"const": 80
+				},
+				"sync_eligible_missing_blobs": {
+					"const": 64
+				},
+				"sync_eligible_overlay_bytes": {
+					"const": 2097152
+				},
+				"sync_eligible_pages": {
+					"const": 1
+				},
+				"sync_eligible_post_image_bytes": {
+					"const": 1048576
+				},
+				"total_request_bytes": {
+					"const": 67108864
+				},
+				"upload_aggregate_bytes": {
+					"const": 536870912
+				},
+				"upload_blob_bytes": {
+					"const": 10485760
+				},
+				"upload_ttl_seconds": {
+					"const": 3600
+				},
+				"working_tree_bytes": {
+					"const": 536870912
+				}
+			},
+			"required": [
+				"backup_archive_bytes",
+				"command_stdin_toolinput_bytes",
+				"dependency_tree_bytes",
+				"diagnostics_bytes",
+				"diagnostics_count",
+				"entries",
+				"git_logical_object_bytes",
+				"git_response_compressed_bytes",
+				"git_temp_bytes",
+				"manifest_object_bytes",
+				"missing_blobs_page_size",
+				"outcome_record_bytes",
+				"overlay_bytes",
+				"path_bytes",
+				"path_component_bytes",
+				"post_image_set_bytes",
+				"schema_version",
+				"single_entry_bytes",
+				"stdio_head_bytes",
+				"sync_eligible_entries",
+				"sync_eligible_http_requests",
+				"sync_eligible_missing_blobs",
+				"sync_eligible_overlay_bytes",
+				"sync_eligible_pages",
+				"sync_eligible_post_image_bytes",
+				"total_request_bytes",
+				"upload_aggregate_bytes",
+				"upload_blob_bytes",
+				"upload_ttl_seconds",
+				"working_tree_bytes"
+			],
+			"type": "object"
+		},
+		"schema": {
+			"const": "shadow-env-v1"
+		},
+		"verifier_sha256": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "verifier-binary"
+			}
+		}
+	},
+	"required": [
+		"argv",
+		"broker_scanner_policy_digest",
+		"cwd",
+		"egress_policy_hash",
+		"env_allowlist",
+		"exec_config_hash",
+		"image_manifest_digest",
+		"provisioner_version",
+		"registry_policy",
+		"resource_limits",
+		"schema",
+		"verifier_sha256"
+	],
+	"title": "ShadowEnvV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "shadow_env",
+		"kind": "persisted",
+		"module": "types-binding.ts",
+		"type": "ShadowEnvV1"
+	}
+}

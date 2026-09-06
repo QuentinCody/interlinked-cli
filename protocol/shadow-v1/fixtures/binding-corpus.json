@@ -1,0 +1,1163 @@
+[
+	{
+		"id": "cache-policy-a-record-b-measured-b",
+		"note": "policy selected A, the caller supplied B, the measurement restored B",
+		"reviewed": "EXACTLY ONE record, on cache_record_hash with expected H(A) and measured H(B) — no tree_hash record, because B is never the record anything is compared against",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z",
+				"dependency_cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "cache",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+					"cache_record_hash": "3a914def314c2efd1eb3f65bd40737903833f5b6e0348b88a1d5756b959ed145"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			},
+			"cache_record": {
+				"schema_version": 1,
+				"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+				"image_manifest_digest": "sha256:image",
+				"npm_version": "10.9.0",
+				"registry_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"tree_algo": "shadow-dependency-tree-v1",
+				"tree_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				"backup_handle": "handle-b",
+				"expires_at": "2026-10-01T00:00:00Z",
+				"created_at": "2026-09-01T00:00:00Z"
+			}
+		},
+		"expect": {
+			"mismatches": [
+				{
+					"field": "dependencies.cache_record_hash",
+					"comparison": "cache_vs_measurement",
+					"expected": "\"c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb\"",
+					"measured": "\"3a914def314c2efd1eb3f65bd40737903833f5b6e0348b88a1d5756b959ed145\""
+				}
+			]
+		}
+	},
+	{
+		"id": "cache-policy-a-record-b-measured-claims-a",
+		"note": "policy selected A, the caller supplied B, the measurement CLAIMS hash A but restored B's tree",
+		"reviewed": "still one record on cache_record_hash whose measured side is H(B) — the SUPPLIED record's hash, not the measurement's claim; the supplied record is refuted before the measurement is read",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z",
+				"dependency_cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "cache",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+					"cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			},
+			"cache_record": {
+				"schema_version": 1,
+				"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+				"image_manifest_digest": "sha256:image",
+				"npm_version": "10.9.0",
+				"registry_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"tree_algo": "shadow-dependency-tree-v1",
+				"tree_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+				"backup_handle": "handle-b",
+				"expires_at": "2026-10-01T00:00:00Z",
+				"created_at": "2026-09-01T00:00:00Z"
+			}
+		},
+		"expect": {
+			"mismatches": [
+				{
+					"field": "dependencies.cache_record_hash",
+					"comparison": "cache_vs_measurement",
+					"expected": "\"c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb\"",
+					"measured": "\"3a914def314c2efd1eb3f65bd40737903833f5b6e0348b88a1d5756b959ed145\""
+				}
+			]
+		}
+	},
+	{
+		"id": "cache-policy-a-no-record-measured-a",
+		"note": "policy selected A but no record was supplied; the measurement restored A",
+		"reviewed": "one record on cache_record_hash with expected H(A) and measured `null` — the broker has nothing to corroborate against, whatever the measurement says",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z",
+				"dependency_cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "cache",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			}
+		},
+		"expect": {
+			"mismatches": [
+				{
+					"field": "dependencies.cache_record_hash",
+					"comparison": "cache_vs_measurement",
+					"expected": "\"c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb\"",
+					"measured": "null"
+				}
+			]
+		}
+	},
+	{
+		"id": "cache-no-policy-record-a-fresh",
+		"note": "policy selected NO record, yet a record was supplied; the install ran fresh",
+		"reviewed": "one record on cache_record_hash with expected `null` and measured H(A) — supplying a record never makes the broker expect a hit",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "fresh",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			},
+			"cache_record": {
+				"schema_version": 1,
+				"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+				"image_manifest_digest": "sha256:image",
+				"npm_version": "10.9.0",
+				"registry_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"tree_algo": "shadow-dependency-tree-v1",
+				"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"backup_handle": "handle-a",
+				"expires_at": "2026-10-01T00:00:00Z",
+				"created_at": "2026-09-01T00:00:00Z"
+			}
+		},
+		"expect": {
+			"mismatches": [
+				{
+					"field": "dependencies.cache_record_hash",
+					"comparison": "cache_vs_measurement",
+					"expected": "null",
+					"measured": "\"c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb\""
+				}
+			]
+		}
+	},
+	{
+		"id": "cache-no-policy-no-record-cache-sourced",
+		"note": "policy selected no record, none was supplied, and the measurement says it restored from cache",
+		"reviewed": "EXACTLY TWO: dependencies.source (policy_vs_measurement, fresh vs cache) and dependencies.tree_hash (cache_vs_measurement, expected null) — an unexplained hit with an uncorroborated tree",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "cache",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			}
+		},
+		"expect": {
+			"mismatches": [
+				{
+					"field": "dependencies.source",
+					"comparison": "policy_vs_measurement",
+					"expected": "\"fresh\"",
+					"measured": "\"cache\""
+				},
+				{
+					"field": "dependencies.tree_hash",
+					"comparison": "cache_vs_measurement",
+					"expected": "null",
+					"measured": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+				}
+			]
+		}
+	},
+	{
+		"id": "cache-no-policy-record-a-cache-sourced-agreeing",
+		"note": "policy selected no record; a record was supplied and the cache-sourced measurement agrees with it",
+		"reviewed": "THREE fields — cache_record_hash (null vs H(A)), source, tree_hash: agreement with a record policy never chose is not corroboration",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "cache",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			},
+			"cache_record": {
+				"schema_version": 1,
+				"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+				"image_manifest_digest": "sha256:image",
+				"npm_version": "10.9.0",
+				"registry_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"tree_algo": "shadow-dependency-tree-v1",
+				"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"backup_handle": "handle-a",
+				"expires_at": "2026-10-01T00:00:00Z",
+				"created_at": "2026-09-01T00:00:00Z"
+			}
+		},
+		"expect": {
+			"mismatches": [
+				{
+					"field": "dependencies.cache_record_hash",
+					"comparison": "cache_vs_measurement",
+					"expected": "null",
+					"measured": "\"c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb\""
+				},
+				{
+					"field": "dependencies.source",
+					"comparison": "policy_vs_measurement",
+					"expected": "\"fresh\"",
+					"measured": "\"cache\""
+				},
+				{
+					"field": "dependencies.tree_hash",
+					"comparison": "cache_vs_measurement",
+					"expected": "null",
+					"measured": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
+				}
+			]
+		}
+	},
+	{
+		"id": "cache-policy-a-record-a-measured-a",
+		"note": "policy selected A, A was supplied, the measurement restored A",
+		"reviewed": "the empty list — the precondition for running the verifier and for signing anything",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z",
+				"dependency_cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "cache",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			},
+			"cache_record": {
+				"schema_version": 1,
+				"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+				"image_manifest_digest": "sha256:image",
+				"npm_version": "10.9.0",
+				"registry_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"tree_algo": "shadow-dependency-tree-v1",
+				"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"backup_handle": "handle-a",
+				"expires_at": "2026-10-01T00:00:00Z",
+				"created_at": "2026-09-01T00:00:00Z"
+			}
+		},
+		"expect": {
+			"mismatches": []
+		}
+	},
+	{
+		"id": "cache-policy-a-record-a-tree-differs",
+		"note": "policy and record agree on A; the restored tree is not A's",
+		"reviewed": "one record on dependencies.tree_hash (cache_vs_measurement) with expected A.tree_hash — the immutable record is what corroborates the restored tree",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z",
+				"dependency_cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "cache",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+					"cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			},
+			"cache_record": {
+				"schema_version": 1,
+				"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+				"image_manifest_digest": "sha256:image",
+				"npm_version": "10.9.0",
+				"registry_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"tree_algo": "shadow-dependency-tree-v1",
+				"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"backup_handle": "handle-a",
+				"expires_at": "2026-10-01T00:00:00Z",
+				"created_at": "2026-09-01T00:00:00Z"
+			}
+		},
+		"expect": {
+			"mismatches": [
+				{
+					"field": "dependencies.tree_hash",
+					"comparison": "cache_vs_measurement",
+					"expected": "\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+					"measured": "\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\""
+				}
+			]
+		}
+	},
+	{
+		"id": "cache-policy-a-record-a-stale-record-hash",
+		"note": "policy and record agree on A; the measurement names a stale cache_record_hash",
+		"reviewed": "one record on cache_record_hash with expected H(A) — the POLICY hash, comparison cache_vs_measurement",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z",
+				"dependency_cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "cache",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"cache_record_hash": "3a914def314c2efd1eb3f65bd40737903833f5b6e0348b88a1d5756b959ed145"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			},
+			"cache_record": {
+				"schema_version": 1,
+				"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+				"image_manifest_digest": "sha256:image",
+				"npm_version": "10.9.0",
+				"registry_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"tree_algo": "shadow-dependency-tree-v1",
+				"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"backup_handle": "handle-a",
+				"expires_at": "2026-10-01T00:00:00Z",
+				"created_at": "2026-09-01T00:00:00Z"
+			}
+		},
+		"expect": {
+			"mismatches": [
+				{
+					"field": "dependencies.cache_record_hash",
+					"comparison": "cache_vs_measurement",
+					"expected": "\"c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb\"",
+					"measured": "\"3a914def314c2efd1eb3f65bd40737903833f5b6e0348b88a1d5756b959ed145\""
+				}
+			]
+		}
+	},
+	{
+		"id": "cache-policy-a-record-a-fresh-measurement",
+		"note": "policy and record agree on A; the install ran FRESH instead of restoring",
+		"reviewed": "dependencies.source (cache_vs_measurement, cache vs fresh) plus cache_record_hash with unavailable_reason not_applicable and NO measured field — a fresh install has no record hash to report",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z",
+				"dependency_cache_record_hash": "c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "fresh",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			},
+			"cache_record": {
+				"schema_version": 1,
+				"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+				"image_manifest_digest": "sha256:image",
+				"npm_version": "10.9.0",
+				"registry_policy_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"tree_algo": "shadow-dependency-tree-v1",
+				"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				"backup_handle": "handle-a",
+				"expires_at": "2026-10-01T00:00:00Z",
+				"created_at": "2026-09-01T00:00:00Z"
+			}
+		},
+		"expect": {
+			"mismatches": [
+				{
+					"field": "dependencies.source",
+					"comparison": "cache_vs_measurement",
+					"expected": "\"cache\"",
+					"measured": "\"fresh\""
+				},
+				{
+					"field": "dependencies.cache_record_hash",
+					"comparison": "cache_vs_measurement",
+					"expected": "\"c3170457130298444622527bb7a62b70b281c6cb99ad8ae6dbd4ae5107484beb\"",
+					"unavailable_reason": "not_applicable"
+				}
+			]
+		}
+	},
+	{
+		"id": "fresh-no-policy-no-record",
+		"note": "no policy hash, no record, a fresh install",
+		"reviewed": "the empty list — a fresh tree is a materializer fact nobody held an expectation for, so silence is correct",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "npm-v1",
+					"source": "fresh",
+					"input_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+					"tree_algo": "shadow-dependency-tree-v1",
+					"tree_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			}
+		},
+		"expect": {
+			"mismatches": []
+		}
+	},
+	{
+		"id": "mode-none-both-sides",
+		"note": "dependencies mode `none` on the claim and the measurement, no policy hash",
+		"reviewed": "the empty list — nothing was requested, nothing was provisioned, nothing is compared",
+		"input": {
+			"authority": {
+				"mirror_key": {
+					"repository_id": "repo-1",
+					"session_id": "sess-1",
+					"kind": "synthetic_full_tree"
+				},
+				"version": 7,
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"claim": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "none"
+				}
+			},
+			"policy": {
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+				"broker_scanner_policy_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+				"deadline_at": "2026-09-05T00:00:00Z"
+			},
+			"measured": {
+				"mirror": {
+					"key": {
+						"repository_id": "repo-1",
+						"session_id": "sess-1",
+						"kind": "synthetic_full_tree"
+					},
+					"version": 7
+				},
+				"base_ref": "cccccccccccccccccccccccccccccccccccccccc",
+				"tree_algo": "shadow-tree-v1",
+				"post_image_algo": "shadow-postimages-v1",
+				"overlay_algo": "shadow-overlay-v1",
+				"overlay_manifest_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+				"overlay_bytes_hash": "5555555555555555555555555555555555555555555555555555555555555555",
+				"pre_tree_hash": "6666666666666666666666666666666666666666666666666666666666666666",
+				"post_image_set_hash": "7777777777777777777777777777777777777777777777777777777777777777",
+				"post_tree_hash": "8888888888888888888888888888888888888888888888888888888888888888",
+				"dependencies": {
+					"mode": "none"
+				},
+				"env_digest": "9999999999999999999999999999999999999999999999999999999999999999",
+				"exec_config_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+			}
+		},
+		"expect": {
+			"mismatches": []
+		}
+	}
+]

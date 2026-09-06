@@ -1,0 +1,4860 @@
+{
+	"$id": "shadow-v1/outcome.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"anyOf": [
+		{
+			"additionalProperties": false,
+			"properties": {
+				"bundle_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"duration_ms": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"execution_claim": {
+					"additionalProperties": false,
+					"properties": {
+						"base_ref": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_bytes_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-bytes"
+							}
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"post_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-tree"
+							}
+						},
+						"pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"base_ref",
+						"dependencies",
+						"mirror",
+						"overlay_algo",
+						"overlay_bytes_hash",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"post_image_set_hash",
+						"post_tree_hash",
+						"pre_tree_hash",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"expected_execution": {
+					"additionalProperties": false,
+					"properties": {
+						"broker_scanner_policy_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "scanner-policy"
+							}
+						},
+						"deadline_at": {
+							"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "rfc3339"
+							}
+						},
+						"dependency_cache_record_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-cache-record"
+							}
+						},
+						"env_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "env"
+							}
+						},
+						"exec_config_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "exec-config"
+							}
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"broker_scanner_policy_digest",
+						"deadline_at",
+						"env_digest",
+						"exec_config_hash",
+						"overlay_algo",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"freshness_claim": {
+					"additionalProperties": false,
+					"properties": {
+						"base_local_head": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"input_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "tool-input"
+							}
+						},
+						"local_head": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"local_overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"local_post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"local_pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						}
+					},
+					"required": [
+						"base_local_head",
+						"input_hash",
+						"local_head",
+						"local_overlay_manifest_hash",
+						"local_post_image_set_hash",
+						"local_pre_tree_hash"
+					],
+					"type": "object"
+				},
+				"kind": {
+					"const": "materialized"
+				},
+				"measured_execution": {
+					"additionalProperties": false,
+					"properties": {
+						"base_ref": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "fresh"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"cache_record_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-cache-record"
+											}
+										},
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "cache"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"cache_record_hash",
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"env_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "env"
+							}
+						},
+						"exec_config_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "exec-config"
+							}
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_bytes_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-bytes"
+							}
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"post_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-tree"
+							}
+						},
+						"pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"base_ref",
+						"dependencies",
+						"env_digest",
+						"exec_config_hash",
+						"mirror",
+						"overlay_algo",
+						"overlay_bytes_hash",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"post_image_set_hash",
+						"post_tree_hash",
+						"pre_tree_hash",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"request_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"status": {
+					"const": "completed"
+				}
+			},
+			"required": [
+				"bundle_id",
+				"duration_ms",
+				"execution_claim",
+				"expected_execution",
+				"freshness_claim",
+				"kind",
+				"measured_execution",
+				"request_id",
+				"schema_version",
+				"status"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"bundle_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"duration_ms": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"execution_claim": {
+					"additionalProperties": false,
+					"properties": {
+						"base_ref": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_bytes_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-bytes"
+							}
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"post_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-tree"
+							}
+						},
+						"pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"base_ref",
+						"dependencies",
+						"mirror",
+						"overlay_algo",
+						"overlay_bytes_hash",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"post_image_set_hash",
+						"post_tree_hash",
+						"pre_tree_hash",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"expected_execution": {
+					"additionalProperties": false,
+					"properties": {
+						"broker_scanner_policy_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "scanner-policy"
+							}
+						},
+						"deadline_at": {
+							"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "rfc3339"
+							}
+						},
+						"dependency_cache_record_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-cache-record"
+							}
+						},
+						"env_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "env"
+							}
+						},
+						"exec_config_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "exec-config"
+							}
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"broker_scanner_policy_digest",
+						"deadline_at",
+						"env_digest",
+						"exec_config_hash",
+						"overlay_algo",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"freshness_claim": {
+					"additionalProperties": false,
+					"properties": {
+						"base_local_head": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"input_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "tool-input"
+							}
+						},
+						"local_head": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"local_overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"local_post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"local_pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						}
+					},
+					"required": [
+						"base_local_head",
+						"input_hash",
+						"local_head",
+						"local_overlay_manifest_hash",
+						"local_post_image_set_hash",
+						"local_pre_tree_hash"
+					],
+					"type": "object"
+				},
+				"kind": {
+					"const": "verified"
+				},
+				"measured_execution": {
+					"additionalProperties": false,
+					"properties": {
+						"base_ref": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "fresh"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"cache_record_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-cache-record"
+											}
+										},
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "cache"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"cache_record_hash",
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"env_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "env"
+							}
+						},
+						"exec_config_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "exec-config"
+							}
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_bytes_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-bytes"
+							}
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"post_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-tree"
+							}
+						},
+						"pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"base_ref",
+						"dependencies",
+						"env_digest",
+						"exec_config_hash",
+						"mirror",
+						"overlay_algo",
+						"overlay_bytes_hash",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"post_image_set_hash",
+						"post_tree_hash",
+						"pre_tree_hash",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"request_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"status": {
+					"const": "completed"
+				},
+				"verifier": {
+					"additionalProperties": false,
+					"properties": {
+						"compiler": {
+							"additionalProperties": false,
+							"properties": {
+								"image_digest": {
+									"type": "string"
+								},
+								"path": {
+									"type": "string"
+								},
+								"sha256": {
+									"pattern": "^[0-9a-f]{64}$",
+									"type": "string",
+									"x-brand": {
+										"__digest": "verifier-binary"
+									}
+								},
+								"version": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"image_digest",
+								"path",
+								"sha256",
+								"version"
+							],
+							"type": "object"
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "fresh"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"cache_record_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-cache-record"
+											}
+										},
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "cache"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"cache_record_hash",
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"introduced": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"category": {
+										"enum": [
+											"error",
+											"warning",
+											"suggestion",
+											"message"
+										],
+										"type": "string"
+									},
+									"code": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"col": {
+										"anyOf": [
+											{
+												"type": "null"
+											},
+											{
+												"minimum": 0,
+												"type": "integer"
+											}
+										]
+									},
+									"file": {
+										"anyOf": [
+											{
+												"type": "null"
+											},
+											{
+												"type": "string",
+												"x-brand": {
+													"__brand": "canonical-path"
+												}
+											}
+										]
+									},
+									"line": {
+										"anyOf": [
+											{
+												"type": "null"
+											},
+											{
+												"minimum": 0,
+												"type": "integer"
+											}
+										]
+									},
+									"message": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"category",
+									"code",
+									"col",
+									"file",
+									"line",
+									"message"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"invocation": {
+							"additionalProperties": false,
+							"properties": {
+								"argv": {
+									"items": {
+										"type": "string"
+									},
+									"type": "array"
+								},
+								"cwd": {
+									"type": "string"
+								},
+								"locale": {
+									"const": "en"
+								},
+								"pretty": {
+									"const": false
+								}
+							},
+							"required": [
+								"argv",
+								"cwd",
+								"locale",
+								"pretty"
+							],
+							"type": "object"
+						},
+						"mode": {
+							"const": "introduced-only"
+						},
+						"post": {
+							"additionalProperties": false,
+							"properties": {
+								"diagnostics": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"category": {
+												"enum": [
+													"error",
+													"warning",
+													"suggestion",
+													"message"
+												],
+												"type": "string"
+											},
+											"code": {
+												"minimum": 0,
+												"type": "integer"
+											},
+											"col": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"minimum": 0,
+														"type": "integer"
+													}
+												]
+											},
+											"file": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"type": "string",
+														"x-brand": {
+															"__brand": "canonical-path"
+														}
+													}
+												]
+											},
+											"line": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"minimum": 0,
+														"type": "integer"
+													}
+												]
+											},
+											"message": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"category",
+											"code",
+											"col",
+											"file",
+											"line",
+											"message"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"diagnostics_total": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"status": {
+									"const": "complete"
+								},
+								"termination": {
+									"additionalProperties": false,
+									"properties": {
+										"code": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"kind": {
+											"const": "exited"
+										}
+									},
+									"required": [
+										"code",
+										"kind"
+									],
+									"type": "object"
+								}
+							},
+							"required": [
+								"diagnostics",
+								"diagnostics_total",
+								"status",
+								"termination"
+							],
+							"type": "object"
+						},
+						"pre": {
+							"additionalProperties": false,
+							"properties": {
+								"diagnostics": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"category": {
+												"enum": [
+													"error",
+													"warning",
+													"suggestion",
+													"message"
+												],
+												"type": "string"
+											},
+											"code": {
+												"minimum": 0,
+												"type": "integer"
+											},
+											"col": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"minimum": 0,
+														"type": "integer"
+													}
+												]
+											},
+											"file": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"type": "string",
+														"x-brand": {
+															"__brand": "canonical-path"
+														}
+													}
+												]
+											},
+											"line": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"minimum": 0,
+														"type": "integer"
+													}
+												]
+											},
+											"message": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"category",
+											"code",
+											"col",
+											"file",
+											"line",
+											"message"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"diagnostics_total": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"status": {
+									"const": "complete"
+								},
+								"termination": {
+									"additionalProperties": false,
+									"properties": {
+										"code": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"kind": {
+											"const": "exited"
+										}
+									},
+									"required": [
+										"code",
+										"kind"
+									],
+									"type": "object"
+								}
+							},
+							"required": [
+								"diagnostics",
+								"diagnostics_total",
+								"status",
+								"termination"
+							],
+							"type": "object"
+						},
+						"result_schema": {
+							"const": "shadow-tsc-result-v1"
+						}
+					},
+					"required": [
+						"compiler",
+						"dependencies",
+						"introduced",
+						"invocation",
+						"mode",
+						"post",
+						"pre",
+						"result_schema"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"bundle_id",
+				"duration_ms",
+				"execution_claim",
+				"expected_execution",
+				"freshness_claim",
+				"kind",
+				"measured_execution",
+				"request_id",
+				"schema_version",
+				"status",
+				"verifier"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"attestation": {
+					"additionalProperties": false,
+					"properties": {
+						"signature": {
+							"type": "string"
+						},
+						"signed": {
+							"additionalProperties": false,
+							"properties": {
+								"domain": {
+									"const": "interlinked-shadow-authoring"
+								},
+								"key_id": {
+									"type": "string"
+								},
+								"occurred_at": {
+									"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+									"type": "string",
+									"x-brand": {
+										"__brand": "rfc3339"
+									}
+								},
+								"payload": {
+									"additionalProperties": false,
+									"properties": {
+										"changeset": {
+											"additionalProperties": false,
+											"properties": {
+												"post_image_set_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "post-image-set"
+													}
+												},
+												"pre_tree_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "pre-tree"
+													}
+												},
+												"schema_version": {
+													"const": 1
+												},
+												"touched_paths": {
+													"items": {
+														"type": "string",
+														"x-brand": {
+															"__brand": "canonical-path"
+														}
+													},
+													"type": "array"
+												}
+											},
+											"required": [
+												"post_image_set_hash",
+												"pre_tree_hash",
+												"schema_version",
+												"touched_paths"
+											],
+											"type": "object"
+										},
+										"command_display": {
+											"type": "string"
+										},
+										"command_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "command"
+											}
+										},
+										"freshness_claim_echo": {
+											"additionalProperties": false,
+											"properties": {
+												"base_local_head": {
+													"pattern": "^[0-9a-f]{40}$",
+													"type": "string",
+													"x-brand": {
+														"__brand": "gitsha"
+													}
+												},
+												"input_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "tool-input"
+													}
+												},
+												"local_head": {
+													"pattern": "^[0-9a-f]{40}$",
+													"type": "string",
+													"x-brand": {
+														"__brand": "gitsha"
+													}
+												},
+												"local_overlay_manifest_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "overlay-manifest"
+													}
+												},
+												"local_post_image_set_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "post-image-set"
+													}
+												},
+												"local_pre_tree_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "pre-tree"
+													}
+												}
+											},
+											"required": [
+												"base_local_head",
+												"input_hash",
+												"local_head",
+												"local_overlay_manifest_hash",
+												"local_post_image_set_hash",
+												"local_pre_tree_hash"
+											],
+											"type": "object"
+										},
+										"key_purpose": {
+											"const": "shadow-authoring"
+										},
+										"measured_execution": {
+											"additionalProperties": false,
+											"properties": {
+												"base_ref": {
+													"pattern": "^[0-9a-f]{40}$",
+													"type": "string",
+													"x-brand": {
+														"__brand": "gitsha"
+													}
+												},
+												"dependencies": {
+													"anyOf": [
+														{
+															"additionalProperties": false,
+															"properties": {
+																"mode": {
+																	"const": "none"
+																}
+															},
+															"required": [
+																"mode"
+															],
+															"type": "object"
+														},
+														{
+															"additionalProperties": false,
+															"properties": {
+																"input_hash": {
+																	"pattern": "^[0-9a-f]{64}$",
+																	"type": "string",
+																	"x-brand": {
+																		"__digest": "dependency-input"
+																	}
+																},
+																"mode": {
+																	"const": "npm-v1"
+																},
+																"source": {
+																	"const": "fresh"
+																},
+																"tree_algo": {
+																	"const": "shadow-dependency-tree-v1"
+																},
+																"tree_hash": {
+																	"pattern": "^[0-9a-f]{64}$",
+																	"type": "string",
+																	"x-brand": {
+																		"__digest": "dependency-tree"
+																	}
+																}
+															},
+															"required": [
+																"input_hash",
+																"mode",
+																"source",
+																"tree_algo",
+																"tree_hash"
+															],
+															"type": "object"
+														},
+														{
+															"additionalProperties": false,
+															"properties": {
+																"cache_record_hash": {
+																	"pattern": "^[0-9a-f]{64}$",
+																	"type": "string",
+																	"x-brand": {
+																		"__digest": "dependency-cache-record"
+																	}
+																},
+																"input_hash": {
+																	"pattern": "^[0-9a-f]{64}$",
+																	"type": "string",
+																	"x-brand": {
+																		"__digest": "dependency-input"
+																	}
+																},
+																"mode": {
+																	"const": "npm-v1"
+																},
+																"source": {
+																	"const": "cache"
+																},
+																"tree_algo": {
+																	"const": "shadow-dependency-tree-v1"
+																},
+																"tree_hash": {
+																	"pattern": "^[0-9a-f]{64}$",
+																	"type": "string",
+																	"x-brand": {
+																		"__digest": "dependency-tree"
+																	}
+																}
+															},
+															"required": [
+																"cache_record_hash",
+																"input_hash",
+																"mode",
+																"source",
+																"tree_algo",
+																"tree_hash"
+															],
+															"type": "object"
+														}
+													]
+												},
+												"env_digest": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "env"
+													}
+												},
+												"exec_config_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "exec-config"
+													}
+												},
+												"mirror": {
+													"additionalProperties": false,
+													"properties": {
+														"key": {
+															"additionalProperties": false,
+															"properties": {
+																"kind": {
+																	"const": "synthetic_full_tree"
+																},
+																"repository_id": {
+																	"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+																	"type": "string",
+																	"x-brand": {
+																		"__brand": "opaque-id"
+																	}
+																},
+																"session_id": {
+																	"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+																	"type": "string",
+																	"x-brand": {
+																		"__brand": "opaque-id"
+																	}
+																}
+															},
+															"required": [
+																"kind",
+																"repository_id",
+																"session_id"
+															],
+															"type": "object"
+														},
+														"version": {
+															"minimum": 0,
+															"type": "integer"
+														}
+													},
+													"required": [
+														"key",
+														"version"
+													],
+													"type": "object"
+												},
+												"overlay_algo": {
+													"const": "shadow-overlay-v1"
+												},
+												"overlay_bytes_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "overlay-bytes"
+													}
+												},
+												"overlay_manifest_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "overlay-manifest"
+													}
+												},
+												"post_image_algo": {
+													"const": "shadow-postimages-v1"
+												},
+												"post_image_set_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "post-image-set"
+													}
+												},
+												"post_tree_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "post-tree"
+													}
+												},
+												"pre_tree_hash": {
+													"pattern": "^[0-9a-f]{64}$",
+													"type": "string",
+													"x-brand": {
+														"__digest": "pre-tree"
+													}
+												},
+												"tree_algo": {
+													"const": "shadow-tree-v1"
+												}
+											},
+											"required": [
+												"base_ref",
+												"dependencies",
+												"env_digest",
+												"exec_config_hash",
+												"mirror",
+												"overlay_algo",
+												"overlay_bytes_hash",
+												"overlay_manifest_hash",
+												"post_image_algo",
+												"post_image_set_hash",
+												"post_tree_hash",
+												"pre_tree_hash",
+												"tree_algo"
+											],
+											"type": "object"
+										},
+										"project": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"request_nonce": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"ruleset_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "ruleset"
+											}
+										},
+										"scope": {
+											"const": "authoring"
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"tenant": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"verifier_kind": {
+											"const": "tsc"
+										}
+									},
+									"required": [
+										"changeset",
+										"command_display",
+										"command_hash",
+										"freshness_claim_echo",
+										"key_purpose",
+										"measured_execution",
+										"project",
+										"repository_id",
+										"request_nonce",
+										"ruleset_hash",
+										"scope",
+										"session_id",
+										"tenant",
+										"verifier_kind"
+									],
+									"type": "object"
+								},
+								"protocol_version": {
+									"const": 1
+								},
+								"result_hash": {
+									"pattern": "^[0-9a-f]{64}$",
+									"type": "string",
+									"x-brand": {
+										"__digest": "verifier-result"
+									}
+								}
+							},
+							"required": [
+								"domain",
+								"key_id",
+								"occurred_at",
+								"payload",
+								"protocol_version",
+								"result_hash"
+							],
+							"type": "object"
+						}
+					},
+					"required": [
+						"signature",
+						"signed"
+					],
+					"type": "object"
+				},
+				"bundle_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"duration_ms": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"execution_claim": {
+					"additionalProperties": false,
+					"properties": {
+						"base_ref": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_bytes_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-bytes"
+							}
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"post_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-tree"
+							}
+						},
+						"pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"base_ref",
+						"dependencies",
+						"mirror",
+						"overlay_algo",
+						"overlay_bytes_hash",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"post_image_set_hash",
+						"post_tree_hash",
+						"pre_tree_hash",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"expected_execution": {
+					"additionalProperties": false,
+					"properties": {
+						"broker_scanner_policy_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "scanner-policy"
+							}
+						},
+						"deadline_at": {
+							"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "rfc3339"
+							}
+						},
+						"dependency_cache_record_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-cache-record"
+							}
+						},
+						"env_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "env"
+							}
+						},
+						"exec_config_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "exec-config"
+							}
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"broker_scanner_policy_digest",
+						"deadline_at",
+						"env_digest",
+						"exec_config_hash",
+						"overlay_algo",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"freshness_claim": {
+					"additionalProperties": false,
+					"properties": {
+						"base_local_head": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"input_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "tool-input"
+							}
+						},
+						"local_head": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"local_overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"local_post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"local_pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						}
+					},
+					"required": [
+						"base_local_head",
+						"input_hash",
+						"local_head",
+						"local_overlay_manifest_hash",
+						"local_post_image_set_hash",
+						"local_pre_tree_hash"
+					],
+					"type": "object"
+				},
+				"kind": {
+					"const": "attested"
+				},
+				"measured_execution": {
+					"additionalProperties": false,
+					"properties": {
+						"base_ref": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "fresh"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"cache_record_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-cache-record"
+											}
+										},
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "cache"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"cache_record_hash",
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"env_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "env"
+							}
+						},
+						"exec_config_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "exec-config"
+							}
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_bytes_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-bytes"
+							}
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"post_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-tree"
+							}
+						},
+						"pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"base_ref",
+						"dependencies",
+						"env_digest",
+						"exec_config_hash",
+						"mirror",
+						"overlay_algo",
+						"overlay_bytes_hash",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"post_image_set_hash",
+						"post_tree_hash",
+						"pre_tree_hash",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"request_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"status": {
+					"const": "completed"
+				},
+				"verifier": {
+					"additionalProperties": false,
+					"properties": {
+						"compiler": {
+							"additionalProperties": false,
+							"properties": {
+								"image_digest": {
+									"type": "string"
+								},
+								"path": {
+									"type": "string"
+								},
+								"sha256": {
+									"pattern": "^[0-9a-f]{64}$",
+									"type": "string",
+									"x-brand": {
+										"__digest": "verifier-binary"
+									}
+								},
+								"version": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"image_digest",
+								"path",
+								"sha256",
+								"version"
+							],
+							"type": "object"
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "fresh"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"cache_record_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-cache-record"
+											}
+										},
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "cache"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"cache_record_hash",
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"introduced": {
+							"items": {
+								"additionalProperties": false,
+								"properties": {
+									"category": {
+										"enum": [
+											"error",
+											"warning",
+											"suggestion",
+											"message"
+										],
+										"type": "string"
+									},
+									"code": {
+										"minimum": 0,
+										"type": "integer"
+									},
+									"col": {
+										"anyOf": [
+											{
+												"type": "null"
+											},
+											{
+												"minimum": 0,
+												"type": "integer"
+											}
+										]
+									},
+									"file": {
+										"anyOf": [
+											{
+												"type": "null"
+											},
+											{
+												"type": "string",
+												"x-brand": {
+													"__brand": "canonical-path"
+												}
+											}
+										]
+									},
+									"line": {
+										"anyOf": [
+											{
+												"type": "null"
+											},
+											{
+												"minimum": 0,
+												"type": "integer"
+											}
+										]
+									},
+									"message": {
+										"type": "string"
+									}
+								},
+								"required": [
+									"category",
+									"code",
+									"col",
+									"file",
+									"line",
+									"message"
+								],
+								"type": "object"
+							},
+							"type": "array"
+						},
+						"invocation": {
+							"additionalProperties": false,
+							"properties": {
+								"argv": {
+									"items": {
+										"type": "string"
+									},
+									"type": "array"
+								},
+								"cwd": {
+									"type": "string"
+								},
+								"locale": {
+									"const": "en"
+								},
+								"pretty": {
+									"const": false
+								}
+							},
+							"required": [
+								"argv",
+								"cwd",
+								"locale",
+								"pretty"
+							],
+							"type": "object"
+						},
+						"mode": {
+							"const": "introduced-only"
+						},
+						"post": {
+							"additionalProperties": false,
+							"properties": {
+								"diagnostics": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"category": {
+												"enum": [
+													"error",
+													"warning",
+													"suggestion",
+													"message"
+												],
+												"type": "string"
+											},
+											"code": {
+												"minimum": 0,
+												"type": "integer"
+											},
+											"col": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"minimum": 0,
+														"type": "integer"
+													}
+												]
+											},
+											"file": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"type": "string",
+														"x-brand": {
+															"__brand": "canonical-path"
+														}
+													}
+												]
+											},
+											"line": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"minimum": 0,
+														"type": "integer"
+													}
+												]
+											},
+											"message": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"category",
+											"code",
+											"col",
+											"file",
+											"line",
+											"message"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"diagnostics_total": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"status": {
+									"const": "complete"
+								},
+								"termination": {
+									"additionalProperties": false,
+									"properties": {
+										"code": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"kind": {
+											"const": "exited"
+										}
+									},
+									"required": [
+										"code",
+										"kind"
+									],
+									"type": "object"
+								}
+							},
+							"required": [
+								"diagnostics",
+								"diagnostics_total",
+								"status",
+								"termination"
+							],
+							"type": "object"
+						},
+						"pre": {
+							"additionalProperties": false,
+							"properties": {
+								"diagnostics": {
+									"items": {
+										"additionalProperties": false,
+										"properties": {
+											"category": {
+												"enum": [
+													"error",
+													"warning",
+													"suggestion",
+													"message"
+												],
+												"type": "string"
+											},
+											"code": {
+												"minimum": 0,
+												"type": "integer"
+											},
+											"col": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"minimum": 0,
+														"type": "integer"
+													}
+												]
+											},
+											"file": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"type": "string",
+														"x-brand": {
+															"__brand": "canonical-path"
+														}
+													}
+												]
+											},
+											"line": {
+												"anyOf": [
+													{
+														"type": "null"
+													},
+													{
+														"minimum": 0,
+														"type": "integer"
+													}
+												]
+											},
+											"message": {
+												"type": "string"
+											}
+										},
+										"required": [
+											"category",
+											"code",
+											"col",
+											"file",
+											"line",
+											"message"
+										],
+										"type": "object"
+									},
+									"type": "array"
+								},
+								"diagnostics_total": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"status": {
+									"const": "complete"
+								},
+								"termination": {
+									"additionalProperties": false,
+									"properties": {
+										"code": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"kind": {
+											"const": "exited"
+										}
+									},
+									"required": [
+										"code",
+										"kind"
+									],
+									"type": "object"
+								}
+							},
+							"required": [
+								"diagnostics",
+								"diagnostics_total",
+								"status",
+								"termination"
+							],
+							"type": "object"
+						},
+						"result_schema": {
+							"const": "shadow-tsc-result-v1"
+						}
+					},
+					"required": [
+						"compiler",
+						"dependencies",
+						"introduced",
+						"invocation",
+						"mode",
+						"post",
+						"pre",
+						"result_schema"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"attestation",
+				"bundle_id",
+				"duration_ms",
+				"execution_claim",
+				"expected_execution",
+				"freshness_claim",
+				"kind",
+				"measured_execution",
+				"request_id",
+				"schema_version",
+				"status",
+				"verifier"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"bundle_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"divergence_risk": {
+					"enum": [
+						"low",
+						"medium",
+						"high"
+					],
+					"type": "string"
+				},
+				"duration_ms": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"execution_claim": {
+					"additionalProperties": false,
+					"properties": {
+						"base_ref": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_bytes_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-bytes"
+							}
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"post_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-tree"
+							}
+						},
+						"pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"base_ref",
+						"dependencies",
+						"mirror",
+						"overlay_algo",
+						"overlay_bytes_hash",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"post_image_set_hash",
+						"post_tree_hash",
+						"pre_tree_hash",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"expected_execution": {
+					"additionalProperties": false,
+					"properties": {
+						"broker_scanner_policy_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "scanner-policy"
+							}
+						},
+						"deadline_at": {
+							"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "rfc3339"
+							}
+						},
+						"dependency_cache_record_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-cache-record"
+							}
+						},
+						"env_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "env"
+							}
+						},
+						"exec_config_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "exec-config"
+							}
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"broker_scanner_policy_digest",
+						"deadline_at",
+						"env_digest",
+						"exec_config_hash",
+						"overlay_algo",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"freshness_claim": {
+					"additionalProperties": false,
+					"properties": {
+						"base_local_head": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"input_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "tool-input"
+							}
+						},
+						"local_head": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"local_overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"local_post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"local_pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						}
+					},
+					"required": [
+						"base_local_head",
+						"input_hash",
+						"local_head",
+						"local_overlay_manifest_hash",
+						"local_post_image_set_hash",
+						"local_pre_tree_hash"
+					],
+					"type": "object"
+				},
+				"kind": {
+					"const": "rehearsed"
+				},
+				"measured_execution": {
+					"additionalProperties": false,
+					"properties": {
+						"base_ref": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "fresh"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"cache_record_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-cache-record"
+											}
+										},
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "cache"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"cache_record_hash",
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"env_digest": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "env"
+							}
+						},
+						"exec_config_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "exec-config"
+							}
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_bytes_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-bytes"
+							}
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"post_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-tree"
+							}
+						},
+						"pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"base_ref",
+						"dependencies",
+						"env_digest",
+						"exec_config_hash",
+						"mirror",
+						"overlay_algo",
+						"overlay_bytes_hash",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"post_image_set_hash",
+						"post_tree_hash",
+						"pre_tree_hash",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"request_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"status": {
+					"const": "completed"
+				},
+				"stderr_head": {
+					"type": "string"
+				},
+				"stdout_head": {
+					"type": "string"
+				},
+				"termination": {
+					"anyOf": [
+						{
+							"additionalProperties": false,
+							"properties": {
+								"code": {
+									"minimum": 0,
+									"type": "integer"
+								},
+								"kind": {
+									"const": "exited"
+								}
+							},
+							"required": [
+								"code",
+								"kind"
+							],
+							"type": "object"
+						},
+						{
+							"additionalProperties": false,
+							"properties": {
+								"kind": {
+									"const": "signaled"
+								},
+								"signal": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"kind",
+								"signal"
+							],
+							"type": "object"
+						}
+					]
+				},
+				"workspace_diff": {
+					"additionalProperties": false,
+					"properties": {
+						"added": {
+							"items": {
+								"type": "string",
+								"x-brand": {
+									"__brand": "canonical-path"
+								}
+							},
+							"type": "array"
+						},
+						"bytes_changed": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"deleted": {
+							"items": {
+								"type": "string",
+								"x-brand": {
+									"__brand": "canonical-path"
+								}
+							},
+							"type": "array"
+						},
+						"modified": {
+							"items": {
+								"type": "string",
+								"x-brand": {
+									"__brand": "canonical-path"
+								}
+							},
+							"type": "array"
+						}
+					},
+					"required": [
+						"added",
+						"bytes_changed",
+						"deleted",
+						"modified"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"bundle_id",
+				"divergence_risk",
+				"duration_ms",
+				"execution_claim",
+				"expected_execution",
+				"freshness_claim",
+				"kind",
+				"measured_execution",
+				"request_id",
+				"schema_version",
+				"status",
+				"stderr_head",
+				"stdout_head",
+				"termination",
+				"workspace_diff"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"attestation": {
+					"not": {},
+					"x-never": true
+				},
+				"detail": {
+					"type": "string"
+				},
+				"duration_ms": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"execution_claim": {
+					"additionalProperties": false,
+					"properties": {
+						"base_ref": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_bytes_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-bytes"
+							}
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"post_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-tree"
+							}
+						},
+						"pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"base_ref",
+						"dependencies",
+						"mirror",
+						"overlay_algo",
+						"overlay_bytes_hash",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"post_image_set_hash",
+						"post_tree_hash",
+						"pre_tree_hash",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"mismatches": {
+					"additionalProperties": false,
+					"properties": {
+						"0": {},
+						"__@iterator@434": {
+							"type": "object"
+						},
+						"__@unscopables@436": {
+							"additionalProperties": false,
+							"properties": {
+								"__@iterator@434": {
+									"type": "boolean"
+								},
+								"__@unscopables@436": {
+									"type": "boolean"
+								},
+								"at": {
+									"type": "boolean"
+								},
+								"concat": {
+									"type": "boolean"
+								},
+								"entries": {
+									"type": "boolean"
+								},
+								"every": {
+									"type": "boolean"
+								},
+								"filter": {
+									"type": "boolean"
+								},
+								"find": {
+									"type": "boolean"
+								},
+								"findIndex": {
+									"type": "boolean"
+								},
+								"flat": {
+									"type": "boolean"
+								},
+								"flatMap": {
+									"type": "boolean"
+								},
+								"forEach": {
+									"type": "boolean"
+								},
+								"includes": {
+									"type": "boolean"
+								},
+								"indexOf": {
+									"type": "boolean"
+								},
+								"join": {
+									"type": "boolean"
+								},
+								"keys": {
+									"type": "boolean"
+								},
+								"lastIndexOf": {
+									"type": "boolean"
+								},
+								"length": {
+									"type": "boolean"
+								},
+								"map": {
+									"type": "boolean"
+								},
+								"reduce": {
+									"type": "boolean"
+								},
+								"reduceRight": {
+									"type": "boolean"
+								},
+								"slice": {
+									"type": "boolean"
+								},
+								"some": {
+									"type": "boolean"
+								},
+								"toLocaleString": {
+									"type": "boolean"
+								},
+								"toString": {
+									"type": "boolean"
+								},
+								"values": {
+									"type": "boolean"
+								}
+							},
+							"required": [],
+							"type": "object"
+						},
+						"at": {
+							"type": "object"
+						},
+						"concat": {
+							"type": "object"
+						},
+						"entries": {
+							"type": "object"
+						},
+						"every": {
+							"type": "object"
+						},
+						"filter": {
+							"type": "object"
+						},
+						"find": {
+							"type": "object"
+						},
+						"findIndex": {
+							"type": "object"
+						},
+						"flat": {
+							"type": "object"
+						},
+						"flatMap": {
+							"type": "object"
+						},
+						"forEach": {
+							"type": "object"
+						},
+						"includes": {
+							"type": "object"
+						},
+						"indexOf": {
+							"type": "object"
+						},
+						"join": {
+							"type": "object"
+						},
+						"keys": {
+							"type": "object"
+						},
+						"lastIndexOf": {
+							"type": "object"
+						},
+						"length": {},
+						"map": {
+							"type": "object"
+						},
+						"reduce": {
+							"type": "object"
+						},
+						"reduceRight": {
+							"type": "object"
+						},
+						"slice": {
+							"type": "object"
+						},
+						"some": {
+							"type": "object"
+						},
+						"toLocaleString": {
+							"type": "object"
+						},
+						"toString": {
+							"type": "object"
+						},
+						"values": {
+							"type": "object"
+						}
+					},
+					"required": [
+						"0",
+						"__@iterator@434",
+						"__@unscopables@436",
+						"at",
+						"concat",
+						"entries",
+						"every",
+						"filter",
+						"find",
+						"findIndex",
+						"flat",
+						"flatMap",
+						"forEach",
+						"includes",
+						"indexOf",
+						"join",
+						"keys",
+						"lastIndexOf",
+						"length",
+						"map",
+						"reduce",
+						"reduceRight",
+						"slice",
+						"some",
+						"toLocaleString",
+						"toString",
+						"values"
+					],
+					"type": "object"
+				},
+				"phase": {
+					"enum": [
+						"admit",
+						"fetch",
+						"materialize",
+						"project",
+						"provision",
+						"verify"
+					],
+					"type": "string"
+				},
+				"reason": {
+					"const": "binding_mismatch"
+				},
+				"request_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"status": {
+					"const": "unavailable"
+				}
+			},
+			"required": [
+				"detail",
+				"duration_ms",
+				"execution_claim",
+				"mismatches",
+				"phase",
+				"reason",
+				"request_id",
+				"schema_version",
+				"status"
+			],
+			"type": "object"
+		},
+		{
+			"additionalProperties": false,
+			"properties": {
+				"attestation": {
+					"not": {},
+					"x-never": true
+				},
+				"detail": {
+					"type": "string"
+				},
+				"duration_ms": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"execution_claim": {
+					"additionalProperties": false,
+					"properties": {
+						"base_ref": {
+							"pattern": "^[0-9a-f]{40}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "gitsha"
+							}
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"mirror": {
+							"additionalProperties": false,
+							"properties": {
+								"key": {
+									"additionalProperties": false,
+									"properties": {
+										"kind": {
+											"const": "synthetic_full_tree"
+										},
+										"repository_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										},
+										"session_id": {
+											"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+											"type": "string",
+											"x-brand": {
+												"__brand": "opaque-id"
+											}
+										}
+									},
+									"required": [
+										"kind",
+										"repository_id",
+										"session_id"
+									],
+									"type": "object"
+								},
+								"version": {
+									"minimum": 0,
+									"type": "integer"
+								}
+							},
+							"required": [
+								"key",
+								"version"
+							],
+							"type": "object"
+						},
+						"overlay_algo": {
+							"const": "shadow-overlay-v1"
+						},
+						"overlay_bytes_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-bytes"
+							}
+						},
+						"overlay_manifest_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "overlay-manifest"
+							}
+						},
+						"post_image_algo": {
+							"const": "shadow-postimages-v1"
+						},
+						"post_image_set_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-image-set"
+							}
+						},
+						"post_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "post-tree"
+							}
+						},
+						"pre_tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "pre-tree"
+							}
+						},
+						"tree_algo": {
+							"const": "shadow-tree-v1"
+						}
+					},
+					"required": [
+						"base_ref",
+						"dependencies",
+						"mirror",
+						"overlay_algo",
+						"overlay_bytes_hash",
+						"overlay_manifest_hash",
+						"post_image_algo",
+						"post_image_set_hash",
+						"post_tree_hash",
+						"pre_tree_hash",
+						"tree_algo"
+					],
+					"type": "object"
+				},
+				"phase": {
+					"enum": [
+						"admit",
+						"fetch",
+						"materialize",
+						"project",
+						"provision",
+						"verify"
+					],
+					"type": "string"
+				},
+				"reason": {
+					"enum": [
+						"secrets",
+						"scanner_unavailable",
+						"limits",
+						"idempotency_conflict",
+						"invalid_tree",
+						"mirror_lag",
+						"mirror_unavailable",
+						"mirror_integrity",
+						"projection",
+						"symlink_escape",
+						"dependency_source",
+						"provisioning",
+						"execution_failed",
+						"unsupported_capability",
+						"verifier_incomplete",
+						"timeout",
+						"cancelled",
+						"broker_unreachable",
+						"classifier_disagreement",
+						"bundle_expired"
+					],
+					"type": "string"
+				},
+				"request_id": {
+					"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+					"type": "string",
+					"x-brand": {
+						"__brand": "opaque-id"
+					}
+				},
+				"schema_version": {
+					"const": 1
+				},
+				"status": {
+					"const": "unavailable"
+				},
+				"verifier_result": {
+					"additionalProperties": false,
+					"properties": {
+						"compiler": {
+							"additionalProperties": false,
+							"properties": {
+								"image_digest": {
+									"type": "string"
+								},
+								"path": {
+									"type": "string"
+								},
+								"sha256": {
+									"pattern": "^[0-9a-f]{64}$",
+									"type": "string",
+									"x-brand": {
+										"__digest": "verifier-binary"
+									}
+								},
+								"version": {
+									"type": "string"
+								}
+							},
+							"required": [
+								"image_digest",
+								"path",
+								"sha256",
+								"version"
+							],
+							"type": "object"
+						},
+						"dependencies": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"mode": {
+											"const": "none"
+										}
+									},
+									"required": [
+										"mode"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "fresh"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"cache_record_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-cache-record"
+											}
+										},
+										"input_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-input"
+											}
+										},
+										"mode": {
+											"const": "npm-v1"
+										},
+										"source": {
+											"const": "cache"
+										},
+										"tree_algo": {
+											"const": "shadow-dependency-tree-v1"
+										},
+										"tree_hash": {
+											"pattern": "^[0-9a-f]{64}$",
+											"type": "string",
+											"x-brand": {
+												"__digest": "dependency-tree"
+											}
+										}
+									},
+									"required": [
+										"cache_record_hash",
+										"input_hash",
+										"mode",
+										"source",
+										"tree_algo",
+										"tree_hash"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"incomplete": {
+							"const": true
+						},
+						"invocation": {
+							"additionalProperties": false,
+							"properties": {
+								"argv": {
+									"items": {
+										"type": "string"
+									},
+									"type": "array"
+								},
+								"cwd": {
+									"type": "string"
+								},
+								"locale": {
+									"const": "en"
+								},
+								"pretty": {
+									"const": false
+								}
+							},
+							"required": [
+								"argv",
+								"cwd",
+								"locale",
+								"pretty"
+							],
+							"type": "object"
+						},
+						"mode": {
+							"const": "introduced-only"
+						},
+						"post": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"diagnostics": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"category": {
+														"enum": [
+															"error",
+															"warning",
+															"suggestion",
+															"message"
+														],
+														"type": "string"
+													},
+													"code": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"col": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"minimum": 0,
+																"type": "integer"
+															}
+														]
+													},
+													"file": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"type": "string",
+																"x-brand": {
+																	"__brand": "canonical-path"
+																}
+															}
+														]
+													},
+													"line": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"minimum": 0,
+																"type": "integer"
+															}
+														]
+													},
+													"message": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"category",
+													"code",
+													"col",
+													"file",
+													"line",
+													"message"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
+										"diagnostics_total": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"status": {
+											"const": "complete"
+										},
+										"termination": {
+											"additionalProperties": false,
+											"properties": {
+												"code": {
+													"minimum": 0,
+													"type": "integer"
+												},
+												"kind": {
+													"const": "exited"
+												}
+											},
+											"required": [
+												"code",
+												"kind"
+											],
+											"type": "object"
+										}
+									},
+									"required": [
+										"diagnostics",
+										"diagnostics_total",
+										"status",
+										"termination"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"diagnostics_partial": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"category": {
+														"enum": [
+															"error",
+															"warning",
+															"suggestion",
+															"message"
+														],
+														"type": "string"
+													},
+													"code": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"col": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"minimum": 0,
+																"type": "integer"
+															}
+														]
+													},
+													"file": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"type": "string",
+																"x-brand": {
+																	"__brand": "canonical-path"
+																}
+															}
+														]
+													},
+													"line": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"minimum": 0,
+																"type": "integer"
+															}
+														]
+													},
+													"message": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"category",
+													"code",
+													"col",
+													"file",
+													"line",
+													"message"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
+										"status": {
+											"enum": [
+												"timeout",
+												"crashed",
+												"output_truncated"
+											],
+											"type": "string"
+										},
+										"termination": {
+											"anyOf": [
+												{
+													"additionalProperties": false,
+													"properties": {
+														"code": {
+															"minimum": 0,
+															"type": "integer"
+														},
+														"kind": {
+															"const": "exited"
+														}
+													},
+													"required": [
+														"code",
+														"kind"
+													],
+													"type": "object"
+												},
+												{
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"const": "signaled"
+														},
+														"signal": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"kind",
+														"signal"
+													],
+													"type": "object"
+												}
+											]
+										}
+									},
+									"required": [
+										"diagnostics_partial",
+										"status"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"pre": {
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"diagnostics": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"category": {
+														"enum": [
+															"error",
+															"warning",
+															"suggestion",
+															"message"
+														],
+														"type": "string"
+													},
+													"code": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"col": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"minimum": 0,
+																"type": "integer"
+															}
+														]
+													},
+													"file": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"type": "string",
+																"x-brand": {
+																	"__brand": "canonical-path"
+																}
+															}
+														]
+													},
+													"line": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"minimum": 0,
+																"type": "integer"
+															}
+														]
+													},
+													"message": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"category",
+													"code",
+													"col",
+													"file",
+													"line",
+													"message"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
+										"diagnostics_total": {
+											"minimum": 0,
+											"type": "integer"
+										},
+										"status": {
+											"const": "complete"
+										},
+										"termination": {
+											"additionalProperties": false,
+											"properties": {
+												"code": {
+													"minimum": 0,
+													"type": "integer"
+												},
+												"kind": {
+													"const": "exited"
+												}
+											},
+											"required": [
+												"code",
+												"kind"
+											],
+											"type": "object"
+										}
+									},
+									"required": [
+										"diagnostics",
+										"diagnostics_total",
+										"status",
+										"termination"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"diagnostics_partial": {
+											"items": {
+												"additionalProperties": false,
+												"properties": {
+													"category": {
+														"enum": [
+															"error",
+															"warning",
+															"suggestion",
+															"message"
+														],
+														"type": "string"
+													},
+													"code": {
+														"minimum": 0,
+														"type": "integer"
+													},
+													"col": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"minimum": 0,
+																"type": "integer"
+															}
+														]
+													},
+													"file": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"type": "string",
+																"x-brand": {
+																	"__brand": "canonical-path"
+																}
+															}
+														]
+													},
+													"line": {
+														"anyOf": [
+															{
+																"type": "null"
+															},
+															{
+																"minimum": 0,
+																"type": "integer"
+															}
+														]
+													},
+													"message": {
+														"type": "string"
+													}
+												},
+												"required": [
+													"category",
+													"code",
+													"col",
+													"file",
+													"line",
+													"message"
+												],
+												"type": "object"
+											},
+											"type": "array"
+										},
+										"status": {
+											"enum": [
+												"timeout",
+												"crashed",
+												"output_truncated"
+											],
+											"type": "string"
+										},
+										"termination": {
+											"anyOf": [
+												{
+													"additionalProperties": false,
+													"properties": {
+														"code": {
+															"minimum": 0,
+															"type": "integer"
+														},
+														"kind": {
+															"const": "exited"
+														}
+													},
+													"required": [
+														"code",
+														"kind"
+													],
+													"type": "object"
+												},
+												{
+													"additionalProperties": false,
+													"properties": {
+														"kind": {
+															"const": "signaled"
+														},
+														"signal": {
+															"type": "string"
+														}
+													},
+													"required": [
+														"kind",
+														"signal"
+													],
+													"type": "object"
+												}
+											]
+										}
+									},
+									"required": [
+										"diagnostics_partial",
+										"status"
+									],
+									"type": "object"
+								}
+							]
+						},
+						"result_schema": {
+							"const": "shadow-tsc-result-v1"
+						}
+					},
+					"required": [
+						"compiler",
+						"dependencies",
+						"incomplete",
+						"invocation",
+						"mode",
+						"pre",
+						"result_schema"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"detail",
+				"duration_ms",
+				"phase",
+				"reason",
+				"request_id",
+				"schema_version",
+				"status"
+			],
+			"type": "object"
+		}
+	],
+	"description": "Shadow protocol v1 wire record \"outcome\", generated from types-outcome.ts.",
+	"title": "ShadowOutcome",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "outcome",
+		"kind": "wire",
+		"module": "types-outcome.ts",
+		"type": "ShadowOutcome"
+	}
+}

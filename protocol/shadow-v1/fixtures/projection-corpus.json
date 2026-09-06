@@ -1,0 +1,5347 @@
+[
+	{
+		"id": "write-new-file",
+		"note": "a Write of a path the tree does not have",
+		"reviewed": "the new file is mode 100644 and its bytes are the tool's `content` verbatim",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Write",
+			"semantics_version": 1,
+			"file_path": "src/new.ts",
+			"content": "export const n = 1;\n"
+		},
+		"pre_images": {
+			"src/new.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/new.ts",
+					"mode": "100644",
+					"blob_digest": "e22445c7c5ef7b19b64996dfd7c78b39a0f9436fb265185ae056d4f7b93f51a2",
+					"bytes": 20
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "7fc16dfe6dc99fe241d3d0c322597b9cb336c802b5cb1c30a6346e9695d84968",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "c3cdf51dfe3f7afd75d3616b82858a0f5e0da3eb4f67e9c22d7764832532515d",
+				"touched_paths": [
+					"src/new.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "write-over-existing",
+		"note": "a Write over an existing file replaces every byte and keeps the mode",
+		"reviewed": "one W record, mode 100644 carried over from the pre-image, not re-derived",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Write",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"content": "const x = 9;\n"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/a.ts",
+					"mode": "100644",
+					"blob_digest": "af6f778d80020b96ec0d2542ae677c2e1bbc8d04a14933d18718da02d11b513f",
+					"bytes": 13
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "8d6197d192878257242ee11c4e4606da279a7d30490d6c07716f6be2887a46f6",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "147a1f7e1f5a61ee23af292121db8eb54b2534a9ce4122dbfff860eb6ecdc847",
+				"touched_paths": [
+					"src/a.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "write-over-executable",
+		"note": "a Write over a 100755 file preserves the executable mode",
+		"reviewed": "mode is 100755 in the post-image; a Write must never silently de-execute a script",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Write",
+			"semantics_version": 1,
+			"file_path": "bin/run.sh",
+			"content": "#!/bin/sh\necho bye\n"
+		},
+		"pre_images": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "bin/run.sh",
+					"mode": "100755",
+					"blob_digest": "992e1ee5596e44c2905b529457deffa4c98e7bbbe433e848d53365ccb561afbd",
+					"bytes": 19
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "4ed65fc8d677c39d834ccd8b20c0f5fb5a0629e11e4d7f60516c60a2176f1544",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "e56c8aad9e6abd83c527946ecb74ad2070cfedc7ee77201e8b2e9a9d98a98547",
+				"touched_paths": [
+					"bin/run.sh"
+				]
+			}
+		}
+	},
+	{
+		"id": "write-new-unicode-path",
+		"note": "a Write of an astral-plane path",
+		"reviewed": "the path round-trips as UTF-8 and sorts by BYTES against the other docs/ entries",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Write",
+			"semantics_version": 1,
+			"file_path": "docs/𐀁.md",
+			"content": "# 𐀁 ✅\n"
+		},
+		"pre_images": {
+			"docs/𐀁.md": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "docs/𐀁.md",
+					"mode": "100644",
+					"blob_digest": "77da4402d53324e28ddab62cbf8debad149675f6cacd5a37c9a8cb3a0575732c",
+					"bytes": 11
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "da9494b1438cb6d8f35bf1f88b02bd0c677a9f9d2f3946900fdd8ac89c7ba973",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "a8d08b436be6ab482cf642c505a1b16754ab358e094bed9ff0919ff7850a1e8b",
+				"touched_paths": [
+					"docs/𐀁.md"
+				]
+			}
+		}
+	},
+	{
+		"id": "edit-single-occurrence",
+		"note": "an Edit whose old_string occurs exactly once",
+		"reviewed": "only the second line changes; the first is byte-identical",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Edit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"old_string": "const y = 1;",
+			"new_string": "const y = 2;",
+			"replace_all": false
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/a.ts",
+					"mode": "100644",
+					"blob_digest": "dbdb3e344ac79fec5bdf04f468efd4e45ec9a1d1cc2086e372babe94d9d830ca",
+					"bytes": 26
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "ba9e6325859aac59b75ee3a06ad5bbf673fa5bbfb372d7bf5f5b7a7818c0f071",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "642f3c14ac56fe89cb8e4f8f726c6d56fa26587e599488435c87357f54d0e4b8",
+				"touched_paths": [
+					"src/a.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "edit-replace-all",
+		"note": "replace_all rewrites every occurrence",
+		"reviewed": "BOTH occurrences of `= 1` became `= 2` — this is the row that distinguishes replace_all identity",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Edit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"old_string": "= 1",
+			"new_string": "= 2",
+			"replace_all": true
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/a.ts",
+					"mode": "100644",
+					"blob_digest": "1c8f9d9d81fe079f9717b25b9849f4bf3399f2c811e257eb0f2397caaa2072aa",
+					"bytes": 26
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "8878655ee05f6c1482401b4309f1aa5ea9a604c306d49f4ddd879f1af8be1462",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "98c182b3c87c83ec54295fcfdece8d1cf7e7f5fdae436c72ce21d605ad9d704e",
+				"touched_paths": [
+					"src/a.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "edit-multibyte-content",
+		"note": "an Edit over multi-byte content",
+		"reviewed": "the emoji swap changes the byte length, not just the character count",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Edit",
+			"semantics_version": 1,
+			"file_path": "docs/Ａ.md",
+			"old_string": "🌍",
+			"new_string": "🪐",
+			"replace_all": false
+		},
+		"pre_images": {
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "docs/Ａ.md",
+					"mode": "100644",
+					"blob_digest": "20c2e7a3f64ad02b0306ea88f0d582f1d3b05c22c36b1be8528fdac7af75b016",
+					"bytes": 14
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "59879a62c19a86272c667e0b0e21d7b0eb5777964da9efc434b2dcaab9b0c2c3",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "f57a3959e01650c8ac743ab7a0c2fb701d850d567d1f7c87d6d4b641c6dbdb3f",
+				"touched_paths": [
+					"docs/Ａ.md"
+				]
+			}
+		}
+	},
+	{
+		"id": "edit-preserves-executable-mode",
+		"note": "an Edit of a 100755 file",
+		"reviewed": "mode stays 100755",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Edit",
+			"semantics_version": 1,
+			"file_path": "bin/run.sh",
+			"old_string": "echo hi",
+			"new_string": "echo bye",
+			"replace_all": false
+		},
+		"pre_images": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "bin/run.sh",
+					"mode": "100755",
+					"blob_digest": "992e1ee5596e44c2905b529457deffa4c98e7bbbe433e848d53365ccb561afbd",
+					"bytes": 19
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "4ed65fc8d677c39d834ccd8b20c0f5fb5a0629e11e4d7f60516c60a2176f1544",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "e56c8aad9e6abd83c527946ecb74ad2070cfedc7ee77201e8b2e9a9d98a98547",
+				"touched_paths": [
+					"bin/run.sh"
+				]
+			}
+		}
+	},
+	{
+		"id": "edit-ambiguous-rejects",
+		"note": "an Edit whose old_string occurs twice without replace_all",
+		"reviewed": "REJECTED, not applied to the first match — guessing would produce a post-image local apply does not",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Edit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"old_string": "= 1",
+			"new_string": "= 2",
+			"replace_all": false
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "ambiguous_old_string",
+			"product_reason": "projection: Edit on src/a.ts: old_string occurs 2 times without replace_all — the projection is ambiguous"
+		}
+	},
+	{
+		"id": "edit-old-string-absent-rejects",
+		"note": "an Edit whose old_string is not in the file",
+		"reviewed": "REJECTED; no post-image is invented",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Edit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"old_string": "const z = 1;",
+			"new_string": "const z = 2;",
+			"replace_all": false
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "old_string_not_found",
+			"product_reason": "projection: Edit on src/a.ts: old_string not found in the pre-image"
+		}
+	},
+	{
+		"id": "edit-identical-strings-rejects",
+		"note": "an Edit whose old_string EQUALS its new_string",
+		"reviewed": "REJECTED by both implementations — Claude Code's own Edit tool refuses that call (\"old_string and new_string are exactly the same\"), so no local write happens and an unchanged W record would sign for an apply the client never performs",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Edit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"old_string": "const x = 1;",
+			"new_string": "const x = 1;",
+			"replace_all": false
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "no_op_edit",
+			"product_reason": "projection: Edit on src/a.ts: identical_edit_strings"
+		}
+	},
+	{
+		"id": "edit-target-absent-rejects",
+		"note": "an Edit of a path that does not exist",
+		"reviewed": "REJECTED; Edit never creates a file",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Edit",
+			"semantics_version": 1,
+			"file_path": "src/missing.ts",
+			"old_string": "a",
+			"new_string": "b",
+			"replace_all": false
+		},
+		"pre_images": {
+			"src/missing.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "target_missing",
+			"product_reason": "projection: Edit: src/missing.ts is absent locally — there is nothing to edit"
+		}
+	},
+	{
+		"id": "multiedit-sequential",
+		"note": "edit 2 applies to the RESULT of edit 1",
+		"reviewed": "the final bytes show `const x = 3;` — proof the edits composed rather than both matching the original",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "MultiEdit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"edits": [
+				{
+					"old_string": "const x = 1;",
+					"new_string": "const x = 2;",
+					"replace_all": false
+				},
+				{
+					"old_string": "const x = 2;",
+					"new_string": "const x = 3;",
+					"replace_all": false
+				}
+			]
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/a.ts",
+					"mode": "100644",
+					"blob_digest": "351570de18df0528649b7f521e2449a5852bf4e2aaf8238cae1fdba02e50b9fb",
+					"bytes": 26
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "6b1cb7ecf0e9fa9298b6f03db6f0d0c0670fbc02a5b6699d95798d8fadacd937",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "47c5dbed8b398865cca4ff902c55b2531953885f69e014dd07f36aef6d20726c",
+				"touched_paths": [
+					"src/a.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "multiedit-second-edit-absent-rejects",
+		"note": "a MultiEdit whose second edit does not match",
+		"reviewed": "REJECTED WHOLE — no partial application of edit 1 leaks into a post-image",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "MultiEdit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"edits": [
+				{
+					"old_string": "const x = 1;",
+					"new_string": "const x = 2;",
+					"replace_all": false
+				},
+				{
+					"old_string": "const q = 1;",
+					"new_string": "const q = 2;",
+					"replace_all": false
+				}
+			]
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "old_string_not_found",
+			"product_reason": "projection: edit 2 on src/a.ts: old_string not found in the pre-image"
+		}
+	},
+	{
+		"id": "apply-patch-add",
+		"note": "a Codex apply_patch Add File section",
+		"reviewed": "one W record at mode 100644 whose bytes are the `+` line FOLLOWED BY a newline (bytes = 24, not 23): Codex appends a newline after every added line — `codex-rs/apply-patch/src/streaming_parser.rs` AddFile arm, `contents.push_str(line); contents.push('\\n')`, pinned by its own tests (`+hello` => \"hello\\n\"). The pre-2026-09-05 note here claimed the V4A body cannot encode a trailing newline; that was false — the newline is not in the body at all, the reader appends it",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Add File: src/added.ts\n+export const added = 1;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/added.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/added.ts",
+					"mode": "100644",
+					"blob_digest": "0908dc83828f3f4dd7ba16ffb2bd1a66735dbe8482eaf6318730313b6f7bed1b",
+					"bytes": 24
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "dacb4a624128e2b19843e09d96cb2c5bba4c519f218925e664da85128258cd59",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "714c2bd74f3eafa406a96c695f5a04a2d0c856dd1f6ea96f62984589f3035c57",
+				"touched_paths": [
+					"src/added.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-add-review-probe",
+		"note": "the reviewer's native measurement, reproduced byte for byte",
+		"reviewed": "the review ran the REAL apply_patch tool with one `+shadow-review-probe` line and measured 20 bytes, sha256 b552907b209538ebb94283b8f808edf1d559c1d419faa36deb1d819863f89b5b. The projector used to emit 19 bytes / 87267e64dcc739609a85276706a319697d7b7106b6b5dcf65e238f0552e9ea0d — this row is the pin that the fix reproduces the measurement and not merely the code's own opinion",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Add File: src/probe.txt\n+shadow-review-probe\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/probe.txt": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/probe.txt",
+					"mode": "100644",
+					"blob_digest": "b552907b209538ebb94283b8f808edf1d559c1d419faa36deb1d819863f89b5b",
+					"bytes": 20
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "f5ef584f5f5402b903f29019fb63363988e77b42d3b2d2923fe0aee4b86f7abf",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "a85d6f52fb955f53a30152acb0ca66da43357167d7ef5db3cf1852398ee21cfe",
+				"touched_paths": [
+					"src/probe.txt"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-add-multiline",
+		"note": "an Add File with two `+` lines",
+		"reviewed": "\"a\\nb\\n\" — EVERY added line carries its own newline, so the last one does too (`streaming_parser.rs` test: two lines => \"hello\\nworld\\n\")",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Add File: src/two.ts\n+a\n+b\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/two.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/two.ts",
+					"mode": "100644",
+					"blob_digest": "911169ddaaf146aff539f58c26c489af3b892dff0fe283c1c264c65ae5aa59a2",
+					"bytes": 4
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "7344449ed8eb82c8ebf1fb62aecdc4f42289d17d47c1618b55242c03f69c867a",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "16d617efe8a39241c6b4d79fbbe506f9c6ca6671a5e4874c639d50ac3f285569",
+				"touched_paths": [
+					"src/two.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-add-empty-body",
+		"note": "an Add File section with no `+` line at all",
+		"reviewed": "the EMPTY file, not \"\\n\": Codex opens an AddFile with `contents: String::new()` and only a `+` line appends anything (`streaming_parser.rs` L109-111, and `AddFile { contents: String::new() }` appears verbatim in the parser's own tests). Both grammars admit the section, so this is a projected row, not a rejection",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Add File: src/empty.ts\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/empty.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/empty.ts",
+					"mode": "100644",
+					"blob_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+					"bytes": 0
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "b762fd8838a3127f569b9435e17333a99b8fef018bb3698d24cb6d0d1d4ee024",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "3645d2eadd8b15c1dda4ee82d27f10f97754df9d18461726354bd550a4916d75",
+				"touched_paths": [
+					"src/empty.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-update-no-final-newline",
+		"note": "an Update of a pre-image with NO final newline",
+		"reviewed": "the post bytes END with exactly one newline the pre-image never had: Codex's NormalizeToLf split pops a trailing empty element only if there is one, then always pushes one back before joining (`file_update.rs::derive_new_contents_from_chunks`)",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/no-eol.ts\n@@\n-const tail = 1;\n+const tail = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/no-eol.ts",
+					"mode": "100644",
+					"blob_digest": "1b8ecc2b914e82d5021d3eab576aaf1591fcf37eb4fe1080678044d39907eb55",
+					"bytes": 16
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "83362784eccb1e15deebc1821fc1d56efa75f9fdbbd0857326aa3699a0f806b9",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "99f4f4dbca70b87bfe50f22a539319f755ab1ed2a3b3b72cc7b3a0c3fd61d60d",
+				"touched_paths": [
+					"src/no-eol.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-update-collapses-double-final-newline",
+		"note": "an Update of a pre-image ending in TWO newlines",
+		"reviewed": "the post bytes end in ONE: exactly one trailing empty element is popped and at most one pushed back, so `...;\\n\\n` becomes `...;\\n`. An updated file is normalized whether or not the hunk went near the end",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/two-eol.ts\n@@\n-const tail = 1;\n+const tail = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/two-eol.ts",
+					"mode": "100644",
+					"blob_digest": "1b8ecc2b914e82d5021d3eab576aaf1591fcf37eb4fe1080678044d39907eb55",
+					"bytes": 16
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "6184ea3ba7c5da6be447a522e05b7eb667a18c28e39cbdf84b7e5ead6c6be2a8",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "f1b2661312bd3cfcf7ceeaee3aa214804ee0c786e6d38dea0c38863d7240a98b",
+				"touched_paths": [
+					"src/two-eol.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-update-crlf-rejects",
+		"note": "an Update whose pre-image lines end in CRLF, against an LF-only hunk pattern",
+		"reviewed": "REJECTED as context_not_found by BOTH implementations, and that is a DELIBERATE strictness gap, not a bug. Codex would place this hunk: `seek_sequence.rs` tries exact match, then `trim_end()`, then `trim()`, then a Unicode-punctuation normalization, and the second pass matches \"const x = 1;\" against \"const x = 1;\\r\". This projector has exactly ONE match strategy, because a four-rung fuzzy ladder cannot say WHICH rung the local apply used — and in NormalizeToLf mode the matched region is rewritten from the hunk's own lines, so the CR is dropped from every replaced line and kept on every untouched one. Refusing yields `shadow: unavailable`; guessing would yield a confidently wrong post_tree_hash. The post bytes Codex would produce for a CRLF file are NOT pinned by this corpus",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/crlf.ts\n@@\n-const x = 1;\n+const x = 7;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "context_not_found",
+			"product_reason": "projection: apply_patch hunks for src/crlf.ts do not match its pre-image content"
+		}
+	},
+	{
+		"id": "apply-patch-update-empty-result",
+		"note": "a hunk that deletes the file's only line",
+		"reviewed": "the result is the EMPTY file (0 bytes), never \"\\n\": with no lines left the push-then-join produces \"\". It is still a W — emptying a file is not deleting it",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/one-line.ts\n@@\n-gone\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/one-line.ts",
+					"mode": "100644",
+					"blob_digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+					"bytes": 0
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "186dfd46ef2ad967c678d0acd793a6076ba73bbbdcb29f2f205ac93b4ee210ad",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "303e80d37faa2219db94820d475f13f3da2951ef8759638c4fe86e80da035a1d",
+				"touched_paths": [
+					"src/one-line.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-add-unicode",
+		"note": "an Add File whose path and body are multi-byte",
+		"reviewed": "the added path sorts by UTF-8 bytes among the docs/ entries",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Add File: docs/𐀂.md\n+# 𐀂 café\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"docs/𐀂.md": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "docs/𐀂.md",
+					"mode": "100644",
+					"blob_digest": "59a641673639775d2e32b248f498f9e337b6ad718c05b4b68dddd28a6c94194a",
+					"bytes": 13
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "15eaafb6986dedb72262c3b896628454ffc6f85b390005de819dc20f7c2c80f2",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "63acf79e2f070104406451dda6c7049a79bd7e51453c6d80f658b394249a17b2",
+				"touched_paths": [
+					"docs/𐀂.md"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-update",
+		"note": "a Codex apply_patch update section",
+		"reviewed": "the hunk applied at the only matching site; the untouched line is byte-identical",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-const x = 1;\n+const x = 7;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/a.ts",
+					"mode": "100644",
+					"blob_digest": "110b5a56434a13a894845459d1098d63cbb5ee892ea0a7bebac282a3da15c31c",
+					"bytes": 26
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "d570d5bd51aca3b09bdbca275a596481109282ac82f724d201e2678c9c49328a",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "f5393a8eee07693275d728a7027cbe604fc19c73ec014bd688433abdbec72529",
+				"touched_paths": [
+					"src/a.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-update-anchored",
+		"note": "an @@ anchor selects WHICH of two identical blocks the hunk edits",
+		"reviewed": "only `function b`'s body changes; `function a`'s is byte-identical — the anchor, not the first structural match, decides. The anchor is also what moves Codex's `line_index` cursor: `seek_sequence` is called with `start = line_index`, so the block search runs over [anchor + 1, end) and the copy inside `function a` is not a candidate",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/anchored.ts\n@@ function b() {\n-\treturn 1;\n+\treturn 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/anchored.ts",
+					"mode": "100644",
+					"blob_digest": "b96fb1217514b29fc83e113f70b89b75bce9ddca418521190bd8b88c1582d9cb",
+					"bytes": 56
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "754eea5ceaec8950da7e66f744367ef81ef8b87b39e2b45a23863ad550c25b33",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "c94dd0eddabf9ff739a4b3f7c7ed10b7e94d61596e06269220b6dd8f11ce469d",
+				"touched_paths": [
+					"src/anchored.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-delete",
+		"note": "a Delete File section",
+		"reviewed": "exactly one D record and no W — a delete is a tombstone, never empty bytes",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Delete File: src/keep.ts\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "D",
+					"path": "src/keep.ts"
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "c9c18d75a0303f5d2b597f91838355e9912fb7bbb4f11c6d34834e40c1614d7a",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "33e175fdacb98325161de882e37e95f64e1434dd51a9b5aa845fba1cf4e6e379",
+				"touched_paths": [
+					"src/keep.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-move",
+		"note": "a rename is D source + W destination carrying the moved content",
+		"reviewed": "two records; the destination carries the edited content at ITS OWN mode — 100644 here, because src/moved.ts does not exist and `write_file` creates it at the default. The pre-2026-09-05 note claimed the destination keeps the SOURCE's mode; that was false, and it read as true only because both paths are 100644 (see `apply-patch-move-executable-destination-is-100644`)",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/a.ts\n*** Move to: src/moved.ts\n@@\n-const x = 1;\n+const x = 8;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/moved.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "D",
+					"path": "src/a.ts"
+				},
+				{
+					"tag": "W",
+					"path": "src/moved.ts",
+					"mode": "100644",
+					"blob_digest": "27fc7bff3ab33c651938640499e08043cd67c2527aa1e22901ffa8649ce6e946",
+					"bytes": 26
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "921c0b6065beacd2edc789cc748860559346d53494da7980825fa3c3639b8527",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "a129072ffb96c76da1e890330fb2a1c1645f23f3e75aae077ae6263cc6380a60",
+				"touched_paths": [
+					"src/a.ts",
+					"src/moved.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-move-onto-existing",
+		"note": "a rename onto a path that already exists OVERWRITES it",
+		"reviewed": "src/keep.ts's original bytes are GONE from the post tree and appear nowhere else — a destination collision is a silent overwrite, not a rejection. The destination record carries the DESTINATION's own mode (100644, src/keep.ts's), not the source's: `write_file` rewrites bytes in place and never chmods",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/a.ts\n*** Move to: src/keep.ts\n@@\n-const x = 1;\n+const x = 8;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "D",
+					"path": "src/a.ts"
+				},
+				{
+					"tag": "W",
+					"path": "src/keep.ts",
+					"mode": "100644",
+					"blob_digest": "27fc7bff3ab33c651938640499e08043cd67c2527aa1e22901ffa8649ce6e946",
+					"bytes": 26
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "751518896c14dd950b10dfa50bdfcaa558cd4944fadb4f90db8378a4325cb9e2",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "79de921833d35cac131d50d7c38dacedb7bc9e903ee2d1823dd2ea06f274ff79",
+				"touched_paths": [
+					"src/a.ts",
+					"src/keep.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-ambiguous-context-rejects",
+		"note": "a hunk whose context matches two places",
+		"reviewed": "REJECTED as ambiguous rather than applied to the first match — a guessed site makes every binding hash a claim about a tree local apply may never produce",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/dup.ts\n@@\n-same();\n+other();\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "ambiguous_context",
+			"product_reason": "projection: apply_patch hunks for src/dup.ts name no single site: ambiguous_context"
+		}
+	},
+	{
+		"id": "apply-patch-context-absent-rejects",
+		"note": "a hunk whose context is not in the file",
+		"reviewed": "REJECTED; the patch is not silently dropped",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-const q = 1;\n+const q = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "context_not_found",
+			"product_reason": "projection: apply_patch hunks for src/a.ts do not match its pre-image content"
+		}
+	},
+	{
+		"id": "apply-patch-add-existing-rejects",
+		"note": "an Add File over a path that exists",
+		"reviewed": "REJECTED; Add is not an overwrite",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Add File: src/keep.ts\n+export const keep = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "add_of_existing_path",
+			"product_reason": "projection: apply_patch adds src/keep.ts, which already exists locally"
+		}
+	},
+	{
+		"id": "apply-patch-delete-absent-rejects",
+		"note": "a Delete File of a path that does not exist",
+		"reviewed": "REJECTED; a D for a path absent in the pre-tree is a projection error, not a no-op",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Delete File: src/gone.ts\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/gone.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "delete_of_absent_path",
+			"product_reason": "projection: apply_patch deletes src/gone.ts, which is absent locally"
+		}
+	},
+	{
+		"id": "apply-patch-create-then-delete",
+		"note": "one patch that adds a path and then deletes it",
+		"reviewed": "ZERO records and empty touched_paths — the post-image set is the DIFF the whole patch leaves behind, not a log of its sections, so this collapses to the no-op identity (memo §8.0)",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Add File: src/tmp.ts\n+tmp\n*** Delete File: src/tmp.ts\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/tmp.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+				"touched_paths": []
+			}
+		}
+	},
+	{
+		"id": "apply-patch-truncated-envelope",
+		"note": "a patch with no End Patch marker",
+		"reviewed": "REJECTED at the envelope, before any section is interpreted — otherwise a truncated patch is indistinguishable from a complete one, the arrived sections projecting cleanly and the lost ones silently absent",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Delete File: src/keep.ts",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "missing_end_marker",
+			"product_reason": "projection: apply_patch envelope is incomplete: missing_end_marker"
+		}
+	},
+	{
+		"id": "write-omitted-pre-image-rejects",
+		"note": "a Write whose target is OMITTED from the pre-image map",
+		"reviewed": "REJECTED naming src/new.ts — an unchecked Write must not become a confident new file",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Write",
+			"semantics_version": 1,
+			"file_path": "src/new.ts",
+			"content": "x\n"
+		},
+		"pre_images": {},
+		"omitted_pre_images": [
+			"src/new.ts"
+		],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "missing_pre_image",
+			"product_reason": "projection: missing_pre_image: src/new.ts"
+		}
+	},
+	{
+		"id": "write-explicit-null-creates",
+		"note": "the positive control: the same Write with an EXPLICIT null pre-image",
+		"reviewed": "one W 100644 src/new.ts — null is the caller saying it looked, and that is what licenses a create",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Write",
+			"semantics_version": 1,
+			"file_path": "src/new.ts",
+			"content": "x\n"
+		},
+		"pre_images": {
+			"src/new.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/new.ts",
+					"mode": "100644",
+					"blob_digest": "73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac",
+					"bytes": 2
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "390123d606793161f7f4d3e34ef2cfcf3d71c378c63a88579ed02da7feee22c6",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "de3c2f74a168ea24869e7d0ae03a53e54092c937bbb8e69fd02448b011ed8329",
+				"touched_paths": [
+					"src/new.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "edit-omitted-pre-image-rejects",
+		"note": "an Edit whose target is omitted from the map",
+		"reviewed": "REJECTED naming src/a.ts, BEFORE the absent-target rule — omitted is not absent",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Edit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"old_string": "const x = 1;",
+			"new_string": "const x = 2;",
+			"replace_all": false
+		},
+		"pre_images": {},
+		"omitted_pre_images": [
+			"src/a.ts"
+		],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "missing_pre_image",
+			"product_reason": "projection: missing_pre_image: src/a.ts"
+		}
+	},
+	{
+		"id": "multiedit-omitted-pre-image-rejects",
+		"note": "a MultiEdit whose target is omitted from the map",
+		"reviewed": "REJECTED naming src/a.ts; no edit is attempted",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "MultiEdit",
+			"semantics_version": 1,
+			"file_path": "src/a.ts",
+			"edits": [
+				{
+					"old_string": "const x = 1;",
+					"new_string": "const x = 2;",
+					"replace_all": false
+				}
+			]
+		},
+		"pre_images": {},
+		"omitted_pre_images": [
+			"src/a.ts"
+		],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "missing_pre_image",
+			"product_reason": "projection: missing_pre_image: src/a.ts"
+		}
+	},
+	{
+		"id": "apply-patch-add-omitted-pre-image-rejects",
+		"note": "an Add File whose path is omitted from the map",
+		"reviewed": "REJECTED naming src/new.ts — an Add needs the caller's word that the path is absent",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Add File: src/new.ts\n+x\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {},
+		"omitted_pre_images": [
+			"src/new.ts"
+		],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "missing_pre_image",
+			"product_reason": "projection: missing_pre_image: src/new.ts"
+		}
+	},
+	{
+		"id": "apply-patch-delete-omitted-pre-image-rejects",
+		"note": "a Delete File whose path is omitted from the map",
+		"reviewed": "REJECTED naming src/keep.ts",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Delete File: src/keep.ts\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {},
+		"omitted_pre_images": [
+			"src/keep.ts"
+		],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "missing_pre_image",
+			"product_reason": "projection: missing_pre_image: src/keep.ts"
+		}
+	},
+	{
+		"id": "apply-patch-update-omitted-pre-image-rejects",
+		"note": "an Update File whose path is omitted from the map",
+		"reviewed": "REJECTED naming src/keep.ts",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/keep.ts\n@@\n-export const keep = 1;\n+export const keep = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {},
+		"omitted_pre_images": [
+			"src/keep.ts"
+		],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "missing_pre_image",
+			"product_reason": "projection: missing_pre_image: src/keep.ts"
+		}
+	},
+	{
+		"id": "apply-patch-move-destination-omitted-rejects",
+		"note": "a Move whose DESTINATION is omitted (source present)",
+		"reviewed": "REJECTED naming src/renamed.ts — the destination is a touched path and needs a pre-image like any other (an existing destination is overwritten and keeps its own mode, so the projector must know whether one exists)",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/keep.ts\n*** Move to: src/renamed.ts\n@@\n-export const keep = 1;\n+export const keep = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [
+			"src/renamed.ts"
+		],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "missing_pre_image",
+			"product_reason": "projection: missing_pre_image: src/renamed.ts"
+		}
+	},
+	{
+		"id": "apply-patch-move-source-omitted-rejects",
+		"note": "a Move whose SOURCE is omitted (destination present)",
+		"reviewed": "REJECTED naming src/keep.ts — the source is checked first, so the rejection names the path the patch itself named first",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/keep.ts\n*** Move to: src/renamed.ts\n@@\n-export const keep = 1;\n+export const keep = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/renamed.ts": null
+		},
+		"omitted_pre_images": [
+			"src/keep.ts"
+		],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "missing_pre_image",
+			"product_reason": "projection: missing_pre_image: src/keep.ts"
+		}
+	},
+	{
+		"id": "apply-patch-move-onto-existing-overwrites",
+		"note": "a Move onto a destination that EXISTS",
+		"reviewed": "D src/keep.ts + W src/a.ts carrying the moved content — a destination collision is an overwrite, and both implementations agree. The 100644 on the destination record is src/a.ts's OWN mode; the source happens to share it, which is why this row cannot tell the two readings apart and `apply-patch-move-onto-existing-keeps-destination-mode` exists",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/keep.ts\n*** Move to: src/a.ts\n@@\n-export const keep = 1;\n+export const keep = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/a.ts",
+					"mode": "100644",
+					"blob_digest": "0b23d690bad076f4ccbf3fdfa2db90aa7fd5ae84fa9a38577ec8a5d08e6f9948",
+					"bytes": 23
+				},
+				{
+					"tag": "D",
+					"path": "src/keep.ts"
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "e34a0b31b6fe8efc0dc5b589a34f3232af5cf88d543ead7dfdc86de1351610b1",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "d23487be9e22b42656670f3ad61f2c6a5e8c9934f66ba612ca88b807aae21acd",
+				"touched_paths": [
+					"src/a.ts",
+					"src/keep.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-unknown-directive-rejects",
+		"note": "an unknown `*** ` directive",
+		"reviewed": "REJECTED as unknown_section_header — skipping it would project the Delete that follows and sign for a patch the local apply reads differently. `*** End of File` reaches this same rule, which is how the unported end-of-file placement stays a refusal rather than a guess",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Bogus Directive: x\n*** Delete File: src/keep.ts\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "unknown_section_header",
+			"product_reason": "projection: apply_patch sections are not exactly determined: unknown_section_header"
+		}
+	},
+	{
+		"id": "apply-patch-body-before-section-rejects",
+		"note": "a body line before the first section",
+		"reviewed": "REJECTED as body_before_section — a stray line has no section to belong to",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n+stray\n*** Delete File: src/keep.ts\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "body_before_section",
+			"product_reason": "projection: apply_patch sections are not exactly determined: body_before_section"
+		}
+	},
+	{
+		"id": "apply-patch-delete-with-body-rejects",
+		"note": "a Delete File section carrying a body",
+		"reviewed": "REJECTED as delete_section_has_body — a Delete has no body, and a body that is ignored is a body that was never checked",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Delete File: src/keep.ts\n+ignored\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "delete_section_has_body",
+			"product_reason": "projection: apply_patch sections are not exactly determined: delete_section_has_body"
+		}
+	},
+	{
+		"id": "apply-patch-malformed-add-line-rejects",
+		"note": "an Add File body line without its `+`",
+		"reviewed": "REJECTED as malformed_add_body — every Add line starts with `+`",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Add File: src/new.ts\n+ok\nbare\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/new.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "malformed_add_body",
+			"product_reason": "projection: apply_patch sections are not exactly determined: malformed_add_body"
+		}
+	},
+	{
+		"id": "apply-patch-malformed-hunk-header-rejects",
+		"note": "an `@@anchor` header with no space after the marker",
+		"reviewed": "REJECTED as malformed_hunk_line by BOTH implementations — the native grammar knows exactly `@@` and `@@ <context>` (parser.rs CHANGE_CONTEXT_MARKER = \"@@ \"), and the live tool refused this exact patch with \"Unexpected line found in update hunk: '@@anchor'\" (session review r2, finding 3, 2026-09-05); before this row both parsers read `@@anchor` as a header and projected `anchor\\nbravo\\n` for an operation the tool cannot perform",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/a.ts\n@@anchor\n-const x = 1;\n+const x = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "malformed_hunk_line",
+			"product_reason": "projection: apply_patch hunks for src/a.ts name no single site: malformed_hunk_line"
+		}
+	},
+	{
+		"id": "apply-patch-misplaced-move-rejects",
+		"note": "a Move after a hunk line",
+		"reviewed": "BOTH reject; the reason strings differ BY DESIGN — the oracle sees a malformed hunk line, the product a misplaced Move (it is legal only as the first body line of an Update). Same verdict, two grammars' names for it",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/keep.ts\n@@\n-export const keep = 1;\n+export const keep = 2;\n*** Move to: src/renamed.ts\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/renamed.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "malformed_hunk_line",
+			"product_reason": "projection: apply_patch sections are not exactly determined: misplaced_move"
+		}
+	},
+	{
+		"id": "apply-patch-move-on-delete-rejects",
+		"note": "a Move attached to a Delete",
+		"reviewed": "BOTH reject — the oracle as a Delete with a body, the product as move_on_non_update; the tolerant splitter would have retargeted the Delete",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Delete File: src/keep.ts\n*** Move to: src/renamed.ts\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/renamed.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "delete_section_has_body",
+			"product_reason": "projection: apply_patch sections are not exactly determined: move_on_non_update"
+		}
+	},
+	{
+		"id": "apply-patch-move-on-add-rejects",
+		"note": "a Move attached to an Add",
+		"reviewed": "BOTH reject — the oracle as a malformed Add body, the product as move_on_non_update",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Add File: src/new.ts\n*** Move to: src/renamed.ts\n+x\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/new.ts": null,
+			"src/renamed.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "malformed_add_body",
+			"product_reason": "projection: apply_patch sections are not exactly determined: move_on_non_update"
+		}
+	},
+	{
+		"id": "apply-patch-delete-then-add-same-path",
+		"note": "one patch that deletes a path and then adds it",
+		"reviewed": "one W 100644 src/keep.ts with the fresh bytes — the patch's own Delete makes the path known to its Add, and the diff against the pre-image is a single W",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Delete File: src/keep.ts\n*** Add File: src/keep.ts\n+fresh\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/keep.ts",
+					"mode": "100644",
+					"blob_digest": "02db0d2659c9d48bc15f81a388594fc0e3cf4c780fdc27ea21e0671afc37de19",
+					"bytes": 6
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "af5256d6d7c9130010099bd5828456adddcb0895b14eb54ea7b70171049184f0",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "c9577ddfd5de3ebc1cee718e9c304dbb479afa4e57ee3ec31c5f4836974d1df7",
+				"touched_paths": [
+					"src/keep.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "write-under-regular-file-rejects",
+		"note": "a Write of a path UNDER an existing regular file, with the child explicitly null",
+		"reviewed": "REJECTED by both: the pre-image says src/a.ts is a file, so src/a.ts/child.ts cannot exist. The null proves the child is absent — it does not license writing under a file",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "claude-code",
+			"tool": "Write",
+			"semantics_version": 1,
+			"file_path": "src/a.ts/child.ts",
+			"content": "x\n"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/a.ts/child.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "file_dir_conflict",
+			"product_reason": "projection: file/directory conflict: src/a.ts is a file and an ancestor of src/a.ts/child.ts"
+		}
+	},
+	{
+		"id": "apply-patch-delete-file-then-add-under-it",
+		"note": "one patch that deletes src/a.ts and then adds src/a.ts/child.ts",
+		"reviewed": "ALLOWED: D + W. The patch's own Delete releases the path before the Add, so the draft no longer holds a file there and the tree the set lands on is possible — the rule is about the END STATE, not about any path spelling",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Delete File: src/a.ts\n*** Add File: src/a.ts/child.ts\n+child\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/a.ts/child.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "D",
+					"path": "src/a.ts"
+				},
+				{
+					"tag": "W",
+					"path": "src/a.ts/child.ts",
+					"mode": "100644",
+					"blob_digest": "2fa14f53e6b15cac9ac77846c7be87862c2a7e9ec0c6cea319db939317f126ed",
+					"bytes": 6
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "05709aa80dc81ae9160790a55457987346b42d9a335d2b2bc151b844942b9fef",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "eb68829f3dc4f368f2f9e011424c2bd1ee2f0114ecb6b1731360c9873bddbdb4",
+				"touched_paths": [
+					"src/a.ts",
+					"src/a.ts/child.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-update-two-hunks",
+		"note": "two ordinary ordered hunks in one Update section",
+		"reviewed": "BOTH apply, each against the pre-image at its own site: `const x = 2;\\nconst y = 2;\\n`. The replacements are recorded as (0,1) and (1,1) against the ORIGINAL lines and spliced back-to-front, which is why the second one's index is still valid once the first is applied",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-const x = 1;\n+const x = 2;\n@@\n-const y = 1;\n+const y = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/a.ts",
+					"mode": "100644",
+					"blob_digest": "1c8f9d9d81fe079f9717b25b9849f4bf3399f2c811e257eb0f2397caaa2072aa",
+					"bytes": 26
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "8878655ee05f6c1482401b4309f1aa5ea9a604c306d49f4ddd879f1af8be1462",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "98c182b3c87c83ec54295fcfdece8d1cf7e7f5fdae436c72ce21d605ad9d704e",
+				"touched_paths": [
+					"src/a.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-update-dependent-hunks-reject",
+		"note": "hunk 2 deletes a line hunk 1 INTRODUCES",
+		"reviewed": "REJECTED as context_not_found by both implementations, and the reviewer measured the real tool giving the same verdict on this shape (\"Failed to find expected lines ... bravo\"). The pre-2026-09-05 applier ran the hunks sequentially and answered with hunk 2 applied to hunk 1's output — a post_tree_hash for a tree the local apply never lands on, which is the exact failure the strict projector exists to prevent",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-const x = 1;\n+const w = 1;\n@@\n-const w = 1;\n+const v = 1;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "context_not_found",
+			"product_reason": "projection: apply_patch hunks for src/a.ts do not match its pre-image content"
+		}
+	},
+	{
+		"id": "apply-patch-update-reversed-hunks-reject",
+		"note": "hunk 2's site lies entirely BEFORE hunk 1's",
+		"reviewed": "REJECTED: the cursor only moves forward (`line_index = start_idx + pattern.len()`), so `const x = 1;` is no longer searchable once hunk 1 consumed line 1. Codex refuses out-of-order hunks and so does this projector",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-const y = 1;\n+const y = 2;\n@@\n-const x = 1;\n+const x = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "context_not_found",
+			"product_reason": "projection: apply_patch hunks for src/a.ts do not match its pre-image content"
+		}
+	},
+	{
+		"id": "apply-patch-update-overlapping-hunks-reject",
+		"note": "hunk 2's site OVERLAPS the block hunk 1 replaced",
+		"reviewed": "REJECTED: hunk 1's block covers both lines, so the cursor sits past the end of the file and hunk 2's `const y = 1;` has no site at or after it. Overlapping replacements are unrepresentable in Codex's model — it never checks for them because the forward cursor already makes them impossible",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-const x = 1;\n-const y = 1;\n+merged();\n@@\n-const y = 1;\n+const y = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "context_not_found",
+			"product_reason": "projection: apply_patch hunks for src/a.ts do not match its pre-image content"
+		}
+	},
+	{
+		"id": "apply-patch-update-anchor-before-cursor-rejects",
+		"note": "hunk 2's anchor occurs only ABOVE hunk 1's site",
+		"reviewed": "REJECTED as anchor_not_found, never wrapped around: the anchor seek is `seek_sequence(..., start = line_index)`, which searches [cursor, end) only. `function a() {` is line 0 and the cursor is past line 4",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/anchored.ts\n@@ function b() {\n-\treturn 1;\n+\treturn 2;\n@@ function a() {\n-}\n+};\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "anchor_not_found",
+			"product_reason": "projection: apply_patch hunks for src/anchored.ts name no single site: anchor_not_found"
+		}
+	},
+	{
+		"id": "apply-patch-update-cursor-disambiguates",
+		"note": "a bare hunk whose block ALSO occurs before the cursor",
+		"reviewed": "ACCEPTED at the single site at or after the cursor. `\\treturn 1;` appears twice in the file, so hunk 2 would be ambiguous on its own; hunk 1's context block consumes lines 0-1 and leaves exactly one candidate. This is the row that shows the CURSOR — not just the anchor — doing the scoping",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/anchored.ts\n@@\n function a() {\n-\treturn 1;\n+\treturn 9;\n@@\n-\treturn 1;\n+\treturn 8;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/anchored.ts",
+					"mode": "100644",
+					"blob_digest": "7e1e2b65500454b6c0b20a04cf3ef55b0d263e04615fb84f135884ab3117df1c",
+					"bytes": 56
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "8b9b61d6003b5db86d75422db12dc1356a588bd20382c6300db3d6a3bd2cc327",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "2c9419d2ed13ec50a3cfd25885ab7444d0af715ead9c647fd631839caa5a98fc",
+				"touched_paths": [
+					"src/anchored.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-update-pure-insertion-at-eof",
+		"note": "a hunk with only `+` lines",
+		"reviewed": "APPENDED AT END OF FILE, not at the cursor: Codex's `old_lines.is_empty()` branch pushes `(insertion_idx, 0, new_lines)` with `insertion_idx = original_lines.len()` and then `continue`s without moving the cursor. The pre-2026-09-05 projector refused every pure insertion as `hunk_without_context_or_deletion`; that code now covers only a hunk with NO line at all, which Codex's parser refuses outright (\"Update hunk does not contain any lines\")",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/keep.ts\n@@\n+export const added = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/keep.ts",
+					"mode": "100644",
+					"blob_digest": "f99a35ac4b2bf3bab8fd7decaaed799e927f7f162fcf4c1da9ce56b72fee9048",
+					"bytes": 47
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "740f8461ea07f18314a58beb58649eff9448539ea048107491ca5e917823100c",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "1658a07b99ae75a84fc9e3adade446c44602993c6b6122777de731f9909a5dce",
+				"touched_paths": [
+					"src/keep.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-update-pure-insertion-ignores-anchor",
+		"note": "a pure insertion carrying an @@ anchor",
+		"reviewed": "STILL appended at end of file — the anchor is resolved first (an unfindable one still refuses) but the insertion index ignores it. `function a() {` is line 0 and the new line lands after line 5",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/anchored.ts\n@@ function a() {\n+// tail\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "src/anchored.ts",
+					"mode": "100644",
+					"blob_digest": "f01c3241de0f540e01c2e5453da626f3fb7b8e7a48a96adfacd9167574611131",
+					"bytes": 64
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "5aacb55e9c55fd8b34b26a883f274290cb687a04a8b042ac94123e1fb7848d81",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "def49d126542c3116ffbb219e8dd9d3b3f1f601c8db7c8e841990dc1f183afd9",
+				"touched_paths": [
+					"src/anchored.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-move-executable-destination-is-100644",
+		"note": "a 100755 source moved to an ABSENT destination",
+		"reviewed": "the destination is 100644, NOT the source's 100755 — the reviewer measured the real tool doing exactly this. Codex writes the destination with `write_file`, which creates it at the default mode and never chmods; the source's mode dies with the source. This is the row `apply-patch-move` could not catch, because there both paths are 100644",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: bin/run.sh\n*** Move to: src/moved.sh\n@@\n-echo hi\n+echo bye\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"src/moved.sh": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "D",
+					"path": "bin/run.sh"
+				},
+				{
+					"tag": "W",
+					"path": "src/moved.sh",
+					"mode": "100644",
+					"blob_digest": "992e1ee5596e44c2905b529457deffa4c98e7bbbe433e848d53365ccb561afbd",
+					"bytes": 19
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "0bd2c4ab1d6031759b678dc675e87f2a5f5a938b763f9f5a7b6a331bd729218d",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "643a5653c15739f763d4e495f2371fae1223cb291b5153b4166114071ce5baf3",
+				"touched_paths": [
+					"bin/run.sh",
+					"src/moved.sh"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-move-onto-existing-keeps-destination-mode",
+		"note": "a 100644 source moved onto an EXISTING 100755 destination",
+		"reviewed": "the destination stays 100755 and its bytes are replaced. An existing destination is overwritten in place, so it keeps its own mode — the mirror image of the row above, and together they pin that the mode comes from the DESTINATION in both directions",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/keep.ts\n*** Move to: bin/run.sh\n@@\n-export const keep = 1;\n+export const keep = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "projected",
+			"post_images": [
+				{
+					"tag": "W",
+					"path": "bin/run.sh",
+					"mode": "100755",
+					"blob_digest": "0b23d690bad076f4ccbf3fdfa2db90aa7fd5ae84fa9a38577ec8a5d08e6f9948",
+					"bytes": 23
+				},
+				{
+					"tag": "D",
+					"path": "src/keep.ts"
+				}
+			],
+			"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+			"post_tree_hash": "ab564164dcaedc96cdfbd80173ece2d217dc1996198a787d7802dc45c1dc9c1c",
+			"changeset": {
+				"schema_version": 1,
+				"pre_tree_hash": "445e393f11290ef3c6561914a38cfe4df945c451c00d5f710b0d9284f6b790c2",
+				"post_image_set_hash": "d0baaf78c8b08bd92fdb96f0d7d16871898a4858a5650fd29d3907357d92437e",
+				"touched_paths": [
+					"bin/run.sh",
+					"src/keep.ts"
+				]
+			}
+		}
+	},
+	{
+		"id": "apply-patch-move-under-source-rejects",
+		"note": "a move whose destination lies UNDER the source path",
+		"reviewed": "REJECTED as a file/directory conflict by both implementations, and the reviewer measured the real tool failing it. Codex writes the destination BEFORE removing the source, so src/keep.ts is still a regular file when the write to src/keep.ts/child.ts runs and the write fails. Until 2026-09-05 both implementations released the source first and projected a clean D + W — a confident post-image for a patch the tool refuses (the judgment call D33 recorded with no corpus row is settled the other way here)",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/keep.ts\n*** Move to: src/keep.ts/child.ts\n@@\n-export const keep = 1;\n+export const keep = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/keep.ts/child.ts": null
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "file_dir_conflict",
+			"product_reason": "projection: file/directory conflict: src/keep.ts is a file and an ancestor of src/keep.ts/child.ts"
+		}
+	},
+	{
+		"id": "apply-patch-move-onto-self-rejects",
+		"note": "a move whose destination IS the source",
+		"reviewed": "REJECTED as a stated non-claim. Natively this writes the file and then unlinks the same path, leaving no file and bytes nobody can read; shadow v0 does not model that shape, and refusing costs availability while guessing would cost correctness",
+		"tool_input": {
+			"schema": "shadow-tool-input-v1",
+			"client": "codex",
+			"tool": "apply_patch",
+			"semantics_version": 1,
+			"patch": "*** Begin Patch\n*** Update File: src/keep.ts\n*** Move to: src/keep.ts\n@@\n-export const keep = 1;\n+export const keep = 2;\n*** End Patch",
+			"raw_source_field": "command"
+		},
+		"pre_images": {
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			}
+		},
+		"omitted_pre_images": [],
+		"base_tree": {
+			"bin/run.sh": {
+				"mode": "100755",
+				"content": "#!/bin/sh\necho hi\n"
+			},
+			"docs/Ａ.md": {
+				"mode": "100644",
+				"content": "# héllo 🌍\n"
+			},
+			"docs/𐀀.md": {
+				"mode": "100644",
+				"content": "astral\n"
+			},
+			"src/a.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\nconst y = 1;\n"
+			},
+			"src/anchored.ts": {
+				"mode": "100644",
+				"content": "function a() {\n\treturn 1;\n}\nfunction b() {\n\treturn 1;\n}\n"
+			},
+			"src/dup.ts": {
+				"mode": "100644",
+				"content": "same();\nsame();\n"
+			},
+			"src/keep.ts": {
+				"mode": "100644",
+				"content": "export const keep = 1;\n"
+			},
+			"src/crlf.ts": {
+				"mode": "100644",
+				"content": "const x = 1;\r\nconst y = 1;\r\n"
+			},
+			"src/no-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;"
+			},
+			"src/one-line.ts": {
+				"mode": "100644",
+				"content": "gone\n"
+			},
+			"src/two-eol.ts": {
+				"mode": "100644",
+				"content": "const tail = 1;\n\n"
+			}
+		},
+		"expect": {
+			"kind": "rejected",
+			"oracle_reason": "move_onto_self",
+			"product_reason": "projection: apply_patch moves src/keep.ts onto itself, which shadow v0 makes no claim about"
+		}
+	}
+]

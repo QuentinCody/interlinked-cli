@@ -1,0 +1,41 @@
+{
+	"$id": "shadow-v1/cancel_ack.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 wire record \"cancel_ack\", generated from types-transport.ts.",
+	"properties": {
+		"request_id": {
+			"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "opaque-id"
+			}
+		},
+		"schema_version": {
+			"const": 1
+		},
+		"state": {
+			"enum": [
+				"terminated",
+				"already_completed",
+				"unknown_request"
+			],
+			"type": "string"
+		}
+	},
+	"required": [
+		"request_id",
+		"schema_version",
+		"state"
+	],
+	"title": "CancelAckV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "cancel_ack",
+		"kind": "wire",
+		"module": "types-transport.ts",
+		"type": "CancelAckV1"
+	}
+}

@@ -1,0 +1,449 @@
+{
+	"$id": "shadow-v1/verifier_result.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 wire record \"verifier_result\", generated from types-outcome.ts.",
+	"properties": {
+		"compiler": {
+			"additionalProperties": false,
+			"properties": {
+				"image_digest": {
+					"type": "string"
+				},
+				"path": {
+					"type": "string"
+				},
+				"sha256": {
+					"pattern": "^[0-9a-f]{64}$",
+					"type": "string",
+					"x-brand": {
+						"__digest": "verifier-binary"
+					}
+				},
+				"version": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"image_digest",
+				"path",
+				"sha256",
+				"version"
+			],
+			"type": "object"
+		},
+		"dependencies": {
+			"anyOf": [
+				{
+					"additionalProperties": false,
+					"properties": {
+						"input_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-input"
+							}
+						},
+						"mode": {
+							"const": "npm-v1"
+						},
+						"source": {
+							"const": "fresh"
+						},
+						"tree_algo": {
+							"const": "shadow-dependency-tree-v1"
+						},
+						"tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-tree"
+							}
+						}
+					},
+					"required": [
+						"input_hash",
+						"mode",
+						"source",
+						"tree_algo",
+						"tree_hash"
+					],
+					"type": "object"
+				},
+				{
+					"additionalProperties": false,
+					"properties": {
+						"cache_record_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-cache-record"
+							}
+						},
+						"input_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-input"
+							}
+						},
+						"mode": {
+							"const": "npm-v1"
+						},
+						"source": {
+							"const": "cache"
+						},
+						"tree_algo": {
+							"const": "shadow-dependency-tree-v1"
+						},
+						"tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-tree"
+							}
+						}
+					},
+					"required": [
+						"cache_record_hash",
+						"input_hash",
+						"mode",
+						"source",
+						"tree_algo",
+						"tree_hash"
+					],
+					"type": "object"
+				}
+			]
+		},
+		"introduced": {
+			"items": {
+				"additionalProperties": false,
+				"properties": {
+					"category": {
+						"enum": [
+							"error",
+							"warning",
+							"suggestion",
+							"message"
+						],
+						"type": "string"
+					},
+					"code": {
+						"minimum": 0,
+						"type": "integer"
+					},
+					"col": {
+						"anyOf": [
+							{
+								"type": "null"
+							},
+							{
+								"minimum": 0,
+								"type": "integer"
+							}
+						]
+					},
+					"file": {
+						"anyOf": [
+							{
+								"type": "null"
+							},
+							{
+								"type": "string",
+								"x-brand": {
+									"__brand": "canonical-path"
+								}
+							}
+						]
+					},
+					"line": {
+						"anyOf": [
+							{
+								"type": "null"
+							},
+							{
+								"minimum": 0,
+								"type": "integer"
+							}
+						]
+					},
+					"message": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"category",
+					"code",
+					"col",
+					"file",
+					"line",
+					"message"
+				],
+				"type": "object"
+			},
+			"type": "array"
+		},
+		"invocation": {
+			"additionalProperties": false,
+			"properties": {
+				"argv": {
+					"items": {
+						"type": "string"
+					},
+					"type": "array"
+				},
+				"cwd": {
+					"type": "string"
+				},
+				"locale": {
+					"const": "en"
+				},
+				"pretty": {
+					"const": false
+				}
+			},
+			"required": [
+				"argv",
+				"cwd",
+				"locale",
+				"pretty"
+			],
+			"type": "object"
+		},
+		"mode": {
+			"const": "introduced-only"
+		},
+		"post": {
+			"additionalProperties": false,
+			"properties": {
+				"diagnostics": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"category": {
+								"enum": [
+									"error",
+									"warning",
+									"suggestion",
+									"message"
+								],
+								"type": "string"
+							},
+							"code": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"col": {
+								"anyOf": [
+									{
+										"type": "null"
+									},
+									{
+										"minimum": 0,
+										"type": "integer"
+									}
+								]
+							},
+							"file": {
+								"anyOf": [
+									{
+										"type": "null"
+									},
+									{
+										"type": "string",
+										"x-brand": {
+											"__brand": "canonical-path"
+										}
+									}
+								]
+							},
+							"line": {
+								"anyOf": [
+									{
+										"type": "null"
+									},
+									{
+										"minimum": 0,
+										"type": "integer"
+									}
+								]
+							},
+							"message": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"category",
+							"code",
+							"col",
+							"file",
+							"line",
+							"message"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"diagnostics_total": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"status": {
+					"const": "complete"
+				},
+				"termination": {
+					"additionalProperties": false,
+					"properties": {
+						"code": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"kind": {
+							"const": "exited"
+						}
+					},
+					"required": [
+						"code",
+						"kind"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"diagnostics",
+				"diagnostics_total",
+				"status",
+				"termination"
+			],
+			"type": "object"
+		},
+		"pre": {
+			"additionalProperties": false,
+			"properties": {
+				"diagnostics": {
+					"items": {
+						"additionalProperties": false,
+						"properties": {
+							"category": {
+								"enum": [
+									"error",
+									"warning",
+									"suggestion",
+									"message"
+								],
+								"type": "string"
+							},
+							"code": {
+								"minimum": 0,
+								"type": "integer"
+							},
+							"col": {
+								"anyOf": [
+									{
+										"type": "null"
+									},
+									{
+										"minimum": 0,
+										"type": "integer"
+									}
+								]
+							},
+							"file": {
+								"anyOf": [
+									{
+										"type": "null"
+									},
+									{
+										"type": "string",
+										"x-brand": {
+											"__brand": "canonical-path"
+										}
+									}
+								]
+							},
+							"line": {
+								"anyOf": [
+									{
+										"type": "null"
+									},
+									{
+										"minimum": 0,
+										"type": "integer"
+									}
+								]
+							},
+							"message": {
+								"type": "string"
+							}
+						},
+						"required": [
+							"category",
+							"code",
+							"col",
+							"file",
+							"line",
+							"message"
+						],
+						"type": "object"
+					},
+					"type": "array"
+				},
+				"diagnostics_total": {
+					"minimum": 0,
+					"type": "integer"
+				},
+				"status": {
+					"const": "complete"
+				},
+				"termination": {
+					"additionalProperties": false,
+					"properties": {
+						"code": {
+							"minimum": 0,
+							"type": "integer"
+						},
+						"kind": {
+							"const": "exited"
+						}
+					},
+					"required": [
+						"code",
+						"kind"
+					],
+					"type": "object"
+				}
+			},
+			"required": [
+				"diagnostics",
+				"diagnostics_total",
+				"status",
+				"termination"
+			],
+			"type": "object"
+		},
+		"result_schema": {
+			"const": "shadow-tsc-result-v1"
+		}
+	},
+	"required": [
+		"compiler",
+		"dependencies",
+		"introduced",
+		"invocation",
+		"mode",
+		"post",
+		"pre",
+		"result_schema"
+	],
+	"title": "CompleteShadowTscResultV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "verifier_result",
+		"kind": "wire",
+		"module": "types-outcome.ts",
+		"type": "CompleteShadowTscResultV1"
+	}
+}

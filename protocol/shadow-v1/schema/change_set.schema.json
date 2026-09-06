@@ -1,0 +1,50 @@
+{
+	"$id": "shadow-v1/change_set.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 wire record \"change_set\", generated from types-core.ts.",
+	"properties": {
+		"post_image_set_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "post-image-set"
+			}
+		},
+		"pre_tree_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "pre-tree"
+			}
+		},
+		"schema_version": {
+			"const": 1
+		},
+		"touched_paths": {
+			"items": {
+				"type": "string",
+				"x-brand": {
+					"__brand": "canonical-path"
+				}
+			},
+			"type": "array"
+		}
+	},
+	"required": [
+		"post_image_set_hash",
+		"pre_tree_hash",
+		"schema_version",
+		"touched_paths"
+	],
+	"title": "ShadowChangeSetV1",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "change_set",
+		"kind": "wire",
+		"module": "types-core.ts",
+		"type": "ShadowChangeSetV1"
+	}
+}

@@ -1,0 +1,236 @@
+{
+	"$id": "shadow-v1/execution_binding.schema.json",
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"additionalProperties": false,
+	"description": "Shadow protocol v1 wire record \"execution_binding\", generated from types-binding.ts.",
+	"properties": {
+		"base_ref": {
+			"pattern": "^[0-9a-f]{40}$",
+			"type": "string",
+			"x-brand": {
+				"__brand": "gitsha"
+			}
+		},
+		"dependencies": {
+			"anyOf": [
+				{
+					"additionalProperties": false,
+					"properties": {
+						"mode": {
+							"const": "none"
+						}
+					},
+					"required": [
+						"mode"
+					],
+					"type": "object"
+				},
+				{
+					"additionalProperties": false,
+					"properties": {
+						"input_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-input"
+							}
+						},
+						"mode": {
+							"const": "npm-v1"
+						},
+						"source": {
+							"const": "fresh"
+						},
+						"tree_algo": {
+							"const": "shadow-dependency-tree-v1"
+						},
+						"tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-tree"
+							}
+						}
+					},
+					"required": [
+						"input_hash",
+						"mode",
+						"source",
+						"tree_algo",
+						"tree_hash"
+					],
+					"type": "object"
+				},
+				{
+					"additionalProperties": false,
+					"properties": {
+						"cache_record_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-cache-record"
+							}
+						},
+						"input_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-input"
+							}
+						},
+						"mode": {
+							"const": "npm-v1"
+						},
+						"source": {
+							"const": "cache"
+						},
+						"tree_algo": {
+							"const": "shadow-dependency-tree-v1"
+						},
+						"tree_hash": {
+							"pattern": "^[0-9a-f]{64}$",
+							"type": "string",
+							"x-brand": {
+								"__digest": "dependency-tree"
+							}
+						}
+					},
+					"required": [
+						"cache_record_hash",
+						"input_hash",
+						"mode",
+						"source",
+						"tree_algo",
+						"tree_hash"
+					],
+					"type": "object"
+				}
+			]
+		},
+		"env_digest": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "env"
+			}
+		},
+		"exec_config_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "exec-config"
+			}
+		},
+		"mirror": {
+			"additionalProperties": false,
+			"properties": {
+				"key": {
+					"additionalProperties": false,
+					"properties": {
+						"kind": {
+							"const": "synthetic_full_tree"
+						},
+						"repository_id": {
+							"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "opaque-id"
+							}
+						},
+						"session_id": {
+							"pattern": "^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$",
+							"type": "string",
+							"x-brand": {
+								"__brand": "opaque-id"
+							}
+						}
+					},
+					"required": [
+						"kind",
+						"repository_id",
+						"session_id"
+					],
+					"type": "object"
+				},
+				"version": {
+					"minimum": 0,
+					"type": "integer"
+				}
+			},
+			"required": [
+				"key",
+				"version"
+			],
+			"type": "object"
+		},
+		"overlay_algo": {
+			"const": "shadow-overlay-v1"
+		},
+		"overlay_bytes_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "overlay-bytes"
+			}
+		},
+		"overlay_manifest_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "overlay-manifest"
+			}
+		},
+		"post_image_algo": {
+			"const": "shadow-postimages-v1"
+		},
+		"post_image_set_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "post-image-set"
+			}
+		},
+		"post_tree_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "post-tree"
+			}
+		},
+		"pre_tree_hash": {
+			"pattern": "^[0-9a-f]{64}$",
+			"type": "string",
+			"x-brand": {
+				"__digest": "pre-tree"
+			}
+		},
+		"tree_algo": {
+			"const": "shadow-tree-v1"
+		}
+	},
+	"required": [
+		"base_ref",
+		"dependencies",
+		"env_digest",
+		"exec_config_hash",
+		"mirror",
+		"overlay_algo",
+		"overlay_bytes_hash",
+		"overlay_manifest_hash",
+		"post_image_algo",
+		"post_image_set_hash",
+		"post_tree_hash",
+		"pre_tree_hash",
+		"tree_algo"
+	],
+	"title": "ShadowExecutionBinding",
+	"type": "object",
+	"x-shadow-contract": "structural-shape",
+	"x-shadow-contract-meaning": "Shape metadata derived from the TypeScript declarations only (keys, required sets, literals, brand patterns, integers). NOT the validator: byte/array bounds, calendar validity, path rules, set/sort semantics and cross-field rules live in the parsers. A second implementation must port field-checks.ts and the parse-*.ts modules and execute protocol/shadow-v1/fixtures/malformed-corpus.json; schema validity is necessary, not sufficient.",
+	"x-shadow-record": {
+		"id": "execution_binding",
+		"kind": "wire",
+		"module": "types-binding.ts",
+		"type": "ShadowExecutionBinding"
+	}
+}
