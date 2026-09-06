@@ -3,18 +3,38 @@
 // COMBINED state, not stale disk. This pins the fix that lets `interlinked
 // multi-edit` land coordinated refactors (new exports / shared types) in one
 // atomic batch instead of rejecting every transiently-broken single file.
-
+//
+// Also covers `getTscOverlayMode`'s real (non-override) config-resolution
+// path — cache miss, `loadRules()` success, cache hit, and the defensive
+// catch fallback — in its own describe block near the bottom. That block
+// clears the mode override (every other test in this file pins one) and
+// wraps two DEPENDENCY modules, not the SUT: `../../rules-loader.js` (so one
+// test can make `loadRules` throw) and `./tsc-overlay-sidecar-client.js` (so
+// the throw's fallback to the default "sidecar" mode can be observed without
+// a real child-process spawn). Both wrappers call through to the real
+// implementation by default, so every other test's behavior is unchanged.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runWithProjectCompilerLease } from "../../project-compiler-gate.js";
+import { loadRules } from "../../rules-loader.js";
 import {
 	_setTscOverlayModeOverrideForTest,
 	clearTscOverlayCache,
 	runTscOverlay,
 	runTscOverlayTyped,
 } from "./tsc-overlay.js";
+import { runOverlayViaSidecarTyped } from "./tsc-overlay-sidecar-client.js";
+
+vi.mock("../../rules-loader.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../../rules-loader.js")>();
+	return { ...actual, loadRules: vi.fn(actual.loadRules) };
+});
+vi.mock("./tsc-overlay-sidecar-client.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./tsc-overlay-sidecar-client.js")>();
+	return { ...actual, runOverlayViaSidecarTyped: vi.fn(actual.runOverlayViaSidecarTyped) };
+});
 
 // This suite exercises the in-process LanguageService logic itself (sibling
 // overlays, cross-file resolution) — pin "in-process" mode so it doesn't
@@ -521,6 +541,76 @@ describe("runTscOverlay — tsconfig resolution failures", () => {
 			content: "export const x = 1;\n",
 		});
 		expect(out).toEqual([]);
+	});
+});
+
+describe("getTscOverlayMode — real config resolution (mode override cleared)", () => {
+	afterEach(() => {
+		_setTscOverlayModeOverrideForTest(null);
+		// mockClear only — NOT mockReset: the mocks were constructed as
+		// `vi.fn(actual.impl)`, so their call-through default lives in that
+		// wrapped implementation. mockReset would strip it, leaving later
+		// tests calling an empty mock instead of the real dependency.
+		vi.mocked(loadRules).mockClear();
+		vi.mocked(runOverlayViaSidecarTyped).mockClear();
+	});
+
+	function offProject(): string {
+		const dir = mkdtempSync(join(tmpdir(), "tsc-overlay-mode-off-"));
+		created.push(dir);
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		writeFileSync(
+			join(dir, ".interlinked", "guard-rules.local.json"),
+			JSON.stringify({ tsc_overlay: { mode: "off" } }),
+		);
+		return dir;
+	}
+
+	it("resolves mode from the real guard-rules.local.json on a cache miss and reports it as skipped", () => {
+		_setTscOverlayModeOverrideForTest(null);
+		const dir = offProject();
+		const out = runTscOverlayTyped({
+			projectRoot: dir,
+			filePath: join(dir, "a.ts"),
+			content: "export const x = 1;\n",
+		});
+		expect(out).toEqual({ status: "skipped", reason: "tsc overlay disabled by config" });
+		expect(loadRules).toHaveBeenCalledTimes(1);
+	});
+
+	it("caches the resolved mode — a second call for the same project root does not re-read config", () => {
+		_setTscOverlayModeOverrideForTest(null);
+		const dir = offProject();
+		const input = {
+			projectRoot: dir,
+			filePath: join(dir, "a.ts"),
+			content: "export const x = 1;\n",
+		};
+		runTscOverlayTyped(input);
+		vi.mocked(loadRules).mockClear();
+		const second = runTscOverlayTyped(input);
+		expect(second).toEqual({ status: "skipped", reason: "tsc overlay disabled by config" });
+		expect(loadRules).not.toHaveBeenCalled();
+	});
+
+	it("falls back to the default 'sidecar' mode when loadRules throws, instead of propagating the error", () => {
+		_setTscOverlayModeOverrideForTest(null);
+		const dir = mkdtempSync(join(tmpdir(), "tsc-overlay-mode-throw-"));
+		created.push(dir);
+		vi.mocked(loadRules).mockImplementationOnce(() => {
+			throw new Error("simulated config read failure");
+		});
+		vi.mocked(runOverlayViaSidecarTyped).mockReturnValueOnce({ status: "ok", findings: [] });
+		const out = runTscOverlayTyped({
+			projectRoot: dir,
+			filePath: join(dir, "a.ts"),
+			content: "export const x = 1;\n",
+		});
+		// The catch swallowed the throw and fell back to DEFAULT_MODE
+		// ("sidecar") rather than propagating it or silently landing on "off" /
+		// "in-process" — proven by dispatch reaching the sidecar transport.
+		expect(runOverlayViaSidecarTyped).toHaveBeenCalledTimes(1);
+		expect(out).toEqual({ status: "ok", findings: [] });
 	});
 });
 

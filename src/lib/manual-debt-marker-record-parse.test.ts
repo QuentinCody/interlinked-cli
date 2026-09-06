@@ -123,4 +123,22 @@ describe("parseDebtMarkerScanResult", () => {
         expect(parseDebtMarkerScanResult(mismatched)).toBeNull();
         expect(parseDebtMarkerScanResult(null)).toBeNull();
     });
+
+    it("rejects coverage.skipped when a required count field is negative", () => {
+        const scan = validScan();
+        (scan as { coverage: { skipped: { binary: number } } }).coverage.skipped.binary = -1;
+        expect(parseDebtMarkerScanResult(scan)).toBeNull();
+    });
+
+    it("rejects coverage whose roots is not a string array", () => {
+        const scan = validScan();
+        (scan as { coverage: { roots: unknown } }).coverage.roots = "src";
+        expect(parseDebtMarkerScanResult(scan)).toBeNull();
+    });
+
+    it("rejects an obligation_ledger that claims it was already consulted or mutated", () => {
+        expect(
+            parseDebtMarkerScanResult(validScan({ obligation_ledger: { consulted: true, mutated: false } })),
+        ).toBeNull();
+    });
 });

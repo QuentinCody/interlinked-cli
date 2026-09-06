@@ -2,9 +2,10 @@
 // interlinked reset — behavioral coverage
 // ===========================================
 // Deep behavioral tests for resetCommand. Mocks the module boundaries
-// (node:fs, ../lib/formatter) so every branch is driven deterministically
-// with no real filesystem, network, or wall-clock time. Asserts real output
-// strings, file/config removal side-effects, and exit codes.
+// (node:fs, ../lib/formatter, ../harness/installer) so every branch is
+// driven deterministically with no real filesystem, network, or wall-clock
+// time. Asserts real output strings, file/config removal side-effects, and
+// exit codes.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -60,6 +61,33 @@ vi.mock("../lib/formatter.js", () => ({
 	header: (t: string) => `== ${t} ==`,
 }));
 
+// ---- installer manifest mock ---------------------------------------------
+// removeManifestArtifacts() consumes readManifestState/manifestPath/
+// uninstallHooks as a unit; the real manifest format lives one module away
+// (installer-manifest.ts, installer-purge.ts) and is exercised by ITS OWN
+// tests, so here the module boundary is mocked directly rather than driving
+// it indirectly through fake manifest JSON on the fs mock above. Defaults
+// mirror the pre-mock behavior (no manifest file on disk -> "missing").
+type MockManifestState =
+	| { kind: "missing" }
+	| { kind: "corrupt"; reason: string }
+	| { kind: "valid"; entries: unknown[] };
+interface MockUninstallEntry {
+	runner: string;
+	settings_path: string;
+}
+let manifestState: MockManifestState = { kind: "missing" };
+let uninstallResult: { removed: MockUninstallEntry[]; remaining: MockUninstallEntry[] } = {
+	removed: [],
+	remaining: [],
+};
+
+vi.mock("../harness/installer.js", () => ({
+	manifestPath: (cwd: string) => `${cwd}/.interlinked/installer-manifest.json`,
+	readManifestState: () => manifestState,
+	uninstallHooks: () => uninstallResult,
+}));
+
 import { nonNull } from "../lib/non-null.js";
 import { resetCommand } from "./reset.js";
 
@@ -90,6 +118,8 @@ beforeEach(() => {
 	written.length = 0;
 	logs = [];
 	errs = [];
+	manifestState = { kind: "missing" };
+	uninstallResult = { removed: [], remaining: [] };
 	process.exitCode = undefined;
 	vi.spyOn(process, "cwd").mockReturnValue("/repo");
 	vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
@@ -628,6 +658,75 @@ describe("reset --force — Codex config.toml notify cleanup", () => {
 		await resetCommand({ force: true, json: true });
 		expect((lastJson().failed as string[])[0]).toBe(".codex/config.toml: codex-string-error");
 		expect(process.exitCode).toBe(1);
+	});
+});
+
+// ===========================================
+// Manifest-owned artifacts (gate before .interlinked/ removal)
+// ===========================================
+
+describe("reset --force — installer manifest state gates .interlinked/ removal", () => {
+	it("corrupt manifest: records the failure and never reaches uninstallHooks", async () => {
+		manifestState = { kind: "corrupt", reason: "bad json" };
+		await resetCommand({ force: true, json: true });
+		const payload = lastJson();
+		expect(payload.failed).toEqual(["installer manifest: bad json"]);
+		expect(payload.ok).toBe(false);
+		expect(process.exitCode).toBe(1);
+		expect(removedPaths).toEqual([]);
+	});
+
+	it("corrupt manifest, normal mode: prints the failure line to stderr", async () => {
+		manifestState = { kind: "corrupt", reason: "unexpected token" };
+		await resetCommand({ force: true });
+		expect(allErr()).toContain("failed installer manifest: unexpected token");
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("valid manifest, hooks fully uninstalled: each removed entry is reported, then .interlinked/ is removed", async () => {
+		vfs.existing.add(CONFIG_DIR);
+		manifestState = { kind: "valid", entries: [] };
+		uninstallResult = {
+			removed: [{ runner: "claude", settings_path: "/repo/.claude/settings.json" }],
+			remaining: [],
+		};
+		await resetCommand({ force: true });
+		const out = allOut();
+		expect(out).toContain("removed claude hook artifact");
+		expect(removedPaths).toEqual([{ path: CONFIG_DIR, opts: { recursive: true, force: true } }]);
+		expect(process.exitCode).toBeUndefined();
+	});
+
+	it("valid manifest, a managed provider file was modified: reports the conflict and preserves .interlinked/", async () => {
+		vfs.existing.add(CONFIG_DIR);
+		manifestState = { kind: "valid", entries: [] };
+		uninstallResult = {
+			removed: [],
+			remaining: [{ runner: "gemini", settings_path: "/repo/.gemini/settings.json" }],
+		};
+		await resetCommand({ force: true, json: true });
+		const payload = lastJson();
+		expect(payload.failed).toEqual([
+			"gemini managed provider file was modified; preserved /repo/.gemini/settings.json",
+		]);
+		expect(payload.ok).toBe(false);
+		expect(process.exitCode).toBe(1);
+		// preserved, not removed: rmSync never called on .interlinked/
+		expect(removedPaths).toEqual([]);
+	});
+
+	it("valid manifest, a managed provider file was modified, normal mode: prints the 'kept' line", async () => {
+		vfs.existing.add(CONFIG_DIR);
+		manifestState = { kind: "valid", entries: [] };
+		uninstallResult = {
+			removed: [],
+			remaining: [{ runner: "codex", settings_path: "/repo/.codex/config.toml" }],
+		};
+		await resetCommand({ force: true });
+		expect(allOut()).toContain("kept .interlinked/ (needed to track preserved hook artifacts)");
+		expect(allErr()).toContain(
+			"failed codex managed provider file was modified; preserved /repo/.codex/config.toml",
+		);
 	});
 });
 

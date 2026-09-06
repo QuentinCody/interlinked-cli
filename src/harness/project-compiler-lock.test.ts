@@ -1,15 +1,52 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	utimesSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import fc from "fast-check";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	acquireCrossProcessCompilerLease,
 	canonicalProjectRoot,
+	linuxProcessIdentity,
+	moveAsideStaleLock,
 	PROJECT_LEASE_HARD_MAX_AGE_MS,
 	tryAcquireCrossProcessCompilerLease,
 } from "./project-compiler-lock.js";
+
+// Fake /proc content for the linuxProcessIdentity tests below: readFileSync is
+// routed through this map (falling back to the real implementation for every
+// path not registered here) so the Linux-only proc-parsing branches can be
+// exercised deterministically on any host OS, without touching any other
+// caller's real filesystem reads in this file.
+const fakeProcFiles = vi.hoisted(() => new Map<string, string>());
+vi.mock("node:fs", async () => {
+	const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+	return {
+		...actual,
+		readFileSync: (path: Parameters<typeof actual.readFileSync>[0], ...rest: unknown[]) => {
+			if (typeof path === "string" && fakeProcFiles.has(path)) {
+				const content = fakeProcFiles.get(path);
+				if (content !== undefined) return content;
+			}
+			// SAFETY: `rest` is always the tail of the real readFileSync argument
+			// list (an encoding string or options object), so this passthrough
+			// call has the same argument shape actual.readFileSync accepts; the
+			// cast only works around TS not narrowing a spread tail.
+			// biome-ignore lint/suspicious/noExplicitAny: passthrough to the real signature
+			return (actual.readFileSync as any)(path, ...rest);
+		},
+	};
+});
 
 const CHILD_PROGRAM = [
 	'import { tryAcquireCrossProcessCompilerLease, canonicalProjectRoot } from "./src/harness/project-compiler-lock.ts";',
@@ -325,5 +362,166 @@ describe("cross-process project compiler lease", () => {
 		first?.release();
 		second?.release();
 		rmSync(secondRoot, { recursive: true, force: true });
+	});
+
+	it("recovers a lock whose owner record has a non-positive pid", () => {
+		// pid 0 (not -5): `process.kill(0, 0)` and `process.kill(-1, 0)` both
+		// succeed (they target the caller's process group / every process the
+		// caller can signal), so any pid <= 0 reads as "alive" once parsed —
+		// only the `record.pid <= 0` guard in parseLockOwner stops that record
+		// from being trusted as a live owner in the first place.
+		const path = compilerLockPath(root);
+		writeSyntheticOwner(root, {
+			pid: 0,
+			token: "invalid-pid-owner",
+			project: canonicalProjectRoot(root),
+			createdAt: new Date().toISOString(),
+		});
+		const stale = new Date(Date.now() - 6_000);
+		utimesSync(path, stale, stale);
+
+		const recovered = tryAcquireCrossProcessCompilerLease(canonicalProjectRoot(root));
+		expect(recovered).not.toBeNull();
+		expect(JSON.parse(readFileSync(join(path, "owner.json"), "utf-8")).token).not.toBe(
+			"invalid-pid-owner",
+		);
+		recovered?.release();
+	});
+
+	it("recovers a lock whose owner record has an unparsable createdAt", () => {
+		const path = compilerLockPath(root);
+		writeSyntheticOwner(root, {
+			pid: process.pid,
+			token: "invalid-createdat-owner",
+			project: canonicalProjectRoot(root),
+			createdAt: "not-a-real-timestamp",
+		});
+		const stale = new Date(Date.now() - 6_000);
+		utimesSync(path, stale, stale);
+
+		const recovered = tryAcquireCrossProcessCompilerLease(canonicalProjectRoot(root));
+		expect(recovered).not.toBeNull();
+		recovered?.release();
+	});
+
+	it("cannot move aside a stale-lock path that no longer exists", () => {
+		expect(moveAsideStaleLock(join(root, "does-not-exist"))).toBe(false);
+	});
+
+	it("leaves the lock directory in place when release cannot verify the owner file", () => {
+		const project = canonicalProjectRoot(root);
+		const path = compilerLockPath(root);
+		const lease = tryAcquireCrossProcessCompilerLease(project);
+		expect(lease).not.toBeNull();
+		rmSync(join(path, "owner.json"), { force: true });
+
+		lease?.release();
+
+		expect(existsSync(path)).toBe(true);
+	});
+
+	it("removes the just-created lock directory when a racing writer publishes the owner file first", () => {
+		const project = canonicalProjectRoot(root);
+		const path = compilerLockPath(root);
+
+		const lease = tryAcquireCrossProcessCompilerLease(project, {
+			beforeOwnerWrite: () => {
+				mkdirSync(path, { recursive: true });
+				writeFileSync(join(path, "owner.json"), JSON.stringify({ pid: 1, token: "racer" }));
+			},
+		});
+
+		expect(lease).toBeNull();
+		expect(existsSync(path)).toBe(false);
+	});
+
+	it("returns null after two recovery attempts each find a fresh stale lock", () => {
+		const project = canonicalProjectRoot(root);
+		const deadOwner = (token: string): Record<string, unknown> => ({
+			pid: 2_147_480_000,
+			token,
+			project,
+			createdAt: new Date(Date.now() - PROJECT_LEASE_HARD_MAX_AGE_MS - 1).toISOString(),
+		});
+		writeSyntheticOwner(root, deadOwner("first-stale"));
+		let afterReclaimCalls = 0;
+
+		const lease = tryAcquireCrossProcessCompilerLease(project, {
+			afterReclaim: () => {
+				afterReclaimCalls += 1;
+				writeSyntheticOwner(root, deadOwner(`stale-${afterReclaimCalls}`));
+			},
+		});
+
+		expect(lease).toBeNull();
+		expect(afterReclaimCalls).toBe(2);
+	});
+
+	it("returns null immediately when the wait signal is already aborted", async () => {
+		const project = canonicalProjectRoot(root);
+		const result = await acquireCrossProcessCompilerLease(project, Date.now() + 1_000, AbortSignal.abort());
+		expect(result).toBeNull();
+	});
+
+	it("acquires the lease once a held lock clears while polling with no abort signal", async () => {
+		const project = canonicalProjectRoot(root);
+		const held = tryAcquireCrossProcessCompilerLease(project);
+		expect(held).not.toBeNull();
+
+		const pending = acquireCrossProcessCompilerLease(project, Date.now() + 500);
+		setTimeout(() => held?.release(), 30);
+		const acquired = await pending;
+
+		expect(acquired).not.toBeNull();
+		acquired?.release();
+	});
+});
+
+describe("linuxProcessIdentity (Linux-only /proc parsing, exercised on any host via fake /proc content)", () => {
+	// Every `/proc/...` path below is served entirely from `fakeProcFiles`
+	// through the module-level `readFileSync` mock declared at the top of this
+	// file — no real filesystem call under `/proc` is ever made (no mkdir, no
+	// unmocked read), so this is safe on every host, Linux included.
+	afterEach(() => {
+		fakeProcFiles.clear();
+	});
+
+	it("returns null when the stat line has no closing paren around the command name", () => {
+		const pid = 424_242;
+		// The line must still have 20+ whitespace fields (a real digit run
+		// landing on index 19) so the guard under test — `if (commandEnd < 0)
+		// return null` — is what stops the parse, not the shorter fallback path
+		// (`fields[19] === undefined`) a too-short fixture would fall through to
+		// regardless of the guard.
+		const filler = Array.from({ length: 18 }, () => "0").join(" ");
+		fakeProcFiles.set(`/proc/${pid}/stat`, `42 no-closing-paren-here R ${filler} 987654`);
+		fakeProcFiles.set("/proc/sys/kernel/random/boot_id", "abcd-boot-id\n");
+
+		expect(linuxProcessIdentity(pid)).toBeNull();
+	});
+
+	it("returns null when the start-time field is not a run of digits", () => {
+		const pid = 424_243;
+		// index 0 after ")" is state ("R"); index 19 is start time (field 22 in
+		// proc(5) terms, per the comment in linuxProcessIdentity) — 18 filler
+		// fields land the bad value exactly on the field the function reads.
+		const filler = Array.from({ length: 18 }, () => "0").join(" ");
+		fakeProcFiles.set(`/proc/${pid}/stat`, `42 (node) R ${filler} not-a-number`);
+
+		expect(linuxProcessIdentity(pid)).toBeNull();
+	});
+
+	it("builds a linux identity string from the stat start time and the boot id", () => {
+		const pid = 424_244;
+		const startTicks = "123456789";
+		const filler = Array.from({ length: 18 }, () => "0").join(" ");
+		fakeProcFiles.set(`/proc/${pid}/stat`, `42 (node) R ${filler} ${startTicks}`);
+		fakeProcFiles.set("/proc/sys/kernel/random/boot_id", "abcd-boot-id\n");
+
+		expect(linuxProcessIdentity(pid)).toBe(`linux:abcd-boot-id:${startTicks}`);
+	});
+
+	it("returns null when /proc has no entry for the pid", () => {
+		expect(linuxProcessIdentity(999_999_999)).toBeNull();
 	});
 });

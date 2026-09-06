@@ -2,13 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import type { ProjectWideCheckConfig } from "../types.js";
 import type { CheckReport } from "../check-engine/types.js";
 
-const { mRunChecks } = vi.hoisted(() => ({ mRunChecks: vi.fn() }));
-
-vi.mock("../check-engine/index.js", () => ({
-	getOrCreateEngine: vi.fn(() => ({ runChecks: mRunChecks })),
+const { mRunChecks, mRunChecksAsync } = vi.hoisted(() => ({
+	mRunChecks: vi.fn(),
+	mRunChecksAsync: vi.fn(),
 }));
 
-import { ProjectWideSweepState, runProjectWideChecks } from "./project-wide.js";
+vi.mock("../check-engine/index.js", () => ({
+	getOrCreateEngine: vi.fn(() => ({ runChecks: mRunChecks, runChecksAsync: mRunChecksAsync })),
+}));
+
+import { ProjectWideSweepState, runProjectWideChecks, runProjectWideChecksAsync } from "./project-wide.js";
 
 /**
  * The sweep debouncer decides how often the expensive project-wide pass runs.
@@ -18,6 +21,10 @@ import { ProjectWideSweepState, runProjectWideChecks } from "./project-wide.js";
  * This file exists as the direct companion to `project-wide.ts` — the existing
  * coverage reaches it through the `quality-checks.js` barrel, so neither the
  * no-test-file check nor a cold reader could see that it was tested at all.
+ *
+ * The mocked engine stub exposes BOTH `runChecks` (sync) and `runChecksAsync`
+ * (used by `runProjectWideChecksAsync`) so each variant can be driven
+ * independently without mocking `project-wide.ts` itself.
  */
 function config(over: Partial<ProjectWideCheckConfig> = {}): ProjectWideCheckConfig {
 	// SAFETY: the debouncer reads only `edit_interval`; the cast supplies the rest
@@ -102,5 +109,78 @@ describe("runProjectWideChecks — unavailable tools", () => {
 		expect(result.deferredReasons).toEqual(["biome: not installed"]);
 		expect(result.findings).toEqual([]);
 		expect(state.editsSinceLastSweep).toBe(3);
+	});
+
+	it("folds an unavailable-tool RESULT (not just a skip) into deferredToolIds and excludes it from toolsRun", () => {
+		// Distinct from the skip-based case above: here the engine reports the
+		// unavailable tool as a `tsc-unavailable` finding inside `results`, and
+		// that finding must still suppress the tool from toolsRun and surface
+		// in deferredReasons — the `unavailableResults` fold, not the `skipped` fold.
+		const state = new ProjectWideSweepState();
+		const report: CheckReport = {
+			results: [
+				{
+					tool: "tsc",
+					severity: "error",
+					file: "n/a",
+					line: 0,
+					message: "tsc binary not found on PATH",
+					ruleId: "tsc-unavailable",
+				},
+			],
+			toolsRun: [{ id: "tsc", available: true }],
+			toolsSkipped: [],
+			skipped: [],
+			elapsedMs: 4,
+			metrics: [],
+			deduplicatedCount: 0,
+		};
+		mRunChecks.mockReturnValueOnce(report);
+
+		const result = runProjectWideChecks(
+			config({ tools: ["tsc"], max_findings: 10, severity: "warning" }),
+			state,
+			"/repo",
+		);
+
+		expect(result.toolsRun).toEqual([]);
+		expect(result.deferredReasons).toEqual(["tsc: tsc binary not found on PATH"]);
+		expect(result.findings).toEqual([]);
+	});
+});
+
+describe("runProjectWideChecksAsync — the non-blocking sweep variant", () => {
+	it("delegates to the check-engine's async runner and returns a real finding formatted from its result", async () => {
+		const state = new ProjectWideSweepState();
+		const report: CheckReport = {
+			results: [{ tool: "biome", severity: "warning", file: "src/a.ts", line: 3, message: "no-var" }],
+			toolsRun: [{ id: "biome", available: true }],
+			toolsSkipped: [],
+			skipped: [],
+			elapsedMs: 12,
+			metrics: [],
+			deduplicatedCount: 0,
+		};
+		mRunChecksAsync.mockResolvedValueOnce(report);
+
+		const result = await runProjectWideChecksAsync(
+			config({ tools: ["biome"], max_findings: 10, severity: "warning" }),
+			state,
+			"/repo",
+		);
+
+		expect(mRunChecksAsync).toHaveBeenCalledWith(
+			{ projectRoot: "/repo", mode: "project" },
+			{ tools: ["biome"], timeoutMs: 1000 },
+		);
+		expect(result.findings).toEqual([
+			{
+				name: "biome_project_wide",
+				severity: "warning",
+				message: "[cross-file] src/a.ts(3): no-var",
+				file: "src/a.ts",
+			},
+		]);
+		expect(result.toolsRun).toEqual(["biome"]);
 	});
 });

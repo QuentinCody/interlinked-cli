@@ -1,7 +1,8 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	captureWorkspaceSnapshot,
@@ -10,6 +11,7 @@ import {
 	consumeWorkspaceSnapshot,
 	discardWorkspaceSnapshot,
 	diffWorkspaceSnapshots,
+	fingerprint,
 	formatWorkspaceResidueWarning,
 	isWorkspaceControlPath,
 	rememberWorkspaceSnapshot,
@@ -285,5 +287,53 @@ describe("workspace effect ChangeSet", () => {
 		);
 		expect(warning).toContain("created:created.ts");
 		expect(warning).toContain("backstop, not rollback");
+	});
+
+	// test-contract: boundary — a symlink is fingerprinted by its link target text, never by dereferencing it
+	it("fingerprints a symlink from its link target text without following it", () => {
+		// The target must resolve (existsSync follows symlinks before
+		// fingerprint() ever runs), but the hash still comes from the link
+		// text itself, not from reading the target's bytes.
+		const target = "tracked.ts";
+		symlinkSync(target, join(root, "link.ts"));
+
+		const snapshot = captureWorkspaceSnapshot(root);
+
+		const expectedSha256 = createHash("sha256").update(`symlink:${target}`).digest("hex");
+		expect(snapshot.files["link.ts"]?.sha256).toBe(expectedSha256);
+		expect(snapshot.files["link.ts"]?.sha256).not.toBe(snapshot.files["tracked.ts"]?.sha256);
+	});
+
+	// test-contract: boundary — fingerprint() reports a stat failure as a missing fingerprint instead of throwing
+	it("returns null from fingerprint() when lstat fails for a path that no longer exists", () => {
+		expect(fingerprint(join(root, "vanished-before-stat.ts"), 1024)).toBeNull();
+	});
+
+	// test-contract: boundary — an oversized file marks the snapshot incomplete instead of hashing its full content
+	it("marks the snapshot incomplete when a file exceeds the per-file hash budget", () => {
+		const bigPath = join(root, "big.bin");
+		writeFileSync(bigPath, Buffer.alloc(8 * 1024 * 1024 + 1));
+
+		const snapshot = captureWorkspaceSnapshot(root);
+
+		expect(snapshot.complete).toBe(false);
+		expect(snapshot.files["big.bin"]?.size).toBe(8 * 1024 * 1024 + 1);
+	});
+
+	// test-contract: boundary — the pending-snapshot ceiling drops every earlier unconsumed call before accepting a new one
+	it("drops earlier unconsumed snapshots once the pending ceiling is reached", () => {
+		for (let i = 0; i < 128; i++) {
+			rememberWorkspaceSnapshot({ toolUseId: `over-ceiling-${i}`, sessionId: "s1", root });
+		}
+		// The 129th push finds pendingSize() already at the 128 ceiling, so it
+		// clears every prior entry before recording this one.
+		rememberWorkspaceSnapshot({ toolUseId: "over-ceiling-128", sessionId: "s1", root });
+
+		expect(
+			consumeWorkspaceSnapshot({ toolUseId: "over-ceiling-0", sessionId: "s1", root }),
+		).toBeNull();
+		expect(
+			consumeWorkspaceSnapshot({ toolUseId: "over-ceiling-128", sessionId: "s1", root }),
+		).not.toBeNull();
 	});
 });

@@ -7,6 +7,7 @@ const {
 	tryAcquireHeavyProcess,
 	releaseHeavyProcess,
 	getProfileForFile,
+	findProjectRootForLanguage,
 	runBoundedTestProcess,
 	resolveDependencyAuditCommandAsync,
 	runProcessAsync,
@@ -15,6 +16,7 @@ const {
 	tryAcquireHeavyProcess: vi.fn(),
 	releaseHeavyProcess: vi.fn(),
 	getProfileForFile: vi.fn(),
+	findProjectRootForLanguage: vi.fn(),
 	runBoundedTestProcess: vi.fn(),
 	resolveDependencyAuditCommandAsync: vi.fn(),
 	runProcessAsync: vi.fn(),
@@ -41,7 +43,7 @@ vi.mock("../project-heavy-process-lock.js", () => ({
 
 vi.mock("../language-profiles.js", () => ({
 	getProfileForFile,
-	findProjectRootForLanguage: () => "/repo",
+	findProjectRootForLanguage,
 }));
 vi.mock("./test-process-gate.js", () => ({ runBoundedTestProcess }));
 vi.mock("./dependency-audit.js", () => ({ resolveDependencyAuditCommandAsync }));
@@ -127,6 +129,8 @@ beforeEach(() => {
 		id: "typescript",
 		test_runner: { command: "npx vitest run" },
 	});
+	findProjectRootForLanguage.mockReset();
+	findProjectRootForLanguage.mockReturnValue("/repo");
 	runBoundedTestProcess.mockReset();
 	runBoundedTestProcess.mockResolvedValue({
 		kind: "completed",
@@ -440,5 +444,79 @@ describe("ChangeSet external-check batching", () => {
 		const createdResult = (await created.resultsForFile("/repo/src/a.ts"))[0];
 		expect(createdResult).toMatchObject({ severity: "error" });
 		expect(createdResult?.message).toContain("newly-created");
+	});
+
+	it("defers a candidate the engine reports skipped in report.skipped, and separately defers one the engine never reports as run", async () => {
+		runChecksAsync.mockResolvedValue({
+			results: [],
+			skipped: [{ check: "tsc", category: "resource_busy", reason: "tsc worker pool exhausted" }],
+			toolsRun: [{ id: "biome", available: true }],
+			toolsSkipped: [],
+			elapsedMs: 3,
+			metrics: [],
+			deduplicatedCount: 0,
+		});
+		const batch = createChangeSetExternalBatch({
+			paths: ["/repo/src/a.ts"],
+			checks: {
+				typescript: config("error"),
+				biome_lint: config(),
+				eslint: config(),
+			},
+			cwd: "/repo",
+		});
+
+		const results = await batch.resultsForFile("/repo/src/a.ts");
+		const deferred = results.find((result) => result.name === "external_check_deferred");
+		expect(deferred?.detail).toContain("typescript: tsc worker pool exhausted");
+		expect(deferred?.detail).toContain("eslint: the engine returned no completed-tool verdict");
+	});
+
+	it("defers every requested tool with the thrown error's message when the engine batch call rejects", async () => {
+		runChecksAsync.mockRejectedValue(new Error("engine process crashed"));
+		const batch = createChangeSetExternalBatch({
+			paths: ["/repo/src/a.ts"],
+			checks: { typescript: config("error") },
+			cwd: "/repo",
+		});
+
+		const results = await batch.resultsForFile("/repo/src/a.ts");
+		expect(results).toHaveLength(1);
+		expect(results[0]).toMatchObject({ name: "external_check_deferred" });
+		expect(results[0]?.detail).toBe(
+			"No check verdict was produced: typescript: Error: engine process crashed",
+		);
+		expect(releaseHeavyProcess).toHaveBeenCalledTimes(1);
+	});
+
+	it("defers with a cross-project reason when a changed file resolves to a different project root", async () => {
+		runChecksAsync.mockResolvedValue(completedReport());
+		findProjectRootForLanguage.mockImplementation((path: string) =>
+			path.endsWith("b.ts") ? "/repo/nested" : "/repo",
+		);
+		const batch = createChangeSetExternalBatch({
+			paths: ["/repo/src/a.ts", "/repo/src/b.ts"],
+			checks: { typescript: config("error") },
+			cwd: "/repo",
+		});
+
+		const results = await batch.resultsForFile("/repo/src/a.ts");
+		const deferred = results.find((result) => result.name === "external_check_deferred");
+		expect(deferred?.detail).toContain(
+			"cross-project external checks: one ChangeSet spans multiple project roots; only one heavy-process lease may run",
+		);
+	});
+
+	it("returns no results and never acquires the heavy-process lease when no configured check matches any changed file", async () => {
+		const batch = createChangeSetExternalBatch({
+			paths: ["/repo/src/a.ts", "/repo/src/b.ts"],
+			checks: {},
+			cwd: "/repo",
+		});
+
+		expect(await batch.resultsForFile("/repo/src/a.ts")).toEqual([]);
+		expect(await batch.resultsForFile("/repo/src/b.ts")).toEqual([]);
+		expect(tryAcquireHeavyProcess).not.toHaveBeenCalled();
+		expect(runChecksAsync).not.toHaveBeenCalled();
 	});
 });

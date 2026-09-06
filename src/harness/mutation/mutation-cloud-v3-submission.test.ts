@@ -1,5 +1,9 @@
 // test-contract: integration — cloud acceptance is authenticated and bound
-// before one durable SQLite job becomes visible to the processor.
+// before one durable SQLite job becomes visible to the processor. Most cases
+// inject a fake `MutationCloudSubmissionFetch`; a few stub the real global
+// `fetch` (via `vi.stubGlobal`, reverted in `afterEach`) to exercise the
+// module's own default fetch adapter and its request-body encoding path,
+// which no injected fetchImpl ever reaches.
 
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -166,6 +170,30 @@ function successfulFetch(
 	};
 }
 
+/** Stubs the real global `fetch` (not a `MutationCloudSubmissionFetch`) so a
+ * submitter built with no injected fetchImpl exercises its own default
+ * adapter, including the request-body encoding it applies before the call. */
+function stubGlobalFetch(
+	jobRequest: ValidMutationJobRequest,
+	payload: Record<string, unknown>,
+	calls: RequestCall[],
+): void {
+	vi.stubGlobal("fetch", async (url: string, init: Parameters<MutationCloudSubmissionFetch>[1]) => {
+		calls.push({ url, init });
+		if (init.method === "GET") {
+			return response({
+				protocol_version: "interlinked-mutation/3.0",
+				contract_digest: CONTRACT_DIGEST,
+				keys: TEST_REGISTRY,
+			});
+		}
+		if (init.method === "PUT") {
+			return response({ ...jobRequest.source_artifact, idempotent_replay: false }, 201);
+		}
+		return response(acceptedResponse(jobRequest, payload), 202);
+	});
+}
+
 let root = "";
 let journal: MutationJournal | null = null;
 
@@ -178,6 +206,7 @@ afterEach(() => {
 	journal?.close();
 	journal = null;
 	rmSync(root, { recursive: true, force: true });
+	vi.unstubAllGlobals();
 });
 
 describe("MutationCloudV3Submitter", () => {
@@ -393,6 +422,363 @@ describe("MutationCloudV3Submitter", () => {
 				createdAtMs: 100,
 			}),
 		).rejects.toThrow("unreasonably in the future");
+		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
+	});
+
+	it("rejects a signed acceptance whose changeset_hash differs from the submitted request", async () => {
+		const jobRequest = request();
+		const payload = acceptancePayload(jobRequest, { changeset_hash: "f".repeat(64) });
+		const calls: RequestCall[] = [];
+		const submitter = new MutationCloudV3Submitter(
+			config(),
+			successfulFetch(jobRequest, payload, calls),
+			() => Date.parse(TEST_NOW),
+		);
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await expect(
+			submitter.submit({
+				request: jobRequest,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+				journal,
+				createdAtMs: 100,
+			}),
+		).rejects.toThrow("acceptance receipt changeset_hash differs from the submitted request");
+		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
+	});
+
+	it("rejects a signed acceptance whose source artifact differs from the submitted request", async () => {
+		const jobRequest = request();
+		const payload = acceptancePayload(jobRequest, {
+			source_artifact: { ...jobRequest.source_artifact, sha256: "e".repeat(64) },
+		});
+		const calls: RequestCall[] = [];
+		const submitter = new MutationCloudV3Submitter(
+			config(),
+			successfulFetch(jobRequest, payload, calls),
+			() => Date.parse(TEST_NOW),
+		);
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await expect(
+			submitter.submit({
+				request: jobRequest,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+				journal,
+				createdAtMs: 100,
+			}),
+		).rejects.toThrow("acceptance receipt source artifact differs from the submitted request");
+		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
+	});
+
+	it("rejects a signed acceptance whose scope mode differs from the submitted request", async () => {
+		const jobRequest = request();
+		const payload = acceptancePayload(jobRequest, { intended_scope_mode: "companion_fallback" });
+		const calls: RequestCall[] = [];
+		const submitter = new MutationCloudV3Submitter(
+			config(),
+			successfulFetch(jobRequest, payload, calls),
+			() => Date.parse(TEST_NOW),
+		);
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await expect(
+			submitter.submit({
+				request: jobRequest,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+				journal,
+				createdAtMs: 100,
+			}),
+		).rejects.toThrow("acceptance receipt scope mode differs from the submitted request");
+		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
+	});
+
+	it("rejects a signed acceptance whose test scope hash differs from the submitted request", async () => {
+		const jobRequest = request();
+		const payload = acceptancePayload(jobRequest, { test_scope_hash: "d".repeat(64) });
+		const calls: RequestCall[] = [];
+		const submitter = new MutationCloudV3Submitter(
+			config(),
+			successfulFetch(jobRequest, payload, calls),
+			() => Date.parse(TEST_NOW),
+		);
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await expect(
+			submitter.submit({
+				request: jobRequest,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+				journal,
+				createdAtMs: 100,
+			}),
+		).rejects.toThrow("acceptance receipt test scope differs from the submitted request");
+		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
+	});
+
+	it("rejects a server authority with an empty tenant or project before any network call", () => {
+		const fetchImpl = vi.fn<MutationCloudSubmissionFetch>();
+		expect(() =>
+			new MutationCloudV3Submitter(config({ serverAuthority: { tenant: "", project: "project-1" } }), fetchImpl),
+		).toThrow("must name a tenant and project");
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("rejects a server authority whose project differs from the configured projectRef before any network call", () => {
+		const fetchImpl = vi.fn<MutationCloudSubmissionFetch>();
+		expect(() =>
+			new MutationCloudV3Submitter(
+				config({ serverAuthority: { tenant: "tenant-1", project: "other-project" } }),
+				fetchImpl,
+			),
+		).toThrow("must name the configured project");
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("rejects a non-positive timeoutMs before any network call", () => {
+		const fetchImpl = vi.fn<MutationCloudSubmissionFetch>();
+		expect(() => new MutationCloudV3Submitter(config({ timeoutMs: 0 }), fetchImpl)).toThrow(
+			"timeoutMs must be a positive safe integer",
+		);
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("relays the source artifact's exact backing buffer through the real fetch adapter with no defensive copy", async () => {
+		const jobRequest = request();
+		const payload = acceptancePayload(jobRequest);
+		const calls: RequestCall[] = [];
+		stubGlobalFetch(jobRequest, payload, calls);
+		const exactBytes = new Uint8Array(SOURCE_BYTES);
+		const submitter = new MutationCloudV3Submitter(config(), undefined, () => Date.parse(TEST_NOW));
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await submitter.submit({
+			request: jobRequest,
+			sourceArtifactBytes: exactBytes,
+			targetBytes: TARGET_BYTES,
+			journal,
+			createdAtMs: 100,
+		});
+
+		const putCall = calls.find((call) => call.init.method === "PUT");
+		const postCall = calls.find((call) => call.init.method === "POST");
+		expect(putCall?.init.body).toBe(exactBytes.buffer);
+		expect(Buffer.from(putCall?.init.body as unknown as ArrayBuffer)).toEqual(SOURCE_BYTES);
+		expect(postCall?.init.body).toBe(JSON.stringify(jobRequest));
+	});
+
+	it("defensively copies a partial byte view before handing it to the real fetch adapter", async () => {
+		const jobRequest = request();
+		const payload = acceptancePayload(jobRequest);
+		const calls: RequestCall[] = [];
+		stubGlobalFetch(jobRequest, payload, calls);
+		const backing = new ArrayBuffer(SOURCE_BYTES.length + 8);
+		const partialView = new Uint8Array(backing, 4, SOURCE_BYTES.length);
+		partialView.set(SOURCE_BYTES);
+		const submitter = new MutationCloudV3Submitter(config(), undefined, () => Date.parse(TEST_NOW));
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await submitter.submit({
+			request: jobRequest,
+			sourceArtifactBytes: partialView,
+			targetBytes: TARGET_BYTES,
+			journal,
+			createdAtMs: 100,
+		});
+
+		const putCall = calls.find((call) => call.init.method === "PUT");
+		expect(putCall?.init.body).not.toBe(backing);
+		expect(Buffer.from(putCall?.init.body as unknown as ArrayBuffer)).toEqual(SOURCE_BYTES);
+	});
+
+	it("rejects prepared request bytes that are not valid UTF-8 JSON", async () => {
+		const fetchImpl = vi.fn<MutationCloudSubmissionFetch>();
+		const submitter = new MutationCloudV3Submitter(config(), fetchImpl);
+
+		await expect(
+			submitter.authenticatePrepared({
+				requestBytes: Uint8Array.from([0xff, 0xfe, 0xfd]),
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+			}),
+		).rejects.toThrow("not valid UTF-8 JSON");
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("rejects prepared request bytes that are not the protocol's canonical JSON encoding", async () => {
+		const jobRequest = request();
+		const fetchImpl = vi.fn<MutationCloudSubmissionFetch>();
+		const submitter = new MutationCloudV3Submitter(config(), fetchImpl);
+		const prettyPrinted = new TextEncoder().encode(JSON.stringify(jobRequest, null, 2));
+
+		await expect(
+			submitter.authenticatePrepared({
+				requestBytes: prettyPrinted,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+			}),
+		).rejects.toThrow("not protocol canonical JSON");
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("rejects local target bytes that differ from the request's target content hash", async () => {
+		const jobRequest = request();
+		let fetchCalls = 0;
+		const submitter = new MutationCloudV3Submitter(config(), async () => {
+			fetchCalls += 1;
+			return response({});
+		});
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await expect(
+			submitter.submit({
+				request: jobRequest,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: Buffer.from("not the target content"),
+				journal,
+				createdAtMs: 100,
+			}),
+		).rejects.toThrow("target bytes differ from the request binding");
+		expect(fetchCalls).toBe(0);
+		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
+	});
+
+	it("rejects when the contract probe (GET /mutation/keys) responds with a non-2xx status", async () => {
+		const jobRequest = request();
+		const calls: RequestCall[] = [];
+		const submitter = new MutationCloudV3Submitter(config(), async (url, init) => {
+			calls.push({ url, init });
+			return new Response("service unavailable", { status: 503 });
+		});
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await expect(
+			submitter.submit({
+				request: jobRequest,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+				journal,
+				createdAtMs: 100,
+			}),
+		).rejects.toThrow("contract probe failed: HTTP 503 service unavailable");
+		expect(calls).toHaveLength(1);
+		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
+	});
+
+	it("rejects when the artifact upload (PUT) responds with a non-2xx status", async () => {
+		const jobRequest = request();
+		const calls: RequestCall[] = [];
+		const submitter = new MutationCloudV3Submitter(config(), async (url, init) => {
+			calls.push({ url, init });
+			if (init.method === "GET") {
+				return response({
+					protocol_version: "interlinked-mutation/3.0",
+					contract_digest: CONTRACT_DIGEST,
+					keys: TEST_REGISTRY,
+				});
+			}
+			return new Response("artifact store rejected the upload", { status: 500 });
+		});
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await expect(
+			submitter.submit({
+				request: jobRequest,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+				journal,
+				createdAtMs: 100,
+			}),
+		).rejects.toThrow("artifact upload failed: HTTP 500 artifact store rejected the upload");
+		expect(calls.map((call) => call.init.method)).toEqual(["GET", "PUT"]);
+		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
+	});
+
+	it("rejects an artifact upload response whose echoed binding does not match the request", async () => {
+		const jobRequest = request();
+		const submitter = new MutationCloudV3Submitter(config(), async (_url, init) => {
+			if (init.method === "GET") {
+				return response({
+					protocol_version: "interlinked-mutation/3.0",
+					contract_digest: CONTRACT_DIGEST,
+					keys: TEST_REGISTRY,
+				});
+			}
+			return response({ ...jobRequest.source_artifact, sha256: "f".repeat(64), idempotent_replay: false }, 201);
+		});
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await expect(
+			submitter.submit({
+				request: jobRequest,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+				journal,
+				createdAtMs: 100,
+			}),
+		).rejects.toThrow("artifact upload response is malformed or foreign");
+		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
+	});
+
+	it("rejects when the job submission (POST) responds with a non-2xx status", async () => {
+		const jobRequest = request();
+		const submitter = new MutationCloudV3Submitter(config(), async (_url, init) => {
+			if (init.method === "GET") {
+				return response({
+					protocol_version: "interlinked-mutation/3.0",
+					contract_digest: CONTRACT_DIGEST,
+					keys: TEST_REGISTRY,
+				});
+			}
+			if (init.method === "PUT") {
+				return response({ ...jobRequest.source_artifact, idempotent_replay: false }, 201);
+			}
+			return new Response("job queue is full", { status: 503 });
+		});
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await expect(
+			submitter.submit({
+				request: jobRequest,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+				journal,
+				createdAtMs: 100,
+			}),
+		).rejects.toThrow("job submission failed: HTTP 503 job queue is full");
+		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
+	});
+
+	it("rejects a job response whose echoed job_key does not match the submitted job", async () => {
+		const jobRequest = request();
+		const payload = acceptancePayload(jobRequest);
+		const submitter = new MutationCloudV3Submitter(config(), async (_url, init) => {
+			if (init.method === "GET") {
+				return response({
+					protocol_version: "interlinked-mutation/3.0",
+					contract_digest: CONTRACT_DIGEST,
+					keys: TEST_REGISTRY,
+				});
+			}
+			if (init.method === "PUT") {
+				return response({ ...jobRequest.source_artifact, idempotent_replay: false }, 201);
+			}
+			return response({ ...acceptedResponse(jobRequest, payload), job_key: "a-different-job" }, 202);
+		});
+		if (journal === null) throw new Error("journal fixture is missing");
+
+		await expect(
+			submitter.submit({
+				request: jobRequest,
+				sourceArtifactBytes: SOURCE_BYTES,
+				targetBytes: TARGET_BYTES,
+				journal,
+				createdAtMs: 100,
+			}),
+		).rejects.toThrow("job response is malformed or foreign");
 		expect(journal.getJob(jobRequest.job.job_key)).toBeNull();
 	});
 });

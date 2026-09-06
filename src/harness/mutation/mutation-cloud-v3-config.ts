@@ -88,14 +88,20 @@ function backgroundSetting(value: unknown): BackgroundSetting {
 		: { ok: false, reason: "mutation cloud config background_enabled must be a boolean when present" };
 }
 
-function checkedString(value: unknown, field: string): string {
+/** Exported only so its internal-invariant throw (unreachable via
+ * `parseMutationCloudV3Config` — `preflightConfigFailure` already validated
+ * every field this is called on) can be exercised directly by a test. */
+export function checkedString(value: unknown, field: string): string {
 	if (typeof value !== "string" || value.length === 0) {
 		throw new Error(`internal mutation cloud config parser lost checked ${field}`);
 	}
 	return value;
 }
 
-function checkedPositiveInteger(value: unknown, field: string): number {
+/** Exported only so its internal-invariant throw (unreachable via
+ * `parseMutationCloudV3Config` — `preflightConfigFailure` already validated
+ * every field this is called on) can be exercised directly by a test. */
+export function checkedPositiveInteger(value: unknown, field: string): number {
 	if (!Number.isSafeInteger(value) || Number(value) <= 0) {
 		throw new Error(`internal mutation cloud config parser lost checked ${field}`);
 	}
@@ -198,7 +204,11 @@ function resolvedKeyRegistryFailure(value: Record<string, unknown>): string | nu
 	return roleConflict !== null ? `mutation cloud config ${roleConflict}` : null;
 }
 
-function buildMutationCloudV3Config(
+/** Exported only so its internal-invariant throw on `server_authority`
+ * (unreachable via `parseMutationCloudV3Config` — `preflightConfigFailure`
+ * always runs `authorityFailure` first, which already proved it a JSON
+ * object) can be exercised directly by a test. */
+export function buildMutationCloudV3Config(
 	value: Record<string, unknown>,
 	root: string,
 	backgroundEnabled: boolean,

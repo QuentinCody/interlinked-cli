@@ -12,19 +12,41 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fileIdentity } from "../lib/file-suffix-replacement.js";
 import { sha256File } from "../lib/bounded-file-io.js";
 import type { JsonObject } from "../lib/json-types.js";
 import {
+	removeTemporary,
 	resumePendingActivityRotation,
 	rotateActivityPrefix,
+	storeClaimedActivitySegment,
 } from "./compact-activity-write.js";
 import type { ArchiveManifest } from "./compact-plain.js";
 import {
 	createRotationClaim,
 	rotationClaimPath,
 } from "./compact-rotation-claim.js";
+
+// `node:fs`'s `statSync` is partially mocked (delegates to the real
+// implementation by default, same recipe as compact-plain-rotation.test.ts)
+// so the finalize-time identity race — the live file's identity changing
+// between recoverClaimedActivityRotation's outer check and the re-check
+// inside the mutation lock — can be staged deterministically instead of
+// relying on genuine concurrent processes.
+const { statSyncSpy, actualStatSyncRef } = vi.hoisted(() => ({
+	statSyncSpy: vi.fn(),
+	// SAFETY: only ever holds node:fs's real statSync, assigned once below
+	// before any test runs.
+	actualStatSyncRef: { statSync: null as unknown as (...args: unknown[]) => unknown },
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	actualStatSyncRef.statSync = actual.statSync as unknown as (...args: unknown[]) => unknown;
+	statSyncSpy.mockImplementation(actual.statSync);
+	return { ...actual, statSync: statSyncSpy };
+});
 
 describe("activity rotation — append safety and crash recovery", () => {
 	let root: string;
@@ -42,6 +64,7 @@ describe("activity rotation — append safety and crash recovery", () => {
 		syncStatePath = join(dataDir, "sync-state.json");
 		manifestPath = join(archiveDir, "manifest.json");
 		mkdirSync(archiveDir, { recursive: true });
+		statSyncSpy.mockImplementation(actualStatSyncRef.statSync);
 	});
 
 	afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -466,5 +489,529 @@ describe("activity rotation — append safety and crash recovery", () => {
 		expect(readFileSync(activityPath, "utf8")).toBe(liveTail);
 		expect(existsSync(rotationClaimPath(archiveDir, "activity"))).toBe(true);
 		expect(loadManifest().segments[0]?.records).toBe(999);
+	});
+
+	it("removeTemporary silently absorbs an already-removed temporary file", () => {
+		const missingPath = join(dataDir, "already-gone.tmp");
+		expect(existsSync(missingPath)).toBe(false);
+
+		expect(() => removeTemporary(missingPath)).not.toThrow();
+
+		expect(existsSync(missingPath)).toBe(false);
+	});
+
+	it("removeTemporary rethrows a non-ENOENT unlink failure", () => {
+		expect(() => removeTemporary(archiveDir)).toThrow(/EPERM|EISDIR/);
+		expect(existsSync(archiveDir)).toBe(true);
+	});
+
+	it("storeClaimedActivitySegment refuses to overwrite an already-claimed, non-pending manifest entry", () => {
+		const claim = {
+			version: 1 as const,
+			log: "activity" as const,
+			seq: 1,
+			file: "activity-0001.jsonl.gz",
+			gz_bytes: 5,
+			gzip_sha256: "deadbeef",
+			cut_bytes: 10,
+			records: 2,
+			created_at: "2026-08-31T00:00:00.000Z",
+			source: { dev: "0", ino: "0" },
+			replacement: { dev: "1", ino: "1" },
+			synced_through_bytes: 0,
+		};
+		const deps = {
+			activityPath,
+			archiveDir,
+			syncStatePath,
+			manifestPath,
+			syncState: { synced_through_bytes: 0 },
+			loadManifest: () => ({
+				version: 1 as const,
+				segments: [
+					{
+						seq: 1,
+						file: "activity-0001.jsonl.gz",
+						bytes: 10,
+						gz_bytes: 5,
+						records: 2,
+						created_at: "2026-08-31T00:00:00.000Z",
+					},
+				],
+			}),
+		};
+
+		expect(() => storeClaimedActivitySegment(deps, claim, { dev: "2", ino: "2" })).toThrow(
+			"activity manifest already contains claimed segment activity-0001.jsonl.gz",
+		);
+	});
+
+	it("storeClaimedActivitySegment replaces a pending entry that matches the claim", () => {
+		const claim = {
+			version: 1 as const,
+			log: "activity" as const,
+			seq: 1,
+			file: "activity-0001.jsonl.gz",
+			gz_bytes: 5,
+			gzip_sha256: "deadbeef",
+			cut_bytes: 10,
+			records: 2,
+			created_at: "2026-08-31T00:00:00.000Z",
+			source: { dev: "0", ino: "0" },
+			replacement: { dev: "1", ino: "1" },
+			synced_through_bytes: 0,
+		};
+		const deps = {
+			activityPath,
+			archiveDir,
+			syncStatePath,
+			manifestPath,
+			syncState: { synced_through_bytes: 0 },
+			loadManifest: () => ({
+				version: 1 as const,
+				segments: [
+					{
+						seq: 1,
+						file: "activity-0001.jsonl.gz",
+						bytes: 10,
+						gz_bytes: 5,
+						records: 2,
+						created_at: "2026-08-31T00:00:00.000Z",
+						pending_live_drop: {
+							cut_bytes: 10,
+							source: { dev: "0", ino: "0" },
+							replacement: { dev: "1", ino: "1" },
+							synced_through_bytes: 0,
+						},
+					},
+				],
+			}),
+		};
+
+		const result = storeClaimedActivitySegment(deps, claim, { dev: "3", ino: "3" });
+
+		expect(result).toEqual({
+			seq: 1,
+			file: "activity-0001.jsonl.gz",
+			bytes: 10,
+			gz_bytes: 5,
+			records: 2,
+			created_at: "2026-08-31T00:00:00.000Z",
+			pending_live_drop: {
+				cut_bytes: 10,
+				source: { dev: "0", ino: "0" },
+				replacement: { dev: "3", ino: "3" },
+				synced_through_bytes: 0,
+			},
+		});
+		expect(JSON.parse(readFileSync(manifestPath, "utf8")).segments[0]).toEqual(result);
+	});
+
+	it("returns a dry-run preview of a claim-less pending segment without recovering it", () => {
+		const tail = "tail\n";
+		writeFileSync(activityPath, tail);
+		const segment = {
+			seq: 1,
+			file: "activity-0001.jsonl.gz",
+			bytes: 12,
+			gz_bytes: 4,
+			records: 2,
+			created_at: "2026-08-31T00:00:00.000Z",
+			pending_live_drop: {
+				cut_bytes: 12,
+				source: { dev: "0", ino: "0" },
+				replacement: fileIdentity(activityPath),
+				synced_through_bytes: 7,
+			},
+		};
+		writeFileSync(manifestPath, JSON.stringify({ version: 1, segments: [segment] }));
+
+		const result = resumePendingActivityRotation(
+			{
+				activityPath,
+				archiveDir,
+				syncStatePath,
+				manifestPath,
+				syncState: { synced_through_bytes: 0 },
+				loadManifest,
+			},
+			true,
+		);
+
+		expect(result).toEqual({
+			segment,
+			liveAfterBytes: Buffer.byteLength(tail),
+			syncedThroughBytes: 7,
+			recovered: false,
+		});
+		expect(readFileSync(activityPath, "utf8")).toBe(tail);
+	});
+
+	it("returns a dry-run preview from a durable claim when no pending manifest entry exists", () => {
+		const prefix = "first\nsecond\n";
+		const tail = "tail\n";
+		const original = `${prefix}${tail}`;
+		writeFileSync(activityPath, original);
+		const segmentPath = join(archiveDir, "activity-0001.jsonl.gz");
+		writeFileSync(segmentPath, gzipSync(prefix));
+		createRotationClaim(archiveDir, {
+			version: 1,
+			log: "activity",
+			seq: 1,
+			file: "activity-0001.jsonl.gz",
+			cut_bytes: Buffer.byteLength(prefix),
+			records: 2,
+			gz_bytes: readFileSync(segmentPath).length,
+			gzip_sha256: sha256File(segmentPath),
+			created_at: "2026-08-31T00:00:00.000Z",
+			source: fileIdentity(activityPath),
+			replacement: { dev: "0", ino: "0" },
+			synced_through_bytes: 42,
+		});
+
+		const result = resumePendingActivityRotation(
+			{
+				activityPath,
+				archiveDir,
+				syncStatePath,
+				manifestPath,
+				syncState: { synced_through_bytes: original.length },
+				loadManifest,
+			},
+			true,
+		);
+
+		expect(result).toEqual({
+			segment: {
+				seq: 1,
+				file: "activity-0001.jsonl.gz",
+				bytes: Buffer.byteLength(prefix),
+				gz_bytes: readFileSync(segmentPath).length,
+				records: 2,
+				created_at: "2026-08-31T00:00:00.000Z",
+			},
+			liveAfterBytes: Buffer.byteLength(original),
+			syncedThroughBytes: 42,
+			recovered: false,
+		});
+		expect(readFileSync(activityPath, "utf8")).toBe(original);
+		expect(existsSync(rotationClaimPath(archiveDir, "activity"))).toBe(true);
+	});
+
+	it("refuses a claim-less pending rotation whose source no longer matches the live file", () => {
+		const tail = "tail\n";
+		writeFileSync(activityPath, tail);
+		writeFileSync(
+			manifestPath,
+			JSON.stringify({
+				version: 1,
+				segments: [
+					{
+						seq: 1,
+						file: "activity-0001.jsonl.gz",
+						bytes: 13,
+						gz_bytes: 5,
+						records: 2,
+						created_at: "2026-08-31T00:00:00.000Z",
+						pending_live_drop: {
+							cut_bytes: 13,
+							source: { dev: "0", ino: "0" },
+							replacement: { dev: "1", ino: "1" },
+							synced_through_bytes: 0,
+						},
+					},
+				],
+			}),
+		);
+
+		expect(() =>
+			resumePendingActivityRotation(
+				{
+					activityPath,
+					archiveDir,
+					syncStatePath,
+					manifestPath,
+					syncState: { synced_through_bytes: 0 },
+					loadManifest,
+				},
+				false,
+			),
+		).toThrow(/pending activity rotation no longer matches the live file identity/);
+		expect(readFileSync(activityPath, "utf8")).toBe(tail);
+	});
+
+	it("finalizes a claimed replacement into a fresh manifest entry when none exists yet", () => {
+		const prefix = "first\nsecond\n";
+		const tail = "tail\n";
+		writeFileSync(activityPath, tail);
+		const segmentPath = join(archiveDir, "activity-0001.jsonl.gz");
+		writeFileSync(segmentPath, gzipSync(prefix));
+		const claim = {
+			version: 1 as const,
+			log: "activity" as const,
+			seq: 1,
+			file: "activity-0001.jsonl.gz",
+			cut_bytes: Buffer.byteLength(prefix),
+			records: 2,
+			gz_bytes: readFileSync(segmentPath).length,
+			gzip_sha256: sha256File(segmentPath),
+			created_at: "2026-08-31T00:00:00.000Z",
+			source: { dev: "0", ino: "0" },
+			replacement: fileIdentity(activityPath),
+			synced_through_bytes: 3,
+		};
+		createRotationClaim(archiveDir, claim);
+
+		const result = resumePendingActivityRotation(
+			{
+				activityPath,
+				archiveDir,
+				syncStatePath,
+				manifestPath,
+				syncState: { synced_through_bytes: 0 },
+				loadManifest,
+			},
+			false,
+		);
+
+		expect(result).toEqual({
+			segment: {
+				seq: 1,
+				file: "activity-0001.jsonl.gz",
+				bytes: claim.cut_bytes,
+				gz_bytes: claim.gz_bytes,
+				records: 2,
+				created_at: claim.created_at,
+			},
+			liveAfterBytes: Buffer.byteLength(tail),
+			syncedThroughBytes: 3,
+			recovered: true,
+		});
+		expect(loadManifest().segments).toEqual([
+			{
+				seq: 1,
+				file: "activity-0001.jsonl.gz",
+				bytes: claim.cut_bytes,
+				gz_bytes: claim.gz_bytes,
+				records: 2,
+				created_at: claim.created_at,
+			},
+		]);
+		expect(existsSync(rotationClaimPath(archiveDir, "activity"))).toBe(false);
+		expect(JSON.parse(readFileSync(syncStatePath, "utf8")).synced_through_bytes).toBe(3);
+	});
+
+	it("replaces a fully-recovered manifest entry when finalizing a claimed replacement again", () => {
+		const prefix = "first\nsecond\n";
+		const tail = "tail\n";
+		writeFileSync(activityPath, tail);
+		const segmentPath = join(archiveDir, "activity-0001.jsonl.gz");
+		writeFileSync(segmentPath, gzipSync(prefix));
+		const claim = {
+			version: 1 as const,
+			log: "activity" as const,
+			seq: 1,
+			file: "activity-0001.jsonl.gz",
+			cut_bytes: Buffer.byteLength(prefix),
+			records: 2,
+			gz_bytes: readFileSync(segmentPath).length,
+			gzip_sha256: sha256File(segmentPath),
+			created_at: "2026-08-31T00:00:00.000Z",
+			source: { dev: "0", ino: "0" },
+			replacement: fileIdentity(activityPath),
+			synced_through_bytes: 4,
+		};
+		createRotationClaim(archiveDir, claim);
+		writeFileSync(
+			manifestPath,
+			JSON.stringify({
+				version: 1,
+				segments: [
+					{
+						seq: 1,
+						file: "activity-0001.jsonl.gz",
+						bytes: claim.cut_bytes,
+						gz_bytes: claim.gz_bytes,
+						records: 2,
+						created_at: claim.created_at,
+						recovered: true,
+					},
+				],
+			}),
+		);
+
+		const result = resumePendingActivityRotation(
+			{
+				activityPath,
+				archiveDir,
+				syncStatePath,
+				manifestPath,
+				syncState: { synced_through_bytes: 0 },
+				loadManifest,
+			},
+			false,
+		);
+
+		expect(result?.recovered).toBe(true);
+		expect(loadManifest().segments).toEqual([
+			{
+				seq: 1,
+				file: "activity-0001.jsonl.gz",
+				bytes: claim.cut_bytes,
+				gz_bytes: claim.gz_bytes,
+				records: 2,
+				created_at: claim.created_at,
+			},
+		]);
+		expect(existsSync(rotationClaimPath(archiveDir, "activity"))).toBe(false);
+	});
+
+	it("refuses a claim whose source and replacement both mismatch the live file", () => {
+		const activityContent = "unrelated\n";
+		writeFileSync(activityPath, activityContent);
+		createRotationClaim(archiveDir, {
+			version: 1,
+			log: "activity",
+			seq: 1,
+			file: "activity-0001.jsonl.gz",
+			cut_bytes: 5,
+			records: 1,
+			gz_bytes: 5,
+			gzip_sha256: "0".repeat(64),
+			created_at: "2026-08-31T00:00:00.000Z",
+			source: { dev: "0", ino: "0" },
+			replacement: { dev: "1", ino: "1" },
+			synced_through_bytes: 0,
+		});
+
+		expect(() =>
+			resumePendingActivityRotation(
+				{
+					activityPath,
+					archiveDir,
+					syncStatePath,
+					manifestPath,
+					syncState: { synced_through_bytes: 0 },
+					loadManifest,
+				},
+				false,
+			),
+		).toThrow(/claimed activity rotation no longer matches the live file identity/);
+		expect(readFileSync(activityPath, "utf8")).toBe(activityContent);
+	});
+
+	it("surfaces a disappeared durable claim at finalization instead of losing the published segment silently", () => {
+		const original = "first\nsecond\ntail\n";
+		writeFileSync(activityPath, original);
+		const syncState: JsonObject = { synced_through_bytes: Buffer.byteLength(original) };
+		writeFileSync(syncStatePath, JSON.stringify(syncState));
+
+		expect(() =>
+			rotateActivityPrefix(
+				{
+					activityPath,
+					syncStatePath,
+					archiveDir,
+					manifestPath,
+					cutByte: Buffer.byteLength("first\nsecond\n"),
+					records: 2,
+					syncedBytes: Buffer.byteLength(original),
+					source: fileIdentity(activityPath),
+					syncState,
+					loadManifest,
+					nextSequence: () => 1,
+				},
+				() => null,
+			),
+		).toThrow(/activity rotation claim disappeared before finalization/);
+	});
+});
+
+describe("activity rotation — finalize-time identity race", () => {
+	let root: string;
+	let dataDir: string;
+	let archiveDir: string;
+	let activityPath: string;
+	let syncStatePath: string;
+	let manifestPath: string;
+
+	function loadManifest(): ArchiveManifest {
+		if (!existsSync(manifestPath)) return { version: 1, segments: [] };
+		return JSON.parse(readFileSync(manifestPath, "utf8")) as ArchiveManifest;
+	}
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "interlinked-activity-race-"));
+		dataDir = join(root, ".interlinked");
+		archiveDir = join(dataDir, "archive");
+		activityPath = join(dataDir, "activity.jsonl");
+		syncStatePath = join(dataDir, "sync-state.json");
+		manifestPath = join(archiveDir, "manifest.json");
+		mkdirSync(archiveDir, { recursive: true });
+		statSyncSpy.mockImplementation(actualStatSyncRef.statSync);
+	});
+
+	afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+	it("refuses to finalize when the live file changes identity after the outer check but before the lock", () => {
+		const prefix = "first\nsecond\n";
+		const tail = "tail\n";
+		writeFileSync(activityPath, tail);
+		const segmentPath = join(archiveDir, "activity-0001.jsonl.gz");
+		writeFileSync(segmentPath, gzipSync(prefix));
+		const claim = {
+			version: 1 as const,
+			log: "activity" as const,
+			seq: 1,
+			file: "activity-0001.jsonl.gz",
+			cut_bytes: Buffer.byteLength(prefix),
+			records: 2,
+			gz_bytes: readFileSync(segmentPath).length,
+			gzip_sha256: sha256File(segmentPath),
+			created_at: "2026-08-31T00:00:00.000Z",
+			source: { dev: "0", ino: "0" },
+			replacement: fileIdentity(activityPath),
+			synced_through_bytes: 3,
+		};
+		createRotationClaim(archiveDir, claim);
+
+		// The outer `recoverClaimedActivityRotation` check sees the real
+		// identity (matches claim.replacement, routing into the
+		// already-renamed path). The SECOND bigint-identity read of the same
+		// path — inside the mutation lock, right before finalizing — is
+		// answered with a different identity, modeling another process
+		// replacing the file in the gap between the two checks.
+		let bigintReadsOfActivity = 0;
+		statSyncSpy.mockImplementation((path: unknown, options?: unknown) => {
+			const isBigintIdentityRead =
+				path === activityPath &&
+				typeof options === "object" &&
+				options !== null &&
+				(options as { bigint?: boolean }).bigint === true;
+			if (isBigintIdentityRead) {
+				bigintReadsOfActivity += 1;
+				if (bigintReadsOfActivity === 2) {
+					return { dev: 999_999n, ino: 999_999n };
+				}
+			}
+			return (actualStatSyncRef.statSync as (...a: unknown[]) => unknown)(path, options);
+		});
+
+		expect(() =>
+			resumePendingActivityRotation(
+				{
+					activityPath,
+					archiveDir,
+					syncStatePath,
+					manifestPath,
+					syncState: { synced_through_bytes: 0 },
+					loadManifest,
+				},
+				false,
+			),
+		).toThrow("activity log changed while finalizing a claimed rotation");
+		expect(bigintReadsOfActivity).toBeGreaterThanOrEqual(2);
+		// The claim is preserved for a future retry, not silently discarded.
+		expect(existsSync(rotationClaimPath(archiveDir, "activity"))).toBe(true);
 	});
 });

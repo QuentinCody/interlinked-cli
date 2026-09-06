@@ -101,7 +101,8 @@ function asList(ts: TsModule, node: TS.Statement | undefined): readonly TS.State
 	return ts.isBlock(node) ? node.statements : [node];
 }
 
-function loopSubject(ts: TsModule, node: TS.Node): TS.Node | undefined {
+/** Exported: its `undefined` fallback is unreachable via `planCognitiveFlattening`. */
+export function loopSubject(ts: TsModule, node: TS.Node): TS.Node | undefined {
 	if (ts.isForOfStatement(node) || ts.isForInStatement(node)) return node.expression;
 	if (ts.isForStatement(node)) return node.condition;
 	if (ts.isWhileStatement(node) || ts.isDoStatement(node)) return node.expression;

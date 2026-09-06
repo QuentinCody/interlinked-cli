@@ -72,4 +72,66 @@ describe("simplification capability catalog", () => {
 		invalid.entries.unshift({ ...invalid.entries[0]!, id: "z-last" });
 		expect(parseSimplificationCapabilityCatalog(invalid).ok).toBe(false);
 	});
+
+	it("rejects a provenance object carrying an unexpected key", () => {
+		const withExtraKey = fixture() as { entries: Array<Record<string, unknown>> };
+		// SAFETY: fixture() always sets entries[0].provenance to a plain object literal.
+		const provenance = withExtraKey.entries[0]!.provenance as Record<string, unknown>;
+		withExtraKey.entries[0]!.provenance = { ...provenance, extra_field: "unexpected" };
+		const result = parseSimplificationCapabilityCatalog(withExtraKey);
+		expect(result).toEqual({ ok: false, reason: "capability catalog contains an invalid entry" });
+	});
+
+	it("rejects a provenance whose checked_at is not a canonical ISO timestamp", () => {
+		const badTimestamp = fixture() as { entries: Array<Record<string, unknown>> };
+		// SAFETY: fixture() always sets entries[0].provenance to a plain object literal.
+		const provenance = badTimestamp.entries[0]!.provenance as Record<string, unknown>;
+		badTimestamp.entries[0]!.provenance = { ...provenance, checked_at: "2026-08-30" };
+		const result = parseSimplificationCapabilityCatalog(badTimestamp);
+		expect(result).toEqual({ ok: false, reason: "capability catalog contains an invalid entry" });
+	});
+
+	it("rejects an entry with an empty capability field", () => {
+		const emptyCapability = fixture() as { entries: Array<Record<string, unknown>> };
+		emptyCapability.entries[0]!.capability = "";
+		const result = parseSimplificationCapabilityCatalog(emptyCapability);
+		expect(result).toEqual({ ok: false, reason: "capability catalog contains an invalid entry" });
+	});
+
+	it("rejects an entry with a support value outside the closed set", () => {
+		const badSupport = fixture() as { entries: Array<Record<string, unknown>> };
+		badSupport.entries[0]!.support = "sometimes";
+		// equivalence must stay off "fixture-validated" so the ONLY rejection path
+		// is the support member check, not the downstream support/equivalence
+		// consistency check (both share the same generic reason string).
+		badSupport.entries[0]!.equivalence = "contract-checked";
+		const result = parseSimplificationCapabilityCatalog(badSupport);
+		expect(result).toEqual({ ok: false, reason: "capability catalog contains an invalid entry" });
+	});
+
+	it("rejects an entry object carrying an unexpected key", () => {
+		const extraKey = fixture() as { entries: Array<Record<string, unknown>> };
+		extraKey.entries[0]!.extra_field = "unexpected";
+		const result = parseSimplificationCapabilityCatalog(extraKey);
+		expect(result).toEqual({ ok: false, reason: "capability catalog contains an invalid entry" });
+	});
+
+	it("rejects catalog input that is not a plain JSON object", () => {
+		const result = parseSimplificationCapabilityCatalog("not-a-catalog");
+		expect(result).toEqual({
+			ok: false,
+			reason: "capability catalog has an unknown or missing field",
+		});
+	});
+
+	it("rejects a catalog whose entries field is not an array", () => {
+		// SAFETY: fixture() always returns a plain object literal with an entries key.
+		const raw = fixture() as Record<string, unknown>;
+		raw.entries = "not-an-array";
+		const result = parseSimplificationCapabilityCatalog(raw);
+		expect(result).toEqual({
+			ok: false,
+			reason: "capability catalog version, id, or entries are invalid",
+		});
+	});
 });

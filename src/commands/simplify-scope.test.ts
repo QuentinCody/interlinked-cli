@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { repositoryIdentity, resolveReviewScope } from "./simplify-scope.js";
 
@@ -106,6 +107,35 @@ describe("resolveReviewScope", () => {
 			resolveReviewScope({ cwd: fixture, kind: "range", range: "--output=/tmp/x" }),
 		).toThrow("--range must be an explicit");
 	});
+
+	// test-contract: error-path — a required git call that throws is wrapped
+	// with the caller's own diagnostic message, not the raw git error
+	it("wraps a failed required git call with the staged-discovery message", () => {
+		const failingGit = () => {
+			throw new Error("git executable not found");
+		};
+		expect(() =>
+			resolveReviewScope({ cwd: fixture, kind: "staged", git: failingGit }),
+		).toThrow("staged-file discovery requires a readable git index");
+	});
+
+	// test-contract: error-path — every optional git probe failing (no git,
+	// no worktree) surfaces one readable-worktree error instead of a crash
+	it("reports an unreadable worktree when every changed-path probe fails", () => {
+		const failingGit = () => {
+			throw new Error("not a git repository");
+		};
+		expect(() =>
+			resolveReviewScope({ cwd: fixture, kind: "changed", git: failingGit }),
+		).toThrow("changed-file discovery requires a readable git worktree");
+	});
+
+	// test-contract: boundary — the range kind requires an explicit --range
+	it("requires --range for the range scope", () => {
+		expect(() => resolveReviewScope({ cwd: fixture, kind: "range" })).toThrow(
+			"review range scope requires --range <base>..<head>",
+		);
+	});
 });
 
 describe("repositoryIdentity", () => {
@@ -119,5 +149,53 @@ describe("repositoryIdentity", () => {
 		expect(after.head_sha).toBe(before.head_sha);
 		expect(after.tree_sha).toBe(before.tree_sha);
 		expect(after.working_tree_sha256).not.toBe(before.working_tree_sha256);
+	});
+
+	// test-contract: error-path — a listed file that cannot be read hashes to
+	// a stable placeholder instead of throwing, so a deleted/missing file
+	// still yields a deterministic identity
+	it("hashes a missing file to the documented unreadable placeholder", () => {
+		const missing = join(fixture, "src/missing.ts");
+		const identity = repositoryIdentity({ cwd: fixture, files: [missing] });
+		expect(identity.working_tree_sha256).toBe(
+			"ebc4932b57b83e431136bfca9278fe4ae1cb85f6d78d2f4f4eb5b723cf7e1be4",
+		);
+	});
+
+	// test-contract: normalization — an SSH remote and an HTTPS remote for the
+	// same host/org/repo collapse to the same repository_id
+	it("normalizes ssh and https remote URLs to the same repository id", () => {
+		git(["remote", "add", "origin", "git@github.com:Acme/Widget.git"]);
+		const sshIdentity = repositoryIdentity({ cwd: fixture, files: [] });
+		expect(sshIdentity.repository_id).toBe("repo-eabda43ba8a9435f506282ba");
+
+		const httpsFixture = mkdtempSync(join(tmpdir(), "interlinked-simplify-scope-https-"));
+		execFileSync("git", ["init", "-q"], { cwd: httpsFixture, stdio: ["pipe", "pipe", "pipe"] });
+		execFileSync(
+			"git",
+			["remote", "add", "origin", "https://github.com/Acme/Widget"],
+			{ cwd: httpsFixture, stdio: ["pipe", "pipe", "pipe"] },
+		);
+		const httpsIdentity = repositoryIdentity({ cwd: httpsFixture, files: [] });
+		rmSync(httpsFixture, { recursive: true, force: true });
+
+		expect(httpsIdentity.repository_id).toBe(sshIdentity.repository_id);
+	});
+
+	// test-contract: fallback — with no remote and no root commit, the id
+	// falls back to the local directory name, tolerating a missing
+	// package.json rather than throwing
+	it("falls back to the working-directory name when there is no remote or commit", () => {
+		const emptyDir = mkdtempSync(join(tmpdir(), "interlinked-simplify-scope-empty-"));
+		execFileSync("git", ["init", "-q"], { cwd: emptyDir, stdio: ["pipe", "pipe", "pipe"] });
+		const identity = repositoryIdentity({ cwd: emptyDir, files: [] });
+		rmSync(emptyDir, { recursive: true, force: true });
+
+		const expected = `repo-${createHash("sha256")
+			.update(`local\0${basename(emptyDir)}`)
+			.digest("hex")
+			.slice(0, 24)}`;
+		expect(identity.repository_id).toBe(expected);
+		expect(identity.head_sha).toBeNull();
 	});
 });

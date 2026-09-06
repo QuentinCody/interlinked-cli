@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -268,5 +268,168 @@ describe("deliverOneMutationFinding", () => {
 				target: "src/answer.ts",
 			},
 		});
+	});
+
+	it("rejects a root that resolves to a filesystem root before claiming the journal", async () => {
+		const journal = outbox([null]);
+
+		await expect(deliverOneMutationFinding({
+			root: "/",
+			owner: "daemon-a",
+			leaseMs: 1_000,
+			journal,
+			clock: () => 100,
+		})).rejects.toThrow("mutation finding delivery root must not be a filesystem root");
+		expect(journal.claimOutbox).not.toHaveBeenCalled();
+	});
+
+	it("falls back to the generic message when the finding category is not recognized", async () => {
+		const journal = outbox([claim({ payload: findingPayload({ category: "bogus-category" }) })]);
+		const records: MutationFindingDeliveryRecord[] = [];
+
+		const outcome = await deliverOneMutationFinding({
+			root: await createRoot(),
+			owner: "daemon-a",
+			leaseMs: 1_000,
+			journal,
+			clock: () => 100,
+			append: async (_root, record) => void records.push(record),
+		});
+
+		expect(surfacedMessage(outcome)).toContain("authenticated local journal");
+		expect(records[0]?.payload).toMatchObject({ finding_version: "unrecognized", category: "unknown" });
+	});
+
+	it("falls back to the generic message when the finding verdict is not recognized", async () => {
+		const journal = outbox([claim({ payload: findingPayload({ verdict: "bogus-verdict" }) })]);
+		const records: MutationFindingDeliveryRecord[] = [];
+
+		const outcome = await deliverOneMutationFinding({
+			root: await createRoot(),
+			owner: "daemon-a",
+			leaseMs: 1_000,
+			journal,
+			clock: () => 100,
+			append: async (_root, record) => void records.push(record),
+		});
+
+		expect(surfacedMessage(outcome)).toContain("authenticated local journal");
+		expect(records[0]?.payload).toMatchObject({ finding_version: "unrecognized", category: "unknown" });
+	});
+
+	it("falls back to the generic message when the finding target escapes the repo root", async () => {
+		const journal = outbox([claim({ payload: findingPayload({ target: "/etc/passwd" }) })]);
+		const records: MutationFindingDeliveryRecord[] = [];
+
+		const outcome = await deliverOneMutationFinding({
+			root: await createRoot(),
+			owner: "daemon-a",
+			leaseMs: 1_000,
+			journal,
+			clock: () => 100,
+			append: async (_root, record) => void records.push(record),
+		});
+
+		expect(surfacedMessage(outcome)).toContain("authenticated local journal");
+		expect(records[0]?.payload).toMatchObject({ finding_version: "unrecognized", category: "unknown" });
+	});
+
+	it("falls back to the generic message when the semantic finding fingerprint is not a sha256 hex digest", async () => {
+		const journal = outbox([claim({ payload: findingPayload({ semantic_finding_fingerprint: "not-a-hash" }) })]);
+		const records: MutationFindingDeliveryRecord[] = [];
+
+		const outcome = await deliverOneMutationFinding({
+			root: await createRoot(),
+			owner: "daemon-a",
+			leaseMs: 1_000,
+			journal,
+			clock: () => 100,
+			append: async (_root, record) => void records.push(record),
+		});
+
+		expect(surfacedMessage(outcome)).toContain("authenticated local journal");
+		expect(records[0]?.payload).toMatchObject({ finding_version: "unrecognized", category: "unknown" });
+	});
+
+	it("falls back to the generic message when the acceptance receipt hash is not a sha256 hex digest", async () => {
+		const journal = outbox([claim({ payload: findingPayload({ acceptance_receipt_hash: "not-a-hash" }) })]);
+		const records: MutationFindingDeliveryRecord[] = [];
+
+		const outcome = await deliverOneMutationFinding({
+			root: await createRoot(),
+			owner: "daemon-a",
+			leaseMs: 1_000,
+			journal,
+			clock: () => 100,
+			append: async (_root, record) => void records.push(record),
+		});
+
+		expect(surfacedMessage(outcome)).toContain("authenticated local journal");
+		expect(records[0]?.payload).toMatchObject({ finding_version: "unrecognized", category: "unknown" });
+	});
+
+	it("retries at the sink stage when the real append target is a symlink instead of a real directory", async () => {
+		const repoRoot = await createRoot();
+		const realDir = join(repoRoot, "actual-dir");
+		await mkdir(realDir, { recursive: true });
+		await symlink(realDir, join(repoRoot, ".interlinked"));
+		const journal = outbox([claim()]);
+
+		const outcome = await deliverOneMutationFinding({
+			root: repoRoot,
+			owner: "daemon-a",
+			leaseMs: 1_000,
+			journal,
+			clock: () => 100,
+		});
+
+		expect(outcome).toMatchObject({ kind: "retry", stage: "sink", outboxId: OUTBOX_ID });
+		expect(journal.releaseOutbox).toHaveBeenCalledWith({
+			outboxId: OUTBOX_ID,
+			leaseToken: LEASE_TOKEN,
+			nowMs: 100,
+		});
+	});
+
+	it("reports lost_lease at the release stage when releasing after a sink failure itself throws", async () => {
+		const journal = outbox([claim()]);
+		journal.releaseOutbox.mockImplementation(() => {
+			throw new Error("journal store unavailable");
+		});
+		const append = vi.fn(async () => {
+			throw new Error("disk unavailable");
+		});
+
+		const outcome = await deliverOneMutationFinding({
+			root: await createRoot(),
+			owner: "daemon-a",
+			leaseMs: 1_000,
+			journal,
+			clock: () => 100,
+			append,
+		});
+
+		expect(outcome).toMatchObject({ kind: "lost_lease", stage: "release", outboxId: OUTBOX_ID });
+		expect(journal.acknowledgeOutbox).not.toHaveBeenCalled();
+	});
+
+	it("retries at the acknowledge stage when acknowledging after a successful append throws", async () => {
+		const journal = outbox([claim()]);
+		journal.acknowledgeOutbox.mockImplementation(() => {
+			throw new Error("journal store unavailable");
+		});
+		const append = vi.fn(async () => undefined);
+
+		const outcome = await deliverOneMutationFinding({
+			root: await createRoot(),
+			owner: "daemon-a",
+			leaseMs: 1_000,
+			journal,
+			clock: () => 100,
+			append,
+		});
+
+		expect(outcome).toMatchObject({ kind: "retry", stage: "acknowledge", outboxId: OUTBOX_ID });
+		expect(surfacedMessage(outcome)).toContain("authenticated local journal");
 	});
 });

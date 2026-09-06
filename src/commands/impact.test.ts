@@ -717,4 +717,136 @@ describe("impact evidence", () => {
 			},
 		});
 	});
+
+	it("prints the default normal-mode text with rendered potential, sandbox, and unavailable-causal lines", async () => {
+		seedObservedSources();
+		recordSimplification(
+			[
+				simplificationFinding("a", {
+					overlapGroup: "shared",
+					estimated: { loc: -5, dependencies_removed: ["alpha"] },
+				}),
+				simplificationFinding("b", {
+					overlapGroup: "shared",
+					estimated: { loc: -10, dependencies_removed: ["strongest"] },
+				}),
+				simplificationFinding("c", {
+					estimated: { loc: -2, dependencies_removed: ["independent"] },
+				}),
+			],
+			"2026-08-30T10:00:00.000Z",
+		);
+		const lines: string[] = [];
+		const spy = vi.spyOn(console, "log").mockImplementation((value: unknown) => {
+			lines.push(String(value));
+		});
+		let exitCode: number;
+		try {
+			exitCode = await impactCommand({ cwd: root });
+		} finally {
+			spy.mockRestore();
+		}
+		expect(exitCode).toBe(0);
+		const text = lines.join("\n");
+		expect(text.startsWith("Impact evidence\n")).toBe(true);
+		expect(text).toContain(
+			"[potential:recorded] 2 representative finding(s), LOC delta -12; dependencies removed: independent, strongest",
+		);
+		expect(text).toContain(
+			"[sandbox-validated:not-recorded] 0 representative finding(s), LOC delta unavailable; dependency delta unavailable",
+		);
+		expect(text).toContain("[causal:not-recorded] No controlled-experiment manifest was supplied.");
+		expect(text).toContain("[observed:recorded] git HEAD..worktree: 2 tracked file(s)");
+		expect(text).toContain("; 1 untracked");
+		expect(text).toContain("[observed:recorded] dependencies: +1/-1, 1 version change(s)");
+		expect(text).toContain("[observed:recorded] baseline folds: 1 event(s) across 1 kind(s)");
+		expect(text).toContain(
+			"[observed:recorded] activity: 1 session(s), 3 tool call(s), 1 edit event(s), +1/-0 gross lines",
+		);
+		expect(text).toContain(
+			"[observed:recorded] review findings: 1 total — 0 open, 1 touched, 0 acked",
+		);
+	});
+
+	it("reports available causal evidence through the passed experiment manifest in normal mode", async () => {
+		const manifest = causalManifest();
+		seedCausalArtifacts(manifest);
+		write("experiment.json", JSON.stringify(manifest));
+		const lines: string[] = [];
+		const spy = vi.spyOn(console, "log").mockImplementation((value: unknown) => {
+			lines.push(String(value));
+		});
+		let exitCode: number;
+		try {
+			exitCode = await impactCommand({ cwd: root, experimentManifest: "experiment.json" });
+		} finally {
+			spy.mockRestore();
+		}
+		expect(exitCode).toBe(0);
+		const text = lines.join("\n");
+		expect(text).toContain(
+			"[causal:available] paired-simplification-001: The treatment reduced accepted implementation LOC in this pinned task suite.; artifacts verified, 0 protected-behavior regression(s), 20/20 run(s) scored",
+		);
+	});
+
+	it("collapses every evidence line into one middle-dot-joined summary in --short mode", async () => {
+		const lines: string[] = [];
+		const spy = vi.spyOn(console, "log").mockImplementation((value: unknown) => {
+			lines.push(String(value));
+		});
+		let exitCode: number;
+		try {
+			exitCode = await impactCommand({ cwd: root, short: true });
+		} finally {
+			spy.mockRestore();
+		}
+		expect(exitCode).toBe(0);
+		expect(lines).toHaveLength(1);
+		const text = lines[0]!;
+		expect(text).not.toContain("\n");
+		expect(text).toContain(" · ");
+		expect(text).toContain("[receipts:not-recorded]");
+		expect(text).toContain("[causal:not-recorded] No controlled-experiment manifest was supplied.");
+	});
+
+	it("prints extended scope and path detail through --full", async () => {
+		const lines: string[] = [];
+		const spy = vi.spyOn(console, "log").mockImplementation((value: unknown) => {
+			lines.push(String(value));
+		});
+		let exitCode: number;
+		try {
+			exitCode = await impactCommand({ cwd: root, full: true });
+		} finally {
+			spy.mockRestore();
+		}
+		expect(exitCode).toBe(0);
+		const text = lines.join("\n");
+		expect(text.startsWith("Impact evidence\n")).toBe(true);
+		expect(text).toContain(`Simplification receipt path: ${simplificationRunsPath(root)}`);
+		expect(text).toContain("Manual debt latest source scope:");
+		expect(text).toContain("Baseline fold kinds:");
+	});
+
+	it("writes a human-readable error to stderr instead of JSON when --json is not requested", async () => {
+		// vi.spyOn(process.stderr, "write") does not observe calls in this
+		// runtime (the stream's write accessor is not a plain own property),
+		// so capture with a plain reassignment instead.
+		const captured: string[] = [];
+		const originalWrite = process.stderr.write;
+		process.stderr.write = ((chunk: string) => {
+			captured.push(chunk);
+			return true;
+		}) as typeof process.stderr.write;
+		let exitCode: number;
+		try {
+			exitCode = await impactCommand({ cwd: root, experimentManifest: "missing.json" });
+		} finally {
+			process.stderr.write = originalWrite;
+		}
+		expect(exitCode).toBe(1);
+		expect(captured.join("")).toContain(
+			"Impact evidence unavailable: Explicit experiment manifest is unreadable",
+		);
+	});
 });

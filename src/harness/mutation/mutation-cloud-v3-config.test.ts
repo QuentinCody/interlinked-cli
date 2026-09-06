@@ -8,6 +8,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
 	MAX_MUTATION_CLOUD_V3_CONFIG_BYTES,
 	MUTATION_CLOUD_V3_LOCAL_CONFIG,
+	buildMutationCloudV3Config,
+	checkedPositiveInteger,
+	checkedString,
 	loadMutationCloudV3Config,
 	parseMutationCloudV3Config,
 } from "./mutation-cloud-v3-config.js";
@@ -139,6 +142,58 @@ describe("parseMutationCloudV3Config", () => {
 	it("allows HTTP only for an explicit loopback development endpoint", () => {
 		const local = { ...validConfig(), base_url: "http://127.0.0.1:8787" };
 		expect(parseMutationCloudV3Config(local, "/repo").ok).toBe(true);
+	});
+
+	it("rejects a base_url that cannot be parsed as a URL at all", () => {
+		const parsed = parseMutationCloudV3Config({ ...validConfig(), base_url: "not a url" }, "/repo");
+		expect(parsed).toMatchObject({
+			ok: false,
+			reason: "mutation cloud config base_url must be an absolute URL",
+		});
+	});
+
+	it("rejects a server_authority missing one of its two required keys", () => {
+		const parsed = parseMutationCloudV3Config(
+			{ ...validConfig(), server_authority: { tenant: "tenant-1" } },
+			"/repo",
+		);
+		expect(parsed).toMatchObject({
+			ok: false,
+			reason: "mutation cloud config server_authority must contain exactly tenant and project",
+		});
+	});
+
+	it("rejects a contract_digest that is not lowercase sha-256 hex", () => {
+		const parsed = parseMutationCloudV3Config({ ...validConfig(), contract_digest: "not-a-digest" }, "/repo");
+		expect(parsed).toMatchObject({
+			ok: false,
+			reason: "mutation cloud config contract_digest must be lowercase sha-256 hex",
+		});
+	});
+});
+
+describe("internal parser invariants (unreachable via parseMutationCloudV3Config)", () => {
+	// preflightConfigFailure validates every field these three functions read
+	// before parseMutationCloudV3Config ever calls them, so the throws below
+	// can't be reached through the public entry point. They stay as defensive
+	// checks against a future caller that skips preflight; exercised directly.
+
+	it("checkedString throws naming the field once its non-empty-string invariant is violated", () => {
+		expect(() => checkedString(42, "widget_name")).toThrow(
+			"internal mutation cloud config parser lost checked widget_name",
+		);
+	});
+
+	it("checkedPositiveInteger throws naming the field once its positive-integer invariant is violated", () => {
+		expect(() => checkedPositiveInteger(-3, "widget_count")).toThrow(
+			"internal mutation cloud config parser lost checked widget_count",
+		);
+	});
+
+	it("buildMutationCloudV3Config throws when server_authority was never validated as an object", () => {
+		expect(() => buildMutationCloudV3Config({ server_authority: "tenant-1" }, "/repo", false)).toThrow(
+			"internal mutation cloud config parser lost checked server_authority",
+		);
 	});
 });
 

@@ -49,7 +49,7 @@ import {
 } from "./lib/post-tool-warning-spool-client.js";
 
 // Re-export for back-compat: tests import these from "./hook-entry.js".
-export { isCodeEditEvent, discoverSocket };
+export { isCodeEditEvent, discoverSocket, recoveryAttemptNotice };
 
 export interface HookEntryOptions {
 	/** The native hook event name the runner emitted. */

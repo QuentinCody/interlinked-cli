@@ -188,4 +188,173 @@ describe("mutation cloud v3 background scheduler", () => {
 			intervalMs: 999,
 		}, deps)).toThrow("at least 1000ms");
 	});
+
+	it("reports a dead-lettered job by name, stage, and reason", async () => {
+		const deadLetter: MutationCloudV3ProcessResult = {
+			processor: { kind: "dead_letter", jobId: "job-9", stage: "poll", reason: "manifest checksum mismatch", failureCount: 3 },
+			evaluation: null,
+		};
+		const deps = dependencies({ processNext: async () => deadLetter });
+		const log = vi.fn();
+		const background = startMutationCloudV3Background(
+			{ root: "/repo", log, intervalMs: 60_000 },
+			deps,
+		);
+
+		expect(await background.tick()).toBe("processed");
+		expect(log).toHaveBeenCalledWith(
+			"Mutation cloud background job job-9 was dead-lettered during poll: manifest checksum mismatch",
+		);
+		background.stop();
+	});
+
+	it("reports a job that lost its local lease mid-cycle", async () => {
+		const lostLease: MutationCloudV3ProcessResult = {
+			processor: { kind: "lost_lease", jobId: "job-7", stage: "journal_ack" },
+			evaluation: null,
+		};
+		const deps = dependencies({ processNext: async () => lostLease });
+		const log = vi.fn();
+		const background = startMutationCloudV3Background(
+			{ root: "/repo", log, intervalMs: 60_000 },
+			deps,
+		);
+
+		expect(await background.tick()).toBe("processed");
+		expect(log).toHaveBeenCalledWith(
+			"Mutation cloud background job job-7 lost its local lease during journal_ack; it was not treated as clean.",
+		);
+		background.stop();
+	});
+
+	it("reports a job scheduled for retry with its stage and reason", async () => {
+		const retry: MutationCloudV3ProcessResult = {
+			processor: { kind: "retry", jobId: "job-3", stage: "poll", reason: "remote timeout" },
+			evaluation: null,
+		};
+		const deps = dependencies({ processNext: async () => retry });
+		const log = vi.fn();
+		const background = startMutationCloudV3Background(
+			{ root: "/repo", log, intervalMs: 60_000 },
+			deps,
+		);
+
+		expect(await background.tick()).toBe("processed");
+		expect(log).toHaveBeenCalledWith(
+			"Mutation cloud background job job-3 remains durable for retry after poll: remote timeout",
+		);
+		background.stop();
+	});
+
+	it("reports a finding that lost its delivery lease before it could be released", async () => {
+		const lostLease: MutationFindingDeliveryOutcome = {
+			kind: "lost_lease",
+			outboxId: `1:${"c".repeat(64)}`,
+			stage: "release",
+			message: "[interlinked:mutation] adverse result",
+		};
+		const deps = dependencies({ deliverOneFinding: async () => lostLease });
+		const log = vi.fn();
+		const background = startMutationCloudV3Background(
+			{ root: "/repo", log, intervalMs: 60_000 },
+			deps,
+		);
+
+		expect(await background.tick()).toBe("processed");
+		expect(log).toHaveBeenCalledWith(
+			`Mutation cloud finding 1:${"c".repeat(64)} lost its local delivery lease during release; it remains in the durable feed.`,
+		);
+		background.stop();
+	});
+
+	it("reports a finding scheduled for delivery retry", async () => {
+		const retry: MutationFindingDeliveryOutcome = {
+			kind: "retry",
+			outboxId: `1:${"d".repeat(64)}`,
+			stage: "sink",
+			message: "[interlinked:mutation] adverse result",
+		};
+		const deps = dependencies({ deliverOneFinding: async () => retry });
+		const log = vi.fn();
+		const background = startMutationCloudV3Background(
+			{ root: "/repo", log, intervalMs: 60_000 },
+			deps,
+		);
+
+		expect(await background.tick()).toBe("processed");
+		expect(log).toHaveBeenCalledWith(
+			`Mutation cloud finding 1:${"d".repeat(64)} remains durable for retry after sink.`,
+		);
+		background.stop();
+	});
+
+	it("logs a distinct diagnostic when closing the runtime after a successful cycle fails", async () => {
+		const processNext = vi.fn(async () => IDLE);
+		const deliverOneFinding = vi.fn(async () => ({ kind: "idle" as const }));
+		const close = vi.fn(() => {
+			throw new Error("handle already closed");
+		});
+		const openRuntime = vi.fn(() => ({ processNext, deliverOneFinding, close }));
+		const log = vi.fn();
+		const background = startMutationCloudV3Background(
+			{ root: "/repo", log, intervalMs: 60_000 },
+			{
+				configExists: vi.fn(() => true),
+				// SAFETY: the test only exercises backgroundEnabled; the rest of
+				// MutationCloudV3RuntimeConfig is irrelevant because openRuntime is
+				// overridden below and never reads the config's other fields.
+				loadConfig: vi.fn(() => ({ backgroundEnabled: true }) as never),
+				openRuntime,
+			},
+		);
+
+		expect(await background.tick()).toBe("idle");
+		expect(log).toHaveBeenCalledWith("Mutation cloud background runtime close failed: handle already closed");
+		background.stop();
+	});
+
+	it("fires a real tick from the scheduled interval callback", async () => {
+		const deps = dependencies();
+		let scheduled: (() => void) | undefined;
+		// SAFETY: the production code only ever calls `.unref()` on the value
+		// `installInterval` returns; a bare `{ unref }` stub satisfies that full
+		// contract without needing a real Node Timeout handle.
+		const fakeTimer = { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>;
+		const background = startMutationCloudV3Background(
+			{ root: "/repo", log: vi.fn(), intervalMs: 60_000 },
+			{
+				...deps,
+				setInterval: vi.fn((callback: () => void) => {
+					scheduled = callback;
+					return fakeTimer;
+				}),
+				clearInterval: vi.fn(),
+			},
+		);
+
+		expect(scheduled).toBeDefined();
+		scheduled?.();
+		await vi.waitFor(() => expect(deps.processNext).toHaveBeenCalledTimes(1));
+		background.stop();
+	});
+
+	it("composes the real mutation cloud runtime when no runtime override is supplied", async () => {
+		const log = vi.fn();
+		const background = startMutationCloudV3Background(
+			{ root: "/repo", log, intervalMs: 60_000 },
+			{
+				configExists: vi.fn(() => true),
+				// SAFETY: this test intentionally leaves the config incomplete
+				// (only `owner` is set) to reach validateRuntimeConfig's real
+				// "owner is required" throw through the un-overridden openRuntime.
+				loadConfig: vi.fn(() => ({ backgroundEnabled: true, owner: "" }) as never),
+			},
+		);
+
+		expect(await background.tick()).toBe("failed");
+		expect(log).toHaveBeenCalledWith(
+			expect.stringContaining("mutation cloud runtime owner is required"),
+		);
+		background.stop();
+	});
 });

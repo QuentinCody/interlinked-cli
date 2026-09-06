@@ -141,7 +141,12 @@ function ifName(ts: TsModule, node: TS.IfStatement): string {
 	return `handle${missing}${joinIdents(identifiersOf(ts, node.expression), "Branch")}`;
 }
 
-function loopSubject(ts: TsModule, node: TS.Node): TS.Node | undefined {
+/**
+ * Exported so a test can exercise the fallback directly: every call site
+ * already guards with `isLoop`, so the `undefined` fallback below is
+ * unreachable through `planDecomposition` alone.
+ */
+export function loopSubject(ts: TsModule, node: TS.Node): TS.Node | undefined {
 	if (ts.isForOfStatement(node) || ts.isForInStatement(node)) return node.expression;
 	if (ts.isForStatement(node)) return node.condition;
 	if (ts.isWhileStatement(node) || ts.isDoStatement(node)) return node.expression;

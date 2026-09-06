@@ -23,7 +23,7 @@
 // the orchestration branches are asserted against injected fakes directly.
 
 import { EventEmitter } from "node:events";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import {
 	afterEach,
@@ -44,7 +44,7 @@ import {
 	type SocketLifecycleDeps,
 } from "./server-socket-lifecycle.js";
 
-vi.mock("node:fs", () => ({ writeFileSync: vi.fn() }));
+vi.mock("node:fs", () => ({ readFileSync: vi.fn(), writeFileSync: vi.fn() }));
 vi.mock("./server/socket-lifecycle.js", () => ({
 	cleanupSocket: vi.fn(),
 	ensureDirectory: vi.fn(),
@@ -229,6 +229,130 @@ describe("writePidFile", () => {
 		const writeOrder = (writeFileSync as unknown as MockInstance).mock
 			.invocationCallOrder[0];
 		expect(ensureOrder).toBeLessThan(writeOrder as number);
+	});
+});
+
+// The self-heal tick (writePidFile's 60 s interval) exists because a
+// dual-protocol newcomer overwrites `harness.pid` before losing the framed
+// anti-stomp race; if it is killed mid-exit it leaves a corpse pid behind and
+// every reader then diagnoses a dead daemon next to a healthy one (the
+// perpetual-"restarting" of 2026-08-16). The serving daemon must re-assert
+// ownership until it shuts down, and must never be stopped by a failing tick.
+describe("writePidFile — pid-ownership self-heal tick", () => {
+	const HEAL_INTERVAL_MS = 60_000;
+
+	/** The node:fs mock's readFileSync, typed for per-test implementations. */
+	function readMock(): MockInstance {
+		return readFileSync as unknown as MockInstance;
+	}
+
+	it("rewrites the pid file on a heal tick when another pid owns it", () => {
+		vi.useFakeTimers();
+		const { deps } = makeDeps({ pidPath: "/tmp/heal-foreign.pid" });
+		readMock().mockReturnValue(`${process.pid + 1}\n`);
+		createSocketLifecycle(deps).writePidFile();
+		expect(writeFileSync).toHaveBeenCalledTimes(1);
+
+		vi.advanceTimersByTime(HEAL_INTERVAL_MS);
+
+		expect(readMock()).toHaveBeenCalledWith("/tmp/heal-foreign.pid", "utf-8");
+		expect(writeFileSync).toHaveBeenNthCalledWith(
+			2,
+			"/tmp/heal-foreign.pid",
+			String(process.pid),
+		);
+		expect(ensureDirectory).toHaveBeenNthCalledWith(2, "/tmp/heal-foreign.pid");
+	});
+
+	it("leaves the pid file untouched on a heal tick while it still names this process", () => {
+		vi.useFakeTimers();
+		const { deps } = makeDeps({ pidPath: "/tmp/heal-ours.pid" });
+		readMock().mockReturnValue(`${process.pid}\n`);
+		createSocketLifecycle(deps).writePidFile();
+
+		vi.advanceTimersByTime(HEAL_INTERVAL_MS * 3);
+
+		// Only the initial write; three ticks read and returned early.
+		expect(writeFileSync).toHaveBeenCalledTimes(1);
+		expect(readMock()).toHaveBeenCalledTimes(3);
+	});
+
+	it("rewrites the pid file on a heal tick when it is missing or unreadable", () => {
+		vi.useFakeTimers();
+		const { deps } = makeDeps({ pidPath: "/tmp/heal-missing.pid" });
+		readMock().mockImplementation(() => {
+			throw Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" });
+		});
+		createSocketLifecycle(deps).writePidFile();
+
+		vi.advanceTimersByTime(HEAL_INTERVAL_MS);
+
+		expect(writeFileSync).toHaveBeenNthCalledWith(
+			2,
+			"/tmp/heal-missing.pid",
+			String(process.pid),
+		);
+	});
+
+	it("swallows a failing heal write and heals again on the next tick", () => {
+		vi.useFakeTimers();
+		const { deps } = makeDeps({ pidPath: "/tmp/heal-readonly.pid" });
+		readMock().mockReturnValue(`${process.pid + 1}`);
+		// Initial write succeeds; the first heal write fails (read-only dir).
+		(writeFileSync as unknown as MockInstance)
+			.mockImplementationOnce(() => {})
+			.mockImplementationOnce(() => {
+				throw Object.assign(new Error("EROFS: read-only file system"), {
+					code: "EROFS",
+				});
+			});
+		createSocketLifecycle(deps).writePidFile();
+
+		vi.advanceTimersByTime(HEAL_INTERVAL_MS * 2);
+
+		// The failed tick did not stop the interval: initial + 2 heal attempts.
+		expect(writeFileSync).toHaveBeenCalledTimes(3);
+		expect(writeFileSync).toHaveBeenNthCalledWith(
+			3,
+			"/tmp/heal-readonly.pid",
+			String(process.pid),
+		);
+	});
+
+	it("arms exactly one heal interval across repeated writePidFile calls", () => {
+		vi.useFakeTimers();
+		const { deps } = makeDeps({ pidPath: "/tmp/heal-once.pid" });
+		readMock().mockReturnValue(`${process.pid + 1}`);
+		const lc = createSocketLifecycle(deps);
+		lc.writePidFile();
+		lc.writePidFile();
+
+		vi.advanceTimersByTime(HEAL_INTERVAL_MS);
+
+		// 2 explicit writes + exactly 1 heal write (a second interval would make 4).
+		expect(writeFileSync).toHaveBeenCalledTimes(3);
+	});
+
+	it("stops healing the pid file once shutdown() runs", async () => {
+		vi.useFakeTimers();
+		const { deps } = makeDeps({ pidPath: "/tmp/heal-stop.pid" });
+		readMock().mockReturnValue(`${process.pid + 1}`);
+		const lc = createSocketLifecycle(deps);
+		lc.setUnwatchers(
+			() => {},
+			() => {},
+		);
+		lc.writePidFile();
+		vi.advanceTimersByTime(HEAL_INTERVAL_MS);
+		expect(writeFileSync).toHaveBeenCalledTimes(2);
+
+		lc.shutdown();
+		await vi.runAllTimersAsync();
+		expect(lastExitCode()).toBe(0);
+
+		vi.advanceTimersByTime(HEAL_INTERVAL_MS * 5);
+		// Interval cleared: still the initial write plus the single pre-shutdown heal.
+		expect(writeFileSync).toHaveBeenCalledTimes(2);
 	});
 });
 

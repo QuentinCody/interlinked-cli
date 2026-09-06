@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -127,6 +127,36 @@ describe("buildFeeds", () => {
 			writeFileSync(paths.mutationManifest, MANIFEST);
 			vi.advanceTimersByTime(3000);
 			expect(seen).toEqual([]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("seeds the mutation-run lens from the ledger, skipping a torn tail line", () => {
+		const validFirst = JSON.stringify({ file: "src/a.ts", survived: 0 });
+		const torn = "{not valid json";
+		const validSecond = JSON.stringify({ file: "src/b.ts", survived: 2 });
+		const body = `${validFirst}\n${torn}\n${validSecond}\n`;
+		writeFileSync(paths.mutationRuns!, body);
+		const runs = buildFeeds(paths, 1000).find((f) => f.route === "/api/mutation-runs");
+		expect(runs?.seed()).toEqual([
+			{ file: "src/a.ts", survived: 0 },
+			{ file: "src/b.ts", survived: 2 },
+		]);
+	});
+
+	it("delivers newly appended mutation-run rows, skipping a torn tail line", () => {
+		vi.useFakeTimers();
+		try {
+			const feed = buildFeeds(paths, 100).find((f) => f.route === "/api/mutation-runs");
+			const seen: unknown[] = [];
+			const sub = feed?.subscribe((ev) => seen.push(ev));
+			const torn = "{also not valid json";
+			const valid = JSON.stringify({ file: "src/c.ts", survived: 1 });
+			appendFileSync(paths.mutationRuns!, `${torn}\n${valid}\n`);
+			vi.advanceTimersByTime(1000);
+			sub?.stop();
+			expect(seen).toEqual([{ file: "src/c.ts", survived: 1 }]);
 		} finally {
 			vi.useRealTimers();
 		}

@@ -11,7 +11,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { installHooks, manifestPath, readManifest } from "./installer.js";
+import { installHooks, manifestPath, readManifest, resolveSettingsPath } from "./installer.js";
 import { verifyInstalledRunner } from "./installed-hooks-verify.js";
 
 let cwd: string;
@@ -26,7 +26,7 @@ afterEach(() => {
 	rmSync(cwd, { recursive: true, force: true });
 });
 
-function installedEntry(runner: "gemini-cli" | "codex") {
+function installedEntry(runner: "gemini-cli" | "codex" | "cursor") {
 	const result = installHooks({ cwd, binaryPath: BINARY, runners: [runner], scope: "project" });
 	expect(result.ok).toBe(true);
 	const entry = readManifest(manifestPath(cwd)).find((e) => e.runner === runner);
@@ -216,5 +216,94 @@ describe("verifyInstalledRunner — negative (must fail)", () => {
 		const v = verifyInstalledRunner(cwd, entry, BINARY);
 		expect(v.verified).toBe(false);
 		expect(v.problems.join(" ")).toContain("[features]");
+	});
+
+	it("an extra owned hook entry beyond the adapter's expected shape fails with a count-mismatch message", () => {
+		const entry = installedEntry("gemini-cli");
+		// SAFETY: written by installHooks moments ago; JSON by construction.
+		const raw = JSON.parse(readFileSync(entry.settings_path, "utf-8")) as {
+			hooks: Record<string, Array<{ command: string }>>;
+		};
+		const original = raw.hooks.BeforeTool?.[0];
+		expect(original).toBeDefined();
+		// SAFETY: asserted defined on the line above. Same binary, a different
+		// --event flag value: still recognized as owned (ownership does not
+		// check the event value), but no longer structurally equal to the
+		// adapter's single expected BeforeTool entry.
+		const duplicateOnOtherEvent = {
+			command: (original as { command: string }).command.replace("--event 'BeforeTool'", "--event 'AfterTool'"),
+		};
+		raw.hooks.BeforeTool = [original as { command: string }, duplicateOnOtherEvent];
+		writeFileSync(entry.settings_path, JSON.stringify(raw));
+
+		const verification = verifyInstalledRunner(cwd, entry, BINARY);
+		expect(verification.verified).toBe(false);
+		expect(verification.problems.join(" ")).toContain(
+			"hooks.BeforeTool: 1 extra owned hook entr(ies) beyond the adapter's expected shape",
+		);
+	});
+
+	it("a tampered primitive leaf in the fragment (cursor's version field) reports the expected-vs-found mismatch", () => {
+		const entry = installedEntry("cursor");
+		// SAFETY: written by installHooks moments ago; JSON by construction.
+		const raw = JSON.parse(readFileSync(entry.settings_path, "utf-8")) as Record<string, unknown>;
+		raw.version = 2;
+		writeFileSync(entry.settings_path, JSON.stringify(raw));
+
+		const verification = verifyInstalledRunner(cwd, entry, BINARY);
+		expect(verification.verified).toBe(false);
+		expect(verification.problems).toContain("version: expected 1, found 2");
+	});
+
+	it("codex with two hooks assignments inside one [features] table fails on the duplicate-assignment message, not the duplicate-table one", () => {
+		const entry = installedEntry("codex");
+		writeFileSync(join(cwd, ".codex", "config.toml"), "[features]\nhooks = true\nhooks = false\n");
+		const v = verifyInstalledRunner(cwd, entry, BINARY);
+		expect(v.verified).toBe(false);
+		expect(v.problems.join(" ")).toContain("duplicate hooks/codex_hooks assignments in [features]");
+		expect(v.problems.join(" ")).not.toContain("duplicate [features] tables");
+	});
+
+	it("a managed-provider-file runner (opencode) with no file on disk yet reports it missing", () => {
+		const settingsPath = resolveSettingsPath(cwd, ".opencode/plugins/interlinked.ts");
+		const entry = { runner: "opencode" as const, settings_path: settingsPath, scope: "project" };
+		const v = verifyInstalledRunner(cwd, entry, BINARY);
+		expect(v.verified).toBe(false);
+		expect(v.problems).toContain(`managed provider file missing: ${settingsPath}`);
+	});
+
+	it("a managed-provider-file path that is a directory (unreadable as text) fails with the read-error message", () => {
+		const settingsPath = resolveSettingsPath(cwd, ".pi/extensions/interlinked.js");
+		mkdirSync(settingsPath, { recursive: true });
+		const entry = { runner: "pi" as const, settings_path: settingsPath, scope: "project" };
+		const v = verifyInstalledRunner(cwd, entry, BINARY);
+		expect(v.verified).toBe(false);
+		expect(v.problems.some((p) => p.startsWith("managed provider file unreadable: "))).toBe(true);
+	});
+
+	it("a managed-provider-file path holding foreign (non-Interlinked) content fails as not managed", () => {
+		const settingsPath = resolveSettingsPath(cwd, ".opencode/plugins/interlinked.ts");
+		mkdirSync(join(cwd, ".opencode", "plugins"), { recursive: true });
+		writeFileSync(settingsPath, "export default {};\n");
+		const entry = { runner: "opencode" as const, settings_path: settingsPath, scope: "project" };
+		const v = verifyInstalledRunner(cwd, entry, BINARY);
+		expect(v.verified).toBe(false);
+		expect(v.problems).toContain(`${settingsPath} is not an Interlinked-managed provider file`);
+	});
+
+	it("a json-settings runner (gemini-cli) with no settings file on disk yet reports it missing", () => {
+		const settingsPath = resolveSettingsPath(cwd, ".gemini/settings.json");
+		const entry = { runner: "gemini-cli" as const, settings_path: settingsPath, scope: "project" };
+		const v = verifyInstalledRunner(cwd, entry, BINARY);
+		expect(v.verified).toBe(false);
+		expect(v.problems).toContain(`settings file missing: ${settingsPath}`);
+	});
+
+	it("a settings file containing invalid JSON fails with the parse-error message", () => {
+		const entry = installedEntry("gemini-cli");
+		writeFileSync(entry.settings_path, "{ this is not json");
+		const v = verifyInstalledRunner(cwd, entry, BINARY);
+		expect(v.verified).toBe(false);
+		expect(v.problems.some((p) => p.startsWith("settings file unparseable: "))).toBe(true);
 	});
 });

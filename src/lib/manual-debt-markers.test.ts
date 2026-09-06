@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isMeasurableDebtTrigger } from "./manual-debt-marker-parser.js";
-import { scanManualDebtMarkers } from "./manual-debt-markers.js";
+import { scanFile, scanManualDebtMarkers, type DebtMarkerCoverage } from "./manual-debt-markers.js";
 
 let root = "";
 
@@ -114,6 +114,111 @@ describe("manual debt marker source scanning", () => {
 			rmSync(outside, { recursive: true, force: true });
 		}
 	});
+
+    it("skips a directory whose listing cannot be read and marks it unreadable", () => {
+        const marker = '// interlinked-debt: {"decision":"x","ceiling":"y","trigger":"n > 1"}\n';
+        write("src/good.ts", marker);
+        const blocked = join(root, "src", "blocked");
+        mkdirSync(blocked, { recursive: true });
+        writeFileSync(join(blocked, "hidden.ts"), marker);
+        chmodSync(blocked, 0o000);
+        try {
+            const report = scanManualDebtMarkers({ cwd: root });
+            expect(report.coverage.skipped.unreadable).toBe(1);
+            expect(report.coverage.scanned_paths).toEqual(["src/good.ts"]);
+            expect(report.markers.map((m) => m.decision)).toEqual(["x"]);
+        } finally {
+            chmodSync(blocked, 0o755);
+        }
+    });
+
+    it("skips a file whose stat cannot be read after its directory was listed", () => {
+        const marker = '// interlinked-debt: {"decision":"x","ceiling":"y","trigger":"n > 1"}\n';
+        write("src/good.ts", marker);
+        const blocked = join(root, "src", "statblocked");
+        mkdirSync(blocked, { recursive: true });
+        writeFileSync(join(blocked, "hidden.ts"), marker);
+        chmodSync(blocked, 0o600);
+        try {
+            const report = scanManualDebtMarkers({ cwd: root });
+            expect(report.coverage.skipped.unreadable).toBe(1);
+            expect(report.coverage.scanned_paths).toEqual(["src/good.ts"]);
+            expect(report.markers.map((m) => m.decision)).toEqual(["x"]);
+        } finally {
+            chmodSync(blocked, 0o755);
+        }
+    });
+
+    it("skips a symlinked file without following it into scanned_paths", () => {
+        const marker = '// interlinked-debt: {"decision":"x","ceiling":"y","trigger":"n > 1"}\n';
+        write("real/target.ts", marker);
+        mkdirSync(join(root, "src"), { recursive: true });
+        symlinkSync(join(root, "real", "target.ts"), join(root, "src", "link.ts"));
+        const report = scanManualDebtMarkers({ cwd: root });
+        expect(report.coverage.skipped.symlink).toBe(1);
+        expect(report.coverage.scanned_paths).toEqual(["real/target.ts"]);
+    });
+
+    it("skips a file larger than the scan size cap without reading its content", () => {
+        write("src/huge.ts", "x".repeat(1_048_577));
+        const report = scanManualDebtMarkers({ cwd: root });
+        expect(report.coverage.skipped.too_large).toBe(1);
+        expect(report.coverage.scanned_paths).toEqual([]);
+        expect(report.markers).toEqual([]);
+    });
+
+    it("skips a file containing a NUL byte as binary", () => {
+        write("src/bin.ts", "before\0// interlinked-debt: {\"decision\":\"x\",\"ceiling\":\"y\",\"trigger\":\"n > 1\"}\nafter");
+        const report = scanManualDebtMarkers({ cwd: root });
+        expect(report.coverage.skipped.binary).toBe(1);
+        expect(report.coverage.scanned_paths).toEqual([]);
+        expect(report.markers).toEqual([]);
+    });
+
+    it("skips a file that passes the size check but cannot be read", () => {
+        const marker = '// interlinked-debt: {"decision":"x","ceiling":"y","trigger":"n > 1"}\n';
+        const target = join(root, "src", "locked.ts");
+        write("src/locked.ts", marker);
+        chmodSync(target, 0o000);
+        try {
+            const report = scanManualDebtMarkers({ cwd: root });
+            expect(report.coverage.skipped.unreadable).toBe(1);
+            expect(report.coverage.scanned_paths).toEqual([]);
+            expect(report.markers).toEqual([]);
+        } finally {
+            chmodSync(target, 0o644);
+        }
+    });
+
+    it("scanFile: reports outside_project for an absolute path outside the project root", () => {
+        const outside = mkdtempSync(join(tmpdir(), "manual-debt-scanfile-outside-"));
+        try {
+            const coverage: DebtMarkerCoverage = {
+                roots: ["."],
+                scanned_paths: [],
+                files_considered: 0,
+                files_scanned: 0,
+                lines_scanned: 0,
+                skipped: {
+                    binary: 0,
+                    excluded: 0,
+                    outside_project: 0,
+                    symlink: 0,
+                    too_large: 0,
+                    unreadable: 0,
+                    unsupported: 0,
+                },
+                default_exclusions: [],
+                custom_exclusions: [],
+            };
+            const sites = scanFile(root, join(outside, "readme.ts"), coverage);
+            expect(sites).toEqual([]);
+            expect(coverage.skipped.outside_project).toBe(1);
+            expect(coverage.files_considered).toBe(1);
+        } finally {
+            rmSync(outside, { recursive: true, force: true });
+        }
+    });
 
     it("keeps a fingerprint stable when unrelated lines move the marker", () => {
         const marker = '// interlinked-debt: {"decision":"x","ceiling":"y","trigger":"n > 1"}\n';

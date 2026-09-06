@@ -198,6 +198,84 @@ describe("detectWriteWithoutMkdir — negative cases (must NOT fire)", () => {
 		expect(out.length).toBeGreaterThanOrEqual(1);
 		expect(out[0]?.line).toBe(6);
 	});
+
+	it("N: a bare mkdirSync(dir) (single arg, no options) still registers dir as a known directory", () => {
+		// Without the bare-mkdirSync name collection, `dir` is unknown and the
+		// join(dir, 'file.txt') write below would fire (mkdirSync(dir) has no
+		// `recursive` option, so the ordinary guard check doesn't suppress it).
+		const code = [
+			"import { mkdirSync, writeFileSync } from 'node:fs';",
+			"import { join } from 'node:path';",
+			"function setup(dir: string) {",
+			"  mkdirSync(dir);",
+			"  writeFileSync(join(dir, 'file.txt'), 'x');",
+			"}",
+		].join("\n");
+		expect(detectWriteWithoutMkdir(code, TS)).toEqual([]);
+	});
+
+	it("N: a template-literal write of one segment into an mkdtemp dir does not fire", () => {
+		// `${dir}/note.txt` contains a `/`, which the plain nested-literal check
+		// would flag — the known-dir template-literal branch must suppress it.
+		const code = [
+			"import { mkdtempSync, writeFileSync } from 'node:fs';",
+			"import { tmpdir } from 'node:os';",
+			"import { join } from 'node:path';",
+			"function setup() {",
+			"  const dir = mkdtempSync(join(tmpdir(), 'x-'));",
+			"  writeFileSync(`${dir}/note.txt`, 'hi');",
+			"}",
+		].join("\n");
+		expect(detectWriteWithoutMkdir(code, TS)).toEqual([]);
+	});
+
+	it("N: a string-concat write of one segment into an mkdtemp dir does not fire", () => {
+		// `dir + '/note.txt'` contains a `/`, which the plain nested-literal
+		// check would flag — the known-dir concat branch must suppress it.
+		const code = [
+			"import { mkdtempSync, writeFileSync } from 'node:fs';",
+			"import { tmpdir } from 'node:os';",
+			"import { join } from 'node:path';",
+			"function setup() {",
+			"  const dir = mkdtempSync(join(tmpdir(), 'x-'));",
+			"  writeFileSync(dir + '/note.txt', 'hi');",
+			"}",
+		].join("\n");
+		expect(detectWriteWithoutMkdir(code, TS)).toEqual([]);
+	});
+
+	it("P: a module-scope write with no enclosing function is still detected", () => {
+		// findEnclosingFunctionStartLine falls back to line 0 (file start) when
+		// no unmatched `{` is found walking backward — module-scope writes must
+		// still be scanned for a guard (and flagged when none exists).
+		const code = [
+			"import { writeFileSync } from 'node:fs';",
+			"import { join } from 'node:path';",
+			"const cwd = process.cwd();",
+			"writeFileSync(join(cwd, 'out', 'result.json'), 'data');",
+		].join("\n");
+		const out = detectWriteWithoutMkdir(code, TS);
+		expect(out.length).toBe(1);
+		expect(out[0]?.line).toBe(4);
+	});
+
+	it("N: a module-scope recursive-mkdir guard suppresses a module-scope write (file-start fallback scope)", () => {
+		// Pins findEnclosingFunctionStartLine's file-start fallback (returns 0
+		// when no unmatched `{` is found walking backward) to the value 0 itself,
+		// not merely "some value < the write line": the guard sits on the line
+		// directly before the write, so the scan window must start at line 0 (or
+		// any index <= the guard's line) to find it. A fallback that instead
+		// returned the write's own line index (or later) would produce an empty
+		// scan window, miss the guard, and the write would incorrectly fire.
+		const code = [
+			"import { mkdirSync, writeFileSync } from 'node:fs';",
+			"import { join } from 'node:path';",
+			"const cwd = process.cwd();",
+			"mkdirSync(join(cwd, 'out'), { recursive: true });",
+			"writeFileSync(join(cwd, 'out', 'result.json'), 'data');",
+		].join("\n");
+		expect(detectWriteWithoutMkdir(code, TS)).toEqual([]);
+	});
 });
 
 // ─── homedir_write_escape ────────────────────────────────────────────────────
@@ -259,6 +337,26 @@ describe("detectHomedirWriteEscape — positive (must fire)", () => {
 			"}",
 		].join("\n");
 		expect(detectHomedirWriteEscape(code, TS).length).toBe(1);
+	});
+
+	it("P5: homedir() is still detected when the path argument exceeds firstArgWindow's 300-char scan budget", () => {
+		// firstArgWindow stops at whichever comes first: a depth-0 close paren, a
+		// depth-1 comma, or the 300-char budget. A first argument longer than
+		// that (no comma/close within the budget) falls through to the
+		// budget-exhausted return — homedir() near the start of the argument
+		// must still be visible in the truncated window.
+		const padding = "a".repeat(300);
+		const code = [
+			"import { appendFileSync } from 'node:fs';",
+			"import { homedir } from 'node:os';",
+			"import { join } from 'node:path';",
+			"function log(row: string) {",
+			`  appendFileSync(join(homedir(), '.tool', '${padding}'), row);`,
+			"}",
+		].join("\n");
+		const out = detectHomedirWriteEscape(code, TS);
+		expect(out.length).toBe(1);
+		expect(out[0]?.line).toBe(5);
 	});
 });
 

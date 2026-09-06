@@ -1,5 +1,9 @@
 // test-contract: public-api — the manual cloud verbs are explicit opt-ins and
-// both route through the same durable runtime handle.
+// both route through the same durable runtime handle. Most cases inject a
+// fake RuntimeHandle; one case (the default-openRuntime test) deliberately
+// omits the override so the command's own fallback constructs the real
+// MutationCloudV3Runtime against a throwaway temp-dir root, exercising only
+// its local (non-network) listDeadLetters path.
 
 import { createHash } from "node:crypto";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -156,6 +160,38 @@ describe("mutationCloudV3OnboardCommand", () => {
 		expect(close).toHaveBeenCalledOnce();
 		expect(process.exitCode).toBe(1);
 	});
+
+	it("prints a human-readable onboarding line in normal mode", async () => {
+		const close = vi.fn();
+		const onboard = vi.fn(async () => ({
+			onboarding: {
+				kind: "activated" as const,
+				jobId: "job-onboard-2",
+				format: "git-archive-tar-v1" as const,
+				preparedReplay: false,
+				authenticatedReplay: false,
+				activationReplay: false,
+			},
+			immediate: { processor: { kind: "idle" as const }, evaluation: null },
+		}));
+		await mutationCloudV3OnboardCommand("src/answer.ts", { cwd: "/repo" }, {
+			loadConfig: () => runtimeConfig(),
+			openRuntime: () => ({
+				onboard,
+				submitEdit: vi.fn(),
+				submit: vi.fn(),
+				processNext: vi.fn(),
+				listDeadLetters: vi.fn(),
+				redriveDeadLetter: vi.fn(),
+				close,
+			}),
+		});
+		expect(console.log).toHaveBeenCalledWith(
+			"Mutation onboarding job-onboard-2 activated from immutable HEAD.\nNo durable mutation job is ready.",
+		);
+		expect(process.exitCode).toBeUndefined();
+		expect(close).toHaveBeenCalledOnce();
+	});
 });
 
 describe("mutationCloudV3SubmitEditCommand", () => {
@@ -247,6 +283,38 @@ describe("mutationCloudV3SubmitEditCommand", () => {
 		expect(openRuntime).not.toHaveBeenCalled();
 		expect(console.error).toHaveBeenCalledWith(expect.stringContaining("symbolic link"));
 		expect(process.exitCode).toBe(1);
+	});
+
+	it("returns the machine-readable submission result in json mode", async () => {
+		const close = vi.fn();
+		const submissionResult = {
+			submission: {
+				kind: "enqueued" as const,
+				jobId: "job-edit-2",
+				remoteJobId: "job-edit-2",
+				acceptanceReceiptHash: "e".repeat(64),
+				idempotentReplay: false,
+				journalReplay: false,
+			},
+			immediate: { processor: { kind: "pending" as const, jobId: "job-edit-2" }, evaluation: null },
+		};
+		const submitEdit = vi.fn(async () => submissionResult);
+		await mutationCloudV3SubmitEditCommand("src/answer.ts", { cwd: "/repo", json: true }, {
+			readBytes: vi.fn(() => Buffer.from(TARGET, "utf8")),
+			loadConfig: () => runtimeConfig(),
+			openRuntime: () => ({
+				onboard: vi.fn(),
+				submitEdit,
+				submit: vi.fn(),
+				processNext: vi.fn(),
+				listDeadLetters: vi.fn(),
+				redriveDeadLetter: vi.fn(),
+				close,
+			}),
+		});
+		const rendered = String(vi.mocked(console.log).mock.calls[0]?.[0]);
+		expect(JSON.parse(rendered)).toEqual(submissionResult);
+		expect(close).toHaveBeenCalledOnce();
 	});
 });
 
@@ -346,6 +414,44 @@ describe("mutationCloudV3SubmitCommand", () => {
 		expect(process.exitCode).toBe(1);
 		expect(console.error).toHaveBeenCalledWith(expect.stringContaining(`${MAX_TARGET_SOURCE_BYTES}-byte`));
 	});
+
+	it("prints a human-readable submission line in normal mode", async () => {
+		const close = vi.fn();
+		const submit = vi.fn(async () => ({
+			submission: {
+				kind: "enqueued" as const,
+				jobId: "job-command-2",
+				remoteJobId: "job-command-2",
+				acceptanceReceiptHash: "c".repeat(64),
+				idempotentReplay: false,
+				journalReplay: false,
+			},
+			immediate: { processor: { kind: "pending" as const, jobId: "job-command-2" }, evaluation: null },
+		}));
+		await mutationCloudV3SubmitCommand({
+			request: "request.json",
+			artifact: "source.bundle",
+			cwd: "/repo",
+		}, {
+			readText: () => requestText(),
+			readBytes: ({ path }) => Buffer.from(path.endsWith("answer.ts") ? TARGET : "artifact"),
+			loadConfig: () => runtimeConfig(),
+			openRuntime: () => ({
+				onboard: vi.fn(),
+				submitEdit: vi.fn(),
+				submit,
+				processNext: vi.fn(),
+				listDeadLetters: vi.fn(),
+				redriveDeadLetter: vi.fn(),
+				close,
+			}),
+		});
+		expect(console.log).toHaveBeenCalledWith(
+			"Mutation job job-command-2 is accepted and still pending.\nSubmission: job-command-2",
+		);
+		expect(process.exitCode).toBeUndefined();
+		expect(close).toHaveBeenCalledOnce();
+	});
 });
 
 describe("mutationCloudV3ProcessCommand", () => {
@@ -427,6 +533,97 @@ describe("mutationCloudV3ProcessCommand", () => {
 		expect(console.log).toHaveBeenCalledWith(expect.stringContaining("no clean verdict exists"));
 		expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining("durable for retry"));
 	});
+
+	it("reports an acknowledged job as journaled before remote acknowledgement", async () => {
+		const close = vi.fn();
+		await mutationCloudV3ProcessCommand({ cwd: "/repo" }, {
+			loadConfig: () => runtimeConfig(),
+			openRuntime: () => ({
+				onboard: vi.fn(),
+				submitEdit: vi.fn(),
+				submit: vi.fn(),
+				processNext: vi.fn(async () => ({
+					processor: { kind: "acknowledged" as const, jobId: "job-ack-1", phase: "poll" as const },
+					evaluation: null,
+				})),
+				listDeadLetters: vi.fn(),
+				redriveDeadLetter: vi.fn(),
+				close,
+			}),
+		});
+		expect(console.log).toHaveBeenCalledWith(
+			"Mutation job job-ack-1 was journaled before remote acknowledgement.",
+		);
+		expect(process.exitCode).toBeUndefined();
+		expect(close).toHaveBeenCalledOnce();
+	});
+
+	it("reports a lost lease honestly instead of a clean verdict", async () => {
+		const close = vi.fn();
+		await mutationCloudV3ProcessCommand({ cwd: "/repo" }, {
+			loadConfig: () => runtimeConfig(),
+			openRuntime: () => ({
+				onboard: vi.fn(),
+				submitEdit: vi.fn(),
+				submit: vi.fn(),
+				processNext: vi.fn(async () => ({
+					processor: { kind: "lost_lease" as const, jobId: "job-lease-1", stage: "commit" as const },
+					evaluation: null,
+				})),
+				listDeadLetters: vi.fn(),
+				redriveDeadLetter: vi.fn(),
+				close,
+			}),
+		});
+		expect(console.log).toHaveBeenCalledWith(
+			"Mutation job job-lease-1 lost its local lease during commit; no clean verdict exists.",
+		);
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("returns the machine-readable process result in json mode", async () => {
+		const close = vi.fn();
+		const processResult = {
+			processor: { kind: "pending" as const, jobId: "job-command-3" },
+			evaluation: null,
+		};
+		await mutationCloudV3ProcessCommand({ cwd: "/repo", json: true }, {
+			loadConfig: () => runtimeConfig(),
+			openRuntime: () => ({
+				onboard: vi.fn(),
+				submitEdit: vi.fn(),
+				submit: vi.fn(),
+				processNext: vi.fn(async () => processResult),
+				listDeadLetters: vi.fn(),
+				redriveDeadLetter: vi.fn(),
+				close,
+			}),
+		});
+		const rendered = String(vi.mocked(console.log).mock.calls[0]?.[0]);
+		expect(JSON.parse(rendered)).toEqual(processResult);
+		expect(process.exitCode).toBeUndefined();
+	});
+
+	it("reports a processing exception through outputError and still closes the runtime", async () => {
+		const close = vi.fn();
+		await mutationCloudV3ProcessCommand({ cwd: "/repo" }, {
+			loadConfig: () => runtimeConfig(),
+			openRuntime: () => ({
+				onboard: vi.fn(),
+				submitEdit: vi.fn(),
+				submit: vi.fn(),
+				processNext: vi.fn(async () => {
+					throw new Error("journal is locked by another owner");
+				}),
+				listDeadLetters: vi.fn(),
+				redriveDeadLetter: vi.fn(),
+				close,
+			}),
+		});
+		expect(console.error).toHaveBeenCalledWith(expect.stringContaining("journal is locked by another owner"));
+		expect(process.exitCode).toBe(1);
+		expect(close).toHaveBeenCalledOnce();
+	});
 });
 
 describe("mutationCloudV3DeadLettersCommand", () => {
@@ -480,6 +677,76 @@ describe("mutationCloudV3DeadLettersCommand", () => {
 		expect(openRuntime).not.toHaveBeenCalled();
 		expect(process.exitCode).toBe(1);
 		expect(console.error).toHaveBeenCalledWith(expect.stringContaining("integer from 1 through 100"));
+	});
+
+	it("rejects a non-integer-shaped limit that Number() would happily accept", async () => {
+		const loadConfig = vi.fn(() => runtimeConfig());
+		const openRuntime = vi.fn();
+		await mutationCloudV3DeadLettersCommand({ cwd: "/repo", limit: "5.0" }, { loadConfig, openRuntime });
+
+		expect(loadConfig).not.toHaveBeenCalled();
+		expect(openRuntime).not.toHaveBeenCalled();
+		expect(process.exitCode).toBe(1);
+		expect(console.error).toHaveBeenCalledWith(expect.stringContaining("integer from 1 through 100"));
+	});
+
+	it("renders a human-readable empty state in normal mode", async () => {
+		const close = vi.fn();
+		await mutationCloudV3DeadLettersCommand({ cwd: "/repo" }, {
+			loadConfig: () => runtimeConfig(),
+			openRuntime: () => ({
+				onboard: vi.fn(),
+				submitEdit: vi.fn(),
+				submit: vi.fn(),
+				processNext: vi.fn(),
+				listDeadLetters: vi.fn(() => []),
+				redriveDeadLetter: vi.fn(),
+				close,
+			}),
+		});
+		expect(console.log).toHaveBeenCalledWith("No mutation cloud job dead letters.");
+		expect(close).toHaveBeenCalledOnce();
+	});
+
+	it("renders one dead-letter row with a whitespace-compacted last_error in normal mode", async () => {
+		const close = vi.fn();
+		const listDeadLetters = vi.fn(() => [{
+			jobId: "job-dead-2",
+			phase: "ack" as const,
+			failureCount: 3,
+			lastError: "malformed   payload\nline two",
+			deadLetteredAtMs: 900,
+			redriveToken: "redrive-token-2",
+		}]);
+		await mutationCloudV3DeadLettersCommand({ cwd: "/repo" }, {
+			loadConfig: () => runtimeConfig(),
+			openRuntime: () => ({
+				onboard: vi.fn(),
+				submitEdit: vi.fn(),
+				submit: vi.fn(),
+				processNext: vi.fn(),
+				listDeadLetters,
+				redriveDeadLetter: vi.fn(),
+				close,
+			}),
+		});
+		expect(console.log).toHaveBeenCalledWith([
+			"Mutation cloud job dead letters (1):",
+			"job-dead-2  phase=ack  failures=3  dead_lettered_at_ms=900",
+			"  redrive_token=redrive-token-2",
+			"  last_error=malformed payload line two",
+		].join("\n"));
+		expect(close).toHaveBeenCalledOnce();
+	});
+
+	it("falls back to constructing the real runtime when no openRuntime override is given", async () => {
+		temporaryRoot = mkdtempSync(join(tmpdir(), "interlinked-v3-default-runtime-"));
+		await mutationCloudV3DeadLettersCommand({ cwd: temporaryRoot, json: true }, {
+			loadConfig: () => runtimeConfig(),
+		});
+		expect(process.exitCode).toBeUndefined();
+		const rendered = String(vi.mocked(console.log).mock.calls[0]?.[0]);
+		expect(JSON.parse(rendered)).toEqual({ limit: 20, deadLetters: [] });
 	});
 });
 
@@ -539,5 +806,33 @@ describe("mutationCloudV3RedriveCommand", () => {
 		expect(process.exitCode).toBe(1);
 		expect(console.log).not.toHaveBeenCalled();
 		expect(console.error).toHaveBeenCalledWith(expect.stringContaining("redrive token is stale"));
+	});
+
+	it("prints a human-readable redrive confirmation in normal mode", async () => {
+		const close = vi.fn();
+		const redriveDeadLetter = vi.fn(() => ({
+			kind: "redriven" as const,
+			jobId: "job-dead-3",
+			dueAtMs: 950,
+		}));
+		await mutationCloudV3RedriveCommand("job-dead-3", {
+			cwd: "/repo",
+			redriveToken: "redrive-token-3",
+		}, {
+			loadConfig: () => runtimeConfig(),
+			openRuntime: () => ({
+				onboard: vi.fn(),
+				submitEdit: vi.fn(),
+				submit: vi.fn(),
+				processNext: vi.fn(),
+				listDeadLetters: vi.fn(),
+				redriveDeadLetter,
+				close,
+			}),
+		});
+		expect(console.log).toHaveBeenCalledWith(
+			"Mutation job job-dead-3 was redriven and is due for processing; no job was processed.",
+		);
+		expect(close).toHaveBeenCalledOnce();
 	});
 });

@@ -2,8 +2,14 @@
 // candidates sort into mechanically-derived buckets so deletion agents only
 // ever touch the provably-safe ones. The classifier is a pure function over
 // extracted signals; git probes are injected so tests never spawn git.
+//
+// Fixtures are real temp directories, never module mocks: a broken symlink
+// under docs/ stands in for an entry that vanishes mid-walk, an unparseable
+// package.json for an unreadable manifest, and a seeded
+// .interlinked/mutation-dispositions.json for the mutation-adjudication
+// ledger the inert-branch layer reads.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -16,6 +22,7 @@ import {
 	type CategorizeReport,
 	type DeadCodeBucket,
 	type DeadCodeRecommendation,
+	formatCategorizeReport,
 } from "./deadcode-categorize.js";
 
 function signals(partial: Partial<CandidateSignals>): CandidateSignals {
@@ -167,5 +174,167 @@ describe("signal extraction over a fixture repo", () => {
 		expect(byName.get("src/planned-module.ts")).toBe("future-scaffolding");
 		expect(byName.get("_resetForTests")).toBe("deliberate-seam");
 		expect(byName.get("OrphanShape")).toBe("orphaned-type");
+	});
+
+	// test-contract: behavior — a docs entry that cannot be stat'd (broken
+	// symlink, or a file deleted mid-walk) is skipped and the walk continues,
+	// so later markdown still reaches the corpus
+	it("P8: a docs entry that vanishes mid-walk does not stop the corpus build", () => {
+		symlinkSync(join(tmp, "docs", "no-such-target.md"), join(tmp, "docs", "aa-broken.md"));
+		seed("docs/zz-later.md", "The successor is `SentinelSymbol`.\n");
+
+		const corpus = buildDocsCorpus(tmp);
+
+		expect(corpus.mentions("SentinelSymbol")).toBe(true);
+		expect(corpus.mentions("PlannedThing")).toBe(true);
+	});
+
+	// test-contract: behavior — a package.json bin target resolves to its src
+	// path, so that file is a published surface and must not be deleted
+	it("P9: a bin target marks the source file as a published surface", () => {
+		const report = categorizeDeadCode(tmp, {
+			unreachableFiles: ["src/index.ts"],
+			deadExports: [],
+			gitProbe: () => ({ everImported: true, hadImportersRemoved: false }),
+		});
+
+		expect(report.items[0]?.bucket).toBe("deliberate-seam");
+		expect(report.items[0]?.reason).toBe(
+			"published surface — deliberate API; document instead of deleting",
+		);
+	});
+
+	// test-contract: behavior — an unparseable manifest publishes nothing
+	// rather than aborting the pass; the same file then falls through to review
+	it("P10: an unparseable package.json leaves the published set empty", () => {
+		seed("package.json", "{ this is not json");
+
+		const report = categorizeDeadCode(tmp, {
+			unreachableFiles: ["src/index.ts"],
+			deadExports: [],
+			gitProbe: () => ({ everImported: true, hadImportersRemoved: false }),
+		});
+
+		expect(report.items[0]?.bucket).toBe("ambiguous");
+		expect(report.items[0]?.reason).toBe("no safety signal matched — human/agent review before any action");
+	});
+
+	// test-contract: behavior — a detail line with no `unused export '<x>'`
+	// clause falls back to every backticked identifier, one item per symbol
+	it("P11: a backticked detail yields one candidate per quoted symbol", () => {
+		const report = categorizeDeadCode(tmp, {
+			unreachableFiles: [],
+			deadExports: [{ file: "src/barrel.ts", detail: "dead: `used` and `barrelOnly` unreferenced" }],
+			gitProbe: () => ({ everImported: true, hadImportersRemoved: false }),
+		});
+
+		expect(report.items.map((i) => i.symbol)).toEqual(["used", "barrelOnly"]);
+		expect(report.items[0]?.bucket).toBe("reexport-residue");
+	});
+
+	// test-contract: behavior — when the candidate's file cannot be read the
+	// shape signals stay false, so a type-shaped name is NOT auto-deleted
+	it("P12: an unreadable candidate file keeps the shape signals false", () => {
+		const report = categorizeDeadCode(tmp, {
+			unreachableFiles: [],
+			deadExports: [{ file: "src/vanished.ts", detail: "unused export 'GhostShape'" }],
+			gitProbe: () => ({ everImported: true, hadImportersRemoved: false }),
+		});
+
+		expect(report.items[0]?.bucket).toBe("ambiguous");
+		expect(report.items[0]?.recommendation).toBe("review");
+	});
+});
+
+describe("inert branches from the mutation-adjudication ledger", () => {
+	let tmp: string;
+
+	function seedLedger(records: unknown): void {
+		mkdirSync(join(tmp, ".interlinked"), { recursive: true });
+		writeFileSync(
+			join(tmp, ".interlinked", "mutation-dispositions.json"),
+			typeof records === "string" ? records : JSON.stringify({ records }),
+		);
+	}
+
+	function report(): CategorizeReport {
+		return categorizeDeadCode(tmp, {
+			unreachableFiles: [],
+			deadExports: [],
+			gitProbe: () => ({ everImported: true, hadImportersRemoved: false }),
+		});
+	}
+
+	beforeEach(() => {
+		tmp = mkdtempSync(join(tmpdir(), "interlinked-deadcat-ledger-"));
+	});
+
+	afterEach(() => {
+		rmSync(tmp, { recursive: true, force: true });
+	});
+
+	// test-contract: behavior — repeated dead_code adjudications for one
+	// function fold into a single row carrying the record count, most-recorded
+	// function first (that ordering is the review queue)
+	it("folds repeated dead_code records into one row ordered by record count", () => {
+		seedLedger([
+			{ file: "src/a.ts", qualifiedName: "alpha", disposition: { kind: "dead_code" } },
+			{ file: "src/b.ts", qualifiedName: "beta", disposition: { kind: "dead_code" } },
+			{ file: "src/a.ts", qualifiedName: "alpha", disposition: { kind: "dead_code" } },
+		]);
+
+		expect(report().inertBranches).toEqual([
+			{ file: "src/a.ts", qualifiedName: "alpha", records: 2 },
+			{ file: "src/b.ts", qualifiedName: "beta", records: 1 },
+		]);
+	});
+
+	// test-contract: behavior — only dead_code dispositions count; a record
+	// missing its identity fields still counts but reports "?" rather than
+	// inventing a file name
+	it("skips non-dead_code records and reports missing identity fields as ?", () => {
+		seedLedger([
+			"not-a-record",
+			{ file: "src/c.ts", qualifiedName: "gamma", disposition: { kind: "equivalent" } },
+			{ file: "src/d.ts", qualifiedName: "delta" },
+			{ disposition: { kind: "dead_code" } },
+		]);
+
+		expect(report().inertBranches).toEqual([{ file: "?", qualifiedName: "?", records: 1 }]);
+	});
+
+	// test-contract: behavior — a malformed ledger reports nothing rather than
+	// guessing, and the candidate classification still completes
+	it("reports no inert branches when the ledger is malformed JSON", () => {
+		seedLedger("{ truncated");
+
+		const out = categorizeDeadCode(tmp, {
+			unreachableFiles: ["src/orphan.ts"],
+			deadExports: [],
+			gitProbe: () => ({ everImported: false, hadImportersRemoved: false }),
+		});
+
+		expect(out.inertBranches).toEqual([]);
+		expect(out.items[0]?.bucket).toBe("ambiguous");
+	});
+});
+
+describe("formatCategorizeReport", () => {
+	// test-contract: behavior — the inert-branch layer prints its own heading
+	// with the function count and one row per function carrying its record count
+	it("prints an inert-branch section with one row per adjudicated function", () => {
+		const lines = formatCategorizeReport({
+			items: [],
+			inertBranches: [
+				{ file: "src/a.ts", qualifiedName: "alpha", records: 3 },
+				{ file: "src/b.ts", qualifiedName: "beta", records: 1 },
+			],
+		});
+
+		expect(lines).toEqual([
+			"\ninert branches (2 functions, mutation-adjudicated) — recommendation: delete the dead branch",
+			"  src/a.ts: alpha (3 record(s))",
+			"  src/b.ts: beta (1 record(s))",
+		]);
 	});
 });

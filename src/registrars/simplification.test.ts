@@ -1,6 +1,16 @@
 import { Command } from "commander";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { simplifyCommand, simplifyStatusCommand } from "../commands/simplify.js";
 import { registerSimplifyCommands } from "./simplification.js";
+
+// Mock the action layer (a different module from the registrar SUT) so
+// parsing exercises the `.action(...)` wiring — including the dynamic
+// `import("../commands/simplify.js")` inside runSimplify/runSimplifyStatus —
+// without walking a real repository.
+vi.mock("../commands/simplify.js", () => ({
+	simplifyCommand: vi.fn(),
+	simplifyStatusCommand: vi.fn(),
+}));
 
 describe("registerSimplifyCommands", () => {
 	// test-contract: public-api — the namespace exposes three report depths and
@@ -43,5 +53,42 @@ describe("registerSimplifyCommands", () => {
 		const status = simplify?.commands.find((command) => command.name() === "status");
 		expect(status?.options.map((option) => option.long)).not.toContain("--record");
 		expect(status?.options.map((option) => option.long)).toEqual(["--cwd", "--json"]);
+	});
+
+	// test-contract: action wiring — each report subcommand forwards its own
+	// parsed options to simplifyCommand with the matching depth name, and the
+	// command's exitCode becomes the process exitCode (dynamic import of the
+	// action layer resolves through runSimplify).
+	it.each(["scan", "review", "audit"] as const)(
+		"runs simplifyCommand(%s, options) and adopts its exit code",
+		async (depth) => {
+			vi.mocked(simplifyCommand).mockReset().mockResolvedValue(7);
+			const program = new Command();
+			program.exitOverride();
+			registerSimplifyCommands(program);
+			process.exitCode = undefined;
+			await program.parseAsync(["node", "interlinked", "simplify", depth, "--json"]);
+			expect(vi.mocked(simplifyCommand)).toHaveBeenCalledWith(
+				depth,
+				expect.objectContaining({ json: true }),
+			);
+			expect(process.exitCode).toBe(7);
+		},
+	);
+
+	// test-contract: action wiring — status forwards its parsed options to
+	// simplifyStatusCommand (a synchronous, non-report call) and its return
+	// value becomes the process exitCode.
+	it("runs simplifyStatusCommand(options) and adopts its exit code", async () => {
+		vi.mocked(simplifyStatusCommand).mockReset().mockReturnValue(3);
+		const program = new Command();
+		program.exitOverride();
+		registerSimplifyCommands(program);
+		process.exitCode = undefined;
+		await program.parseAsync(["node", "interlinked", "simplify", "status", "--cwd", "/tmp/repo"]);
+		expect(vi.mocked(simplifyStatusCommand)).toHaveBeenCalledWith(
+			expect.objectContaining({ cwd: "/tmp/repo" }),
+		);
+		expect(process.exitCode).toBe(3);
 	});
 });

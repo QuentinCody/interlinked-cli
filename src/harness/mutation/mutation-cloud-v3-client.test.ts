@@ -1,5 +1,9 @@
 // test-contract: durable transport — cloud claims are normalized for the
 // authenticated evaluator and remote acknowledgement happens only afterward.
+// Every malformed field (bad ids, wrong hashes, foreign jobs, oversized or
+// tampered reports, HTTP failures) throws its own attributable error instead
+// of trusting the cloud; the platform fetch is exercised too, not only the
+// injected test double.
 
 import { describe, expect, it, vi } from "vitest";
 import { authenticateFixture } from "./protocol-v3/test-authentication.js";
@@ -196,5 +200,199 @@ describe("MutationCloudV3Client", () => {
 		expect(bodies).toHaveLength(2);
 		expect(bodies[0]?.lease_id).toBe(bodies[1]?.lease_id);
 		expect(bodies[1]?.result_hash).toBe(fixture.resultHash);
+	});
+
+	it("uses the platform fetch when no override is supplied", async () => {
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(json({ error: "not ready" }, 409));
+		try {
+			const client = new MutationCloudV3Client(CONFIG);
+			await expect(client.claimResult(JOB)).resolves.toEqual({ kind: "pending" });
+			expect(fetchSpy).toHaveBeenCalledWith(
+				"https://cloud.example/mutation/jobs/job_0001/claim",
+				expect.objectContaining({
+					method: "POST",
+					redirect: "error",
+					headers: expect.objectContaining({ authorization: "Bearer test-token" }),
+				}),
+			);
+		} finally {
+			fetchSpy.mockRestore();
+		}
+	});
+
+	it("rejects a job id that fails the opaque-identifier pattern", async () => {
+		const fetchImpl = vi.fn<MutationCloudFetch>();
+		await expect(
+			clientWith(fetchImpl).claimResult({ remoteJobId: "", acceptanceReceiptHash: "b".repeat(64) }),
+		).rejects.toThrow("mutation cloud job id is malformed");
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("rejects an acceptance receipt hash that is not lowercase sha-256 hex", async () => {
+		const fetchImpl = vi.fn<MutationCloudFetch>();
+		await expect(
+			clientWith(fetchImpl).claimResult({ remoteJobId: "job_0001", acceptanceReceiptHash: "not-a-hash" }),
+		).rejects.toThrow("mutation cloud acceptance receipt hash is not lowercase sha-256 hex");
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("rejects a report pointer whose byte count is not a positive integer", async () => {
+		const fixture = terminalFixture();
+		// SAFETY: terminalFixture constructs the bundle and envelope as plain
+		// JSON objects specifically for adversarial transport mutation.
+		const bundle = fixture.claim.bundle as Record<string, unknown>;
+		// SAFETY: same test-fabricator invariant as the bundle cast above.
+		const envelope = bundle.envelope as Record<string, unknown>;
+		envelope.report = { r2_sha256: "a".repeat(64), bytes: 0 };
+		const fetchImpl: MutationCloudFetch = async (_url, init) => json(claimWithCapturedLease(fixture, init.body));
+		await expect(
+			clientWith(fetchImpl).claimResult({ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash }),
+		).rejects.toThrow("report.bytes is not a positive safe integer");
+	});
+
+	it("rejects a terminal bundle carrying unknown fields", async () => {
+		const fixture = terminalFixture();
+		// SAFETY: terminalFixture constructs the bundle as a plain JSON object
+		// specifically for adversarial transport mutation.
+		const bundle = fixture.claim.bundle as Record<string, unknown>;
+		bundle.unexpected_field = "surprise";
+		const fetchImpl: MutationCloudFetch = async (_url, init) => json(claimWithCapturedLease(fixture, init.body));
+		await expect(
+			clientWith(fetchImpl).claimResult({ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash }),
+		).rejects.toThrow("mutation cloud terminal bundle carries unknown fields");
+	});
+
+	it("rejects a terminal bundle missing its acceptance receipt", async () => {
+		const fixture = terminalFixture();
+		// SAFETY: terminalFixture constructs the bundle as a plain JSON object
+		// specifically for adversarial transport mutation.
+		const bundle = fixture.claim.bundle as Record<string, unknown>;
+		delete bundle.acceptance_receipt;
+		const fetchImpl: MutationCloudFetch = async (_url, init) => json(claimWithCapturedLease(fixture, init.body));
+		await expect(
+			clientWith(fetchImpl).claimResult({ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash }),
+		).rejects.toThrow("mutation cloud terminal bundle is missing its acceptance receipt");
+	});
+
+	it("rejects a non-positive timeoutMs at construction", () => {
+		expect(() => new MutationCloudV3Client({ ...CONFIG, timeoutMs: 0 })).toThrow(
+			"mutation cloud timeoutMs must be a positive safe integer",
+		);
+	});
+
+	it("treats an already-acknowledged claim as never having reached this journal", async () => {
+		const fetchImpl: MutationCloudFetch = async () => json({ state: "acknowledged", job_key: "job_0001" });
+		await expect(clientWith(fetchImpl).claimResult(JOB)).rejects.toThrow(
+			"remote mutation result was acknowledged before this journal committed it",
+		);
+	});
+
+	it("rejects an acknowledged claim response for a foreign job", async () => {
+		const fetchImpl: MutationCloudFetch = async () => json({ state: "acknowledged", job_key: "job_9999" });
+		await expect(clientWith(fetchImpl).claimResult(JOB)).rejects.toThrow(
+			"mutation cloud claim returned a foreign job",
+		);
+	});
+
+	it("rejects a claim result_hash that disagrees with its own envelope", async () => {
+		const fixture = terminalFixture();
+		// SAFETY: terminalFixture constructs the bundle and envelope as plain
+		// JSON objects specifically for adversarial transport mutation.
+		const bundle = fixture.claim.bundle as Record<string, unknown>;
+		// SAFETY: same test-fabricator invariant as the bundle cast above.
+		const envelope = bundle.envelope as Record<string, unknown>;
+		envelope.result_hash = "f".repeat(64);
+		const fetchImpl: MutationCloudFetch = async (_url, init) => json(claimWithCapturedLease(fixture, init.body));
+		await expect(
+			clientWith(fetchImpl).claimResult({ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash }),
+		).rejects.toThrow("mutation cloud claim result_hash disagrees with its envelope");
+	});
+
+	it("rejects an acknowledgement whose accepted receipt hash disagrees with the job", async () => {
+		const fetchImpl = vi.fn<MutationCloudFetch>();
+		const ack = {
+			jobId: "local_1",
+			leaseToken: "local-lease",
+			acceptanceReceiptHash: "c".repeat(64),
+			resultHash: "d".repeat(64),
+			evaluatorPolicyVersion: "policy-v1",
+		// SAFETY: production creates this opaque value only from the committed
+		// SQLite row; this transport test needs only its public bound fields.
+		} as MutationJournalAck;
+		await expect(clientWith(fetchImpl).acknowledge(JOB, ack)).rejects.toThrow(
+			"journal acknowledgement is bound to a different acceptance receipt",
+		);
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it("rejects an acknowledgement whose result hash disagrees with the remote lease", async () => {
+		const fixture = terminalFixture();
+		const fetchImpl: MutationCloudFetch = async (_url, init) => json(claimWithCapturedLease(fixture, init.body));
+		const ack = {
+			jobId: "local_1",
+			leaseToken: "local-lease",
+			acceptanceReceiptHash: fixture.acceptanceHash,
+			resultHash: "9".repeat(64),
+			evaluatorPolicyVersion: "policy-v1",
+		// SAFETY: production creates this opaque value only from the committed
+		// SQLite row; this transport test needs only its public bound fields.
+		} as MutationJournalAck;
+		await expect(
+			clientWith(fetchImpl).acknowledge({ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash }, ack),
+		).rejects.toThrow("journal acknowledgement result hash disagrees with the remote result");
+	});
+
+	it("rejects a malformed acknowledgement response from the cloud", async () => {
+		const fixture = terminalFixture();
+		const fetchImpl: MutationCloudFetch = async (url, init) => {
+			if (url.endsWith("/ack")) return json({ state: "nope" });
+			return json(claimWithCapturedLease(fixture, init.body));
+		};
+		const ack = {
+			jobId: "local_1",
+			leaseToken: "local-lease",
+			acceptanceReceiptHash: fixture.acceptanceHash,
+			resultHash: fixture.resultHash,
+			evaluatorPolicyVersion: "policy-v1",
+		// SAFETY: production creates this opaque value only from the committed
+		// SQLite row; this transport test needs only its public bound fields.
+		} as MutationJournalAck;
+		await expect(
+			clientWith(fetchImpl).acknowledge({ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash }, ack),
+		).rejects.toThrow("mutation cloud ack response is malformed");
+	});
+
+	it("surfaces the HTTP status when the claim request itself fails", async () => {
+		const fetchImpl: MutationCloudFetch = async () => json({ error: "boom" }, 500);
+		await expect(clientWith(fetchImpl).claimResult(JOB)).rejects.toThrow("mutation cloud claim failed: HTTP 500");
+	});
+
+	it("rejects a leased claim response whose shape does not match its request", async () => {
+		const fetchImpl: MutationCloudFetch = async () => json({ state: "weird" });
+		await expect(clientWith(fetchImpl).claimResult(JOB)).rejects.toThrow(
+			"mutation cloud leased claim response is malformed or foreign",
+		);
+	});
+
+	it("surfaces the HTTP status when the report fetch itself fails", async () => {
+		const fixture = terminalFixture();
+		const fetchImpl: MutationCloudFetch = async (_url, init) =>
+			init.method === "POST" ? json(claimWithCapturedLease(fixture, init.body)) : json({ error: "gone" }, 500);
+		await expect(
+			clientWith(fetchImpl).claimResult({ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash }),
+		).rejects.toThrow("mutation cloud report failed: HTTP 500");
+	});
+
+	it("rejects a report whose bytes hash differs from the authenticated pointer despite matching length", async () => {
+		const fixture = terminalFixture();
+		const tampered = Buffer.from(fixture.report);
+		tampered[0] = (tampered[0] ?? 0) ^ 0xff;
+		const fetchImpl: MutationCloudFetch = async (_url, init) => {
+			if (init.method === "POST") return json(claimWithCapturedLease(fixture, init.body));
+			return new Response(new Uint8Array(tampered), { status: 200 });
+		};
+		await expect(
+			clientWith(fetchImpl).claimResult({ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash }),
+		).rejects.toThrow("mutation cloud report bytes disagree with the authenticated pointer");
 	});
 });

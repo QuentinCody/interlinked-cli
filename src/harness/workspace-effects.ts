@@ -111,7 +111,7 @@ function sha256(value: Buffer | string): string {
 	return createHash("sha256").update(value).digest("hex");
 }
 
-function fingerprint(path: string, contentBudget: number): WorkspaceFileFingerprint | null {
+export function fingerprint(path: string, contentBudget: number): WorkspaceFileFingerprint | null {
 	try {
 		const stat = lstatSync(path);
 		if (stat.isSymbolicLink()) {

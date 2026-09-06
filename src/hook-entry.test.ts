@@ -9,7 +9,7 @@ import type { DaemonPaths } from "./harness/session-paths.js";
 import type { TsgoRunner } from "./harness/tsgo-runner.js";
 import type { HarnessDecision, HarnessEvent } from "./harness/types.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
-import { discoverSocket, isCodeEditEvent, runHookEntry } from "./hook-entry.js";
+import { discoverSocket, isCodeEditEvent, recoveryAttemptNotice, runHookEntry } from "./hook-entry.js";
 
 let tmp = "";
 let daemon: SessionDaemonHandle | null = null;
@@ -638,5 +638,81 @@ describe("runHookEntry — cold fallback on daemon absence", () => {
 		expect(result.stderr).toContain("function-tokens:not-measured");
 		expect(result.stderr).toContain("requires the running harness daemon");
 		expect(result.stderr).not.toContain("large-file cap");
+	});
+});
+
+describe("recoveryAttemptNotice — one clause per self-heal disposition", () => {
+	it("returns the empty string when no self-heal attempt was made", () => {
+		expect(recoveryAttemptNotice(null)).toBe("");
+	});
+
+	it("reports a spawn that was attempted but not yet verified", () => {
+		expect(
+			recoveryAttemptNotice({
+				result: "spawned",
+				disposition: "launch-attempted",
+				launchAttempted: true,
+			}),
+		).toBe("; daemon launch attempted but not yet verified");
+	});
+
+	it("reports a spawn that was attempted but failed", () => {
+		expect(
+			recoveryAttemptNotice({
+				result: "skipped",
+				disposition: "spawn-failed",
+				launchAttempted: true,
+			}),
+		).toBe("; daemon launch was attempted but the spawn failed");
+	});
+
+	it("reports no launch when another hook already holds the startup lock", () => {
+		expect(
+			recoveryAttemptNotice({
+				result: "locked",
+				disposition: "startup-lock-held",
+				launchAttempted: false,
+			}),
+		).toBe("; no launch by this hook (startup lock held)");
+	});
+
+	it("reports no launch when the supervisor backoff ladder is active", () => {
+		expect(
+			recoveryAttemptNotice({
+				result: "backoff",
+				disposition: "retry-backoff",
+				launchAttempted: false,
+			}),
+		).toBe("; no launch attempted (supervisor retry backoff active)");
+	});
+
+	it("reports no launch when self-heal was disabled by env var", () => {
+		expect(
+			recoveryAttemptNotice({
+				result: "skipped",
+				disposition: "self-heal-disabled",
+				launchAttempted: false,
+			}),
+		).toBe("; no launch attempted (self-heal disabled)");
+	});
+
+	it("reports no launch when the guard was intentionally disabled", () => {
+		expect(
+			recoveryAttemptNotice({
+				result: "skipped",
+				disposition: "guard-disabled",
+				launchAttempted: false,
+			}),
+		).toBe("; no launch attempted (guard intentionally disabled)");
+	});
+
+	it("reports no launch when no Interlinked project root was found", () => {
+		expect(
+			recoveryAttemptNotice({
+				result: "skipped",
+				disposition: "no-project",
+				launchAttempted: false,
+			}),
+		).toBe("; no launch attempted (no Interlinked project found)");
 	});
 });

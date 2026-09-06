@@ -4,7 +4,7 @@
 // helper's gating / merge logic is driven deterministically without a real
 // suite, git, or overlay.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
@@ -693,5 +693,158 @@ describe("runMutationWriteGate", () => {
 		const d = await corruptManifestCase({ enabled: true, mode: "off", unavailable_behavior: "block" });
 		expect(d).toBeNull();
 		expect(mMutation).not.toHaveBeenCalled();
+	});
+});
+
+// The gate hands `runPerEditMutationGate` three callbacks it never invokes
+// itself — `selectTests`, `readDisk`, `persist`. Each is captured off the mocked
+// gate's first call and driven directly, so the decline reasons, the read
+// fallback and the two persisted artifacts are asserted as values rather than
+// inferred from the gate having run.
+describe("runMutationWriteGate — the callbacks handed to the gate", () => {
+	/** Run the gate once against `runtime`/`event` and return the arg object it
+	 *  was called with (carrying selectTests / readDisk / persist). */
+	async function callbacks(runtime: ServerRuntime, event: HarnessEvent) {
+		mMutation.mockResolvedValue(null);
+		await runMutationWriteGate(runtime, event, allow());
+		return mMutation.mock.calls[0]?.[0];
+	}
+
+	/** A runtime rooted at a real temp dir, with the daemon's graph cache. */
+	function rootedRuntime(root: string, cfg: Record<string, unknown>): ServerRuntime {
+		return {
+			// SAFETY: the production shape is assembled by the daemon; these tests
+			// need only the fields the mutation gate reads.
+			...ctxMutation({ enabled: true, mode: "block", ...cfg }),
+			cwd: root,
+			graphCache: new Map(),
+			log: () => {},
+		} as unknown as ServerRuntime;
+	}
+
+	it("selectTests reports the graph unavailable when the project graph cannot be built", async () => {
+		// `ctxMutation` carries no `graphCache`, so `getGraphForFile` throws — the
+		// same shape a graph-init failure produces. The gate must decline with an
+		// honest reason, never a silently narrowed scope.
+		const args = await callbacks(ctxMutation({ enabled: true, mode: "block" }), ev({ tool_name: "Write" }));
+		expect(args.selectTests("src/subject.ts")).toEqual({
+			kind: "unavailable",
+			reason: "dependency graph unavailable — exact mutation test scope is unproven",
+		});
+	});
+
+	it("selectTests names the file and the decline reason when the graph does not know it", async () => {
+		const root = mkdtempSync(join(tmpdir(), "mutation-unknown-file-"));
+		mkdirSync(join(root, "src"), { recursive: true });
+		writeFileSync(join(root, "src", "subject.ts"), "export const subject = 1;\n");
+		writeFileSync(join(root, "src", "subject-roundtrip.test.ts"), 'import { subject } from "./subject.js";\nvoid subject;\n');
+		const args = await callbacks(rootedRuntime(root, {}), ev({ tool_name: "Write" }));
+		const selection = args.selectTests("src/nowhere.ts");
+		rmSync(root, { recursive: true, force: true });
+		expect(selection).toEqual({
+			kind: "unavailable",
+			reason: "exact mutation test scope is unavailable for src/nowhere.ts: unknown_file",
+		});
+	});
+
+	it("selectTests reports the uncapped test count when an over-cap decline has no companion to fall back on", async () => {
+		const root = mkdtempSync(join(tmpdir(), "mutation-over-cap-"));
+		mkdirSync(join(root, "src", "nested"), { recursive: true });
+		writeFileSync(join(root, "src", "subject.ts"), "export const subject = 1;\n");
+		// A dependent test in a SIBLING directory: affected by the graph walk, but
+		// not a co-located companion — so the over-cap decline carries no reduced
+		// scope and must say how many tests it declined.
+		writeFileSync(join(root, "src", "nested", "uses-subject.test.ts"), 'import { subject } from "../subject.js";\nvoid subject;\n');
+		const args = await callbacks(rootedRuntime(root, { max_test_scope: 0 }), ev({ tool_name: "Write" }));
+		const selection = args.selectTests("src/subject.ts");
+		rmSync(root, { recursive: true, force: true });
+		expect(selection).toEqual({
+			kind: "unavailable",
+			reason: "exact mutation test scope is unavailable for src/subject.ts: over_cap (1 tests exceeded the cap)",
+		});
+	});
+
+	it("readDisk returns null for an unreadable path instead of throwing out of the gate", async () => {
+		const root = mkdtempSync(join(tmpdir(), "mutation-read-disk-"));
+		mkdirSync(join(root, "src"), { recursive: true });
+		writeFileSync(join(root, "src", "present.ts"), "export const present = 1;\n");
+		const args = await callbacks(rootedRuntime(root, {}), ev({ tool_name: "Write" }));
+		const present = args.readDisk("src/present.ts");
+		const absent = args.readDisk("src/never-written.ts");
+		rmSync(root, { recursive: true, force: true });
+		expect(present).toBe("export const present = 1;\n");
+		expect(absent).toBeNull();
+	});
+
+	const PERSIST_MANIFEST = {
+		version: 1,
+		generation: 7,
+		authoritativeAt: "2026-08-30T00:00:00.000Z",
+		files: {
+			"src/a.ts": {
+				"sym-1": {
+					mutants: {
+						"m-killed": { mutantId: "m-killed", status: "killed" },
+						"m-survived": { mutantId: "m-survived", status: "survived" },
+					},
+				},
+			},
+		},
+	};
+
+	const PERSIST_RECEIPT = {
+		measuredAt: "2026-08-30T01:02:03.000Z",
+		outcome: "clean",
+		sites: [
+			{ mutantId: "m1", symbolId: "sym-1", status: "killed" },
+			{ mutantId: "m2", symbolId: "sym-1", status: "killed" },
+			{ mutantId: "m3", symbolId: "sym-1", status: "survived" },
+			{ mutantId: "m4", symbolId: "sym-1", status: "uncovered" },
+		],
+	};
+
+	/** Drive the gate's `persist` callback once against a real temp root. */
+	async function persistInto(root: string): Promise<void> {
+		mkdirSync(join(root, "src"), { recursive: true });
+		writeFileSync(join(root, "src", "a.ts"), "export const a = 1;\n");
+		const args = await callbacks(
+			rootedRuntime(root, {}),
+			ev({ tool_name: "Write", cwd: root, tool_input: { file_path: join(root, "src", "a.ts") } }),
+		);
+		args.persist(PERSIST_MANIFEST, PERSIST_RECEIPT);
+	}
+
+	it("persist appends a run-log row whose counts come from the receipt's site STATUSES", async () => {
+		// `total - killed` would misfile the uncovered site as a survivor (external
+		// review 2026-08-23, finding 4) — the row is status-derived, and carries
+		// the receipt's own outcome so the dashboard renders adoption neutrally.
+		const root = mkdtempSync(join(tmpdir(), "mutation-persist-log-"));
+		await persistInto(root);
+		const log = readFileSync(join(root, ".interlinked", "mutation-runs.jsonl"), "utf-8");
+		rmSync(root, { recursive: true, force: true });
+		expect(log.trim().split("\n").map((line) => JSON.parse(line))).toEqual([
+			{
+				ts: "2026-08-30T01:02:03.000Z",
+				file: "src/a.ts",
+				source: "per-edit",
+				mutants: 4,
+				killed: 2,
+				survived: 1,
+				uncovered: 1,
+				outcome: "clean",
+			},
+		]);
+	});
+
+	it("persist also refreshes the survivors-index sidecar in the same call", async () => {
+		const root = mkdtempSync(join(tmpdir(), "mutation-persist-index-"));
+		await persistInto(root);
+		const sidecar = readFileSync(join(root, ".interlinked", "mutation-survivors-index.json"), "utf-8");
+		rmSync(root, { recursive: true, force: true });
+		// SAFETY: the file was just written by `writeSurvivorsIndex`; the fields
+		// read below are asserted against literals, so a shape change fails loudly.
+		const parsed = JSON.parse(sidecar) as { generation: number; files: Record<string, unknown> };
+		expect(parsed.generation).toBe(7);
+		expect(parsed.files["src/a.ts"]).toEqual({ survivors: ["m-survived"], mutantCount: 2, killed: 1 });
 	});
 });

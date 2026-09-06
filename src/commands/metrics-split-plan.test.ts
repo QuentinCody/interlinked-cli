@@ -20,6 +20,14 @@ import {
 	toKebabCase,
 } from "./metrics-split-plan.js";
 
+// buildSplitGraph is mocked (default implementation delegates to the real
+// function) so one command test can force the "typescript unavailable" path
+// without touching the module under test.
+vi.mock("./metrics-split-plan-graph.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./metrics-split-plan-graph.js")>();
+	return { ...actual, buildSplitGraph: vi.fn(actual.buildSplitGraph) };
+});
+
 const SOURCE = [
 	'import { readFileSync } from "node:fs";',
 	'import { join } from "node:path";',
@@ -56,6 +64,39 @@ function plan(): SplitPlan {
 	const graph = buildSplitGraph(SOURCE, "src/lib/config-loader.ts");
 	if (!graph) throw new Error("typescript unavailable — AST path required for this suite");
 	return buildSplitPlan(graph, { lineCap: 20 });
+}
+
+// Four independent units (no calls between them): `main` is the sole export
+// (entry cluster); `shared`/`sharedHelper` share an import so they merge into
+// one cluster whose hub is named `shared`; `Shared` stays its own cluster.
+// `moduleSlug("thing", "Shared")` collapses to the same slug as `moduleSlug("thing", "shared")`
+// (`toKebabCase` is case-insensitive on a single word), so the second cluster's
+// suggested filename collides with the first's and must be renamed `-2`.
+const COLLISION_SOURCE = [
+	'import { sharedImportFn } from "some-module";',
+	"",
+	"export function main(): number {",
+	"\treturn 1;",
+	"}",
+	"",
+	"function shared(): number {",
+	"\treturn sharedImportFn();",
+	"}",
+	"",
+	"function sharedHelper(): number {",
+	"\treturn sharedImportFn();",
+	"}",
+	"",
+	"function Shared(): number {",
+	"\treturn 42;",
+	"}",
+	"",
+].join("\n");
+
+function collisionPlan(maxClusters?: number): SplitPlan {
+	const graph = buildSplitGraph(COLLISION_SOURCE, "thing.ts");
+	if (!graph) throw new Error("typescript unavailable — AST path required for this suite");
+	return buildSplitPlan(graph, { lineCap: 100, ...(maxClusters !== undefined ? { maxClusters } : {}) });
 }
 
 const cleanups: string[] = [];
@@ -142,6 +183,19 @@ describe("buildSplitPlan — positive (must fire)", () => {
 		expect(p.newlyExported.every((n) => targets.includes(n))).toBe(true);
 		expect(p.newlyExported).not.toContain("b");
 	});
+
+	it("P6: a filename collision between two non-entry clusters is resolved with a -2 suffix", () => {
+		const p = collisionPlan();
+		const files = p.modules.map((m) => m.file);
+		expect(files).toEqual(["thing.ts", "thing-shared.ts", "thing-shared-2.ts"]);
+		const renamed = p.modules.find((m) => m.file === "thing-shared-2.ts");
+		expect(renamed?.units.map((u) => u.name)).toEqual(["Shared"]);
+	});
+
+	it("P7: maxClusters forces extra clusters to merge even without a merge affinity", () => {
+		const p = collisionPlan(2);
+		expect(p.modules).toHaveLength(2);
+	});
 });
 
 describe("buildSplitPlan — negative (must not fire)", () => {
@@ -176,6 +230,31 @@ describe("renderSplitPlan", () => {
 
 	it("P2: the short form is one line", () => {
 		expect(renderSplitPlanShort(plan()).split("\n")).toHaveLength(1);
+	});
+
+	it("P3: lists a cross-module reference and the units that need `export`", () => {
+		const graph = buildSplitGraph(
+			[
+				"export function a(): number {",
+				"\treturn helper() + b();",
+				"}",
+				"function helper(): number {",
+				"\treturn 1;",
+				"}",
+				"export function b(): number {",
+				"\treturn 2;",
+				"}",
+				"",
+			].join("\n"),
+			"x.ts",
+		);
+		if (!graph) throw new Error("typescript unavailable");
+		const p = buildSplitPlan(graph, { lineCap: 5, maxShareOfLines: 0.4 });
+		const text = renderSplitPlan(p);
+		const edge = p.crossEdges[0];
+		if (!edge) throw new Error("expected at least one cross edge in this fixture");
+		expect(text).toContain(`${edge.fromModule}:${edge.from} → ${edge.toModule}:${edge.to}`);
+		expect(text).toContain("Needs `export` to cross the boundary: helper");
 	});
 });
 
@@ -215,5 +294,59 @@ describe("metricsSplitPlanCommand", () => {
 		expect(String(err.mock.calls[0]?.[0])).toMatch(/JS\/TS/);
 		expect(process.exitCode).toBe(1);
 		process.exitCode = 0;
+	});
+
+	it("N3: when the AST parser is unavailable it fails loudly and prints nothing", async () => {
+		const dir = tmpRepo();
+		writeFileSync(join(dir, "loader.ts"), SOURCE);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		const err = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+		vi.mocked(buildSplitGraph).mockReturnValueOnce(null);
+		await metricsSplitPlanCommand({ file: "loader.ts", cwd: dir });
+		expect(log).not.toHaveBeenCalled();
+		expect(String(err.mock.calls[0]?.[0])).toContain(
+			"split-plan needs the optional `typescript` dependency (AST parse) — install it and retry",
+		);
+		expect(process.exitCode).toBe(1);
+		process.exitCode = 0;
+	});
+
+	it("P2: --max-clusters clamps and forces fewer modules than the default", async () => {
+		const dir = tmpRepo();
+		writeFileSync(join(dir, "thing.ts"), COLLISION_SOURCE);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		await metricsSplitPlanCommand({ file: "thing.ts", cwd: dir, json: true, maxClusters: "2" });
+		const printed = JSON.parse(String(log.mock.calls[0]?.[0])) as SplitPlan;
+		expect(printed.modules).toHaveLength(2);
+	});
+
+	it("N4: an unparsable --max-clusters is ignored, keeping the default cluster count", async () => {
+		const dir = tmpRepo();
+		writeFileSync(join(dir, "thing.ts"), COLLISION_SOURCE);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		await metricsSplitPlanCommand({ file: "thing.ts", cwd: dir, json: true, maxClusters: "not-a-number" });
+		const printed = JSON.parse(String(log.mock.calls[0]?.[0])) as SplitPlan;
+		expect(printed.modules).toHaveLength(3);
+	});
+
+	it("P3: the default (normal) mode prints the full multi-line plan", async () => {
+		const dir = tmpRepo();
+		writeFileSync(join(dir, "loader.ts"), SOURCE);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		await metricsSplitPlanCommand({ file: "loader.ts", cwd: dir });
+		const printed = String(log.mock.calls[0]?.[0]);
+		expect(printed).toContain("Split plan — loader.ts:");
+		expect(printed).toContain("loader-report-path.ts");
+		expect(printed).toContain("parseConfig");
+	});
+
+	it("P4: --short prints exactly one summary line naming the file and module count", async () => {
+		const dir = tmpRepo();
+		writeFileSync(join(dir, "loader.ts"), SOURCE);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		await metricsSplitPlanCommand({ file: "loader.ts", cwd: dir, short: true });
+		const printed = String(log.mock.calls[0]?.[0]);
+		expect(printed.split("\n")).toHaveLength(1);
+		expect(printed).toContain("loader.ts: 29 lines → 2 modules");
 	});
 });

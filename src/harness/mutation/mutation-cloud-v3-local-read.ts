@@ -26,6 +26,12 @@ interface ConfinedReadHooks {
 	afterPathValidated?: (path: string) => void;
 	/** Deterministic race-injection seam used by the local security tests. */
 	afterDescriptorValidated?: (path: string) => void;
+	/**
+	 * Deterministic short-read injection seam used by the local security
+	 * tests to simulate a mid-read shrink race without an actual concurrent
+	 * writer. Defaults to the real bounded-descriptor reader.
+	 */
+	readBytes?: (fd: number, input: BoundedLocalRead, expectedSize: bigint) => Uint8Array;
 }
 
 interface ConfinedCandidate {
@@ -175,7 +181,7 @@ function assertRequestedPathStable(input: StableReadInput): void {
 	}
 }
 
-function assertStableRead(input: StableReadInput): void {
+export function assertStableRead(input: StableReadInput): void {
 	if (!input.after.isFile() || !descriptorUnchanged(input.before, input.after)) {
 		throw changedError(input.label);
 	}
@@ -203,7 +209,7 @@ export function readConfinedFileBytes(
 		assertInitialDescriptor(input, before);
 		if (!descriptorUnchanged(candidate.initial, before)) throw changedError(input.label);
 		hooks.afterDescriptorValidated?.(candidate.path);
-		const bytes = readBoundedDescriptor(fd, input, before.size);
+		const bytes = (hooks.readBytes ?? readBoundedDescriptor)(fd, input, before.size);
 		const after = fstatSync(fd, { bigint: true });
 		assertStableRead({ candidate, label: input.label, before, after });
 		if (BigInt(bytes.byteLength) !== before.size) {

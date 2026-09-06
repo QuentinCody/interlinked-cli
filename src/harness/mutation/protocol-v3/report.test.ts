@@ -126,4 +126,95 @@ describe("verifyReportAgainstEnvelope — negative (must reject)", () => {
 		});
 		expect(verifyReportAgainstEnvelope(env, Buffer.from(text, "utf8"))).toContain("r2_sha256");
 	});
+
+	// test-contract: security — the retrieved bytes must match the pointer's
+	// declared length before any hash is even computed.
+	it("N5: retrieved bytes whose length disagrees with the pointer reject", () => {
+		const mr = validMutationResult();
+		const text = buildStructuralReport(mr);
+		const env = withReport(mr, text);
+		const longer = Buffer.from(`${text} `, "utf8");
+		expect(verifyReportAgainstEnvelope(env, longer)).toContain("pointer declares");
+	});
+
+	// test-contract: security — non-JSON bytes reject before any structural
+	// check runs (the JSON.parse failure path).
+	it("N6: bytes that are not valid JSON reject", () => {
+		const mr = validMutationResult();
+		const notJson = "{not json";
+		expect(
+			verifyReportAgainstEnvelope(withReport(mr, notJson), Buffer.from(notJson, "utf8")),
+		).toBe("report is not valid JSON");
+	});
+
+	// test-contract: security — a report entry that is present but not a
+	// structural object (a string standing in for the target's row set)
+	// rejects the same way as a missing entry.
+	it("N7: a non-object file entry rejects", () => {
+		const mr = validMutationResult();
+		const text = JSON.stringify({ report_version: "1", files: { [mr.job.target_file]: "not-an-object" } });
+		expect(
+			verifyReportAgainstEnvelope(withReport(mr, text), Buffer.from(text, "utf8")),
+		).toContain("no structural entry");
+	});
+
+	// test-contract: security — a mutant row that is not a {mutant_id,
+	// status} shell (here: not even an object) rejects before any field
+	// check runs.
+	it("N8: a malformed row that is not a {mutant_id, status} shell rejects", () => {
+		const mr = validMutationResult();
+		const text = JSON.stringify({ report_version: "1", files: { [mr.job.target_file]: { mutants: [42] } } });
+		expect(
+			verifyReportAgainstEnvelope(withReport(mr, text), Buffer.from(text, "utf8")),
+		).toBe("report mutant rows must be {mutant_id, status} objects");
+	});
+
+	// test-contract: security — an executable row's status must be one of
+	// the known V3MutantStatus values.
+	it("N9: an unrecognized mutant status rejects", () => {
+		const mr = validMutationResult();
+		const text = JSON.stringify({
+			report_version: "1",
+			files: { [mr.job.target_file]: { mutants: [{ ...mr.mutants[0]!, status: "bogus" }] } },
+		});
+		expect(
+			verifyReportAgainstEnvelope(withReport(mr, text), Buffer.from(text, "utf8")),
+		).toContain('not a known status');
+	});
+
+	// test-contract: security — the report cannot launder an envelope
+	// mutant into an excluded row; the row for that mutant_id must still
+	// carry an executable status.
+	it("N10: a report that marks an envelope mutant as excluded rejects", () => {
+		const mr = validMutationResult();
+		const parsedReport = JSON.parse(buildStructuralReport(mr)) as {
+			report_version: string;
+			files: Record<string, { mutants: Array<Record<string, unknown>> }>;
+		};
+		const entry = parsedReport.files[mr.job.target_file]!;
+		const flipped = entry.mutants.find((row) => row.mutant_id === mr.mutants[0]!.mutant_id)!;
+		flipped.status = "excluded";
+		flipped.policy_id = mr.excluded[0]!.policy_id;
+		const text = JSON.stringify(parsedReport);
+		expect(
+			verifyReportAgainstEnvelope(withReport(mr, text), Buffer.from(text, "utf8")),
+		).toContain(`report marks executable mutant "${mr.mutants[0]!.mutant_id}" as excluded`);
+	});
+
+	// test-contract: security — an extra row that does not correspond to
+	// any envelope mutant or exclusion rejects on the final row-count check,
+	// even though every envelope entry finds its own matching row.
+	it("N11: an extra report row with no matching envelope entry rejects", () => {
+		const mr = validMutationResult();
+		const parsedReport = JSON.parse(buildStructuralReport(mr)) as {
+			report_version: string;
+			files: Record<string, { mutants: Array<Record<string, unknown>> }>;
+		};
+		const entry = parsedReport.files[mr.job.target_file]!;
+		entry.mutants.push({ ...mr.mutants[0]!, mutant_id: sha("extra-row-marker"), status: "survived" });
+		const text = JSON.stringify(parsedReport);
+		expect(
+			verifyReportAgainstEnvelope(withReport(mr, text), Buffer.from(text, "utf8")),
+		).toContain("row(s) but the envelope accounts for exactly");
+	});
 });

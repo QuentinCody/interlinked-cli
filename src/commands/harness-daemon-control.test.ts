@@ -1,4 +1,22 @@
-import { describe, expect, it } from "vitest";
+// ===========================================
+// Daemon control — reaping and stopping
+// ===========================================
+// Two fixture styles, deliberately:
+//   1. Fully injected deps (`DaemonControlDeps`) for the selection rules —
+//      who is protected, who is signalled, what the ledger records. No real
+//      process is touched, so the storm invariants are cheap to pin.
+//   2. One real, disposable child process (`spawnDecoyDaemon`) whose `ps`
+//      argv matches a throwaway workspace's daemon shape. That block leaves
+//      `kill` / `isAlive` / `wait` at their DEFAULTS, so the module's real
+//      `process.kill` wrappers, the `ps`-derived orphan lookup and the poll
+//      loop are exercised instead of stubbed away.
+
+import { spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { DaemonLedgerEvent } from "../harness/daemon-ledger.js";
 import {
 	collectServingDaemonPids,
 	type DaemonControlDeps,
@@ -356,5 +374,92 @@ describe("stopAllDaemons — negative (must not fire)", () => {
 		});
 		expect(signals).toEqual(["SIGTERM"]);
 		expect(result).toEqual({ stopped: [11], survived: [] });
+	});
+});
+
+interface DecoyDaemon {
+	pid: number;
+	/** Resolves with the signal that ended the process, or null on a clean exit. */
+	exitSignal: Promise<NodeJS.Signals | null>;
+	dispose: () => void;
+}
+
+/**
+ * A real, disposable process whose `ps` argv is exactly the daemon shape
+ * `isHarnessDaemonCommandForCwd` accepts for `workspace`. The `ps`-derived
+ * orphan lookup, `process.kill` and the liveness probe therefore run against a
+ * live process we own instead of a stub. Resolves once `execve` succeeded, so
+ * the new argv is already visible to `ps`.
+ */
+async function spawnDecoyDaemon(workspace: string): Promise<DecoyDaemon> {
+	const serverDir = join(workspace, "dist", "harness");
+	mkdirSync(serverDir, { recursive: true });
+	const script = join(serverDir, "server.js");
+	writeFileSync(script, "setTimeout(() => {}, 30000);\n");
+	const child = spawn(process.execPath, [script, "--cwd", workspace], { stdio: "ignore" });
+	const exitSignal = new Promise<NodeJS.Signals | null>((resolve) => {
+		child.on("exit", (_code, signal) => resolve(signal));
+	});
+	try {
+		await new Promise<void>((resolve, reject) => {
+			child.once("spawn", resolve);
+			child.once("error", reject);
+		});
+	} catch (err) {
+		child.kill("SIGKILL");
+		throw err;
+	}
+	return {
+		// SAFETY: `pid` is only undefined when the spawn failed, which the
+		// awaited "spawn"/"error" race above has already turned into a throw.
+		pid: child.pid as number,
+		exitSignal,
+		dispose: () => {
+			child.kill("SIGKILL");
+		},
+	};
+}
+
+describe("stopAllDaemons — default kill / liveness / wait against a real process", () => {
+	let workspace = "";
+	let decoy: DecoyDaemon | null = null;
+
+	beforeEach(() => {
+		workspace = mkdtempSync(join(tmpdir(), "interlinked-daemon-control-"));
+		decoy = null;
+	});
+
+	afterEach(() => {
+		decoy?.dispose();
+		rmSync(workspace, { recursive: true, force: true });
+	});
+
+	it("finds a daemon that no pid file names through ps and SIGTERMs it", async () => {
+		decoy = await spawnDecoyDaemon(workspace);
+		const ledgerDetails: string[] = [];
+		const result = await stopAllDaemons(workspace, {
+			identify: identifyDaemon,
+			protectedPids: () => new Set<number>(),
+			recordEvent: (evt: DaemonLedgerEvent) => ledgerDetails.push(evt.detail ?? ""),
+		});
+		expect(ledgerDetails).toEqual([`stopping 1 daemon(s): ${decoy.pid}`]);
+		expect(await decoy.exitSignal).toBe("SIGTERM");
+		expect(result).toEqual({ stopped: [decoy.pid], survived: [] });
+	});
+
+	it("reports a daemon that exited before the stop as stopped, not survived", async () => {
+		decoy = await spawnDecoyDaemon(workspace);
+		const pid = decoy.pid;
+		decoy.dispose();
+		expect(await decoy.exitSignal).toBe("SIGKILL");
+
+		const result = await stopAllDaemons(workspace, {
+			discover: () => [daemon(pid, join(workspace, "harness.sock"))],
+			extraPids: () => [],
+			protectedPids: () => new Set<number>(),
+			identify: identifyDaemon,
+			recordEvent: () => {},
+		});
+		expect(result).toEqual({ stopped: [pid], survived: [] });
 	});
 });

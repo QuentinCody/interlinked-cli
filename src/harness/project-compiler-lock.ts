@@ -40,6 +40,13 @@ export interface CrossProcessCompilerLease {
 interface CrossProcessCompilerLeaseOptions {
 	/** Test seam for the observe-then-retire race. Production leaves absent. */
 	beforeRetireObserved?: () => void;
+	/** Test seam fired after `mkdirSync` succeeds but before the owner file is
+	 * published, so a test can force the publish to lose a race. Production
+	 * leaves absent. */
+	beforeOwnerWrite?: () => void;
+	/** Test seam fired after a stale lock is successfully reclaimed, before the
+	 * next recovery attempt is retried. Production leaves absent. */
+	afterReclaim?: () => void;
 }
 
 interface LockOwner {
@@ -103,7 +110,7 @@ function parseLockOwner(raw: string): LockOwner | null {
 	}
 }
 
-function linuxProcessIdentity(pid: number): string | null {
+export function linuxProcessIdentity(pid: number): string | null {
 	try {
 		const stat = readFileSync(`/proc/${pid}/stat`, "utf-8");
 		const commandEnd = stat.lastIndexOf(")");
@@ -198,7 +205,7 @@ function liveOwnerStillOwns(path: string, owner: LockOwner): boolean {
 	return currentIdentity === null || currentIdentity === owner.processIdentity;
 }
 
-function moveAsideStaleLock(path: string): boolean {
+export function moveAsideStaleLock(path: string): boolean {
 	const stalePath = `${path}.stale-${process.pid}-${randomUUID()}`;
 	try {
 		renameSync(path, stalePath);
@@ -256,9 +263,14 @@ function makeRelease(path: string, token: string): () => void {
 	return release;
 }
 
-function createLease(projectKey: string, path: string): CrossProcessCompilerLease {
+function createLease(
+	projectKey: string,
+	path: string,
+	options: CrossProcessCompilerLeaseOptions = {},
+): CrossProcessCompilerLease {
 	const token = randomUUID();
 	mkdirSync(path);
+	options.beforeOwnerWrite?.();
 	const owner: LockOwner = {
 		pid: process.pid,
 		token,
@@ -289,10 +301,11 @@ export function tryAcquireCrossProcessCompilerLease(
 			() => {
 				for (let attempt = 0; attempt < 2; attempt++) {
 					try {
-						return createLease(projectKey, path);
+						return createLease(projectKey, path, options);
 					} catch (error) {
 						if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 						if (!reclaimStaleLock(path, options)) return null;
+						options.afterReclaim?.();
 					}
 				}
 				return null;

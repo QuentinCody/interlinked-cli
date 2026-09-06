@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as dispositionStore from "../harness/mutation/disposition-store.js";
 import { loadLedger } from "../harness/mutation/disposition-store.js";
 import { clearManifestCache, loadManifest } from "../harness/mutation/manifest.js";
 import { buildDisposition, mutationDispositionCommand } from "./mutation-disposition.js";
@@ -323,5 +324,122 @@ describe("mutationDispositionCommand", () => {
 		});
 		expect(process.exitCode).toBe(1);
 		expect(logs.join("\n")).toMatch(/--strategy must be one of/);
+	});
+
+	it("N3: a CORRUPT on-disk manifest is reported as corrupt, not as missing", async () => {
+		// Malformed JSON, not absent — `loadManifestState` must land in the
+		// "corrupt" branch rather than the "no manifest" one, and the reader
+		// steers toward repair/removal instead of "measure the file first".
+		writeFileSync(join(configDir, "mutation-manifest.json"), "{not valid json");
+		clearManifestCache();
+		await mutationDispositionCommand({
+			file: "src/a.ts",
+			id: "m1",
+			kind: "dead_code",
+			resolution: "delete",
+			cwd,
+			json: true,
+		});
+		expect(process.exitCode).toBe(1);
+		const payload = JSON.parse(logs.join("\n")) as { error: string };
+		expect(payload.error).toContain("is CORRUPT");
+		expect(payload.error).toContain('not "missing"');
+		expect(payload.error).toContain("mutation-manifest.json");
+	});
+
+	it("N4: a --file spelling the manifest's OWN normalizer resolves but the store's lighter matcher misses it — reported as an unfound mutant", async () => {
+		// `findMutantRecord` resolves through the full path-resolution normalizer
+		// (which collapses "src/./a.ts" to "src/a.ts"), so the pre-check passes.
+		// `disposition-store.ts`'s `locateMutant` uses a lighter string-only
+		// normalizer that does NOT collapse a mid-path "./" segment, so it fails
+		// to find the same mutant and `makeRecord` returns null.
+		writeManifest();
+		await mutationDispositionCommand({
+			file: "src/./a.ts",
+			id: "m1",
+			kind: "dead_code",
+			resolution: "delete",
+			cwd,
+			json: true,
+		});
+		expect(process.exitCode).toBe(1);
+		const payload = JSON.parse(logs.join("\n")) as { error: string };
+		expect(payload.error).toBe('Mutant "m1" not found under "src/./a.ts".');
+		// Nothing was written — the store-level failure must not partially record.
+		expect(loadLedger(configDir).records).toHaveLength(0);
+	});
+
+	it("N5: a store-level refusal surfacing AFTER record construction is reported, and the ledger stays untouched", async () => {
+		// The command already checks `refuseRecord` once before calling
+		// `upsertRecord`, so under real conditions `upsertRecord` never refuses a
+		// record that already passed. Force the store's own internal refusal path
+		// (a defensive double-check) by spying on the real dependency — not the
+		// module under test — so the branch is exercised without weakening any
+		// other test's use of the real store.
+		writeManifest();
+		const spy = vi.spyOn(dispositionStore, "upsertRecord").mockReturnValueOnce(null);
+		try {
+			await mutationDispositionCommand({
+				file: "src/a.ts",
+				id: "m1",
+				kind: "dead_code",
+				resolution: "delete",
+				cwd,
+				json: true,
+			});
+		} finally {
+			spy.mockRestore();
+		}
+		expect(process.exitCode).toBe(1);
+		const payload = JSON.parse(logs.join("\n")) as { error: string };
+		expect(payload.error).toBe('Refused: "dead_code" cannot be recorded against "m1".');
+		expect(loadLedger(configDir).records).toHaveLength(0);
+	});
+
+	it("N6: --list --json emits the machine payload (count + full records), not the human summary", async () => {
+		writeManifest();
+		await mutationDispositionCommand({ file: "src/a.ts", id: "m1", kind: "dead_code", resolution: "delete", cwd });
+		logs.length = 0;
+		await mutationDispositionCommand({ list: true, json: true, cwd });
+		expect(process.exitCode).toBe(0);
+		const payload = JSON.parse(logs.join("\n")) as { count: number; records: Array<{ mutantId: string }> };
+		expect(payload.count).toBe(1);
+		expect(payload.records[0]?.mutantId).toBe("m1");
+	});
+
+	it("N7: --list human summary names each recorded mutant when the ledger is non-empty", async () => {
+		writeManifest();
+		await mutationDispositionCommand({ file: "src/a.ts", id: "m1", kind: "dead_code", resolution: "delete", cwd });
+		logs.length = 0;
+		await mutationDispositionCommand({ list: true, cwd });
+		expect(process.exitCode).toBe(0);
+		const text = logs.join("\n");
+		expect(text).toContain("1 recorded disposition(s):");
+		expect(text).toContain("  m1  dead_code  fn  src/a.ts");
+	});
+
+	it("N8: --show with no --id is a usage error naming the required flag", async () => {
+		await mutationDispositionCommand({ show: true, cwd, json: true });
+		expect(process.exitCode).toBe(1);
+		expect(logs.join("\n")).toMatch(/Usage: interlinked mutation disposition --show --id/);
+	});
+
+	it("N9: --show for an id with no recorded disposition names the id and the --file scope in the error", async () => {
+		writeManifest();
+		await mutationDispositionCommand({ show: true, id: "does-not-exist", file: "src/a.ts", cwd, json: true });
+		expect(process.exitCode).toBe(1);
+		const payload = JSON.parse(logs.join("\n")) as { error: string };
+		expect(payload.error).toBe('No disposition recorded for "does-not-exist" under "src/a.ts".');
+	});
+
+	it("N10: --show human summary (no --json) pretty-prints the same record the JSON path returns", async () => {
+		writeManifest();
+		await mutationDispositionCommand({ file: "src/a.ts", id: "m1", kind: "dead_code", resolution: "delete", cwd });
+		logs.length = 0;
+		await mutationDispositionCommand({ show: true, id: "m1", cwd });
+		expect(process.exitCode).toBe(0);
+		const record = JSON.parse(logs.join("\n")) as { mutantId: string; disposition: { kind: string } };
+		expect(record.mutantId).toBe("m1");
+		expect(record.disposition.kind).toBe("dead_code");
 	});
 });

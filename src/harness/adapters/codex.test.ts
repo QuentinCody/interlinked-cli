@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import { CODEX_WRITE_TOOLS } from "../../lib/write-tool-registry.js";
-import { CODEX_POST_TOOL_USE_MATCHER, createCodexAdapter } from "./codex.js";
+import { CODEX_POST_TOOL_USE_MATCHER, codexRegistration, createCodexAdapter } from "./codex.js";
 
 const adapter = createCodexAdapter();
 const overriddenAdapter = createCodexAdapter({
@@ -466,6 +466,64 @@ describe("Codex encodeDecision — allow with additional_context (non-Permission
 		);
 		expect(JSON.parse(out.stdout || "{}").hookSpecificOutput.additionalContext).toBe(
 			"fyi\nw1",
+		);
+	});
+});
+
+describe("Codex encodeDecision — Stop/SubagentStop continuation path", () => {
+	it("allow with no reason and no warnings emits zero bytes (native default continue)", () => {
+		const event = adapter.parseHookInput({ session_id: "c" }, "Stop");
+		const out = adapter.encodeDecision({ decision: "allow" }, event);
+		expect(out).toEqual({ exit_code: 0 });
+	});
+	it("block emits a decision:block continuation payload carrying the reason", () => {
+		const event = adapter.parseHookInput({ session_id: "c" }, "Stop");
+		const out = adapter.encodeDecision({ decision: "block", reason: "finish the task" }, event);
+		expect(JSON.parse(out.stdout || "{}")).toEqual({
+			decision: "block",
+			reason: "finish the task",
+		});
+	});
+	it("SubagentStop with warnings but no reason uses the warnings as the continuation reason", () => {
+		const event = adapter.parseHookInput({ session_id: "c" }, "SubagentStop");
+		const out = adapter.encodeDecision(
+			{ decision: "allow", warnings: ["left TODOs behind"] },
+			event,
+		);
+		expect(JSON.parse(out.stdout || "{}")).toEqual({
+			decision: "block",
+			reason: "left TODOs behind",
+		});
+	});
+});
+
+describe("Codex encodeDecision — block on a non-PreToolUse event", () => {
+	it("PostToolUse block uses the plain {decision, reason} shape (no hookSpecificOutput)", () => {
+		const event = adapter.parseHookInput(
+			{ session_id: "c", tool_name: "Bash", tool_input: { command: "ls" } },
+			"PostToolUse",
+		);
+		const out = adapter.encodeDecision({ decision: "block", reason: "quality gate failed" }, event);
+		expect(JSON.parse(out.stdout || "{}")).toEqual({
+			decision: "block",
+			reason: "quality gate failed",
+		});
+	});
+});
+
+describe("Codex encodeDecision — allow feedback on an event with no model_context capability", () => {
+	it("SessionEnd routes feedback to stderr instead of additionalContext", () => {
+		const event = adapter.parseHookInput({ session_id: "c" }, "SessionEnd");
+		const out = adapter.encodeDecision({ decision: "allow", additional_context: "session done" }, event);
+		expect(out).toEqual({ stderr: "session done", exit_code: 0 });
+		expect(out.stdout).toBeUndefined();
+	});
+});
+
+describe("codexRegistration — capability catalog guard", () => {
+	it("throws naming the missing event when called for an event outside CODEX_CAPABILITIES", () => {
+		expect(() => codexRegistration("/bin/hook", "NotARealCodexEvent")).toThrow(
+			"Codex event NotARealCodexEvent is missing from the capability catalog",
 		);
 	});
 });

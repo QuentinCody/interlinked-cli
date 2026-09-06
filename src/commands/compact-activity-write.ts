@@ -76,7 +76,7 @@ function completeSegment(deps: ActivityRecoveryDeps, segmentFile: string): Archi
 	return segment;
 }
 
-function removeTemporary(path: string): void {
+export function removeTemporary(path: string): void {
 	try {
 		unlinkSync(path);
 	} catch (error) {
@@ -233,7 +233,7 @@ function assertActivityPendingMatchesClaim(
 	}
 }
 
-function storeClaimedActivitySegment(
+export function storeClaimedActivitySegment(
 	deps: ActivityRecoveryDeps,
 	claim: RotationClaim,
 	replacement: FileIdentity,
@@ -384,6 +384,8 @@ function recoverClaimedActivityRotation(
  * are created only by a hard link from a fully written unique temporary. */
 export function rotateActivityPrefix(
 	deps: ActivityRotationDeps,
+	/** Test seam for the disappeared-claim finalization guard; production reads the real durable claim. */
+	loadClaim: typeof loadRotationClaim = loadRotationClaim,
 ): ActivityRotationResult | ActivityRotationConflict {
 	mkdirSync(deps.archiveDir, { recursive: true });
 	const gzipTemporary = join(
@@ -447,7 +449,7 @@ export function rotateActivityPrefix(
 				if (!publishedFile) throw new Error("activity segment was not published");
 				publishedSegment = finalizeClaimedActivityReplacement(
 					deps,
-					loadRotationClaim(deps.archiveDir, "activity") ?? (() => {
+					loadClaim(deps.archiveDir, "activity") ?? (() => {
 						throw new Error("activity rotation claim disappeared before finalization");
 					})(),
 				);

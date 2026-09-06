@@ -3,14 +3,18 @@
 // ===========================================
 // Real filesystem (tmp cwd), real installHooks, real adapters: the refresh
 // path exists to repair STALE installed hooks without touching enforcement
-// mode, so these tests install real fragments, age them, and refresh.
+// mode, so these tests install real fragments, age them, and refresh. A
+// second describe block exercises `reportRefresh` directly (json vs. human
+// output, and the per-line branches for verifications/skipped/failures/
+// rollback state) — its only other caller (install-hooks.ts) never drives
+// those shapes, so this file is where they get proven.
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installHooks, manifestPath, readManifest } from "../harness/installer.js";
-import { refreshInstalledHooks } from "./install-hooks-refresh.js";
+import { refreshInstalledHooks, reportRefresh } from "./install-hooks-refresh.js";
 
 let cwd: string;
 // The REAL bundled entry name: ownership is shape-parsed (2026-08-30), so a
@@ -267,5 +271,134 @@ describe("refreshInstalledHooks — negative (must not fire)", () => {
 			process.env.HOME = priorHome;
 			rmSync(fakeHome, { recursive: true, force: true });
 		}
+	});
+
+	// test-contract: bug — if a rollback restore itself fails (e.g. the
+	// settings directory vanished after the snapshot was taken), the run must
+	// report the restore's own error rather than silently claiming success.
+	it("N9: a failed rollback restore surfaces its error and reports rolled_back:false", () => {
+		const settingsPath = installGemini(BINARY);
+		const settingsDir = dirname(settingsPath);
+		const outcome = refreshInstalledHooks(
+			{ cwd, binaryPath: NEW_BINARY },
+			{
+				install: () => {
+					// Removes the directory a snapshotted file lived in, so restoring
+					// it (write a temp file alongside it, then rename) fails.
+					rmSync(settingsDir, { recursive: true, force: true });
+					throw new Error("mid-write crash before rollback");
+				},
+			},
+		);
+		expect(outcome.ok).toBe(false);
+		expect(outcome.rolled_back).toBe(false);
+		expect(outcome.rollback_error).toEqual(expect.stringContaining("ENOENT"));
+	});
+});
+
+describe("reportRefresh — human and JSON output", () => {
+	function captureStdout(): { writes: string[]; restore: () => void } {
+		const writes: string[] = [];
+		const spy = vi.spyOn(process.stdout, "write").mockImplementation((chunk: unknown) => {
+			writes.push(String(chunk));
+			return true;
+		});
+		return { writes, restore: () => spy.mockRestore() };
+	}
+
+	// test-contract: public-api — --json must print the FULL outcome object
+	// verbatim, not the human-readable summary lines below it.
+	it("prints the full outcome as JSON and returns before the human summary", () => {
+		const outcome = {
+			ok: true,
+			dry_run: false,
+			refreshed: ["gemini-cli"],
+			skipped: [],
+			post_install_failures: [],
+			rolled_back: false,
+			unchanged: false,
+			verifications: [],
+		};
+		const { writes, restore } = captureStdout();
+		try {
+			reportRefresh(outcome, true);
+		} finally {
+			restore();
+		}
+		expect(writes).toEqual([`${JSON.stringify(outcome, null, 2)}\n`]);
+	});
+
+	// test-contract: invariant — the human report lists every verification's
+	// runner, settings path, and pass/fail word (not just the count).
+	it("lists each verification's runner and pass/fail state", () => {
+		const outcome = {
+			ok: false,
+			dry_run: false,
+			refreshed: [],
+			skipped: [],
+			post_install_failures: [],
+			rolled_back: false,
+			unchanged: false,
+			verifications: [
+				{ runner: "gemini-cli", settings_path: "/tmp/a/settings.json", verified: true, problems: [] },
+				{ runner: "codex", settings_path: "/tmp/b/config.toml", verified: false, problems: ["missing hook"] },
+			],
+		};
+		const { writes, restore } = captureStdout();
+		try {
+			reportRefresh(outcome, false);
+		} finally {
+			restore();
+		}
+		const out = writes.join("");
+		expect(out).toContain("gemini-cli     → /tmp/a/settings.json verified");
+		expect(out).toContain("codex          → /tmp/b/config.toml NOT VERIFIED");
+	});
+
+	// test-contract: invariant — a skipped runner's reason reaches the human
+	// report, not just the JSON shape.
+	it("lists each skipped runner with its reason", () => {
+		const outcome = {
+			ok: true,
+			dry_run: false,
+			refreshed: [],
+			skipped: [{ runner: "codex", reason: "not in the installer manifest" }],
+			post_install_failures: [],
+			rolled_back: false,
+			unchanged: false,
+			verifications: [],
+		};
+		const { writes, restore } = captureStdout();
+		try {
+			reportRefresh(outcome, false);
+		} finally {
+			restore();
+		}
+		expect(writes.join("")).toContain("codex          skipped: not in the installer manifest");
+	});
+
+	// test-contract: invariant — a completed rollback and a rollback that
+	// left behind an unrestored file both get their own explicit line.
+	it("reports a completed rollback and a rollback that could not finish", () => {
+		const outcome = {
+			ok: false,
+			dry_run: false,
+			refreshed: [],
+			skipped: [],
+			post_install_failures: [],
+			rolled_back: true,
+			rollback_error: "EACCES: permission denied, open '/tmp/x.tmp'",
+			unchanged: true,
+			verifications: [],
+		};
+		const { writes, restore } = captureStdout();
+		try {
+			reportRefresh(outcome, false);
+		} finally {
+			restore();
+		}
+		const out = writes.join("");
+		expect(out).toContain("all settings files and the manifest were rolled back");
+		expect(out).toContain("ROLLBACK INCOMPLETE: EACCES: permission denied, open '/tmp/x.tmp'");
 	});
 });

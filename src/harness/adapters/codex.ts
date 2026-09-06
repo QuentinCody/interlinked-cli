@@ -168,7 +168,12 @@ function codexRenderSettingsFragment(binaryPath: string, scope: string): Setting
 	return { path, fragment: { hooks }, mergeStrategy: "array-append" };
 }
 
-function codexRegistration(binaryPath: string, event: string): Record<string, unknown> {
+// Exported so the "capability catalog is missing this event" guard clause
+// (below) can be exercised directly: it is otherwise unreachable — every
+// caller (codexRenderSettingsFragment) drives `event` from
+// installedEventNames(CODEX_CAPABILITIES), the same array eventCapability
+// searches, so a real registration call can never miss.
+export function codexRegistration(binaryPath: string, event: string): Record<string, unknown> {
 	const capability = eventCapability(CODEX_CAPABILITIES, event);
 	if (!capability) {
 		throw new Error(`Codex event ${event} is missing from the capability catalog`);

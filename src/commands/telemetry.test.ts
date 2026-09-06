@@ -13,7 +13,9 @@
 //     · spool missing  -> json arm    (ok:true, events:[], path)
 //     · spool missing  -> non-json arm ("no spool at <path>")
 //     · custom options.spool path is honored (?? default)
-//     · follow:true    -> delegates to followSpool (early return)
+//     · follow:true    -> delegates to followSpool (early return; the
+//       `waitForever` test hook on TelemetryOptions lets that await
+//       actually resolve so the return path itself gets exercised)
 //     · static + json  -> pretty-printed {events, path}
 //     · static + text  -> printEventLine per event
 //     · limit null     -> events (no slice)
@@ -343,6 +345,46 @@ describe("telemetryShowCommand — follow mode", () => {
 		expect(watchedPath).toBe(DEFAULT_PATH);
 		expect(watchOpts).toEqual({ interval: 250 });
 		expect(typeof watchCb).toBe("function");
+	});
+
+	it("with a waitForever override, telemetryShowCommand({follow}) returns right after followSpool and never falls through to the static read", async () => {
+		// In production the poll wait never resolves; `waitForever` is a
+		// test-only hook so this call can be awaited directly to completion
+		// (instead of via the fire-and-forget startFollow helper, which
+		// never lets the call finish), exercising the early `return` right
+		// after `await followSpool(...)` in telemetryShowCommand. Seed the
+		// static-read fixture so that IF that `return;` were missing and
+		// control fell through to the static path below it, the fallthrough
+		// would be observable (a printed line + a constructed spool) rather
+		// than silently indistinguishable from the correct early return.
+		readAllImpl = () => [ev({ session_id: "static-fallthrough" })];
+		let released: (() => void) | undefined;
+		const promise = telemetryShowCommand({
+			follow: true,
+			waitForever: () =>
+				new Promise<void>((resolve) => {
+					released = resolve;
+				}),
+		});
+		// followSpool suspends at its own internal awaits (the dynamic
+		// import + fs.stat) before reaching the watcher install, so poll
+		// microtasks until the release callback has been captured.
+		for (let i = 0; i < 50 && released === undefined; i++) {
+			await Promise.resolve();
+		}
+		expect(typeof released).toBe("function");
+		released?.();
+		// If telemetryShowCommand had NOT reached its `await followSpool(...)`
+		// return path, this await would hang and the test would time out —
+		// the literal assertion below only runs because it actually returned.
+		await promise;
+		expect(watchedPath).toBe(DEFAULT_PATH);
+		// The observable the `return;` exists to produce: nothing printed and
+		// the static-read spool never constructed. Deleting that `return;`
+		// would let control fall through to the static path, which prints
+		// the seeded "static-fallthrough" event and sets lastSpoolOpts.
+		expect(captured()).toBe("");
+		expect(lastSpoolOpts).toBeUndefined();
 	});
 
 	it("without --limit there is no initial print; the tail still reads on growth", async () => {

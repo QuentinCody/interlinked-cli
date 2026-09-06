@@ -65,6 +65,52 @@ describe("applyChangeSet", () => {
 		expect(() => applyChangeSet(tree([["a", "x"]]), bad)).toThrow();
 		expect(() => applyChangeSet(tree([]), bad)).toThrow();
 	});
+
+	it("applies an apply_patch add section, writing the reconstructed content", () => {
+		const cs: ChangeSet = {
+			ops: [{ kind: "apply_patch", path: "new.txt", section: { path: "new.txt", op: "add", body: ["+hello"] } }],
+		};
+		const next = applyChangeSet(tree([]), cs);
+		expect(next.get("new.txt")).toBe("hello");
+	});
+
+	it("applies an apply_patch delete section, removing the source file", () => {
+		const cs: ChangeSet = {
+			ops: [{ kind: "apply_patch", path: "old.txt", section: { path: "old.txt", op: "delete", body: [] } }],
+		};
+		const next = applyChangeSet(tree([["old.txt", "content"]]), cs);
+		expect(next.has("old.txt")).toBe(false);
+	});
+
+	it("applies a moved apply_patch update section, reading before-content from fromPath and dropping it", () => {
+		const cs: ChangeSet = {
+			ops: [
+				{
+					kind: "apply_patch",
+					path: "new-name.ts",
+					section: { path: "new-name.ts", op: "update", fromPath: "old-name.ts", body: [" foo", "-bar", "+BAR"] },
+				},
+			],
+		};
+		const next = applyChangeSet(tree([["old-name.ts", "foo\nbar"]]), cs);
+		expect(next.has("old-name.ts")).toBe(false);
+		expect(next.get("new-name.ts")).toBe("foo\nBAR");
+	});
+
+	it("throws with the section's path when an apply_patch update hunk cannot find its context", () => {
+		const cs: ChangeSet = {
+			ops: [
+				{
+					kind: "apply_patch",
+					path: "unmatched.ts",
+					section: { path: "unmatched.ts", op: "update", body: [" absent-context"] },
+				},
+			],
+		};
+		expect(() => applyChangeSet(tree([["unmatched.ts", "foo"]]), cs)).toThrow(
+			"could not reconstruct apply_patch section for unmatched.ts",
+		);
+	});
 });
 
 describe("InMemoryProvisioner", () => {

@@ -1,9 +1,33 @@
-import { describe, expect, it } from "vitest";
+// Identity tests for the daemon PID verifier. The argv predicates are pure and
+// run against literal command strings; `readHarnessProcessIdentity` shells out
+// to `ps`, so `node:child_process.execFileSync` is mocked and replayed field by
+// field through `stubPs` (never the module under test).
+import { describe, expect, it, vi } from "vitest";
 import {
 	isHarnessDaemonCommandForCwd,
+	readHarnessProcessIdentity,
 	sameProcessIdentity,
 	verifiedProcessIdentities,
 } from "./daemon-process-identity.js";
+
+const { execFileSyncMock } = vi.hoisted(() => ({
+	execFileSyncMock: vi.fn<(file: string, args: string[]) => string>(),
+}));
+vi.mock("node:child_process", () => ({ execFileSync: execFileSyncMock }));
+
+type PsField = "comm" | "lstart" | "command";
+
+/** Replay a `ps -p <pid> -o <field>=` transcript; an unstubbed field fails loudly. */
+function stubPs(fields: Partial<Record<PsField, string>>): void {
+	execFileSyncMock.mockReset();
+	execFileSyncMock.mockImplementation((_file, args) => {
+		const flag = String(args[3]);
+		for (const [field, value] of Object.entries(fields)) {
+			if (flag === `${field}=` && value !== undefined) return value;
+		}
+		throw new Error(`ps: unexpected field ${flag}`);
+	});
+}
 
 const CWD = "/repo with spaces";
 const DAEMON =
@@ -76,5 +100,67 @@ describe("verified process identity", () => {
 				identify: () => "start-b\nargv",
 			}),
 		).toBe(false);
+	});
+});
+
+describe("readHarnessProcessIdentity", () => {
+	it("binds the identity to the process start time and its full argv", () => {
+		stubPs({
+			comm: "/opt/homebrew/bin/node\n",
+			command: DAEMON,
+			lstart: "Thu Sep  4 09:15:02 2026",
+		});
+		expect(readHarnessProcessIdentity(CWD, 4242)).toBe(`Thu Sep  4 09:15:02 2026\n${DAEMON}`);
+	});
+
+	it("accepts a bun-hosted daemon", () => {
+		const bunDaemon = "/usr/bin/bun /work/dist/harness/server.js --cwd=/repo --protocol=raw";
+		stubPs({ comm: "bun", command: bunDaemon, lstart: "Thu Sep  4 09:15:02 2026" });
+		expect(readHarnessProcessIdentity("/repo", 4242)).toBe(
+			`Thu Sep  4 09:15:02 2026\n${bunDaemon}`,
+		);
+	});
+
+	it("queries ps for the runtime, the argv and the start time of that one PID", () => {
+		stubPs({ comm: "node", command: DAEMON, lstart: "Thu Sep  4 09:15:02 2026" });
+		readHarnessProcessIdentity(CWD, 4242);
+		expect(execFileSyncMock.mock.calls.map((call) => call[1])).toEqual([
+			["-p", "4242", "-o", "comm="],
+			["-p", "4242", "-o", "command="],
+			["-p", "4242", "-o", "lstart="],
+		]);
+	});
+
+	it("rejects a process whose runtime is neither node nor bun", () => {
+		stubPs({ comm: "/usr/bin/python3", command: DAEMON, lstart: "Thu Sep  4 09:15:02 2026" });
+		expect(readHarnessProcessIdentity(CWD, 4242)).toBeNull();
+	});
+
+	it("stops after the runtime field when the runtime disqualifies the PID", () => {
+		stubPs({ comm: "python3", command: DAEMON, lstart: "Thu Sep  4 09:15:02 2026" });
+		readHarnessProcessIdentity(CWD, 4242);
+		expect(execFileSyncMock.mock.calls.map((call) => call[1][3])).toEqual(["comm="]);
+	});
+
+	it("rejects a node process whose argv is not this project's daemon", () => {
+		stubPs({
+			comm: "node",
+			command: `/opt/node /app.js --cwd ${CWD}`,
+			lstart: "Thu Sep  4 09:15:02 2026",
+		});
+		expect(readHarnessProcessIdentity(CWD, 4242)).toBeNull();
+	});
+
+	it("rejects a daemon whose start time ps reports as blank", () => {
+		stubPs({ comm: "node", command: DAEMON, lstart: "   \n" });
+		expect(readHarnessProcessIdentity(CWD, 4242)).toBeNull();
+	});
+
+	it("returns null instead of throwing when ps fails for a vanished PID", () => {
+		execFileSyncMock.mockReset();
+		execFileSyncMock.mockImplementation(() => {
+			throw new Error("ps: no such process");
+		});
+		expect(readHarnessProcessIdentity(CWD, 999999)).toBeNull();
 	});
 });

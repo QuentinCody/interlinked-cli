@@ -1,10 +1,16 @@
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
-import { detectDeadOnArrival, formatDeadOnArrivalWarning } from "../dead-on-arrival.js";
+import {
+	checkDeadOnArrival,
+	detectDeadOnArrival,
+	formatDeadOnArrivalWarning,
+} from "../dead-on-arrival.js";
 import { resetWorkspaceActiveCache } from "../graph-prediction-classifier.js";
+import type { ServerRuntime } from "../server/runtime-context.js";
+import type { HarnessEvent, SessionTrajectory } from "../types.js";
 
 const HEADER = "// @generated supermodel-shard — do not edit";
 
@@ -38,33 +44,33 @@ const HAS_CALLERS_SHARD = [
 	"// transitive  0",
 ].join("\n");
 
+const dirs: string[] = [];
+
+beforeEach(() => {
+	resetWorkspaceActiveCache();
+});
+afterEach(() => {
+	for (const d of dirs) rmSync(d, { recursive: true, force: true });
+	dirs.length = 0;
+});
+
+function freshDir(): string {
+	const d = mkdtempSync(join(tmpdir(), "supermodel-doa-"));
+	dirs.push(d);
+	return d;
+}
+
+/** Write a source file plus its colocated `.graph` shard. The shard is
+ *  written after the source, so its mtime is fresh (>= source). Returns
+ *  the absolute source path. */
+function writePair(dir: string, name: string, shardBody: string): string {
+	const src = join(dir, `${name}.ts`);
+	writeFileSync(src, `export const ${name} = 1;\n`);
+	writeFileSync(join(dir, `${name}.graph.ts`), shardBody);
+	return src;
+}
+
 describe("detectDeadOnArrival", () => {
-	const dirs: string[] = [];
-
-	beforeEach(() => {
-		resetWorkspaceActiveCache();
-	});
-	afterEach(() => {
-		for (const d of dirs) rmSync(d, { recursive: true, force: true });
-		dirs.length = 0;
-	});
-
-	function freshDir(): string {
-		const d = mkdtempSync(join(tmpdir(), "supermodel-doa-"));
-		dirs.push(d);
-		return d;
-	}
-
-	/** Write a source file plus its colocated `.graph` shard. The shard is
-	 *  written after the source, so its mtime is fresh (>= source). Returns
-	 *  the absolute source path. */
-	function writePair(dir: string, name: string, shardBody: string): string {
-		const src = join(dir, `${name}.ts`);
-		writeFileSync(src, `export const ${name} = 1;\n`);
-		writeFileSync(join(dir, `${name}.graph.ts`), shardBody);
-		return src;
-	}
-
 	it("flags a file whose fresh shard has no dependents and no callers", () => {
 		const dir = freshDir();
 		const src = writePair(dir, "dead", DEAD_SHARD);
@@ -116,6 +122,19 @@ describe("detectDeadOnArrival", () => {
 		const dir = freshDir();
 		expect(detectDeadOnArrival(new Set(), dir)).toHaveLength(0);
 	});
+
+	it("skips an entry that fails classification and still flags the rest", () => {
+		const dir = freshDir();
+		const src = writePair(dir, "dead", DEAD_SHARD);
+		// SAFETY: not a real path — a non-string entry makes node:path's
+		// isAbsolute()/resolve() inside classifyCase throw a real TypeError
+		// (no mocking; the classifier's own argument validation).
+		// detectDeadOnArrival must catch it and keep scanning the rest.
+		const unclassifiable = 42 as unknown as string;
+		const hits = detectDeadOnArrival(new Set([unclassifiable, src]), dir);
+		expect(hits).toHaveLength(1);
+		expect(nonNull(hits[0]).sourcePath).toBe(src);
+	});
 });
 
 describe("formatDeadOnArrivalWarning", () => {
@@ -142,5 +161,56 @@ describe("formatDeadOnArrivalWarning", () => {
 		const warning = formatDeadOnArrivalWarning(hits, "/repo");
 		expect(warning).toContain("8 file(s)");
 		expect(warning).toContain("...and 3 more");
+	});
+});
+
+describe("checkDeadOnArrival", () => {
+	function fakeCtx(cwd: string, log: (msg: string) => void): ServerRuntime {
+		// SAFETY: the check reads only `cwd` and `log` off the runtime.
+		return { cwd, log } as unknown as ServerRuntime;
+	}
+
+	it("returns null and never logs when nothing written this session is dead-on-arrival", () => {
+		const dir = freshDir();
+		const src = writePair(dir, "alive", HAS_DEPENDENTS_SHARD);
+		const log = vi.fn();
+		const result = checkDeadOnArrival(
+			fakeCtx(dir, log),
+			// SAFETY: the check reads only `cwd` off the event.
+			{ cwd: dir } as unknown as HarnessEvent,
+			// SAFETY: the check reads only `files_written` off the trajectory.
+			{ files_written: new Set([src]) } as unknown as SessionTrajectory,
+		);
+		expect(result).toBeNull();
+		expect(log).not.toHaveBeenCalled();
+	});
+
+	it("returns the formatted warning and logs the hit count, preferring event.cwd", () => {
+		const dir = freshDir();
+		const src = writePair(dir, "dead", DEAD_SHARD);
+		const log = vi.fn();
+		const result = checkDeadOnArrival(
+			// ctx.cwd is deliberately wrong so the assertion below only
+			// passes if the check actually used event.cwd, not ctx.cwd.
+			fakeCtx("/should-not-be-used", log),
+			{ cwd: dir } as unknown as HarnessEvent,
+			{ files_written: new Set([src]) } as unknown as SessionTrajectory,
+		);
+		expect(result).toContain("[interlinked:verify-before-stop]");
+		expect(result).toContain("1 file(s)");
+		expect(log).toHaveBeenCalledWith("Verify-before-stop: dead-on-arrival (1)");
+	});
+
+	it("falls back to ctx.cwd when the event carries no cwd", () => {
+		const dir = freshDir();
+		const src = writePair(dir, "dead", DEAD_SHARD);
+		const log = vi.fn();
+		const result = checkDeadOnArrival(
+			fakeCtx(dir, log),
+			{ cwd: undefined } as unknown as HarnessEvent,
+			{ files_written: new Set([src]) } as unknown as SessionTrajectory,
+		);
+		expect(result).toContain("1 file(s)");
+		expect(log).toHaveBeenCalledWith("Verify-before-stop: dead-on-arrival (1)");
 	});
 });

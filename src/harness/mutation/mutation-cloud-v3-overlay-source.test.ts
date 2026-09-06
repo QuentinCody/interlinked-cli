@@ -4,7 +4,124 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * Malformed-fixture seam for the git/tar plumbing the SUT shells out to.
+ * `captureMutationOverlaySource` never reads proposed bytes from the
+ * worktree, so several of its defensive parse/verify branches (a corrupted
+ * `ls-tree` record, a `tar` extraction failure, an archived target that
+ * vanished or changed) cannot be produced by any real git/tar behavior on
+ * this platform — real git canonicalizes every tree-entry mode to one of
+ * 100644/100755/120000/160000 (verified empirically: `git hash-object
+ * --literally -w -t tree` fed a raw 100664 entry still round-trips through
+ * `ls-tree` as 100644). `vi.mock` + `vi.hoisted` intercepts one named
+ * git/tar invocation at a time, matched on argv — never the module under
+ * test; every other call, including this file's own `git()`/`archiveFile()`
+ * helpers, passes straight through to the real binary.
+ */
+const execOverrides = vi.hoisted(() => ({
+	/** Bytes to return instead of running `git rev-parse --show-toplevel`. */
+	repoRootBytes: null as Buffer | null,
+	/** Bytes to return instead of running the FIRST `rev-parse --verify HEAD^{commit}`. */
+	headBytes: null as Buffer | null,
+	/** Bytes to return instead of running `git ls-tree …`. */
+	lsTreeBytes: null as Buffer | null,
+	/** Throw instead of running the `tar -x` extraction. */
+	tarExtractThrows: false,
+	/** After a REAL `tar -x` extraction, tamper with one archived file. */
+	tamperAfterExtract: null as
+		| { relPath: string; kind: "delete" | "replace-with-dir" | "corrupt-content"; bytes?: Buffer }
+		| null,
+}));
+
+// Mirrors MUTATION_ONBOARDING_ARCHIVE_PREFIX minus its trailing slash (asserted
+// directly below at "interlinked-source-v1/"); a plain literal so the mock
+// factory has no load-order dependency on the local module import.
+const ARCHIVE_PREFIX_DIR = "interlinked-source-v1";
+
+// The SUT's own `git()` helper always prepends ["-C", root, ...] ahead of the
+// subcommand, so these match by membership rather than position.
+function isRevParseShowToplevel(file: string, args: readonly string[]): boolean {
+	return file === "git" && args.includes("rev-parse") && args.includes("--show-toplevel");
+}
+
+function isRevParseHead(file: string, args: readonly string[]): boolean {
+	return file === "git" && args.includes("rev-parse") && args.includes("HEAD^{commit}");
+}
+
+function isLsTree(file: string, args: readonly string[]): boolean {
+	return file === "git" && args.includes("ls-tree");
+}
+
+function isTarExtract(file: string, args: readonly string[]): boolean {
+	return file === "tar" && args[0] === "-x";
+}
+
+/** Mutate one file inside a just-extracted archive so the SUT's post-extraction
+ *  verification (missing / non-regular / content-mismatch) sees real fs state. */
+function tamperExtractedFile(
+	args: readonly string[],
+	spec: NonNullable<(typeof execOverrides)["tamperAfterExtract"]>,
+): void {
+	const destIndex = args.indexOf("-C");
+	// SAFETY: the SUT always calls tar as ["-x","-f","-","-C",container] — "-C" is
+	// followed by exactly one path argument.
+	const dest = args[destIndex + 1] as string;
+	const target = join(dest, ARCHIVE_PREFIX_DIR, spec.relPath);
+	if (spec.kind === "delete") {
+		rmSync(target, { force: true });
+		return;
+	}
+	if (spec.kind === "replace-with-dir") {
+		rmSync(target, { force: true });
+		mkdirSync(target, { recursive: true });
+		return;
+	}
+	writeFileSync(target, spec.bytes ?? Buffer.alloc(0));
+}
+
+vi.mock("node:child_process", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:child_process")>();
+	// SAFETY: every call site in this file (the SUT's `git()`/tar invocations and
+	// this test file's own `git()` helper) passes a concrete args array plus a
+	// `{ encoding: "buffer", ... }` options object, so the real function always
+	// returns a Buffer here despite the wider overloaded signature.
+	const passthrough = actual.execFileSync as unknown as (
+		file: string,
+		args: readonly string[],
+		options?: Record<string, unknown>,
+	) => Buffer;
+	return {
+		...actual,
+		execFileSync: (
+			file: string,
+			args: readonly string[] = [],
+			options?: Record<string, unknown>,
+		): Buffer => {
+			if (isRevParseShowToplevel(file, args) && execOverrides.repoRootBytes !== null) {
+				return execOverrides.repoRootBytes;
+			}
+			if (isRevParseHead(file, args) && execOverrides.headBytes !== null) {
+				const bytes = execOverrides.headBytes;
+				execOverrides.headBytes = null; // only the first HEAD read is overridden
+				return bytes;
+			}
+			if (isLsTree(file, args) && execOverrides.lsTreeBytes !== null) {
+				return execOverrides.lsTreeBytes;
+			}
+			if (isTarExtract(file, args) && execOverrides.tarExtractThrows) {
+				throw new Error("simulated tar extraction failure");
+			}
+			const result = passthrough(file, args, options);
+			if (isTarExtract(file, args) && execOverrides.tamperAfterExtract !== null) {
+				tamperExtractedFile(args, execOverrides.tamperAfterExtract);
+			}
+			return result;
+		},
+	};
+});
+
 import {
 	captureMutationOverlaySource,
 	type CapturedMutationOverlaySource,
@@ -90,6 +207,11 @@ function archiveEntries(captured: CapturedMutationOverlaySource): string[] {
 
 afterEach(() => {
 	for (const root of repositories.splice(0)) rmSync(root, { recursive: true, force: true });
+	execOverrides.repoRootBytes = null;
+	execOverrides.headBytes = null;
+	execOverrides.lsTreeBytes = null;
+	execOverrides.tarExtractThrows = false;
+	execOverrides.tamperAfterExtract = null;
 });
 
 describe("captureMutationOverlaySource", () => {
@@ -234,5 +356,104 @@ describe("captureMutationOverlaySource", () => {
 			commit(root, "race");
 			return { tests: [] };
 		})).toThrow("repository HEAD changed during capture");
+	});
+
+	it("falls back to the target's own companion kill-test scope when the graph declines the full set", () => {
+		const root = repository();
+		const captured = capture(root, "src/target.ts", PROPOSED_TARGET, () => ({
+			tests: null,
+			reason: "over_cap",
+			uncappedCount: 500,
+			companionScope: ["src/target.mutation-kill.test.ts", "src/target.test.ts"],
+		}));
+		expect(captured.scopeMode).toBe("companion_fallback");
+		expect(captured.testFiles).toEqual(["src/target.mutation-kill.test.ts", "src/target.test.ts"]);
+	});
+
+	it("rejects a non-positive maxTestScope before any git or filesystem access", () => {
+		expect(() => captureMutationOverlaySource({
+			root: "/does-not-exist-and-is-never-touched",
+			repository: "github.com/interlinked/test",
+			targetFile: "src/target.ts",
+			proposedBytes: PROPOSED_TARGET,
+			maxTestScope: 0,
+		})).toThrow("mutation overlay maxTestScope must be a positive safe integer");
+	});
+
+	it("rejects a non-positive sourceArtifactByteLimit override", () => {
+		const root = repository();
+		expect(() => captureMutationOverlaySource(
+			{ root, repository: "github.com/interlinked/test", targetFile: "src/target.ts", proposedBytes: PROPOSED_TARGET },
+			{ selectTests: () => ({ tests: ["src/target.test.ts"] }), sourceArtifactByteLimit: 0 },
+		)).toThrow("mutation overlay sourceArtifactByteLimit must be a positive safe integer");
+	});
+
+	it("rejects an archive whose real size exceeds a lowered byte limit even though extraction succeeded", () => {
+		const root = repository();
+		const baseline = capture(root);
+		const realSize = baseline.sourceArtifactBytes.byteLength;
+		expect(() => captureMutationOverlaySource(
+			{ root, repository: "github.com/interlinked/test", targetFile: "src/target.ts", proposedBytes: PROPOSED_TARGET },
+			{ selectTests: () => ({ tests: ["src/target.test.ts"] }), sourceArtifactByteLimit: realSize - 1 },
+		)).toThrow(`mutation overlay archive must contain 1..${realSize - 1} bytes`);
+	});
+
+	it("rejects a repository-root reading that is not valid UTF-8", () => {
+		const root = repository();
+		execOverrides.repoRootBytes = Buffer.from([0xff, 0xfe, 0x00, 0x0a]);
+		expect(() => capture(root)).toThrow("mutation overlay repository root is not valid UTF-8");
+	});
+
+	it("rejects a HEAD reading containing an embedded newline", () => {
+		const root = repository();
+		execOverrides.headBytes = Buffer.from("abc\ndef\n", "utf8");
+		expect(() => capture(root)).toThrow("mutation overlay HEAD is malformed");
+	});
+
+	it("rejects a HEAD tree listing that is not valid UTF-8", () => {
+		const root = repository();
+		execOverrides.lsTreeBytes = Buffer.from([0xff, 0xfe, 0x00]);
+		expect(() => capture(root)).toThrow("mutation overlay HEAD tree is not valid UTF-8");
+	});
+
+	it("rejects a HEAD tree record with no tab-separated path", () => {
+		const root = repository();
+		execOverrides.lsTreeBytes = Buffer.from("not-a-real-tree-record\0", "utf8");
+		expect(() => capture(root)).toThrow("mutation overlay HEAD tree contains a malformed entry");
+	});
+
+	it("rejects a HEAD tree entry whose mode is not a recognized regular-file mode", () => {
+		const root = repository();
+		const oid = "a".repeat(40);
+		execOverrides.lsTreeBytes = Buffer.from(`100664 blob ${oid}\tsrc/odd.ts\0`, "utf8");
+		expect(() => capture(root)).toThrow("mutation overlay HEAD contains a non-regular entry: src/odd.ts");
+	});
+
+	it("wraps a tar extraction failure as an overlay materialization error", () => {
+		const root = repository();
+		execOverrides.tarExtractThrows = true;
+		expect(() => capture(root)).toThrow("mutation overlay archive could not be materialized");
+	});
+
+	it("rejects an archive whose extraction is missing the proposed target", () => {
+		const root = repository();
+		execOverrides.tamperAfterExtract = { relPath: "src/target.ts", kind: "delete" };
+		expect(() => capture(root)).toThrow("mutation overlay archive is missing the proposed target");
+	});
+
+	it("rejects an archived target that extraction produced as a directory instead of a file", () => {
+		const root = repository();
+		execOverrides.tamperAfterExtract = { relPath: "src/target.ts", kind: "replace-with-dir" };
+		expect(() => capture(root)).toThrow("mutation overlay archive target is not a regular file");
+	});
+
+	it("rejects an archived target whose bytes differ from the proposed content", () => {
+		const root = repository();
+		execOverrides.tamperAfterExtract = {
+			relPath: "src/target.ts",
+			kind: "corrupt-content",
+			bytes: Buffer.from("export const value = 'tampered';\n", "utf8"),
+		};
+		expect(() => capture(root)).toThrow("mutation overlay archive target differs from the proposed bytes");
 	});
 });

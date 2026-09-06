@@ -15,14 +15,17 @@ import {
     compareFunctionTokens,
 } from "./function-token-write-guard.js";
 
-interface CommitFunctionTokenDeps {
+export interface CommitFunctionTokenDeps {
     resolveRepoRoot: (cwd: string) => string | null;
     changedFiles: typeof defaultGitChangedFiles;
     gitShow: typeof gitShow;
     readFile: (path: string) => string | null;
 }
 
-const DEFAULT_DEPS: CommitFunctionTokenDeps = {
+/** Exported (was module-private) so tests can exercise `readFile`'s
+ *  exists/read/throw branches directly against a real temp file, instead of
+ *  shelling out to real git for the other three fields just to reach it. */
+export const DEFAULT_DEPS: CommitFunctionTokenDeps = {
     resolveRepoRoot,
     changedFiles: defaultGitChangedFiles,
     gitShow,
@@ -122,9 +125,10 @@ export function checkCommitFunctionTokenGate(
 export function runCommitFunctionTokenGate(
     event: HarnessEvent,
     preDecision: HarnessDecision,
+    deps: CommitFunctionTokenDeps = DEFAULT_DEPS,
 ): HarnessDecision | null {
     if (preDecision.decision !== "allow" || event.tool_name !== "Bash") return null;
-    const decision = checkCommitFunctionTokenGate(event);
+    const decision = checkCommitFunctionTokenGate(event, deps);
     if (!decision) return null;
     if (preDecision.warnings?.length) {
         decision.warnings = [...preDecision.warnings, ...(decision.warnings ?? [])];

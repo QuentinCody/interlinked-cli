@@ -492,6 +492,74 @@ describe("MutationCloudV3Runtime", () => {
 		expect(() => new MutationCloudV3Runtime(root, split)).toThrow("must use one projectRef");
 	});
 
+	it("rejects a non-positive or unsafe leaseMs before any journal work begins", () => {
+		const view = fixture();
+		const invalid = config(view);
+		invalid.leaseMs = 0;
+		expect(() => new MutationCloudV3Runtime("unused-runtime-root", invalid))
+			.toThrow("mutation cloud runtime leaseMs must be a positive safe integer");
+	});
+
+	it("rejects a submission/client baseUrl mismatch", () => {
+		const view = fixture();
+		const mismatched = config(view);
+		mismatched.client.baseUrl = "https://mutation.example/other";
+		expect(() => new MutationCloudV3Runtime("unused-runtime-root", mismatched))
+			.toThrow("mutation cloud submission and result clients must use one baseUrl");
+	});
+
+	it("rejects a submission/client credential mismatch", () => {
+		const view = fixture();
+		const mismatched = config(view);
+		mismatched.client.token = "a-different-credential";
+		expect(() => new MutationCloudV3Runtime("unused-runtime-root", mismatched))
+			.toThrow("mutation cloud submission and result clients must use one credential");
+	});
+
+	it("rejects a submission/client timeoutMs mismatch", () => {
+		const view = fixture();
+		const mismatched = config(view);
+		mismatched.client.timeoutMs = 6_000;
+		expect(() => new MutationCloudV3Runtime("unused-runtime-root", mismatched))
+			.toThrow("mutation cloud submission and result clients must use one timeoutMs");
+	});
+
+	it("rejects a leaseMs shorter than 3x the client timeout", () => {
+		const view = fixture();
+		const shortLease = config(view);
+		shortLease.leaseMs = shortLease.client.timeoutMs * 3 - 1;
+		expect(() => new MutationCloudV3Runtime("unused-runtime-root", shortLease))
+			.toThrow("mutation cloud leaseMs must be at least 3 × timeoutMs");
+	});
+
+	it("rejects a submission/evaluator authority mismatch", () => {
+		const view = fixture();
+		const mismatched = config(view);
+		mismatched.evaluator.serverAuthority = {
+			...mismatched.evaluator.serverAuthority,
+			tenant: `${mismatched.evaluator.serverAuthority.tenant}-other`,
+		};
+		expect(() => new MutationCloudV3Runtime("unused-runtime-root", mismatched))
+			.toThrow("mutation cloud submission and evaluator must use one authenticated authority");
+	});
+
+	it("closes only an owned journal when constructor-time manifest seeding fails, but always rethrows", () => {
+		const view = fixture();
+		const close = vi.fn();
+		const fakeJournal = {
+			getManifestHead: () => {
+				throw new Error("injected manifest head lookup failure");
+			},
+			close,
+			// SAFETY: on this failure path the constructor calls only
+			// getManifestHead before rethrowing; every other MutationJournal
+			// member is unreachable, so the fake only needs these two.
+		} as unknown as MutationJournal;
+		expect(() => new MutationCloudV3Runtime("unused-runtime-root", config(view), { journal: fakeJournal }))
+			.toThrow("injected manifest head lookup failure");
+		expect(close).not.toHaveBeenCalled();
+	});
+
 	it("lists and token-redrives an ack-phase dead letter without processing it", () => {
 		root = mkdtempSync(join(tmpdir(), "interlinked-v3-runtime-redrive-"));
 		const view = fixture();

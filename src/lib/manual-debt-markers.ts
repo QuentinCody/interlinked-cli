@@ -103,7 +103,7 @@ interface ScanDebtMarkersOptions {
     knownFindingIds?: ReadonlySet<string> | undefined;
 }
 
-interface MarkerSite {
+export interface MarkerSite {
     file: string;
     line: number;
     payload: string;
@@ -223,7 +223,15 @@ function scanTextFile(args: {
     }
 }
 
-function scanFile(
+/**
+ * Exported for direct testing of the outside-project guard: the public
+ * `scanManualDebtMarkers` entry point can never reach it here because
+ * `collectFiles` already applies the identical `repoRelative` check (same
+ * `projectRoot`, same absolute path) before a file is added to the list this
+ * function is called with — this second check only guards a caller that
+ * bypasses `collectFiles` and calls `scanFile` directly.
+ */
+export function scanFile(
     projectRoot: string,
     absolute: string,
     coverage: DebtMarkerCoverage,

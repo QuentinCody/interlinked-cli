@@ -6,10 +6,15 @@
 // case perturbs. Review 2026-08-31 second pass: the negative set now
 // carries the reviewer's adversarial reproductions (truncated census,
 // nested unknown keys, format/path/timestamp abuse, receipt-kind
-// mismatches, red mutation_result, arbitrary no-test policies).
+// mismatches, red mutation_result, arbitrary no-test policies). A trailing
+// unlabeled describe (2026-09-04) adds behavior-only branch coverage: a
+// test_files length ceiling, a closed scope.mode enum, engine exit_code
+// integer strictness, red_witness_satisfied tri-state strictness, the
+// not_mutatable green-suite requirement, and execution_failed's two
+// partial-evidence rules (no receipt yet, uncoupled census group).
 
 import { describe, expect, it } from "vitest";
-import { MAX_REPORT_BYTES } from "./field-checks.js";
+import { MAX_REPORT_BYTES, MAX_TEST_FILES } from "./field-checks.js";
 import { parseUntrustedEnvelope } from "./parse.js";
 import { validMutationResult, validNotMutatable } from "./test-envelopes.js";
 
@@ -259,5 +264,92 @@ describe("parseUntrustedEnvelope — negative (must reject)", () => {
 		// SAFETY: widened by validCancelled; extra keys added for the probe.
 		delete (failedNoneWithBlocks as Record<string, unknown>).cancellation_reason;
 		expect(parseVerdict(failedNoneWithBlocks)).toContain('forbids evidence blocks');
+	});
+});
+
+describe("parseUntrustedEnvelope — additional branch coverage (must reject)", () => {
+	// test-contract: boundary — test_files has an upper bound, not merely a
+	// per-entry shape check; a too-long array rejects before any entry is read.
+	it("rejects a test_files array beyond the configured maximum", () => {
+		const base = validMutationResult();
+		const tooMany = Array.from({ length: MAX_TEST_FILES + 1 }, (_unused, i) => `f${i}`);
+		expect(
+			parseVerdict({ ...base, scope: { ...base.scope, test_files: tooMany } }),
+		).toContain(`at most ${MAX_TEST_FILES} paths`);
+	});
+
+	// test-contract: invariant — scope.mode is a closed enum, not a free string.
+	it("rejects a scope.mode value outside the closed enum", () => {
+		const base = validMutationResult();
+		expect(
+			parseVerdict({ ...base, scope: { ...base.scope, mode: "manual_pick" } }),
+		).toContain("mode must be one of");
+	});
+
+	// test-contract: invariant — engine.exit_code must be a safe integer; a
+	// fractional value cannot describe a process exit status.
+	it("rejects a non-integer engine exit_code", () => {
+		const base = validMutationResult();
+		expect(
+			parseVerdict({ ...base, engine: { ...base.engine, exit_code: 1.5 } }),
+		).toContain("exit_code must be a safe integer");
+	});
+
+	// test-contract: invariant — red_witness_satisfied is a tri-state
+	// (true/false/null); any other value type is rejected outright.
+	it("rejects a non-boolean, non-null red_witness_satisfied", () => {
+		const base = validMutationResult();
+		expect(
+			parseVerdict({ ...base, test_run: { ...base.test_run, red_witness_satisfied: "yes" } }),
+		).toContain("red_witness_satisfied must be a boolean or null");
+	});
+
+	// test-contract: bug — a not_mutatable proof requires a GREEN affected
+	// suite; a red overlay cannot certify "nothing to mutate".
+	it("rejects a not_mutatable envelope whose affected suite is red", () => {
+		const nm = validNotMutatable();
+		expect(
+			parseVerdict({ ...nm, test_run: { ...nm.test_run, overlay_green: false } }),
+		).toContain("requires a green affected suite");
+	});
+
+	// test-contract: invariant — partial evidence cannot precede the
+	// execution it claims to describe.
+	it("rejects execution_failed partial evidence with no execution receipt", () => {
+		// SAFETY: widened deliberately — keys are deleted/added to build the
+		// partial-evidence-without-execution-receipt shape the parser rejects.
+		const partialNoExecReceipt = {
+			...validCancelled(),
+			kind: "execution_failed",
+			failure_classification: "sandbox_oom",
+			evidence_completeness: "partial",
+			scope: validMutationResult().scope,
+		} as Record<string, unknown>;
+		delete partialNoExecReceipt.cancellation_reason;
+		expect(parseVerdict(partialNoExecReceipt)).toContain(
+			"evidence cannot precede execution",
+		);
+	});
+
+	// test-contract: invariant — execution_failed's partial-evidence census
+	// group must travel together or not at all, the same rule suite_red
+	// enforces on its own (separately-implemented) copy of the check.
+	it("rejects execution_failed partial evidence with an uncoupled census group", () => {
+		// SAFETY: widened deliberately to delete keys not allowed alongside
+		// execution_failed's evidence-group fixture below.
+		const base = { ...validMutationResult() } as Record<string, unknown>;
+		delete base.report;
+		delete base.excluded;
+		delete base.mutants;
+		delete base.identity_algorithm;
+		const partialUncoupled = {
+			...base,
+			kind: "execution_failed",
+			failure_classification: "sandbox_oom",
+			evidence_completeness: "partial",
+		};
+		expect(parseVerdict(partialUncoupled)).toBe(
+			"partial evidence: census, excluded, mutants, and identity_algorithm must travel together or not at all",
+		);
 	});
 });

@@ -94,6 +94,12 @@ describe("parseRepository", () => {
 			reason: "request.repository has unknown field(s): extra",
 		});
 	});
+
+	it("rejects an empty required string field", () => {
+		expect(parseRepository({ ...repository(), workspace_id: "" })).toEqual({
+			reason: "request.repository.workspace_id must be a non-empty string of at most 4096 characters",
+		});
+	});
 });
 
 describe("parseScope", () => {
@@ -119,6 +125,12 @@ describe("parseScope", () => {
 		expect(
 			parseScope({ kind: "paths", base_sha: null, head_sha: COMMIT, paths: ["b.ts", "a.ts"], includes: [], excludes: [] }),
 		).toEqual({ reason: "request.scope.paths must use canonical ordering" });
+	});
+
+	it("rejects a non-array paths field", () => {
+		expect(
+			parseScope({ kind: "paths", base_sha: null, head_sha: COMMIT, paths: "a.ts", includes: [], excludes: [] }),
+		).toEqual({ reason: "request.scope.paths must be an array with at most 4096 entries" });
 	});
 });
 
@@ -148,6 +160,24 @@ describe("parseEvidence", () => {
 		};
 		expect(parseEvidence(unsorted)).toEqual({ reason: "request.evidence.tools must be sorted by name" });
 	});
+
+	it("rejects a non-array tools field", () => {
+		expect(parseEvidence({ ...evidence(), tools: "biome" })).toEqual({
+			reason: "request.evidence.tools must have at most 4096 entries",
+		});
+	});
+
+	it("names the tool member that failed instead of returning a half-parsed tool", () => {
+		expect(parseEvidence({ ...evidence(), tools: [{ name: "", version: "1", output_sha256: SHA_A }] })).toEqual({
+			reason: "request.evidence.tools[0].name must be a non-empty string of at most 4096 characters",
+		});
+		expect(parseEvidence({ ...evidence(), tools: [{ name: "biome", version: 1, output_sha256: SHA_A }] })).toEqual({
+			reason: "request.evidence.tools[0].version must be a non-empty string of at most 4096 characters",
+		});
+		expect(parseEvidence({ ...evidence(), tools: [{ name: "biome", version: "1", output_sha256: "nope" }] })).toEqual({
+			reason: "request.evidence.tools[0].output_sha256 must be a lowercase sha256 hex digest",
+		});
+	});
 });
 
 describe("parseOrchestration", () => {
@@ -165,6 +195,15 @@ describe("parseOrchestration", () => {
 	it("rejects an unknown risk tier", () => {
 		expect(parseOrchestration({ ...orchestration(), risk_tier: "medium" })).toEqual({
 			reason: "request.orchestration.risk_tier must be one of lite|full",
+		});
+	});
+
+	it("names the orchestration member that failed instead of returning a half-parsed binding", () => {
+		expect(parseOrchestration({ ...orchestration(), coordinator_prompt_sha256: "nope" })).toEqual({
+			reason: "request.orchestration.coordinator_prompt_sha256 must be a lowercase sha256 hex digest",
+		});
+		expect(parseOrchestration({ ...orchestration(), partition_plan_version: "" })).toEqual({
+			reason: "request.orchestration.partition_plan_version must be a non-empty string of at most 4096 characters",
 		});
 	});
 });

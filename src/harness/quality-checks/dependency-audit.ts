@@ -97,7 +97,7 @@ export async function resolveDependencyAuditCommandAsync(
 	return resolveKnownAuditCommand(fileName, opts, useOsv);
 }
 
-function resolveKnownAuditCommand(
+export function resolveKnownAuditCommand(
 	fileName: string,
 	opts: ResolveOptions,
 	useOsv: boolean,

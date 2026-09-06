@@ -63,6 +63,74 @@ function runnerKeyWindow(window: { not_before?: string; revoked_at?: string }): 
 	};
 }
 
+/** A terminal-arm ("cancelled") fixture — no execution receipt, so
+ *  verifyReceipts routes through verifyTerminalizationArm. Mirrors the
+ *  inline construction N2/N4c already use; factored here because the
+ *  terminalization-echo cases below build several variants of it. */
+function cancelledFixture(): { raw: Record<string, unknown>; inputs: VerifyInputs } {
+	const base = validMutationResult();
+	// SAFETY: widened deliberately to build the pre-execution shape (mirrors
+	// N2/N4c's inline cast below).
+	const cancelled = {
+		...base,
+		kind: "cancelled",
+		cancellation_reason: "operator_stop",
+	} as Record<string, unknown>;
+	for (const key of [
+		"execution_receipt_hash",
+		"attempt_id",
+		"scope",
+		"engine",
+		"runner",
+		"census",
+		"excluded",
+		"mutants",
+		"identity_algorithm",
+		"test_run",
+		"report",
+	]) {
+		delete cancelled[key];
+	}
+	return authenticateFixture(cancelled);
+}
+
+/** A terminal-arm ("execution_failed") fixture — no execution receipt (the
+ *  attempt never produced evidence), so verifyReceipts routes through
+ *  verifyTerminalizationArm and envelopeTerminalReason's "execution_failed"
+ *  case (verify.ts:345) supplies the expected reason_code. Sibling to
+ *  {@link cancelledFixture}; factored so both the positive no-evidence case
+ *  and its reason_code-contradiction negative share one construction. */
+function executionFailedFixture(failureClassification: string): {
+	raw: Record<string, unknown>;
+	inputs: VerifyInputs;
+} {
+	const base = validMutationResult();
+	// SAFETY: widened deliberately to build the pre-execution shape (mirrors
+	// cancelledFixture above).
+	const executionFailed = {
+		...base,
+		kind: "execution_failed",
+		failure_classification: failureClassification,
+		evidence_completeness: "none",
+	} as Record<string, unknown>;
+	for (const key of [
+		"execution_receipt_hash",
+		"attempt_id",
+		"scope",
+		"engine",
+		"runner",
+		"census",
+		"excluded",
+		"mutants",
+		"identity_algorithm",
+		"test_run",
+		"report",
+	]) {
+		delete executionFailed[key];
+	}
+	return authenticateFixture(executionFailed);
+}
+
 describe("parseAndVerify — positive (must authenticate)", () => {
 	// test-contract: public-api — the full chain: parse, hash, attestation,
 	// signed production receipts (+exact echoes), structural report.
@@ -174,6 +242,15 @@ describe("parseAndVerify — positive (must authenticate)", () => {
 		expect(outcome.ok).toBe(false);
 		if (outcome.ok) throw new Error("proxy verification inputs unexpectedly authenticated");
 		expect(outcome.reason).toContain("detached structured-clone data");
+	});
+
+	// test-contract: boundary — an execution_failed envelope with NO evidence
+	// (execution never started) carries no execution receipt at all, so it
+	// authenticates through the terminalization arm and its failure_classification
+	// becomes the terminalization record's expected reason_code.
+	it("an execution_failed envelope with no evidence authenticates via the terminalization arm", () => {
+		const { raw, inputs } = executionFailedFixture("infra_error");
+		expect(reasonOf(raw, inputs)).toBe("AUTHENTICATED");
 	});
 });
 
@@ -373,6 +450,277 @@ describe("parseAndVerify — negative (must fail)", () => {
 		expect(
 			reasonOf(raw, { ...inputs, expectedJob: { ...inputs.expectedJob, job_key: "job_9999" } }),
 		).toContain("job_key");
+	});
+
+	// test-contract: security — acceptanceEchoFailure's runner-image branch:
+	// the acceptance receipt's intended_image_digest must equal the
+	// envelope's actual runner.image_digest.
+	it("acceptance-intended runner image differing from the envelope's rejects", () => {
+		const { raw, inputs } = authenticated();
+		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const wrongImage = { ...acceptance.payload, intended_image_digest: `sha256:${"1".repeat(64)}` };
+		raw.acceptance_receipt_hash = canonicalReceiptHash(wrongImage);
+		seal(raw);
+		expect(
+			reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, acceptance: signReceipt(wrongImage, "k_control") } }),
+		).toBe(`runner image sha256:${"0".repeat(64)} differs from the acceptance-intended sha256:${"1".repeat(64)}`);
+	});
+
+	// test-contract: security — acceptanceEchoFailure's engine-config branch.
+	it("acceptance-intended engine config hash differing from the envelope's rejects", () => {
+		const { raw, inputs } = authenticated();
+		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const wrongConfig = { ...acceptance.payload, intended_engine_config_hash: "9".repeat(64) };
+		raw.acceptance_receipt_hash = canonicalReceiptHash(wrongConfig);
+		seal(raw);
+		expect(
+			reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, acceptance: signReceipt(wrongConfig, "k_control") } }),
+		).toBe("engine config hash differs from the acceptance-intended configuration");
+	});
+
+	// test-contract: security — acceptanceEchoFailure's scope-mode branch.
+	it("acceptance-intended scope mode differing from the envelope's rejects", () => {
+		const { raw, inputs } = authenticated();
+		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const wrongMode = { ...acceptance.payload, intended_scope_mode: "glob_fallback" };
+		raw.acceptance_receipt_hash = canonicalReceiptHash(wrongMode);
+		seal(raw);
+		expect(
+			reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, acceptance: signReceipt(wrongMode, "k_control") } }),
+		).toBe("scope mode import_graph differs from the acceptance-intended glob_fallback");
+	});
+
+	// test-contract: security — acceptanceEchoFailure's test-scope-hash branch.
+	it("acceptance-intended test_scope_hash differing from the envelope's actual scope rejects", () => {
+		const { raw, inputs } = authenticated();
+		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const wrongScopeHash = { ...acceptance.payload, test_scope_hash: "0".repeat(64) };
+		raw.acceptance_receipt_hash = canonicalReceiptHash(wrongScopeHash);
+		seal(raw);
+		expect(
+			reasonOf(raw, {
+				...inputs,
+				receipts: { ...inputs.receipts, acceptance: signReceipt(wrongScopeHash, "k_control") },
+			}),
+		).toBe("actual test scope differs from the acceptance-intended test_scope_hash");
+	});
+
+	// test-contract: security — verifyReceipts: the acceptance receipt's own
+	// canonical hash must equal the envelope's acceptance_receipt_hash (the
+	// envelope's recorded hash is left untouched here, so a legitimately
+	// re-signed but otherwise unrelated payload still fails the binding).
+	it("an acceptance receipt not matching acceptance_receipt_hash rejects", () => {
+		const { raw, inputs } = authenticated();
+		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const tampered = { ...acceptance.payload, quota_reservation_id: "quota_tampered" };
+		const newReceipt = signReceipt(tampered, "k_control");
+		expect(reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, acceptance: newReceipt } })).toBe(
+			"acceptance receipt does not match acceptance_receipt_hash",
+		);
+	});
+
+	// test-contract: security — executionEchoFailure's attempt_id branch.
+	it("execution receipt attempt_id differing from the envelope's rejects", () => {
+		const { raw, inputs } = authenticated();
+		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const wrongAttempt = { ...execution.payload, attempt_id: "attempt_wrong" };
+		raw.execution_receipt_hash = canonicalReceiptHash(wrongAttempt);
+		seal(raw);
+		expect(
+			reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, execution: signReceipt(wrongAttempt, "k_runner") } }),
+		).toBe(`execution receipt attempt_id "attempt_wrong" does not equal the envelope's "attempt_0001"`);
+	});
+
+	// test-contract: security — executionEchoFailure's job_key branch.
+	it("execution receipt job_key differing from the envelope's job binding rejects", () => {
+		const { raw, inputs } = authenticated();
+		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const wrongJobKey = { ...execution.payload, job_key: "job_9999" };
+		raw.execution_receipt_hash = canonicalReceiptHash(wrongJobKey);
+		seal(raw);
+		expect(
+			reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, execution: signReceipt(wrongJobKey, "k_runner") } }),
+		).toBe("execution receipt job_key does not equal the envelope's job binding");
+	});
+
+	// test-contract: security — executionEchoFailure's runner-image branch.
+	it("execution receipt image_digest differing from the envelope's runner rejects", () => {
+		const { raw, inputs } = authenticated();
+		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const wrongImage = { ...execution.payload, image_digest: `sha256:${"1".repeat(64)}` };
+		raw.execution_receipt_hash = canonicalReceiptHash(wrongImage);
+		seal(raw);
+		expect(
+			reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, execution: signReceipt(wrongImage, "k_runner") } }),
+		).toBe("runner image differs from the execution receipt's image_digest");
+	});
+
+	// test-contract: security — executionEngineEchoFailure's engine-config branch.
+	it("execution receipt engine_config_hash differing from the envelope's engine rejects", () => {
+		const { raw, inputs } = authenticated();
+		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const wrongConfig = { ...execution.payload, engine_config_hash: "9".repeat(64) };
+		raw.execution_receipt_hash = canonicalReceiptHash(wrongConfig);
+		seal(raw);
+		expect(
+			reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, execution: signReceipt(wrongConfig, "k_runner") } }),
+		).toBe("engine config hash differs from the execution receipt's engine_config_hash");
+	});
+
+	// test-contract: security — executionEngineEchoFailure's test-command-hash branch.
+	it("execution receipt test_command_hash differing from the envelope's test_run rejects", () => {
+		const { raw, inputs } = authenticated();
+		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const wrongCommand = { ...execution.payload, test_command_hash: "6".repeat(64) };
+		raw.execution_receipt_hash = canonicalReceiptHash(wrongCommand);
+		seal(raw);
+		expect(
+			reasonOf(raw, {
+				...inputs,
+				receipts: { ...inputs.receipts, execution: signReceipt(wrongCommand, "k_runner") },
+			}),
+		).toBe("test command hash differs from the execution receipt's test_command_hash");
+	});
+
+	// test-contract: security — executionEngineEchoFailure's selected-test-hash branch.
+	it("execution receipt selected_test_hash differing from the envelope's actual test list rejects", () => {
+		const { raw, inputs } = authenticated();
+		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const wrongTestHash = { ...execution.payload, selected_test_hash: "0".repeat(64) };
+		raw.execution_receipt_hash = canonicalReceiptHash(wrongTestHash);
+		seal(raw);
+		expect(
+			reasonOf(raw, {
+				...inputs,
+				receipts: { ...inputs.receipts, execution: signReceipt(wrongTestHash, "k_runner") },
+			}),
+		).toBe("actual test list differs from the execution receipt's selected_test_hash");
+	});
+
+	// test-contract: security — executionEngineEchoFailure's selected-test-count branch.
+	it("execution receipt selected_test_count differing from the envelope's actual test list rejects", () => {
+		const { raw, inputs } = authenticated();
+		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const wrongCount = { ...execution.payload, selected_test_count: 2 };
+		raw.execution_receipt_hash = canonicalReceiptHash(wrongCount);
+		seal(raw);
+		expect(
+			reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, execution: signReceipt(wrongCount, "k_runner") } }),
+		).toBe("test count differs from the execution receipt's selected_test_count");
+	});
+
+	// test-contract: security — verifyExecutionArm: the envelope binds an
+	// execution_receipt_hash but the caller supplied no execution receipt.
+	it("a missing execution receipt when the envelope binds one rejects", () => {
+		const { raw, inputs } = authenticated();
+		const { execution: _execution, ...rest } = inputs.receipts;
+		expect(reasonOf(raw, { ...inputs, receipts: rest })).toBe(
+			"signed execution receipt required — the envelope binds one",
+		);
+	});
+
+	// test-contract: security — terminalizationEchoFailure's acceptance-binding
+	// branch: the record must bind the SAME acceptance receipt as the envelope.
+	it("terminalization record binding a different acceptance receipt rejects", () => {
+		const { raw, inputs } = cancelledFixture();
+		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const wrongAcceptance = { ...term.payload, acceptance_receipt_hash: "9".repeat(64) };
+		raw.terminalization_record_hash = canonicalReceiptHash(wrongAcceptance);
+		seal(raw);
+		expect(
+			reasonOf(raw, {
+				...inputs,
+				receipts: { ...inputs.receipts, terminalization: signReceipt(wrongAcceptance, "k_control") },
+			}),
+		).toBe("terminalization record binds a different acceptance receipt than the envelope");
+	});
+
+	// test-contract: security — terminalizationEchoFailure's occurred_at branch.
+	it("terminalization occurred_at differing from the envelope's occurred_at rejects", () => {
+		const { raw, inputs } = cancelledFixture();
+		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const wrongOccurred = { ...term.payload, occurred_at: "2026-08-31T12:01:00.000Z" };
+		raw.terminalization_record_hash = canonicalReceiptHash(wrongOccurred);
+		seal(raw);
+		expect(
+			reasonOf(raw, {
+				...inputs,
+				receipts: { ...inputs.receipts, terminalization: signReceipt(wrongOccurred, "k_control") },
+			}),
+		).toBe("terminalization occurred_at differs from the envelope's occurred_at");
+	});
+
+	// test-contract: security — terminalizationEchoFailure's reason_code branch:
+	// only the reason_code differs (terminal_state matches, unlike N2's
+	// combined-tamper case), isolating this specific echo check.
+	it("terminalization reason_code contradicting the envelope's reason rejects", () => {
+		const { raw, inputs } = cancelledFixture();
+		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const wrongReason = { ...term.payload, reason_code: "deadline_exceeded" };
+		raw.terminalization_record_hash = canonicalReceiptHash(wrongReason);
+		seal(raw);
+		expect(
+			reasonOf(raw, {
+				...inputs,
+				receipts: { ...inputs.receipts, terminalization: signReceipt(wrongReason, "k_control") },
+			}),
+		).toBe(`terminalization reason_code "deadline_exceeded" contradicts the envelope's reason "operator_stop"`);
+	});
+
+	// test-contract: security — envelopeTerminalReason's "execution_failed"
+	// case (verify.ts:345): distinct from the "cancelled" case the test above
+	// pins, this exercises failure_classification as the expected reason_code
+	// on the terminal arm's own dedicated fixture (no execution receipt).
+	it("terminalization reason_code contradicting an execution_failed envelope's failure_classification rejects", () => {
+		const { raw, inputs } = executionFailedFixture("infra_error");
+		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const wrongReason = { ...term.payload, reason_code: "operator_stop" };
+		raw.terminalization_record_hash = canonicalReceiptHash(wrongReason);
+		seal(raw);
+		expect(
+			reasonOf(raw, {
+				...inputs,
+				receipts: { ...inputs.receipts, terminalization: signReceipt(wrongReason, "k_control") },
+			}),
+		).toBe(`terminalization reason_code "operator_stop" contradicts the envelope's reason "infra_error"`);
+	});
+
+	// test-contract: security — verifyTerminalizationArm: the envelope binds a
+	// terminalization_record_hash but the caller supplied no record.
+	it("a missing terminalization record when the envelope binds one rejects", () => {
+		const { raw, inputs } = cancelledFixture();
+		const { terminalization: _terminalization, ...rest } = inputs.receipts;
+		expect(reasonOf(raw, { ...inputs, receipts: rest })).toBe(
+			"signed terminalization record required — the envelope binds one",
+		);
+	});
+
+	// test-contract: security — verifyTerminalizationArm: the record's own
+	// canonical hash must equal the envelope's terminalization_record_hash.
+	it("a terminalization record not matching terminalization_record_hash rejects", () => {
+		const { raw, inputs } = cancelledFixture();
+		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const tampered = { ...term.payload, actor: "tampered-actor" };
+		const newReceipt = signReceipt(tampered, "k_control");
+		expect(reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, terminalization: newReceipt } })).toBe(
+			"terminalization record does not match terminalization_record_hash",
+		);
+	});
+
+	// test-contract: security — verifyTerminalizationArm's job_key continuity
+	// check, past the echo/policy/chronology checks that ran before it.
+	it("terminalization record job_key differing from the envelope's job binding rejects", () => {
+		const { raw, inputs } = cancelledFixture();
+		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const wrongJobKey = { ...term.payload, job_key: "job_9999" };
+		raw.terminalization_record_hash = canonicalReceiptHash(wrongJobKey);
+		seal(raw);
+		expect(
+			reasonOf(raw, {
+				...inputs,
+				receipts: { ...inputs.receipts, terminalization: signReceipt(wrongJobKey, "k_control") },
+			}),
+		).toBe("terminalization record job_key does not equal the envelope's job binding");
 	});
 });
 

@@ -34,6 +34,71 @@ function digest(bytes: Uint8Array): string {
 	return createHash("sha256").update(bytes).digest("hex");
 }
 
+/**
+ * Strips every top-level `CHECK (...)` clause from a captured `CREATE TABLE`
+ * statement (balanced-paren scan, so it survives the nested parens inside the
+ * compound state-consistency CHECK), then collapses the comma runs a removed
+ * clause leaves behind. Used to build a same-shaped sibling table that skips
+ * SQLite's own CHECK enforcement, so a test can persist a row the SQL layer
+ * would otherwise never allow onto disk — isolating the application-level
+ * `readIntentRow` guards (mutation-journal-onboarding.ts) as the only thing
+ * standing between that row and a caller.
+ */
+function stripCheckConstraints(sql: string): string {
+	let out = "";
+	let cursor = 0;
+	for (let found = sql.indexOf("CHECK", cursor); found !== -1; found = sql.indexOf("CHECK", cursor)) {
+		out += sql.slice(cursor, found);
+		let openParen = found + "CHECK".length;
+		while (sql[openParen] !== "(") openParen++;
+		let depth = 0;
+		let end = openParen;
+		for (; end < sql.length; end++) {
+			if (sql[end] === "(") depth++;
+			else if (sql[end] === ")" && --depth === 0) {
+				end++;
+				break;
+			}
+		}
+		cursor = end;
+	}
+	out += sql.slice(cursor);
+	let collapsed = out;
+	let previous: string;
+	do {
+		previous = collapsed;
+		collapsed = collapsed.replace(/,(\s*),/g, ",$1").replace(/,(\s*\))/g, "$1");
+	} while (collapsed !== previous);
+	return collapsed;
+}
+
+/**
+ * Swaps the live `mutation_onboarding_intents` table for a same-column
+ * sibling with every CHECK constraint stripped, so the caller's `mutate`
+ * callback can persist column values the schema would otherwise reject
+ * outright — the only way to reach `readIntentRow`'s own defense-in-depth
+ * validation of a row the SQL layer would never let land.
+ */
+function withRelaxedOnboardingTable(dbPath: string, mutate: (raw: ReturnType<typeof openNodeSqlite>) => void): void {
+	const raw = openNodeSqlite(dbPath);
+	const schema = raw.prepare(
+		`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mutation_onboarding_intents'`,
+	).get() as { sql: string };
+	const relaxed = stripCheckConstraints(schema.sql).replace(
+		/^CREATE TABLE "?mutation_onboarding_intents"?/,
+		"CREATE TABLE mutation_onboarding_intents_relaxed",
+	);
+	if (relaxed === schema.sql || relaxed.includes("CHECK")) {
+		throw new Error("fixture could not strip the onboarding table's CHECK constraints");
+	}
+	raw.exec(`${relaxed};
+		INSERT INTO mutation_onboarding_intents_relaxed SELECT * FROM mutation_onboarding_intents;
+		DROP TABLE mutation_onboarding_intents;
+		ALTER TABLE mutation_onboarding_intents_relaxed RENAME TO mutation_onboarding_intents;`);
+	mutate(raw);
+	raw.close();
+}
+
 interface IntentOptions {
 	jobKey?: string;
 	createdAtMs?: number;
@@ -352,5 +417,140 @@ describe("SQLite mutation onboarding journal", () => {
 		journal = openMutationJournal(root);
 		expect(() => journal?.getOnboardingIntent(ONBOARDING_BINDING))
 			.toThrow("target sha256 differs from requestBytes");
+	});
+
+	it("rejects requestBytes outside the allowed byte range", () => {
+		journal = openMutationJournal(root);
+		const input = onboardingIntent();
+		input.requestBytes = new Uint8Array(0);
+		expect(() => journal?.prepareOnboardingIntent(input)).toThrow("requestBytes must contain 1..1048576 bytes");
+	});
+
+	it("rejects a binding whose commit is not a lowercase 40-hex SHA", () => {
+		journal = openMutationJournal(root);
+		expect(() => journal?.getOnboardingIntent({ ...ONBOARDING_BINDING, commit: "not-a-sha" }))
+			.toThrow("commit must be a full lowercase 40-hex Git commit SHA");
+	});
+
+	it("rejects a jobKey outside the job_onboard_<64-hex> domain", () => {
+		journal = openMutationJournal(root);
+		const input = onboardingIntent({ jobKey: "job_onboard_not-hex-at-all" });
+		expect(() => journal?.prepareOnboardingIntent(input))
+			.toThrow("mutation onboarding jobKey must use the job_onboard_<64-hex> domain");
+	});
+
+	it("rejects requestBytes that decode to invalid UTF-8 JSON", () => {
+		journal = openMutationJournal(root);
+		const input = onboardingIntent();
+		const badBytes = Buffer.from("{not-json", "utf8");
+		input.requestBytes = badBytes;
+		input.requestSha256 = digest(badBytes);
+		expect(() => journal?.prepareOnboardingIntent(input))
+			.toThrow("mutation onboarding requestBytes must be valid UTF-8 JSON");
+	});
+
+	it("rejects requestBytes that are valid JSON but not protocol-canonical", () => {
+		journal = openMutationJournal(root);
+		const input = onboardingIntent();
+		const paddedText = `${Buffer.from(input.requestBytes).toString("utf8")} `;
+		const paddedBytes = Buffer.from(paddedText, "utf8");
+		input.requestBytes = paddedBytes;
+		input.requestSha256 = digest(paddedBytes);
+		expect(() => journal?.prepareOnboardingIntent(input))
+			.toThrow("mutation onboarding requestBytes must use protocol canonical JSON");
+	});
+
+	it("rejects a stored row with an invalid state on read", () => {
+		journal = openMutationJournal(root);
+		journal.prepareOnboardingIntent(onboardingIntent());
+		journal.close();
+		journal = null;
+		// SQLite's own CHECK constraint refuses an out-of-domain state, so a
+		// plain UPDATE can never produce this row — swap in a same-shaped
+		// table with the CHECKs stripped to reach readIntentRow's own guard.
+		withRelaxedOnboardingTable(mutationJournalPath(root), (raw) => {
+			raw.prepare("UPDATE mutation_onboarding_intents SET state = ? WHERE job_key = ?").run("bogus", JOB_KEY);
+		});
+		journal = openMutationJournal(root);
+		expect(() => journal?.getOnboardingIntent(ONBOARDING_BINDING))
+			.toThrow("mutation journal onboarding intent has an invalid state");
+	});
+
+	it("rejects a stored row with an unsupported format_version on read", () => {
+		journal = openMutationJournal(root);
+		journal.prepareOnboardingIntent(onboardingIntent());
+		journal.close();
+		journal = null;
+		withRelaxedOnboardingTable(mutationJournalPath(root), (raw) => {
+			raw.prepare("UPDATE mutation_onboarding_intents SET format_version = ? WHERE job_key = ?").run(2, JOB_KEY);
+		});
+		journal = openMutationJournal(root);
+		expect(() => journal?.getOnboardingIntent(ONBOARDING_BINDING))
+			.toThrow("mutation journal onboarding intent has an unsupported format_version");
+	});
+
+	it("rejects a stored row with an invalid source_artifact_format on read", () => {
+		journal = openMutationJournal(root);
+		journal.prepareOnboardingIntent(onboardingIntent());
+		journal.close();
+		journal = null;
+		withRelaxedOnboardingTable(mutationJournalPath(root), (raw) => {
+			raw.prepare("UPDATE mutation_onboarding_intents SET source_artifact_format = ? WHERE job_key = ?")
+				.run("zip-v1", JOB_KEY);
+		});
+		journal = openMutationJournal(root);
+		expect(() => journal?.getOnboardingIntent(ONBOARDING_BINDING))
+			.toThrow("mutation journal onboarding intent has an invalid source_artifact_format");
+	});
+
+	it("replays acceptance for an already-accepted intent presenting the same receipt hash", () => {
+		journal = openMutationJournal(root);
+		journal.prepareOnboardingIntent(onboardingIntent());
+		journal.activateOnboardingIntent({ kind: "accept", jobKey: JOB_KEY, acceptanceReceiptHash: ACCEPTANCE_HASH });
+		expect(journal.activateOnboardingIntent({
+			kind: "accept",
+			jobKey: JOB_KEY,
+			acceptanceReceiptHash: ACCEPTANCE_HASH,
+		})).toEqual({ kind: "replay", jobId: JOB_KEY, state: "accepted" });
+	});
+
+	it("refuses to activate a prepared intent that has not been accepted", () => {
+		journal = openMutationJournal(root);
+		journal.prepareOnboardingIntent(onboardingIntent());
+		expect(() => journal?.activateOnboardingIntent({
+			kind: "activate",
+			jobKey: JOB_KEY,
+			activatedAtMs: 200,
+		})).toThrow("mutation onboarding cannot activate before authenticated acceptance is durable");
+	});
+
+	it("refuses to activate when a claimable job already exists unexpectedly", () => {
+		journal = openMutationJournal(root);
+		const otherJobKey = `job_onboard_${"e".repeat(64)}`;
+		journal.prepareOnboardingIntent(
+			onboardingIntent({ jobKey: otherJobKey, tenant: "tenant-3", project: "project-3" }),
+		);
+		journal.activateOnboardingIntent({
+			kind: "accept",
+			jobKey: otherJobKey,
+			acceptanceReceiptHash: "f".repeat(64),
+		});
+		journal.activateOnboardingIntent({ kind: "activate", jobKey: otherJobKey, activatedAtMs: 150 });
+
+		journal.prepareOnboardingIntent(onboardingIntent());
+		journal.activateOnboardingIntent({ kind: "accept", jobKey: JOB_KEY, acceptanceReceiptHash: ACCEPTANCE_HASH });
+		journal.close();
+		journal = null;
+
+		const raw = openNodeSqlite(mutationJournalPath(root));
+		raw.prepare("UPDATE mutation_jobs SET job_id = ? WHERE job_id = ?").run(JOB_KEY, otherJobKey);
+		raw.close();
+
+		journal = openMutationJournal(root);
+		expect(() => journal?.activateOnboardingIntent({
+			kind: "activate",
+			jobKey: JOB_KEY,
+			activatedAtMs: 200,
+		})).toThrow("accepted mutation onboarding intent unexpectedly has a claimable job");
 	});
 });

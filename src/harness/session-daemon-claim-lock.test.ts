@@ -2,11 +2,27 @@
 // session-daemon.ts. The lock file is what fences two racing daemon starts, so
 // these cover record parsing (every rejection branch), liveness/identity
 // classification, and stale-lock recovery.
+//
+// Fixtures: a real temp directory, because the recovery branches are decided by
+// real errno values. Two filesystem shapes stand in for a race that cannot be
+// scheduled — a directory parked on the quarantine path (rename fails EISDIR)
+// and a hard-link twin of the lock file (POSIX makes that rename a no-op, so
+// the canonical path is still occupied when the exclusive create runs). Only
+// the "the write itself failed" branch is fault-injected: `node:fs` is mocked
+// as a pass-through with `writeFileSync` wrapped, and exactly one test arms it
+// with `mockImplementationOnce`.
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return { ...actual, writeFileSync: vi.fn(actual.writeFileSync) };
+});
+
+import { readFileMutationProcessIdentity } from "../lib/file-mutation-lock-identity.js";
 import {
 	claimLockIsCurrent,
 	claimLockRecord,
@@ -159,6 +175,42 @@ describe("liveClaimLockIsCurrent", () => {
 			}),
 		).toBe(false);
 	});
+
+	it("trusts a matching process-start id over the staleness bound", () => {
+		const live = readFileMutationProcessIdentity(process.pid, Date.now());
+		expect(
+			liveClaimLockIsCurrent({
+				pid: process.pid,
+				createdAtMs: Date.now() - 3_600_000,
+				bootId: null,
+				processStartId: live.processStartId,
+			}),
+		).toBe(true);
+	});
+
+	it("accepts an hour-old record whose boot id also matches the live boot", () => {
+		const live = readFileMutationProcessIdentity(process.pid, Date.now());
+		expect(
+			liveClaimLockIsCurrent({
+				pid: process.pid,
+				createdAtMs: Date.now() - 3_600_000,
+				bootId: live.bootId,
+				processStartId: live.processStartId,
+			}),
+		).toBe(true);
+	});
+
+	it("rejects a record from another boot even when the start id and PID match", () => {
+		const live = readFileMutationProcessIdentity(process.pid, Date.now());
+		expect(
+			liveClaimLockIsCurrent({
+				pid: process.pid,
+				createdAtMs: Date.now(),
+				bootId: "linux:a-boot-this-machine-never-had",
+				processStartId: live.processStartId,
+			}),
+		).toBe(false);
+	});
 });
 
 describe("claimLockIsCurrent / removeCurrentClaimLock", () => {
@@ -206,5 +258,43 @@ describe("recoverStaleClaimLock", () => {
 		// not the one on disk — the recovery must put it back untouched.
 		expect(recoverStaleClaimLock(lock, "bytes-the-caller-saw\n")).toEqual({ retry: true });
 		expect(readFileSync(lock.path, "utf-8")).toBe("actual-bytes\n");
+	});
+
+	it("propagates a rename failure that is not ENOENT and leaves the record alone", () => {
+		const lock = makeClaimLock(tempPidPath());
+		const stale = "stale-record\n";
+		writeFileSync(lock.path, stale);
+		// A directory parked on the quarantine path fails the rename with EISDIR,
+		// which is not the ENOENT the "someone else already took it" arm expects.
+		mkdirSync(`${lock.path}.${lock.token}.stale`);
+		expect(() => recoverStaleClaimLock(lock, stale)).toThrow(/^EISDIR:/);
+		expect(readFileSync(lock.path, "utf-8")).toBe(stale);
+	});
+
+	it("yields to a claimant that filled the rename gap and drops the quarantine copy", () => {
+		const lock = makeClaimLock(tempPidPath());
+		const other = "other-claimant\n";
+		writeFileSync(lock.path, other);
+		const quarantinePath = `${lock.path}.${lock.token}.stale`;
+		// A hard-link twin makes the rename a POSIX no-op, so the canonical path
+		// is still occupied when the exclusive create runs — the same state a
+		// claimant that filled the rename gap leaves behind.
+		linkSync(lock.path, quarantinePath);
+		expect(recoverStaleClaimLock(lock, other)).toEqual({ retry: true });
+		expect(readFileSync(lock.path, "utf-8")).toBe(other);
+		expect(existsSync(quarantinePath)).toBe(false);
+	});
+
+	it("keeps the quarantined record when the replacement write fails", () => {
+		const lock = makeClaimLock(tempPidPath());
+		const stale = "stale-record\n";
+		writeFileSync(lock.path, stale);
+		const quarantinePath = `${lock.path}.${lock.token}.stale`;
+		vi.mocked(writeFileSync).mockImplementationOnce(() => {
+			throw Object.assign(new Error("claim write failed"), { code: "EIO" });
+		});
+		expect(() => recoverStaleClaimLock(lock, stale)).toThrow("claim write failed");
+		expect(readFileSync(quarantinePath, "utf-8")).toBe(stale);
+		expect(existsSync(lock.path)).toBe(false);
 	});
 });

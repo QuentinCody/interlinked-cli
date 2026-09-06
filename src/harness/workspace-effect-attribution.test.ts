@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	initEffectAttributionStore,
 	partitionResidueByAttribution,
@@ -183,6 +183,65 @@ describe("durable registry — survives a daemon restart", () => {
 			expect(result.own).toEqual([]);
 			expect(result.attributedElsewhere).toBe(1);
 		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("P-corrupt-store: falls back to in-memory attribution when the store file has invalid JSON, and a second corrupt root still logs only once", () => {
+		const root = mkdtempSync(join(tmpdir(), "effect-attr-corrupt-store-"));
+		const root2 = mkdtempSync(join(tmpdir(), "effect-attr-corrupt-store-2-"));
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const storeDir = join(root, ".interlinked");
+			mkdirSync(storeDir, { recursive: true });
+			writeFileSync(join(storeDir, "effect-attribution.json"), "{not valid json", "utf-8");
+			initEffectAttributionStore(root);
+			// The load attempt fails (bad JSON) but recording must still work
+			// off the in-memory map — the corrupt store only loses old evidence.
+			recordReconciledEffects("session-b", [effect("src/foo.ts", "theirs")]);
+			const result = partitionResidueByAttribution("session-a", [effect("src/foo.ts", "theirs")]);
+			expect(result.attributedElsewhere).toBe(1);
+			expect(errorSpy).toHaveBeenCalledTimes(1);
+			expect(errorSpy).toHaveBeenCalledWith(
+				expect.stringContaining("[interlinked] effect-attribution store unreadable:"),
+			);
+
+			// Re-pointing at a second, also-corrupt root (without a full registry
+			// reset) re-arms loadRegistryOnce — initEffectAttributionStore clears
+			// the per-root loadedFromDisk flag on a root change — so the load
+			// catch runs a second time. The module-wide "already noted" guard in
+			// noteAttributionStoreFailure must still suppress this second log.
+			const storeDir2 = join(root2, ".interlinked");
+			mkdirSync(storeDir2, { recursive: true });
+			writeFileSync(join(storeDir2, "effect-attribution.json"), "{also not valid", "utf-8");
+			initEffectAttributionStore(root2);
+			recordReconciledEffects("session-b", [effect("src/bar.ts", "theirs")]);
+			expect(errorSpy).toHaveBeenCalledTimes(1);
+		} finally {
+			errorSpy.mockRestore();
+			rmSync(root, { recursive: true, force: true });
+			rmSync(root2, { recursive: true, force: true });
+		}
+	});
+
+	it("P-persist-fail: logs once when persisting the store fails, without throwing out of recordReconciledEffects", () => {
+		const root = mkdtempSync(join(tmpdir(), "effect-attr-persist-fail-"));
+		// Point the store root at a plain FILE, not a directory: mkdirSync of
+		// "<root>/.interlinked" then fails because a path component is a file.
+		const fileAsRoot = join(root, "not-a-dir");
+		writeFileSync(fileAsRoot, "not a directory", "utf-8");
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			initEffectAttributionStore(fileAsRoot);
+			expect(() =>
+				recordReconciledEffects("session-b", [effect("src/foo.ts", "theirs")]),
+			).not.toThrow();
+			expect(errorSpy).toHaveBeenCalledTimes(1);
+			expect(errorSpy).toHaveBeenCalledWith(
+				expect.stringContaining("[interlinked] effect-attribution store write failed:"),
+			);
+		} finally {
+			errorSpy.mockRestore();
 			rmSync(root, { recursive: true, force: true });
 		}
 	});

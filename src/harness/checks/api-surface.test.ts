@@ -48,6 +48,18 @@ describe("checkPublicApiLeaksInternalType — positive (must fire)", () => {
 		].join("\n");
 		expect(checkPublicApiLeaksInternalType(src, FILE)).toHaveLength(1);
 	});
+
+	it("P5: exported type alias spanning multiple lines references a non-exported type", () => {
+		// Exercises aliasWindow's own line-scan loop (distinct from the
+		// paren/brace scan signatureWindow uses for function/const/class/interface
+		// declarations): the RHS spans two lines, so the loop must iterate past
+		// the first line (no terminating `;` yet) before it finds Bar.
+		const src = ["interface Bar { n: number }", "export type Foo =", "\tBar;"].join("\n");
+		const out = checkPublicApiLeaksInternalType(src, FILE);
+		expect(out).toHaveLength(1);
+		expect(out[0]?.text).toContain("'Bar'");
+		expect(out[0]?.line).toBe(2);
+	});
 });
 
 describe("checkPublicApiLeaksInternalType — negative (must not fire)", () => {

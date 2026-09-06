@@ -1,5 +1,13 @@
 // test-contract: invariant — durable mutation processing never consumes a
 // remote result before the local evaluation transaction commits.
+//
+// `withJournalOverrides` wraps the real sqlite-backed journal in a Proxy so a
+// handful of tests can force one journal method to misbehave (throw, return
+// false, or hand back a claimed job the real storage layer could never
+// produce) while every other call still runs against the real journal. The
+// Proxy trap must not pass `receiver` to `Reflect.get` — the journal class
+// uses private `#` fields, and invoking its methods/getters with the Proxy
+// itself as `this` throws "Cannot read private member" instead of running.
 
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -155,6 +163,24 @@ function evaluatorHarness(
 			return evaluate(input);
 		},
 	};
+}
+
+function withJournalOverrides(
+	active: MutationJournal,
+	overrides: Partial<MutationJournal>,
+): MutationJournal {
+	return new Proxy(active, {
+		get(target, prop) {
+			// SAFETY: `overrides` is keyed by MutationJournal member names only
+			// (Partial<MutationJournal>), so a `prop in overrides` hit is always
+			// a value of that member's own type.
+			if (prop in overrides) return (overrides as Record<PropertyKey, unknown>)[prop as string];
+			const value = Reflect.get(target, prop);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+		// SAFETY: every trapped `get` either forwards to the real MutationJournal
+		// or returns a same-shaped override, so the Proxy satisfies the interface.
+	}) as MutationJournal;
 }
 
 let root = "";
@@ -595,5 +621,152 @@ describe("durable mutation job processor — one immediate/background path", () 
 		});
 		expect(remote.ackCalls).toHaveLength(1);
 		expect(active.getJob("local-job-1")?.status).toBe("evaluated");
+	});
+
+	it("N6: a claimed job whose authority no longer matches the caller is refused before the remote is touched", async () => {
+		const active = openWithJob();
+		const wrapped = withJournalOverrides(active, {
+			claimNext: (input) => {
+				const claimed = active.claimNext(input);
+				return claimed === null
+					? null
+					: { ...claimed, expectedJob: { ...claimed.expectedJob, tenant: "mismatched-tenant" } };
+			},
+		});
+		const remote = remoteHarness(async () => {
+			throw new Error("must not be contacted");
+		});
+
+		const outcome = await processNextMutationJob(options(wrapped, remote, evaluatorHarness(), scriptedClock(100, 110)));
+
+		expect(outcome).toMatchObject({
+			kind: "retry",
+			stage: "poll",
+			reason: "claimed mutation job authority differs from the configured runtime",
+		});
+		expect(remote.claimCalls).toHaveLength(0);
+		expect(active.getJob("local-job-1")).toMatchObject({ status: "pending", failureCount: 1 });
+	});
+
+	it("N7: an ack-phase recovery job with no minted ack retries instead of fabricating one", async () => {
+		const active = openWithJob();
+		const wrapped = withJournalOverrides(active, {
+			claimNext: (input) => {
+				const claimed = active.claimNext(input);
+				return claimed === null ? null : { ...claimed, phase: "ack" as const };
+			},
+		});
+		const remote = remoteHarness(async () => {
+			throw new Error("must not be contacted");
+		});
+		const evaluator = evaluatorHarness();
+
+		const outcome = await processNextMutationJob(options(wrapped, remote, evaluator, scriptedClock(100, 110)));
+
+		expect(outcome).toMatchObject({
+			kind: "retry",
+			stage: "journal_ack",
+			reason: "ack-phase job has no journal ack",
+		});
+		expect(remote.claimCalls).toHaveLength(0);
+		expect(evaluator.calls).toHaveLength(0);
+	});
+
+	it("N8: a durable-retry write failure after a poll error reports both failures in one reason", async () => {
+		const active = openWithJob();
+		const wrapped = withJournalOverrides(active, {
+			scheduleRetry: () => {
+				throw new Error("journal disk full");
+			},
+		});
+		const remote = remoteHarness(async () => {
+			throw new Error("remote unavailable");
+		});
+
+		const outcome = await processNextMutationJob(options(wrapped, remote, evaluatorHarness(), scriptedClock(100, 110)));
+
+		expect(outcome).toEqual({
+			kind: "retry",
+			jobId: "local-job-1",
+			stage: "poll",
+			reason: "remote unavailable; retry scheduling failed: journal disk full",
+		});
+	});
+
+	it("N9: a durable-retry write failure during a pending poll still returns a non-durable retry", async () => {
+		const active = openWithJob();
+		const wrapped = withJournalOverrides(active, {
+			scheduleRetry: () => {
+				throw new Error("journal disk full");
+			},
+		});
+		const remote = remoteHarness(async () => ({ kind: "pending" }));
+
+		const outcome = await processNextMutationJob(options(wrapped, remote, evaluatorHarness(), scriptedClock(100, 110)));
+
+		expect(outcome).toEqual({
+			kind: "retry",
+			jobId: "local-job-1",
+			stage: "poll",
+			reason: "journal disk full",
+		});
+	});
+
+	it("N10: a lease-renewal failure before evaluation is reported as that failure, not a lost lease", async () => {
+		const active = openWithJob();
+		const wrapped = withJournalOverrides(active, {
+			renew: () => {
+				throw new Error("renew backend unavailable");
+			},
+		});
+		const remote = remoteHarness(async () => ({ kind: "terminal", evidence: { ok: true } }));
+		const evaluator = evaluatorHarness();
+
+		const outcome = await processNextMutationJob(
+			options(wrapped, remote, evaluator, scriptedClock(100, 110, 120)),
+		);
+
+		expect(outcome).toMatchObject({
+			kind: "retry",
+			stage: "evaluate",
+			reason: "renew backend unavailable",
+		});
+		expect(evaluator.calls).toHaveLength(0);
+	});
+
+	it("N11: the journal rejecting the journal-ack write (no throw) reports a lost lease, not acknowledged", async () => {
+		const active = openWithJob();
+		const wrapped = withJournalOverrides(active, { acknowledge: () => false });
+		const remote = remoteHarness(async () => ({ kind: "terminal", evidence: { ok: true } }));
+		const evaluator = evaluatorHarness();
+
+		const outcome = await processNextMutationJob(
+			options(wrapped, remote, evaluator, scriptedClock(100, 110, 120, 130, 140)),
+		);
+
+		expect(outcome).toEqual({ kind: "lost_lease", jobId: "local-job-1", stage: "journal_ack" });
+		expect(remote.ackCalls).toHaveLength(1);
+	});
+
+	it("N12: the journal-ack write throwing is treated as a scheduling error, not a silent drop", async () => {
+		const active = openWithJob();
+		const wrapped = withJournalOverrides(active, {
+			acknowledge: () => {
+				throw new Error("journal write failed");
+			},
+		});
+		const remote = remoteHarness(async () => ({ kind: "terminal", evidence: { ok: true } }));
+		const evaluator = evaluatorHarness();
+
+		const outcome = await processNextMutationJob(
+			options(wrapped, remote, evaluator, scriptedClock(100, 110, 120, 130, 140)),
+		);
+
+		expect(outcome).toMatchObject({
+			kind: "retry",
+			stage: "journal_ack",
+			reason: "journal write failed",
+		});
+		expect(remote.ackCalls).toHaveLength(1);
 	});
 });

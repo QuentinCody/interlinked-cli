@@ -239,6 +239,10 @@ function buildDeadExportsRepo(cwd: string, importerFiles: string[]): {
 	return { repo, prime: (rel, content) => importerContent.set(rel, content) };
 }
 
+/** Exposed for its contract test: an unreadable importer must read as `null`
+ *  rather than throw — an exception here would abort the whole scan. */
+export { buildDeadExportsRepo };
+
 /** Reachability classification for one file (layer 1 + the test-only signal). */
 /** Who references `rel`, over BOTH mechanisms: the resolved specifier sets
  *  (barrels, dynamic import, require, static) and the project graph's static

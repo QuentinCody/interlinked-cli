@@ -1,3 +1,6 @@
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { DaemonLedgerEvent, HandoverOutcome } from "./daemon-ledger.js";
 import {
@@ -10,6 +13,7 @@ import {
 	handoverChurnExceeded,
 	netUnresolvedHandovers,
 	newHandoverAttemptId,
+	recordInheritedDaemonSpawn,
 	unresolvedAttemptExistsFor,
 } from "./handover-churn.js";
 
@@ -495,6 +499,78 @@ describe("attempt-id plumbing helpers", () => {
 		expect(consumeHandoverAttemptEnv({})).toBeUndefined();
 		const env: NodeJS.ProcessEnv = { [HANDOVER_ATTEMPT_ENV]: "" };
 		expect(consumeHandoverAttemptEnv(env)).toBeUndefined();
+	});
+});
+
+describe("recordInheritedDaemonSpawn — ledger writes gated by an inherited attempt id", () => {
+	function withTempRoot(fn: (root: string) => void): void {
+		const root = mkdtempSync(join(tmpdir(), "handover-churn-test-"));
+		try {
+			fn(root);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	}
+
+	function readLedgerRows(root: string): DaemonLedgerEvent[] {
+		const raw = readFileSync(join(root, ".interlinked", "daemon-events.jsonl"), "utf8");
+		return raw
+			.trim()
+			.split("\n")
+			.filter((line) => line.length > 0)
+			.map((line) => JSON.parse(line));
+	}
+
+	// test-contract: public-api — the counting outcome writes a ledger row
+	// carrying the inherited attempt id and detail verbatim.
+	it("P: writes a daemon_spawned row carrying the inherited attempt id and detail", () => {
+		withTempRoot((root) => {
+			recordInheritedDaemonSpawn(root, "daemon_spawned", "artifact X", { [HANDOVER_ATTEMPT_ENV]: "a1" });
+			const rows = readLedgerRows(root);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatchObject({
+				event: "handover",
+				reason: "daemon-start",
+				outcome: "daemon_spawned",
+				attempt_id: "a1",
+				detail: "artifact X",
+			});
+		});
+	});
+
+	// test-contract: invariant — daemon_spawned is the COUNTING step; it never
+	// dedupes, unlike a terminal outcome.
+	it("P: a repeated daemon_spawned outcome writes a row every time", () => {
+		withTempRoot((root) => {
+			const env = { [HANDOVER_ATTEMPT_ENV]: "a2" };
+			recordInheritedDaemonSpawn(root, "daemon_spawned", undefined, env);
+			recordInheritedDaemonSpawn(root, "daemon_spawned", undefined, env);
+			expect(readLedgerRows(root)).toHaveLength(2);
+		});
+	});
+
+	// test-contract: bug — a terminal outcome must resolve the attempt exactly
+	// once even if the caller's retry loop reaches the same line twice; the
+	// SECOND call's detail ("second") must never reach the ledger.
+	it("P: a terminal outcome writes only once per (id, outcome)", () => {
+		withTempRoot((root) => {
+			const env = { [HANDOVER_ATTEMPT_ENV]: "a3" };
+			recordInheritedDaemonSpawn(root, "spawn_failed", "first", env);
+			recordInheritedDaemonSpawn(root, "spawn_failed", "second", env);
+			const rows = readLedgerRows(root);
+			expect(rows).toHaveLength(1);
+			expect(rows[0]).toMatchObject({ outcome: "spawn_failed", detail: "first" });
+		});
+	});
+
+	// test-contract: boundary — a missing or empty inherited id is a no-op: a
+	// plain manual `harness start` must never create a ledger file.
+	it("N: a missing or empty attempt id in env writes nothing", () => {
+		withTempRoot((root) => {
+			recordInheritedDaemonSpawn(root, "daemon_spawned", undefined, {});
+			recordInheritedDaemonSpawn(root, "daemon_spawned", undefined, { [HANDOVER_ATTEMPT_ENV]: "" });
+			expect(existsSync(join(root, ".interlinked", "daemon-events.jsonl"))).toBe(false);
+		});
 	});
 });
 

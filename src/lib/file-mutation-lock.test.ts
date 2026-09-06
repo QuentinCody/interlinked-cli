@@ -1,4 +1,6 @@
 import {
+	appendFileSync,
+	chmodSync,
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
@@ -6,6 +8,8 @@ import {
 	readFileSync,
 	rmSync,
 	rmdirSync,
+	statSync,
+	unlinkSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
@@ -13,12 +17,35 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Hoisted: spies on statSync/unlinkSync/writeFileSync only (call-through to
+// the real implementation by default) while every other fs export stays
+// untouched. Plain `vi.spyOn(fs, ...)` throws "Module namespace is not
+// configurable in ESM" for node:fs — this is the vitest-documented
+// workaround (see src/lib/config.mutation-kill.test.ts for the prior art).
+// Used only for the handful of races that have no real filesystem
+// construction (a value read successfully then vanishing before the very
+// next synchronous statement, with no test seam in between); every other
+// case in this file drives genuine fs errors (EACCES via chmod, ENOENT via
+// beforeRetireObserved) rather than mocking.
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		rmdirSync: vi.fn(actual.rmdirSync),
+		statSync: vi.fn(actual.statSync),
+		unlinkSync: vi.fn(actual.unlinkSync),
+		writeFileSync: vi.fn(actual.writeFileSync),
+	};
+});
+
 import {
 	appendFileWithMutationLock,
 	fileMutationLockPath,
 	fileMutationLockOwnerPath,
 	FileMutationLockTimeoutError,
+	observeLock,
 	withFileMutationLock,
 } from "./file-mutation-lock.js";
 
@@ -71,6 +98,29 @@ describe("file mutation lock", () => {
 		);
 		return ownerPath;
 	}
+
+	it("rejects an owner file whose directory does not match the claimed path's own lock path", () => {
+		// `observeLock(path, lockPath)` trusts its two arguments to be a matched
+		// pair (every production caller derives both from the same `path` via
+		// `fileMutationLockPath`). This directly exercises the defensive branch
+		// that catches a mismatched pair: a validly-named, validly-parsed owner
+		// entry sitting in a lock directory that does not belong to `path`.
+		const otherPath = join(dir, "other.jsonl");
+		const otherLockPath = fileMutationLockPath(otherPath);
+		mkdirSync(otherLockPath);
+		const token = "mismatched-owner";
+		const ownerPath = fileMutationLockOwnerPath(otherPath, token);
+		writeFileSync(
+			ownerPath,
+			JSON.stringify({ pid: process.pid, token, acquired_at_ms: 1 }),
+		);
+
+		const observation = observeLock(path, otherLockPath);
+
+		expect(observation?.entries).toEqual([`owner-${token}.json`]);
+		expect(observation?.owner).toBeNull();
+		expect(observation?.ownerPath).toBeNull();
+	});
 
 	it("serializes an append and releases its PID/token owner record", () => {
 		appendFileWithMutationLock(path, "after\n");
@@ -375,6 +425,286 @@ describe("file mutation lock", () => {
 			}),
 		).toThrow(FileMutationLockTimeoutError);
 		expect(readFileSync(successor, "utf8")).toContain("successor-owner");
+		expect(readFileSync(path, "utf8")).toBe("before\n");
+	});
+
+	it("treats an owner record with an invalid acquired-at timestamp as malformed and recovers it once stale", () => {
+		const lockPath = fileMutationLockPath(path);
+		const ownerPath = seedOwner(process.pid, "bad-timestamp-owner", 10_000);
+		writeFileSync(
+			ownerPath,
+			JSON.stringify({
+				pid: process.pid,
+				token: "bad-timestamp-owner",
+				acquired_at_ms: 0,
+				boot_id: CURRENT_IDENTITY.bootId,
+				process_start_id: CURRENT_IDENTITY.processStartId,
+			}),
+		);
+		const old = new Date(1_000);
+		utimesSync(lockPath, old, old);
+		appendFileWithMutationLock(path, "invalid-timestamp-recovered\n", {
+			waitMs: 50,
+			staleMs: 10,
+			clock: () => 20_000,
+			identityProvider: () => CURRENT_IDENTITY,
+		});
+		expect(readFileSync(path, "utf8")).toBe("before\ninvalid-timestamp-recovered\n");
+	});
+
+	it("never recovers the same record once its timestamp is valid and its identity matches the live owner", () => {
+		// Mirrors the case above with only acquired_at_ms changed (0 -> 1): if the
+		// acquired_at_ms<=0 guard were removed, parseOwner would accept this record
+		// and the matching boot/process identity would read it as a live, non-stale
+		// owner, so recovery must be refused rather than falling through some other path.
+		const ownerPath = seedOwner(process.pid, "bad-timestamp-owner", 10_000);
+		writeFileSync(
+			ownerPath,
+			JSON.stringify({
+				pid: process.pid,
+				token: "bad-timestamp-owner",
+				acquired_at_ms: 1,
+				boot_id: CURRENT_IDENTITY.bootId,
+				process_start_id: CURRENT_IDENTITY.processStartId,
+			}),
+		);
+		expect(() =>
+			appendFileWithMutationLock(path, "bypassed\n", {
+				waitMs: 0,
+				identityProvider: () => CURRENT_IDENTITY,
+			}),
+		).toThrow(FileMutationLockTimeoutError);
+		expect(readFileSync(path, "utf8")).toBe("before\n");
+	});
+
+	it("treats a lock directory it cannot list as malformed and recovers it once stale", () => {
+		const lockPath = fileMutationLockPath(path);
+		mkdirSync(lockPath);
+		const old = new Date(1_000);
+		utimesSync(lockPath, old, old);
+		chmodSync(lockPath, 0o000);
+		appendFileWithMutationLock(path, "unreadable-dir-recovered\n", {
+			waitMs: 50,
+			staleMs: 10,
+			clock: () => 20_000,
+		});
+		expect(readFileSync(path, "utf8")).toBe("before\nunreadable-dir-recovered\n");
+	});
+
+	it("treats an unmeasurable lock age as fresh, refusing to recover it even when the directory is old", () => {
+		const lockPath = fileMutationLockPath(path);
+		mkdirSync(lockPath);
+		const old = new Date(1_000);
+		utimesSync(lockPath, old, old);
+		vi.mocked(statSync).mockImplementationOnce(() => {
+			throw Object.assign(new Error("EIO: input/output error, stat"), { code: "EIO" });
+		});
+		expect(() =>
+			appendFileWithMutationLock(path, "bypassed\n", {
+				waitMs: 0,
+				staleMs: 1,
+				clock: () => 50_000,
+			}),
+		).toThrow(FileMutationLockTimeoutError);
+		expect(readFileSync(path, "utf8")).toBe("before\n");
+	});
+
+	it("stops recovery when a stale peer already removed the sole observed entry", () => {
+		const lockPath = fileMutationLockPath(path);
+		mkdirSync(lockPath);
+		const junkPath = join(lockPath, "not-an-owner");
+		writeFileSync(junkPath, "not-json");
+		const old = new Date(1_000);
+		utimesSync(lockPath, old, old);
+		expect(() =>
+			appendFileWithMutationLock(path, "bypassed\n", {
+				waitMs: 0,
+				staleMs: 10,
+				clock: () => 20_000,
+				beforeRetireObserved: () => {
+					unlinkSync(junkPath);
+				},
+			}),
+		).toThrow(FileMutationLockTimeoutError);
+		expect(readFileSync(path, "utf8")).toBe("before\n");
+		expect(existsSync(lockPath)).toBe(true);
+	});
+
+	it("stops recovery when a stale peer removes a later observed entry mid-cleanup", () => {
+		const lockPath = fileMutationLockPath(path);
+		mkdirSync(lockPath);
+		const first = join(lockPath, "junk-a");
+		const second = join(lockPath, "junk-b");
+		writeFileSync(first, "not-json");
+		writeFileSync(second, "not-json");
+		const old = new Date(1_000);
+		utimesSync(lockPath, old, old);
+		expect(() =>
+			appendFileWithMutationLock(path, "bypassed\n", {
+				waitMs: 0,
+				staleMs: 10,
+				clock: () => 20_000,
+				beforeRetireObserved: () => {
+					unlinkSync(second);
+				},
+			}),
+		).toThrow(FileMutationLockTimeoutError);
+		expect(readFileSync(path, "utf8")).toBe("before\n");
+		expect(existsSync(first)).toBe(false);
+		expect(existsSync(second)).toBe(false);
+		expect(existsSync(lockPath)).toBe(true);
+	});
+
+	it("stops recovery when a new entry appears in the lock directory during cleanup", () => {
+		const lockPath = fileMutationLockPath(path);
+		const ownerPath = seedOwner(2_147_483_647, "late-arrival-owner", 1);
+		let ticks = 0;
+		expect(() =>
+			appendFileWithMutationLock(path, "bypassed\n", {
+				waitMs: 0,
+				clock: () => {
+					ticks++;
+					return 20_000;
+				},
+				identityProvider: () => CURRENT_IDENTITY,
+				beforeRetireObserved: () => {
+					writeFileSync(join(lockPath, "late-arrival.json"), "{}");
+				},
+			}),
+		).toThrow(FileMutationLockTimeoutError);
+		expect(readFileSync(path, "utf8")).toBe("before\n");
+		expect(existsSync(ownerPath)).toBe(false);
+		expect(existsSync(join(lockPath, "late-arrival.json"))).toBe(true);
+		expect(existsSync(lockPath)).toBe(true);
+		// 1 startedAt + 1 recovery-attempt "now" + 1 final waitMs check. If the
+		// ENOTEMPTY rmdir failure were misread as success, recovery would loop
+		// back for a second doomed attempt against the still-there late arrival
+		// (mkdirSync EEXIST, then a fresh observation) before finally timing
+		// out — 4 clock() calls instead of 3.
+		expect(ticks).toBe(3);
+	});
+
+	it("continues recovery when the lock directory vanishes out from under an in-progress rmdir", () => {
+		// removeEmptyLockDirectory's ENOENT branch (a peer already removed the
+		// directory between our unlink and our own rmdir) has no synchronous fs
+		// seam to race for real, so the one rmdirSync call is stubbed to actually
+		// delete the directory itself and then report ENOENT — reproducing exactly
+		// what a real concurrent removal would leave behind: the directory gone,
+		// and this call throwing "no such directory".
+		//
+		// The final "recovered" content alone does NOT discriminate this branch:
+		// since the directory is genuinely gone either way, a wrongly-false
+		// removeEmptyLockDirectory just costs one extra sleep()+retry before the
+		// next mkdirSync succeeds against the same vanished directory — same end
+		// state. Counting clock() calls does discriminate: correctly reading
+		// ENOENT as "already gone" lets the loop `continue` immediately (no waitMs
+		// check that iteration); misreading it falls through to that check first.
+		const lockPath = fileMutationLockPath(path);
+		seedOwner(2_147_483_647, "vanishing-dir-owner", 1);
+		vi.mocked(rmdirSync).mockImplementationOnce(() => {
+			rmSync(lockPath, { recursive: true, force: true });
+			throw Object.assign(new Error("ENOENT: no such file or directory, rmdir 'lock'"), {
+				code: "ENOENT",
+			});
+		});
+		let ticks = 0;
+		appendFileWithMutationLock(path, "recovered-after-vanished-dir\n", {
+			waitMs: 50,
+			clock: () => {
+				ticks++;
+				return 20_000;
+			},
+			identityProvider: () => CURRENT_IDENTITY,
+		});
+		expect(readFileSync(path, "utf8")).toBe("before\nrecovered-after-vanished-dir\n");
+		expect(existsSync(lockPath)).toBe(false);
+		// 1 startedAt + 1 recovery-attempt "now". Misreading ENOENT as failure
+		// would add a 3rd call (the waitMs check) before falling through to sleep
+		// and only then retrying into the same successful mkdirSync.
+		expect(ticks).toBe(2);
+	});
+
+	it("sleeps between contended retries instead of spinning through them all at once", () => {
+		seedIdentifiedOwner({
+			pid: process.pid,
+			token: "live-owner-retry-sleep",
+			acquiredAtMs: 25_000,
+			bootId: CURRENT_IDENTITY.bootId,
+			processStartId: CURRENT_IDENTITY.processStartId,
+		});
+		let identityCalls = 0;
+		expect(() =>
+			appendFileWithMutationLock(path, "bypassed\n", {
+				waitMs: 25,
+				retryMs: 5,
+				identityProvider: () => {
+					identityCalls++;
+					return CURRENT_IDENTITY;
+				},
+			}),
+		).toThrow(FileMutationLockTimeoutError);
+		// The live owner's identity is re-checked once per retry attempt (plus one
+		// up front for this process's own identity), so a real ~5ms sleep between
+		// attempts bounds this to a handful of calls over the 25ms budget. A
+		// removed or no-op sleep() turns the wait into a hot spin loop that would
+		// call the identity provider many thousands of times in the same window —
+		// a wall-clock-only assertion here cannot tell the two apart, since
+		// Date.now() advances at the same real rate whether or not the loop sleeps.
+		expect(identityCalls).toBeGreaterThan(1);
+		expect(identityCalls).toBeLessThan(50);
+		expect(readFileSync(path, "utf8")).toBe("before\n");
+	});
+
+	it("treats a release-time lock file already removed as a clean release, not an error", () => {
+		vi.mocked(unlinkSync).mockImplementationOnce(() => {
+			throw Object.assign(new Error("ENOENT: no such file or directory, unlink 'owner'"), {
+				code: "ENOENT",
+			});
+		});
+		const result = withFileMutationLock(path, () => {
+			appendFileSync(path, "released-cleanly\n");
+			return "action-result";
+		});
+		expect(result).toBe("action-result");
+		expect(readFileSync(path, "utf8")).toBe("before\nreleased-cleanly\n");
+	});
+
+	it("propagates a non-ENOENT release failure instead of masking it as a clean release", () => {
+		const lockPath = fileMutationLockPath(path);
+		expect(() =>
+			withFileMutationLock(path, () => {
+				appendFileSync(path, "before-release-failure\n");
+				chmodSync(lockPath, 0o500);
+			}),
+		).toThrow(/EACCES|EPERM/);
+		chmodSync(lockPath, 0o755);
+		expect(readFileSync(path, "utf8")).toBe("before\nbefore-release-failure\n");
+	});
+
+	it("propagates a non-EEXIST failure when the lock directory cannot be created", () => {
+		chmodSync(dir, 0o500);
+		expect(() => appendFileWithMutationLock(path, "unreachable\n")).toThrow(/EACCES|EPERM/);
+		chmodSync(dir, 0o755);
+		expect(readFileSync(path, "utf8")).toBe("before\n");
+	});
+
+	it("retries after a transient ENOENT during lease creation instead of failing outright", () => {
+		vi.mocked(writeFileSync).mockImplementationOnce(() => {
+			throw Object.assign(new Error("ENOENT: no such file or directory, open 'owner'"), {
+				code: "ENOENT",
+			});
+		});
+		appendFileWithMutationLock(path, "healed-after-transient-enoent\n");
+		expect(readFileSync(path, "utf8")).toBe("before\nhealed-after-transient-enoent\n");
+	});
+
+	it("propagates a non-transient lease-write failure instead of silently retrying", () => {
+		vi.mocked(writeFileSync).mockImplementationOnce(() => {
+			throw Object.assign(new Error("EACCES: permission denied, open 'owner'"), {
+				code: "EACCES",
+			});
+		});
+		expect(() => appendFileWithMutationLock(path, "unreachable\n")).toThrow(/EACCES/);
 		expect(readFileSync(path, "utf8")).toBe("before\n");
 	});
 });

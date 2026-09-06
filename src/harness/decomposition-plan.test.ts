@@ -2,11 +2,16 @@
 // carries. "Fire" = the planner proposes at least one extraction. Every
 // expected CC below is hand-derived from the canonical decision set
 // (if / loop / case / catch / ?: / && / || / ??) — when a case and that set
-// disagree, the set wins and the test is wrong.
+// disagree, the set wins and the test is wrong. Also unit-tests `loopSubject`
+// directly (exported for this purpose): its `undefined` fallback for a
+// non-loop node is unreachable through `planDecomposition` itself, since every
+// caller already gates on the identical `isLoop` node-kind check first.
 import { describe, expect, it } from "vitest";
-import { computeCyclomaticAst } from "./checks/cyclomatic-ast.js";
+import type * as TS from "typescript";
+import { type TsModule, computeCyclomaticAst, parseTsSource } from "./checks/cyclomatic-ast.js";
 import {
 	type DecompositionPlan,
+	loopSubject,
 	planDecomposition,
 	planToMessage,
 } from "./decomposition-plan.js";
@@ -42,6 +47,15 @@ function planOf(code: string, name: string, cap: number): DecompositionPlan {
 	const plan = planDecomposition(code, "fixture.ts", name, cap);
 	if (plan === null) throw new Error("planner returned null (typescript dep missing?)");
 	return plan;
+}
+
+/** First top-level statement of a fixture snippet, parsed with the same `typescript` load the planner uses. */
+function firstStatement(code: string): { ts: TsModule; sf: TS.SourceFile; node: TS.Statement } {
+	const parsed = parseTsSource(code, "fixture.ts");
+	if (!parsed) throw new Error("typescript dep missing");
+	const stmt = parsed.sf.statements[0];
+	if (!stmt) throw new Error("fixture parsed with no statements");
+	return { ts: parsed.ts, sf: parsed.sf, node: stmt };
 }
 
 describe("planDecomposition — positive (must fire)", () => {
@@ -250,6 +264,135 @@ const b = { run(v: number) { if (v > 0 && v < 3) return 1; if (v > 9 || v < -9) 
 		const plan = planOf(code, "run", 3);
 		expect(plan.totalCc).toBe(5);
 		expect(plan.extractions.length).toBeGreaterThan(0);
+	});
+});
+
+describe("loopSubject — the condition/expression each loop kind carries", () => {
+	it("returns the for-statement's condition, not its init or update", () => {
+		const { ts, sf, node } = firstStatement("for (let i = 0; i < 3; i++) { y(); }");
+		// SAFETY: fixture's first (and only) statement is a for-loop by construction.
+		const forNode = node as TS.ForStatement;
+		expect(loopSubject(ts, forNode)?.getText(sf)).toBe("i < 3");
+	});
+
+	it("returns undefined for a node that is not a loop, since every caller pre-filters with isLoop", () => {
+		const { ts, node } = firstStatement("if (x) { y(); }");
+		expect(loopSubject(ts, node)).toBe(undefined);
+	});
+});
+
+describe("planDecomposition — loop, case-label, leaf, and finally naming", () => {
+	it("a plain for-loop and a while-loop are named from their own condition identifiers", () => {
+		const code = `
+function poll(budget: number, retries: number, flag: boolean): number {
+  if (budget > 0) retries += 1;
+  for (let i = 0; i < retries; i++) {
+    retries -= 1;
+  }
+  while (budget > 0) {
+    budget -= 1;
+  }
+  if (flag) retries += 1;
+  return retries;
+}`;
+		// CC 5: 1 + if1 + for + while + if2. Every top-level statement is its own
+		// cc-1 candidate (helper cc 2 fits cap 2); greedy picks the first three in
+		// source order to bring 5 under the cap of 2, which is if1, for, while.
+		const plan = planOf(code, "poll", 2);
+		expect(plan.extractions.map((e) => [e.kind, e.suggestedName, e.startLine, e.endLine])).toEqual([
+			["if", "handleBudget", 3, 3],
+			["loop", "processRetries", 4, 6],
+			["loop", "processBudget", 7, 9],
+		]);
+	});
+
+	it("a non-literal case label (an identifier, not a string/number) is named from its own identifier", () => {
+		const code = `
+function dispatch(kind: string, n: number): number {
+  switch (kind) {
+    case KIND_KEY: return n > 0 && n < 9 ? 1 : 0;
+    case "b": return n > 9 || n < -9 ? 2 : 0;
+    default: return 0;
+  }
+}`;
+		// Same shape as the string-label case (CC 7, clause body cc 2 fits cap 3);
+		// only the label text differs, exercising the identifier-fallback branch
+		// of caseLabel instead of its string/numeric-literal branch.
+		const plan = planOf(code, "dispatch", 3);
+		expect(plan.extractions.map((e) => e.suggestedName)).toEqual(["handleKindKINDKEY", "handleKindB"]);
+	});
+
+	it("a leaf expression-statement (not a variable or return) is named 'apply<Idents>Step'", () => {
+		const code = `
+function process(mode: number, extra: number, flag: boolean): number {
+  if (extra > 0) mode += 1;
+  report(mode ? 1 : 0);
+  if (flag) mode += 2;
+  return mode;
+}`;
+		// CC 4: 1 + if1 + ternary + if2, each cc 1 (helper cc 2 fits cap 2).
+		// Greedy needs two arms to bring 4 under 2: if1, then the call statement —
+		// which is neither a VariableStatement nor a ReturnStatement, so
+		// describeLeaf falls through to its "apply" branch.
+		const plan = planOf(code, "process", 2);
+		expect(plan.extractions.map((e) => [e.kind, e.suggestedName, e.startLine, e.endLine])).toEqual([
+			["if", "handleExtra", 3, 3],
+			["logical", "applyReportMode", 4, 4],
+		]);
+	});
+
+	it("a finally block with its own decision becomes a named candidate distinct from the try block", () => {
+		const code = `
+function guarded(conn: Connection, mode: number, retries: number): number {
+  try {
+    if (mode > 0 && conn.ready) conn.open();
+  } finally {
+    if (retries > 0) conn.close();
+  }
+  return retries;
+}`;
+		// CC 4: 1 + (ifTry + &&) + ifFinally. The whole try-statement (cc 3) is too
+		// big for a cap-2 helper (cc+1=4), so it splits into its arms; the
+		// try-block arm (cc 2) is STILL too big and splits again down to its
+		// condition (cc 1, "is..."), while the finally arm (cc 1) fits directly
+		// and is named from tryNames().cleanup — independent of, and disjoint
+		// from, the try-block's own condition extraction.
+		const plan = planOf(code, "guarded", 2);
+		expect(plan.extractions.map((e) => [e.kind, e.suggestedName, e.cc, e.nesting])).toEqual([
+			["logical", "isModeConn", 1, 1],
+			["finally", "cleanupConnOpen", 1, 0],
+		]);
+		expect(plan.remainingCc).toBe(2);
+	});
+
+	it("an arrow function with an expression body (no braces) becomes one named 'logical' candidate", () => {
+		// CC 3, but the decision that pushes `rate` over the cap lives in the
+		// DEFAULT PARAMETER (`a = x ?? 1`), not the body — so the body itself
+		// (`b > 0 ? 1 : 0`, cc 1) fits a cap-2 helper on its own. The body is an
+		// Expression, not a Block, so bodyArms wraps it as the single non-Block
+		// arm (`{node: body, label: {kind: "logical", name: "computeResult"},
+		// deepens: false}`) instead of recursing into statementArms; that arm is
+		// then the one and only candidate collect() finds.
+		const code = "const rate = (a = x ?? 1, b: number): number => (b > 0 ? 1 : 0);";
+		const plan = planOf(code, "rate", 2);
+		expect(plan.totalCc).toBe(3);
+		expect(plan.extractions).toEqual([
+			{ startLine: 1, endLine: 1, cc: 1, nesting: 0, kind: "logical", suggestedName: "computeResult" },
+		]);
+		expect(plan.remainingCc).toBe(2);
+	});
+
+	it("an arrow function whose whole body is one over-cap arm is left unsplittable", () => {
+		const code = "const rate = (a: number, b: number): number => (a > 0 && b > 0 ? 1 : 0);";
+		// CC 3: 1 + && + ?:, all inside the single non-Block body arm. That arm's
+		// own cc (3) is too big to fit as a cap-2 helper (cc + 1 > cap), and
+		// armsOf returns [] for a plain expression node (nothing to recurse
+		// into), so collect() finds no candidate at all: extractions stays empty
+		// and the full complexity remains on the caller.
+		const plan = planOf(code, "rate", 2);
+		expect(plan.totalCc).toBe(3);
+		expect(plan.extractions).toEqual([]);
+		expect(plan.remainingCc).toBe(3);
 	});
 });
 

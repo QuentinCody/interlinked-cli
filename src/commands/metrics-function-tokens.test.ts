@@ -1,7 +1,64 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Two dependency seams are mocked (never the SUT itself) so the discovery
+// unreadable-path and analyzer-crash branches in metrics-function-tokens.ts
+// are reachable without real filesystem races:
+//   - node:fs's `realpathSync`/`readFileSync` throw only for paths a test adds
+//     to `fsFailures`, and pass through to the real implementation otherwise
+//     (`vi.spyOn(fs, ...)` can't redefine a live ESM named export here — same
+//     workaround as src/harness/__tests__/cross-file-checks.mutation-kill-w38.test.ts).
+//   - the function-token analyzer's `computeFunctionTokens` throws only for
+//     absolute paths a test adds to `functionTokenFailures`.
+const fsFailures = vi.hoisted(() => ({
+    realpathThrows: new Set<string>(),
+    readThrows: new Set<string>(),
+}));
+
+vi.mock("node:fs", async () => {
+    const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+    return {
+        ...actual,
+        realpathSync: (...args: Parameters<typeof actual.realpathSync>) => {
+            const target = String(args[0]);
+            if (fsFailures.realpathThrows.has(target)) {
+                throw Object.assign(new Error(`ENOENT: no such file or directory, lstat '${target}'`), {
+                    code: "ENOENT",
+                });
+            }
+            return actual.realpathSync(...args);
+        },
+        readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+            const target = String(args[0]);
+            if (fsFailures.readThrows.has(target)) {
+                throw Object.assign(new Error(`EACCES: permission denied, open '${target}'`), {
+                    code: "EACCES",
+                });
+            }
+            return actual.readFileSync(...args);
+        },
+    };
+});
+
+const functionTokenFailures = vi.hoisted(() => ({ throwFor: new Set<string>() }));
+
+vi.mock("../harness/function-tokens/index.js", async () => {
+    const actual = await vi.importActual<typeof import("../harness/function-tokens/index.js")>(
+        "../harness/function-tokens/index.js",
+    );
+    return {
+        ...actual,
+        computeFunctionTokens: (content: string, filePath: string) => {
+            if (functionTokenFailures.throwFor.has(filePath)) {
+                throw new Error("synthetic analyzer crash");
+            }
+            return actual.computeFunctionTokens(content, filePath);
+        },
+    };
+});
+
 import {
     buildFunctionTokenMetricsReport,
     compareFunctionTokenText,
@@ -36,6 +93,9 @@ function write(root: string, relativePath: string, content: string): void {
 
 afterEach(() => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+    fsFailures.realpathThrows.clear();
+    fsFailures.readThrows.clear();
+    functionTokenFailures.throwFor.clear();
 });
 
 describe("function-token metric summaries", () => {
@@ -212,5 +272,62 @@ describe("buildFunctionTokenMetricsReport", () => {
         expect(uniqueMetricComplexities([shared(2), shared(9)]).has(
             "src/collisions.ts:(callback):1",
         )).toBe(false);
+    });
+
+    it("records an unreadable-path finding, sorted, when discovery cannot realpath or read a file", () => {
+        const root = project();
+        write(root, "src/keep.ts", "export function keep() { return 1; }");
+        write(root, "src/broken-realpath.ts", "export function brokenRealpath() { return 1; }");
+        write(root, "src/broken-read.ts", "export function brokenRead() { return 1; }");
+        const canonicalRoot = realpathSync(root);
+        const realpathTarget = join(canonicalRoot, "src", "broken-realpath.ts");
+        const readTarget = join(canonicalRoot, "src", "broken-read.ts");
+        fsFailures.realpathThrows.add(realpathTarget);
+        fsFailures.readThrows.add(readTarget);
+
+        const report = buildFunctionTokenMetricsReport({ cwd: root });
+
+        expect(report.scope.discoveredFiles).toBe(3);
+        expect(report.scope.candidateFiles).toBe(3);
+        expect(report.scope.unmeasuredFiles).toBe(2);
+        expect(report.notMeasured).toEqual([
+            expect.objectContaining({
+                file: "src/broken-read.ts",
+                reason: "tracked source is missing or unreadable",
+                kind: "unreadable",
+                sourceScope: "product",
+                capEnforced: true,
+            }),
+            expect.objectContaining({
+                file: "src/broken-realpath.ts",
+                reason: "tracked source is missing or unreadable",
+                kind: "unreadable",
+                sourceScope: "product",
+                capEnforced: true,
+            }),
+        ]);
+        expect(report.functions.map((row) => row.qualifiedName)).toEqual(["keep"]);
+    });
+
+    it("records an analysis-failure finding when the token analyzer throws on an otherwise readable file", () => {
+        const root = project();
+        write(root, "src/crashy.ts", "export function ok() { return 1; }");
+        const canonicalRoot = realpathSync(root);
+        functionTokenFailures.throwFor.add(join(canonicalRoot, "src", "crashy.ts"));
+
+        const report = buildFunctionTokenMetricsReport({ cwd: root });
+
+        expect(report.scope.unmeasuredFiles).toBe(1);
+        expect(report.functions).toHaveLength(0);
+        expect(report.notMeasured).toEqual([
+            expect.objectContaining({
+                file: "src/crashy.ts",
+                language: "typescript",
+                reason: "the typescript exact analyzer could not parse or analyze the source",
+                kind: "analysis_failed",
+                sourceScope: "product",
+                capEnforced: true,
+            }),
+        ]);
     });
 });

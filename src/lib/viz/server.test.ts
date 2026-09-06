@@ -1,12 +1,14 @@
 // Integration tests for the viz server: starts a real loopback server over a
 // tiny temp project and drives it with fetch — exercises routing, the graph
 // snapshot endpoint, html serving, the SSE stimulus stream, asset resolution,
-// and the missing-asset / 404 failure paths.
+// extra HTML-lens assets, resilience to a failed warm-up build, and the
+// missing-asset / 404 failure paths.
 
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { ProjectGraph } from "../../harness/project-graph.js";
 import { contentTypeFor, resolveVizAsset, startVizServer, type VizServerHandle } from "./server.js";
 
 describe("contentTypeFor", () => {
@@ -156,6 +158,52 @@ describe("startVizServer", () => {
 		} finally {
 			await stub.close();
 			rmSync(empty, { recursive: true, force: true });
+		}
+	});
+
+	it("serves an extra HTML lens by bare name", async () => {
+		const r = await fetch(`${server.url}/mutation-runs.html`);
+		expect(r.status).toBe(200);
+		expect(r.headers.get("content-type")).toContain("text/html");
+		expect(await r.text()).toContain("Mutation Runs");
+	});
+
+	it("404s an html-shaped path with no matching lens asset", async () => {
+		const r = await fetch(`${server.url}/no-such-lens.html`);
+		expect(r.status).toBe(404);
+	});
+});
+
+describe("startVizServer — graph warm-up failure", () => {
+	it("swallows a warm-up build failure and rebuilds the graph on the next request", async () => {
+		const dir2 = mkdtempSync(join(tmpdir(), "viz-warmup-"));
+		writeFileSync(join(dir2, "only.ts"), "export const Z = 1;\n");
+		const initSpy = vi.spyOn(ProjectGraph.prototype, "initialize").mockImplementationOnce(() => {
+			throw new Error("warm-up boom");
+		});
+		const stub = await startVizServer({
+			root: dir2,
+			port: 0,
+			activityPath: join(dir2, "activity.jsonl"),
+			checkResultsPath: join(dir2, "check-results.jsonl"),
+		});
+		try {
+			// Wait for the deferred setImmediate warm-up to run and hit the mocked throw.
+			for (let i = 0; i < 25 && initSpy.mock.calls.length < 1; i++) {
+				await new Promise<void>((resolve) => setImmediate(resolve));
+			}
+			expect(initSpy.mock.calls.length).toBe(1);
+			// The failed warm-up left no cached graph body, so this request rebuilds
+			// it from scratch (the mock is now exhausted and calls the real method).
+			const r = await fetch(`${stub.url}/api/graph`);
+			expect(r.status).toBe(200);
+			const g = await r.json();
+			expect(g.node_count).toBe(1);
+			expect(initSpy.mock.calls.length).toBe(2);
+		} finally {
+			await stub.close();
+			initSpy.mockRestore();
+			rmSync(dir2, { recursive: true, force: true });
 		}
 	});
 });

@@ -63,6 +63,55 @@ describe("changedPaths", () => {
 		};
 		expect(changedPaths(set).sort()).toEqual(["a.ts", "b.ts", "c.ts", "d.ts"]);
 	});
+
+	it("collects the apply_patch destination and, when moved, the original source path", () => {
+		const set: ChangeSet = {
+			ops: [
+				{
+					kind: "apply_patch",
+					path: "dest.ts",
+					section: { op: "update", path: "dest.ts", body: [], fromPath: "src-old.ts" },
+				},
+				{
+					kind: "apply_patch",
+					path: "same.ts",
+					section: { op: "add", path: "same.ts", body: [] },
+				},
+			],
+		};
+		expect(changedPaths(set).sort()).toEqual(["dest.ts", "same.ts", "src-old.ts"]);
+	});
+});
+
+describe("normalizeChangeSet for apply_patch payloads", () => {
+	it("normalizes an Add File section into one apply_patch op, keyed off `command`", () => {
+		const raw = "*** Begin Patch\n*** Add File: foo.ts\n+export const x = 1;\n*** End Patch";
+		expect(normalizeChangeSet("apply_patch", { command: raw })).toEqual({
+			ops: [
+				{
+					kind: "apply_patch",
+					path: "foo.ts",
+					section: { op: "add", path: "foo.ts", body: ["+export const x = 1;"] },
+				},
+			],
+		});
+	});
+
+	it("also recognizes the ApplyPatch tool-name alias and the `patch` field", () => {
+		const raw = "*** Begin Patch\n*** Delete File: bar.ts\n*** End Patch";
+		expect(normalizeChangeSet("ApplyPatch", { patch: raw })).toEqual({
+			ops: [{ kind: "apply_patch", path: "bar.ts", section: { op: "delete", path: "bar.ts", body: [] } }],
+		});
+	});
+
+	it("returns null when no runner field carries a raw patch payload", () => {
+		expect(normalizeChangeSet("apply_patch", { command: "" })).toBeNull();
+	});
+
+	it("returns null when the payload has no file sections to apply", () => {
+		const raw = "*** Begin Patch\n*** End Patch";
+		expect(normalizeChangeSet("apply_patch", { command: raw })).toBeNull();
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -70,6 +119,11 @@ describe("changedPaths", () => {
 // where a tool_input becomes the thing the gate measures — a guard that stops
 // rejecting produces a ChangeSet with an undefined path or body, and the run
 // then measures something other than the edit.
+//
+// Coverage note (u034): the `normalizeChangeSet for apply_patch payloads` and
+// the apply_patch case in `changedPaths` above cover the apply_patch/ApplyPatch
+// runner path — Codex/Copilot's V4A diff format, distinct from the Claude Code
+// Write/Edit/MultiEdit cases exercised by the rest of this file.
 // ---------------------------------------------------------------------------
 
 describe("Write requires both a path and a body", () => {

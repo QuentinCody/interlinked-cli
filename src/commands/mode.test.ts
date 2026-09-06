@@ -18,6 +18,32 @@ vi.mock("node:fs", async (importOriginal) => {
 	};
 });
 
+// `getPreset()` in ../harness/modes.js is a hardcoded lookup table (three
+// names) that `isKnownMode()` — a separate hardcoded literal check (four
+// names, "custom" included) — is expected to stay in lockstep with. Real
+// callers can never observe the two disagreeing, so the "no preset defined"
+// branch in mode.ts is unreachable through any live ModeName; it is a
+// defensive guard against exactly that drift. We mock modes.js as the same
+// kind of passthrough as node:fs above, with a per-test override so one test
+// can simulate the drift without touching the real registry for anyone else.
+const modesStub = vi.hoisted(() => ({
+	getPresetOverride: null as ((name: string) => unknown) | null,
+}));
+
+vi.mock("../harness/modes.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../harness/modes.js")>();
+	return {
+		...actual,
+		getPreset: (name: Parameters<typeof actual.getPreset>[0]) =>
+			modesStub.getPresetOverride
+				? // SAFETY: the override is a test-only stub; every call site sets it
+					// to `() => null` to simulate registry drift, so the cast is sound
+					// for this suite's own usage.
+					(modesStub.getPresetOverride(name) as ReturnType<typeof actual.getPreset>)
+				: actual.getPreset(name),
+	};
+});
+
 const { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } = await import(
 	"node:fs"
 );
@@ -292,6 +318,45 @@ describe("modeCommand — error paths", () => {
 		// Known modes are listed so the caller can recover.
 		expect(payload.reason).toContain("balanced");
 		expect(process.exitCode).toBe(1);
+	});
+
+	it("reports 'no preset defined' when a mode passes isKnownMode but the preset registry has drifted", async () => {
+		// isKnownMode() and getPreset() are two separately-hardcoded lookups that
+		// must stay in lockstep; through the real registry every known non-custom
+		// mode has a preset, so this branch is otherwise unreachable. Simulate the
+		// drift via the modes.js mock so the branch is still exercised through the
+		// real modeCommand entry point.
+		modesStub.getPresetOverride = () => null;
+		try {
+			const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+			await modeCommand("strict", { force: true });
+			const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+			stderrSpy.mockRestore();
+			expect(stderrText).toContain("[interlinked] no preset defined for strict");
+			expect(process.exitCode).toBe(1);
+			expect(existsSync(join(tmp, ".interlinked", "check-policy.json"))).toBe(false);
+		} finally {
+			modesStub.getPresetOverride = null;
+		}
+	});
+});
+
+describe("modeCommand — writeMode failure surfaces via the command-level fail() wrapper", () => {
+	// test-contract: behavior — when writeMode() returns false (here: a
+	// malformed guard-rules.json refuses the merge), modeCommand's own fail()
+	// call must fire too, distinct from writeMode's internal stderr line —
+	// pins the caller-side message and that no partial write survives.
+	it("reports 'not applied' to stderr and sets exitCode 1 when writeMode fails", async () => {
+		writeFileSync(join(tmp, ".interlinked", "guard-rules.json"), "{ not valid json");
+		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		await modeCommand("strict", { force: true });
+		const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+		stderrSpy.mockRestore();
+		expect(stderrText).toContain(
+			"mode strict not applied — see the error above; neither file was changed",
+		);
+		expect(process.exitCode).toBe(1);
+		expect(existsSync(join(tmp, ".interlinked", "check-policy.json"))).toBe(false);
 	});
 });
 
@@ -667,6 +732,48 @@ describe("writeMode — applyModeGuardOverrides stderr reporting", () => {
 			expect(spy).not.toHaveBeenCalled();
 		} finally {
 			spy.mockRestore();
+		}
+	});
+
+	// test-contract: behavior — the rollback restores the guard file to its
+	// PRE-CALL state. When guard-rules.json did not exist before writeMode was
+	// invoked (the null-snapshot case), the file applyModeGuardOverrides just
+	// created must be UNLINKED, not left behind, once the check-policy write
+	// that follows it fails.
+	it("P: unlinks a newly-created guard-rules.json when the check-policy write fails afterward", async () => {
+		const fsMod = await import("node:fs");
+		const realWriteFileSync = fsMod.writeFileSync;
+		const writeSpy = vi.spyOn(fsMod, "writeFileSync").mockImplementation(((
+			path: unknown,
+			...rest: unknown[]
+		) => {
+			if (typeof path === "string" && path.endsWith("check-policy.json")) {
+				throw new Error("simulated disk failure");
+			}
+			// SAFETY: delegates to the real (pre-mock) writeFileSync for every path
+			// other than check-policy.json, so guard-rules.json still lands on disk
+			// exactly as the non-mocked call would — only the targeted path throws.
+			return (realWriteFileSync as (...a: unknown[]) => unknown)(path, ...rest);
+		}) as unknown as typeof fsMod.writeFileSync);
+		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const guardPath = join(tmp, ".interlinked", "guard-rules.json");
+		const policyPath = join(tmp, ".interlinked", "check-policy.json");
+		try {
+			expect(existsSync(guardPath)).toBe(false);
+			const ok = writeMode(tmp, "strict", false);
+			expect(ok).toBe(false);
+			// Rolled all the way back to the pre-call state: the file that
+			// applyModeGuardOverrides created is gone again, and check-policy.json
+			// (which threw) never landed.
+			expect(existsSync(guardPath)).toBe(false);
+			expect(existsSync(policyPath)).toBe(false);
+			const text = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+			expect(text).toContain("check-policy write failed (simulated disk failure)");
+			expect(text).toContain("guard changes rolled back; neither file was changed");
+		} finally {
+			writeSpy.mockRestore();
+			stderrSpy.mockRestore();
+			process.exitCode = 0;
 		}
 	});
 });

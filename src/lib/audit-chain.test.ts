@@ -4,6 +4,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	truncateSync,
 	writeFileSync,
@@ -15,9 +16,11 @@ import { pipeline } from "node:stream/promises";
 import { createGzip, gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+	appendChainedAuditRecord,
 	canonicalJson,
 	computeEntryHash,
 	GENESIS_HASH,
+	getActivityPath,
 	iterateFileLines,
 	verifyAuditChain,
 	verifyAuditChainStreaming,
@@ -105,6 +108,58 @@ describe("computeEntryHash", () => {
 		const record = { ts: "2026-05-26", type: "guard_block", previousHash: GENESIS_HASH };
 		const expected = createHash("sha256").update(canonicalJson(record)).digest("hex");
 		expect(computeEntryHash(record)).toBe(expected);
+	});
+});
+
+describe("appendChainedAuditRecord", () => {
+	let tmp: string;
+	let activityPath: string;
+
+	beforeEach(() => {
+		tmp = mkdtempSync(join(tmpdir(), "audit-chain-append-"));
+		activityPath = getActivityPath(tmp);
+	});
+
+	afterEach(() => {
+		rmSync(tmp, { recursive: true, force: true });
+	});
+
+	function readLastRecord(): Record<string, unknown> {
+		const lines = readFileSync(activityPath, "utf8").trim().split("\n");
+		return JSON.parse(lines[lines.length - 1] as string) as Record<string, unknown>;
+	}
+
+	it("chains onto the most recent chained entry already on disk", () => {
+		const existing = makeEntry({ previousHash: GENESIS_HASH });
+		writeJsonl(activityPath, [existing]);
+
+		appendChainedAuditRecord(
+			{ type: "guard_allow", ts: "2026-05-26T10:05:00.000Z", tool: "Bash" },
+			tmp,
+		);
+
+		const appended = readLastRecord();
+		expect(appended.previousHash).toBe(existing.hash as string);
+	});
+
+	it("falls back to GENESIS_HASH when the file exists but holds no chainable entry", () => {
+		writeJsonl(activityPath, [
+			{ ts: "2026-05-26T10:00:00.000Z", type: "prompt_input", summary: "hi" },
+		]);
+
+		appendChainedAuditRecord(
+			{ type: "guard_allow", ts: "2026-05-26T10:05:00.000Z", tool: "Bash" },
+			tmp,
+		);
+
+		const appended = readLastRecord();
+		expect(appended.previousHash).toBe(GENESIS_HASH);
+	});
+
+	it("rejects a record type that does not participate in the hash chain", () => {
+		expect(() => appendChainedAuditRecord({ type: "prompt_input" }, tmp)).toThrow(
+			"only chained audit record types may use appendChainedAuditRecord",
+		);
 	});
 });
 
@@ -591,7 +646,11 @@ describe("verifyAuditChain — archived segments (readArchivedAuditLines)", () =
 		const res = await verifyAuditChainStreaming(tmp);
 		expect(res.valid).toBe(false);
 		expect(res.first_bad_reason).toContain("audit line exceeds");
-	}, 15_000);
+		// 60s, not 15s: this case streams ~16 MB of gzip through the line
+		// verifier, and under v8 coverage instrumentation it took 30s on the
+		// 2026-09-04 full-suite coverage runs (the ONLY red test in an otherwise
+		// green 54k-test run, twice). Plain runs finish in ~2s.
+	}, 60_000);
 });
 
 describe("iterateFileLines — chunked line streaming", () => {
