@@ -366,6 +366,11 @@ function applyScoredSuggestions(
 		}),
 	);
 
+	// Nothing to score: skip the scorer and the telemetry write. This is the
+	// common case (a clean edit), and `post-tool-file-checks-phases.test.ts`
+	// pins it; commit 5222e454 dropped the guard and the test went red.
+	if (allFindings.length === 0) return;
+
 	// Compute edit region for proximity scoring
 	const oldStr = checkEvent.tool_input?.old_string as string | undefined;
 	const editRegion = computeEditRegion(suggContent, oldStr);
