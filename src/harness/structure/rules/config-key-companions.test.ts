@@ -16,6 +16,30 @@ describe("checkConfigKeyCompanions", () => {
 		};
 	}
 
+	function docNode(label: string, file: string): ArtifactNode {
+		return {
+			id: makeGlobalRef("doc", label),
+			kind: "doc",
+			label,
+			file,
+			provenance: "declared",
+			determinism_ceiling: "fully_deterministic",
+		};
+	}
+
+	function addConfigKeyWithDoc(g: ArtifactGraph, cfg: ArtifactNode, doc: ArtifactNode): void {
+		g.addNode(cfg);
+		g.addNode(doc);
+		g.addEdge({
+			id: makeEdgeId(cfg.id, doc.id),
+			kind: "documents",
+			from: cfg.id,
+			to: doc.id,
+			provenance: "declared",
+			confidence: 1,
+		});
+	}
+
 	it("returns empty without companions", () => {
 		const g = new ArtifactGraph();
 		g.addNode(cfgNode("server.url", "src/config.ts"));
@@ -74,5 +98,24 @@ describe("checkConfigKeyCompanions", () => {
 		});
 
 		expect(checkConfigKeyCompanions(g, ["src/config.ts", "README.md"])).toEqual([]);
+	});
+
+	it("skips a config key whose own file is not in changedFiles", () => {
+		const g = new ArtifactGraph();
+		addConfigKeyWithDoc(
+			g,
+			cfgNode("server.url", "src/changed.ts"),
+			docNode("changed-doc", "docs/changed.md"),
+		);
+		addConfigKeyWithDoc(
+			g,
+			cfgNode("server.timeout", "src/untouched.ts"),
+			docNode("untouched-doc", "docs/untouched.md"),
+		);
+
+		const findings = checkConfigKeyCompanions(g, ["src/changed.ts"]);
+
+		expect(findings.map((f) => f.file)).toEqual(["src/changed.ts"]);
+		expect(nonNull(findings[0]).affected_files).toEqual(["docs/changed.md"]);
 	});
 });

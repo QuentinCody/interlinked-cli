@@ -222,6 +222,26 @@ describe("derivePortableIdentities", () => {
 		expect(ids?.[0]?.symbolId).not.toBe(ids?.[1]?.symbolId);
 	});
 
+	it("anchors an anonymous callback's ordinal to its enclosing NAMED function, not the whole file", () => {
+		// Two named functions, each wrapping two anonymous callbacks. The
+		// ordinal walk must stop at the nearest named-function boundary
+		// (`outer`) rather than counting from the source-file root — if the
+		// boundary search never found `outer` (the loop fell through without
+		// ever setting `boundary`), the walk would start from the file root,
+		// where the FIRST thing it meets descending into `outer` is `outer`
+		// itself: a NAMED function, which prunes the walk before it ever
+		// reaches either callback, and the ordinal would stay at its default
+		// (0) instead of counting up to the second callback's real position.
+		const source =
+			"function outer() { const a = [1].map((x) => x > 0); const b = [2].map((x) => x > 1); return [a, b]; }";
+		const secondOffset = source.indexOf("> 1");
+		const ids = derivePortableIdentities(FILE, source, [
+			{ file: FILE, mutator: "EqualityOperator", originalLexeme: ">", replacement: ">=", startOffset: secondOffset },
+		]);
+		expect(ids?.[0]?.qualifiedName).toBe("outer.(anonymous)");
+		expect(ids?.[0]?.symbolContext).toBe("outer.(anonymous)#anonymous-1");
+	});
+
 	it("uses an unambiguous tuple encoding even when provenance contains NUL", () => {
 		const content = "const value = 1;";
 		const ids = derivePortableIdentities(FILE, content, [

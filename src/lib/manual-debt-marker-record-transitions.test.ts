@@ -81,6 +81,14 @@ describe("deriveManualDebtMarkerTransitions", () => {
         const transitions = deriveManualDebtMarkerTransitions([marker()], [], () => false);
         expect(transitions).toEqual([]);
     });
+
+    it("orders transitions by fingerprint, not by the order markers were observed", () => {
+        const transitions = deriveManualDebtMarkerTransitions(
+            [],
+            [marker({ fingerprint: "fp-b" }), marker({ fingerprint: "fp-a" })],
+        );
+        expect(transitions.map((transition) => transition.fingerprint)).toEqual(["fp-a", "fp-b"]);
+    });
 });
 
 describe("materializeMarkerState", () => {
@@ -94,6 +102,12 @@ describe("materializeMarkerState", () => {
         const before = [marker()];
         expect(materializeMarkerState(before, [marker()], [])).toEqual([marker()]);
     });
+
+    it("returns the surviving markers sorted by fingerprint", () => {
+        const observed = [marker({ fingerprint: "fp-z" }), marker({ fingerprint: "fp-a" })];
+        const state = materializeMarkerState([], observed, []);
+        expect(state.map((entry) => entry.fingerprint)).toEqual(["fp-a", "fp-z"]);
+    });
 });
 
 describe("markerAbsenceVerified", () => {
@@ -103,6 +117,14 @@ describe("markerAbsenceVerified", () => {
 
     it("refuses absence for an excluded path (negative)", () => {
         expect(markerAbsenceVerified(scan(), marker({ file: "node_modules/pkg/x.ts" }))).toBe(false);
+    });
+
+    it("refuses absence for a custom-excluded entry and anything under it (negative)", () => {
+        const configured = scan({
+            coverage: { ...scan().coverage, custom_exclusions: ["src/generated"] },
+        });
+        expect(markerAbsenceVerified(configured, marker({ file: "src/generated" }))).toBe(false);
+        expect(markerAbsenceVerified(configured, marker({ file: "src/generated/api.ts" }))).toBe(false);
     });
 });
 

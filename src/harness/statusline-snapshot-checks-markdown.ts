@@ -148,7 +148,14 @@ export function buildLoadedChecksMarkdown(rules: GuardRulesConfig): string {
 	return sections.flat().join("\n");
 }
 
-function byEntryName(a: { name: string }, b: { name: string }): number {
+/**
+ * Exported for the coverage tail (line 154, "names tie") — `buildLoadedChecksMarkdown`
+ * only ever calls this via `Object.entries(rules.quality_checks).sort(...)`, and
+ * object keys are unique, so the tie branch is unreachable through that public
+ * entry point. Exporting the existing comparator lets the tie case be exercised
+ * directly without touching behavior.
+ */
+export function byEntryName(a: { name: string }, b: { name: string }): number {
 	if (a.name < b.name) return -1;
 	if (a.name > b.name) return 1;
 	return 0;

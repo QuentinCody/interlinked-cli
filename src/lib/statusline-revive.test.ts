@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_DAEMON_HEAP_MB } from "../harness/memory-ceiling.js";
 import { downBranchBash, pidDiscoveryBash, resolveReviveBakes } from "./statusline-revive.js";
 
 /**
@@ -54,6 +55,19 @@ describe("downBranchBash — negative (display-only: must NOT manage processes)"
 		const bakes = resolveReviveBakes();
 		expect(bakes.nodeBin).toBe(process.execPath);
 		expect(bakes.heapMb).toBeGreaterThan(0);
+	});
+
+	it("N4: a throwing path resolver still yields bakes with an empty serverJs, not an unhandled throw", () => {
+		// resolveReviveBakes's catch clears nothing but also propagates
+		// nothing: serverJs stays at its pre-assignment "" and the function
+		// still returns normally. Without the catch this injected throw would
+		// escape resolveReviveBakes and fail the test on an uncaught error.
+		const bakes = resolveReviveBakes(() => {
+			throw new Error("probe failed");
+		});
+		expect(bakes.serverJs).toBe("");
+		expect(bakes.nodeBin).toBe(process.execPath);
+		expect(bakes.heapMb).toBe(DEFAULT_DAEMON_HEAP_MB);
 	});
 });
 

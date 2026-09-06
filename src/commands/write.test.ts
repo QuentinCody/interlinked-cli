@@ -840,6 +840,70 @@ describe("interlinked write — atomic write failure", () => {
 		expect(loggedErr()).toContain("atomic write failed");
 		expect(loggedErr()).toContain("rename boom");
 	});
+
+	/**
+	 * Arrange a two-file batch where the SECOND commit rename fails and the
+	 * rollback rename that would restore the first (already-committed) target
+	 * fails too — the only state that reaches `rollbackCommitted`'s catch.
+	 * Returns the two target paths so each test can assert on them.
+	 */
+	function arrangeFailedRollback(): { a: string; b: string } {
+		const manifest = inRepo("rollback-fail-batch.json");
+		const a = inRepo("rollback-fail-a.ts");
+		const b = inRepo("rollback-fail-b.ts");
+		const raw = JSON.stringify({
+			version: 1,
+			writes: [
+				{ path: a, content: "new a\n" },
+				{ path: b, content: "new b\n" },
+			],
+		});
+		mockExistsSync.mockImplementation((path) => {
+			const value = String(path);
+			return [manifest, a, b].includes(value) || value.includes(".interlinked-rollback-");
+		});
+		mockReadFileSync.mockImplementation((path) => {
+			if (String(path) === manifest) return raw;
+			if (String(path) === a) return "old a\n";
+			if (String(path) === b) return "old b\n";
+			return "";
+		});
+		let renames = 0;
+		mockRenameSync.mockImplementation(() => {
+			renames++;
+			if (renames === 1) return; // a committed
+			if (renames === 2) throw new Error("second rename failed");
+			throw new Error("restore rename failed"); // the rollback rename
+		});
+		return { a, b };
+	}
+
+	// test-contract: invariant — a rollback that cannot be completed is reported alongside the originating failure, never swallowed
+	it("appends the unrestored target to the error when its rollback rename fails", async () => {
+		const { a } = arrangeFailedRollback();
+
+		const result = await run(undefined, { batch: inRepo("rollback-fail-batch.json") });
+
+		expect(result.exitCode).toBe(1);
+		expect(loggedErr()).toContain(
+			`second rename failed; rollback incomplete (${a}: restore rename failed)`,
+		);
+	});
+
+	it("removes the rollback temp it staged for a target it could not restore", async () => {
+		const { a } = arrangeFailedRollback();
+
+		await run(undefined, { batch: inRepo("rollback-fail-batch.json") });
+
+		const rollbackFilter = (path: string): boolean => path.includes(".interlinked-rollback-");
+		const staged = mockWriteFileSync.mock.calls.map((call) => String(call[0])).filter(rollbackFilter);
+		const removed = mockUnlinkSync.mock.calls.map((call) => String(call[0])).filter(rollbackFilter);
+		// Exactly one rollback temp is staged (for `a`), and the failing restore
+		// leaves none of it behind.
+		expect(staged).toHaveLength(1);
+		expect(nonNull(staged[0]).startsWith(`${a}.interlinked-rollback-`)).toBe(true);
+		expect(removed).toEqual(staged);
+	});
 });
 
 // ════════════════════════════════════════════════════════════════════════════

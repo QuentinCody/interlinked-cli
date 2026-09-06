@@ -4,7 +4,7 @@
 // never be stomped.
 
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createConnection, type Socket } from "node:net";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +18,16 @@ import {
 vi.mock("./session-paths.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("./session-paths.js")>();
 	return { ...actual, classifyDaemonSocket: vi.fn(actual.classifyDaemonSocket) };
+});
+
+// `createServer` is spied, not replaced: every test below gets the real
+// implementation unless it installs a one-shot stub. Node's own `Server.close()`
+// cannot be made to throw (it reports ERR_SERVER_NOT_RUNNING through its
+// callback, never synchronously), so a stub server is the only way to exercise
+// the defensive catch in `closeQuietly`.
+vi.mock("node:net", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:net")>();
+	return { ...actual, createServer: vi.fn(actual.createServer) };
 });
 
 const { classifyDaemonSocket } = await import("./session-paths.js");
@@ -124,6 +134,45 @@ describe("bindSessionSocket", () => {
 		expect(sleep).not.toHaveBeenCalled();
 		expect(isServing).not.toHaveBeenCalled();
 		await new Promise<void>((resolve) => incumbent.close(() => resolve()));
+	});
+
+	it("reports the listen failure even when tearing the dead server down throws", async () => {
+		// The teardown of an unbound server is bookkeeping, not the diagnosis. If
+		// its throw escaped, the startup guard would print "close of a server that
+		// never listened" and the operator would never learn the socket was taken.
+		const listenError = Object.assign(new Error("listen refused by the kernel"), {
+			code: "EACCES",
+		});
+		const close = vi.fn(() => {
+			throw new Error("close of a server that never listened");
+		});
+		vi.mocked(createServer).mockImplementationOnce(() => {
+			const onError: ((err: unknown) => void)[] = [];
+			const stub = {
+				once: (event: string, handler: (err: unknown) => void) => {
+					if (event === "error") onError.push(handler);
+				},
+				removeListener: () => undefined,
+				listen: () => {
+					queueMicrotask(() => {
+						for (const handler of onError) handler(listenError);
+					});
+				},
+				close,
+			};
+			// SAFETY: bindSessionSocket touches exactly these four members of the
+			// object createServer returns; the stub implements all four.
+			return stub as unknown as Server;
+		});
+
+		await expect(
+			bindSessionSocket({
+				socketPath: join(tmpdir(), "never-bound.sock"),
+				onConnection: () => undefined,
+				attempts: 1,
+			}),
+		).rejects.toThrow("listen refused by the kernel");
+		expect(close).toHaveBeenCalledTimes(1);
 	});
 });
 

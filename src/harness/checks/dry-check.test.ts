@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -143,5 +143,25 @@ function collectB(rows: Row[]): number[] ${cloneBody}
 		expect(detail?.length).toBeGreaterThan(0);
 		expect(detail).toContain("collectA");
 		expect(detail).toContain("collectB");
+	});
+
+	it("N8: an unreadable sibling (a directory named with a JS/TS extension) is skipped, not thrown", () => {
+		// `readSiblingIfSmall` isolates the try/catch around the sibling read:
+		// `statSync` succeeds on a directory (small "size"), but `readFileSync`
+		// on a directory throws EISDIR. The catch must swallow that and return
+		// `null` so the candidate set just shrinks -- if the catch were removed,
+		// this call would throw instead of returning an empty result.
+		const content = `
+function uniqueOne(x: number): number {
+	const a = x + 1;
+	const b = a * 2;
+	const c = b - 3;
+	return c;
+}
+`;
+		const file = join(dir, "main.ts");
+		writeFileSync(file, content);
+		mkdirSync(join(dir, "weird.ts"));
+		expect(checkCodeClones(content, file)).toEqual([]);
 	});
 });

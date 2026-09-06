@@ -193,6 +193,20 @@ describe("captureTimeline (live drain)", () => {
 		expect(existsSync(join(cwd, ".interlinked", "timeline-cursor.json"))).toBe(false);
 	});
 
+	// test-contract: invariant — best-effort capture must never break the
+	// daemon pipeline (module header). A directory can't be read as a JSONL
+	// transcript (openSync succeeds, the subsequent readSync throws EISDIR),
+	// so if the catch swallowing that were removed the exception would
+	// propagate out of this FIRST call, uncaught, and this test would never
+	// reach the second call or its literal assertion below.
+	it("swallows an unreadable transcript (a directory) and still drains the next real one", () => {
+		const dirAsTranscript = join(cwd, "not-a-file");
+		mkdirSync(dirAsTranscript);
+		captureTimeline(stopEvent(cwd, dirAsTranscript), cwd);
+		captureTimeline(stopEvent(cwd, transcript), cwd);
+		expect(timelineTexts(cwd)).toEqual(["first message", "second message"]);
+	});
+
 	describe("readCursor (via captureTimeline) — malformed cursor file", () => {
 		function cursorPath(): string {
 			return join(cwd, ".interlinked", "timeline-cursor.json");
@@ -258,6 +272,24 @@ describe("captureTimeline (live drain)", () => {
 			captureTimeline(stopEvent(cwd, transcript), cwd);
 			expect(timelineTexts(cwd)).toEqual(["first message", "second message"]);
 		});
+
+		// test-contract: invariant — the per-cursor offset map is capped at 32
+		// transcripts (MAX_CURSOR_TRANSCRIPTS, not exported); the oldest entry
+		// is evicted, not the newest or an arbitrary one. Seeding exactly 32
+		// pre-existing offsets plus this drain's own (real) transcript pushes
+		// the map to 33, so the module must drop precisely one — the first
+		// one written — to land back at 32.
+		it("evicts only the oldest transcript offset once the per-cursor cap is exceeded", () => {
+			const fakeOffsets: Record<string, number> = {};
+			for (let i = 0; i < 32; i++) fakeOffsets[`fake-${i}`] = i;
+			seedCursor(JSON.stringify({ path: "fake-0", offset: 0, offsets: fakeOffsets }));
+			captureTimeline(stopEvent(cwd, transcript), cwd);
+			const written: { offsets?: Record<string, number> } = JSON.parse(readFileSync(cursorPath(), "utf-8"));
+			const offsets = written.offsets ?? {};
+			expect(Object.keys(offsets)).toHaveLength(32);
+			expect("fake-0" in offsets).toBe(false);
+			expect(offsets[transcript]).toBe(readFileSync(transcript).byteLength);
+		});
 	});
 });
 
@@ -309,6 +341,20 @@ describe("captureAgentTranscript (one-shot subagent drain)", () => {
 		expect(captureAgentTranscript(undefined, cwd)).toBe(0);
 		expect(captureAgentTranscript(join(cwd, "nope.jsonl"), cwd)).toBe(0);
 		expect(existsSync(timelinePath(cwd))).toBe(false);
+	});
+
+	// test-contract: invariant — same fail-open contract as captureTimeline's
+	// live drain. A directory can't be opened as a JSONL transcript for
+	// reading (readSync throws EISDIR after openSync succeeds); if the catch
+	// swallowing that were removed, this first call would throw uncaught and
+	// the test would never reach the second (real) drain below.
+	it("returns 0 for an unreadable transcript (a directory) and still drains a later real one", () => {
+		const dirAsTranscript = join(cwd, "agent-dir");
+		mkdirSync(dirAsTranscript);
+		expect(captureAgentTranscript(dirAsTranscript, cwd)).toBe(0);
+		const agentTranscript = join(cwd, "agent-z9.jsonl");
+		writeFileSync(agentTranscript, agentLine("az1", "agent result", "z9"));
+		expect(captureAgentTranscript(agentTranscript, cwd)).toBe(1);
 	});
 });
 

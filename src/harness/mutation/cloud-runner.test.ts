@@ -430,6 +430,17 @@ describe("cloud-runner error responses — preserve useful diagnostics", () => {
 		).resolves.toBe("mutation runner HTTP 500: Stryker was here!");
 	});
 
+	it("uses the bare status when reading the error body itself throws", async () => {
+		await expect(
+			describeErrorResponse({
+				ok: false,
+				status: 500,
+				json: async () => ({}),
+				text: () => Promise.reject(new Error("body stream already consumed")),
+			}),
+		).resolves.toBe("mutation runner HTTP 500");
+	});
+
 	it("collapses and bounds whitespace in a JSON string message", async () => {
 		const long = `  first\n\tsecond ${"x".repeat(500)}  `;
 		const result = await describeErrorResponse(errorResponse(JSON.stringify(long)));

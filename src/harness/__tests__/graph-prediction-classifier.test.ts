@@ -107,6 +107,18 @@ describe("workspaceSupermodelActive", { timeout: 60_000 }, () => {
 		);
 		expect(workspaceSupermodelActive(dir)).toBe(false);
 	});
+
+	it("treats a malformed config.json as no opt-out and keeps scanning", () => {
+		mkdirSync(join(dir, "src"), { recursive: true });
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		writeFileSync(join(dir, "src", "foo.ts"), "export {}");
+		writeFileSync(join(dir, "src", "foo.graph.ts"), "// @generated");
+		// Invalid JSON: JSON.parse throws, configOptOut's catch must swallow
+		// it and report "not opted out" rather than propagating or treating
+		// the malformed file as an opt-out.
+		writeFileSync(join(dir, ".interlinked", "config.json"), "{ not valid json");
+		expect(workspaceSupermodelActive(dir)).toBe(true);
+	});
 });
 
 describe("classifyCase", { timeout: 60_000 }, () => {

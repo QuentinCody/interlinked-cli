@@ -1,6 +1,6 @@
 // Tests for the corpus dogfood scanner.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -113,6 +113,20 @@ describe("scanCorpus — negative (must NOT count)", () => {
 		write("src/a.ts", "const safe = 1;");
 		const r = scanCorpus(check(), join(root, "src"), root);
 		expect(r.hits).toEqual([]);
+		expect(r.files_scanned).toBe(1);
+	});
+
+	it("N5: a file the scanner cannot read is skipped, not crashed on or counted", () => {
+		write("src/good.ts", "eval(1)");
+		write("src/denied.ts", "eval(2)");
+		chmodSync(join(root, "src/denied.ts"), 0o000);
+		const r = scanCorpus(check(), join(root, "src"), root);
+		// If the read failure were left uncaught, this call would throw
+		// instead of returning; if it were miscounted as scanned, this
+		// would read 2 instead of 1. afterEach's rmSync({force:true}) removes
+		// the unreadable file without needing its permissions restored.
+		expect(r.hits).toHaveLength(1);
+		expect(r.hits[0]?.file).toBe(join("src", "good.ts"));
 		expect(r.files_scanned).toBe(1);
 	});
 });

@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	evaluateTypeErasureOverlay,
@@ -6,6 +9,11 @@ import {
 } from "./type-erasure-overlay.js";
 
 describe("evaluateTypeErasureOverlay", () => {
+	const dirs: string[] = [];
+	afterEach(() => {
+		for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+	});
+
 	it("exposes a stable rule id for block messages", () => {
 		expect(STRICT_TYPING_RULE_ID).toBe("strict-typing-overlay");
 	});
@@ -71,5 +79,20 @@ describe("evaluateTypeErasureOverlay", () => {
 		const post = 'const help = "use `as any` only when forced";\n';
 		const result = evaluateTypeErasureOverlay("/tmp/str.ts", post, { preContent: "" });
 		expect(result.newFindings).toEqual([]);
+	});
+
+	it("treats every finding as new when the on-disk path can't be read (no options passed)", () => {
+		// No third argument at all (distinct from the explicit `{ preContent:
+		// undefined }` case above): resolvePreContent falls through to the
+		// existsSync+readFileSync branch. A directory exists but can't be
+		// read as a file, so readFileSync throws and the catch resolves to
+		// undefined — same observable as "no preContent" on a new file.
+		const dir = mkdtempSync(join(tmpdir(), "type-erasure-"));
+		dirs.push(dir);
+		const dirLikePath = join(dir, "weird.ts");
+		mkdirSync(dirLikePath);
+		const result = evaluateTypeErasureOverlay(dirLikePath, "const x = foo as any;\n");
+		expect(result.applicable).toBe(true);
+		expect(result.newFindings.map((f) => f.ruleId)).toEqual(["as_any"]);
 	});
 });

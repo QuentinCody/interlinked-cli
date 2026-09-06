@@ -39,6 +39,20 @@ describe("extractDoctestBlocks", () => {
 	it("returns [] when there are no doctest blocks", () => {
 		expect(extractDoctestBlocks("```bash\nls\n```\n")).toEqual([]);
 	});
+
+	it("closes an open doctest block when the next fence carries its own info string", () => {
+		// Exercises `advanceOpenDoctestBlock`'s second branch: a fence line with
+		// a non-empty info string (here "python") is not a BARE closing fence
+		// (that's the first branch), but it is still a fence, so it closes the
+		// currently open block as a body-end guard rather than being folded
+		// into the block's code. The new fence itself does not open a block on
+		// the same pass (the caller `continue`s past it).
+		const doc = ["```bash doctest", "echo hi", "```python", "noop"].join("\n");
+		const blocks = extractDoctestBlocks(doc);
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0]?.lang).toBe("bash");
+		expect(blocks[0]?.code).toBe("echo hi");
+	});
 });
 
 describe("runDocExamples", () => {

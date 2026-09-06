@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	summarizeValue,
 	trajectoryListCommand,
 	trajectoryReplayCommand,
 	trajectoryShowCommand,
@@ -238,6 +239,15 @@ describe("trajectory commands", () => {
 			// 200 chars of payload + the ellipsis; original was 250.
 			expect(line).toContain(`blurb: ${"x".repeat(200)}…`);
 			expect(line).not.toContain("x".repeat(201));
+		});
+
+		it("summarizeValue returns null for a value kind no JSON snapshot can carry", () => {
+			// `printSnapshotFields` already filters null/undefined before calling
+			// this, and JSON.parse can never produce a function/symbol/bigint —
+			// so the fallback arm is unreachable through trajectoryShowCommand
+			// and is exercised directly against the exported helper instead.
+			expect(summarizeValue(() => {})).toBeNull();
+			expect(summarizeValue(undefined)).toBeNull();
 		});
 
 		it("falls back to filename-derived id and em-dash agent when fields are absent", async () => {

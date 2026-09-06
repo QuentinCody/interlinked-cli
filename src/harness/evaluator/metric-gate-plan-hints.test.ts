@@ -79,6 +79,24 @@ describe("appendPlanHints — negative (must not fire)", () => {
 		expect(out[0]).toContain("↳ plan: p");
 	});
 
+	it("N5: swallows a planner that throws and leaves that violation exactly as it was", () => {
+		const violations = ["`parse` rises 20 → 24 (cap 22)", "`other` rises 5 → 9"];
+		const out = appendPlanHints(
+			violations,
+			[{ name: "parse" }, { name: "other" }],
+			ANON,
+			(_after, _file, fn) => {
+				if (fn === "parse") throw new Error("planner exploded");
+				return "kept planning after the failure";
+			},
+			"body",
+			"src/x.ts",
+			22,
+		);
+		expect(out[0]).toBe("`parse` rises 20 → 24 (cap 22)");
+		expect(out[1]).toBe("`other` rises 5 → 9\n      ↳ plan: kept planning after the failure");
+	});
+
 	it("N4: an empty violation list is returned as-is without calling the planner", () => {
 		let called = false;
 		const out = appendPlanHints(

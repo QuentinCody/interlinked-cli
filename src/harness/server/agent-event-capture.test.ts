@@ -1,4 +1,12 @@
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	appendFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -320,5 +328,42 @@ describe("captureAgentEvent (end-to-end into collection + timeline)", () => {
 		const rows = collectionRows(cwd);
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.last_assistant_message).toBeNull();
+	});
+
+	it("survives a transcript path that exists but cannot be read as a file", () => {
+		// A directory passes the existsSync/size guards and then fails the read
+		// (EISDIR). The tail-read must degrade to "no message" rather than throw
+		// — a thrown read would abort capture before the record is appended.
+		const transcript = join(cwd, "agent-dir.jsonl");
+		mkdirSync(transcript);
+		captureAgentEvent(
+			stopEvent({ cwd, subagent_id: "unreadable", agent_transcript_path: transcript }),
+			cwd,
+		);
+		expect(collectionRows(cwd)[0]).toMatchObject({
+			event: "subagent_stop",
+			subagent_id: "unreadable",
+			last_assistant_message: null,
+			message_source: null,
+		});
+	});
+
+	it("keeps the persisted record when the caller's log callback throws", () => {
+		// The log sink is the last step, after the record and the timeline drain
+		// have landed. A failing sink is exactly the "never break the pipeline"
+		// case the outer catch exists for: the throw is swallowed and everything
+		// already written stays written.
+		const seen: string[] = [];
+		const log = (msg: string): void => {
+			seen.push(msg);
+			throw new Error("log sink is down");
+		};
+		captureAgentEvent(stopEvent({ cwd, subagent_id: "noisy" }), cwd, log);
+
+		expect(seen).toEqual([expect.stringContaining("Agent event captured: subagent_stop (noisy,")]);
+		expect(collectionRows(cwd)[0]).toMatchObject({
+			event: "subagent_stop",
+			subagent_id: "noisy",
+		});
 	});
 });

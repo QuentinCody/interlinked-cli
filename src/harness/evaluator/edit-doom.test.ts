@@ -382,4 +382,16 @@ describe("analyzeApplyPatchDoom", () => {
 		expect(analyzeApplyPatchDoom("Edit", { command: "x" })).toEqual([]);
 		expect(analyzeApplyPatchDoom("apply_patch", {})).toEqual([]);
 	});
+
+	it("stays silent when the update target exists but can't be read as a file (fail-open on fs errors other than 'missing')", () => {
+		// `dir` exists (existsSync true) but is a directory, not a file, so
+		// readFileSync throws EISDIR -- this is the catch-block path,
+		// distinct from the "does not exist" branch covered above.
+		const warnings = analyzeApplyPatchDoom("apply_patch", {
+			command: ["*** Begin Patch", `*** Update File: ${dir}`, " a", "-b", "+c", "*** End Patch"].join(
+				"\n",
+			),
+		});
+		expect(warnings).toEqual([]);
+	});
 });

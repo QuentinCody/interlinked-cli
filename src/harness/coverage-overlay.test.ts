@@ -1,4 +1,5 @@
 import {
+	chmodSync,
 	existsSync,
 	lstatSync,
 	mkdirSync,
@@ -109,6 +110,39 @@ describe("createCoverageOverlay", () => {
 			"export const a = 7;\n",
 		);
 		overlay.cleanup();
+	});
+
+	it("materializes a non-delete sibling extraFiles entry alongside the primary edit", () => {
+		// The primary path's own extraFiles entry is a duplicate skip (case above);
+		// a DIFFERENT sibling path (e.g. a companion test co-created in the same
+		// atomic patch) must actually be written into the overlay.
+		const overlay = createCoverageOverlay(root, "src/a.ts", "export const a = 2;\n", [
+			{ relPath: "src/a.newcompanion.test.ts", content: "// sibling companion\n" },
+		]);
+		expect(readFileSync(join(overlay.overlayRoot, "src", "a.newcompanion.test.ts"), "utf-8")).toBe(
+			"// sibling companion\n",
+		);
+		overlay.cleanup();
+	});
+
+	it("degrades to an empty mirror (not a crash) when projectRoot becomes unreadable mid-mirror", () => {
+		// Pre-create the `.interlinked` dir createCoverageOverlay's own mkdirSync
+		// writes into, so that call stays a no-op once projectRoot's OWN read
+		// permission is revoked below (mkdir only needs traverse/execute on an
+		// already-existing parent, not read — readdir needs read).
+		mkdirSync(join(root, ".interlinked"), { recursive: true });
+		chmodSync(root, 0o300); // write+execute, no read: readdirSync(root) now fails
+		try {
+			const overlay = createCoverageOverlay(root, "src/a.ts", "export const a = 9;\n");
+			// mirrorProjectInto's readdirSync threw and was caught (an empty
+			// mirror, not a thrown error escaping createCoverageOverlay) — the
+			// edited file is still written, since writeEditedFile never depends
+			// on the mirror having run.
+			expect(readFileSync(overlay.editedFileInOverlay, "utf-8")).toBe("export const a = 9;\n");
+			overlay.cleanup();
+		} finally {
+			chmodSync(root, 0o700);
+		}
 	});
 });
 

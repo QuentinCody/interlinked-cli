@@ -402,6 +402,72 @@ describe("applyDebtMode — failure-evidence relatedness (genomics/themes, end-t
 		const debts = readOpenDebts(root);
 		expect(debts[0]?.failingTestFiles).toEqual([COUNTS_TEST, "lib/other.test.ts"]);
 	});
+
+	// ===========================================
+	// A thrown dependency-view query must degrade to "unknown", not crash
+	// ===========================================
+	//
+	// Both graph queries (adjacency for coverage debts, affected-tests for
+	// red-suite debts) are wrapped in their own try/catch specifically because
+	// the daemon's real `ProjectGraph` can throw mid-query (a stale index, a
+	// cyclic-walk edge case). Unknown must degrade the SAME way a missing view
+	// does (strict pair rule, never a crash and never a false "related").
+
+	it("adjacency falls back to unknown (not a crash) when the dependency graph throws", () => {
+		// Coverage debt only (no red_suite evidence) — affectedTestsForEdit's
+		// `hasEvidence` gate is false, so it returns null before ever touching
+		// the view. This isolates the failure to adjacentDebtFilesForEdit.
+		applyDebtMode(edit(THEMES), cfg(), uncovered(THEMES));
+		expect(readOpenDebts(root)).toHaveLength(1);
+		const brokenView: DependencyView = {
+			answerScope: "repo",
+			source: "internal",
+			getDependents: () => {
+				throw new Error("graph corrupted");
+			},
+			hasFile: () => {
+				throw new Error("graph corrupted");
+			},
+			classifyModule: () => "leaf",
+			getBlastRadius: () => ({ direct: 0, transitive: 0, domains: [] }),
+			getCallers: () => [],
+		};
+		// P1 (above) proves this exact edit — COUNTS_TEST imports THEMES — is
+		// ALLOWED via adjacency when the view answers normally. Here the view
+		// throws instead: if adjacentDebtFilesForEdit's catch were removed, the
+		// thrown error would propagate out of applyDebtMode uncaught and this
+		// assertion would never run. Catching it degrades to the strict pair
+		// rule instead, so the edit blocks like the graph was never available.
+		const out = applyDebtMode(edit(COUNTS_TEST), cfg(), null, brokenView);
+		expect(out?.decision).toBe("block");
+	});
+
+	it("affected-test selection falls back to unknown (not a crash) when the graph throws mid-walk", () => {
+		// Red debt WITH failing-test evidence, so affectedTestsForEdit's
+		// `hasEvidence` gate is true and it actually calls selectAffectedTests
+		// (which queries the view) instead of short-circuiting to null first.
+		applyDebtMode(edit(GENOMICS), cfg(), redBarWith(GENOMICS, [COUNTS_TEST]));
+		const flakyView: DependencyView = {
+			...repoView(),
+			getDependents: () => {
+				throw new Error("graph corrupted");
+			},
+			hasFile: () => {
+				throw new Error("graph corrupted");
+			},
+		};
+		// Without the throw, this exact edit is allowed: THEMES imports into
+		// COUNTS_TEST, the red debt's own recorded failing test (see "allows the
+		// cross-module themes.ts edit while red" above). If
+		// affectedTestsForEdit's catch were removed, selectAffectedTests's
+		// thrown error would propagate out of applyDebtMode uncaught, before
+		// adjacentDebtFilesForEdit even runs — this assertion would never see a
+		// decision at all. Catching it degrades relatedness to unknown, so the
+		// strict pair rule blocks and names the real red debt.
+		const out = applyDebtMode(edit(THEMES), cfg(), null, flakyView);
+		expect(out?.decision).toBe("block");
+		expect(out?.reason).toContain(GENOMICS);
+	});
 });
 
 describe("applyDebtMode — non-product paths are outside the debt domain (2026-07-17)", () => {

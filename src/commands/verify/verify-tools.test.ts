@@ -461,6 +461,18 @@ describe("streamExternalTools — parseToolOutput status short-circuits", () => 
 		expect(summary[0]).toMatchObject({ label: "1 eslint issues" });
 	});
 
+	it("tseslint-types non-zero status dispatches to parseEslintJson tagged 'tseslint-types' (not the bare eslint arrow)", async () => {
+		// tseslint-types shares the same npx-verb runner key as "eslint"
+		// ("npx eslint --config ...") — availability is scoped to
+		// tseslint-types alone so the shared runnerScript.eslint entry can
+		// only be reached through the tseslint-types dispatch arrow.
+		runnerScript.eslint = { output: "typed-out", status: 1 };
+		parserReturn = [result({ tool: "tseslint-types", file: "t.ts", message: "no-unnecessary-condition" })];
+		const { summary } = await run({ available: ["tseslint-types"], skip: ["sca", "dep-audit"] });
+		expect(parseEslintJson).toHaveBeenCalledWith("typed-out", "tseslint-types");
+		expect(summary[0]).toMatchObject({ label: "1 tseslint-types (typed inert code) type-proven inert constructs" });
+	});
+
 	it("docs-check non-zero status dispatches to parseDocsCheckOutput", async () => {
 		runnerScript["docs-check"] = { output: "drift!", status: 1 };
 		parserReturn = [result({ file: "README.md", message: "gen marker drift" })];

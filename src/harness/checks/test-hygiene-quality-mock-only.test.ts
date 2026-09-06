@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
-import { checkMockOnlyTest } from "./test-hygiene-quality-mock-only.js";
+import { checkMockOnlyTest, classifyBlockExpects } from "./test-hygiene-quality-mock-only.js";
 
 const TEST = "src/lib/foo.test.ts";
 
@@ -163,5 +163,23 @@ describe("checkMockOnlyTest — file extension gate", () => {
 		// check and is rejected there — the true side of `!JS_TS_EXTS.has(...)`.
 		const code = `it("would be mock-only in JS", () => { expect(x).toHaveBeenCalled(); });`;
 		expect(checkMockOnlyTest(code, "src/__tests__/foo.py")).toEqual([]);
+	});
+});
+
+describe("classifyBlockExpects — an expect(...) call whose own parens never close", () => {
+	it("reports a non-call classification when the call span cannot balance", () => {
+		// This is reachable only by calling classifyBlockExpects directly, not
+		// through checkMockOnlyTest: the outer it()/test() call and the inner
+		// expect() call share the same undifferentiated bracket-depth counter
+		// (findCallSpan counts `(`/`{`/`[` and `)`/`}`/`]` alike, with no type
+		// matching), so whenever the OUTER it() span successfully balances back
+		// to zero, every inner open it contains must ALSO have balanced by
+		// that point — an unclosed expect() can only exist in a `body` slice
+		// that was never itself produced by a successful outer call span.
+		// A mutant that dropped the `break` (continuing to scan past a null
+		// span) or replaced NON_CALL_EXPECT with a call-interaction classifier
+		// here would change this return value.
+		const out = classifyBlockExpects("expect(mockFn");
+		expect(out).toEqual([{ isCallInteraction: false, negated: false }]);
 	});
 });

@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { execSyncMock, cpusMock, freememMock } = vi.hoisted(() => ({
+const { execSyncMock, cpusMock, freememMock, reapOrphanHarnessesVerifiedMock } = vi.hoisted(() => ({
 	execSyncMock: vi.fn(),
 	cpusMock: vi.fn(),
 	freememMock: vi.fn(),
+	reapOrphanHarnessesVerifiedMock: vi.fn(),
 }));
 
 vi.mock("node:child_process", () => ({
@@ -15,12 +16,17 @@ vi.mock("node:os", () => ({
 	freemem: freememMock,
 }));
 
+vi.mock("./harness-daemon-control.js", () => ({
+	reapOrphanHarnessesVerified: reapOrphanHarnessesVerifiedMock,
+}));
+
 import {
 	bytesToGb,
 	checkCliResolvable,
 	checkCpuCores,
 	checkFreeMemoryGb,
 	checkOrphanHarnessCount,
+	countVerifiedOrphans,
 	formatGb,
 	runSystemChecks,
 } from "./doctor-system.js";
@@ -151,6 +157,18 @@ describe("checkFreeMemoryGb", () => {
 			status: "fail",
 			message: "1.0 GB free — parallel pipeline may swap or OOM (need ≥ 2 GB)",
 		});
+	});
+});
+
+describe("countVerifiedOrphans", () => {
+	afterEach(() => {
+		reapOrphanHarnessesVerifiedMock.mockReset();
+	});
+
+	it("returns null, never 0, when the verified orphan sweep throws", async () => {
+		reapOrphanHarnessesVerifiedMock.mockRejectedValueOnce(new Error("sweep failed"));
+		const result = await countVerifiedOrphans("/repo");
+		expect(result).toBeNull();
 	});
 });
 

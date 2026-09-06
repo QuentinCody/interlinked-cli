@@ -96,6 +96,33 @@ describe("saveIndex / loadIndex round trip", () => {
 		expect(loaded?.postings.size).toBe(2);
 	});
 
+	it("keeps insertion order when two distinct trigram keys tie on fnv1a hash (comparator's equal arm)", () => {
+		// fnv1a only reads bits 0-23 of its argument (three 8-bit shift+mask
+		// stages), so a key that differs only above bit 23 hashes identically to
+		// its low-24-bit sibling — the one way to force the sort comparator's
+		// `return 0` tie arm (line 90) without brute-forcing a genuine 24-bit
+		// fnv1a collision (there is none: fnv1a is injective over that domain).
+		const packedLow = packTrigram(97, 98, 99); // "abc"
+		const packedHigh = packedLow + 0x1000000; // same fnv1a hash, distinct Map key
+		const postings = new Map<number, PostingList>([
+			[packedLow, posting([7])],
+			[packedHigh, posting([13])],
+		]);
+		saveIndex(["a.ts"], postings, new Set(), "c1", "2026", tmp);
+		const loaded = loadIndex(tmp);
+		expect(loaded).not.toBeNull();
+		// A stable sort's tie arm must not reorder equal-hash entries: the
+		// postings file is written in sortedEntries order and read back in that
+		// same order, so a `return 0` tie preserves the original Map insertion
+		// order. Verified by direct probe: for this exact 2-element array, V8
+		// calls the comparator as (packedHigh, packedLow); a tie arm that
+		// answers -1 there (claims packedHigh sorts first) swaps the pair and
+		// this key order comes back reversed — 0 (and +1) both leave it intact.
+		expect([...(loaded?.postings.keys() ?? [])]).toEqual([packedLow, packedHigh]);
+		expect(loaded?.postings.get(packedLow)?.fileIds).toEqual(Uint32Array.from([7]));
+		expect(loaded?.postings.get(packedHigh)?.fileIds).toEqual(Uint32Array.from([13]));
+	});
+
 	it("round-trips an empty index (0 files, 0 postings, 0 stop trigrams)", () => {
 		saveIndex([], new Map(), new Set(), "", "2026-01-01T00:00:00.000Z", tmp);
 		const loaded = loadIndex(tmp);

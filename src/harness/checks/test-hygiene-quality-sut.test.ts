@@ -191,6 +191,19 @@ it("x", () => { createConnection(9999); });
 `;
 		expect(checkTestMissingSutImport(code, TEST).length).toBe(1);
 	});
+
+	// sliceCallArguments bounds its forward scan to CALL_ARG_SCAN_LIMIT (2000
+	// chars). A call whose own closing paren sits further out than that never
+	// hits the loop's balanced-depth return; it falls through to the bounded
+	// "runaway call" slice instead — which must NOT include a product-target
+	// string placed past the boundary.
+	it("P11: a product-target string past the bounded call-argument scan limit is not seen as evidence", () => {
+		const filler = "x".repeat(2100);
+		const code = `import { execFileSync } from "node:child_process";
+it("x", () => { execFileSync("node", ["${filler}", "dist/index.js"]); });
+`;
+		expect(checkTestMissingSutImport(code, TEST).length).toBe(1);
+	});
 });
 
 describe("checkTestMissingSutImport call-site binding — negative (must not fire)", () => {

@@ -105,4 +105,36 @@ describe("function-token PostToolUse pulse", () => {
             "[interlinked:function-tokens:not-measured] script.sh: sh exact adapter unavailable",
         ]);
     });
+
+    it("evicts the oldest stash entry once the cache exceeds its cap, forcing a reparse", () => {
+        // MAX_STASH_ENTRIES is 256; the very first recorded snapshot below is
+        // the oldest by insertion order, so it must be the one evicted once the
+        // 257th entry is stashed. The recorded afterContent MATCHES the bytes
+        // written to disk (same pattern as the hash-matched-reuse test above)
+        // so a hash mismatch can never explain a missing snapshot on its own —
+        // only eviction can.
+        const file = join(temporary, "a.ts");
+        const content = "export function evictedProbe() { return 42; }\n";
+        writeFileSync(file, content);
+        recordFunctionTokenPulse(
+            "function-token-pulse",
+            file,
+            [entry("phantom", 20)],
+            [entry("phantom", 30)],
+            content,
+        );
+        for (let i = 0; i < 256; i++) {
+            recordFunctionTokenPulse("function-token-pulse", join(temporary, `filler-${i}.ts`), [], [], "");
+        }
+
+        const warnings = collectFunctionTokenPulseWarnings(postEvent(temporary, file));
+
+        expect(warnings).toHaveLength(1);
+        // Evicted: no stashed snapshot to reuse (even though the hash would
+        // have matched), so before is null (no "Δ") and the pulse reflects
+        // the real function parsed off disk, not the stale "phantom" entry
+        // the evicted snapshot carried.
+        expect(warnings[0]).not.toContain("Δ");
+        expect(warnings[0]).toContain("max evictedProbe=");
+    });
 });

@@ -99,8 +99,12 @@ export function filterToRisers(current: CloneFinding[], baseline: DryBaseline): 
 // Internal
 // ==================================================================
 
-/** Return the first value of a map, or undefined when empty. */
-function firstValue(baseline: DryBaseline): Map<string, number> | undefined {
+/**
+ * Return the first value of a map, or undefined when empty.
+ * Exported for direct unit coverage of the empty-map path -- {@link filterToRisers}
+ * short-circuits before this ever sees an empty baseline in production use.
+ */
+export function firstValue(baseline: DryBaseline): Map<string, number> | undefined {
 	for (const map of baseline.values()) return map;
 	return undefined;
 }

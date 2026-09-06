@@ -5,7 +5,7 @@
 // need to reproduce that resolution logic faithfully — real disk avoids
 // that risk entirely.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -172,6 +172,32 @@ describe("findDirectImporters — negative (must not fire)", () => {
 		write("scratch/rogue-importer.ts", "import { X } from '../src/modes.js';\n");
 		const found = find(target);
 		expect(found).toEqual([]);
+	});
+
+	it("N10: skips a dangling symlink (statSync race) and still finds the real importer", () => {
+		// visitEntry's statSync(full) follows the symlink and throws ENOENT
+		// when the link target is gone — the catch must skip only this one
+		// entry, not abort the whole walk. Without that catch, the ENOENT
+		// would propagate out of findDirectImporters entirely.
+		const target = write("src/modes.ts", "export const X = 1;\n");
+		const importer = write("src/user.ts", "import { X } from './modes.js';\n");
+		symlinkSync(path.join(root, "src", "gone.ts"), path.join(root, "src", "dangling.ts"));
+		const found = find(target);
+		expect(found).toEqual([importer]);
+	});
+
+	it("N11: skips an unreadable candidate file (readFileSync race) and still finds the real importer", () => {
+		// confirmCandidate's readFileSync(candidate, "utf-8") throws EACCES for
+		// a file with no read permission — the catch must skip only this
+		// candidate, not abort the walk. "locked.ts" textually imports the
+		// target, so if the catch were missing, findDirectImporters would
+		// throw instead of returning importer alone.
+		const target = write("src/modes.ts", "export const X = 1;\n");
+		const importer = write("src/user.ts", "import { X } from './modes.js';\n");
+		const locked = write("src/locked.ts", "import { X } from './modes.js';\n");
+		chmodSync(locked, 0o000);
+		const found = find(target);
+		expect(found).toEqual([importer]);
 	});
 });
 

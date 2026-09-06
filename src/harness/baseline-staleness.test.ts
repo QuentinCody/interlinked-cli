@@ -1,7 +1,41 @@
 import { Command } from "commander";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerAdoptCommands } from "../registrars/adopt.js";
 import { registerQualityCommands } from "../registrars/quality.js";
+
+// `defaultReadMtime`'s catch arm (statSync throwing after existsSync already
+// reported the path present — a TOCTOU race in production) has no injectable
+// seam: every other test in this file supplies its own `readMtime` and never
+// touches the real fs default. A call-through spy poisons exactly one path's
+// `statSync` (not a plain `vi.spyOn(fs, ...)`, which throws "Module namespace
+// is not configurable in ESM" for node:fs under this vitest version) so every
+// other fs call — including this file's own fixture writes — hits the real
+// filesystem untouched.
+const { statSyncControl } = vi.hoisted(() => ({
+	// SAFETY: hoisted mock state has no real type to widen from; `string | null`
+	// is the actual shape (a poisoned path, or none).
+	statSyncControl: { poisonPath: null as string | null },
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		statSync: ((path: unknown, opts?: unknown) => {
+			if (statSyncControl.poisonPath !== null && String(path) === statSyncControl.poisonPath) {
+				throw new Error(`EACCES: permission denied, stat '${String(path)}'`);
+			}
+			return (actual.statSync as (p: unknown, o?: unknown) => unknown)(path, opts);
+			// SAFETY: this wrapper implements the same call signature as the real
+			// `statSync`; the cast restores that type after the `unknown`-typed
+			// call-through above.
+		}) as typeof actual.statSync,
+	};
+});
+
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	collectBaselineAges,
 	DEFAULT_STALE_AFTER_DAYS,
@@ -25,6 +59,25 @@ function reader(ages: Record<string, number>) {
 
 const fresh = (): Record<string, number> =>
 	Object.fromEntries(TRACKED_BASELINES.map((b) => [b.file, 1]));
+
+afterEach(() => {
+	statSyncControl.poisonPath = null;
+});
+
+describe("collectBaselineAges — real fs default (no readMtime injected)", () => {
+	it("reports a null age when statSync throws for a baseline that existsSync reported present", () => {
+		const root = mkdtempSync(join(tmpdir(), "baseline-staleness-"));
+		try {
+			const target = join(root, "coverage-baseline.json");
+			writeFileSync(target, "{}");
+			statSyncControl.poisonPath = target;
+			const ages = collectBaselineAges({ interlinkedDir: root, now: NOW });
+			expect(ages.find((a) => a.file === "coverage-baseline.json")?.ageDays).toBeNull();
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+});
 
 describe("collectBaselineAges", () => {
 	it("reports whole-day ages for present baselines", () => {

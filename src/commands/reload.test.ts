@@ -864,12 +864,22 @@ describe("reloadCommand — daemon lane", () => {
 	});
 });
 
-// NOTE — reloadCommand's `!cliRoot` branch (missing-checkout error path) is
-// NOT exercised anywhere in this file. reloadCommand's internal
-// `findCliRoot()` call has no DI seam (a bare local call, not an injected
-// dependency), and this suite always runs from inside the real
-// interlinked-cli checkout, so `cliRoot` is always truthy here. Reaching the
-// error path would need either source changes for DI (out of scope for this
-// pass) or fabricating a package.json above the real repo (out of sandbox
-// scope). The five mutants gated behind that branch are left_open — see the
-// mutation-kill receipts for this file.
+describe("reloadCommand — missing checkout", () => {
+	it("reports the exact error, exits 1, and does nothing else when resolveCliRoot finds no checkout", async () => {
+		const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		const result = await reloadCommand({ json: true, cwd: dir, force: true }, () => null);
+
+		expect(result).toBeUndefined();
+		expect(errLines(errSpy)).toEqual([
+			"reload: could not locate the interlinked-cli source checkout from the running binary — rebuild manually in the checkout, then run `interlinked enable && interlinked harness restart`.",
+		]);
+		expect(process.exitCode).toBe(1);
+		// Proves the early return actually short-circuited (an inverted guard
+		// would fall through to the build/hook/daemon lanes below it).
+		expect(execFileSyncMock).not.toHaveBeenCalledWith("npm", expect.anything(), expect.anything());
+		expect(harnessRestartMock).not.toHaveBeenCalled();
+		expect(logLines(logSpy)).toHaveLength(0);
+	});
+});

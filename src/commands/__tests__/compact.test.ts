@@ -1221,3 +1221,62 @@ describe("activity archive — exclusive segment claim + write order", () => {
 		expect(sync.synced_through_bytes).toBe(total - parsed.archived_bytes);
 	});
 });
+
+describe("readActivitySyncState — malformed sync-state.json handling", () => {
+	it("a sync-state.json that fails JSON.parse is treated as nothing synced (fail safe), not an uncaught throw", async () => {
+		// Size is well under MAX_SYNC_STATE_BYTES, so this exercises the
+		// try/catch around JSON.parse itself, not the oversized-file guard
+		// (already covered separately) or the isJsonObject/typeof branches
+		// (also covered separately, both of which need VALID JSON).
+		const { tempDir, dataDir } = writeLog(Array.from({ length: 10 }, (_, i) => ({ type: "tool_use", i })));
+		writeFileSync(join(dataDir, "sync-state.json"), "{not valid json");
+
+		const [line] = await quiet(() => compactCommand({ cwd: tempDir, json: true, keepRecentBytes: 1 }));
+		const parsed = JSON.parse(nonNull(line));
+		expect(parsed.compacted).toBe(false);
+		expect(parsed.synced_bytes).toBe(0);
+		expect(parsed.reason).toBe("no synced data yet — pass --all to compact a local-only log");
+	});
+});
+
+describe("planCut — an oversized line pins the chain anchor without needing to parse it", () => {
+	it("an over-4MB single line is treated as a possible chain link, so archiving cannot pass its start", async () => {
+		// A row this large can't be safely parsed for its `type`/`hash` fields,
+		// so `line.oversized` (not `CHAINED_TYPES`) is what pins lastChainedStart
+		// here — the JSON.parse branch below it never runs for this line.
+		const oversizedRecord = {
+			type: "tool_use",
+			marker: "oversize-anchor",
+			pad: "x".repeat(4 * 1024 * 1024 + 1024),
+		};
+		const records = [
+			...Array.from({ length: 5 }, (_, i) => ({ type: "tool_use", i })),
+			oversizedRecord,
+			...Array.from({ length: 5 }, (_, i) => ({ type: "tool_use", i: 100 + i })),
+		];
+		const { tempDir, dataDir, content } = writeLog(records);
+		setSync(dataDir, Buffer.byteLength(content)); // everything synced
+		await compactCommand({ cwd: tempDir, json: true, keepRecentBytes: 1 });
+		const live = readFileSync(join(dataDir, "activity.jsonl"), "utf-8");
+		// The oversized record itself, and everything after it, stayed live —
+		// the cut could not advance past its start byte.
+		expect(live).toContain("oversize-anchor");
+		expect(live).toContain('"i":104');
+	});
+});
+
+describe("emitPlainResult — human-readable output for a plain log with nothing to compact", () => {
+	it("prints a dim 'nothing compactable' line naming the actual reason, not the silent 'no <log>.jsonl' path", async () => {
+		const { tempDir, dataDir } = writeLog([{ type: "tool_use", i: 1 }]);
+		// collection.jsonl exists but is far smaller than DEFAULT_KEEP_RECENT_BYTES
+		// (2MB), so compactPlainLog returns compacted:false, archived_bytes:0,
+		// reason "log is within the ...MB recent-tail kept live" — NOT the
+		// "no collection.jsonl" reason emitPlainResult filters out up front.
+		writeFileSync(join(dataDir, "collection.jsonl"), `${JSON.stringify({ type: "tool_result" })}\n`);
+
+		const out = await quiet(() => compactCommand({ cwd: tempDir, json: false }));
+		const line = out.find((l) => l.includes("collection.jsonl"));
+		expect(line).toBeDefined();
+		expect(nonNull(line)).toContain("collection.jsonl: nothing compactable — log is within the 2.0MB recent-tail kept live");
+	});
+});

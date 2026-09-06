@@ -469,6 +469,89 @@ describe("startBuildRefreshWatcher", () => {
 				rmSync(dir, { recursive: true, force: true });
 			}
 		});
+
+		it("records spawn_failed against the same attempt id when the successor cannot be launched", () => {
+			const dir = mkdtempSync(join(tmpdir(), "build-refresh-spawnfail-"));
+			try {
+				const mtimeValue = Date.now() + 1_000;
+				let calls = 0;
+				const statMtimeMs = () => (calls++ === 0 ? 1_000 : mtimeValue);
+				const dispose = startBuildRefreshWatcher({
+					moduleUrl: pathToFileURL(join(dir, "dist", "harness", "server.js")).href,
+					cwd: dir,
+					lastActivityMs: () => 0,
+					log: vi.fn(),
+					env: {},
+					deps: {
+						statMtimeMs,
+						// A real spawn failure (EAGAIN / ENOENT on the CLI entry) throws
+						// synchronously; the watcher must ledger it, not crash the tick.
+						spawn: (() => {
+							throw new Error("EAGAIN: resource temporarily unavailable");
+						}) as never,
+					},
+				});
+				vi.advanceTimersByTime(61_000);
+
+				const ledgerFile = join(dir, ".interlinked", "daemon-events.jsonl");
+				const rows = readFileSync(ledgerFile, "utf-8")
+					.trim()
+					.split("\n")
+					.map((line) => JSON.parse(line) as Record<string, unknown>);
+				expect(rows.map((r) => r.outcome)).toEqual(["requested", "spawn_failed"]);
+				// Both rows must carry ONE id, or the churn reducer cannot pair the
+				// failure with the intent and the attempt stays pending forever.
+				expect(rows[1]?.attempt_id).toBe(rows[0]?.attempt_id);
+				dispose();
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		});
+
+		it("coalesces onto an unresolved handover for the same artifact instead of spawning a second successor", () => {
+			const dir = mkdtempSync(join(tmpdir(), "build-refresh-coalesce-"));
+			try {
+				const nowMs = Date.now();
+				const mtimeValue = nowMs + 1_000;
+				const detail = `artifact ${new Date(mtimeValue).toISOString()}`;
+				mkdirSync(join(dir, ".interlinked"), { recursive: true });
+				const ledgerFile = join(dir, ".interlinked", "daemon-events.jsonl");
+				// One in-flight attempt for THIS artifact, left by a sibling daemon.
+				const inFlight: DaemonLedgerEvent = {
+					at: nowMs - 1_000,
+					pid: 1,
+					event: "handover",
+					reason: "build-refresh",
+					detail,
+				};
+				writeFileSync(ledgerFile, `${JSON.stringify(inFlight)}\n`);
+
+				let calls = 0;
+				const statMtimeMs = () => (calls++ === 0 ? 1_000 : mtimeValue);
+				const spawn = vi.fn(() => ({ unref: vi.fn() }));
+				const log = vi.fn();
+				const dispose = startBuildRefreshWatcher({
+					moduleUrl: pathToFileURL(join(dir, "dist", "harness", "server.js")).href,
+					cwd: dir,
+					lastActivityMs: () => 0,
+					log,
+					env: {},
+					deps: { statMtimeMs, spawn: spawn as never },
+				});
+				vi.advanceTimersByTime(61_000);
+
+				expect(spawn).not.toHaveBeenCalled();
+				expect(log).toHaveBeenCalledWith(
+					`[build-refresh] handover for ${detail} already in flight — coalescing (no second successor).`,
+				);
+				// Coalescing writes NO row: a second `requested` would read as a
+				// second pending attempt and walk the churn backstop toward tripping.
+				expect(readFileSync(ledgerFile, "utf-8")).toBe(`${JSON.stringify(inFlight)}\n`);
+				dispose();
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		});
 	});
 
 	describe("real statMtimeMs (no deps override — hits defaultStatMtimeMs)", () => {

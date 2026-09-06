@@ -1,8 +1,9 @@
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ingestReviewReport } from "../../commands/findings.js";
+import { findingsCorpusPath, loadFindings } from "../findings/corpus.js";
 import {
 	loadReconciliation,
 	reconciliationStateOf,
@@ -197,6 +198,19 @@ describe("review reconciliation hooks", () => {
 		} finally {
 			cwdSpy.mockRestore();
 		}
+	});
+
+	it("reports nothing instead of throwing when the corpus itself is unreadable", () => {
+		const cwd = realpathSync(mkdtempSync(join(tmpdir(), "recon-unreadable-")));
+		roots.push(cwd);
+		// A directory where the corpus file belongs: the loader's existsSync gate
+		// passes and the read then fails — the real unreadable-corpus fault.
+		mkdirSync(findingsCorpusPath(cwd), { recursive: true });
+		expect(() => loadFindings(cwd)).toThrow(/EISDIR/);
+		expect(openReviewFindings(cwd)).toEqual([]);
+		expect(
+			disputedGroundWarning(cwd, "s-unreadable", join(cwd, "docs/plan.md"), "read"),
+		).toBeNull();
 	});
 
 	it("stays silent for clean files, out-of-repo paths, and empty corpora", () => {

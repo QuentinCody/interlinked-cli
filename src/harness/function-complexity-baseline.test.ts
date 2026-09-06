@@ -2,7 +2,16 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// statSync is wrapped (default: pass through to the real implementation) so
+// one test can force a TOCTOU-style throw (line 119's catch) without a real
+// filesystem race, while every other test here still hits the real disk.
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return { ...actual, statSync: vi.fn(actual.statSync) };
+});
+import { statSync } from "node:fs";
 import {
 	COMPLEXITY_METRICS,
 	computeOverCap,
@@ -120,6 +129,12 @@ describe("loadFunctionComplexityBaseline / saveFunctionComplexityBaseline", () =
 		expect(Object.keys(loaded?.metrics ?? {})).toEqual(["cyclomatic"]);
 	});
 
+	it("loadPrevious returns null when the .previous sibling holds malformed JSON", () => {
+		mkdirSync(join(cwd, ".interlinked"), { recursive: true });
+		writeFileSync(join(cwd, FUNCTION_COMPLEXITY_PREVIOUS_REL), "{not json");
+		expect(loadPreviousFunctionComplexityBaseline(cwd)).toBeNull();
+	});
+
 	it("snapshotPrevious copies the current ledger to the .previous sibling; loadPrevious reads it back", () => {
 		expect(loadPreviousFunctionComplexityBaseline(cwd)).toBeNull();
 		expect(snapshotPreviousFunctionComplexityBaseline(cwd)).toBe(false); // nothing to snapshot yet
@@ -128,6 +143,16 @@ describe("loadFunctionComplexityBaseline / saveFunctionComplexityBaseline", () =
 		expect(snapshotPreviousFunctionComplexityBaseline(cwd)).toBe(true);
 		expect(existsSync(join(cwd, FUNCTION_COMPLEXITY_PREVIOUS_REL))).toBe(true);
 		expect(loadPreviousFunctionComplexityBaseline(cwd)).toEqual(ledger);
+	});
+
+	it("returns null (not the stale cached ledger) when statSync throws mid-check (TOCTOU race)", () => {
+		const ledger = ledgerWith({ cyclomatic: { cap: 16, entries: [] } });
+		saveFunctionComplexityBaseline(cwd, ledger);
+		expect(loadFunctionComplexityBaseline(cwd)).toEqual(ledger); // primes the mtime cache
+		vi.mocked(statSync).mockImplementationOnce(() => {
+			throw new Error("ENOENT: file vanished between existsSync and statSync");
+		});
+		expect(loadFunctionComplexityBaseline(cwd)).toBeNull();
 	});
 
 	it("picks up a rewrite on disk (mtime-aware cache)", () => {
@@ -356,6 +381,11 @@ describe("ledgerOverCapViolation — the identity rule in ledger mode", () => {
 		const text = ledgerOverCapViolation("cyclomatic", "big", 23, 23, gf());
 		expect(text).toContain("grandfathered at 20");
 		expect(text).toContain("was 23");
+	});
+
+	it("P4: an unlisted function AT/UNDER the cap that grew past its own prior value is still blocked (legacy delta, not yet ratcheted)", () => {
+		const text = ledgerOverCapViolation("cyclomatic", "small", 10, 5, gf());
+		expect(text).toBe("small (cyclomatic 10, raised from 5)");
 	});
 
 	it("ledgerNote points at the ledger and the burn-down command", () => {

@@ -212,7 +212,10 @@ const POLYGLOTS_IDOR_PY: readonly string[] = [
 
 const POLYGLOTS_TENANT_PY: readonly string[] = [`"org_attacker"`, `"org_victim"`];
 
-function polyglotsForTs(checkId: string): readonly string[] {
+/** Per-detector TS polyglot corpus. Exported because `synthesizeTsScaffold`
+ * routes auth/mass-assignment to dedicated builders before the generic
+ * scaffold runs, so those arms are only reachable through this entry. */
+export function polyglotsForTs(checkId: string): readonly string[] {
 	switch (checkId) {
 		case "endpoint_idor_shape":
 			return POLYGLOTS_IDOR;
@@ -227,7 +230,10 @@ function polyglotsForTs(checkId: string): readonly string[] {
 	}
 }
 
-function polyglotsForPython(checkId: string): readonly string[] {
+/** Per-detector Python polyglot corpus — same reachability note as
+ * `polyglotsForTs`: `synthesizePythonScaffold` shortcuts auth and
+ * mass-assignment to their own builders. */
+export function polyglotsForPython(checkId: string): readonly string[] {
 	switch (checkId) {
 		case "endpoint_idor_shape":
 			return POLYGLOTS_IDOR_PY;

@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import { createScanProgress } from "./scan-progress.js";
 import {
+	applyPersistedSuppressions,
 	clearCodeQualityResults,
 	filterCodeQualityResults,
 	filterCodeQualityResultsInPlace,
@@ -283,6 +284,24 @@ describe("filterCodeQualityResults", () => {
 		);
 		expect(filtered.strongTyping.map((i) => i.check)).toEqual(["other_check"]);
 		expect(filtered.largeFiles).toEqual([]);
+	});
+});
+
+describe("applyPersistedSuppressions — suppression-file hygiene findings", () => {
+	it("pushes one suppressionHygiene issue per finding the validator reports", () => {
+		const results = runCodeQualityChecks([], tempDir);
+		applyPersistedSuppressions(results, join(tempDir, ".interlinked"), () => [
+			{ name: "missing_rationale", file: "src/a.ts", message: "no reason given" },
+		]);
+		expect(results.suppressionHygiene).toEqual([
+			{ check: "missing_rationale", file: "src/a.ts", line: 0, message: "no reason given" },
+		]);
+	});
+
+	it("leaves suppressionHygiene empty when the default validator is used (the real stub returns none)", () => {
+		const results = runCodeQualityChecks([], tempDir);
+		applyPersistedSuppressions(results, join(tempDir, ".interlinked"));
+		expect(results.suppressionHygiene).toEqual([]);
 	});
 });
 

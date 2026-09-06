@@ -160,7 +160,11 @@ export async function trajectoryShowCommand(opts: ShowOpts = {}): Promise<void> 
 	printSnapshotFields(parsed);
 }
 
-function summarizeValue(v: unknown): string | null {
+/** Exported for direct unit coverage of the fallback branch below: real
+ *  snapshots come from `JSON.parse`, which can never produce a function,
+ *  symbol, or bigint value, so the public `trajectoryShowCommand` path can
+ *  never drive that arm — it is only reachable by calling this directly. */
+export function summarizeValue(v: unknown): string | null {
 	if (typeof v === "string") return v.length > 200 ? `${v.slice(0, 200)}…` : v;
 	if (typeof v === "number" || typeof v === "boolean") return String(v);
 	if (Array.isArray(v)) return `[${v.length} item${v.length === 1 ? "" : "s"}]`;

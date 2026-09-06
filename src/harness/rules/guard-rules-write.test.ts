@@ -70,4 +70,18 @@ describe("mergeIntoGuardRules — negative (must not corrupt)", () => {
 		expect(r.ok).toBe(true);
 		expect(readRules()).toEqual({ diff_aware: { enabled: true } });
 	});
+
+	it("N3: an existing file that parses but is not a JSON object (array) is preserved and reported as a failure", () => {
+		// Distinct from N1's JSON.parse-throws path: here JSON.parse succeeds
+		// (valid JSON), but the result is an array, not an object, so
+		// isJsonObject rejects it. Inverting that guard would let the merge
+		// treat the array as `existing` and proceed to write a merged object,
+		// silently discarding the array's contents instead of refusing.
+		mkdirSync(join(cwd, ".interlinked"), { recursive: true });
+		writeFileSync(join(cwd, ".interlinked", "guard-rules.json"), "[1,2,3]");
+		const r = mergeIntoGuardRules(cwd, { per_edit_coverage: { enabled: false } });
+		expect(r.ok).toBe(false);
+		expect(r.error).toBe("existing guard-rules.json is not a JSON object");
+		expect(readFileSync(join(cwd, ".interlinked", "guard-rules.json"), "utf-8")).toBe("[1,2,3]");
+	});
 });

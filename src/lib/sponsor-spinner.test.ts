@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -63,6 +63,22 @@ describe("sponsor spinner verb management", () => {
 		expect(readFileSync(settingsPath, "utf8")).toBe("{not json");
 	});
 
+	it("refuses to touch settings that parse but are not a JSON object", () => {
+		// Valid JSON, but an array — readSettings' object/array guard must
+		// reject it rather than silently treating it as an empty settings map.
+		writeFileSync(settingsPath, "[]");
+		const res = addSponsorSpinnerVerb(settingsPath, "Sponsored");
+		expect(res).toEqual({ ok: false, reason: "settings.json not parseable — left untouched" });
+		expect(readFileSync(settingsPath, "utf8")).toBe("[]");
+	});
+
+	it("reports the write failure instead of throwing when the destination is unwritable", () => {
+		const target = join(dir, "does-not-exist", "settings.json");
+		const res = addSponsorSpinnerVerb(target, "Sponsored by Beta");
+		expect(res.ok).toBe(false);
+		expect(res.reason).toContain("ENOENT");
+	});
+
 	it("removes exactly our verbs and drops an emptied append-mode entry", () => {
 		writeFileSync(
 			settingsPath,
@@ -91,5 +107,20 @@ describe("sponsor spinner verb management", () => {
 		expect(removeSponsorSpinnerVerbs(join(dir, "missing.json"), ["x"]).ok).toBe(true);
 		writeFileSync(settingsPath, JSON.stringify({}));
 		expect(removeSponsorSpinnerVerbs(settingsPath, ["x"]).ok).toBe(true);
+	});
+
+	it("reports the write failure instead of throwing when the file is read-only", () => {
+		writeFileSync(
+			settingsPath,
+			JSON.stringify({ spinnerVerbs: { mode: "append", verbs: ["Sponsored by Alpha"] } }),
+		);
+		chmodSync(settingsPath, 0o444);
+		try {
+			const res = removeSponsorSpinnerVerbs(settingsPath, ["Sponsored by Alpha"]);
+			expect(res.ok).toBe(false);
+			expect(res.reason).toContain("EACCES");
+		} finally {
+			chmodSync(settingsPath, 0o644);
+		}
 	});
 });

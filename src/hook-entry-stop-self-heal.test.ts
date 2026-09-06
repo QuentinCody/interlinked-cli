@@ -112,3 +112,46 @@ describe("attemptSelfHealOnStop — negative (must NOT fire)", () => {
 		expect(spawnDaemon).not.toHaveBeenCalled();
 	});
 });
+
+describe("attemptSelfHealOnStop — default ledger clock (no lastLedgerEventAt override)", () => {
+	// P3: with no `lastLedgerEventAt` override, the gate falls back to reading
+	// `.interlinked/daemon-events.jsonl` itself; a stale newest row past the
+	// bound must still self-heal.
+	it("P3: self-heals off the real daemon-events.jsonl ledger when its newest row is past the bound", () => {
+		writeFileSync(
+			join(root, ".interlinked", "daemon-events.jsonl"),
+			`${JSON.stringify({ at: NOW_MS - 120_000, pid: 111, event: "exit" })}\n`,
+		);
+		const spawnDaemon = vi.fn(() => process.pid);
+		const result = attemptSelfHealOnStop(
+			stopEvent({ context: { cwd: root } }),
+			root,
+			{},
+			{ spawnDaemon, resolveServerPath: () => "/fake/server.js" },
+			{ now: () => NOW_MS },
+		);
+		expect(result).toBe("spawned");
+		expect(spawnDaemon).toHaveBeenCalledTimes(1);
+	});
+
+	// N5: a fresh ledger row (within the bound) must read as "too recent to
+	// distinguish from a normal handover" — this only holds if the default
+	// reader actually returns the row's real timestamp rather than always 0
+	// (which would read as "down forever" and wrongly self-heal).
+	it("N5: does not self-heal off the real ledger when its newest row is within the bound", () => {
+		writeFileSync(
+			join(root, ".interlinked", "daemon-events.jsonl"),
+			`${JSON.stringify({ at: NOW_MS - 5_000, pid: 111, event: "exit" })}\n`,
+		);
+		const spawnDaemon = vi.fn();
+		const result = attemptSelfHealOnStop(
+			stopEvent({ context: { cwd: root } }),
+			root,
+			{},
+			{ spawnDaemon, resolveServerPath: () => "/fake/server.js" },
+			{ now: () => NOW_MS },
+		);
+		expect(result).toBe("not-applicable");
+		expect(spawnDaemon).not.toHaveBeenCalled();
+	});
+});

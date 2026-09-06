@@ -1,10 +1,37 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import type { ArtifactNode } from "../types.js";
 import { classifyFile, extract, linkModulesToPackages, metadata } from "./package-extractor.js";
+
+// readdirSync's unreadable-directory branch (findPackages' try/catch) is
+// reached by making the mocked node:fs throw for one directory a test adds
+// to `unreadableDirs` — `vi.spyOn(fs, "readdirSync")` can't redefine a live
+// ESM named export here, same workaround as
+// src/harness/__tests__/cross-file-checks.mutation-kill-w38.test.ts.
+const fsFailures = vi.hoisted(() => ({
+	unreadableDirs: new Set<string>(),
+}));
+
+vi.mock("node:fs", async () => {
+	const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+	return {
+		...actual,
+		readdirSync: (...args: Parameters<typeof actual.readdirSync>) => {
+			if (fsFailures.unreadableDirs.has(String(args[0]))) {
+				throw Object.assign(new Error(`EACCES: permission denied, scandir '${args[0]}'`), {
+					code: "EACCES",
+				});
+			}
+			// SAFETY: readdirSync is overloaded on `options`; passing the
+			// captured args straight through preserves whichever overload the
+			// caller invoked (this test only exercises withFileTypes:true).
+			return (actual.readdirSync as (...a: unknown[]) => unknown)(...args);
+		},
+	};
+});
 
 describe("package-extractor", () => {
 	let tmp: string;
@@ -15,6 +42,7 @@ describe("package-extractor", () => {
 
 	afterEach(() => {
 		rmSync(tmp, { recursive: true, force: true });
+		fsFailures.unreadableDirs.clear();
 	});
 
 	it("metadata declares package markers it understands", () => {
@@ -44,6 +72,22 @@ describe("package-extractor", () => {
 		mkdirSync(join(tmp, "node_modules", "lib"), { recursive: true });
 		writeFileSync(join(tmp, "node_modules", "lib", "package.json"), "{}");
 		writeFileSync(join(tmp, "package.json"), "{}");
+
+		const { nodes } = extract(tmp);
+		const labels = nodes.map((n) => n.label);
+		expect(labels).toEqual(["root"]);
+	});
+
+	it("skips a subdirectory it cannot read instead of throwing", () => {
+		// A directory that raises on readdirSync (e.g. permission denied,
+		// or removed mid-walk) must not crash the whole extraction — its
+		// contents are silently absent from the result, not surfaced as an
+		// error, and the sibling package.json is still found.
+		const lockedDir = join(tmp, "locked");
+		mkdirSync(lockedDir);
+		writeFileSync(join(lockedDir, "package.json"), "{}");
+		writeFileSync(join(tmp, "package.json"), "{}");
+		fsFailures.unreadableDirs.add(lockedDir);
 
 		const { nodes } = extract(tmp);
 		const labels = nodes.map((n) => n.label);

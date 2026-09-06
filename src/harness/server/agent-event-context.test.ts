@@ -123,4 +123,11 @@ describe("readAgentMetrics", () => {
 	it("N6: an undefined path yields null", () => {
 		expect(readAgentMetrics(undefined)).toBeNull();
 	});
+
+	it("N7: an existing path that cannot be read yields null instead of throwing", () => {
+		// A directory clears both guards — it exists and its size is far under
+		// the cap — so only the read fails. Without the degrade-to-null arm the
+		// EISDIR error would escape and take the whole stop-event handler down.
+		expect(readAgentMetrics(dir)).toBeNull();
+	});
 });

@@ -1,8 +1,9 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AutoCoordinationState } from "../auto-coordinate.js";
+import { ProjectGraph } from "../project-graph.js";
 import {
 	getAutoCoordState,
 	getGraphForFile,
@@ -55,6 +56,12 @@ describe("summarizeToolInput", () => {
 	it("returns empty string when neither tool_name nor tool_input is present", () => {
 		expect(summarizeToolInput({})).toBe("");
 	});
+
+	it("falls back to tool_name when tool_input carries none of the three known keys", () => {
+		expect(summarizeToolInput({ tool_name: "Grep", tool_input: { pattern: "needle" } })).toBe(
+			"Grep",
+		);
+	});
 });
 
 describe("getAutoCoordState", () => {
@@ -90,5 +97,24 @@ describe("getGraphForFile", () => {
 		const g2 = getGraphForFile(ctx, join(tmp, "src", "bar.ts"));
 		expect(g2).toBe(g1);
 		expect(ctx.graphCache.size).toBe(1);
+	});
+
+	it("logs the init failure as non-fatal and still caches the graph when initialize throws", () => {
+		writeFileSync(join(tmp, "package.json"), "{}");
+		const spy = vi.spyOn(ProjectGraph.prototype, "initialize").mockImplementation(() => {
+			throw new Error("scan exploded");
+		});
+		const logs: string[] = [];
+		const ctx = makeCtx({ log: (msg: string) => void logs.push(msg) });
+
+		const graph = getGraphForFile(ctx, join(tmp, "src", "foo.ts"));
+		spy.mockRestore();
+
+		expect(logs).toHaveLength(1);
+		expect(logs.join("\n")).toMatch(
+			/^Project graph init failed for .+ \(non-fatal\): Error: scan exploded$/,
+		);
+		// The failed graph is still cached, so the next edit does not re-scan.
+		expect([...ctx.graphCache.values()]).toEqual([graph]);
 	});
 });

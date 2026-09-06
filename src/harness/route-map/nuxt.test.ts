@@ -35,4 +35,24 @@ describe("route-map/nuxt.extractEndpoints", () => {
 	it("returns [] for src/lib/* helper modules even if path looks similar", () => {
 		expect(extractEndpoints("/abs/src/lib/api/foo.ts", "export const x = 1;")).toEqual([]);
 	});
+
+	it("returns [] when content has no recognized helper AND no `export default`", () => {
+		const filePath = "/abs/server/api/users.get.ts";
+		// Neither a defineEventHandler-family call nor a default export — the
+		// convention's fallback sanity check has nothing to accept on, so the
+		// file is rejected even though the path matched the Nuxt convention.
+		// Inverting this guard would make the file pass through and produce
+		// an endpoint instead of [].
+		expect(extractEndpoints(filePath, "export const helper = () => 1;")).toEqual([]);
+	});
+
+	it("accepts a bare `export default` function even without a recognized helper call", () => {
+		const filePath = "/abs/server/api/users.get.ts";
+		// No defineEventHandler/eventHandler/etc, but a default export is
+		// present — the fallback sanity check lets this through. Inverting the
+		// guard would return [] here instead of an endpoint.
+		const [endpoint] = extractEndpoints(filePath, "export default function handler() { return 1; }");
+		expect(nonNull(endpoint).path).toBe("/api/users");
+		expect(nonNull(endpoint).method).toBe("GET");
+	});
 });

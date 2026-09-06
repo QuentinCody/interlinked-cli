@@ -293,4 +293,21 @@ describe("evaluateSpecPreGates", () => {
 		).toBeNull();
 		expect(warnings).toEqual([]);
 	});
+
+	it("fails open when the target path is a directory (I/O error reading it)", () => {
+		const root = setup({ "a.md": "# A" });
+		// existsSync is true for a directory, but readFileSync throws (EISDIR) —
+		// this is the catch-and-fail-open path, distinct from the "doesn't
+		// exist yet" branch covered above.
+		mkdirSync(join(root, "dir.md"));
+		const warnings: string[] = [];
+		const d = evaluateSpecPreGates(
+			writeEvent(join(root, "dir.md"), "irrelevant"),
+			"Write",
+			ENABLED,
+			warnings,
+		);
+		expect(d).toBeNull();
+		expect(warnings).toEqual([]);
+	});
 });

@@ -138,4 +138,14 @@ describe("clientHookResult", () => {
 		expect(clientHookResult("claude", mention).status).toBe("warn");
 		expect(clientHookResult("claude", "{ not json").status).toBe("warn");
 	});
+
+	// test-contract: public-api — a managed provider bridge file (marker-led
+	// content, never JSON) short-circuits the settings parse entirely and
+	// reports pass without even attempting `JSON.parse`.
+	it("P5: a managed provider bridge file reports pass without parsing", () => {
+		const doc = "// interlinked-provider-bridge:v1\nnot json at all {{{";
+		expect(clientHookResult("gemini-cli", doc)).toEqual(
+			expect.objectContaining({ name: "gemini-cli hooks", status: "pass", message: "Provider bridge installed" }),
+		);
+	});
 });

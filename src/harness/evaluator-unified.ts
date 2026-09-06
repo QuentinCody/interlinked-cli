@@ -81,6 +81,12 @@ export interface EvaluateUnifiedContext {
 	/** Optional sink for telemetry events. When set the evaluator reports
 	 *  budget-timeout and check-skip events to it. */
 	onTelemetry?: (event: UnifiedEvaluatorTelemetry) => void;
+	/** Test seam: override the tool-class filter. Defaults to the real
+	 *  `filterCheckResultsByToolClass`, which is currently a no-op (always
+	 *  count 0) until checks carry `tool_classes` metadata — this lets a test
+	 *  exercise the `check_filtered` telemetry branch without waiting for
+	 *  that metadata to land. */
+	filterCheckResults?: typeof filterCheckResultsByToolClass;
 }
 
 export type UnifiedEvaluatorTelemetry =
@@ -119,7 +125,7 @@ export async function evaluateUnified(
 	const work = runEvaluator(event, harnessEvent, ctx);
 	const decision = await runWithBudget(work, budget, event, toolClass, ctx);
 
-	const filtered = filterCheckResultsByToolClass(decision, toolClass);
+	const filtered = (ctx.filterCheckResults ?? filterCheckResultsByToolClass)(decision, toolClass);
 	if (filtered.count > 0 && ctx.onTelemetry) {
 		ctx.onTelemetry({
 			kind: "check_filtered",

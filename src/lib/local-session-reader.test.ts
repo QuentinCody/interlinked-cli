@@ -117,4 +117,16 @@ describe("bounded local session reader", () => {
 		mkdirSync(missing);
 		expect(readBoundedLocalSessions(missing)).toEqual([]);
 	});
+
+	it("returns an empty list rather than throwing when the directory itself cannot be opened", () => {
+		const locked = join(root, "locked");
+		mkdirSync(locked);
+		writeFileSync(join(locked, "valid.json"), JSON.stringify(session("valid")));
+		chmodSync(locked, 0o000);
+		// existsSync(locked) is true (it exists), but opendirSync throws EACCES —
+		// a non-LocalSessionScanLimitError the reader must swallow, not propagate.
+		const result = readBoundedLocalSessions(locked);
+		chmodSync(locked, 0o755);
+		expect(result).toEqual([]);
+	});
 });

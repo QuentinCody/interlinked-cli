@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import { type IncumbentDeps, resolveIncumbent, settleIncumbentAtBind } from "./incumbent-check.js";
 import type { AntiStompDeps } from "./anti-stomp.js";
 
@@ -116,6 +120,54 @@ describe("resolveIncumbent — negative (must not fire: live incumbent protected
 		const verdict = await resolveIncumbent(SOCK, PID, r.deps);
 		expect(verdict).toEqual({ kind: "clear" });
 		expect(r.removed).toEqual([]);
+	});
+});
+
+const sockRoots: string[] = [];
+const listeners: Server[] = [];
+afterEach(async () => {
+	for (const s of listeners.splice(0)) await new Promise((r) => s.close(r));
+	for (const d of sockRoots.splice(0)) rmSync(d, { recursive: true, force: true });
+});
+
+/** A real listener on a `harness.sock` pathname that answers the raw
+ *  status protocol only from the SECOND readiness probe on — a daemon that
+ *  was still warming when the first probe landed. Resolves once bound. */
+async function warmingRawListener(): Promise<{
+	dir: string;
+	socketPath: string;
+	probes: () => number;
+}> {
+	const dir = mkdtempSync(join(tmpdir(), "il-incumbent-"));
+	sockRoots.push(dir);
+	const socketPath = join(dir, "harness.sock");
+	let probes = 0;
+	const server = createServer((socket) => {
+		socket.on("data", () => {
+			probes += 1;
+			if (probes === 1) socket.end();
+			else socket.write('{"decision":"allow"}\n');
+		});
+	});
+	await new Promise<void>((resolve) => server.listen(socketPath, resolve));
+	listeners.push(server);
+	return { dir, socketPath, probes: () => probes };
+}
+
+describe("settleIncumbentAtBind — default socket probe (real listener)", () => {
+	it("re-probes a listener that stayed silent on the first attempt and defers to it", async () => {
+		const { dir, socketPath, probes } = await warmingRawListener();
+		const spy = antiStompSpy();
+		const verdict = await settleIncumbentAtBind({
+			socketPath,
+			pidPath: join(dir, "harness.pid"),
+			cwd: "/repo",
+			logAlways: () => {},
+			antiStomp: spy.deps,
+		});
+		expect(verdict).toEqual({ kind: "serving", pid: null });
+		expect(probes()).toBe(2);
+		expect(spy.exits).toBe(1);
 	});
 });
 

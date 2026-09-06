@@ -77,7 +77,10 @@ function hasPendingRunShape(value: unknown): value is Record<string, unknown> {
 	);
 }
 
-function parseRunnerUrl(value: unknown): URL | null {
+/** Exported for direct testing of the length/scheme/credential guard — every
+ *  caller inside this module reaches it only through {@link boundedString},
+ *  which already filters empty/oversized strings before this runs. */
+export function parseRunnerUrl(value: unknown): URL | null {
 	if (typeof value !== "string" || value.length === 0 || value.length > MAX_RUNNER_URL_LENGTH) {
 		return null;
 	}

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -18,10 +18,10 @@ const plan: ResourcePlan = {
 	reason: "quiet",
 };
 
-function makeCtx(cwd: string): ServerRuntime {
+function makeCtx(cwd: string, log: (message: string) => void = () => {}): ServerRuntime {
 	// SAFETY: the heavy-jobs runner reads only ctx.cwd and ctx.log; a minimal
 	// structural stub is sufficient for these tests.
-	return { cwd, log: () => {} } as unknown as ServerRuntime;
+	return { cwd, log } as unknown as ServerRuntime;
 }
 
 function endEvent(): HarnessEvent {
@@ -95,6 +95,43 @@ describe("runSessionEndHeavyJobs", () => {
 		writeFileSync(join(cwd, "src", "a.test.ts"), `import fc from "fast-check";\n`);
 		runSessionEndHeavyJobs(makeCtx(cwd), endEvent(), plan, { spawn });
 		expect(calls).toHaveLength(0);
+	});
+
+	it("still spawns the job when the report directory cannot be created", () => {
+		writeFileSync(join(cwd, "src", "a.test.ts"), `import fc from "fast-check";\n`);
+		// `.interlinked` is a FILE here, so mkdirSync of `<cwd>/.interlinked/fuzz-reports`
+		// throws — the runner must treat the report dir as best-effort and spawn anyway
+		// (vitest creates the file itself via --outputFile).
+		writeFileSync(join(cwd, ".interlinked"), "not a directory");
+		runSessionEndHeavyJobs(makeCtx(cwd), endEvent(), plan, { spawn });
+		expect(calls[0]?.args.join(" ")).toContain(
+			`--outputFile=${heavyJobReportPath(cwd, "fuzz", "sess-heavy")}`,
+		);
+		expect(statSync(join(cwd, ".interlinked")).isDirectory()).toBe(false);
+	});
+
+	it("logs a skip line when the spawned child emits an error event", () => {
+		writeFileSync(join(cwd, "src", "a.test.ts"), `import fc from "fast-check";\n`);
+		const logs: string[] = [];
+		const errorHandlers: Array<(e: Error) => void> = [];
+		// SAFETY: the runner only calls spawn(file, args, opts) and reads .on/.unref
+		// off the child; this fake matches that surface and captures the error handler.
+		const capturingSpawn = ((file: string, args: string[]) => {
+			calls.push({ file, args });
+			return {
+				on(event: string, cb: (e: Error) => void) {
+					if (event === "error") errorHandlers.push(cb);
+				},
+				unref() {},
+			};
+		}) as unknown as SpawnFn;
+
+		runSessionEndHeavyJobs(makeCtx(cwd, (m) => logs.push(m)), endEvent(), plan, {
+			spawn: capturingSpawn,
+		});
+		errorHandlers[0]?.(new Error("spawn npx ENOENT"));
+
+		expect(logs).toContain("[session-end:heavy] fuzz-smoke spawn failed (skipped): spawn npx ENOENT");
 	});
 
 	it("never throws when spawn fails", () => {

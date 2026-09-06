@@ -28,6 +28,12 @@ const capturedServers = vi.hoisted(() => {
 	const servers: Server[] = [];
 	return servers;
 });
+// The default-port test needs `main()` to reach its listen callback on the
+// REAL default (8787) without binding it: that port belongs to whatever else
+// is running on the machine (a `wrangler dev` held it on 2026-09-05 and the
+// test failed with EADDRINUSE). With `fake` set, the next server created
+// skips the bind and fires the callback on the next microtask instead.
+const listenMode = vi.hoisted(() => ({ fake: false }));
 vi.mock("node:http", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:http")>();
 	return {
@@ -35,6 +41,17 @@ vi.mock("node:http", async (importOriginal) => {
 		createServer: (...args: Parameters<typeof actual.createServer>) => {
 			const server = actual.createServer(...args);
 			capturedServers.push(server);
+			if (listenMode.fake) {
+				const fakeListen = (...listenArgs: unknown[]): Server => {
+					const cb = listenArgs.find((a): a is () => void => typeof a === "function");
+					if (cb) queueMicrotask(cb);
+					return server;
+				};
+				// Every `listen` overload takes an optional trailing callback and
+				// returns the server; the fake honors exactly that contract.
+				// SAFETY: overload-erasing cast, behavior matches every overload.
+				server.listen = fakeListen as typeof server.listen;
+			}
 			return server;
 		},
 	};
@@ -594,6 +611,66 @@ describe("fetchUpstream — non-Error rejection", () => {
 	});
 });
 
+describe("fetchUpstream — connect timeout", () => {
+	it("aborts a hung upstream fetch when the connect timer fires, returning 502", async () => {
+		const replayDir = tempReplayDir();
+		const logs: string[] = [];
+		const proxy = await createInferenceProxy({
+			port: 0,
+			upstreamUrl: "http://127.0.0.1:9",
+			replayDir,
+			log: (msg) => logs.push(msg),
+		});
+		cleanups.push(() => proxy.close());
+
+		// fetchUpstream's own `setTimeout(() => controller.abort(), 30_000)` is
+		// intercepted and its callback captured directly instead of waiting 30
+		// real seconds; every OTHER setTimeout call (including this test's own
+		// vi.waitFor poll below) is passed straight through to the real timer.
+		// The proxy's outbound fetch is stubbed to hang until its AbortSignal
+		// fires, which only the captured connect-timer callback can trigger.
+		const realSetTimeout = globalThis.setTimeout;
+		let connectAbort: (() => void) | undefined;
+		const setTimeoutSpy = vi
+			.spyOn(globalThis, "setTimeout")
+			.mockImplementation(((...callArgs: unknown[]) => {
+				const [fn, ms] = callArgs as [() => void, number | undefined];
+				if (ms === 30_000) {
+					connectAbort = fn;
+					return 0 as unknown as NodeJS.Timeout;
+				}
+				return (realSetTimeout as (...a: unknown[]) => NodeJS.Timeout)(...callArgs);
+			}) as unknown as typeof setTimeout);
+
+		const originalFetch = globalThis.fetch;
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+			const target = typeof input === "string" ? input : input.toString();
+			if (target.startsWith(proxy.url)) return originalFetch(input, init);
+			return new Promise((_resolve, reject) => {
+				init?.signal?.addEventListener("abort", () => reject(new Error("connect timed out")));
+			});
+		});
+
+		try {
+			const responsePromise = fetch(`${proxy.url}/v1/messages`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ model: "m", messages: [] }),
+			});
+			await vi.waitFor(() => {
+				if (!connectAbort) throw new Error("connect timer not registered yet");
+			});
+			connectAbort?.();
+			const resp = await responsePromise;
+			expect(resp.status).toBe(502);
+		} finally {
+			setTimeoutSpy.mockRestore();
+			fetchSpy.mockRestore();
+		}
+		expect(logs).toContain("upstream unreachable: connect timed out");
+	});
+});
+
 describe("createInferenceProxy default log/now + CLI entry (main)", () => {
 	it("falls back to console.error and Date.now when log/now are omitted", async () => {
 		const replayDir = tempReplayDir();
@@ -711,6 +788,9 @@ describe("createInferenceProxy default log/now + CLI entry (main)", () => {
 
 		const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const serversBefore = capturedServers.length;
+		// Do not bind the real 8787 — see `listenMode`. The assertion below still
+		// pins the DEFAULT: the logged URL carries the port main() resolved.
+		listenMode.fake = true;
 		try {
 			await import(`${pathToFileURL(modulePath).href}?run-as-main=${Date.now()}`);
 			await vi.waitFor(() => {
@@ -724,6 +804,7 @@ describe("createInferenceProxy default log/now + CLI entry (main)", () => {
 				),
 			).toBe(true);
 		} finally {
+			listenMode.fake = false;
 			for (const server of capturedServers.slice(serversBefore)) server.close();
 			if (prevArgv1 !== undefined) process.argv[1] = prevArgv1;
 			if (prevPort === undefined) delete process.env.PORT;
@@ -733,6 +814,52 @@ describe("createInferenceProxy default log/now + CLI entry (main)", () => {
 			if (prevReplayDir === undefined) delete process.env.INTERLINKED_REPLAY_DIR;
 			else process.env.INTERLINKED_REPLAY_DIR = prevReplayDir;
 			consoleSpy.mockRestore();
+		}
+	});
+
+	it("main(): a fatal startup error is caught in-process, logged, and exits 1", async () => {
+		// Same in-process re-import technique as the tests above, but with an
+		// invalid PORT so `server.listen(NaN, ...)` throws synchronously inside
+		// createInferenceProxy's Promise executor. That rejects the awaited
+		// proxy inside main(), which the top-level `main().catch(...)` guard
+		// must log (`fatal:`) and turn into `process.exit(1)` — the spawned
+		// subprocess test below proves the same behavior end-to-end, but a
+		// subprocess's own coverage instrumentation never reaches this file's
+		// report, so this in-process run is what actually covers that catch.
+		const replayDir = tempReplayDir();
+		const modulePath = fileURLToPath(new URL("./inference-proxy.ts", import.meta.url));
+		const prevArgv1 = process.argv[1];
+		const prevPort = process.env.PORT;
+		const prevUpstream = process.env.ANTHROPIC_REAL_BASE_URL;
+		const prevReplayDir = process.env.INTERLINKED_REPLAY_DIR;
+		process.argv[1] = modulePath;
+		process.env.PORT = "not-a-number";
+		process.env.ANTHROPIC_REAL_BASE_URL = "http://127.0.0.1:9";
+		process.env.INTERLINKED_REPLAY_DIR = replayDir;
+
+		const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+		// SAFETY: process.exit's real return type is `never` (it terminates the
+		// process); the mock never actually exits, so it must return normally.
+		const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+		try {
+			await import(`${pathToFileURL(modulePath).href}?run-as-main=${Date.now()}`);
+			await vi.waitFor(() => {
+				expect(exitSpy).toHaveBeenCalled();
+			});
+			expect(
+				consoleSpy.mock.calls.some((c) => String(c[0]).includes("[inference-proxy] fatal:")),
+			).toBe(true);
+			expect(exitSpy).toHaveBeenCalledWith(1);
+		} finally {
+			if (prevArgv1 !== undefined) process.argv[1] = prevArgv1;
+			if (prevPort === undefined) delete process.env.PORT;
+			else process.env.PORT = prevPort;
+			if (prevUpstream === undefined) delete process.env.ANTHROPIC_REAL_BASE_URL;
+			else process.env.ANTHROPIC_REAL_BASE_URL = prevUpstream;
+			if (prevReplayDir === undefined) delete process.env.INTERLINKED_REPLAY_DIR;
+			else process.env.INTERLINKED_REPLAY_DIR = prevReplayDir;
+			consoleSpy.mockRestore();
+			exitSpy.mockRestore();
 		}
 	});
 

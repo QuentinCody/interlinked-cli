@@ -4,6 +4,7 @@ import { getDefaultConfig } from "./rules-loader.js";
 import {
 	buildLoadedChecksMarkdown,
 	buildLoadedRulesMarkdown,
+	byEntryName,
 	countChecks,
 } from "./statusline-snapshot-checks-markdown.js";
 import type { GuardRule, GuardRulesConfig, QualityCheckConfig } from "./types.js";
@@ -157,5 +158,11 @@ describe("buildLoadedChecksMarkdown", () => {
 		const md = buildLoadedChecksMarkdown(cfg);
 		expect(md).toContain("## Inline detectors — config-driven (1)");
 		expect(md).toContain("`structural_checks` — error — bundle");
+	});
+});
+
+describe("byEntryName", () => {
+	it("returns 0 for two entries with the identical name (sort tie-break)", () => {
+		expect(byEntryName({ name: "tsc" }, { name: "tsc" })).toBe(0);
 	});
 });

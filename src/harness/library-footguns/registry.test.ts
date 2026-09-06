@@ -5,7 +5,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	getAllFootguns,
@@ -117,5 +117,35 @@ describe("runFootgunChecks", () => {
 		`;
 		const findings = runFootgunChecks(content, "src/api.ts", new Set(["node-fetch"]));
 		expect(findings.filter((f) => f.id === "node_fetch_no_timeout")).toEqual([]);
+	});
+
+	it("carries on to the next footgun when one detector throws, instead of aborting the whole pass", async () => {
+		// Mock a SIBLING module (never the registry under test) so one bundled
+		// detector throws mid-scan. If the loop did not catch-and-continue,
+		// this exception would propagate and the real child-process footgun
+		// below it in the concatenation order would never run.
+		vi.resetModules();
+		vi.doMock("./node-fetch.js", () => ({
+			NODE_FETCH_FOOTGUNS: [
+				{
+					id: "poison_footgun",
+					name: "poison",
+					library: "node-fetch",
+					detect: () => {
+						throw new Error("simulated detector crash");
+					},
+					fixInstruction: "n/a",
+				},
+			],
+		}));
+		const { runFootgunChecks: runWithPoisonedDetector } = await import("./registry.js");
+		const content = "exec('rm -rf ' + userInput);\n";
+		const findings = runWithPoisonedDetector(content, "src/tool.ts", new Set());
+		// The throwing detector produced no finding of its own …
+		expect(findings.some((f) => f.id === "poison_footgun")).toBe(false);
+		// … but the pass continued past it to the real child-process footgun.
+		expect(findings.some((f) => f.id === "child_process_exec_interpolated")).toBe(true);
+		vi.doUnmock("./node-fetch.js");
+		vi.resetModules();
 	});
 });

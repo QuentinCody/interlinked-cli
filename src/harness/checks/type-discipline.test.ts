@@ -580,3 +580,30 @@ describe("lengthCheckedExpression — property-name exactness", () => {
 		expect(detectConditionalEmptyObjectSpread(content, TS_FILE).length).toBe(1);
 	});
 });
+
+describe("detectConditionalEmptyObjectSpread — collector-crash safety", () => {
+	// A left-associative `a + a + …` chain is the one shape that PARSES but
+	// cannot be WALKED: TypeScript builds it with precedence climbing (an
+	// iterative loop) and fixes up parent pointers with an iterative walk, so
+	// `parseSourceFile` succeeds — but the AST it yields is left-deep, and
+	// collectConditionalEmptySpreads's recursive `visit` overflows the call
+	// stack on it (measured: RangeError at ~1.4k levels; 50k is a wide,
+	// environment-independent margin). Packed onto one line so the file stays
+	// far under MAX_LINES_PER_FILE — this exercises AST DEPTH, not line count.
+	const DEEP_CHAIN_LENGTH = 50_000;
+	const FLAGGABLE = "const a = { ...(cond ? {} : { field: value }) };";
+
+	// test-contract: invariant — the outer try/catch turns a runtime failure
+	// inside the walk into a silent `[]`; every quality-check caller assumes a
+	// detector never throws.
+	it("returns [] rather than throwing when the AST walk overflows the call stack", () => {
+		const chain = Array.from({ length: DEEP_CHAIN_LENGTH }, () => "a").join(" + ");
+		const content = `const deep = ${chain};\n${FLAGGABLE}\n`;
+		// The flaggable line ALONE reports one finding, so `[]` for the same
+		// line preceded by the deep chain is the discriminating observable: a
+		// completed walk would report that finding, and no catch at all would
+		// let the RangeError escape to the caller.
+		expect(detectConditionalEmptyObjectSpread(FLAGGABLE, TS_FILE).length).toBe(1);
+		expect(detectConditionalEmptyObjectSpread(content, TS_FILE)).toEqual([]);
+	});
+});

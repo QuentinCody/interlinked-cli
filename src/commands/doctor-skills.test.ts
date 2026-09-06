@@ -21,6 +21,23 @@ describe("skillInstallationChecks", () => {
         installSkillsMock.mockReturnValue([]);
     });
 
+    it("warns that bundled skill sources are missing when none are found in this install", () => {
+        inspectInstalledSkillsMock.mockReturnValue({
+            expectedFiles: 0,
+            currentFiles: 0,
+            issues: [],
+        });
+
+        expect(skillInstallationChecks("/repo", false)).toEqual([
+            {
+                name: "Agent skills",
+                status: "warn",
+                message: "Bundled skill sources were not found in this CLI installation",
+            },
+        ]);
+        expect(installSkillsMock).not.toHaveBeenCalled();
+    });
+
     it("passes when every deployed file is current", () => {
         inspectInstalledSkillsMock.mockReturnValue({
             expectedFiles: 20,

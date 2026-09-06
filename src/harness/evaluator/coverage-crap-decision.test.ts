@@ -9,6 +9,7 @@ import { computeCyclomaticAst } from "../checks/cyclomatic-ast.js";
 import type { FunctionComplexityEntry } from "../checks/cyclomatic.js";
 import { computeCyclomaticPython } from "../checks/cyclomatic-python.js";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
+import type { CoverageLanguage } from "../coverage-runner.js";
 import type { HarnessDecision } from "../types.js";
 import {
 	type CrapInput,
@@ -69,6 +70,16 @@ describe("defaultCyclomaticFor", () => {
 
 	it("resolves python to the real radon-backed analyzer", () => {
 		expect(defaultCyclomaticFor("python")).toBe(computeCyclomaticPython);
+	});
+
+	it("returns null (skip CRAP) for a language outside the known js/ts/python set", () => {
+		// `CoverageLanguage` is a 3-member literal union, so this cast simulates
+		// a value the type system would normally rule out — e.g. a future
+		// coverage-runner language the analyzer map hasn't been extended for
+		// yet. The CRAP gate reads this null as "no analyzer, fail open."
+		// SAFETY: deliberately widening past the literal union to exercise the
+		// `default:` arm at runtime — this is the whole point of the test.
+		expect(defaultCyclomaticFor("go" as unknown as CoverageLanguage)).toBeNull();
 	});
 });
 

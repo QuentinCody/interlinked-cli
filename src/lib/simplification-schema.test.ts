@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SimplificationReport } from "./simplification-types.js";
 import {
+	parseSimplificationCoverage,
 	parseSimplificationFinding,
 	parseSimplificationHandoff,
 	parseSimplificationReport,
+	parseSummary,
 } from "./simplification-schema.js";
 
 const report: SimplificationReport = {
@@ -198,6 +200,24 @@ describe("simplification schema parser", () => {
 		})).toBeNull();
 	});
 
+	it("rejects a validation executor that is not null, local, or sandbox", () => {
+		// A heuristic (non sandbox-validated) finding, so the ONLY guard this
+		// input can trip is the executor literal-set check: a sandbox-validated
+		// finding would also be rejected downstream by findingValidationIsConsistent
+		// (which requires executor === "sandbox"), which would still return null
+		// with the executor guard removed and so would not discriminate.
+		expect(parseSimplificationFinding({
+			...structuredClone(firstFinding),
+			validation: {
+				status: "passed",
+				executor: "cloud",
+				commands: ["npm test"],
+				artifact_sha: "artifact-sha",
+				notes: [],
+			},
+		})).toBeNull();
+	});
+
 	it("keeps not-run validation free of execution and exact-delta claims", () => {
 		expect(parseSimplificationFinding({
 			...structuredClone(firstFinding),
@@ -296,6 +316,18 @@ describe("simplification schema parser", () => {
 		expect(parseSimplificationReport(wrongCategory)).toBeNull();
 	});
 
+	it("rejects a summary whose evidence-state counter is not a non-negative integer", () => {
+		// heuristic: -1 fails nonNegativeInteger while every other counter (and
+		// both totals, computed with the invalid field coerced to 0) still
+		// balances against findings — isolating this one disjunct.
+		const malformed = {
+			findings: 0,
+			by_remedy: { delete: 0, stdlib: 0, native: 0, yagni: 0, shrink: 0 },
+			by_evidence_state: { candidate: 0, heuristic: -1, proven: 0, "sandbox-validated": 0 },
+		};
+		expect(parseSummary(malformed)).toBeNull();
+	});
+
 	it("binds finding locations and handoffs to the report identity", () => {
 		const wrongTree = structuredClone(report);
 		wrongTree.findings[0]!.location.tree_sha = "different-tree";
@@ -323,6 +355,35 @@ describe("simplification schema parser", () => {
 		inventedReadCount.coverage.sources[0]!.analyzed_paths = [];
 		inventedReadCount.coverage.sources[0]!.files_considered = 0;
 		expect(parseSimplificationReport(inventedReadCount)).toBeNull();
+	});
+
+	it("rejects a source whose analyzed-path count disagrees with its own files_considered", () => {
+		// Only this one disjunct is tripped: files_considered (2) does not match
+		// analyzed_paths.length (1), while every other per-source and top-level
+		// field is independently valid.
+		const malformed = {
+			status: "partial",
+			discovered_files: 1,
+			selected_files: 1,
+			analyzed_files: 1,
+			excluded_files: 0,
+			missing_paths: [],
+			included_paths: [],
+			excluded_paths: [],
+			languages: [],
+			limitations: [],
+			sources: [
+				{
+					source: "deadcode",
+					status: "checked",
+					files_considered: 2,
+					analyzed_paths: ["src/a.ts"],
+					findings_emitted: 0,
+					notes: [],
+				},
+			],
+		};
+		expect(parseSimplificationCoverage(malformed)).toBeNull();
 	});
 
 	it("accepts only inspectable, not-submitted local handoffs", () => {

@@ -10,8 +10,28 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
+
+// Captures every `watchFile` listener the module under test registers,
+// without ever actually polling the real filesystem — lets the hot-reload
+// test below invoke the listener directly (deterministic, no 2s poll wait)
+// instead of racing node:fs's real poll interval.
+const capturedWatchListeners = vi.hoisted((): Array<() => void> => []);
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		watchFile: (path: string, _options: unknown, listener: () => void) => {
+			capturedWatchListeners.push(listener);
+			// SAFETY: the real return type is fs.StatWatcher; nothing in the
+			// module under test uses this watcher's own methods (it's only
+			// ever passed back into unwatchFile), so an untyped stand-in is
+			// sound for this mock.
+			return { path } as unknown;
+		},
+	};
+});
 import {
 	isSanitized,
 	load,
@@ -82,10 +102,10 @@ describe("public-API constants", () => {
 // ---------- watchSanitizerFiles ----------
 //
 // Hot-reload watcher mirrors `rules-loader::watchRulesFiles`. The watcher
-// uses node:fs.watchFile poll-mode — fire-and-forget here, asserting only
-// that the API returns a cleanup function. Full hot-reload behavior is
-// exercised through the daemon integration tests when wired in a later
-// phase.
+// uses node:fs.watchFile poll-mode. The reload path (including its
+// swallow-on-throw try/catch) is driven directly through a captured
+// node:fs.watchFile listener below; only the real 2s poll tick itself is
+// left to the daemon integration tests.
 
 describe("watchSanitizerFiles", () => {
 	it("returns a cleanup function and registers a watcher without throwing", () => {
@@ -93,6 +113,34 @@ describe("watchSanitizerFiles", () => {
 		writeFileSync(join(tmpRoot, ".interlinked", "sanitizers.json"), "{}");
 		const cleanup = watchSanitizerFiles(tmpRoot, () => undefined);
 		expect(typeof cleanup).toBe("function");
+		cleanup();
+	});
+
+	it("swallows an onReload callback that throws, so a bad reload never crashes the watcher", () => {
+		// The internal `reload` closure wraps `onReload(load(cwd))` in a
+		// try/catch that intentionally swallows any error (best-effort
+		// hot-reload). Invoke the captured node:fs.watchFile listener
+		// directly (rather than waiting up to 2s for a real poll tick): if
+		// the catch were removed, the FIRST call below would throw straight
+		// out of this test instead of reaching the assertions.
+		mkdirSync(join(tmpRoot, ".interlinked"), { recursive: true });
+		writeFileSync(
+			join(tmpRoot, ".interlinked", "sanitizers.json"),
+			JSON.stringify({ version: 5, sanitizers: {} }),
+		);
+		const before = capturedWatchListeners.length;
+		const receivedVersions: number[] = [];
+		const cleanup = watchSanitizerFiles(tmpRoot, (registry) => {
+			receivedVersions.push(registry.version);
+			throw new Error("onReload boom");
+		});
+		const listener = capturedWatchListeners[before];
+		if (!listener) throw new Error("watchFile listener was not captured");
+
+		listener();
+		listener();
+
+		expect(receivedVersions).toEqual([5, 5]);
 		cleanup();
 	});
 });

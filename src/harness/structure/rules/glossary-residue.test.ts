@@ -19,6 +19,19 @@ function termNode(label: string, deprecated: string[]): ArtifactNode {
 	};
 }
 
+/** A declared term with no `metadata` key at all — the shape `buildDeprecatedMap`
+ *  must skip rather than read `deprecated` from. */
+function termNodeWithoutMetadata(label: string): ArtifactNode {
+	return {
+		id: makeGlobalRef("term", label),
+		kind: "term",
+		label,
+		file: "docs/glossary.md",
+		provenance: "declared",
+		determinism_ceiling: "fully_deterministic",
+	};
+}
+
 describe("checkGlossaryResidue", () => {
 	let tmp: string;
 
@@ -57,6 +70,27 @@ describe("checkGlossaryResidue", () => {
 		g.addNode(termNode("Workspace", ["old_workspace"]));
 		writeFileSync(join(tmp, "a.ts"), "const x = OLD_WORKSPACE;");
 		expect(checkGlossaryResidue(g, ["a.ts"], tmp)).toHaveLength(1);
+	});
+
+	it("ignores a declared term that carries no metadata at all", () => {
+		const g = new ArtifactGraph();
+		g.addNode(termNode("Workspace", ["old_workspace"]));
+		g.addNode(termNodeWithoutMetadata("Session"));
+		writeFileSync(join(tmp, "a.ts"), "const x = old_workspace; // session");
+
+		const findings = checkGlossaryResidue(g, ["a.ts"], tmp);
+
+		expect(findings.map((f) => f.message)).toEqual([
+			'File uses deprecated term "old_workspace" — use "Workspace" instead',
+		]);
+	});
+
+	it("ignores a declared term whose metadata omits the deprecated list", () => {
+		const g = new ArtifactGraph();
+		g.addNode({ ...termNodeWithoutMetadata("Session"), metadata: { owner: "harness" } });
+		writeFileSync(join(tmp, "a.ts"), "const x = session; // owner: harness");
+
+		expect(checkGlossaryResidue(g, ["a.ts"], tmp)).toEqual([]);
 	});
 
 	it("tolerates missing files (read error -> no finding)", () => {

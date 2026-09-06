@@ -368,7 +368,13 @@ function buildPendingMcpToolCall(
     };
 }
 
-function extractJsonRpcResponsePayload(message: unknown): unknown {
+// Exported for tests: the two defensive branches below (a non-object message,
+// and an object with neither "error" nor "result") are unreachable through
+// the class's public `recordJsonLine` — the only call site only reaches here
+// once `inspectJsonRpcMessage` has already classified `message` as
+// "response" or "error", which by construction means it is a JSON object
+// carrying exactly one of those two keys.
+export function extractJsonRpcResponsePayload(message: unknown): unknown {
     if (!isJsonObject(message)) {
         return message;
     }

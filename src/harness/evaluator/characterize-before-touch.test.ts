@@ -77,6 +77,25 @@ describe("characterize-before-touch — positive (must fire)", () => {
 		expect(d?.warnings?.[0]).toContain("[interlinked:characterize]");
 		expect(d?.warnings?.[0]).toContain("untested-files");
 	});
+
+	// test-contract: behavior — `onDiskHeadHasExempt`'s catch (readFileSync
+	// throwing) must NOT be read as "exempt found". A directory on disk at
+	// the listed path is a real, unmocked way to make readFileSync throw
+	// (EISDIR) while existsSync stays true, so this exercises the actual
+	// catch branch rather than simulating it.
+	it("P3: an unreadable on-disk head (EISDIR) is not treated as exempt — the gate still fires", () => {
+		seedBaseline(["src/legacy.ts"]);
+		const abs = join(tmp, "src", "legacy.ts");
+		mkdirSync(abs, { recursive: true }); // path exists but is a DIRECTORY: readFileSync throws
+		const d = evaluateCharacterizeBeforeTouch({
+			filePath: abs,
+			cwd: tmp,
+			session: makeSession(),
+			mode: "block",
+		});
+		expect(d?.decision).toBe("block");
+		expect(d?.reason).toContain('editing untested legacy file "src/legacy.ts"');
+	});
 });
 
 describe("characterize-before-touch — negative (must not fire)", () => {

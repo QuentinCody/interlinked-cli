@@ -64,4 +64,54 @@ describe("advisory simplification opportunities", () => {
 		expect(report.drafts.some((draft) => draft.summary.includes("guarded"))).toBe(false);
 		expect(report.drafts.some((draft) => draft.summary.includes("createStore"))).toBe(false);
 	});
+
+	it("flags a function whose measured cyclomatic complexity exceeds the hotspot threshold", () => {
+		const branches = Array.from(
+			{ length: 30 },
+			(_, i) => `    if (value === "${i}") { return ${i}; }`,
+		).join("\n");
+		const project = fixture({
+			"package.json": JSON.stringify({ dependencies: {} }),
+			"src/a.ts": [
+				"export function tangled(value: string): number {",
+				branches,
+				"    return -1;",
+				"}",
+			].join("\n"),
+		});
+		const report = collectAdvisoryOpportunityEvidence(project.cwd, project.paths);
+		const hotspot = report.drafts.find((draft) => draft.source === "metrics.cyclomatic_hotspot");
+		expect(hotspot?.summary).toBe(
+			"`tangled` has measured cyclomatic complexity 31; inspect for a smaller clear implementation.",
+		);
+	});
+
+	it("treats a function at or under the complexity threshold as not a hotspot", () => {
+		const branches = Array.from(
+			{ length: 5 },
+			(_, i) => `    if (value === "${i}") { return ${i}; }`,
+		).join("\n");
+		const project = fixture({
+			"package.json": JSON.stringify({ dependencies: {} }),
+			"src/a.ts": [
+				"export function mild(value: string): number {",
+				branches,
+				"    return -1;",
+				"}",
+			].join("\n"),
+		});
+		const report = collectAdvisoryOpportunityEvidence(project.cwd, project.paths);
+		expect(report.drafts.some((draft) => draft.source === "metrics.cyclomatic_hotspot")).toBe(false);
+	});
+
+	it("treats an unparseable package.json as no manifest instead of surfacing unused-dependency findings", () => {
+		const project = fixture({
+			"package.json": "{ this is not valid json",
+			"src/a.ts": 'import { run } from "used";\nexport function callIt() { return run(1); }\n',
+		});
+		const report = collectAdvisoryOpportunityEvidence(project.cwd, project.paths);
+		expect(report.drafts.some((draft) => draft.source === "opportunity.unused_runtime_dependency")).toBe(
+			false,
+		);
+	});
 });

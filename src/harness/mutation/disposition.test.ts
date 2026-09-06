@@ -218,6 +218,16 @@ describe("parseDisposition — negative (must not parse)", () => {
 			kind: "unresolved",
 		});
 	});
+
+	it("N9: an unrecognized proof method kind is not a proof", () => {
+		expect(
+			parseDisposition({
+				kind: "proved_equivalent",
+				method: { kind: "vibes_check", note: "looks fine to me" },
+				certificate: CERT,
+			}),
+		).toBeNull();
+	});
 });
 
 describe("methodProves / certificateHolds", () => {
@@ -315,6 +325,26 @@ describe("describeDisposition", () => {
 				evidence: { strategy: "fuzz", runs: 12, seed: "s", budgetMs: 1, searchedAt: "t" },
 			}),
 		).toContain("no counterexample found");
+	});
+
+	it("P2: outside_contract and accepted_risk name the approver in the line", () => {
+		expect(
+			describeDisposition({
+				kind: "outside_contract",
+				contractHash: "c1",
+				observationModelHash: "obs1",
+				approval: { approvedBy: "qcody", approvedAt: "2026-07-31T00:00:00Z", artifactRef: "review#1" },
+			}),
+		).toBe("outside contract c1 (approved by qcody)");
+		expect(
+			describeDisposition({
+				kind: "accepted_risk",
+				owner: "qcody",
+				issue: "#7",
+				expiresAt: "2026-12-31",
+				approval: { approvedBy: "qcody", approvedAt: "2026-07-31T00:00:00Z", artifactRef: "review#1" },
+			}),
+		).toBe("accepted risk owned by qcody until 2026-12-31 (#7)");
 	});
 });
 

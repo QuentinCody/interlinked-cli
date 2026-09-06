@@ -10,7 +10,7 @@ import { nonNull } from "../../lib/non-null.js";
 import { buildToolSpecs } from "./tool-catalog.js";
 import type { ToolAvailability, ToolId } from "./types.js";
 
-interface ToolBinarySpec {
+export interface ToolBinarySpec {
 	versionCmd: string[];
 	versionRegex: RegExp;
 }
@@ -43,7 +43,7 @@ function findConfig(startDir: string, configFiles: string[]): boolean {
 }
 
 /** Try running a version command and extract the version string. */
-function tryBinary(bin: ToolBinarySpec): { available: boolean; version?: string | undefined } {
+export function tryBinary(bin: ToolBinarySpec): { available: boolean; version?: string | undefined } {
 	try {
 		const result = spawnSync(nonNull(bin.versionCmd[0]), bin.versionCmd.slice(1), {
 			timeout: 5_000,

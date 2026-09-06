@@ -130,6 +130,14 @@ describe("matchesGlob — edge cases", () => {
 	it("invalid syntax (unterminated [) compiles to a no-match pattern", () => {
 		expect(matchesGlob("foo", "[abc")).toBe(false);
 	});
+
+	it("invalid syntax (unterminated {) compiles to a no-match pattern", () => {
+		// Per spec: an unclosed brace alternation has no matching `}`, so
+		// findMatchingBrace can't locate a close and processBraceToken throws;
+		// compileGlob falls back to the never-match regex, same as `[abc`.
+		expect(matchesGlob("foo.ts", "foo.{ts,js")).toBe(false);
+		expect(matchesGlob("foo.{ts,js", "foo.{ts,js")).toBe(false);
+	});
 });
 
 describe("matchesAnyGlob", () => {

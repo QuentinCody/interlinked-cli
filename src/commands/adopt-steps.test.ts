@@ -8,7 +8,18 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Hoisted: allowlistSnapshotStep's only collaborator from allowlist.js. Kept
+// as a call-through-free mock (no other test in this file drives the
+// allowlist step) so the one failure test below can force its throw path.
+const { takeAllowlistSnapshotMock } = vi.hoisted(() => ({
+	takeAllowlistSnapshotMock: vi.fn(),
+}));
+vi.mock("./allowlist.js", () => ({
+	takeAllowlistSnapshot: takeAllowlistSnapshotMock,
+}));
+
 import type { CoverageRunner, CoverageRunResult } from "../harness/coverage-runner.js";
 import { DEFAULT_MAX_LINES, resetLargeFileBaselineCache } from "../harness/large-file-policy.js";
 import {
@@ -21,7 +32,9 @@ import {
 	DEFAULT_MIN_COVERAGE_PCT,
 	resetUntestedFilesBaselineCache,
 } from "../harness/tested-file-policy.js";
+import { TrigramIndex } from "../harness/trigram-index.js";
 import {
+	allowlistSnapshotStep,
 	buildIndexStep,
 	coverageStep,
 	largeFilesStep,
@@ -88,6 +101,33 @@ describe("buildIndexStep", () => {
 		expect(result.label).toBe("Trigram index");
 		expect(result.action).toBe("written");
 		expect(result.detail).toBe("1 files indexed");
+	});
+
+	it("reports action \"failed\" with the underlying error message when the index cannot be saved", () => {
+		const saveSpy = vi
+			.spyOn(TrigramIndex.prototype, "save")
+			.mockImplementationOnce(() => {
+				throw new Error("ENOSPC: no space left on device");
+			});
+		const result = buildIndexStep(cwd, false);
+		expect(result.action).toBe("failed");
+		expect(result.detail).toBe("ENOSPC: no space left on device");
+		saveSpy.mockRestore();
+	});
+});
+
+describe("allowlistSnapshotStep — failure path", () => {
+	afterEach(() => {
+		takeAllowlistSnapshotMock.mockReset();
+	});
+
+	it("reports action \"failed\" with the underlying error message when the snapshot call throws", () => {
+		takeAllowlistSnapshotMock.mockImplementationOnce(() => {
+			throw new Error("disk snapshot failed");
+		});
+		const result = allowlistSnapshotStep(cwd, false);
+		expect(result.action).toBe("failed");
+		expect(result.detail).toBe("disk snapshot failed");
 	});
 });
 

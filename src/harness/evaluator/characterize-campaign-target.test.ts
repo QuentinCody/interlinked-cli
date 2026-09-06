@@ -7,13 +7,39 @@
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { join, resolve } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// `statSync` is wrapped as a call-through spy (not a plain `vi.spyOn(fs, ...)`,
+// which throws "Module namespace is not configurable in ESM" for node:fs
+// under this vitest version) so exactly one path can be made to throw while
+// every other fs call — including this file's own fixture setup — hits the
+// real filesystem. Covers `isDirContaining`'s catch branch: a directory
+// candidate that exists but whose `statSync` throws mid-check (permissions,
+// a race with rotation) must not read as evidence of a directory-scoped run.
+const { statSyncControl } = vi.hoisted(() => ({
+	statSyncControl: { poisonPath: null as string | null },
+}));
+
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		statSync: ((path: unknown, opts?: unknown) => {
+			if (statSyncControl.poisonPath !== null && String(path) === statSyncControl.poisonPath) {
+				throw new Error(`EACCES: permission denied, stat '${String(path)}'`);
+			}
+			return (actual.statSync as (p: unknown, o?: unknown) => unknown)(path, opts);
+		}) as typeof actual.statSync,
+	};
+});
+
 import {
 	type GrandfatheredFunction,
 	resetFunctionComplexityBaselineCache,
 	saveFunctionComplexityBaseline,
 } from "../function-complexity-baseline.js";
+import { resetRepoProfileCache } from "../repo-profile.js";
 import { createFreshSession, trackCommand } from "../session-state-mutators.js";
 import { resetUntestedFilesBaselineCache } from "../tested-file-policy.js";
 import type { GuardRulesConfig, HarnessEvent, SessionTrajectory } from "../types.js";
@@ -80,12 +106,15 @@ beforeEach(() => {
 	writeFileSync(file, BIG + TINY);
 	resetFunctionComplexityBaselineCache();
 	resetUntestedFilesBaselineCache();
+	resetRepoProfileCache();
 });
 
 afterEach(() => {
 	rmSync(tmp, { recursive: true, force: true });
 	resetFunctionComplexityBaselineCache();
 	resetUntestedFilesBaselineCache();
+	resetRepoProfileCache();
+	statSyncControl.poisonPath = null;
 });
 
 function gate(toolInput: Record<string, unknown>, session = makeSession(), mode: "block" | "warn" | "off" = "block") {
@@ -181,6 +210,16 @@ describe("characterize-campaign-target — positive (must fire)", () => {
 		expect(d?.reason).toContain("characterize first: src/a.ts:big is a campaign target");
 		// The Copilot CLI carries the same payload under `patch` instead of `command`.
 		expect(gate({ patch })?.decision).toBe("block");
+	});
+
+	it("P12: a directory candidate whose statSync throws mid-check is not evidence of a directory run", () => {
+		ledger([BIG_ENTRY]);
+		// `src/` exists and DOES contain the file, so absent the poison this would
+		// be a signal (see N11) — the poison is what forces the catch branch.
+		statSyncControl.poisonPath = resolve(tmp, "src");
+		const session = makeSession({ commands_run: ["npx vitest run src"] });
+		const d = gate({ file_path: file, content: fnWith("big", 20, " // touched") + TINY }, session);
+		expect(d?.decision).toBe("block");
 	});
 });
 
@@ -333,5 +372,18 @@ describe("touchedFunctions / hasTestSignalFor — helpers", () => {
 	it("N10: a test command naming an unrelated file is no signal for this one", () => {
 		const session = makeSession({ commands_run: ["npx vitest run src/b.test.ts", "npm run typecheck src/a.ts"] });
 		expect(hasTestSignalFor(session, file, tmp)).toBe(false);
+	});
+
+	it("P12: a separate-tree mirrored companion written this session is a signal (tests/<flat>.test.ts)", () => {
+		// Neither same-dir nor a src/__tests__ sibling — only reachable via the
+		// separate-tree fallback in `isCompanionOf` (companionTestCandidates()
+		// .some(...)). Creating the flat mirror file also gives repo-profile
+		// detection the test-under-a-top-level-root signal it needs to report
+		// `testLayout: "separate-tree"` for this temp repo.
+		mkdirSync(join(tmp, "tests"), { recursive: true });
+		const mirrored = join(tmp, "tests", "a.test.ts");
+		writeFileSync(mirrored, "");
+		const session = makeSession({ files_written: [mirrored] });
+		expect(hasTestSignalFor(session, file, tmp)).toBe(true);
 	});
 });

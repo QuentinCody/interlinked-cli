@@ -5,9 +5,28 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { captureAnchor, classifyAnchor } from "./anchor-liveness.js";
 import { type Finding, makeFinding, upsertFinding } from "./corpus.js";
+
+// Toggle to make the module-under-test's `readFileSync` throw while
+// `existsSync` still reports true — covers the "file exists but is
+// unreadable" catch branches (EACCES/EBUSY-shaped), distinct from "gone"
+// (existsSync false) and "unverified" (no anchor captured). Every other
+// node:fs export passes through to the real implementation unchanged.
+const forceReadFileSyncError = vi.hoisted(() => ({ value: false }));
+vi.mock("node:fs", async () => {
+	const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+	return {
+		...actual,
+		readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+			if (forceReadFileSyncError.value) {
+				throw new Error("EACCES: permission denied, open");
+			}
+			return actual.readFileSync(...args);
+		},
+	};
+});
 
 let dir: string;
 let file: string;
@@ -53,6 +72,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	forceReadFileSyncError.value = false;
 	rmSync(dir, { recursive: true, force: true });
 	rmSync(fakeHome, { recursive: true, force: true });
 	if (prevInterlinkedHome === undefined) delete process.env.INTERLINKED_HOME;
@@ -137,5 +157,26 @@ describe("classifyAnchor", () => {
 
 	it("unverified: legacy rows without a captured anchor fail open", () => {
 		expect(classifyAnchor(anchoredFinding(3), dir)).toEqual({ state: "unverified" });
+	});
+});
+
+describe("unreadable-file catch branches (exists, but read throws)", () => {
+	it("captureAnchor leaves the finding unanchored when readFileSync throws", () => {
+		const original = anchoredFinding(3);
+		const beforeSnapshot = JSON.parse(JSON.stringify(original));
+		forceReadFileSyncError.value = true;
+		const result = captureAnchor(original, dir);
+		// The catch swallows the read error and returns the finding untouched —
+		// no anchor fields get added, unlike the successful-read path above.
+		expect(result).toEqual(beforeSnapshot);
+		expect(result.anchor_span_sha256).toBeUndefined();
+	});
+
+	it("classifyAnchor reports unverified when an anchored file's read throws", () => {
+		const anchored = captureAnchor(anchoredFinding(3), dir);
+		forceReadFileSyncError.value = true;
+		// existsSync still sees the file (it was never deleted), so this must
+		// come from the catch around readFileSync, not the "gone" branch.
+		expect(classifyAnchor(anchored, dir)).toEqual({ state: "unverified" });
 	});
 });

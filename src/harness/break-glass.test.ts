@@ -104,6 +104,14 @@ describe("logBreakGlass / readBreakGlassLog", () => {
 		expect(readBreakGlassLog(tmp)).toEqual([]);
 	});
 
+	it("returns empty when the log path cannot be read (e.g. a directory)", () => {
+		// `existsSync` is true (the path exists) but `readFileSync` throws
+		// (EISDIR), exercising the read-failure catch branch distinctly from
+		// the "log is absent" case above.
+		mkdirSync(logPath(tmp));
+		expect(readBreakGlassLog(tmp)).toEqual([]);
+	});
+
 	it("skips malformed lines", () => {
 		writeFileSync(
 			logPath(tmp),

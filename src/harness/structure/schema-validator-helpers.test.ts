@@ -192,9 +192,9 @@ describe("validateLocalId", () => {
 	});
 
 	it("rejects an id with a colon via the pattern check", () => {
-		// A colon is outside the pattern's character class, so it is caught by
-		// the LOCAL_ID_PATTERN test (not the dedicated includes(':') branch,
-		// which is unreachable — see note in the test summary).
+		// A colon is outside the pattern's character class, so the LOCAL_ID_PATTERN
+		// test is the only check that can reject it — which is why validateLocalId
+		// carries no separate includes(":") branch.
 		const errors = validateLocalId("ns:id", "p");
 		expect(errors).toHaveLength(1);
 		expect(errors[0]?.message).toContain('Invalid local ID "ns:id"');

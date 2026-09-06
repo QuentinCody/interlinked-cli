@@ -91,6 +91,18 @@ describe("detectDynamicCodeExecution", () => {
 		);
 		expect(matches).toEqual([]);
 	});
+
+	it("N7: require( whose call never closes its paren does not fire", () => {
+		// findCloseParen scans forward from the opening `(` and returns -1 when
+		// depth never returns to 0 before the string ends. That -1 must be
+		// treated as "no argument to inspect", not as an empty argument (which
+		// would read as a static string and still not fire, masking this path).
+		const matches = detectDynamicCodeExecution(
+			"function load(id) {\n  return require(id\n}\n",
+			SRC,
+		);
+		expect(matches).toEqual([]);
+	});
 });
 
 describe("detectBuiltinPrototypeMutation", () => {

@@ -8,7 +8,7 @@ import { createPrivateKey, createPublicKey, sign as edSign } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { canonicalJson, type V3KeyRegistry } from "./canonical.js";
 import { canonicalReceiptHash, parseSignedReceipt } from "./receipts.js";
-import { SOURCE_ARTIFACT_FORMAT } from "./types.js";
+import { PROTOCOL_V3_VERSION, SOURCE_ARTIFACT_FORMAT } from "./types.js";
 
 const SEED = Buffer.alloc(32, 7);
 const PRIVATE_KEY = createPrivateKey({
@@ -53,6 +53,37 @@ const EXECUTION_PAYLOAD = {
 	test_selection_algorithm: "import-graph-v2",
 	selected_test_hash: "6".repeat(64),
 	selected_test_count: 12,
+};
+
+const ACCEPTANCE_PAYLOAD = {
+	receipt_version: "1",
+	kind: "acceptance",
+	protocol_version: PROTOCOL_V3_VERSION,
+	issued_at: "2026-08-31T11:59:00.000Z",
+	job: {
+		tenant: "tenant_0001",
+		project: "proj_0001",
+		repository: "repo_0001",
+		commit: "c".repeat(40),
+		target_file: "src/a.ts",
+		target_content_hash: "d".repeat(64),
+		job_key: "job_0001",
+	},
+	approved_policy_ids: ["policy-a1", "policy-b2"],
+	policy_version: "v1",
+	request_hash: "e".repeat(64),
+	test_scope_hash: "1".repeat(64),
+	quota_reservation_id: "quota_0001",
+	changeset_hash: "2".repeat(64),
+	source_artifact: {
+		format: SOURCE_ARTIFACT_FORMAT,
+		artifact_id: "src_fixture_bundle_0002",
+		sha256: "3".repeat(64),
+		bytes: 2048,
+	},
+	intended_image_digest: `sha256:${"4".repeat(64)}`,
+	intended_engine_config_hash: "5".repeat(64),
+	intended_scope_mode: "import_graph",
 };
 
 describe("parseSignedReceipt — positive (must accept)", () => {
@@ -152,5 +183,41 @@ describe("parseSignedReceipt — negative (must reject)", () => {
 		);
 		expect(wrongFormat.ok).toBe(false);
 		if (!wrongFormat.ok) expect(wrongFormat.reason).toContain(`exactly "${SOURCE_ARTIFACT_FORMAT}"`);
+	});
+
+	// test-contract: security — approved_policy_ids is the AUTHORIZATION list;
+	// a duplicate would let one approval be double-counted against a quota.
+	it("N6: acceptance approved_policy_ids containing a duplicate rejects", () => {
+		const duplicated = {
+			...ACCEPTANCE_PAYLOAD,
+			approved_policy_ids: ["policy-a1", "policy-a1"],
+		};
+		const outcome = parseSignedReceipt(signedReceiptText(duplicated), "acceptance", REGISTRY);
+		expect(outcome.ok).toBe(false);
+		if (!outcome.ok) {
+			expect(outcome.reason).toBe("acceptance.approved_policy_ids must not contain duplicates");
+		}
+	});
+
+	// test-contract: boundary — the outer envelope shape check rejects a
+	// non-object `signature` field before any key/purpose/crypto check runs.
+	it("N7: an envelope whose signature field is not an object rejects", () => {
+		const text = JSON.stringify({ payload: ACCEPTANCE_PAYLOAD, signature: "not-an-object" });
+		const outcome = parseSignedReceipt(text, "acceptance", REGISTRY);
+		expect(outcome.ok).toBe(false);
+		if (!outcome.ok) expect(outcome.reason).toBe("acceptance receipt must be {payload, signature}");
+	});
+
+	// test-contract: security — a malformed registry public key must ERROR the
+	// signature check (rejected), never silently read as "verification passed".
+	it("N8: a malformed registry public key errors the signature check", () => {
+		const brokenKeyRegistry: V3KeyRegistry = {
+			k1: { public_key_pem: "not a pem", purposes: ["execution"] },
+		};
+		const outcome = parseSignedReceipt(signedReceiptText(EXECUTION_PAYLOAD), "execution", brokenKeyRegistry);
+		expect(outcome.ok).toBe(false);
+		if (!outcome.ok) {
+			expect(outcome.reason).toBe('receipt signature by "k1" errored — malformed key or signature encoding');
+		}
 	});
 });

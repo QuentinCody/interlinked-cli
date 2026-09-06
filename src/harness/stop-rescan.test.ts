@@ -8,7 +8,9 @@
 // best-effort error swallows that real detectors never hit) is reachable
 // deterministically.
 
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildAgentSafetyChecks } from "./check-registry/index.js";
@@ -323,5 +325,55 @@ describe("buildPatternRescanWarnings — negative (must not fire)", () => {
 		}).join(String.fromCharCode(10));
 		expect(w).toContain("touched by 1 subagent(s)");
 		expect(w).not.toContain("eval_usage:4");
+	});
+});
+
+// The two cases below deliberately do NOT pass `opts.gitShow` — every other
+// test in this file injects a fake reader, which means the module's own
+// `gitShowFile` (a real `git show <sha>:<path>` shell-out) was never
+// exercised. `node:child_process` is unmocked in this file, so these run a
+// real git command against this repo's own history.
+describe("buildPatternRescanWarnings — real gitShowFile (no injected reader)", () => {
+	const REPO_ROOT = process.cwd();
+
+	function realHeadSha(): string {
+		return execFileSync("git", ["-C", REPO_ROOT, "rev-parse", "HEAD"], { encoding: "utf-8" }).trim();
+	}
+
+	it("P5: a successful real `git show` at HEAD drops a finding the committed content already carries", () => {
+		mockBuildChecks.mockReturnValue([detector("eval_usage", [{ line: 4, text: "eval(a)" }])]);
+		const session = makeSession(["package.json"]);
+		session.git_session_baseline = {
+			head_sha: realHeadSha(),
+			modified: new Set<string>(),
+			staged: new Set<string>(),
+			untracked: new Set<string>(),
+		};
+		const warnings = buildPatternRescanWarnings(session, REPO_ROOT, {
+			dryRun: true,
+			interlinkedDir: join(REPO_ROOT, ".interlinked"),
+		});
+		// The mocked detector returns the identical fixed match regardless of
+		// content, for both the current scan and the baseline scan — so this
+		// is empty only because the real `git show` succeeded (non-null) and
+		// fed scanContentFindings a baseline that produced the same finding.
+		expect(warnings).toEqual([]);
+	});
+
+	it("N4: a real `git show` failure (nonexistent ref) degrades to no-baseline — the finding stays introduced", () => {
+		mockBuildChecks.mockReturnValue([detector("eval_usage", [{ line: 4, text: "eval(a)" }])]);
+		const session = makeSession(["package.json"]);
+		session.git_session_baseline = {
+			// Syntactically a valid sha, but does not exist in this repo.
+			head_sha: "0".repeat(40),
+			modified: new Set<string>(),
+			staged: new Set<string>(),
+			untracked: new Set<string>(),
+		};
+		const warnings = buildPatternRescanWarnings(session, REPO_ROOT, {
+			dryRun: true,
+			interlinkedDir: join(REPO_ROOT, ".interlinked"),
+		}).join(String.fromCharCode(10));
+		expect(warnings).toContain("eval_usage:4 — eval(a)");
 	});
 });

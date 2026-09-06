@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	ensureCodexFeatureFlag,
+	findFeaturesHooksAssignmentCounts,
 	findFeaturesTableHeaderLines,
 	readCodexHooksFlag,
 } from "./codex-feature-flag.js";
@@ -1233,5 +1234,22 @@ describe("ensureCodexFeatureFlag — the reported duplicate-key defect, minimal 
 		expect(run("[features]\r\nhooks = false\r\ncodex_hooks = true\r\n")).toBe(
 			"[features]\r\nhooks = true\r\n",
 		);
+	});
+});
+
+describe("findFeaturesHooksAssignmentCounts", () => {
+	it("counts a legacy `codex_hooks` assignment separately from `hooks` (the codex_hooks++ arm)", () => {
+		// No `hooks` key at all, so the loop's every iteration takes the
+		// `else` arm — the observable is codex_hooks landing at 1 while
+		// hooks stays 0, which only that arm can produce.
+		const counts = findFeaturesHooksAssignmentCounts("[features]\ncodex_hooks = true\n");
+		expect(counts).toEqual({ hooks: 0, codex_hooks: 1 });
+	});
+
+	it("counts each key independently when both a canonical and a duplicate legacy key are present", () => {
+		const counts = findFeaturesHooksAssignmentCounts(
+			"[features]\nhooks = true\ncodex_hooks = true\ncodex_hooks = false\n",
+		);
+		expect(counts).toEqual({ hooks: 1, codex_hooks: 2 });
 	});
 });

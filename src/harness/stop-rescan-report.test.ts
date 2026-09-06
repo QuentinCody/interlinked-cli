@@ -109,6 +109,17 @@ describe("digestStopRescan — positive (must fire)", () => {
 		const out = run([finding({ file: "scratch/probe.ts", checkId: "ubs_print_debug_leak" })]);
 		expect(out.spoolRows.some((r) => r.kind === "sanctioned-scratch")).toBe(true);
 	});
+
+	it("P10: collapses a file's 5th+ open finding into a '...and N more' count line", () => {
+		// MAX_FINDINGS_PER_FILE is 4: the 5th distinct line on the same file must
+		// fold into a summary instead of printing a 5th `checkId:line` row.
+		const out = run(
+			Array.from({ length: 5 }, (_, i) => finding({ line: i + 1, text: `eval(${i})` })),
+		);
+		const text = out.warnings.join("\n");
+		expect(text).toContain("...and 1 more (see stop-digest.jsonl)");
+		expect(text).not.toContain("eval(4)");
+	});
 });
 
 describe("digestStopRescan — negative (must not fire)", () => {

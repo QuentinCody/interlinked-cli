@@ -20,6 +20,7 @@ import {
 	checkSortInLoop,
 	checkSprintfInLoop,
 	checkStringConcatInLoop,
+	loopIterableRegexFor,
 } from "./performance-loop-checks.js";
 
 /** N standalone brace-delimited loops, each with one `line(i)` body line. */
@@ -92,6 +93,16 @@ describe("checkQueryInLoop — negative (must NOT fire)", () => {
 
 	it("N2: no loop bodies at all", () => {
 		expect(checkQueryInLoop(`const row = await db.query("SELECT 1");`, "users.ts")).toEqual([]);
+	});
+});
+
+describe("loopIterableRegexFor — negative (must NOT fire)", () => {
+	it("N1: an extension with no traced head-iterable form returns null, not a regex", () => {
+		// Every extension queryCallPatternFor recognizes also has an entry here
+		// (ts family, py, go, rs, java, swift), so checkQueryInLoop's public
+		// entry never reaches this file's final fallback arm — only a direct
+		// call with an extension outside that set does.
+		expect(loopIterableRegexFor(".rb")).toBe(null);
 	});
 });
 

@@ -480,6 +480,25 @@ describe("loadCoverageFinalSummary", () => {
 		expect(loadCoverageFinalSummary(coveragePath, tmp)).toBeNull();
 	});
 
+	it("excludes an entry when resolveFileKey's resolve() throws on a malformed repoRoot", () => {
+		// The key is a RELATIVE path (no `path` field, so pathKey falls back to
+		// the object key) — node:path's resolve() only consults every argument,
+		// including repoRoot, when the last one isn't already absolute. An
+		// absolute pathKey would make resolve() short-circuit on `pathKey` alone
+		// and never look at (or type-check) repoRoot at all.
+		writeFixture({
+			"src/foo.ts": {
+				statementMap: { "0": { start: { line: 1 }, end: { line: 1 } } },
+				s: { "0": 1 },
+			},
+		});
+		// resolveFileKey's guard only validates pathKey (a string here), so the
+		// malformed repoRoot reaches resolve() unchecked and trips the catch —
+		// the entry is excluded rather than the summary builder throwing.
+		const malformedRepoRoot = null as unknown as string;
+		expect(loadCoverageFinalSummary(coveragePath, malformedRepoRoot)).toBeNull();
+	});
+
 	it("computes lines and branches pct from statementMap/s/b, taking the MAX hit per shared line", () => {
 		const absPath = join(tmp, "src/foo.ts");
 		writeFixture({

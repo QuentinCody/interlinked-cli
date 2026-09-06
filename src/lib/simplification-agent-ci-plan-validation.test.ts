@@ -109,6 +109,38 @@ describe("simplification P5 validation plan", () => {
 		expect(plan.steps[0]?.step_id).toBe("bind-source");
 	});
 
+	it("sorts a candidate's protected boundaries into canonical order", () => {
+		const request = buildSimplificationAgentCiRequest(draft());
+		const outOfOrder: SimplificationValidationCandidate[] = [
+			{
+				fingerprint: "multi-boundary",
+				overlap_group: null,
+				protected_boundaries: ["compatibility", "authorization"],
+				human_contract_narrowing_sha256: SHA_A,
+				independent_validator_sha256: SHA_B,
+			},
+		];
+		const plan = buildSimplificationAgentCiP5Plan(request, outOfOrder);
+		expect(plan.candidates[0]?.protected_boundaries).toEqual([
+			"authorization",
+			"compatibility",
+		]);
+	});
+
+	it("refuses a request whose check plan hash is not a valid sha256 despite candidate mode", () => {
+		const request = buildSimplificationAgentCiRequest(draft());
+		// SAFETY: the branded type has no runtime marker, so this is the only
+		// way to exercise the defensive re-check inside buildSimplificationAgentCiP5Plan
+		// against a request whose validation shape violates its own type contract.
+		const tampered = {
+			...request,
+			validation: { ...request.validation, check_plan_sha256: "not-a-sha" },
+		} as typeof request;
+		expect(() => buildSimplificationAgentCiP5Plan(tampered, candidates())).toThrow(
+			/pinned request\.validation\.check_plan_sha256/,
+		);
+	});
+
 	it("refuses to build outside candidate mode", () => {
 		const noMode = buildSimplificationAgentCiRequest(
 			draft({ mode: "none", check_plan_sha256: null, max_candidates: 0 }),

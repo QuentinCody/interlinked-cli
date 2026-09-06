@@ -260,6 +260,28 @@ describe("detectInterpreterWrite — negative (must not fire)", () => {
 			detect(heredoc("python3 -", "EOF", "p = os.environ['OUT']", "open(p, 'w').write(body)")),
 		).toBeNull();
 	});
+
+	// `VAR=value<<EOF` is real shell: bash sets the variable with stdin redirected
+	// from the heredoc and runs NO command at all. The command-word scan therefore
+	// walks assignment after assignment and reaches the end of the segment without
+	// ever meeting a verb — a heredoc with no interpreter is not a program, even
+	// though its body carries the incident's own write call. The long `divider=`
+	// assignment keeps the scan inside assignments for the whole bounded
+	// look-ahead window, which is what makes the segment run out rather than stop
+	// on the first non-assignment word.
+	it("N15: a heredoc attached to a segment of pure VAR= assignments has no interpreter", () => {
+		const body = [
+			`divider="${"=".repeat(100)}"`,
+			`open("src/harness/landed.ts","w").write(body)`,
+		];
+		expect(detect(["PYBODY=x<<EOF", ...body, "EOF"].join("\n"))).toBeNull();
+		// Control: the very same body IS a block once the segment has a real
+		// command word, so the null above is the missing interpreter and nothing
+		// else about the payload.
+		expect(detect(["python3 -<<EOF", ...body, "EOF"].join("\n"))?.resolved).toBe(
+			`${ROOT}/src/harness/landed.ts`,
+		);
+	});
 });
 
 describe("evaluateInterpreterWriteGuard", () => {
@@ -294,6 +316,25 @@ describe("evaluateInterpreterWriteGuard", () => {
 		const { decision, warnings } = run(INCIDENT);
 		expect(decision).toBeNull();
 		expect(warnings.join("\n")).toContain("[interlinked:interpreter-write]");
+	});
+
+	// Gap 4's soft path at the EVENT level: the block passes both come back empty
+	// (nothing in the program resolves to a repo-source literal), so the guard
+	// allows the command and the only trace it leaves is the warning.
+	it("warns without blocking when the inline program's write destination is computed", () => {
+		const { decision, warnings } = run(`node -e 'require("fs").writeFileSync(dest, body)'`);
+		expect(decision).toBeNull();
+		expect(warnings).toEqual([
+			expect.stringContaining(
+				"Inline node program calls writeFileSync( with a COMPUTED destination",
+			),
+		]);
+	});
+
+	it("stays silent on an inline program with no write call at all", () => {
+		const { decision, warnings } = run(`node -e 'console.log(fs.readFileSync(p,"utf8"))'`);
+		expect(decision).toBeNull();
+		expect(warnings).toEqual([]);
 	});
 
 	it("persists nothing, so a dry run behaves exactly like a live one", () => {

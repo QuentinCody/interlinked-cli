@@ -1,18 +1,38 @@
 import {
+	chmodSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
 	rmSync,
 	statSync,
+	symlinkSync,
 	truncateSync,
 	utimesSync,
 	writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
-import { collectCodexSessions, findCodexRollouts } from "./codex-collect.js";
-import { TimelineScanError } from "./timeline-writer.js";
+import { afterAll, describe, expect, it, vi } from "vitest";
+import {
+	__test_only__,
+	codexSessionsDir,
+	collectCodexSessions,
+	findCodexRollouts,
+} from "./codex-collect.js";
+import { appendTimelineRecordsAtBasis, TimelineScanError } from "./timeline-writer.js";
+import type { TimelineRecord } from "./transcript-record.js";
+
+const { addCandidateRecords } = __test_only__;
+
+// Wraps the real implementation by default (`vi.fn(actual)`), so every test
+// in this file except the one that calls `mockReturnValueOnce` below runs
+// against genuine append/lock/dedup behavior — only that one test injects
+// the race condition finishCollection guards against.
+vi.mock("./timeline-writer.js", async () => {
+	const actual = await vi.importActual<typeof import("./timeline-writer.js")>("./timeline-writer.js");
+	return { ...actual, appendTimelineRecordsAtBasis: vi.fn(actual.appendTimelineRecordsAtBasis) };
+});
 
 const roots: string[] = [];
 afterAll(() => {
@@ -36,6 +56,15 @@ function rollout(session: string): string {
 		.join("\n");
 }
 
+describe("codexSessionsDir", () => {
+	// test-contract: public-api — collectCodexSessions falls back to this
+	// exact path when no `dir` override is given (see the `opts.dir ??
+	// codexSessionsDir()` call), so its value is load-bearing, not incidental.
+	it("resolves to <home>/.codex/sessions", () => {
+		expect(codexSessionsDir()).toBe(join(homedir(), ".codex", "sessions"));
+	});
+});
+
 describe("findCodexRollouts", () => {
 	it("finds rollout files recursively and honors --since mtime", () => {
 		const dir = tmp("codex-find-");
@@ -51,6 +80,23 @@ describe("findCodexRollouts", () => {
 		expect(findCodexRollouts(dir).sort()).toEqual([old, recent].sort());
 		expect(findCodexRollouts(dir, Date.now() - 60_000)).toEqual([recent]);
 		expect(findCodexRollouts(join(dir, "does-not-exist"))).toEqual([]);
+	});
+
+	// test-contract: invariant — statOrNull's catch must yield null (skip),
+	// not propagate, for an entry that vanishes between readdir and stat
+	// (here, a symlink whose target never existed), or the whole scan throws.
+	it("skips a dangling symlink instead of throwing", () => {
+		const dir = tmp("codex-dangling-");
+		const real = join(dir, "rollout-real.jsonl");
+		writeFileSync(real, rollout("s-real"));
+		const broken = join(dir, "rollout-broken.jsonl");
+		symlinkSync(join(dir, "no-such-target"), broken);
+
+		let found: string[] = [];
+		expect(() => {
+			found = findCodexRollouts(dir);
+		}).not.toThrow();
+		expect(found).toEqual([real]);
 	});
 });
 
@@ -121,5 +167,55 @@ describe("collectCodexSessions", () => {
 
 		expect(() => collectCodexSessions({ cwd, dir })).toThrow(TimelineScanError);
 		expect(readFileSync(path, "utf8")).toBe(malformed);
+	});
+
+	// test-contract: invariant — readCodexRollout's catch must yield null
+	// (skip the file) rather than propagate, for a rollout that exists and
+	// matches the name pattern but cannot be opened. An unreadable file is
+	// counted as scanned but contributes nothing to parsed/added/sessions.
+	it("skips an unreadable rollout file instead of throwing", () => {
+		const { dir, cwd } = setup();
+		const unreadable = join(dir, "2026", "07", "18", "rollout-c.jsonl");
+		writeFileSync(unreadable, rollout("sess-locked"));
+		chmodSync(unreadable, 0o000);
+		try {
+			const r = collectCodexSessions({ cwd, dir });
+			expect(r.files).toBe(3); // scanned: a, b, and the locked one
+			expect(r.sessions).toBe(2); // only a and b parsed into records
+		} finally {
+			chmodSync(unreadable, 0o644);
+		}
+	});
+
+	// test-contract: invariant — finishCollection must refuse to report
+	// success when appendTimelineRecordsAtBasis reports the destination
+	// changed since it was scanned, so history can never silently drop.
+	it("throws when the destination timeline changed underneath the write", () => {
+		const { dir, cwd } = setup();
+		vi.mocked(appendTimelineRecordsAtBasis).mockReturnValueOnce(false);
+		expect(() => collectCodexSessions({ cwd, dir })).toThrow(
+			"timeline changed after collection scanned it; no Codex records were appended",
+		);
+	});
+});
+
+describe("addCandidateRecords (bounded batch guard)", () => {
+	// test-contract: invariant — a batch already at/over the byte budget must
+	// refuse a new record rather than silently growing past it; the check
+	// runs BEFORE insertion, so the record must not be added either.
+	it("throws instead of accepting a record that would exceed the byte budget", () => {
+		const batch = { records: new Map<string, TimelineRecord>(), bytes: Number.MAX_SAFE_INTEGER, parsed: 0 };
+		const record: TimelineRecord = {
+			schema: "timeline.v1",
+			ts: "2026-07-18T00:00:00Z",
+			session: "s1",
+			uuid: "11111111-1111-1111-1111-111111111111",
+			seq: 0,
+			category: "user_prompt",
+			role: "user",
+			text: "hi",
+		};
+		expect(() => addCandidateRecords(batch, [record])).toThrow(/bounded candidate limit/);
+		expect(batch.records.size).toBe(0);
 	});
 });

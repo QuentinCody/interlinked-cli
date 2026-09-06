@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +12,15 @@ import {
 	parseManifest,
 	readMutantSnapshot,
 } from "./mutation-feed.js";
+
+// node:fs's ESM namespace is non-configurable, so a plain `vi.spyOn(fs,
+// "readFileSync")` throws ("Cannot redefine property"). Route through
+// vi.mock instead: keep every real implementation, wrap readFileSync in a
+// spy-able vi.fn() so one test can force it to throw.
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
+});
 
 /** Minimal well-formed manifest with one file, one symbol, N mutants. */
 function manifest(mutants: Record<string, { status: string; mutator?: string }>) {
@@ -103,6 +113,15 @@ describe("readMutantSnapshot", () => {
 
 	it("returns an empty snapshot when the file is absent", () => {
 		expect(readMutantSnapshot(join(dir, "nope.json"))).toEqual(emptySnapshot());
+	});
+
+	it("returns an empty snapshot when the file exists but reading it throws", () => {
+		const path = join(dir, "mutation-manifest.json");
+		writeFileSync(path, manifest({ m1: { status: "survived" } }));
+		vi.mocked(fs.readFileSync).mockImplementationOnce(() => {
+			throw new Error("EACCES: permission denied");
+		});
+		expect(readMutantSnapshot(path)).toEqual(emptySnapshot());
 	});
 });
 

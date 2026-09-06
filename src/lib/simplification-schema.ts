@@ -252,7 +252,10 @@ export function parseSimplificationCoverage(value: unknown): SimplificationCover
 	};
 }
 
-function parseSummary(value: unknown): SimplificationSummary | null {
+// Exported (was module-private) so the JSON-boundary null-return path for a
+// malformed remedy/evidence-state counter — otherwise reachable only via the
+// much harder-to-isolate `parseSimplificationReport` — has a direct unit test.
+export function parseSummary(value: unknown): SimplificationSummary | null {
 	if (!isJsonObject(value) || !isJsonObject(value.by_remedy)) return null;
 	if (!isJsonObject(value.by_evidence_state)) return null;
 	const findings = nonNegativeInteger(value.findings);

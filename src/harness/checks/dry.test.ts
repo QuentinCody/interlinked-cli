@@ -5,6 +5,7 @@ import {
 	extractFunctionShingles,
 	findClones,
 	jaccard,
+	MIN_LOGICAL_LINES,
 	shingleSet,
 	tokenize,
 } from "./dry.js";
@@ -152,6 +153,47 @@ function pickC(items: Item[]): string[] ${body}
 		// reports at most one match, so no triple-counting.
 		expect(findings.length).toBeLessThanOrEqual(2);
 		expect(findings.length).toBeGreaterThanOrEqual(1);
+	});
+});
+
+// ==================================================================
+// extractFunctionShingles — the shingle floor (MIN_SHINGLES)
+// ==================================================================
+
+describe("extractFunctionShingles — shingle floor", () => {
+	it("empties an entry that clears the logical-line floor but yields <3 distinct shingles", () => {
+		// Reaches the `shingles.size < MIN_SHINGLES` arm, which needs a body that
+		// is long enough in LINES yet degenerate in TOKENS. Two stackable facts of
+		// the real pipeline get it there:
+		//   1. `stripCommentsAndStrings` treats a leading `#` as a line-comment
+		//      marker, so a `#private` method's declaration line is blanked —
+		//      its 5+ distinct declaration tokens never reach the shingler, while
+		//      the TS AST still reports the method's full line..endLine span.
+		//   2. The surviving tokens are `a a a a a }` — 3 four-token windows, only
+		//      2 of them distinct.
+		// Logical lines counts the blanked declaration line out but the five body
+		// lines and the closing brace in, so the entry is past MIN_LOGICAL_LINES.
+		const content = `
+class Holder {
+	#collect() {
+		a
+		a
+		a
+		a
+		a
+	}
+}
+`;
+		const fns = extractFunctionShingles(content, "src/holder.ts");
+		const collect = nonNull(fns.find((f) => f.name === "#collect"));
+		// Past the logical-line floor, so this is NOT the MIN_LOGICAL_LINES arm.
+		expect(collect.logicalLines).toBe(6);
+		expect(collect.logicalLines).toBeGreaterThanOrEqual(MIN_LOGICAL_LINES);
+		// Under the shingle floor: the entry is emptied rather than kept with a
+		// noise-dominated 2-shingle set.
+		expect(collect.shingles.size).toBe(0);
+		// An emptied entry is dropped before any pairing.
+		expect(findClones({ edited: fns, candidates: [] })).toEqual([]);
 	});
 });
 

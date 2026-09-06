@@ -111,4 +111,10 @@ describe("simplification finding extension", () => {
 		expect(parseFindingExtensions({ simplification: malformed })).toBeNull();
 		expect(parseFindingExtensions(undefined)).toBeUndefined();
 	});
+
+	it("rejects an otherwise well-formed extension whose repository field fails its own validation", () => {
+		const invalidRepository = extensionFixture();
+		invalidRepository.repository = null;
+		expect(parseSimplificationExtension(invalidRepository)).toBeNull();
+	});
 });

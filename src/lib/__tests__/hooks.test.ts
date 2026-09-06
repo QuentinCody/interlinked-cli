@@ -219,6 +219,48 @@ describe("resolveHookBinaryPath — packagedHookEntryPath catch branch", () => {
 	});
 });
 
+// The "genuinely unbuilt checkout" case. It cannot be staged with real files —
+// a test running inside this repo always has `dist/hook-entry.js` two levels up
+// from `src/lib/hooks.ts` — so `existsSync` is stubbed to deny exactly that
+// filename through the same `vi.doMock` + fresh-import pattern the
+// readPackageVersion cases above use. Every other fs call stays real.
+describe("packagedHookEntryPath — nothing packaged anywhere", () => {
+	let tmp: string;
+
+	beforeEach(() => {
+		tmp = mkdtempSync(join(tmpdir(), "hooks-unbuilt-"));
+	});
+
+	afterEach(() => {
+		rmSync(tmp, { recursive: true, force: true });
+		vi.doUnmock("node:fs");
+		vi.resetModules();
+	});
+
+	it("returns null when no probe finds a hook-entry.js, so resolution falls back to the generated .mjs", async () => {
+		vi.resetModules();
+		vi.doMock("node:fs", async () => {
+			const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+			return {
+				...actual,
+				existsSync: vi.fn((path: unknown, ...rest: unknown[]) => {
+					if (String(path).endsWith("hook-entry.js")) return false;
+					return (actual.existsSync as (...a: unknown[]) => boolean)(path, ...rest);
+				}),
+			};
+		});
+		const mod = await import("../hooks.js");
+
+		// Observed directly: `resolveHookBinaryPath` re-checks the returned path
+		// with existsSync, so a probe that answered with a bogus path would be
+		// invisible in the resolved binary below.
+		expect(mod.packagedHookEntryPath()).toBeNull();
+		expect(mod.resolveHookBinaryPath(tmp, { writeFallback: false })).toBe(
+			join(tmp, ".interlinked", "hooks", "interlinked-activity.mjs"),
+		);
+	});
+});
+
 describe("resolveHookBinaryPath — resolution order", () => {
 	let tmp: string;
 	const ORIGINAL_ARGV1 = process.argv[1];

@@ -76,6 +76,24 @@ describe("checkPackageBoundaryViolations", () => {
 		expect(nonNull(findings[0]).name).toBe("package_boundary_violation");
 	});
 
+	it("skips an import edge whose endpoint node was never added to the graph", () => {
+		const g = new ArtifactGraph();
+		const p1 = pkg("app", "app/package.json");
+		const p2 = pkg("lib", "lib/package.json");
+		// Note: only the packages are added as nodes — the module refs below
+		// appear in edges (so nodeToPackage still maps them) but graph.getNode()
+		// returns undefined for both, exercising the dangling-node guard.
+		const appModRef = makeGlobalRef("module", "app-mod-missing");
+		const libModRef = makeGlobalRef("module", "lib-mod-missing");
+		g.addNode(p1);
+		g.addNode(p2);
+		g.addEdge(edge(appModRef, p1.id, "belongs_to_package"));
+		g.addEdge(edge(libModRef, p2.id, "belongs_to_package"));
+		g.addEdge(edge(appModRef, libModRef, "imports"));
+
+		expect(checkPackageBoundaryViolations(g)).toEqual([]);
+	});
+
 	it("allows cross-package import when the target IS a declared entrypoint", () => {
 		const g = new ArtifactGraph();
 		const p1 = pkg("app", "app/package.json");

@@ -3,6 +3,7 @@ import type { ClientName } from "./settings.js";
 import {
     buildSkillConfig,
     ENFORCE_SHORT_DESCRIPTION,
+    processLinesLength,
     renderTargetContent,
     runnerTargets,
     swapFrontmatterDescription,
@@ -161,5 +162,21 @@ tags: foo
 
 # Enforce
 `);
+    });
+
+    it("skips a hole in the frontmatter line array instead of copying it into the output (noUncheckedIndexedAccess guard)", () => {
+        // `swapFrontmatterDescription` always builds `lines` from `String#split`,
+        // which never produces a hole — this guard is unreachable through that
+        // public path. Call the line-rewriter directly with a manufactured hole
+        // to exercise it: real frontmatter parsers over hand-edited YAML can hit
+        // trailing/malformed entries the same way.
+        // SAFETY: deliberately manufacturing the hole `noUncheckedIndexedAccess`
+        // guards against — real callers never produce one (see comment above).
+        const linesWithHole = ["name: enforce", undefined, "tags: foo"] as string[];
+
+        const { out, replaced } = processLinesLength(linesWithHole, '"New"');
+
+        expect(out).toEqual(["name: enforce", "tags: foo"]);
+        expect(replaced).toBe(false);
     });
 });

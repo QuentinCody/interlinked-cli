@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import type { GuardRulesConfig, QualityCheckConfig } from "../../types.js";
 import { DEFAULT_CONFIG } from "../default-config.js";
-import { mergeLocalOverrides, mergeTeamRules } from "../merge.js";
+import { mergeLocalOverrides, mergeTeamRules, postureEnumViolationsIn } from "../merge.js";
 
 function mkBaseConfig() {
 	// Use the full default config (deep-cloned) as the starting shape so we
@@ -783,5 +783,28 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 			content_scanner: {} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
 		});
 		expect(JSON.stringify(config.content_scanner)).toBe(snapshot);
+	});
+});
+
+// `postureEnumViolationsIn` is handed a RAW parsed config section, so its
+// argument is whatever the JSON file held — including the non-object shapes
+// the type signature cannot rule out. Doctor calls it on exactly that value.
+describe("postureEnumViolationsIn — non-object structural_checks sections", () => {
+	it("reports nothing for a missing (null) structural_checks section", () => {
+		// Without the null guard the entry loop reaches Object.hasOwn(null, …)
+		// and throws, so doctor would crash on a config that simply has no
+		// structural_checks block.
+		expect(postureEnumViolationsIn(null)).toEqual([]);
+	});
+
+	it("reports nothing for a scalar structural_checks value", () => {
+		expect(postureEnumViolationsIn("enforce")).toEqual([]);
+	});
+
+	it("ignores an array section even when it carries an enum field as a property", () => {
+		// The array clause is the load-bearing one here: an array IS an object,
+		// so without it this returns a { field: "test_first_mode" } violation.
+		const arraySection = Object.assign(["nudge"], { test_first_mode: "typo" });
+		expect(postureEnumViolationsIn(arraySection)).toEqual([]);
 	});
 });

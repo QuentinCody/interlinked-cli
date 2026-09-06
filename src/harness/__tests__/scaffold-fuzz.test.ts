@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 
 import { nonNull } from "../../lib/non-null.js";
 import type { DetectorFinding } from "../checks/endpoint-security.js";
-import { attachScaffolds } from "../scaffold-fuzz.js";
+import { attachScaffolds, polyglotsForPython, polyglotsForTs } from "../scaffold-fuzz.js";
 import type { Endpoint } from "../types/session.js";
 
 const TS_FILE = "/tmp/handler.ts";
@@ -655,5 +655,35 @@ describe("attachScaffolds — Python string-literal escaping", () => {
 		const out = attachScaffolds(findings, { endpoints });
 		// Backslash doubled, embedded quote backslash-escaped.
 		expect(nonNull(out[0]).message).toContain('"/items/{id}\\\\\\"x"');
+	});
+});
+
+// ===========================================
+// 18. Corpus selectors — the mass-assignment arm
+// ===========================================
+// `synthesizeTsScaffold` / `synthesizePythonScaffold` route
+// `endpoint_mass_assignment` to their own builders BEFORE the generic
+// scaffold runs, so the selectors' mass-assignment `case` never fires
+// through `attachScaffolds`. Drive each selector directly and pin the whole
+// corpus: falling through to `default` would yield the SQL/path corpus.
+
+describe("polyglotsForTs", () => {
+	it("returns the body-injection corpus for endpoint_mass_assignment", () => {
+		expect(polyglotsForTs("endpoint_mass_assignment")).toEqual([
+			"{ isAdmin: true }",
+			'{ role: "owner" }',
+			'{ is_admin: true, role: "owner", org_id: "attacker" }',
+			'{ stripeCustomerId: "cus_attacker" }',
+		]);
+	});
+});
+
+describe("polyglotsForPython", () => {
+	it("returns the Python body-injection corpus for endpoint_mass_assignment", () => {
+		expect(polyglotsForPython("endpoint_mass_assignment")).toEqual([
+			'{"is_admin": True}',
+			'{"role": "owner"}',
+			'{"is_admin": True, "role": "owner", "org_id": "attacker"}',
+		]);
 	});
 });

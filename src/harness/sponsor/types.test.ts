@@ -54,6 +54,15 @@ describe("sanitizeCreative", () => {
 		expect(sanitizeCreative(null)).toBeNull();
 	});
 
+	it("rejects a url that `new URL()` itself cannot parse, not just a non-https one", () => {
+		// "not a url" has no scheme at all, so `new URL()` throws rather than
+		// returning a parsed object with a non-https protocol — a different
+		// code path than the `http://` / `javascript:` cases above. If the
+		// catch swallowed the throw and returned true instead of false, this
+		// would come back as a full creative object instead of null.
+		expect(sanitizeCreative({ ...GOOD, url: "not a url" })).toBeNull();
+	});
+
 	it("strips control bytes from text and rejects text that is empty after stripping", () => {
 		// An embedded OSC 8 hyperlink attempt must come out inert.
 		const c = sanitizeCreative({ ...GOOD, text: "hi\u001b]8;;evil\u0007there" });

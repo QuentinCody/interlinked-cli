@@ -15,6 +15,7 @@ import {
 	describePostureReceipt,
 	describeWizardPlan,
 	type WizardDeps,
+	WIZARD_COPY,
 	writeDeadCodeConfig,
 	writeScopeConfig,
 } from "./setup-wizard.js";
@@ -291,5 +292,22 @@ describe("describePostureReceipt", () => {
 		const text = describePostureReceipt({ ...DEFAULT_WIZARD_CHOICES, adopt: false }).join("\n");
 		expect(text).toContain("NOT seeded");
 		expect(text).toContain("allowlist snapshot");
+	});
+});
+
+describe("WIZARD_COPY — the two prompts that interpolate runtime state", () => {
+	// test-contract: public-api — the single-source copy contract only holds if
+	// the parameterised prompts render the SAME text for the TUI reader
+	// (setup-wizard-run.ts:178,198) and the browser demo generator. Both are
+	// pinned verbatim here, so a copy change shows up as a failing assertion
+	// rather than as silent drift between the two surfaces.
+	it("the runners prompt lists the detected ids as a bare comma-separated set", () => {
+		expect(WIZARD_COPY.steps.runners.prompt(["claude", "codex", "gemini"])).toBe(
+			"   Hook all detected? [Y] or list ids (claude,codex,gemini): ",
+		);
+	});
+
+	it("the mode prompt shows the recommended mode as the bracketed Enter default", () => {
+		expect(WIZARD_COPY.steps.mode.prompt("balanced")).toBe("   Mode [balanced]: ");
 	});
 });

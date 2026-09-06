@@ -4,11 +4,14 @@
 //
 // Every case runs against a real temp repo — the module's whole job is reading
 // the tree and the harness's own artifacts, so mocking fs would test nothing.
+// ONE exception, at the bottom of this file: a `closeSync` that fails on a
+// valid descriptor, which no real filesystem produces. That mock closes the
+// descriptor for real before throwing, and is off for every other case.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
 	buildGateReachStopWarning,
@@ -20,6 +23,20 @@ import {
 	shouldCollectGateReach,
 } from "./gate-reach-collect.js";
 import { buildGateReachSnapshot, type GateReachSnapshot } from "./gate-reach.js";
+
+/** Set only by the descriptor-close case at the bottom of this file. */
+let mockCloseSyncFails = false;
+
+vi.mock("node:fs", async (importOriginal) => {
+	const real = await importOriginal<typeof import("node:fs")>();
+	return {
+		...real,
+		closeSync: (fd: number): void => {
+			real.closeSync(fd); // close for real first — never leak a descriptor
+			if (mockCloseSyncFails) throw new Error("EBADF: bad file descriptor, close");
+		},
+	};
+});
 
 let repo: string;
 
@@ -404,6 +421,23 @@ describe("readLatestGateReachSnapshot — malformed-row handling", () => {
 		});
 		writeFileSync(path, `${JSON.stringify(good)}\n`, { flag: "a" });
 		expect(readLatestGateReachSnapshot(repo)?.session_id).toBe("tail-session");
+	});
+});
+
+describe("enumerateEligibleFiles — descriptor-close failure", () => {
+	afterEach(() => {
+		mockCloseSyncFails = false;
+	});
+
+	it("enumerates every eligible file even when closing a header descriptor throws", () => {
+		write("src/a.ts", "export const a = 1;\n");
+		write("src/b.ts", "export const b = 2;\n");
+		mockCloseSyncFails = true;
+		// Returning BOTH files is the discriminating observable: the close of
+		// the first file's descriptor throws, so without the inner catch the
+		// error would escape readHeader's `finally` and abort the whole walk
+		// instead of yielding a complete list.
+		expect(enumerateEligibleFiles(repo).sort()).toEqual(["src/a.ts", "src/b.ts"]);
 	});
 });
 

@@ -149,6 +149,11 @@ describe("repo-profile", () => {
 			writeFixture(root, { "src/a.ts": "export const a = 1;\n" });
 			expect(detectRepoProfile(root).runners.js).toBe(false);
 		});
+
+		it("fails toward enforcement (true) when package.json is malformed JSON", () => {
+			writeFixture(root, { "package.json": "{ this is not valid json" });
+			expect(detectRepoProfile(root).runners.js).toBe(true);
+		});
 	});
 
 	describe("runners.python", () => {

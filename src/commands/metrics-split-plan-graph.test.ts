@@ -135,6 +135,19 @@ describe("buildSplitGraph — positive (must fire)", () => {
 		expect(g.totalLines).toBe(46);
 		expect(g.filePath).toBe("/repo/src/fixture.ts");
 	});
+
+	it("P8: a namespace import's binding name maps every reference to its module specifier", () => {
+		const src = [
+			'import * as ns from "./util.js";', // 1
+			"", // 2
+			"export function one(): number {", // 3
+			"\treturn ns.value;", // 4
+			"}", // 5
+			"", // 6
+		].join("\n");
+		const g = buildSplitGraph(src, "/repo/src/ns.ts");
+		expect(g?.units.find((u) => u.name === "one")?.imports).toEqual(["./util.js"]);
+	});
 });
 
 describe("buildSplitGraph — negative (must not fire)", () => {

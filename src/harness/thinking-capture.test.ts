@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -292,6 +292,24 @@ describe("latestTranscriptModel", () => {
 		const tp = join(d, "x.jsonl");
 		writeFileSync(tp, `${JSON.stringify({ type: "user" })}\n`);
 		expect(latestTranscriptModel(tp)).toBeNull();
+	});
+
+	it("skips a torn line that mentions a model and keeps the last valid one", () => {
+		const d = tmp();
+		const tp = join(d, "s.jsonl");
+		// The truncated line passes the `"model"` substring prefilter, so only the
+		// per-line parse guard keeps it from sinking the whole tail read.
+		writeFileSync(
+			tp,
+			`${JSON.stringify({ type: "assistant", message: { model: "kept-model", content: [] } })}\n{"type":"assistant","message":{"model":"tor\n`,
+		);
+		expect(latestTranscriptModel(tp)).toBe("kept-model");
+	});
+
+	it("fails open (returns null) when the transcript path exists but cannot be read", () => {
+		const d = tmp(); // a directory path → readSync throws EISDIR → outer catch
+		expect(existsSync(d)).toBe(true); // past the missing-transcript guard
+		expect(latestTranscriptModel(d)).toBeNull();
 	});
 
 	// parseAssistantModel boundary parser (internal).

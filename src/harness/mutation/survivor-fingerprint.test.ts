@@ -91,4 +91,14 @@ describe("fingerprintAt — negative (must not fire)", () => {
 		const b = "function f(a: number, b: number): number {\n\tif (a >= b) return 1;\n\treturn 2;\n}\n";
 		expect(fingerprintAt(indexOf(a), a.indexOf("> b"), ">")).not.toBe(fingerprintAt(indexOf(b), b.indexOf(">= b"), ">="));
 	});
+
+	it("N4: returns null for a top-level statement — module level has no enclosing statement", () => {
+		const src = "let x = 1;\n";
+		const lexeme = "let x = 1;";
+		const index = indexOf(src);
+		// The whole statement's own span is the node at offset 0 — its parent
+		// is the SourceFile directly, so `enclosingStatement` finds none.
+		expect(offsetsOfLexeme(index, lexeme)).toEqual([0]);
+		expect(fingerprintAt(index, 0, lexeme)).toBeNull();
+	});
 });

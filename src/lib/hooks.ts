@@ -244,8 +244,13 @@ export function resolveHookBinaryPath(
  * The module-relative probe is the reliable one (this file ships beside the
  * bundle), and it keeps a genuinely unbuilt checkout on the `.mjs` fallback
  * because there is no `dist/` to find.
+ *
+ * Exported for tests only: `resolveHookBinaryPath` re-checks the returned path
+ * with `existsSync`, so "found nothing" and "found a path that is not there"
+ * are indistinguishable through the public entry point. The unbuilt-checkout
+ * answer has to be observed directly.
  */
-function packagedHookEntryPath(): string | null {
+export function packagedHookEntryPath(): string | null {
 	const invoked = process.argv[1];
 	if (invoked) {
 		try {

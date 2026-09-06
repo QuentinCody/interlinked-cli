@@ -3,10 +3,21 @@
 //
 // Labeled per the Check Evidence Contract — each describe names a direction.
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Hoisted: wraps only `appendFileSync` as a call-through spy so one test can
+// force a single throw for the audit-write-failure case — every other fs
+// export (including the ones this file uses directly below) stays real.
+// Plain `vi.spyOn(fs, ...)` throws "Module namespace is not configurable in
+// ESM" for node:fs — see background-task-log.test.ts for the prior art.
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return { ...actual, appendFileSync: vi.fn(actual.appendFileSync) };
+});
+
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import {
 	BASELINE_FOLD_LOG_REL,
 	DEFAULT_AUTOFOLD_BUDGET_MS,
@@ -100,14 +111,38 @@ describe("audit trail + stderr line — positive (must appear)", () => {
 		expect(typeof rows[0]?.at).toBe("string");
 	});
 
+	it("P1b: a failed audit write does not undo the fold that already landed", () => {
+		seedUntestedWork();
+		vi.mocked(appendFileSync).mockImplementationOnce(() => {
+			throw new Error("disk full");
+		});
+		const result = runBaselineAutoFold({
+			cwd,
+			sessionId: "s-1",
+			touched: ["src/a.ts"],
+			sessionStartMs: 0,
+			dryRun: false,
+		});
+		expect(result.outcomes.find((o) => o.kind === "untested_files")?.changed).toBe(1);
+		expect(auditRows()).toEqual([]);
+		const raw: unknown = JSON.parse(
+			readFileSync(join(cwd, ".interlinked/untested-files-baseline.json"), "utf-8"),
+		);
+		// SAFETY: the real fold write already dropped "src/a.ts" from the list
+		// on disk, proving the audit failure was swallowed rather than rolling
+		// the fold back.
+		expect((raw as { files: string[] }).files).toEqual([]);
+	});
+
 	it("P2: emits exactly one stderr line naming every fold that moved", () => {
 		const warning = formatFoldWarning([
 			mkOutcome({ kind: "coverage", changed: 3 }),
+			mkOutcome({ kind: "coverage_edit", changed: 4 }),
 			mkOutcome({ kind: "untested_files", changed: 2 }),
 			mkOutcome({ kind: "large_files", changed: 1 }),
 		]);
 		expect(warning).toBe(
-			"[interlinked:baseline-fold] coverage +3 raised, untested -2 dropped, large-files -1 dropped",
+			"[interlinked:baseline-fold] coverage +3 raised, edit-baseline +4 raised, untested -2 dropped, large-files -1 dropped",
 		);
 	});
 
@@ -231,5 +266,24 @@ describe("budget + never-throw — negative (must degrade, not fail)", () => {
 	it("N4: a malformed started_at yields 0, never NaN", () => {
 		// SAFETY: deliberately malformed input for the NaN-guard path.
 		expect(sessionStartMs({ started_at: "not-a-date" } as SessionTrajectory)).toBe(0);
+	});
+
+	it("N5: an unexpected throw mid-fold is logged as non-fatal and yields no warnings", () => {
+		// SAFETY: `files_written` is a non-iterable object, so
+		// `toRepoRelative`'s `for...of` throws "paths is not iterable" — the
+		// one path into the wrapper's own catch block, distinct from every
+		// per-fold catch already covered above.
+		const session = { files_written: {}, started_at: new Date(0).toISOString() } as unknown as SessionTrajectory;
+		const warnings = runSessionEndBaselineAutoFold({
+			cwd,
+			rules: mkRules(),
+			log: (m) => logged.push(m),
+			event: mkEvent(),
+			session,
+		});
+		expect(warnings).toEqual([]);
+		expect(logged).toHaveLength(1);
+		expect(logged[0]).toContain("Baseline auto-fold failed (non-fatal):");
+		expect(logged[0]).toContain("is not iterable");
 	});
 });

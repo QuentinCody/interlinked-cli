@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -75,6 +75,21 @@ describe("fingerprint-archive fail-open", () => {
 		clearArchive(cwd, "sess-clear");
 		expect(loadArmedFingerprints(cwd, "sess-clear", T0 + 1)).toBeNull();
 		expect(() => clearArchive(cwd, "never")).not.toThrow(); // idempotent
+	});
+
+	it("clearArchive swallows a non-ENOENT rmSync failure instead of throwing", () => {
+		// force:true suppresses ENOENT, but rmSync (no `recursive`) still throws
+		// EISDIR when the archive path is occupied by a directory instead of a
+		// file — the case the catch block at fingerprint-archive.ts:166 exists
+		// for. If that catch were removed the EISDIR would propagate and this
+		// call would throw; instead it must return normally and leave the
+		// directory in place (rmSync never removed it).
+		const dir = join(cwd, ".interlinked", "trajectory-armed");
+		mkdirSync(dir, { recursive: true });
+		const collidingPath = join(dir, "dir-sess.json");
+		mkdirSync(collidingPath);
+		expect(() => clearArchive(cwd, "dir-sess")).not.toThrow();
+		expect(existsSync(collidingPath)).toBe(true);
 	});
 });
 

@@ -196,4 +196,16 @@ describe("getGuardHookStatus", () => {
 		expect(status.pre_commit).toBe(false);
 		expect(status.pre_push).toBe(false);
 	});
+
+	it("treats an unreadable hook file as not installed", () => {
+		mockExistsSync.mockReturnValue(true);
+		mockReadFileSync.mockImplementation(() => {
+			throw new Error("EACCES: permission denied");
+		});
+
+		const status = getGuardHookStatus("/test/repo");
+
+		expect(status.pre_commit).toBe(false);
+		expect(status.pre_push).toBe(false);
+	});
 });

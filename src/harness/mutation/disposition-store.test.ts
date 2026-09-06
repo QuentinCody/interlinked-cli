@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -247,6 +247,18 @@ describe("ledger persistence + durability regression", () => {
 		};
 		saveLedger(configDir, ledger);
 		expect(loadLedger(configDir).records).toHaveLength(1);
+	});
+
+	it("N2: loadLedger returns the honest empty ledger when the file on disk is not valid JSON", () => {
+		writeFileSync(join(configDir, "mutation-dispositions.json"), "{ this is not json", "utf-8");
+		const loaded = loadLedger(configDir);
+		// The corrupt-JSON path must recover to the SAME honest-empty shape as
+		// an absent file (version 1, no records, blank identity fields) rather
+		// than propagating the JSON.parse exception.
+		expect(loaded.version).toBe(1);
+		expect(loaded.records).toEqual([]);
+		expect(loaded.environmentHash).toBe("");
+		expect(loaded.dependencyGraphVersion).toBe("");
 	});
 
 	it("P3: a re-measure over the same symbol does NOT wipe the record — the ledger is durable (plan 18 §1.3)", () => {

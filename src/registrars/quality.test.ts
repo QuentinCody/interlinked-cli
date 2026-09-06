@@ -38,6 +38,8 @@ const mutationCloudV3SubmitCommand = vi.fn();
 const mutationCloudV3ProcessCommand = vi.fn();
 const mutationCloudV3DeadLettersCommand = vi.fn();
 const mutationCloudV3RedriveCommand = vi.fn();
+const mutationDispositionCommand = vi.fn();
+const deadcodeCommand = vi.fn();
 const designCommand = vi.fn();
 
 vi.mock("../commands/check.js", () => ({
@@ -101,6 +103,12 @@ vi.mock("../commands/mutation-cloud-v3.js", () => ({
 	mutationCloudV3ProcessCommand: (...args: unknown[]) => mutationCloudV3ProcessCommand(...args),
 	mutationCloudV3DeadLettersCommand: (...args: unknown[]) => mutationCloudV3DeadLettersCommand(...args),
 	mutationCloudV3RedriveCommand: (...args: unknown[]) => mutationCloudV3RedriveCommand(...args),
+}));
+vi.mock("../commands/mutation-disposition.js", () => ({
+	mutationDispositionCommand: (...args: unknown[]) => mutationDispositionCommand(...args),
+}));
+vi.mock("../commands/deadcode.js", () => ({
+	deadcodeCommand: (...args: unknown[]) => deadcodeCommand(...args),
 }));
 vi.mock("../commands/design.js", () => ({
 	designCommand: (...args: unknown[]) => designCommand(...args),
@@ -257,8 +265,13 @@ describe("registerQualityCommands — structure", () => {
 				.find((c) => c.name() === name)
 				?.options.map((o) => o.long)
 				.sort();
+		// Reconciled 2026-09: the registered set is now exactly the set of
+		// `opts.*` keys `coverageCheckCommand` reads. `--summary` / `--baseline`
+		// were registered but never read (silently ignored); `--strict` /
+		// `--changed-files` / `--cwd` were read but never registered, so
+		// commander refused `--strict` outright. See coverage-flag-parity.test.ts.
 		expect(optsOf(cov, "check")).toEqual(
-			["--baseline", "--json", "--summary", "--update-baseline"].sort(),
+			["--changed-files", "--cwd", "--json", "--report", "--strict", "--update-baseline"].sort(),
 		);
 		expect(optsOf(cov, "baseline")).toEqual(["--json"]);
 		expect(optsOf(mut, "check")).toEqual(
@@ -275,7 +288,10 @@ describe("registerQualityCommands — structure", () => {
 		const covCheck = sub(program, "coverage").commands.find((c) => c.name() === "check");
 		const mutCheck = sub(program, "mutation").commands.find((c) => c.name() === "check");
 		expect(defOf(structInit, "--mode")).toBe("standard");
-		expect(defOf(covCheck, "--summary")).toBe("coverage/coverage-summary.json");
+		// `coverage check --report` deliberately has NO default: an explicit path
+		// SUPPRESSES the multi-report LCOV + istanbul merge in resolveReportPaths,
+		// so defaulting it would silently narrow every run to one file.
+		expect(defOf(covCheck, "--report")).toBeUndefined();
 		expect(defOf(mutCheck, "--report")).toBe("reports/mutation/mutation.json");
 	});
 });
@@ -604,12 +620,10 @@ describe("structure subcommands — action wiring", () => {
 // coverage subcommands — action wiring (check is awaited; baseline is sync)
 // ===========================================================================
 describe("coverage subcommands — action wiring", () => {
-	it("check forwards options including the default --summary", async () => {
+	it("check forwards an EMPTY opts object with no flags (no option carries a default)", async () => {
 		const program = build();
 		await program.parseAsync(["coverage", "check"], { from: "user" });
-		expect(coverageCheckCommand).toHaveBeenCalledWith({
-			summary: "coverage/coverage-summary.json",
-		});
+		expect(coverageCheckCommand).toHaveBeenCalledWith({});
 	});
 
 	it("check forwards explicit options", async () => {
@@ -618,18 +632,23 @@ describe("coverage subcommands — action wiring", () => {
 			[
 				"coverage",
 				"check",
-				"--summary",
+				"--report",
 				"cov.json",
-				"--baseline",
-				"base.json",
+				"--changed-files",
+				"src/a.ts,src/b.ts",
+				"--cwd",
+				"/repo",
+				"--strict",
 				"--update-baseline",
 				"--json",
 			],
 			{ from: "user" },
 		);
 		expect(coverageCheckCommand).toHaveBeenCalledWith({
-			summary: "cov.json",
-			baseline: "base.json",
+			report: "cov.json",
+			changedFiles: "src/a.ts,src/b.ts",
+			cwd: "/repo",
+			strict: true,
 			updateBaseline: true,
 			json: true,
 		});
@@ -638,9 +657,7 @@ describe("coverage subcommands — action wiring", () => {
 	it("runs check as the default subcommand of `coverage`", async () => {
 		const program = build();
 		await program.parseAsync(["coverage"], { from: "user" });
-		expect(coverageCheckCommand).toHaveBeenCalledWith({
-			summary: "coverage/coverage-summary.json",
-		});
+		expect(coverageCheckCommand).toHaveBeenCalledWith({});
 	});
 
 	it("baseline forwards --json (sync call)", async () => {
@@ -1134,6 +1151,91 @@ describe("mutation subcommands — action wiring", () => {
 			program.parseAsync(["mutation", "cloud", "redrive", "job-dead-1"], { from: "user" }),
 		).rejects.toMatchObject({ code: "commander.missingMandatoryOptionValue" });
 		expect(mutationCloudV3RedriveCommand).not.toHaveBeenCalled();
+	});
+});
+
+// ===========================================================================
+// mutation disposition — action wiring (the WRITE verb for the sidecar ledger)
+// ===========================================================================
+describe("mutation disposition — action wiring", () => {
+	it("forwards a dead_code record's fields, camelCasing --budget-ms", async () => {
+		const program = build();
+		await program.parseAsync(
+			[
+				"mutation",
+				"disposition",
+				"--file",
+				"src/foo.ts",
+				"--id",
+				"m1",
+				"--kind",
+				"dead_code",
+				"--resolution",
+				"delete",
+				"--issue",
+				"ILK-12",
+				"--budget-ms",
+				"5000",
+				"--cwd",
+				"/repo",
+				"--json",
+			],
+			{ from: "user" },
+		);
+		expect(mutationDispositionCommand).toHaveBeenCalledWith({
+			file: "src/foo.ts",
+			id: "m1",
+			kind: "dead_code",
+			resolution: "delete",
+			issue: "ILK-12",
+			budgetMs: "5000",
+			cwd: "/repo",
+			json: true,
+		});
+	});
+
+	it("forwards the read-only --list flag alone, with no record fields", async () => {
+		const program = build();
+		await program.parseAsync(["mutation", "disposition", "--list"], { from: "user" });
+		expect(mutationDispositionCommand).toHaveBeenCalledWith({ list: true });
+	});
+});
+
+// ===========================================================================
+// deadcode — action wiring (the only action that publishes an exit code)
+// ===========================================================================
+describe("deadcode — action wiring", () => {
+	let priorExitCode: typeof process.exitCode;
+
+	beforeEach(() => {
+		priorExitCode = process.exitCode;
+	});
+
+	afterEach(() => {
+		process.exitCode = priorExitCode;
+	});
+
+	it("forwards all options to deadcodeCommand", async () => {
+		deadcodeCommand.mockResolvedValue(0);
+		const program = build();
+		await program.parseAsync(["deadcode", "--cwd", "/repo", "--categorize", "--json"], {
+			from: "user",
+		});
+		expect(deadcodeCommand).toHaveBeenCalledWith({ cwd: "/repo", categorize: true, json: true });
+	});
+
+	it("passes empty opts by default", async () => {
+		deadcodeCommand.mockResolvedValue(0);
+		const program = build();
+		await program.parseAsync(["deadcode"], { from: "user" });
+		expect(deadcodeCommand).toHaveBeenCalledWith({});
+	});
+
+	it("publishes the scan's resolved exit code on process.exitCode", async () => {
+		deadcodeCommand.mockResolvedValue(2);
+		const program = build();
+		await program.parseAsync(["deadcode"], { from: "user" });
+		expect(process.exitCode).toBe(2);
 	});
 });
 

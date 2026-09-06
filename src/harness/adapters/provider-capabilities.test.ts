@@ -5,6 +5,7 @@ import {
 	CODEX_CAPABILITIES,
 	COPILOT_CLI_CAPABILITIES,
 	CURSOR_CAPABILITIES,
+	defineCapabilities,
 	eventCapability,
 	GEMINI_CLI_CAPABILITIES,
 	installedEventNames,
@@ -120,5 +121,35 @@ describe("provider capability catalog", () => {
 
 	it("returns null for an unknown native event", () => {
 		expect(eventCapability(CODEX_CAPABILITIES, "FutureEvent")).toBeNull();
+	});
+});
+
+describe("defineCapabilities — duplicate-name guard", () => {
+	it("throws naming the repeated event when two events share a name", () => {
+		expect(() =>
+			defineCapabilities({
+				project_hook_path: ".test/settings.json",
+				hook_trust: "implicit",
+				status_line: "custom-command",
+				events: [
+					{
+						name: "PreToolUse",
+						phase: "pre-tool",
+						install: true,
+						control: "observe",
+						model_context: false,
+						missing_runtime: "warn_open",
+					},
+					{
+						name: "PreToolUse",
+						phase: "pre-tool",
+						install: true,
+						control: "deny",
+						model_context: false,
+						missing_runtime: "warn_open",
+					},
+				],
+			}),
+		).toThrowError("duplicate native hook event capability: PreToolUse");
 	});
 });

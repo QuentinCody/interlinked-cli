@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -387,5 +388,20 @@ describe("registry wrappers — negative (must not fire)", () => {
 		const file = join(dir, "edited.ts");
 		writeFileSync(file, EXTRACTED);
 		expect(checkExtractedHelperDuplicate(EXTRACTED, file, dir)).toEqual([]);
+	});
+
+	it("N3: checkNewExportWithoutImporter is silent when a real sibling (read via the git file listing) imports the new export", () => {
+		// `checkNewExportWithoutImporter`'s `liveRepo` uses `getGitSourceFiles`
+		// for the candidate list and reads each one off disk. Without a real
+		// git repo (as in N1/P1, which never write a second file) that reader
+		// is never invoked because there is nothing to scan. Here a genuine
+		// sibling importing `helper` must be read for the finding to go
+		// silent — if the reader were broken (e.g. always returned null) the
+		// import would be invisible and this would still fire.
+		execFileSync("git", ["init", "-q"], { cwd: dir });
+		const file = join(dir, "lib.ts");
+		writeFileSync(file, BEFORE);
+		writeFileSync(join(dir, "consumer.ts"), 'import { helper } from "./lib.js";\nhelper();\n');
+		expect(checkNewExportWithoutImporter(AFTER, file, dir)).toEqual([]);
 	});
 });

@@ -90,6 +90,31 @@ const TWO_GT = [
 	"",
 ].join("\n");
 
+/** Two occurrences of the IDENTICAL statement in one symbol — same fingerprint,
+ *  so pairing them can only be done by SOURCE OFFSET (the `byOffset` fixtures). */
+const TWO_SAME = [
+	"export function f(a: number, b: number): string {",
+	'\tif (a > b) return "eq";',
+	'\tif (a > b) return "eq";',
+	'\treturn "ne";',
+	"}",
+	"",
+].join("\n");
+
+/** Both identical statements moved verbatim into one extracted helper, order preserved. */
+const TWO_SAME_MOVED = [
+	"export function f(a: number, b: number): string {",
+	"\treturn classify(a, b);",
+	"}",
+	"",
+	"function classify(a: number, b: number): string {",
+	'\tif (a > b) return "eq";',
+	'\tif (a > b) return "eq";',
+	'\treturn "ne";',
+	"}",
+	"",
+].join("\n");
+
 /** `f` and `g` carry the SAME statement — the regression-masking fixtures
  *  (verdict 2026-09-01: f's `>` survived, g's `>` killed). */
 const TWO_FN = [
@@ -395,6 +420,42 @@ describe("reconcileSurvivorMoves — positive (must fire)", () => {
 		expect(move.currentMutantId).toBe(nth(current, 0).mutantId);
 		// The identity contract really did change under the move — that is the gap this layer closes.
 		expect(move.currentMutantId).not.toBe(move.previousMutantId);
+	});
+
+	it("P2: two same-content moves pair by SOURCE OFFSET, not by record insertion order", () => {
+		const gtFirst: Spec = { needle: "> b", lexeme: ">", replacement: ">=", mutator: "EqualityOperator" };
+		const gtSecond: Spec = { ...gtFirst, nth: 1 };
+		// Record the SECOND occurrence's survivor before the FIRST's: insertion
+		// order is reversed relative to source order, so only a real
+		// ascending-offset sort (not array order) can restore the correct pairing.
+		const base = manifestOf(TWO_SAME, [rawAt(TWO_SAME, gtSecond), rawAt(TWO_SAME, gtFirst)]);
+		const floor = priorFloorOf(base, FILE);
+		const located = locatePriorSurvivors({ file: FILE, content: TWO_SAME }, floor);
+		const firstOffset = TWO_SAME.indexOf("> b");
+		const secondOffset = TWO_SAME.indexOf("> b", firstOffset + 1);
+		const priorFirstId = [...located].find(([, off]) => off === firstOffset)?.[0];
+		const priorSecondId = [...located].find(([, off]) => off === secondOffset)?.[0];
+		if (priorFirstId === undefined || priorSecondId === undefined) throw new Error("expected both prior survivors located");
+
+		const currentRaws = [rawAt(TWO_SAME_MOVED, gtFirst), rawAt(TWO_SAME_MOVED, gtSecond)];
+		const currentIds = identitiesOf(TWO_SAME_MOVED, currentRaws);
+		const moves = reconcileSurvivorMoves({
+			file: FILE,
+			priorContent: TWO_SAME,
+			prior: floor,
+			currentContent: TWO_SAME_MOVED,
+			current: currentSites(currentIds, adaptedOf(currentRaws)),
+			changed: changedOf(base, TWO_SAME_MOVED),
+		});
+		expect(moves).toHaveLength(2);
+		const moveForFirst = moves.find((m) => m.currentMutantId === nth(currentIds, 0).mutantId);
+		const moveForSecond = moves.find((m) => m.currentMutantId === nth(currentIds, 1).mutantId);
+		if (moveForFirst === undefined || moveForSecond === undefined) throw new Error("expected both currents matched");
+		// Each current pairs with the prior at the SAME source position — if the
+		// pairing used the (reversed) record insertion order instead of offset,
+		// these two would come out swapped.
+		expect(moveForFirst.previousMutantId).toBe(priorFirstId);
+		expect(moveForSecond.previousMutantId).toBe(priorSecondId);
 	});
 });
 

@@ -7,11 +7,12 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	evaluateGitScopeGateSync,
 	parseGitVerb,
 } from "./git-session-scope-gate.js";
+import * as gitScopeResolutionHelpers from "./git-session-scope-gate-resolution-helpers.js";
 import { SessionTracker } from "../session-state.js";
 import type { HarnessEvent, SessionTrajectory } from "../types.js";
 
@@ -52,6 +53,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	rmSync(repo, { recursive: true, force: true });
+	vi.restoreAllMocks();
 });
 
 function makeSession(opts?: {
@@ -406,5 +408,33 @@ describe("evaluateGitScopeGateSync — exact ask-reason contract", () => {
 			"This git commit would include 1 file(s) that existed in the working tree before this session started (src/commit.ts). " +
 			"These weren't written by this session's agent or its subagents — confirm before proceeding.",
 		);
+	});
+});
+
+// ============================================================
+// resolveOpFiles throwing (git plumbing genuinely unusable)
+// ============================================================
+//
+// Every real git shell-out this gate makes already catches its own failures
+// (non-git cwd, missing `git` binary, no upstream) and degrades to an empty
+// file list — so the resolver itself never throws through any bashCommand
+// this parser can produce. The outer catch this describe block targets is a
+// defensive backstop for a resolver-level failure (e.g. the underlying git
+// primitive raising something its own try/catch didn't anticipate). We
+// reach it by making the collaborator throw directly, the same class of
+// injected failure as spying a throwing node:fs method on a different gate.
+describe("evaluateGitScopeGateSync — resolveOpFiles throws", () => {
+	it("degrades to allow with the 'git unavailable' note instead of propagating the error", () => {
+		vi.spyOn(gitScopeResolutionHelpers, "statusPaths").mockImplementationOnce(() => {
+			throw new Error("simulated git-status failure");
+		});
+		const v = evaluateGitScopeGateSync("git add -A", makeSession(), repo);
+		expect(v).toEqual({
+			decision: "allow",
+			reason: "git unavailable; gate degraded to allow.",
+			resolved_files: [],
+			unauthorized_files: [],
+			baseline_files: [],
+		});
 	});
 });

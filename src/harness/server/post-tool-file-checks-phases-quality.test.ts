@@ -513,6 +513,27 @@ describe("applyQualityDecision", () => {
 		expect(decision.warnings?.[0]).not.toContain("Fix all type errors");
 	});
 
+	// test-contract: public-api — a deferral id with no bespoke label case
+	// (`project_typecheck_deferred`, `project_tests_deferred`) falls through to
+	// the default arm, which de-underscores the check id. The raw id must never
+	// reach the agent-visible line.
+	it("labels a deferral with no bespoke case by de-underscoring its check id", () => {
+		const ctx = makeCtx();
+		const decision: HarnessDecision = { decision: "allow" };
+		applyQualityDecision(ctx, [
+			qr({
+				name: "project_typecheck_deferred",
+				message: "Project typecheck deferred (worker busy)",
+				file: "src/a.ts",
+				detail: "No project-wide verdict was produced: the typecheck worker is busy",
+			}),
+		], decision);
+
+		expect(decision.warnings).toEqual([
+			"[interlinked:checks-deferred] [proven] NOT CHECKED: project typecheck deferred for src/a.ts (the typecheck worker is busy). Retry each deferred check after active project work finishes; no clean verdict exists for check.",
+		]);
+	});
+
 	// test-contract: bug — when formatQualityWarnings(blocking) formats to an
 	// empty array (empty join === ""), the `||` fallback must supply the
 	// fixed default reason text verbatim, not an empty string.

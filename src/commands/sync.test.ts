@@ -390,6 +390,35 @@ describe("syncCommand — dry-run", () => {
 			expect.objectContaining({ startOffset: 0 }),
 		);
 	});
+
+	// test-contract: invariant — pending_sync > 0 means the outer up-to-date
+	// short-circuit (line ~67) is skipped, but the basis capture can still
+	// race the cursor to end up already at basis.endExclusive, so the preview
+	// itself sees 0 events. Dry-run must report up to date from THIS second
+	// check too, without ever paging through getUnsyncedEvents.
+	it("dry-run whose preview lands on 0 events reports up to date (normal)", async () => {
+		mockGetLocalStats.mockReturnValue({ pending_sync: 5 });
+		mockReadSyncState.mockReturnValue({ synced_through_bytes: 500, last_sync_at: "x" });
+		mockCaptureActivitySyncBasis.mockReturnValue({
+			identity: { dev: "test", ino: "activity" },
+			endExclusive: 500,
+		});
+		await syncCommand({ dryRun: true });
+		expect(stdout()).toContain("Already up to date.");
+		expect(mockGetUnsyncedEvents).not.toHaveBeenCalled();
+	});
+
+	it("dry-run whose preview lands on 0 events emits the JSON up-to-date envelope", async () => {
+		mockGetLocalStats.mockReturnValue({ pending_sync: 5 });
+		mockReadSyncState.mockReturnValue({ synced_through_bytes: 500, last_sync_at: "x" });
+		mockCaptureActivitySyncBasis.mockReturnValue({
+			identity: { dev: "test", ino: "activity" },
+			endExclusive: 500,
+		});
+		await syncCommand({ json: true, dryRun: true });
+		expect(jsonOut()).toEqual({ synced: 0, pending: 0, message: "Already up to date" });
+		expect(mockGetUnsyncedEvents).not.toHaveBeenCalled();
+	});
 });
 
 // =======================================================================

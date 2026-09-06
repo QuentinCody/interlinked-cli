@@ -18,6 +18,32 @@ vi.mock("../harness/registry-metadata.js", () => ({
 	fetchNpmPublishDates: (...args: unknown[]) => fetchNpmPublishDatesMock(...args),
 }));
 
+// `takeAllowlistSnapshot`'s per-candidate stat has a catch-and-continue for a
+// statSync failure after the existsSync check already passed (a TOCTOU race
+// on the real filesystem — nothing in this test file can trigger it through
+// real I/O since existsSync and statSync hit the same syscall back-to-back
+// with no async gap). `statSync` is wrapped so a test can name one path to
+// fail while every other `node:fs` call — including every other statSync
+// call in this file — passes straight through to the real implementation
+// (`vi.spyOn` can't redefine a live ESM named export here, same workaround as
+// metrics-function-tokens.test.ts).
+const fsStatFailures = vi.hoisted(() => new Set<string>());
+vi.mock("node:fs", async () => {
+	const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+	return {
+		...actual,
+		statSync: (...args: Parameters<typeof actual.statSync>) => {
+			const target = String(args[0]);
+			if (fsStatFailures.has(target)) {
+				throw Object.assign(new Error(`EACCES: permission denied, stat '${target}'`), {
+					code: "EACCES",
+				});
+			}
+			return actual.statSync(...args);
+		},
+	};
+});
+
 import {
 	addAllowlistCommand,
 	libyearsBehind,
@@ -45,6 +71,7 @@ beforeEach(() => {
 afterEach(() => {
 	rmSync(workspace, { recursive: true, force: true });
 	process.exitCode = 0;
+	fsStatFailures.clear();
 });
 
 function readAllowlistFile(): Record<string, unknown> | null {
@@ -561,6 +588,22 @@ describe("snapshotAllowlistCommand", () => {
 			lockfile_snapshots: Record<string, unknown>;
 		};
 		expect(parsed.lockfile_snapshots["yarn.lock"]).toBeUndefined();
+		expect(parsed.lockfile_snapshots["package.json"]).toBeDefined();
+		expect(out).toBe("snapshotted 1 file(s):\n  package.json\n");
+	});
+
+	it("skips a candidate whose statSync call throws instead of aborting the whole snapshot", () => {
+		writeFileSync(join(workspace, "package.json"), '{"name":"x"}');
+		const flaky = join(workspace, "Cargo.toml");
+		writeFileSync(flaky, "");
+		fsStatFailures.add(flaky);
+
+		const out = capture(() => snapshotAllowlistCommand({ cwd: workspace, by: "x" }));
+
+		const parsed = readAllowlistFile() as {
+			lockfile_snapshots: Record<string, unknown>;
+		};
+		expect(parsed.lockfile_snapshots["Cargo.toml"]).toBeUndefined();
 		expect(parsed.lockfile_snapshots["package.json"]).toBeDefined();
 		expect(out).toBe("snapshotted 1 file(s):\n  package.json\n");
 	});

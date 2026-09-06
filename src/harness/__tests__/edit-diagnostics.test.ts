@@ -33,6 +33,31 @@ describe("findClosestSpans", () => {
 		expect(nonNull(misses[0]).similarity).toBeGreaterThan(0.7);
 	});
 
+	it("finds a short single-line target with few window matches (exercises the extra single-line scan path)", () => {
+		// A short single-line target with only one line in the file scoring
+		// above threshold — this drives `candidates.length < n` after the
+		// windowed pass, so the extra `addShortSingleLineCandidates` scan runs.
+		const content = ["zzzzzzzzzzzz", "hello", "zzzzzzzzzzzz"].join("\n");
+		const target = "hello";
+		const misses = findClosestSpans(content, target, 3);
+		expect(misses.length).toBe(1);
+		expect(nonNull(misses[0]).line).toBe(2);
+		expect(nonNull(misses[0]).similarity).toBe(1);
+	});
+
+	it("returns every scored line verbatim for a short single-line target", () => {
+		// Pins the whole NearMiss shape the short-single-line scan produces: two
+		// exact matches far enough apart to survive dedup, and a near match that
+		// is dropped for sitting adjacent to a better one. Fails if the scan
+		// stops pushing candidates for this target shape.
+		const content = ["hello", "helloo", "zzzzzzzz", "hello"].join("\n");
+		const misses = findClosestSpans(content, "hello", 3);
+		expect(misses).toEqual([
+			{ line: 1, endLine: 1, snippet: "hello", lines: ["hello"], similarity: 1 },
+			{ line: 4, endLine: 4, snippet: "hello", lines: ["hello"], similarity: 1 },
+		]);
+	});
+
 	it("finds multi-line near miss with one differing line", () => {
 		const content = [
 			"export function bar() {",

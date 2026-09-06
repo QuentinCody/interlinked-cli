@@ -94,13 +94,24 @@ export function docChangelog(c: PropagationCtx): PropagationTarget[] {
 	return [];
 }
 
-/** 1. DOCUMENTATION — docs/ files that mention the module name or rel path. */
-export function docDocsDir(c: PropagationCtx): PropagationTarget[] {
+/**
+ * 1. DOCUMENTATION — docs/ files that mention the module name or rel path.
+ *
+ * `find` defaults to the real recursive walk and exists only so a test can
+ * inject a finder that THROWS: the real `findFilesRecursive` swallows every
+ * error itself (its own try/catch spans the readdirSync call and every
+ * recursive descent), so the outer catch below has no reachable trigger
+ * through the real filesystem — only through this seam.
+ */
+export function docDocsDir(
+	c: PropagationCtx,
+	find: (dir: string, extensions: string[], maxDepth: number) => string[] = findFilesRecursive,
+): PropagationTarget[] {
 	const docsDir = join(c.cwd, "docs");
 	if (!existsSync(docsDir)) return [];
 	const targets: PropagationTarget[] = [];
 	try {
-		const docFiles = findFilesRecursive(docsDir, [".md", ".mdx", ".rst", ".txt"], 3);
+		const docFiles = find(docsDir, [".md", ".mdx", ".rst", ".txt"], 3);
 		for (const docFile of docFiles) {
 			try {
 				const content = readFileSync(docFile, "utf-8");

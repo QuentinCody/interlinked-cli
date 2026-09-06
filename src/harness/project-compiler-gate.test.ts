@@ -14,6 +14,44 @@ import {
 	tryRegisterWarmProjectCompiler,
 } from "./project-compiler-gate.js";
 
+// Test-only fault injection for the per-project lock-directory mkdirSync call:
+// gated by a vi.hoisted counter so it is a no-op (delegates to the real
+// implementation) for every test except the one that arms it, and even then
+// only from the SECOND such call onward (the first is the natural, real
+// EEXIST from an already-held lock — the retry loop's own attempt is the one
+// this needs to fail differently). Excludes `*.interlinked-mutation.lock`
+// (also suffixed ".lock") — that is file-mutation-lock.ts's own internal
+// synchronization directory, created and removed on every call regardless of
+// contention, and must stay real or the fixture never gets far enough to
+// reach the code path under test. ESM's "node:fs" export object is
+// non-configurable, so this must be a full module mock, not vi.spyOn.
+const fsFaultState = vi.hoisted(() => ({ armed: false, lockPathCalls: 0 }));
+
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		mkdirSync: ((path: Parameters<typeof actual.mkdirSync>[0], options?: unknown) => {
+			const isProjectLockDir =
+				typeof path === "string" &&
+				path.endsWith(".lock") &&
+				!path.endsWith(".interlinked-mutation.lock");
+			if (fsFaultState.armed && isProjectLockDir) {
+				fsFaultState.lockPathCalls++;
+				if (fsFaultState.lockPathCalls >= 2) {
+					// SAFETY: constructing a Node-shaped errno error purely to exercise
+					// the non-EEXIST rethrow branch; `code` is the only field that
+					// branch reads.
+					const err = new Error("simulated EACCES") as NodeJS.ErrnoException;
+					err.code = "EACCES";
+					throw err;
+				}
+			}
+			return actual.mkdirSync(path, options as Parameters<typeof actual.mkdirSync>[1]);
+		}) as typeof actual.mkdirSync,
+	};
+});
+
 describe("project compiler admission", () => {
 	let root = "";
 
@@ -273,5 +311,93 @@ describe("project compiler admission", () => {
 	it("exposes typed busy failures", () => {
 		const error = new ProjectCompilerUnavailableError("busy", "held");
 		expect(error).toMatchObject({ name: "ProjectCompilerUnavailableError", reason: "busy" });
+	});
+
+	it("rejects synchronously when the caller's signal is already aborted at admission time", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		let started = false;
+		await expect(
+			runWithProjectCompilerLease(
+				root,
+				async () => {
+					started = true;
+					return "should-not-run";
+				},
+				{ signal: controller.signal },
+			),
+		).rejects.toMatchObject({
+			name: "ProjectCompilerUnavailableError",
+			reason: "aborted",
+			message: "compiler admission aborted",
+		});
+		expect(started).toBe(false);
+	});
+
+	it("rejects with an eviction-specific message when the caller aborts while a warm compiler is being evicted", async () => {
+		const neverExits = new Promise<void>(() => undefined);
+		const unregister = tryRegisterWarmProjectCompiler(root, () => neverExits);
+		expect(unregister).not.toBeNull();
+		const controller = new AbortController();
+		const pending = runWithProjectCompilerLease(root, async () => "never", {
+			signal: controller.signal,
+			admissionTimeoutMs: 5_000,
+		});
+		await Promise.resolve();
+		controller.abort();
+		await expect(pending).rejects.toMatchObject({
+			name: "ProjectCompilerUnavailableError",
+			reason: "aborted",
+			message: "compiler admission aborted while evicting the warm compiler",
+		});
+		unregister?.();
+	});
+
+	it("rejects when a warm compiler resolves eviction without releasing its project lease", async () => {
+		const evict = vi.fn(async () => undefined);
+		const unregister = tryRegisterWarmProjectCompiler(root, evict);
+		expect(unregister).not.toBeNull();
+		await expect(
+			runWithProjectCompilerLease(root, async () => "never"),
+		).rejects.toMatchObject({
+			name: "ProjectCompilerUnavailableError",
+			reason: "busy",
+			message: "warm compiler did not release its project lease after eviction",
+		});
+		expect(evict).toHaveBeenCalledTimes(1);
+		unregister?.();
+	});
+
+	it("rethrows a non-timeout failure surfaced while retrying for a contended lease", async () => {
+		const externalLease = tryAcquireCrossProcessCompilerLease(canonicalProjectRoot(root));
+		expect(externalLease).not.toBeNull();
+		fsFaultState.armed = true;
+		fsFaultState.lockPathCalls = 0;
+		try {
+			await expect(
+				runWithProjectCompilerLease(root, async () => "never", { admissionTimeoutMs: 5_000 }),
+			).rejects.toMatchObject({ message: "simulated EACCES" });
+			expect(fsFaultState.lockPathCalls).toBeGreaterThanOrEqual(2);
+		} finally {
+			fsFaultState.armed = false;
+			fsFaultState.lockPathCalls = 0;
+			externalLease?.release();
+		}
+	});
+
+	it("rejects with a busy status when another process holds the lease past the admission deadline", async () => {
+		const externalLease = tryAcquireCrossProcessCompilerLease(canonicalProjectRoot(root));
+		expect(externalLease).not.toBeNull();
+		try {
+			await expect(
+				runWithProjectCompilerLease(root, async () => "never", { admissionTimeoutMs: 60 }),
+			).rejects.toMatchObject({
+				name: "ProjectCompilerUnavailableError",
+				reason: "busy",
+				message: "another process is already compiling this project",
+			});
+		} finally {
+			externalLease?.release();
+		}
 	});
 });

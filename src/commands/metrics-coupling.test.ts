@@ -17,6 +17,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { ProjectGraph } from "../harness/project-graph.js";
 import {
 	annotateRelations,
 	computeCoupling,
@@ -696,6 +697,38 @@ describe("metricsCouplingCommand — human-readable rendering", () => {
 			"src/eta.ts src/zz-notes.txt 100 unknown",
 			"src/iota.ts src/theta.ts 67 linked",
 		]);
+	}, 60_000);
+});
+
+describe("metricsCouplingCommand — import-graph fallback", () => {
+	it("labels every non-companion pair unknown when the import graph fails to build", async () => {
+		// A real dependency (ProjectGraph), not the SUT: forces importLookupFor's
+		// internal try/catch down its catch arm without touching product source.
+		vi.spyOn(ProjectGraph.prototype, "initialize").mockImplementationOnce(() => {
+			throw new Error("scan failed");
+		});
+		captureOutput();
+		await metricsCouplingCommand({ cwd: repo });
+		expect(process.exitCode).toBeUndefined();
+		const text = logged[0] ?? "";
+		// Same six pairs as the healthy-graph render above, but every pair the graph
+		// would otherwise have resolved ("linked"/"hidden") now reads "unknown" —
+		// isCompanionPair is checked before the lookup, so epsilon stays "companion".
+		// If the catch arm were removed, ProjectGraph.initialize's throw would
+		// propagate out of importLookupFor and this await would reject instead.
+		// If the catch instead returned `() => true`, delta/gamma and eta/zz-notes
+		// would read "linked", not "unknown", failing this exact assertion.
+		expect(tableRows(text)).toEqual([
+			"   100    5 5/5       unknown    docs/notes.md ↔ src/zeta.ts",
+			"   100    5 5/5       unknown    src/alpha.ts ↔ src/beta.ts",
+			"   100    5 5/5       unknown    src/delta.ts ↔ src/gamma.ts",
+			"   100    5 5/5       companion  src/epsilon.test.ts ↔ src/epsilon.ts",
+			"   100    5 5/5       unknown    src/eta.ts ↔ src/zz-notes.txt",
+			"    67    5 5/10      unknown    src/iota.ts ↔ src/theta.ts",
+		]);
+		expect(text.endsWith("6 pairs (0 hidden — co-change with no import edge either way).")).toBe(
+			true,
+		);
 	}, 60_000);
 });
 

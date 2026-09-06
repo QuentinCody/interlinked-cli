@@ -9,11 +9,51 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanStaleRestartFiles, lockedJsonRestartStart } from "./harness-lifecycle-helpers.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	cleanStaleRestartFiles,
+	daemonizeHarness,
+	inlineJsonRestartStart,
+	lockedJsonRestartStart,
+} from "./harness-lifecycle-helpers.js";
 import type { StartupLockResult } from "../harness/startup-lock.js";
 import type { DaemonControlDeps } from "./harness-daemon-control.js";
 import type { ReapOptions, ReapResult } from "./harness-process.js";
+
+// The two spawn-failure paths below need `spawn` itself to throw, and they must
+// read the churn row the catch writes. Both seams are wrapped rather than
+// replaced: `spawn` stays real until a test arms `spawnControl`, and every other
+// export of the two mocked modules keeps its production implementation so the
+// restart tests above are untouched.
+const spawnControl = vi.hoisted<{ error: Error | null }>(() => ({ error: null }));
+const churnRows = vi.hoisted<unknown[][]>(() => []);
+const serverArtifact = vi.hoisted<{ path: string }>(() => ({ path: "" }));
+
+vi.mock("node:child_process", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:child_process")>();
+	return {
+		...actual,
+		spawn: (...args: Parameters<typeof actual.spawn>) => {
+			if (spawnControl.error) throw spawnControl.error;
+			return actual.spawn(...args);
+		},
+	};
+});
+
+vi.mock("../harness/handover-churn.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../harness/handover-churn.js")>();
+	return {
+		...actual,
+		recordInheritedDaemonSpawn: (...args: unknown[]) => {
+			churnRows.push(args);
+		},
+	};
+});
+
+vi.mock("./harness-process.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./harness-process.js")>();
+	return { ...actual, getHarnessServerPath: () => serverArtifact.path };
+});
 
 const roots: string[] = [];
 
@@ -51,6 +91,9 @@ afterEach(() => {
 		const root = roots.pop();
 		if (root !== undefined) rmSync(root, { recursive: true, force: true });
 	}
+	spawnControl.error = null;
+	serverArtifact.path = "";
+	churnRows.length = 0;
 });
 
 describe("cleanStaleRestartFiles — positive (must fire: protect serving daemons)", () => {
@@ -247,5 +290,43 @@ describe("lockedJsonRestartStart — negative (must not fire)", () => {
 		});
 		expect(reported).toEqual([null]);
 		expect(started).toBe(0);
+	});
+});
+
+// ===========================================
+// A daemon spawn that THROWS must terminalize the inherited attempt
+// ===========================================
+// Both start paths wrap `spawn` in a try/catch whose only job is to write one
+// terminal `spawn_failed` row before rethrowing. Without it the attempt-ID chain
+// stays open forever and the churn reducer waits on a daemon that was never
+// created — so the row, not the rethrow alone, is the behavior under test.
+
+describe("daemon spawn failure — the attempt is resolved, not left hanging", () => {
+	it("daemonizeHarness records one terminal spawn_failed row and rethrows the spawn error", async () => {
+		const cwd = tmpRepo();
+		spawnControl.error = new Error("EACCES: permission denied, posix_spawn");
+		await expect(
+			daemonizeHarness({
+				mode: "json",
+				cwd,
+				nodePath: "/usr/bin/node",
+				spawnArgs: ["server.js"],
+				protocol: "raw",
+				sessionId: "default",
+				serverPath: "/dist/harness/server.js",
+			}),
+		).rejects.toThrow("EACCES: permission denied, posix_spawn");
+		expect(churnRows).toEqual([[cwd, "spawn_failed"]]);
+	});
+
+	it("inlineJsonRestartStart records one terminal spawn_failed row and rethrows the spawn error", async () => {
+		const cwd = tmpRepo();
+		serverArtifact.path = join(cwd, "server.js");
+		writeFileSync(serverArtifact.path, "// harness server artifact");
+		spawnControl.error = new Error("EMFILE: too many open files, spawn");
+		await expect(
+			inlineJsonRestartStart(cwd, {}, "raw", "default", 4242, "json"),
+		).rejects.toThrow("EMFILE: too many open files, spawn");
+		expect(churnRows).toEqual([[cwd, "spawn_failed"]]);
 	});
 });

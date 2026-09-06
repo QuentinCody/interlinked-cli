@@ -130,4 +130,23 @@ describe("rebuildReservationCacheAt", () => {
 		expect(() => rebuildReservationCacheAt(dir, "2026-07-24T23:59:59Z")).not.toThrow();
 		expect(rebuildReservationCacheAt(dir, "2026-07-24T23:59:59Z").size).toBe(0);
 	});
+
+	it("N3: a line that fails JSON.parse outright (malformed text, not just the wrong shape) is skipped, not thrown, and later valid rows still replay", () => {
+		const dir = fixture();
+		const path = join(dir, ".interlinked", "reservation-events.jsonl");
+		mkdirSync(dirname(path), { recursive: true });
+		appendFileSync(path, "{this is not json at all\n");
+		const validRow = JSON.stringify({
+			ts: "2026-07-24T10:00:00Z",
+			action: "grant",
+			file: "a.ts",
+			agent_name: "alice",
+			cohort: "local",
+			expires_at: "2026-07-24T10:05:00Z",
+		});
+		appendFileSync(path, `${validRow}\n`);
+		expect(() => rebuildReservationCacheAt(dir, "2026-07-24T23:59:59Z")).not.toThrow();
+		const cache = rebuildReservationCacheAt(dir, "2026-07-24T23:59:59Z");
+		expect([...cache.keys()]).toEqual(["a.ts"]);
+	});
 });

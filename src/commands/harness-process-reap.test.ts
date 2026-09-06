@@ -42,4 +42,25 @@ describe("terminateCandidates process identity fencing", () => {
 		expect(kill).toHaveBeenCalledWith(4242, "SIGTERM");
 		expect(kill).not.toHaveBeenCalledWith(4242, "SIGKILL");
 	});
+
+	it("marks a term-survivor killed instead of escalating when its identity flips right before the SIGKILL check", () => {
+		// The pid keeps matching for the whole SIGTERM grace window (a real
+		// survivor, not an immediate exit), so Date.now is nudged straight past
+		// the deadline after the window opens instead of sleeping through it.
+		vi.spyOn(Date, "now")
+			.mockImplementationOnce(() => 1_000)
+			.mockImplementation(() => 1_000_000);
+		const identify = vi
+			.fn<(cwd: string, pid: number) => string | null>()
+			.mockReturnValueOnce("original")
+			.mockReturnValueOnce("original")
+			.mockReturnValueOnce("original")
+			.mockReturnValueOnce("original")
+			.mockReturnValue("replacement");
+		const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+
+		expect(terminateCandidates([CANDIDATE], CWD, identify)).toEqual([4242]);
+		expect(kill).toHaveBeenCalledWith(4242, "SIGTERM");
+		expect(kill).not.toHaveBeenCalledWith(4242, "SIGKILL");
+	});
 });

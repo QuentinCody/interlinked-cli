@@ -165,4 +165,27 @@ describe("store hygiene", () => {
 		const raw = readFileSync(join(cwd, ".interlinked", "bash-edit-obligations.json"), "utf-8");
 		expect(() => JSON.parse(raw)).not.toThrow();
 	});
+
+	it("a directory passed as the edited path can't be read as code, so it opens nothing", () => {
+		// statSync succeeds on a directory (it exists, well under the size
+		// bound); only the subsequent readFileSync fails (EISDIR). Without the
+		// catch around that read, this call would throw instead of returning
+		// null, so this reaches the catch specifically, not the stat guard.
+		const abs = join(cwd, "src", "adir");
+		mkdirSync(abs, { recursive: true });
+		expect(recordBashEditObligations({ cwd, sessionId: "s1", filePath: abs, dryRun: false })).toBeNull();
+		expect(openBashEditObligations(cwd).length).toBe(0);
+	});
+
+	it("a store write blocked by a file where the directory should be still keeps the obligation in memory", () => {
+		// mkdirSync(dirname(storeFile), { recursive: true }) throws EEXIST when
+		// something already occupies that path as a plain file (verified: Node
+		// refuses to treat it as a no-op the way it does for an existing dir).
+		// persist() swallows that failure; the in-memory gate must still hold.
+		writeFileSync(join(cwd, ".interlinked"), "not-a-directory");
+		const abs = writeSrc("src/a.ts", BAD_LINE);
+		const warning = recordBashEditObligations({ cwd, sessionId: "s1", filePath: abs, dryRun: false });
+		expect(warning).toContain("[interlinked:bash-edit-obligation]");
+		expect(openBashEditObligations(cwd).length).toBe(1);
+	});
 });

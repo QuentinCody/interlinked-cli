@@ -88,6 +88,33 @@ describe("parseTscOutput", () => {
 		const out = "note: see nested error TS9999: this is not a real diagnostic line";
 		expect(parseTscOutput(out)).toEqual([]);
 	});
+
+	it("drops a file-level match whose TS-code capture came back as a hole instead of pushing a corrupted result", () => {
+		// Every group in the file-level regex is mandatory (no `?`/`|` on it),
+		// so a real `String.match` can never leave one `undefined` — the guard
+		// exists only as a backstop against a misbehaving match implementation.
+		// Force that otherwise-unreachable shape by intercepting the one
+		// built-in call that produces the array, without touching the module
+		// under test: a real `.exec()` call comes back, then we punch a hole
+		// in the mandatory TS-code slot before returning it.
+		const FILE_LEVEL_SOURCE = "^(.+?)\\((\\d+),(\\d+)\\):\\s*error\\s+(TS\\d+):\\s*(.+)";
+		const nativeExec = RegExp.prototype.exec;
+		RegExp.prototype.exec = function (this: RegExp, str: string) {
+			const real = nativeExec.call(this, str);
+			if (real && this.source === FILE_LEVEL_SOURCE) {
+				const holed = Array.from(real) as unknown as (string | undefined)[];
+				holed[4] = undefined; // SAFETY: simulating a corrupted match array; real regex groups are never undefined here.
+				return holed as unknown as RegExpExecArray;
+			}
+			return real;
+		};
+		try {
+			const out = "src/a.ts(12,5): error TS2345: Argument not assignable";
+			expect(parseTscOutput(out)).toEqual([]);
+		} finally {
+			RegExp.prototype.exec = nativeExec;
+		}
+	});
 });
 
 describe("parseBiomeOutput", () => {
@@ -154,6 +181,30 @@ describe("parseEslintOutput", () => {
 		const out = "src/a.ts:12:34: multi-digit position";
 		const results = parseEslintOutput(out);
 		expect(results[0]).toMatchObject({ line: 12, column: 34 });
+	});
+
+	it("drops a match whose file-path capture came back as a hole instead of pushing a corrupted result", () => {
+		// Same defensive shape as parseTscOutput's file-level guard: every
+		// group in this regex is mandatory, so the hole can only come from a
+		// misbehaving match implementation. Force it via RegExp.prototype.exec
+		// rather than mocking the module under test.
+		const ESLINT_SOURCE = "^(.+?):(\\d+):(\\d+):\\s+(.+)";
+		const nativeExec = RegExp.prototype.exec;
+		RegExp.prototype.exec = function (this: RegExp, str: string) {
+			const real = nativeExec.call(this, str);
+			if (real && this.source === ESLINT_SOURCE) {
+				const holed = Array.from(real) as unknown as (string | undefined)[];
+				holed[1] = undefined; // SAFETY: simulating a corrupted match array; the file-path group is never undefined here.
+				return holed as unknown as RegExpExecArray;
+			}
+			return real;
+		};
+		try {
+			const out = "src/a.ts:5:10: Missing semicolon. [semi]";
+			expect(parseEslintOutput(out)).toEqual([]);
+		} finally {
+			RegExp.prototype.exec = nativeExec;
+		}
 	});
 });
 

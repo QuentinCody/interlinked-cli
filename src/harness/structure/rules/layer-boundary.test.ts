@@ -78,4 +78,48 @@ describe("checkLayerBoundaryViolations", () => {
 		]);
 		expect(findings).toEqual([]);
 	});
+
+	it("skips a forbidden edge whose endpoints were never registered as graph nodes", () => {
+		// Layer membership comes from `belongs_to_layer` edges, which reference
+		// module refs by id only -- a ref can appear there without the module
+		// ever having been added via `g.addNode`. `checkLayerBoundaryViolations`
+		// must not assume `graph.getNode(edge.from/to)` succeeds just because a
+		// layer edge exists for that ref.
+		const g = new ArtifactGraph();
+		const uiLayer = layerNode("ui");
+		const dbLayer = layerNode("db");
+		g.addNode(uiLayer);
+		g.addNode(dbLayer);
+		const uiModRef = moduleNode("ui-file", "src/ui/a.ts").id;
+		const dbModRef = moduleNode("db-file", "src/db/b.ts").id;
+		// uiModRef / dbModRef are deliberately never passed to g.addNode.
+		g.addEdge(edge(uiModRef, uiLayer.id, "belongs_to_layer"));
+		g.addEdge(edge(dbModRef, dbLayer.id, "belongs_to_layer"));
+		g.addEdge(edge(uiModRef, dbModRef, "imports"));
+
+		const findings = checkLayerBoundaryViolations(g, [
+			{ from: uiLayer.id, cannot_import: [dbLayer.id] },
+		]);
+		expect(findings).toEqual([]);
+	});
+
+	it("treats a blank layer ref as unclassified instead of matching it against the forbidden map", () => {
+		// `belongs_to_layer.to` and `layerRules[].from` are both typed `string`,
+		// so an empty string is a fully legal (cast-free) layer ref -- it is
+		// falsy, which is exactly what the `!sourceLayer || !targetLayer` guard
+		// on line 36 exists to catch. Without that guard, `forbidden.get("")`
+		// would still resolve to a real Set (because the rule below also keys
+		// on `""`) and the pair would be misreported as a forbidden import.
+		const g = new ArtifactGraph();
+		const dbLayer = layerNode("db");
+		const uiMod = moduleNode("ui-file", "src/ui/a.ts");
+		const dbMod = moduleNode("db-file", "src/db/b.ts");
+		for (const n of [dbLayer, uiMod, dbMod]) g.addNode(n);
+		g.addEdge(edge(uiMod.id, "", "belongs_to_layer"));
+		g.addEdge(edge(dbMod.id, dbLayer.id, "belongs_to_layer"));
+		g.addEdge(edge(uiMod.id, dbMod.id, "imports"));
+
+		const findings = checkLayerBoundaryViolations(g, [{ from: "", cannot_import: [dbLayer.id] }]);
+		expect(findings).toEqual([]);
+	});
 });

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type Server, type Socket } from "node:net";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeFrame, PROTOCOL_VERSION } from "./daemon-protocol.js";
 import { classifyHarnessSocket, isHarnessSocketReady } from "./socket-readiness.js";
 
@@ -84,6 +84,31 @@ describe("isHarnessSocketReady", () => {
 		).resolves.toBe(true);
 	});
 
+	it("rejects a listener whose first line is not JSON at all", async () => {
+		const path = await listen((socket) => socket.once("data", () => socket.end("not-json\n")));
+		await expect(
+			isHarnessSocketReady({ socketPath: path, protocol: "raw", opts: { timeout_ms: 200 } }),
+		).resolves.toBe(false);
+	});
+
+	it("rejects a pathname whose connection fails before any answer arrives", async () => {
+		// The timeout is far longer than an ENOENT round-trip, so only the
+		// socket error path can settle this probe.
+		await expect(
+			isHarnessSocketReady({
+				socketPath: join(root, "missing.sock"),
+				protocol: "raw",
+				opts: { timeout_ms: 3_000 },
+			}),
+		).resolves.toBe(false);
+	});
+
+	it("rejects a pathname the platform refuses to open a connection for", async () => {
+		await expect(
+			isHarnessSocketReady({ socketPath: "", protocol: "raw", opts: { timeout_ms: 200 } }),
+		).resolves.toBe(false);
+	});
+
 	it("rejects a framed listener whose health body only resembles the contract", async () => {
 		const path = await listen((socket) => {
 			socket.once("data", (chunk: Buffer) => {
@@ -135,5 +160,25 @@ describe("classifyHarnessSocket", () => {
 		await expect(
 			classifyHarnessSocket({ socketPath: path, protocol: "raw", opts: { timeout_ms: 200 } }),
 		).resolves.toBe("occupied_unready");
+	});
+
+	it("protects a pathname the platform refuses to open a connection for", async () => {
+		await expect(
+			classifyHarnessSocket({ socketPath: "", protocol: "raw", opts: { timeout_ms: 30 } }),
+		).resolves.toBe("occupied_unready");
+	});
+
+	it("protects a connection that has not been accepted by the deadline", async () => {
+		const path = await listen(() => {
+			/* accepts eventually; the presence probe must not wait for it */
+		});
+		// Fake timers fire the presence deadline before the event loop can
+		// deliver the connect callback, which is the ordering the guard exists
+		// for: an unanswered connect must never be reported as unlink-safe.
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		const state = classifyHarnessSocket({ socketPath: path, protocol: "raw", opts: { timeout_ms: 40 } });
+		vi.advanceTimersByTime(40);
+		vi.useRealTimers();
+		await expect(state).resolves.toBe("occupied_unready");
 	});
 });

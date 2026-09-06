@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { extractFunctionShingles, findClones } from "./dry.js";
-import { filterToRisers, snapshotDryShingles } from "./dry-baseline.js";
+import { filterToRisers, firstValue, snapshotDryShingles } from "./dry-baseline.js";
 
 const cloneBody = `{
 	const out = [];
@@ -69,5 +69,19 @@ function collectB(rows: Row[]): number[] ${cloneBody}
 			candidates: [],
 		});
 		expect(baseline.size).toBe(0);
+	});
+
+	it("firstValue returns undefined for an empty map instead of iterating forever", () => {
+		// filterToRisers short-circuits on baseline.size === 0 before ever
+		// calling firstValue, so this exercises the fallback directly: an
+		// empty map has nothing to yield from the for..of, so control must
+		// fall through to the explicit `return undefined`.
+		expect(firstValue(new Map())).toBeUndefined();
+	});
+
+	it("firstValue returns the sole entry's value for a single-key map", () => {
+		const inner = new Map([["a<=>b", 0.9]]);
+		const baseline: Map<string, Map<string, number>> = new Map([["src/collect.ts", inner]]);
+		expect(firstValue(baseline)).toBe(inner);
 	});
 });

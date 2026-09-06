@@ -119,6 +119,21 @@ describe("checkPublicSymbolTestCase", () => {
 		expect(nonNull(findings[0]).affected_files).toEqual(["src/foo.test.ts"]);
 	});
 
+	it("treats an unreadable companion test path (a directory, not a file) as non-referencing", () => {
+		const graph = new ArtifactGraph();
+		addSymbolNode(graph, "foo", "Foo", "src/foo.ts");
+		addTestNode(graph, "foo", "foo.test", "src/foo.test.ts");
+		linkCompanion(graph, "foo", "foo");
+		// existsSync() is true (it's a real directory) but readFileSync() throws
+		// EISDIR — exercising the catch branch in readCompanionTestContent,
+		// distinct from the "missing from disk" case above.
+		mkdirSync(join(tmp, "src", "foo.test.ts"), { recursive: true });
+
+		const findings = checkPublicSymbolTestCase(graph, ["src/foo.ts"], tmp);
+		expect(findings).toHaveLength(1);
+		expect(nonNull(findings[0]).affected_files).toEqual(["src/foo.test.ts"]);
+	});
+
 	it("skips the rule entirely when the symbol has no companion tests", () => {
 		const graph = new ArtifactGraph();
 		addSymbolNode(graph, "foo", "Foo", "src/foo.ts");

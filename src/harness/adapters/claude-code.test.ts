@@ -437,6 +437,20 @@ describe("Claude Code encodeDecision", () => {
 		);
 		expect(out).toEqual({ stderr: "policy note\nwarning note", exit_code: 0 });
 	});
+	it("P: PermissionRequest system_message overrides the formatted ask-reason text", () => {
+		const permissionEvent = adapter.parseHookInput(
+			{ session_id: "s", cwd: "/repo", tool_name: "Bash", tool_input: {} },
+			"PermissionRequest",
+		);
+		const out = adapter.encodeDecision(
+			{ decision: "ask", reason: "confirm this deletion", system_message: "custom operator note" },
+			permissionEvent,
+		);
+		// If system_message were ignored, "ask" would fall into the
+		// formatAskReasonWithTargets branch and produce text built from
+		// `reason`, not this literal.
+		expect(out.stderr).toBe("custom operator note");
+	});
 	it("WorktreeCreate always fails without returning a replacement path", () => {
 		const worktreeEvent = adapter.parseHookInput(
 			{ session_id: "s", cwd: "/repo", name: "feature" },

@@ -30,11 +30,13 @@ interface ReviveBakes {
 }
 
 /** Resolve the paths to bake. Never throws: an unresolvable install layout
- *  yields an empty server path and the bash spawn guard no-ops on it. */
-export function resolveReviveBakes(): ReviveBakes {
+ *  yields an empty server path and the bash spawn guard no-ops on it.
+ *  `resolveServerPath` is injectable so a test can force the probe-error
+ *  branch without needing an actually-broken install layout. */
+export function resolveReviveBakes(resolveServerPath: () => string = getHarnessServerPath): ReviveBakes {
 	let serverJs = "";
 	try {
-		serverJs = getHarnessServerPath();
+		serverJs = resolveServerPath();
 	} catch (err) {
 		// Generation must not fail over a probe error; revival simply no-ops.
 		void err;

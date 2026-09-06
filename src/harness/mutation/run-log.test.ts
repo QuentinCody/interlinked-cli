@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -65,6 +65,19 @@ describe("mutation run log — the live per-run stream", () => {
 	it("N3: a missing log file reads as empty", () => {
 		const root = mkdtempSync(join(tmpdir(), "run-log-"));
 		try {
+			expect(readRecentMutationRuns(root, 5)).toEqual([]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("N4: a read failure (log path is a directory, not a file) degrades to empty rather than throwing", () => {
+		const root = mkdtempSync(join(tmpdir(), "run-log-"));
+		try {
+			// Create the log path itself as a directory so existsSync() sees it
+			// (the missing-file branch above does NOT fire) but readFileSync()
+			// throws EISDIR — the distinct failure mode the catch block exists for.
+			mkdirSync(join(root, MUTATION_RUNS_REL), { recursive: true });
 			expect(readRecentMutationRuns(root, 5)).toEqual([]);
 		} finally {
 			rmSync(root, { recursive: true, force: true });

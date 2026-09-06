@@ -3,6 +3,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	truncateSync,
 	writeFileSync,
 } from "node:fs";
@@ -12,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { backfillTimeline, collectTranscriptRecords, transcriptDir } from "./timeline-backfill.js";
 import {
 	MAX_TIMELINE_REWRITE_BYTES,
+	MAX_TIMELINE_REWRITE_RECORDS,
 	TimelineRewriteConflictError,
 } from "./timeline-writer.js";
 
@@ -91,6 +93,38 @@ describe("timeline-backfill", () => {
 		expect(result.transcripts).toBe(0);
 		expect(result.records).toBe(0);
 		rmSync(empty, { recursive: true, force: true });
+	});
+
+	it("skips a transcript whose metadata cannot be read and keeps the readable ones", () => {
+		// A dangling symlink still ends in .jsonl, so it reaches statSync and throws ENOENT.
+		symlinkSync(join(transcriptDir(cwd, home), "gone.jsonl"), join(transcriptDir(cwd, home), "dangling.jsonl"));
+		const texts = collectTranscriptRecords(cwd, home).map((r) => r.text);
+		expect(texts.sort()).toEqual(["first prompt", "later message", "middle reply"]);
+	});
+
+	it("skips a transcript path whose contents cannot be read and keeps the readable ones", () => {
+		// A directory named like a transcript: statSync succeeds, the read fails with EISDIR.
+		mkdirSync(join(transcriptDir(cwd, home), "sess-dir.jsonl"));
+		const texts = collectTranscriptRecords(cwd, home).map((r) => r.text);
+		expect(texts.sort()).toEqual(["first prompt", "later message", "middle reply"]);
+	});
+
+	it("refuses a transcript that carries more records than the rewrite limit", () => {
+		const entry = `${JSON.stringify({
+			type: "assistant",
+			uuid: "h1",
+			timestamp: "2026-06-28T10:00:03.000Z",
+			sessionId: "H",
+			message: { model: "claude-test-5", content: [{ type: "tool_use", id: "t1", name: "Read" }] },
+		})}\n`;
+		writeFileSync(
+			join(transcriptDir(cwd, home), "sess-huge.jsonl"),
+			entry.repeat(MAX_TIMELINE_REWRITE_RECORDS + 1),
+		);
+
+		expect(() => collectTranscriptRecords(cwd, home)).toThrow(
+			`refusing to backfill more than ${MAX_TIMELINE_REWRITE_RECORDS} transcript records`,
+		);
 	});
 
 	it("refuses an over-limit sparse transcript before reading it into memory", () => {

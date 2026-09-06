@@ -258,6 +258,8 @@ interface CaptureVitestShardsOpts {
 	timeoutMs?: number;
 	/** Injectable spawn for tests; omit for the real async spawn. */
 	spawn?: SpawnFn;
+	/** Injectable coverage-v8 resolver for tests; omit for the real `resolveCoverageV8Url`. */
+	resolveV8Url?: (projectRoot: string) => string | null;
 }
 
 /** One captured shard, canonicalized and ready for the index builder. */
@@ -280,14 +282,22 @@ interface VitestShardCaptureResult {
 	degraded: string | null;
 }
 
-/** Resolve `@vitest/coverage-v8` from the TARGET project, falling back to ours. */
-function resolveCoverageV8Url(projectRoot: string): string | null {
+/**
+ * Resolve `@vitest/coverage-v8` from the TARGET project, falling back to ours.
+ * `resolveViaImportMeta` is injectable for tests — it defaults to the real
+ * `import.meta.resolve`, which cannot itself be forced to fail from a test
+ * (this module's own node_modules always has the package installed).
+ */
+export function resolveCoverageV8Url(
+	projectRoot: string,
+	resolveViaImportMeta: (specifier: string) => string = (specifier) => import.meta.resolve(specifier),
+): string | null {
 	try {
 		const requireFromTarget = createRequire(join(projectRoot, "package.json"));
 		return pathToFileURL(requireFromTarget.resolve("@vitest/coverage-v8")).href;
 	} catch {
 		try {
-			return import.meta.resolve("@vitest/coverage-v8");
+			return resolveViaImportMeta("@vitest/coverage-v8");
 		} catch {
 			return null;
 		}
@@ -359,7 +369,7 @@ export async function captureVitestShards(
 	mkdirSync(shardsDir, { recursive: true });
 	mkdirSync(coverageDir, { recursive: true });
 
-	const v8Url = resolveCoverageV8Url(opts.projectRoot);
+	const v8Url = (opts.resolveV8Url ?? resolveCoverageV8Url)(opts.projectRoot);
 	if (!v8Url) {
 		return {
 			runResult: {

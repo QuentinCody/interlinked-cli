@@ -52,6 +52,13 @@ describe("checkSwiftEmptyCatch", () => {
 		const code = "do { try x() } catch { if attempt < 3 { retry() } }";
 		expect(checkSwiftEmptyCatch(code, "Foo.swift")).toEqual([]);
 	});
+
+	it("N3: does not flag a multi-line catch that opens on the file's last line", () => {
+		// No lines follow the `catch {` at all, so the empty-body lookahead
+		// window has nothing to scan and must fall through to "not empty".
+		const code = "do { try x() }\ncatch {";
+		expect(checkSwiftEmptyCatch(code, "Foo.swift")).toEqual([]);
+	});
 });
 
 describe("checkSwiftTryQuestionDiscarded", () => {

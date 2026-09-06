@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { checkTaintedToPrivilegedSink } from "./tainted-sink.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as sanitizerRegistry from "../sanitizer-registry.js";
+import {
+	_resetSanitizerRegistryCacheForTests,
+	checkTaintedToPrivilegedSink,
+} from "./tainted-sink.js";
 
 const TS = "src/handlers/admin.ts";
 
@@ -113,6 +117,67 @@ describe("checkTaintedToPrivilegedSink — negative cases (must NOT fire)", () =
 			"  exec(cmd);",
 			"}",
 		].join("\n");
+		expect(checkTaintedToPrivilegedSink(code, TS)).toEqual([]);
+	});
+});
+
+describe("checkTaintedToPrivilegedSink — unbalanced sink call", () => {
+	// test-contract: bug — a sink call whose opening paren never closes (a
+	// truncated/malformed source) must not crash or mis-slice an argument;
+	// findCloseParen's "no match within the scan window" fallback returns -1,
+	// which extractFirstArg treats as "no argument" and the sink is skipped.
+	it("does not flag eval( when its opening paren has no matching close", () => {
+		const code = [
+			"function handler(req: any) {",
+			"  return eval(req.body.code;",
+			"}",
+		].join("\n");
+		expect(checkTaintedToPrivilegedSink(code, TS)).toEqual([]);
+	});
+});
+
+describe("_resetSanitizerRegistryCacheForTests", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+		_resetSanitizerRegistryCacheForTests();
+	});
+
+	// test-contract: public-api — the lazy registry cache must actually be
+	// clearable. Prove it by making `load()` return a registry that would
+	// change the detector's answer, and showing the change only takes effect
+	// once the cache is reset (not on the very next call, which still reads
+	// the memoized value from before the reset call under test).
+	it("drops the memoized registry so the next getRegistry() call reloads it", () => {
+		const code = [
+			'import { exec } from "child_process";',
+			"function handler(req: any) {",
+			"  const cmd = req.body.cmd;",
+			"  exec(cmd);",
+			"}",
+		].join("\n");
+
+		const emptyReg = sanitizerRegistry.validate({ version: 1, sanitizers: {} });
+		const loadSpy = vi.spyOn(sanitizerRegistry, "load").mockReturnValue(emptyReg);
+		_resetSanitizerRegistryCacheForTests();
+
+		// First call populates the cache with the empty registry: no identity
+		// sanitizer matches `req.body.cmd`, so the two-step exec is flagged.
+		expect(checkTaintedToPrivilegedSink(code, TS).length).toBeGreaterThanOrEqual(1);
+
+		// Swap in a registry whose identity sanitizer matches `req.body.cmd`
+		// verbatim — but WITHOUT a reset the stale cached (empty) registry is
+		// still what getRegistry() returns, so the same code is still flagged.
+		const matchingReg = sanitizerRegistry.validate({
+			version: 1,
+			sanitizers: { identity: [{ name: "req-body-cmd-ok", kind: "regex", pattern: "req\\.body\\.cmd" }] },
+		});
+		loadSpy.mockReturnValue(matchingReg);
+		expect(checkTaintedToPrivilegedSink(code, TS).length).toBeGreaterThanOrEqual(1);
+
+		// Resetting drops the cache; the next getRegistry() call re-invokes
+		// load() and picks up the matching entry, so the assignment is now
+		// treated as validated and the sink no longer fires.
+		_resetSanitizerRegistryCacheForTests();
 		expect(checkTaintedToPrivilegedSink(code, TS)).toEqual([]);
 	});
 });

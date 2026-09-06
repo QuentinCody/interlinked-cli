@@ -284,6 +284,15 @@ describe("large-files fold — negative (must not fold)", () => {
 		expect(out.skipped).toBe("no-change");
 		expect(readLargeFiles()).toEqual({ "src/gone.ts": 40 });
 	});
+
+	it("N6: a touched path that exists but cannot be read as a file holds its recorded count", () => {
+		writeLargeFileBaseline(10, { "src/blocked.ts": 40, "src/big.ts": 40 });
+		mkdirSync(join(cwd, "src/blocked.ts"), { recursive: true }); // exists, but readFileSync throws EISDIR
+		write("src/big.ts", "a\n".repeat(5));
+		const out = foldLargeFiles({ cwd, touched: ["src/blocked.ts", "src/big.ts"], dryRun: false });
+		expect(out.details).toEqual(["src/big.ts: 40→under cap (6)"]);
+		expect(readLargeFiles()).toEqual({ "src/blocked.ts": 40 });
+	});
 });
 
 // ───────────────────────────────────────────────────────────────────
@@ -327,6 +336,24 @@ describe("coverage-edit fold — positive (must fold)", () => {
 		const edit = readEditBaseline();
 		expect(edit["src/a.ts"]).toBe(0.9);
 		expect(edit["src/b.ts"]).toBe(0.75);
+	});
+
+	it("P2: a non-object per-edit baseline (bare JSON null) folds as empty instead of crashing", () => {
+		writeCoverageBaseline({ "src/a.ts": { lines_pct: 50, branches_pct: 50 } });
+		writeFileSync(join(cwd, ".interlinked/coverage-edit-baseline.json"), "null");
+		const out = foldCoverageEditBaseline({ interlinkedDir: join(cwd, ".interlinked"), dryRun: false });
+		expect(out.changed).toBe(1);
+		expect(readEditBaseline()["src/a.ts"]).toBe(0.5);
+	});
+
+	it("P3: an unparseable per-edit baseline folds as empty, so its corrupt higher number cannot refuse the raise", () => {
+		writeCoverageBaseline({ "src/a.ts": { lines_pct: 50, branches_pct: 50 } });
+		// Truncated JSON whose readable text claims 0.95 — parsed, that would REFUSE
+		// the 0.5 raise. The catch must discard it entirely.
+		writeFileSync(join(cwd, ".interlinked/coverage-edit-baseline.json"), '{"src/a.ts": 0.95');
+		const out = foldCoverageEditBaseline({ interlinkedDir: join(cwd, ".interlinked"), dryRun: false });
+		expect(out.refused).toBe(0);
+		expect(readEditBaseline()["src/a.ts"]).toBe(0.5);
 	});
 });
 

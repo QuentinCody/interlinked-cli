@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
+import type { HarnessEvent } from "../types/events.js";
 import {
 	containsSecrets,
 	countAsAnyCasts,
@@ -7,6 +11,8 @@ import {
 	countSuppressionDirectives,
 	findAnyTypes,
 	formatQualityWarnings,
+	resolveQualityCheckTarget,
+	sharedContentReader,
 	stripStringLiterals,
 } from "../quality-checks.js";
 
@@ -331,5 +337,54 @@ describe("formatQualityWarnings — proven|heuristic determinism tag", () => {
 		expect(lines[0]).toMatch(/^\[interlinked:typescript\] \[proven\] main$/);
 		expect(lines[1]).toBe("  L10: foo");
 		expect(lines[2]).toMatch(/^→ /); // instruction line
+	});
+});
+
+describe("resolveQualityCheckTarget", () => {
+	function event(filePath: string): HarnessEvent {
+		return {
+			hook_event: "PostToolUse",
+			session_id: "test-session",
+			agent_source: "claude",
+			timestamp: "2026-09-01T00:00:00Z",
+			tool_input: { file_path: filePath },
+		};
+	}
+
+	it("returns null for a file path under an excluded build/vendor directory", () => {
+		const target = resolveQualityCheckTarget(event("/repo/node_modules/pkg/index.js"), "/repo");
+		expect(target).toBeNull();
+	});
+
+	it("resolves a normal in-repo file to its absolute path and test base name", () => {
+		const target = resolveQualityCheckTarget(event("src/foo.ts"), "/repo");
+		expect(target?.absPath).toBe("/repo/src/foo.ts");
+		expect(target?.testBaseName).toBe("foo");
+	});
+});
+
+describe("sharedContentReader", () => {
+	let dir: string;
+
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "quality-checks-content-"));
+	});
+
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("returns the file's content on a successful read", () => {
+		const filePath = join(dir, "sample.ts");
+		writeFileSync(filePath, "export const x = 1;", "utf-8");
+		const read = sharedContentReader(filePath);
+		expect(read()).toBe("export const x = 1;");
+	});
+
+	it("returns null when the path exists but readFileSync fails (e.g. a directory)", () => {
+		// existsSync(dir) is true for a directory, but readFileSync on a
+		// directory throws EISDIR — the real, non-mocked read-failure path.
+		const read = sharedContentReader(dir);
+		expect(read()).toBeNull();
 	});
 });

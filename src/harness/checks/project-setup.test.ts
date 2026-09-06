@@ -660,6 +660,33 @@ describe("checkProjectSetup", () => {
 		}
 	});
 
+	// test-contract: boundary — packageHasTypesNode's catch treats an
+	// unreadable package.json as "not installed" rather than throwing or
+	// silently claiming @types/node is present.
+	it("still recommends @types/node when package.json is missing entirely (packageHasTypesNode read failure)", () => {
+		mkdirSync(join(tmp, "src"), { recursive: true });
+		writeFileSync(
+			join(tmp, "src", "app.ts"),
+			'import { readFileSync } from "node:fs";\nexport const read = readFileSync;\n',
+		);
+		writeFileSync(join(tmp, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: true } }));
+		// Deliberately no package.json — packageHasTypesNode's readFileSync
+		// throws ENOENT, and the catch must fall back to "not installed"
+		// rather than crashing or claiming @types/node is present.
+		let issues: ReturnType<typeof checkProjectSetup> = [];
+		expect(() => {
+			issues = checkProjectSetup(tmp);
+		}).not.toThrow();
+		expect(issues).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					message:
+						"Code uses node: protocol imports (node:fs, node:path, etc.) but @types/node is not in devDependencies",
+				}),
+			]),
+		);
+	});
+
 	it("flags strict mode disabled", () => {
 		writeFileSync(join(tmp, "tsconfig.json"), JSON.stringify({ compilerOptions: { strict: false } }));
 		writeFileSync(join(tmp, "package.json"), JSON.stringify({ name: "x" }));

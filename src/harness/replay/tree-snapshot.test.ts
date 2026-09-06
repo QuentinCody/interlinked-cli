@@ -5,7 +5,7 @@
 // --prune=now` cannot reap them; restoreTree round-trips byte-identical.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,6 +17,7 @@ import {
 	phaseForHookEvent,
 	recordTreeSnapshot,
 	restoreTree,
+	snapshotIndexPath,
 } from "./tree-snapshot.js";
 
 const cleanups: string[] = [];
@@ -185,6 +186,21 @@ describe("maybeRecordReplaySnapshots — env gate", () => {
 			if (prev === undefined) delete process.env.INTERLINKED_REPLAY_TREE_SNAPSHOTS;
 			else process.env.INTERLINKED_REPLAY_TREE_SNAPSHOTS = prev;
 		}
+	});
+});
+
+describe("loadSnapshotIndex", () => {
+	it("skips a torn line and keeps the rows written on either side of it", () => {
+		const dir = makeFixture();
+		snap(dir, 1, "pre");
+		// A crash mid-append leaves a prefix of one JSON object. The reader's
+		// contract is to drop that line, not to lose the whole index.
+		appendFileSync(snapshotIndexPath(dir), '{"schema":"tree-snapshot.v1","seq":\n');
+		writeFileSync(join(dir, "a.txt"), "a\nmodified again\n");
+		snap(dir, 2, "post");
+		const rows = loadSnapshotIndex(dir);
+		expect(rows.map((r) => r.seq)).toEqual([1, 2]);
+		expect(rows.map((r) => r.phase)).toEqual(["pre", "post"]);
 	});
 });
 

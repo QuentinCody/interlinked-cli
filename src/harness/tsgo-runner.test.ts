@@ -239,6 +239,25 @@ describe("createTsgoRunner — warm watch: lazy spawn", () => {
 		expect(runner.stats().watch_process).toBe("disabled");
 		disposeRunner(runner);
 	}, 20000);
+
+	it("falls through to not-started when a registered watcher never left its construction state", async () => {
+		// summarizeWatchers()'s loop only sets its sawCrashed/sawEvicted flags for
+		// CRASHED/IDLE_EVICTED watchers and returns immediately on RUNNING, so if
+		// a watcher is ever present in the map without transitioning out of its
+		// "not-started" construction state, the loop exhausts with neither flag
+		// set — the defensive fallback this test targets. Force that precondition
+		// by stubbing WatchProcess.start() to a no-op: the map still gains a real
+		// entry (proven below via the spy call count, unlike the "no watcher yet"
+		// case above) but that entry's state never advances off "not-started".
+		const startSpy = vi.spyOn(WatchProcess.prototype, "start").mockImplementation(() => {});
+		const { "good.ts": good } = makeProject({ "good.ts": "export const a: number = 1;\n" });
+		const runner = createNoOutputRunner();
+		await runner.checkFile(nonNull(good));
+		expect(startSpy).toHaveBeenCalledTimes(1);
+		expect(runner.stats().watch_process).toBe("not-started");
+		startSpy.mockRestore();
+		disposeRunner(runner);
+	});
 });
 
 describe("createTsgoRunner — warm watch: reuse + diagnostics", () => {

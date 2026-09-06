@@ -109,10 +109,11 @@ export class ServerBridge implements ServerApiClient {
 
 		// Flush guard events every 10 seconds
 		this.flushInterval = setInterval(() => {
+			// Unreachable today: flushGuardEvents wraps its whole network path in try/catch and never rejects. Kept deliberately — an unhandled rejection is fatal to this long-lived daemon, so the net has to outlive any throw a future edit adds there.
 			this.flushGuardEvents().catch(() => {/* best-effort: server sync is optional */});
 		}, 10_000);
 
-		// Initial health check
+		// Initial health check. Unreachable catch: healthCheck's entire body sits in try/catch and never rejects. Kept for the same reason — the daemon must not die if it ever starts to.
 		this.healthCheck().catch(() => {/* best-effort: server is optional */});
 	}
 
@@ -212,6 +213,7 @@ export class ServerBridge implements ServerApiClient {
 
 		// If queue is large, flush immediately
 		if (this.guardEventQueue.length >= 10) {
+			// Unreachable today for the same reason as the constructor's interval: flushGuardEvents never rejects. Kept as this daemon's unhandled-rejection net.
 			this.flushGuardEvents().catch(() => {/* best-effort: server sync is optional */});
 		}
 	}
@@ -356,7 +358,7 @@ export class ServerBridge implements ServerApiClient {
 			clearInterval(this.flushInterval);
 			this.flushInterval = null;
 		}
-		// Final flush attempt
+		// Final flush attempt. Unreachable catch: flushGuardEvents never rejects (see the constructor). Kept — shutdown must not be the call that kills the daemon with an unhandled rejection.
 		this.flushGuardEvents().catch(() => {/* best-effort: server sync is optional */});
 	}
 }
@@ -419,7 +421,7 @@ function parseLocalServerEntry(value: unknown): { serverUrl: string | undefined;
 /** The `config.local.json` fields this bridge reads: top-level auth/workspace
  *  defaults, plus the active-server override (falls back to "production").
  *  An override applies only when non-empty — matches the original `||` checks. */
-function parseLocalBridgeFields(value: unknown): {
+export function parseLocalBridgeFields(value: unknown): {
 	authToken: string | undefined;
 	workspaceId: string | undefined;
 	activeServerUrl: string | undefined;

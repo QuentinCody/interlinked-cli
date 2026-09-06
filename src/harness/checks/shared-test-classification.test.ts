@@ -1,7 +1,9 @@
-// Companion test for shared-test-classification.ts — moved verbatim from
-// shared.ts as part of the shared.ts line-cap split. Behavior unchanged.
+// Companion test for shared-test-classification.ts — the predicate cases were
+// moved verbatim from shared.ts as part of the shared.ts line-cap split
+// (behavior unchanged); the package-root resolver's fail-closed case below was
+// added later and drives the real resolver instead of the test-only override.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	__setPackageRootForTesting,
 	isPatternDataFile,
@@ -67,6 +69,35 @@ describe("isTestFile", () => {
 	it("is a compat alias for isPatternDataFile", () => {
 		__setPackageRootForTesting(null);
 		expect(isTestFile("src/foo.test.ts")).toBe(isPatternDataFile("src/foo.test.ts"));
+	});
+});
+
+describe("package-root resolution — fail-closed", () => {
+	// test-contract: invariant — the resolver's docstring promises it "returns
+	// null when the package root can't be located" and that callers fail closed,
+	// so a filesystem error during the upward walk must never escape as an
+	// exception nor grant the harness-internal-data exemption.
+	it("swallows a filesystem error during the upward walk and grants no exemption", async () => {
+		vi.resetModules();
+		vi.doMock("node:fs", async (importOriginal) => {
+			const actual = await importOriginal<typeof import("node:fs")>();
+			return {
+				...actual,
+				existsSync: () => {
+					throw new Error("EIO: i/o error reading package.json");
+				},
+			};
+		});
+		const mod = await import("./shared-test-classification.js");
+		// A checks/ path inside interlinked-cli's OWN checkout: it is exempt
+		// whenever the walk succeeds, so `false` here can only come from the
+		// resolver having swallowed the error and returned null.
+		const ownCheckFile = `${process.cwd()}/src/harness/checks/foo.ts`;
+		expect(mod.isPatternDataFile(ownCheckFile)).toBe(false);
+		// The strict half never consults the resolver, so it still answers.
+		expect(mod.isPatternDataFile(`${process.cwd()}/src/harness/checks/foo.test.ts`)).toBe(true);
+		vi.doUnmock("node:fs");
+		vi.resetModules();
 	});
 });
 

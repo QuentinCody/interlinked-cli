@@ -142,6 +142,12 @@ describe("resolveDiskBaseline", () => {
 		expect(resolveDiskBaseline(join(root, "nope.ts"))).toBeNull();
 		expect(resolveDiskBaseline("")).toBeNull();
 	});
+
+	it("returns null (not a throw) when the path exists but readFileSync rejects it (EISDIR)", () => {
+		const dirPath = join(root, "a-directory.ts");
+		mkdirSync(dirPath);
+		expect(resolveDiskBaseline(dirPath)).toBeNull();
+	});
 });
 
 describe("message helpers", () => {

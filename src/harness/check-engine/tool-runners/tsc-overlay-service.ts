@@ -130,20 +130,90 @@ function getOrCreateService(projectRoot: string): ServiceContext | null {
 	const staticFileNames = parsed.fileNames;
 	const compilerOptions = parsed.options;
 
-	const host: import("typescript").LanguageServiceHost = {
+	const host = buildLanguageServiceHost(ctx, ts, tsconfigDir, staticFileNames, compilerOptions);
+
+	ctx.service = ts.createLanguageService(host, ts.createDocumentRegistry());
+	_serviceCache.set(projectRoot, ctx);
+	return ctx;
+}
+
+/** LanguageServiceHost.readDirectory — delegates to `ts.sys.readDirectory`
+ *  verbatim. Module-private: covered indirectly through the `readDirectory`
+ *  hook on the host `buildLanguageServiceHost` returns (see its own test),
+ *  so it does not need its own export/importer to be directly testable. */
+function hostReadDirectory(
+	ts: Ts,
+	p: string,
+	extensions?: readonly string[],
+	exclude?: readonly string[],
+	include?: readonly string[],
+	depth?: number,
+): string[] {
+	return ts.sys.readDirectory(p, extensions, exclude, include, depth);
+}
+
+// Module RESOLUTION goes through readFile / fileExists / directoryExists, not
+// through getScriptSnapshot — so a sibling the batch CREATES (not yet on disk)
+// must exist for these three too, or `./widget.js` under `moduleSuffixes`
+// resolves past the proposed `widget.native.ts` back to the importer and
+// reports a circular alias the materialized batch never has (session review
+// r4, finding 1). The overlay target is treated the same way, so a batch that
+// creates BOTH files judges the tree it is about to produce.
+
+function overlayContentOf(ctx: ServiceContext, p: string): string | undefined {
+	const abs = resolve(p);
+	if (ctx.overlay && abs === ctx.overlay.filePath) return ctx.overlay.content;
+	return ctx.siblings.get(abs);
+}
+
+function overlayReadFile(ctx: ServiceContext, ts: Ts, p: string, encoding?: string): string | undefined {
+	return overlayContentOf(ctx, p) ?? ts.sys.readFile(p, encoding);
+}
+
+function overlayFileExists(ctx: ServiceContext, ts: Ts, p: string): boolean {
+	return overlayContentOf(ctx, p) !== undefined || ts.sys.fileExists(p);
+}
+
+/** A directory exists when the disk has it OR an overlaid file lives beneath it. */
+function overlayDirectoryExists(ctx: ServiceContext, ts: Ts, p: string): boolean {
+	if (ts.sys.directoryExists(p)) return true;
+	const prefix = `${resolve(p)}/`;
+	if (ctx.overlay && ctx.overlay.filePath.startsWith(prefix)) return true;
+	for (const sibling of ctx.siblings.keys()) {
+		if (sibling.startsWith(prefix)) return true;
+	}
+	return false;
+}
+
+/** LanguageServiceHost.getScriptFileNames — kept out of the object literal
+ *  below purely to keep buildLanguageServiceHost's own body under the
+ *  function-token cap; the frozen project file list plus overlaid
+ *  target/siblings not already part of it. */
+function hostGetScriptFileNames(ctx: ServiceContext, staticFileNames: string[]): string[] {
+	const extra: string[] = [];
+	if (ctx.overlay && !staticFileNames.includes(ctx.overlay.filePath)) {
+		extra.push(ctx.overlay.filePath);
+	}
+	for (const p of ctx.siblings.keys()) {
+		if (!staticFileNames.includes(p)) extra.push(p);
+	}
+	return extra.length > 0 ? [...staticFileNames, ...extra] : staticFileNames;
+}
+
+/** Builds the LanguageServiceHost wired to `ctx`'s mutable overlay/version
+ *  state. Extracted verbatim from getOrCreateService (unchanged behavior) so
+ *  the host object — including its `readDirectory` hook above — is directly
+ *  callable and testable in isolation. */
+export function buildLanguageServiceHost(
+	ctx: ServiceContext,
+	ts: Ts,
+	tsconfigDir: string,
+	staticFileNames: string[],
+	compilerOptions: import("typescript").CompilerOptions,
+): import("typescript").LanguageServiceHost {
+	return {
 		getCompilationSettings: () => compilerOptions,
-		getScriptFileNames: () => {
-			// Include the overlaid file + any sibling overlays not already part of
-			// the project (covers Write-of-new-file edits not yet on disk).
-			const extra: string[] = [];
-			if (ctx.overlay && !staticFileNames.includes(ctx.overlay.filePath)) {
-				extra.push(ctx.overlay.filePath);
-			}
-			for (const p of ctx.siblings.keys()) {
-				if (!staticFileNames.includes(p)) extra.push(p);
-			}
-			return extra.length > 0 ? [...staticFileNames, ...extra] : staticFileNames;
-		},
+		getScriptFileNames: () => hostGetScriptFileNames(ctx, staticFileNames),
 		getScriptVersion: (fileName) => {
 			if (ctx.overlay && fileName === ctx.overlay.filePath) {
 				return String(ctx.overlay.version);
@@ -186,17 +256,13 @@ function getOrCreateService(projectRoot: string): ServiceContext | null {
 		},
 		getCurrentDirectory: () => tsconfigDir,
 		getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
-		readFile: (p, encoding) => ts.sys.readFile(p, encoding),
-		fileExists: (p) => ts.sys.fileExists(p),
+		readFile: (p, encoding) => overlayReadFile(ctx, ts, p, encoding),
+		fileExists: (p) => overlayFileExists(ctx, ts, p),
 		readDirectory: (p, extensions, exclude, include, depth) =>
-			ts.sys.readDirectory(p, extensions, exclude, include, depth),
-		directoryExists: (p) => ts.sys.directoryExists(p),
+			hostReadDirectory(ts, p, extensions, exclude, include, depth),
+		directoryExists: (p) => overlayDirectoryExists(ctx, ts, p),
 		getDirectories: (p) => ts.sys.getDirectories(p),
 	};
-
-	ctx.service = ts.createLanguageService(host, ts.createDocumentRegistry());
-	_serviceCache.set(projectRoot, ctx);
-	return ctx;
 }
 
 // -------------------------------------------
@@ -349,7 +415,7 @@ function buildOverlayResults(
 	return results;
 }
 
-function diagnosticSeverity(
+export function diagnosticSeverity(
 	ts: Ts,
 	d: import("typescript").Diagnostic,
 ): "error" | "warning" | null {

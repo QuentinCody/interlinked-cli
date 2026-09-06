@@ -6,7 +6,7 @@
 import { mkdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TsgoDiagnostic } from "./daemon-protocol.js";
 import {
 	computeCacheKey,
@@ -14,8 +14,18 @@ import {
 	findTsconfigDir,
 	locateTsgo,
 	parseDiagnosticLine,
+	runTsgoOneShot,
 	spawnCollect,
 } from "./tsgo-diagnostics.js";
+
+// runTsgoOneShot's compiler-lease admission is a dependency of the module
+// under test, not the module itself — mocked here (not vi.spyOn on tsc/tsgo)
+// because filling the real cross-process/queue admission state deterministically
+// would require racing several concurrent calls against internal module state.
+vi.mock("./project-compiler-gate.js", () => ({
+	runWithProjectCompilerLease: () =>
+		Promise.reject(new Error("compiler lease unavailable (test)")),
+}));
 
 // ============================================================
 // locateTsgo — env var branch (L74)
@@ -170,6 +180,31 @@ describe("spawnCollect", () => {
 			5000,
 		);
 		expect(result).toBe(`${diagnostic}\n`);
+	});
+});
+
+// ============================================================
+// runTsgoOneShot — compiler-lease rejection branch (L231)
+// ============================================================
+
+describe("runTsgoOneShot", () => {
+	it("falls back to the tsgo-unavailable diagnostic when compiler admission rejects", async () => {
+		const target = "/definitely/does/not/exist/nope.ts";
+		const result = await runTsgoOneShot(process.execPath, target, [], 5000);
+		// If the catch around runWithProjectCompilerLease were removed, the
+		// mocked rejection above would propagate and this call would reject
+		// instead of resolving to the unavailable-diagnostic fallback.
+		expect(result).toEqual([
+			{
+				file: target,
+				line: 0,
+				column: 0,
+				code: -1,
+				severity: "warning",
+				message:
+					"[interlinked:tsgo-unavailable] TypeScript diagnostics were not checked because the compiler failed, timed out, or was killed.",
+			},
+		]);
 	});
 });
 

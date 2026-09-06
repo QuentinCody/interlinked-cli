@@ -9,6 +9,19 @@ import type { MutationManifest } from "./types.js";
 // dependent — this repo always has `typescript` installed) "identity
 // unavailable" branch of `explainRefusal`, then resets it in `afterEach`.
 let identityAvailableOverride: boolean | null = null;
+// Decoupled from `identityAvailableOverride` on purpose: real `deriveIdentities`
+// can only return null for the SAME reason `mutationIdentityAvailable` is false
+// (no `typescript`), so `recordEvidenceRefusal`'s `identities === null` branch
+// (measure.ts, "the TypeScript API is unavailable" after a target was already
+// found) is otherwise unreachable — `mutationIdentityAvailable()` gates it
+// first. This override forces JUST `deriveIdentities` null while availability
+// stays real (true, in this repo), reaching that second, independent check.
+let forceIdentitiesNull = false;
+// Independently truncates a REAL (non-null) identities array by one entry, so
+// `measuredMutant` sees `identities[index] === undefined` for the last mutant
+// — the defensive guard against a zip shorter than the mutant census, which a
+// real 1:1 `deriveIdentities` zip can never produce on its own.
+let truncateIdentities = false;
 vi.mock("./identity.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("./identity.js")>();
 	// `explainRefusal` (measure.ts) only calls `mutationIdentityAvailable`, but
@@ -21,10 +34,31 @@ vi.mock("./identity.js", async (importOriginal) => {
 		...actual,
 		mutationIdentityAvailable: () =>
 			identityAvailableOverride ?? actual.mutationIdentityAvailable(),
-		deriveIdentities: (...args: Parameters<typeof actual.deriveIdentities>) =>
-			identityAvailableOverride === false ? null : actual.deriveIdentities(...args),
+		deriveIdentities: (...args: Parameters<typeof actual.deriveIdentities>) => {
+			if (identityAvailableOverride === false || forceIdentitiesNull) return null;
+			const real = actual.deriveIdentities(...args);
+			return truncateIdentities && real !== null ? real.slice(0, -1) : real;
+		},
 		computeSymbolHashes: (...args: Parameters<typeof actual.computeSymbolHashes>) =>
 			identityAvailableOverride === false ? null : actual.computeSymbolHashes(...args),
+	};
+});
+
+// `recordMeasurement`'s "consistency bug" branch fires only when
+// `recordEvidenceRefusal` (measure.ts's own admission re-derivation) finds no
+// refusal but `seedFileBaseline` (adopt.ts, a SEPARATE re-derivation of the
+// same admission) still rejects — which the two independent implementations
+// can only disagree on defensively, never for a real input (see adopt.ts's own
+// doc comment on `selectTargetEntry`). Forcing just this one write path null,
+// while every other test keeps exercising the real writer, reaches it without
+// touching measure.ts's own (real, unmocked) admission logic.
+let forceSeedFileBaselineNull = false;
+vi.mock("./adopt.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./adopt.js")>();
+	return {
+		...actual,
+		seedFileBaseline: (...args: Parameters<typeof actual.seedFileBaseline>) =>
+			forceSeedFileBaselineNull ? null : actual.seedFileBaseline(...args),
 	};
 });
 
@@ -102,6 +136,9 @@ function fakeResponse(status: number, body: unknown): FetchResponseLike {
 
 afterEach(() => {
 	identityAvailableOverride = null;
+	forceIdentitiesNull = false;
+	truncateIdentities = false;
+	forceSeedFileBaselineNull = false;
 });
 
 describe("buildMeasureOverlays", () => {
@@ -924,6 +961,16 @@ describe("measureFile", () => {
 		expect(stale.reason).toContain("different source");
 		expect([foreign.status, stale.status]).toEqual(["partial", "partial"]);
 	});
+
+	it("N15: a timeout/indeterminate mutant is partial, naming how many", async () => {
+		const outcome = await measureFile({
+			...args,
+			endpoints: ["http://runner/"],
+			fetchImpl: async () => fakeResponse(200, report("Timeout")),
+		});
+		expect(outcome.status).toBe("partial");
+		expect(outcome.reason).toContain("1 mutant(s) returned timeout/indeterminate");
+	});
 });
 
 describe("recordMeasurement — the only write path, and it goes through seedFileBaseline", () => {
@@ -997,6 +1044,42 @@ describe("recordMeasurement — the only write path, and it goes through seedFil
 		expect(result.recorded).toBe(false);
 		expect(result.reason).toContain("TypeScript API is unavailable");
 		expect(result.manifest).toBeUndefined();
+	});
+
+	it("N4b: refuses the SAME way when derivation independently returns null even though the API reports available (a second, distinct guard from N4)", () => {
+		// `mutationIdentityAvailable()` stays real/true here — only
+		// `deriveIdentities` is forced null (`computeSymbolHashes` still runs for
+		// real, since it keys off `identityAvailableOverride`, not this flag),
+		// reaching `recordEvidenceRefusal`'s second, independent identity check
+		// (after a target was already found) rather than N4's earlier
+		// availability gate.
+		forceIdentitiesNull = true;
+		const base = emptyManifest(META);
+		const result = recordMeasurement({ base, file: FILE, content: CONTENT, rawReport: report("Survived"), at: "t" });
+		expect(result.recorded).toBe(false);
+		expect(result.reason).toContain("TypeScript API is unavailable");
+		expect(result.manifest).toBeUndefined();
+	});
+
+	it("N4c: throws when identity derivation returns fewer rows than the validated mutant census", () => {
+		// A real 1:1 `deriveIdentities` zip can never produce this; the guard
+		// exists for a corrupted/short zip. Truncating a real (non-null) array
+		// by one row reaches it without breaking the "identities === null" gate.
+		truncateIdentities = true;
+		const base = emptyManifest(META);
+		expect(() =>
+			recordMeasurement({ base, file: FILE, content: CONTENT, rawReport: report("Survived"), at: "t" }),
+		).toThrow("identity derivation returned fewer rows than the validated mutant census");
+	});
+
+	it("N4d: reports a consistency-bug reason when seedFileBaseline rejects evidence that already passed measure.ts's own admission checks", () => {
+		forceSeedFileBaselineNull = true;
+		const base = emptyManifest(META);
+		const result = recordMeasurement({ base, file: FILE, content: CONTENT, rawReport: report("Survived"), at: "t" });
+		expect(result.recorded).toBe(false);
+		expect(result.reason).toBe(
+			"seedFileBaseline rejected evidence that passed record admission — this indicates a consistency bug, not a safe write",
+		);
 	});
 
 	function attemptRecord(rawReport: unknown): ReturnType<typeof recordMeasurement> {

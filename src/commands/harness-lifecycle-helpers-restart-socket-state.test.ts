@@ -60,3 +60,50 @@ describe("cleanStaleRestartFiles (extracted module)", () => {
 		expect(mocks.reapOrphanHarnessesVerified).toHaveBeenCalledWith("/repo", {}, {});
 	});
 });
+
+// Both cleanup steps are best-effort: a probe or a read that THROWS must leave
+// the file it could not judge alone, never delete it on a failed observation.
+describe("cleanStaleRestartFiles — a failed observation never deletes the file", () => {
+	const SOCK = "/repo/.interlinked/harness.sock";
+	const PID = "/repo/.interlinked/harness.pid";
+
+	beforeEach(() => {
+		mocks.getSocketPath.mockReturnValue(SOCK);
+		mocks.getPidPath.mockReturnValue(PID);
+		mocks.isHarnessRunning.mockReturnValue({ running: false });
+	});
+
+	it("keeps the socket when the classify probe throws (probe_failed is not 'absent')", async () => {
+		const unlinked: string[] = [];
+		await cleanStaleRestartFiles("/repo", {
+			fileExists: () => true,
+			classifySocket: () => {
+				throw new Error("EACCES: socket probe refused");
+			},
+			readText: () => "1234\n",
+			unlinkFile: (path: string) => {
+				unlinked.push(path);
+			},
+		});
+		// Only the pid file goes. Were the throw classified as "absent", the
+		// socket would have been unlinked in the same run.
+		expect(unlinked).toEqual([PID]);
+	});
+
+	it("keeps the pid file when reading it throws (an unreadable snapshot is not an unchanged one)", async () => {
+		const unlinked: string[] = [];
+		const readText = vi.fn((_path: string): string => {
+			throw new Error("EACCES: pid file unreadable");
+		});
+		await cleanStaleRestartFiles("/repo", {
+			fileExists: (path: string) => path === PID,
+			readText,
+			unlinkFile: (path: string) => {
+				unlinked.push(path);
+			},
+		});
+		expect(unlinked).toEqual([]);
+		// The null snapshot short-circuits before the confirming second read.
+		expect(readText).toHaveBeenCalledTimes(1);
+	});
+});

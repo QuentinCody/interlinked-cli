@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -100,5 +100,40 @@ describe("reconciliation sidecar", () => {
 		const map = loadReconciliation(cwd);
 		expect(reconciliationStateOf(map, "f3")).toBe("touched");
 		expect(reconciliationStateOf(map, "f4")).toBe("acked");
+	});
+
+	it("appends without a torn-tail prefix when the sidecar cannot be read back (unreadable-file catch)", () => {
+		if (process.getuid?.() === 0) return; // root bypasses chmod, can't simulate EACCES
+		const cwd = tmpRepo();
+		// Seed the sidecar via the public API so its parent dir exists.
+		appendReconciliationTxn(cwd, { finding_id: "seed", action: "touched", by: "x", ts: T });
+		const path = reconciliationPath(cwd);
+		try {
+			// Write-only: appendFileSync (open with O_WRONLY|O_APPEND) still
+			// succeeds, but the read tornTailPrefix uses to inspect the last
+			// byte fails — its catch must fall back to "" rather than throwing
+			// and losing the append.
+			chmodSync(path, 0o200);
+			appendReconciliationTxn(cwd, { finding_id: "f6", action: "acked", by: "q", ts: T });
+		} finally {
+			chmodSync(path, 0o644);
+		}
+		// The append landed (proves the catch returned, instead of the
+		// unreadable-file error propagating out of appendReconciliationTxn
+		// and skipping the appendFileSync call entirely).
+		expect(reconciliationStateOf(loadReconciliation(cwd), "f6")).toBe("acked");
+	});
+
+	it("folds to everything-open when the sidecar path cannot be read as a file (unreadable-sidecar catch)", () => {
+		const cwd = tmpRepo();
+		const path = reconciliationPath(cwd);
+		// A directory at the sidecar's exact path: existsSync sees it, but
+		// readFileSync on a directory throws (EISDIR) regardless of
+		// permissions or uid — loadReconciliation's catch must fold that to
+		// "everything open" instead of the error propagating to the caller.
+		mkdirSync(path, { recursive: true });
+		const map = loadReconciliation(cwd);
+		expect(map.size).toBe(0);
+		expect(reconciliationStateOf(map, "anything")).toBe("open");
 	});
 });

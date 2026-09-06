@@ -169,6 +169,21 @@ describe("installCodexHooks / uninstallCodexHooks", () => {
 		expect(toml).toContain("[features]\nfoo = true\nhooks = true\n[profiles.default]");
 	});
 
+	it("throws when .codex/config.toml has duplicate [features] tables", () => {
+		// A duplicate [features] table is invalid TOML — Codex rejects the
+		// whole file, so the writer refuses to touch it rather than report a
+		// successful install over a config that will never actually fire.
+		const tomlPath = join(tmp, ".codex", "config.toml");
+		const existing = "[features]\nhooks = false\nfoo = 1\n\n[features]\ncodex_hooks = true\n";
+		const fs = require("node:fs");
+		fs.mkdirSync(join(tmp, ".codex"), { recursive: true });
+		fs.writeFileSync(tomlPath, existing);
+
+		expect(() => installCodexHooks(tmp, ".interlinked/hooks/interlinked-activity.mjs")).toThrow(
+			"Codex rejects the whole file, so hooks cannot fire",
+		);
+	});
+
 	it("does not rewrite .codex/hooks.json when rerun with identical settings", () => {
 		installCodexHooks(tmp, ".interlinked/hooks/interlinked-activity.mjs");
 		const hooksPath = join(tmp, ".codex", "hooks.json");

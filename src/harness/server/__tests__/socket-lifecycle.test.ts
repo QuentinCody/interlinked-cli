@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -60,6 +60,21 @@ describe("socket-lifecycle helpers", () => {
 		it("is idempotent for a missing file", () => {
 			const p = join(dir, "never-written.pid");
 			expect(() => removeFileIfExists(p)).not.toThrow();
+		});
+
+		it("swallows an rmSync failure and leaves the path in place", () => {
+			// rmSync without `recursive` on a directory throws ERR_FS_EISDIR. The
+			// catch must absorb it: a pid file the daemon cannot remove must not
+			// abort shutdown.
+			const undeletable = join(dir, "pid-dir");
+			mkdirSync(undeletable);
+
+			const steps: string[] = ["before-call"];
+			removeFileIfExists(undeletable);
+			steps.push("after-call");
+
+			expect(steps).toEqual(["before-call", "after-call"]);
+			expect(existsSync(undeletable)).toBe(true);
 		});
 
 		it("can be called twice in a row safely", () => {

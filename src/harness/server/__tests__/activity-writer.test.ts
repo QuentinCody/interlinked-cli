@@ -15,6 +15,7 @@ import {
 	mapEventToActivityRecord,
 	mapLifecycleEventToActivityRecord,
 	writeActivityRecord,
+	writeGuardDecisionRecord,
 	writeLifecycleActivityRecord,
 } from "../activity-writer.js";
 
@@ -403,5 +404,51 @@ describe("writeLifecycleActivityRecord — redacted round-trip", () => {
 			chained_events: 1,
 			unchained_guard_events: 0,
 		});
+	});
+});
+
+// All three writers are best-effort by contract (feedback_safety_continuity):
+// observability I/O must never break hook evaluation. The failure is injected
+// for real, not mocked — `.interlinked` is a regular FILE, so every append
+// under it raises ENOTDIR — and each case asserts the writer returned with the
+// sentinel untouched, i.e. it swallowed the error and wrote nothing.
+describe("activity writers — a failed append is swallowed, not propagated", () => {
+	const SENTINEL = "a regular file where .interlinked/ should be";
+	let dir: string;
+
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), "activity-writer-unwritable-"));
+		writeFileSync(join(dir, ".interlinked"), SENTINEL);
+	});
+
+	afterEach(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("writeActivityRecord swallows an unwritable tool-event mirror", () => {
+		writeActivityRecord(
+			harnessEvent({
+				hook_event: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "ls" },
+				cwd: dir,
+			}),
+			dir,
+		);
+		expect(readFileSync(join(dir, ".interlinked"), "utf8")).toBe(SENTINEL);
+	});
+
+	it("writeLifecycleActivityRecord swallows an unwritable SessionEnd audit-chain append", () => {
+		writeLifecycleActivityRecord(harnessEvent({ hook_event: "SessionEnd", cwd: dir }), dir);
+		expect(readFileSync(join(dir, ".interlinked"), "utf8")).toBe(SENTINEL);
+	});
+
+	it("writeGuardDecisionRecord swallows an unwritable guard_block append", () => {
+		writeGuardDecisionRecord(
+			harnessEvent({ hook_event: "PreToolUse", tool_name: "Bash", cwd: dir }),
+			{ decision: "block", reason: "BLOCKED: recursive deletion", rule_id: "builtin-rm-rf" },
+			dir,
+		);
+		expect(readFileSync(join(dir, ".interlinked"), "utf8")).toBe(SENTINEL);
 	});
 });

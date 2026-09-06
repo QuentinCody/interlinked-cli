@@ -3,13 +3,14 @@
 // Pins: run-id allocation is injectable-clock deterministic, rows round-trip,
 // foreign/torn lines are skipped, runs are isolated by id.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	allocRunId,
 	appendLedgerRow,
+	ledgerPath,
 	type LedgerRow,
 	loadLedger,
 	parseLedgerRow,
@@ -62,6 +63,17 @@ describe("appendLedgerRow / loadLedger", () => {
 
 	it("returns [] for an unknown run", () => {
 		expect(loadLedger(tempCwd(), "run-none")).toEqual([]);
+	});
+
+	it("skips a torn/foreign JSON line but keeps the valid rows on either side of it", () => {
+		const cwd = tempCwd();
+		appendLedgerRow(cwd, row("run-a", 1, true));
+		// Not valid JSON — JSON.parse throws, and the reader's contract is to
+		// skip a torn/foreign line rather than lose the whole file to it.
+		appendFileSync(ledgerPath(cwd, "run-a"), "not json{{{\n");
+		appendLedgerRow(cwd, row("run-a", 2, false));
+		const rows = loadLedger(cwd, "run-a");
+		expect(rows.map((r) => r.reference.seq)).toEqual([1, 2]);
 	});
 });
 

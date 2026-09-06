@@ -1,7 +1,21 @@
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Hoisted: spies on statSync/appendFileSync only (call-through to the real
+// implementation by default) while every other fs export stays untouched.
+// Plain `vi.spyOn(fs, ...)` throws "Module namespace is not configurable in
+// ESM" for node:fs — see src/lib/file-mutation-lock.test.ts for the prior art.
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		statSync: vi.fn(actual.statSync),
+		appendFileSync: vi.fn(actual.appendFileSync),
+	};
+});
+
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import {
 	backgroundTaskLogPath,
 	type BackgroundTaskRecord,
@@ -140,5 +154,42 @@ describe("lastStatuses — malformed rows (parseStatusRow)", () => {
 	it("N9: a non-object line (array/number/null) is skipped without throwing", () => {
 		seedRawLines(["[1,2,3]", "42", "null"]);
 		expect(lastStatuses(dir).size).toBe(0);
+	});
+
+	it("N10: a line that fails JSON.parse entirely is skipped, letting a later valid row through", () => {
+		// Genuinely malformed JSON syntax (not just the wrong shape) — this is
+		// the only fixture that reaches parseStatusRow's JSON.parse catch.
+		seedRawLines(["{not valid json", JSON.stringify({ id: "b1", status: "running" })]);
+		expect(() => lastStatuses(dir)).not.toThrow();
+		expect(lastStatuses(dir).get("b1")).toBe("running");
+	});
+});
+
+describe("lastStatuses — unreadable log (outer catch)", () => {
+	afterEach(() => {
+		vi.mocked(statSync).mockRestore();
+	});
+
+	it("N11: a stat failure after existsSync passes returns no known statuses instead of throwing", () => {
+		record([{ id: "b1", status: "running" }]);
+		vi.mocked(statSync).mockImplementationOnce(() => {
+			throw new Error("EACCES: permission denied, stat");
+		});
+		expect(lastStatuses(dir).size).toBe(0);
+	});
+});
+
+describe("recordBackgroundTasks — write failure (best-effort catch)", () => {
+	afterEach(() => {
+		vi.mocked(appendFileSync).mockRestore();
+	});
+
+	it("N12: an append failure is swallowed and reports 0 rows written", () => {
+		vi.mocked(appendFileSync).mockImplementationOnce(() => {
+			throw new Error("ENOSPC: no space left on device");
+		});
+		expect(record([{ id: "b1", status: "running" }])).toBe(0);
+		// The write never completed, so the log file itself was never created.
+		expect(() => readFileSync(backgroundTaskLogPath(dir), "utf-8")).toThrow();
 	});
 });

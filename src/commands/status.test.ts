@@ -87,6 +87,9 @@ vi.mock("node:fs", () => ({
 	mkdirSync: vi.fn(),
 }));
 
+// Real (mocked-module) bindings used to seed a non-empty enforcement ledger
+// for a single call — see "statusCommand — Scorecard section" below.
+import { existsSync, readFileSync } from "node:fs";
 import { statusCommand } from "./status.js";
 
 // ===========================================
@@ -1387,6 +1390,34 @@ describe("statusCommand — normal mode additional coverage", () => {
 		expect(firstLog()).toContain(
 			`${kvLine("Total events", "0")}\n${kvLine("Log size", "0 B")}`,
 		);
+	});
+});
+
+// ===========================================
+// Scorecard — the enforcement-ledger section
+// ===========================================
+
+describe("statusCommand — Scorecard section", () => {
+	it("renders the ledger's since date once tool calls have been judged", async () => {
+		// The module-level node:fs mock defaults existsSync to false, which is
+		// the fresh-install path exercised everywhere else in this file. Here we
+		// answer the ONE existsSync/readFileSync pair `loadEnforcementLedger`
+		// makes with a real, non-empty ledger for this call only.
+		vi.mocked(existsSync).mockReturnValueOnce(true);
+		vi.mocked(readFileSync).mockReturnValueOnce(
+			JSON.stringify({
+				version: 1,
+				since: "2026-01-02T03:04:05.000Z",
+				cursor: 0,
+				blocked: 1,
+				caught: 2,
+				evaluated: 5,
+			}),
+		);
+
+		await statusCommand({});
+
+		expect(firstLog()).toContain(kvLine("Tool calls judged", "5 since 2026-01-02"));
 	});
 });
 

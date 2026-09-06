@@ -80,6 +80,19 @@ it("two assertions, second floats", async () => {
 		const src = `it("many", async () => {\n${body}\n});\n`;
 		expect(detectUnawaitedAsyncAssertions(src, TEST_PATH).length).toBe(10);
 	});
+
+	it("P5: floating chain as the very first line of the file — no previous line to check", () => {
+		// previousSignificantLine(lines, 0) has nothing before index 0 and falls
+		// back to null. If that fallback were instead some placeholder string
+		// ending in a continuation token (e.g. a stray "="), the statement-
+		// position gate would misread it as "this is a continuation" and
+		// suppress the finding — so the line-1 match here proves the no-prior-
+		// line case is treated as fresh statement position, not continuation.
+		const src = 'expect(doWork()).rejects.toThrow();\n';
+		const found = detectUnawaitedAsyncAssertions(src, TEST_PATH);
+		expect(found.length).toBe(1);
+		expect(found[0]?.line).toBe(1);
+	});
 });
 
 // ─── Negative cases ───────────────────────────────────────────────────────────
@@ -170,5 +183,19 @@ it("documented", async () => {
 });
 `;
 		expect(fires(src)).toBe(false);
+	});
+
+	it("N10: expect(...) call whose parens never balance before end of file — should not fire", () => {
+		// skipBalancedParens scans from the opening "(" to end of file looking for
+		// the matching close; an unterminated call never reaches depth 0 and falls
+		// through to its -1 sentinel. The guard `afterClose === -1` bails before
+		// reading a chain. A `.rejects` sequence sits at offset 0 of this fixture
+		// on purpose: if the sentinel were ever a small non-negative offset
+		// instead of -1, chainIsAsyncMatcher would slice from near the start of
+		// the file, land on that `.rejects` text, and this test would flag a
+		// finding that must not exist.
+		const src = `.rejects.toThrow();
+expect(doWork(`;
+		expect(detectUnawaitedAsyncAssertions(src, TEST_PATH)).toEqual([]);
 	});
 });

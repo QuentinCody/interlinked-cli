@@ -13,6 +13,7 @@ import {
 	captureVitestShards,
 	istanbulToElementSets,
 	parseShardRecord,
+	resolveCoverageV8Url,
 	shardIdForRecord,
 	shardIdForTestFile,
 } from "./vitest.js";
@@ -511,6 +512,36 @@ describe("captureVitestShards — readCapturedShards branch paths (fake spawn)",
 		});
 		expect(result.runResult.ok).toBe(true);
 		expect(seenTimeout).toBe(12_345);
+	});
+});
+
+describe("resolveCoverageV8Url", () => {
+	it("falls back to null when both the target require and import.meta.resolve fail", () => {
+		// A projectRoot with no package.json/node_modules ancestor makes the
+		// target-project require genuinely fail; the injected resolver
+		// stands in for import.meta.resolve (which cannot itself be forced
+		// to fail — this module's own node_modules always has the package).
+		const result = resolveCoverageV8Url(join(scratch, "no-such-project"), () => {
+			throw new Error("cannot find package '@vitest/coverage-v8'");
+		});
+		expect(result).toBeNull();
+	});
+});
+
+describe("captureVitestShards — resolveV8Url injectable", () => {
+	it("reports the not-resolvable degraded reason when the v8 provider cannot be located", async () => {
+		const captureDir = join(scratch, ".capture");
+		const result = await captureVitestShards({
+			projectRoot: scratch,
+			captureDir,
+			resolveV8Url: () => null,
+		});
+		expect(result.degraded).toBe("@vitest/coverage-v8 not resolvable — shard capture unavailable");
+		expect(result.runResult.ok).toBe(false);
+		expect(result.runResult.error).toBe(
+			"@vitest/coverage-v8 is not resolvable from the target project (or this CLI)",
+		);
+		expect(result.shards).toEqual([]);
 	});
 });
 

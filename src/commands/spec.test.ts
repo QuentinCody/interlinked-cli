@@ -1,14 +1,45 @@
+// One real absolute path is designated to throw on its SECOND readFileSync
+// call within a single `spec agenda` action — the first call is SpecLedger's
+// own walk (which must succeed so the file lands in the ledger), the second
+// is `contentsFor`'s re-read (which must fail to exercise its catch). Every
+// other path, and every other read of the same path, is delegated to the
+// real implementation.
+let failOnSecondReadPath: string | null = null;
+const readAttempts = new Map<string, number>();
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		readFileSync: (p: unknown, ...rest: unknown[]) => {
+			if (typeof p === "string" && p === failOnSecondReadPath) {
+				const n = (readAttempts.get(p) ?? 0) + 1;
+				readAttempts.set(p, n);
+				if (n >= 2) {
+					throw new Error("EACCES: simulated unreadable-on-second-pass for coverage");
+				}
+			}
+			return (actual.readFileSync as (...a: unknown[]) => unknown)(p, ...rest);
+		},
+	};
+});
+
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command } from "commander";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeFinding, recordFinding } from "../harness/findings/corpus.js";
+import { resetReviewReconcileCacheForTesting } from "../harness/server/review-reconcile-phase.js";
 import { registerSpecCommands } from "./spec.js";
 
 const roots: string[] = [];
 afterEach(() => {
 	for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
+	failOnSecondReadPath = null;
+	readAttempts.clear();
 });
+
+beforeEach(() => resetReviewReconcileCacheForTesting());
 
 describe("interlinked spec agenda", () => {
 	it("writes the review-agenda artifact for the repo's markdown corpus", async () => {
@@ -96,5 +127,69 @@ describe("interlinked spec invariants", () => {
 		expect(artifact).toContain("FG-INV-18");
 		expect(artifact).toContain("doctrine");
 		expect(artifact).toContain("sole truth");
+	});
+});
+
+describe("interlinked spec agenda — unreadable-file accounting", () => {
+	it("counts a ledger file that fails its re-read instead of silently dropping it", async () => {
+		const cwd = realpathSync(mkdtempSync(join(tmpdir(), "spec-unreadable-")));
+		roots.push(cwd);
+		mkdirSync(join(cwd, ".interlinked"), { recursive: true });
+		const flaky = join(cwd, "FLAKY.md");
+		writeFileSync(flaky, "## Six bets\n- B1 a");
+		// First readFileSync (SpecLedger's walk) succeeds so the file lands in
+		// the ledger; the second (contentsFor's re-read) throws — the TOCTOU
+		// gap the try/catch at spec.ts's contentsFor exists to survive.
+		failOnSecondReadPath = flaky;
+		const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(cwd);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		let printed = "";
+		try {
+			const program = new Command();
+			registerSpecCommands(program);
+			await program.parseAsync(["node", "interlinked", "spec", "agenda"]);
+			// Read the recorded calls BEFORE mockRestore() below — restoring a spy
+			// also clears its call history, so reading afterward always sees [].
+			printed = log.mock.calls.map((c) => String(c[0])).join("\n");
+		} finally {
+			cwdSpy.mockRestore();
+			log.mockRestore();
+		}
+		expect(printed).toContain("(1 file(s) unreadable, omitted)");
+	});
+});
+
+describe("interlinked spec agenda — open review findings", () => {
+	it("renders an open review finding as a line naming its file, line, and message", async () => {
+		const cwd = realpathSync(mkdtempSync(join(tmpdir(), "spec-openfind-")));
+		roots.push(cwd);
+		mkdirSync(join(cwd, ".interlinked"), { recursive: true });
+		writeFileSync(join(cwd, "README.md"), "Nothing special here.");
+		const finding = makeFinding(
+			{
+				bug_class: "review_probe",
+				message: "PROBE_MESSAGE_TEXT",
+				file: "docs/probe.md",
+				line: 7,
+				source_runner: "spec-test",
+			},
+			cwd,
+		);
+		recordFinding(finding, cwd, { mirrorGlobal: false });
+		const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(cwd);
+		const log = vi.spyOn(console, "log").mockImplementation(() => {});
+		try {
+			const program = new Command();
+			registerSpecCommands(program);
+			await program.parseAsync(["node", "interlinked", "spec", "agenda"]);
+		} finally {
+			cwdSpy.mockRestore();
+			log.mockRestore();
+		}
+		const agenda = readFileSync(join(cwd, ".interlinked", "review-agenda.md"), "utf8");
+		// Literal text assembled by the `f.line ? ... : ""` ternary's TRUE arm:
+		// inverting it (always/never appending ":7") would drop this exact
+		// substring.
+		expect(agenda).toContain("docs/probe.md:7 — PROBE_MESSAGE_TEXT");
 	});
 });

@@ -1,7 +1,25 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Hoisted: spies on statSync only (call-through to the real implementation
+// by default) while every other fs export stays untouched. Plain
+// `vi.spyOn(fs, ...)` throws "Module namespace is not configurable in ESM"
+// for node:fs — this is the vitest-documented workaround (mirrors
+// src/lib/config.mutation-kill.test.ts). Restored to the real implementation
+// in afterEach so it never leaks into other tests in this file.
+const gateFsHoisted = vi.hoisted(() => ({
+	// SAFETY: populated synchronously by the vi.mock factory below before any
+	// test body runs; only read from afterEach after that factory has executed.
+	actualStatSync: null as unknown as typeof import("node:fs").statSync,
+}));
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	gateFsHoisted.actualStatSync = actual.statSync;
+	return { ...actual, statSync: vi.fn(actual.statSync) };
+});
+
 import {
 	type Allowlist,
 	addToAllowlist,
@@ -22,6 +40,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	rmSync(workspace, { recursive: true, force: true });
+	vi.mocked(statSync).mockImplementation(gateFsHoisted.actualStatSync);
 });
 
 function evalCmd(command: string): HarnessDecision {
@@ -306,6 +325,35 @@ describe("evaluatePackageInstall — manifest-only sync (npm install no args)", 
 		};
 		saveAllowlist(workspace, al);
 		expect(evalCmd("npm install").decision).toBe("allow");
+	});
+});
+
+describe("evaluatePackageInstall — isExistingFile survives an unreadable manifest", () => {
+	// test-contract: behavior — `isExistingFile`'s catch (statSync throwing on
+	// a path that DOES exist, e.g. a permission error) must fall back to
+	// "not present" rather than crash or count as present. package.json is on
+	// disk in this test; only statSync for that path is made to throw
+	// (real node:fs stays wired for every other call), which pushes the
+	// snapshot check onto the "nothing matched" branch and its no-file hint
+	// — the "Run `interlinked allowlist snapshot`" wording never appears
+	// because the guard cannot see a present manifest to name.
+	it("treats a package.json that statSync can't read as absent, not present", () => {
+		const mf = join(workspace, "package.json");
+		writeFileSync(mf, '{"dependencies":{"foo":"1"}}');
+		vi.mocked(statSync).mockImplementation((p, opts) => {
+			if (String(p) === mf) {
+				throw Object.assign(new Error("EACCES: permission denied, stat 'package.json'"), {
+					code: "EACCES",
+				});
+			}
+			return gateFsHoisted.actualStatSync(p, opts);
+		});
+		const r = evalCmd("npm ci");
+		expect(r.decision).toBe("block");
+		expect(r.reason).toContain(
+			"Initial bootstrap: `interlinked allowlist add npm <package>` per package, or `interlinked allowlist snapshot` once the manifest is in place.",
+		);
+		expect(r.reason).not.toContain("Run `interlinked allowlist snapshot`");
 	});
 });
 

@@ -284,6 +284,15 @@ describe("stripMalformedRulesAudited", () => {
 		expect(result.entries).toEqual([]);
 	});
 
+	it("returns empty result instead of throwing when the file holds invalid JSON", () => {
+		const path = join(dir, "invalid.json");
+		writeFileSync(path, "{ this is not valid json");
+		const result = stripMalformedRulesAudited(path);
+		expect(result).toEqual({ stripped: 0, entries: [] });
+		// the unparsable file is left untouched, not overwritten with an empty shell
+		expect(readFileSync(path, "utf-8")).toBe("{ this is not valid json");
+	});
+
 	it("legacy stripMalformedRules still returns just the count", () => {
 		const path = join(dir, "legacy.json");
 		writeFileSync(

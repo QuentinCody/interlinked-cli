@@ -252,6 +252,22 @@ describe("runPerEditMutationGate", () => {
 		expect(d?.warnings?.[0]).toContain(FILE);
 	});
 
+	// A STALE Edit: the file exists on disk (so the new-file arm above does not
+	// fire) but its old_string is gone, so applying the patch throws and the
+	// overlay cannot be reconstructed. Silence here would report the same
+	// nothing as "not eligible", so the gate says not-measured and names why.
+	it("P: a stale Edit whose old_string is absent from disk returns an unreconstructable-overlay not-measured", async () => {
+		const d = await runPerEditMutationGate(
+			ctx({
+				toolName: "Edit",
+				toolInput: { file_path: FILE, old_string: "no such text on disk", new_string: "y" },
+			}),
+		);
+		expect(d?.warnings?.[0]).toBe(
+			`[mutation:not-measured] could not reconstruct the proposed content for ${FILE}`,
+		);
+	});
+
 	it("returns not-measured when the runner throws", async () => {
 		const throwing: MutationRunner = { available: () => true, run: () => Promise.reject(new Error("boom")) };
 		const d = await runPerEditMutationGate(ctx({ runner: throwing }));

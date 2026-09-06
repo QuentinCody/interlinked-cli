@@ -228,8 +228,14 @@ export function checkProjectTypecheckClean(cwd: string): CheckResultEntry[] {
  * this path yields the event loop and keeps project admission until the
  * compiler wrapper and its detached descendants are reaped after a timeout.
  * Admission failure is an explicit no-verdict warning, never a clean result.
+ *
+ * `options.timeoutMs` is a test seam for the budget: production callers pass
+ * nothing and get {@link TYPECHECK_TIMEOUT_MS}, so behavior is unchanged.
  */
-export async function checkProjectTypecheckCleanAsync(cwd: string): Promise<CheckResultEntry[]> {
+export async function checkProjectTypecheckCleanAsync(
+	cwd: string,
+	options: { timeoutMs?: number } = {},
+): Promise<CheckResultEntry[]> {
 	if (process.env.INTERLINKED_SKIP_PROJECT_TYPECHECK === "1") {
 		return [
 			{
@@ -246,11 +252,12 @@ export async function checkProjectTypecheckCleanAsync(cwd: string): Promise<Chec
 	const cmd = resolveTypecheckCommand(cwd);
 	if (!cmd) return [];
 
+	const timeoutMs = options.timeoutMs ?? TYPECHECK_TIMEOUT_MS;
 	try {
 		return await runWithProjectCompilerLease(cwd, async () => {
 			const result = await runProcessAsync(cmd.bin, cmd.args, {
 				cwd,
-				timeout: TYPECHECK_TIMEOUT_MS,
+				timeout: timeoutMs,
 			});
 			if (result.timedOut || result.killed) {
 				return [
@@ -258,7 +265,7 @@ export async function checkProjectTypecheckCleanAsync(cwd: string): Promise<Chec
 						source: "structural",
 						name: "project_typecheck_timed_out",
 						severity: "warning",
-						message: `Project typecheck (${cmd.source}) exceeded ${TYPECHECK_TIMEOUT_MS / 1000}s timeout or was terminated. Verify CI manually.`,
+						message: `Project typecheck (${cmd.source}) exceeded ${timeoutMs / 1000}s timeout or was terminated. Verify CI manually.`,
 						determinism: "fully_deterministic",
 					},
 				];

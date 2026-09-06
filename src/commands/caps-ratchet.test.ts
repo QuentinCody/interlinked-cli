@@ -43,6 +43,10 @@ beforeEach(() => {
 afterEach(() => {
 	rmSync(cwd, { recursive: true, force: true });
 	vi.restoreAllMocks();
+	// Drop any per-test `vi.doMock` + its cached module graph (no-op otherwise),
+	// so the analyzer-unavailable case cannot leak into a later test.
+	vi.doUnmock("../harness/function-complexity-baseline.js");
+	vi.resetModules();
 });
 
 const out = (): string => logs.join("\n");
@@ -160,6 +164,26 @@ describe("capsRatchetAction — real ratchet", () => {
 		expect(parsed.entries.map((e) => e.name)).toEqual(["other"]);
 		expect(parsed.added).toBe(1);
 		expect(parsed.unlisted).toEqual([]);
+	});
+
+	// The scan returns null when the optional `typescript` dependency is absent.
+	// An empty ledger would then look like "nothing is over the cap" and launder
+	// every over-cap function in, so the ratchet must refuse loudly and write
+	// NOTHING. Only a module-level stand-in can make the real scan return null
+	// here, so this one case re-imports the command with the scanner replaced.
+	it("refuses and writes nothing when the TypeScript analyzer is unavailable", async () => {
+		vi.resetModules();
+		vi.doMock("../harness/function-complexity-baseline.js", async () => {
+			const actual = await vi.importActual<typeof import("../harness/function-complexity-baseline.js")>(
+				"../harness/function-complexity-baseline.js",
+			);
+			return { ...actual, computeOverCap: () => null };
+		});
+		const { capsRatchetAction: ratchetWithoutAnalyzer } = await import("./caps-ratchet.js");
+		expect(await ratchetWithoutAnalyzer("cyclomatic", { to: "16" }, { cwd })).toBe(1);
+		expect(out()).toContain("Cannot ratchet: the TypeScript analyzer is unavailable");
+		expect(capsFile().max_cyclomatic).toBe(25);
+		expect(existsSync(join(cwd, FUNCTION_COMPLEXITY_BASELINE_REL))).toBe(false);
 	});
 
 	it("ratchets the cognitive metric into max_cognitive", async () => {

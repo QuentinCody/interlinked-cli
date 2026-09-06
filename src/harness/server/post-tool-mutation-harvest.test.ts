@@ -273,6 +273,35 @@ describe("appendMutationHarvestWarning", () => {
 		expect(text).toContain("could not be matched");
 	});
 
+	// The disk read is the only unguarded I/O this phase performs, and it runs
+	// AFTER the tool call succeeded: a file the agent (or a concurrent agent)
+	// removed between the write and this window must degrade to "no current
+	// bytes", never throw and never be hashed into a match.
+	it("P: a file that vanished before the harvest window is reported as unreadable, not as a match", async () => {
+		const cwd = process.cwd();
+		// Never created — the real readFileSync raises ENOENT for it. No
+		// `readDisk` seam here on purpose: this case is about the real reader.
+		const vanished = "src/harvest-vanished-fixture.ts";
+		recordPending(pendingRegistry(NOW), {
+			file: vanished,
+			overlayHash: overlayHash(CONTENT),
+			jobId: "j-vanished",
+			runnerUrl: "http://runner/",
+			startedAt: NOW,
+		});
+		const decision: HarnessDecision = { decision: "allow" };
+		await appendMutationHarvestWarning(ctxWith(true, cwd), writeEvent(`${cwd}/${vanished}`), decision, {
+			fetchImpl: okFetch,
+			now: () => NOW,
+		});
+		// A reader that returned "" instead of null would hash the empty string
+		// and print that digest here; one that rethrew would fail the phase's
+		// never-throws contract before any warning was appended.
+		expect(decision.warnings?.join("\n")).toBe(
+			`[interlinked:mutation] ${vanished}: 1 pending run(s) could not be matched to what landed (measured ${overlayHash(CONTENT)}, on disk unreadable) — not measured.`,
+		);
+	});
+
 	it("stays silent when the feature is disabled", async () => {
 		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(ctxWith(false, process.cwd()), writeEvent("/x/src/a.ts"), decision, {

@@ -56,7 +56,7 @@ interface FileMutationLease {
 	owner: LockOwner;
 }
 
-interface LockObservation {
+export interface LockObservation {
 	entries: string[];
 	legacy: boolean;
 	owner: LockOwner | null;
@@ -128,7 +128,7 @@ function readOwner(ownerPath: string): LockOwner | null {
 	}
 }
 
-function observeLock(path: string, lockPath: string): LockObservation | null {
+export function observeLock(path: string, lockPath: string): LockObservation | null {
 	let entries: string[];
 	try {
 		entries = readdirSync(lockPath).sort();
@@ -150,6 +150,9 @@ function observeLock(path: string, lockPath: string): LockObservation | null {
 	if (!owner || owner.token !== tokenFromName) {
 		return { entries, legacy: false, owner: null, ownerPath: null };
 	}
+	// `path` and `lockPath` are independent arguments at this exported boundary:
+	// a mismatched pair would hand a FOREIGN lock's ownerPath to
+	// removeObservedLock, which unlinks that file and rmdirs its directory.
 	if (fileMutationLockOwnerPath(path, owner.token) !== ownerPath) {
 		return { entries, legacy: false, owner: null, ownerPath: null };
 	}

@@ -175,6 +175,34 @@ describe("recordPayloadKeys", () => {
 		recordPayloadKeys({ runner: "claude-code", nativeEvent: "Stop", raw: { odd: 1 }, cwd: dir, now: NOW });
 		expect(read().entries["claude-code/Stop"]?.unconsumed).toEqual(["odd"]);
 	});
+
+	it("N6: a write failure is swallowed (fail-open) and does not corrupt later recordings", () => {
+		// Put a DIRECTORY at the exact census file path so writeFileSync throws
+		// EISDIR mid-write. If the outer try/catch around the write were removed,
+		// this call would throw and take the caller's hook pipeline down with it.
+		mkdirSync(censusPath(dir), { recursive: true });
+		expect(() =>
+			recordPayloadKeys({
+				runner: "claude-code",
+				nativeEvent: "Stop",
+				raw: { blocked_field: 1 },
+				cwd: dir,
+				now: NOW,
+			}),
+		).not.toThrow();
+
+		// Fail-open must not leave the module unable to recover: once the
+		// blocking directory is gone, the SAME observation lands normally.
+		rmSync(censusPath(dir), { recursive: true, force: true });
+		recordPayloadKeys({
+			runner: "claude-code",
+			nativeEvent: "Stop",
+			raw: { blocked_field: 1 },
+			cwd: dir,
+			now: LATER,
+		});
+		expect(read().entries["claude-code/Stop"]?.unconsumed).toEqual(["blocked_field"]);
+	});
 });
 
 describe("describeShape — positive (must describe type + member names)", () => {

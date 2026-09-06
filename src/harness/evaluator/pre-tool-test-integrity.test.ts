@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -63,5 +63,15 @@ describe("checkTestSignalErosion (PreToolUse wiring)", () => {
 		expect(checkTestSignalErosion("Read", write("foo.test.ts", "x"), session(), cwd)).toBeNull();
 		// brand-new test file (not on disk) — nothing to erode
 		expect(checkTestSignalErosion("Write", write("new.test.ts", "it('a', () => {})"), session(), cwd)).toBeNull();
+	});
+
+	it("is silent when the on-disk test path cannot be read (EISDIR)", () => {
+		// The test path exists (existsSync passes) but resolves to a directory,
+		// not a file, so readFileSync throws — the catch must yield null rather
+		// than letting the exception escape.
+		mkdirSync(join(cwd, "foo.test.ts"), { recursive: true });
+		expect(
+			checkTestSignalErosion("Write", write("foo.test.ts", `it("a", () => { expect(x).toBe(1); });`), session(), cwd),
+		).toBeNull();
 	});
 });

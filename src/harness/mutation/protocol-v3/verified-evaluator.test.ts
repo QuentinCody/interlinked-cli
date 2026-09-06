@@ -288,6 +288,35 @@ describe("evaluateVerifiedMutationEvidence", () => {
 		if (outcome.kind === "unavailable") expect(outcome.reason).toContain("target_content_hash");
 	});
 
+	it("N: an authenticated cancellation short-circuits with none-completeness before any bridging runs", () => {
+		const base = validMutationResult() as unknown as Record<string, unknown>;
+		const cancelled: Record<string, unknown> = {
+			...base,
+			kind: "cancelled",
+			cancellation_reason: "operator_stop",
+		};
+		for (const key of [
+			"execution_receipt_hash",
+			"attempt_id",
+			"scope",
+			"engine",
+			"runner",
+			"census",
+			"excluded",
+			"mutants",
+			"identity_algorithm",
+			"test_run",
+			"report",
+		]) {
+			delete cancelled[key];
+		}
+		const outcome = evaluate(authenticate(cancelled), MUTATION_RESULT_TARGET_CONTENT);
+		expect(outcome).toMatchObject({
+			kind: "unavailable",
+			reason: "cancelled: operator_stop",
+		});
+	});
+
 	it("N: authenticated suite-red evidence blocks even though its mutant census is partial", () => {
 		const base = validMutationResult();
 		const redShape = {

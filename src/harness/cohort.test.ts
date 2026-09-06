@@ -373,6 +373,24 @@ describe("CohortManager.recordActivity", () => {
 		c.recordActivity(ev({ agent_name: "restarted-into-us", session_id: "s-mid-flight" }));
 		expect(c.getAllAgents()).toHaveLength(1);
 	});
+
+	it("routes an unmatched event carrying subagent_id through subagentJoined, not agentJoined", () => {
+		// If recordActivity checked agent_name before subagent_id here, this event
+		// (which carries both) would fall into agentJoined and the resulting
+		// record would have no subagent_id field at all.
+		const c = new CohortManager();
+		c.recordActivity(
+			ev({
+				agent_name: "helper",
+				session_id: "new-session",
+				subagent_id: "new-sub",
+				timestamp: "2026-06-06T09:30:00.000Z",
+			}),
+		);
+		const agent = c.getAgent("helper");
+		expect(agent?.subagent_id).toBe("new-sub");
+		expect(agent?.status).toBe("active");
+	});
 });
 
 describe("CohortManager file reservations", () => {

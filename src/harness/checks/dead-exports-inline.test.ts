@@ -1,5 +1,13 @@
-import { describe, expect, it } from "vitest";
-import { findDeadExports, findDeadTypeExports } from "./dead-exports-inline.js";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+	checkDeadExports,
+	findDeadExports,
+	findDeadTypeExports,
+} from "./dead-exports-inline.js";
 
 /**
  * Regression corpus from a live FP report (mcp-client-bio, 2026-07-28): the
@@ -8,6 +16,11 @@ import { findDeadExports, findDeadTypeExports } from "./dead-exports-inline.js";
  * point) as unused. Root causes covered here: `.js` ESM specifiers not lining
  * up with `.ts` sources, re-export barrels not counting as consumption, and —
  * the umbrella — flagging EVERYTHING when the resolver produced no evidence.
+ *
+ * Two fixture kinds are used. Most cases drive the injectable `DeadExportsRepo`
+ * (the `repo()` helper below — no filesystem, no git). The `checkDeadExports`
+ * block at the bottom needs the REAL repo view (`git ls-files` + `readFileSync`),
+ * so it builds an actual throwaway git repository under the temp dir.
  */
 function repo(files: Record<string, string>) {
 	return {
@@ -591,5 +604,64 @@ describe("findDeadExports — pathKey extension and barrel-suffix handling", () 
 		};
 		const out = findDeadExports(args("src/lib.mts", files["src/lib.mts"]), repo(files));
 		expect(out.map((m) => m.text)).toEqual([expect.stringContaining("'dead'")]);
+	});
+});
+
+/**
+ * A signature span the scanner cannot terminate — the declaration is the last
+ * thing in the file, with neither a closing brace nor a trailing `;` — must
+ * still yield the text it collected. Truncating it to nothing would drop the
+ * type references it carries, and every type named only there would be
+ * reported dead.
+ */
+describe("findDeadTypeExports — signature spans that run to end of file", () => {
+	it("P10: a brace-less type alias with no terminator at EOF still supplies its type reference", () => {
+		// `Wrapper`'s span is unterminated (no `}`, no `;`, no next line), so the
+		// braced-or-statement extractor falls out of its loop; the text it
+		// collected is what proves `Payload` is part of the exported surface.
+		const content = "export type Payload = { id: string };\nexport type Wrapper = Payload | null";
+		const out = findDeadTypeExports(args("src/shapes.ts", content), repo({}));
+		expect(out.map((m) => m.line)).toEqual([2]);
+		expect(out[0]?.text).toContain("unused export 'Wrapper'");
+	});
+
+	it("P11: an exported const with no terminator at EOF still supplies its annotated type", () => {
+		// The signature-prefix extractor never meets a body-opening `{` nor a
+		// `;`, so it runs to the end of the file. `Fields` is nameable only from
+		// that span; `Orphan` is named nowhere and is the one real finding.
+		const content =
+			"export interface Fields { id: string }\nexport type Orphan = number;\nexport const fields: Fields = makeFields()";
+		const out = findDeadTypeExports(args("src/shapes.ts", content), repo({}));
+		expect(out.map((m) => m.line)).toEqual([2]);
+		expect(out[0]?.text).toContain("unused export 'Orphan'");
+	});
+});
+
+/**
+ * The registry-facing wrapper over the REAL repo view: `git ls-files` for the
+ * candidate importers, `readFileSync` for their contents. Needs a genuine
+ * repository, so these cases build one under the temp dir.
+ */
+describe("checkDeadExports — live repo view", () => {
+	let root = "";
+	afterEach(() => {
+		if (root) rmSync(root, { recursive: true, force: true });
+		root = "";
+	});
+
+	it("P12: a listed candidate importer that cannot be read is skipped, and the scan still reports the dead export", () => {
+		// `ghost.ts` is a dangling symlink: git lists it, readFileSync throws
+		// ENOENT. An unreadable candidate is no evidence either way — it must
+		// not abort the scan of the readable ones.
+		root = mkdtempSync(join(tmpdir(), "dead-exports-live-"));
+		const lib = "export const used = 1;\nexport const dead = 2;\n";
+		writeFileSync(join(root, "lib.ts"), lib);
+		writeFileSync(join(root, "main.ts"), 'import { used } from "./lib.js";\nconsole.log(used);\n');
+		symlinkSync("./no-such-target.ts", join(root, "ghost.ts"));
+		execFileSync("git", ["init", "-q"], { cwd: root });
+
+		const out = checkDeadExports(lib, join(root, "lib.ts"), root);
+		expect(out.map((m) => m.line)).toEqual([2]);
+		expect(out[0]?.text).toContain("unused export 'dead'");
 	});
 });

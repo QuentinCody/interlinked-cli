@@ -21,7 +21,11 @@ const POST_EVENT_TYPES = new Set(["tool_use", "tool_use_error"]);
  *  type-level dropping erased pre-collection history and failed-append events). */
 export const TOOL_EVENT_TYPES: ReadonlySet<string> = new Set([...PRE_EVENT_TYPES, ...POST_EVENT_TYPES]);
 
-function detectPhase(eventType: string): "pre" | "post" | null {
+/** Exported for the direct fallback-branch test: `resolveToolEventKey` never
+ *  reaches the null fallback below (it pre-filters on `TOOL_EVENT_TYPES`,
+ *  which is exactly `PRE_EVENT_TYPES ∪ POST_EVENT_TYPES`), so the branch is
+ *  only reachable by calling this function directly. */
+export function detectPhase(eventType: string): "pre" | "post" | null {
 	if (PRE_EVENT_TYPES.has(eventType)) return "pre";
 	if (POST_EVENT_TYPES.has(eventType)) return "post";
 	return null;

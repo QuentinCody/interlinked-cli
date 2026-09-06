@@ -98,4 +98,50 @@ describe("readManifestState — adapter/path binding (review 2026-08-30)", () =>
 		);
 		expect(readManifestState(mfPath())).toMatchObject({ kind: "corrupt" });
 	});
+
+	// test-contract: invariant — artifact_kind, when present, must be one of
+	// the two recognized kinds.
+	it("N5: an unrecognized artifact_kind corrupts the manifest", () => {
+		writeFileSync(
+			mfPath(),
+			JSON.stringify({
+				schema_version: "1",
+				entries: [entry({ artifact_kind: "shell-script" })],
+			}),
+		);
+		const state = readManifestState(mfPath());
+		expect(state).toMatchObject({ kind: "corrupt" });
+		expect((state as { reason: string }).reason).toContain('invalid artifact_kind "shell-script"');
+	});
+
+	// test-contract: invariant — artifact_sha256, when present, must be a
+	// 64-hex-char digest (not merely a non-empty string).
+	it("N6: a malformed artifact_sha256 corrupts the manifest", () => {
+		writeFileSync(
+			mfPath(),
+			JSON.stringify({
+				schema_version: "1",
+				entries: [entry({ artifact_sha256: "not-a-real-digest" })],
+			}),
+		);
+		const state = readManifestState(mfPath());
+		expect(state).toMatchObject({ kind: "corrupt" });
+		expect((state as { reason: string }).reason).toContain("invalid artifact_sha256");
+	});
+
+	// test-contract: invariant — added_paths must be an array of strings; a
+	// numeric element is a different failure than the forbidden-segment case
+	// N2 already covers.
+	it("N7: a non-string added_paths element corrupts the manifest", () => {
+		writeFileSync(
+			mfPath(),
+			JSON.stringify({
+				schema_version: "1",
+				entries: [entry({ added_paths: [42] })],
+			}),
+		);
+		const state = readManifestState(mfPath());
+		expect(state).toMatchObject({ kind: "corrupt" });
+		expect((state as { reason: string }).reason).toContain("non-string added_paths array");
+	});
 });

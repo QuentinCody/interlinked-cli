@@ -118,13 +118,20 @@ export interface QualityCheckOptions {
 	editedFileInRepo?: boolean;
 }
 
-interface QualityCheckTarget {
+export interface QualityCheckTarget {
 	filePath: string;
 	absPath: string;
 	testBaseName: string;
 }
 
-function resolveQualityCheckTarget(event: HarnessEvent, cwd: string): QualityCheckTarget | null {
+/**
+ * Resolve the file a PostToolUse event targets, or `null` when there is no
+ * usable path or it sits under an excluded directory (node_modules / dist /
+ * vendor / .next / build). Exported for direct unit testing — the excluded-
+ * directory branch is otherwise buried behind the full `runQualityChecks`
+ * pipeline.
+ */
+export function resolveQualityCheckTarget(event: HarnessEvent, cwd: string): QualityCheckTarget | null {
 	const input = event.tool_input;
 	const explicitFile = input?.file_path;
 	const fallbackPath = input?.path;
@@ -148,7 +155,13 @@ function resolveQualityCheckTarget(event: HarnessEvent, cwd: string): QualityChe
 	};
 }
 
-function sharedContentReader(absPath: string): () => string | null {
+/**
+ * Build a memoized, lazy reader for one file's content. Exported for direct
+ * unit testing — the read-failure fallback (line exists but becomes
+ * unreadable between the existsSync check and the read, e.g. a directory)
+ * is otherwise buried behind the full `runQualityChecks` pipeline.
+ */
+export function sharedContentReader(absPath: string): () => string | null {
 	let content: string | null = null;
 	let attempted = false;
 	return () => {

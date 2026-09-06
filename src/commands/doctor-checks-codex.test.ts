@@ -53,6 +53,17 @@ describe("codexFeatureFlagResult — positive (must flag)", () => {
 		expect(r?.status).toBe("warn");
 		expect(r?.message).toContain("config.toml not found");
 	});
+
+	it("P4: config.toml unreadable (e.g. a directory) ⇒ warn without crashing", () => {
+		// existsSync passes (the path is present) but readFileSync throws
+		// EISDIR — the catch branch must still report a usable row instead
+		// of letting the exception escape doctor's check loop.
+		rmSync(join(dir, ".codex", "config.toml"), { force: true });
+		mkdirSync(join(dir, ".codex", "config.toml"));
+		const r = codexFeatureFlagResult(configDir());
+		expect(r?.status).toBe("warn");
+		expect(r?.message).toBe("Could not read config.toml");
+	});
 });
 
 describe("codexFeatureFlagResult — negative (must pass)", () => {

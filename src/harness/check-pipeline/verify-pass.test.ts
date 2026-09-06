@@ -69,6 +69,20 @@ describe("applyVerifyPasses", () => {
 		expect(applyVerifyPasses("filter_b", matches, "c", "src/x.ts")).toEqual(matches);
 	});
 
+	it("keeps a match when a registered verify-pass throws — fails open, never drops a legitimate finding", () => {
+		resetVerifyPassesForTesting();
+		registerVerifyPass({
+			checkId: "throws_check",
+			rationale: "simulate a bug inside a verify-pass",
+			verify: () => {
+				throw new Error("boom");
+			},
+		});
+		const matches = [match(1, "x"), match(2, "y")];
+		const out = applyVerifyPasses("throws_check", matches, "content", "src/x.ts");
+		expect(out).toEqual(matches);
+	});
+
 	it("passes content and filePath to verify functions for context-aware filtering", () => {
 		resetVerifyPassesForTesting();
 		const seen: Array<{ content: string; filePath: string }> = [];

@@ -6,6 +6,7 @@ import {
     mkdtempSync,
     readdirSync,
     readFileSync,
+    realpathSync,
     rmSync,
     statSync,
     symlinkSync,
@@ -13,7 +14,22 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// `realpathSync` is call-through by default (every other test in this file
+// relies on real filesystem behavior) so a single test can force its SECOND
+// call within one `ensureSafeParent` invocation to return a path outside the
+// repository root — the one way to reach the parent-escape branch without a
+// genuine cross-filesystem symlink setup. Plain `vi.spyOn(fs, ...)` throws
+// "Module namespace is not configurable in ESM" for node:fs, so the module
+// factory is the seam (prior art: src/lib/bounded-file-transfer.test.ts).
+vi.mock("node:fs", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("node:fs")>();
+    return {
+        ...actual,
+        realpathSync: vi.fn(actual.realpathSync),
+    };
+});
 import type { ManagedSkillFile, SkillInstallManifest } from "./skill-install-ownership.js";
 import type { ClientName } from "./settings.js";
 import {
@@ -436,6 +452,46 @@ describe("writeManagedSkillFiles — duplicate targets and rollback", () => {
         expect(manifest.files[specA.relPath]?.sha256).toBe(
             contentDigest(Buffer.from("original")),
         );
+    });
+
+    it("refuses a write whose parent directory's real path escapes the repository root", () => {
+        // assertSafeSkillPath's own lexical/symlink checks can only see a
+        // symlinked path COMPONENT; they cannot see the root and its parent
+        // resolving to two different real locations (e.g. a bind-mount or a
+        // race between the check and the write). ensureSafeParent's own
+        // realpath comparison is the second, independent guard against
+        // exactly that gap — reached here by making the SECOND of its two
+        // `realpathSync` calls (the parent's) answer with a path outside
+        // whatever the FIRST call (the root's) answered. The first call is
+        // left on the mock's default call-through implementation, so only
+        // the parent's resolution is forced to diverge.
+        const manifest: SkillInstallManifest = { version: 1, files: {} };
+        const spec: ManagedSkillFile = {
+            relPath: join("escape", "sub", "SKILL.md"),
+            content: Buffer.from("x"),
+            skill: "escape",
+            owner: "canonical",
+            kind: "skill",
+        };
+        // SAFETY: `mockImplementationOnce` must match `realpathSync`'s
+        // overloaded signature; ensureSafeParent only ever calls it with a
+        // single string path and reads the result as a string, so a
+        // same-shape stub is sound for these two queued calls.
+        const mockedRealpathSync = vi.mocked(realpathSync);
+        const callThrough = mockedRealpathSync.getMockImplementation();
+        mockedRealpathSync
+            .mockImplementationOnce(
+                (...args: Parameters<typeof realpathSync>) =>
+                    callThrough!(...args) as ReturnType<typeof realpathSync>,
+            )
+            .mockImplementationOnce(() => "/definitely-outside-the-repo" as ReturnType<typeof realpathSync>);
+        try {
+            expect(() => writeManagedSkillFiles(tmpRoot, manifest, [spec])).toThrow(
+                `Skill target parent escapes the repository: ${spec.relPath}`,
+            );
+        } finally {
+            vi.mocked(realpathSync).mockClear();
+        }
     });
 });
 

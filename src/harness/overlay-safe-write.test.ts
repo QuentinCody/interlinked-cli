@@ -10,8 +10,28 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { removeInTree, symlinkInTree, writeFileInTree } from "./overlay-safe-write.js";
+
+// A one-shot override for cpSync, toggled only by the "cpSync throws" test
+// below. Every other call — including cpSync calls made by other tests in
+// this file — passes straight through to the real implementation, so this
+// mock changes nothing about the file's existing real-filesystem tests.
+const cpSyncOverride = vi.hoisted((): { throwOnce: Error | null } => ({ throwOnce: null }));
+vi.mock("node:fs", async () => {
+	const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+	return {
+		...actual,
+		cpSync: (...args: Parameters<typeof actual.cpSync>) => {
+			if (cpSyncOverride.throwOnce) {
+				const err = cpSyncOverride.throwOnce;
+				cpSyncOverride.throwOnce = null;
+				throw err;
+			}
+			return actual.cpSync(...args);
+		},
+	};
+});
 
 // SYMLINK-ESCAPE CONTRACT (findings 2026-06: overlay + snapshot data corruption). A
 // repo can contain symlinked files or directories; a naive writeFileSync /
@@ -146,6 +166,33 @@ describe("writeFileInTree — symlinked parents are MATERIALIZED, not emptied", 
 
 		expect(readFileSync(join(root, "lib/edited.ts"), "utf-8")).toBe("NEW");
 		expect(readFileSync(externalFile, "utf-8")).toBe("FILE"); // untouched
+	});
+
+	it("warns with the underlying error's message and still completes the write when cpSync throws mid-materialize", () => {
+		const root = join(base, "tree");
+		mkdirSync(root);
+		const externalDir = join(base, "shared-lib");
+		mkdirSync(externalDir);
+		writeFileSync(join(externalDir, "sibling.ts"), "SIBLING", "utf-8");
+		symlinkSync(externalDir, join(root, "lib"), "dir"); // tree/lib → ../shared-lib
+
+		cpSyncOverride.throwOnce = new Error("EMFILE: too many open files");
+		const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+		writeFileInTree(root, "lib/edited.ts", "NEW");
+		// Read the call history BEFORE mockRestore() — mockRestore() also clears
+		// mock.calls (same as mockReset()), so reading after would always see [].
+		const warned = stderrSpy.mock.calls.map((call) => String(call[0])).join("\n");
+		stderrSpy.mockRestore();
+
+		// The warning carries err.message (not String(err), which would read
+		// "Error: EMFILE…" instead) — inverting that ternary would break this.
+		expect(warned).toContain("could not materialize symlinked dir");
+		expect(warned).toContain("(EMFILE: too many open files)");
+		// The write itself still lands — the empty-dir fallback, not a crash.
+		expect(lstatSync(join(root, "lib")).isSymbolicLink()).toBe(false);
+		expect(readFileSync(join(root, "lib/edited.ts"), "utf-8")).toBe("NEW");
+		// The sibling was never copied in (cpSync threw before it could run).
+		expect(lstatSync(join(root, "lib/sibling.ts"), { throwIfNoEntry: false })).toBeUndefined();
 	});
 
 	it("refuses to materialize a link to an ANCESTOR of the tree (no recursive self-copy)", () => {

@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -226,6 +234,45 @@ describe("reapZombieIncumbent", () => {
 		expect(kill).toHaveBeenCalledWith(4242, "SIGTERM");
 	});
 
+	it("polls with its own timer-backed sleeper when no sleep is injected", async () => {
+		// No `sleep` dep: the loop must fall back to the module's real
+		// setTimeout-backed sleeper, so one poll interval of wall time elapses.
+		const kill = vi.fn();
+		// Alive for the entry guard and the first poll, gone by the second — so
+		// exactly one poll interval is waited through.
+		let aliveChecks = 0;
+		// interlinked: defer non_deterministic_test -- elapsed wall time IS the
+		// observable here; fake timers would erase the behavior under test
+		const startedAt = Date.now();
+		const result = await reapZombieIncumbent({
+			pid: 4242,
+			cwd: "/repo",
+			logAlways: vi.fn(),
+			deps: { identify: () => "daemon-identity", kill, isAlive: () => ++aliveChecks <= 2 },
+		});
+		expect(result).toBe("gone");
+		expect(Date.now() - startedAt).toBeGreaterThanOrEqual(20); // one real 25 ms poll
+		expect(kill.mock.calls).toEqual([[4242, "SIGTERM"]]);
+	});
+
+	it("reports failed when the incumbent's identity becomes unverifiable after SIGTERM", async () => {
+		// Identity goes unreadable mid-reap: the wait loop ignores null (it only
+		// aborts on a DIFFERENT verified identity), so the post-wait recheck is
+		// the one that must refuse to escalate — an unverifiable pid is never
+		// SIGKILLed.
+		let identityCalls = 0;
+		const identify = (): string | null => (++identityCalls <= 2 ? "daemon-identity" : null);
+		const kill = vi.fn();
+		const result = await reapZombieIncumbent({
+			pid: 4242,
+			cwd: "/repo",
+			logAlways: vi.fn(),
+			deps: { identify, kill, isAlive: () => true },
+		});
+		expect(result).toBe("failed");
+		expect(kill.mock.calls.map((call) => call[1])).toEqual(["SIGTERM"]);
+	});
+
 	it("identity-rechecks before escalating a SIGTERM-deaf daemon to SIGKILL", async () => {
 		let alive = true;
 		const kill = vi.fn((_pid: number, signal: "SIGTERM" | "SIGKILL") => {
@@ -291,7 +338,19 @@ describe("removeOwnPidLitter — negative (must not fire)", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("N3: a repo with no .interlinked directory is a silent no-op", () => {
+	it("N3: an unreadable pid entry survives and does not stop the sweep of its own litter", () => {
+		const dir = mkdtempSync(join(tmpdir(), "pid-litter-"));
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		// A DIRECTORY named like a pid file: readFileSync throws EISDIR, so this
+		// entry is unreadable — foreign files must survive an unreadable one.
+		mkdirSync(join(dir, ".interlinked", "harness-unreadable.pid"));
+		writeFileSync(join(dir, ".interlinked", "harness.pid"), String(process.pid));
+		removeOwnPidLitter(dir);
+		expect(readdirSync(join(dir, ".interlinked")).sort()).toEqual(["harness-unreadable.pid"]);
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("N4: a repo with no .interlinked directory is a silent no-op", () => {
 		const dir = mkdtempSync(join(tmpdir(), "pid-litter-"));
 		expect(() => removeOwnPidLitter(dir)).not.toThrow();
 		rmSync(dir, { recursive: true, force: true });

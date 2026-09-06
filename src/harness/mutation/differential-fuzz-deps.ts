@@ -72,8 +72,12 @@ let fastCheckCache: FastCheckModule | null | undefined;
 let fastCheckPending: Promise<FastCheckModule | null> | null = null;
 
 /** Resolve a package from this module's location WITHOUT executing it — the
- *  cheap, side-effect-free half of the availability probe. */
-function canResolve(specifier: string): boolean {
+ *  cheap, side-effect-free half of the availability probe. Exported so the
+ *  unresolvable-specifier catch branch is directly testable: both real
+ *  specifiers this module calls it with (`typescript`, `fast-check`) resolve
+ *  in every environment that runs this suite, so the false path is otherwise
+ *  unreachable through `differentialFuzzAvailability()`. */
+export function canResolve(specifier: string): boolean {
 	try {
 		createRequire(import.meta.url).resolve(specifier);
 		return true;

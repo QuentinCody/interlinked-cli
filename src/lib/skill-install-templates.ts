@@ -162,7 +162,7 @@ function skipBlockScalarContinuation(lines: string[], startIdx: number): number 
  * the original value, and leaving every other line untouched. Returns the
  * rebuilt lines and whether a `description` field was found and replaced.
  */
-function processLinesLength(lines: string[], quoted: string): { out: string[]; replaced: boolean } {
+export function processLinesLength(lines: string[], quoted: string): { out: string[]; replaced: boolean } {
 	const out: string[] = [];
 	let i = 0;
 	let replaced = false;

@@ -15,6 +15,7 @@ import {
 	commitPendingRegistry,
 	initPendingRegistryStore,
 	overlayHash,
+	parseRunnerUrl,
 	pendingRegistry,
 	resetPendingRegistry,
 } from "./pending-registry.js";
@@ -143,6 +144,49 @@ describe("durable pending registry — survives a daemon restart (assume instabi
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
+	});
+
+	// test-contract: a runnerUrl that fails URL parsing (no scheme, not a URL
+	// at all — distinct from N4's protocol-mismatch case) must be skipped
+	// WITHOUT aborting the rest of the rehydration pass: the bad row is FIRST
+	// so a broken try/catch around `new URL()` would throw out of the whole
+	// loop and lose the valid row that follows it too.
+	it("N5: skips a row whose runnerUrl fails URL parsing, without losing rows after it", () => {
+		const root = mkdtempSync(join(tmpdir(), "pending-store-"));
+		try {
+			mkdirSync(join(root, ".interlinked"));
+			writeFileSync(
+				join(root, ".interlinked", "pending-mutation-runs.json"),
+				JSON.stringify([{ ...run, runnerUrl: "not a valid url" }, run]),
+			);
+			initPendingRegistryStore(root);
+			expect(pendingRegistry(NOW).runs).toEqual([run]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("initializes against a not-yet-existing root without throwing, and stays put across a repeat init at the same path", () => {
+		const missingRoot = join(tmpdir(), `il-missing-root-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		expect(() => initPendingRegistryStore(missingRoot)).not.toThrow();
+		recordPending(pendingRegistry(NOW), run);
+		// Re-init at the SAME not-yet-existing path (realpathSync throws ENOENT
+		// both times, falling back to resolve()) must not drop the in-memory
+		// store — only switching to a DIFFERENT root should do that.
+		initPendingRegistryStore(missingRoot);
+		expect(takePending(pendingRegistry(NOW), run.file, run.overlayHash, NOW).map((r) => r.jobId)).toEqual([
+			run.jobId,
+		]);
+	});
+});
+
+describe("parseRunnerUrl — the length/scheme/credential guard", () => {
+	it("rejects a syntactically valid URL that exceeds the max length before ever parsing it", () => {
+		// Long enough to exceed MAX_RUNNER_URL_LENGTH while remaining a
+		// perfectly valid https URL — if the length guard were removed, `new
+		// URL()` would happily accept this and return a non-null URL.
+		const tooLong = `https://example.com/${"a".repeat(3000)}`;
+		expect(parseRunnerUrl(tooLong)).toBeNull();
 	});
 });
 

@@ -1,3 +1,21 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Hoisted: spies on statSync only (call-through to the real implementation by
+// default) while every other fs export stays untouched. Plain `vi.spyOn(fs,
+// ...)` throws "Module namespace is not configurable in ESM" for node:fs —
+// see background-task-log.test.ts for prior art.
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		statSync: vi.fn(actual.statSync),
+	};
+});
+
 import {
 	appendFileSync,
 	existsSync,
@@ -11,17 +29,13 @@ import {
 	truncateSync,
 	writeFileSync,
 } from "node:fs";
-import { spawn } from "node:child_process";
-import { once } from "node:events";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	appendTimelineRecords,
 	appendTimelineRecordsAtBasis,
 	dedupeTimeline,
 	existingTimelineKeys,
 	MAX_EXISTING_TIMELINE_KEY_SCAN_BYTES,
+	MAX_EXISTING_TIMELINE_KEYS,
 	MAX_TIMELINE_REWRITE_CATCHUP_BYTES,
 	MAX_TIMELINE_REWRITE_BYTES,
 	recentTimelineKeys,
@@ -342,6 +356,47 @@ describe("timeline-writer file I/O", () => {
 			]);
 			expect(() => existingTimelineKeys(cwd)).toThrow(TimelineScanError);
 		});
+	});
+
+	describe("timelineSize — non-missing stat failure (existingTimelineKeys outer catch)", () => {
+		afterEach(() => {
+			vi.mocked(statSync).mockRestore();
+		});
+
+		it("wraps a non-ENOENT stat error in TimelineScanError instead of treating it as a missing file", () => {
+			mkdirSync(join(cwd, ".interlinked"), { recursive: true });
+			appendFileSync(timelinePath(cwd), `${JSON.stringify({ uuid: "u1", seq: 0 })}\n`);
+			vi.mocked(statSync).mockImplementationOnce(() => {
+				throw new Error("EACCES: permission denied, stat");
+			});
+			expect(() => existingTimelineKeys(cwd)).toThrow(/^cannot inspect timeline: /);
+		});
+	});
+
+	it("refuses more candidates than the retained-key ceiling before touching the timeline", () => {
+		const candidates = {
+			size: MAX_EXISTING_TIMELINE_KEYS + 1,
+			has: () => false,
+			delete: () => false,
+		};
+		expect(() => removeExistingTimelineCandidates(cwd, candidates)).toThrow(
+			new RegExp(
+				`refusing ${MAX_EXISTING_TIMELINE_KEYS + 1} timeline candidates \\(limit ${MAX_EXISTING_TIMELINE_KEYS}\\)`,
+			),
+		);
+	});
+
+	it("existingTimelineKeys refuses a timeline with more distinct keys than the retained-key ceiling", () => {
+		const path = timelinePath(cwd);
+		mkdirSync(join(cwd, ".interlinked"), { recursive: true });
+		const lines: string[] = [];
+		for (let seq = 0; seq <= MAX_EXISTING_TIMELINE_KEYS; seq++) {
+			lines.push(JSON.stringify({ uuid: "u", seq }));
+		}
+		writeFileSync(path, `${lines.join("\n")}\n`);
+		expect(() => existingTimelineKeys(cwd)).toThrow(
+			new RegExp(`timeline contains more than ${MAX_EXISTING_TIMELINE_KEYS} distinct keys`),
+		);
 	});
 
 	it("streams a sparse multi-gigabyte history against bounded candidates", () => {

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { discoverSingleTool, discoverTools, formatToolReport } from "../discovery.js";
+import { discoverSingleTool, discoverTools, formatToolReport, tryBinary } from "../discovery.js";
 
 describe("discoverTools", () => {
 	let tmp: string;
@@ -54,6 +54,21 @@ describe("discoverSingleTool", () => {
 		// Cast because we're intentionally passing an invalid id.
 		const r = discoverSingleTool("not-a-tool" as never, tmp);
 		expect(r).toBeUndefined();
+	});
+});
+
+describe("tryBinary — spawnSync throws synchronously", () => {
+	it("returns unavailable when spawnSync throws instead of reporting result.error", () => {
+		// A non-string `file` argument makes Node's spawnSync throw a
+		// TypeError synchronously (distinct from an ENOENT, which surfaces
+		// via `result.error` and is handled by the branch above this one).
+		// The cast mirrors a malformed spec reaching this internal helper.
+		const malformed = {
+			// SAFETY: intentionally malformed to force spawnSync's synchronous throw path
+			versionCmd: [123 as unknown as string],
+			versionRegex: /x/,
+		};
+		expect(tryBinary(malformed)).toEqual({ available: false });
 	});
 });
 

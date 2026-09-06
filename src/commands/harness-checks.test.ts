@@ -151,4 +151,21 @@ describe("harnessChecksCommand — probation summary line", () => {
 		expect(out.trim()).not.toContain("\n");
 		expect(out).not.toContain(PROBATION_LINE);
 	});
+
+	it("stays silent (never throws) when the log path is unreadable as text", () => {
+		const dir = makeRepo();
+		// A directory in place of the log file passes existsSync AND the size
+		// guard (a bare dir reports a small stat size) but makes
+		// readFileSync(..., "utf-8") throw EISDIR — the catch-all fallback,
+		// distinct from the size-guard branch covered above. If the catch were
+		// removed the EISDIR would propagate and this call would throw instead
+		// of returning a rendered string.
+		mkdirSync(join(dir, ".interlinked", "recurrences.jsonl"), { recursive: true });
+		let out = "";
+		expect(() => {
+			out = runInCwd(dir);
+		}).not.toThrow();
+		expect(out).toContain("Total checks");
+		expect(out).not.toContain(PROBATION_LINE);
+	});
 });

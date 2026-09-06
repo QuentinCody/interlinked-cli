@@ -114,7 +114,7 @@ const NON_CALL_EXPECT: ExpectClassification = { isCallInteraction: false, negate
  * keeps the caller conservative: an unrecognized matcher prevents a
  * mock-only verdict rather than forcing one.
  */
-function classifyBlockExpects(body: string): ExpectClassification[] {
+export function classifyBlockExpects(body: string): ExpectClassification[] {
 	const out: ExpectClassification[] = [];
 	EXPECT_ASSERTION_RE.lastIndex = 0;
 	let m: RegExpExecArray | null = EXPECT_ASSERTION_RE.exec(body);

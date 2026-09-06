@@ -13,6 +13,8 @@
 //     N3  no .interlinked directory ⇒ append reports failure and writes nothing
 //     N4  a different session's pending row, a different subject, and a foreign ledger line redeem nothing
 //     N5  a dry-run redemption returns the matches but writes no row
+//     N6  a ledger path that cannot be read (EISDIR) ⇒ redemption sees no pending rows, not a crash
+//     N7  a ledger path that cannot be written (EISDIR) ⇒ append reports failure, not a crash
 
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -115,6 +117,14 @@ describe("appendAssertionWaivers — negative (must not fire)", () => {
 		expect(appendAssertionWaivers(dir, records, false)).toBe(false);
 		expect(existsSync(ledgerPath())).toBe(false);
 	});
+
+	it("N7: a ledger path that cannot be written (EISDIR) reports failure instead of throwing", () => {
+		// .interlinked exists, but the ledger name is itself a directory — the
+		// append call throws EISDIR, which the catch must turn into `false`.
+		mkdirSync(ledgerPath(), { recursive: true });
+		const records = buildAssertionWaiverRecords({ filePath: "f.ts", removed: REMOVED, sessionId: "s" });
+		expect(appendAssertionWaivers(dir, records, false)).toBe(false);
+	});
 });
 
 const CLOCK = () => new Date("2026-09-02T09:00:00.000Z").getTime();
@@ -194,5 +204,19 @@ describe("redeemWaivedRemovals — negative (must not fire)", () => {
 		});
 		expect(redeemed).toHaveLength(1);
 		expect(ledgerRows()).toHaveLength(1);
+	});
+
+	it("N6: a ledger path that cannot be read (EISDIR) redeems nothing instead of throwing", () => {
+		// The ledger name resolves to a directory, not a file: existsSync is
+		// true, but readFileSync throws — the catch must still yield [].
+		mkdirSync(ledgerPath(), { recursive: true });
+		const redeemed = redeemWaivedRemovals({
+			projectRoot: dir,
+			sessionId: "s",
+			addingFile: "/repo/b.mutation-kill.test.ts",
+			added: [{ line: 9, text: "expect(b).toBe(2);" }],
+			dryRun: false,
+		});
+		expect(redeemed).toEqual([]);
 	});
 });

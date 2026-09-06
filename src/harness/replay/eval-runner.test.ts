@@ -146,4 +146,23 @@ describe("runEvalOverTrace", () => {
 		expect(summary.evaluated).toBe(0);
 		expect(calls).toHaveLength(0);
 	});
+
+	it("falls back to a no-op logger when a failed step is not given one", async () => {
+		const cwd = fixture();
+		const runner = async (): Promise<CandidateRunResult> => {
+			throw new Error("candidate call boom");
+		};
+		// No `log` passed — resolveEvalDefaults' default logger must run
+		// without throwing, or the promise below would reject instead of
+		// resolving with failed: 1.
+		const summary = await runEvalOverTrace({
+			cwd,
+			sessionId: SESSION,
+			candidateModel: "cand-4",
+			runId: "run-fail",
+			runner,
+		});
+		expect(summary).toMatchObject({ run_id: "run-fail", evaluated: 0, failed: 1 });
+		expect(loadLedger(cwd, "run-fail")).toHaveLength(0);
+	});
 });

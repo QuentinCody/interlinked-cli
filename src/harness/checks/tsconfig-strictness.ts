@@ -304,8 +304,13 @@ function isCompositeRootWithoutCompilerOptions(cfg: JsonObject, merged: JsonObje
 /** Decides whether one flag spec is effectively satisfied by the merged
  *  compilerOptions and, if not, builds the finding for it. Advisory flags
  *  (e.g. `noUncheckedIndexedAccess`) are documented in the list but never
- *  gated — skipped here so the default verify gate doesn't demand them. */
-function evaluateFlagFinding(spec: FlagSpec, merged: JsonObject, line: number): InlineMatch | null {
+ *  gated — skipped here so the default verify gate doesn't demand them.
+ *
+ *  Exported for the companion test only: none of the five flags in
+ *  `REQUIRED_STRICTNESS_FLAGS` is in `STRICT_IMPLIES`, so the umbrella-rescue
+ *  branch below is unreachable through `checkTsconfigStrictness` with a real
+ *  spec — exporting lets the test drive it with a synthetic `FlagSpec`. */
+export function evaluateFlagFinding(spec: FlagSpec, merged: JsonObject, line: number): InlineMatch | null {
 	if (spec.advisory) return null;
 	// A flag is "enabled" only when its effective value is literal `true`.
 	// `strict: true` does NOT imply any of the five flags this check

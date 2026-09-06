@@ -141,7 +141,7 @@ interface ActionContext {
 	event: JsonObject;
 }
 
-const ACTION_BUILDERS: Record<ToolClass, (ctx: ActionContext) => CollectionAction | null> = {
+export const ACTION_BUILDERS: Record<ToolClass, (ctx: ActionContext) => CollectionAction | null> = {
 	shell_exec: ({ input, cwd }) => ({
 		command: String(input.command || input.cmd || ""),
 		cwd,
@@ -282,7 +282,7 @@ function buildFetchObservation(resp: unknown): CollectionObservation {
 	return { status: null, result: null, result_ref: null, bytes: null };
 }
 
-const OBSERVATION_BUILDERS: Record<ToolClass, (resp: unknown) => CollectionObservation> = {
+export const OBSERVATION_BUILDERS: Record<ToolClass, (resp: unknown) => CollectionObservation> = {
 	shell_exec: buildShellObservation,
 	file_read: buildFileReadObservation,
 	file_edit: buildMutationResultObservation,

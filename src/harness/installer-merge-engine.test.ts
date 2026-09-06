@@ -1,22 +1,49 @@
 // Companion tests for installer-merge-engine.ts — merge engine, JSON-pointer
 // path helpers, and low-level fs helpers extracted from installer.ts.
 
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JsonObject } from "../lib/json-types.js";
 
-const rmSyncMock = vi.fn();
+// Default-delegating wrappers: every existing test's real fs behavior is
+// unaffected (each routes to `actual.*` unless a specific test overrides the
+// implementation for one call via `mockImplementationOnce`, which self-resets
+// after firing) — the seam that lets the mode-preservation catch blocks below
+// be exercised without touching the module under test. Declared via
+// vi.hoisted() (not a bare top-level const) because the vi.mock factory below
+// is itself hoisted above ordinary module-level statements and would
+// otherwise read these before their `const` initializers ran.
+const { rmSyncMock, chmodSyncMock, statSyncMock } = vi.hoisted(() => ({
+	rmSyncMock: vi.fn(),
+	chmodSyncMock: vi.fn(),
+	statSyncMock: vi.fn(),
+}));
 
 vi.mock("node:fs", async () => {
 	const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+	chmodSyncMock.mockImplementation((...args: Parameters<typeof actual.chmodSync>) =>
+		actual.chmodSync(...args),
+	);
+	statSyncMock.mockImplementation((...args: Parameters<typeof actual.statSync>) => actual.statSync(...args));
 	return {
 		...actual,
 		rmSync: (...args: Parameters<typeof actual.rmSync>) => {
 			rmSyncMock(...args);
 			return actual.rmSync(...args);
 		},
+		chmodSync: (...args: Parameters<typeof actual.chmodSync>) => chmodSyncMock(...args),
+		statSync: (...args: Parameters<typeof actual.statSync>) => statSyncMock(...args),
 	};
 });
 
@@ -25,7 +52,10 @@ const {
 	mergeSettings,
 	readJson,
 	removeJsonPath,
+	restoreTextFile,
+	snapshotTextFile,
 	writeAtomic,
+	writeTextAtomic,
 } = await import("./installer-merge-engine.js");
 
 let tmp = "";
@@ -305,6 +335,72 @@ describe("writeAtomic", () => {
 		writeAtomic(p, { landed: true });
 		// SAFETY: statSync mode includes type bits; mask to permissions.
 		expect(statSync(p).mode & 0o777).toBe(0o600);
+	});
+
+	// test-contract: invariant — mode preservation is best-effort. If chmodSync
+	// were NOT swallowed, the throw would propagate out of writeAtomic before
+	// renameSync ever runs, leaving the destination's OLD content in place (or,
+	// as here, invalid JSON) — so a successful, up-to-date read is proof the
+	// catch actually fired, not merely that nothing else went wrong.
+	it("swallows a chmodSync failure during mode preservation and still lands the write", () => {
+		const p = join(tmp, "chmod-fail.json");
+		writeFileSync(p, "old content");
+		chmodSyncMock.mockImplementationOnce(() => {
+			throw new Error("EPERM: chmod not permitted");
+		});
+		writeAtomic(p, { landed: true });
+		expect(JSON.parse(readFileSync(p, "utf-8"))).toEqual({ landed: true });
+	});
+});
+
+// -----------------------------------------------------------------------------
+// writeTextAtomic — plain-text sibling of writeAtomic
+// -----------------------------------------------------------------------------
+
+describe("writeTextAtomic", () => {
+	// test-contract: invariant — same fail-open contract as writeAtomic's mode
+	// preservation. A rethrow would abort before renameSync, leaving the OLD
+	// text on disk — so the destination reading back the NEW content is proof
+	// the catch fired rather than merely that nothing else failed.
+	it("swallows a chmodSync failure during mode preservation and still lands the text write", () => {
+		const p = join(tmp, "chmod-fail.txt");
+		writeFileSync(p, "old content");
+		chmodSyncMock.mockImplementationOnce(() => {
+			throw new Error("EPERM: chmod not permitted");
+		});
+		writeTextAtomic(p, "new content");
+		expect(readFileSync(p, "utf-8")).toBe("new content");
+	});
+});
+
+// -----------------------------------------------------------------------------
+// snapshotTextFile / restoreTextFile
+// -----------------------------------------------------------------------------
+
+describe("snapshotTextFile", () => {
+	// test-contract: invariant — a stat failure AFTER existsSync already
+	// passed (the classic TOCTOU race) must degrade to null, not throw or
+	// report a fabricated snapshot a caller would trust for rollback.
+	it("returns null when statSync fails after the file was confirmed to exist", () => {
+		const p = join(tmp, "race.txt");
+		writeFileSync(p, "will vanish from stat's perspective");
+		statSyncMock.mockImplementationOnce(() => {
+			throw new Error("EACCES: permission denied, stat");
+		});
+		expect(snapshotTextFile(p)).toBeNull();
+	});
+});
+
+describe("restoreTextFile", () => {
+	// test-contract: invariant — a snapshot of `existed: false` means the
+	// artifact was CREATED by the failed install, so restoring means deleting
+	// it, not writing empty text. If the leftover file is still present after
+	// restoreTextFile returns, the delete branch never ran.
+	it("deletes a file the snapshot says did not exist beforehand", () => {
+		const p = join(tmp, "created-by-failed-install.json");
+		writeFileSync(p, "leftover from a partially-applied install");
+		restoreTextFile(p, { existed: false });
+		expect(existsSync(p)).toBe(false);
 	});
 });
 

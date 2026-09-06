@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { checkSingleUseTrivialHelper } from "./over-extraction.js";
+import ts from "typescript";
+import { describe, expect, it, vi } from "vitest";
+import { parseTsSourceWith } from "./cyclomatic-ast.js";
+import { checkSingleUseTrivialHelper, exportListNames } from "./over-extraction.js";
 
 // `checkSingleUseTrivialHelper` is the counterweight to the complexity caps:
 // the caps push relentlessly toward extraction, and nothing pushed back. Every
@@ -213,5 +215,108 @@ function processItems(items: number[]): number[] {
 export const api = { processItems: (i: number[]) => i };
 `),
 		).toHaveLength(0);
+	});
+
+	it("N13: does not flag a helper re-exported via `export default`", () => {
+		expect(
+			run(`
+function processItems(items: number[]): number[] {
+	return items.map((n) => n * 2);
+}
+
+export function report(items: number[]): number[] { return processItems(items); }
+export default processItems;
+`),
+		).toHaveLength(0);
+	});
+
+	it("N14: does not treat a computed-member call as a callee restatement", () => {
+		// `calleeName` returns null for a call whose target is neither a bare
+		// identifier nor a simple `a.b` property access (e.g. `a["b"]()`). The
+		// helper is named to OVERLAP the computed key ("getPrimary" contains
+		// "primary") so this actually exercises the fallthrough: if `calleeName`
+		// resolved the computed access to "primary" instead of null,
+		// `restatesCallee` would find "getprimary".includes("primary") and flag
+		// it. `hasGenericShape("getPrimary")` is also false (its verb prefix
+		// "get" is not in the generic-verb list), so the null fallthrough is the
+		// only reason this stays at 0 findings.
+		expect(
+			run(`
+function getPrimary(registry: Record<string, () => number>): number {
+	return registry["primary"]();
+}
+
+export function load(registry: Record<string, () => number>): number {
+	return getPrimary(registry);
+}
+`),
+		).toHaveLength(0);
+	});
+});
+
+// `exportListNames` is exercised end-to-end through the N13/N5 fixtures above
+// (via `checkSingleUseTrivialHelper`), but `export default <ident>` also adds a
+// second value-position reference to that identifier, so `hasExactlyOneCallSite`
+// already returns false through its own call-count check regardless of whether
+// the export-assignment branch (lines 166-169) runs. This test calls the
+// exported helper directly so the branch's own return value is the assertion.
+describe("exportListNames", () => {
+	it("registers the identifier named by `export default <ident>`", () => {
+		const sf = parseTsSourceWith(
+			ts,
+			`
+function processItems(items: number[]): number[] {
+	return items.map((n) => n * 2);
+}
+export default processItems;
+`,
+			"src/lib/orders.ts",
+		);
+		expect([...exportListNames(ts, sf)]).toEqual(["processItems"]);
+	});
+
+	it("does not register an `export default` of an expression (only identifiers qualify)", () => {
+		const sf = parseTsSourceWith(
+			ts,
+			`
+function processItems(items: number[]): number[] {
+	return items.map((n) => n * 2);
+}
+export default processItems(1 as unknown as number[]);
+`,
+			"src/lib/orders.ts",
+		);
+		expect([...exportListNames(ts, sf)]).toEqual([]);
+	});
+});
+
+describe("checkSingleUseTrivialHelper — negative (must not fire): optional typescript dependency absent", () => {
+	it("N15: returns no findings instead of throwing when the typescript loader fails", async () => {
+		vi.resetModules();
+		vi.doMock("node:module", async (importOriginal) => {
+			const actual = await importOriginal<typeof import("node:module")>();
+			return {
+				...actual,
+				createRequire: () => {
+					throw new Error("simulated: typescript is not installed");
+				},
+			};
+		});
+		try {
+			const fresh = await import("./over-extraction.js");
+			const found = fresh.checkSingleUseTrivialHelper(
+				`
+function processItems(items: number[]): number[] {
+	return items.map((n) => n * 2);
+}
+export function report(i: number[]): number[] { return processItems(i); }
+`,
+				"src/lib/orders.ts",
+			);
+			expect(found).toEqual([]);
+		} finally {
+			vi.doUnmock("node:module");
+			vi.resetModules();
+		}
 	});
 });

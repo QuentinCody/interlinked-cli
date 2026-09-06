@@ -282,6 +282,20 @@ describe("mutationSurvivorsCommand — file scope options", () => {
 		expect(logs.join("\n")).toMatch(/--shard must be/);
 		process.exitCode = 0;
 	});
+
+	it("N4: a corrupt manifest (JSON parses but fails the schema) reports CORRUPT, distinct from missing, and exits 1", async () => {
+		// Missing the required `files` object — parses fine as JSON, fails
+		// `parseManifestShell`'s schema check, hitting the corrupt branch
+		// rather than the "no manifest" branch N2 already covers.
+		writeFileSync(join(cwd, ".interlinked", "mutation-manifest.json"), JSON.stringify({ version: 1 }));
+		clearManifestCache();
+		await mutationSurvivorsCommand({ cwd, json: true });
+		expect(process.exitCode).toBe(1);
+		const message = logs.join("\n");
+		expect(message).toContain("is CORRUPT (manifest JSON parsed but does not match the manifest schema)");
+		expect(message).not.toMatch(/No mutation manifest at/);
+		process.exitCode = 0;
+	});
 });
 
 describe("renderSurvivorReport", () => {

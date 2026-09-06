@@ -139,3 +139,45 @@ describe("handleImplicitEntry — negative (must not hijack)", () => {
 		expect(printedText()).not.toContain("interlinked login");
 	});
 });
+
+describe("handleImplicitEntry — quick-start per-field suggestions", () => {
+	// test-contract: boundary — an unnamed agent gets the attach suggestion; a named one does not
+	it("suggests `interlinked attach --agent` when agent_name is unset", async () => {
+		mockIsConfigured.mockReturnValue(true);
+		setTty(true);
+		mockResolveConfig.mockReturnValueOnce({
+			server_url: "http://localhost:8787",
+			agent_name: undefined,
+			sync_mode: "local",
+		});
+		await handleImplicitEntry();
+		expect(printedText()).toContain("interlinked attach --agent <name>");
+	});
+
+	// test-contract: boundary — a remote server with no resolved auth token gets the login suggestion
+	it("suggests `interlinked login` for a remote server with no auth token", async () => {
+		mockIsConfigured.mockReturnValue(true);
+		setTty(true);
+		mockResolveConfig.mockReturnValueOnce({
+			server_url: "https://interlinked.example.dev",
+			agent_name: "ConfiguredAgent",
+			sync_mode: "local",
+		});
+		mockResolveAuthToken.mockReturnValueOnce(undefined);
+		await handleImplicitEntry();
+		expect(printedText()).toContain("interlinked login");
+	});
+
+	// test-contract: boundary — a non-local sync mode gets the sync suggestion; "local" mode does not
+	it("suggests `interlinked sync` when sync_mode is not \"local\"", async () => {
+		mockIsConfigured.mockReturnValue(true);
+		setTty(true);
+		mockResolveConfig.mockReturnValueOnce({
+			server_url: "http://localhost:8787",
+			agent_name: "ConfiguredAgent",
+			sync_mode: "realtime",
+		});
+		await handleImplicitEntry();
+		expect(printedText()).toContain("interlinked sync");
+	});
+});

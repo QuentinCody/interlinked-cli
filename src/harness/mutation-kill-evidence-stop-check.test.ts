@@ -387,3 +387,28 @@ describe("detectMutationKillEvidenceGaps — sidecar-backed default reader", () 
 		expect(hits[0]?.staleMeasurement).toBe(true);
 	});
 });
+
+describe("detectMutationKillEvidenceGaps — real fs default readFile", () => {
+	const dirs: string[] = [];
+	afterEach(() => {
+		for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("N4: skips an unreadable mutation-directed path (defaultReadFile catches the I/O error)", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "kill-evidence-defaultread-"));
+		dirs.push(cwd);
+		const rel = "foo.mutation-kill.test.ts";
+		// A directory, not a file: existsSync is true but readFileSync throws
+		// (EISDIR), exercising defaultReadFile's catch — distinct from the
+		// "file doesn't exist" case, which never reaches readFileSync at all.
+		mkdirSync(join(cwd, rel));
+		// readFile is NOT injected here — the real defaultReadFile runs.
+		const hits = detectMutationKillEvidenceGaps({
+			filesWritten: new Set([rel]),
+			fileWriteTimes: new Map(),
+			gitHeadSha: SHA,
+			cwd,
+		});
+		expect(hits).toEqual([]);
+	});
+});

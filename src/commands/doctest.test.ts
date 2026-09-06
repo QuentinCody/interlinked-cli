@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command } from "commander";
@@ -71,6 +71,43 @@ describe("findMarkdownFiles", () => {
 		writeFileSync(join(cwd, "notes.txt"), "x");
 		const found = findMarkdownFiles(cwd).map((f) => f.replace(`${cwd}/`, "")).sort();
 		expect(found).toEqual(["README.md", "docs/guide.md"]);
+	});
+
+	// The two `catch → null` guards below are what make the walk survive a real
+	// tree: a directory it may not list, and an entry it may not stat. Both are
+	// provoked with permission bits rather than mocks, the same way
+	// `manual-debt-markers.test.ts` provokes them, and both assert that the walk
+	// KEEPS GOING — swallowing the error is only correct if the siblings still
+	// land in the result.
+	it("keeps collecting siblings when a subdirectory cannot be listed", () => {
+		writeFileSync(join(cwd, "README.md"), "#");
+		const blocked = join(cwd, "blocked");
+		mkdirSync(blocked, { recursive: true });
+		writeFileSync(join(blocked, "hidden.md"), "#");
+		chmodSync(blocked, 0o000);
+		try {
+			const found = findMarkdownFiles(cwd).map((f) => f.replace(`${cwd}/`, ""));
+			expect(found).toEqual(["README.md"]);
+		} finally {
+			// Restore before afterEach: rmSync cannot recurse into a 0o000 dir.
+			chmodSync(blocked, 0o755);
+		}
+	});
+
+	it("skips an entry it cannot stat instead of collecting it as markdown", () => {
+		writeFileSync(join(cwd, "README.md"), "#");
+		// Readable but not traversable: readdirSync lists `unstattable.md`,
+		// statSync on it raises EACCES, so the walk must drop that ONE entry.
+		const listable = join(cwd, "listable");
+		mkdirSync(listable, { recursive: true });
+		writeFileSync(join(listable, "unstattable.md"), "#");
+		chmodSync(listable, 0o600);
+		try {
+			const found = findMarkdownFiles(cwd).map((f) => f.replace(`${cwd}/`, ""));
+			expect(found).toEqual(["README.md"]);
+		} finally {
+			chmodSync(listable, 0o755);
+		}
 	});
 
 	it("also skips .git and dist directories", () => {

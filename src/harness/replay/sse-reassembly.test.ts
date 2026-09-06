@@ -232,6 +232,33 @@ describe("createSseReassembler", () => {
 		expect(content[0]).toEqual({ type: "text", text: "" });
 	});
 
+	it("ignores a delta.type the switch does not recognize (kills the applyDelta `default:` mutant)", () => {
+		// "citations_delta" is a real Messages-API delta kind this reassembler
+		// does not accumulate. If the default arm mis-routed it into one of the
+		// known cases (e.g. treated it as text_delta), the block would gain a
+		// `text` field; the contract is that it must be dropped entirely.
+		const r = createSseReassembler();
+		r.push(sse("message_start", { type: "message_start", message: { id: "m5b" } }));
+		r.push(
+			sse("content_block_start", {
+				type: "content_block_start",
+				index: 0,
+				content_block: { type: "text", text: "" },
+			}),
+		);
+		r.push(
+			sse("content_block_delta", {
+				type: "content_block_delta",
+				index: 0,
+				delta: { type: "citations_delta", text: "should not land", citation: { foo: "bar" } },
+			}),
+		);
+		const msg = r.finish();
+		// SAFETY: finish() always sets content to the ordered block array.
+		const content = msg?.content as Array<Record<string, unknown>>;
+		expect(content[0]).toEqual({ type: "text", text: "" });
+	});
+
 	// --- appendString: non-string piece must be ignored, not coerced ----------
 	it("ignores a non-string text_delta piece instead of appending it", () => {
 		const r = createSseReassembler();

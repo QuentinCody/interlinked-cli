@@ -1,7 +1,33 @@
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * Fault injection for the two `node:fs` failures the ledger deliberately
+ * swallows and which no real temp directory can provoke: a `statSync` that
+ * fails after `existsSync` already accepted the log, and a `closeSync` that
+ * fails once the positional read has already returned its bytes. Every other
+ * `node:fs` export stays the real one, so the tests below still run against a
+ * real `mkdtemp` directory rather than an in-memory filesystem.
+ */
+const fsFaults = vi.hoisted(() => ({ statThrows: false, closeThrows: false }));
+
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		statSync: (path: string) => {
+			if (fsFaults.statThrows) throw new Error("EIO: stat failed");
+			return actual.statSync(path);
+		},
+		closeSync: (fd: number) => {
+			if (fsFaults.closeThrows) throw new Error("EBADF: bad file descriptor");
+			return actual.closeSync(fd);
+		},
+	};
+});
+
 import {
 	classifyRow,
 	enforcementLedgerPath,
@@ -177,6 +203,43 @@ describe("updateEnforcementLedger", () => {
 			blocked: 0,
 			caught: 0,
 			evaluated: 0,
+		});
+	});
+
+	// Both fs faults below are swallowed on purpose: a statusline counter must
+	// never break the daemon, and it must never LOSE a total either. That pairing
+	// is the behavior, so each case asserts the exact counters that come back.
+	describe("— node:fs faults", () => {
+		afterEach(() => {
+			fsFaults.statThrows = false;
+			fsFaults.closeThrows = false;
+		});
+
+		it("returns the stored totals unchanged when statSync fails on a log existsSync accepted", () => {
+			writeActivity([{ type: "guard_block" }]);
+			expect(updateEnforcementLedger(dir, AT).blocked).toBe(1);
+			appendFileSync(
+				join(dir, "activity.jsonl"),
+				`${JSON.stringify({ type: "guard_block" })}\n${JSON.stringify({ type: "guard_block" })}\n`,
+			);
+
+			fsFaults.statThrows = true;
+			const led = updateEnforcementLedger(dir, AT);
+			// 1, not 3: the two appended rows were never read. And not 0 either —
+			// the fallback is the STORED ledger, not a fresh empty one.
+			expect(led.blocked).toBe(1);
+			expect(led.since).toBe(AT);
+		});
+
+		it("still reports the rows it read when closing the descriptor fails", () => {
+			writeActivity([{ type: "guard_block" }, { type: "guard_warn" }]);
+			fsFaults.closeThrows = true;
+			const led = updateEnforcementLedger(dir, AT);
+			// The close error arrives in a `finally` AFTER the bytes are in hand, so
+			// it must neither propagate out of the call nor discard the tally.
+			expect(led.blocked).toBe(1);
+			expect(led.caught).toBe(1);
+			expect(led.evaluated).toBe(2);
 		});
 	});
 

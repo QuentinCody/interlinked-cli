@@ -71,4 +71,20 @@ describe("checkFetchWithoutAbortSignal — negative (must not fire)", () => {
 		const src = '// call fetch(url) later\nconst doc = "fetch(url)";\n';
 		expect(checkFetchWithoutAbortSignal(src, FILE)).toEqual([]);
 	});
+
+	it("N8: an options object that never closes inside the scan budget is unknowable — silent", () => {
+		// `argumentWindow` bails out (returns null) once the balanced-bracket
+		// scan runs past CALL_WINDOW_BUDGET (1200 chars) without depth
+		// returning to zero. The options object opens with `{` (so it LOOKS
+		// like a literal) but its close sits past the budget. This must stay
+		// silent: if the give-up-null branch were instead replaced with the
+		// truncated (still-open) window text, `topLevelArgs` would swallow
+		// every comma inside the unclosed `{...}` as one argument starting
+		// with `{` and containing no "signal" substring — `verdictFor` WOULD
+		// fire on that truncated slice. Silence here is what proves the
+		// give-up branch (not a truncated scan) is what actually ran.
+		const filler = "x".repeat(1300);
+		const src = `fetch(url, { method: "POST", ${filler} });\n`;
+		expect(checkFetchWithoutAbortSignal(src, FILE)).toEqual([]);
+	});
 });

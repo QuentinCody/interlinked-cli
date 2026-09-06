@@ -251,4 +251,16 @@ describe("parseMutationJobRequestV3 — negative (reviewer repros)", () => {
 			}),
 		).toContain(`exactly "${SOURCE_ARTIFACT_FORMAT}"`);
 	});
+
+	// test-contract: security — test_files shares the changeset's 4096-entry
+	// ceiling but is checked independently (checkPathList, not
+	// checkChangeset) and by its OWN message, distinct from N1's over-bound
+	// changeset rejection.
+	it("N7: rejects a test_files list past the 4096-entry ceiling", () => {
+		const oversizedTestFiles = {
+			...baseRequest(),
+			test_files: Array.from({ length: 4097 }, (_v, i) => `src/f${i}.test.ts`),
+		};
+		expect(rejectionOf(oversizedTestFiles)).toBe("request.test_files must be an array of at most 4096 paths");
+	});
 });

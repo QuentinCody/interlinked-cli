@@ -15,7 +15,11 @@
 import { describe, expect, it } from "vitest";
 import { buildGenericCheckMeta } from "../check-registry/builders.js";
 import { CHECK_REGISTRY } from "../check-registry/registry.js";
-import { GENERIC_CHECK_META, GENERIC_CHECK_META_OVERLAYS } from "./generic.js";
+import {
+	composeGenericCheckMeta,
+	GENERIC_CHECK_META,
+	GENERIC_CHECK_META_OVERLAYS,
+} from "./generic.js";
 
 const { annotations, unregistered } = GENERIC_CHECK_META_OVERLAYS;
 const REGISTRY_IDS = new Set(CHECK_REGISTRY.map((c) => c.id));
@@ -97,6 +101,14 @@ describe("GENERIC_CHECK_META overlays", () => {
 			);
 			expect(Object.keys(extra).every((k) => k === "asi" || k === "externality")).toBe(true);
 		}
+	});
+
+	it("throws when the annotation overlay names an id absent from both derived and unregistered tables", () => {
+		expect(() =>
+			composeGenericCheckMeta({ nonexistent_check_id: { asi: "ASI05" } }),
+		).toThrow(
+			'ANNOTATION_OVERLAY names unknown check id "nonexistent_check_id" — it is neither registered in CHECK_REGISTRY nor listed in UNREGISTERED_CHECK_META.',
+		);
 	});
 
 	it("unregistered ids do not shadow a registered check", () => {

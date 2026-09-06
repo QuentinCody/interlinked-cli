@@ -101,6 +101,14 @@ describe("matchesClause", () => {
 		expect(matchesClause(record, parseWhereClause("count>notanumber"))).toBe(false);
 	});
 
+	it("matches <= as the fallback numeric comparison (count is exactly the bound)", () => {
+		// count=7: <=7 must match (equal-to-bound case) and <=6 must not — this
+		// is the only case-arm test that reaches compareNumeric's final `return
+		// n <= bound` line rather than one of the three explicit `if` branches.
+		expect(matchesClause(record, parseWhereClause("count<=7"))).toBe(true);
+		expect(matchesClause(record, parseWhereClause("count<=6"))).toBe(false);
+	});
+
 	it("matches through array fan-out", () => {
 		expect(matchesClause(record, parseWhereClause("checks.id=nan_coercion_guard"))).toBe(true);
 		expect(matchesClause(record, parseWhereClause("checks.id=other"))).toBe(false);

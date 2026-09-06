@@ -1,10 +1,33 @@
-import { describe, expect, it } from "vitest";
-import type { DecisionSurfaceReport } from "./decision-surface.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { DecisionSurfaceReport, DetectDecisionSurfaceOptions } from "./decision-surface.js";
 import type { DecisionSurfaceCategory } from "./decision-surface-map.js";
 import {
 	computeDecisionSurfaceRatchet,
 	diffDecisionSurface,
+	makeGitBackedOptions,
 } from "./decision-surface-ratchet.js";
+
+// Toggle to make the baseline `detectDecisionSurface(cwd, options)` call throw
+// (options defined) while the plain `detectDecisionSurface(cwd)` call used for
+// "current" (options undefined) still runs for real — covers the git-error
+// catch around the baseline read, distinct from the ordinary skip reasons
+// ("not-a-repo" / "no-baseline-ref") which never reach that call at all.
+const forceBaselineDetectError = vi.hoisted(() => ({ value: false }));
+vi.mock("./decision-surface.js", async () => {
+	const actual = await vi.importActual<typeof import("./decision-surface.js")>("./decision-surface.js");
+	return {
+		...actual,
+		detectDecisionSurface: (cwd: string, options?: DetectDecisionSurfaceOptions) => {
+			if (options !== undefined && forceBaselineDetectError.value) {
+				throw new Error("git show returned unparseable ref content");
+			}
+			return actual.detectDecisionSurface(cwd, options);
+		},
+	};
+});
 
 // ===========================================
 // Fixture helpers
@@ -102,6 +125,16 @@ describe("diffDecisionSurface — pure diff semantics", () => {
 // ===========================================
 
 describe("computeDecisionSurfaceRatchet — git orchestration", () => {
+	let tmpProjectDir: string | undefined;
+
+	afterEach(() => {
+		forceBaselineDetectError.value = false;
+		if (tmpProjectDir !== undefined) {
+			rmSync(tmpProjectDir, { recursive: true, force: true });
+			tmpProjectDir = undefined;
+		}
+	});
+
 	it("skips with reason 'not-a-repo' when git rev-parse fails", () => {
 		const result = computeDecisionSurfaceRatchet("/repo", {
 			runGit: () => {
@@ -182,5 +215,80 @@ describe("computeDecisionSurfaceRatchet — git orchestration", () => {
 		});
 		expect(result.skipped).toBeNull();
 		expect(result.totalGrowth).toBeGreaterThanOrEqual(0);
+	});
+
+	it("skips with reason 'git-error' when reading the baseline detector throws", () => {
+		forceBaselineDetectError.value = true;
+		const result = computeDecisionSurfaceRatchet("/repo", {
+			runGit: (args) => {
+				if (args[0] === "rev-parse" && args[1] === "--git-dir") return ".git";
+				if (args[0] === "rev-parse" && args[1] === "--verify") {
+					if ((args[2] ?? "").startsWith("origin/main")) return "abcdef";
+					throw new Error("unknown ref");
+				}
+				if (args[0] === "merge-base") return "abcdef";
+				throw new Error(`unexpected: ${args.join(" ")}`);
+			},
+		});
+		// The catch converts the thrown baseline-read error into a distinct
+		// skip reason — NOT "no-baseline-ref" (the ref resolved fine here) and
+		// NOT a silent empty report.
+		expect(result.skipped).toBe("git-error");
+		expect(result.baselineRef).toBeNull();
+		expect(result.warnings).toEqual([]);
+	});
+
+	it("reads the baseline package.json via `git show` and folds it into growth (readFile success path)", () => {
+		const dir = mkdtempSync(join(tmpdir(), "decision-surface-ratchet-"));
+		tmpProjectDir = dir;
+		// CURRENT (real fs at `dir`): only jest.
+		writeFileSync(
+			join(dir, "package.json"),
+			JSON.stringify({ devDependencies: { jest: "1.0.0" } }),
+		);
+		const result = computeDecisionSurfaceRatchet(dir, {
+			runGit: (args) => {
+				if (args[0] === "rev-parse" && args[1] === "--git-dir") return ".git";
+				if (args[0] === "rev-parse" && args[1] === "--verify") {
+					if ((args[2] ?? "").startsWith("origin/main")) return "abcdef";
+					throw new Error("unknown ref");
+				}
+				if (args[0] === "merge-base") return "abcdef";
+				if (args[0] === "ls-tree") return "";
+				// BASELINE (git show at "origin/main" — resolveBaselineRef returns the
+				// REF, not the resolved sha): both jest and vitest already present, so
+				// the read must actually parse to suppress "jest" from growth below —
+				// a failed read (catch → null) would leave the baseline empty and
+				// "jest" would show up as new growth.
+				if (args[0] === "show" && args[1] === "origin/main:package.json") {
+					return JSON.stringify({ devDependencies: { jest: "1.0.0", vitest: "1.0.0" } });
+				}
+				if (args[0] === "cat-file") throw new Error("not found");
+				throw new Error(`unexpected: ${args.join(" ")}`);
+			},
+		});
+		expect(result.skipped).toBeNull();
+		expect(result.growthByCategory.test_framework).toEqual([]);
+		expect(result.totalGrowth).toBe(0);
+	});
+});
+
+// ===========================================
+// makeGitBackedOptions — toRelative's defensive fallback
+// ===========================================
+
+describe("makeGitBackedOptions — path outside cwd's prefix", () => {
+	it("readFile passes the path through unchanged, so `git show` is keyed on the raw path", () => {
+		const options = makeGitBackedOptions("/repo", "origin/main", (args) => {
+			if (args[0] === "show" && args[1] === "origin/main:/elsewhere/package.json") {
+				return "OUTSIDE-CONTENT";
+			}
+			throw new Error(`unexpected: ${args.join(" ")}`);
+		});
+		// If the fallback instead returned "" (treating every non-matching path
+		// as cwd itself), `rel` would be "" and readFile would short-circuit to
+		// null WITHOUT calling git show at all — this would come back null, not
+		// the literal content below.
+		expect(options.readFile?.("/elsewhere/package.json")).toBe("OUTSIDE-CONTENT");
 	});
 });

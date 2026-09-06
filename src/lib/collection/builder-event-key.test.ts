@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	PRE_EVENT_TYPES,
 	TOOL_EVENT_TYPES,
+	detectPhase,
 	resolveOutcome,
 	resolveToolEventKey,
 } from "./builder-event-key.js";
@@ -91,5 +92,14 @@ describe("resolveOutcome", () => {
 
 	it("returns ok for any other post event", () => {
 		expect(resolveOutcome("post", "tool_use")).toBe("ok");
+	});
+});
+
+describe("detectPhase", () => {
+	// resolveToolEventKey never reaches this fallback (it pre-filters on
+	// TOOL_EVENT_TYPES, the exact union of PRE_EVENT_TYPES and
+	// POST_EVENT_TYPES), so it is exercised directly here.
+	it("returns null for an event type in neither the pre nor post set", () => {
+		expect(detectPhase("session_start")).toBeNull();
 	});
 });

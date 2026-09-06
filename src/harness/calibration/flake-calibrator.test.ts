@@ -73,6 +73,19 @@ describe("observeFlakeOutcome", () => {
 		expect(state.n).toBe(1);
 	});
 
+	it("N3: treats an unparseable state file (malformed JSON) as absent, starting fresh", () => {
+		mkdirSync(dirname(statePath()), { recursive: true });
+		writeFileSync(statePath(), "{ not valid json", "utf-8");
+		expect(() => observeFlakeOutcome(cwd, false)).not.toThrow();
+		const state = JSON.parse(readFileSync(statePath(), "utf-8"));
+		// The catch path folds one observation into a fresh e-process (n=1), the
+		// same outcome as a missing file — proof the JSON.parse throw was caught
+		// rather than propagated (an uncaught throw would have failed the
+		// `not.toThrow` assertion above).
+		expect(state.n).toBe(1);
+		expect(state.positives).toBe(0);
+	});
+
 	it("P1: resumes accumulating from a valid persisted state", () => {
 		mkdirSync(dirname(statePath()), { recursive: true });
 		writeFileSync(

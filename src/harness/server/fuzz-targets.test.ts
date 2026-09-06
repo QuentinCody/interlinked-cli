@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -35,6 +35,20 @@ describe("detectFuzzTargets", () => {
 	it("does NOT match non-test source files even if they use fast-check", () => {
 		write("src/helper.ts", `import fc from "fast-check";\n`);
 		expect(detectFuzzTargets(cwd)).toEqual([]);
+	});
+
+	it("skips a candidate that cannot be stat'd and keeps its readable siblings", () => {
+		write("src/a.test.ts", `import fc from "fast-check";\n`);
+		// A dangling symlink stats ENOENT — the "vanished mid-walk" case.
+		symlinkSync(join(cwd, "src", "gone.ts"), join(cwd, "src", "zz-dangling.test.ts"));
+		expect(detectFuzzTargets(cwd)).toEqual(["src/a.test.ts"]);
+	});
+
+	it("skips an unreadable candidate and keeps the readable fast-check target", () => {
+		write("src/a.test.ts", `import fc from "fast-check";\n`);
+		write("src/zz-locked.test.ts", `import fc from "fast-check";\n`);
+		chmodSync(join(cwd, "src", "zz-locked.test.ts"), 0o000);
+		expect(detectFuzzTargets(cwd)).toEqual(["src/a.test.ts"]);
 	});
 
 	it("returns [] on a repo with no src or no fast-check usage", () => {

@@ -13,6 +13,29 @@ vi.mock("node:child_process", () => ({
 	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
 }));
 
+/** Overridden only by the one test forcing nodeRequire.resolve() to fail
+ *  (the "tsx isn't resolvable" branch); every other test gets the real
+ *  createRequire, since the module-under-test resolves "tsx/package.json"
+ *  on every call in this dev (non-built) test environment. */
+let createRequireResolveThrows = false;
+
+vi.mock("node:module", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:module")>();
+	return {
+		...actual,
+		createRequire: (...args: Parameters<typeof actual.createRequire>) => {
+			const real = actual.createRequire(...args);
+			if (!createRequireResolveThrows) return real;
+			return {
+				...real,
+				resolve: (id: string) => {
+					throw new Error(`Cannot find module '${id}'`);
+				},
+			};
+		},
+	};
+});
+
 async function importClient() {
 	return await import("./tsc-overlay-sidecar-client.js");
 }
@@ -48,6 +71,7 @@ describe("tsc-overlay-sidecar-client", () => {
 
 	beforeEach(() => {
 		spawnSyncMock.mockReset();
+		createRequireResolveThrows = false;
 		vi.resetModules();
 		warnSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 	});
@@ -211,5 +235,55 @@ describe("tsc-overlay-sidecar-client", () => {
 		}
 		// Still under the cap post-reset — every one of these calls actually spawned.
 		expect(spawnSyncMock.mock.calls.length).toBe(callsBefore + (SIDECAR_MAX_CONSECUTIVE_FAILURES - 1));
+	});
+
+	// kind: invariant — positive (must fire)
+	it("P8: _resetSidecarClientStateForTest clears an active cooldown so the next call spawns again", async () => {
+		spawnSyncMock.mockReturnValue(crashed());
+		const {
+			runOverlayViaSidecar,
+			_resetSidecarClientStateForTest,
+			SIDECAR_MAX_CONSECUTIVE_FAILURES,
+		} = await importClient();
+		for (let i = 0; i < SIDECAR_MAX_CONSECUTIVE_FAILURES; i++) {
+			runOverlayViaSidecar(INPUT);
+		}
+		const callsBeforeCooldown = spawnSyncMock.mock.calls.length;
+		runOverlayViaSidecar(INPUT); // short-circuited by cooldown — no extra spawn
+		expect(spawnSyncMock.mock.calls.length).toBe(callsBeforeCooldown);
+
+		_resetSidecarClientStateForTest();
+		runOverlayViaSidecar(INPUT);
+		// The reset cleared cooldownUntilMs/consecutiveFailures, so this call actually spawned.
+		expect(spawnSyncMock.mock.calls.length).toBe(callsBeforeCooldown + 1);
+	});
+
+	// kind: boundary — positive (must fire)
+	it("P9: typed: a sidecar entry point that can't be resolved (no dist build, tsx unresolvable) returns status unavailable", async () => {
+		// This test suite runs from source (never the built dist/ tree), so
+		// resolveSidecarSpawnSpec() already takes the dev .ts fallback branch on
+		// every call here — no built dist/ candidate resolves relative to the
+		// .ts source's own URL. Forcing nodeRequire.resolve() to throw (see the
+		// top-of-file node:module mock) lands on the catch's `return null`
+		// (client.ts:111), the one branch this suite doesn't otherwise reach.
+		createRequireResolveThrows = true;
+		const { runOverlayViaSidecarTyped } = await importClient();
+		const outcome = runOverlayViaSidecarTyped(INPUT);
+		expect(outcome).toEqual({
+			status: "unavailable",
+			reason: "sidecar entry point not found (missing build?)",
+		});
+		expect(spawnSyncMock).not.toHaveBeenCalled();
+	});
+
+	// kind: boundary — positive (must fire)
+	it("P10: typed: a reply with a numeric id but neither an error nor a result array is a malformed reply", async () => {
+		spawnSyncMock.mockReturnValue(ok(`${JSON.stringify({ id: 1, foo: "bar" })}\n`));
+		const { runOverlayViaSidecarTyped } = await importClient();
+		const outcome = runOverlayViaSidecarTyped(INPUT);
+		expect(outcome).toEqual({
+			status: "unavailable",
+			reason: "sidecar returned a malformed reply",
+		});
 	});
 });

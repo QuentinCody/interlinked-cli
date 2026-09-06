@@ -37,6 +37,16 @@ describe("queryHarnessSocket — positive (must fire)", () => {
 		const answer = await queryHarnessSocket(socketPath, EVENT, 2000);
 		expect(answer).toEqual({ decision: "allow" });
 	});
+
+	it("P2: resolves null without ever connecting when the signal starts already aborted", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		// The server at `socketPath` is live and answers every connection with
+		// {decision:"allow"} (see P1); if the pre-aborted guard were skipped the
+		// promise would settle with that object instead of null.
+		const answer = await queryHarnessSocket(socketPath, EVENT, 2000, controller.signal);
+		expect(answer).toBeNull();
+	});
 });
 
 describe("queryHarnessSocket — negative (must not fire)", () => {

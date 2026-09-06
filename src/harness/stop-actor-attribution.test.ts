@@ -3,7 +3,7 @@
 // subagent (and so leaves the main Stop list), "negative (must not fire)" = the
 // file stays unattributed and therefore stays in the main list (fail open).
 
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	loadSubagentAttribution,
 	parseSubagentFileWrites,
+	readFileTail,
 	TIMELINE_FILE,
 } from "./stop-actor-attribution.js";
 
@@ -126,5 +127,17 @@ describe("loadSubagentAttribution", () => {
 			readTail: () => `session":"S"}\n${line({})}`,
 		});
 		expect(out.byFile.get("src/a.ts")).toEqual(["agent1"]);
+	});
+
+	it("N10: the real readFileTail returns null when the path is unreadable as a file (a directory, not a file)", () => {
+		// `existsSync` is true for a directory, so this reaches the real
+		// statSync/openSync/readSync sequence: readSync on a directory fd
+		// throws EISDIR (verified on this platform), landing in readFileTail's
+		// own catch. Going through `loadSubagentAttribution` here would not
+		// discriminate this from its OWN outer try/catch (both fail open to
+		// the same empty attribution), so this calls the real reader directly.
+		const asDir = join(dir, TIMELINE_FILE);
+		mkdirSync(asDir);
+		expect(readFileTail(asDir, 1024)).toBeNull();
 	});
 });

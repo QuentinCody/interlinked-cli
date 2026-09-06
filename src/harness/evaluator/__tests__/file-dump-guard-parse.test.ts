@@ -147,6 +147,14 @@ describe("parseCountFlag — negative (must not fire)", () => {
 	it("N3: `=`-form with a non-numeric value (line 180 false side)", () => {
 		expect(parseCountFlag(["tail", "-n=abc"], "-n")).toBeNull();
 	});
+
+	it("N4: a bare trailing `+` with no digit never satisfies the combined-flag shape, so the flag is not recognized at all", () => {
+		// `-n+` looks combined-shaped, but the single character at the combined
+		// offset ("+") can't itself satisfy `/^\+?\d/` (a lone `+` has no digit
+		// to its right within that one-character probe) — so tokenMatchesFlag
+		// rejects it before flagCountAt is ever called for this token.
+		expect(parseCountFlag(["tail", "-n+"], "-n")).toBeNull();
+	});
 });
 
 describe("extractFilePaths — positive (must fire)", () => {

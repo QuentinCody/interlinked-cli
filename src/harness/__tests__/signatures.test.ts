@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	scanExfiltration,
@@ -324,6 +324,22 @@ describe("scanForSignatures — composite scanning", () => {
 		const ctx = scanForSignatures(content, ["secrets_detection"]);
 		expect(ctx.categories.has("prompt_injection")).toBe(false);
 		expect(ctx.categories.has("secrets_detection")).toBe(true);
+	});
+
+	it("short-circuits empty content without executing a single rule pattern", () => {
+		// The empty-content guard is a hot-path shortcut: every caller (taint
+		// tracker, output scanner, prompt-injection check) hands this function
+		// whatever it has, and an empty buffer must not pay for ~100 regexes.
+		// The returned shape alone cannot prove the shortcut ran — scanning "" the
+		// long way also matches nothing — so the discriminator is that no rule
+		// pattern was ever executed.
+		const execSpy = vi.spyOn(RegExp.prototype, "exec");
+		const ctx = scanForSignatures("");
+		const patternsRun = execSpy.mock.calls.length;
+		execSpy.mockRestore();
+
+		expect(patternsRun).toBe(0);
+		expect(ctx).toEqual({ matches: [], categories: new Set(), severity: "low" });
 	});
 });
 

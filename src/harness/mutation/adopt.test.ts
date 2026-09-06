@@ -1,7 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { seedFileBaseline } from "./adopt.js";
-import { acceptedSurvivors, emptyManifest } from "./manifest.js";
+import { acceptedSurvivors, applyMeasuredRun, emptyManifest, MutationManifestTestTargetError } from "./manifest.js";
 import type { MutationManifest } from "./types.js";
+
+// `applyMeasuredRun` is delegated to its real implementation by default — only
+// the two tests below override it, and only for one call each
+// (`mockImplementationOnce`), so every other test in this file still exercises
+// the genuine manifest-write path.
+vi.mock("./manifest.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("./manifest.js")>();
+	return { ...actual, applyMeasuredRun: vi.fn(actual.applyMeasuredRun) };
+});
 
 const FILE = "src/a.ts";
 const CONTENT = "export function f(x: number): boolean {\n\treturn x > 0;\n}\n";
@@ -176,6 +185,53 @@ describe("seedFileBaseline — brownfield adoption", () => {
 			cwd: "/repo/root",
 		});
 		expect(Object.keys(must(seeded).files)).toEqual([FILE]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// The applyMeasuredRun catch — a non-bypassable BACKSTOP (spec comment on the
+// try/catch in adopt.ts). The upfront isTestPath check above already screens
+// out test-file targets using the same normalizer applyMeasuredRun uses
+// internally, so in normal use this catch never fires; it exists as the one
+// choke point every writer funnels through. Exercised here by making
+// applyMeasuredRun itself throw, since the upfront check makes it otherwise
+// unreachable through seedFileBaseline's public arguments.
+// ---------------------------------------------------------------------------
+
+describe("seedFileBaseline — applyMeasuredRun backstop", () => {
+	it("folds a MutationManifestTestTargetError from applyMeasuredRun into the same null refusal", () => {
+		vi.mocked(applyMeasuredRun).mockImplementationOnce(() => {
+			throw new MutationManifestTestTargetError(FILE);
+		});
+		const result = seedFileBaseline({
+			base: emptyManifest(META),
+			file: FILE,
+			content: CONTENT,
+			report: report("Survived"),
+			at: "t",
+		});
+		// Same contract as every other refusal in this module: null, not a thrown
+		// error the caller would have to handle specially. Inverting the `if` to
+		// `throw err` unconditionally would instead crash this call.
+		expect(result).toBeNull();
+	});
+
+	it("rethrows any OTHER error from applyMeasuredRun rather than swallowing it", () => {
+		vi.mocked(applyMeasuredRun).mockImplementationOnce(() => {
+			throw new Error("disk full");
+		});
+		// Inverting the branch to `return null` for every error (not just the
+		// test-target backstop) would silently hide a real write failure instead
+		// of propagating it.
+		expect(() =>
+			seedFileBaseline({
+				base: emptyManifest(META),
+				file: FILE,
+				content: CONTENT,
+				report: report("Survived"),
+				at: "t",
+			}),
+		).toThrow("disk full");
 	});
 });
 

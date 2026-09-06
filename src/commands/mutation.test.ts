@@ -752,6 +752,24 @@ describe("mutationAcceptCommand", () => {
 			`No live mutation manifest at ${join(tmp, ".interlinked", "mutation-manifest.json")} — the per-edit gate creates it on the first measured run.`,
 		);
 	});
+
+	it("T9: a damaged manifest reports CORRUPT and keeps the file, never the missing-manifest steer", async () => {
+		// Valid JSON that fails the manifest schema (`files` is not an object) —
+		// the loader's "corrupt" state. If the corrupt arm were skipped the
+		// caller would fall through to T8's "No live mutation manifest…" steer,
+		// which tells the user to measure over a file that is still on disk.
+		mkdirSync(join(tmp, ".interlinked"), { recursive: true });
+		const manifestPath = join(tmp, ".interlinked", "mutation-manifest.json");
+		writeFileSync(manifestPath, JSON.stringify({ version: 1, files: "not-an-object" }));
+
+		await mutationAcceptCommand({ file: FILE, id: "m1", reason: "some reason", cwd: tmp });
+
+		expect(io.mocks().exitCode).toBe(1);
+		expect(io.mocks().stderr).toContain(
+			`Mutation manifest at ${manifestPath} is CORRUPT (manifest JSON parsed but does not match the manifest schema) — not "missing". The file is preserved for recovery; repair or remove it deliberately before measuring again.`,
+		);
+		expect(readFileSync(manifestPath, "utf-8")).toBe('{"version":1,"files":"not-an-object"}');
+	});
 });
 
 describe("mutationMeasureCommand", () => {

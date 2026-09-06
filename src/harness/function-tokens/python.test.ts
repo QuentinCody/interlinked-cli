@@ -1,4 +1,33 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// spawnSync is mocked (never the SUT itself) so the "adapter printed
+// something that is not valid JSON" catch branch is reachable without
+// depending on the real Python adapter script ever misbehaving. Every
+// other call passes through to the real node:child_process implementation.
+const spawnControl = vi.hoisted(() => ({ forceInvalidJson: false }));
+
+vi.mock("node:child_process", async () => {
+	const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+	return {
+		...actual,
+		spawnSync: (...args: Parameters<typeof actual.spawnSync>) => {
+			if (spawnControl.forceInvalidJson) {
+				return {
+					status: 0,
+					pid: 0,
+					output: [null, Buffer.from("not-json-at-all"), Buffer.from("")],
+					stdout: "not-json-at-all",
+					stderr: "",
+					signal: null,
+					// SAFETY: this canned result only exercises the caller's
+					// status/stdout handling; the omitted fields are never read.
+				} as ReturnType<typeof actual.spawnSync>;
+			}
+			return actual.spawnSync(...args);
+		},
+	};
+});
+
 import { computePythonFunctionTokens } from "./python.js";
 
 function entries(source: string) {
@@ -49,5 +78,14 @@ class Service:
 
     it("fails open on malformed source", () => {
         expect(computePythonFunctionTokens("def broken(:\n", "broken.py")).toBeNull();
+    });
+
+    it("fails open when the adapter exits cleanly but prints non-JSON stdout", () => {
+        spawnControl.forceInvalidJson = true;
+        try {
+            expect(computePythonFunctionTokens("def f():\n    return 1\n", "f.py")).toBeNull();
+        } finally {
+            spawnControl.forceInvalidJson = false;
+        }
     });
 });

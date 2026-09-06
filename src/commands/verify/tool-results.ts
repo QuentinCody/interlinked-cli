@@ -257,7 +257,22 @@ function applyParityFindings(r: CodeQualityResults, files: string[], cwd: string
 	}
 }
 
-function applyPersistedSuppressions(r: CodeQualityResults, interlinkedDir: string): void {
+/**
+ * Exported so the currently-unreachable hygiene-findings branch (below) can be
+ * exercised directly: `validateSuppressionFile` is a hardcoded stub that
+ * always returns `[]` until the upstream rationale/expiry helper lands, so
+ * there is no way to make `hygieneFindings` non-empty through the public
+ * `runCodeQualityChecks` entry point. `validate` defaults to that same stub —
+ * production behavior is unchanged — and exists only so a test can supply a
+ * fake generator to reach the loop body beneath it.
+ */
+export function applyPersistedSuppressions(
+	r: CodeQualityResults,
+	interlinkedDir: string,
+	validate: (
+		dir: string,
+	) => Array<{ name: string; file: string; message: string }> = validateSuppressionFile,
+): void {
 	const suppressionCache = new Map<string, FileSuppressions>();
 	function getFileSuppressions(relPath: string): FileSuppressions {
 		let cached = suppressionCache.get(relPath);
@@ -275,7 +290,7 @@ function applyPersistedSuppressions(r: CodeQualityResults, interlinkedDir: strin
 		});
 	}
 
-	const hygieneFindings = validateSuppressionFile(interlinkedDir);
+	const hygieneFindings = validate(interlinkedDir);
 	for (const f of hygieneFindings) {
 		r.suppressionHygiene.push({
 			check: f.name,

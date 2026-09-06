@@ -13,6 +13,7 @@ import {
 	DEFAULT_MIN_COVERAGE,
 	describeMetricForAgent,
 	formatMetricDefaultRow,
+	functionTokenCapConfigIssue,
 	loadMetricCaps,
 	METRIC_CAPS_REL,
 	METRIC_DEFS,
@@ -161,6 +162,18 @@ describe("metric-caps", () => {
 		expect(msg).toContain("15");
 		expect(msg).toContain("interlinked caps set cyclomatic");
 		expect(msg.toLowerCase()).toContain("fix:");
+	});
+
+	it("functionTokenCapConfigIssue reports a non-object metric-caps.json instead of silently ignoring it", () => {
+		writeFileSync(join(cwd, METRIC_CAPS_REL), JSON.stringify([1, 2, 3]), "utf8");
+		expect(functionTokenCapConfigIssue(cwd)).toBe("metric-caps.json must contain a JSON object");
+	});
+
+	it("functionTokenCapConfigIssue falls back to the default cap message when the file is malformed JSON", () => {
+		writeFileSync(join(cwd, METRIC_CAPS_REL), "{ not valid json", "utf8");
+		expect(functionTokenCapConfigIssue(cwd)).toBe(
+			`metric-caps.json is malformed; function-token analysis is using ${DEFAULT_MAX_FUNCTION_TOKENS}`,
+		);
 	});
 });
 

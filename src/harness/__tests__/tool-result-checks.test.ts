@@ -89,6 +89,24 @@ describe("checkSilentFailure", () => {
 	it("handles arrays without crashing", () => {
 		expect(checkSilentFailure([1, 2, 3])).toBeNull();
 	});
+
+	it("returns null (not throws) for a string that starts with '{' but fails to parse", () => {
+		// Exercises parseJsonObject's catch: JSON.parse throws on malformed
+		// input. Were the catch removed, this would throw instead of
+		// returning — the assertion on the actual return value is what
+		// proves the exception was swallowed, not just "didn't throw".
+		expect(checkSilentFailure("{not valid json")).toBeNull();
+	});
+
+	it("falls back to String(v) in stringifyShort when JSON.stringify throws (circular value)", () => {
+		const circular: Record<string, unknown> = { success: false };
+		circular.self = circular;
+		const hit = checkSilentFailure(circular);
+		// JSON.stringify(circular) throws; the catch fallback is
+		// String(v).slice(0, 200), which for a plain object is the literal
+		// "[object Object]" — not the JSON serialization.
+		expect(hit?.detail).toBe("[object Object]");
+	});
 });
 
 // ===========================================
@@ -122,6 +140,14 @@ describe("checkContextBloat", () => {
 	it("returns null for null/undefined", () => {
 		expect(checkContextBloat(null)).toBeNull();
 		expect(checkContextBloat(undefined)).toBeNull();
+	});
+
+	it("returns null when JSON.stringify throws on a circular object", () => {
+		const circular: Record<string, unknown> = { data: "x" };
+		circular.self = circular;
+		// If the try/catch around JSON.stringify were removed, this call
+		// would throw a TypeError instead of returning null.
+		expect(checkContextBloat(circular)).toBeNull();
 	});
 });
 

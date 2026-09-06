@@ -654,6 +654,35 @@ describe("explainCommand — short mode", () => {
 		expect(out).toContain("Read short.ts");
 		expect(out).toContain("1 activity events");
 	});
+
+	it("renders a per-event detail line when --short and --full are combined", async () => {
+		// getOutputMode picks "short" (it wins over "full"), so renderNormalTimeline
+		// runs via output()'s short→normal fallback — but buildTimeline still reads
+		// opts.full to decide whether to attach `detail`, so this combination is the
+		// only public path that reaches renderNormalTimeline's own `if (event.detail)`
+		// arm (L187-188), distinct from renderFullTimeline's identical-looking one.
+		serverResolves({
+			events: [
+				serverEvent({
+					event_type: "tool_use",
+					tool_name: "Read",
+					tool_input_summary: "detail-hit.ts",
+					occurred_at: isoAgo(2 * MIN),
+				}),
+			],
+		});
+
+		await explainCommand({
+			short: true,
+			full: true,
+		} as Parameters<typeof explainCommand>[0]);
+
+		const out = logged();
+		expect(out).toContain("Timeline (last 1h)"); // the NORMAL header, not the full one
+		// renderNormalTimeline's detail arm indents with 24 spaces (renderFullTimeline
+		// uses 6) — the exact prefix proves which `if (event.detail)` branch ran.
+		expect(out).toContain(`${" ".repeat(24)}tool_use | Read | detail-hit.ts`);
+	});
 });
 
 // ===========================================

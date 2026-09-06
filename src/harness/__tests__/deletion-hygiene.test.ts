@@ -863,4 +863,15 @@ describe("checkOrphanedTests", () => {
 		const findings = checkOrphanedTests(["validateToken"], "auth.test.ts", testContent, false);
 		expect(nonNull(findings[0]).source).toBe("quality");
 	});
+
+	it("does NOT flag when the only occurrence sits at the end of a larger word (search loop exhausts without a boundary match)", () => {
+		// "a" occurs once inside "ba" with a word char immediately before it
+		// and no character after (idx + 1 reaches content.length exactly), so
+		// the boundary check fails and the while loop's search position
+		// advances past content.length -- exiting via the loop condition
+		// itself rather than the idx === -1 early return. This exercises
+		// referencesSymbolAsWord's trailing `return false` after the loop.
+		const findings = checkOrphanedTests(["a"], "x.test.ts", "ba", false);
+		expect(findings).toEqual([]);
+	});
 });

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as collectionBuilder from "../collection/builder.js";
 import type { CollectionRecord } from "../collection/types.js";
 import { nonNull } from "../non-null.js";
-import { McpProtocolRecorder } from "./recorder.js";
+import { extractJsonRpcResponsePayload, McpProtocolRecorder } from "./recorder.js";
 import type { McpEventRecord } from "./types.js";
 import { getMcpEventsPath } from "./writer.js";
 
@@ -1033,6 +1033,10 @@ describe("McpProtocolRecorder", () => {
                 append: (record) => {
                     records.push(record);
                 },
+                // The derived collection event is observed through the builder spy;
+                // swallow the write so the test never touches the real
+                // .interlinked/ data directory (capture-isolation refuses that).
+                appendCollectionRecord: () => {},
             });
 
             recorder.recordJsonLine(
@@ -1061,6 +1065,8 @@ describe("McpProtocolRecorder", () => {
                 append: (record) => {
                     records.push(record);
                 },
+                // Same isolation as the pre-phase case above.
+                appendCollectionRecord: () => {},
             });
 
             recorder.recordJsonLine(
@@ -1099,5 +1105,27 @@ describe("McpProtocolRecorder", () => {
             expect(collection).toEqual([]);
             spy.mockRestore();
         });
+    });
+});
+
+// =============================================================================
+// extractJsonRpcResponsePayload — the two defensive fallback branches are
+// unreachable through McpProtocolRecorder's public recordJsonLine (the only
+// call site always hands it a message already classified as "response" or
+// "error" by inspectJsonRpcMessage, which guarantees a JSON object carrying
+// one of "error"/"result"); exercised directly per the campaign's exported-
+// last-resort rule.
+// =============================================================================
+
+describe("extractJsonRpcResponsePayload", () => {
+    // test-contract: boundary — a non-object message is returned as-is
+    it("returns a non-object message unchanged instead of throwing on the property lookups", () => {
+        expect(extractJsonRpcResponsePayload(null)).toBeNull();
+    });
+
+    // test-contract: boundary — an object with neither "error" nor "result" falls through
+    it("returns the whole message when it carries neither an error nor a result key", () => {
+        const message = { jsonrpc: "2.0", id: 7 };
+        expect(extractJsonRpcResponsePayload(message)).toEqual({ jsonrpc: "2.0", id: 7 });
     });
 });

@@ -90,6 +90,16 @@ describe("simplification plan primitives", () => {
 		expect(() => requireUniqueRepositoryPaths(["a.ts", "a.ts"], "loc")).toThrow(/duplicates/);
 	});
 
+	it("rejects a repository path list over the 100000-entry cap before checking path shape", () => {
+		// One repeated value: if the length guard did not fire first, the
+		// identical entries would trip the *duplicates* check instead, so the
+		// message below only appears when the cap branch itself runs.
+		const tooMany = new Array(100_001).fill("a.ts");
+		expect(() => requireUniqueRepositoryPaths(tooMany, "loc")).toThrow(
+			/must contain at most 100000 paths/,
+		);
+	});
+
 	it("compares string arrays element-wise", () => {
 		expect(sameStrings(["a", "b"], ["a", "b"])).toBe(true);
 		expect(sameStrings(["a"], ["a", "b"])).toBe(false);

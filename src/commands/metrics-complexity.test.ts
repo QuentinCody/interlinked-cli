@@ -233,6 +233,18 @@ describe("metricsComplexityCommand", () => {
 		errSpy.mockRestore();
 	});
 
+	it("N3: a listed file that vanished before it could be read is excluded, not fatal", async () => {
+		logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+		await metricsComplexityCommand(
+			{ cwd: root, json: true },
+			{ listFiles: () => ["src/simple.ts", "src/does-not-exist-any-more.ts"] },
+		);
+		const parsed = JSON.parse(logged()) as { files: number; functions: number };
+		expect(parsed.files).toBe(1);
+		expect(parsed.functions).toBe(1);
+		expect(process.exitCode).toBeUndefined();
+	});
+
 	it("N2: an unavailable TS analyzer exits 1 loudly instead of printing an empty census", async () => {
 		logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
 		const errSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);

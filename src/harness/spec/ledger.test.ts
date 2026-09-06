@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { SpecLedger } from "./ledger.js";
+import { MAX_FILES } from "./ledger-excluded-dirs.js";
 import { resolveRelativeTarget } from "./ledger-xref.js";
 
 const never = (): boolean => false;
@@ -463,6 +464,27 @@ describe("filesystem walk (build)", () => {
 			]);
 		} finally {
 			rmSync(big, { recursive: true, force: true });
+		}
+	});
+
+	it("truncates at MAX_FILES instead of loading every eligible file (loadFile cap)", () => {
+		const capped = mkdtempSync(join(tmpdir(), "spec-ledger-capped-"));
+		try {
+			// One more eligible file than the cap allows, named so sorted order
+			// (the walk's own ordering guarantee) puts the (MAX_FILES+1)th file
+			// last — it must be the one left out.
+			for (let i = 0; i < MAX_FILES + 1; i++) {
+				writeFileSync(
+					join(capped, `f${String(i).padStart(4, "0")}.md`),
+					`# File ${i}`,
+				);
+			}
+			const l = SpecLedger.build(capped, never);
+			expect(l.fileCount).toBe(MAX_FILES);
+			expect(l.wasTruncated).toBe(true);
+			expect(l.factsOf(`f${String(MAX_FILES).padStart(4, "0")}.md`)).toBeUndefined();
+		} finally {
+			rmSync(capped, { recursive: true, force: true });
 		}
 	});
 });

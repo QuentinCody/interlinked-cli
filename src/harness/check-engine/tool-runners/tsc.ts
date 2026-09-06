@@ -56,7 +56,7 @@ function unavailableFinding(file: string, reason: string): CheckResult[] {
 	];
 }
 
-function parseCompletedCompiler(output: string, status: number, file: string): CheckResult[] {
+export function parseCompletedCompiler(output: string, status: number, file: string): CheckResult[] {
 	if (output.length >= COMPILER_OUTPUT_LIMIT_BYTES) {
 		return unavailableFinding(file, "compiler output was truncated");
 	}
@@ -373,7 +373,7 @@ async function runTscStandaloneAsync(
 }
 
 /** Check if a file is included in the tsconfig's compilation scope. */
-function isFileInTscScope(filePath: string, tscRoot: string): boolean {
+export function isFileInTscScope(filePath: string, tscRoot: string): boolean {
 	try {
 		// Quick heuristic: check if the file is under a directory referenced by tsconfig
 		const rel = relative(tscRoot, filePath);

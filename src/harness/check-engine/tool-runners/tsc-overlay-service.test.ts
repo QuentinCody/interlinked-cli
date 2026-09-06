@@ -6,9 +6,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import * as ts from "typescript";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	buildLanguageServiceHost,
 	clearOverlayServiceCache,
+	diagnosticSeverity,
 	OVERLAY_EXT,
 	runOverlayCheckInProcess,
 } from "./tsc-overlay-service.js";
@@ -87,5 +90,70 @@ describe("tsc-overlay-service", () => {
 		runOverlayCheckInProcess({ projectRoot: dir, filePath: join(dir, "a.ts"), content: "export const x = 1;\n" });
 		expect(() => clearOverlayServiceCache(dir)).not.toThrow();
 		expect(() => clearOverlayServiceCache()).not.toThrow();
+	});
+});
+
+// ===========================================================================
+// diagnosticSeverity — pure category mapper. buildOverlayResults only ever
+// exercises the Error branch through a real overlaid type error (see P2
+// above); these fixtures drive the Warning and "neither" branches directly,
+// since no genuine tsc diagnostic in this project's config is emitted as a
+// Warning or Suggestion.
+// ===========================================================================
+
+describe("diagnosticSeverity", () => {
+	function fakeDiagnostic(category: import("typescript").DiagnosticCategory): import("typescript").Diagnostic {
+		// SAFETY: diagnosticSeverity reads only `.category` — a minimal fixture
+		// with the rest of Diagnostic's fields omitted is sound for this test.
+		return { category } as unknown as import("typescript").Diagnostic;
+	}
+
+	// kind: category-mapping — positive (must fire)
+	it("P3: maps a Warning-category diagnostic to 'warning'", () => {
+		expect(diagnosticSeverity(ts, fakeDiagnostic(ts.DiagnosticCategory.Warning))).toBe("warning");
+	});
+
+	// kind: category-mapping — negative (must not fire)
+	it("N3: maps a Suggestion-category diagnostic (neither Error nor Warning) to null", () => {
+		expect(diagnosticSeverity(ts, fakeDiagnostic(ts.DiagnosticCategory.Suggestion))).toBeNull();
+	});
+});
+
+// ===========================================================================
+// buildLanguageServiceHost — the assembled LanguageServiceHost object.
+// getOrCreateService only ever hands this to `ts.createLanguageService`,
+// which invokes `.readDirectory` itself only via completions or project
+// references (neither of which runOverlayCheckInProcess exercises) — calling
+// the built host's own `readDirectory` hook directly is the only way to prove
+// that specific wiring (including its private `hostReadDirectory` delegate,
+// which has no importer outside this module) without depending on that
+// unrelated internal TS path.
+// ===========================================================================
+
+describe("buildLanguageServiceHost", () => {
+	// kind: host-wiring — positive (must fire)
+	it("P5: the built host's readDirectory hook forwards the include glob to the real directory listing", () => {
+		const dir = project({ "a.ts": "export const x = 1;\n" });
+		writeFileSync(join(dir, "notes.txt"), "not typescript\n");
+		const ctx = {
+			ts,
+			service: null,
+			tsconfigDir: dir,
+			overlay: null,
+			siblings: new Map<string, string>(),
+			versions: new Map<string, number>(),
+			mtimes: new Map<string, number>(),
+		};
+		const host = buildLanguageServiceHost(ctx, ts, dir, ["a.ts"], {});
+
+		// No `extensions` filter passed — an empty result, or notes.txt present,
+		// can only happen if the `include` glob arg was dropped/ignored rather
+		// than forwarded (verified: ts.sys.readDirectory(dir, undefined,
+		// undefined, undefined) returns BOTH files; only adding `include` back
+		// excludes notes.txt).
+		const files = host.readDirectory?.(dir, undefined, undefined, ["*.ts"]) ?? [];
+
+		expect(files.some((f: string) => f.endsWith("a.ts"))).toBe(true);
+		expect(files.some((f: string) => f.endsWith("notes.txt"))).toBe(false);
 	});
 });

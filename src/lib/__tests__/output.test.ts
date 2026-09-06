@@ -68,6 +68,15 @@ describe("output() dispatch", () => {
 		expect(logSpy).toHaveBeenCalledWith("n");
 	});
 
+	it("throws a named error for a mode value outside the OutputMode union", () => {
+		// SAFETY: deliberately outside the OutputMode union to exercise the
+		// runtime exhaustiveness guard that a real caller's TS check would refuse.
+		const bogusMode = "bogus" as unknown as Parameters<typeof output>[0];
+		expect(() => output(bogusMode, null, { normal: () => "n" })).toThrow(
+			"unhandled output mode: bogus",
+		);
+	});
+
 	it("outputError in json mode prints structured JSON to stderr + sets exitCode=1", () => {
 		outputError("json", "boom", { code: 42 });
 		expect(errSpy).toHaveBeenCalledWith(

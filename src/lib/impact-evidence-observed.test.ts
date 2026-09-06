@@ -63,6 +63,17 @@ describe("readBaselineFoldEvidence", () => {
 		const evidence = readBaselineFoldEvidence(cwd);
 		expect(evidence.by_kind.coverage).toEqual({ events: 1, changed: 0, refused: 0 });
 	});
+
+	it("reports unavailable with the read error message when the fold log exists but cannot be read as a file", () => {
+		const path = join(cwd, BASELINE_FOLD_LOG_REL);
+		// existsSync(path) is true (it's a directory), but readFileSync then
+		// throws EISDIR — the TOCTOU gap the try/catch around it exists for.
+		mkdirSync(path, { recursive: true });
+		const evidence = readBaselineFoldEvidence(cwd);
+		expect(evidence.availability).toBe("unavailable");
+		expect(evidence.reason).toMatch(/EISDIR/);
+		expect(evidence.events).toBe(0);
+	});
 });
 
 describe("readActivityEvidence", () => {

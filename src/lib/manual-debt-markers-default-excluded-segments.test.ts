@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as corpusModule from "../harness/findings/corpus.js";
+import { makeFinding } from "../harness/findings/corpus.js";
+import type { Finding } from "../harness/findings/corpus.js";
 import {
     DEFAULT_EXCLUDED_SEGMENTS,
     findingIds,
@@ -60,5 +63,33 @@ describe("findingIds", () => {
         const result = findingIds("/definitely/not/a/real/project/root/xyz");
         expect(result).not.toBeNull();
         expect([...(result ?? [])]).toEqual([]);
+    });
+
+    it("maps each returned finding to its id", () => {
+        const findings: Finding[] = [
+            makeFinding(
+                { bug_class: "raw-sql-concat", message: "m", source_runner: "test" },
+                "/project",
+            ),
+        ];
+        const spy = vi.spyOn(corpusModule, "loadFindings").mockReturnValue(findings);
+        try {
+            const result = findingIds("/project");
+            expect(result).not.toBeNull();
+            expect([...(result ?? [])]).toEqual([findings[0]?.id]);
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it("returns null (not an empty set) when the corpus reader throws", () => {
+        const spy = vi.spyOn(corpusModule, "loadFindings").mockImplementation(() => {
+            throw new Error("corpus read failed");
+        });
+        try {
+            expect(findingIds("/any/project/root")).toBeNull();
+        } finally {
+            spy.mockRestore();
+        }
     });
 });

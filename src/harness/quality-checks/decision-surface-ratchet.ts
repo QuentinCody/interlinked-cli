@@ -149,7 +149,11 @@ function resolveBaselineRef(
 	return null;
 }
 
-function makeGitBackedOptions(
+/** Exported for the companion test only, to reach `toRelative`'s defensive
+ *  fallback directly — every real call site inside this file passes it a
+ *  cwd-rooted path, so the fallback is unreachable through the public
+ *  `computeDecisionSurfaceRatchet` entry point. No behavior change. */
+export function makeGitBackedOptions(
 	cwd: string,
 	ref: string,
 	runGit: (args: readonly string[], cwd: string) => string,

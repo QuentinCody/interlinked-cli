@@ -160,7 +160,7 @@ function collectCandidates(ts: TsModule, sf: TS.SourceFile): Candidate[] {
 }
 
 /** Names re-exported via `export { f }` / `export default f`. */
-function exportListNames(ts: TsModule, sf: TS.SourceFile): Set<string> {
+export function exportListNames(ts: TsModule, sf: TS.SourceFile): Set<string> {
 	const names = new Set<string>();
 	for (const st of sf.statements) {
 		if (ts.isExportAssignment(st) && ts.isIdentifier(st.expression)) {

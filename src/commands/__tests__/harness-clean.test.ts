@@ -156,6 +156,34 @@ describe("harnessCleanCommand — removes stale files when daemon is dead", () =
 		expect(exitCode).toBe(previousExitCode);
 	});
 
+	it("swallows an unlink failure on the pid path and leaves it in place", async () => {
+		// pidPath() is a DIRECTORY here, not a file: existsSync() still reports
+		// it as present, so the code attempts unlinkSync, which throws (EISDIR
+		// / EPERM) instead of removing a plain file. That exercises the catch
+		// around the pid-file unlink, distinct from the sock-file one below.
+		mkdirSync(pidPath());
+		writeFileSync(sockPath(), "");
+		const captured = await captureStdio(() => harnessCleanCommand({ json: true }));
+		const parsed = JSON.parse(captured.stdout) as { ok: boolean; removed: string[] };
+		expect(parsed.ok).toBe(true);
+		expect(parsed.removed).not.toContain(pidPath());
+		expect(parsed.removed).toContain(sockPath());
+		expect(statSync(pidPath()).isDirectory()).toBe(true);
+	});
+
+	it("swallows an unlink failure on the sock path and leaves it in place", async () => {
+		// sockPath() is a DIRECTORY here, not a file: exercises the catch
+		// around the sock-file unlink, distinct from the pid-file one above.
+		writeFileSync(pidPath(), String(STALE_DAEMON_PID));
+		mkdirSync(sockPath());
+		const captured = await captureStdio(() => harnessCleanCommand({ json: true }));
+		const parsed = JSON.parse(captured.stdout) as { ok: boolean; removed: string[] };
+		expect(parsed.ok).toBe(true);
+		expect(parsed.removed).toContain(pidPath());
+		expect(parsed.removed).not.toContain(sockPath());
+		expect(statSync(sockPath()).isDirectory()).toBe(true);
+	});
+
 	it("--json reports the action taken", async () => {
 		writeFileSync(pidPath(), String(STALE_DAEMON_PID));
 		writeFileSync(sockPath(), "");

@@ -10,9 +10,13 @@ import {
 } from "./guard-telemetry-enrichment.js";
 
 const recorded: Array<Record<string, unknown>> = [];
+/** Set by a test to make the recurrence ledger write fail the way a
+ *  read-only / full `.interlinked/` would. */
+let ledgerFailure: Error | null = null;
 vi.mock("../recurrence.js", () => ({
 	recordHarnessCaught: (opts: Record<string, unknown>) => {
 		recorded.push(opts);
+		if (ledgerFailure) throw ledgerFailure;
 	},
 }));
 
@@ -34,6 +38,7 @@ function block(over: Partial<HarnessDecision> = {}): HarnessDecision {
 
 afterEach(() => {
 	recorded.length = 0;
+	ledgerFailure = null;
 	__resetActorModelsForTesting();
 });
 
@@ -119,5 +124,25 @@ describe("guard block → recurrence bridge — negative (must not record)", () 
 
 	it("N7: never throws when recurrence storage fails", () => {
 		expect(() => bridgeGuardBlockToRecurrence(evt({ tool_input: undefined }), block(), "/repo")).not.toThrow();
+	});
+
+	// test-contract: invariant — the module doc states guard telemetry "never
+	// throws: guard telemetry must not break the pipeline". A ledger write
+	// that raises (read-only or full `.interlinked/`) must be swallowed AFTER
+	// the payload was handed over, so the guard verdict still reaches the
+	// agent. Without the catch arm the call below propagates the error and
+	// this case fails before its assertions run.
+	it("N8: swallows a throwing ledger write, keeping the payload it already handed over", () => {
+		ledgerFailure = new Error("EROFS: recurrences.jsonl is not writable");
+
+		bridgeGuardBlockToRecurrence(evt({ tool_input: { file_path: "/repo/src/a.ts" } }), block(), "/repo");
+
+		expect(recorded).toHaveLength(1);
+		expect(recorded[0]).toMatchObject({
+			check_id: "repo-scratch-is-write-only",
+			file: "src/a.ts",
+			phase: "pre_block",
+			severity: "error",
+		});
 	});
 });

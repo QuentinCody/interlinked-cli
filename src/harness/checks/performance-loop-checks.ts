@@ -75,7 +75,7 @@ export function checkAwaitInLoop(content: string, filePath: string): InlineMatch
  * (`for (const row of rows)` → `rows`). Null when the language has no
  * head-iterable form we trace (C-style index loops carry no iterable name).
  */
-function loopIterableRegexFor(ext: string): RegExp | null {
+export function loopIterableRegexFor(ext: string): RegExp | null {
 	if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext)) {
 		return /\bfor\s*(?:await\s*)?\(\s*(?:const|let|var)\s+[^)]*?\s+(?:of|in)\s+(?:await\s+)?([A-Za-z_$][\w$]*)/;
 	}

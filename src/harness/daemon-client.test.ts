@@ -139,6 +139,57 @@ describe("DaemonClient.call — errors", () => {
 		const client = createDaemonClient(missing);
 		await expect(client.call("daemon.health", {}, { timeout_ms: 250 })).rejects.toBeDefined();
 	});
+
+	it("skips an undecodable frame and resolves from the next well-formed one", async () => {
+		const socketPath = join(tmp, "garbage.sock");
+		server = createServer((socket) => {
+			socket.on("data", () => {
+				// Not JSON: decodeFrame throws, so parseResponseFrame must swallow
+				// it and report `null` for this frame only.
+				socket.write("{ not json\n");
+				socket.write(
+					encodeFrame({
+						id: "garbage-id",
+						result: {
+							status: "ready",
+							uptime_ms: 7,
+							warm_caches: [],
+							tsgo_status: "ready",
+							rpc_inflight: 0,
+							protocol_version: "1",
+						},
+					}),
+				);
+			});
+		});
+		await new Promise<void>((resolve) => server?.listen(socketPath, resolve));
+
+		// Resolving with the SECOND frame's payload is the discriminating
+		// observable: a decode failure that was not swallowed would escape the
+		// `data` listener, leaving the call to reject on its deadline instead.
+		const health = await createDaemonClient(socketPath).call(
+			"daemon.health",
+			{},
+			{ id: "garbage-id", timeout_ms: 1000 },
+		);
+		expect(health.status).toBe("ready");
+		expect(health.uptime_ms).toBe(7);
+	});
+
+	it("rejects with `socket closed` when the daemon hangs up without answering", async () => {
+		const socketPath = join(tmp, "hangup.sock");
+		server = createServer((socket) => {
+			socket.on("data", () => socket.end()); // read the request, answer nothing
+		});
+		await new Promise<void>((resolve) => server?.listen(socketPath, resolve));
+
+		// The deadline is far longer than the hang-up, so the message
+		// discriminates: without the close handler's rejection this call would
+		// reject with `timeout` a second later instead.
+		await expect(
+			createDaemonClient(socketPath).call("daemon.health", {}, { timeout_ms: 1000 }),
+		).rejects.toThrow("socket closed");
+	});
 });
 
 describe("DaemonClient.call — cancellation (review pass 16)", () => {

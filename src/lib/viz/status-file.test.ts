@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -90,6 +90,20 @@ describe("writeVizStatus / clearVizStatus", () => {
 	});
 });
 
+describe("clearVizStatus (removal failure)", () => {
+	it("swallows a removal failure without throwing when the status path is a directory", () => {
+		// rmSync's `force` option only suppresses ENOENT; a directory at the
+		// status path still throws (ERR_FS_EISDIR), which must land in the
+		// catch and never propagate out of clearVizStatus.
+		const path = vizStatusPath(dir);
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		mkdirSync(path);
+
+		expect(() => clearVizStatus(dir)).not.toThrow();
+		expect(existsSync(path)).toBe(true);
+	});
+});
+
 describe("readLiveVizStatus", () => {
 	it("returns the status when the owning process is alive", () => {
 		writeVizStatus(dir, { ...status, pid: process.pid });
@@ -108,6 +122,17 @@ describe("readLiveVizStatus", () => {
 	it("returns null when the file is malformed", () => {
 		writeVizStatus(dir, status);
 		writeFileSync(vizStatusPath(dir), "garbage");
+		expect(readLiveVizStatus(dir)).toBeNull();
+	});
+
+	it("returns null when the status file cannot be read (e.g. it is a directory)", () => {
+		// existsSync is true (a directory is present) but readFileSync then
+		// throws (EISDIR) — this must be caught and read as "no dashboard",
+		// distinct from the "no file at all" and "malformed content" cases above.
+		const path = vizStatusPath(dir);
+		mkdirSync(join(dir, ".interlinked"), { recursive: true });
+		mkdirSync(path);
+
 		expect(readLiveVizStatus(dir)).toBeNull();
 	});
 });

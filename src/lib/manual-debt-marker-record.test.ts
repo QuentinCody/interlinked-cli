@@ -1,7 +1,7 @@
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
     loadManualDebtMarkerSnapshotReceipts,
     manualDebtMarkerSnapshotFingerprint,
@@ -10,6 +10,26 @@ import {
     recordManualDebtMarkerSnapshot,
 } from "./manual-debt-marker-record.js";
 import { scanManualDebtMarkers } from "./manual-debt-markers.js";
+
+/** Set by a test to make the mocked `readFileSync` below throw for one
+ *  targeted call (matched on args), while every other call — including the
+ *  ones this same test issues for setup/assertions — passes straight through
+ *  to the real implementation. Reset after every test so the fs mock is
+ *  transparent everywhere else in the suite. */
+let readFileSyncFailure: ((args: readonly unknown[]) => boolean) | null = null;
+
+vi.mock("node:fs", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("node:fs")>();
+    // SAFETY: readFileSync is overloaded (path-only vs. path+encoding); this
+    // wrapper only ever inspects/forwards raw args, so a loose signature that
+    // erases the overload — while still calling the real, untouched function —
+    // is sound for a pure pass-through-or-throw shim.
+    const readFileSync = ((...args: unknown[]) => {
+        if (readFileSyncFailure?.(args)) throw new Error("EIO: simulated read failure");
+        return (actual.readFileSync as (...a: unknown[]) => unknown)(...args);
+    }) as unknown as typeof actual.readFileSync;
+    return { ...actual, readFileSync };
+});
 
 let root = "";
 
@@ -34,6 +54,7 @@ beforeEach(() => {
 
 afterEach(() => {
     rmSync(root, { recursive: true, force: true });
+    readFileSyncFailure = null;
 });
 
 describe("manual debt-marker snapshot recording", () => {
@@ -210,5 +231,48 @@ describe("manual debt-marker snapshot recording", () => {
 		const invalidTimestamp = structuredClone(recorded.receipt);
 		invalidTimestamp.recorded_at = "not-a-timestamp";
 		expect(parseManualDebtMarkerSnapshotReceipt(invalidTimestamp)).toBeNull();
+	});
+
+	it("returns no history, not a throw, when the snapshot file cannot be read", () => {
+		write("src/cache.ts", marker({ ceiling: "10k keys", trigger: "keys > 10000 items" }));
+		recordManualDebtMarkerSnapshot(
+			scanManualDebtMarkers({ cwd: root }),
+			root,
+			{ now: "2026-08-30T10:00:00.000Z" },
+		);
+		const path = manualDebtMarkerSnapshotsPath(root);
+		// The load path's only readFileSync call is (path, "utf8") — target
+		// exactly that shape so the rest of the module's own setup reads above
+		// (and any other file) are unaffected.
+		readFileSyncFailure = ([target, encoding]) => target === path && encoding === "utf8";
+
+		expect(loadManualDebtMarkerSnapshotReceipts(root)).toEqual([]);
+	});
+
+	it("does not insert a torn-tail newline when the prior byte cannot be inspected", () => {
+		write("src/cache.ts", marker({ ceiling: "10k keys", trigger: "keys > 10000 items" }));
+		const first = recordManualDebtMarkerSnapshot(
+			scanManualDebtMarkers({ cwd: root }),
+			root,
+			{ now: "2026-08-30T10:00:00.000Z" },
+		);
+		const path = manualDebtMarkerSnapshotsPath(root);
+		// Simulate a torn write: the previous append was cut off mid-flush, so
+		// the file's last byte is not a newline — the exact condition that
+		// would normally make tornTailPrefix insert one.
+		const truncated = readFileSync(path, "utf8").replace(/\n$/, "");
+		expect(truncated).toBe(JSON.stringify(first.receipt));
+		writeFileSync(path, truncated, "utf8");
+
+		const secondScan = scanManualDebtMarkers({ cwd: root });
+		// tornTailPrefix's only readFileSync call in this module is the
+		// single-argument raw-bytes form (no encoding) — every other call in
+		// the same recording (the history reload, the append) carries one and
+		// is left untouched.
+		readFileSyncFailure = ([target, ...rest]) => target === path && rest.length === 0;
+		const second = recordManualDebtMarkerSnapshot(secondScan, root, { now: "2026-08-30T11:00:00.000Z" });
+
+		const finalRaw = readFileSync(path, "utf8");
+		expect(finalRaw).toBe(`${truncated}${JSON.stringify(second.receipt)}\n`);
 	});
 });

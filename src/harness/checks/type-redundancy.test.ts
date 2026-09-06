@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execSync } from "node:child_process";
@@ -89,6 +89,37 @@ describe("checkDuplicateTypeDeclaration — move in progress (positive, grouped)
 		expect(
 			checkDuplicateTypeDeclaration(content, join(cwd, "src/session-daemon-bind.ts"), cwd),
 		).toEqual([]);
+	});
+});
+
+describe("checkDuplicateTypeDeclaration — stale git listing (readOtherFileOrNull catch)", () => {
+	// test-contract: boundary — a git-index-listed sibling that no longer
+	// exists on disk (staged for deletion but not `git rm`-ed) is skipped
+	// without crashing, and the real duplicate elsewhere is still found.
+	it("P7: a stale git-listed path with no file on disk is skipped, and the real duplicate is still reported", () => {
+		const content = "export interface Shape {\n\tid: string;\n}\n";
+		const cwd = fixture({
+			"src/a/mod.ts": content,
+			// Same directory as the edited file, and sorts before it
+			// ("a2-ghost.ts" < "mod.ts"), so it is read BEFORE the real
+			// duplicate — while the seen-name short-circuit hasn't fired yet.
+			"src/a/a2-ghost.ts": "export interface Shape {\n\tid: string;\n}\n",
+			// Different directory → the real duplicate gets merge guidance,
+			// not the same-directory move-in-progress carve-out.
+			"src/b/mod.ts": "export interface Shape {\n\tid: string;\n}\n",
+		});
+		// Staged (git add -A already ran in fixture()) but removed from disk —
+		// git ls-files --cached still lists it; readFileSync now throws ENOENT.
+		unlinkSync(join(cwd, "src/a/a2-ghost.ts"));
+
+		let out: ReturnType<typeof checkDuplicateTypeDeclaration> = [];
+		expect(() => {
+			out = checkDuplicateTypeDeclaration(content, join(cwd, "src/a/mod.ts"), cwd);
+		}).not.toThrow();
+		expect(out).toHaveLength(1);
+		expect(out[0]?.text).toContain("IDENTICAL body");
+		expect(out[0]?.text).toContain("mod.ts");
+		expect(out[0]?.text).not.toContain("a2-ghost.ts");
 	});
 });
 

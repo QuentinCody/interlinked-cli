@@ -90,6 +90,13 @@ describe("RouteMap dispatcher", () => {
 		expect(map.extractEndpointsForFile(dynFile)).toHaveLength(2);
 	});
 
+	it("initialize silently skips a file it cannot read instead of throwing", () => {
+		const missing = join(workdir, "does-not-exist.ts");
+		const map = new RouteMap(workdir);
+		map.initialize([missing]);
+		expect(map.extractEndpointsForFile(missing)).toEqual([]);
+	});
+
 	it("Python files only consult the FastAPI adapter", () => {
 		const pyFile = join(workdir, "main.py");
 		writeFileSync(

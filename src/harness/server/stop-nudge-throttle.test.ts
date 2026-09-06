@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -91,6 +91,21 @@ describe("suppressRepeatedNudges", () => {
 		expect(() =>
 			suppressRepeatedNudges({ projectRoot: join(fileAsParent, "nested"), sessionId: "s1" }, ["x"]),
 		).not.toThrow();
+	});
+
+	it("treats a corrupt marker as nothing-said, so a nudge is never silenced by it", () => {
+		// A truncated or hand-mangled marker file is the one input that could make
+		// the throttle swallow a nudge the agent has never seen. The read must fail
+		// towards speaking: unparseable told-set means everything is still unsaid,
+		// and the next write repairs the file.
+		const marker = join(root, ".interlinked", "stop-nudges", "s1.json");
+		mkdirSync(join(root, ".interlinked", "stop-nudges"), { recursive: true });
+		writeFileSync(marker, '["deadbeef", tru');
+
+		expect(suppressRepeatedNudges({ projectRoot: root, sessionId: "s1" }, ["deferred coverage: a.ts"])).toEqual([
+			"deferred coverage: a.ts",
+		]);
+		expect(JSON.parse(readFileSync(marker, "utf8"))).toEqual([expect.stringMatching(/^[0-9a-f]{16}$/)]);
 	});
 
 	it("still returns the nudges when persistence fails", () => {

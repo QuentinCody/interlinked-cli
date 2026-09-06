@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	__resetDifferentialFuzzDepsCacheForTests,
+	canResolve,
 	differentialFuzzAvailability,
 	loadFastCheck,
 	loadTsModule,
@@ -53,6 +54,10 @@ describe("differential-fuzz-deps — positive (availability is honest and intern
 	it("P6: repeated calls return the SAME cached module reference (memoized, not re-resolved)", () => {
 		expect(loadTsModule()).toBe(loadTsModule());
 	});
+
+	it("P7: canResolve returns true for a specifier that actually resolves from this module's location", () => {
+		expect(canResolve("node:path")).toBe(true);
+	});
 });
 
 describe("differential-fuzz-deps — negative (must report absence honestly, never throw)", () => {
@@ -67,6 +72,13 @@ describe("differential-fuzz-deps — negative (must report absence honestly, nev
 
 	it("N2: missingDependencyNote never throws on the all-false shape", () => {
 		expect(() => missingDependencyNote({ ts: false, fastCheck: false })).not.toThrow();
+	});
+
+	it("N3: canResolve catches an unresolvable specifier and returns false rather than throwing", () => {
+		expect(() =>
+			canResolve("definitely-not-a-real-package-xyz-p2u096"),
+		).not.toThrow();
+		expect(canResolve("definitely-not-a-real-package-xyz-p2u096")).toBe(false);
 	});
 
 	it("N3: cache reset does not change the resolution verdict (re-required, same outcome)", async () => {

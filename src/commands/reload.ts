@@ -210,14 +210,22 @@ export interface ReloadOptions {
 	build?: boolean;
 }
 
-export async function reloadCommand(opts: ReloadOptions): Promise<void> {
+/** `resolveCliRoot` defaults to the real `findCliRoot` lookup — injectable
+ *  only so a unit test can force the "no checkout found" branch without
+ *  fabricating a package.json above the real repo (that branch has no other
+ *  DI seam; see reload.test.ts). Every real caller omits it and gets the
+ *  original behavior unchanged. */
+export async function reloadCommand(
+	opts: ReloadOptions,
+	resolveCliRoot: () => string | null = findCliRoot,
+): Promise<void> {
 	const cwd = resolve(opts.cwd ?? process.cwd());
 	const json = opts.json === true;
 	const say = (line: string): void => {
 		if (!json) console.log(line);
 	};
 
-	const cliRoot = findCliRoot();
+	const cliRoot = resolveCliRoot();
 	if (!cliRoot) {
 		console.error(
 			"reload: could not locate the interlinked-cli source checkout from the running binary — rebuild manually in the checkout, then run `interlinked enable && interlinked harness restart`.",

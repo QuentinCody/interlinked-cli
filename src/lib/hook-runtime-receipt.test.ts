@@ -61,4 +61,32 @@ describe("hook runtime receipt", () => {
 		recordHookRuntime({ dataDir, provider: "../escape", nativeEvent: "Stop" });
 		expect(readHookRuntimeReceipt(join(dataDir, HOOK_RUNTIME_RECEIPT_FILE))).toBeNull();
 	});
+
+	it("returns undefined when the definition path cannot be read as a file", () => {
+		const root = mkdtempSync(join(tmpdir(), "interlinked-hook-receipt-"));
+		roots.push(root);
+		// A directory at the definition path makes readFileSync throw (EISDIR)
+		// even though existsSync reports it present.
+		const definitionPath = join(root, "hooks-as-dir");
+		mkdirSync(definitionPath);
+
+		expect(hashHookDefinition(definitionPath)).toBeUndefined();
+	});
+
+	it("swallows a write failure without crashing when the temp path is blocked", () => {
+		const root = mkdtempSync(join(tmpdir(), "interlinked-hook-receipt-"));
+		roots.push(root);
+		const dataDir = join(root, ".interlinked");
+		mkdirSync(dataDir);
+		const path = join(dataDir, HOOK_RUNTIME_RECEIPT_FILE);
+		// Occupy the atomic-write temp path with a directory: writeFileSync
+		// throws (EISDIR) and the subsequent cleanup unlinkSync also throws
+		// (EPERM on a directory), exercising the nested best-effort catch.
+		mkdirSync(`${path}.${process.pid}.tmp`);
+
+		expect(() =>
+			recordHookRuntime({ dataDir, provider: "codex", nativeEvent: "Stop" }),
+		).not.toThrow();
+		expect(readHookRuntimeReceipt(path)).toBeNull();
+	});
 });

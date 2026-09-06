@@ -210,6 +210,28 @@ function isBag(v: unknown): v is Bag {
 `;
 		expect(detectTypePredicateDrift(src, F)).toEqual([]);
 	});
+
+	it("N15: an interface whose opening brace never closes yields an unresolvable shape", () => {
+		// `matchBrace` scans from the interface's own `{` and returns -1 when
+		// depth never returns to 0 — here the interface body runs straight
+		// into the function's own `{` without a closing `}` of its own, so
+		// depth never rebalances even though the FUNCTION body (opened later,
+		// scanned independently) closes cleanly. collectDeclaredShapes then
+		// never registers "Foo", so the predicate's target type is unresolvable
+		// and evaluatePredicateSite bails before comparing any properties —
+		// were matchBrace to instead report a false close, "count" would read
+		// as required-and-unchecked and this would report a finding.
+		const src = `
+interface Foo {
+	name: string;
+	count: number;
+function isFoo(v: unknown): v is Foo {
+	const o = v as Record<string, unknown>;
+	return typeof o.name === "string";
+}
+`;
+		expect(detectTypePredicateDrift(src, F)).toEqual([]);
+	});
 });
 
 describe("detectTypePredicateDrift — bounds", () => {
@@ -254,6 +276,24 @@ interface Pair { left: string; right: string; }
 const isPair = (v: unknown): v is Pair =>
 	typeof (v as Record<string, unknown>).left === "string";
 `;
+		const out = detectTypePredicateDrift(src, F);
+		expect(out).toHaveLength(1);
+		expect(out[0]?.text).toContain("right");
+	});
+
+	it("P9: arrow EXPRESSION-body predicate with no trailing `;`/newline still drifts", () => {
+		// `arrowExpressionBody` returns as soon as it sees a `;` or `\n` at
+		// depth <= 0 (the normal case, exercised by P7's trailing `;\n`). When
+		// the predicate is the very last thing in the file with neither —
+		// exactly this fixture, whose template literal ends right after the
+		// closing quote — the scan runs out of characters and falls through
+		// to the budget-exhausted `return stripped.slice(start, end)`. A
+		// mutant that returned "" there instead would yield a body with no
+		// tokens, `checked` would be 0, and this would report nothing.
+		const src = `
+interface Pair { left: string; right: string; }
+const isPair = (v: unknown): v is Pair =>
+	typeof (v as Record<string, unknown>).left === "string"`;
 		const out = detectTypePredicateDrift(src, F);
 		expect(out).toHaveLength(1);
 		expect(out[0]?.text).toContain("right");

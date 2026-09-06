@@ -71,6 +71,26 @@ describe("buildAgenda + writeReviewAgenda (§7.3)", () => {
 		expect(compose[0]?.title).toContain("2 files");
 	});
 
+	it("emits a compose-check for a declared fact bound from two files", () => {
+		const marker = "<!-- fact:line_cap -->500<!-- /fact:line_cap -->";
+		const contents = new Map([
+			["docs/policy.md", `The cap is ${marker} lines.`],
+			["docs/harness.md", `The gate refuses a write past ${marker} lines.`],
+		]);
+		const ledger = SpecLedger.fromContents(
+			"/repo",
+			Object.fromEntries(contents),
+			never,
+		);
+		const items = buildAgenda({ ledger, contents, openFindings: [] });
+		const compose = items.filter((i) => i.kind === "compose_check");
+		expect(compose).toHaveLength(1);
+		expect(compose[0]?.title).toBe(
+			"fact:line_cap is constrained from 2 files — verify the constraints compose",
+		);
+		expect(compose[0]?.sites).toEqual(["docs/policy.md:1", "docs/harness.md:1"]);
+	});
+
 	it("renders the agenda artifact with drift and open findings", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "agenda-"));
 		roots.push(cwd);

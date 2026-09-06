@@ -533,6 +533,17 @@ describe("mutationSweepCommand", () => {
 		expect(logs.join("\n")).toMatch(/--shard must be/);
 	});
 
+	it("N5: a corrupt manifest (parses but fails the schema) says so on stderr, distinct from a missing one", async () => {
+		// Missing the required `files` object — `loadManifestState` reads this as
+		// "corrupt", not "missing", so `loadTargets` must say CORRUPT rather than
+		// silently falling into the same "no manifest" message P1 covers.
+		writeFileSync(join(cwd, ".interlinked", "mutation-manifest.json"), JSON.stringify({ version: 1 }));
+		clearManifestCache();
+		await mutationSweepCommand({ cwd, json: true, runnerUrl: ["http://runner.invalid"] });
+		expect(process.exitCode).toBe(1);
+		expect(errs.join("\n")).toContain("is CORRUPT (manifest JSON parsed but does not match the manifest schema)");
+	});
+
 	it("P3: --dry-run selects targets and reports them without invoking measureOne", async () => {
 		writeManifest(
 			survivedManifest({ "src/here.ts": [{ mutantId: "m1" }], "src/there.ts": [{ mutantId: "m2" }] }),
@@ -760,6 +771,25 @@ describe("mutationSweepCommand", () => {
 		);
 		expect(errs.some((l) => l.includes("src/here.ts"))).toBe(true);
 		expect(errs.some((l) => /sweeping \d+ of \d+/.test(l))).toBe(true);
+	});
+
+	it("N3b: --short prints the one-line measured/survivors summary, not the JSON payload", async () => {
+		writeManifest(survivedManifest({ "src/here.ts": [{ mutantId: "m1" }] }));
+		await mutationSweepCommand(
+			{ cwd, short: true, runnerUrl: ["http://a.invalid"] },
+			async (args): Promise<MeasureOneResult> => ({
+				file: args.file,
+				status: "measured",
+				mutants: 1,
+				survivors: 0,
+				survivorList: [],
+				record: { recorded: true, before: { mutants: 1, survivors: 1 }, after: { mutants: 1, survivors: 0 } },
+				notes: [],
+			}),
+		);
+		// Exact literal, not a substring match — a swapped direction or count would
+		// still contain "measured"/"survivors" but produce a different string.
+		expect(logs.join("\n")).toBe("1/1 measured, survivors 1 → 0");
 	});
 
 	it("N4: an invalid --measured-before value is refused before any runner work", async () => {

@@ -3,13 +3,20 @@
 // These pin the exact thing that silently broke before: a data-collection
 // stream that stops advancing must be classifiable as such. Each status is
 // driven through real on-disk fixtures with an injected clock so the
-// classification is deterministic.
+// classification is deterministic. The two I/O-failure statuses are the
+// exception: `statSync` / `openSync` are passthrough `vi.fn` wrappers so a
+// single call can be made to fail without an unportable on-disk fixture.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, openSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatAge, getCollectionLiveness } from "./liveness.js";
+
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return { ...actual, openSync: vi.fn(actual.openSync), statSync: vi.fn(actual.statSync) };
+});
 
 const NOW = Date.parse("2026-06-06T12:00:00.000Z");
 
@@ -159,5 +166,38 @@ describe("getCollectionLiveness", () => {
 		writeCollection(["42"]);
 		const live = getCollectionLiveness(dir, { now: NOW });
 		expect(live.status).toBe("unreadable");
+	});
+
+	it("walks back past a garbled TRAILING line to the last complete record", () => {
+		writeCollection([record(tsAgo(1_000)), '{"schema":"collection.v1","ts":"2026-06']);
+		const live = getCollectionLiveness(dir, { now: NOW });
+		expect(live.lastRecordTs).toBe(tsAgo(1_000));
+		expect(live.status).toBe("live");
+	});
+
+	it("reports 'unreadable' when the file exists but cannot be stat'd", () => {
+		writeCollection([record(tsAgo(1_000))]);
+		vi.mocked(statSync).mockImplementationOnce(() => {
+			throw new Error("EACCES: permission denied, stat");
+		});
+		const live = getCollectionLiveness(dir, { now: NOW });
+		expect(live.reason).toBe("collection.jsonl could not be stat'd");
+		expect(live.status).toBe("unreadable");
+		expect(live.exists).toBe(true);
+		expect(live.sizeBytes).toBe(0);
+	});
+
+	it("reports 'unreadable' when the stream is sized but its tail cannot be opened", () => {
+		const line = `${record(tsAgo(1_000))}\n`;
+		writeCollection([record(tsAgo(1_000))]);
+		vi.mocked(openSync).mockImplementationOnce(() => {
+			throw new Error("EACCES: permission denied, open");
+		});
+		const live = getCollectionLiveness(dir, { now: NOW });
+		expect(live.reason).toBe(
+			"could not parse a record timestamp from the tail of collection.jsonl",
+		);
+		expect(live.sizeBytes).toBe(line.length);
+		expect(live.lastRecordTs).toBeNull();
 	});
 });

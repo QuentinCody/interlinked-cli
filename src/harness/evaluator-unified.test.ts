@@ -762,6 +762,24 @@ describe("evaluateUnified — telemetry", () => {
 		const decision = await evaluateUnified(makeEvent(), makeCtx());
 		expect(decision).toEqual({ decision: "allow" });
 	});
+	it("emits check_filtered with the filtered count when the filter reports findings removed", async () => {
+		// filterCheckResultsByToolClass itself is a hardcoded no-op today, so
+		// this drives the branch through the injectable `filterCheckResults`
+		// seam rather than production filtering logic (not yet metadata-aware).
+		preMock.mockReturnValue({ decision: "allow" });
+		const seen: UnifiedEvaluatorTelemetry[] = [];
+		const ctx = makeCtx({
+			onTelemetry: (e) => seen.push(e),
+			filterCheckResults: (decision) => ({ decision, count: 3 }),
+		});
+		await evaluateUnified(makeEvent({ event_id: "evt-filtered" }), ctx);
+		const filteredEvt = seen.find((e) => e.kind === "check_filtered");
+		expect(filteredEvt).toBeDefined();
+		if (filteredEvt?.kind === "check_filtered") {
+			expect(filteredEvt.filtered_count).toBe(3);
+			expect(filteredEvt.event_id).toBe("evt-filtered");
+		}
+	});
 });
 
 describe("evaluateUnified — budget timeout race", () => {

@@ -141,6 +141,12 @@ describe("parseOutcomes", () => {
 		expect(parseOutcomes({ ...validOutcomes(), primary_metric: "" })).toBeNull();
 	});
 
+	it("rejects a safety outcome carrying an unknown key", () => {
+		const base = validOutcomes();
+		const safetyWithExtra = { ...base.safety, unexpected_field: "x" };
+		expect(parseOutcomes({ ...base, safety: safetyWithExtra })).toBeNull();
+	});
+
 	it("rejects an invalid safety outcome", () => {
 		const base = validOutcomes();
 		expect(parseOutcomes({ ...base, safety: { ...base.safety, receipt_path: "/abs" } }))
@@ -157,6 +163,12 @@ describe("parseOutcomes", () => {
 				safety: { ...base.safety, required_checks_passed: "yes" },
 			}),
 		).toBeNull();
+	});
+
+	it("rejects a completeness outcome carrying an unknown key", () => {
+		const base = validOutcomes();
+		const completenessWithExtra = { ...base.completeness, unexpected_field: "x" };
+		expect(parseOutcomes({ ...base, completeness: completenessWithExtra })).toBeNull();
 	});
 
 	it("rejects a completeness outcome whose counts do not nest", () => {

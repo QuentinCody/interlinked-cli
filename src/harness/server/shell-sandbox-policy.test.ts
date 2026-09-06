@@ -221,4 +221,39 @@ describe("shell sandbox evidence", () => {
 		appendShellSandboxAdvisory(event({ tool_name: "Write" }), s, writeDecision, root);
 		expect(writeDecision.warnings).toBeUndefined();
 	});
+
+	// test-contract: boundary — an unreadable Codex config yields unknown evidence instead of propagating the read error
+	it("reports unknown Codex evidence when the config path cannot be read", () => {
+		// A directory where config.toml is expected: existsSync passes, readFileSync throws EISDIR.
+		mkdirSync(join(root, ".codex", "config.toml"), { recursive: true });
+		expect(assessShellSandbox(event(), root)).toEqual({
+			evidence: "unknown",
+			detail: "no readable Codex sandbox_mode was found for this project/user",
+		});
+	});
+
+	// test-contract: boundary — a Gemini settings file without tools.sandbox is skipped rather than read for other sandbox keys
+	it("reports unknown Gemini evidence when no settings file declares tools.sandbox", () => {
+		mkdirSync(join(root, ".gemini"));
+		writeFileSync(
+			join(root, ".gemini", "settings.json"),
+			JSON.stringify({ tools: { web_search: true }, security: { toolSandboxing: false } }),
+		);
+		expect(assessShellSandbox(event({ agent_source: "gemini" }), root)).toEqual({
+			evidence: "unknown",
+			detail: "no Gemini sandbox setting was found",
+		});
+	});
+
+	// test-contract: boundary — a runner with no sandbox attestation surface is not assessed against another runner's config
+	it("reports unknown evidence for a runner that exposes no attestation", () => {
+		mkdirSync(join(root, ".codex"));
+		writeFileSync(join(root, ".codex", "config.toml"), 'sandbox_mode = "danger-full-access"\n');
+		mkdirSync(join(root, ".claude"));
+		writeFileSync(join(root, ".claude", "settings.json"), JSON.stringify({ sandbox: { enabled: false } }));
+		expect(assessShellSandbox(event({ agent_source: "copilot" }), root)).toEqual({
+			evidence: "unknown",
+			detail: "this runner does not expose per-call sandbox attestation to the hook",
+		});
+	});
 });

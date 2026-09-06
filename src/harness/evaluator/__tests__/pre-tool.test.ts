@@ -79,4 +79,95 @@ describe("evaluatePreToolUse smoke", () => {
 		);
 		expect(result.decision).toBe("block");
 	});
+
+	// A phase that returns a bare allow carrying its OWN warnings array is not
+	// terminal: the pipeline keeps running and the phase's warnings must be
+	// folded into the shared list, or they never reach the agent. The taint
+	// phase's step-limit degradation is the live producer of that shape
+	// (read-only tools stay allowed once the budget is blown).
+	it("folds a non-terminal phase's own allow-warnings into the final decision", () => {
+		const rules = getDefaultConfig();
+		const session = makeSession();
+		session.step_limit = 5;
+		session.tool_call_count = 10;
+		const result = evaluatePreToolUse(
+			makeEvent({ tool_name: "Read", tool_input: { file_path: "src/index.ts" } }),
+			rules,
+			session,
+			new ReservationManager(),
+			new CohortManager(),
+		);
+		expect(result.decision).toBe("allow");
+		expect(result.warnings).toContain(
+			"[interlinked:budget] Step limit (5) exceeded — read-only mode. Mutations are blocked. Wrap up and commit.",
+		);
+	});
+
+	// Same fold, deduped: a warning the shared list already carries must not be
+	// appended twice when the phase's array replays it.
+	it("does not duplicate a warning the shared list already carries", () => {
+		const rules = getDefaultConfig();
+		const session = makeSession();
+		session.step_limit = 5;
+		session.tool_call_count = 10;
+		const result = evaluatePreToolUse(
+			makeEvent({ tool_name: "Read", tool_input: { file_path: "src/index.ts" } }),
+			rules,
+			session,
+			new ReservationManager(),
+			new CohortManager(),
+		);
+		const budgetLines = (result.warnings ?? []).filter((w) =>
+			w.startsWith("[interlinked:budget] Step limit (5) exceeded"),
+		);
+		expect(budgetLines).toHaveLength(1);
+	});
+});
+
+// The step budget binds the CALLING actor. A subagent's tool calls arrive
+// under the parent's session id (`subagent_id` + its own `agent_name`), so the
+// session total sums every spawned agent; the orchestrator's own budget must
+// not be spent by its workers, and a worker over its own budget is still
+// stopped. Full pipeline, not the guard in isolation: this pins the wiring
+// from the event through `newPreToolCtx` to the taint phase.
+describe("evaluatePreToolUse — per-actor step budget", () => {
+	function inflatedSession(): SessionTrajectory {
+		const session = makeSession();
+		session.step_limit = 5;
+		session.tool_call_count = 10;
+		session.actor_tool_calls = new Map([
+			["test-agent", 2],
+			["sub-1", 8],
+		]);
+		return session;
+	}
+
+	it("P1: allows the parent's Bash call when only subagent steps pushed the session over the limit", () => {
+		const result = evaluatePreToolUse(
+			makeEvent({ tool_name: "Bash", tool_input: { command: "ls -la" } }),
+			getDefaultConfig(),
+			inflatedSession(),
+			new ReservationManager(),
+			new CohortManager(),
+		);
+		expect(result.decision).toBe("allow");
+		expect((result.warnings ?? []).some((w) => w.startsWith("[interlinked:budget]"))).toBe(false);
+	});
+
+	it("P2: blocks the subagent whose own count is over the limit", () => {
+		const result = evaluatePreToolUse(
+			makeEvent({
+				tool_name: "Bash",
+				tool_input: { command: "ls -la" },
+				agent_name: "sub-1",
+				subagent_id: "sub-1",
+			}),
+			getDefaultConfig(),
+			inflatedSession(),
+			new ReservationManager(),
+			new CohortManager(),
+		);
+		expect(result.decision).toBe("block");
+		expect(result.reason).toContain("Step limit (5) exceeded");
+	});
 });

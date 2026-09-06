@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nonNull } from "../lib/non-null.js";
 import { installHooks, manifestPath } from "./installer-install-result.js";
 import { readManifest } from "./installer-manifest.js";
+import { MANAGED_PROVIDER_FILE_MARKER } from "./managed-provider-file.js";
 
 let tmp = "";
 beforeEach(() => {
@@ -75,5 +76,33 @@ describe("installHooks", () => {
 			runners: [],
 		});
 		expect(result.entries.length + result.skipped.length).toBeGreaterThan(1);
+	});
+
+	it("preserves a managed provider file that turned foreign since the recorded install", () => {
+		const binaryPath = "/usr/bin/interlinked-hook";
+		const first = installHooks({ cwd: tmp, binaryPath, runners: ["opencode"] });
+		const target = nonNull(first.entries[0]).settings_path;
+		// The manifest now records this path as ours (artifact_kind
+		// "managed-file"). Something else claims the path before the next
+		// install without going through Interlinked at all — no marker line.
+		writeFileSync(target, "export const someoneElsesPlugin = true;\n");
+
+		const second = installHooks({ cwd: tmp, binaryPath, runners: ["opencode"] });
+
+		expect(second.entries).toEqual([]);
+		expect(second.skipped[0]?.reason).toBe(`managed provider path is now user-owned; preserving ${target}`);
+		expect(readFileSync(target, "utf-8")).not.toContain(MANAGED_PROVIDER_FILE_MARKER);
+	});
+
+	it("skips an adapter whose managed path is unreadable rather than crashing the run", () => {
+		const target = join(tmp, ".opencode", "plugins", "interlinked.ts");
+		mkdirSync(target, { recursive: true }); // a directory at the file's own path
+		const result = installHooks({
+			cwd: tmp,
+			binaryPath: "/usr/bin/interlinked-hook",
+			runners: ["opencode"],
+		});
+		expect(result.entries).toEqual([]);
+		expect(result.skipped[0]?.reason).toContain(`cannot read managed provider file ${target}`);
 	});
 });

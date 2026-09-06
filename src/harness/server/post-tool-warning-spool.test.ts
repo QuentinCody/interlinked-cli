@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -85,6 +85,23 @@ describe("request-owned PostTool warning spool", () => {
 
 		expect(readyWarnings(handle.readyPath)).toEqual(["only once"]);
 		expect(existsSync(join(dataDir, QUALITY_WARNING_SPOOL_DIR))).toBe(true);
+	});
+
+	it("deletes the unpublished temp record when the atomic rename fails", () => {
+		const dataDir = tempInterlinkedDir();
+		const handle = beginPostToolWarningSpool(dataDir, event("rename-failure-tok"));
+		// A directory sitting on the ready path lets the temp write succeed and
+		// makes only the rename fail — the one state in which a temp file exists
+		// with nothing to publish it.
+		mkdirSync(handle.readyPath, { recursive: true });
+
+		expect(() => completePostToolWarningSpool(handle, ["undeliverable warning"])).toThrow(
+			/rename/,
+		);
+
+		const spoolDir = join(dataDir, QUALITY_WARNING_SPOOL_DIR);
+		expect(readdirSync(spoolDir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+		expect(existsSync(handle.markerPath)).toBe(false);
 	});
 
 	it("does not persist an unowned record for an older hook with no delivery token", () => {

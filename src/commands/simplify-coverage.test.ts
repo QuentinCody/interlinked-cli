@@ -123,4 +123,36 @@ describe("buildSimplificationCoverage", () => {
 			}),
 		]));
 	});
+
+	it("reports status unavailable when every source came back unavailable", () => {
+		const inspected = write("src/inspected.ts", "export const inspected = true;\n");
+		const unavailableSource: SimplificationSourceCoverage = {
+			source: "deadcode.reachability-and-categorization",
+			status: "unavailable",
+			files_considered: 0,
+			analyzed_paths: [],
+			findings_emitted: 0,
+			notes: ["detector binary not installed"],
+		};
+		const report = buildSimplificationCoverage({
+			cwd: root,
+			discovered: [inspected],
+			scope: {
+				kind: "repository",
+				range: null,
+				base_sha: null,
+				head_sha: null,
+				selected_paths: null,
+			},
+			sources: [unavailableSource],
+			findings: [],
+		});
+
+		// If overallStatus's all-unavailable branch were removed, this report
+		// would fall through to the generic "missing/unsupported/unanalyzed"
+		// check below it — which also evaluates true here (nothing was
+		// analyzed) — and report "partial" instead of "unavailable". Asserting
+		// the literal "unavailable" is what distinguishes the two branches.
+		expect(report.status).toBe("unavailable");
+	});
 });

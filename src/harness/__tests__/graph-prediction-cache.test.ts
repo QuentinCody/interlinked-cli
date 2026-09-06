@@ -7,7 +7,7 @@
 //
 // Cache key: {session_id, file_path, source_mtime, shard_mtime}.
 
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -123,6 +123,21 @@ describe("appendPredictionRow + findPredictionRow", () => {
 		const found = findPredictionRow(dir, {
 			session_id: "sess-x",
 			file_path: "src/x.ts",
+			source_mtime: "2026-05-10T12:00:00.000Z",
+			shard_mtime: "2026-05-10T12:01:00.000Z",
+		});
+		expect(found).toBeNull();
+	});
+
+	it("returns null (instead of throwing) when the predictions path exists but cannot be read as a file", () => {
+		const path = join(dir, ".interlinked", "graph-predictions.jsonl");
+		// A directory at the log path exists but readFileSync on it throws
+		// EISDIR — this exercises the read-error catch, distinct from the
+		// "does not exist" case above.
+		mkdirSync(path, { recursive: true });
+		const found = findPredictionRow(dir, {
+			session_id: "sess-1",
+			file_path: "src/foo.ts",
 			source_mtime: "2026-05-10T12:00:00.000Z",
 			shard_mtime: "2026-05-10T12:01:00.000Z",
 		});

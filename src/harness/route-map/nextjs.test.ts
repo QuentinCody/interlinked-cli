@@ -2,7 +2,8 @@
 // Covers the App Router `app/**/route.ts` convention plus the
 // middleware.ts matcher path.
 
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -101,5 +102,46 @@ describe("route-map/nextjs.extractEndpoints — negative cases", () => {
 		const content = readFileSync(middlewarePath, "utf-8");
 		const out = extractEndpoints(middlewarePath, content, { projectRoot: FIXTURE_ROOT });
 		expect(out).toEqual([]);
+	});
+});
+
+describe("route-map/nextjs.extractEndpoints — middleware.ts read failure", () => {
+	it("treats an unreadable middleware.ts as no auth_chain instead of throwing", () => {
+		const projectRoot = mkdtempSync(join(tmpdir(), "nextjs-mw-unreadable-"));
+		try {
+			// middleware.ts EXISTS (existsSync sees it) but is a directory, not a
+			// file, so readFileSync() throws EISDIR — the failure mode the catch
+			// in resolveMatcherEntry exists for, distinct from "file absent".
+			mkdirSync(join(projectRoot, "middleware.ts"));
+			const routeFile = join(projectRoot, "app", "api", "widgets", "route.ts");
+			const out = extractEndpoints(routeFile, "export function GET() { return null; }", {
+				projectRoot,
+			});
+			expect(out).toHaveLength(1);
+			expect(out[0]?.auth_chain).toEqual([]);
+		} finally {
+			rmSync(projectRoot, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("route-map/nextjs.extractEndpoints — invalid matcher regex", () => {
+	it("treats a matcher that compiles to an invalid regex as non-covering instead of throwing", () => {
+		const projectRoot = mkdtempSync(join(tmpdir(), "nextjs-mw-badregex-"));
+		try {
+			// "[" survives the param/catch-all replacements untouched, so the
+			// translated pattern `^[$` is an unterminated character class —
+			// new RegExp(...) throws, which matcherCovers's catch must absorb.
+			const middlewareSrc = 'export const config = { matcher: ["["] };';
+			writeFileSync(join(projectRoot, "middleware.ts"), middlewareSrc);
+			const routeFile = join(projectRoot, "app", "api", "widgets", "route.ts");
+			const out = extractEndpoints(routeFile, "export function GET() { return null; }", {
+				projectRoot,
+			});
+			expect(out).toHaveLength(1);
+			expect(out[0]?.auth_chain).toEqual([]);
+		} finally {
+			rmSync(projectRoot, { recursive: true, force: true });
+		}
 	});
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../non-null.js";
-import { buildCollectionRecord } from "../builder.js";
+import { ACTION_BUILDERS, buildCollectionRecord, OBSERVATION_BUILDERS } from "../builder.js";
 
 // Helper: minimal activity event with required fields
 function baseEvent(overrides: Record<string, unknown> = {}) {
@@ -1542,5 +1542,77 @@ describe("buildCollectionRecord — privacy gate depends on phase AND observatio
 		)!;
 		expect(rec.observation).toBeNull();
 		expect(rec.privacy.redaction_status).toBe("not_required");
+	});
+});
+
+// -------------------------------------------------------
+// file_delete — the tool-class arm no runner emits yet.
+// `classifyTool` has no name set mapping onto "file_delete", so the two
+// builders below are unreachable through `buildCollectionRecord`; they are
+// exercised through the exported maps, which is the only seam that can prove
+// the arm behaves (a new delete-capable runner is one TOOL_CLASS_SETS row away).
+// -------------------------------------------------------
+describe("ACTION_BUILDERS.file_delete", () => {
+	it("passes the tool name through to path extraction so an apply_patch delete resolves its header path", () => {
+		const action = ACTION_BUILDERS.file_delete({
+			toolClass: "file_delete",
+			toolName: "apply_patch",
+			input: { command: "*** Delete File: /src/retired.ts" },
+			cwd: "/repo",
+			event: {},
+		});
+
+		// A hardcoded tool name (e.g. "Read") would read file_path/filePath/path
+		// off the input and yield "" — the header is only parsed for apply_patch.
+		expect(action).toEqual({ path: "/src/retired.ts" });
+	});
+
+	it("reads the plain `path` key for a non-patch delete tool and emits no other action field", () => {
+		const action = ACTION_BUILDERS.file_delete({
+			toolClass: "file_delete",
+			toolName: "delete_file",
+			input: { path: "/tmp/gone.ts", content: "ignored" },
+			cwd: null,
+			event: {},
+		});
+
+		expect(action).toEqual({ path: "/tmp/gone.ts" });
+	});
+});
+
+describe("OBSERVATION_BUILDERS.file_delete", () => {
+	it("reports the deletion as applied and keeps a string response as the result message", () => {
+		expect(OBSERVATION_BUILDERS.file_delete("Deleted /tmp/gone.ts")).toEqual({
+			deleted: true,
+			result_message: "Deleted /tmp/gone.ts",
+		});
+	});
+
+	it("still reports the deletion as applied when the response is not a string, with a null message", () => {
+		expect(OBSERVATION_BUILDERS.file_delete({ ok: true })).toEqual({
+			deleted: true,
+			result_message: null,
+		});
+	});
+});
+
+// -------------------------------------------------------
+// mcp_call action builder — the non-`mcp__` guard inside
+// `parseMcpProviderTool`. `classifyTool` only routes names starting with
+// `mcp__` here, so the guard is reachable only through the exported map.
+// -------------------------------------------------------
+describe("ACTION_BUILDERS.mcp_call — tool name without the mcp__ prefix", () => {
+	it("keeps the whole name as the tool and reports no server", () => {
+		const action = ACTION_BUILDERS.mcp_call({
+			toolClass: "mcp_call",
+			toolName: "Bash",
+			input: {},
+			cwd: null,
+			event: {},
+		});
+
+		// Stripping the prefix unconditionally would slice 5 chars off "Bash"
+		// and leave tool: "" here.
+		expect(action).toEqual({ server: null, tool: "Bash", params: {}, params_ref: null });
 	});
 });

@@ -583,6 +583,103 @@ describe("checkProjectTypecheckCleanAsync", () => {
 			},
 		]);
 	});
+
+	it("records the bypass instead of running a compiler that would fail", async () => {
+		writeFileSync(
+			join(tmp, "package.json"),
+			JSON.stringify({
+				scripts: {
+					"typecheck:stable":
+						'node -e "console.error(\\"src/x.ts(1,1): error TS2322: bypassed.\\");process.exit(1)"',
+				},
+			}),
+		);
+		process.env.INTERLINKED_SKIP_PROJECT_TYPECHECK = "1";
+		await expect(checkProjectTypecheckCleanAsync(tmp)).resolves.toEqual([
+			{
+				source: "structural",
+				name: "project_typecheck_skipped",
+				severity: "warning",
+				message:
+					"Project typecheck gate bypassed via INTERLINKED_SKIP_PROJECT_TYPECHECK=1. Verify CI manually before merging.",
+				determinism: "fully_deterministic",
+			},
+		]);
+	});
+
+	it("stays inert in a project with neither a typecheck script nor a local tsc", async () => {
+		writeFileSync(join(tmp, "package.json"), JSON.stringify({ name: "not-a-ts-project" }));
+		await expect(checkProjectTypecheckCleanAsync(tmp)).resolves.toEqual([]);
+	});
+
+	it("reports a timeout — never clean — when the compiler outlives its budget", async () => {
+		writeFileSync(
+			join(tmp, "package.json"),
+			JSON.stringify({ scripts: { "typecheck:stable": 'node -e "setTimeout(() => {}, 10000)"' } }),
+		);
+		await expect(checkProjectTypecheckCleanAsync(tmp, { timeoutMs: 250 })).resolves.toEqual([
+			{
+				source: "structural",
+				name: "project_typecheck_timed_out",
+				severity: "warning",
+				message:
+					"Project typecheck (typecheck:stable) exceeded 0.25s timeout or was terminated. Verify CI manually.",
+				determinism: "fully_deterministic",
+			},
+		]);
+	});
+
+	it("reports failed-to-run when the compiler never produced an exit code", async () => {
+		writeFileSync(join(tmp, "tsconfig.json"), "{}");
+		mkdirSync(join(tmp, "node_modules", ".bin"), { recursive: true });
+		// Present (so it resolves as `local-tsc`) but not executable: the spawn
+		// errors out, and `code: null` must never read as a clean compile.
+		writeFileSync(join(tmp, "node_modules", ".bin", "tsc"), "not executable", { mode: 0o644 });
+		await expect(checkProjectTypecheckCleanAsync(tmp)).resolves.toEqual([
+			{
+				source: "structural",
+				name: "project_typecheck_failed_to_run",
+				severity: "warning",
+				message: "Project typecheck (local-tsc) could not run to completion. Verify CI manually.",
+				determinism: "fully_deterministic",
+			},
+		]);
+	});
+
+	it("defers with the admission reason when another compiler holds the project", async () => {
+		writeFileSync(
+			join(tmp, "package.json"),
+			JSON.stringify({ scripts: { "typecheck:stable": 'node -e "process.exit(0)"' } }),
+		);
+		let releaseBarrier: () => void = () => {};
+		let markStarted: () => void = () => {};
+		const started = new Promise<void>((resolve) => {
+			markStarted = resolve;
+		});
+		const barrier = new Promise<void>((resolve) => {
+			releaseBarrier = resolve;
+		});
+		const owner = runWithProjectCompilerLease(tmp, async () => {
+			markStarted();
+			await barrier;
+		});
+		await started;
+
+		const results = await checkProjectTypecheckCleanAsync(tmp);
+		releaseBarrier();
+		await owner;
+
+		expect(results).toEqual([
+			{
+				source: "structural",
+				name: "project_typecheck_deferred",
+				severity: "warning",
+				message:
+					"Project typecheck was NOT CHECKED: compiler admission timed out while queued. Retry before committing or pushing.",
+				determinism: "fully_deterministic",
+			},
+		]);
+	});
 });
 
 describe("resolveTestCommand", () => {

@@ -26,7 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
-import { checkTsconfigStrictness } from "../tsconfig-strictness.js";
+import { checkTsconfigStrictness, evaluateFlagFinding } from "../tsconfig-strictness.js";
 
 // noUncheckedIndexedAccess is ADVISORY (never gated, see the check); these four
 // are the gated flags the default verify gate still demands.
@@ -490,5 +490,25 @@ describe("checkTsconfigStrictness — robustness", () => {
 		const cfg = { compilerOptions: { strict: true } };
 		const findings = checkTsconfigStrictness(JSON.stringify(cfg), "tsconfig.json");
 		expect(findings).toHaveLength(4);
+	});
+});
+
+describe("evaluateFlagFinding — strict-implies rescue branch", () => {
+	// None of the 5 real REQUIRED_STRICTNESS_FLAGS is in STRICT_IMPLIES, so
+	// this rescue path (a flag `strict: true` DOES cover) is unreachable
+	// through checkTsconfigStrictness with a real spec. Drive it directly
+	// with a synthetic spec naming a flag STRICT_IMPLIES actually contains.
+	it("treats a STRICT_IMPLIES flag as satisfied when strict is true and the flag isn't explicitly disabled", () => {
+		const spec = { flag: "noImplicitAny", rationale: "covered by strict" };
+		const merged = { strict: true };
+		expect(evaluateFlagFinding(spec, merged, 1)).toBeNull();
+	});
+
+	it("still reports a STRICT_IMPLIES flag missing when strict is not set to true", () => {
+		const spec = { flag: "noImplicitAny", rationale: "covered by strict" };
+		const merged = {};
+		expect(evaluateFlagFinding(spec, merged, 7)?.text).toContain(
+			'`compilerOptions.noImplicitAny` is not enabled',
+		);
 	});
 });

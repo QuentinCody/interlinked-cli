@@ -38,7 +38,7 @@ vi.mock("../lib/secrets.js", () => scrubMock);
 // Imported AFTER the mocks above are registered (vi.mock is hoisted, so the
 // ordering is cosmetic — but it documents intent).
 import { nonNull } from "../lib/non-null.js";
-import { createServerBridge, ServerBridge } from "./server-bridge.js";
+import { createServerBridge, parseLocalBridgeFields, ServerBridge } from "./server-bridge.js";
 import type { SessionTrajectory } from "./types.js";
 
 // ===========================================
@@ -1107,6 +1107,21 @@ describe("createServerBridge", () => {
 			expect(b).toBeInstanceOf(ServerBridge);
 			expect(await observedWorkspaceId(nonNull(b))).toBe("ws-top");
 			b?.shutdown();
+		});
+
+		it("N5: parseLocalBridgeFields treats a JSON scalar (null) as absent instead of crashing on property access", () => {
+			// `config.local.json` can parse to any JSON value, not just an object
+			// (e.g. a stray top-level `null`). isJsonObject(null) is false, so the
+			// guard returns the all-undefined default. If that guard's condition
+			// were inverted, the function would instead try `value.access_token`
+			// on `null` and THROW — this call is made directly (no surrounding
+			// try/catch, unlike the createServerBridge call site), so a thrown
+			// TypeError here fails the test instead of being swallowed.
+			expect(parseLocalBridgeFields(null)).toEqual({
+				authToken: undefined,
+				workspaceId: undefined,
+				activeServerUrl: undefined,
+			});
 		});
 	});
 });

@@ -1,4 +1,11 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,6 +13,7 @@ import {
 	type CoverageObligation,
 	readFileCoverageBaseline,
 	readFileCoverageBaselineEntry,
+	readOpenCoverageObligations,
 	readRuntimeEstimateMs,
 	recordCoverageObligation,
 	updateRuntimeEstimateMs,
@@ -141,6 +149,17 @@ describe("obligation log", () => {
 		const path = join(root, ".interlinked", "coverage-obligations.jsonl");
 		const lines = readFileSync(path, "utf-8").trim().split("\n");
 		expect(lines).toHaveLength(2);
+	});
+
+	it("reads no open obligations when the ledger exists but cannot be read (fail-open)", () => {
+		// A DIRECTORY where the JSONL file belongs: existsSync passes, so the
+		// reader gets past the missing-file guard and readFileSync throws EISDIR.
+		// The catch must swallow it and answer "no obligations" — without it the
+		// call propagates the error and bricks the PreToolUse gate.
+		const path = join(root, ".interlinked", "coverage-obligations.jsonl");
+		mkdirSync(path, { recursive: true });
+		expect(existsSync(path)).toBe(true);
+		expect(readOpenCoverageObligations(root, "sess-1")).toEqual([]);
 	});
 });
 

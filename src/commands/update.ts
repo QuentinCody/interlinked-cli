@@ -75,16 +75,27 @@ function fail(opts: { json?: boolean }, message: string): never {
 	process.exit(1);
 }
 
-type UpdateOpts = { json?: boolean; force?: boolean };
-type ResolvedRoots = { cliRoot: string; repoRoot: string; managedCheckout: boolean };
+export type UpdateOpts = { json?: boolean; force?: boolean };
+export type ResolvedRoots = { cliRoot: string; repoRoot: string; managedCheckout: boolean };
+
+/** Injectable seams for `resolveRoots`, defaulted to the real resolvers so
+ *  production behavior is unchanged; a test can substitute either to drive
+ *  the "cannot resolve CLI install location" guard without touching the
+ *  real filesystem/git. */
+export interface ResolveRootsDeps {
+	resolveCliRoot?: () => string | null;
+	ensureManagedSourceCheckout?: (opts: UpdateOpts) => string;
+}
 
 /** Locate the source checkout to update, bootstrapping a managed clone if needed. */
-function resolveRoots(opts: UpdateOpts): ResolvedRoots {
-	let cliRoot = resolveCliRoot();
+export function resolveRoots(opts: UpdateOpts, deps: ResolveRootsDeps = {}): ResolvedRoots {
+	const resolveCliRootFn = deps.resolveCliRoot ?? resolveCliRoot;
+	const ensureManagedSourceCheckoutFn = deps.ensureManagedSourceCheckout ?? ensureManagedSourceCheckout;
+	let cliRoot = resolveCliRootFn();
 	let repoRoot = cliRoot ? resolveSourceRepoRoot(cliRoot) : null;
 	let managedCheckout = false;
 	if (!repoRoot) {
-		repoRoot = ensureManagedSourceCheckout(opts);
+		repoRoot = ensureManagedSourceCheckoutFn(opts);
 		cliRoot = repoRoot;
 		managedCheckout = true;
 	}

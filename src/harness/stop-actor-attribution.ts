@@ -125,8 +125,14 @@ export function parseSubagentFileWrites(
 	return out;
 }
 
-/** Read the last `bytes` of a file. Returns null when absent or unreadable. */
-function readFileTail(path: string, bytes: number): string | null {
+/**
+ * Read the last `bytes` of a file. Returns null when absent or unreadable.
+ * Exported so the unreadable-path catch branch can be exercised directly —
+ * through {@link loadSubagentAttribution} the same failure is caught a
+ * second time by its own outer try/catch (fail-open there too), which masks
+ * whether THIS function's catch ever ran.
+ */
+export function readFileTail(path: string, bytes: number): string | null {
 	if (!existsSync(path)) return null;
 	let fd: number | null = null;
 	try {

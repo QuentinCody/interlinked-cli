@@ -7,7 +7,10 @@
 // scoped overlay under-selected, so editing the message tripped the
 // uncovered-added-line gate).
 
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getDefaultConfig } from "../rules-loader.js";
 import type { GuardRule, GuardRulesConfig, HarnessEvent, SessionTrajectory } from "../types.js";
 import { evaluateDestructiveRules } from "./pre-tool-rules.js";
@@ -378,5 +381,42 @@ describe("evaluateDestructiveRules — missing tool_name", () => {
 		const event = { ...bashEvent("echo hi"), tool_name: undefined } as unknown as HarnessEvent;
 		const decision = evaluateDestructiveRules(event, getDefaultConfig(), undefined, []);
 		expect(decision).toBeNull();
+	});
+});
+
+describe("evaluateDestructiveRules — builtin-patch-applier (exec-time, gap 5)", () => {
+	let root: string;
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "pre-tool-rules-applier-"));
+	});
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("blocks a Bash command that executes a pre-existing hand-rolled patch-applier script", () => {
+		const script = join(root, "apply.mjs");
+		writeFileSync(script, "import fs from 'node:fs';\nfs.writeFileSync('src/harness/x.ts', body);\n");
+		const event = {
+			...bashEvent(`node ${script}`),
+			cwd: root,
+		} as HarnessEvent;
+		const decision = evaluateDestructiveRules(event, getDefaultConfig(), undefined, []);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.rule_id).toBe("builtin-patch-applier");
+		// The reason must name the actual offending script and write call, not
+		// just a generic "blocked" — that's the observable a reviewer reads.
+		expect(decision?.reason).toContain("apply.mjs");
+		expect(decision?.reason).toContain("writeFileSync");
+	});
+
+	it("does not block executing an ordinary script with no repo-source write", () => {
+		const script = join(root, "check.mjs");
+		writeFileSync(script, "console.log('just checking');\n");
+		const event = {
+			...bashEvent(`node ${script}`),
+			cwd: root,
+		} as HarnessEvent;
+		const decision = evaluateDestructiveRules(event, getDefaultConfig(), undefined, []);
+		expect(decision?.rule_id).not.toBe("builtin-patch-applier");
 	});
 });

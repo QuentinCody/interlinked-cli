@@ -18,13 +18,15 @@
 //     conditions: by the time either guard runs, branch1+branch2 having
 //     both failed already PROVES oracleSet.length > 0, so mutating this
 //     atom to `true` or `>= 0` cannot change behavior.
-//   - the defensive `oracleTopK.length === 0 || predFull.length === 0`
-//     zero-guard right before the recall/precision division: by the time it
-//     runs, branches 1-4 having all failed already proves both operands are
-//     nonzero, so `false`, the `||`→`&&` swap, and forcing either bare atom
-//     to `false` are all no-ops. (Forcing the WHOLE condition or an atom to
-//     `true`, or flipping `===`/`!==`, DOES change behavior and IS killed
-//     below — those aren't reachable-invariant no-ops.)
+//
+// The defensive `oracleTopK.length === 0 || predFull.length === 0` zero-guard
+// that used to sit right before the recall/precision division was DELETED as
+// provably dead (coverage review, 2026-09-05): branches 1-4 are exhaustive
+// over every empty-set permutation of (oracleSet, predFull), so neither
+// denominator can be zero once control reaches the division. The main-path
+// cases below pin the exact score/recall/precision values that division
+// produces, so re-introducing an early `{ score: 0, recall: 0, precision: 0 }`
+// return there would fail them.
 
 import { describe, expect, it } from "vitest";
 import { scoreCount, scoreListSection, scoreRisk } from "../graph-prediction-reconcile-scoring.js";

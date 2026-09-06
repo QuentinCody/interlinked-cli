@@ -759,6 +759,43 @@ describe("the bypass, end to end through the gate", () => {
 		).toBeNull();
 		expect(warned).toEqual([]);
 	});
+
+	// The `deps.warn` seam every case above injects hides the DEFAULT writer,
+	// which is the one that actually runs in production. These two pin it.
+	it("P2: with no injected warn, the default writer puts the whole notice on stderr", () => {
+		writeFileSync(join(dir, ".interlinked", "config.json"), "{}");
+		const written: string[] = [];
+		vi.spyOn(process.stderr, "write").mockImplementation((chunk: unknown): boolean => {
+			written.push(String(chunk));
+			return true;
+		});
+
+		expect(
+			coldDaemonUnreachableBlockReason(bypassEvent("INTERLINKED_ALLOW_NO_DAEMON=1 npm test"), dir, {}),
+		).toBeNull();
+		// Exact text, exactly once: a notice that lost the "UNGUARDED" word, or
+		// went to stdout, or fired twice, is a different (quieter) bypass.
+		expect(written).toEqual([
+			"[interlinked] INTERLINKED_ALLOW_NO_DAEMON=1 honored — this command runs UNGUARDED " +
+				"while the daemon is unreachable. No line-cap, coverage, or pre-block gate saw it. " +
+				"Re-run `interlinked verify` on anything it wrote.\n",
+		]);
+	});
+
+	it("P3: a stderr that throws (closed pipe) still yields the bypass, not a crash", () => {
+		writeFileSync(join(dir, ".interlinked", "config.json"), "{}");
+		const write = vi.spyOn(process.stderr, "write").mockImplementation((): boolean => {
+			throw new Error("EPIPE");
+		});
+
+		// Without the catch, the EPIPE would escape the gate and turn a
+		// honored bypass into a thrown hook — the block/allow verdict is the
+		// observable, and it must still be "allow".
+		expect(
+			coldDaemonUnreachableBlockReason(bypassEvent("INTERLINKED_ALLOW_NO_DAEMON=1 npm test"), dir, {}),
+		).toBeNull();
+		expect(write).toHaveBeenCalledWith(expect.stringContaining("runs UNGUARDED"));
+	});
 });
 
 describe("commandCarriesNoDaemonBypass — positive (must fire)", () => {

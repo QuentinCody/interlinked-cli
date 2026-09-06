@@ -457,6 +457,34 @@ describe("runQualityPhase", () => {
 		expect(preEditBaselines.size).toBe(0);
 	});
 
+	it("passes only the change_set's created paths to the batch as newFilePaths", async () => {
+		const createdFile = "/repo/src/created.ts";
+		const acc = makeAcc({ editedFilePaths: [FILE, createdFile] });
+		const event = ev({
+			change_set: {
+				source: "filesystem-observation",
+				complete: true,
+				before_captured_at: "2026-08-31T00:00:00.000Z",
+				after_captured_at: "2026-08-31T00:00:01.000Z",
+				files: [
+					{ path: FILE, kind: "modified", before_sha256: "a", after_sha256: "b" },
+					{ path: createdFile, kind: "created", before_sha256: null, after_sha256: "c" },
+				],
+			},
+		});
+
+		await call({ acc, event });
+
+		const batchArgs = nonNull(createChangeSetExternalBatch.mock.calls[0])[0] as {
+			paths: string[];
+			newFilePaths: string[];
+		};
+		// Every edited path is batched, but only the `created` effect's path is
+		// reported as new — the map projects the effect down to its path string.
+		expect(batchArgs.paths).toEqual([FILE, createdFile]);
+		expect(batchArgs.newFilePaths).toEqual([createdFile]);
+	});
+
 	it("resolves a relative editedFilePath against CWD for the baseline key", async () => {
 		const baseline = { suppressionCount: 9 };
 		const preEditBaselines = new Map([[FILE, baseline]]);

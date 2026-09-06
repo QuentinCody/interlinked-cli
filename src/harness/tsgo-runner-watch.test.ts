@@ -1,3 +1,5 @@
+import type { ChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
 	chmodSync,
 	existsSync,
@@ -9,7 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tryAcquireProjectCompilerLease } from "./project-compiler-gate.js";
 import {
 	DEFAULT_WATCH_IDLE_MS,
@@ -61,6 +63,25 @@ function makeWatchWithScript(idleMs: number, scriptPath: string): WatchProcess {
 	const wp = new WatchProcess(scriptPath, tmp, idleMs);
 	spawned.push(wp);
 	return wp;
+}
+
+/** A synthetic child satisfying the EventEmitter + pid/exitCode/kill shape
+ * `signalCompilerTree`/`terminateCompilerProcess` need, with NO real OS
+ * process behind it. Deliberately never emits `exit`/`close`, so a
+ * WatchProcess wired to one via this file's `child` cast never actually
+ * settles its stop promise — callers must assert synchronously and must
+ * NOT register the WatchProcess in `spawned` (the shared afterEach awaits
+ * every spawned instance's kill() and would hang forever on one). */
+function fakeChild(
+	kill: () => boolean,
+	pid: number | undefined,
+	exitCode: number | null = null,
+): ChildProcess {
+	const emitter = new EventEmitter();
+	// SAFETY: only the properties terminateCompilerProcess/signalCompilerTree
+	// read (pid, exitCode, signalCode, kill, plus EventEmitter's own once) are
+	// exercised by the code under test; the rest of ChildProcess is unused.
+	return Object.assign(emitter, { pid, exitCode, signalCode: null, kill }) as unknown as ChildProcess;
 }
 
 const ONE_PASS_THEN_SLEEP = [
@@ -367,6 +388,59 @@ describe("WatchProcess — diagnosticsForFile: fresh-file wait", () => {
 	}, 10000);
 });
 
+describe("WatchProcess — waitForNextPass: the poll's own rare-race branches", () => {
+	// `waitForNextPass`'s setInterval poll exists (per its own comment) to
+	// cover the race where the outcome changes between reading
+	// `lastPassCompletedAt` and registering the waiter callback — so the
+	// waiter callback resolves first in every ordinary run. These two tests
+	// drive the private method directly and flip state WITHOUT going through
+	// `flushWaiters()` (i.e. never via markCrashed()/stop()), so the waiter
+	// callback can never fire and only the poll tick can resolve the promise.
+	function pollHarness(startingPassAt: number) {
+		const wp = new WatchProcess("/bin/sh", tmp, 0);
+		// SAFETY: `_state`/`child`/`lastPassCompletedAt` are read directly by
+		// `isUsable()`/`waitForNextPass` with no EventEmitter behavior needed —
+		// this reaches the poll tick without spawning a real child or waiting
+		// on `flushWaiters()`, which real state transitions always trigger.
+		const internal = wp as unknown as {
+			_state: string;
+			child: unknown;
+			lastPassCompletedAt: number;
+			waitForNextPass: (budgetMs: number) => Promise<boolean>;
+		};
+		internal._state = "running";
+		internal.child = {};
+		internal.lastPassCompletedAt = startingPassAt;
+		return internal;
+	}
+
+	it("resolves false from the poll when usability drops without a flush", async () => {
+		const internal = pollHarness(1000);
+		const started = Date.now();
+		const waiting = internal.waitForNextPass(2000);
+		// Flip state directly — bypasses flushWaiters, so only the poll's own
+		// 15ms-interval check (not the waiter callback) can observe this.
+		internal._state = "crashed";
+		const result = await waiting;
+		expect(result).toBe(false);
+		// Well under the 2000ms budget: proves the poll resolved this, not the
+		// timeout racing to the same value.
+		expect(Date.now() - started).toBeLessThan(1000);
+	});
+
+	it("resolves true from the poll when a pass lands without a flush", async () => {
+		const internal = pollHarness(1000);
+		const started = Date.now();
+		const waiting = internal.waitForNextPass(2000);
+		// Bump the counter directly — bypasses flushWaiters, so only the poll
+		// can observe the new pass landed.
+		internal.lastPassCompletedAt = 1001;
+		const result = await waiting;
+		expect(result).toBe(true);
+		expect(Date.now() - started).toBeLessThan(1000);
+	});
+});
+
 describe("WatchProcess — touchIdle()", () => {
 	it("is a no-op when the process is not running", () => {
 		const wp = makeWatch(DEFAULT_WATCH_IDLE_MS);
@@ -467,6 +541,36 @@ describe("WatchProcess — kill()", () => {
 		}
 		expect(() => wp.kill()).not.toThrow();
 		expect(wp.isUsable()).toBe(false);
+	});
+
+	it("retries via child.kill() when the child has no pid, and swallows a second throw from that retry", async () => {
+		// A real spawned child always has a pid, so this exercises the two
+		// branches only a pid-less (or already-reaped) child can reach:
+		// `signalCompilerTree`'s `else child.kill(signal)` fallback (no
+		// `process.kill(-pid, …)` attempted at all), and its nested catch when
+		// that retry ALSO throws (e.g. the child was reaped a second time
+		// between the liveness check and the signal).
+		const kill = vi.fn(() => {
+			throw new Error("kill failed");
+		});
+		const wp = new WatchProcess("/bin/sh", tmp, 0);
+		// SAFETY: only `child` is read by stop()/terminateCompilerProcess; wiring
+		// in a synthetic child (see `fakeChild`) avoids spawning a real process
+		// for a scenario (no pid) a real child can never produce.
+		// exitCode: 0 marks the child as already exited so terminateCompilerProcess
+		// settles right after signalCompilerTree returns, with no pid for
+		// compilerGroupIsAlive to observe either — the settled promise's
+		// resolve-vs-reject outcome then turns ONLY on whether the nested catch
+		// below swallows the retry's throw: a rethrow would make the Promise
+		// executor throw synchronously, which rejects the returned promise
+		// instead of resolving it.
+		(wp as unknown as { child: ChildProcess | null }).child = fakeChild(kill, undefined, 0);
+		const killed = wp.kill();
+		// Called once directly (pid undefined → the `else` branch) and once
+		// more from the retry inside the outer catch — proves both the
+		// fallback call AND its own swallowed failure both ran.
+		expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGTERM"]]);
+		await expect(killed).resolves.toBeUndefined();
 	});
 
 	it("holds its compiler registration until a SIGTERM-resistant child is reaped", async () => {

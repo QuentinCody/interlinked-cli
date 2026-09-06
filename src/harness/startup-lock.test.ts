@@ -1,8 +1,27 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, type Socket } from "node:net";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Hoisted: spies on openSync/statSync/writeFileSync only (call-through to the
+// real implementation by default) while every other fs export stays
+// untouched. Plain `vi.spyOn(fs, ...)` throws "Module namespace is not
+// configurable in ESM" for node:fs — see src/lib/file-mutation-lock.test.ts
+// for the prior art. Used only to force the rare fs-failure branches
+// (read-only mount races, a losing second steal attempt) that real races
+// cannot reliably reproduce; every other case in this file drives genuine
+// fs state.
+vi.mock("node:fs", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:fs")>();
+	return {
+		...actual,
+		openSync: vi.fn(actual.openSync),
+		statSync: vi.fn(actual.statSync),
+		writeFileSync: vi.fn(actual.writeFileSync),
+	};
+});
+
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import {
 	acquireStartupLock,
 	isStartupLockStale,
@@ -119,6 +138,59 @@ describe("acquireStartupLock — negative (must not fire)", () => {
 	});
 });
 
+describe("acquireStartupLock — fs failure branches (forced via mocked node:fs)", () => {
+	afterEach(() => {
+		vi.mocked(openSync).mockRestore();
+		vi.mocked(statSync).mockRestore();
+	});
+
+	it("N7: a non-EEXIST open failure (read-only mount) is treated as a degraded acquire, not a real lock file", () => {
+		vi.mocked(openSync).mockImplementationOnce(() => {
+			// SAFETY: constructing a synthetic fs error for the test fixture;
+			// `writeLockFile` only reads `.code`, which we set explicitly below.
+			const err = new Error("EACCES: permission denied, open") as NodeJS.ErrnoException;
+			err.code = "EACCES";
+			throw err;
+		});
+		const lock = acquireStartupLock(root);
+		expect(lock.acquired).toBe(true);
+		// The open never actually succeeded, so no lock file exists on disk —
+		// this is a no-mutex degraded start, distinct from a real acquire.
+		expect(readStartupLockHolder(root)).toBeNull();
+	});
+
+	it("N8: a stat failure while checking the initialization grace treats malformed metadata as stealable stale state", () => {
+		writeFileSync(startupLockPath(root), "not json");
+		vi.mocked(statSync).mockImplementationOnce(() => {
+			throw new Error("ENOENT: no such file or directory, stat");
+		});
+		const lock = acquireStartupLock(root);
+		expect(lock.acquired).toBe(true);
+		expect(readStartupLockHolder(root)?.pid).toBe(process.pid);
+	});
+
+	it("N9: losing the steal attempt AGAIN reports the freshly re-read holder, not the stale one it started from", () => {
+		// Seed a lock held by a dead pid so the first attempt is judged stale
+		// and a steal is attempted; force every open to fail with EEXIST so
+		// the retry-after-unlink also loses, exercising the final fallback.
+		writeFileSync(startupLockPath(root), JSON.stringify({ pid: 999_999_998, at: Date.now() }));
+		vi.mocked(openSync).mockImplementation(() => {
+			// SAFETY: constructing a synthetic fs error for the test fixture;
+			// `writeLockFile` only reads `.code`, which we set explicitly below.
+			const err = new Error("EEXIST: file already exists, open") as NodeJS.ErrnoException;
+			err.code = "EEXIST";
+			throw err;
+		});
+		const result = acquireStartupLock(root);
+		expect(result.acquired).toBe(false);
+		if (result.acquired) throw new Error("unreachable");
+		// The unlink between attempts really removed the file (mocked open
+		// never wrote anything back), so the freshly re-read holder is null —
+		// not the stale `{pid: 999999998}` snapshot the first read produced.
+		expect(result.holder).toBeNull();
+	});
+});
+
 describe("touchStartupLock — positive (must refresh a held lock)", () => {
 	it("P1: refreshing an old-but-alive lock's own pid stops it reading stale", () => {
 		const lock = acquireStartupLock(root);
@@ -176,6 +248,17 @@ describe("transferStartupLock — hook-to-daemon ownership handoff", () => {
 		foreignLock(Date.now(), process.pid + 1);
 		expect(transferStartupLock(root, { childPid: 424_242 })).toBe(false);
 		expect(readStartupLockHolder(root)?.pid).toBe(process.pid + 1);
+	});
+
+	it("N1b: a temp-file write failure (replaceStartupLockHolder) leaves the original holder untouched", () => {
+		const lock = acquireStartupLock(root);
+		if (!lock.acquired) throw new Error("expected acquire");
+		vi.mocked(writeFileSync).mockImplementationOnce(() => {
+			throw new Error("ENOSPC: no space left on device");
+		});
+		expect(transferStartupLock(root, { childPid: 424_242, nowMs: 99_999 })).toBe(false);
+		expect(readStartupLockHolder(root)?.pid).toBe(process.pid);
+		vi.mocked(writeFileSync).mockRestore();
 	});
 
 	it("P2: the launching parent can heartbeat the transferred child lease", () => {
@@ -237,6 +320,29 @@ describe("waitForDaemonSocket — loser waits instead of binding", () => {
 			sleep: () => Promise.resolve(),
 		});
 		expect(ok).toBe(false);
+	});
+
+	it("N2b: with no sleep override, the default closure paces the poll loop to a handful of ticks", async () => {
+		// No `sleep` override — this is the only case in the file that reaches
+		// the module's own default `sleep` closure instead of a test-supplied
+		// stub. `listSockets` is overridden only to COUNT polls, not to skip
+		// the default sleep: the loop's own `Date.now() >= deadline` check
+		// bounds wall-clock elapsed time regardless of what `sleep` does, so
+		// timing the call cannot tell a real ~10ms delay apart from an
+		// instantly-resolving one — only the number of polls can. A real
+		// default sleep yields a handful of ticks in 30ms; an instant-resolve
+		// mutant spins thousands of times before the deadline check fires.
+		let ticks = 0;
+		const ok = await waitForDaemonSocket(root, {
+			timeout_ms: 30,
+			poll_ms: 10,
+			listSockets: () => {
+				ticks += 1;
+				return [];
+			},
+		});
+		expect(ok).toBe(false);
+		expect(ticks).toBeLessThanOrEqual(6);
 	});
 
 	it("N3: a silent accepting listener is not a ready startup winner", async () => {

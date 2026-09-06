@@ -89,12 +89,21 @@ const UNREGISTERED_CHECK_META: Record<string, CheckMeta> = {
 	},
 };
 
-function composeGenericCheckMeta(): Record<string, CheckMeta> {
+/**
+ * Exported (with defaults that reproduce the module's own real derivation)
+ * so the companion test can drive the orphan-annotation guard directly: the
+ * real `ANNOTATION_OVERLAY` never names an unknown id, so the throw below
+ * is otherwise unreachable through `GENERIC_CHECK_META` alone.
+ */
+export function composeGenericCheckMeta(
+	overlay: Record<string, { asi?: OwaspAsi; externality?: ToolExternality }> = ANNOTATION_OVERLAY,
+	unregistered: Record<string, CheckMeta> = UNREGISTERED_CHECK_META,
+): Record<string, CheckMeta> {
 	const meta: Record<string, CheckMeta> = {
 		...buildGenericCheckMeta(),
-		...UNREGISTERED_CHECK_META,
+		...unregistered,
 	};
-	for (const [id, annotations] of Object.entries(ANNOTATION_OVERLAY)) {
+	for (const [id, annotations] of Object.entries(overlay)) {
 		const base = meta[id];
 		if (!base) {
 			throw new Error(

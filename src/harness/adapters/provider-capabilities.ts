@@ -29,7 +29,7 @@ function event(
 	};
 }
 
-function defineCapabilities(input: RunnerCapabilities): RunnerCapabilities {
+export function defineCapabilities(input: RunnerCapabilities): RunnerCapabilities {
 	const seen = new Set<string>();
 	for (const item of input.events) {
 		if (seen.has(item.name)) {

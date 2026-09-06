@@ -4,7 +4,15 @@
 // overwritten every event and deleted at SessionEnd), content-addressed so
 // unchanged-state steps dedup to one blob, absent baselines recorded as null.
 
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	appendFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -76,6 +84,29 @@ describe("recordStateSnapshot / loadStateSnapshot", () => {
 		record(dir, 1, {});
 		expect(loadStateSnapshot(dir, "sess-state", 99)).toBeNull();
 		expect(loadStateSnapshot(dir, "other", 1)).toBeNull();
+	});
+
+	it("skips a torn pointer line and still resolves the intact rows around it", () => {
+		const dir = fixture();
+		record(dir, 5, { n: 5 });
+		// A partial append (crash mid-write) leaves a truncated JSON line: the
+		// reader's contract is to skip it, not to fail the whole restore.
+		appendFileSync(
+			join(dir, ".interlinked", "replay", "state", "sess-state.jsonl"),
+			'{"seq":6,"sha":"dea',
+		);
+		expect(loadStateSnapshot(dir, "sess-state", 5)?.live_snapshot).toEqual({ n: 5 });
+		expect(loadStateSnapshot(dir, "sess-state", 6)).toBeNull();
+	});
+
+	it("treats a corrupt blob as absent rather than throwing on a restore probe", () => {
+		const dir = fixture();
+		record(dir, 7, { n: 7 });
+		const blobsDir = join(dir, ".interlinked", "replay", "state", "blobs");
+		const blobPath = join(blobsDir, readdirSync(blobsDir)[0] ?? "missing");
+		writeFileSync(blobPath, "plain text, not a gzip member");
+		expect(existsSync(blobPath)).toBe(true); // past the missing-blob guard
+		expect(loadStateSnapshot(dir, "sess-state", 7)).toBeNull();
 	});
 
 	it("fails open when the archive dir is unwritable (logs, no throw)", () => {

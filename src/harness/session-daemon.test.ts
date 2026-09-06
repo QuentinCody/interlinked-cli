@@ -522,6 +522,49 @@ describe("startSessionDaemon", () => {
 		}
 	});
 
+	it("(b3) a successor that records itself mid-reap wins: takeover aborts with an ownership conflict", async () => {
+		const paths = makePaths("owned-successor");
+		const INCUMBENT_PID = 4242;
+		const SUCCESSOR_PID = 4243;
+		writeFileSync(paths.pid, String(INCUMBENT_PID));
+		writeFileSync(paths.socket, "incumbent-placeholder");
+		const sp = await import("./session-paths.js");
+		vi.mocked(sp.classifyDaemonSocket)
+			.mockResolvedValueOnce("occupied_unready")
+			.mockResolvedValueOnce("occupied_unready");
+		let incumbentAlive = true;
+		const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
+			if (pid === INCUMBENT_PID && signal === "SIGTERM") {
+				incumbentAlive = false;
+				// A second daemon claims the record while our reap is still in flight.
+				writeFileSync(paths.pid, String(SUCCESSOR_PID));
+				return true;
+			}
+			if (pid === INCUMBENT_PID && !incumbentAlive) {
+				const error = new Error("gone") as NodeJS.ErrnoException;
+				error.code = "ESRCH";
+				throw error;
+			}
+			return true;
+		});
+
+		try {
+			await expect(
+				startSessionDaemon({
+					paths,
+					session_id: "owned-successor",
+					state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
+				}),
+			).rejects.toThrow(`session daemon already running for owned-successor (PID ${SUCCESSOR_PID})`);
+			// The successor's metadata survives: neither its pid record nor the
+			// socket it is about to bind over was stomped by the loser.
+			expect(readFileSync(paths.pid, "utf-8")).toBe(String(SUCCESSOR_PID));
+			expect(readFileSync(paths.socket, "utf-8")).toBe("incumbent-placeholder");
+		} finally {
+			killSpy.mockRestore();
+		}
+	});
+
 	it("(c) a dead pid takes over without probing the socket", async () => {
 		const paths = makePaths("owned-dead");
 		writeFileSync(paths.pid, "2147480000"); // effectively never live on a test host
@@ -679,6 +722,73 @@ describe("startSessionDaemon", () => {
 			claimed: false,
 			ownerPid: process.pid,
 		});
+	});
+
+	/** A claim-lock record naming a dead pid: the bytes a rival claimant leaves
+	 *  behind when it displaces our fence mid-claim. Stale, so the next
+	 *  `acquireClaimLock` recovers it rather than deadlocking on it. */
+	const DISPLACED_RIVAL_CLAIM = `${JSON.stringify({
+		pid: 2147480000,
+		token: "rival-fence",
+		created_at_ms: 0,
+		boot_id: null,
+		process_start_id: null,
+	})}\n`;
+
+	it("claimSessionPid: gives up when a LIVE claim lock never clears, without touching the pid file", () => {
+		const pidPath = join(tmp, "held-lock.pid");
+		const identity = readFileMutationProcessIdentity(process.pid, Date.now());
+		writeFileSync(
+			`${pidPath}.claim`,
+			`${JSON.stringify({
+				pid: process.pid,
+				token: "held-by-a-live-claimant",
+				created_at_ms: Date.now(),
+				boot_id: identity.bootId,
+				process_start_id: identity.processStartId,
+			})}\n`,
+		);
+
+		expect(() => claimSessionPid(pidPath, process.pid)).toThrow(
+			`Could not acquire session pid claim lock: ${pidPath}.claim`,
+		);
+		expect(existsSync(pidPath)).toBe(false);
+	});
+
+	it("claimSessionPid: a claimant whose fence was displaced retries and wins on the next pass", () => {
+		const pidPath = join(tmp, "displaced-fence.pid");
+		writeFileSync(pidPath, String(process.pid));
+		const claimingPid = process.pid + 1;
+		let ownerChecks = 0;
+
+		const claim = claimSessionPid(pidPath, claimingPid, {
+			ownerIsValid: () => {
+				ownerChecks++;
+				// Only the first pass is displaced: a rival overwrites the fence
+				// we are holding while we are inside the locked section.
+				if (ownerChecks === 1) writeFileSync(`${pidPath}.claim`, DISPLACED_RIVAL_CLAIM);
+				return false;
+			},
+		});
+
+		expect(claim).toEqual({ claimed: true });
+		expect(readFileSync(pidPath, "utf-8")).toBe(String(claimingPid));
+		expect(ownerChecks).toBe(2);
+	});
+
+	it("claimSessionPid: a fence displaced on every pass gives up instead of reporting a second win", () => {
+		const pidPath = join(tmp, "always-displaced.pid");
+		writeFileSync(pidPath, String(process.pid));
+
+		expect(() =>
+			claimSessionPid(pidPath, process.pid + 1, {
+				ownerIsValid: () => {
+					writeFileSync(`${pidPath}.claim`, DISPLACED_RIVAL_CLAIM);
+					return false;
+				},
+			}),
+		).toThrow(`Could not claim session pid file with a stable lock: ${pidPath}`);
+		expect(readFileSync(pidPath, "utf-8")).toBe(String(process.pid));
 	});
 
 	it("stop() removes the pid and socket files", async () => {

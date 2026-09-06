@@ -535,6 +535,26 @@ describe("CheckEngine.runChecks", () => {
 		expect(discoverSingleToolSpy).toHaveBeenCalledWith("tsc", ROOT);
 	});
 
+	it("filters the already-populated full tools cache when options.tools is given", () => {
+		discoverToolsImpl = () => [avail("tsc", true), avail("biome", true)];
+		const eng = new CheckEngine(ROOT);
+		eng.discoverTools(); // populates the full cache up front
+		const rep = eng.runChecks({ projectRoot: ROOT, mode: "file" }, { tools: ["tsc"] });
+		expect(rep.toolsRun.map((t) => t.id)).toEqual(["tsc"]);
+		expect(discoverSingleToolSpy).not.toHaveBeenCalled();
+	});
+
+	it("reuses the per-tool cache across repeated options.tools requests (no re-discovery)", () => {
+		discoverSingleToolImpl = (id) => avail(id, true);
+		const eng = new CheckEngine(ROOT);
+		eng.runChecks({ projectRoot: ROOT, mode: "file" }, { tools: ["tsc"] });
+		discoverSingleToolSpy.mockClear();
+
+		const rep2 = eng.runChecks({ projectRoot: ROOT, mode: "file" }, { tools: ["tsc"] });
+		expect(rep2.toolsRun.map((t) => t.id)).toEqual(["tsc"]);
+		expect(discoverSingleToolSpy).not.toHaveBeenCalled();
+	});
+
 	it("respects options.skipTools", () => {
 		discoverToolsImpl = () => [avail("tsc", true), avail("biome", true)];
 		const eng = new CheckEngine(ROOT);

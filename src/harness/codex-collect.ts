@@ -184,3 +184,8 @@ export function collectCodexSessions(opts: {
 		sessions: sessions.size,
 	};
 }
+
+// Exported for direct unit coverage of the bounded-batch guard: reaching it
+// through collectCodexSessions would require manufacturing a batch at the
+// real MAX_CODEX_COLLECTION_BYTES / MAX_EXISTING_TIMELINE_KEYS scale.
+export const __test_only__ = { addCandidateRecords };

@@ -12,7 +12,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { TestEvent } from "../lib/viz/test-events.js";
+import { seedRecentTestEvents, type TestEvent, testEventsPath } from "../lib/viz/test-events.js";
 import {
 	checkSlowTests,
 	detectSlowTests,
@@ -95,6 +95,20 @@ describe("detectSlowTests — positive (must fire)", () => {
 		expect(hits[0]?.ms).toBe(1_200);
 	});
 
+	it("returns the hits slowest-first", () => {
+		const events: TestEvent[] = [
+			testEvent({ file: "h.test.ts", name: "middle", ms: 3_000, atMs: 1_000 }),
+			testEvent({ file: "h.test.ts", name: "slowest", ms: 9_000, atMs: 2_000 }),
+			testEvent({ file: "h.test.ts", name: "least slow", ms: 1_500, atMs: 3_000 }),
+		];
+		const hits = detectSlowTests({
+			cwd: CWD,
+			sessionStartedAt: SESSION_START,
+			readEvents: () => events,
+		});
+		expect(hits.map((h) => h.name)).toEqual(["slowest", "middle", "least slow"]);
+	});
+
 	it("fires on an integration test over ITS higher 10s absolute floor", () => {
 		const events: TestEvent[] = [
 			testEvent({ file: "e.integration.test.ts", name: "very slow e2e", ms: 12_000, atMs: 1_000 }),
@@ -171,6 +185,21 @@ describe("detectSlowTests — negative (must not fire)", () => {
 		expect(
 			detectSlowTests({ cwd: CWD, sessionStartedAt: "not-a-date", readEvents: () => events }),
 		).toEqual([]);
+	});
+
+	it("stays silent when the real feed exists but cannot be read", () => {
+		const dir = mkdtempSync(join(tmpdir(), "interlinked-slow-test-unreadable-"));
+		try {
+			// A directory where the feed file belongs: existsSync passes, so the
+			// detector reaches the tail read, which then fails.
+			mkdirSync(testEventsPath(dir), { recursive: true });
+			expect(() => seedRecentTestEvents(testEventsPath(dir), 10)).toThrow(/EISDIR/);
+			expect(
+				detectSlowTests({ cwd: dir, sessionStartedAt: SESSION_START }),
+			).toEqual([]);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	it("does not read the real feed by default when the cwd has no test-events.jsonl", () => {
