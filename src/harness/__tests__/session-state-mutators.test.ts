@@ -160,6 +160,53 @@ describe("trackToolCall", () => {
 		expect(session.tool_sequence[19]).toBe("Read:f24.ts");
 	});
 
+	// Per-actor step counting (the taint step budget's denominator). A spawned
+	// agent's calls arrive under the parent's session id with its own
+	// `subagent_id` / `agent_name`; the session total keeps counting everything.
+	it("P1: keys actor_tool_calls by subagent_id, falling back to agent_name, and keeps the total", () => {
+		const session = freshSession();
+		trackToolCall(session, baseEvent({ tool_name: "Read", tool_input: {}, agent_name: "claude" }));
+		const sub = { tool_name: "Read", tool_input: {}, agent_name: "a1b2", subagent_id: "a1b2" };
+		trackToolCall(session, baseEvent(sub));
+		trackToolCall(session, baseEvent(sub));
+		trackToolCall(session, baseEvent({ tool_name: "Read", tool_input: {}, subagent_id: "sub-only" }));
+
+		expect(session.tool_call_count).toBe(4);
+		expect(session.actor_tool_calls?.get("claude")).toBe(1);
+		expect(session.actor_tool_calls?.get("a1b2")).toBe(2);
+		expect(session.actor_tool_calls?.get("sub-only")).toBe(1);
+	});
+
+	it("P2: an event with no actor marker counts under the session id, not the drifting agent_name", () => {
+		const session = freshSession();
+		// The daemon pins `agent_name` to the first NAMED event it sees — in a
+		// subagent-heavy session that was a worker's id — so it is not a stable
+		// key for the parent's own calls.
+		session.agent_name = "a34b8f507bbc3ef18";
+		trackToolCall(session, baseEvent({ tool_name: "Read", tool_input: {} }));
+		expect(session.actor_tool_calls?.get("mut-session")).toBe(1);
+		expect(session.actor_tool_calls?.has("a34b8f507bbc3ef18")).toBe(false);
+	});
+
+	it("P3: lazily allocates the actor map on a session hydrated without one", () => {
+		// Deleting inside a helper keeps the caller's type un-narrowed, so the
+		// post-call read below is checked against the real (optional) field.
+		const withoutActorMap = (s: SessionTrajectory): SessionTrajectory => {
+			delete s.actor_tool_calls;
+			return s;
+		};
+		const session = withoutActorMap(freshSession());
+		trackToolCall(session, baseEvent({ tool_name: "Read", tool_input: {}, agent_name: "claude" }));
+		expect(session.actor_tool_calls?.get("claude")).toBe(1);
+	});
+
+	it("N1: an event without a tool_name touches neither counter", () => {
+		const session = freshSession();
+		trackToolCall(session, baseEvent({ tool_name: undefined, agent_name: "claude" }));
+		expect(session.tool_call_count).toBe(0);
+		expect(session.actor_tool_calls?.size ?? 0).toBe(0);
+	});
+
 	it("lazily allocates verification_observed on the first browser-MCP call, then reuses it", () => {
 		const session = freshSession();
 		delete session.verification_observed;

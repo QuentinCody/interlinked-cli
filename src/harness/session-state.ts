@@ -41,6 +41,7 @@ import {
 	readActiveSkills,
 	readAssertionCountsMap,
 	readBoolean,
+	readBudgetFields,
 	readCapturedPlan,
 	readConsecutivePattern,
 	readFailedFiles,
@@ -304,13 +305,6 @@ export class SessionTracker {
 		const sessionId = readString(snapshot.session_id);
 		if (!sessionId) return null;
 
-		const stepLimit =
-			snapshot.step_limit === null || snapshot.step_limit === undefined
-				? Number.POSITIVE_INFINITY
-				: typeof snapshot.step_limit === "number" && Number.isFinite(snapshot.step_limit)
-					? snapshot.step_limit
-					: Number.POSITIVE_INFINITY;
-
 		const session: SessionTrajectory = {
 			session_id: sessionId,
 			agent_name: readString(snapshot.agent_name) ?? `session-${sessionId.slice(0, 8)}`,
@@ -320,7 +314,7 @@ export class SessionTracker {
 			mcp_tools_used: readNumber(snapshot.mcp_tools_used, 0),
 			local_tools_used: readNumber(snapshot.local_tools_used, 0),
 			sensitivity_level: readSensitivity(snapshot.sensitivity_level),
-			step_limit: stepLimit,
+			...readBudgetFields(snapshot),
 			consecutive_pattern: readConsecutivePattern(snapshot.consecutive_pattern),
 			last_coordination_at: readNumber(snapshot.last_coordination_at, 0),
 			last_coordination_ts: readNumber(snapshot.last_coordination_ts, Date.now()),
@@ -412,6 +406,7 @@ function serializeSessionExtrasFileState(s: SessionTrajectory): JsonObject {
 		),
 		tdd_cycles: Object.fromEntries([...s.tdd_cycles.entries()].map(([k, v]) => [k, { ...v }])),
 		consecutive_tool_failures: Object.fromEntries(s.consecutive_tool_failures),
+		actor_tool_calls: Object.fromEntries(s.actor_tool_calls ?? []),
 		non_doc_files_edited_since_commit: s.non_doc_files_edited_since_commit
 			? [...s.non_doc_files_edited_since_commit]
 			: [],

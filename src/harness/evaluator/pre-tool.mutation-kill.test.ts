@@ -197,11 +197,19 @@ describe("evaluatePreToolUse orchestrator — additional mutation contracts", ()
 		expect(evaluateSequenceAndLockdown).not.toHaveBeenCalled();
 	});
 
-	// test-contract: invariant — the ctx holder threaded through downstream phases must carry its three named keys as own-enumerable properties.
+	// test-contract: invariant — the ctx holder threaded through downstream phases must carry its three named keys as own-enumerable properties, plus the budgeted `actor` whenever a live session exists (`newPreToolCtx`).
 	it("initializes ctx with escalation/contentScan/graphPredAdditionalContext as own keys", () => {
 		evaluatePreToolUse(event(), rules(), session(), reservations, cohort);
 		const ctxArg = vi.mocked(evaluateExfilPhase).mock.calls[0]?.[6];
 		// SAFETY: the mock captures whatever object the SUT passed as the 7th arg; we only inspect its own keys.
+		expect(Object.keys(ctxArg as object).sort()).toEqual(["actor", "contentScan", "escalation", "graphPredAdditionalContext"]);
+	});
+
+	// test-contract: invariant — with no live session there is no actor to budget, so the ctx carries only its three cross-phase locals.
+	it("omits the actor key from ctx when no session is passed", () => {
+		evaluatePreToolUse(event(), rules(), undefined, reservations, cohort);
+		const ctxArg = vi.mocked(evaluateExfilPhase).mock.calls[0]?.[6];
+		// SAFETY: same capture as above; only the own keys are inspected.
 		expect(Object.keys(ctxArg as object).sort()).toEqual(["contentScan", "escalation", "graphPredAdditionalContext"]);
 	});
 

@@ -67,6 +67,11 @@ export interface SessionTrajectory {
 	taint_sources: TaintSource[];
 	/** Maximum allowed tool calls at current sensitivity level */
 	step_limit: number;
+	/** Tool calls per ACTOR (parent agent name, or a spawned agent's id). A
+	 *  subagent's calls arrive under the parent's session id, so
+	 *  `tool_call_count` sums every actor; `step_limit` binds ONE actor's own
+	 *  count (`taint-tracker.ts::actorStepCount`). Absent on pre-fix snapshots. */
+	actor_tool_calls?: Map<string, number>;
 	/** Consecutive similar tool patterns for permission suggestion (pattern → count) */
 	consecutive_pattern: { pattern: string; count: number } | null;
 	/** Permission patterns already suggested this session (avoid duplicates) */

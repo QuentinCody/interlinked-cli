@@ -103,6 +103,37 @@ describe("SessionTracker round-trip", () => {
 		expect(restored?.step_limit).toBe(Number.POSITIVE_INFINITY);
 	});
 
+	it("preserves actor_tool_calls (per-actor step counts) so a daemon restart does not reset a budget", () => {
+		const writer = new SessionTracker();
+		writer.recordEvent(baseEvent({ tool_name: "Read", tool_input: { file_path: "a.ts" } }));
+		writer.recordEvent(
+			baseEvent({
+				tool_name: "Read",
+				tool_input: { file_path: "b.ts" },
+				agent_name: "sub-9",
+				subagent_id: "sub-9",
+			}),
+		);
+		const snap = writer.serialize("rtt-session");
+		const restored = new SessionTracker().hydrate(snap as Record<string, unknown>);
+		expect(restored?.tool_call_count).toBe(2);
+		expect(restored?.actor_tool_calls).toEqual(
+			new Map([
+				["alice", 1],
+				["sub-9", 1],
+			]),
+		);
+	});
+
+	it("hydrates a pre-fix snapshot with no actor_tool_calls as absent (total-count fallback), not empty", () => {
+		const writer = new SessionTracker();
+		writer.recordEvent(baseEvent({}));
+		const snap = writer.serialize("rtt-session") as Record<string, unknown>;
+		delete snap.actor_tool_calls;
+		const restored = new SessionTracker().hydrate(snap);
+		expect(restored?.actor_tool_calls).toBeUndefined();
+	});
+
 	it("preserves a finite step_limit unchanged", () => {
 		const writer = new SessionTracker();
 		writer.recordEvent(baseEvent({}));

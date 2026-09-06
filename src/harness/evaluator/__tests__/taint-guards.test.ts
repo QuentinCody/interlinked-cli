@@ -621,3 +621,101 @@ describe("checkProvenanceTaintToExternalAction", () => {
 		expect(result?.decision).toBe("ask");
 	});
 });
+
+// Subagent tool calls carry the parent's session id, so the session total
+// counts every spawned agent. The step budget binds the calling ACTOR: the
+// orchestrator of a 50-agent campaign must not be pushed into read-only mode
+// by its workers' steps, and a worker over its own budget is still stopped.
+describe("evaluateTaintGuards — per-actor step budget", () => {
+	function inflatedSession(): SessionTrajectory {
+		return makeSession({
+			step_limit: 5,
+			tool_call_count: 500,
+			actor_tool_calls: new Map([
+				["parent", 2],
+				["sub-1", 498],
+			]),
+		});
+	}
+
+	it("P1: does not block the parent's Write when subagent calls pushed the session total over the limit", () => {
+		const result = evaluateTaintGuards({
+			toolName: "Write",
+			toolInput: { file_path: "foo.ts", content: "x" },
+			rules: makeRules(),
+			session: inflatedSession(),
+			actor: "parent",
+			pendingEscalation: undefined,
+		});
+		expect(result.kind).toBe("ok");
+		if (result.kind === "ok") {
+			expect(result.warnings).toEqual([]);
+			expect(result.escalation).toBeUndefined();
+		}
+	});
+
+	it("P2: blocks the subagent whose own count is over the limit", () => {
+		const result = evaluateTaintGuards({
+			toolName: "Write",
+			toolInput: { file_path: "foo.ts", content: "x" },
+			rules: makeRules(),
+			session: inflatedSession(),
+			actor: "sub-1",
+			pendingEscalation: undefined,
+		});
+		expect(result.kind).toBe("block");
+		if (result.kind === "block") {
+			expect(result.decision.reason).toContain("Step limit (5) exceeded");
+		}
+	});
+
+	it("P3: the high_step_budget escalation reads the actor's count, not the total", () => {
+		const session = makeSession({
+			step_limit: 100,
+			tool_call_count: 1000,
+			actor_tool_calls: new Map([
+				["parent", 10],
+				["sub-1", 990],
+			]),
+		});
+		const parent = evaluateTaintGuards({
+			toolName: "Write",
+			toolInput: { file_path: "foo.ts", content: "x" },
+			rules: makeRules(),
+			session,
+			actor: "parent",
+			pendingEscalation: undefined,
+		});
+		expect(parent.kind).toBe("ok");
+		if (parent.kind === "ok") expect(parent.escalation).toBeUndefined();
+
+		const worker = evaluateTaintGuards({
+			toolName: "Write",
+			toolInput: { file_path: "foo.ts", content: "x" },
+			rules: makeRules(),
+			session: makeSession({
+				step_limit: 100,
+				tool_call_count: 1000,
+				actor_tool_calls: new Map([["sub-1", 90]]),
+			}),
+			actor: "sub-1",
+			pendingEscalation: undefined,
+		});
+		expect(worker.kind).toBe("ok");
+		if (worker.kind === "ok") {
+			expect(worker.escalation?.trigger).toBe("high_step_budget");
+			expect(worker.escalation?.summary).toContain("(90/100)");
+		}
+	});
+
+	it("N1: without an actor the session total still governs (legacy callers)", () => {
+		const result = evaluateTaintGuards({
+			toolName: "Write",
+			toolInput: { file_path: "foo.ts", content: "x" },
+			rules: makeRules(),
+			session: inflatedSession(),
+			pendingEscalation: undefined,
+		});
+		expect(result.kind).toBe("block");
+	});
+});

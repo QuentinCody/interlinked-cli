@@ -109,6 +109,37 @@ export function readNumberMap(v: unknown): Map<string, number> {
 	return out;
 }
 
+/**
+ * Per-actor step counts for the taint budget, shaped for spreading into the
+ * hydrated trajectory. A pre-fix snapshot has no `actor_tool_calls` at all;
+ * it must hydrate as ABSENT (not an empty map) so the budget falls back to the
+ * session total instead of restarting every actor at zero.
+ */
+function readActorToolCalls(
+	v: unknown,
+): { actor_tool_calls?: never } | { actor_tool_calls: Map<string, number> } {
+	return v === undefined ? {} : { actor_tool_calls: readNumberMap(v) };
+}
+
+/**
+ * `step_limit` of `Infinity` is serialized as `null` (JSON has no Infinity
+ * literal); this reverses the mapping. Anything that is not a finite number
+ * reads as unlimited, the same default a fresh session starts with.
+ */
+function readStepLimit(v: unknown): number {
+	return typeof v === "number" && Number.isFinite(v) ? v : Number.POSITIVE_INFINITY;
+}
+
+/** The two taint-budget fields of a snapshot, shaped for spreading into the
+ *  hydrated trajectory: the (possibly unlimited) step limit and the per-actor
+ *  step counts it is measured against. */
+export function readBudgetFields(snapshot: {
+	step_limit?: unknown;
+	actor_tool_calls?: unknown;
+}): { step_limit: number } & ReturnType<typeof readActorToolCalls> {
+	return { step_limit: readStepLimit(snapshot.step_limit), ...readActorToolCalls(snapshot.actor_tool_calls) };
+}
+
 export function readNumberRecord(v: unknown): Record<number, number> {
 	const out: Record<number, number> = {};
 	if (!isPlainObject(v)) return out;

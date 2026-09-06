@@ -18,6 +18,7 @@
 
 import type { JsonObject } from "../../lib/json-types.js";
 import {
+	actorStepCount,
 	classifyFileSensitivity,
 	formatTaintSources,
 	getStepBudgetWarning,
@@ -268,16 +269,18 @@ function buildHighStepBudgetEscalation(
 	toolName: string,
 	toolInput: JsonObject,
 	session: SessionTrajectory,
+	actor: string | undefined,
 ): EscalationRequest | null {
+	const steps = actorStepCount(session, actor);
 	const overThreshold =
 		session.step_limit !== Number.POSITIVE_INFINITY &&
-		session.tool_call_count > session.step_limit * HIGH_BUDGET_THRESHOLD;
+		steps > session.step_limit * HIGH_BUDGET_THRESHOLD;
 	if (!overThreshold) return null;
 	if (!isFileWrite(toolName) && !isBash(toolName)) return null;
 	const filePath = (toolInput.file_path as string) || "";
 	return {
 		trigger: "high_step_budget",
-		summary: `Agent at ${Math.round((session.tool_call_count / session.step_limit) * 100)}% of step budget (${session.tool_call_count}/${session.step_limit}) with state-changing tool`,
+		summary: `Agent at ${Math.round((steps / session.step_limit) * 100)}% of step budget (${steps}/${session.step_limit}) with state-changing tool`,
 		tool_name: toolName,
 		tool_input_redacted: filePath ? { file_path: filePath } : { command: "[REDACTED]" },
 		sensitivity_level: session.sensitivity_level,
@@ -295,8 +298,9 @@ function checkStepLimitDegradation(
 	toolName: string,
 	session: SessionTrajectory,
 	warnings: string[],
+	actor: string | undefined,
 ): TaintGuardsResult | null {
-	if (!isStepLimitExceeded(session)) return null;
+	if (!isStepLimitExceeded(session, actor)) return null;
 	if (READ_ONLY_TOOLS_ON_BUDGET.has(toolName)) {
 		warnings.push(
 			`[interlinked:budget] Step limit (${session.step_limit}) exceeded — read-only mode. Mutations are blocked. Wrap up and commit.`,
@@ -318,6 +322,10 @@ interface TaintGuardsArgs {
 	toolInput: JsonObject;
 	rules: GuardRulesConfig;
 	session: SessionTrajectory;
+	/** The calling actor (`session-state-mutators.ts::actorKeyOf`). The step
+	 *  budget binds this actor's own count, not the session total that every
+	 *  spawned agent inflates. Omitted → session-total semantics. */
+	actor?: string | undefined;
 	pendingEscalation: EscalationRequest | undefined;
 }
 
@@ -326,7 +334,7 @@ interface TaintGuardsArgs {
  *  sensitivity ratcheting, tainted-network blocking, step-budget warnings,
  *  and step-limit graceful degradation. */
 export function evaluateTaintGuards(args: TaintGuardsArgs): TaintGuardsResult {
-	const { toolName, toolInput, rules, session } = args;
+	const { toolName, toolInput, rules, session, actor } = args;
 	const warnings: string[] = [];
 	let escalation = args.pendingEscalation;
 
@@ -367,19 +375,19 @@ export function evaluateTaintGuards(args: TaintGuardsArgs): TaintGuardsResult {
 			buildTaintedNetworkInternalEscalation(toolName, toolInput, taint, session) ?? undefined;
 	}
 
-	// Stage 5 — step budget warnings (at 80% and 95%).
-	const budgetWarning = getStepBudgetWarning(session);
+	// Stage 5 — step budget warnings (at 80% and 95%) against the ACTOR's count.
+	const budgetWarning = getStepBudgetWarning(session, actor);
 	if (budgetWarning) warnings.push(budgetWarning);
 
 	// Stage 5b — ESCALATION high_step_budget: approaching step limit with a
 	// state-changing tool (only if no escalation was raised in stage 4).
 	if (!escalation) {
-		escalation = buildHighStepBudgetEscalation(toolName, toolInput, session) ?? undefined;
+		escalation = buildHighStepBudgetEscalation(toolName, toolInput, session, actor) ?? undefined;
 	}
 
 	// Stage 6 — step limit check: graceful degradation (block mutations, allow
 	// reads) so the agent can investigate and hand off cleanly.
-	const stepLimitResult = checkStepLimitDegradation(toolName, session, warnings);
+	const stepLimitResult = checkStepLimitDegradation(toolName, session, warnings, actor);
 	if (stepLimitResult) return stepLimitResult;
 
 	return { kind: "ok", warnings, escalation };

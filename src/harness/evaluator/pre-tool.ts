@@ -28,6 +28,7 @@ import { recordDeliveryForShadow } from "../event-dedup.js";
 import type { ProjectGraph } from "../project-graph.js";
 import type { ReservationManager } from "../reservations.js";
 import type { RouteMap } from "../route-map.js";
+import { actorKeyOf } from "../session-state-mutators.js";
 import type { SessionTracker } from "../session-state.js";
 import type {
 	GuardRulesConfig,
@@ -110,6 +111,21 @@ function phaseDecisionOutcome(
 	return null;
 }
 
+/** Pipeline context for one PreToolUse event: the cross-phase locals start
+ *  empty and the budgeted actor is resolved from the event up front, so the
+ *  taint phase charges the step budget to the CALLING agent — a subagent's
+ *  calls arrive under the parent's session id and must not spend the parent's
+ *  budget (a 50-agent campaign put its orchestrator into read-only mode at
+ *  ~79k session steps against a 10k limit, 2026-09-05). */
+function newPreToolCtx(event: HarnessEvent, session: SessionTrajectory | undefined): PreToolCtx {
+	return {
+		escalation: undefined,
+		contentScan: undefined,
+		graphPredAdditionalContext: undefined,
+		...(session ? { actor: actorKeyOf(event, session) } : {}),
+	};
+}
+
 /** Public API — consumed by server.ts via the root evaluator.ts re-export.
  *  This is the main PreToolUse decision entry point; every hook call runs
  *  through here before a tool executes. The nine positional parameters
@@ -148,11 +164,7 @@ export function evaluatePreToolUse(
 		if (d) return d;
 	}
 
-	const ctx: PreToolCtx = {
-		escalation: undefined,
-		contentScan: undefined,
-		graphPredAdditionalContext: undefined,
-	};
+	const ctx = newPreToolCtx(event, session);
 	void _blameInjectedFiles; // reserved for future blame-injection dedup
 
 	// The PreToolUse pipeline as an ordered list of phases. Each phase pushes

@@ -513,7 +513,7 @@ sit at 54% (20/37), so backfill those first. Re-derive these numbers with
 | `src/harness/change-propagation.ts` | Side-effect tracking across edits |
 | `src/harness/error-history.ts` | Error pattern memory with optional embeddings support |
 | `src/harness/language-profiles.ts` | Language-specific checks for 12+ languages |
-| `src/harness/taint-tracker.ts` | Sensitivity classification (Public/Confidential/Secret) and flow tracking |
+| `src/harness/taint-tracker.ts` | Sensitivity classification (Public/Confidential/Secret) and flow tracking. The step budget (`step_limits`) binds the calling ACTOR's own count (`actorStepCount`; `SessionTrajectory.actor_tool_calls` keyed by `subagent_id` → `agent_name` → session id, resolved once in `pre-tool.ts::newPreToolCtx`), never the session total — a subagent's tool calls arrive under the PARENT session id, and counting them there put a 50-agent campaign's orchestrator into read-only mode at ~79k steps (2026-09-05). The LEVEL stays session-wide on purpose: a worker's secret-shaped output still ratchets the parent |
 | `src/harness/pattern-detector.ts` | Cross-cutting pattern detection |
 | `src/harness/suggestion-scorer.ts` | Weighted finding scoring and ranking |
 | `src/harness/registry-parity.ts` | Configurable drift detector for paired registries / exception lists. Reads `.interlinked/registry-parity.json`; runs as part of `interlinked verify` and surfaces drift in both streaming and `--json` output. |

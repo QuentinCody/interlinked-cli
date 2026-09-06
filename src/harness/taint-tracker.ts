@@ -276,16 +276,31 @@ export function shouldBlockNetwork(
 	return sessionOrder >= blockOrder;
 }
 
-/** Check if session has exceeded its step limit */
-export function isStepLimitExceeded(session: SessionTrajectory): boolean {
-	return session.tool_call_count > session.step_limit;
+/**
+ * Steps the budget is measured against. A spawned agent's tool calls arrive
+ * under the PARENT session id, so `tool_call_count` sums every actor in the
+ * session; the budget binds one actor's own count. With no `actor` (legacy
+ * callers) or no per-actor map (a session hydrated from a pre-fix snapshot)
+ * the session total still governs. An actor the map has not seen yet has made
+ * zero counted calls.
+ */
+export function actorStepCount(session: SessionTrajectory, actor?: string): number {
+	const perActor = session.actor_tool_calls;
+	if (actor === undefined || perActor === undefined) return session.tool_call_count;
+	return perActor.get(actor) ?? 0;
+}
+
+/** Check if the actor (or, without one, the session) has exceeded its step limit */
+export function isStepLimitExceeded(session: SessionTrajectory, actor?: string): boolean {
+	return actorStepCount(session, actor) > session.step_limit;
 }
 
 /** Get step budget warning if approaching the limit. Returns null if no warning needed. */
-export function getStepBudgetWarning(session: SessionTrajectory): string | null {
+export function getStepBudgetWarning(session: SessionTrajectory, actor?: string): string | null {
 	if (session.step_limit === Number.POSITIVE_INFINITY) return null;
-	const pct = session.tool_call_count / session.step_limit;
-	const remaining = session.step_limit - session.tool_call_count;
+	const steps = actorStepCount(session, actor);
+	const pct = steps / session.step_limit;
+	const remaining = session.step_limit - steps;
 	if (pct >= 0.95) {
 		return `[interlinked:budget] CRITICAL: ${remaining} steps remaining (${Math.round(pct * 100)}% of ${session.step_limit} limit at ${session.sensitivity_level} sensitivity). Wrap up current work and commit.`;
 	}

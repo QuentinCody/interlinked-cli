@@ -89,6 +89,7 @@ export function createFreshSession(event: HarnessEvent, sessionId: string): Sess
 		agent_name: event.agent_name || `session-${sessionId.slice(0, 8)}`,
 		started_at: event.timestamp,
 		tool_call_count: 0,
+		actor_tool_calls: new Map(),
 		error_count: 0,
 		files_read: new Set(),
 		files_written: new Set(),
@@ -135,13 +136,33 @@ export function createFreshSession(event: HarnessEvent, sessionId: string): Sess
 }
 
 /**
- * Per-tool-call bookkeeping: total/MCP/local counts, the bounded tool sequence
- * used for pattern detection, and browser-MCP UI-verification signals. No-op
- * when the event carries no tool_name.
+ * The budgeted ACTOR behind one event: a spawned agent's own id when the
+ * runner marks it, else the resolved agent name, else the session id itself.
+ * Measured on this repo's activity log (2026-09-05): a subagent's tool events
+ * carry the PARENT session id with `subagent_id` + `agent_name` set to the
+ * agent's id, while the parent's own events carry the configured agent name
+ * (or none) and no `subagent_id`. The last fallback is the session id, NOT
+ * `session.agent_name`: that field is pinned to the first named event the
+ * daemon saw, which in a subagent-heavy session was a subagent's id (the
+ * 2026-09-05 snapshot shows `agent_name: 'a34b8f50…'`), so an unnamed parent
+ * would have shared its worker's counter.
+ */
+export function actorKeyOf(event: HarnessEvent, session: SessionTrajectory): string {
+	return event.subagent_id || event.agent_name || session.session_id;
+}
+
+/**
+ * Per-tool-call bookkeeping: total/MCP/local counts, the per-actor count the
+ * step budget binds on, the bounded tool sequence used for pattern detection,
+ * and browser-MCP UI-verification signals. No-op when the event carries no
+ * tool_name.
  */
 export function trackToolCall(session: SessionTrajectory, event: HarnessEvent): void {
 	if (!event.tool_name) return;
 	session.tool_call_count++;
+	if (!session.actor_tool_calls) session.actor_tool_calls = new Map();
+	const actor = actorKeyOf(event, session);
+	session.actor_tool_calls.set(actor, (session.actor_tool_calls.get(actor) ?? 0) + 1);
 
 	// Classify as MCP or local tool
 	if (event.tool_name.startsWith("mcp__")) {

@@ -75,6 +75,9 @@ export interface PreToolCtx {
 	escalation: EscalationRequest | undefined;
 	contentScan: ContentScanRequest | undefined;
 	graphPredAdditionalContext: string | undefined;
+	/** Budgeted actor (`actorKeyOf`), resolved once by `newPreToolCtx`; the
+	 *  step budget binds ITS count, not the subagent-inflated session total. */
+	actor?: string | undefined;
 }
 
 /**
@@ -424,6 +427,7 @@ export function evaluateTaintPhase(
 		toolInput,
 		rules,
 		session,
+		actor: ctx.actor,
 		pendingEscalation: ctx.escalation,
 	});
 	if (

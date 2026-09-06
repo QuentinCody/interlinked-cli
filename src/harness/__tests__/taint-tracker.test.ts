@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import {
+	actorStepCount,
 	classifyFileSensitivity,
 	DEFAULT_TAINT_CONFIG,
 	formatTaintSources,
+	getStepBudgetWarning,
 	isNetworkCommand,
 	isStepLimitExceeded,
 	ratchetSensitivity,
@@ -259,6 +261,86 @@ describe("isStepLimitExceeded", () => {
 		const session = makeSession();
 		session.tool_call_count = 10000;
 		expect(isStepLimitExceeded(session)).toBe(false);
+	});
+});
+
+// A spawned agent's tool calls arrive under the PARENT session id, so
+// `tool_call_count` sums every actor in the session. The budget must bind one
+// ACTOR's own count: a 50-agent coverage campaign exhausted the 10,000-step
+// Confidential budget at ~79,000 session steps while the orchestrator itself
+// had made ~1,500 calls and was put into read-only mode (2026-09-05).
+describe("isStepLimitExceeded — per-actor counting", () => {
+	function inflatedSession(): SessionTrajectory {
+		const session = makeSession();
+		session.step_limit = 200;
+		session.tool_call_count = 5000;
+		session.actor_tool_calls = new Map([
+			["parent", 150],
+			["sub-a", 3000],
+			["sub-b", 1850],
+		]);
+		return session;
+	}
+
+	it("P1: parent under its own budget stays allowed when subagents inflate the session total", () => {
+		expect(isStepLimitExceeded(inflatedSession(), "parent")).toBe(false);
+	});
+
+	it("P2: an actor over its own budget is exceeded regardless of the others", () => {
+		expect(isStepLimitExceeded(inflatedSession(), "sub-a")).toBe(true);
+	});
+
+	it("P3: an actor with no recorded calls yet counts as zero when the map exists", () => {
+		expect(isStepLimitExceeded(inflatedSession(), "sub-new")).toBe(false);
+	});
+
+	it("N1: with no actor argument the session total still governs (legacy callers)", () => {
+		expect(isStepLimitExceeded(inflatedSession())).toBe(true);
+	});
+
+	it("N2: a pre-fix session with no actor map falls back to the session total", () => {
+		const session = inflatedSession();
+		delete session.actor_tool_calls;
+		expect(isStepLimitExceeded(session, "parent")).toBe(true);
+	});
+
+	it("actorStepCount reads the actor's own count, or the total when the map is absent", () => {
+		const session = inflatedSession();
+		expect(actorStepCount(session, "sub-b")).toBe(1850);
+		expect(actorStepCount(session, "ghost")).toBe(0);
+		expect(actorStepCount(session)).toBe(5000);
+		delete session.actor_tool_calls;
+		expect(actorStepCount(session, "sub-b")).toBe(5000);
+	});
+});
+
+describe("getStepBudgetWarning — per-actor counting", () => {
+	it("P1: warns from the actor's own count, not the session total", () => {
+		const session = makeSession();
+		session.step_limit = 100;
+		session.tool_call_count = 1000;
+		session.actor_tool_calls = new Map([
+			["parent", 85],
+			["sub-a", 915],
+		]);
+		expect(getStepBudgetWarning(session, "parent")).toContain("WARNING: 15 steps remaining");
+		expect(getStepBudgetWarning(session, "sub-a")).toContain("CRITICAL: -815 steps remaining");
+	});
+
+	it("N1: silent for an actor under 80% while the session total is far past the limit", () => {
+		const session = makeSession();
+		session.step_limit = 100;
+		session.tool_call_count = 1000;
+		session.actor_tool_calls = new Map([["parent", 10]]);
+		expect(getStepBudgetWarning(session, "parent")).toBeNull();
+	});
+
+	it("N2: with no actor argument the session total still drives the warning", () => {
+		const session = makeSession();
+		session.step_limit = 100;
+		session.tool_call_count = 90;
+		session.actor_tool_calls = new Map([["parent", 10]]);
+		expect(getStepBudgetWarning(session)).toContain("WARNING: 10 steps remaining");
 	});
 });
 
