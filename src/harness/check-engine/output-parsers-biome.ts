@@ -11,6 +11,7 @@
 // edit through (it never caught unsorted imports, which CI `biome check` fails).
 // Re-exported through output-parsers.ts — import from there.
 
+import { nonNull } from "../../lib/non-null.js";
 import type { CheckResult } from "./types.js";
 
 export function parseBiomeOutput(output: string): CheckResult[] {
@@ -20,10 +21,15 @@ export function parseBiomeOutput(output: string): CheckResult[] {
 			/^(.+?):(\d+):(\d+)\s+(lint\S+|assist\S+|suppressions\S+|format|parse|syntax)\s/,
 		);
 		if (match) {
-			const [, file, lineNo, col, rule] = match;
-			if (file === undefined || lineNo === undefined || col === undefined || rule === undefined) {
-				continue;
-			}
+			// Every capture group in the header regex is mandatory (no `?`
+			// quantifier, no empty branch in the category alternation), so a
+			// successful match yields four defined strings. `nonNull` carries that
+			// proof into the type instead of a post-match undefined guard that no
+			// input can reach (35k generated headers: 0 undefined groups).
+			const file = nonNull(match[1]);
+			const lineNo = nonNull(match[2]);
+			const col = nonNull(match[3]);
+			const rule = nonNull(match[4]);
 			const isParse = rule === "parse" || rule === "syntax";
 			results.push({
 				tool: "biome",

@@ -42,8 +42,12 @@ export function findClosestSpans(content: string, target: string, n = 3): NearMi
 
 	const candidates: NearMiss[] = [];
 	const windowSize = targetLines.length;
+	// Exactly one pass fills `candidates`. A short single-line target forces
+	// windowSize 1, where the windowed pass scores the very same lines the same
+	// way as the line scan below — so that shape skips the windowed pass.
+	const windowCount = targetIsShortSingleLine ? 0 : fileLines.length - windowSize + 1;
 
-	for (let i = 0; i + windowSize <= fileLines.length; i++) {
+	for (let i = 0; i < windowCount; i++) {
 		const windowLines = fileLines.slice(i, i + windowSize);
 		const sim = windowSimilarity(targetLines, windowLines);
 		if (sim < MIN_SIMILARITY) continue;
@@ -56,9 +60,9 @@ export function findClosestSpans(content: string, target: string, n = 3): NearMi
 		});
 	}
 
-	// For very short single-line targets, also scan all lines (in case the
-	// match is at a line whose trimmed length differs significantly).
-	if (targetIsShortSingleLine && candidates.length < n) {
+	// For very short single-line targets this scan is the whole search: it scores
+	// every line, the windowed pass above having been skipped for this shape.
+	if (targetIsShortSingleLine) {
 		addShortSingleLineCandidates(candidates, fileLines, target);
 	}
 
@@ -76,13 +80,12 @@ export function findClosestSpans(content: string, target: string, n = 3): NearMi
 }
 
 /** For short single-line targets: scan every file line for a fuzzy match and
- *  push new candidates in place (mutates `candidates`), skipping lines
- *  already covered by a windowed candidate. */
+ *  push a candidate per scoring line in place (mutates `candidates`). Sole
+ *  producer for that target shape, so it is called with `candidates` empty. */
 function addShortSingleLineCandidates(candidates: NearMiss[], fileLines: string[], target: string): void {
 	for (const [i, fileLine] of fileLines.entries()) {
 		const sim = lineSimilarity(target, fileLine);
 		if (sim < MIN_SIMILARITY) continue;
-		if (candidates.some((c) => c.line === i + 1)) continue;
 		candidates.push({
 			line: i + 1,
 			endLine: i + 1,

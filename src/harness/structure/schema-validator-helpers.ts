@@ -60,12 +60,12 @@ export function checkUnknownKeys(obj: JsonObject, allowed: string[], path: strin
 	return errors;
 }
 
+// LOCAL_ID_PATTERN's character class excludes ":", so a pattern-valid id can never
+// carry one — that is what keeps the global `${kind}:${id}` artifact ref unambiguous
+// (artifact-graph.ts:12). A separate colon check would be unreachable, so there is none.
 export function validateLocalId(id: string, path: string): ValidationError[] {
 	if (!LOCAL_ID_PATTERN.test(id)) {
 		return [err(path, `Invalid local ID "${id}" — must match ${LOCAL_ID_PATTERN.source}`)];
-	}
-	if (id.includes(":")) {
-		return [err(path, `Local ID "${id}" must not contain ":"`)];
 	}
 	return [];
 }

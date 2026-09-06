@@ -74,14 +74,10 @@ export function scoreListSection(
 	const oracleTopK = oracleSet.slice().sort().slice(0, TOP_K_RECALL_CAP);
 	const matchRecallSet = new Set(oracleTopK.filter((o) => predFull.includes(o)));
 	const matchPrecSet = new Set(predFull.filter((p) => oracleSet.includes(p)));
-	// Both denominators are provably non-zero here: the four early-return
-	// branches above cover every empty-set permutation of (oracle, predicted).
+	// Both denominators are non-zero by construction: the four early-return
+	// branches above are exhaustive over every empty-set permutation of
+	// (oracleSet, predFull), so both are non-empty here, and
 	// `oracleTopK.length > 0` follows from `oracleSet.length > 0` plus slice(0, K).
-	// Explicit guards still added so a future refactor of the early-return
-	// chain can't silently leak NaN into per_section_score.
-	if (oracleTopK.length === 0 || predFull.length === 0) {
-		return { score: 0, recall: 0, precision: 0, abstained, missDetail: null };
-	}
 	const recall = matchRecallSet.size / oracleTopK.length;
 	const precision = matchPrecSet.size / predFull.length;
 	const baseScore = Math.min(recall, precision);

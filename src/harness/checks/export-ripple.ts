@@ -190,6 +190,7 @@ export function checkExportRipple(content: string, filePath: string, cwd: string
 			}
 		});
 	} catch {
+		// Unreachable: the predicate absorbs every throw itself, so filter() cannot throw — kept as verify's crash guard.
 		return [];
 	}
 

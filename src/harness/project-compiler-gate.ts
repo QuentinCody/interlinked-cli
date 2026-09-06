@@ -178,7 +178,7 @@ interface WarmEvictionAdmissionEnd {
 }
 
 function warmEvictionAdmissionEnd(entry: QueueEntry): WarmEvictionAdmissionEnd {
-	let rejectAdmission = (_error: ProjectCompilerUnavailableError): void => undefined;
+	let rejectAdmission: (error: ProjectCompilerUnavailableError) => void;
 	const promise = new Promise<never>((_resolve, reject) => {
 		rejectAdmission = reject;
 	});

@@ -231,8 +231,11 @@ function parseTtl(raw: string): number | null {
 	if (!m) return null;
 	const n = Number(m[1]);
 	if (!Number.isFinite(n) || n <= 0) return null;
+	// Group 2 of the regex above admits exactly {s, sec, m, min, h, hr} (case
+	// folded here) or nothing, which defaults to "s". The two guards below are
+	// therefore exhaustive over the non-second units, and seconds is the
+	// fall-through — there is no seventh unit needing its own arm.
 	const unit = (m[2] || "s").toLowerCase();
-	if (unit === "s" || unit === "sec") return n;
 	if (unit === "m" || unit === "min") return n * 60;
 	if (unit === "h" || unit === "hr") return n * 3600;
 	return n;

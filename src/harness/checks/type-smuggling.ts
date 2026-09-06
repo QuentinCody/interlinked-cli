@@ -415,7 +415,12 @@ function createSingleFileProgram(
 		},
 		getCanonicalFileName: (name: string) => name,
 		useCaseSensitiveFileNames: () => true,
-		getNewLine: () => "\n",
+		// No `getNewLine` override: the `...realHost` spread already supplies
+		// `() => getNewLineCharacter(compilerOptions)`, which returns "\n" on
+		// every platform for options that don't set `newLine` (ours don't).
+		// TS only calls `host.getNewLine()` from the diagnostic formatters
+		// (`formatDiagnostics*`) and watch-status reporting; this module never
+		// enters either, and the emitter reads the option directly.
 		getDefaultLibFileName: realHost.getDefaultLibFileName.bind(realHost),
 	};
 

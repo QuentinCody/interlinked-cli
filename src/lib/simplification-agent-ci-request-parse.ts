@@ -124,6 +124,7 @@ export function parseRepository(value: unknown): SimplificationAgentCiRepository
 		const bad = reasonFrom(parsed);
 		if (bad) return { reason: bad };
 	}
+	// Unreachable: the loop above returns on every {reason} shape. Kept as the compiler's only proof that these five are strings.
 	if (
 		typeof workspace_id !== "string" || typeof repository_id !== "string" ||
 		typeof commit_sha !== "string" || typeof tree_sha !== "string" ||
@@ -173,13 +174,9 @@ function parseToolEvidence(value: unknown, index: number): SimplificationAgentCi
 	const name = requiredString(value.name, `${location}.name`);
 	const version = requiredString(value.version, `${location}.version`);
 	const output_sha256 = checkedSha256(value.output_sha256, `${location}.output_sha256`);
-	for (const parsed of [name, version, output_sha256]) {
-		const bad = reasonFrom(parsed);
-		if (bad) return { reason: bad };
-	}
-	if (typeof name !== "string" || typeof version !== "string" || typeof output_sha256 !== "string") {
-		return { reason: `${location} is invalid` };
-	}
+	if (isParseFailure(name)) return name;
+	if (isParseFailure(version)) return version;
+	if (isParseFailure(output_sha256)) return output_sha256;
 	return { name, version, output_sha256 };
 }
 
@@ -258,6 +255,7 @@ export function parseEvidence(value: unknown): SimplificationAgentCiEvidenceBind
 		const bad = reasonFrom(parsed);
 		if (bad) return { reason: bad };
 	}
+	// Unreachable: the loop above returns on every {reason} shape. Kept as the compiler's only proof that these eight are narrowed.
 	if (
 		typeof deterministic_digest_sha256 !== "string" || !Array.isArray(tools) ||
 		!Array.isArray(policy_hashes) || typeof runtime_capability_sha256 !== "string" ||
@@ -289,6 +287,7 @@ function parseModel(value: unknown): SimplificationAgentCiModelBinding | { reaso
 		const bad = reasonFrom(parsed);
 		if (bad) return { reason: bad };
 	}
+	// Unreachable: the loop above returns on every {reason} shape. Kept as the guard the four `as string` casts below lean on.
 	if ([provider, family, model, version].some((entry) => typeof entry !== "string")) {
 		return { reason: "request.orchestration.model is invalid" };
 	}
@@ -323,14 +322,9 @@ export function parseOrchestration(value: unknown): SimplificationAgentCiOrchest
 		value.partition_plan_version,
 		"request.orchestration.partition_plan_version",
 	);
-	for (const parsed of [model, coordinator_prompt_sha256, partition_plan_version]) {
-		const bad = reasonFrom(parsed);
-		if (bad) return { reason: bad };
-	}
-	if (!("model" in value) || !("provider" in model)) return { reason: "request.orchestration.model is invalid" };
-	if (typeof coordinator_prompt_sha256 !== "string" || typeof partition_plan_version !== "string") {
-		return { reason: "request.orchestration is invalid" };
-	}
+	if (isParseFailure(model)) return model;
+	if (isParseFailure(coordinator_prompt_sha256)) return coordinator_prompt_sha256;
+	if (isParseFailure(partition_plan_version)) return partition_plan_version;
 	return {
 		risk_tier: value.risk_tier as SimplificationAgentCiRiskTier,
 		model,

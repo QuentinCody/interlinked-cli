@@ -296,12 +296,6 @@ function consumeDoubleQuoted(input: string, i: number, current: string): QuoteSt
 	return { current: current + ch, i: i + 1, closed: false };
 }
 
-/**
- * Characters that terminate the tokenizer scan (shell operators). Matching one
- * unquoted means the rest of the command is a separate invocation we don't model.
- */
-const TOKENIZER_STOP_CHARS = new Set(["|", ";", "&", ">", "<"]);
-
 /** Mutable scan position threaded through `advanceTokenizerCursor`. */
 interface TokenizeCursor {
 	current: string;
@@ -337,13 +331,13 @@ function advanceInsideQuotedRun(input: string, cursor: TokenizeCursor): boolean 
 
 /**
  * Advance `cursor` by one step against `input[cursor.i]`, pushing a completed
- * token into `tokens` on whitespace. Mutates `cursor` in place. Returns true
- * when a shell operator ends the scan (the caller must stop iterating).
+ * token into `tokens` on whitespace. Mutates `cursor` in place; the caller
+ * loops until `cursor.i` reaches the end of `input`.
  */
-function advanceTokenizerCursor(input: string, cursor: TokenizeCursor, tokens: string[]): boolean {
+function advanceTokenizerCursor(input: string, cursor: TokenizeCursor, tokens: string[]): void {
 	const ch = nonNull(input[cursor.i]);
 
-	if (advanceInsideQuotedRun(input, cursor)) return false;
+	if (advanceInsideQuotedRun(input, cursor)) return;
 
 	if (ch === "'") {
 		cursor.inSingle = true;
@@ -364,26 +358,30 @@ function advanceTokenizerCursor(input: string, cursor: TokenizeCursor, tokens: s
 			cursor.current = "";
 		}
 		cursor.i++;
-	} else if (TOKENIZER_STOP_CHARS.has(ch)) {
-		cursor.i = input.length; // stop at shell operators
-		return true;
 	} else {
 		cursor.current += ch;
 		cursor.i++;
 	}
-	return false;
 }
 
 /**
  * Basic shell argument tokenizer.
  * Handles single quotes, double quotes, and backslash escapes.
+ *
+ * Deliberately has NO shell-operator stop: the sole caller `parseGrepCommand`
+ * runs `hasUnquotedShellOperator` first, over a strict SUPERSET of the operator
+ * characters and with an identical quote state machine, so an unquoted operator
+ * declines the whole command before tokenizing. Should a future caller skip that
+ * gate, an operator becomes ordinary token text and `assignGrepPositionals`
+ * declines on the extra positional — the safe direction. Stopping the scan at
+ * the operator instead would silently parse a TRUNCATED command as a whole one.
  */
 function tokenizeShellArgs(input: string): string[] {
 	const tokens: string[] = [];
 	const cursor: TokenizeCursor = { current: "", i: 0, inSingle: false, inDouble: false };
 
 	while (cursor.i < input.length) {
-		if (advanceTokenizerCursor(input, cursor, tokens)) break;
+		advanceTokenizerCursor(input, cursor, tokens);
 	}
 
 	if (cursor.current.length > 0) tokens.push(cursor.current);

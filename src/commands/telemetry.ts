@@ -15,6 +15,14 @@ export interface TelemetryOptions {
 	follow?: boolean;
 	limit?: string;
 	spool?: string;
+	/**
+	 * Test-only injection point: replaces the infinite poll wait inside
+	 * follow mode. Real callers never set this, so the default (undefined)
+	 * preserves the "never resolves — poll until ctrl-c" behavior exactly.
+	 * Set only in tests, to let an await on telemetryShowCommand({follow})
+	 * observe the watcher installed and then return instead of hanging.
+	 */
+	waitForever?: () => Promise<void>;
 }
 
 export async function telemetryShowCommand(options: TelemetryOptions): Promise<void> {
@@ -51,14 +59,6 @@ async function followSpool(spoolPath: string, options: TelemetryOptions): Promis
 	// Read the existing content once, then tail for new lines. We use
 	// readline over a read stream and re-open when the file grows.
 	let lastSize = 0;
-	const readTail = (): void => {
-		const stream = createReadStream(spoolPath, { start: lastSize, encoding: "utf-8" });
-		const rl = createInterface({ input: stream });
-		rl.on("line", (line) => handleLine(line, options));
-		rl.on("close", () => {
-			stream.close();
-		});
-	};
 
 	// Initial read.
 	const fs = await import("node:fs/promises");
@@ -73,9 +73,11 @@ async function followSpool(spoolPath: string, options: TelemetryOptions): Promis
 	}
 	lastSize = stat.size;
 
-	await new Promise<void>(() => {
-		// Never resolves — poll until the user ctrl-c's. `watchFile` is
-		// cheap and fires when the file grows.
+	await new Promise<void>((resolve) => {
+		// `watchFile` is cheap and fires when the file grows. In production
+		// this promise never resolves — poll until the user ctrl-c's;
+		// `options.waitForever`, when a test supplies it, resolves it so the
+		// call can return right after the watcher below is installed.
 		watchFile(spoolPath, { interval: 250 }, (curr) => {
 			if (curr.size > lastSize) {
 				// Partial read starting from last known offset.
@@ -88,10 +90,10 @@ async function followSpool(spoolPath: string, options: TelemetryOptions): Promis
 					stream.close();
 				});
 			}
-			// Fallback silences the unused-warning on readTail; kept for
-			// clarity in case a later change switches to full re-reads.
-			void readTail;
 		});
+		if (options.waitForever) {
+			void options.waitForever().then(resolve);
+		}
 	});
 }
 

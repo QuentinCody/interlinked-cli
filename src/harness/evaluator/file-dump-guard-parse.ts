@@ -193,20 +193,24 @@ function parseLeadingInt(s: string): number | null {
  * Reads the numeric value a flag carries at token index `i`, in any of the
  * supported shapes for `flag` (the short `-n`/`-c` or long `--lines`/`--bytes`):
  * `flag N` (separate token), `flag=N`, and — for the short form only — the
- * combined `flagN` (`-n50`). Returns the parsed count, or `null` if this token
- * doesn't carry `flag`'s value (signalled by the caller continuing the scan).
+ * combined `flagN` (`-n50`). Returns the parsed count, or `null` when the value
+ * is missing (`flag` is the last token) or non-numeric.
+ *
+ * PRECONDITION — the caller has already matched the shape. `parseCountFlag` is
+ * the only caller and only calls this for a token `tokenMatchesFlag` accepted
+ * for the same `(t, flag, allowCombined)` triple, and those are exactly the
+ * three shapes below. So once `flag` and `flag=` miss, the combined form is
+ * what is left: re-testing it here (and falling back to `null` when the
+ * re-test failed) was dead by construction.
  */
-function flagCountAt(tokens: string[], i: number, flag: string, allowCombined: boolean): number | null {
+function flagCountAt(tokens: string[], i: number, flag: string): number | null {
 	const t = tokens[i];
 	if (t === flag) {
 		const next = tokens[i + 1];
 		return next === undefined ? null : parseLeadingInt(next);
 	}
 	if (nonNull(t).startsWith(`${flag}=`)) return parseLeadingInt(nonNull(t).slice(flag.length + 1));
-	if (allowCombined && nonNull(t).length > flag.length && nonNull(t).startsWith(flag) && /^\+?\d/.test(nonNull(nonNull(t)[flag.length]))) {
-		return parseLeadingInt(nonNull(t).slice(flag.length));
-	}
-	return null;
+	return parseLeadingInt(nonNull(t).slice(flag.length));
 }
 
 /** True when `t` carries a value for `flag` in any supported shape. */
@@ -224,10 +228,10 @@ export function parseCountFlag(tokens: string[], shortFlag: "-n" | "-c"): number
 	for (let i = 1; i < tokens.length; i++) {
 		const t = nonNull(tokens[i]);
 		if (tokenMatchesFlag(t, shortFlag, /* allowCombined */ true)) {
-			return flagCountAt(tokens, i, shortFlag, true);
+			return flagCountAt(tokens, i, shortFlag);
 		}
 		if (tokenMatchesFlag(t, longFlag, /* allowCombined */ false)) {
-			return flagCountAt(tokens, i, longFlag, false);
+			return flagCountAt(tokens, i, longFlag);
 		}
 	}
 	return null;

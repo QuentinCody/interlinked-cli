@@ -266,7 +266,10 @@ function finishTimelineRewrite(options: {
 	let ordered = options.records;
 	let basis = options.basis;
 	writePreparedTimeline(options.temporaryPath, ordered, basis.mode);
-	for (let catchups = 0; catchups <= MAX_TIMELINE_REWRITE_CATCHUPS; catchups++) {
+	// Bounded by the in-loop catch-up ceiling below, not by a loop condition: every
+	// iteration either returns (the replacement landed) or throws once the ceiling is
+	// reached, so the loop has no normal exit and needs no post-loop terminator.
+	for (let catchups = 0; ; catchups++) {
 		const tail = validateAndReplaceOrCaptureTail(options.path, options.temporaryPath, basis);
 		if (tail === null) return ordered.length;
 		if (catchups === MAX_TIMELINE_REWRITE_CATCHUPS) {
@@ -279,7 +282,6 @@ function finishTimelineRewrite(options: {
 		basis = tail.basis;
 		writePreparedTimeline(options.temporaryPath, ordered, basis.mode);
 	}
-	throw new TimelineRewriteConflictError("timeline rewrite did not converge");
 }
 
 /** Reconcile a full sorted/deduped backfill with the append-only timeline. */
