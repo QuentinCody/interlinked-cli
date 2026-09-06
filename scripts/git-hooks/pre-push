@@ -27,6 +27,10 @@ protected_branch_re='^(main|master)$'
 should_run=0
 docs_only=1
 pkg_touched=0
+# Newest commit being pushed to a protected branch, and the net file list of
+# the push range — both consumed by the coverage-ratchet step near the end.
+push_sha=""
+changed_paths=""
 while read -r local_ref local_sha remote_ref remote_sha; do
 	[ -z "$local_ref" ] && continue
 	# Deletion: local_sha is all-zeros. Skip.
@@ -35,6 +39,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 	branch_short="${remote_ref##refs/heads/}"
 	if [[ "$branch_short" =~ $protected_branch_re ]]; then
 		should_run=1
+		push_sha="$local_sha"
 		# Docs-only fast-path: if the net diff being pushed to a protected
 		# branch touches only Markdown files, skip the typecheck + test gate
 		# (which would otherwise stash the working tree — racy under
@@ -54,6 +59,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 			docs_only=0
 			pkg_touched=1
 		elif diff_files="$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null)"; then
+			changed_paths="$diff_files"
 			# `git diff` exited 0. Empty diff or any non-md file → full gate.
 			# Otherwise (every changed path ends in .md) leave docs_only=1.
 			if [ -z "$diff_files" ] \
@@ -212,6 +218,80 @@ if [ "$test_status" -ne 0 ]; then
 	echo "   Fix the failing tests above before pushing, or bypass with:"
 	echo "     git push --no-verify   (use sparingly — same risk as red CI)"
 	exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Per-file coverage ratchet — STRICT, scoped to the files this push changes.
+#
+# `interlinked coverage check` is advisory by default (a drop prints and exits
+# 0); --strict is what makes a drop fail. Three deliberate constraints:
+#
+#   1. NEVER generate coverage here. A full `npm run test:coverage` is ~190s
+#      and one test times out under instrumentation, so producing a report in
+#      the hook would trade a real gate for a flaky one.
+#   2. Reuse the report only when it is NEWER than the commit being pushed. An
+#      older report cannot describe this code, so the step FAILS CLOSED and
+#      tells you to regenerate (~3 min). This was a loud SKIP (fail-open) until
+#      the coverage campaign landed 2026-09-05; the ratchet is now trustworthy
+#      enough to demand fresh evidence. A push that touches no src/ code file
+#      still skips — there is nothing for the ratchet to judge.
+#   3. Scope to the push range with --changed-files. The repo-wide ratchet
+#      still carries a large pre-existing backlog, so an unscoped --strict run
+#      would block every push regardless of what it touches.
+#
+# Runs in the WORKING TREE, not GATE_DIR: both inputs (coverage/ and
+# .interlinked/coverage-baseline.json) are gitignored, so the clean HEAD
+# export has neither.
+# ---------------------------------------------------------------------------
+cov_report="coverage/coverage-summary.json"
+cov_sha="$(git rev-parse --short "${push_sha:-HEAD}" 2>/dev/null || echo unknown)"
+# node, not `stat`: -c is GNU and -f is BSD, and this hook runs on both.
+cov_report_time="$(node -e 'try{process.stdout.write(String(Math.floor(require("node:fs").statSync(process.argv[1]).mtimeMs/1000)))}catch{process.stdout.write("0")}' "$cov_report" 2>/dev/null || echo 0)"
+cov_commit_time="$(git log -1 --format=%ct "${push_sha:-HEAD}" 2>/dev/null || echo 0)"
+# Net range diff when we could compute one, else the tip commit's own files.
+if [ -z "$changed_paths" ] && [ -n "$push_sha" ]; then
+	changed_paths="$(git show --name-only --format= "$push_sha" 2>/dev/null || true)"
+fi
+cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | paste -sd, - || true)"
+
+if [ -z "$cov_files" ]; then
+	echo "[pre-push] coverage check SKIPPED: no src/ code files in the push range."
+elif [ "${cov_report_time:-0}" -le "${cov_commit_time:-0}" ]; then
+	echo ""
+	echo "❌ pre-push: no coverage report newer than $cov_sha — the per-file coverage ratchet has nothing current to judge."
+	echo "   Regenerate the report (~3 min), then push again:"
+	echo "     npm run test:coverage"
+	echo "   Bypass: git push --no-verify (use sparingly — same risk as red CI)"
+	exit 1
+else
+	# Prefer the HEAD export's build: the hook just built it above, so it is
+	# the code being pushed. The working-tree dist/ is whatever was last built
+	# here and can be stale (found 2026-09-04). `.interlinked/` and coverage/
+	# paths are cwd-relative, so a GATE_DIR binary run from the working tree
+	# still reads the working tree's report and baseline.
+	if [ "$GATE_DIR" != "$(pwd)" ] && [ -f "$GATE_DIR/dist/index.js" ]; then
+		cov_cli=(node "$GATE_DIR/dist/index.js")
+	elif [ -f "dist/index.js" ]; then
+		cov_cli=(node dist/index.js)
+	else
+		cov_cli=(npx tsx src/index.ts)
+	fi
+	# awk -F, NF, not `tr , '\n' | wc -l`: the list has no trailing newline, so
+	# wc counts separators and reports 0 for a single file.
+	echo "[pre-push] Running strict coverage ratchet on $(printf '%s' "$cov_files" | awk -F, '{print NF}') changed file(s)..."
+	set +e
+	"${cov_cli[@]}" coverage check --strict --changed-files "$cov_files"
+	cov_status=$?
+	set -e
+	if [ "$cov_status" -ne 0 ]; then
+		echo ""
+		echo "❌ pre-push: per-file coverage dropped (exit $cov_status) on a file this push changes."
+		echo "   Add tests to restore coverage. The baseline is a HIGH-WATER mark:"
+		echo "   'interlinked coverage check --update-baseline' only ever raises it and cannot accept a drop."
+		echo "   Bypass: git push --no-verify (use sparingly — same risk as red CI)"
+		exit 1
+	fi
+	echo "[pre-push] ✓ no per-file coverage regressions in the push range"
 fi
 
 # Package-surface pushes also run the build + distribution smokes (the CI steps
