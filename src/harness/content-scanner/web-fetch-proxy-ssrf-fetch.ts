@@ -345,10 +345,13 @@ export function pinnedFetch(target: VettedTarget): Promise<PinnedFetchResponse> 
 		const isHttps = target.url.protocol === "https:";
 		const requestFn = isHttps ? httpsRequest : httpRequest;
 		const defaultPort = isHttps ? 443 : 80;
-		// The explicit-port arm is exercised by every test; the default-port
-		// fallback is only taken for portless URLs, which would require binding
-		// privileged 80/443 (root) or hitting whatever already listens there
-		// (non-hermetic) to cover — so the else-branch is coverage-ignored.
+		// The explicit-port arm is exercised by every test. The default-port
+		// fallback is TESTABLE, not unmeasurable: calling the exported
+		// `pinnedFetch` with a portless URL pinned to 127.0.0.1 takes this arm
+		// and settles in a few ms (ECONNREFUSED when nothing listens on 80).
+		// The pragma is therefore left DELIBERATELY BARE so the
+		// suppressions-unjustified surface keeps reporting it as a
+		// coverage-campaign target: remove the pragma, write the test.
 		/* v8 ignore next */
 		const port = target.url.port !== "" ? Number(target.url.port) : defaultPort;
 		// `lookup` runs once per connect; we synchronously hand back the
@@ -369,7 +372,7 @@ export function pinnedFetch(target: VettedTarget): Promise<PinnedFetchResponse> 
 		req.on("response", (res) => {
 			// `?? 0` is defensive: a delivered IncomingMessage always carries a
 			// numeric statusCode, so the null-coalesce arm can't be reached.
-			/* v8 ignore next */
+			/* v8 ignore next -- unmeasurable: a delivered IncomingMessage always carries a numeric statusCode, so the coalesce arm is structurally unreachable */
 			const status = res.statusCode ?? 0;
 			const location =
 				typeof res.headers.location === "string" ? res.headers.location : undefined;
@@ -385,7 +388,7 @@ export function pinnedFetch(target: VettedTarget): Promise<PinnedFetchResponse> 
 		// The timeout handler only fires after FETCH_TIMEOUT_MS (30 s) of socket
 		// inactivity; reaching it hermetically would mean a 30 s wall-clock wait,
 		// so the handler body is coverage-ignored. The registration line runs.
-		/* v8 ignore next */
+		/* v8 ignore next -- unmeasurable: the handler body needs 30 s of real socket inactivity to fire */
 		req.on("timeout", () => req.destroy(new Error(`fetch timeout after ${FETCH_TIMEOUT_MS}ms`)));
 		req.end();
 	});

@@ -11,6 +11,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import type { JsonObject } from "../../lib/json-types.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
+import {
+	evaluateVitestCoverageWaterLine,
+	isVitestConfigFile,
+} from "./vitest-coverage-water-line.js";
 
 export interface ConfigLooseningFinding {
 	rule: string;
@@ -24,7 +28,11 @@ const CONFIG_BASENAME_RE =
 	/(?:^|\/)(tsconfig(?:\.[^/]+)?\.json|biome\.json|biome\.jsonc|\.eslintrc(?:\.(?:json|js|cjs|mjs))?|package\.json)$/;
 
 function isConfigFile(filePath: string): boolean {
-	return CONFIG_BASENAME_RE.test(filePath.replace(/\\/g, "/"));
+	// Vitest/vite configs route here too — their `coverage.include` /
+	// `coverage.exclude` arrays are a water-line (see
+	// `vitest-coverage-water-line.ts`, which owns that basename pattern so the
+	// routing rule exists in exactly one place).
+	return CONFIG_BASENAME_RE.test(filePath.replace(/\\/g, "/")) || isVitestConfigFile(filePath);
 }
 
 export function safeJsonParse(text: string): unknown {
@@ -365,7 +373,10 @@ function reconstructProposedFromOldNew(
 	return reconstructEditContent(disk, oldString, newString);
 }
 
-export function evaluateConfigLooseningForEvent(event: HarnessEvent): HarnessDecision | null {
+export function evaluateConfigLooseningForEvent(
+	event: HarnessEvent,
+	warnings?: string[],
+): HarnessDecision | null {
 	const toolInput = event.tool_input || {};
 	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
 	if (!filePath || !isConfigFile(filePath)) return null;
@@ -376,6 +387,12 @@ export function evaluateConfigLooseningForEvent(event: HarnessEvent): HarnessDec
 	if (proposed === null) return null;
 
 	const head = readHeadVersion(filePath);
+	// Vitest/vite arm: the coverage denominator is a ratchet water-line, not a
+	// JSON strictness flag, so it has its own AST comparison and its own
+	// (blocking) verdict. Same bypass env as the tsconfig arm below.
+	if (isVitestConfigFile(filePath)) {
+		return evaluateVitestCoverageWaterLine(filePath, head, proposed, warnings);
+	}
 	const findings = detectConfigLoosening(filePath, head, proposed);
 	if (findings.length === 0) return null;
 	const messages = findings.map((f) => `[${f.rule}] ${f.message}`).join("\n  ");

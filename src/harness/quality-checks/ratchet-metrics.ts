@@ -14,8 +14,19 @@ import { stripAllLiterals } from "../strip-helpers.js";
 // unlimited interlinked findings without tripping any ratchet, while the same
 // move via @ts-ignore was counted. `interlinked: defer` is deliberately NOT
 // counted: defers keep the finding visible and are loud audit signal by design.
+//
+// Coverage-ignore pragmas (`v8 ignore` / `c8 ignore` / `istanbul ignore` /
+// `node:coverage ignore`) are counted for the same reason: they delete lines
+// from the coverage denominator, so an agent facing the coverage ratchet can
+// raise its score without writing a test. The alternation mirrors the token
+// grammar the installed provider actually parses, verbatim
+// (ast-v8-to-istanbul's `ignore-hints.ts`:
+// `/^\s*(?:istanbul|[cv]8|node:coverage)\s+ignore\s+(if|else|next|file)(?=\W|$)/`).
+// `node:coverage` is included even though no file in this tree uses it: the
+// installed provider honors it (measured — the pragma'd statement leaves the
+// statementMap), so a token this counter cannot see is a free bypass.
 const SUPPRESSION_PATTERN =
-	/@ts-ignore|@ts-expect-error|@ts-nocheck|eslint-disable|biome-ignore|interlinked-ignore/g;
+	/@ts-ignore|@ts-expect-error|@ts-nocheck|eslint-disable|biome-ignore|interlinked-ignore|(?:istanbul|[cv]8|node:coverage)\s+ignore/g;
 const AS_ANY_PATTERN = /\bas\s+any\b/g;
 // Non-null assertion: identifier followed by `!` then `.`, `[`, `(`, or `)` —
 // the positions that distinguish a type assertion from boolean negation /

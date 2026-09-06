@@ -129,6 +129,18 @@ function collectSuppressionFileWarnings(filePath: string): string[] {
  *     `// biome-ignore lint/foo: reason`
  *   - `@ts-nocheck`: file-level directive with no per-line justification
  *     convention; not enforced here (just counted as informational)
+ *   - `v8 ignore` / `c8 ignore` / `istanbul ignore` / `node:coverage ignore`:
+ *     the coverage-ignore pragmas. They are suppressions of the coverage
+ *     ratchet — a pragma'd line leaves the denominator entirely, so the file's
+ *     percentage rises with no test written. The convention is the ESLint one,
+ *     ` -- reason`: a `v8 ignore next` hint followed by
+ *     ` -- child-process-only path`, inside either comment form. It is chosen
+ *     because the installed provider still honors the hint with the suffix
+ *     present: ast-v8-to-istanbul's `ignore-hints.ts` matches
+ *     `/^\s*(?:istanbul|[cv]8|node:coverage)\s+ignore\s+(if|else|next|file)(?=\W|$)/`
+ *     after stripping the comment markers, and the `(?=\W|$)` lookahead
+ *     accepts any non-word character (a space) after the hint word — verified
+ *     empirically, not by reading alone.
  */
 const SUPPRESSION_DIRECTIVES: ReadonlyArray<{
 	label: string;
@@ -162,6 +174,24 @@ const SUPPRESSION_DIRECTIVES: ReadonlyArray<{
 		re: /\/\/\s*biome-ignore\b([^\n]*)/,
 		// Biome convention: `// biome-ignore lint/foo: reason` (colon).
 		isJustified: (suffix) => /:\s*\S/.test(suffix),
+	},
+	{
+		label: "coverage-ignore",
+		// Both comment forms: the block form is the idiomatic one for these
+		// pragmas, and the provider strips `//`, `/*` and `/**` alike before
+		// matching. The tool tokens and hint words are the provider's own sets
+		// (istanbul / c8 / v8 / node:coverage; if/else/next/file/start/stop).
+		// `next` tolerates trailing text — which is exactly what the ` -- reason`
+		// convention relies on — but ast-v8-to-istanbul 1.0.3 does NOT honor a
+		// line COUNT there: measured, a `next 3` hint suppresses one node, not
+		// three (the provider regex captures only the hint word). The example
+		// is written without comment delimiters on purpose — this matcher is
+		// unanchored, so a quoted pragma inside prose would match itself.
+		re: /(?:\/\/|\/\*+)\s*(?:istanbul|[cv]8|node:coverage)\s+ignore\s+(?:if|else|next|file|start|stop)\b([^\n]*)/,
+		// ESLint's ` -- reason` separator, chosen because the provider's
+		// `(?=\W|$)` lookahead tolerates it. The closing `*/` of the block
+		// form is stripped first so it is never mistaken for a reason.
+		isJustified: (suffix) => / -- \S/.test(suffix.replace(/\*+\/\s*$/, "")),
 	},
 ];
 
@@ -211,7 +241,9 @@ function formatSuppressionWarnings(filePath: string, content: string): string[] 
 			`[interlinked:suppressions-unjustified] ${filePath} has bare suppression comments without a reason: ` +
 				`${unjustifiedParts.join(", ")}. Add a justification: ` +
 				"`// @ts-ignore: <reason>`, `// eslint-disable-next-line <rule> -- <reason>`, " +
-				"or `// biome-ignore lint/<rule>: <reason>`. " +
+				"`// biome-ignore lint/<rule>: <reason>`, " +
+				"or `v8 ignore next -- <reason>` (same ` -- ` separator; the coverage " +
+				"provider still honors the hint with the reason attached). " +
 				"Bare disables silently bypass safety; justified ones leave an audit trail for reviewers.",
 		);
 	}

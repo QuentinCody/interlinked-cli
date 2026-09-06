@@ -927,6 +927,112 @@ describe("post-write file warnings", () => {
 		expect(soft).toContain("biome-ignore");
 	});
 
+	// ---------------------------------------------------------------
+	// Coverage-ignore pragmas (`v8 ignore` / `c8 ignore` / `istanbul ignore`)
+	// are suppressions of the coverage ratchet: a pragma'd line leaves the
+	// denominator, so the percentage rises with no test written. Convention is
+	// ESLint's ` -- reason`, which ast-v8-to-istanbul still honors.
+	// ---------------------------------------------------------------
+
+	// test-contract: public-api — coverage-ignore positive (must fire)
+	it("P1: reports a bare block-form `/* v8 ignore next */` as unjustified with its line number", () => {
+		const p = write("v8-bare.ts", ["const a = 1;", "/* v8 ignore next */", "const b = 2;", ""].join("\n"));
+		const ws = collectPostWriteFileWarnings(makeWriteEvent(p));
+		const hard = ws.find((w) => w.includes("[interlinked:suppressions-unjustified]"));
+		expect(hard).toBeDefined();
+		expect(hard).toContain("1x coverage-ignore (lines: 2)");
+	});
+
+	// test-contract: public-api — coverage-ignore positive (must fire)
+	it("P2: reports bare c8 and istanbul pragmas as unjustified", () => {
+		const p = write(
+			"c8-istanbul-bare.ts",
+			["/* c8 ignore next */", "/* istanbul ignore else */", "const x = 1;", ""].join("\n"),
+		);
+		const ws = collectPostWriteFileWarnings(makeWriteEvent(p));
+		const hard = ws.find((w) => w.includes("[interlinked:suppressions-unjustified]"));
+		expect(hard).toBeDefined();
+		expect(hard).toContain("2x coverage-ignore (lines: 1, 2)");
+	});
+
+	// test-contract: public-api — coverage-ignore positive (must fire)
+	it("P3: reports the line-comment spelling `// v8 ignore start` as unjustified", () => {
+		const p = write("v8-line-form.ts", ["// v8 ignore start", "const x = 1;", ""].join("\n"));
+		const ws = collectPostWriteFileWarnings(makeWriteEvent(p));
+		const hard = ws.find((w) => w.includes("[interlinked:suppressions-unjustified]"));
+		expect(hard).toBeDefined();
+		expect(hard).toContain("1x coverage-ignore (lines: 1)");
+	});
+
+	// test-contract: public-api — coverage-ignore positive (must fire)
+	it("P4: names the ` -- <reason>` convention in the unjustified message", () => {
+		const p = write("v8-guidance.ts", ["/* v8 ignore next */", "const x = 1;", ""].join("\n"));
+		const hard = collectPostWriteFileWarnings(makeWriteEvent(p)).find((w) =>
+			w.includes("[interlinked:suppressions-unjustified]"),
+		);
+		expect(hard).toContain("v8 ignore next -- <reason>");
+	});
+
+	// test-contract: public-api — coverage-ignore positive (must fire).
+	// `node:coverage` is the fourth tool token ast-v8-to-istanbul accepts, and
+	// the installed provider really honors it (measured: the pragma'd statement
+	// leaves the statementMap), so a bare one must be reported like any other.
+	it("P5: reports a bare `node:coverage ignore next` as unjustified", () => {
+		const p = write(
+			"node-coverage-bare.ts",
+			["const a = 1;", "/* node:coverage ignore next */", "const b = 2;", ""].join("\n"),
+		);
+		const ws = collectPostWriteFileWarnings(makeWriteEvent(p));
+		const hard = ws.find((w) => w.includes("[interlinked:suppressions-unjustified]"));
+		expect(hard).toBeDefined();
+		expect(hard).toContain("1x coverage-ignore (lines: 2)");
+	});
+
+	// test-contract: public-api — coverage-ignore negative (must not fire)
+	it("N1: accepts a block-form pragma carrying the ` -- reason` justification", () => {
+		const p = write(
+			"v8-justified.ts",
+			["/* v8 ignore next -- child-process-only path */", "const x = 1;", ""].join("\n"),
+		);
+		const ws = collectPostWriteFileWarnings(makeWriteEvent(p));
+		expect(ws.some((w) => w.includes("[interlinked:suppressions-unjustified]"))).toBe(false);
+		const soft = ws.find((w) => w.includes("[interlinked:suppressions]"));
+		expect(soft).toContain("1x coverage-ignore");
+	});
+
+	// test-contract: boundary — coverage-ignore negative (must not fire); a
+	// trailing count before the ` -- reason` still classifies as justified.
+	// This pins the CLASSIFIER only: ast-v8-to-istanbul 1.0.3 ignores the count
+	// itself (measured — `next 8` suppresses one node, not eight), so this case
+	// must not be read as evidence that the count works.
+	it("N2: classifies `v8 ignore next 8 -- reason` as justified (the count is parsed past, not honored by the provider)", () => {
+		const p = write(
+			"v8-count-justified.ts",
+			["/* v8 ignore next 8 -- defensive: structurally unreachable */", "const x = 1;", ""].join("\n"),
+		);
+		const ws = collectPostWriteFileWarnings(makeWriteEvent(p));
+		expect(ws.some((w) => w.includes("[interlinked:suppressions-unjustified]"))).toBe(false);
+	});
+
+	// test-contract: boundary — coverage-ignore positive (must fire); the
+	// closing `*/` is never a reason, so the pragma stays unjustified and the
+	// hard warning MUST be emitted. (Labeled P, not N: the assertion is that
+	// the check fires.)
+	it("P6: does not read the closing comment marker as a justification", () => {
+		const p = write("v8-count-bare.ts", ["/* v8 ignore next 8 */", "const x = 1;", ""].join("\n"));
+		const hard = collectPostWriteFileWarnings(makeWriteEvent(p)).find((w) =>
+			w.includes("[interlinked:suppressions-unjustified]"),
+		);
+		expect(hard).toContain("1x coverage-ignore (lines: 1)");
+	});
+
+	// test-contract: boundary — coverage-ignore negative (must not fire); a word the provider does not accept is not a pragma
+	it("N3: does not treat `v8 ignore everything` as a coverage pragma", () => {
+		const p = write("v8-not-a-hint.ts", ["/* v8 ignore everything */", "const x = 1;", ""].join("\n"));
+		const ws = collectPostWriteFileWarnings(makeWriteEvent(p));
+		expect(ws.some((w) => w.includes("coverage-ignore"))).toBe(false);
+	});
+
 	// test-contract: public-api — the spaced, suffix-less @ts-nocheck directive is recognized and counted as informational
 	it("recognizes a spaced @ts-nocheck with no trailing text", () => {
 		const p = write("nocheck-bare.ts", "// @ts-nocheck\nconst x = 1;\n");

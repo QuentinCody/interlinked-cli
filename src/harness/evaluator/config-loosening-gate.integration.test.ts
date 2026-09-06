@@ -906,3 +906,206 @@ describe("evaluateConfigLooseningForEvent — Edit tool reconstruction path", ()
 		expect(decision).toBeNull();
 	});
 });
+
+// ==========================================================================
+// Vitest coverage denominator — the second water-line arm of this gate.
+// Driven through the SAME entry the daemon uses, against a REAL git repo, so
+// `git show HEAD:<rel>` is exercised rather than stubbed.
+// P = must fire (block). N = must not fire.
+// ==========================================================================
+
+/** A minimal but realistic vitest config. `coverageBody` is spliced into the
+ *  `coverage:` object so each case varies only the arrays under test. */
+function vitestConfigSource(coverageBody: string): string {
+	return [
+		'import { defineConfig } from "vitest/config";',
+		"",
+		"export default defineConfig({",
+		"	test: {",
+		'		include: ["src/**/*.test.ts"],',
+		"		coverage: {",
+		'			provider: "v8",',
+		`			${coverageBody}`,
+		"		},",
+		"	},",
+		"});",
+		"",
+	].join("\n");
+}
+
+const COMMITTED_VITEST = vitestConfigSource(
+	[
+		'include: ["src/**/*.ts", "src/**/*.tsx"],',
+		'			exclude: ["node_modules/**", "**/*.test.ts"],',
+	].join("\n"),
+);
+
+describe("evaluateConfigLooseningForEvent — vitest coverage water-line", () => {
+	let dir: string;
+	const savedBypass = process.env.INTERLINKED_DISABLE_BASELINE_GUARD;
+
+	afterEach(() => {
+		if (dir) rmSync(dir, { recursive: true, force: true });
+		if (savedBypass === undefined) delete process.env.INTERLINKED_DISABLE_BASELINE_GUARD;
+		else process.env.INTERLINKED_DISABLE_BASELINE_GUARD = savedBypass;
+	});
+
+	// test-contract: public-api — evaluateConfigLooseningForEvent is the daemon's
+	// entry; a grown coverage.exclude must come back as a block naming the member.
+	it("P1: a Write that adds a coverage.exclude glob BLOCKS", () => {
+		dir = makeRepoWithCommittedFile("vitest.config.ts", COMMITTED_VITEST);
+		const proposed = vitestConfigSource(
+			[
+				'include: ["src/**/*.ts", "src/**/*.tsx"],',
+				'			exclude: ["node_modules/**", "**/*.test.ts", "src/harness/legacy/**"],',
+			].join("\n"),
+		);
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "vitest.config.ts"), content: proposed }, dir),
+		);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.rule_id).toBe("config_loosening_gate");
+		expect(decision?.severity).toBe("high");
+		expect(decision?.category).toBe("config");
+		expect(decision?.reason).toContain("src/harness/legacy/**");
+		expect(decision?.reason).toContain("INTERLINKED_DISABLE_BASELINE_GUARD=1");
+	});
+
+	// test-contract: public-api — the Edit tool shape (old_string/new_string) is
+	// reconstructed from disk before the comparison, same as the tsconfig arm.
+	it("P2: an Edit that adds a coverage.exclude glob BLOCKS", () => {
+		dir = makeRepoWithCommittedFile("vitest.config.ts", COMMITTED_VITEST);
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent(
+				{
+					file_path: join(dir, "vitest.config.ts"),
+					old_string: 'exclude: ["node_modules/**", "**/*.test.ts"],',
+					new_string: 'exclude: ["node_modules/**", "**/*.test.ts", "src/generated/**"],',
+				},
+				dir,
+			),
+		);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("src/generated/**");
+	});
+
+	// test-contract: invariant — the denominator shrinks when an include entry
+	// is dropped, so that direction blocks too.
+	it("P3: a Write that drops a coverage.include glob BLOCKS", () => {
+		dir = makeRepoWithCommittedFile("vitest.config.ts", COMMITTED_VITEST);
+		const proposed = vitestConfigSource(
+			['include: ["src/**/*.ts"],', '			exclude: ["node_modules/**", "**/*.test.ts"],'].join(
+				"\n",
+			),
+		);
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "vitest.config.ts"), content: proposed }, dir),
+		);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("src/**/*.tsx");
+	});
+
+	it("N1: rewriting the committed config byte-identically allows", () => {
+		dir = makeRepoWithCommittedFile("vitest.config.ts", COMMITTED_VITEST);
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "vitest.config.ts"), content: COMMITTED_VITEST }, dir),
+		);
+		expect(decision).toBeNull();
+	});
+
+	it("N2: shrinking the exclude list allows", () => {
+		dir = makeRepoWithCommittedFile("vitest.config.ts", COMMITTED_VITEST);
+		const proposed = vitestConfigSource(
+			['include: ["src/**/*.ts", "src/**/*.tsx"],', '			exclude: ["node_modules/**"],'].join(
+				"\n",
+			),
+		);
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "vitest.config.ts"), content: proposed }, dir),
+		);
+		expect(decision).toBeNull();
+	});
+
+	it("N3: an untracked vitest config (no HEAD blob) allows", () => {
+		// The repo commits a DIFFERENT file, so `git show HEAD:vitest.config.ts`
+		// fails and readHeadVersion returns "".
+		dir = makeRepoWithCommittedFile("README.md", "# fixture\n");
+		const proposed = vitestConfigSource('exclude: ["everything/**"],');
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "vitest.config.ts"), content: proposed }, dir),
+		);
+		expect(decision).toBeNull();
+	});
+
+	it("N4: INTERLINKED_DISABLE_BASELINE_GUARD=1 allows an otherwise-blocking edit", () => {
+		dir = makeRepoWithCommittedFile("vitest.config.ts", COMMITTED_VITEST);
+		process.env.INTERLINKED_DISABLE_BASELINE_GUARD = "1";
+		const proposed = vitestConfigSource(
+			[
+				'include: ["src/**/*.ts", "src/**/*.tsx"],',
+				'			exclude: ["node_modules/**", "**/*.test.ts", "src/harness/legacy/**"],',
+			].join("\n"),
+		);
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "vitest.config.ts"), content: proposed }, dir),
+		);
+		expect(decision).toBeNull();
+	});
+
+	// test-contract: boundary — the lane configs in this repo spread the base and
+	// declare NO coverage arrays; they must never be gated.
+	it("N5: a lane config that spreads the base and adds a TEST exclude allows", () => {
+		const before = [
+			'import baseConfig from "./vitest.config";',
+			"export default { ...baseConfig, test: { ...baseConfig.test } };",
+			"",
+		].join("\n");
+		dir = makeRepoWithCommittedFile("vitest.unit.config.ts", before);
+		const proposed = [
+			'import baseConfig from "./vitest.config";',
+			'export default { ...baseConfig, test: { ...baseConfig.test, exclude: ["**/*.integration.test.ts"] } };',
+			"",
+		].join("\n");
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "vitest.unit.config.ts"), content: proposed }, dir),
+		);
+		expect(decision).toBeNull();
+	});
+
+	it("N6: a non-literal exclude member allows and pushes an abstention warning", () => {
+		dir = makeRepoWithCommittedFile("vitest.config.ts", COMMITTED_VITEST);
+		const proposed = vitestConfigSource('exclude: [...BASE_EXCLUDE, "src/new/**"],');
+		const warnings: string[] = [];
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "vitest.config.ts"), content: proposed }, dir),
+			warnings,
+		);
+		expect(decision).toBeNull();
+		expect(warnings.join("\n")).toContain("BASE_EXCLUDE");
+	});
+
+	it("N7: a syntax error in the proposed config allows and warns", () => {
+		dir = makeRepoWithCommittedFile("vitest.config.ts", COMMITTED_VITEST);
+		const warnings: string[] = [];
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent(
+				{
+					file_path: join(dir, "vitest.config.ts"),
+					content: "export default { coverage: { exclude: [ , }",
+				},
+				dir,
+			),
+			warnings,
+		);
+		expect(decision).toBeNull();
+		expect(warnings.join("\n")).toMatch(/parse|syntax/i);
+	});
+
+	it("N8: a non-vitest, non-config file is not routed here at all", () => {
+		dir = makeRepoWithCommittedFile("src-vitest.ts", "export const a = 1;\n");
+		const decision = evaluateConfigLooseningForEvent(
+			makeEvent({ file_path: join(dir, "src-vitest.ts"), content: "export const a = 2;\n" }, dir),
+		);
+		expect(decision).toBeNull();
+	});
+});

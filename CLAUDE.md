@@ -590,11 +590,20 @@ verifier), add its id to `PROVEN_TOOL_CHECKS`. Inline checks in
 maintenance.
 
 Suppression comments (`// @ts-ignore`, `// eslint-disable-next-line`,
-`// biome-ignore`) are split into two warnings: `suppressions-unjustified`
+`// biome-ignore`, and since 2026-09-04 the coverage-ignore pragmas
+`v8 ignore` / `c8 ignore` / `istanbul ignore` / `node:coverage ignore`, which
+shrink the coverage denominator and were previously invisible to every
+surface) are split into two warnings: `suppressions-unjustified`
 (loud, line-numbered) and `suppressions` (soft, fired only when every
 disable on the file carries a reason). Justification conventions: any
 text after `@ts-ignore`/`@ts-expect-error`; ` -- ` for ESLint; `:` for
-Biome. `@ts-nocheck` is exempt (file-level, no per-line convention).
+Biome; ` -- <reason>` for coverage pragmas (`/* v8 ignore next -- child
+process only */` — measured against ast-v8-to-istanbul 1.0.3: trailing text
+is tolerated, the `next N` count is NOT honored, so one node is suppressed
+regardless of N). `@ts-nocheck` is exempt (file-level, no per-line
+convention). The same token list drives the delta `suppression_ratchet`
+(`quality-checks/ratchet-metrics.ts`); both surfaces mirror the provider's
+ignore-hint grammar verbatim.
 
 ## Querying the local data (`.interlinked/`) — check it BEFORE raw transcripts
 
@@ -905,6 +914,17 @@ BLOCKS a Write/Edit that flips any tracked strictness flag off relative to git H
 `allowUnreachableCode: false`). Same bypass env as above. `package.json` / biome loosening
 stays ask-mode. The `tsconfig_strictness` check *demands* only four flags from any repo; the
 three dead-code flags are advisory there — the gate ratchets them once a repo turns them on.
+**The vitest coverage denominator is a water-line too** (2026-09-04, coverage-campaign
+pre-work): the same gate routes `vitest.config.*` / `vitest.<lane>.config.*` / `vite.config.*`
+to `evaluator/vitest-coverage-water-line.ts`, which BLOCKS a Write/Edit whose
+`coverage.exclude` gains a member or whose `coverage.include` loses one relative to git HEAD
+(set semantics; reorder/dedupe/format allowed). It compares only when BOTH sides declare the
+array as string literals; a spread, identifier, template-with-expression, second `coverage:`
+object, parse failure, `typescript` unavailable, or present-vs-absent array is UNDECIDABLE and
+allows with a warning naming the member — a block needs ~zero FP, and a declared array
+replaces vitest's defaults so absent-vs-present is not comparable. One line in that array
+used to remove a file from every coverage ratchet forever, silently (the ratchet iterates the
+REPORT and copies a vanished file's baseline entry forward).
 
 A **commit-gate backstop** (`evaluator/commit-baseline-gate.ts`, wired in
 `pre-tool-pipeline.ts` before `runCommitGate`) closes the `apply_patch`/sub-agent hole
@@ -967,7 +987,7 @@ lanes, every one a deterministic local surface; numbers live in
 | Grandfather ledger | `interlinked caps ratchet <cyclomatic\|cognitive> --to <n> [--dry-run]`, `caps status`; `.interlinked/function-complexity-baseline.json` (committed; `function-complexity-baseline.ts`, gate `evaluator/function-complexity-baseline-gate.ts`) | Tightens the cap and records every function over it as `{file,name,line,value}`. A listed function may HOLD or shrink at its recorded value; an unlisted over-cap function blocks even when held. Shrink-only under `baseline_integrity_gate` (a value may fall, an entry may drop, nothing may be added except by `caps ratchet` on a tightening; Write-tool creation of the ledger is refused — only the ratchet writes it). `caps set cyclomatic\|cognitive` delegates to the ratchet whenever a section exists, so cap and ledger cannot drift; the commit-gate backstop covers it as a tracked baseline. |
 | Census + proposals | `interlinked metrics complexity [--metric …] [--top n]`, `interlinked caps propose` (`commands/metrics-complexity.ts`) | Percentile ladder, histograms, hotspots, per-file mass, and "the smallest cap whose ledger stays under budget". Calibrate against the TREE, never fixtures. |
 | Decomposition plan | `harness/decomposition-plan.ts`, wired as `planFor` on the cyclomatic spec (`evaluator/metric-gate-plan-hints.ts`) | The cyclomatic block now carries a `↳ plan:` sub-line per named over-cap function: the fewest arm extractions that bring it under the cap. Anonymous units and held/grandfathered functions get no plan. |
-| Moved-line coverage | `evaluator/coverage-moved-lines.ts` | Per-edit coverage splits edited lines by PROVENANCE (multiset diff of normalized text): a relocated uncovered line is not a NEW uncovered line, so an extraction no longer trips the added-line block. The per-file drop backstop is unchanged. |
+| Moved-line coverage | **NOT LANDED** (2026-09-04 audit: `evaluator/coverage-moved-lines.ts` was never added to git; no `classifyEditedLines` symbol exists; the only trace is an agent lane record in `scratch/build-lanes.json`) | Designed behavior: per-edit coverage would split edited lines by PROVENANCE (multiset diff of normalized text) so a relocated uncovered line is not a NEW uncovered line. Today the added-line block has no such exemption; `per_edit_coverage` is OFF locally so nothing observes the gap. |
 | Survivor moves | `mutation/survivor-moves.ts` (`priorContent` on `evaluateMutation`, `movedSurvivors` on the verdict) | Per-edit mutation reconciles a survivor that moved into an extracted helper against its vanished same-content twin instead of charging it as new. A vanished NON-accepted twin (killed/uncovered) never excuses an arrival. |
 | Assertion moves | `checks/assertion-move.ts`, `harness/assertion-waiver-log.ts`; `INTERLINKED_ASSERTION_MOVE_WAIVER=1` (logged) | `mutation_directed_assertion_removal` distinguishes an assertion MOVED to a new test file from one deleted; the waiver is an audited one-command escape, never silent. |
 | Characterize-first | `evaluator/characterize-campaign-target.ts`; `structural_checks.characterize_mode: block\|warn\|off` (default `warn`) | In `block`, an edit to a ledger-listed function requires an observed test run covering that file first (per-file, directory, or `.`). Covers Write/Edit/MultiEdit AND apply_patch. |

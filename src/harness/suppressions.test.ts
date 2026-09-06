@@ -541,6 +541,25 @@ describe("loadFileSuppressions / loadSuppressionFile / addSuppressions / glob", 
 				rmSync(otherDir, { recursive: true, force: true });
 			}
 		});
+
+		it("reports no match when the glob's compiled regex is rejected by the regex engine", () => {
+			const width = 40_000;
+			const target = "a".repeat(width);
+			write({
+				[`${"?".repeat(width)}`]: { toobig: { reason: "x", by: "cli", at: "n" } },
+				[target]: { exact: { reason: "x", by: "cli", at: "n" } },
+			});
+			const checks = loadFileSuppressions(dir, target);
+			// `^[^/]…[^/]$` at this width WOULD match a 40k-char slash-free path
+			// if the regex engine accepted it; irregexp instead rejects it at
+			// `.test()` time ("Regular expression too large"), so the catch at
+			// line 301 must answer false — the only way `toobig` stays absent.
+			expect(checks.has("toobig")).toBe(false);
+			// The co-located exact-match key must still come back, proving the
+			// throw was caught locally and did not escape to the outer catch
+			// (which would have dropped `exact` too).
+			expect(checks.has("exact")).toBe(true);
+		});
 	});
 
 	describe("loadSuppressionFile", () => {

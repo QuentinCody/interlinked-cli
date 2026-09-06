@@ -168,7 +168,7 @@ describe("coverageCheckCommand — regression findings (exact multi-line block)"
 			c.red("  1 regression(s):"),
 			`    ${c.red("✗")} src/foo.ts ${c.dim("[lines]")} 100% → 50% ${c.dim("(-50.0%)")}`,
 			"",
-			c.dim("  Add tests to restore coverage, or run with --update-baseline to accept."),
+			c.dim("  Add tests to restore coverage (the baseline is a high-water mark; --update-baseline only raises it)."),
 		].join("\n");
 		expect(printed).toBe(expected);
 		expect(process.exitCode).toBe(1); // error severity always fails regardless of --strict
@@ -427,5 +427,154 @@ describe("loadMergedReport — mtime ordering (freshest wins)", () => {
 		// merge would let the OLDER (50%) entry win instead.
 		const { summary } = loadMergedReport([newer, older], cwd);
 		expect(nonNull(summary["src/dual.ts"]?.lines).pct).toBe(100);
+	});
+});
+
+// ===========================================================================
+// --strict exit policy (2026-09)
+// ===========================================================================
+// Coverage-drop findings carry severity "warning" (coverage-ratchet.ts's
+// buildFinding hardcodes it), so `--strict` is the ONLY thing that turns a
+// per-file drop into a non-zero exit. Until 2026-09 the flag was READ here but
+// never REGISTERED in src/registrars/quality.ts, so commander rejected it as
+// an unknown option and `interlinked coverage check` exited 0 with 154 drop
+// findings on this very repo. These cases pin both halves: the exit policy
+// itself, and commander actually accepting the flag through the real
+// registrar → real command path.
+//
+// Fixture layout is identical in every case: `src/foo.ts` at 100/100 in the
+// baseline, and an LCOV report giving it 1-of-2 lines hit (50%).
+
+/** Baseline `src/foo.ts` at 100% lines/branches under a temp `.interlinked/`. */
+function seedFullCoverageBaseline(file = "src/foo.ts"): void {
+	mkdirSync(join(cwd, ".interlinked"), { recursive: true });
+	saveBaseline(join(cwd, ".interlinked"), {
+		version: 1,
+		updated_at: new Date(0).toISOString(),
+		files: { [file]: { lines_pct: 100, branches_pct: 100 } },
+	});
+}
+
+/** LCOV report where `file` has 1 of 2 lines hit — a 100% → 50% drop. */
+function writeHalfCoveredLcov(file = "src/foo.ts"): void {
+	mkdirSync(join(cwd, "coverage"), { recursive: true });
+	writeFileSync(
+		join(cwd, "coverage/lcov.info"),
+		[`SF:${file}`, "DA:1,1", "DA:2,0", "end_of_record", ""].join("\n"),
+	);
+}
+
+/** The one rendered string `output()` hands to console.log in normal mode. */
+function firstLogArg(logSpy: { mock: { calls: unknown[][] } }): string {
+	// SAFETY: console.log is mocked in every case below; `output()` makes
+	// exactly one call and its sole argument is the rendered report string.
+	return logSpy.mock.calls[0]?.[0] as string;
+}
+
+/** The real CLI program: registrar-registered `coverage` command tree wired to
+ *  the REAL command module (no mocks) so a missing/renamed option flag fails
+ *  here exactly as it would at the terminal. `exitOverride` turns commander's
+ *  `process.exit` into a throw the test can observe. */
+async function parseCoverageArgv(argv: string[]): Promise<void> {
+	const { Command } = await import("commander");
+	const { registerQualityCommands } = await import("../../registrars/quality.js");
+	const program = new Command();
+	program.exitOverride();
+	registerQualityCommands(program);
+	for (const cmd of program.commands) {
+		cmd.exitOverride();
+		for (const sub of cmd.commands) sub.exitOverride();
+	}
+	await program.parseAsync(argv, { from: "user" });
+}
+
+describe("coverage check --strict — positive (must fire)", () => {
+	it("P1: --strict with a per-file drop sets exitCode 1", async () => {
+		seedFullCoverageBaseline();
+		writeHalfCoveredLcov();
+		vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await coverageCheckCommand({ cwd, strict: true });
+
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("P2: commander ACCEPTS --strict through the real registrar and the drop still exits 1", async () => {
+		seedFullCoverageBaseline();
+		writeHalfCoveredLcov();
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		// Would have thrown CommanderError "unknown option '--strict'" before
+		// the flag was registered — the whole defect, reproduced end to end.
+		await expect(
+			parseCoverageArgv(["coverage", "check", "--strict", "--cwd", cwd]),
+		).resolves.toBeUndefined();
+
+		expect(firstLogArg(logSpy)).toContain("1 regression(s):");
+		expect(process.exitCode).toBe(1);
+	});
+
+	it("P3: --changed-files scopes the ratchet to the listed files (drop inside the scope still fires)", async () => {
+		seedFullCoverageBaseline();
+		writeHalfCoveredLcov();
+		vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await coverageCheckCommand({ cwd, strict: true, changedFiles: "src/foo.ts" });
+
+		expect(process.exitCode).toBe(1);
+	});
+});
+
+describe("coverage check --strict — negative (must not fire)", () => {
+	it("N1: --strict with NO drop leaves exitCode 0", async () => {
+		seedFullCoverageBaseline();
+		// Both lines hit — coverage HOLDS at the 100% baseline.
+		mkdirSync(join(cwd, "coverage"), { recursive: true });
+		writeFileSync(
+			join(cwd, "coverage/lcov.info"),
+			["SF:src/foo.ts", "DA:1,1", "DA:2,1", "end_of_record", ""].join("\n"),
+		);
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await coverageCheckCommand({ cwd, strict: true });
+
+		expect(firstLogArg(logSpy)).toContain(c.green("  ✓ No per-file coverage regressions."));
+		expect(process.exitCode).toBe(0);
+	});
+
+	it("N2: a drop WITHOUT --strict exits 0 and prints the advisory line", async () => {
+		seedFullCoverageBaseline();
+		writeHalfCoveredLcov();
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await coverageCheckCommand({ cwd });
+
+		const printed = firstLogArg(logSpy);
+		expect(printed).toContain("1 regression(s):");
+		expect(printed).toContain(
+			c.dim("  ADVISORY: exit 0 — re-run with --strict to fail on any per-file drop."),
+		);
+		expect(process.exitCode).toBe(0);
+	});
+
+	it("N3: --changed-files EXCLUDING the dropped file reports nothing, even under --strict", async () => {
+		seedFullCoverageBaseline();
+		writeHalfCoveredLcov();
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await coverageCheckCommand({ cwd, strict: true, changedFiles: "src/unrelated.ts" });
+
+		expect(firstLogArg(logSpy)).toContain(kvLine("Files checked", "0"));
+		expect(process.exitCode).toBe(0);
+	});
+
+	it("N4: the advisory line is ABSENT under --strict (the run is not advisory)", async () => {
+		seedFullCoverageBaseline();
+		writeHalfCoveredLcov();
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+		await coverageCheckCommand({ cwd, strict: true });
+
+		expect(firstLogArg(logSpy)).not.toContain("ADVISORY: exit 0");
 	});
 });

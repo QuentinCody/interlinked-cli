@@ -227,12 +227,15 @@ describe("registerQualityCommands — command + option descriptions (mutation-ki
 	it("coverage > check", () => {
 		const cmd = child(top(build(), "coverage"), "check");
 		expect(cmd.description()).toBe(
-			"Compare current coverage against baseline and exit non-zero on any per-file drop",
+			"Compare current coverage against the baseline. Per-file drops are ADVISORY (exit 0) unless --strict is passed",
 		);
 		expect(optionDescriptions(cmd)).toEqual({
-			"--summary": "Path to coverage-summary.json",
-			"--baseline": "Path to baseline (defaults to .interlinked/coverage-baseline.json)",
+			"--report":
+				"Path to one coverage report (LCOV .info or istanbul JSON). Default: merge every discovered coverage report",
+			"--changed-files": "Comma-separated repo-relative paths; only report drops for these files",
 			"--update-baseline": "Persist the current coverage as the new baseline",
+			"--strict": "exit non-zero on any per-file drop (default: advisory)",
+			"--cwd": "Project root (default: current directory)",
 			"--json": "Machine-readable output",
 		});
 	});

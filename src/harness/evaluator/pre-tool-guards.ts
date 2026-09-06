@@ -251,7 +251,11 @@ function mergeGateWarnings(d: HarnessDecision, warnings: string[]): HarnessDecis
 
 /**
  * Config-loosening gate — ask before strict-flag relaxations on
- * tsconfig.json / package.json / known config files.
+ * tsconfig.json / package.json / known config files; BLOCK a vitest/vite
+ * coverage-denominator loosening. The shared `warnings` array is threaded
+ * through so the vitest arm's fail-open abstentions (typescript unavailable,
+ * spread member, parse error) reach the agent instead of being computed and
+ * dropped (found 2026-09-04 by the P3 verifier).
  */
 export function evaluateConfigLooseningGate(
 	event: HarnessEvent,
@@ -259,8 +263,8 @@ export function evaluateConfigLooseningGate(
 	warnings: string[],
 ): HarnessDecision | null {
 	if (isFileWrite(toolName)) {
-		const d = evaluateConfigLooseningForEvent(event);
-		if (d) return { ...d, warnings };
+		const d = evaluateConfigLooseningForEvent(event, warnings);
+		if (d) return mergeGateWarnings(d, warnings);
 	}
 	return null;
 }

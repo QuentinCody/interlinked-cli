@@ -9,8 +9,15 @@
 // previous one's report, so the ratchet silently lost a language) — and falling
 // back to the istanbul/v8 `coverage-summary.json`. Loads the baseline from
 // .interlinked/coverage-baseline.json, runs compareCoverage, and renders
-// results. `--update-baseline` explicitly persists the new state; without it,
-// any per-file drop surfaces as a finding and exits non-zero.
+// results. `--update-baseline` explicitly persists the new state.
+//
+// Exit policy: a per-file drop is ADVISORY by default (rendered, exit 0) and
+// fails the run only under `--strict`. The findings carry severity "warning"
+// (`coverage-ratchet.ts::buildFinding` is their only producer and hardcodes
+// it), so `--strict` is the ONLY thing that turns a drop into exit 1 — which
+// is why the flag has to be registered on the command; while it was missing
+// from the registrar, commander refused it as an unknown option and the
+// ratchet could not fail on anything.
 
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -108,7 +115,7 @@ function runCoverageCheck(
 
 	output(mode, buildJsonPayload(reportPath, result), {
 		json: () => buildJsonPayload(reportPath, result),
-		normal: () => renderNormal(reportPath, result),
+		normal: () => renderNormal(reportPath, result, opts.strict === true),
 	});
 
 	// A partial/scoped report (see `detectPartialReport`) is UNMEASURED, not
@@ -323,7 +330,7 @@ function renderPartialReportNotice(partialReport: PartialReportVerdict): string 
 	return lines.join("\n");
 }
 
-function renderNormal(reportPath: string, result: CoverageRatchetResult): string {
+function renderNormal(reportPath: string, result: CoverageRatchetResult, strict: boolean): string {
 	const lines: string[] = [];
 	lines.push(header("Coverage Ratchet"));
 	lines.push(kvLine("Report", reportPath));
@@ -354,6 +361,15 @@ function renderNormal(reportPath: string, result: CoverageRatchetResult): string
 		);
 	}
 	lines.push("");
-	lines.push(c.dim("  Add tests to restore coverage, or run with --update-baseline to accept."));
+	// The baseline is a high-water mark (`compareFileEntry` keeps the prior
+	// value on a drop), so --update-baseline cannot "accept" a regression —
+	// the old hint said it could.
+	lines.push(c.dim("  Add tests to restore coverage (the baseline is a high-water mark; --update-baseline only raises it)."));
+	// Say which of the two exit policies this run used. Without the line, an
+	// exit-0 run that PRINTED regressions reads as a pass — the exact
+	// misreading that let the unregistered --strict flag hide for months.
+	if (!strict) {
+		lines.push(c.dim("  ADVISORY: exit 0 — re-run with --strict to fail on any per-file drop."));
+	}
 	return lines.join("\n");
 }

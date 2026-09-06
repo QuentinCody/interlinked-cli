@@ -76,6 +76,79 @@ describe("ratchet-metrics — existing counters", () => {
 	});
 });
 
+// Coverage-ignore pragmas suppress the COVERAGE ratchet: a pragma'd line
+// leaves the denominator, so an agent can raise a file's percentage without
+// writing a test. They are counted here for the same reason interlinked-ignore
+// is — an uncounted full-suppression directive is a free bypass.
+describe("ratchet-metrics — coverage-ignore pragmas", () => {
+	// test-contract: public-api — coverage-ignore counter positive (must fire)
+	it("P1: an added `/* v8 ignore next */` grows the count, so the delta ratchet fires", () => {
+		const before = "export const a = 1;\n";
+		const after = "/* v8 ignore next */\nexport const a = 1;\n";
+		expect(countSuppressionDirectives(before)).toBe(0);
+		expect(countSuppressionDirectives(after)).toBe(1);
+		expect(countSuppressionDirectives(after)).toBeGreaterThan(countSuppressionDirectives(before));
+	});
+
+	// test-contract: public-api — coverage-ignore counter positive (must fire)
+	it("P2: counts the c8 and istanbul spellings", () => {
+		expect(countSuppressionDirectives("/* c8 ignore next */\n")).toBe(1);
+		expect(countSuppressionDirectives("/* istanbul ignore else */\n")).toBe(1);
+		expect(countSuppressionDirectives("// istanbul ignore file\n")).toBe(1);
+	});
+
+	// test-contract: public-api — coverage-ignore counter positive (must fire)
+	it("P3: counts a justified pragma too — the reason does not exempt it from the ratchet", () => {
+		expect(countSuppressionDirectives("/* v8 ignore next -- child-process-only */\n")).toBe(1);
+	});
+
+	// test-contract: public-api — coverage-ignore counter positive (must fire).
+	// `node:coverage` is the fourth tool token the installed provider parses,
+	// and it really suppresses (measured: the pragma'd statement leaves the
+	// statementMap). An uncounted token is a free bypass of the coverage
+	// ratchet, so it is counted here even though the tree does not yet use it.
+	it("P4: counts the `node:coverage` spelling the provider also honors", () => {
+		const before = "export const a = 1;\n";
+		const after = "/* node:coverage ignore next */\nexport const a = 1;\n";
+		expect(countSuppressionDirectives(before)).toBe(0);
+		expect(countSuppressionDirectives(after)).toBe(1);
+		expect(countSuppressionDirectives("// node:coverage ignore file\n")).toBe(1);
+	});
+
+	// test-contract: boundary — coverage-ignore counter negative (must not fire)
+	it("N1: an unchanged pragma count across an edit leaves the ratchet silent", () => {
+		const before = "/* v8 ignore next */\nexport const a = 1;\n";
+		const after = "/* v8 ignore next */\nexport const a = 2;\n";
+		expect(countSuppressionDirectives(after)).toBe(countSuppressionDirectives(before));
+		expect(countSuppressionDirectives(after) > countSuppressionDirectives(before)).toBe(false);
+	});
+
+	// test-contract: boundary — coverage-ignore counter negative (must not fire)
+	it("N2: the bare word `ignore` and a v8-free mention are not counted", () => {
+		expect(countSuppressionDirectives("// ignore this line\n")).toBe(0);
+		expect(countSuppressionDirectives("// the v8 engine is fast\n")).toBe(0);
+	});
+
+	// test-contract: boundary — coverage-ignore counter negative (must not fire)
+	it("N3: an unrelated `v8` identifier next to an unrelated `ignore` identifier is not counted", () => {
+		expect(countSuppressionDirectives("const v8Ignore = 1;\n")).toBe(0);
+	});
+
+	// KNOWN LIMITATION, pinned deliberately rather than asserted as a negative:
+	// SUPPRESSION_PATTERN runs against RAW content — it does not call
+	// stripAllLiterals the way countTodoMarkers / countConsoleStatements do.
+	// So every token in the list, coverage pragmas included, is counted inside
+	// a string literal or a URL. This test records the behavior that exists so
+	// a future literal-stripping fix shows up as a deliberate change, not a
+	// silent one. It is NOT a claim that string-insensitivity is correct.
+	it("records the pre-existing string-literal blind spot shared by every token", () => {
+		expect(countSuppressionDirectives(`const s = "/* v8 ignore next */";`)).toBe(1);
+		// The same blind spot already applies to the tokens that predate this
+		// change — the coverage pragmas inherit it, they do not introduce it.
+		expect(countSuppressionDirectives(`const s = "@ts-ignore";`)).toBe(1);
+	});
+});
+
 describe("countTypeDensity", () => {
 	it("counts bare `: any` annotations", () => {
 		const result = countTypeDensity("function f(x: any) { return x; }\nconst y: any = 1;");
