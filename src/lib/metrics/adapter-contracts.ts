@@ -20,7 +20,7 @@ export function measureContracts(analysis: RepositoryAnalysis, config: ScoreConf
     let failed = 0;
     for (const contract of config.contracts) {
         let passed = false;
-        try { passed = satisfies(contract, analysis); } catch { /* Malformed contract input fails its assertion. */ }
+        try { passed = satisfies(contract, analysis); } catch { passed = false; /* Malformed contract input fails its assertion. */ }
         if (passed) continue;
         failed++;
         if (anchor) findings.push(qualityFinding({ metric: "contracts.findings", file: anchor, line: 1, evidence: "proven",

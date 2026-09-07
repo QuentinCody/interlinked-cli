@@ -42,7 +42,7 @@ function packageEntries(file: InventoryFile, context: EntryContext): void {
             if (resolved) { context.entries.add(resolved); context.publicEntries.add(resolved); }
         }
         for (const script of strings(json.scripts)) addScriptEntries(script, directory, context);
-    } catch { /* Invalid metadata is reported by the contract adapter. */ }
+    } catch { /* Intentional: invalid metadata contributes no entries; the contract adapter reports failed declared contracts. */ }
 }
 
 function documentedEntries(file: InventoryFile, context: EntryContext): void {
