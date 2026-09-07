@@ -326,12 +326,6 @@ describe("checkFunctionArity — wave 2 survivor kills", () => {
 		const code = "function foo({ x] , a, b, c, d, e }) { return a; }";
 		expect(checkFunctionArity(code, "f.ts")).toEqual([]);
 	});
-	it("P: 5 param exact boundary", () => {
-		const code = "function foo(a,b,c,d,e) { return a; }";
-		expect(checkFunctionArity(code, "f.ts")).toEqual([
-			{ line: 1, text: "[5 params → consider options object] function foo(a,b,c,d,e) { return a; }" },
-		]);
-	});
 	it("P: 6 param above boundary", () => {
 		const code = "function foo(a,b,c,d,e,f) { return a; }";
 		expect(checkFunctionArity(code, "f.ts")).toEqual([

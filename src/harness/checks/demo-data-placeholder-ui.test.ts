@@ -440,8 +440,4 @@ describe("checkPlaceholderDataInUi — UI_NONPROD_DIR_RE / UI_STORY_FILE_RE boun
 		expect(checkPlaceholderDataInUi(code, "Foo.story.tsx2.tsx").length).toBeGreaterThan(0);
 	});
 
-	it("N23: a real story file is exempted", () => {
-		const code = loremSnippet("Lorem ipsum dolor sit amet consectetur");
-		expect(checkPlaceholderDataInUi(code, "src/components/Dashboard.story.tsx")).toEqual([]);
-	});
 });

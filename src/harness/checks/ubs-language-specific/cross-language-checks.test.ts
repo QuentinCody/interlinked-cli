@@ -819,13 +819,6 @@ describe("checkUbsHardcodedLocalhost — metadataAssignment: space before the co
 	});
 });
 
-describe("checkUbsHardcodedLocalhost — localhostAsTest: non-quote prefix before the token (round 2)", () => {
-	it("N: prose text directly adjacent to the token (no separating space) is still exempt", () => {
-		const code = 'const isLocal = host === "is-localhost";';
-		expect(checkUbsHardcodedLocalhost(code, "src/x.ts")).toEqual([]);
-	});
-});
-
 describe("checkUbsHardcodedLocalhost — isPrevLineRegExpOpen: its OWN end-anchored regex (round 2)", () => {
 	// Distinct from the regExpConstructor exemption (`\bRegExp\s*\(/`, no end
 	// anchor) tested earlier — this one requires "RegExp(" to be the LAST

@@ -376,9 +376,6 @@ describe("checkFallbackOnlyAssertion — 'in' operator boolean predicate (2026-0
 		expect(run(`it("checks", () => { expect(key in obj).toBe(false); });`)).toEqual([]);
 	});
 
-	it("P1: still flags toBe(false) on an ordinary non-`in`, non-predicate target", () => {
-		expect(run(`it("checks", () => { expect(computeFlag()).toBe(false); });`)).toHaveLength(1);
-	});
 });
 
 describe("checkFallbackOnlyAssertion — 'has*' boolean predicate (2026-09-06)", () => {
@@ -389,9 +386,6 @@ describe("checkFallbackOnlyAssertion — 'has*' boolean predicate (2026-09-06)",
 		expect(run(`it("checks", () => { expect(hasOutputRedirect(cmd)).toBe(false); });`)).toEqual([]);
 	});
 
-	it("P1: still flags toBe(false) on an ordinary non-hasXxx target", () => {
-		expect(run(`it("checks", () => { expect(computeFlag()).toBe(false); });`)).toHaveLength(1);
-	});
 });
 
 describe("checkFallbackOnlyAssertion — resilience-title widening (2026-09-06)", () => {

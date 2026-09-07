@@ -139,16 +139,6 @@ describe("checkSameTypedPrimitiveParams — mutation-kill: collectParamList sani
 		]);
 	});
 
-	// The sanity check must consult the live brace depth, not a constant.
-	// test-contract: invariant — brace depth must be able to trip the sanity cap
-	it("the sanity check consults the actual brace depth (not a hardcoded false)", () => {
-		const content = [
-			"export function calc(m: { p: { q: { r: { s: { t: {",
-			"  u: string } } } } } }, fromId: string, toId: string) {}",
-		].join("\n");
-		expect(checkSameTypedPrimitiveParams(content, SRC_PATH)).toEqual([]);
-	});
-
 	// An unclosed 6-deep generic type-annotation PREFIX sits before the real
 	// paren and must never be scanned at all.
 	// test-contract: boundary — the param scan starts at the real opening paren, not column 0

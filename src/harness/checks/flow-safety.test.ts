@@ -706,11 +706,7 @@ describe("checkCleanupReentrancy — every CLEANUP_METHOD_NAMES entry is live (P
 });
 
 describe("checkBoundaryCopyNoRevalidation — .validate call-shape whitespace boundary (N: must not fire)", () => {
-	it("N: a space between .validate and its call parens is still a validator", () => {
-		const code = "function ok(req: any) { return schema.validate (req.body); }";
-		expect(checkBoundaryCopyNoRevalidation(code, TS)).toEqual([]);
-	});
-	// The case above never calls Object.assign or spreads anything, so
+	// A bare schema.validate call never calls Object.assign or spreads anything, so
 	// isValidated() is never invoked at all — it is vacuous with respect to
 	// VALIDATOR_RES regardless of the `.validate` regex's exact whitespace
 	// handling. This one actually routes the space-before-paren `.validate`

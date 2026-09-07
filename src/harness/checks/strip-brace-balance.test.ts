@@ -44,17 +44,25 @@ describe("stripForBraceScan — preserves structural brace balance (targeted)", 
 			"const y = `a ${ inner(`b ${ deep({ k: 1 }) } c`) } d`;",
 			"function z() { return 2; }",
 		].join("\n");
-		expect(braceDelta(stripForBraceScan(src))).toBe(0);
+		const out = stripForBraceScan(src);
+		expect(braceDelta(out)).toBe(0);
+		expect(out).toContain("function z() { return 2; }");
 	});
 
 	it("braces inside ordinary strings are removed on both sides", () => {
 		const src = `const s = "a { b } c"; const t = '} {'; function w() { if (s) { return t; } }`;
-		expect(braceDelta(stripForBraceScan(src))).toBe(0);
+		const out = stripForBraceScan(src);
+		expect(braceDelta(out)).toBe(0);
+		expect(out).toContain("function w() { if (s) { return t; } }");
+		expect(out).not.toContain("a { b } c");
 	});
 
 	it("regex literals containing braces do not unbalance", () => {
 		const src = "const re = /[{}]/g; const re2 = /\\{/; function f() { return re.test('x'); }";
-		expect(braceDelta(stripForBraceScan(src))).toBe(0);
+		const out = stripForBraceScan(src);
+		expect(braceDelta(out)).toBe(0);
+		expect(out).toContain("function f() { return re.test(");
+		expect(out).not.toContain("[{}]");
 	});
 
 	it("block comment containing braces does not unbalance", () => {
@@ -74,7 +82,10 @@ describe("stripForBraceScan — preserves structural brace balance (targeted)", 
 			"  });",
 			"}",
 		].join("\n");
-		expect(braceDelta(stripForBraceScan(src))).toBe(0);
+		const out = stripForBraceScan(src);
+		expect(braceDelta(out)).toBe(0);
+		expect(out).toContain("function cmd() {");
+		expect(out).toContain("output(mode, {");
 	});
 });
 
@@ -125,6 +136,7 @@ describe("stripForBraceScan — corpus invariant", () => {
 	it("every hand-written src/**/*.ts strips to balanced braces", () => {
 		const files: string[] = [];
 		collectTsFiles(join(process.cwd(), "src"), files);
+		expect(files).toContain(join(process.cwd(), "src/harness/checks/shared-text-utils.ts"));
 		const offenders: string[] = [];
 		for (const f of files) {
 			const delta = braceDelta(stripForBraceScan(readFileSync(f, "utf-8")));

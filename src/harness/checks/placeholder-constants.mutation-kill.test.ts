@@ -158,7 +158,7 @@ describe("checkPlaceholderRuntimeConstant — consumeBlockComment", () => {
 // ─── consumeStringLiteral ───────────────────────────────────────────────────
 
 describe("checkPlaceholderRuntimeConstant — consumeStringLiteral", () => {
-	// test-contract: invariant — a properly closed same-line string must not consume the rest of the line as fake string interior
+	// test-contract: invariant — a properly closed same-line string must expose its trailing comment. Also kills bfd2e4836f8dbc73, 3e70a8729655ff83, 851a7794cc168d1f, 731b760a353a908f, 96bd72381a686f9a, 2948e05cbca142fc: each prevents finding the same real closing quote.
 	it("kills 791846e94bc2b612: a terminated string must actually scan for its closer, not always fall through as unterminated", () => {
 		const src = ['const s = "abc"; // temporary for now', "const LIMIT = 5;"].join("\n");
 		const found = run(src);
@@ -186,14 +186,6 @@ describe("checkPlaceholderRuntimeConstant — consumeStringLiteral", () => {
 	it("kills 8643d73f9d7a175b, 179d80bb00a52a0e, 15d3d0c6fedb76a7: the escape-skip must recognize the real backslash and actually skip 2 chars", () => {
 		const src = ['const x = "a\\" //temporary for now', "const LIMIT = 5;"].join("\n");
 		expect(run(src)).toHaveLength(0);
-	});
-
-	// test-contract: invariant — a terminated string that carries a same-line trailing comment must let that comment be read once the string genuinely closes. Also kills bfd2e4836f8dbc73, 3e70a8729655ff83, 851a7794cc168d1f, 731b760a353a908f, 96bd72381a686f9a, 2948e05cbca142fc (each breaks the close-detection a different way, but all collapse to "the string never finds its real closer and swallows the rest of the line").
-	it("kills 791846e94bc2b612 (+5 same-shape survivors): the string scanner must be able to find its real closing quote", () => {
-		const src = ['const s = "abc"; // temporary for now', "const LIMIT = 5;"].join("\n");
-		const found = run(src);
-		expect(found).toHaveLength(1);
-		expect(found[0]?.line).toBe(2);
 	});
 
 	// test-contract: invariant — the successful-close blank must start right after the opening delimiter, not one char before it (which would blank a required ":" out of a type-annotation-shaped value)

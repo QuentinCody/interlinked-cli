@@ -8,13 +8,15 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+const { requireTypeScript } = vi.hoisted(() => ({
+	requireTypeScript: vi.fn(() => { throw new Error("Cannot find module 'typescript'"); }),
+}));
+
 vi.mock("node:module", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:module")>();
 	return {
 		...actual,
-		createRequire: () => () => {
-			throw new Error("Cannot find module 'typescript'");
-		},
+		createRequire: () => requireTypeScript,
 	};
 });
 
@@ -42,5 +44,6 @@ describe("detectJsdocParamDrift — TypeScript not installed", () => {
 		].join("\n");
 		expect(detectJsdocParamDrift(code, TS_FILE)).toEqual([]);
 		expect(detectJsdocParamDrift(code, TS_FILE)).toEqual([]);
+		expect(requireTypeScript.mock.calls).toEqual([["typescript"]]);
 	});
 });

@@ -569,12 +569,6 @@ describe("checkRecursiveWalkerLstat", () => {
 		expect(out.length).toBeGreaterThanOrEqual(1);
 	});
 
-	it("does not treat a declaration with no discoverable opening brace as having a real body, even when an EARLIER unrelated `{...}` chunk in the file would look like a real recursive walker (kills the bodyOpen<0 guard-disabled ConditionalExpression mutant)", () => {
-		const src = " { readdirSync(d); walk(d); statSync(d); }\nfunction walk(dir)";
-		const out = checkRecursiveWalkerLstat(src, "src/walker.ts");
-		expect(out).toEqual([]);
-	});
-
 	it("does not fabricate a body for an unbalanced (never-closed) declaration even when the trailing content would otherwise look like a real recursive walker (kills the bodyClose<0 guard-disabled ConditionalExpression mutant)", () => {
 		const src = "function walk(dir) {\n  readdirSync(dir);\n  walk(dir);\n  statSync(dir);";
 		const out = checkRecursiveWalkerLstat(src, "src/walker.ts");

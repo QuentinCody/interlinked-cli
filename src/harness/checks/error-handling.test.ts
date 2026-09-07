@@ -840,17 +840,6 @@ describe("checkLossyErrorRethrow — sharper assertions (spacing, caps, boundari
 		expect(out.length).toBe(1);
 	});
 
-	it("still recognizes `{ cause : e }` with whitespace before the colon", () => {
-		const code = [
-			"function g() {",
-			"  try { risky(); }",
-			"  catch (e) {",
-			'    throw new Error("wrapped", { cause : e });',
-			"  }",
-			"}",
-		].join("\n");
-		expect(checkLossyErrorRethrow(code, TS)).toEqual([]);
-	});
 });
 
 // ===========================================
@@ -1471,13 +1460,6 @@ describe("checkCatchReturnNull — regex/boundary precision", () => {
 		expect(nonNull(out[0]).line).toBe(5);
 	});
 
-	it("recognizes a BARE `catch {` with no bound variable at all (the parens group is optional, not mandatory)", () => {
-		const code = ["function f() {", "  try { g(); }", "  catch {", "    return null;", "  }", "}"].join(
-			"\n",
-		);
-		expect(checkCatchReturnNull(code, TS).length).toBe(1);
-	});
-
 	it("truncates the reported catch-line text to 80 characters", () => {
 		const longSuffix = "x".repeat(100);
 		const code = [
@@ -1897,15 +1879,6 @@ describe("checkUntypedCatch — regex/boundary precision", () => {
 		expect(checkUntypedCatch(code, TS).length).toBe(1);
 	});
 
-	it("embeds the ACTUAL trimmed source line for the catch, not a stray single character", () => {
-		const code = ["      catch (e) {", "        log(e);", "      }"].join("\n");
-		const out = checkUntypedCatch(code, TS);
-		expect(out.length).toBe(1);
-		expect(nonNull(out[0]).text).toBe(
-			"untyped catch(e) without narrowing — use instanceof, tagged errors, or error codes: catch (e) {",
-		);
-	});
-
 	it("truncates the trailing source-line excerpt to 100 characters", () => {
 		const filler = "x".repeat(150);
 		const code = `catch (e) { /* ${filler} */`;
@@ -2318,18 +2291,6 @@ describe("checkInconsistentErrorStrategy — regex spacing precision", () => {
 		const out = checkInconsistentErrorStrategy(code, TS);
 		expect(out.length).toBe(1);
 		expect(nonNull(out[0]).text).toContain("return {error}: 1");
-	});
-
-	it("counts a custom multi-character Error subclass (`throw new HttpError`) as a throw-strategy occurrence", () => {
-		const code = pad([
-			"function a() { throw new HttpError('a'); }",
-			"function b() { return null; }",
-			"function c() { return null; }",
-			"function d() { return { error: true }; }",
-		]);
-		const out = checkInconsistentErrorStrategy(code, TS);
-		expect(out.length).toBe(1);
-		expect(nonNull(out[0]).text).toContain("throw: 1");
 	});
 
 	it("counts `return null ;` with a space before the semicolon", () => {

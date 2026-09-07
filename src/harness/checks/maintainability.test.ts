@@ -65,11 +65,11 @@ describe("maintainabilityIndex", () => {
 	});
 
 	it("never returns a negative index", () => {
-		expect(maintainabilityIndex(1e9, 200, 5000)).toBeGreaterThanOrEqual(0);
+		expect(maintainabilityIndex(1e9, 200, 5000)).toBe(0);
 	});
 
 	it("is clamped to 100 at the top", () => {
-		expect(maintainabilityIndex(0, 0, 0)).toBeLessThanOrEqual(100);
+		expect(maintainabilityIndex(0, 0, 0)).toBe(100);
 	});
 
 	it("falls as volume rises, holding other terms fixed", () => {
