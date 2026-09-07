@@ -2,7 +2,9 @@ import type { Command, OptionValues } from "commander";
 
 export function registerDataMaintenanceCommands(data: Command): void {
     data.command("maintain").description("Plan evidence-class retention; optionally index and losslessly rotate supported logs")
-        .option("--execute", "Run the bounded index and configured maintenance")
+        .option("--execute", "Run explicitly requested or configured maintenance")
+        .option("--index", "Also run the SQLite importer (independent of rotation)")
+        .option("--no-index", "Skip the importer even if automatic indexing is configured")
         .option("--compact", "Also rotate eligible collection/timeline logs; retains gzip evidence")
         .option("--cwd <path>", "Project root").option("--json", "Machine-readable output")
         .action(async (options: OptionValues) => {

@@ -34,7 +34,7 @@ interface DiscoveryWalk {
 
 const DEFAULT_MAX_ENTRIES = 50_000;
 const DEFAULT_MAX_DEPTH = 16;
-const JSONL_FILE = /\.jsonl(?:\.gz|\.\d+)?$/;
+const JSONL_FILE = /\.jsonl(?:\.\d+)?(?:\.gz)?$/;
 
 function discoverEntry(result: DataDiscovery, path: string): void {
     const stat = lstatSync(path);
@@ -45,7 +45,7 @@ function discoverEntry(result: DataDiscovery, path: string): void {
         bytes: stat.size, modifiedMs: stat.mtimeMs,
         identity: `${stat.dev}:${stat.ino}:${stat.birthtimeMs}`,
         compressed: rel.endsWith(".gz"),
-        archived: rel.startsWith("archive/") || /\.jsonl\.\d+$/.test(rel),
+        archived: rel.startsWith("archive/") || /\.jsonl(?:\.\d+)?\.gz$/.test(rel) || /\.jsonl\.\d+$/.test(rel),
     });
 }
 

@@ -7,6 +7,8 @@ import { writeDataBatch } from "./index-write.js";
 import { readDataLines } from "./stream.js";
 
 export interface DataIndexOptions {
+    /** Explicit comparison root for isolated corpus evaluation; normal imports use cwd. */
+    normalizationRoot?: string;
     rebuild?: boolean | undefined;
     maxBytes?: number | undefined; maxRecords?: number | undefined; source?: string | undefined; archives?: boolean | undefined;
     onProgress?: (result: DataIndexProgress) => void;
@@ -25,7 +27,7 @@ const DEFAULT_RUN_RECORDS = 250_000;
 
 function commitBatch(state: FileImport): void {
     const { run, file, source } = state;
-    const result = writeDataBatch({ db: run.db, cwd: run.cwd, file, source }, state.batch);
+    const result = writeDataBatch({ db: run.db, cwd: run.options.normalizationRoot ?? run.cwd, file, source }, state.batch);
     run.result.bytes += result.cursor - source.cursor;
     run.result.records += result.parsed;
     run.result.inserted += result.inserted;

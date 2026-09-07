@@ -3,6 +3,7 @@ import { isAbsolute, relative } from "node:path";
 import { dataTimestampMs } from "../data-time.js";
 import { isJsonObject, type JsonObject } from "../json-types.js";
 import type { DataSource } from "./catalog-types.js";
+import { nativeTranscriptFields } from "./native-transcript.js";
 
 const TEXT_LIMIT = 32 * 1024;
 const FIELD_LIMIT = 2048;
@@ -135,6 +136,7 @@ function dataProvider(record: JsonObject): string | null {
 
 /** Raw bytes remain in source files; this is a bounded, explicitly lossy search projection. */
 export function normalizeDataRecord(record: JsonObject, source: DataSource, raw: string, cwd: string): NormalizedDataRecord {
+    if (source.name === "native-claude") record = nativeTranscriptFields(record);
     const described = describeFields(record);
     const rawHash = dataRecordHash(raw);
     return {

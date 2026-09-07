@@ -2,6 +2,7 @@ import type { Command, OptionValues } from "commander";
 import type { DataOperation } from "../commands/data.js";
 import { registerDataAuditCommands } from "./data-audit.js";
 import { registerDataMaintenanceCommands } from "./data-maintenance.js";
+import { registerDataLabCommands } from "./data-lab.js";
 
 function common(command: Command): Command {
     return command.option("--cwd <path>", "Project root")
@@ -26,6 +27,17 @@ export function registerDataCommands(program: Command): void {
     const data = program.command("data").description("Discover, assess, index and search all local JSONL evidence");
     registerDataAuditCommands(data);
     registerDataMaintenanceCommands(data);
+    registerDataLabCommands(data);
+    common(filters(data.command("scan [text]").description("Search bounded live JSONL/gzip directly, without SQLite or copying logs")))
+        .option("--max-mb <n>", "Expanded scan budget (default 32, maximum 1024 MiB)")
+        .option("--max-records <n>", "Physical line budget (default 25000)")
+        .option("--offset <n>", "Result offset within the scanned scope")
+        .option("--raw", "Include original record text and hash in returned rows")
+        .option("--full-text", "Match all decoded string values, beyond the bounded index projection")
+        .action(async (text: string | undefined, options: OptionValues) => {
+            const { dataScanCommand } = await import("../commands/data-scan.js");
+            await dataScanCommand(options, text);
+        });
     action(data.command("recurrence-inventory").description("Latest scoped finding inventory, distinct from incident counts"), "recurrence-inventory");
     action(filters(data.command("investigate").description("Correlate session/call/file evidence, missing phases and folded file obligations")), "investigate");
     action(data.command("catalog").description("Registered source contracts and recursively discovered files"), "catalog");

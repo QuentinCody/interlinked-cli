@@ -362,7 +362,7 @@ function generateCliReference(): string {
 
 	// Commands with subcommands — mirror the groups registered in src/index.ts.
 	const commandsWithSubs: Record<string, string[]> = {
-		data: ["catalog", "health", "status", "index", "search", "show", "investigate", "sessions", "files", "checks", "usage", "schema", "suggestions", "recurrence-inventory", "configure", "maintain", "audit"],
+		data: ["catalog", "health", "status", "index", "scan", "lab", "search", "show", "investigate", "sessions", "files", "checks", "usage", "schema", "suggestions", "recurrence-inventory", "configure", "maintain", "audit"],
 		structure: ["init", "scan", "status", "accept", "doctor", "baseline"],
 		metrics: ["coupling", "arch", "rework", "complexity", "split-plan", "score"],
 		checkpoint: ["list", "show", "compare", "prune", "archive"],

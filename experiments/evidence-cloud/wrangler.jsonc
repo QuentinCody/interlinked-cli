@@ -1,0 +1,11 @@
+{
+    "name": "interlinked-evidence-benchmark",
+    "main": "../../src/lib/data-search/cloud-worker.ts",
+    "compatibility_date": "2026-06-02",
+    "compatibility_flags": ["nodejs_compat"],
+    "workers_dev": false,
+    "vars": { "TENANT_ID": "benchmark" },
+    "r2_buckets": [{ "binding": "EVIDENCE", "bucket_name": "interlinked-evidence-benchmark" }],
+    "durable_objects": { "bindings": [{ "name": "CATALOG", "class_name": "EvidenceCatalog" }] },
+    "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EvidenceCatalog"] }]
+}

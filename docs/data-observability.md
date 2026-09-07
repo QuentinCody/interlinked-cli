@@ -1,15 +1,16 @@
 # Local data capture and search
 
-Interlinked CLI retains JSONL as evidence and builds a separate, disposable SQLite search
-projection. Capture and search stay local. The Interlinked MCP Server is optional and is not
-used by any `data` command.
+Interlinked CLI retains JSONL as evidence. `data scan` searches it directly; a separate SQLite
+projection is optional. Ordinary capture/search stay local. Explicit `data lab` experiments
+compare storage engines and can contact a configured synthetic-only cloud evaluation service;
+they do not connect to the Interlinked MCP Server or migrate existing logs.
 
 ## Start with the directory you have
 
 ```bash
 interlinked data catalog --json
 interlinked data health --json
-interlinked data index --json
+interlinked data scan "error" --source check-results --max-mb 32 --raw --json
 interlinked data status --json
 ```
 
@@ -28,6 +29,20 @@ check capture and index coverage, search a bounded question, verify supporting r
 then report evidence and limitations. Installed skills include this reference locally.
 
 ## Search, inspect and correlate
+
+`data scan [text]` creates no database or corpus copy. It reads complete-line prefixes of the
+most recently modified files, including gzip/numeric archives, within 32 MiB/25,000 physical
+lines by default. Set `--max-mb`, `--max-records`, and exact filters; inspect `coverage.complete`
+and `scope`. `--raw` returns original record text and SHA-256. Scan IDs differ from indexed
+`data show` IDs. Text uses ASCII-folded ANDed literal substrings over the bounded projection;
+`--since`/`--until` retain the duration/ISO grammar. File filters are project-relative.
+`--full-text` matches all decoded string values in each readable record, bypassing the
+32 Ki-character text projection; JSON field names are excluded. Returned previews remain
+bounded, while `--raw` includes the complete matching record. Physical scan limits still apply.
+
+For repeatable engine comparisons and native transcript snapshots, see
+[storage evaluation](../skills/interlinked-observability/references/storage-evaluation.md).
+The commands below use the optional production index; run `data index` explicitly if needed.
 
 ```bash
 interlinked data search "compiler import" --since 7d
@@ -135,7 +150,7 @@ validation or per-session coverage.
 interlinked data configure
 interlinked data configure --auto-index on --index-mb 256 --index-records 250000
 interlinked data maintain
-interlinked data maintain --execute --compact
+interlinked data maintain --execute --compact --no-index
 interlinked data configure --auto-compact on --compact-at-mb 256 --keep-live-mb 64
 ```
 
@@ -143,10 +158,13 @@ Configuration is stored in `data.config.json`. Both automation flags default off
 use the existing SessionEnd background resource governor, outside the hook decision path.
 SessionEnd is the provider's session lifecycle event, not every assistant Stop. There is no
 continuous watcher or periodic active-session refresh. Before investigating recent events,
-check `data status` and run explicit bounded index passes if the relevant files are stale.
-`maintain` without `--execute` previews the plan. Execution indexes a bounded batch and can
-losslessly rotate collection/timeline into gzip archives once they reach the threshold. The
-default retained live tail is 64 MiB. Existing index pointers are translated during rotation;
+check `data status` or use direct scans if the relevant files are stale.
+`maintain` without `--execute` previews the plan. `--index` explicitly imports a bounded batch;
+`--no-index` skips SQLite even when automatic indexing is configured. Otherwise indexing
+follows `auto_index`. Rotation follows `--compact` or `auto_compact` independently. Enabling
+rotation alone does not open/create SQLite. Eligible collection/timeline files are losslessly
+rotated into gzip archives; the default live tail is 64 MiB. When indexing also runs, existing
+index pointers are translated during rotation; otherwise index freshness must be reassessed;
 remaining backlog can be imported later. No data maintenance command deletes raw evidence.
 The bulk retained suffix is copied before acquiring the append lock. Under the lock, rotation
 rechecks file identity and catches up at most 16 MiB before the atomic rename. A competing

@@ -24,8 +24,11 @@ comparisons remain searchable advisory evidence, while Stop summarizes structura
 findings. Quoted examples can explain older false positives; preserve those original records
 and review documents. Absence of a Stop nudge is not proof that all prose was verified.
 
-If relevant evidence has not been indexed, run `interlinked data index --json` and inspect the
-result. Repeat bounded passes if needed; exit zero alone does not mean the backlog is covered.
+If relevant evidence has not been indexed, use `data scan --source SOURCE --raw --json` for
+an investigation without creating SQLite. Inspect its bounded coverage; an empty partial scan
+does not establish absence. If indexed investigation is the chosen workflow, explicitly run
+`interlinked data index --json` and inspect the result. Repeat bounded passes if needed;
+exit zero alone does not mean the backlog is covered, and per-pass limits do not cap disk use.
 For one known source, use `data index --source SOURCE --json`. SessionEnd automation can be
 deferred and does not refresh every Stop or watch a still-active session. Describe the
 coverage reached rather than promising a perfectly current snapshot during ongoing writes.

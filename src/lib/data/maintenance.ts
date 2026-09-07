@@ -1,4 +1,4 @@
-import { PLAIN_COMPACTABLE_LOGS } from "../../commands/compact-plain.js";
+import { compactPlainLog, PLAIN_COMPACTABLE_LOGS, type PlainLogName } from "../../commands/compact-plain.js";
 import { rotateIndexedData } from "./rotation.js";
 import { appendCapturedData, recordCaptureReceipt } from "./capture.js";
 import { readDataConfig, type DataConfig } from "./config.js";
@@ -14,27 +14,32 @@ function retentionAction(file: DiscoveredDataFile, config: DataConfig): string {
     return file.bytes >= config.compact_at_mb * MIB ? "eligible-for-lossless-rotation" : "keep-live";
 }
 
-async function runDataMaintenance(cwd: string, options: { execute?: boolean; compact?: boolean }) {
+interface MaintenanceOptions { execute?: boolean; compact?: boolean; index?: boolean; }
+function rotateForMaintenance(cwd: string, log: PlainLogName, bytes: number, indexed: boolean) {
+    return indexed ? rotateIndexedData(cwd, log, bytes) : compactPlainLog(log, { cwd, keepRecentBytes: bytes });
+}
+async function runDataMaintenance(cwd: string, options: MaintenanceOptions) {
     const config = readDataConfig(cwd);
     const discovery = discoverDataFiles(cwd);
     const plan = discovery.files.map((file) => ({ path: file.relativePath, bytes: file.bytes,
         category: file.source.category, role: file.source.role, retention: file.source.retention, action: retentionAction(file, config) }));
     if (!options.execute) return { executed: false, config, plan, deletion_policy: "no evidence deletion", discovery_complete: discovery.complete };
-    const indexing = await indexData(cwd, { maxBytes: config.index_max_mb * MIB, maxRecords: config.index_max_records });
+    const shouldIndex = options.index ?? config.auto_index;
+    const indexing = shouldIndex ? await indexData(cwd, { maxBytes: config.index_max_mb * MIB, maxRecords: config.index_max_records }) : null;
     const rotations = [];
     if (options.compact || config.auto_compact) {
         for (const log of PLAIN_COMPACTABLE_LOGS) {
             if (!plan.some((file) => file.path === `${log}.jsonl` && file.action === "eligible-for-lossless-rotation")) continue;
-            rotations.push(rotateIndexedData(cwd, log, config.keep_live_mb * MIB));
+            rotations.push(rotateForMaintenance(cwd, log, config.keep_live_mb * MIB, shouldIndex));
         }
     }
     const result = { executed: true, ts: new Date().toISOString(), config, indexing, rotations,
-        next_action: "run data index again to ingest newly published archives and remaining bounded backlog" };
+        next_action: "JSONL retained; indexes may be stale after rotation; use data index explicitly to ingest archives and bounded backlog" };
     appendCapturedData({ cwd, producer: "lib/data/maintenance" }, "data-maintenance", [result]);
     return result;
 }
 
-export async function maintainData(cwd: string, options: { execute?: boolean; compact?: boolean } = {}): Promise<Awaited<ReturnType<typeof runDataMaintenance>>> {
+export async function maintainData(cwd: string, options: MaintenanceOptions = {}): Promise<Awaited<ReturnType<typeof runDataMaintenance>>> {
     try { return await runDataMaintenance(cwd, options); }
     catch (error) {
         recordCaptureReceipt({ cwd, producer: "lib/data/maintenance" }, { source: "data-maintenance", status: "failed", error: "maintenance-operation-failed" });

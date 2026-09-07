@@ -1,0 +1,65 @@
+import { describe, expect, it } from "vitest";
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildCompactIndex, searchBoundedIndex, searchCompactIndex } from "./sqlite.js";
+import { evidenceHash, hashEvidenceFile, readCorpus, readCorpusEvidence, scanCorpus } from "./corpus.js";
+import { createPrivateDirectory, generateCorpus, writeCorpusManifest } from "./snapshot.js";
+import { buildSegments, searchSegments } from "./segments.js";
+import { DirectoryEvidenceStore } from "./object-store.js";
+import { partitionCatalog, CATALOG_PARTITION_BYTES } from "./cloud-catalog.js";
+import { searchEvidenceFts } from "./fts.js";
+
+describe("evidence recovery and fidelity", () => {
+    it("resumes with new immutable source segments and detects stale coverage", async () => {
+        const root = mkdtempSync(join(tmpdir(), "interlinked-index-append-"));
+        const first = join(root, "first");
+        const next = join(root, "next");
+        const index = join(root, "index");
+        await generateCorpus(first, 100);
+        await buildCompactIndex(first, index);
+        createPrivateDirectory(next);
+        copyFileSync(join(first, "events.jsonl"), join(next, "events.jsonl"));
+        const extra = '{"session":"new-session","message":"appended evidence"}\n';
+        writeFileSync(join(next, "extra.jsonl"), extra);
+        const corpus = readCorpus(first);
+        writeCorpusManifest(next, { ...corpus, files: [...corpus.files, { path: "extra.jsonl", source: "tests", native: false, records: 1, bytes: Buffer.byteLength(extra), sha256: evidenceHash(extra) }] });
+        expect((await searchBoundedIndex(index, next, {})).total).toBe(101);
+        expect((await buildCompactIndex(next, index, { resume: true })).indexed).toBe(101);
+        expect(searchCompactIndex(index, { session: "new-session" }).total).toBe(1);
+        await expect(buildCompactIndex(first, index, { resume: true })).rejects.toThrow("immutable");
+        expect(await hashEvidenceFile(join(first, "events.jsonl"))).toBe(corpus.files[0]?.sha256);
+    });
+    it("preserves CRLF, blank-line offsets and original payload hashes in segments", async () => {
+        const root = mkdtempSync(join(tmpdir(), "interlinked-line-fidelity-"));
+        const corpus = join(root, "corpus");
+        await generateCorpus(corpus, 1);
+        const manifest = readCorpus(corpus);
+        const bytes = '\r\n \t\r\n{"message":"日本語 café","session":"s"}\r\n';
+        writeFileSync(join(corpus, "events.jsonl"), bytes);
+        const file = manifest.files[0];
+        if (!file) throw new Error("fixture missing");
+        writeFileSync(join(corpus, "corpus.json"), JSON.stringify({ ...manifest, files: [{ ...file, bytes: Buffer.byteLength(bytes), sha256: evidenceHash(bytes) }] }));
+        const store = new DirectoryEvidenceStore(join(root, "objects"));
+        const segmented = await buildSegments(corpus, store);
+        const result = await searchSegments(segmented, store, { session: "s" });
+        expect(result.ids).toEqual((await scanCorpus(corpus, { session: "s" })).ids);
+        const row = result.rows[0];
+        if (!row) throw new Error("fixture result missing");
+        expect(await readCorpusEvidence(corpus, row)).toBe('{"message":"日本語 café","session":"s"}\r');
+        const partitions = partitionCatalog(Array.from({ length: 2000 }, () => segmented.segments[0]!).filter(Boolean), JSON.stringify({ ...segmented, segments: [] }));
+        expect(partitions.length).toBeGreaterThan(1);
+        for (const segments of partitions) expect(Buffer.byteLength(JSON.stringify({ ...segmented, segments }))).toBeLessThanOrEqual(CATALOG_PARTITION_BYTES);
+    });
+    it("exercises FTS token semantics separately from substring matches", async () => {
+        const root = mkdtempSync(join(tmpdir(), "interlinked-fts-evidence-"));
+        const corpus = join(root, "corpus");
+        const index = join(root, "index");
+        await generateCorpus(corpus, 200);
+        await buildCompactIndex(corpus, index);
+        expect(searchEvidenceFts(index, "compact", '"needle-auth-failure"').total).toBe(3);
+        expect(searchEvidenceFts(index, "compact", "needl").total).toBe(0);
+        expect((await scanCorpus(corpus, { text: "needl" })).total).toBe(3);
+        expect(readFileSync(join(corpus, "events.jsonl"), "utf8")).toContain("needle-auth-failure");
+    });
+});

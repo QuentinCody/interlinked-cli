@@ -86,7 +86,7 @@ A **block reason is always surfaced.** Allow-time warnings are surfaced but easy
 | Installing a local embedding model; building, inspecting, searching, or repairing the optional function-vector index | **interlinked-semantic-index** |
 | An `npm/pip/cargo/…` install or manifest edit was blocked; the package **allowlist** | **interlinked-supply-chain** |
 | Spec/doc facts, drift, invariants, review **findings**, `doctest`; `[interlinked:spec-*]` | **interlinked-spec-audit** |
-| Explain earlier work, investigate failed/missed checks or file/session history, assess capture gaps, search JSONL/archives, retain logs, inspect **`data` views**, **recurrence**, `viz`, chain `audit`, evidence-classed `impact`, `sync` | **interlinked-observability** |
+| Explain earlier work, investigate failed/missed checks or file/session history, assess capture gaps, search JSONL/archives with **`data scan`**, compare storage engines with **`data lab`**, retain logs, inspect **`data` views**, **recurrence**, `viz`, chain `audit`, evidence-classed `impact`, `sync` | **interlinked-observability** |
 | Server-backed **tasks/messages/reservations/handoff**; local **checkpoints** (git-mutating!) | **interlinked-coordination** |
 | Distill AGENTS.md / CLAUDE.md guidance into enforced harness rules | **enforce** (`/enforce`) |
 
@@ -110,8 +110,10 @@ interlinked --help          # full command list
 
 When prior evidence is relevant, load **interlinked-observability** and use its bundled
 investigation workflows. Check freshness, search a specific session/file/check, and verify
-supporting raw records by ID. Automatic indexing runs at SessionEnd; recent active-session
-records may need `data index`. Retain raw logs and archives indefinitely. Lossless rotation
+supporting raw records. `data scan --raw` reads bounded JSONL/gzip without creating SQLite.
+Indexing is an explicit storage choice: import budgets are not disk limits. Both indexing and
+rotation automation default off and are independent. Enabled indexing runs at SessionEnd.
+Retain raw logs and archives indefinitely. Lossless rotation
 keeps history available through `data search`; ordinary live-tail readers have narrower scope.
 
 ## Golden rules for an agent in a guarded repo

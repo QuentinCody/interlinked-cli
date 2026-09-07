@@ -6,6 +6,7 @@ Event time and ingestion time are distinct. Raw evidence and state ledgers remai
 
 | Path | Category | Role | Retention | Producer | Purpose |
 |---|---|---|---|---|---|
+| `native-claude.jsonl` | agent | events | preserve | lib/data-search/snapshot | Explicit local snapshots of original Claude transcripts; not an automatic native-history backup |
 | `check-executions.jsonl` | quality | events | archive | harness/quality-checks/tool-check-loop | All configured quality checks with completion, disabled, skipped, deferred and error states |
 | `data-maintenance.jsonl` | runtime | events | archive | lib/data/maintenance | Bounded import and lossless retention run receipts |
 | `capture-capabilities.jsonl` | runtime | events | archive | harness/data-capture-capabilities | Provider-visible data capability and coverage declarations |

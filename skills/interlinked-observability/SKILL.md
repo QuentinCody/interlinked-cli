@@ -1,6 +1,6 @@
 ---
 name: interlinked-observability
-description: "Investigate agent activity and local JSONL evidence, including gzip archives. Load for data catalog/health/index/search/show/investigate, session or file history, missed checks, repeated warnings, suggestion outcomes, token usage, capture gaps, index freshness, lossless log rotation, audit integrity, and evidence-backed handoffs. Also covers status, activity, impact, logs, explain, watch, telemetry, trace, code search, recurrence, viz, audit, collect, compact, and optional server sync. Use recorded observations without treating missing capture as absence or correlation as causation."
+description: "Investigate agent activity and JSONL/gzip evidence. Load for data scan, catalog/health/index/search/show/investigate, storage-engine experiments and benchmarks, native transcript comparisons, file/session history, capture gaps, lossless rotation, audit integrity, and evidence-backed handoffs. Also covers activity, logs, impact, trace, recurrence, viz, collect, compact, and optional sync. Missing capture is not absence; correlation is not causation."
 ---
 
 # interlinked-observability — inspect what agents did
@@ -11,8 +11,9 @@ When history can help diagnose a failure or explain prior work, use the logs as 
 
 1. Establish scope: project, session/call or file, and time window. Read `data status --json`
    and `data health --json` before interpreting missing results.
-2. If relevant files are stale or incomplete, run `data index --json`; repeat bounded passes
-   as needed. An active session can keep appending, so report the coverage actually reached.
+2. Choose the storage cost deliberately. `data scan` reads JSONL/gzip directly without an
+   index or corpus copy. If an existing index is appropriate, explicitly run `data index`
+   for stale sources; its import budget does not limit total disk growth. Report coverage.
 3. Search with exact filters and a small `--limit`; correlate relevant records with
    `data investigate`, then retrieve supporting IDs with `data show ID --json`.
 4. Report what was observed, the evidence IDs and hash-verification result, and capture or
@@ -22,6 +23,26 @@ Read [evidence investigation workflows](references/evidence-workflows.md) for ta
 recipes, source selection, pagination, and a concrete handoff checklist. Prefer bounded JSON
 results over dumping whole logs into context. Evidence payloads may contain user/code content;
 retrieve only relevant records and keep local evidence local unless sharing is authorized.
+
+Read [storage experiments](references/storage-evaluation.md) to compare direct scans, native
+Claude snapshots, legacy/compact/bounded SQLite, compressed segments, and the experimental
+Cloudflare path. `data lab` always uses explicit corpus/output directories. Its portable
+literal queries, FTS token queries, and raw `rg` searches have distinct semantics.
+
+```bash
+interlinked data scan "compiler import" --source check-results --max-mb 32 --limit 10 --full-text --raw --json
+```
+
+Direct scans default to 32 MiB expanded input and 25,000 physical lines, taking complete-line
+prefixes of the most recently modified files. They include retained gzip archives and numeric
+rotations. A narrow time filter does not jump to a newer portion of a large file. Inspect
+`coverage.complete` and `scope`; increase explicit budgets or choose an existing index when
+necessary. `--raw` returns the observed source text with its hash. Scan/lab IDs are separate
+from production `data show` IDs. File filters for `data scan` use project-relative paths.
+Use `--full-text` when omission by the bounded index projection matters: it searches all
+decoded string values inside each readable complete record, excluding JSON field names.
+Byte/line budgets and oversized-record limits still apply. Without this flag, a complete scan
+with `coverage.truncated > 0` does not establish that a term is absent from original payloads.
 
 Use `interlinked data catalog` to discover registered and unknown JSONL files recursively,
 including numeric rotations and gzip archives. `data health` distinguishes observed writes,
@@ -67,9 +88,11 @@ Aggregate limits bound returned groups, not necessarily database work; narrow su
 filters first. `schema` is a source-wide observed field census: only `--source` and `--limit`
 affect its scope, even though its CLI accepts the shared filter flags.
 
-`data maintain` previews retention. `data maintain --execute --compact` imports a bounded batch
-and losslessly rotates eligible collection/timeline history while translating indexed evidence
-pointers. It never deletes evidence or automatically compacts activity/state ledgers/corpora.
+`data maintain` previews retention. `data maintain --execute --compact --no-index` losslessly
+rotates eligible collection/timeline history without opening or creating SQLite. Add `--index`
+to explicitly import a bounded batch and translate existing evidence pointers during rotation.
+Without either index flag, indexing follows `auto_index`. It never deletes evidence or
+automatically compacts activity/state ledgers/corpora.
 Activity still requires the existing cursor-aware `compact` workflow. After an external
 compactor, rerun `data index` to discover replacement files and archives.
 
@@ -87,7 +110,8 @@ An excessive append burst or competing replacement aborts safely for retry. Main
 operation failures are recorded in capture health.
 
 `data configure --auto-index on` opts into bounded SessionEnd background indexing;
-`--auto-compact on` additionally enables collection/timeline rotation. Both default off.
+`--auto-compact on` independently enables collection/timeline rotation. Both default off;
+enabling rotation alone does not enable or run the SQLite importer.
 Defaults are 256 MiB/250,000 records per pass, a 256 MiB rotation threshold, and a 64 MiB live
 tail. Configure via `--index-mb`, `--index-records`, `--compact-at-mb`, `--keep-live-mb`.
 Settings live in `data.config.json` under the resolved data directory; capture itself continues

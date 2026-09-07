@@ -21,7 +21,7 @@ export async function dataMaintenanceCommand(operation: "configure" | "maintain"
     try {
         const cwd = typeof options.cwd === "string" ? options.cwd : process.cwd();
         if (operation === "maintain") {
-            console.log(JSON.stringify(await maintainData(cwd, { execute: options.execute === true, compact: options.compact === true }), null, 2));
+            console.log(JSON.stringify(await maintainData(cwd, { execute: options.execute === true, compact: options.compact === true, index: options.index }), null, 2));
             return;
         }
         const changes = configChanges(options);

@@ -115,6 +115,11 @@ Commands:
                                   index and losslessly rotate supported logs
   configure [options]             Show or update local data automation and
                                   import budgets
+  lab                             Explicit, isolated evidence storage
+                                  experiments; preserves original logs and
+                                  indexes
+  scan [options] [text]           Search bounded live JSONL/gzip directly,
+                                  without SQLite or copying logs
   recurrence-inventory [options]  Latest scoped finding inventory, distinct
                                   from incident counts
   investigate [options]           Correlate session/call/file evidence, missing
@@ -206,6 +211,68 @@ Options:
   --json             Machine-readable output
   --short            Compact JSON
   -h, --help         display help for command
+```
+
+### data scan
+
+```
+Usage: interlinked data scan [options] [text]
+
+Search bounded live JSONL/gzip directly, without SQLite or copying logs
+
+Options:
+  --source <value>    Exact source filter
+  --category <value>  Exact category filter
+  --session <value>   Exact session filter
+  --actor <value>     Exact actor filter
+  --provider <value>  Exact provider filter
+  --model <value>     Exact model filter
+  --file <value>      Exact file filter
+  --check <value>     Exact check filter
+  --kind <value>      Exact kind filter
+  --decision <value>  Exact decision filter
+  --origin <value>    Exact origin filter
+  --call <value>      Exact call filter
+  --since <time>      Event time: duration or ISO timestamp; excludes undated
+                      records
+  --until <time>      Latest event time: duration or ISO timestamp
+  --limit <n>         Maximum results (1..1000)
+  --no-archives       Only retained live-source evidence
+  --cwd <path>        Project root
+  --json              Machine-readable output
+  --short             Compact JSON
+  --max-mb <n>        Expanded scan budget (default 32, maximum 1024 MiB)
+  --max-records <n>   Physical line budget (default 25000)
+  --offset <n>        Result offset within the scanned scope
+  --raw               Include original record text and hash in returned rows
+  --full-text         Match all decoded string values, beyond the bounded index
+                      projection
+  -h, --help          display help for command
+```
+
+### data lab
+
+```
+Usage: interlinked data lab [options] [command]
+
+Explicit, isolated evidence storage experiments; preserves original logs and
+indexes
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  generate [options]          Evidence experiment: generate
+  snapshot [options]          Evidence experiment: snapshot
+  build [options]             Evidence experiment: build
+  search [options]            Evidence experiment: search
+  show [options]              Evidence experiment: show
+  fts [options]               Evidence experiment: fts
+  analytics-export [options]  Evidence experiment: analytics-export
+  analytics-query [options]   Evidence experiment: analytics-query
+  benchmark [options]         Evidence experiment: benchmark
+  worker [options]            Evidence experiment: worker
+  help [command]              display help for command
 ```
 
 ### data search
@@ -516,7 +583,9 @@ Plan evidence-class retention; optionally index and losslessly rotate supported
 logs
 
 Options:
-  --execute     Run the bounded index and configured maintenance
+  --execute     Run explicitly requested or configured maintenance
+  --index       Also run the SQLite importer (independent of rotation)
+  --no-index    Skip the importer even if automatic indexing is configured
   --compact     Also rotate eligible collection/timeline logs; retains gzip
                 evidence
   --cwd <path>  Project root

@@ -2,6 +2,7 @@ import { defineDataSource, type DataSource } from "./catalog-types.js";
 
 /** Source of truth for logical organization. Discovery includes unregistered files. */
 export const DATA_CATALOG: readonly DataSource[] = [
+    defineDataSource({ name: "native-claude", category: "agent", retention: "preserve", description: "Explicit local snapshots of original Claude transcripts; not an automatic native-history backup", producer: "lib/data-search/snapshot", fields: ["sessionId", "agentId", "message.model", "message.content"] }),
     defineDataSource({ name: "check-executions", category: "quality", description: "All configured quality checks with completion, disabled, skipped, deferred and error states", producer: "harness/quality-checks/tool-check-loop", fields: ["file", "execution.id", "execution.status"] }),
     defineDataSource({ name: "data-maintenance", category: "runtime", description: "Bounded import and lossless retention run receipts", producer: "lib/data/maintenance", fields: ["executed", "indexing.complete", "indexing.inserted"] }),
     defineDataSource({ name: "capture-capabilities", category: "runtime", description: "Provider-visible data capability and coverage declarations", producer: "harness/data-capture-capabilities", fields: ["provider", "session_id", "capabilities"] }),
@@ -60,8 +61,8 @@ export const DATA_CATALOG: readonly DataSource[] = [
 
 export function dataSourceForPath(path: string): DataSource {
     const normalized = path.replace(/\\/g, "/");
-    const plain = normalized.replace(/\.\d+$/, "");
-    const segment = /^archive\/(.+)-\d+\.jsonl\.gz$/.exec(plain);
+    const plain = normalized.replace(/\.gz$/, "").replace(/\.\d+$/, "");
+    const segment = /^archive\/(.+)-\d+\.jsonl$/.exec(plain);
     const logical = segment ? `${segment[1]}.jsonl` : plain;
     const known = DATA_CATALOG.find((source) => source.path === logical);
     if (known) return known;
