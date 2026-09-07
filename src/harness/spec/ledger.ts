@@ -14,10 +14,10 @@
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, sep } from "node:path";
-import { resolveIgnoredDirs } from "../structure/extractors/skip-dirs.js";
 import { localNounBindings } from "./binding.js";
 import { extractSpecFacts } from "./extract-facts.js";
 import { claimsTouchKeys } from "./ledger-claims-touch-keys.js";
+import { ignoredSpecPaths } from "./ledger-git-scope.js";
 import {
 	appendCountDrift,
 	appendRangeDrift,
@@ -46,8 +46,8 @@ export type { SpecDriftFinding } from "./ledger-drift.js";
 
 export class SpecLedger {
 	private files = new Map<string, SpecFacts>();
-	/** Fully ignored local directory trees are outside the repository spec snapshot. */
-	private ignoredDirs: ReadonlySet<string> = new Set();
+	/** Git-ignored files and directory trees are outside the repository spec snapshot. */
+	private ignoredPaths: ReadonlySet<string> = new Set();
 	/** Content hash per loaded file — lets refreshFile no-op on unchanged content,
 	 *  so a redundant post-prerefresh refresh doesn't invalidate the memos (#15). */
 	private fileHashes = new Map<string, string>();
@@ -75,7 +75,7 @@ export class SpecLedger {
 		fileExists?: (absPath: string) => boolean,
 	): SpecLedger {
 		const ledger = new SpecLedger(repoRoot, fileExists);
-		ledger.ignoredDirs = resolveIgnoredDirs(repoRoot);
+		ledger.ignoredPaths = ignoredSpecPaths(repoRoot);
 		ledger.walk(repoRoot, "", 0);
 		return ledger;
 	}
@@ -136,7 +136,7 @@ export class SpecLedger {
 		if (entry.isDirectory()) {
 			if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith(".") || this.isIgnored(rel)) return;
 			this.walk(join(absDir, entry.name), rel, depth + 1);
-		} else if (entry.isFile() && isSpecEligibleFile(entry.name)) {
+		} else if (entry.isFile() && isSpecEligibleFile(entry.name) && !this.isIgnored(rel)) {
 			this.loadFile(join(absDir, entry.name), rel);
 		}
 	}
@@ -182,8 +182,8 @@ export class SpecLedger {
 
 	private isIgnored(relPath: string): boolean {
 		const abs = join(this.repoRoot, relPath);
-		for (const dir of this.ignoredDirs) {
-			if (abs === dir || abs.startsWith(`${dir}${sep}`)) return true;
+		for (const path of this.ignoredPaths) {
+			if (abs === path || abs.startsWith(`${path}${sep}`)) return true;
 		}
 		return false;
 	}
@@ -209,7 +209,7 @@ export class SpecLedger {
 	 */
 	previewWithFile(relPath: string, content: string): SpecLedger {
 		const preview = new SpecLedger(this.repoRoot, this.fileExists);
-		preview.ignoredDirs = this.ignoredDirs;
+		preview.ignoredPaths = this.ignoredPaths;
 		preview.files = new Map(this.files);
 		preview.fileHashes = new Map(this.fileHashes);
 		preview.truncated = this.truncated;

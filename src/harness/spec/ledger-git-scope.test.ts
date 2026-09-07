@@ -18,6 +18,22 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("spec ledger repository scope", () => {
+	it("omits ignored standalone snapshots, including non-ASCII paths", () => {
+		writeFileSync(join(root, ".gitignore"), "archives/\ndraft ü.md\n");
+		writeFileSync(join(root, "draft ü.md"), broken);
+		const ledger = SpecLedger.build(root);
+		ledger.refreshFile("draft ü.md", broken);
+		expect(ledger.fileList()).toEqual(["README.md"]);
+		expect(readFileSync(join(root, "draft ü.md"), "utf8")).toBe(broken);
+	});
+
+	it("retains a tracked standalone file even when an ignore pattern matches", () => {
+		writeFileSync(join(root, ".gitignore"), "archives/\ndraft.md\n");
+		writeFileSync(join(root, "draft.md"), broken);
+		execFileSync("git", ["add", "-f", "draft.md"], { cwd: root });
+		expect(SpecLedger.build(root).fileList().sort()).toEqual(["README.md", "draft.md"]);
+	});
+
 	it("omits ignored snapshot directories while retaining live broken links", () => {
 		const findings = SpecLedger.build(root).computeDrift().filter(finding => finding.kind === "xref_missing_file");
 		expect(findings.map(finding => finding.file)).toEqual(["README.md"]);

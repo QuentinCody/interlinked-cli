@@ -83,10 +83,10 @@ the total is nonzero); no `cd`/env/var state carries across blocks; the fence la
 ## Checks you encounter at edit time
 All gated by config `spec_checks` (default **on**).
 
-The repository ledger skips directory trees Git reports as fully ignored, including local
-archive copies. Tracked files inside an ignored directory still participate. Incremental
+The repository ledger skips Git-ignored files and directory trees, including local archive
+copies. Tracked files matched by ignore patterns still participate. Incremental
 refreshes and previews preserve the scope captured when the ledger was built; rebuild after
-changing ignore or tracking rules. The shared Git-directory query caches for up to one minute.
+changing ignore or tracking rules. Every build takes a fresh Git ignore snapshot.
 If Git is unavailable, the bounded filesystem walk still runs with its standard exclusions.
 Do not rewrite historical snapshots to satisfy a live-repository link warning. After updating
 the daemon, the next markdown observation refreshes the derived Stop stash; evidence logs stay
