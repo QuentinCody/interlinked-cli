@@ -23,9 +23,26 @@ const catalogs = [
 	PI_CAPABILITIES,
 ];
 
+const expectedCapabilitiesByRunner = new Map([
+	["claude-code", CLAUDE_CODE_CAPABILITIES],
+	["codex", CODEX_CAPABILITIES],
+	["copilot-cli", COPILOT_CLI_CAPABILITIES],
+	["cursor", CURSOR_CAPABILITIES],
+	["gemini-cli", GEMINI_CLI_CAPABILITIES],
+	["opencode", OPENCODE_CAPABILITIES],
+	["pi", PI_CAPABILITIES],
+] as const);
+
 describe("provider capability catalog", () => {
 	it("drives every adapter's installed native event list", () => {
-		for (const adapter of buildAllAdapters()) {
+		const adapters = buildAllAdapters();
+		// Bind every public runner id to its own catalog. Checking only
+		// nativeEventNames against adapter.capabilities would let a factory use
+		// another provider's catalog while remaining internally consistent.
+		expect(new Map(adapters.map((adapter) => [adapter.id, adapter.capabilities]))).toEqual(
+			expectedCapabilitiesByRunner,
+		);
+		for (const adapter of adapters) {
 			expect(adapter.nativeEventNames).toEqual(installedEventNames(adapter.capabilities));
 		}
 	});

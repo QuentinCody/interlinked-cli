@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ===========================================
 // Response shape interfaces
@@ -99,6 +99,10 @@ function isGitContextOutput(v: unknown): v is GitContextOutput {
 function isLinkCheckpointOutput(v: unknown): v is LinkCheckpointOutput {
 	return v !== null && typeof v === "object" && "checkpoint_id" in v;
 }
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
 
 describe("git context command", () => {
 	beforeEach(() => {

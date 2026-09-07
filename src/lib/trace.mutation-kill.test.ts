@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock local-activity — same contract as the companion __tests__/trace.test.ts mock.
 vi.mock("./local-activity.js", () => ({
@@ -15,6 +15,10 @@ const mockAppendLocal = vi.mocked(appendLocalActivity);
 
 beforeEach(() => {
 	vi.clearAllMocks();
+});
+
+afterEach(() => {
+	vi.restoreAllMocks();
 });
 
 describe("exportTrace — options handling", () => {

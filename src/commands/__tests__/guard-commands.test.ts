@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 
 // ===========================================
@@ -117,6 +117,10 @@ function isGuardStatusOutput(v: unknown): v is GuardStatusOutput {
 function isGuardUninstallOutput(v: unknown): v is GuardUninstallOutput {
 	return v !== null && typeof v === "object" && "mode" in v;
 }
+
+afterEach(() => {
+	vi.restoreAllMocks();
+});
 
 describe("guard install command", () => {
 	beforeEach(() => {
