@@ -13,7 +13,8 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, sep } from "node:path";
+import { resolveIgnoredDirs } from "../structure/extractors/skip-dirs.js";
 import { localNounBindings } from "./binding.js";
 import { extractSpecFacts } from "./extract-facts.js";
 import { claimsTouchKeys } from "./ledger-claims-touch-keys.js";
@@ -45,6 +46,8 @@ export type { SpecDriftFinding } from "./ledger-drift.js";
 
 export class SpecLedger {
 	private files = new Map<string, SpecFacts>();
+	/** Fully ignored local directory trees are outside the repository spec snapshot. */
+	private ignoredDirs: ReadonlySet<string> = new Set();
 	/** Content hash per loaded file — lets refreshFile no-op on unchanged content,
 	 *  so a redundant post-prerefresh refresh doesn't invalidate the memos (#15). */
 	private fileHashes = new Map<string, string>();
@@ -72,6 +75,7 @@ export class SpecLedger {
 		fileExists?: (absPath: string) => boolean,
 	): SpecLedger {
 		const ledger = new SpecLedger(repoRoot, fileExists);
+		ledger.ignoredDirs = resolveIgnoredDirs(repoRoot);
 		ledger.walk(repoRoot, "", 0);
 		return ledger;
 	}
@@ -130,7 +134,7 @@ export class SpecLedger {
 	): void {
 		const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
 		if (entry.isDirectory()) {
-			if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith(".")) return;
+			if (EXCLUDED_DIRS.has(entry.name) || entry.name.startsWith(".") || this.isIgnored(rel)) return;
 			this.walk(join(absDir, entry.name), rel, depth + 1);
 		} else if (entry.isFile() && isSpecEligibleFile(entry.name)) {
 			this.loadFile(join(absDir, entry.name), rel);
@@ -171,9 +175,17 @@ export class SpecLedger {
 
 	/** Re-extract one file after an edit (the in-session dirty layer). */
 	refreshFile(relPath: string, content: string): void {
-		if (!isSpecEligibleFile(relPath)) return;
+		if (!isSpecEligibleFile(relPath) || this.isIgnored(relPath)) return;
 		this.skippedPaths.delete(relPath); // content in hand → no longer skipped (sol-max #7)
 		this.setFacts(relPath, content);
+	}
+
+	private isIgnored(relPath: string): boolean {
+		const abs = join(this.repoRoot, relPath);
+		for (const dir of this.ignoredDirs) {
+			if (abs === dir || abs.startsWith(`${dir}${sep}`)) return true;
+		}
+		return false;
 	}
 
 	removeFile(relPath: string): void {
@@ -197,6 +209,7 @@ export class SpecLedger {
 	 */
 	previewWithFile(relPath: string, content: string): SpecLedger {
 		const preview = new SpecLedger(this.repoRoot, this.fileExists);
+		preview.ignoredDirs = this.ignoredDirs;
 		preview.files = new Map(this.files);
 		preview.fileHashes = new Map(this.fileHashes);
 		preview.truncated = this.truncated;

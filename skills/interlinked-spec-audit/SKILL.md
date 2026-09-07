@@ -83,6 +83,15 @@ the total is nonzero); no `cd`/env/var state carries across blocks; the fence la
 ## Checks you encounter at edit time
 All gated by config `spec_checks` (default **on**).
 
+The repository ledger skips directory trees Git reports as fully ignored, including local
+archive copies. Tracked files inside an ignored directory still participate. Incremental
+refreshes and previews preserve the scope captured when the ledger was built; rebuild after
+changing ignore or tracking rules. The shared Git-directory query caches for up to one minute.
+If Git is unavailable, the bounded filesystem walk still runs with its standard exclusions.
+Do not rewrite historical snapshots to satisfy a live-repository link warning. After updating
+the daemon, the next markdown observation refreshes the derived Stop stash; evidence logs stay
+intact.
+
 **PostToolUse single-file** (8 checks, `severity: warning`): `spec_dangling_anchor` (proven — a
 `[x](#slug)` or `§N.N` ref with no target), `spec_numbering`, `spec_count_claim` ("six bets"
 above a B1..B7 census), `spec_pitfall` (curated spec falsehoods), `spec_claim_untagged`,
