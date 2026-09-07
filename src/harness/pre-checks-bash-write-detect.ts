@@ -330,7 +330,9 @@ export function detectBashCodeFileWrite(
 	// commands as extra segments so every scanner below sees them too.
 	// In-place editors (sed/perl/awk/ex/ed) and patch/git-apply live in the
 	// extracted helper to hold this orchestrator's branch count.
-	const scannable = withUnwrappedCommands(normalized);
+	// Keep real command boundaries: a cached apply on one line cannot exempt
+	// a worktree apply on the next. Escaped newlines remain continuations.
+	const scannable = withUnwrappedCommands(cmd.replace(/\\\r?\n/g, ""));
 	const editorHit = scanInPlaceAndPatchVerbs(scannable, inRoot, projectRoot);
 	if (editorHit) return editorHit;
 

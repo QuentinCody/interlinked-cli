@@ -113,20 +113,46 @@ function lastCodeFilePositional(args: string[]): string | null {
 	return null;
 }
 
-/** Read-only patch/apply forms that must never fire the gate. */
-const PATCH_READONLY_FLAG_RE = /--(?:check|stat|numstat|summary|dry-run)\b/;
+const PATCH_VALUE_OPTIONS = new Set([
+	"-d", "--directory", "-p", "--strip", "-i", "--input", "-o", "--output",
+	"--include", "--exclude", "--whitespace", "--build-fake-ancestor",
+]);
+
+/** Inspect option tokens only: a filename or an option's value is not a flag. */
+function patchOptions(args: string[]): Set<string> {
+	const options = new Set<string>();
+	for (let i = 0; i < args.length; i++) {
+		const arg = nonNull(args[i]);
+		if (arg === "--") break;
+		if (PATCH_VALUE_OPTIONS.has(arg)) {
+			i++;
+			continue;
+		}
+		if (arg.startsWith("-")) options.add(arg);
+	}
+	return options;
+}
+
+/** `--cached` changes only the index. `--index` also changes the worktree.
+ * `--apply` restores application when combined with a reporting flag. */
+function gitApplyWritesWorktree(args: string[]): boolean {
+	const options = patchOptions(args);
+	if (options.has("--cached")) return false;
+	if (options.has("--apply")) return true;
+	return !["--check", "--stat", "--numstat", "--summary"].some((flag) => options.has(flag));
+}
 
 /** `patch` / `git apply` (gap 1): content lands in tracked files named inside
  *  the diff — no resolvable per-file target, so the verb is the signal. */
 export function detectPatchApplyVerb(cmd: string): VerbWriteHit | null {
 	for (const segment of splitCommandSegments(cmd)) {
-		if (PATCH_READONLY_FLAG_RE.test(segment)) continue;
 		const args = splitShellWordsLoose(segment).map(stripOuterQuotes);
 		const verb = args.length > 0 ? (nonNull(args[0]).split("/").pop() ?? "") : "";
 		if (verb === "patch") {
+			if (patchOptions(args.slice(1)).has("--dry-run")) continue;
 			return { target: "(files named inside the diff)", mechanism: "patch (diff applier)" };
 		}
-		if (verb === "git" && args[1] === "apply") {
+		if (verb === "git" && args[1] === "apply" && gitApplyWritesWorktree(args.slice(2))) {
 			return { target: "(files named inside the diff)", mechanism: "git apply (diff applier)" };
 		}
 	}

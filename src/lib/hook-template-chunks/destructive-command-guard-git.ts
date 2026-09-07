@@ -103,7 +103,7 @@ export function dcgCheckGitInteractiveOrRewrite(cmd: string): DestructiveCommand
 		return {
 			decision: "block",
 			reason:
-				"BLOCKED: git add -i/-p/-e opens an interactive prompt that hangs a non-interactive agent. Use git add <pathspec>.",
+				"BLOCKED: git add -i/-p/-e opens an interactive prompt that hangs a non-interactive agent. Use git add <pathspec>, or git apply --cached <reviewed-patch> for selected hunks without changing working-tree files.",
 		};
 	}
 	return null;

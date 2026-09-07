@@ -347,7 +347,7 @@ export const PROCESS_RULES_GIT_FS_INLINE: GuardRule[] = [
 		reason:
 			"git add -i / -p / -e opens an interactive prompt or editor that hangs a non-interactive agent tool call indefinitely.",
 		suggestion:
-			"Stage files non-interactively: git add <pathspec>. To stage part of a file, edit the file directly.",
+			"Stage whole files with git add <pathspec>. For selected hunks, prepare a reviewed patch and use git apply --cached <patch>; this updates only the index and preserves working-tree edits.",
 		severity: "medium",
 		category: "git-operations",
 	},

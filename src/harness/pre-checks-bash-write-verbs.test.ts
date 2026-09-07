@@ -56,6 +56,30 @@ describe("detectPatchApplyVerb — positive (must fire)", () => {
 });
 
 describe("detectPatchApplyVerb — negative (must not fire)", () => {
+	it.each([
+		"git apply --cached staged.patch",
+		"git apply --reverse --cached staged.patch",
+		"git apply staged.patch --cached",
+		"git apply --cached --index staged.patch",
+	])("permits index-only staging: %s", (command) => {
+		expect(detectPatchApplyVerb(command)).toBeNull();
+		expect(detectBashCodeFileWrite(command, process.cwd())).toBeNull();
+	});
+
+	it.each([
+		"git apply --index staged.patch",
+		"git apply --stat --apply staged.patch",
+		"git apply -- --cached",
+		"git apply --directory --cached staged.patch",
+		"git apply staged--check.patch",
+		"git apply --cached staged.patch; git apply working.patch",
+		"git apply --cached staged.patch\ngit apply working.patch",
+		"git apply working.patch\ngit apply --cached staged.patch",
+	])("retains the worktree gate: %s", (command) => {
+		expect(detectPatchApplyVerb(command)?.mechanism).toBe("git apply (diff applier)");
+		expect(detectBashCodeFileWrite(command, process.cwd())?.mechanism).toBe("git apply (diff applier)");
+	});
+
 	it("N1: git apply --check (read-only) does not fire", () => {
 		expect(detectPatchApplyVerb("git apply --check fix.patch")).toBeNull();
 	});

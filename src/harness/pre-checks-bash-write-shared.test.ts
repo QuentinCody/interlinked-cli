@@ -7,6 +7,10 @@ import {
 } from "./pre-checks-bash-write-shared.js";
 
 describe("shared bash-write parsing primitives", () => {
+	it("separates real newlines while preserving quoted newlines", () => {
+		expect(splitCommandSegments("echo 'first\nsecond'\ngit status")).toEqual(["echo 'first\nsecond'", "git status"]);
+	});
+
 	it("P1: splitCommandSegments splits on &&, ||, ; and |", () => {
 		expect(splitCommandSegments("a b && c d ; e | f")).toEqual(["a b", "c d", "e", "f"]);
 	});

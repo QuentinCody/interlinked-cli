@@ -15,7 +15,7 @@ function separatorLengthAt(cmd: string, i: number): number {
 	const two = cmd.slice(i, i + 2);
 	if (two === "&&" || two === "||") return 2;
 	const ch = cmd[i];
-	return ch === "|" || ch === ";" ? 1 : 0;
+	return ch === "|" || ch === ";" || ch === "\n" ? 1 : 0;
 }
 
 /** Consume from an opening quote through its close, returning the consumed
