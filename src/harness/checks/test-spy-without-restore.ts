@@ -2,7 +2,7 @@
 // FIRES WHEN: vi.spyOn/jest.spyOn in an active test or setup has no same-owner
 // mockRestore/restoreAllMocks, applicable ancestor teardown, or discovered runner cleanup.
 // DOES NOT FIRE: using/await using declarations, explicit restoration, skipped tests,
-// objects created within a test (including property targets), restoreMocks:true,
+// objects/array literals created within a test (including property targets), restoreMocks:true,
 // or applicable beforeEach/afterEach/afterAll restoration. clear/reset calls do not
 // restore the original method. A sibling test's teardown is not applicable.
 // CALIBRATION (2026-09-07, 2145 tracked tests; no independent precision measurement):
@@ -10,6 +10,8 @@
 // | first | 55/21 | missing beforeEach, property restoration and local-object shapes |
 // | second | 50/18 | recognized beforeEach, vi.mocked and direct local objects |
 // | third | 44/16 | recognized properties of test-local objects |
+// Pilot correction: test-local array literals are fresh too; module/suite arrays,
+// shared-array aliases and Array.prototype still require restoration.
 // Prototype 18/6 used a different regex/corpus scope. Advisory post warning only.
 // KNOWN GAPS: aliases of vi/jest, helper cleanup and config merges/CLI overrides
 // are unresolved; local restoration is lexical, not a control-flow proof. Config
@@ -102,7 +104,13 @@ function ownsFreshTarget(parsed: ParsedTsSource, spy: OwnedCall): boolean {
         const names = ts.isObjectBindingPattern(node.name) ? node.name.elements.map((element) => element.name.getText()) : [node.name.getText()];
         if (!names.includes(target.text)) return;
         const value = node.initializer;
-        if (ts.isObjectLiteralExpression(value) || ts.isNewExpression(value) || ts.isCallExpression(value)) fresh = true;
+        // Only the array itself is fresh, not entries destructured from it or
+        // a same-named array declared in a separate nested scope.
+        const arrayScope = node.parent.parent.parent;
+        const localArray = ts.isIdentifier(node.name) && ts.isArrayLiteralExpression(value)
+            && arrayScope.pos <= spy.call.pos && arrayScope.end >= spy.call.end;
+        if (ts.isObjectLiteralExpression(value) || localArray
+            || ts.isNewExpression(value) || ts.isCallExpression(value)) fresh = true;
     });
     return fresh;
 }

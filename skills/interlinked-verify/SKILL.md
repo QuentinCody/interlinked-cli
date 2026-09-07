@@ -230,6 +230,8 @@ Review each finding against the observable contract before editing the test.
 - `spy_without_restore`: use applicable restore hooks, `mockRestore`, `using`, or
   runner `restoreMocks`. Discovery reads default Vitest/Jest configs and literal
   setup paths at the nearest package root; custom config loading is unresolved.
+  Fresh objects and array literals owned by a test are exempt. Shared arrays
+  still need cleanup; review ownership before adding restoration solely to clear a warning.
 - `export_existence_smoke_test`: only imported export presence/type evidence;
   these cases are excluded from `wildcard_in_observable`. Export availability may
   be an intentional compatibility contract.

@@ -12,6 +12,16 @@ describe("spy restoration — positive (must fire)", () => {
     it("reports a leaking spy", () => {
         expect(check(leaking, "api.test.ts").map((finding) => finding.line)).toEqual([1]);
     });
+    it.each([
+        'const values: string[] = []; it("appends", () => { vi.spyOn(values, "push"); });',
+        'describe("shared", () => { const values: string[] = []; it("appends", () => { vi.spyOn(values, "push"); }); });',
+        'const shared: string[] = []; it("appends", () => { const values = shared; vi.spyOn(values, "push"); });',
+        'const values: string[] = []; it("appends", () => { function unrelated() { const values: string[] = []; } vi.spyOn(values, "push"); });',
+        'const shared: string[] = []; it("appends", () => { const { 0: values } = [shared]; vi.spyOn(values, "push"); });',
+        'it("prototype", () => { vi.spyOn(Array.prototype, "push"); });',
+    ])("still reports shared array methods: %s", (source) => {
+        expect(check(source, "api.test.ts").map((finding) => finding.line)).toEqual([1]);
+    });
     it.each(["clearAllMocks", "resetAllMocks"])("%s is insufficient", (method) => {
         expect(check(`${leaking}\nafterEach(() => vi.${method}());`, "api.test.ts")).toHaveLength(1);
     });
@@ -23,6 +33,12 @@ describe("spy restoration — positive (must fire)", () => {
 });
 
 describe("spy restoration — negative (must not fire)", () => {
+    it.each([
+        'it("empty local array", () => { const values: string[] = []; const spy = vi.spyOn(values, "push"); expect(spy).not.toHaveBeenCalled(); });',
+        'it("populated local array", () => { const values = ["first"]; const spy = jest.spyOn(values, "pop"); expect(values.pop()).toBe("first"); expect(spy).toHaveBeenCalledTimes(1); });',
+    ])("exempts a fresh array created within its test: %s", (source) => {
+        expect(check(source, "api.test.ts")).toEqual([]);
+    });
     it.each([
         `${leaking} afterEach(() => vi.restoreAllMocks());`,
         `${leaking} beforeEach(() => vi.restoreAllMocks());`,

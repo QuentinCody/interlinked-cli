@@ -160,6 +160,8 @@ Evaluate the intended contract: forwarding a mock value or preserving an export
 can be legitimate. Fix a detector false positive before rewriting valid tests.
 `spy_without_restore` recognizes applicable local cleanup and statically discovered
 Vitest/Jest restoration settings; `clearAllMocks`/`resetAllMocks` are insufficient.
+Fresh test-owned array literals are exempt, as are fresh test-owned objects;
+module/suite arrays, shared aliases, and prototype methods still need restoration.
 Source headers and `docs/design/test-discrimination-checks.md` describe limits and
 calibration. A corpus hit count is not precision or proof of a surviving mutant.
 
