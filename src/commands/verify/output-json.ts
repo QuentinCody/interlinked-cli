@@ -15,6 +15,7 @@ import type { DecisionSurfaceRatchetResult } from "../../harness/quality-checks/
 import type { RegistryDriftFinding } from "../../harness/registry-parity.js";
 import type { Finding } from "../../harness/suggestion-scorer.js";
 import type { JsonObject } from "../../lib/json-types.js";
+import { summarizeTestQualitySections } from "./output-json-test-quality.js";
 import type { AuditResult, CodeQualityResults, DiagnosticResult } from "./tool-results-types.js";
 
 /** Row shape we care about for section summarization. */
@@ -305,12 +306,8 @@ export function outputJson(args: OutputJsonArgs): void {
 		test_missing_sut_import: summarizeWithDetails(cq.testMissingSutImport),
 		mocking_the_sut_self: summarizeWithDetails(cq.mockingTheSutSelf),
 		test_subprocess_default_timeout: summarizeWithDetails(cq.testSubprocessDefaultTimeout),
-		// === Test-quality checks (2 entries) ===
-		mock_only_test: summarizeWithDetails(cq.mockOnlyTest),
-		happy_path_only_test: summarizeWithDetails(cq.happyPathOnlyTest),
-		introverted_test: summarizeWithDetails(cq.introvertedTest),
-		test_legitimacy: summarizeWithDetails(cq.testLegitimacy),
-		procfs_probe_in_test: summarizeWithDetails(cq.procfsProbeInTest),
+		// === Test-quality + test-discrimination (output-json-test-quality.ts) ===
+		...summarizeTestQualitySections(cq, summarizeWithDetails),
 		// === Batch 5: cross-file (4 entries) ===
 		empty_body_handler: summarizeWithDetails(cq.emptyBodyHandler),
 		listener_pairing: summarizeWithDetails(cq.listenerPairing),

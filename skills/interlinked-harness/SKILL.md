@@ -150,6 +150,19 @@ can correct them immediately; context-heavier suite review stays in PostToolUse.
 warning merely to land the edit—assert a precise observable behavior, or justify the actual public
 compatibility contract.
 
+**Test-discrimination advisories** are `post` warnings and also run under
+`verify --all-checks`. They review fallback-only evidence, indistinguishable
+positive/negative expectations, unpinned spy arguments, wildcard observables,
+in-tree fixtures, fixed ports, ambiguous throw messages, unguarded catch assertions,
+vacuous loops, mock return echoes, duplicate bodies, spies without restoration,
+export existence smoke tests, and commented-out assertions. They never block.
+Evaluate the intended contract: forwarding a mock value or preserving an export
+can be legitimate. Fix a detector false positive before rewriting valid tests.
+`spy_without_restore` recognizes applicable local cleanup and statically discovered
+Vitest/Jest restoration settings; `clearAllMocks`/`resetAllMocks` are insufficient.
+Source headers and `docs/design/test-discrimination-checks.md` describe limits and
+calibration. A corpus hit count is not precision or proof of a surviving mutant.
+
 ## Bash effects and sandbox evidence
 
 Do not trust a tool name as proof that no file changed. For Bash and other potentially mutating

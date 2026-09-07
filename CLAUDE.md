@@ -400,6 +400,44 @@ resolver, so it sits in `VERIFY_ONLY_CHECKS`).
 
 **Test-quality (from external-pulse intake):** `introverted_test` (`checks/introverted-test.ts`, post, advisory) flags `it()/test()` blocks whose assertions never trace to a non-mocked system-under-test call/read — the static-dataflow layer beneath `mock_only_test` (matcher kind) and `test_missing_sut_import` (the import). SUT = the companion module only; it does not fire when the SUT is exercised in the body (directly or via a file-local factory helper). Ported from Uncle Bob's deintroverter4clj; intake at `docs/external-pulse/deintroverter.md`. Dogfood: 0/791 test files on landing.
 
+**Test-discrimination family (2026-09-06/07):** fourteen advisory `post`
+checks, also surfaced by `verify --all-checks`; none blocks. Registry:
+`check-registry/entries-warnings/test-discrimination.ts`. Every detector entry
+module has CLASS / FIRES WHEN / DOES NOT FIRE / CALIBRATION / KNOWN GAPS /
+HOW TO EXTEND sections. Reproduce fire rates with
+`npx tsx scripts/scan-test-discrimination.ts [corpus-root] [check-id ...]`.
+The operator design note is `docs/design/test-discrimination-checks.md`.
+
+| check | review target |
+|---|---|
+| `fallback_only_assertion` | default-only outcomes without same-file/same-SUT sibling pins |
+| `duplicate_expected_literal_pos_neg` | invariant literals across positive/negative cases |
+| `spy_call_unpinned_args` | call counts without argument/value evidence |
+| `wildcard_in_observable` | wildcard-only observables; excludes imported-export smoke |
+| `in_tree_temp_fixture` | fixture roots without recognized OS-temp provenance |
+| `duplicate_throw_message_assertion` | repeated error messages in the resolved callee |
+| `catch_without_assertion_guard` | catch-only assertions without recognized guards |
+| `fixed_port_in_test` | fixed ports in recognized network contexts |
+| `vacuous_loop_assertion` | loop-only assertions; mapped equality pins recognized |
+| `mock_return_echo` | literal overlap with mock returns; coarse literals require one discovered mock |
+| `duplicate_test_body` | repeated bodies under equivalent setup, including late hooks |
+| `spy_without_restore` | missing applicable cleanup, considering runner config and test-local objects |
+| `export_existence_smoke_test` | imported export existence/function-type assertions only |
+| `commented_out_assertion` | actual disabled assertions, excluding strings/prose/skip fixtures |
+
+Review corrections: negation and throwing evidence are not mock echoes; quoted keys
+are not mock return values. Setup normalization preserves literal whitespace.
+The original vacuous-loop 8/8 precision claim included two known false positives
+and supports at most 6/8. Fire rates and builder samples are not independent precision.
+
+Two lessons that bind future checks: the builder's own 8-sample precision read was
+wrong by 70 points on two detectors (posneg read 87% TP, independent adjudication
+said 86% FP) — measure precision with an independent census or adjudication, never
+the builder's sample; and four scoped detector fixes removed 514 hits where a
+165-unit agent wave had removed 153 — fix the detector before fixing the tests.
+`test_name_matcher_mismatch` is built and deliberately UNREGISTERED (0/8 precision
+three times: title claims are verified through literals the title cannot see).
+
 Shared patterns when adding another agent-quality check (verified
 against current code, May 2026):
 1. Detector in `src/harness/checks/<family>.ts` (a new family file or

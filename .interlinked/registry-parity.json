@@ -59,7 +59,26 @@
 				"swift_try_question_discarded",
 				"swift_fatalerror_in_guard",
 				"swift_print_in_view_body",
-				"swift_abbreviations"
+				"swift_abbreviations",
+				"mock_only_test",
+				"happy_path_only_test",
+				"introverted_test",
+				"test_legitimacy",
+				"procfs_probe_in_test",
+				"duplicate_throw_message_assertion",
+				"fallback_only_assertion",
+				"spy_call_unpinned_args",
+				"wildcard_in_observable",
+				"fixed_port_in_test",
+				"in_tree_temp_fixture",
+				"catch_without_assertion_guard",
+				"duplicate_expected_literal_pos_neg",
+				"vacuous_loop_assertion",
+				"mock_return_echo",
+				"duplicate_test_body",
+				"spy_without_restore",
+				"export_existence_smoke_test",
+				"commented_out_assertion"
 			],
 			"right_only_allowed": []
 		}

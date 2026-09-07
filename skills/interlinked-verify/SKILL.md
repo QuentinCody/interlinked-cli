@@ -214,6 +214,36 @@ explicit `export_ripple_compilation_deferred` info finding and launches no
 second compiler while same-project compiler work is active.
 Different project roots remain independent and may compile concurrently.
 
+## Reviewing test discrimination
+
+`interlinked verify --all-checks --details` includes fourteen advisory test-discrimination
+and isolation checks; default verify omits them. They remain PostToolUse warnings.
+Review each finding against the observable contract before editing the test.
+
+- `mock_return_echo`: check whether forwarding the configured value is the contract.
+  Negated/throwing evidence is not an echo; coarse values count only with one
+  discovered mock target. Literal overlap is a heuristic, not dataflow proof.
+- `duplicate_test_body`: compare inputs and setup. Setup comparison includes hooks
+  declared after tests and preserves whitespace inside literals.
+- `vacuous_loop_assertion`: pin non-emptiness or use a positive assertion count.
+  Mapped-array equality pins are recognized; `expect.assertions(0)` is not a guard.
+- `spy_without_restore`: use applicable restore hooks, `mockRestore`, `using`, or
+  runner `restoreMocks`. Discovery reads default Vitest/Jest configs and literal
+  setup paths at the nearest package root; custom config loading is unresolved.
+- `export_existence_smoke_test`: only imported export presence/type evidence;
+  these cases are excluded from `wildcard_in_observable`. Export availability may
+  be an intentional compatibility contract.
+- `commented_out_assertion`: a real disabled assertion inside an active test;
+  prose mentions and code-as-string fixtures are excluded.
+
+In the Interlinked CLI source checkout, reproduce the census with
+`npx tsx scripts/scan-test-discrimination.ts [corpus-root] [check-id ...]`.
+It reads current contents of tracked JS/TS tests and prints counts plus locations
+as JSON. Per-file finding caps apply; zero findings and builder-reviewed samples
+do not establish independent precision. AST detectors and duplicate-body setup
+comparison require optional TypeScript; its absence yields no detector findings,
+not verification.
+
 ## Landing multi-file edits (the ordering rule)
 Three agent-callable commands gate proposed content **without** running function-token/coverage/complexity/post
 checks. `interlinked write` and `verify-changeset` run `pre_block → biome → tsc`; `interlinked

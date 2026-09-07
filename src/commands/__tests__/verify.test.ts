@@ -311,6 +311,21 @@ describe("DEFAULT_ADVISORY_SKIPS", () => {
 				"mock_only_test",
 				"happy_path_only_test",
 				"introverted_test",
+				// Test-discrimination family (coverage-campaign falsifier corpus, 2026-09-06)
+				"duplicate_throw_message_assertion",
+				"fallback_only_assertion",
+				"spy_call_unpinned_args",
+				"wildcard_in_observable",
+				"fixed_port_in_test",
+				"in_tree_temp_fixture",
+				"catch_without_assertion_guard",
+				"duplicate_expected_literal_pos_neg",
+				"vacuous_loop_assertion",
+				"mock_return_echo",
+				"duplicate_test_body",
+				"spy_without_restore",
+				"export_existence_smoke_test",
+				"commented_out_assertion",
 				// Effect-TS lessons port (advisory until cross-realm-vs-single-realm
 				// FP rate is measured).
 				"error_dispatch_by_instanceof",

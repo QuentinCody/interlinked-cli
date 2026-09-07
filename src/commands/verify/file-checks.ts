@@ -60,6 +60,7 @@ import { runOverExtractionChecks } from "./file-checks-over-extraction.js";
 import { runTypeRedundancyChecks } from "./file-checks-type-redundancy.js";
 import { runEndpointAndLazinessChecks } from "./file-checks-endpoint-laziness.js";
 import { runReactAndTasteChecks } from "./file-checks-react-test.js";
+import { runTestDiscriminationChecks } from "./file-checks-test-discrimination.js";
 import type { FileCheckContext, PiiOpts } from "./file-checks-shared.js";
 import { toIssues } from "./file-checks-shared.js";
 import { runUbsChecks } from "./file-checks-ubs.js";
@@ -433,4 +434,5 @@ function collectPerFileFindings(args: RunFileChecksArgs): void {
 	runReactAndTasteChecks(ctx);
 	runUbsChecks(ctx);
 	runEndpointAndLazinessChecks(ctx);
+	runTestDiscriminationChecks(ctx);
 }

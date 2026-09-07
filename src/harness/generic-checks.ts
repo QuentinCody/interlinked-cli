@@ -173,6 +173,22 @@ export { checkIndexAsKey } from "./checks/index-as-key.js";
 export { checkIndexBoundsUnchecked } from "./checks/index-bounds.js";
 // ---- introverted-test (assertion → SUT provenance, 2026-06) ----
 export { checkIntrovertedTest } from "./checks/introverted-test.js";
+// ---- test-discrimination + test-isolation (coverage-campaign corpus, 2026-09-06) ----
+export { checkCatchWithoutAssertionGuard } from "./checks/test-discrimination-catch.js";
+export { checkFallbackOnlyAssertion } from "./checks/test-discrimination-fallback.js";
+export { checkDuplicateExpectedLiteralPosNeg } from "./checks/test-discrimination-posneg.js";
+export { checkSpyCallUnpinnedArgs } from "./checks/test-discrimination-spy.js";
+export { checkDuplicateThrowMessageAssertion } from "./checks/test-discrimination-throw.js";
+export { checkWildcardInObservable } from "./checks/test-discrimination-wildcard.js";
+export { checkInTreeTempFixture } from "./checks/test-isolation-fixture-dir.js";
+export { checkFixedPortInTest } from "./checks/test-isolation-port.js";
+// ---- test-discrimination round 2 (prototyped on the tree, 2026-09-07) ----
+export { checkDuplicateTestBody } from "./checks/test-duplicate-body.js";
+export { checkSpyWithoutRestore } from "./checks/test-spy-without-restore.js";
+export { checkExportExistenceSmokeTest } from "./checks/test-export-existence.js";
+export { checkCommentedOutAssertion } from "./checks/test-commented-assertion.js";
+export { checkMockReturnEcho } from "./checks/test-mock-return-echo.js";
+export { checkVacuousLoopAssertion } from "./checks/test-vacuous-loop.js";
 // ---- iteration-safety ----
 export {
 	checkFreshCollectionKeyLookup,

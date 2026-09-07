@@ -506,6 +506,10 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 	const verifyCheckNames = extractVerifyCheckNames(verifySource);
 
 	it("every check imported in quality-checks.ts is also imported in verify.ts (or documented as exception)", () => {
+		// Sanity: the extraction must have actually found imports — a stubbed
+		// extractor returning an empty set would make the `missing` assertion
+		// below pass vacuously.
+		expect(qcImports.size).toBeGreaterThan(50);
 		const missing: string[] = [];
 		for (const name of qcImports) {
 			if (!verifyImports.has(name) && !POSTTOOLUSE_ONLY_CHECKS.has(name)) {
@@ -519,6 +523,7 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 	});
 
 	it("every check imported in verify.ts is also imported in quality-checks.ts (or documented as exception)", () => {
+		expect(verifyImports.size).toBeGreaterThan(50);
 		const missing: string[] = [];
 		for (const name of verifyImports) {
 			if (!qcImports.has(name) && !VERIFY_ONLY_CHECKS.has(name)) {
@@ -532,6 +537,7 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 	});
 
 	it("every agentSafetyCheck has a corresponding toIssues call in verify.ts (or documented as exception)", () => {
+		expect(safetyCheckNames.size).toBeGreaterThan(50);
 		const missing: string[] = [];
 		for (const name of safetyCheckNames) {
 			// Convert snake_case safety check name to the verify toIssues name
@@ -547,6 +553,7 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 	});
 
 	it("every toIssues call in verify.ts has a corresponding agentSafetyCheck (or documented as exception)", () => {
+		expect(verifyCheckNames.size).toBeGreaterThan(50);
 		// Build set of verify check names that correspond to agentSafetyChecks
 		// (excluding checks that are wired differently, like complexity, large_file, etc.)
 		const safetyCheckSet = new Set(safetyCheckNames);
@@ -598,8 +605,10 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 
 	it("verify.ts CodeQualityResults interface has a property for every toIssues check name", () => {
 		const interfaceProps = extractResultsInterfaceProps(verifySource);
+		expect(interfaceProps.size).toBeGreaterThan(50);
 		const missing: string[] = [];
 		const toIssuesNames = extractVerifyCheckNames(verifySource);
+		expect(toIssuesNames.size).toBeGreaterThan(50);
 
 		// Some toIssues names map to non-standard camelCase property names
 		const TOISSUES_TO_PROP: Record<string, string> = {
@@ -683,7 +692,9 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 
 	it("verify.ts streamCqSection covers every CodeQualityResults property", () => {
 		const interfaceProps = extractResultsInterfaceProps(verifySource);
+		expect(interfaceProps.size).toBeGreaterThan(50);
 		const streamProps = extractStreamSectionNames(verifySource);
+		expect(streamProps.size).toBeGreaterThan(50);
 
 		// Some properties are rendered via custom logic, not streamCqSection
 		const CUSTOM_RENDERED = new Set([
@@ -705,7 +716,9 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 
 	it("verify.ts outputJson destructures every CodeQualityResults property", () => {
 		const interfaceProps = extractResultsInterfaceProps(verifySource);
+		expect(interfaceProps.size).toBeGreaterThan(50);
 		const jsonProps = extractJsonOutputProps(verifySource);
+		expect(jsonProps.size).toBeGreaterThan(50);
 
 		// Agent safety checks are currently aggregated under a single "agent_checks"
 		// key in JSON output rather than destructured individually.
@@ -861,6 +874,28 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 			// Batches 1, 2, 5, 8: now individually destructured in
 			// outputJson; no longer aggregated. Kept here as a comment for
 			// the bookkeeping trail.
+			// Test-quality and discrimination checks are emitted through `summarizeTestQualitySections`
+			// (output-json-test-quality.ts, pinned by its own test) because
+			// `outputJson` is over the function-token cap and may only shrink.
+			"mockOnlyTest",
+			"happyPathOnlyTest",
+			"introvertedTest",
+			"testLegitimacy",
+			"procfsProbeInTest",
+			"duplicateThrowMessageAssertion",
+			"fallbackOnlyAssertion",
+			"spyCallUnpinnedArgs",
+			"wildcardInObservable",
+			"fixedPortInTest",
+			"inTreeTempFixture",
+			"catchWithoutAssertionGuard",
+			"duplicateExpectedLiteralPosNeg",
+			"vacuousLoopAssertion",
+			"mockReturnEcho",
+			"duplicateTestBody",
+			"spyWithoutRestore",
+			"exportExistenceSmokeTest",
+			"commentedOutAssertion",
 		]);
 
 		const missing: string[] = [];
@@ -880,6 +915,7 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 		// 1. Appear in the agentSafetyChecks array (fn: () => checkXxx(...))
 		// 2. Be called elsewhere in the file (e.g., checkFunctionComplexity, checkLargeFile)
 		// 3. Be used transitively via check-registry.ts (imported there and wired into CHECK_REGISTRY)
+		expect(qcImports.size).toBeGreaterThan(50);
 		const unused: string[] = [];
 		// Combined source: quality-checks.ts + check-registry.ts (for transitive usage)
 		const combinedSource = `${qualitySource}\n${registrySource}`;
@@ -899,6 +935,7 @@ describe("check pipeline parity: verify ↔ PostToolUse", () => {
 	});
 
 	it("no check functions are imported but unused in verify.ts", () => {
+		expect(verifyImports.size).toBeGreaterThan(50);
 		const unused: string[] = [];
 		for (const name of verifyImports) {
 			const importPattern = new RegExp(`\\b${name}\\b`, "g");

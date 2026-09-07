@@ -238,6 +238,20 @@ const EXPECTED_KEY_ORDER = [
 	"happyPathOnlyTest",
 	"introvertedTest",
 	"testLegitimacy",
+	"duplicateThrowMessageAssertion",
+	"fallbackOnlyAssertion",
+	"spyCallUnpinnedArgs",
+	"wildcardInObservable",
+	"fixedPortInTest",
+	"inTreeTempFixture",
+	"catchWithoutAssertionGuard",
+	"duplicateExpectedLiteralPosNeg",
+	"vacuousLoopAssertion",
+	"mockReturnEcho",
+	"duplicateTestBody",
+	"spyWithoutRestore",
+	"exportExistenceSmokeTest",
+	"commentedOutAssertion",
 	"procfsProbeInTest",
 	"emptyBodyHandler",
 	"listenerPairing",
@@ -286,7 +300,22 @@ describe("SECTIONS", () => {
 			expect(typeof spec.noun).toBe("string");
 			expect(typeof spec.passLabel).toBe("string");
 			expect(typeof spec.color).toBe("string");
+			// typeof checks alone pass for empty strings too — a stubbed-out
+			// `label: ""` would satisfy every assertion above identically.
+			expect(spec.label.length).toBeGreaterThan(0);
+			expect(spec.noun.length).toBeGreaterThan(0);
+			expect(spec.passLabel.length).toBeGreaterThan(0);
 		}
+		// Pin one known entry's exact literal fields so a mutant that blanks
+		// or garbles a field's VALUE (not just its type) is caught.
+		const jsonValidity = SECTIONS.find((s) => s.key === "jsonValidity");
+		expect(jsonValidity).toEqual({
+			label: "json validity",
+			key: "jsonValidity",
+			noun: "invalid JSON files",
+			passLabel: "all JSON files valid",
+			color: "31",
+		});
 	});
 
 	it("labels are unique", () => {

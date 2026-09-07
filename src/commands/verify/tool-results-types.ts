@@ -341,6 +341,32 @@ export interface CodeQualityResults {
 	testLegitimacy: CodeQualityIssue[];
 	/** Test files using a `/proc/…` path as an unwritable-path fixture (hangs Linux CI). */
 	procfsProbeInTest: CodeQualityIssue[];
+	// === Test-discrimination + isolation ===
+	/** toThrow(<message>) where the called function has two or more throw sites with that message. */
+	duplicateThrowMessageAssertion: CodeQualityIssue[];
+	/** it() blocks asserting only default outcomes on a target no sibling ever pins. */
+	fallbackOnlyAssertion: CodeQualityIssue[];
+	/** it() blocks whose spy evidence never pins the call arguments. */
+	spyCallUnpinnedArgs: CodeQualityIssue[];
+	/** it() blocks whose assertions are all wildcard-shaped (regex \d+, expect.any, typeof). */
+	wildcardInObservable: CodeQualityIssue[];
+	/** Tests binding or targeting a fixed TCP port ≥1024. */
+	fixedPortInTest: CodeQualityIssue[];
+	/** Tests creating temp fixture directories inside the repository. */
+	inTreeTempFixture: CodeQualityIssue[];
+	/** try/catch tests whose only assertions sit in the catch, with no throw guard. */
+	catchWithoutAssertionGuard: CodeQualityIssue[];
+	/** Negative and positive sibling cases asserting the same literal on one target. */
+	duplicateExpectedLiteralPosNeg: CodeQualityIssue[];
+	/** Tests whose every assertion sits inside a loop over a collection nothing proves non-empty. */
+	vacuousLoopAssertion: CodeQualityIssue[];
+	/** Tests whose only asserted values are the literals they fed to a mock. */
+	mockReturnEcho: CodeQualityIssue[];
+	/** Differently titled tests with identical bodies under the same setup. */
+	duplicateTestBody: CodeQualityIssue[];
+	spyWithoutRestore: CodeQualityIssue[];
+	exportExistenceSmokeTest: CodeQualityIssue[];
+	commentedOutAssertion: CodeQualityIssue[];
 	// === Batch 5: cross-file (4 entries) ===
 	/** Handler-named functions with empty / no-op bodies. */
 	emptyBodyHandler: CodeQualityIssue[];

@@ -12,6 +12,7 @@ export { TOOL_IDS } from "./tool-ids.js";
 // Swift/iOS advisory-skip ids likewise extracted to advisory-skips-swift.ts
 // (2026-08-17, same 500-line-cap reason) — spread back into the Set below.
 import { SWIFT_ADVISORY_SKIP_IDS } from "./advisory-skips-swift.js";
+import { TEST_QUALITY_ADVISORY_IDS } from "./advisory-test-quality.js";
 
 /**
  * Public API — consumed by `verify.ts` and `__tests__/verify.test.ts`.
@@ -254,26 +255,9 @@ export const DEFAULT_ADVISORY_SKIPS = new Set<string>([
 	"conditional_in_test",
 	"assertion_roulette",
 	"test_regressions",
-	// Test-quality heuristics — real signal but FP-prone. mock_only_test fires
-	// on legitimate fire-and-forget assertions ("the event was emitted") that
-	// have no value to check; happy_path_only_test fires on pure-function test
-	// files (formatters, getters) that genuinely have no failure path. Advisory
-	// until dogfood FP rate is measured.
-	"mock_only_test",
-	"happy_path_only_test",
-	// introverted_test is a static AST dataflow heuristic — helper-inlining is
-	// v0-limited, so it stays silent on uncertainty but can still miss/over-fire
-	// on unusual SUT-reach patterns. PostToolUse-warn while the FP rate is watched.
-	"introverted_test",
-	// Mutation score cannot prove that a call-order or internal-surface
-	// assertion represents a supported behavior. Keep the review heuristic
-	// visible under --all-checks until cross-repo FP data supports promotion.
-	"test_legitimacy",
-	// procfs_probe_in_test: a /proc path literal in a test hangs Linux CI, but the
-	// literal alone cannot prove intent — an assertion string or a fixture list
-	// that happens to BE a procfs path reads the same as a probe. Advisory (the
-	// write-time warning is the load-bearing surface) until cross-repo FP data.
-	"procfs_probe_in_test",
+	// Test-quality heuristics (mock_only_test … procfs_probe_in_test) and the
+	// test-discrimination family — rationale per id in advisory-test-quality.ts.
+	...TEST_QUALITY_ADVISORY_IDS,
 	// Error-dispatch-by-instanceof — Effect-TS lessons port
 	// (docs/design/effect-ts-harness-additions.md §2.1). `e instanceof Error`
 	// inside catch is fragile across realm boundaries — iframes, workers,
