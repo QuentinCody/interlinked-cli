@@ -104,10 +104,10 @@ function failRenamesInto(suffix: string): void {
 	});
 }
 
-/** Fails the lock-body write (the only writeFileSync call taking a descriptor). */
+/** The lock uses a UTF-8 JSON descriptor write; staging writes Buffer bytes. */
 function failLockBodyWrite(): void {
 	vi.mocked(writeFileSync).mockImplementation((target, data, options) => {
-		if (typeof target === "number") {
+		if (typeof target === "number" && options === "utf-8") {
 			throw Object.assign(new Error("ENOSPC: no space left on device, write"), {
 				code: "ENOSPC",
 			});
@@ -117,6 +117,18 @@ function failLockBodyWrite(): void {
 }
 
 describe("gated file transaction", () => {
+	it("cleans a partially written staging file without changing its target", () => {
+		writeFileSync(join(root, "target.txt"), "before");
+		const transaction = captureGatedWriteBaseline(root, [{ path: "target.txt", content: "after" }]);
+		vi.mocked(writeFileSync).mockImplementationOnce((target, data, options) => {
+			actualFs.writeFileSync(target, data, options);
+			throw new Error("disk full after partial write");
+		});
+		expect(() => commitGatedWrites(transaction)).toThrow("disk full after partial write");
+		expect(read("target.txt")).toBe("before");
+		expect(readdirSync(root).filter((name) => name.includes("interlinked-tx"))).toEqual([]);
+	});
+
 	it("commits a multi-file batch and preserves an existing file mode", () => {
 		writeFileSync(join(root, "a.txt"), "before-a");
 		writeFileSync(join(root, "b.txt"), "before-b");

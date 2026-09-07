@@ -41,9 +41,11 @@ interface GatedWriteSpec {
 	content: string | Uint8Array | null;
 	/** Exact permission bits for a written file. Defaults to the prior mode or 0666. */
 	mode?: number;
+	/** Bytes used to construct an edit; null requires that the target is still absent. */
+	expectedContent?: string | null;
 }
 
-interface GatedWriteTransaction {
+export interface GatedWriteTransaction {
 	readonly id: string;
 	readonly repoRoot: string;
 	readonly writes: readonly PreparedWrite[];
@@ -133,14 +135,20 @@ function isInside(root: string, target: string): boolean {
 	return rel !== "" && rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
 }
 
-function canonicalTarget(repoRoot: string, input: string): string {
+function canonicalTarget(repoRoot: string, input: string, allowOutsideRepo = false): string {
 	const lexical = isAbsolute(input) ? resolve(input) : resolve(repoRoot, input);
 	const realParent = realpathSync(dirname(lexical));
 	const target = join(realParent, basename(lexical));
-	if (!isInside(repoRoot, target)) {
+	if (!allowOutsideRepo && !isInside(repoRoot, target)) {
 		throw new Error(`Transactional target escapes the Git worktree: ${input}`);
 	}
 	return target;
+}
+
+function assertExpectedContent(path: string, baseline: FileSnapshot, expected: string | null | undefined): void {
+	if (expected === undefined) return;
+	const actual = baseline.content?.toString("utf-8") ?? null;
+	if (actual !== expected) throw new GatedWriteConflictError([path]);
 }
 
 function desiredMode(spec: GatedWriteSpec, baseline: FileSnapshot): number | null {
@@ -157,17 +165,19 @@ function desiredMode(spec: GatedWriteSpec, baseline: FileSnapshot): number | nul
 export function captureGatedWriteBaseline(
 	repoRoot: string,
 	specs: readonly GatedWriteSpec[],
+	opts: { allowOutsideRepo?: boolean } = {},
 ): GatedWriteTransaction {
 	const root = realpathSync(resolve(repoRoot));
 	const seen = new Set<string>();
 	const writes = specs.map((spec): PreparedWrite => {
-		const path = canonicalTarget(root, spec.path);
+		const path = canonicalTarget(root, spec.path, opts.allowOutsideRepo);
 		if (seen.has(path)) throw new Error(`Duplicate transactional target: ${path}`);
 		seen.add(path);
 		const baseline = snapshot(path);
 		if (baseline.kind !== "missing" && baseline.kind !== "file") {
 			throw new Error(`Transactional target must be a regular file or missing: ${path}`);
 		}
+		assertExpectedContent(path, baseline, spec.expectedContent);
 		return {
 			path,
 			content:
@@ -203,6 +213,9 @@ function stageWrites(transaction: GatedWriteTransaction): StagedWrite[] {
 	const staged: StagedWrite[] = [];
 	try {
 		for (const write of transaction.writes) {
+			// Unchanged members still participate in the final comparison, but
+			// should not acquire new inodes or timestamps merely to validate a batch.
+			if (sameState(write.baseline, proposedState(write))) continue;
 			if (write.content === null) {
 				staged.push({ write, tempPath: null });
 				continue;
@@ -212,9 +225,15 @@ function stageWrites(transaction: GatedWriteTransaction): StagedWrite[] {
 				transactionId: transaction.id,
 				purpose: "tx",
 			});
-			writeFileSync(tempPath, write.content, { flag: "wx", mode: 0o600 });
-			if (write.mode !== null) chmodSync(tempPath, write.mode);
+			const fd = openSync(tempPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+			// Register ownership before writing, so partial writes are cleaned.
 			staged.push({ write, tempPath });
+			try {
+				writeFileSync(fd, write.content);
+				if (write.mode !== null) chmodSync(tempPath, write.mode);
+			} finally {
+				closeSync(fd);
+			}
 		}
 		return staged;
 	} catch (error) {
