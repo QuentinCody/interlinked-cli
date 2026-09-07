@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { harnessStartCommand } from "../harness.js";
 
 const probeSpy = vi.fn<() => Promise<boolean>>();
@@ -29,15 +29,24 @@ vi.mock("../harness-process.js", () => ({
 }));
 
 let logged: string[] = [];
+let logSpy: ReturnType<typeof vi.spyOn>;
+let previousExitCode: number | string | undefined;
 
 beforeEach(() => {
 	logged = [];
-	vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
+	previousExitCode = process.exitCode;
+	process.exitCode = 0;
+	logSpy = vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
 		logged.push(a.map(String).join(" "));
 	});
 	reapSpy.mockReset();
 	runningSpy.mockReset();
 	probeSpy.mockReset();
+});
+
+afterEach(() => {
+	logSpy.mockRestore();
+	process.exitCode = previousExitCode;
 });
 
 describe("harness start — socket-first protection and verified reaping", () => {

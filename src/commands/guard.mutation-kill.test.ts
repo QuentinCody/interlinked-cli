@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { c, header, kvLine } from "../lib/formatter.js";
 import {
 	guardCheckCommand,
@@ -84,6 +84,10 @@ vi.mock("node:fs", () => ({
 	mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
 }));
 
+let logSpy: ReturnType<typeof vi.spyOn>;
+let errSpy: ReturnType<typeof vi.spyOn>;
+let previousExitCode: number | string | undefined;
+
 function logOutput(): string {
 	return vi
 		.mocked(console.log)
@@ -106,9 +110,10 @@ function lastLogJson(): Record<string, unknown> {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	previousExitCode = process.exitCode;
 	process.exitCode = 0;
-	vi.spyOn(console, "log").mockImplementation(() => {});
-	vi.spyOn(console, "error").mockImplementation(() => {});
+	logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+	errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 	mockReadLocalConfig.mockReturnValue({ agent_name: "my-agent", guard_mode: "warn" });
 	mockIsGitRepo.mockReturnValue(true);
 	mockGetStagedFiles.mockReturnValue([]);
@@ -119,6 +124,12 @@ beforeEach(() => {
 	mockExistsSync.mockReturnValue(false);
 	mockReadFileSync.mockReturnValue("{}");
 	mockCallTool.mockResolvedValue({ reservations: [] });
+});
+
+afterEach(() => {
+	logSpy.mockRestore();
+	errSpy.mockRestore();
+	process.exitCode = previousExitCode;
 });
 
 // ===========================================

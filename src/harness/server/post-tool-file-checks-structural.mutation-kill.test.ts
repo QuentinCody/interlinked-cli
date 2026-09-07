@@ -24,7 +24,7 @@
 // for empirical verification against the manifest's exact originalLexeme/replacement text.
 
 import { join } from "node:path";
-import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type Mock, type MockInstance, vi } from "vitest";
 import type { ProjectGraph } from "../project-graph.js";
 import type {
 	CheckResultEntry,
@@ -131,8 +131,8 @@ const mIsAck = isAcknowledged as unknown as Mock;
 // toStrictEqual on this object is the load-bearing assertion for several
 // survivors (ObjectLiteral drop / forced-true Conditional on the
 // old_string/new_string/content spreads).
-const buildErrorContextSpy = vi.spyOn(ErrorHistory, "buildErrorContext");
-const buildQueryContextSpy = vi.spyOn(ErrorHistory, "buildQueryContext");
+let buildErrorContextSpy: MockInstance<typeof ErrorHistory.buildErrorContext>;
+let buildQueryContextSpy: MockInstance<typeof ErrorHistory.buildQueryContext>;
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -241,8 +241,18 @@ beforeEach(() => {
 	mCheckOrphaned.mockReturnValue([]);
 	mFormatImpact.mockReturnValue([]);
 	mResolveDepView.mockReturnValue({});
+	// These are real ErrorHistory static methods, so recreate their observing
+	// spies after each reset. A module-scope spy would stay installed after
+	// resetAllMocks and leak its wrapper into later suites.
+	buildErrorContextSpy = vi.spyOn(ErrorHistory, "buildErrorContext");
+	buildQueryContextSpy = vi.spyOn(ErrorHistory, "buildQueryContext");
 	buildErrorContextSpy.mockReturnValue("CTX");
 	buildQueryContextSpy.mockReturnValue("QCTX");
+});
+
+afterEach(() => {
+	buildErrorContextSpy.mockRestore();
+	buildQueryContextSpy.mockRestore();
 });
 
 // ===========================================================================

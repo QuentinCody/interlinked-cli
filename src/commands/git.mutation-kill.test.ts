@@ -21,7 +21,7 @@
 
 process.env.NO_COLOR = "1";
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { kvLine, stripAnsi } from "../lib/formatter.js";
 
 // --- mock surfaces (same pattern as git.integration.test.ts) --------------
@@ -61,12 +61,15 @@ vi.mock("../lib/api-client.js", () => ({
 import { gitContextCommand, gitLinkCheckpointCommand } from "./git.js";
 
 let logSpy: ReturnType<typeof vi.spyOn>;
+let errSpy: ReturnType<typeof vi.spyOn>;
+let previousExitCode: number | string | undefined;
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	previousExitCode = process.exitCode;
 	process.exitCode = 0;
 	logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-	vi.spyOn(console, "error").mockImplementation(() => {});
+	errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
 	mockIsGitRepo.mockReturnValue(true);
 	mockGetCurrentBranch.mockReturnValue("main");
@@ -76,6 +79,12 @@ beforeEach(() => {
 	mockGetCommitMessage.mockReturnValue("Subject line\n\nBody text");
 	mockReadAttributionTrailer.mockReturnValue(null);
 	mockExecSync.mockReturnValue("");
+});
+
+afterEach(() => {
+	logSpy.mockRestore();
+	errSpy.mockRestore();
+	process.exitCode = previousExitCode;
 });
 
 // stripAnsi normalizes regardless of whether NO_COLOR actually suppressed
