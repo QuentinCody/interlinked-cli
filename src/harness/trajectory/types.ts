@@ -49,6 +49,9 @@ export interface ToolEvent {
 	checkDecision?: "allow" | "block" | null;
 	/** Ids of checks (error/warning severity) that fired on this edit. */
 	failedCheckIds?: string[];
+	/** Trusted runtime evidence that this event reached a serving daemon.
+	 * Set by the daemon adapter, never copied from tool input. */
+	harnessServing?: true;
 }
 
 /** What a firing rule asks the harness to do. */

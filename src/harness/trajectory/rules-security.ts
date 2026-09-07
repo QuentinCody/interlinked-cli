@@ -228,9 +228,8 @@ const secHarnessDisableThenGuardedOp: TrajectoryRule = (state, event) => {
 	return block(
 		"sec_harness_disable_then_guarded_op",
 		"high",
-		`the safety harness was disabled earlier this session (${state.harnessDisabled.how}) and a ` +
-			"guarded operation (egress / destructive / commit / secret read) is now running with the " +
-			"guard down. Re-enable the harness before performing guarded operations.",
+		`a prior harness change remains unresolved in the observed stream (${state.harnessDisabled.how}). ` +
+			"Before this guarded operation, confirm the daemon is serving and review any weakened rules.",
 	);
 };
 

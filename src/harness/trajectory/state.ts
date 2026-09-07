@@ -87,6 +87,10 @@ export function createState(session: string): TrajectoryState {
 export function applyEvent(state: TrajectoryState, event: ToolEvent): TrajectoryState {
 	state.stepCount += 1;
 	pushCapped(state.recentEvents, event, RECENT_EVENTS_CAP);
+	// Serving this event disproves a process/socket outage, but not weakened policy.
+	if (event.harnessServing === true && state.harnessDisabled?.how !== "grew disabled_rules") {
+		state.harnessDisabled = null;
+	}
 
 	if (event.hook !== "PostToolUse") return state;
 	if (isEditEvent(event)) foldEdit(state, event);
@@ -233,8 +237,7 @@ function foldBash(state: TrajectoryState, event: ToolEvent): void {
 		}
 	}
 
-	const dis = parseHarnessDisable(cmd);
-	if (dis) state.harnessDisabled = { atStep: state.stepCount, how: dis.how };
+	foldHarnessDisable(state, event);
 
 	const dns = parseDnsQuery(cmd);
 	if (dns && isHighEntropyLabel(dns.label)) {
@@ -245,6 +248,13 @@ function foldBash(state: TrajectoryState, event: ToolEvent): void {
 		state.secretsRead.add(normalizeCommand(cmd).slice(0, 80));
 		state.lastSecretReadStep = state.stepCount;
 	}
+}
+
+/** Failed or unobserved commands cannot establish a successful disable action. */
+function foldHarnessDisable(state: TrajectoryState, event: ToolEvent): void {
+	if (event.toolOutcome !== "success") return;
+	const disable = parseHarnessDisable(event.input.command ?? "");
+	if (disable) state.harnessDisabled = { atStep: state.stepCount, how: disable.how };
 }
 
 /**

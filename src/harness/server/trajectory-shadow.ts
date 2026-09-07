@@ -95,6 +95,8 @@ function toToolEvent(event: HarnessEvent, decision: HarnessDecision): ToolEvent 
 		input: toInput(event.tool_input),
 		toolOutcome: mapOutcome(event.tool_outcome),
 		checkDecision: decision.decision === "block" ? "block" : "allow",
+		// This adapter executes inside the daemon; provider input cannot assert it.
+		harnessServing: true,
 	};
 	// contentSha256 is optional (populated at PostToolUse only) — omit when absent.
 	if (event.tool_response_sha256 !== undefined) toolEvent.contentSha256 = event.tool_response_sha256;
@@ -104,7 +106,8 @@ function toToolEvent(event: HarnessEvent, decision: HarnessDecision): ToolEvent 
 /** Format one verdict as a shadow metric line. In shadow mode the verdict's
  *  action ("block"/"nudge"/"silent_metric") is REPORTED, never enacted. */
 export function formatTrajectoryVerdict(verdict: Verdict): string {
-	return `[interlinked:trajectory] ${verdict.ruleId} (${verdict.severity}, shadow — would ${verdict.action}): ${verdict.reason}`;
+	const reason = verdict.reason.replace(/^BLOCKED:\s*/, "");
+	return `[interlinked:trajectory] ${verdict.ruleId} (${verdict.severity}, shadow — would ${verdict.action}): ${reason}`;
 }
 
 /**

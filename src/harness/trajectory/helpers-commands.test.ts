@@ -469,6 +469,20 @@ describe("hasExecOrEgressSink", () => {
 });
 
 describe("parseHarnessDisable", () => {
+	it.each([
+		"npm exec -- vitest run src/commands/multi-edit.mutation-kill-w49.test.ts src/harness/server.test.ts",
+		"rg -n 'kill harness' src",
+		"printf '%s' 'example; pkill -f harness'",
+		"cat docs/kill-harness.md",
+	])("does not mistake command data for execution: %s", (command) => {
+		expect(parseHarnessDisable(command)).toBeNull();
+	});
+
+	it("does not let a sanctioned command exempt a later disable operation", () => {
+		expect(parseHarnessDisable("interlinked harness status; pkill -f harness"))
+			.toEqual({ how: "killed harness process" });
+	});
+
 	it("returns null for the documented INTERLINKED_DISABLE_* bypass", () => {
 		expect(parseHarnessDisable("INTERLINKED_DISABLE_HARNESS=1 rm harness.sock")).toBeNull();
 	});

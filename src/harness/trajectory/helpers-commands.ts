@@ -7,6 +7,7 @@
 // out of helpers.ts to keep both files under the per-file line cap. No IO, no
 // network, no Date.now.
 
+import { shellSplit, splitSegments as shellSegments, stripLeadingPrefix } from "../shell-structure.js";
 import {
 	hasEgressVerb,
 	isEgressCommandToExternalHost,
@@ -119,10 +120,25 @@ export function hasExecOrEgressSink(content: string): boolean {
  * subcommands (deliberate, sanctioned operations).
  */
 export function parseHarnessDisable(cmd: string): { how: string } | null {
-	if (/\bINTERLINKED_DISABLE_\w+/.test(cmd)) return null;
-	if (/\binterlinked\s+harness\s+(?:stop|restart|clean|status|start)\b/i.test(cmd)) return null;
-	if (/\b(?:rm|unlink)\b[^\n;|&]*harness\.sock/.test(cmd)) return { how: "removed harness socket" };
-	if (/\b(?:kill|pkill|killall)\b[^\n;|&]*(?:interlinked|harness)/i.test(cmd)) {
+	for (const segment of shellSegments(cmd)) {
+		const disable = parseDisableSegment(segment);
+		if (disable) return disable;
+	}
+	return null;
+}
+
+/** Classify executable argv positions, never a quoted example or test filename. */
+function parseDisableSegment(segment: string): { how: string } | null {
+	const tokens = shellSplit(segment);
+	const args = stripLeadingPrefix(tokens);
+	const prefix = tokens.slice(0, tokens.length - args.length);
+	if (prefix.some((token) => /^INTERLINKED_DISABLE_\w+=/.test(token))) return null;
+	const verb = args[0]?.split("/").pop();
+	const targets = args.slice(1);
+	if ((verb === "rm" || verb === "unlink") && targets.some((target) => /(?:^|\/)harness\.sock$/.test(target))) {
+		return { how: "removed harness socket" };
+	}
+	if ((verb === "kill" || verb === "pkill" || verb === "killall") && /interlinked|harness/i.test(targets.join(" "))) {
 		return { how: "killed harness process" };
 	}
 	return null;

@@ -50,6 +50,7 @@ describe("formatTrajectoryVerdict", () => {
 		expect(line.startsWith("[interlinked:trajectory]")).toBe(true);
 		expect(line).toContain("sec_env_add_then_git_commit");
 		expect(line).toContain("shadow — would block"); // the action is reported, never enacted
+		expect(line).not.toContain("BLOCKED:");
 	});
 });
 
