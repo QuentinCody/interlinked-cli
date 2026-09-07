@@ -52,6 +52,7 @@ export function measureMutationEvidence(analysis: RepositoryAnalysis, evidence?:
     const absent = files.filter(path => !evidence.coveredFiles.includes(path)).length;
     for (const reading of readings) {
         qualify(reading, evidence, absent);
+        if (reading.id === "mutation.survivors" && count("no-coverage")) { reading.state = "inconclusive"; reading.limitations.push("Uncovered mutants leave assertion discrimination unmeasured at those sites"); }
         if (count("timeout") + count("error") + count("ignored")) { reading.state = "inconclusive"; reading.limitations.push("Timeout, error and ignored mutants are not counted as kills"); }
     }
     return readings;

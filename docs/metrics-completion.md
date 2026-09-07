@@ -44,3 +44,14 @@ implemented. Regression tests exercise real child-process assertions, artifact
 tampering, test-only edits, fixture edits, mutation source mismatch and timeouts.
 Dependency identity records manifests/lockfiles; it does not attest an unmodified
 host or install packages. Imported CI receipts preserve their asserted origin.
+
+Stage 4: survivor wording now distinguishes weak tests from inert code and requires
+exact source sites for paired polarities. Joined deletion candidates remain
+advisory. Isolated removal trials require passing baseline and candidate tests
+plus type checking. Sixteen focused tests passed; committed as `689c9402`.
+
+Stage 5: `interlinked-slop-v1` distributes 100 points across bounded groups,
+explains each metric, and reports observed burden, missing-evidence bounds and
+ranking eligibility separately. CRAP and uncovered mutation sites remain
+diagnostics. Twelve adapter/composite/report tests passed. CLI integration,
+operational coverage evidence, corpus calibration and final guidance remain.
