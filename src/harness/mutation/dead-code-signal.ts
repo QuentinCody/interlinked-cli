@@ -1,15 +1,14 @@
 // ===========================================
-// Unkillable mutants as a dead-code signal
+// Surviving mutants as a deletion-review signal
 // ===========================================
 // A surviving mutant is normally read as a TEST gap. Sometimes it is a CODE
-// signal instead: if no test can distinguish the mutated code from the original,
-// the code may have no observable effect at all.
+// signal instead: the existing tests may miss an effect, or the code may have
+// no observable effect. Survivor evidence alone cannot distinguish these cases.
 //
 // The strongest form is a conditional whose BOTH polarities survive. If forcing
 // a branch to `true` and forcing it to `false` each leave the suite green, the
-// branch outcome is never observed. Either nothing reaches it, or both arms do
-// the same thing. A test cannot fix that — only deleting or repairing the code
-// can.
+// existing suite did not distinguish the outcomes. Missing assertions, missing
+// inputs, unreachable code and equivalent behavior are all possible explanations.
 //
 // Every rule here comes from a survivor pattern that turned out to be real dead
 // code in this repo (2026-08-05/06), each independently confirmed by reading the
@@ -32,6 +31,10 @@
 export interface SurvivorLike {
 	id: string;
 	line: number;
+	/** Exact original site; absent locations cannot establish a polarity pair. */
+	column?: number;
+	endLine?: number;
+	endColumn?: number;
 	mutatorName: string;
 	/** The replacement source text, e.g. `"true"`, `"{}"`, `'""'`. */
 	replacement?: string | undefined;
@@ -39,15 +42,14 @@ export interface SurvivorLike {
 
 export interface DeadCodeCandidate {
 	line: number;
-	/** `high` = both polarities of a condition survived; `medium` = the whole
-	 *  line is inert under every operator tried. */
+	/** Review priority only, never a probability or proof of dead code. */
 	confidence: "high" | "medium";
 	reason: string;
 	mutantIds: string[];
 }
 
-/** A line with at least this many survivors is inert enough to look at, even
- *  without the both-polarities proof. Three is where the `status.ts` dead store
+/** A line with at least this many survivors merits review, even
+ *  without matching polarity sites. Three is where the `status.ts` dead store
  *  showed up; two produces noise on ordinary under-tested lines. */
 const INERT_LINE_MIN_SURVIVORS = 3;
 
@@ -71,25 +73,31 @@ function byLine(survivors: readonly SurvivorLike[]): Map<number, SurvivorLike[]>
 }
 
 /** True when this line has a surviving condition forced BOTH ways. */
+function exactSite(s: SurvivorLike): string | null {
+	if ([s.column, s.endLine, s.endColumn].some(value => value === undefined)) return null;
+	return `${s.line}:${s.column}:${s.endLine}:${s.endColumn}:${s.mutatorName}`;
+}
+
 function bothPolaritiesSurvived(group: readonly SurvivorLike[]): boolean {
-	let sawTrue = false;
-	let sawFalse = false;
+	const sites = new Map<string, Set<string>>();
 	for (const s of group) {
 		if (!CONDITION_MUTATORS.has(s.mutatorName)) continue;
+		const key = exactSite(s);
+		if (!key) continue;
 		const r = normalize(s.replacement);
-		if (r === "true") sawTrue = true;
-		if (r === "false") sawFalse = true;
+		if (r !== "true" && r !== "false") continue;
+		const polarities = sites.get(key) ?? new Set<string>();
+		polarities.add(r);
+		sites.set(key, polarities);
 	}
-	return sawTrue && sawFalse;
+	return [...sites.values()].some(polarities => polarities.size === 2);
 }
 
 /**
- * Find lines whose surviving mutants suggest the CODE is dead rather than the
- * tests being weak.
+ * Find survivor clusters worth joining with reachability and coverage evidence.
  *
  * Returns candidates sorted by confidence then line. Empty when nothing
- * qualifies — most surviving mutants really are test gaps, and saying so by
- * saying nothing is the point.
+ * qualifies. The result does not establish semantic equivalence or dead code.
  */
 export function findDeadCodeCandidates(survivors: readonly SurvivorLike[]): DeadCodeCandidate[] {
 	const out: DeadCodeCandidate[] = [];
@@ -101,7 +109,7 @@ export function findDeadCodeCandidates(survivors: readonly SurvivorLike[]): Dead
 				line,
 				confidence: "high",
 				reason:
-					"condition survived forced BOTH true and false — its outcome is never observed, so the branch is unreachable or both arms are equivalent. No test can kill this; delete or repair the code.",
+					"condition survived forced BOTH true and false at the same site — the existing suite did not distinguish these outcomes. Review missing assertions/inputs, reachability and possible equivalent behavior before changing tests or deleting code.",
 				mutantIds: ids,
 			});
 			continue;
@@ -128,8 +136,8 @@ export function formatDeadCodeCandidates(
 	if (candidates.length === 0) return null;
 	const lines = candidates.map((c) => `  ${file}:${c.line} [${c.confidence}] ${c.reason}`);
 	return (
-		`[interlinked:dead-code-signal] ${candidates.length} line(s) in ${file} look DEAD rather than untested:\n` +
+		`[interlinked:dead-code-signal] ${candidates.length} line(s) in ${file} merit deletion or test-gap review:\n` +
 		`${lines.join("\n")}\n` +
-		"  A mutant no test can kill is often telling you the code does not matter. Verify by reading the callers, then delete or fix — do not write a test to cover it."
+		"  Survivors alone do not prove dead code. Check callers, side effects and assertion strength; validate any proposed removal with tests and type checking."
 	);
 }

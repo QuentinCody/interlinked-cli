@@ -9,6 +9,9 @@ import {
 const s = (id: string, line: number, mutatorName: string, replacement?: string): SurvivorLike => ({
 	id,
 	line,
+	column: 0,
+	endLine: line,
+	endColumn: 10,
 	mutatorName,
 	...(replacement === undefined ? {} : { replacement }),
 });
@@ -87,7 +90,7 @@ describe("findDeadCodeCandidates — negative (must not fire)", () => {
 });
 
 describe("formatDeadCodeCandidates", () => {
-	it("P1: renders file:line with the confidence and the do-not-test steer", () => {
+	it("P1: renders the candidate with a qualified review instruction", () => {
 		const hits = findDeadCodeCandidates([
 			s("1", 126, "ConditionalExpression", "true"),
 			s("2", 126, "ConditionalExpression", "false"),
@@ -95,7 +98,7 @@ describe("formatDeadCodeCandidates", () => {
 		const msg = formatDeadCodeCandidates("src/commands/check.ts", hits);
 		expect(msg).toContain("src/commands/check.ts:126");
 		expect(msg).toContain("[high]");
-		expect(msg).toContain("do not write a test to cover it");
+		expect(msg).toContain("Survivors alone do not prove dead code");
 	});
 
 	it("N1: returns null when there are no candidates", () => {
