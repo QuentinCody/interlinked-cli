@@ -9,6 +9,7 @@
 
 import { nonNull } from "../lib/non-null.js";
 import { stripComments } from "./strip-helpers.js";
+import { parameterizedTestBodies, type TestBody } from "./test-parameterized-bodies.js";
 import {
 	findBlockEnd,
 	type InlineMatch,
@@ -62,8 +63,29 @@ function testCaseName(lines: string[], start: number, end: number): string {
 	return m ? nonNull(m[2]) : "";
 }
 
+interface TestSource {
+	lines: string[];
+	sLines: string[];
+	parameterized: ReadonlyMap<number, TestBody>;
+}
+
+/** Select the real callback before looking for assertions or smoke-test names. */
+function testBodyAtLine(source: TestSource, start: number): TestBody | null {
+	const test = source.parameterized.get(start);
+	if (test) return { ...test, body: stripCommentsAndStrings(test.body) };
+	// An unparsed parameterized callback cannot prove assertion absence.
+	if (/\.\s*each\s*\(/.test(source.sLines[start] ?? "")) return null;
+	const end = findBlockEnd(source.sLines, start);
+	return {
+		end,
+		body: source.sLines.slice(start, end + 1).join("\n"),
+		name: testCaseName(source.lines, start, end),
+	};
+}
+
 export function checkAssertionFreeTest(content: string, filePath: string): InlineMatch[] {
 	if (!isTestFile(filePath)) return [];
+	const parameterized = parameterizedTestBodies(content, filePath);
 	const stripped = stripCommentsAndStrings(content);
 	const lines = content.split("\n");
 	const sLines = stripped.split("\n");
@@ -74,14 +96,17 @@ export function checkAssertionFreeTest(content: string, filePath: string): Inlin
 			i++;
 			continue;
 		}
-		const end = findBlockEnd(sLines, i);
-		const body = sLines.slice(i, end + 1).join("\n");
+		const test = testBodyAtLine({ lines, sLines, parameterized }, i);
+		if (!test) {
+			i++;
+			continue;
+		}
 		// The name is read from the ORIGINAL header lines (stripped collapses it);
 		// line indices align because stripCommentsAndStrings is line-preserving.
-		if (isAssertionFreeBody(body) && !SMOKE_TEST_NAME_RE.test(testCaseName(lines, i, end))) {
+		if (isAssertionFreeBody(test.body) && !SMOKE_TEST_NAME_RE.test(test.name)) {
 			push(matches, i, lines, 10);
 		}
-		i = end + 1;
+		i = test.end + 1;
 	}
 	return matches;
 }
