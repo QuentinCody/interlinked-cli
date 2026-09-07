@@ -59,13 +59,18 @@ defeat the pattern.
 | **Sensitive-file read** | `Read` of `.env`, `credentials.json`, `service-account*.json`, `*.pem`/`*.key` | `.env.example` |
 | **Repo confinement** | any Write/Edit whose real (symlink-resolved) target is outside the repo root | paths under the allowlist / session scratchpad |
 | **Package installs** | any un-allowlisted `npm/pip/cargo/go/…` install; URL/git/tarball specs — see **interlinked-supply-chain** | allowlisted + exact-pinned |
-| **Bash-routed write bypass** | a `>` / `tee` redirect, `sed -i` / `perl -pi` / `gawk -i inplace` / `ex` / `ed` in-place edit, `patch` / `git apply` diff applier, or a wrapped form (`xargs`, `find -exec`, `timeout`) writing a tracked source file (dodges the content gate) | routed to Write/Edit or `interlinked write` |
+| **Bash-routed write bypass** | a `>` / `tee` redirect, `sed -i` / `perl -pi` / `gawk -i inplace` / `ex` / `ed` in-place edit, `patch` / working-tree `git apply`, or a wrapped form (`xargs`, `find -exec`, `timeout`) writing a tracked source file (dodges the content gate) | Write/Edit, `interlinked write`, or index-only `git apply --cached <patch>` |
 | **Applier-script execution** (`builtin-patch-applier`) | running an interpreter on a pre-existing throwaway script that writes into repo source | route the edit through Write/Edit; committed codegen belongs in `scripts/` |
 | **Bash-edit obligation** (`bash-edit-obligation`) | a bash-channel edit left an INTRODUCED `pre_block`-class finding on disk; until it is fixed, write-class tool calls to OTHER files are refused (edits to the flagged file and reads stay allowed; the gate re-checks and self-releases) | fix the flagged file first |
 | **Hand-rolled patch applier** | a throwaway script in the scratchpad or `scratch/` that calls `writeFileSync`/`appendFileSync`/`write_text` on a path outside its sandbox (`"src/…"`, `process.cwd()`, `../`) — a re-implementation of Edit with the gates removed | probes that only READ repo source; scripts writing beside themselves; committed codegen under `scripts/` |
 | **Content pre_block** (introduced-only) | edit that *introduces* merge-conflict markers, `eval()`, and other zero-FP checks | pre-existing instances (warn, not block) |
 
 ## When you're BLOCKED: what to do
+For selected-hunk staging, prepare and review a patch, then run `git apply --cached <patch>`.
+It changes only the index and preserves other working-tree edits. `git add -p`, `-i`, and `-e`
+remain blocked as interactive operations; use `git add <paths>` for whole files. A normal
+`git apply` or `git apply --index` still writes the working tree and must use the content gate.
+
 1. **Read the `reason` and `Suggestion:`.** The suggestion is the intended path (force-push →
    `--force-with-lease`; `rm node_modules` → `npm cache clean --force && npm install`;
    `pkill node` → target the PID or `pkill -f 'wrangler dev'`). Take it — but the safe *flag* is
@@ -105,6 +110,17 @@ current workspace. If isolation is genuinely required, ask a human operator to p
 approved worktree; listing and cleanup of existing worktrees remain allowed.
 
 ## Warnings: `[proven]` vs `[heuristic]`
+Harness-disable trajectory detection reads executable command positions, so a mutation-test
+filename containing `kill` is not a process-kill event. Failed commands do not establish a
+successful disable. A later event served by the daemon retires process/socket-outage suspicion;
+it does not retire a recorded weakening of `disabled_rules`. Shadow verdicts remain advisory
+and do not include a misleading `BLOCKED:` prefix.
+
+The optional-chain check uses syntax grouping: passing `value?.field` to a function and then
+accessing that function's result is different from `(value?.field).name`. Without optional
+TypeScript syntax support it cannot establish this finding; silence is not a clean verdict.
+SQL migration checks likewise cannot prove a column absent from an interpolated column list.
+
 Every warning is tagged. `[proven]` = a real compiler/linter/scanner/parser/test-runner
 produced it — authoritative, fix it. `[heuristic]` = regex/AST-shape match that could be a
 false positive — evaluate it. No tag = unknown check id (never guessed).
@@ -133,6 +149,11 @@ calls multiplied that into unusable noise. Outage visibility is phase- and runti
 | Block | the reason plus the affected target — **including a block that carries no warnings** |
 | Daemon unavailable, packaged PreToolUse runtime | an explicit `evaluator skipped` diagnostic; code edits also report function-token enforcement as not measured |
 | Daemon unavailable, generated PostToolUse runtime | may remain model-silent while recording local `no_harness` status |
+| `typescript` unresolvable (`--omit=optional` install) | a `[interlinked:self_import] NOT MEASURED` warning on every JS/TS edit — that pre_block check ran no scan and never guesses; the cyclomatic gate degrades to the regex walker; the daemon startup warning names both |
+| `self_import` cannot place the file in ONE project | the same `NOT MEASURED` warning on that edit only, naming the cause: a tsconfig on the walk (nearest config, its `extends`, its `references`, its sibling `tsconfig*.json` files) could not be parsed; two projects both claim the file; the reference walk hit its 32-project bound with projects unvisited; no config in reach claims the file by a `files`/`include` pattern (a `.js`/`.jsx`/`.mjs`/`.cjs` importer is matched by pattern even when the project never enables `allowJs` — a JS self-import is a runtime fact); or the importer's directory is not on disk yet. The check resolves with the project's own compiler options and caches nothing, so fixing the config applies on the next edit. In a batch (`write --batch`, `multi-edit`, `verify-changeset`) it sees the whole proposed batch, and the baseline is judged against the disk |
+| a batch rewrites a file of the project's configuration graph — the selected tsconfig, any file its `extends` chain reaches (whatever it is called, `base.json` included), or any `tsconfig*.json` / `jsconfig.json` / `package.json` | each TypeScript entry of that batch carries a `type checker cannot see the proposed configuration` row (error for transactional callers) — the checker reads the disk's config; land the configuration change first, then the sources |
+| a batch includes a member whose bytes equal the disk beside members that differ | the unchanged member is still type-checked, against the proposed siblings (a changed exporter can break an untouched consumer); `multi-edit` validates every manifest member and writes only the changed ones. Only a batch whose members are ALL unchanged skips the check. A config member whose bytes equal the disk is not a configuration rewrite |
+| the type checker cannot place the file in ONE project | `type checker unavailable (project_orphan: …)` or `(project_ambiguous: …)` on that edit — a warning on the hook path, an error for transactional callers. The compiler judges each file under the SAME project `self_import` selects (nearest config, `references`, sibling `tsconfig*.json`, membership by pattern; one program per governing config) and never under the project root's config by guess. Its disk baseline is recomputed on every check, so a dependency repaired or broken on disk is reflected the next time the file is judged. A warm compiler service is rebuilt when the CONTENT of any file of its configuration graph (the tsconfig or an `extends` target) changes on disk, re-reads the project's root files on every reuse (a declaration file added or removed on disk joins or leaves the program), sees a dependency rewritten on disk by its compiler TEXT (every UTF-16 code unit is preserved, including lone surrogates; a touch that changes no text does not count; each check reads a file once, so what it compiles is what it fingerprinted), forgets a proposal the moment its check ends (a refused proposal never colours a later check), and a configured project with no source on disk yet still measures the first source written into it |
 
 No output therefore never proves the full daemon check set ran. To distinguish a served clean
 result from a silent degraded PostToolUse path, ask `interlinked harness status` or
@@ -208,6 +229,10 @@ Interpret `[interlinked:sandbox]` as evidence visible to the hook:
 A workspace-write sandbox limits blast radius but still writes the real project, so it is
 defense-in-depth, not rollback. Do not rerun or rewrite a command to evade this warning. For changes
 that require rejection before disk, use Edit/Write or gated `interlinked write`/`multi-edit`.
+The transactional commands share the content gate and commit lock. They capture target state
+before checking, abort on target drift, preserve modes, and refuse rollback over newer edits.
+Unavailable Biome or TypeScript checks abort a transaction. Re-read and re-gate a conflicted
+proposal; consult **interlinked-verify** for the command contracts and transaction limits.
 The observer is bounded ordinary-process evidence: concurrent writers can cause conservative extra
 attribution, and an incomplete snapshot is never proof of absence.
 

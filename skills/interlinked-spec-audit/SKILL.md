@@ -91,6 +91,7 @@ If Git is unavailable, the bounded filesystem walk still runs with its standard 
 Do not rewrite historical snapshots to satisfy a live-repository link warning. After updating
 the daemon, the next markdown observation refreshes the derived Stop stash; evidence logs stay
 intact.
+A fresh `spec agenda` run can confirm repository scope independently of the daemon's ledger.
 
 **PostToolUse single-file** (8 checks, `severity: warning`): `spec_dangling_anchor` (proven — a
 `[x](#slug)` or `§N.N` ref with no target), `spec_numbering`, `spec_count_claim` ("six bets"
