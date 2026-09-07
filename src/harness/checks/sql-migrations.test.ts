@@ -50,6 +50,25 @@ describe("checkMigrationOrdering — positive (must fire)", () => {
 });
 
 describe("checkMigrationOrdering — negative (must NOT fire)", () => {
+	it("does not infer missing columns from an interpolated schema", () => {
+		const content = [
+			'const sql = `CREATE TABLE records (id TEXT, ${columns.map(column => `${column} TEXT`).join(",")});',
+			'CREATE INDEX records_tenant ON records(tenant);`;',
+		].join("\n");
+		expect(checkMigrationOrdering(content, FILE)).toEqual([]);
+	});
+
+	it("retains findings for literal tables beside an interpolated schema", () => {
+		const content = [
+			'const sql = `CREATE TABLE dynamic_records (id TEXT, ${columns});',
+			'CREATE TABLE records (id TEXT);',
+			'CREATE INDEX records_tenant ON records(tenant);`;',
+		].join("\n");
+		expect(checkMigrationOrdering(content, FILE)).toEqual([
+			{ line: 3, text: 'CREATE INDEX records_tenant ON records(tenant);`;' },
+		]);
+	});
+
 	it("N1: CREATE INDEX on a column already declared in the same-block CREATE TABLE", () => {
 		const content = `
 sql.exec(\`

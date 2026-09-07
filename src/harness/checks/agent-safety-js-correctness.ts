@@ -4,6 +4,7 @@
 
 import { nonNull } from "../../lib/non-null.js";
 import { stripTemplateLiterals } from "../strip-helpers.js";
+import { scanBrokenOptionalGrouping } from "./optional-chain-boundaries.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -438,20 +439,7 @@ export function checkConstantCondition(content: string, filePath: string): Inlin
 export function checkUnsafeOptionalChaining(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
 	if (isTestFile(filePath)) return [];
-	const stripped = stripCommentsAndStrings(content);
-	const originalLines = content.split("\n");
-	const strippedLines = stripped.split("\n");
-	const matches: InlineMatch[] = [];
-	for (const [i, line] of strippedLines.entries()) {
-		if (matches.length >= 10) break;
-		// Match (x?.y).z pattern
-		if (!/\([^)]*\?\.[^)]*\)\s*\./.test(line)) continue;
-		// Exclude safe patterns with fallback operators inside the parens
-		// (x?.foo || default).bar and (x?.foo ?? default).bar are safe
-		if (/\([^)]*\?\.[^)]*(\|\||&&|\?\?)[^)]*\)\s*\./.test(line)) continue;
-		matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-	}
-	return matches;
+	return scanBrokenOptionalGrouping(content, filePath);
 }
 
 /**

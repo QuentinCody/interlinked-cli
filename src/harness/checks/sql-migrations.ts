@@ -161,15 +161,25 @@ const ADD_COLUMN_HELPER_RE =
 
 /** Record every CREATE TABLE (name + column list) into the schema. */
 function collectCreateTables(text: string, schema: FileSchema): void {
+	const incomplete = new Set<string>();
 	for (const m of text.matchAll(CREATE_TABLE_RE)) {
 		const table = unquoteIdentifier(m[1] ?? "").toLowerCase();
 		const body = parenGroupBody(text, m.index + m[0].length - 1);
 		if (!table || body === null) continue;
+		// Interpolated columns are unknown, not demonstrably absent.
+		if (body.includes("${")) {
+			incomplete.add(table);
+			continue;
+		}
 		schema.created.add(table);
 		for (const segment of topLevelSegments(body)) {
 			const column = segmentColumnName(segment);
 			if (column) declare(schema, table, column);
 		}
+	}
+	for (const table of incomplete) {
+		schema.created.delete(table);
+		schema.columns.delete(table);
 	}
 }
 
