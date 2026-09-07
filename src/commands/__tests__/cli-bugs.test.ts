@@ -300,13 +300,16 @@ describe("Bug 26: activity limit validation", () => {
 	it("sets process.exitCode for invalid --limit", async () => {
 		const previousExitCode = process.exitCode;
 		process.exitCode = 0;
-		vi.spyOn(console, "error").mockImplementation(() => {});
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		const { activityCommand } = await import("../activity.js");
-		await activityCommand({ json: true, limit: "abc" });
-		expect(process.exitCode).toBe(1);
-
-		process.exitCode = previousExitCode;
+		try {
+			const { activityCommand } = await import("../activity.js");
+			await activityCommand({ json: true, limit: "abc" });
+			expect(process.exitCode).toBe(1);
+		} finally {
+			process.exitCode = previousExitCode;
+			errorSpy.mockRestore();
+		}
 	});
 });
 

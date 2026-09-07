@@ -241,13 +241,17 @@ describe("callLegacyHarness — finish() idempotency", () => {
 		});
 		const socket = lastSocket as FakeSocket;
 		const destroySpy = vi.spyOn(socket, "destroy");
-		const decision: HarnessDecision = { decision: "allow" };
-		socket.emit("data", Buffer.from(`${JSON.stringify(decision)}\n`));
-		await expect(promise).resolves.toEqual(decision);
-		expect(destroySpy).toHaveBeenCalledTimes(1);
-		socket.emit("error", new Error("late, after resolution"));
-		expect(destroySpy).toHaveBeenCalledTimes(1);
-		await expect(promise).resolves.toEqual(decision);
+		try {
+			const decision: HarnessDecision = { decision: "allow" };
+			socket.emit("data", Buffer.from(`${JSON.stringify(decision)}\n`));
+			await expect(promise).resolves.toEqual(decision);
+			expect(destroySpy).toHaveBeenCalledTimes(1);
+			socket.emit("error", new Error("late, after resolution"));
+			expect(destroySpy).toHaveBeenCalledTimes(1);
+			await expect(promise).resolves.toEqual(decision);
+		} finally {
+			destroySpy.mockRestore();
+		}
 	});
 
 	// test-contract: boundary — createConnection can throw synchronously

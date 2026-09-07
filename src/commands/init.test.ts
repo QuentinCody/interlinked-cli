@@ -204,6 +204,7 @@ afterEach(() => {
 		if (k.startsWith("INTERLINKED_")) delete process.env[k];
 	}
 	for (const [k, v] of Object.entries(origEnv)) process.env[k] = v;
+	vi.restoreAllMocks();
 });
 
 // =======================================================================

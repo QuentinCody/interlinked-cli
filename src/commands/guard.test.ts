@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../lib/non-null.js";
 import {
 	guardCheckCommand,
@@ -125,6 +125,10 @@ beforeEach(() => {
 	mockExistsSync.mockReturnValue(false);
 	mockReadFileSync.mockReturnValue("{}");
 	mockCallTool.mockResolvedValue({ reservations: [] });
+});
+
+afterEach(() => {
+	vi.restoreAllMocks();
 });
 
 // ===========================================

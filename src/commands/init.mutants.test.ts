@@ -165,6 +165,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 	Object.defineProperty(process.stdin, "isTTY", { value: origStdinTty, configurable: true });
 	Object.defineProperty(process.stdout, "isTTY", { value: origStdoutTty, configurable: true });

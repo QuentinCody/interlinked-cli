@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ===========================================
 // Response shape interface
@@ -47,6 +47,10 @@ beforeEach(() => {
 	// Suppress console output during tests
 	vi.spyOn(console, "log").mockImplementation(() => {});
 	vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterEach(() => {
+	vi.restoreAllMocks();
 });
 
 /** Parse the last console.log call as JSON with runtime validation. */

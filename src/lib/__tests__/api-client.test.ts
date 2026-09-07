@@ -1,4 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../auth.js", () => ({
+	resolveAuthToken: () => null,
+	resolveAuthTokenWithRefresh: async () => null,
+}));
+
 import { InterlinkedClient } from "../api-client.js";
 
 describe("InterlinkedClient", () => {
@@ -25,11 +31,10 @@ describe("InterlinkedClient", () => {
 	});
 
 	it("isAuthenticated is false when no token is available", () => {
-		// Explicit empty serverUrl but no token and no on-disk credential.
-		// On a dev machine the CLI's own config.local.json may contribute a
-		// token — we assert the API shape, not the truthiness in that case.
+		// The auth seam is mocked to no credential, so local config cannot
+		// make this constructor accidentally authenticated.
 		const c = new InterlinkedClient({ serverUrl: "https://nowhere.example" });
-		expect(typeof c.isAuthenticated()).toBe("boolean");
+		expect(c.isAuthenticated()).toBe(false);
 	});
 
 	it("getConfig returns a ResolvedConfig shape", () => {
