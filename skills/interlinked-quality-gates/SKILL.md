@@ -939,6 +939,10 @@ public `interlinked mutation adopt` command.
   `--omit=optional` makes the cyclomatic gate fail open (silent enforcement gap) — keep
   `typescript` installed. Python needs `radon` on PATH.
 
+The type checker's snapshot and its identity share one captured compiler text per file
+per check. The identity preserves every UTF-16 code unit, including lone surrogates;
+UTF-8 replacement encoding would incorrectly merge distinct compiler texts.
+
 ## Dead code: two controls, four evidence layers, buckets before deletion
 
 Per-edit detection and repo scanning are SEPARATE controls (operator decision
