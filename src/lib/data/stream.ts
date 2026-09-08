@@ -1,7 +1,8 @@
 import { createReadStream, statSync } from "node:fs";
 import type { Readable } from "node:stream";
 import { createGunzip } from "node:zlib";
-import { LineAccumulator, type FileLine, MAX_CAPTURED_JSONL_LINE_BYTES } from "../bounded-file-io.js";
+import { MAX_CAPTURED_JSONL_LINE_BYTES } from "../bounded-file-io.js";
+import { DataLineAccumulator, type DataFileLine } from "./line-accumulator.js";
 
 export interface DataReadOptions {
     startOffset?: number;
@@ -33,7 +34,7 @@ function readBounds(options: DataReadOptions): DataReadBounds {
     };
 }
 
-function* chunkLines(chunk: Buffer, position: number, accumulator: LineAccumulator): Generator<FileLine> {
+function* chunkLines(chunk: Buffer, position: number, accumulator: DataLineAccumulator): Generator<DataFileLine> {
     let cursor = 0;
     for (;;) {
         const newline = chunk.indexOf(0x0a, cursor);
@@ -44,8 +45,8 @@ function* chunkLines(chunk: Buffer, position: number, accumulator: LineAccumulat
     }
 }
 
-async function* inputLines(input: Readable, bounds: DataReadBounds, initialPosition: number): AsyncGenerator<FileLine> {
-    const accumulator = new LineAccumulator(bounds.start, bounds.lineBytes);
+async function* inputLines(input: Readable, bounds: DataReadBounds, initialPosition: number): AsyncGenerator<DataFileLine> {
+    const accumulator = new DataLineAccumulator(bounds.start, bounds.lineBytes);
     let position = initialPosition;
     for await (const value of input) {
         const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
@@ -62,7 +63,7 @@ async function* inputLines(input: Readable, bounds: DataReadBounds, initialPosit
 }
 
 /** Complete-line boundaries are the commit marker; offsets are in uncompressed bytes. */
-export async function* readDataLines(path: string, options: DataReadOptions = {}): AsyncGenerator<FileLine> {
+export async function* readDataLines(path: string, options: DataReadOptions = {}): AsyncGenerator<DataFileLine> {
     const bounds = readBounds(options);
     const bytes = statSync(path).size;
     const compressed = path.endsWith(".gz");

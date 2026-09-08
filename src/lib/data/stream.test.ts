@@ -16,6 +16,30 @@ function fixture(body: Buffer | string, name = "events.jsonl"): string {
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("bounded evidence streams", () => {
+    it.each(["events.jsonl", "events.jsonl.gz"])("rejects invalid UTF-8 in %s without losing later records", async (name) => {
+        const bytes = Buffer.concat([Buffer.from('{"text":"'), Buffer.from([0xff]), Buffer.from('"}\n{"text":"valid λ �"}\n')]);
+        const path = fixture(name.endsWith(".gz") ? gzipSync(bytes) : bytes, name);
+        const rows = [];
+        for await (const row of readDataLines(path)) rows.push(row);
+        expect(rows[0]).toMatchObject({ complete: true, invalidUtf8: true, oversized: false });
+        expect(rows[0]?.text).toBeUndefined();
+        expect(rows[1]).toMatchObject({ complete: true, text: '{"text":"valid λ �"}' });
+        expect(rows[1]?.invalidUtf8).toBeUndefined();
+    });
+    it("retains a valid multibyte character across stream chunk boundaries", async () => {
+        const text = `${"x".repeat(64 * 1024 - 1)}λ`;
+        const rows = [];
+        for await (const row of readDataLines(fixture(`${text}\n`))) rows.push(row);
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ text, complete: true });
+        expect(rows[0]?.invalidUtf8).toBeUndefined();
+    });
+    it("rejects a multibyte sequence cut off by a newline", async () => {
+        const rows = [];
+        for await (const row of readDataLines(fixture(Buffer.from([0xe2, 0x82, 0x0a])))) rows.push(row);
+        expect(rows[0]).toMatchObject({ complete: true, invalidUtf8: true, nextOffset: 3 });
+        expect(rows[0]?.text).toBeUndefined();
+    });
     it("retains exact UTF-8 offsets and exposes a pending unterminated row", async () => {
         const first = '{"text":"λ"}\n';
         const path = fixture(`${first}{"pending":true}`);

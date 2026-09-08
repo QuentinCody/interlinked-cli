@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { gzipSync } from "node:zlib";
 import { scanLiveEvidence } from "./scan.js";
@@ -8,6 +8,26 @@ import { evidenceHash } from "../data-search/corpus.js";
 import { dataIndexPath } from "./index-schema.js";
 
 describe("direct retained evidence scan", () => {
+    it.each([
+        ["latency", "logs/latency.jsonl", "runtime"],
+        ["content-scanner-audit", "content-scanner.audit.jsonl", "audit"],
+        ["metacoder-audit", "metacoder.audit.jsonl", "audit"],
+        ["findings", "findings/corpus.jsonl", "quality"],
+        ["finding-reconciliation", "findings/reconciliation.jsonl", "quality"],
+        ["simplification-runs", "findings/simplification-runs.jsonl", "quality"],
+        ["manual-marker-snapshots", "debt/manual-marker-snapshots.jsonl", "quality"],
+        ["failures", "failures/index.jsonl", "runtime"],
+    ])("preserves the %s category when its catalog path differs from its name", async (source, relativePath, category) => {
+        const cwd = mkdtempSync(join(tmpdir(), "data-catalog-category-"));
+        const path = join(cwd, ".interlinked", relativePath);
+        mkdirSync(dirname(path), { recursive: true });
+        try {
+            writeFileSync(path, '{"message":"retained marker"}\n');
+            const answer = await scanLiveEvidence(cwd, { source, category });
+            expect(answer).toMatchObject({ total: 1, coverage: { complete: true } });
+            expect(answer.rows[0]).toMatchObject({ source, category });
+        } finally { rmSync(cwd, { recursive: true, force: true }); }
+    });
     it("searches live and gzip records with no index and returns original text", async () => {
         const cwd = mkdtempSync(join(tmpdir(), "interlinked-direct-scan-"));
         mkdirSync(join(cwd, ".interlinked"));

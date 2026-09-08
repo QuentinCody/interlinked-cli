@@ -1,4 +1,4 @@
-import type { FileLine } from "../bounded-file-io.js";
+import type { DataFileLine } from "./line-accumulator.js";
 import { withAsyncFileMutationLock } from "../file-mutation-lock.js";
 import { discoverDataFiles, type DiscoveredDataFile } from "./discovery.js";
 import { clearDataIndex, dataIndexPath, openDataIndex, type DataIndexDatabase } from "./index-schema.js";
@@ -19,7 +19,7 @@ export interface DataIndexProgress {
     errors: Array<{ path: string; error: string }>;
 }
 interface IndexRun { db: DataIndexDatabase; cwd: string; options: DataIndexOptions; result: DataIndexProgress; maxBytes: number; maxRecords: number; }
-interface FileImport { run: IndexRun; file: DiscoveredDataFile; source: DataSourceCursor; batch: FileLine[]; pending: boolean; exhausted: boolean; }
+interface FileImport { run: IndexRun; file: DiscoveredDataFile; source: DataSourceCursor; batch: DataFileLine[]; pending: boolean; exhausted: boolean; }
 const BATCH_RECORDS = 250;
 const BATCH_BYTES = 4 * 1024 * 1024;
 const DEFAULT_RUN_BYTES = 256 * 1024 * 1024;
@@ -37,7 +37,7 @@ function commitBatch(state: FileImport): void {
     state.batch = [];
     run.options.onProgress?.({ ...run.result });
 }
-function acceptLine(state: FileImport, line: FileLine): boolean {
+function acceptLine(state: FileImport, line: DataFileLine): boolean {
     if (!line.complete) {
         state.pending = true;
         state.run.result.bytes += line.nextOffset - line.start;

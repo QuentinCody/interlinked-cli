@@ -22,6 +22,7 @@ async function readLocation(cwd: string, row: JsonObject, expectedHash: string):
     const offset = dataNumber(row, "offset");
     const bytes = dataNumber(row, "end_offset") - offset;
     for await (const line of readDataLines(path, { startOffset: offset, maxBytes: bytes })) {
+        if (line.invalidUtf8) throw new Error("retained evidence is not valid UTF-8; raw bytes preserved");
         if (!line.complete || line.text === undefined || dataRecordHash(line.text) !== expectedHash) throw new Error("evidence bytes no longer match the indexed hash");
         const record: unknown = JSON.parse(line.text);
         if (!isJsonObject(record)) throw new Error("indexed evidence is not a JSON object");

@@ -16,7 +16,10 @@ async function locateFailure(cwd: string, wanted: number): Promise<AuditLocation
     for (const source of auditEvidenceSources(cwd)) {
         let local = 0;
         for await (const line of readDataLines(source.path, { maxLineBytes: 16 * 1024 * 1024 })) {
-            local++; combined++;
+            local++;
+            // The verifier omits blank archive lines but counts physical live lines.
+            if (source.source.startsWith("archive/") && line.text?.trim() === "") continue;
+            combined++;
             if (combined === wanted && line.text !== undefined) return { source: source.source, offset: line.start,
                 end_offset: line.nextOffset, source_line: local, combined_line: combined, raw_hash: dataRecordHash(line.text) };
         }
@@ -49,6 +52,7 @@ async function checkpointLiveTail(cwd: string, reason: string): Promise<JsonObje
     const state: CheckpointWalk = { lastHash: null, lastOffset: 0, rawHash: null, chained: 0, continuityBreaks: 0 };
     for await (const line of readDataLines(path, { maxBytes: before.size })) {
         if (!line.complete) throw new Error("cannot checkpoint an unterminated live record");
+        if (line.invalidUtf8) throw new Error("cannot checkpoint invalid UTF-8; raw evidence retained");
         if (line.text === undefined) throw new Error("cannot checkpoint an oversized live record");
         checkpointLine(state, line.text, line.nextOffset);
     }

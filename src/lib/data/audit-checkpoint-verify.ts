@@ -7,6 +7,7 @@ import { getDataDir } from "../config.js";
 import { isJsonObject, type JsonObject } from "../json-types.js";
 import { dataRecordHash } from "./normalize.js";
 import { readDataLines } from "./stream.js";
+import type { DataFileLine } from "./line-accumulator.js";
 
 async function readCheckpoint(cwd: string, id: string): Promise<JsonObject> {
     for await (const line of readDataLines(join(getDataDir(cwd), "audit-checkpoints.jsonl"))) {
@@ -48,6 +49,12 @@ function verifyBoundaryLine(state: BoundaryWalk, checkpoint: JsonObject, raw: st
     return null;
 }
 
+function verifyCheckpointLine(state: BoundaryWalk, checkpoint: JsonObject, line: DataFileLine): string | null {
+    if (line.invalidUtf8) return state.found ? "invalid-utf8" : null;
+    if (!line.complete || line.text === undefined) return "incomplete-or-oversized-record";
+    return verifyBoundaryLine(state, checkpoint, line.text);
+}
+
 /** Verification starts at an explicit boundary; the full historical verdict is unchanged. */
 export async function verifyDataCheckpoint(cwd: string, id: string): Promise<JsonObject> {
     const checkpoint = await readCheckpoint(cwd, id);
@@ -55,7 +62,10 @@ export async function verifyDataCheckpoint(cwd: string, id: string): Promise<Jso
     const state: BoundaryWalk = { found: false, previous: checkpoint.hash, chained: 0, unchained: 0 };
     for (const source of checkpointSources(cwd, checkpoint)) {
         for await (const line of readDataLines(source.path, { startOffset: source.startOffset })) {
-            const reason = !line.complete || line.text === undefined ? "incomplete-or-oversized-record" : verifyBoundaryLine(state, checkpoint, line.text);
+            // A bounded tail seek starts before the largest possible anchor row and
+            // can bisect a prior UTF-8 character; that first fragment is not evidence.
+            if (source.startOffset > 0 && line.start === source.startOffset) continue;
+            const reason = verifyCheckpointLine(state, checkpoint, line);
             if (reason) return { valid: false, checkpoint: id, reason, source: source.source, offset: line.start, chained_after_boundary: state.chained };
         }
     }

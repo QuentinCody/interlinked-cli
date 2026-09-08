@@ -69,12 +69,18 @@ clears only derived tables. SQLite/FTS5 loads lazily; use a Node runtime with bu
 (Node 22.13+ avoids needing the earlier experimental flag). Search includes retained archives;
 `--no-archives` restricts it to live files. `--fts` opts into FTS5 query grammar. Structured
 filters include source/category/session/actor/provider/model/file/check/call/kind/decision/origin.
+Catalog source names and categories stay consistent between direct scans and indexed search,
+including sources stored under nested paths such as `logs/latency.jsonl`.
 Unknown event timestamps are excluded by time bounds. The older `query` command scans a
 bounded physical tail of one file and reports its scope; it does not promise archive coverage.
 
 Each indexed answer carries a record ID; `data show` retrieves the original JSON and verifies
 its SHA-256. Projection text/field traversal is bounded, and oversized or malformed rows are
 reported without deleting their raw bytes. Check `data status` for freshness and parse failures.
+Invalid UTF-8 is malformed evidence: scans and new imports report it and continue to later
+complete records; `data show` refuses to verify it. A valid replacement character (`�`) in
+UTF-8 is ordinary text. For indexes created before strict UTF-8 validation, use an explicit
+`data index --rebuild` to remove earlier lossy projections; historical raw bytes remain intact.
 Exact duplicate raw records within one logical source share an indexed record but retain all
 physical locations. Cross-stream observations are not automatically independent executions.
 
@@ -84,6 +90,8 @@ also strictly folds the obligations ledger. A block count is not a prevented-def
 Suggestion `shown` means selected for presentation, not acknowledged; later absence is an
 observation, not proof of a fix. Usage has unknown values and no invented prices; never add
 overlapping timeline and costs totals. Recurrence inventory is separate from incident counts.
+Usage deduplication chooses a provider-message representative within the query's retained
+scope, so superseded source generations and excluded archives do not hide a retained copy.
 Aggregate limits bound returned groups, not necessarily database work; narrow supported
 filters first. `schema` is a source-wide observed field census: only `--source` and `--limit`
 affect its scope, even though its CLI accepts the shared filter flags.
@@ -121,7 +129,9 @@ does not continuously watch files or refresh a long-running active session on a 
 explicit index pass when recent evidence matters; a deferred background job is not freshness.
 
 `data audit diagnose` locates the first historical failure by physical source/offset and does
-not infer tampering intent. After investigation, `data audit checkpoint --reason TEXT` records
+not infer tampering intent. Its source line and byte offset refer to the physical record even
+when archived blank lines are omitted from the verifier's combined line count.
+After investigation, `data audit checkpoint --reason TEXT` records
 an explicit payload-verified live observation boundary. `data audit verify --checkpoint ID`
 checks subsequent retained evidence, including after rotation. The historical verdict stays
 unchanged; checkpoints never rewrite or reset the old chain.

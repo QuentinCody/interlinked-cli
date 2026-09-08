@@ -23,11 +23,12 @@ export function dataView(cwd: string, view: DataView, options: DataSearchOptions
             return { rows: rows.slice(0, limit), more: rows.length > limit, index: dataIndexSummary(db), scope: "observed field shapes; bounded projection, not a validation schema" };
         }
         const filter = dataSearchFilter(options);
-        if (view === "usage") filter.clauses.push("usage_rank=1 AND (r.input_tokens IS NOT NULL OR r.output_tokens IS NOT NULL)");
         if (view === "suggestions") filter.clauses.push("r.source IN ('suggestion-telemetry','suggestion-outcomes')");
         const query = VIEW_SQL[view];
-        const rows = db.prepare(`SELECT ${query.select},min(r.id) example_evidence_id FROM ${viewRecordTable(view)} r ${query.join}
-            WHERE ${filter.clauses.join(" AND ")} GROUP BY ${query.group} ORDER BY records DESC LIMIT ?`)
+        const scope = filter.clauses.join(" AND ");
+        const where = view === "usage" ? "usage_rank=1 AND (r.input_tokens IS NOT NULL OR r.output_tokens IS NOT NULL)" : scope;
+        const rows = db.prepare(`SELECT ${query.select},min(r.id) example_evidence_id FROM ${viewRecordTable(view, scope)} r ${query.join}
+            WHERE ${where} GROUP BY ${query.group} ORDER BY records DESC LIMIT ?`)
             .all(...filter.values, limit + 1).map(dataRow);
         return { rows: rows.slice(0, limit), more: rows.length > limit, index: dataIndexSummary(db),
             scope: "indexed unique raw evidence; counts are observations, not causality or execution counts",
@@ -35,9 +36,9 @@ export function dataView(cwd: string, view: DataView, options: DataSearchOptions
     } finally { db.close(); }
 }
 
-function viewRecordTable(view: DataView): string {
+function viewRecordTable(view: DataView, scope: string): string {
     if (view !== "usage") return "data_records";
     return `(SELECT *,row_number() OVER (PARTITION BY source,
         CASE WHEN source='costs' AND schema_name='usage-delta.v1' THEN call_id ELSE id END
-        ORDER BY ingested_at DESC,id) usage_rank FROM data_records)`;
+        ORDER BY ingested_at DESC,id) usage_rank FROM data_records r WHERE ${scope})`;
 }

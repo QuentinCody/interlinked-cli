@@ -1,4 +1,4 @@
-import type { FileLine } from "../bounded-file-io.js";
+import type { DataFileLine } from "./line-accumulator.js";
 import { isJsonObject } from "../json-types.js";
 import type { DiscoveredDataFile } from "./discovery.js";
 import type { DataIndexDatabase } from "./index-schema.js";
@@ -39,12 +39,17 @@ function insertRecord(context: DataWriteContext, record: NormalizedDataRecord, b
     insertDimensions(context, record);
     return true;
 }
-function recordParseError(context: DataBatchContext, line: FileLine, reason: string): void {
+function recordParseError(context: DataBatchContext, line: DataFileLine, reason: string): void {
     context.db.prepare("INSERT OR REPLACE INTO data_parse_errors VALUES (?,?,?,?,?)")
-        .run(context.source.id, line.start, line.nextOffset, line.oversized ? "oversized" : "malformed", reason.slice(0, 500));
+        .run(context.source.id, line.start, line.nextOffset, line.oversized && !line.invalidUtf8 ? "oversized" : "malformed", reason.slice(0, 500));
 }
-function insertLine(context: DataWriteContext, line: FileLine, result: DataBatchResult): void {
+function insertLine(context: DataWriteContext, line: DataFileLine, result: DataBatchResult): void {
     if (!line.nonEmpty) return;
+    if (line.invalidUtf8) {
+        result.malformed++;
+        recordParseError(context, line, "record is not valid UTF-8; raw evidence retained");
+        return;
+    }
     if (line.oversized || line.text === undefined) {
         result.oversized++;
         recordParseError(context, line, "record exceeds materialization limit; raw evidence retained");
@@ -76,7 +81,7 @@ function writeFieldCounts(context: DataWriteContext): void {
 }
 
 /** Records, evidence locations, parse failures and cursor advance commit together. */
-export function writeDataBatch(context: DataBatchContext, lines: FileLine[]): DataBatchResult {
+export function writeDataBatch(context: DataBatchContext, lines: DataFileLine[]): DataBatchResult {
     return dataTransaction(context.db, () => {
         const state: DataWriteContext = { ...context, fields: new Map() };
         assertDataSourceIdentity(context.file);

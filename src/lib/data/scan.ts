@@ -20,10 +20,11 @@ async function scanLiveFile(file: DiscoveredDataFile, state: ScanState): Promise
         }
     } catch (error) { state.coverage.complete = false; state.coverage.errors.push(String(error)); }
 }
-function acceptLiveLine(line: import("../bounded-file-io.js").FileLine, file: import("../data-search/types.js").CorpusFile, state: ScanState): void {
+function acceptLiveLine(line: import("./line-accumulator.js").DataFileLine, file: import("../data-search/types.js").CorpusFile, state: ScanState): void {
     const coverage = state.coverage;
     if (!line.complete) { coverage.incomplete++; coverage.complete = false; return; }
     if (!line.nonEmpty) return;
+    if (line.invalidUtf8) { coverage.malformed++; coverage.complete = false; return; }
     if (line.text === undefined || line.oversized) { coverage.oversized++; coverage.complete = false; return; }
     try {
         const record = projectEvidence(line.text, file, state.corpus, line.start, line.end, state.cwd);

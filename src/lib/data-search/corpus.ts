@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 import { createReadStream, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { isJsonObject } from "../json-types.js";
-import { dataSourceForPath } from "../data/catalog.js";
+import { DATA_CATALOG, dataSourceForPath } from "../data/catalog.js";
 import { normalizeDataRecord } from "../data/normalize.js";
 import { readDataLines } from "../data/stream.js";
-import type { FileLine } from "../bounded-file-io.js";
+import type { DataFileLine } from "../data/line-accumulator.js";
 import { type EvidenceCorpus, type CorpusFile, type EvidenceRecord, type SearchCoverage, type EvidenceQuery, type EvidenceAnswer, emptyCoverage } from "./types.js";
 import { EvidenceResults } from "./query.js";
 
@@ -45,7 +45,8 @@ export function parseEvidenceCorpus(value: unknown): EvidenceCorpus {
 export function projectEvidence(raw: string, file: CorpusFile, corpus: EvidenceCorpus, offset: number, end: number, normalizationRoot = "/"): EvidenceRecord | null {
     const value: unknown = JSON.parse(raw);
     if (!isJsonObject(value)) return null;
-    const source = dataSourceForPath(file.source.endsWith(".jsonl") ? file.source : `${file.source}.jsonl`);
+    const source = DATA_CATALOG.find((entry) => entry.name === file.source)
+        ?? dataSourceForPath(file.source.endsWith(".jsonl") ? file.source : `${file.source}.jsonl`);
     const record = normalizeDataRecord(value, { ...source, name: file.source }, raw, normalizationRoot);
     const hash = evidenceHash(raw);
     return { id: evidenceHash(`${corpus.tenant}\0${corpus.project}\0${file.source}\0${hash}`), hash,
@@ -55,10 +56,11 @@ export function projectEvidence(raw: string, file: CorpusFile, corpus: EvidenceC
         time: record.eventMs, files: record.files, checks: record.checks.map((check) => check.id),
         text: record.text, truncated: record.textTruncated, path: file.path, offset, end };
 }
-function parseCorpusLine(line: FileLine, file: CorpusFile, corpus: EvidenceCorpus, coverage: SearchCoverage): EvidenceRecord | null {
+function parseCorpusLine(line: DataFileLine, file: CorpusFile, corpus: EvidenceCorpus, coverage: SearchCoverage): EvidenceRecord | null {
     coverage.bytes += line.nextOffset - line.start;
     if (!line.complete) { coverage.incomplete++; coverage.complete = false; return null; }
     if (!line.nonEmpty) return null;
+    if (line.invalidUtf8) { coverage.malformed++; coverage.complete = false; return null; }
     if (line.oversized || line.text === undefined) { coverage.oversized++; coverage.complete = false; return null; }
     let record: EvidenceRecord | null;
     try { record = projectEvidence(line.text, file, corpus, line.start, line.end); }
