@@ -110,6 +110,29 @@ describe("installCodexHooks / uninstallCodexHooks", () => {
 		expect(interruptHandler.additionalContextLimit).toBeUndefined();
 	});
 
+	it("removes stale context limits only from managed handlers during reinstall", () => {
+		installCodexHooks(tmp, ".interlinked/hooks/interlinked-activity.mjs");
+		const path = join(tmp, ".codex", "hooks.json");
+		const settings = JSON.parse(readFileSync(path, "utf8"));
+		const unsupported = ["PermissionRequest", "PreCompact", "PostCompact", "SubagentStop", "Stop", "SessionEnd", "Interrupt"];
+		for (const name of unsupported) {
+			settings.hooks[name][0].hooks[0].additionalContextLimit = 2500;
+		}
+		const foreign = { type: "command", command: "echo user-hook", additionalContextLimit: 900 };
+		settings.hooks.Stop[0].hooks.push(foreign);
+		writeFileSync(path, JSON.stringify(settings));
+		installCodexHooks(tmp, ".interlinked/hooks/interlinked-activity.mjs");
+		const repaired = JSON.parse(readFileSync(path, "utf8")).hooks;
+		for (const name of unsupported) expect(repaired[name][0].hooks[0].additionalContextLimit).toBeUndefined();
+		expect(repaired.Stop[0].hooks[1]).toEqual(foreign);
+		for (const name of ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart"]) {
+			expect(repaired[name][0].hooks[0].additionalContextLimit).toBe(2500);
+		}
+		const once = readFileSync(path, "utf8");
+		installCodexHooks(tmp, ".interlinked/hooks/interlinked-activity.mjs");
+		expect(readFileSync(path, "utf8")).toBe(once);
+	});
+
 	it("creates .codex/config.toml with canonical `hooks = true` when absent", () => {
 		// Codex requires the feature flag in `[features]` for hooks to
 		// fire. The installer writes the canonical `hooks = true` key

@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installHooks, manifestPath, readManifest } from "../harness/installer.js";
+import { nestedHookSettings } from "../harness/adapters/test-output.js";
 import { refreshInstalledHooks, reportRefresh } from "./install-hooks-refresh.js";
 
 let cwd: string;
@@ -41,6 +42,55 @@ function installGemini(binary: string = BINARY): string {
 }
 
 describe("refreshInstalledHooks — positive (must fire)", () => {
+	it("refreshes user-scope metadata for the recorded global binary and keeps another project's handler", () => {
+		const home = join(cwd, "home");
+		mkdirSync(home);
+		vi.stubEnv("HOME", home);
+		try {
+			const installed = installHooks({ cwd, binaryPath: BINARY, runners: ["codex"], scope: "user" });
+			expect(installed.ok).toBe(true);
+			const path = join(home, ".codex", "hooks.json");
+			const settings = nestedHookSettings(JSON.parse(readFileSync(path, "utf8")));
+			const group = settings.hooks.Stop?.[0], own = group?.hooks[0];
+			if (!group || !own) throw new Error("Expected the installed Stop handler");
+			own.additionalContextLimit = 2500;
+			const foreign = { type: "command", command: "node '/other/project/dist/hook-entry.js' --runner 'codex' --event 'Stop'", additionalContextLimit: 900 };
+			group.hooks.push(foreign);
+			writeFileSync(path, JSON.stringify(settings));
+			const result = refreshInstalledHooks({ cwd, binaryPath: NEW_BINARY, runners: ["codex"] });
+			expect(result.ok, JSON.stringify(result)).toBe(true);
+			const repaired = nestedHookSettings(JSON.parse(readFileSync(path, "utf8")));
+			expect(repaired.hooks.Stop).toHaveLength(2);
+			expect(repaired.hooks.Stop).toContainEqual({ ...group, hooks: [foreign] });
+			const replacement = repaired.hooks.Stop?.flatMap(row => row.hooks).find(handler => typeof handler.command === "string" && handler.command.includes(NEW_BINARY));
+			expect(replacement).toMatchObject({ type: "command" });
+			expect(replacement?.additionalContextLimit).toBeUndefined();
+			expect(readManifest(manifestPath(cwd))).toMatchObject([{ scope: "user", binary_path: NEW_BINARY, settings_path: path }]);
+			expect(refreshInstalledHooks({ cwd, binaryPath: NEW_BINARY, runners: ["codex"] }).unchanged).toBe(true);
+		} finally { vi.unstubAllEnvs(); }
+	});
+
+	it("refreshes obsolete Codex context limits while retaining foreign handlers", () => {
+		const installed = installHooks({ cwd, binaryPath: BINARY, runners: ["codex"], scope: "project" });
+		expect(installed.ok).toBe(true);
+		const path = join(cwd, ".codex", "hooks.json");
+		const settings = nestedHookSettings(JSON.parse(readFileSync(path, "utf8")));
+		for (const entries of Object.values(settings.hooks)) {
+			for (const entry of entries) for (const handler of entry.hooks) handler.additionalContextLimit = 2500;
+		}
+		const foreign = { type: "command", command: "echo user-owned" };
+		const stop = settings.hooks.Stop?.[0];
+		if (!stop) throw new Error("Expected the installed Stop matcher group");
+		stop.hooks.push(foreign);
+		writeFileSync(path, JSON.stringify(settings));
+		const result = refreshInstalledHooks({ cwd, binaryPath: BINARY, runners: ["codex"] });
+		expect(result.ok).toBe(true);
+		const repaired = nestedHookSettings(JSON.parse(readFileSync(path, "utf8")));
+		const limited = Object.entries(repaired.hooks).filter(([, rows]) => rows.some(row => row.hooks.some(handler => handler.additionalContextLimit !== undefined))).map(([name]) => name);
+		expect(limited.sort()).toEqual(["PostToolUse", "PreToolUse", "SessionStart", "SubagentStart", "UserPromptSubmit"]);
+		expect(repaired.hooks.Stop).toContainEqual({ ...stop, hooks: [foreign] });
+		expect(refreshInstalledHooks({ cwd, binaryPath: BINARY, runners: ["codex"] }).unchanged).toBe(true);
+	});
 	// test-contract: public-api — the whole point of --refresh: an installed
 	// entry rendered by an OLD binary path is re-rendered to the current one,
 	// and the final-state verification proves it from the file on disk.

@@ -188,7 +188,7 @@ export function codexRegistration(binaryPath: string, event: string): Record<str
 	if (capability.background) {
 		handler.async = true;
 	}
-	if (capability.model_context) {
+	if (capability.controls?.includes("context")) {
 		handler.additionalContextLimit = 2_500;
 	}
 	return {
@@ -298,7 +298,7 @@ function encodeCodexAllow(decision: HarnessDecision, event: UnifiedHookEvent): A
 		return { exit_code: 0 };
 	}
 	const capability = eventCapability(CODEX_CAPABILITIES, event.runner_native_event);
-	if (!capability?.model_context) {
+	if (!capability?.controls?.includes("context")) {
 		return { stderr: feedback, exit_code: 0 };
 	}
 	return {

@@ -54,6 +54,17 @@ function hooksOf(base: JsonObject): Record<string, unknown> {
 }
 
 describe("purgePriorEntries — undeclared-event sweep — positive (must fire)", () => {
+	it.each(["PreToolUse", "PostToolUseFailure"])("preserves foreign siblings and matcher metadata while purging %s", event => {
+		const owned = { type: "command", command: hookCommand(OWN_BINARY, event) };
+		const foreign = { type: "command", command: hookCommand(FOREIGN_BINARY, event), timeout: 42 };
+		const custom = { type: "mcp_tool", server: "user-server", tool: "record" };
+		const group = { matcher: "Bash", description: "custom matcher group", hooks: [owned, foreign, custom] };
+		const base: JsonObject = { hooks: { [event]: [group] } }, report = freshReport();
+		purgePriorEntries(base, fragmentDeclaringPreToolUseOnly(), makePurgeVerdict(SCOPE_USER, PROJECT_ROOT), report);
+		expect(hooksOf(base)[event]).toEqual([{ ...group, hooks: [foreign, custom] }]);
+		expect(report).toEqual({ removed: 1, foreign: 1 });
+	});
+
 	it("P1: removes an Interlinked entry under an event the fragment no longer declares, and deletes the emptied key", () => {
 		const base: JsonObject = {
 			hooks: {
@@ -172,6 +183,15 @@ describe("purgePriorEntries — undeclared-event sweep — negative (must not fi
 });
 
 describe("makePurgeVerdict — scope semantics", () => {
+	it("uses exact recorded binary invocations without claiming other binaries or textual mentions", () => {
+		const globalBinary = "/opt/interlinked/dist/hook-entry.js";
+		const verdict = makePurgeVerdict(SCOPE_USER, PROJECT_ROOT, globalBinary);
+		expect(verdict(entry(hookCommand(globalBinary, "PreToolUse")))).toBe("remove");
+		expect(verdict(entry(hookCommand(FOREIGN_BINARY, "PreToolUse")))).toBe("foreign");
+		expect(verdict(entry(`echo node '${globalBinary}' --runner codex --event Stop`))).toBe("keep");
+		expect(makePurgeVerdict(SCOPE_USER, PROJECT_ROOT)(entry(hookCommand(globalBinary, "PreToolUse")))).toBe("foreign");
+	});
+
 	it("P4: project scope removes every Interlinked entry regardless of owning project", () => {
 		const verdict = makePurgeVerdict("project", PROJECT_ROOT);
 		expect(verdict(entry(hookCommand(FOREIGN_BINARY, "PreToolUse")))).toBe("remove");
@@ -189,6 +209,19 @@ describe("cleanProjectOwnedHooks — file-level cleanup", () => {
 		tmp = mkdtempSync(join(tmpdir(), "interlinked-purge-"));
 	});
 	afterEach(() => rmSync(tmp, { recursive: true, force: true }));
+
+	it("persists a partial matcher-group cleanup and leaves dry runs byte-identical", () => {
+		const path = join(tmp, "settings.json");
+		const foreign = { type: "command", command: "echo user-owned", timeout: 20 };
+		const group = { matcher: "Bash", hooks: [{ type: "command", command: hookCommand(OWN_BINARY, "PreToolUse") }, foreign] };
+		const before = JSON.stringify({ hooks: { PreToolUse: [group] } });
+		writeFileSync(path, before);
+		expect(cleanProjectOwnedHooks(path, makePurgeVerdict("project", PROJECT_ROOT), true)).toBe(1);
+		expect(readFileSync(path, "utf8")).toBe(before);
+		expect(cleanProjectOwnedHooks(path, makePurgeVerdict("project", PROJECT_ROOT), false)).toBe(1);
+		expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ hooks: { PreToolUse: [{ ...group, hooks: [foreign] }] } });
+		expect(cleanProjectOwnedHooks(path, makePurgeVerdict("project", PROJECT_ROOT), false)).toBe(0);
+	});
 
 	it("P5: removes this project's entries and deletes the emptied event key", () => {
 		const settingsPath = join(tmp, "settings.json");

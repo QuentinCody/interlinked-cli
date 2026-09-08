@@ -294,6 +294,14 @@ native user prompt retain authority. Non-blocking PermissionRequest diagnostics 
 because that event does not accept generic `additionalContext`. Codex follows the same
 abstain-on-allow/ask rule through its provider-specific PermissionRequest response path.
 
+Codex `additionalContextLimit` applies only to `SessionStart`, `UserPromptSubmit`,
+`PreToolUse`, `PostToolUse`, and `SubagentStart`. Permission decisions, Stop/SubagentStop
+continuation reasons and compaction diagnostics use separate output channels. Installing
+limits on those events causes Codex configuration warnings. Both install paths omit them;
+reinstalling also removes obsolete limits from Interlinked-owned handlers while preserving
+foreign hooks. Use the manifest-scoped refresh below for an existing adapter install.
+Changed project hook definitions may need renewed review in Codex `/hooks`.
+
 Claude's installed `WorktreeCreate` hook is a deliberate hard stop: that native event replaces
 Claude's default Git behavior, and Interlinked fails it without returning a path. Across every
 client, the shared shell guard also blocks `git worktree add`; `list`, `remove`, and `prune`

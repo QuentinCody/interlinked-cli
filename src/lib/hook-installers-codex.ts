@@ -69,14 +69,14 @@ function codexHookOptions(eventName: string): {
 	timeout?: number;
 	async?: boolean;
 	statusMessage: string;
-	additionalContextLimit?: number;
+	additionalContextLimit: number | null;
 } {
 	const capability = eventCapability(CODEX_CAPABILITIES, eventName);
 	return {
 		...(eventName === "SessionEnd" ? { timeout: 3 } : {}),
 		...(capability?.background ? { async: true } : {}),
 		statusMessage: codexStatusMessage(eventName),
-		...(capability?.model_context ? { additionalContextLimit: 2_500 } : {}),
+		additionalContextLimit: capability?.controls?.includes("context") ? 2_500 : null,
 	};
 }
 

@@ -68,7 +68,8 @@ interface InstallHookEntryOptions {
 	timeout?: number;
 	async?: boolean;
 	statusMessage?: string;
-	additionalContextLimit?: number;
+	/** null removes obsolete metadata from an existing managed handler. */
+	additionalContextLimit?: number | null;
 }
 
 // `hooks[eventName]` is unvalidated JSON read off disk — a hand-edited or
@@ -183,7 +184,9 @@ function applyHandlerMetadata(
 ): void {
 	if (options.async !== undefined) hook.async = options.async;
 	if (options.statusMessage) hook.statusMessage = options.statusMessage;
-	if (options.additionalContextLimit !== undefined) {
+	if (options.additionalContextLimit === null) {
+		delete hook.additionalContextLimit;
+	} else if (options.additionalContextLimit !== undefined) {
 		hook.additionalContextLimit = options.additionalContextLimit;
 	}
 }

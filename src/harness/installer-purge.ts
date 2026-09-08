@@ -13,6 +13,7 @@
 
 import { existsSync } from "node:fs";
 import {
+	isHookEntryInvokingBinary,
 	isInterlinkedHookEntry,
 	isProjectOwnedHookEntry,
 	withoutIncomingDuplicates,
@@ -53,11 +54,13 @@ function isJsonObject(value: unknown): value is JsonObject {
 export function makePurgeVerdict(
 	scope: InstallScope,
 	projectRoot: string,
+	recordedBinary?: string,
 ): (entry: unknown) => PurgeVerdict {
 	if (scope === SCOPE_USER) {
 		return (entry) => {
 			if (!isInterlinkedHookEntry(entry)) return VERDICT_KEEP;
-			return isProjectOwnedHookEntry(entry, projectRoot) ? VERDICT_REMOVE : VERDICT_FOREIGN;
+			if (isProjectOwnedHookEntry(entry, projectRoot)) return VERDICT_REMOVE;
+			return recordedBinary && isHookEntryInvokingBinary(entry, recordedBinary) ? VERDICT_REMOVE : VERDICT_FOREIGN;
 		};
 	}
 	return (entry) => (isInterlinkedHookEntry(entry) ? VERDICT_REMOVE : VERDICT_KEEP);
@@ -143,12 +146,28 @@ function filterEventArrayInPlace(
 	const arr = container[key];
 	if (!Array.isArray(arr)) return;
 	const kept = filterEntries(arr, verdict, report);
-	if (kept.length === arr.length) return;
+	if (kept.length === arr.length && kept.every((entry, index) => entry === arr[index])) return;
 	if (kept.length === 0) {
 		delete container[key];
 	} else {
 		container[key] = kept;
 	}
+}
+
+/** Preserve matcher metadata and foreign siblings when only some handlers are owned. */
+function filterNestedEntry(
+	entry: JsonObject,
+	handlers: unknown[],
+	verdict: (entry: unknown) => PurgeVerdict,
+	report: PurgeReport,
+): unknown[] {
+	const nested: PurgeReport = { removed: 0, foreign: 0 };
+	const hooks = filterEntries(handlers, verdict, nested);
+	// Reports count affected matcher entries, preserving the existing count unit.
+	report.removed += Number(nested.removed > 0);
+	report.foreign += Number(nested.foreign > 0);
+	if (nested.removed === 0) return [entry];
+	return hooks.length ? [{ ...entry, hooks }] : [];
 }
 
 /** Filter one hook array by `verdict`, tallying removals/foreign hits. */
@@ -159,6 +178,10 @@ function filterEntries(
 ): unknown[] {
 	const kept: unknown[] = [];
 	for (const item of existing) {
+		if (isJsonObject(item) && Array.isArray(item.hooks)) {
+			kept.push(...filterNestedEntry(item, item.hooks, verdict, report));
+			continue;
+		}
 		const v = verdict(item);
 		if (v === VERDICT_REMOVE) {
 			report.removed++;

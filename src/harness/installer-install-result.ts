@@ -137,6 +137,7 @@ function installSelectedAdapter(
 		input.cwd,
 		input.installedAt,
 		input.dryRun,
+		prior,
 	);
 	if (!installed.ok) {
 		return { skipped: { runner: adapter.id, reason: installed.reason }, purged: 0, foreign: 0 };
@@ -254,6 +255,7 @@ function installSingle(
 	cwd: string,
 	installedAt: string,
 	dryRun: boolean,
+	prior: InstallerManifestEntry | undefined,
 ): InstallSingleSuccess | InstallSingleFailure {
     if (binaryAbs.endsWith("interlinked-activity.mjs")) return { ok: false, reason: "The generated compatibility script cannot serve the expanded adapter contract. Build Interlinked CLI, then refresh hooks with the compiled hook-entry runtime." };
 	const fragment = adapter.renderSettingsFragment(binaryAbs, scope);
@@ -275,7 +277,8 @@ function installSingle(
 	// fragment no longer declares are swept too, so a de-registered event does
 	// not keep its stale entry forever.
 	const report: PurgeReport = { removed: 0, foreign: 0 };
-	purgePriorEntries(base, fragment.fragment, makePurgeVerdict(scope, cwd), report);
+	const recordedBinary = prior?.scope === scope && prior.settings_path === target ? prior.binary_path : undefined;
+	purgePriorEntries(base, fragment.fragment, makePurgeVerdict(scope, cwd, recordedBinary), report);
 
 	const addedPaths: string[] = [];
 	const merged = mergeSettings(base, fragment.fragment, fragment.mergeStrategy, "", addedPaths);

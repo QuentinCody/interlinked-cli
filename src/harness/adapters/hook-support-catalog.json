@@ -407,8 +407,7 @@
         {
           "phase": "compaction.before",
           "controls": [
-            "cancel",
-            "context"
+            "cancel"
           ],
           "native_names": [
             "PreCompact"
@@ -417,8 +416,7 @@
         {
           "phase": "compaction.after",
           "controls": [
-            "cancel",
-            "context"
+            "cancel"
           ],
           "native_names": [
             "PostCompact"

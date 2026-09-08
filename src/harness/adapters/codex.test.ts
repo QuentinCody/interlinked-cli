@@ -259,6 +259,16 @@ describe("Codex renderSettingsFragment", () => {
 		expect(nonNull(entries[0]).matcher).toBe(CODEX_POST_TOOL_USE_MATCHER);
 		expect(CODEX_POST_TOOL_USE_MATCHER.split("|")).toEqual([...CODEX_WRITE_TOOLS]);
 	});
+	it("limits additional context only on events that support that output", () => {
+		const root = nestedHookSettings(adapter.renderSettingsFragment("/bin/hook", "project").fragment);
+		const contextEvents = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart"];
+		const limitedEvents = Object.entries(root.hooks).filter(([, entries]) => entries[0]?.hooks[0]?.additionalContextLimit !== undefined).map(([event]) => event);
+		expect(limitedEvents.sort()).toEqual(contextEvents.sort());
+	});
+	it.each(["PreCompact", "PostCompact"])("keeps %s diagnostics out of unsupported additionalContext", (name) => {
+		const output = adapter.encodeDecision({ decision: "allow", warnings: ["Review compaction"] }, adapter.parseHookInput({}, name));
+		expect(output).toEqual({ exit_code: 0, stderr: "Review compaction" });
+	});
 
 	it("uses an empty matcher for every event except PostToolUse", () => {
 		const fragment = adapter.renderSettingsFragment("/bin/hook", "project");
