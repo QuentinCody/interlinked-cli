@@ -119,6 +119,38 @@ describe("runProcessAsync", () => {
 		expect(r.killed).toBe(true);
 	});
 
+	it("does not restart termination when the deadline follows an external cancellation", async () => {
+		vi.useFakeTimers();
+		const childPid = 999_999_996;
+		const fakeChild = makeFakeChild(childPid);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
+		let groupAlive = true;
+		const killSpy = vi.spyOn(process, "kill").mockImplementation((_pid, signal) => {
+			if (signal === 0 && !groupAlive) throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+			return true;
+		});
+		try {
+			const controller = new AbortController();
+			const promise = runProcessAsync("fake-cmd", [], { timeout: 100, signal: controller.signal });
+			controller.abort();
+			await vi.advanceTimersByTimeAsync(100);
+			// Deadline expiry must not send another TERM or restart the grace
+			// period for a child that is already shutting down after cancellation.
+			expect(killSpy.mock.calls.filter(([, signal]) => signal !== 0)).toEqual([[-childPid, "SIGTERM"]]);
+			await vi.advanceTimersByTimeAsync(900);
+			expect(killSpy.mock.calls.filter(([, signal]) => signal !== 0)).toEqual([
+				[-childPid, "SIGTERM"], [-childPid, "SIGKILL"],
+			]);
+			groupAlive = false;
+			fakeChild.emit("exit", null);
+			fakeChild.emit("close", null);
+			expect(await promise).toMatchObject({ code: null, timedOut: true, killed: true });
+		} finally {
+			killSpy.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
 	it("truncates stdout at MAX_BUFFER_BYTES instead of buffering unbounded output", async () => {
 		// Print well past the 10 MB cap so the byte-count guard in the 'data'
 		// listener actually engages and further chunks are dropped.

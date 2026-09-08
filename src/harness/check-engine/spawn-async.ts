@@ -88,7 +88,7 @@ class SpawnedProcessRun {
 	private timedOut = false;
 	private killed = false;
 	private settled = false;
-	private timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+	private timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 	private killGraceTimer: ReturnType<typeof setTimeout> | null = null;
 	private reapPollTimer: ReturnType<typeof setTimeout> | null = null;
 	private pendingExitCode: number | null = null;
@@ -159,7 +159,7 @@ class SpawnedProcessRun {
 	}
 
 	private clearLifecycleTimers(): void {
-		if (this.timeoutTimer !== null) clearTimeout(this.timeoutTimer);
+		clearTimeout(this.timeoutTimer);
 		if (this.killGraceTimer !== null) {
 			clearTimeout(this.killGraceTimer);
 			this.killGraceTimer = null;
@@ -185,10 +185,9 @@ class SpawnedProcessRun {
 		}
 	}
 
-	private processGroupIsAlive(): boolean {
-		if (this.processGroupId === undefined) return false;
+	private processGroupIsAlive(processGroupId: number): boolean {
 		try {
-			process.kill(-this.processGroupId, 0);
+			process.kill(-processGroupId, 0);
 			return true;
 		} catch (error) {
 			// SAFETY: Node reports process-signal failures as ErrnoException;
@@ -199,7 +198,7 @@ class SpawnedProcessRun {
 
 	private settleAfterKilledTreeExits(): void {
 		if (this.settled || !this.killed || this.processGroupId === undefined) return;
-		if (!this.processGroupIsAlive()) {
+		if (!this.processGroupIsAlive(this.processGroupId)) {
 			// A wrapper can exit while a TERM-resistant compiler grandchild still
 			// owns the group. Group absence is what makes lease release safe.
 			this.finalize(this.pendingExitCode);
@@ -228,7 +227,7 @@ class SpawnedProcessRun {
 			this.settleAfterKilledTreeExits();
 			return;
 		}
-		if (this.timeoutTimer !== null) clearTimeout(this.timeoutTimer);
+		clearTimeout(this.timeoutTimer);
 		this.opts.signal?.removeEventListener("abort", this.onAbort);
 		this.scheduleCloseGuard(code);
 	}
