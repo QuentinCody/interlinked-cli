@@ -1,5 +1,6 @@
+import { nonNull } from "../lib/non-null.js";
 // ===========================================
-// interlinked multi-edit — Atomic coordinated edits across one or more files
+// interlinked multi-edit — Coordinated edits across one or more files
 // ===========================================
 //
 // Applies N `old_string → new_string` pairs per file as an in-memory buffer
@@ -333,7 +334,7 @@ async function readManifestRaw(
 		}
 	}
 	// opts.manifest is guaranteed set by the mutex check above.
-	const manifestPath = opts.manifest as string;
+	const manifestPath = nonNull(opts.manifest);
 	try {
 		return { ok: true, raw: readFileSync(manifestPath, "utf-8") };
 	} catch (err) {

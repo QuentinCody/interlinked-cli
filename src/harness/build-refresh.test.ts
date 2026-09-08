@@ -1,3 +1,5 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +12,12 @@ import {
 } from "./build-refresh.js";
 import type { DaemonLedgerEvent } from "./daemon-ledger.js";
 import { HANDOVER_CHURN_MAX_ATTEMPTS } from "./handover-churn.js";
+
+type SpawnRestart = NonNullable<NonNullable<Parameters<typeof startBuildRefreshWatcher>[0]["deps"]>["spawn"]>;
+
+function makeSpawn() {
+	return vi.fn<SpawnRestart>(() => ({ unref: vi.fn() }));
+}
 
 /** `HANDOVER_CHURN_MAX_ATTEMPTS` unresolved handover rows — enough to trip
  *  the churn backstop when handed to a `readEvents`/`recordEvent` seam. */
@@ -138,8 +146,8 @@ describe("startBuildRefreshWatcher", () => {
 	const distUrl = "file:///repo/dist/harness/server.js";
 
 	interface HarnessDeps {
-		spawn: ReturnType<typeof vi.fn>;
-		log: ReturnType<typeof vi.fn>;
+		spawn: ReturnType<typeof makeSpawn>;
+		log: ReturnType<typeof vi.fn<(message: string) => void>>;
 		mtime: { value: number };
 		dispose: () => void;
 	}
@@ -153,8 +161,8 @@ describe("startBuildRefreshWatcher", () => {
 		lastActivityMs?: () => number;
 	} = {}): HarnessDeps {
 		const mtime = { value: overrides.startMtime ?? 1_000 };
-		const spawn = vi.fn(() => ({ unref: vi.fn() }));
-		const log = vi.fn();
+		const spawn = makeSpawn();
+		const log = vi.fn<(message: string) => void>();
 		const dispose = startBuildRefreshWatcher({
 			moduleUrl: overrides.moduleUrl ?? distUrl,
 			cwd: "/repo",
@@ -163,9 +171,7 @@ describe("startBuildRefreshWatcher", () => {
 			env: overrides.env ?? {},
 			deps: {
 				statMtimeMs: () => mtime.value,
-				// SAFETY: the watcher only calls spawn(cmd, argv, opts).unref();
-				// the vi.fn stub satisfies exactly that shape.
-				spawn: spawn as never,
+				spawn,
 			},
 		});
 		return { spawn, log, mtime, dispose };
@@ -181,12 +187,7 @@ describe("startBuildRefreshWatcher", () => {
 		// Assert the hand-over it actually performs, not merely that it happened:
 		// a spawn with the wrong argv would restart nothing and still "pass".
 		expect(h.spawn).toHaveBeenCalledTimes(1);
-		// SAFETY: exactly one call asserted above; tuple mirrors spawn(cmd, argv, opts).
-		const [cmd, argv, opts] = h.spawn.mock.calls[0] as unknown as [
-			string,
-			string[],
-			{ cwd: string; detached: boolean },
-		];
+		const [cmd, argv, opts] = nonNull(h.spawn.mock.calls[0]);
 		expect(cmd).toBe(process.execPath);
 		expect(argv).toEqual(["/repo/dist/index.js", "harness", "restart"]);
 		expect(opts.cwd).toBe("/repo");
@@ -234,13 +235,7 @@ describe("startBuildRefreshWatcher", () => {
 		vi.advanceTimersByTime(61_000); // first tick: spawns the hand-over
 		vi.advanceTimersByTime(61_000); // second tick: absorbed by the throttle
 		expect(h.spawn).toHaveBeenCalledTimes(1);
-		// SAFETY: asserted immediately above that exactly one call was made;
-		// the tuple mirrors node's spawn(cmd, argv, opts) signature.
-		const [cmd, argv, opts] = h.spawn.mock.calls[0] as unknown as [
-			string,
-			string[],
-			{ cwd: string; detached: boolean; stdio: string },
-		];
+		const [cmd, argv, opts] = nonNull(h.spawn.mock.calls[0]);
 		expect(cmd).toBe(process.execPath);
 		expect(argv).toEqual(["/repo/dist/index.js", "harness", "restart"]);
 		expect(opts.cwd).toBe("/repo");
@@ -285,7 +280,7 @@ describe("startBuildRefreshWatcher", () => {
 			lastActivityMs: () => 0,
 			log: vi.fn(),
 			env: {},
-			deps: { statMtimeMs, spawn: vi.fn() as never },
+			deps: { statMtimeMs, spawn: makeSpawn() },
 		});
 		// A real watcher schedules exactly one interval timer; the early-return
 		// path must schedule none, not merely avoid spawning on the next tick.
@@ -320,7 +315,7 @@ describe("startBuildRefreshWatcher", () => {
 		it("logs the staleness warning once when src/ is newer than the running dist build", () => {
 			const dir = makeRepo(false);
 			try {
-				const log = vi.fn();
+				const log = vi.fn<(message: string) => void>();
 				const dispose = startBuildRefreshWatcher({
 					moduleUrl: pathToFileURL(join(dir, "dist", "harness", "server.js")).href,
 					cwd: dir,
@@ -329,10 +324,10 @@ describe("startBuildRefreshWatcher", () => {
 					// Isolate the warning from the hand-over machinery entirely —
 					// this test is only about the startup log line.
 					env: { INTERLINKED_NO_AUTO_RESTART: "1" },
-					deps: { statMtimeMs: () => 1_000, spawn: vi.fn() as never },
+					deps: { statMtimeMs: () => 1_000, spawn: makeSpawn() },
 				});
 				expect(log).toHaveBeenCalledTimes(1);
-				const [message] = log.mock.calls[0] as [string];
+				const [message] = nonNull(log.mock.calls[0]);
 				// Content that carries meaning — not the exact sentence — so the
 				// test survives a copy edit: it names what's stale and what to run.
 				expect(message).toMatch(/STALE BUILD/);
@@ -346,14 +341,14 @@ describe("startBuildRefreshWatcher", () => {
 		it("does not log a staleness warning when the running dist build is already current", () => {
 			const dir = makeRepo(true);
 			try {
-				const log = vi.fn();
+				const log = vi.fn<(message: string) => void>();
 				const dispose = startBuildRefreshWatcher({
 					moduleUrl: pathToFileURL(join(dir, "dist", "harness", "server.js")).href,
 					cwd: dir,
 					lastActivityMs: () => 0,
 					log,
 					env: { INTERLINKED_NO_AUTO_RESTART: "1" },
-					deps: { statMtimeMs: () => 1_000, spawn: vi.fn() as never },
+					deps: { statMtimeMs: () => 1_000, spawn: makeSpawn() },
 				});
 				expect(log).not.toHaveBeenCalled();
 				dispose();
@@ -405,7 +400,7 @@ describe("startBuildRefreshWatcher", () => {
 					env: {},
 					deps: {
 						statMtimeMs,
-						spawn: vi.fn(() => ({ unref: vi.fn() })) as never,
+						spawn: makeSpawn(),
 					},
 				});
 				vi.advanceTimersByTime(61_000);
@@ -415,8 +410,8 @@ describe("startBuildRefreshWatcher", () => {
 				// SAFETY: length just asserted above; exactly one tick elapsed, so
 				// exactly one ledger line is expected, and the last line picks it
 				// regardless.
-				const lastLine = lines[lines.length - 1] as string;
-				const evt = JSON.parse(lastLine) as Record<string, unknown>;
+				const lastLine = nonNull(lines[lines.length - 1]);
+				const evt = parseWire(JSON.parse(lastLine), wireRecord(wireUnknown), "test JSON value");
 				// These are exactly the fields `describeLastExit` (daemon-ledger.ts)
 				// reads to turn a bare SIGTERM exit into "handed over to a newer
 				// build — normal after a rebuild" instead of an unexplained outage.
@@ -445,23 +440,23 @@ describe("startBuildRefreshWatcher", () => {
 				const mtimeValue = nowMs + 1_000;
 				let calls = 0;
 				const statMtimeMs = () => (calls++ === 0 ? 1_000 : mtimeValue);
-				const spawn = vi.fn(() => ({ unref: vi.fn() }));
-				const log = vi.fn();
+				const spawn = makeSpawn();
+				const log = vi.fn<(message: string) => void>();
 				const dispose = startBuildRefreshWatcher({
 					moduleUrl: pathToFileURL(join(dir, "dist", "harness", "server.js")).href,
 					cwd: dir,
 					lastActivityMs: () => 0,
 					log,
 					env: {},
-					deps: { statMtimeMs, spawn: spawn as never },
+					deps: { statMtimeMs, spawn },
 				});
 				vi.advanceTimersByTime(61_000);
 
 				expect(spawn).not.toHaveBeenCalled();
 				expect(log.mock.calls.flat().join(" ")).toContain("churn backstop");
 				const lines = readFileSync(ledgerFile, "utf-8").trim().split("\n");
-				const lastLine = lines[lines.length - 1] as string;
-				const evt = JSON.parse(lastLine) as Record<string, unknown>;
+				const lastLine = nonNull(lines[lines.length - 1]);
+				const evt = parseWire(JSON.parse(lastLine), wireRecord(wireUnknown), "test JSON value");
 				expect(evt.event).toBe("handover");
 				expect(evt.reason).toBe("churn-backstop");
 				dispose();
@@ -488,7 +483,7 @@ describe("startBuildRefreshWatcher", () => {
 						// synchronously; the watcher must ledger it, not crash the tick.
 						spawn: (() => {
 							throw new Error("EAGAIN: resource temporarily unavailable");
-						}) as never,
+						}),
 					},
 				});
 				vi.advanceTimersByTime(61_000);
@@ -497,7 +492,7 @@ describe("startBuildRefreshWatcher", () => {
 				const rows = readFileSync(ledgerFile, "utf-8")
 					.trim()
 					.split("\n")
-					.map((line) => JSON.parse(line) as Record<string, unknown>);
+					.map((line) => parseWire(JSON.parse(line), wireRecord(wireUnknown), "test JSON value"));
 				expect(rows.map((r) => r.outcome)).toEqual(["requested", "spawn_failed"]);
 				// Both rows must carry ONE id, or the churn reducer cannot pair the
 				// failure with the intent and the attempt stays pending forever.
@@ -528,15 +523,15 @@ describe("startBuildRefreshWatcher", () => {
 
 				let calls = 0;
 				const statMtimeMs = () => (calls++ === 0 ? 1_000 : mtimeValue);
-				const spawn = vi.fn(() => ({ unref: vi.fn() }));
-				const log = vi.fn();
+				const spawn = makeSpawn();
+				const log = vi.fn<(message: string) => void>();
 				const dispose = startBuildRefreshWatcher({
 					moduleUrl: pathToFileURL(join(dir, "dist", "harness", "server.js")).href,
 					cwd: dir,
 					lastActivityMs: () => 0,
 					log,
 					env: {},
-					deps: { statMtimeMs, spawn: spawn as never },
+					deps: { statMtimeMs, spawn },
 				});
 				vi.advanceTimersByTime(61_000);
 
@@ -565,15 +560,15 @@ describe("startBuildRefreshWatcher", () => {
 				writeFileSync(artifactPath, "");
 				utimesSync(artifactPath, old, old);
 
-				const spawn = vi.fn(() => ({ unref: vi.fn() }));
-				const log = vi.fn();
+				const spawn = makeSpawn();
+				const log = vi.fn<(message: string) => void>();
 				const dispose = startBuildRefreshWatcher({
 					moduleUrl: pathToFileURL(artifactPath).href,
 					cwd: dir,
 					lastActivityMs: () => 0,
 					log,
 					env: {},
-					deps: { spawn: spawn as never },
+					deps: { spawn },
 				});
 
 				// Bump the artifact's mtime forward — the watcher must observe
@@ -597,14 +592,14 @@ describe("startBuildRefreshWatcher", () => {
 				const artifactPath = join(distDir, "server.js");
 				writeFileSync(artifactPath, "");
 
-				const spawn = vi.fn(() => ({ unref: vi.fn() }));
+				const spawn = makeSpawn();
 				const dispose = startBuildRefreshWatcher({
 					moduleUrl: pathToFileURL(artifactPath).href,
 					cwd: dir,
 					lastActivityMs: () => 0,
 					log: vi.fn(),
 					env: {},
-					deps: { spawn: spawn as never },
+					deps: { spawn },
 				});
 
 				// Removing the artifact makes the next defaultStatMtimeMs() poll

@@ -47,18 +47,13 @@ const REPO_ROOT = resolve(fileURLToPath(import.meta.url), "..", "..", "..");
 const CI_WORKFLOW = resolve(REPO_ROOT, ".github", "workflows", "ci.yml");
 const PRE_PUSH_HOOK = resolve(REPO_ROOT, "scripts", "git-hooks", "pre-push");
 
-interface CiStep {
+type CiStep = {
 	/** Exact `name:` value in ci.yml. */
 	name: string;
-	/** Where this CI step is mirrored locally. */
-	mirror: "pre-push" | "skip";
-	/** When mirror === "pre-push": substring of the command that must
-	 *  appear in the pre-push hook script. */
-	command?: string;
-	/** When mirror === "skip": one-line rationale for not running
-	 *  locally. Surface answer for "why isn't this in pre-push?". */
-	reason?: string;
-}
+} & (
+	| { mirror: "pre-push"; command: string }
+	| { mirror: "skip"; reason: string }
+);
 
 const CI_STEPS: readonly CiStep[] = [
 	{ name: "Checkout", mirror: "skip", reason: "git checkout — runner setup, not a check" },
@@ -178,7 +173,7 @@ describe("CI ↔ pre-push pipeline parity", () => {
 			if (step.mirror !== "pre-push") continue;
 			it(`hook contains the command for "${step.name}"`, () => {
 				expect(step.command).toBeTruthy();
-				expect(hook).toContain(step.command as string);
+				expect(hook).toContain(step.command);
 			});
 		}
 	});
@@ -188,7 +183,7 @@ describe("CI ↔ pre-push pipeline parity", () => {
 			if (step.mirror !== "skip") continue;
 			it(`"${step.name}" has a non-empty reason`, () => {
 				expect(step.reason).toBeTruthy();
-				expect((step.reason as string).trim().length).toBeGreaterThan(0);
+				expect(step.reason.trim().length).toBeGreaterThan(0);
 			});
 		}
 	});

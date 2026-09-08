@@ -88,6 +88,20 @@ describe("tsc-overlay-sidecar-client", () => {
 		expect(runOverlayViaSidecar(INPUT)).toEqual([finding]);
 	});
 
+	it.each([
+		{ result: [null] },
+		{ result: [{ tool: "tsc", severity: "error", file: "a.ts", line: "1", message: "bad" }] },
+		{ result: [{ tool: "tsc", severity: "error", file: "a.ts", line: 1 }] },
+		{ result: [{ tool: "other", severity: "error", file: "a.ts", line: 1, message: "bad" }] },
+		{ result: [], notMeasured: false },
+	])("rejects malformed sidecar finding data: %j", async (payload) => {
+		spawnSyncMock.mockReturnValue(ok(`${JSON.stringify({ id: 1, ...payload })}\n`));
+		const { runOverlayViaSidecarTyped } = await importClient();
+		expect(runOverlayViaSidecarTyped(INPUT)).toEqual({
+			status: "unavailable", reason: "sidecar returned a malformed reply",
+		});
+	});
+
 	// kind: boundary — negative (must not fire / degrade gracefully)
 	it("N1: missing sidecar binary degrades to [] with one stderr warning", async () => {
 		spawnSyncMock.mockReturnValue(missingBinary());

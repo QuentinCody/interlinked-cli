@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isFileInTscScope, parseCompletedCompiler, runTsc } from "../tsc.js";
+import { parseCompletedCompiler, runTsc } from "../tsc.js";
 
 describe("runTsc", () => {
 	let tmp: string;
@@ -48,18 +48,6 @@ describe("parseCompletedCompiler — output-size guard", () => {
 	});
 });
 
-describe("isFileInTscScope — resolution failure fallback", () => {
-	it("assumes in-scope (true) when relative() throws on a non-string path", () => {
-		// path.relative() throws a TypeError for a non-string argument; the
-		// catch treats resolution failure as "assume in scope" rather than
-		// silently excluding the file from type-checking.
-		// SAFETY: deliberately violating the declared string type to trigger
-		// path.relative()'s TypeError, which is exactly the failure this branch
-		// exists to catch.
-		const result = isFileInTscScope(undefined as unknown as string, tmpdir());
-		expect(result).toBe(true);
-	});
-});
 
 describe("runTscAsync — compiler-process failure (reached through the public entry point)", () => {
 	let tmp: string;

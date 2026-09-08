@@ -1,3 +1,4 @@
+import { isOverlayResponse } from "./tsc-overlay-wire.js";
 // ===========================================
 // TSC Overlay Sidecar — daemon-side client
 // ===========================================
@@ -138,22 +139,7 @@ function parseReplyLine(stdout: string): SidecarOverlayResponse | null {
 	if (!line) return null;
 	try {
 		const parsed: unknown = JSON.parse(line);
-		if (parsed === null || typeof parsed !== "object") return null;
-		// SAFETY: narrowing an already-parsed JSON value to inspect known
-		// fields before returning a typed response below — every field the
-		// return value claims is re-read (not assumed) from this record.
-		const r = parsed as Record<string, unknown>;
-		if (typeof r.id !== "number") return null;
-		if (typeof r.error === "string") return { id: r.id, error: r.error };
-		if (Array.isArray(r.result)) {
-			// SAFETY: the sidecar main entry is the only writer of this stream and
-			// constructs `result` from runOverlayCheckInProcess's own CheckResult[]
-			// return value — the array elements are trusted the same way any other
-			// tool-runner's parsed-CLI-output findings already are in this family.
-			const result = r.result as CheckResult[];
-			return { id: r.id, result };
-		}
-		return null;
+		return isOverlayResponse(parsed) ? parsed : null;
 	} catch {
 		return null;
 	}

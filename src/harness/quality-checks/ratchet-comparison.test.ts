@@ -633,7 +633,7 @@ describe("runRatchetComparison — defensive error swallow", () => {
 				}
 				return Reflect.get(target, prop, receiver);
 			},
-		}) as PreEditBaseline;
+		});
 
 		let results: ReturnType<typeof runRatchetComparison> | undefined;
 		expect(() => {
@@ -657,7 +657,7 @@ describe("runRatchetComparison — defensive error swallow", () => {
 				if (prop === "suppressionCount") suppressionReads++;
 				return Reflect.get(target, prop, receiver);
 			},
-		}) as PreEditBaseline;
+		});
 
 		const results = runRatchetComparison(
 			makeCtx({

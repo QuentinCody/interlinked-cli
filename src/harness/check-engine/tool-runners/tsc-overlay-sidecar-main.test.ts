@@ -1,3 +1,5 @@
+import { parseWire } from "../../../lib/value-validation.js";
+import { isOverlayResponse } from "./tsc-overlay-wire.js";
 // Real-process round trip: spawns the sidecar entry via tsx (dev mode, no
 // build step required — CLAUDE.md forbids running `npm run build` from an
 // agent session) against a tiny fixture tsconfig project, feeds it one JSON
@@ -58,13 +60,22 @@ function runSidecarOnce(request: SidecarOverlayRequest): SidecarOverlayResponse 
 	});
 	expect(result.error).toBeUndefined();
 	const line = result.stdout.trim().split("\n").at(-1) ?? "";
-	// SAFETY: the sidecar main entry under test always emits exactly one JSON
-	// line matching SidecarOverlayResponse — that contract is what this file
-	// verifies, so the parse result is trusted here, not upstream of a test.
-	return JSON.parse(line) as SidecarOverlayResponse;
+	return parseWire(JSON.parse(line), isOverlayResponse, "sidecar response");
 }
 
 describe("tsc-overlay-sidecar-main — real process round trip", () => {
+	it("rejects malformed sibling content before running the compiler", () => {
+		const result = spawnSync(process.execPath, [TSX_CLI, SIDECAR_MAIN_TS], {
+			input: `${JSON.stringify({ id: 1, method: "overlayCheck", protocolVersion: 1,
+				params: { projectRoot: "/missing", filePath: "a.ts", content: "", siblings: [{ filePath: "b.ts", content: 42 }] },
+			})}\n`,
+			encoding: "utf-8", timeout: 30_000,
+		});
+		expect(result.error).toBeUndefined();
+		expect(result.status).toBe(1);
+		expect(JSON.parse(result.stdout)).toEqual({ id: -1, error: "sidecar: malformed request" });
+	});
+
 	// kind: public-api — positive (must fire)
 	it(
 		"P1: answers an overlayCheck request with a real type-error finding",

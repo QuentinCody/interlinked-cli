@@ -141,7 +141,7 @@ function checkUnjustifiedCastRatchet(
 	postContent: string,
 ): QualityCheckResult[] {
 	if (pre.unjustifiedCastCount === undefined) return [];
-	const post = countUnjustifiedCasts(postContent);
+	const post = countUnjustifiedCasts(postContent, absPath);
 	if (post > pre.unjustifiedCastCount) {
 		return [
 			{

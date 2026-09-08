@@ -15,7 +15,7 @@ beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "transcript-kill-"));
 	// SAFETY: vi.mock above replaces the export with vi.fn(actual.isJsonObject),
 	// so this is the actual runtime shape despite the static import type.
-	(isJsonObject as unknown as ReturnType<typeof vi.fn>).mockClear();
+	(vi.mocked(isJsonObject)).mockClear();
 });
 afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });

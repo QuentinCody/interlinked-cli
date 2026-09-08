@@ -38,6 +38,7 @@ import {
 	type GateResult,
 	gateProposedContent,
 } from "../harness/content-gate.js";
+import { isJsonObject } from "../lib/json-types.js";
 import { c } from "../lib/formatter.js";
 import { nonNull } from "../lib/non-null.js";
 
@@ -49,15 +50,6 @@ export interface WriteCommandOptions {
 	json?: boolean;
 	/** Allow writes outside the project root. Same intent as the design doc's `--unsafe-outside-repo`. */
 	unsafeOutsideRepo?: boolean;
-}
-
-/** Manifest shape accepted by `--batch <manifest.json>`. Every field is
- *  `unknown` — this is untrusted JSON from disk, not a validated shape — so
- *  the runtime guards in `loadBatchManifest` stay load-bearing rather than
- *  redundant with a cast that lies about the parsed content. */
-interface BatchManifest {
-	version?: unknown;
-	writes?: unknown;
 }
 
 /** Exit-code sentinel for unrecoverable input errors (no batch processed). */
@@ -132,13 +124,16 @@ function parseManifestJson(raw: string): unknown {
 
 /**
  * Validate the manifest's top-level envelope (object shape, `version: 1`, a
- * non-empty `writes` array) and return it narrowed to `BatchManifest`.
+ * non-empty `writes` array) and return only the validated envelope fields.
  */
-function validateManifestEnvelope(parsed: unknown): BatchManifest & { writes: unknown[] } {
-	if (!parsed || typeof parsed !== "object") {
+function validateManifestEnvelope(parsed: unknown): { version: 1; writes: unknown[] } {
+	if (Array.isArray(parsed)) {
+		throw new Error("Batch manifest version must be 1 (got: undefined).");
+	}
+	if (!isJsonObject(parsed)) {
 		throw new Error("Batch manifest must be a JSON object { version: 1, writes: [...] }.");
 	}
-	const manifest = parsed as Partial<BatchManifest>;
+	const manifest = parsed;
 	if (manifest.version !== 1) {
 		throw new Error(
 			`Batch manifest version must be 1 (got: ${JSON.stringify(manifest.version)}).`,
@@ -147,7 +142,7 @@ function validateManifestEnvelope(parsed: unknown): BatchManifest & { writes: un
 	if (!Array.isArray(manifest.writes) || manifest.writes.length === 0) {
 		throw new Error("Batch manifest must include a non-empty 'writes' array.");
 	}
-	return manifest as BatchManifest & { writes: unknown[] };
+	return { version: 1, writes: manifest.writes };
 }
 
 /**
@@ -155,10 +150,10 @@ function validateManifestEnvelope(parsed: unknown): BatchManifest & { writes: un
  * Throws a usage-level Error naming the offending index.
  */
 function parseManifestEntry(w: unknown, i: number): GateInputEntry {
-	if (!w || typeof w !== "object") {
+	if (!isJsonObject(w)) {
 		throw new Error(`Batch writes[${i}] must be an object { path, content }.`);
 	}
-	const { path, content } = w as { path?: unknown; content?: unknown };
+	const { path, content } = w;
 	if (typeof path !== "string" || path.length === 0) {
 		throw new Error(`Batch writes[${i}].path must be a non-empty string.`);
 	}

@@ -1,3 +1,5 @@
+import { outputObject, flatHookSettings } from "./test-output.js";
+import { nonNull } from "../../lib/non-null.js";
 import { describe, expect, it } from "vitest";
 import { createCursorAdapter } from "./cursor.js";
 
@@ -140,8 +142,8 @@ describe("Cursor parseHookInput — new event surface (2026-04-30)", () => {
 		expect(e.phase).toBe("pre-tool");
 		if (e.action.kind !== "other") throw new Error("expected other");
 		expect(e.action.subkind).toBe("subagentStart");
-		expect((e.action.data as { subagent_type: string }).subagent_type).toBe("shell");
-		expect((e.action.data as { task: string }).task).toBe("run something");
+		expect((outputObject(e.action.data)).subagent_type).toBe("shell");
+		expect((outputObject(e.action.data)).task).toBe("run something");
 	});
 
 	it("subagentStop carries status + summary", () => {
@@ -161,8 +163,8 @@ describe("Cursor parseHookInput — new event surface (2026-04-30)", () => {
 		);
 		expect(e.phase).toBe("pre-compact");
 		if (e.action.kind !== "other") throw new Error("expected other");
-		expect((e.action.data as { trigger: string }).trigger).toBe("auto");
-		expect((e.action.data as { context_usage_percent: number }).context_usage_percent).toBe(87);
+		expect((outputObject(e.action.data)).trigger).toBe("auto");
+		expect((outputObject(e.action.data)).context_usage_percent).toBe(87);
 	});
 });
 
@@ -173,11 +175,11 @@ describe("Cursor encodeDecision", () => {
 	);
 	it("allow emits stdout with permission:allow", () => {
 		const out = adapter.encodeDecision({ decision: "allow" }, event);
-		expect(JSON.parse(out.stdout as string)).toEqual({ permission: "allow" });
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({ permission: "allow" });
 	});
 	it("block emits permission:deny with snake_case agent + user messages (per Cursor docs)", () => {
 		const out = adapter.encodeDecision({ decision: "block", reason: "no" }, event);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			permission: "deny",
 			agent_message: "no",
 			user_message: "no",
@@ -188,7 +190,7 @@ describe("Cursor encodeDecision", () => {
 			{ decision: "ask", reason: "confirm?", system_message: "potentially destructive" },
 			event,
 		);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			permission: "ask",
 			agent_message: "confirm?",
 			user_message: "potentially destructive",
@@ -200,7 +202,7 @@ describe("Cursor encodeDecision", () => {
 			"preToolUse",
 		);
 		const out = adapter.encodeDecision({ decision: "ask", reason: "confirm?" }, preToolEvent);
-		const parsed = JSON.parse(out.stdout as string) as { permission: string; agent_message?: string };
+		const parsed = outputObject(JSON.parse(nonNull(out.stdout)));
 		expect(parsed.permission).toBe("deny");
 		expect(parsed.agent_message).toBe("confirm?");
 	});
@@ -210,7 +212,7 @@ describe("Cursor encodeDecision", () => {
 			"subagentStart",
 		);
 		const out = adapter.encodeDecision({ decision: "ask", reason: "untrusted" }, subEvent);
-		const parsed = JSON.parse(out.stdout as string) as { permission: string };
+		const parsed = outputObject(JSON.parse(nonNull(out.stdout)));
 		expect(parsed.permission).toBe("deny");
 	});
 	it("post_warn / advisory on postToolUse routes through additional_context (model-visible)", () => {
@@ -222,7 +224,7 @@ describe("Cursor encodeDecision", () => {
 			{ decision: "allow", additional_context: "Fix this lint." },
 			postEvent,
 		);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			additional_context: "Fix this lint.",
 		});
 	});
@@ -235,7 +237,7 @@ describe("Cursor encodeDecision", () => {
 			{ decision: "block", reason: "tsc failed: missing return type" },
 			postEvent,
 		);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			additional_context: "tsc failed: missing return type",
 		});
 	});
@@ -256,11 +258,11 @@ describe("Cursor renderSettingsFragment", () => {
 		expect(fragment.path).toBe(".cursor/hooks.json");
 	});
 	it("includes version: 1 in the fragment", () => {
-		const f = fragment.fragment as { version: number };
+		const f = flatHookSettings(fragment.fragment);
 		expect(f.version).toBe(1);
 	});
 	it("sets failClosed: true on gated events", () => {
-		const f = fragment.fragment as { hooks: Record<string, Array<{ failClosed?: boolean }>> };
+		const f = flatHookSettings(fragment.fragment);
 		expect(f.hooks.beforeShellExecution?.[0]?.failClosed).toBe(true);
 		expect(f.hooks.beforeMCPExecution?.[0]?.failClosed).toBe(true);
 		expect(f.hooks.beforeMcpToolExecution?.[0]?.failClosed).toBe(true);
@@ -268,13 +270,13 @@ describe("Cursor renderSettingsFragment", () => {
 		expect(f.hooks.subagentStart?.[0]?.failClosed).toBe(true);
 	});
 	it("registers postToolUseFailure / subagentStop / preCompact as observation hooks", () => {
-		const f = fragment.fragment as { hooks: Record<string, Array<{ failClosed?: boolean }>> };
+		const f = flatHookSettings(fragment.fragment);
 		expect(f.hooks.postToolUseFailure?.[0]?.failClosed).toBeUndefined();
 		expect(f.hooks.subagentStop?.[0]?.failClosed).toBeUndefined();
 		expect(f.hooks.preCompact?.[0]?.failClosed).toBeUndefined();
 	});
 	it("leaves failClosed unset on observation hooks", () => {
-		const f = fragment.fragment as { hooks: Record<string, Array<{ failClosed?: boolean }>> };
+		const f = flatHookSettings(fragment.fragment);
 		expect(f.hooks.afterFileEdit?.[0]?.failClosed).toBeUndefined();
 		expect(f.hooks.sessionStart?.[0]?.failClosed).toBeUndefined();
 	});
@@ -327,7 +329,7 @@ describe("Cursor encodeDecision — additional branch coverage", () => {
 
 	it("block on a gated event with no reason falls back to the default block reason", () => {
 		const out = adapter.encodeDecision({ decision: "block" }, gatedShellEvent);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			permission: "deny",
 			agent_message:
 				"Blocked by the interlinked harness, but no reason was attached — likely a harness bug; " +
@@ -355,14 +357,14 @@ describe("Cursor encodeDecision — additional branch coverage", () => {
 
 	it("ask user_message falls back to reason when system_message is absent", () => {
 		const out = adapter.encodeDecision({ decision: "ask", reason: "confirm this" }, gatedShellEvent);
-		const parsed = JSON.parse(out.stdout as string) as { user_message: string; agent_message: string };
+		const parsed = outputObject(JSON.parse(nonNull(out.stdout)));
 		expect(parsed.agent_message).toBe("confirm this");
 		expect(parsed.user_message).toBe("confirm this");
 	});
 
 	it("ask falls back to the default ask reason when neither reason nor system_message is present", () => {
 		const out = adapter.encodeDecision({ decision: "ask" }, gatedShellEvent);
-		const parsed = JSON.parse(out.stdout as string) as { user_message: string; agent_message: string };
+		const parsed = outputObject(JSON.parse(nonNull(out.stdout)));
 		expect(parsed.agent_message).toBe("Confirmation required");
 		expect(parsed.user_message).toBe("Confirmation required");
 	});
@@ -378,7 +380,7 @@ describe("Cursor encodeDecision — additional branch coverage", () => {
 			{ decision: "allow", additional_context: "fyi note" },
 			preToolEvent,
 		);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			permission: "allow",
 			agent_message: "fyi note",
 		});

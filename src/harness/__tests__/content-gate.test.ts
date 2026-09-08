@@ -353,13 +353,13 @@ describe("gateProposedContent", () => {
 		const preBlock = result.failures.filter((f) => f.tool === "pre_block");
 		const evalFail = preBlock.find((f) => f.code === "eval_usage" && f.severity === "error");
 		expect(evalFail).toBeDefined();
-		const nonNull = evalFail as NonNullable<typeof evalFail>;
+		const finding = nonNull(evalFail);
 		// The error names ONLY the introduced line, not the pre-existing L3.
-		expect(nonNull.line).toBe(5);
-		expect(nonNull.message).toMatch(/introduces 1 violation\(s\) at L5/);
+		expect(finding.line).toBe(5);
+		expect(finding.message).toMatch(/introduces 1 violation\(s\) at L5/);
 		// hint = registry fix_instruction + the suppression escape.
-		expect(typeof nonNull.hint).toBe("string");
-		expect(nonNull.hint as string).toContain("interlinked-ignore: eval_usage");
+		expect(typeof finding.hint).toBe("string");
+		expect(nonNull(finding.hint)).toContain("interlinked-ignore: eval_usage");
 		// The pre-existing on-disk instance surfaces as a non-blocking warning.
 		const preexisting = preBlock.find((f) => f.severity === GATE_SEVERITY_WARNING);
 		expect(preexisting?.message).toMatch(/pre-existing violation\(s\) at L3/);
@@ -435,10 +435,10 @@ describe("gateProposedContent", () => {
 		expect(tscFails.length).toBeGreaterThan(0);
 		const ts2322 = tscFails.find((f) => f.code === "TS2322");
 		expect(ts2322).toBeDefined();
-		const nonNull = ts2322 as NonNullable<typeof ts2322>;
-		expect(nonNull.severity).toBe(GATE_SEVERITY_ERROR);
-		expect(nonNull.line).toBeGreaterThan(0);
-		expect(nonNull.message.length).toBeGreaterThan(0);
+		const finding = nonNull(ts2322);
+		expect(finding.severity).toBe(GATE_SEVERITY_ERROR);
+		expect(finding.line).toBeGreaterThan(0);
+		expect(finding.message.length).toBeGreaterThan(0);
 	});
 
 	it("tsc diff-overlay: a new warn-only type error (possibly-undefined) is a warning, not a blocker", () => {
@@ -484,12 +484,12 @@ describe("gateProposedContent", () => {
 		expect(preWarn.length).toBeGreaterThan(0);
 		const floating = preWarn.find((f) => f.code === "floating_promises");
 		expect(floating).toBeDefined();
-		const nonNull = floating as NonNullable<typeof floating>;
-		expect(nonNull.severity).toBe(GATE_SEVERITY_WARNING);
+		const finding = nonNull(floating);
+		expect(finding.severity).toBe(GATE_SEVERITY_WARNING);
 		// 3rd line carries the bare fetch() call.
-		expect(nonNull.line).toBe(3);
-		expect(nonNull.message).toMatch(/violation\(s\) at L3/);
-		expect(typeof nonNull.hint).toBe("string");
+		expect(finding.line).toBe(3);
+		expect(finding.message).toMatch(/violation\(s\) at L3/);
+		expect(typeof finding.hint).toBe("string");
 		// pre_warn is informational: a warning-only batch is still ok.
 		const onlyWarnings = result.failures.every((f) => f.severity === GATE_SEVERITY_WARNING);
 		if (onlyWarnings) {
@@ -523,13 +523,13 @@ describe("gateProposedContent", () => {
 		expect(biomeFail).toBeDefined();
 		expect(tscFail).toBeDefined();
 		// Default code === tool name when the finding carries no ruleId.
-		expect((biomeFail as NonNullable<typeof biomeFail>).code).toBe("biome");
-		expect((tscFail as NonNullable<typeof tscFail>).code).toBe("tsc");
+		expect((nonNull(biomeFail)).code).toBe("biome");
+		expect((nonNull(tscFail)).code).toBe("tsc");
 		// The synthetic findings carry their line/column/message through verbatim.
-		expect((biomeFail as NonNullable<typeof biomeFail>).line).toBe(7);
+		expect((nonNull(biomeFail)).line).toBe(7);
 		// A ruleId-less tsc finding is treated as blocking (not warn-only), so the
 		// batch fails.
-		expect((tscFail as NonNullable<typeof tscFail>).severity).toBe(GATE_SEVERITY_ERROR);
+		expect((nonNull(tscFail)).severity).toBe(GATE_SEVERITY_ERROR);
 		expect(result.ok).toBe(false);
 	});
 });

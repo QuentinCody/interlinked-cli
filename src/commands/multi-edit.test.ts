@@ -1,3 +1,4 @@
+import { parseWire, wireLiteral, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked multi-edit — behavioral tests (deterministic, fully mocked)
 // ===========================================
@@ -136,7 +137,7 @@ function loggedJson(): Record<string, unknown> {
 	if (typeof first !== "string") {
 		throw new Error(`Expected a JSON string on console.log, got ${typeof first}`);
 	}
-	return JSON.parse(first) as Record<string, unknown>;
+	return parseWire(JSON.parse(first), wireRecord(wireUnknown), "test JSON value");
 }
 
 /** Swap process.stdin for a readable yielding `content` for one call. */
@@ -241,13 +242,14 @@ describe("countOccurrences", () => {
 function expectFail(raw: unknown, singleFilePath?: string): string {
 	const result: NormalizeResult = normalizeManifest(raw, singleFilePath);
 	expect(result.ok).toBe(false);
-	return (result as { ok: false; message: string }).message;
+	return (parseWire(result, wireObject({ "ok": wireLiteral(false), "message": wireString }), "test JSON value")).message;
 }
 
 function expectOk(raw: unknown, singleFilePath?: string): EditBatch[] {
 	const result: NormalizeResult = normalizeManifest(raw, singleFilePath);
 	expect(result.ok).toBe(true);
-	return (result as { ok: true; batches: EditBatch[] }).batches;
+	if (!result.ok) throw new Error(result.message);
+	return result.batches;
 }
 
 describe("normalizeManifest root + dispatch", () => {
@@ -686,15 +688,15 @@ describe("multiEditCommand input modes", () => {
 		expect(code).toBe(1);
 		const payload = loggedJson();
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST);
-		expect((payload.error_detail as { message: string }).message).toContain("mutually exclusive");
+		expect((parseWire(payload.error_detail, wireObject({ "message": wireString }), "test JSON value")).message).toContain("mutually exclusive");
 		// Truthy `path` arm of `path || ""`.
-		expect((payload.error_detail as { path: string }).path).toBe("a.ts");
+		expect(payload).toHaveProperty(["error_detail","path"], "a.ts");
 	});
 
 	it("mutex error falls back to an empty path string when no positional path (`path || \"\"`)", async () => {
 		const code = await runCommand(undefined, { stdin: true, manifest: "m.json", json: true });
 		expect(code).toBe(1);
-		expect((loggedJson().error_detail as { path: string }).path).toBe("");
+		expect(loggedJson()).toHaveProperty(["error_detail","path"], "");
 	});
 
 	it("rejects when neither --stdin nor --manifest is passed", async () => {
@@ -702,9 +704,9 @@ describe("multiEditCommand input modes", () => {
 		expect(code).toBe(1);
 		const payload = loggedJson();
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST);
-		expect((payload.error_detail as { message: string }).message).toContain("Must supply");
+		expect((parseWire(payload.error_detail, wireObject({ "message": wireString }), "test JSON value")).message).toContain("Must supply");
 		// path defaults to "" when undefined.
-		expect((payload.error_detail as { path: string }).path).toBe("");
+		expect(payload).toHaveProperty(["error_detail","path"], "");
 	});
 
 	it("reads a single-file manifest from stdin and applies it (success)", async () => {
@@ -728,8 +730,8 @@ describe("multiEditCommand input modes", () => {
 		expect(code).toBe(1);
 		const payload = loggedJson();
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.READ_FAILED);
-		expect((payload.error_detail as { path: string }).path).toBe("<stdin>");
-		expect((payload.error_detail as { message: string }).message).toContain("stdin pipe broke");
+		expect(payload).toHaveProperty(["error_detail","path"], "<stdin>");
+		expect((parseWire(payload.error_detail, wireObject({ "message": wireString }), "test JSON value")).message).toContain("stdin pipe broke");
 	});
 
 	it("stringifies a non-Error stdin rejection (String(err) arm)", async () => {
@@ -738,7 +740,7 @@ describe("multiEditCommand input modes", () => {
 		);
 		expect(code).toBe(1);
 		const payload = loggedJson();
-		expect((payload.error_detail as { message: string }).message).toContain(
+		expect((parseWire(payload.error_detail, wireObject({ "message": wireString }), "test JSON value")).message).toContain(
 			"stdin failed as a bare string",
 		);
 	});
@@ -772,8 +774,8 @@ describe("multiEditCommand input modes", () => {
 		expect(code).toBe(1);
 		const payload = loggedJson();
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.READ_FAILED);
-		expect((payload.error_detail as { path: string }).path).toBe("missing.json");
-		expect((payload.error_detail as { message: string }).message).toContain("ENOENT");
+		expect(payload).toHaveProperty(["error_detail","path"], "missing.json");
+		expect((parseWire(payload.error_detail, wireObject({ "message": wireString }), "test JSON value")).message).toContain("ENOENT");
 	});
 
 	it("stringifies a non-Error manifest read rejection (String(err) arm)", async () => {
@@ -783,7 +785,7 @@ describe("multiEditCommand input modes", () => {
 		});
 		const code = await runCommand(undefined, { manifest: "weird.json", json: true });
 		expect(code).toBe(1);
-		expect((loggedJson().error_detail as { message: string }).message).toContain(
+		expect((parseWire(loggedJson().error_detail, wireObject({ "message": wireString }), "test JSON value")).message).toContain(
 			"manifest read failed as string",
 		);
 	});
@@ -797,8 +799,8 @@ describe("multiEditCommand input modes", () => {
 		expect(code).toBe(1);
 		const payload = loggedJson();
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST);
-		expect((payload.error_detail as { message: string }).message).toContain("JSON parse error");
-		expect((payload.error_detail as { path: string }).path).toBe("/repo/a.ts");
+		expect((parseWire(payload.error_detail, wireObject({ "message": wireString }), "test JSON value")).message).toContain("JSON parse error");
+		expect(payload).toHaveProperty(["error_detail","path"], "/repo/a.ts");
 	});
 
 	it("falls back to <manifest> in the parse-error path when no positional path", async () => {
@@ -808,7 +810,7 @@ describe("multiEditCommand input modes", () => {
 		});
 		const code = await runCommand(undefined, { manifest: "bad.json", json: true });
 		expect(code).toBe(1);
-		expect((loggedJson().error_detail as { path: string }).path).toBe("<manifest>");
+		expect(loggedJson()).toHaveProperty(["error_detail","path"], "<manifest>");
 	});
 
 	it("surfaces INVALID_MANIFEST when normalize rejects the parsed manifest (path echoed)", async () => {
@@ -819,8 +821,8 @@ describe("multiEditCommand input modes", () => {
 		expect(code).toBe(1);
 		const payload = loggedJson();
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST);
-		expect((payload.error_detail as { message: string }).message).toMatch(/version/);
-		expect((payload.error_detail as { path: string }).path).toBe("/repo/a.ts");
+		expect((parseWire(payload.error_detail, wireObject({ "message": wireString }), "test JSON value")).message).toMatch(/version/);
+		expect(payload).toHaveProperty(["error_detail","path"], "/repo/a.ts");
 	});
 
 	it("normalize-reject path falls back to <manifest> when no positional path (`path || \"<manifest>\"`)", async () => {
@@ -837,7 +839,7 @@ describe("multiEditCommand input modes", () => {
 		expect(code).toBe(1);
 		const payload = loggedJson();
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST);
-		expect((payload.error_detail as { path: string }).path).toBe("<manifest>");
+		expect(payload).toHaveProperty(["error_detail","path"], "<manifest>");
 	});
 
 	it("sets exitCode 1 when the pipeline itself fails (OLD_STRING_NOT_FOUND)", async () => {
@@ -925,7 +927,7 @@ describe("emit output forks", () => {
 		const payload = loggedJson();
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.GATE_REJECTED);
 		expect(Array.isArray(payload.gate_failures)).toBe(true);
-		expect((payload.gate_failures as unknown[]).length).toBe(1);
+		expect(payload).toHaveProperty(["gate_failures","length"], 1);
 	});
 
 	it("human success with zero changes prints the no-op line", async () => {

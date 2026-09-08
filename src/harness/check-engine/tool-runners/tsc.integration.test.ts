@@ -1,3 +1,4 @@
+import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // Behavioral unit tests for the TypeScript tool runners (sync + async).
 //
 // tsc.ts is structurally richer than the other runners because it owns the
@@ -25,13 +26,13 @@ import type { CheckScope, ToolRunnerInput } from "../types.js";
 
 // --- Module-edge mocks (registered once; behavior swapped per test) ---------
 
-const spawnSyncMock = vi.fn();
+const spawnSyncMock = vi.fn<SpawnSyncStub>();
 const existsSyncMock = vi.fn();
 const requireResolveMock = vi.fn();
-const runProcessAsyncMock = vi.fn();
+const runProcessAsyncMock = vi.fn<typeof import("../spawn-async.js").runProcessAsync>();
 
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
 }));
 
 vi.mock("node:fs", async (importOriginal) => ({
@@ -49,7 +50,7 @@ vi.mock("node:module", () => ({
 }));
 
 vi.mock("../spawn-async.js", () => ({
-	runProcessAsync: (...args: unknown[]) => runProcessAsyncMock(...args),
+	runProcessAsync: (...args: Parameters<typeof runProcessAsyncMock>) => runProcessAsyncMock(...args),
 }));
 
 // --- Re-import helper: fresh module (cold tsgo cache) every scenario --------
@@ -101,6 +102,7 @@ function spawnResult(
 		stderr?: string | undefined;
 	},
 ): SpawnSyncReturns<string> {
+	// SAFETY: this fixture deliberately allows absent stdout/stderr to exercise the runner's fallback for incomplete process results.
 	return {
 		pid: 1,
 		output: [],
@@ -175,11 +177,11 @@ describe("compiler selection (resolveTsgo → tscCommand)", () => {
 
 		// Two spawnSync calls: [0] = tsgo --version probe, [1] = the real check.
 		expect(spawnSyncMock).toHaveBeenCalledTimes(2);
-		const probe = spawnSyncMock.mock.calls[0] as [string, string[]];
+		const probe = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(probe[0]).toBe("node");
 		expect(probe[1]).toEqual([TSGO_BIN, "--version"]);
 
-		const check = spawnSyncMock.mock.calls[1] as [string, string[]];
+		const check = nonNull(spawnSyncMock.mock.calls[1]);
 		expect(check[0]).toBe("node");
 		expect(check[1]).toEqual([TSGO_BIN, "--noEmit", "--pretty", "false"]);
 	});
@@ -198,10 +200,10 @@ describe("compiler selection (resolveTsgo → tscCommand)", () => {
 		const { runTsc } = await loadTsc();
 		runTsc(input(projectScope()));
 
-		const probe = spawnSyncMock.mock.calls[0] as [string, string[]];
+		const probe = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(probe[0]).toBe("npx");
 		expect(probe[1]).toEqual(["tsgo", "--version"]);
-		const check = spawnSyncMock.mock.calls[1] as [string, string[]];
+		const check = nonNull(spawnSyncMock.mock.calls[1]);
 		expect(check[0]).toBe("npx");
 		expect(check[1]).toEqual(["tsgo", "--noEmit", "--pretty", "false"]);
 	});
@@ -217,10 +219,10 @@ describe("compiler selection (resolveTsgo → tscCommand)", () => {
 		runTsc(input(projectScope()));
 
 		// [0] = npx tsgo --version (failed probe), [1] = npx tsc check.
-		const probe = spawnSyncMock.mock.calls[0] as [string, string[]];
+		const probe = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(probe[0]).toBe("npx");
 		expect(probe[1]).toEqual(["tsgo", "--version"]);
-		const check = spawnSyncMock.mock.calls[1] as [string, string[]];
+		const check = nonNull(spawnSyncMock.mock.calls[1]);
 		expect(check[0]).toBe("npx");
 		expect(check[1]).toEqual(["tsc", "--noEmit", "--pretty", "false"]);
 	});
@@ -243,7 +245,7 @@ describe("compiler selection (resolveTsgo → tscCommand)", () => {
 		const { runTsc } = await loadTsc();
 		runTsc(input(projectScope()));
 
-		const check = spawnSyncMock.mock.calls.at(-1) as [string, string[]];
+		const check = nonNull(spawnSyncMock.mock.calls.at(-1));
 		expect(check[0]).toBe("npx");
 		expect(check[1]).toEqual(["tsc", "--noEmit", "--pretty", "false"]);
 	});
@@ -264,7 +266,7 @@ describe("compiler selection (resolveTsgo → tscCommand)", () => {
 		const { runTsc } = await loadTsc();
 		runTsc(input(projectScope()));
 
-		const check = spawnSyncMock.mock.calls.at(-1) as [string, string[]];
+		const check = nonNull(spawnSyncMock.mock.calls.at(-1));
 		expect(check[0]).toBe("npx");
 		expect(check[1]).toEqual(["tsc", "--noEmit", "--pretty", "false"]);
 	});
@@ -282,7 +284,7 @@ describe("compiler selection (resolveTsgo → tscCommand)", () => {
 		const { runTsc } = await loadTsc();
 		runTsc(input(projectScope()));
 
-		const check = spawnSyncMock.mock.calls.at(-1) as [string, string[]];
+		const check = nonNull(spawnSyncMock.mock.calls.at(-1));
 		expect(check[0]).toBe("npx");
 		expect(check[1]).toEqual(["tsc", "--noEmit", "--pretty", "false"]);
 	});
@@ -297,7 +299,7 @@ describe("compiler selection (resolveTsgo → tscCommand)", () => {
 		runTsc(input(projectScope()));
 		// Second run: cache hit → NO new --version probe, only the check call.
 		const versionProbes = spawnSyncMock.mock.calls.filter((c) =>
-			(c[1] as string[])?.includes("--version"),
+			(c[1])?.includes("--version"),
 		);
 		expect(versionProbes).toHaveLength(1);
 		expect(spawnSyncMock.mock.calls.length).toBe(3);
@@ -325,11 +327,7 @@ describe("findTsconfig (walk-up)", () => {
 		runTsc(input(projectScope({ projectRoot: deepRoot })));
 
 		// The real check ran with cwd = the directory that had tsconfig.json.
-		const check = spawnSyncMock.mock.calls.at(-1) as [
-			string,
-			string[],
-			{ cwd: string },
-		];
+		const check = nonNull(spawnSyncMock.mock.calls.at(-1));
 		expect(check[2].cwd).toBe(tsconfigDir);
 	});
 
@@ -344,7 +342,7 @@ describe("findTsconfig (walk-up)", () => {
 		expect(out).toEqual([]);
 		// Only the tsgo --version probe should have run — never the tsc check.
 		const checkCalls = spawnSyncMock.mock.calls.filter(
-			(c) => !(c[1] as string[])?.includes("--version"),
+			(c) => !(c[1])?.includes("--version"),
 		);
 		expect(checkCalls).toHaveLength(0);
 	});
@@ -369,7 +367,7 @@ describe("findTsconfig (walk-up)", () => {
 		);
 		expect(tsconfigProbes).toHaveLength(5);
 		const checkCalls = spawnSyncMock.mock.calls.filter(
-			(c) => !(c[1] as string[])?.includes("--version"),
+			(c) => !(c[1])?.includes("--version"),
 		);
 		expect(checkCalls).toHaveLength(0);
 	});
@@ -532,7 +530,7 @@ describe("runTsc (sync) — file mode", () => {
 		expect(nonNull(out[0]).file).toBe(scriptFile);
 		// Three spawnSync calls: version probe, project run, standalone run.
 		const checkCalls = spawnSyncMock.mock.calls.filter(
-			(c) => !(c[1] as string[])?.includes("--version"),
+			(c) => !(c[1])?.includes("--version"),
 		);
 		expect(checkCalls).toHaveLength(2);
 	});
@@ -552,7 +550,7 @@ describe("runTsc (sync) — file mode", () => {
 		const out = runTsc(input(fileScope()));
 		expect(out).toEqual([]);
 		const checkCalls = spawnSyncMock.mock.calls.filter(
-			(c) => !(c[1] as string[])?.includes("--version"),
+			(c) => !(c[1])?.includes("--version"),
 		);
 		expect(checkCalls).toHaveLength(1); // project run only, no standalone
 	});
@@ -579,7 +577,7 @@ describe("runTsc (sync) — standalone (no tsconfig)", () => {
 		expect(out).toHaveLength(1);
 		expect(nonNull(out[0]).ruleId).toBe("TS2345");
 
-		const check = spawnSyncMock.mock.calls.at(-1) as [string, string[], { cwd: string }];
+		const check = nonNull(spawnSyncMock.mock.calls.at(-1));
 		expect(check[0]).toBe("npx");
 		expect(check[1]).toEqual([
 			"tsc",
@@ -613,7 +611,7 @@ describe("runTsc (sync) — standalone (no tsconfig)", () => {
 		const out = runTsc(input(fileScope({ targetFile: standalone })));
 		expect(out).toHaveLength(1);
 
-		const check = spawnSyncMock.mock.calls.at(-1) as [string, string[]];
+		const check = nonNull(spawnSyncMock.mock.calls.at(-1));
 		expect(check[0]).toBe("node");
 		expect(check[1]).toEqual([
 			TSGO_BIN,
@@ -643,7 +641,7 @@ describe("runTsc (sync) — standalone (no tsconfig)", () => {
 		const out = runTsc(input(fileScope({ targetFile: `${PROJECT_ROOT}/README.md` })));
 		expect(out).toEqual([]);
 		const checkCalls = spawnSyncMock.mock.calls.filter(
-			(c) => !(c[1] as string[])?.includes("--version"),
+			(c) => !(c[1])?.includes("--version"),
 		);
 		expect(checkCalls).toHaveLength(0); // never invoked the compiler
 	});
@@ -661,7 +659,7 @@ describe("runTsc (sync) — standalone (no tsconfig)", () => {
 		const { runTsc } = await loadTsc();
 		const out = runTsc(input(fileScope({ targetFile: tsx })));
 		expect(out).toHaveLength(1);
-		expect((spawnSyncMock.mock.calls.at(-1) as [string, string[]])[1].at(-1)).toBe(tsx);
+		expect((nonNull(spawnSyncMock.mock.calls.at(-1)))[1].at(-1)).toBe(tsx);
 	});
 
 	it("returns [] when no tsconfig and mode is not 'file' (project mode, nothing to do)", async () => {
@@ -723,7 +721,7 @@ describe("isFileInTscScope (heuristic branches)", () => {
 	// standalone re-run happens (2 check calls); if IN scope, none (1 call).
 	function countCheckCalls(): number {
 		return spawnSyncMock.mock.calls.filter(
-			(c) => !(c[1] as string[])?.includes("--version"),
+			(c) => !(c[1])?.includes("--version"),
 		).length;
 	}
 
@@ -847,11 +845,7 @@ describe("runTscAsync — project mode", () => {
 			},
 		]);
 		// Invoked with the resolved compiler (npx tsc) + project flags.
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			{ cwd: string; timeout: number },
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(args).toEqual(["tsc", "--noEmit", "--pretty", "false"]);
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 5_000 });
@@ -959,11 +953,7 @@ describe("runTscAsync — file mode + standalone", () => {
 		const { runTscAsync } = await loadTsc();
 		const out = await runTscAsync(input(fileScope({ targetFile: standalone })));
 		expect(out).toHaveLength(1);
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			{ cwd: string; timeout: number },
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(args).toEqual([
 			"tsc",
@@ -995,7 +985,7 @@ describe("runTscAsync — file mode + standalone", () => {
 		const { runTscAsync } = await loadTsc();
 		await runTscAsync(input(fileScope({ targetFile: standalone })));
 		expect(spawnSyncMock).not.toHaveBeenCalled();
-		const [cmd, args] = runProcessAsyncMock.mock.calls[0] as [string, string[]];
+		const [cmd, args] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("node");
 		expect(args).toEqual([
 			TSGO_BIN,

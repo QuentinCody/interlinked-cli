@@ -1,3 +1,5 @@
+import { nonNull } from "../../../lib/non-null.js";
+import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // Behavioral unit tests for the "generic" tool runners — ESLint, Oxlint,
 // Knip, Semgrep, Gitleaks (sync + async) and the dependency-audit dispatcher
 // (osv-scanner → npm audit fallback).
@@ -22,13 +24,13 @@ import type { CheckScope, ToolRunnerInput } from "../types.js";
 
 // --- Module-edge mocks (registered once; behavior swapped per test) ----------
 
-const spawnSyncMock = vi.fn();
+const spawnSyncMock = vi.fn<SpawnSyncStub>();
 const existsSyncMock = vi.fn();
-const runProcessAsyncMock = vi.fn();
+const runProcessAsyncMock = vi.fn<typeof import("../spawn-async.js").runProcessAsync>();
 const hasOsvScannerMock = vi.fn();
 
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
 }));
 
 vi.mock("node:fs", () => ({
@@ -36,7 +38,7 @@ vi.mock("node:fs", () => ({
 }));
 
 vi.mock("../spawn-async.js", () => ({
-	runProcessAsync: (...args: unknown[]) => runProcessAsyncMock(...args),
+	runProcessAsync: (...args: Parameters<typeof runProcessAsyncMock>) => runProcessAsyncMock(...args),
 }));
 
 vi.mock("../../quality-checks/dependency-audit.js", () => ({
@@ -193,6 +195,7 @@ function spawnResult(
 		stderr?: string | undefined;
 	},
 ): SpawnSyncReturns<string> {
+	// SAFETY: this fixture deliberately allows absent stdout/stderr to exercise the runner's fallback for incomplete process results.
 	return {
 		pid: 123,
 		output: [],
@@ -251,11 +254,7 @@ describe("runEslint (sync)", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runEslint(input(fileScope(), 9_999));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(args).toEqual([
 			"eslint",
@@ -276,7 +275,7 @@ describe("runEslint (sync)", () => {
 		existsSyncMock.mockImplementation(existsForPaths([ESLINT_CONFIG]));
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runEslint(input(projectScope()));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args[args.length - 1]).toBe(".");
 	});
 
@@ -284,9 +283,9 @@ describe("runEslint (sync)", () => {
 		existsSyncMock.mockImplementation(existsForPaths([ESLINT_CONFIG]));
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		runEslint(input(scope));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args[args.length - 1]).toBe(".");
 	});
 
@@ -367,11 +366,7 @@ describe("runOxlint (sync)", () => {
 	it("invokes oxlint --format=json with targetFile in file mode, cwd/timeout/pipes", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runOxlint(input(fileScope(), 7_777));
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(args).toEqual(["oxlint", "--format=json", TARGET]);
 		expect(opts).toMatchObject({
@@ -385,16 +380,16 @@ describe("runOxlint (sync)", () => {
 	it("targets '.' in project mode", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runOxlint(input(projectScope()));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["oxlint", "--format=json", "."]);
 	});
 
 	it("targets '.' when file mode but targetFile is missing", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		runOxlint(input(scope));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["oxlint", "--format=json", "."]);
 	});
 
@@ -466,11 +461,7 @@ describe("runKnip (sync)", () => {
 	it("invokes knip with no-progress + json reporter, cwd/timeout/pipes", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runKnip(input(fileScope(), 6_543));
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(args).toEqual(["knip", "--no-progress", "--reporter", "json"]);
 		expect(opts).toMatchObject({
@@ -555,11 +546,7 @@ describe("runSemgrep (sync)", () => {
 	it("invokes semgrep scan with the default ruleset + targetFile in file mode", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runSemgrep(input(fileScope(), 8_001));
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("semgrep");
 		expect(args).toEqual([
 			"scan",
@@ -583,16 +570,16 @@ describe("runSemgrep (sync)", () => {
 	it("targets '.' in project mode", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runSemgrep(input(projectScope()));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args[args.length - 1]).toBe(".");
 	});
 
 	it("targets '.' when file mode but targetFile is missing", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		runSemgrep(input(scope));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args[args.length - 1]).toBe(".");
 	});
 
@@ -650,11 +637,7 @@ describe("runGitleaks (sync)", () => {
 	it("invokes gitleaks detect with the report-to-stdout args in project mode", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runGitleaks(input(projectScope(), 12_000));
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("gitleaks");
 		expect(args).toEqual([
 			"detect",
@@ -751,11 +734,7 @@ describe("runDepAudit (sync)", () => {
 			detail: "1 critical — GHSA-xxxx",
 		});
 		// osv-scanner spawned with the recursive scan args, in projectRoot.
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("osv-scanner");
 		expect(args).toEqual(["scan", "source", "--format=json", "--recursive", "."]);
 		expect(opts).toMatchObject({ cwd: PROJECT_ROOT, timeout: 20_000 });
@@ -804,11 +783,7 @@ describe("runDepAudit (sync)", () => {
 		const out = runDepAudit(input(projectScope(), 15_000));
 		expect(out?.tool).toBe("npm audit");
 		expect(out?.total).toBe(3);
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("npm");
 		expect(args).toEqual(["audit", "--json", "--audit-level=moderate"]);
 		expect(opts).toMatchObject({ cwd: PROJECT_ROOT, timeout: 15_000 });
@@ -923,11 +898,7 @@ describe("runEslintAsync", () => {
 		existsSyncMock.mockImplementation(existsForPaths([ESLINT_CONFIG]));
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runEslintAsync(input(fileScope(), 4_321));
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(args).toEqual(["eslint", "--no-error-on-unmatched-pattern", "--format", "json", TARGET]);
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 4_321 });
@@ -937,7 +908,7 @@ describe("runEslintAsync", () => {
 		existsSyncMock.mockImplementation(existsForPaths([ESLINT_CONFIG]));
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runEslintAsync(input(projectScope()));
-		const args = runProcessAsyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args[args.length - 1]).toBe(".");
 	});
 
@@ -964,11 +935,7 @@ describe("runOxlintAsync", () => {
 	it("invokes runProcessAsync with --format=json + targetFile, cwd/timeout", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runOxlintAsync(input(fileScope(), 2_222));
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(args).toEqual(["oxlint", "--format=json", TARGET]);
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 2_222 });
@@ -977,9 +944,9 @@ describe("runOxlintAsync", () => {
 	it("targets '.' when file mode but targetFile is missing", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		await runOxlintAsync(input(scope));
-		const args = runProcessAsyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["oxlint", "--format=json", "."]);
 	});
 
@@ -1014,11 +981,7 @@ describe("runKnipAsync", () => {
 	it("invokes runProcessAsync with no-progress + json reporter, cwd/timeout", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runKnipAsync(input(fileScope(), 3_456));
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(args).toEqual(["knip", "--no-progress", "--reporter", "json"]);
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 3_456 });
@@ -1074,11 +1037,7 @@ describe("runSemgrepAsync", () => {
 	it("invokes runProcessAsync with the default ruleset + targetFile, cwd/timeout", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runSemgrepAsync(input(fileScope(), 9_090));
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("semgrep");
 		expect(args).toEqual([
 			"scan",
@@ -1097,7 +1056,7 @@ describe("runSemgrepAsync", () => {
 	it("targets '.' in project mode", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runSemgrepAsync(input(projectScope()));
-		const args = runProcessAsyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args[args.length - 1]).toBe(".");
 	});
 
@@ -1147,11 +1106,7 @@ describe("runGitleaksAsync", () => {
 	it("invokes runProcessAsync with detect args in project mode", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runGitleaksAsync(input(projectScope(), 11_111));
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("gitleaks");
 		expect(args).toEqual([
 			"detect",

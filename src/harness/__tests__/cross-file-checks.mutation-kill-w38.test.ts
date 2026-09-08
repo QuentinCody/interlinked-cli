@@ -30,11 +30,7 @@ const { checkCrossFileSwitchDiscriminant, checkSingleImplementationInterface } =
 function makeGraph(
 	files: string[],
 	exportsByFile: Record<string, ExportedSymbol[]> = {},
-): {
-	allFiles: () => string[];
-	toRelative: (p: string) => string;
-	getExports: (p: string) => ExportedSymbol[];
-} {
+): Pick<ProjectGraph, "allFiles" | "toRelative" | "getExports"> {
 	return {
 		allFiles: () => files,
 		toRelative: (p: string) => p.split("/").slice(-2).join("/"),
@@ -61,7 +57,7 @@ describe("checkCrossFileSwitchDiscriminant — exact message format", () => {
 		writeFileSync(b, "function g(x) { switch (x.kind) { case 'B': return 2; } }");
 		writeFileSync(c, "function h(x) { switch (x.kind) { case 'C': return 3; } }");
 		const graph = makeGraph([a, b, c]);
-		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph as unknown as ProjectGraph);
+		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph);
 		const relB = graph.toRelative(b);
 		const relC = graph.toRelative(c);
 		expect(results).toEqual([
@@ -87,7 +83,7 @@ describe("checkCrossFileSwitchDiscriminant — exact message format", () => {
 		writeFileSync(c, "function h(x) { switch (x.kind) { case 'C': return 3; } }");
 		writeFileSync(d, "function i(x) { switch (x.kind) { case 'D': return 4; } }");
 		const graph = makeGraph([a, b, c, d]);
-		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph as unknown as ProjectGraph);
+		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph);
 		const relB = graph.toRelative(b);
 		const relC = graph.toRelative(c);
 		const relD = graph.toRelative(d);
@@ -116,7 +112,7 @@ describe("checkCrossFileSwitchDiscriminant — exact message format", () => {
 		writeFileSync(d, "function i(x) { switch (x.kind) { case 'D': return 4; } }");
 		writeFileSync(e, "function j(x) { switch (x.kind) { case 'E': return 5; } }");
 		const graph = makeGraph([a, b, c, d, e]);
-		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph as unknown as ProjectGraph);
+		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph);
 		const relB = graph.toRelative(b);
 		const relC = graph.toRelative(c);
 		const relD = graph.toRelative(d);
@@ -150,7 +146,7 @@ describe("checkCrossFileSwitchDiscriminant — regex robustness", () => {
 		writeFileSync(b, "function g(x) { switch (x.kindOfThing) { case 'B': return 2; } }");
 		const graph = makeGraph([a, b]);
 		expect(
-			checkCrossFileSwitchDiscriminant(a, "a.ts", graph as unknown as ProjectGraph),
+			checkCrossFileSwitchDiscriminant(a, "a.ts", graph),
 		).toEqual([]);
 	});
 
@@ -162,7 +158,7 @@ describe("checkCrossFileSwitchDiscriminant — regex robustness", () => {
 		writeFileSync(a, "function f(x) { switch ( x.kind ) { case 'A': return 1; } }");
 		writeFileSync(b, "function g(x) { switch (x.kind) { case 'B': return 2; } }");
 		const graph = makeGraph([a, b]);
-		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph as unknown as ProjectGraph);
+		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).check).toBe("cross_file_switch_discriminant");
 	});
@@ -175,7 +171,7 @@ describe("checkCrossFileSwitchDiscriminant — regex robustness", () => {
 		writeFileSync(a, "function f(y) { switch (myObj.kind) { case 'A': return 1; } }");
 		writeFileSync(b, "function g(y) { switch (myObj.kind) { case 'B': return 2; } }");
 		const graph = makeGraph([a, b]);
-		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph as unknown as ProjectGraph);
+		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).affectedFiles).toEqual([b]);
 	});
@@ -188,7 +184,7 @@ describe("checkCrossFileSwitchDiscriminant — regex robustness", () => {
 		writeFileSync(a, "function f(y) { switch (obj.state.kind) { case 'A': return 1; } }");
 		writeFileSync(b, "function g(y) { switch (obj.state.kind) { case 'B': return 2; } }");
 		const graph = makeGraph([a, b]);
-		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph as unknown as ProjectGraph);
+		const results = checkCrossFileSwitchDiscriminant(a, "a.ts", graph);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).affectedFiles).toEqual([b]);
 	});
@@ -221,7 +217,7 @@ describe("checkSingleImplementationInterface — regex + logic robustness", () =
 		const results = checkSingleImplementationInterface(
 			iface,
 			"widget.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).affectedFiles).toEqual([impl]);
@@ -240,7 +236,7 @@ describe("checkSingleImplementationInterface — regex + logic robustness", () =
 		const results = checkSingleImplementationInterface(
 			iface,
 			"shape.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		const relImpl = graph.toRelative(impl);
 		expect(results).toEqual([
@@ -267,7 +263,7 @@ describe("checkSingleImplementationInterface — regex + logic robustness", () =
 		const results = checkSingleImplementationInterface(
 			iface,
 			"widget.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).affectedFiles).toEqual([impl]);
@@ -286,7 +282,7 @@ describe("checkSingleImplementationInterface — regex + logic robustness", () =
 		const results = checkSingleImplementationInterface(
 			iface,
 			"widget.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).affectedFiles).toEqual([impl]);
@@ -304,7 +300,7 @@ describe("checkSingleImplementationInterface — regex + logic robustness", () =
 			[mod]: [{ name: "Helper", kind: "function", isTypeOnly: false, line: 1 }],
 		});
 		expect(
-			checkSingleImplementationInterface(mod, "mod.ts", graph as unknown as ProjectGraph),
+			checkSingleImplementationInterface(mod, "mod.ts", graph),
 		).toEqual([]);
 	});
 
@@ -325,7 +321,7 @@ describe("checkSingleImplementationInterface — regex + logic robustness", () =
 		const results = checkSingleImplementationInterface(
 			iface,
 			"shape.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).affectedFiles).toEqual([impl]);
@@ -351,7 +347,7 @@ describe("checkSingleImplementationInterface — regex + logic robustness", () =
 		const results = checkSingleImplementationInterface(
 			iface,
 			"shape.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		// Two real implementors -> not exactly 1 -> no finding is emitted.
 		expect(results).toEqual([]);

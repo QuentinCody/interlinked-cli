@@ -1,5 +1,4 @@
-import { EventEmitter } from "node:events";
-import type { ChildProcess } from "node:child_process";
+import { makeFakeChild, makeFakeChildWithoutStreams } from "./test-child-process.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runProcessAsync } from "./spawn-async.js";
 
@@ -18,19 +17,6 @@ import { spawn } from "node:child_process";
 /** Source's SIGKILL_GRACE_MS is not exported; mirrored here (see spawn-async.ts). */
 const SIGKILL_GRACE_MS = 1000;
 
-function makeFakeChild(pid: number | undefined) {
-	const child = new EventEmitter() as EventEmitter & {
-		pid: number | undefined;
-		stdout: EventEmitter & { destroy: ReturnType<typeof vi.fn> };
-		stderr: EventEmitter & { destroy: ReturnType<typeof vi.fn> };
-		kill: ReturnType<typeof vi.fn>;
-	};
-	child.pid = pid;
-	child.stdout = Object.assign(new EventEmitter(), { destroy: vi.fn() });
-	child.stderr = Object.assign(new EventEmitter(), { destroy: vi.fn() });
-	child.kill = vi.fn(() => true);
-	return child;
-}
 
 describe("runProcessAsync — mutation-kill w34", () => {
 	afterEach(() => {
@@ -43,7 +29,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// '""' -> "Stryker was here!" on the stdout/stderr accumulator seeds).
 	it("starts stdout and stderr as exactly empty strings when no data ever arrives", async () => {
 		const fakeChild = makeFakeChild(1);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 30_000 });
 		fakeChild.emit("exit", 0);
 		fakeChild.emit("close", 0);
@@ -57,7 +43,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// daemon's own process group instead of the child's.
 	it("spawns the child detached so its whole process group can be signaled", async () => {
 		const fakeChild = makeFakeChild(1);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", ["a"], { timeout: 30_000 });
 		fakeChild.emit("exit", 0);
 		fakeChild.emit("close", 0);
@@ -73,7 +59,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// 'opts.signal.aborted' -> 'true'); a not-yet-aborted signal must not kill immediately.
 	it("does not kill the child immediately when the signal is provided but not aborted", async () => {
 		const fakeChild = makeFakeChild(undefined);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const controller = new AbortController();
 		const promise = runProcessAsync("fake-cmd", [], { signal: controller.signal, timeout: 30_000 });
 		expect(fakeChild.kill).not.toHaveBeenCalled();
@@ -87,7 +73,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// '{}') and 60cc923d88703764 (BooleanLiteral true->false on the same `once` flag).
 	it("registers the abort listener with {once:true} so it self-removes", async () => {
 		const fakeChild = makeFakeChild(undefined);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const controller = new AbortController();
 		const addSpy = vi.spyOn(controller.signal, "addEventListener");
 		const promise = runProcessAsync("fake-cmd", [], { signal: controller.signal, timeout: 30_000 });
@@ -101,15 +87,8 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// removed from `child.stdout?.on` / `child.stderr?.on`); without `?.`, a child spawned
 	// without stdio pipes would throw synchronously instead of resolving quietly.
 	it("does not throw when the spawned child has no stdout/stderr streams", async () => {
-		const fakeChild = makeFakeChild(1) as unknown as EventEmitter & {
-			pid: number;
-			stdout: undefined;
-			stderr: undefined;
-			kill: ReturnType<typeof vi.fn>;
-		};
-		fakeChild.stdout = undefined;
-		fakeChild.stderr = undefined;
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		const fakeChild = makeFakeChildWithoutStreams(1);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		expect(() => runProcessAsync("fake-cmd", [], { timeout: 30_000 })).not.toThrow();
 		fakeChild.emit("exit", 0);
 		fakeChild.emit("close", 0);
@@ -121,7 +100,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// finalize's cleanup (observable via a second removeEventListener call).
 	it("finalize is idempotent — a second close event does not re-run cleanup", async () => {
 		const fakeChild = makeFakeChild(55);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const controller = new AbortController();
 		const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
 		const promise = runProcessAsync("fake-cmd", [], { signal: controller.signal, timeout: 30_000 });
@@ -137,7 +116,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// finalize must not touch clearTimeout a second time.
 	it("finalize does not touch clearTimeout for a grace timer that was never armed", async () => {
 		const fakeChild = makeFakeChild(77);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const clearSpy = vi.spyOn(global, "clearTimeout");
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 30_000 });
 		fakeChild.emit("close", 0);
@@ -153,7 +132,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	it("finalize clears an armed SIGKILL grace timer so nothing fires after settle", async () => {
 		vi.useFakeTimers();
 		const fakeChild = makeFakeChild(undefined);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 10 });
 		await vi.advanceTimersByTimeAsync(10); // deadline fires -> killTree() arms the grace timer
 		expect(fakeChild.kill).toHaveBeenCalledWith("SIGTERM");
@@ -170,7 +149,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// listener cleanup.
 	it("finalize removes the abort listener by its exact event name", async () => {
 		const fakeChild = makeFakeChild(88);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const controller = new AbortController();
 		const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
 		const promise = runProcessAsync("fake-cmd", [], { signal: controller.signal, timeout: 30_000 });
@@ -185,7 +164,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// the bug).
 	it("never calls process.kill when the child has no pid — goes straight to child.kill", async () => {
 		const fakeChild = makeFakeChild(undefined);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
 		const controller = new AbortController();
 		controller.abort();
@@ -203,7 +182,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// must attempt process.kill(-pid, signal) before ever falling back to child.kill().
 	it("attempts process-group signaling with the negated pid before falling back", async () => {
 		const fakeChild = makeFakeChild(4242);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
 			throw new Error("ESRCH");
 		});
@@ -223,7 +202,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	it("killTree's grace-period callback still checks settled before signaling SIGKILL", async () => {
 		vi.useFakeTimers();
 		const fakeChild = makeFakeChild(undefined);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		// Neutralize clearTimeout so the race-guard inside the callback itself — not the
 		// outer clearTimeout call — is what's under test.
 		vi.spyOn(global, "clearTimeout").mockImplementation(() => undefined);
@@ -242,7 +221,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// reject, not admit, the next chunk.
 	it("drops stdout data at the exact byte-cap boundary (off-by-one)", async () => {
 		const fakeChild = makeFakeChild(1);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 30_000 });
 		const capBuf = Buffer.alloc(10 * 1024 * 1024, "a");
 		fakeChild.stdout.emit("data", capBuf);
@@ -257,7 +236,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// 'stderrBytes >= MAX_BUFFER_BYTES' -> '>'); mirrors the stdout boundary case for stderr.
 	it("drops stderr data at the exact byte-cap boundary (off-by-one)", async () => {
 		const fakeChild = makeFakeChild(1);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 30_000 });
 		const capBuf = Buffer.alloc(10 * 1024 * 1024, "a");
 		fakeChild.stderr.emit("data", capBuf);
@@ -273,7 +252,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	it("keeps the kill grace armed after wrapper exit until the process group is gone", async () => {
 		vi.useFakeTimers();
 		const fakeChild = makeFakeChild(4242);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		let groupAlive = true;
 		vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
 			if (pid === -4242 && signal === 0) {
@@ -304,7 +283,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	it("escalates the surviving process group after its wrapper exits", async () => {
 		vi.useFakeTimers();
 		const fakeChild = makeFakeChild(4343);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		let groupAlive = true;
 		const killSpy = vi.spyOn(process, "kill").mockImplementation((pid, signal) => {
 			if (pid === -4343 && signal === "SIGKILL") groupAlive = false;
@@ -327,7 +306,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	it("settles a killed no-group child through the close guard when close never arrives", async () => {
 		vi.useFakeTimers();
 		const fakeChild = makeFakeChild(undefined);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 10 });
 		await vi.advanceTimersByTimeAsync(10);
 		let settled = false;
@@ -347,7 +326,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// handler's own abort-listener cleanup (a separate code path from finalize's).
 	it("exit handler removes the abort listener by its exact event name", async () => {
 		const fakeChild = makeFakeChild(undefined);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const controller = new AbortController();
 		const removeSpy = vi.spyOn(controller.signal, "removeEventListener");
 		const promise = runProcessAsync("fake-cmd", [], { signal: controller.signal, timeout: 30_000 });
@@ -362,21 +341,17 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// environment) would throw synchronously inside the 'exit' handler.
 	it("does not throw when the closeGuard timer handle lacks an unref method", async () => {
 		const fakeChild = makeFakeChild(1);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
-		// SAFETY: deliberately loosely typed — this stub intercepts the global timer
-		// factory to strip `unref` off only the 250ms closeGuard handle; the real
-		// `setTimeout` overload set doesn't model that shape, so `any` is the
-		// pragmatic escape rather than fighting the overloads for a test double.
-		// Keep this timer-handle stub loose for the overload-shaped test double above.
-		const realSetTimeout: any = global.setTimeout;
-		vi.spyOn(global, "setTimeout").mockImplementation(((...callArgs: unknown[]) => {
-			const handle = realSetTimeout(...callArgs);
-			if (callArgs[1] === 250) {
-				handle.unref = undefined;
-			}
-			return handle;
-			// This assertion matches the deliberately loose timer stub above.
-		}) as any);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
+		const timerFactory = new Proxy(global.setTimeout, {
+			apply(target, thisArg, callArgs) {
+				const handle: unknown = Reflect.apply(target, thisArg, callArgs);
+				if (callArgs[1] === 250 && typeof handle === "object" && handle !== null) {
+					Reflect.set(handle, "unref", undefined);
+				}
+				return handle;
+			},
+		});
+		vi.spyOn(global, "setTimeout").mockImplementation(timerFactory);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 30_000 });
 		expect(() => fakeChild.emit("exit", 0)).not.toThrow();
 		fakeChild.emit("close", 0);
@@ -388,15 +363,8 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// the closeGuard firing later must be a pure no-op.
 	it("closeGuard is a no-op once close has already resolved the promise", async () => {
 		vi.useFakeTimers();
-		const fakeChild = makeFakeChild(42) as unknown as EventEmitter & {
-			pid: number;
-			stdout: EventEmitter & { destroy: ReturnType<typeof vi.fn> };
-			stderr: EventEmitter & { destroy: ReturnType<typeof vi.fn> };
-			kill: ReturnType<typeof vi.fn>;
-		};
-		fakeChild.stdout.destroy = vi.fn();
-		fakeChild.stderr.destroy = vi.fn();
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		const fakeChild = makeFakeChild(42);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 30_000 });
 		fakeChild.emit("exit", 0);
 		fakeChild.emit("close", 0);
@@ -412,15 +380,8 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// stdio streams are absent, the guard must not throw trying to destroy them.
 	it("closeGuard survives missing stdout/stderr streams without throwing", async () => {
 		vi.useFakeTimers();
-		const fakeChild = makeFakeChild(11) as unknown as EventEmitter & {
-			pid: number;
-			stdout: undefined;
-			stderr: undefined;
-			kill: ReturnType<typeof vi.fn>;
-		};
-		fakeChild.stdout = undefined;
-		fakeChild.stderr = undefined;
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		const fakeChild = makeFakeChildWithoutStreams(11);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 30_000 });
 		fakeChild.emit("exit", 3); // 'close' never fires — closeGuard must resolve it
 		await vi.advanceTimersByTimeAsync(250);
@@ -433,7 +394,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	// collapse MAX_BUFFER_BYTES to 10, which this exact-boundary buffer would expose.
 	it("keeps buffering stdout well past a few bytes (guards MAX_BUFFER_BYTES's value)", async () => {
 		const fakeChild = makeFakeChild(1);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 30_000 });
 		fakeChild.stdout.emit("data", Buffer.from("0123456789")); // 10 bytes
 		fakeChild.stdout.emit("data", Buffer.from("abcde")); // 5 more bytes

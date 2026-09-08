@@ -1,3 +1,5 @@
+import type { CheckEngine } from "../check-engine/index.js";
+import { loopAudit, loopEngine, loopFreshness, loopProfile, loopRegression, loopReport, loopVersion, type LoopReportFixture } from "./test-tool-loop-fixtures.js";
 // ===========================================
 // tool-check-loop.ts — behavioral coverage
 // ===========================================
@@ -15,10 +17,10 @@ import { runToolCheckLoop, type ToolCheckLoopContext, yieldEventLoop } from "./t
 
 // --- module-boundary mocks ------------------------------------------------
 
-vi.mock("../check-engine/index.js", () => ({
-	configNameToToolId: vi.fn(),
-	getOrCreateEngine: vi.fn(),
-}));
+vi.mock("../check-engine/index.js", async () => {
+	const actual = await vi.importActual<typeof import("../check-engine/index.js")>("../check-engine/index.js");
+	return { ...actual, configNameToToolId: vi.fn(), getOrCreateEngine: vi.fn() };
+});
 
 vi.mock("../project-heavy-process-lock.js", () => ({
 	tryAcquireProjectHeavyProcessLease: vi.fn(),
@@ -97,11 +99,9 @@ vi.mock("./test-dispatchers.js", () => ({
 // --- typed handles to the mocks -------------------------------------------
 
 import {
-	type CheckResult,
 	configNameToToolId,
 	getOrCreateEngine,
 } from "../check-engine/index.js";
-import type { SkipEntry } from "../check-engine/types.js";
 import { parseNpmAuditJson, parseOsvScannerJson } from "../check-engine/output-parsers.js";
 import { runProcessAsync } from "../check-engine/spawn-async.js";
 import { isGeneratedFile, isTestFile } from "../checks/shared.js";
@@ -185,24 +185,9 @@ function makeCtx(over: Partial<ToolCheckLoopContext> = {}): ToolCheckLoopContext
 }
 
 /** Build a minimal engine whose runChecksAsync resolves to the given report. */
-function engineReturning(report: {
-	results: Array<Pick<CheckResult, "file" | "line" | "message" | "ruleId">>;
-	metrics?: { tool: string; elapsedMs: number; findingCount: number }[];
-	skipped?: Array<{
-		check: string;
-		reason: string;
-		category: SkipEntry["category"];
-	}>;
-}) {
-	const runChecksAsync = vi.fn().mockResolvedValue({
-		results: report.results,
-		metrics: report.metrics ?? [],
-		skipped: report.skipped ?? [],
-	});
-	// Cast through unknown — the loop only ever calls runChecksAsync.
-	mockGetOrCreateEngine.mockReturnValue({ runChecksAsync } as unknown as ReturnType<
-		typeof getOrCreateEngine
-	>);
+function engineReturning(report: LoopReportFixture) {
+	const runChecksAsync = vi.fn<CheckEngine["runChecksAsync"]>().mockResolvedValue(loopReport(report));
+	mockGetOrCreateEngine.mockReturnValue(loopEngine(runChecksAsync));
 	return runChecksAsync;
 }
 
@@ -242,7 +227,7 @@ beforeEach(() => {
 	mockIsLikelyTestFile.mockReset().mockReturnValue(false);
 	// TEST_DISPATCHERS is a plain object; clear any per-test keys.
 	for (const k of Object.keys(TEST_DISPATCHERS)) {
-		delete (TEST_DISPATCHERS as Record<string, unknown>)[k];
+		Reflect.deleteProperty(TEST_DISPATCHERS, k);
 	}
 });
 
@@ -304,7 +289,7 @@ describe("runToolCheckLoop — skip guards", () => {
 
 	it("does NOT skip a skip_test_files check for a non-test file", async () => {
 		mockIsLikelyTestFile.mockReturnValue(false);
-		mockConfigNameToToolId.mockReturnValue("gitleaks" as never);
+		mockConfigNameToToolId.mockReturnValue("gitleaks");
 		const run = engineReturning({ results: [] });
 		const out = await runToolCheckLoop(
 			makeCtx({
@@ -469,7 +454,7 @@ describe("runToolCheckLoop — strong_typing", () => {
 		mockFindAnyTypes.mockReturnValue([
 			{ kind: "any", line: 3, text: "x: any" },
 			{ kind: "any", line: 7, text: "y: any" },
-		] as never);
+		]);
 		const out = await runToolCheckLoop(makeCtx({ checks: { strong_typing: cfg() } }));
 		expect(out).toHaveLength(1);
 		expect(out[0]?.message).toContain("2 `any`");
@@ -478,7 +463,7 @@ describe("runToolCheckLoop — strong_typing", () => {
 	});
 
 	it("reports only `unknown` count when no `any` present", async () => {
-		mockFindAnyTypes.mockReturnValue([{ kind: "unknown", line: 1, text: "z: unknown" }] as never);
+		mockFindAnyTypes.mockReturnValue([{ kind: "unknown", line: 1, text: "z: unknown" }]);
 		const out = await runToolCheckLoop(makeCtx({ checks: { strong_typing: cfg() } }));
 		expect(out[0]?.message).toContain("1 `unknown`");
 		expect(out[0]?.message).not.toContain("`any`");
@@ -488,7 +473,7 @@ describe("runToolCheckLoop — strong_typing", () => {
 		mockFindAnyTypes.mockReturnValue([
 			{ kind: "any", line: 1, text: "a: any" },
 			{ kind: "unknown", line: 2, text: "b: unknown" },
-		] as never);
+		]);
 		const out = await runToolCheckLoop(makeCtx({ checks: { strong_typing: cfg() } }));
 		expect(out[0]?.message).toContain("1 `any` + 1 `unknown`");
 	});
@@ -499,7 +484,7 @@ describe("runToolCheckLoop — strong_typing", () => {
 			line: i + 1,
 			text: `m${i}: any`,
 		}));
-		mockFindAnyTypes.mockReturnValue(matches as never);
+		mockFindAnyTypes.mockReturnValue(matches);
 		const out = await runToolCheckLoop(makeCtx({ checks: { strong_typing: cfg() } }));
 		expect(out[0]?.detail).toContain("L8: m7: any");
 		expect(out[0]?.detail).not.toContain("L9: m8: any");
@@ -578,7 +563,7 @@ describe("runToolCheckLoop — dependency_audit", () => {
 			parser: "npm-audit",
 		});
 		mockRunProcessAsync.mockResolvedValue(processResult({ code: 1, stdout: "{json}" }));
-		mockParseNpmAuditJson.mockReturnValue({ detail: "3 high severity" } as never);
+		mockParseNpmAuditJson.mockReturnValue(loopAudit("3 high severity"));
 		const out = await runToolCheckLoop(auditCtx());
 		expect(out).toHaveLength(1);
 		expect(out[0]?.message).toBe("Dependency vulnerabilities found after editing package.json");
@@ -610,7 +595,7 @@ describe("runToolCheckLoop — dependency_audit", () => {
 			parser: "osv-scanner",
 		});
 		mockRunProcessAsync.mockResolvedValue(processResult({ code: 1, stdout: "{osv}" }));
-		mockParseOsvScannerJson.mockReturnValue({ detail: "CVE-2026-1" } as never);
+		mockParseOsvScannerJson.mockReturnValue(loopAudit("CVE-2026-1"));
 		const out = await runToolCheckLoop(auditCtx());
 		expect(out[0]?.detail).toBe("CVE-2026-1");
 		expect(mockParseOsvScannerJson).toHaveBeenCalledWith("{osv}");
@@ -686,7 +671,7 @@ describe("runToolCheckLoop — inline_language_checks", () => {
 	});
 
 	it("skips when the profile has no inline_checks", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "typescript", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		const out = await runToolCheckLoop(
 			makeCtx({ checks: { inline_language_checks: cfg() } }),
 		);
@@ -695,10 +680,7 @@ describe("runToolCheckLoop — inline_language_checks", () => {
 	});
 
 	it("skips when shared content is null", async () => {
-		mockGetProfileForFile.mockReturnValue({
-			id: "python",
-			inline_checks: [{ name: "x" }],
-		} as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("python", true));
 		const out = await runToolCheckLoop(
 			makeCtx({ getSharedContent: () => null, checks: { inline_language_checks: cfg() } }),
 		);
@@ -708,10 +690,7 @@ describe("runToolCheckLoop — inline_language_checks", () => {
 	});
 
 	it("maps each inline finding into a result row", async () => {
-		mockGetProfileForFile.mockReturnValue({
-			id: "python",
-			inline_checks: [{ name: "x" }],
-		} as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("python", true));
 		mockRunInlineLanguageChecks.mockReturnValue([
 			{
 				name: "py_eval",
@@ -762,24 +741,24 @@ describe("runToolCheckLoop — affected_tests", () => {
 	});
 
 	it("skips when the edited file is itself a test file", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "typescript", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		mockIsLikelyTestFile.mockReturnValue(true);
 		const dispatcher = vi.fn();
-		(TEST_DISPATCHERS as Record<string, unknown>).typescript = dispatcher;
+		TEST_DISPATCHERS.typescript = dispatcher;
 		const out = await runToolCheckLoop(makeCtx({ checks: { affected_tests: cfg() } }));
 		expect(out).toEqual([]);
 		expect(dispatcher).not.toHaveBeenCalled();
 	});
 
 	it("skips when no dispatcher is registered for the language id", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "ruby", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("python"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const out = await runToolCheckLoop(makeCtx({ checks: { affected_tests: cfg() } }));
 		expect(out).toEqual([]);
 	});
 
 	it("invokes the dispatcher with resolved paths and maps its results", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "typescript", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const dispatcher = vi.fn().mockReturnValue([
 			{
@@ -790,7 +769,7 @@ describe("runToolCheckLoop — affected_tests", () => {
 				detail: "fail detail",
 			},
 		]);
-		(TEST_DISPATCHERS as Record<string, unknown>).typescript = dispatcher;
+		TEST_DISPATCHERS.typescript = dispatcher;
 
 		const out = await runToolCheckLoop(
 			makeCtx({
@@ -822,9 +801,9 @@ describe("runToolCheckLoop — affected_tests", () => {
 	});
 
 	it("uses an already-absolute filePath unchanged", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "typescript", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		const dispatcher = vi.fn().mockReturnValue([]);
-		(TEST_DISPATCHERS as Record<string, unknown>).typescript = dispatcher;
+		TEST_DISPATCHERS.typescript = dispatcher;
 		await runToolCheckLoop(
 			makeCtx({ filePath: "/abs/path/feature.ts", checks: { affected_tests: cfg() } }),
 		);
@@ -911,7 +890,7 @@ describe("runToolCheckLoop — package_json_consistency", () => {
 		});
 
 	it("skips when shared content is null", async () => {
-		mockCheckPackageJsonConsistency.mockReturnValue([{ kind: "duplicate", detail: "d" }] as never);
+		mockCheckPackageJsonConsistency.mockReturnValue([{ kind: "duplicate", pkg: "foo", detail: "d" }]);
 		const out = await runToolCheckLoop(
 			makeCtx({
 				filePath: "package.json",
@@ -931,8 +910,8 @@ describe("runToolCheckLoop — package_json_consistency", () => {
 
 	it("reports duplicates only", async () => {
 		mockCheckPackageJsonConsistency.mockReturnValue([
-			{ kind: "duplicate", detail: "foo in deps+devDeps" },
-		] as never);
+			{ kind: "duplicate", pkg: "foo", detail: "foo in deps+devDeps" },
+		]);
 		const out = await runToolCheckLoop(pkgCtx());
 		expect(out[0]?.message).toContain("1 duplicate(s)");
 		expect(out[0]?.message).not.toContain("invalid version");
@@ -941,22 +920,23 @@ describe("runToolCheckLoop — package_json_consistency", () => {
 
 	it("reports invalid versions only", async () => {
 		mockCheckPackageJsonConsistency.mockReturnValue([
-			{ kind: "invalid_semver", detail: "bar@zzz" },
-		] as never);
+			{ kind: "invalid_semver", pkg: "bar", detail: "bar@zzz" },
+		]);
 		const out = await runToolCheckLoop(pkgCtx());
 		expect(out[0]?.message).toContain("1 invalid version(s)");
 		expect(out[0]?.message).not.toContain("duplicate");
 	});
 
 	it("reports both kinds joined and truncates detail past 10 with overflow", async () => {
-		const issues = [
-			{ kind: "duplicate", detail: "dup0" },
+		const issues: ReturnType<typeof checkPackageJsonConsistency> = [
+			{ kind: "duplicate", pkg: "foo", detail: "dup0" },
 			...Array.from({ length: 11 }, (_v, i) => ({
 				kind: "invalid_semver" as const,
+				pkg: `pkg${i}`,
 				detail: `bad${i}`,
 			})),
 		];
-		mockCheckPackageJsonConsistency.mockReturnValue(issues as never);
+		mockCheckPackageJsonConsistency.mockReturnValue(issues);
 		const out = await runToolCheckLoop(pkgCtx());
 		expect(out[0]?.message).toContain("1 duplicate(s), 11 invalid version(s)");
 		expect(out[0]?.detail).toContain("  dup0");
@@ -987,10 +967,10 @@ describe("runToolCheckLoop — software version / freshness", () => {
 
 	it("reports a regression when software_version_regression and regressions found", async () => {
 		mockDetectRegressions.mockReturnValue([
-			{ after: { anchor: "react", version: "17" } },
-		] as never);
+			loopRegression("react", "18", "17"),
+		]);
 		const out = await runToolCheckLoop(
-			svCtx({ baseline: { softwareVersions: [{ anchor: "react", version: "18" }] as never } }),
+			svCtx({ baseline: { softwareVersions: [loopVersion("react", "18")] } }),
 		);
 		expect(out).toHaveLength(1);
 		expect(out[0]?.name).toBe("software_version_regression");
@@ -1000,12 +980,12 @@ describe("runToolCheckLoop — software version / freshness", () => {
 
 	it("does NOT report regression detail under the freshness check name", async () => {
 		mockDetectRegressions.mockReturnValue([
-			{ after: { anchor: "react", version: "17" } },
-		] as never);
+			loopRegression("react", "18", "17"),
+		]);
 		const out = await runToolCheckLoop(
 			svCtx({
 				checks: { freshness_sensitive_reference: cfg() },
-				baseline: { softwareVersions: [] as never },
+				baseline: { softwareVersions: [] },
 			}),
 		);
 		// freshness branch with no freshness concerns → nothing
@@ -1014,12 +994,12 @@ describe("runToolCheckLoop — software version / freshness", () => {
 
 	it("reports a freshness concern under freshness_sensitive_reference", async () => {
 		mockDetectFreshness.mockReturnValue([
-			{ ref: { anchor: "node", version: "20" } },
-		] as never);
+			loopFreshness("node", "20"),
+		]);
 		const out = await runToolCheckLoop(
 			svCtx({
 				checks: { freshness_sensitive_reference: cfg() },
-				baseline: { softwareVersions: [] as never },
+				baseline: { softwareVersions: [] },
 			}),
 		);
 		expect(out).toHaveLength(1);
@@ -1031,15 +1011,15 @@ describe("runToolCheckLoop — software version / freshness", () => {
 	it("filters out freshness concerns that overlap a regression (anchor\\0version key)", async () => {
 		// Same anchor+version appears in both → freshness one is dropped.
 		mockDetectRegressions.mockReturnValue([
-			{ after: { anchor: "vue", version: "2" } },
-		] as never);
+			loopRegression("vue", "3", "2"),
+		]);
 		mockDetectFreshness.mockReturnValue([
-			{ ref: { anchor: "vue", version: "2" } },
-		] as never);
+			loopFreshness("vue", "2"),
+		]);
 		const out = await runToolCheckLoop(
 			svCtx({
 				checks: { freshness_sensitive_reference: cfg() },
-				baseline: { softwareVersions: [] as never },
+				baseline: { softwareVersions: [] },
 			}),
 		);
 		expect(out).toEqual([]);
@@ -1099,7 +1079,7 @@ describe("runToolCheckLoop — software version / freshness", () => {
 	it("does not push a regression row when regressions is empty", async () => {
 		mockDetectRegressions.mockReturnValue([]);
 		const out = await runToolCheckLoop(
-			svCtx({ baseline: { softwareVersions: [] as never } }),
+			svCtx({ baseline: { softwareVersions: [] } }),
 		);
 		expect(out).toEqual([]);
 	});
@@ -1113,14 +1093,14 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	it("skips when configNameToToolId returns undefined", async () => {
 		mockConfigNameToToolId.mockReturnValue(undefined);
 		const out = await runToolCheckLoop(
-			makeCtx({ checks: { custom_tool: cfg({ command: "whatever" }), editedFileInRepo: true } as never }),
+			makeCtx({ checks: { custom_tool: cfg({ command: "whatever" }) }, editedFileInRepo: true }),
 		);
 		expect(out).toEqual([]);
 		expect(mockGetOrCreateEngine).not.toHaveBeenCalled();
 	});
 
 	it("skips when the resolved tool id is dep-audit (handled by dependency_audit)", async () => {
-		mockConfigNameToToolId.mockReturnValue("dep-audit" as never);
+		mockConfigNameToToolId.mockReturnValue("dep-audit");
 		const out = await runToolCheckLoop(
 			makeCtx({
 				checks: { dependency_audit_alias: cfg({ command: "x" }) },
@@ -1132,7 +1112,7 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	});
 
 	it("no finding when the engine returns zero results", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		const run = engineReturning({ results: [] });
 		const out = await runToolCheckLoop(
 			makeCtx({ checks: { biome: cfg({ command: "biome" }) }, editedFileInRepo: true }),
@@ -1151,7 +1131,7 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	});
 
 	it("reports resource contention as no verdict instead of clean", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		engineReturning({
 			results: [],
 			skipped: [
@@ -1176,9 +1156,9 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	});
 
 	it("reports a runner exception as no verdict instead of clean", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		const runChecksAsync = vi.fn().mockRejectedValue(new Error("runner crashed"));
-		mockGetOrCreateEngine.mockReturnValue({ runChecksAsync } as never);
+		mockGetOrCreateEngine.mockReturnValue(loopEngine(runChecksAsync));
 		const out = await runToolCheckLoop(
 			makeCtx({ checks: { biome: cfg({ command: "biome" }) }, editedFileInRepo: true }),
 		);
@@ -1191,7 +1171,7 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	});
 
 	it("maps a tsc-unavailable sentinel to no verdict instead of a type error or clean", async () => {
-		mockConfigNameToToolId.mockReturnValue("tsc" as never);
+		mockConfigNameToToolId.mockReturnValue("tsc");
 		engineReturning({
 			results: [
 				{
@@ -1216,7 +1196,7 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	});
 
 	it("aggregates engine findings into one result with file(line): message detail", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		engineReturning({
 			results: [
 				{ file: "src/x.ts", line: 3, message: "no-double-equals" },
@@ -1237,7 +1217,7 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	});
 
 	it("truncates engine findings to 15 and appends an overflow line", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		const results = Array.from({ length: 18 }, (_v, i) => ({
 			file: "src/x.ts",
 			line: i,
@@ -1253,7 +1233,7 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	});
 
 	it("tsc without smart-filter: filterToFile false, targetFile is the edited file", async () => {
-		mockConfigNameToToolId.mockReturnValue("tsc" as never);
+		mockConfigNameToToolId.mockReturnValue("tsc");
 		const run = engineReturning({ results: [] });
 		const out = await runToolCheckLoop(
 			makeCtx({
@@ -1270,7 +1250,7 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	});
 
 	it("tsc WITH smart-filter: filterToFile true, targetFile resolved under project root", async () => {
-		mockConfigNameToToolId.mockReturnValue("tsc" as never);
+		mockConfigNameToToolId.mockReturnValue("tsc");
 		const run = engineReturning({ results: [] });
 		const out = await runToolCheckLoop(
 			makeCtx({
@@ -1287,7 +1267,7 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	});
 
 	it("collects per-tool metrics into outToolMetrics when provided", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		engineReturning({
 			results: [{ file: "src/x.ts", line: 1, message: "m" }],
 			metrics: [{ tool: "biome", elapsedMs: 42, findingCount: 1 }],
@@ -1304,7 +1284,7 @@ describe("runToolCheckLoop — command/engine branch", () => {
 	});
 
 	it("does not touch metrics when outToolMetrics is undefined", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		engineReturning({
 			results: [],
 			metrics: [{ tool: "biome", elapsedMs: 5, findingCount: 0 }],
@@ -1323,9 +1303,9 @@ describe("runToolCheckLoop — command/engine branch", () => {
 
 describe("runToolCheckLoop — error isolation & boundaries", () => {
 	it("turns a thrown timeout into an explicit no-verdict warning", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		const runChecksAsync = vi.fn().mockRejectedValue(new Error("ETIMEDOUT: tsc timed out"));
-		mockGetOrCreateEngine.mockReturnValue({ runChecksAsync } as never);
+		mockGetOrCreateEngine.mockReturnValue(loopEngine(runChecksAsync));
 		const out = await runToolCheckLoop(
 			makeCtx({ checks: { biome: cfg({ command: "biome" }) }, editedFileInRepo: true }),
 		);
@@ -1380,7 +1360,7 @@ describe("runToolCheckLoop — error isolation & boundaries", () => {
 		mockContainsSecrets.mockImplementation(() => {
 			throw new Error("boom");
 		});
-		mockFindAnyTypes.mockReturnValue([{ kind: "any", line: 1, text: "a: any" }] as never);
+		mockFindAnyTypes.mockReturnValue([{ kind: "any", line: 1, text: "a: any" }]);
 		const out = await runToolCheckLoop(
 			makeCtx({
 				event: { ...baseEvent, tool_input: { content: "x" } },
@@ -1430,7 +1410,7 @@ describe("runToolCheckLoop — error isolation & boundaries", () => {
 		mockContainsSecrets.mockImplementation(() => {
 			throw new Error("boom");
 		});
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		engineReturning({
 			results: [],
 			skipped: [
@@ -1463,7 +1443,7 @@ describe("runToolCheckLoop — error isolation & boundaries", () => {
 	});
 
 	it("treats an enabled but missing external tool as deferred, never clean", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		engineReturning({
 			results: [],
 			skipped: [{ check: "biome", reason: "not installed", category: "tool_missing" }],
@@ -1496,7 +1476,7 @@ describe("runToolCheckLoop — error isolation & boundaries", () => {
 describe("runToolCheckLoop — multi-check aggregation", () => {
 	it("returns findings in check (push) order across multiple branches", async () => {
 		mockContainsSecrets.mockReturnValue(["k"]);
-		mockFindAnyTypes.mockReturnValue([{ kind: "any", line: 1, text: "a: any" }] as never);
+		mockFindAnyTypes.mockReturnValue([{ kind: "any", line: 1, text: "a: any" }]);
 		const out = await runToolCheckLoop(
 			makeCtx({
 				event: { ...baseEvent, tool_input: { content: "secretish" } },
@@ -1558,10 +1538,10 @@ describe("runToolCheckLoop — fallback branches", () => {
 	});
 
 	it("affected_tests: extensionless file → `-len || undefined` slice end", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "typescript", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const dispatcher = vi.fn().mockReturnValue([]);
-		(TEST_DISPATCHERS as Record<string, unknown>).typescript = dispatcher;
+		TEST_DISPATCHERS.typescript = dispatcher;
 		await runToolCheckLoop(
 			makeCtx({
 				// "Makefile" matches file_types [""] and has no extension, so
@@ -1576,12 +1556,12 @@ describe("runToolCheckLoop — fallback branches", () => {
 	});
 
 	it("affected_tests: findProjectRoot null → cwd fallback as checkCwd", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "typescript", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const { findProjectRoot } = await import("./project-root.js");
 		vi.mocked(findProjectRoot).mockReturnValueOnce(null);
 		const dispatcher = vi.fn().mockReturnValue([]);
-		(TEST_DISPATCHERS as Record<string, unknown>).typescript = dispatcher;
+		TEST_DISPATCHERS.typescript = dispatcher;
 		await runToolCheckLoop(
 			makeCtx({ filePath: "src/a.ts", cwd: "/fallbackcwd", checks: { affected_tests: cfg() } }),
 		);
@@ -1627,7 +1607,7 @@ describe("runToolCheckLoop — fallback branches", () => {
 	});
 
 	it("command branch: findProjectRoot null → cwd fallback as engine projectRoot", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		const { findProjectRoot } = await import("./project-root.js");
 		vi.mocked(findProjectRoot).mockReturnValueOnce(null);
 		const run = engineReturning({ results: [] });

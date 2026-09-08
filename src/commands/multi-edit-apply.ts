@@ -131,8 +131,7 @@ export function countOccurrences(haystack: string, needle: string): number {
  *
  * Returns the transformed buffer on success, or a structured error.
  *
- * Public API — exported so tests (and the eventual shared
- * `gateProposedContent` helper) can reuse the same ambiguity semantics
+ * Public API — exported so callers can reuse the same ambiguity semantics
  * without duplicating the loop.
  */
 export function applyEditsToBuffer(original: string, edits: EditPair[]): ApplyEditsResult {
@@ -180,10 +179,7 @@ export function applyEditsToBuffer(original: string, edits: EditPair[]): ApplyEd
  * Returns a list of failures in the same shape as the design doc's `--json`
  * output. Empty list means the gate passed.
  *
- * Public API — this function will be replaced by the shared
- * `gateProposedContent()` helper once the `interlinked write` subagent lands
- * its refactor. The input shape (Array<{ path, content }>) already matches
- * the intended signature so the rename is drop-in.
+ * Keep the existing exported name for consumers of the multi-edit API.
  */
 export function gateProposedContentInline(
 	batch: Array<{ path: string; content: string }>,

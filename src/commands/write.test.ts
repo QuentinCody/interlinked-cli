@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked write — behavioral tests
 // ===========================================
@@ -68,6 +69,7 @@ import {
 	readFileSync,
 	renameSync,
 	statSync,
+	Stats,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
@@ -134,7 +136,7 @@ function loggedJson(): Record<string, unknown> {
 	if (typeof first !== "string") {
 		throw new Error(`Expected console.log to receive a JSON string, got ${typeof first}`);
 	}
-	return JSON.parse(first) as Record<string, unknown>;
+	return parseWire(JSON.parse(first), wireRecord(wireUnknown), "test JSON value");
 }
 
 /** Build a passing GateResult (no failures). */
@@ -170,9 +172,9 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	vi.spyOn(console, "log").mockImplementation(() => {});
 	vi.spyOn(console, "error").mockImplementation(() => {});
-	exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-		throw new ExitSignal(code ?? 0);
-	}) as never);
+	exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+		throw new ExitSignal(Number(code ?? 0));
+	});
 
 	// fs defaults: nothing exists (so new-file writes & path checks are simple),
 	// writes/renames succeed.
@@ -181,7 +183,7 @@ beforeEach(() => {
 	mockWriteFileSync.mockReturnValue(undefined);
 	mockRenameSync.mockReturnValue(undefined);
 	mockUnlinkSync.mockReturnValue(undefined);
-	mockStatSync.mockImplementation(() => ({ mode: 0o644 }) as ReturnType<typeof statSync>);
+	mockStatSync.mockImplementation(() => Object.assign(new Stats(), { mode: 0o644 }));
 	mockChmodSync.mockReturnValue(undefined);
 
 	// Gate passes unless a test overrides.
@@ -589,7 +591,7 @@ describe("interlinked write — gate outcomes", () => {
 		expect(r.exitCode).toBe(1);
 		const payload = loggedJson();
 		expect(payload.ok).toBe(false);
-		const failures = payload.failures as Array<Record<string, unknown>>;
+		const failures = parseWire(payload.failures, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(failures).toHaveLength(1);
 		expect(failures[0]).toMatchObject({
 			path: "foo.ts",
@@ -621,7 +623,7 @@ describe("interlinked write — gate outcomes", () => {
 		const payload = loggedJson();
 		expect(payload.ok).toBe(true);
 		expect(payload.wrote).toEqual([target]);
-		expect((payload.failures as unknown[]).length).toBe(1);
+		expect(payload).toHaveProperty(["failures","length"], 1);
 	});
 
 	it("passes a column through into the JSON failure payload when present", async () => {
@@ -631,7 +633,7 @@ describe("interlinked write — gate outcomes", () => {
 			run(inRepo("foo.ts"), { stdin: true, json: true }),
 		);
 		expect(r.exitCode).toBe(1);
-		const failures = loggedJson().failures as Array<Record<string, unknown>>;
+		const failures = parseWire(loggedJson().failures, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(nonNull(failures[0]).column).toBe(12);
 	});
 });

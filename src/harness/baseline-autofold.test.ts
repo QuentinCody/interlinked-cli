@@ -1,3 +1,5 @@
+import { makeMinimalEvent as completeEventFixture, makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // Evidence for the SessionEnd baseline auto-fold orchestrator: budget, audit
 // trail, stderr line, config opt-out, dry-run, and never-throw.
 //
@@ -56,7 +58,7 @@ function auditRows(): Array<Record<string, unknown>> {
 		.split("\n")
 		.filter((l) => l.trim().length > 0)
 		// SAFETY: every line is written by appendFoldAudit as a JSON object.
-		.map((l) => JSON.parse(l) as Record<string, unknown>);
+		.map((l) => parseWire(JSON.parse(l), wireRecord(wireUnknown), "test JSON value"));
 }
 
 function mkOutcome(over: Partial<FoldOutcome> & { kind: FoldOutcome["kind"] }): FoldOutcome {
@@ -65,12 +67,12 @@ function mkOutcome(over: Partial<FoldOutcome> & { kind: FoldOutcome["kind"] }): 
 
 function mkEvent(over: Partial<HarnessEvent> = {}): HarnessEvent {
 	// SAFETY: the orchestrator reads only session_id + dry_run from the event.
-	return { hook_event: "SessionEnd", session_id: "s-1", ...over } as HarnessEvent;
+	return ({ ...completeEventFixture(), ...{ hook_event: "SessionEnd", session_id: "s-1", ...over } });
 }
 
 function mkSession(files: string[]): SessionTrajectory {
 	// SAFETY: the orchestrator reads only files_written + started_at.
-	return { files_written: new Set(files), started_at: new Date(0).toISOString() } as SessionTrajectory;
+	return ({ ...completeSessionFixture(), ...{ files_written: new Set(files), started_at: new Date(0).toISOString() } });
 }
 
 function mkRules(over: Partial<GuardRulesConfig> = {}): GuardRulesConfig {
@@ -131,7 +133,7 @@ describe("audit trail + stderr line — positive (must appear)", () => {
 		// SAFETY: the real fold write already dropped "src/a.ts" from the list
 		// on disk, proving the audit failure was swallowed rather than rolling
 		// the fold back.
-		expect((raw as { files: string[] }).files).toEqual([]);
+		expect(raw).toHaveProperty(["files"], []);
 	});
 
 	it("P2: emits exactly one stderr line naming every fold that moved", () => {
@@ -185,7 +187,7 @@ describe("audit trail + stderr line — negative (must stay silent)", () => {
 		expect(auditRows()).toEqual([]);
 		const raw: unknown = JSON.parse(readFileSync(join(cwd, ".interlinked/untested-files-baseline.json"), "utf-8"));
 		// SAFETY: the fixture wrote this file with a string[] `files`.
-		expect((raw as { files: string[] }).files).toEqual(["src/a.ts"]);
+		expect(raw).toHaveProperty(["files"], ["src/a.ts"]);
 	});
 
 	it("N3: the SessionEnd wrapper honors event.dry_run", () => {
@@ -265,15 +267,14 @@ describe("budget + never-throw — negative (must degrade, not fail)", () => {
 
 	it("N4: a malformed started_at yields 0, never NaN", () => {
 		// SAFETY: deliberately malformed input for the NaN-guard path.
-		expect(sessionStartMs({ started_at: "not-a-date" } as SessionTrajectory)).toBe(0);
+		expect(sessionStartMs(({ ...completeSessionFixture(), ...{ started_at: "not-a-date" } }))).toBe(0);
 	});
 
 	it("N5: an unexpected throw mid-fold is logged as non-fatal and yields no warnings", () => {
-		// SAFETY: `files_written` is a non-iterable object, so
-		// `toRepoRelative`'s `for...of` throws "paths is not iterable" — the
-		// one path into the wrapper's own catch block, distinct from every
-		// per-fold catch already covered above.
-		const session = { files_written: {}, started_at: new Date(0).toISOString() } as unknown as SessionTrajectory;
+		const session = mkSession(["src/a.ts"]);
+		vi.spyOn(session.files_written, Symbol.iterator).mockImplementation(() => {
+			throw new Error("file iteration failed");
+		});
 		const warnings = runSessionEndBaselineAutoFold({
 			cwd,
 			rules: mkRules(),
@@ -284,6 +285,6 @@ describe("budget + never-throw — negative (must degrade, not fail)", () => {
 		expect(warnings).toEqual([]);
 		expect(logged).toHaveLength(1);
 		expect(logged[0]).toContain("Baseline auto-fold failed (non-fatal):");
-		expect(logged[0]).toContain("is not iterable");
+		expect(logged[0]).toContain("file iteration failed");
 	});
 });

@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireObject, wireOptional, wireString } from "../../lib/value-validation.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -27,7 +28,7 @@ describe("docs freshness", () => {
 
 	it("every guard rule has a category", () => {
 		const rules = getBuiltinRules();
-		const missing = rules.filter((r) => !(r as { category?: string }).category);
+		const missing = rules.filter((r) => !(parseWire(r, wireObject({ "category": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value")).category);
 		expect(missing.map((r) => r.id)).toEqual([]);
 	});
 

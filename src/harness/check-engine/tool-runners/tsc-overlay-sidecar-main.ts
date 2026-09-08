@@ -17,37 +17,12 @@
 //   echo '{"id":1,"method":"overlayCheck","protocolVersion":1,"params":{...}}' \
 //     | node dist/harness/check-engine/tool-runners/tsc-overlay-sidecar-main.js
 
+import { isJsonObject } from "../../../lib/json-types.js";
+import { isOverlayParams } from "./tsc-overlay-wire.js";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import type { SidecarOverlayRequest, SidecarOverlayResponse } from "./tsc-overlay-protocol.js";
 import { runOverlayCheckInProcess } from "./tsc-overlay-service.js";
-
-/** Validate + extract the `params` sub-object. Returns null on any missing
- *  required field — separated from parseRequest so neither function's
- *  branch count needs to grow to cover the other's checks. */
-function parseParams(rawParams: unknown): SidecarOverlayRequest["params"] | null {
-	if (rawParams === null || typeof rawParams !== "object") return null;
-	// SAFETY: narrowing an already-parsed JSON value to inspect known fields
-	// before constructing the typed params below — every field the return
-	// value claims is re-read (not assumed) from this record.
-	const params = rawParams as Record<string, unknown>;
-	if (typeof params.projectRoot !== "string" || typeof params.filePath !== "string") return null;
-	if (typeof params.content !== "string") return null;
-	const result: SidecarOverlayRequest["params"] = {
-		projectRoot: params.projectRoot,
-		filePath: params.filePath,
-		content: params.content,
-	};
-	if (Array.isArray(params.siblings)) {
-		// SAFETY: siblings is an optional passthrough array of {filePath,
-		// content} pairs; runOverlayCheckInProcess itself tolerates a
-		// malformed entry the same way it tolerates any other
-		// RunTscOverlayInput field — validating its element shape here would
-		// duplicate what the LS layer already does.
-		result.siblings = params.siblings as { filePath: string; content: string }[];
-	}
-	return result;
-}
 
 /** Parse the raw stdin text into a request, or null if it isn't one. Kept
  *  permissive — a malformed request degrades to an error response, not a
@@ -59,17 +34,13 @@ function parseRequest(raw: string): SidecarOverlayRequest | null {
 	} catch {
 		return null;
 	}
-	if (parsed === null || typeof parsed !== "object") return null;
-	// SAFETY: narrowing an already-parsed JSON value to inspect known fields
-	// before constructing the typed request below — every field the return
-	// value claims is re-read (not assumed) from this record.
-	const r = parsed as Record<string, unknown>;
-	if (typeof r.id !== "number" || r.method !== "overlayCheck") return null;
-	const params = parseParams(r.params);
-	if (!params) return null;
+	if (!isJsonObject(parsed)) return null;
+	if (typeof parsed.id !== "number" || !Number.isFinite(parsed.id) || parsed.method !== "overlayCheck") return null;
+	if (!isOverlayParams(parsed.params)) return null;
+
 	// The constructed object literal is checked against SidecarOverlayRequest
 	// by the compiler — every required field above was validated, not assumed.
-	return { id: r.id, method: "overlayCheck", protocolVersion: 1, params };
+	return { id: parsed.id, method: "overlayCheck", protocolVersion: 1, params: parsed.params };
 }
 
 /** Run the request and produce a response — this is the only place the

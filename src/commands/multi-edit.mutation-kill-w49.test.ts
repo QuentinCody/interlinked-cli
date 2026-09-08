@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireObject, wireOptional, wireString, wireUnknown } from "../lib/value-validation.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -170,7 +171,7 @@ describe("runMultiEdit — gate-rejected and write-failed branches", () => {
 
 function captureJson(spy: ReturnType<typeof vi.spyOn>): unknown {
 	expect(spy).toHaveBeenCalled();
-	const raw = spy.mock.calls[spy.mock.calls.length - 1]?.[0] as string;
+	const raw = parseWire(spy.mock.calls[spy.mock.calls.length - 1]?.[0], wireString, "test JSON value");
 	return JSON.parse(raw);
 }
 
@@ -187,14 +188,14 @@ describe("multiEditCommand — boolean/array literal survivors (all error branch
 
 	it("mutually-exclusive --stdin and --manifest: ok:false, empty file_changes_applied", async () => {
 		await multiEditCommand(undefined, { stdin: true, manifest: "x.json", json: true });
-		const payload = captureJson(logSpy) as { ok: boolean; file_changes_applied: unknown[] };
+		const payload = parseWire(captureJson(logSpy), wireObject({ "ok": wireBoolean, "file_changes_applied": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.ok).toBe(false);
 		expect(payload.file_changes_applied).toEqual([]);
 	});
 
 	it("neither --stdin nor --manifest: ok:false, empty file_changes_applied", async () => {
 		await multiEditCommand(undefined, { json: true });
-		const payload = captureJson(logSpy) as { ok: boolean; file_changes_applied: unknown[] };
+		const payload = parseWire(captureJson(logSpy), wireObject({ "ok": wireBoolean, "file_changes_applied": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.ok).toBe(false);
 		expect(payload.file_changes_applied).toEqual([]);
 	});
@@ -202,11 +203,7 @@ describe("multiEditCommand — boolean/array literal survivors (all error branch
 	it("--manifest points at a missing file: ok:false READ_FAILED, empty file_changes_applied", async () => {
 		const missing = join(dir, "no-manifest.json");
 		await multiEditCommand(undefined, { manifest: missing, json: true });
-		const payload = captureJson(logSpy) as {
-			ok: boolean;
-			error_code: string;
-			file_changes_applied: unknown[];
-		};
+		const payload = parseWire(captureJson(logSpy), wireObject({ "ok": wireBoolean, "error_code": wireString, "file_changes_applied": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.ok).toBe(false);
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.READ_FAILED);
 		expect(payload.file_changes_applied).toEqual([]);
@@ -216,11 +213,7 @@ describe("multiEditCommand — boolean/array literal survivors (all error branch
 		const bad = join(dir, "bad.json");
 		writeFileSync(bad, "{ not valid json", "utf-8");
 		await multiEditCommand(undefined, { manifest: bad, json: true });
-		const payload = captureJson(logSpy) as {
-			ok: boolean;
-			error_code: string;
-			file_changes_applied: unknown[];
-		};
+		const payload = parseWire(captureJson(logSpy), wireObject({ "ok": wireBoolean, "error_code": wireString, "file_changes_applied": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.ok).toBe(false);
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST);
 		expect(payload.file_changes_applied).toEqual([]);
@@ -230,12 +223,7 @@ describe("multiEditCommand — boolean/array literal survivors (all error branch
 		const bad = join(dir, "wrong-shape.json");
 		writeFileSync(bad, JSON.stringify({ version: 1, nothing: true }), "utf-8");
 		await multiEditCommand(undefined, { manifest: bad, json: true });
-		const payload = captureJson(logSpy) as {
-			ok: boolean;
-			error_code: string;
-			file_changes_applied: unknown[];
-			error_detail?: { message: string };
-		};
+		const payload = parseWire(captureJson(logSpy), wireObject({ "ok": wireBoolean, "error_code": wireString, "file_changes_applied": wireArray(wireUnknown), "error_detail": wireAbsentOptional(wireOptional(wireObject({ "message": wireString }))) }), "test JSON value");
 		expect(payload.ok).toBe(false);
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.INVALID_MANIFEST);
 		expect(payload.file_changes_applied).toEqual([]);
@@ -254,11 +242,7 @@ describe("multiEditCommand — boolean/array literal survivors (all error branch
 		mockGate.mockImplementationOnce(() => []);
 		mockWrite.mockImplementationOnce(() => ({ ok: true }));
 		await multiEditCommand(target, { manifest, json: true });
-		const payload = captureJson(logSpy) as {
-			ok: boolean;
-			file_changes_applied: string[];
-			error_code?: string;
-		};
+		const payload = parseWire(captureJson(logSpy), wireObject({ "ok": wireBoolean, "file_changes_applied": wireArray(wireString), "error_code": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		// If the manifest read used a broken encoding, readFileSync would throw
 		// and this would come back as READ_FAILED instead of a clean success —
 		// and the JSON.parse of a garbled buffer-as-string would fail too.
@@ -287,11 +271,7 @@ describe("multiEditCommand — boolean/array literal survivors (all error branch
 		} finally {
 			Object.defineProperty(process, "stdin", { value: original, configurable: true });
 		}
-		const payload = captureJson(logSpy) as {
-			ok: boolean;
-			error_code: string;
-			file_changes_applied: unknown[];
-		};
+		const payload = parseWire(captureJson(logSpy), wireObject({ "ok": wireBoolean, "error_code": wireString, "file_changes_applied": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.ok).toBe(false);
 		expect(payload.error_code).toBe(MULTI_EDIT_ERROR_CODES.READ_FAILED);
 		expect(payload.file_changes_applied).toEqual([]);

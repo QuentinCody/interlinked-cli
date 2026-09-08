@@ -1,3 +1,5 @@
+import { parseWire, wireRecord, wireUnknown } from "../../lib/value-validation.js";
+import { nonNull } from "../../lib/non-null.js";
 // ===========================================
 // live-snapshot — round-trip + sweep coverage
 // ===========================================
@@ -74,7 +76,7 @@ describe("writeLiveSnapshot / readLiveSnapshot round-trip", () => {
 		writeLiveSnapshot(tmpDir, "atomic-1", { session_id: "atomic-1" });
 		const path = liveSnapshotPath(tmpDir, "atomic-1");
 		expect(path).not.toBeNull();
-		expect(existsSync(path as string)).toBe(true);
+		expect(existsSync(nonNull(path))).toBe(true);
 		expect(existsSync(`${path}.tmp`)).toBe(false);
 	});
 
@@ -85,14 +87,14 @@ describe("writeLiveSnapshot / readLiveSnapshot round-trip", () => {
 	it("returns null on a corrupted snapshot — never throws", () => {
 		const path = liveSnapshotPath(tmpDir, "corrupt-1");
 		expect(path).not.toBeNull();
-		writeFileSync(path as string, "{not valid json");
+		writeFileSync(nonNull(path), "{not valid json");
 		expect(readLiveSnapshot(tmpDir, "corrupt-1")).toBeNull();
 	});
 
 	it("returns null on a snapshot that parses to a non-object (array, primitive)", () => {
 		const path = liveSnapshotPath(tmpDir, "wrong-shape");
 		expect(path).not.toBeNull();
-		writeFileSync(path as string, "[1, 2, 3]");
+		writeFileSync(nonNull(path), "[1, 2, 3]");
 		expect(readLiveSnapshot(tmpDir, "wrong-shape")).toBeNull();
 	});
 });
@@ -100,7 +102,7 @@ describe("writeLiveSnapshot / readLiveSnapshot round-trip", () => {
 describe("deleteLiveSnapshot", () => {
 	it("removes an existing snapshot", () => {
 		writeLiveSnapshot(tmpDir, "deletable", { session_id: "deletable" });
-		const path = liveSnapshotPath(tmpDir, "deletable") as string;
+		const path = nonNull(liveSnapshotPath(tmpDir, "deletable"));
 		expect(existsSync(path)).toBe(true);
 		deleteLiveSnapshot(tmpDir, "deletable");
 		expect(existsSync(path)).toBe(false);
@@ -125,7 +127,7 @@ describe("sweepStaleLiveSnapshots", () => {
 	it("removes only files older than the TTL", () => {
 		writeLiveSnapshot(tmpDir, "fresh", { session_id: "fresh" });
 		writeLiveSnapshot(tmpDir, "stale", { session_id: "stale" });
-		const stalePath = liveSnapshotPath(tmpDir, "stale") as string;
+		const stalePath = nonNull(liveSnapshotPath(tmpDir, "stale"));
 		// Backdate the stale file by 49h (> 48h TTL)
 		const old = new Date(Date.now() - 49 * 60 * 60 * 1000);
 		utimesSync(stalePath, old, old);
@@ -134,12 +136,12 @@ describe("sweepStaleLiveSnapshots", () => {
 		expect(result.scanned).toBe(2);
 		expect(result.removed).toEqual([stalePath]);
 		expect(existsSync(stalePath)).toBe(false);
-		expect(existsSync(liveSnapshotPath(tmpDir, "fresh") as string)).toBe(true);
+		expect(existsSync(nonNull(liveSnapshotPath(tmpDir, "fresh")))).toBe(true);
 	});
 
 	it("respects a custom TTL", () => {
 		writeLiveSnapshot(tmpDir, "minute-old", { session_id: "minute-old" });
-		const path = liveSnapshotPath(tmpDir, "minute-old") as string;
+		const path = nonNull(liveSnapshotPath(tmpDir, "minute-old"));
 		const past = new Date(Date.now() - 90_000);
 		utimesSync(path, past, past);
 
@@ -194,14 +196,14 @@ describe("integration with SessionTracker.serialize/hydrate", () => {
 
 		const snap = writer.serialize("rtt-session");
 		expect(snap).not.toBeNull();
-		const wrote = writeLiveSnapshot(tmpDir, "rtt-session", snap as object as Record<string, unknown>);
+		const wrote = writeLiveSnapshot(tmpDir, "rtt-session", parseWire(snap, wireRecord(wireUnknown), "test JSON value"));
 		expect(wrote.ok).toBe(true);
 
 		// Simulate a daemon restart: brand-new tracker, hydrate from disk.
 		const reader = new SessionTracker();
 		const read = readLiveSnapshot(tmpDir, "rtt-session");
 		expect(read).not.toBeNull();
-		const restored = reader.hydrate(read as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(read));
 		expect(restored).not.toBeNull();
 		expect(restored?.tool_call_count).toBe(1);
 		expect(restored?.files_written.has("src/x.ts")).toBe(true);

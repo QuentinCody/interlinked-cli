@@ -1,3 +1,4 @@
+import { nestedHookSettings } from "./test-output.js";
 import { describe, expect, it } from "vitest";
 import { createCopilotCliAdapter } from "./copilot-cli.js";
 import { createGeminiCliAdapter } from "./gemini-cli.js";
@@ -51,7 +52,7 @@ describe("provider decision contracts", () => {
     });
 
     it("renders Gemini command hooks inside native definition groups", () => {
-        const fragment = gemini.renderSettingsFragment("/bin/interlinked", "project").fragment as { hooks: Record<string, unknown> };
+        const fragment = nestedHookSettings(gemini.renderSettingsFragment("/bin/interlinked", "project").fragment);
         expect(fragment.hooks.BeforeTool).toEqual([{ hooks: [{ type: "command", command: expect.any(String) }] }]);
     });
 });

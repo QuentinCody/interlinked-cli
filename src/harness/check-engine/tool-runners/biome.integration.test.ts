@@ -1,3 +1,4 @@
+import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // Behavioral unit tests for the Biome tool runners (sync, async, overlay).
 //
 // Boundaries mocked at the module edge so the tests are deterministic and
@@ -11,23 +12,23 @@
 // FAILURE synthesis branch, and the overlay tmp-path → target-path rewrite.
 
 import type { SpawnSyncReturns } from "node:child_process";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assert, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import type { RunProcessResult } from "../spawn-async.js";
 import type { CheckResult, CheckScope, ToolRunnerInput } from "../types.js";
 
-const spawnSyncMock = vi.fn();
-const runProcessAsyncMock = vi.fn();
+const spawnSyncMock = vi.fn<SpawnSyncStub>();
+const runProcessAsyncMock = vi.fn<typeof import("../spawn-async.js").runProcessAsync>();
 const existsSyncMock = vi.fn();
 const writeFileSyncMock = vi.fn();
 const unlinkSyncMock = vi.fn();
 
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
 }));
 
 vi.mock("../spawn-async.js", () => ({
-	runProcessAsync: (...args: unknown[]) => runProcessAsyncMock(...args),
+	runProcessAsync: (...args: Parameters<typeof runProcessAsyncMock>) => runProcessAsyncMock(...args),
 }));
 
 vi.mock("node:fs", () => ({
@@ -74,6 +75,7 @@ function spawnResult(
 		stderr?: string | undefined;
 	},
 ): SpawnSyncReturns<string> {
+	// SAFETY: this fixture deliberately allows absent stdout/stderr to exercise the runner's fallback for incomplete process results.
 	return {
 		pid: 123,
 		output: [],
@@ -174,11 +176,7 @@ describe("runBiome (sync)", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runBiome(input(fileScope(), 9_999));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(args).toEqual(["biome", "check", "--no-errors-on-unmatched", TARGET]);
 		expect(opts).toMatchObject({
@@ -202,7 +200,7 @@ describe("runBiome (sync)", () => {
 
 	it("checks `.` in file mode when targetFile is missing", () => {
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runBiome(input(scope));
 		expect(spawnSyncMock.mock.calls[0]?.[1]).toEqual([
@@ -293,11 +291,7 @@ describe("runBiomeAsync", () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runBiomeAsync(input(fileScope(), 4_321));
 		expect(runProcessAsyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(args).toEqual(["biome", "check", "--no-errors-on-unmatched", TARGET]);
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 4_321 });
@@ -375,7 +369,8 @@ describe("runBiomeOverlay", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runBiomeOverlay(overlayInput());
 		expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
-		const writtenPath = writeFileSyncMock.mock.calls[0]?.[0] as string;
+		const writtenPath = writeFileSyncMock.mock.calls[0]?.[0];
+		assert(typeof writtenPath === "string");
 		// Same directory as the target, base name preserved, `.ts` extension kept.
 		expect(writtenPath.startsWith(`${PROJECT_ROOT}/src/app.overlay-`)).toBe(true);
 		expect(writtenPath.endsWith(".ts")).toBe(true);
