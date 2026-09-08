@@ -47,10 +47,11 @@ class FakeCheckEngine {
 	constructor(public root: string) {}
 	discoverTools = discoverToolsMock;
 	runChecks = runChecksMock;
-	runChecksAsync = runChecksMock;
+	runChecksAsync = (scope: unknown, options: unknown) => ({ toolsRun: [], ...runChecksMock(scope, options) });
 	runDepAudit = runDepAuditMock;
 }
 const formatToolReportMock = vi.fn<(tools: unknown) => string>(() => "TOOL-REPORT");
+vi.mock("./verify/lint-import.js", () => ({ streamImportedLint: vi.fn() }));
 vi.mock("../harness/check-engine/index.js", () => ({
 	CheckEngine: FakeCheckEngine,
 	formatToolReport: formatToolReportMock,

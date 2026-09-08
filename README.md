@@ -176,7 +176,7 @@ for `setup` or `init` only when you need the login and workspace steps they add.
   a file already reserved by another developer's agent is blocked with
   a pointer to coordinate via MCP messages; otherwise the reservation
   is local-only.
-- **Post-edit checks.** <!-- gen:quality_check_count -->33<!-- /gen:quality_check_count --> quality checks across 8+ languages (tsc,
+- **Post-edit checks.** <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> quality checks across 8+ languages (tsc,
   biome, cargo, mypy, …) and <!-- gen:structural_check_count -->26<!-- /gen:structural_check_count --> structural checks (export surface,
   import resolution, cycles, blast radius) are eligible after mutating events;
   capacity-bounded external work can explicitly defer with `NOT CHECKED`.

@@ -39,6 +39,29 @@ network.
 
 ## Turning it on
 
+`interlinked doctor` also inventories existing lint configuration and offers
+`interlinked lint import`. Preview is read-only; `lint import --write` enables
+the registered PostToolUse wrapper, and adding `--baseline` executes installed
+linters to adopt existing debt. A local `lint_import.enabled:false` override
+is reported before import writes. Hooks must already be enabled. Follow
+**interlinked-verify** for supported adapters, unresolved configurations, and
+the explicit `lint check` gate; the ordinary `adopt` command remains separate.
+
+Oxlint and named ESLint configs are detected automatically; `lint import` previews
+their scopes and hook/audit cadence. For arbitrary filenames, use repeatable
+`--config tool=file` (or `--eslint-config file`), then `--write --baseline`.
+Selectors are relative to
+the target project; `--eslint-scope` optionally chooses a package working scope.
+Saved profiles survive re-import without repeating these flags.
+
+Script aliases, task/CI evidence and local config/plugin imports extend discovery.
+Use `.interlinked/lint-adapters.json` for reviewed direct SARIF analyzers; follow
+**interlinked-verify** for that contract. YAML task parsing requires the optional
+`yaml` package; without it the evidence remains in the review list. Dependency
+approval follows **interlinked-supply-chain**. Slow/type/CI profiles initially use
+audit cadence; `lint check` or `verify --all-checks` includes them.
+
+
 | Command | What it does | When to use |
 |---|---|---|
 | bare `interlinked` (unconfigured repo) | **The harness-first setup wizard** (2026-08-16): six one-line decisions — runners to hook, enforcement mode (`strict` — the recommended default — /`lenient`/`balanced`), review scope (`diff`/`whole-file` → `guard-rules.json` `diff_aware.enabled`), cap overrides, brownfield `adopt`, and dead-code posture (2026-08-17: `flag` default / `delete` instructs the agent to remove flagged dead code in the same edit / `off`; writes `structural_checks` scoped to only the dead-code checks so the rest of the family stays a separate decision; the whole-repo sweep is `interlinked deadcode`) — each Enter-accepts a recommended default, shows the plan, then composes `enable` + `mode` + `caps set` + `adopt`. Local-first: never asks about a server. Non-TTY: env-driven (`INTERLINKED_MODE` / `INTERLINKED_SCOPE` / `INTERLINKED_ADOPT` / `INTERLINKED_CLIENTS`). A failed step reports and continues — every step is individually re-runnable via the owning command. Ends with a **posture receipt** (2026-08-17): one line per thing now enforced, each naming the command that changes it. | A new user's first touch; the fastest correct install. |

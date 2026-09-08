@@ -51,6 +51,7 @@ Commands:
   index                                      Manage the trigram search index for grep acceleration
   init [options]                             One-command onboarding: detect clients, configure, login, verify
   install-hooks [options]                    Install agent hooks for detected runners (adapter-based, manifest-driven)
+  lint                                       Discover and adopt existing lint configurations as Interlinked checks and debt gates
   login [options]                            Authenticate with the server (opens browser)
   logout [options]                           Clear authentication credentials (preserves other config)
   logs [options]                             View local activity log (offline, no server needed)
@@ -747,6 +748,86 @@ Options:
   --dead-code              Run Supermodel's cloud dead-code analysis (opt-in;
                            requires the `supermodel` CLI)
   -h, --help               display help for command
+```
+
+## Lint
+
+```
+Usage: interlinked lint [options] [command]
+
+Discover and adopt existing lint configurations as Interlinked checks and debt
+gates
+
+Options:
+  -h, --help                 display help for command
+
+Commands:
+  scan [options] [target]    Inventory lint configs, declarations, ignores and
+                             scripts across nested packages
+  import [options] [target]  Preview or apply lint adoption while preserving
+                             original analyzer semantics
+  check [options] [target]   Gate imported lint findings: exit 1 for new debt,
+                             2 when no complete verdict exists
+  help [command]             display help for command
+```
+
+### lint scan
+
+```
+Usage: interlinked lint scan [options] [target]
+
+Inventory lint configs, declarations, ignores and scripts across nested
+packages
+
+Options:
+  --json      Machine-readable inventory and import plan
+  --details   Show bounded source declaration excerpts
+  -h, --help  display help for command
+```
+
+### lint import
+
+```
+Usage: interlinked lint import [options] [target]
+
+Preview or apply lint adoption while preserving original analyzer semantics
+
+Options:
+  --write                     Write the import policy and enable its
+                              PostToolUse check
+  --baseline                  With --write, run analyzers and seed or tighten
+                              existing-debt allowances
+  --eslint-config <file>      Select an ESLint config relative to target
+                              (repeatable) (default: [])
+  --eslint-scope <directory>  Working directory and lint target for selected
+                              ESLint configs, relative to target (default: .)
+  --config <tool=file>        Select any supported analyzer config (repeatable)
+                              (default: [])
+  --scope <directory>         Working directory for --config selections
+                              (default: .)
+  --cadence <cadence>         Set imported profiles to hook or audit cadence
+  --timeout <ms>              Total analyzer batch budget, up to 300000 ms
+                              (default: "30000")
+  --json                      Machine-readable import plan/result
+  --details                   Show bounded source declaration excerpts
+  -h, --help                  display help for command
+```
+
+### lint check
+
+```
+Usage: interlinked lint check [options] [target]
+
+Gate imported lint findings: exit 1 for new debt, 2 when no complete verdict
+exists
+
+Options:
+  --update-baseline  Seed unadopted scopes and tighten existing allowances
+                     after complete analysis
+  --timeout <ms>     Total analyzer batch budget, up to 300000 ms (default:
+                     "30000")
+  --json             Machine-readable findings and measurement status
+  -h, --help         display help for command
 ```
 
 ## Metrics

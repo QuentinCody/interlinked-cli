@@ -337,6 +337,7 @@ function sanitizeHelpOutput(output: string): string {
 const CLI_COMMAND_SUBCOMMANDS: Record<string, string[]> = {
 	data: ["catalog", "health", "status", "index", "scan", "lab", "search", "show", "investigate", "sessions", "files", "checks", "usage", "schema", "suggestions", "recurrence-inventory", "configure", "maintain", "audit"],
 	structure: ["init", "scan", "status", "accept", "doctor", "baseline"],
+	lint: ["scan", "import", "check"],
 	metrics: ["coupling", "arch", "rework", "complexity", "split-plan", "score", "catalog", "explain", "compare", "corpus", "gates", "deletions", "deletions validate", "evidence", "evidence status", "evidence identity", "evidence import", "evidence run", "coverage", "coverage status", "coverage warm"],
 	checkpoint: ["list", "show", "compare", "prune", "archive"],
 	tasks: ["list", "create", "show", "claim", "complete"],
@@ -368,6 +369,7 @@ function generateCliReference(): string {
 		"data",
 		"structure",
 		"verify",
+		"lint",
 		"metrics",
 		"harness",
 		"checkpoint",

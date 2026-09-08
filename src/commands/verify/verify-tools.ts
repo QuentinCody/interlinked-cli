@@ -11,6 +11,7 @@
 // available-tool fast path and the parallel-with-spinner path both live here.
 
 import { join } from "node:path";
+import { TYPED_ESLINT_PROFILE } from "../../lib/lint-import/builtin-profiles.js";
 
 import type { CheckEngine, CheckResult } from "../../harness/check-engine/index.js";
 import { loadFileSuppressions } from "../../harness/suppressions.js";
@@ -96,8 +97,8 @@ export const TOOLS_TO_RUN: readonly ToolSpec[] = [
 		passLabel: "no type-proven inert code",
 		noun: "type-proven inert constructs",
 		severity: "33",
-		cmd: ["npx", "eslint", "--config", "eslint.interlinked-types.config.mjs", "--format", "json", "."],
-		timeoutMs: 300_000,
+		cmd: ["npx", TYPED_ESLINT_PROFILE.tool, "--config", TYPED_ESLINT_PROFILE.config, "--format", "json", TYPED_ESLINT_PROFILE.scope],
+		timeoutMs: TYPED_ESLINT_PROFILE.timeoutMs,
 	},
 	{
 		id: "tsc",

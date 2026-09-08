@@ -117,6 +117,58 @@ Run verify to see **pre-existing** findings in a file you're about to touch (the
 hides those as warnings).
 
 ## Check families & phases
+
+### Adopt existing project linters
+
+`interlinked lint scan [directory] --json` inventories recognized lint configs,
+manifest sections, declaration/selector candidates, ignores, scripts/aliases and task/CI evidence
+across nested packages. `lint import` previews which sources can become imported
+checks and which need review; `lint import --write --baseline` applies supported
+scopes, enables `quality_checks.lint_import`, and measures existing debt.
+Preview never executes configuration; the baseline run invokes installed analyzers.
+
+The 22 native adapters cover ESLint, Biome, Oxlint, Ruff, Clippy, golangci-lint,
+SwiftLint, RuboCop, Stylelint, mypy, Pylint, Flake8, Standard Ruby, ShellCheck,
+Hadolint, actionlint, PHPCS, PHPStan, Psalm, SQLFluff, Semgrep and Prettier.
+Other analyzers can use reviewed SARIF stdout declarations in
+`.interlinked/lint-adapters.json` (schema/example in `docs/lint-adoption.md`).
+Unsupported flags, shell setup and dynamic invocations remain explicit
+review items. Rules retain their original analyzer semantics and IDs; static
+discovery does not resolve every dynamic preset or replace arbitrary rules with
+native guards. See `docs/lint-adoption.md` for recognition and execution boundaries.
+
+Oxlint adoption runs the installed `oxlint --format=json .`, including configured
+JS plugin rules. Warnings from exit 0 remain findings; parse failures, invalid
+reports and zero measured files produce no verdict. `.eslintignore` is tracked.
+Select named ESLint files with repeatable `lint import --eslint-config <file>`;
+add `--write --baseline` to apply and measure. Files are relative to the command
+target, inspected as text in preview, and passed through ESLint's `--config`.
+`--eslint-scope <directory>` sets the working directory/`.` lint target for those
+selections (default: project root, not config directory). It requires a selector.
+Named `eslint.<name>.config.*` profiles are automatic audit candidates; inspect their
+inferred package scope. General repeatable `--config tool=file` and optional `--scope`
+select arbitrary configs for any adapter supporting an explicit config flag.
+`--cadence hook|audit` sets cadence for all profiles in the import plan.
+Each config/scope/target/flag profile has its own
+ratchet identity; re-import retains selected profiles without repeating flags.
+
+PostToolUse and ordinary `verify` run hook profiles; `verify --all-checks` and
+`lint check` run all profiles. Saved cadence survives re-import. Named/type/build-heavy
+and CI profiles initially use audit cadence. Imported checks run asynchronously; hook findings
+warn, never become automatic `pre_block` errors. `lint check` is the explicit
+gate: exit 0 = complete/no new debt, 1 = new debt, 2 = incomplete/no verdict.
+`lint check --update-baseline` seeds new scopes and tightens existing allowances.
+Ordinary complete checks also retire resolved debt; incomplete runs never do.
+Config drift requires review with `lint import`, then `--write`. The default
+batch budget is 30000 ms (`--timeout`, maximum 300000 ms, on lint commands).
+
+Literal config/plugin imports and package/lock context are fingerprinted. Discovery
+does not execute config or expand arbitrary environment/matrix/build expressions.
+YAML task parsing needs the optional `yaml` package; unavailable/invalid YAML remains
+review evidence. Follow the supply-chain skill if adding the parser is blocked;
+do not silently approve a dependency. An inventory marked complete can still have
+unadopted review items. Never describe it as universal effective-rule coverage.
+
 Two catalogs, both surfaced by verify + PostToolUse: the **tool wrappers** (`typescript`,
 `biome_lint`, `eslint`, `semgrep`, `gitleaks`, `dependency_audit`, `secrets_in_source`,
 `affected_tests`, per-language tools…) and the **inline families** in

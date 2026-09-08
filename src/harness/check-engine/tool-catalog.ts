@@ -20,6 +20,7 @@
 // extension (lizard) is placed after the per-language compilers.
 
 import { runActionlint, runActionlintAsync } from "./tool-runners/actionlint.js";
+import { TYPED_ESLINT_PROFILE } from "../../lib/lint-import/builtin-profiles.js";
 import { runBiome, runBiomeAsync } from "./tool-runners/biome.js";
 import { runCCompile, runClangTidy } from "./tool-runners/c-cpp.js";
 import {
@@ -37,6 +38,7 @@ import {
 import { runGoBuild, runGolangciLint } from "./tool-runners/go.js";
 import { runHadolint, runHadolintAsync } from "./tool-runners/hadolint.js";
 import { runLizard, runLizardAsync } from "./tool-runners/lizard.js";
+import { runImportedLint, runImportedLintAsync } from "./tool-runners/lint-import.js";
 import {
 	runMypy,
 	runMypyAsync,
@@ -90,6 +92,17 @@ const JS_TS_EXTS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 const C_EXTS = [".c", ".cpp", ".cc", ".cxx", ".h", ".hpp", ".hxx"];
 
 export const TOOL_CATALOG: ToolCatalogEntry[] = [
+	{
+		id: "lint-import",
+		configNames: ["lint_import"],
+		runner: runImportedLint,
+		runnerAsync: runImportedLintAsync,
+		concurrencySafe: false,
+		versionCmd: [process.execPath, "--version"],
+		versionRegex: /v?(\d+\.\d+\.\d+)/,
+		configFiles: [".interlinked/lint-import.json"],
+		requiresConfig: true,
+	},
 	// --- TypeScript / JavaScript ---
 	{
 		id: "tsc",
@@ -380,7 +393,7 @@ export const TOOL_CATALOG: ToolCatalogEntry[] = [
 		id: "tseslint-types",
 		versionCmd: ["npx", "eslint", "--version"],
 		versionRegex: /v?(\d+\.\d+\.\d+)/,
-		configFiles: ["eslint.interlinked-types.config.mjs"],
+		configFiles: [TYPED_ESLINT_PROFILE.config],
 		requiresConfig: true,
 	},
 	{

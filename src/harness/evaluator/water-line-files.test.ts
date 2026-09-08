@@ -28,6 +28,7 @@ describe("WATER_LINE_FILES — the canonical guard set", () => {
 			"skipped-tests-baseline",
 			"check-evidence-baseline",
 			"function-complexity-baseline",
+			"lint-baseline",
 		]);
 	});
 

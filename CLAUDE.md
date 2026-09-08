@@ -325,7 +325,7 @@ duplicated policy numbers drift, which is a class this repo's own
 | `src/harness/session-state.ts` | Per-session trajectory tracking |
 | `src/harness/cohort.ts` | Agent cohort manager |
 | `src/harness/reservations.ts` | Auto file reservation with optimistic locking |
-| `src/harness/quality-checks.ts` | PostToolUse: <!-- gen:quality_check_count -->33<!-- /gen:quality_check_count --> checks across 8+ languages (tsc, biome, cargo, rustfmt, mypy, ruff, etc.) |
+| `src/harness/quality-checks.ts` | PostToolUse: <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> checks across 8+ languages (tsc, biome, cargo, rustfmt, mypy, ruff, etc.) |
 | `src/harness/server-bridge.ts` | Server coordination: reservation sync, guard event reporting |
 | `src/harness/trigram-index.ts` | Trigram search index: build, query, serialize, dirty layer |
 | `src/harness/regex-trigrams.ts` | Regex → trigram decomposition, rg command parsing |
@@ -578,7 +578,7 @@ sit at 54% (20/37), so backfill those first. Re-derive these numbers with
 | File | Contents |
 |------|----------|
 | `docs/generated/guard-rules.md` | All <!-- gen:builtin_rule_count -->121<!-- /gen:builtin_rule_count --> built-in guard rules by category |
-| `docs/generated/quality-checks.md` | All <!-- gen:quality_check_count -->33<!-- /gen:quality_check_count --> PostToolUse quality checks |
+| `docs/generated/quality-checks.md` | All <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> PostToolUse quality checks |
 | `docs/generated/structural-checks.md` | All <!-- gen:structural_check_count -->26<!-- /gen:structural_check_count --> structural checks by tier |
 | `docs/generated/configuration.md` | Default config: diff-aware filtering + structural check settings |
 

@@ -331,7 +331,7 @@ The rules are loaded at harness startup and hot-reloaded when files change. Buil
 | `cli/src/harness/session-state.ts` | Per-session trajectory tracking (files, commands, tool counts) |
 | `cli/src/harness/cohort.ts` | Agent cohort manager (join/leave/lost detection, file tracking) |
 | `cli/src/harness/reservations.ts` | Auto file reservation (optimistic lock, 30s release, server sync) |
-| `cli/src/harness/quality-checks.ts` | PostToolUse runners: <!-- gen:quality_check_count -->33<!-- /gen:quality_check_count --> checks across 8+ languages |
+| `cli/src/harness/quality-checks.ts` | PostToolUse runners: <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> checks across 8+ languages |
 | `cli/src/harness/server-bridge.ts` | Server coordination: reservation sync, guard event reporting |
 | `cli/src/harness/trigram-index.ts` | Trigram search index: build, query, serialize, dirty layer, incremental git update |
 | `cli/src/harness/regex-trigrams.ts` | Regex → trigram decomposition, ripgrep command parsing, shell tokenizer |
@@ -368,7 +368,7 @@ The rules are loaded at harness startup and hot-reloaded when files change. Buil
 | File | Contents |
 |------|----------|
 | `cli/docs/generated/guard-rules.md` | All <!-- gen:builtin_rule_count -->121<!-- /gen:builtin_rule_count --> built-in guard rules by category |
-| `cli/docs/generated/quality-checks.md` | All <!-- gen:quality_check_count -->33<!-- /gen:quality_check_count --> PostToolUse quality checks |
+| `cli/docs/generated/quality-checks.md` | All <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> PostToolUse quality checks |
 | `cli/docs/generated/structural-checks.md` | All <!-- gen:structural_check_count -->26<!-- /gen:structural_check_count --> structural checks by tier |
 | `cli/docs/generated/configuration.md` | Default config: diff-aware filtering + structural check settings |
 
@@ -517,7 +517,7 @@ or removing a rule).
 | Edit old_string verification | Block | `old_string` not found in file (edit will fail, saves a wasted tool call) |
 | Oversized file read | Warn | Files >10MB (context consumption risk) |
 
-### Code Quality (PostToolUse) — <!-- gen:quality_check_count -->33<!-- /gen:quality_check_count --> checks
+### Code Quality (PostToolUse) — <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> checks
 
 > **Full reference:** See `docs/generated/quality-checks.md` (auto-generated).
 
@@ -612,7 +612,7 @@ Quality checks, structural checks, and diff-aware filtering are all configurable
 See `docs/generated/configuration.md` for the full default configuration reference.
 
 **Key configuration sections:**
-- `quality_checks` — enable/disable each of the <!-- gen:quality_check_count -->33<!-- /gen:quality_check_count --> PostToolUse checks
+- `quality_checks` — enable/disable each of the <!-- gen:quality_check_count -->34<!-- /gen:quality_check_count --> PostToolUse checks
 - `structural_checks` — enable/disable each of the <!-- gen:structural_check_count -->26<!-- /gen:structural_check_count --> structural checks + thresholds
 - `diff_aware` — control which checks suppress pre-existing findings
 - `error_memory` — error pattern history with optional embeddings support

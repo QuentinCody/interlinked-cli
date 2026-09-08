@@ -5,6 +5,13 @@ import type { CheckMeta } from "./types.js";
 
 /** Public API — consumed by doc generation and re-exported from check-metadata.ts. */
 export const QUALITY_CHECK_META: Record<string, CheckMeta> = {
+	lint_import: {
+		name: "Imported Lint",
+		description: "Original project linters scheduled after edits with a tighten-only finding baseline",
+		tier: 1,
+		determinism: "partially_deterministic",
+		externality: "local_write",
+	},
 	typescript: {
 		name: "TypeScript",
 		description: "TypeScript type checking after file edits",

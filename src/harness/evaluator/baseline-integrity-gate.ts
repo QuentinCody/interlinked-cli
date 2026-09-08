@@ -21,7 +21,8 @@ import type { HarnessDecision, HarnessEvent } from "../types.js";
 import { reconstructProposedBaseline } from "./baseline-integrity-proposal.js";
 import { readDiskContent, safeJsonParse } from "./config-loosening-gate.js";
 import { detectFunctionComplexityBaseline, detectSiblingBaseline, isSiblingBaselinePath, ledgerCreationBlock } from "./function-complexity-baseline-gate.js";
-import { type WaterLineStem, waterLineStem } from "./water-line-files.js";
+import { type BaselineKind, baselineKind } from "./baseline-kind.js";
+import { detectLintBaselineGaming } from "./lint-baseline-integrity.js";
 
 export interface BaselineGamingFinding {
 	file: string;
@@ -29,38 +30,6 @@ export interface BaselineGamingFinding {
 	before: unknown;
 	after: unknown;
 	message: string;
-}
-
-type BaselineKind =
-	| "coverage"
-	| "coverage-edit"
-	| "mutation"
-	| "large-files"
-	| "untested-files"
-	| "metric-caps"
-	| "mutation-manifest"
-	| "skipped-tests"
-	| "check-evidence"
-	| "function-complexity";
-
-/** Keyed by WaterLineStem: a new water-line unhandled here is a compile error. */
-const KIND_MAP: Record<WaterLineStem, BaselineKind> = {
-	"coverage-baseline": "coverage",
-	"coverage-edit-baseline": "coverage-edit",
-	"mutation-baseline": "mutation",
-	"large-files-baseline": "large-files",
-	"untested-files-baseline": "untested-files",
-	"metric-caps": "metric-caps",
-	"mutation-manifest": "mutation-manifest",
-	"skipped-tests-baseline": "skipped-tests",
-	"check-evidence-baseline": "check-evidence",
-	"function-complexity-baseline": "function-complexity",
-};
-
-function baselineKind(filePath: string): BaselineKind | null {
-	const stem = waterLineStem(filePath);
-	// KIND_MAP is exhaustive over WaterLineStem (compile-time enforced), so a resolved stem always maps.
-	return stem ? KIND_MAP[stem] : null;
 }
 
 function isNum(v: unknown): v is number {
@@ -178,6 +147,7 @@ function detectCoverageEdit(
 	return out;
 }
 
+// interlinked: defer code_clones -- These existing cap detectors retain distinct policy messages; lint adoption only adds a separate detector.
 function detectLargeFiles(file: string, before: unknown, after: unknown): BaselineGamingFinding[] {
 	const out: BaselineGamingFinding[] = [];
 	const b = asObj(before);
@@ -411,6 +381,21 @@ export function detectBaselineGaming(
 	const after = safeJsonParse(afterText);
 	if (before === null || after === null) return [];
 	const exists = sourceExists ?? makeDefaultSourceExists(filePath);
+	return compareBaseline({ kind, filePath, beforeText, afterText, before, after, exists });
+}
+
+interface BaselineComparison {
+    kind: BaselineKind;
+    filePath: string;
+    beforeText: string;
+    afterText: string;
+    before: unknown;
+    after: unknown;
+    exists: (rel: string) => boolean;
+}
+
+function compareBaseline(input: BaselineComparison): BaselineGamingFinding[] {
+    const { kind, filePath, beforeText, afterText, before, after, exists } = input;
 	switch (kind) {
 		case "coverage":
 			return detectRisingMetricMap(filePath, asObj(asObj(before).files), asObj(asObj(after).files), ["lines_pct", "branches_pct"], "coverage", exists);
@@ -432,6 +417,8 @@ export function detectBaselineGaming(
 			return detectCheckEvidence(filePath, before, after);
 		case "function-complexity":
 			return detectFunctionComplexityBaseline(filePath, beforeText, afterText);
+		case "lint":
+			return detectLintBaselineGaming(filePath, before, after);
 	}
 }
 

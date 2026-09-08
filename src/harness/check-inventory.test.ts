@@ -22,7 +22,7 @@ const EXPECTED_BY_FAMILY: Record<string, number> = {
 	inline: 287, // Includes fourteen advisory test-discrimination and isolation checks.
 	sequence: 23,
 	structural: 26, // +new_import_cycle (Plan 25 lane 5, "Cycle-delta check" — built concurrently by another lane of the same refactor-readiness program; this pin was simply stale, not authored here), 2026-08-17; prior: 25.
-	tool_quality: 33,
+	tool_quality: 34, // Includes the lint-import tool check.
 	suggestion: 29,
 	behavioral: 11, // +assertion_count_regression, +assertion_value_swap (test-oracle integrity, 2026-07-09)
 	spec_ledger: 5, // cross-file ledger kinds emitting source "spec" (deep-round #10, 2026-07-16)

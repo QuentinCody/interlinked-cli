@@ -41,6 +41,14 @@ const SOFTWARE_REFERENCE_FILE_TYPES = [
  * the catalog without the full GuardRulesConfig shape.
  */
 export const DEFAULT_QUALITY_CHECKS: Record<string, QualityCheckConfig> = {
+	lint_import: {
+		enabled: false,
+		command: "interlinked lint check",
+		file_types: [""],
+		timeout_ms: 30_000,
+		severity: "warning",
+		description: "Imported project lint rules with existing-debt comparison; enabled by lint import --write",
+	},
 	typescript: {
 		enabled: true,
 		command:

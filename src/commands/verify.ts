@@ -76,6 +76,7 @@ import {
 	summarizeFlaggedFiles,
 } from "./verify/verify-summary.js";
 import { streamExternalTools } from "./verify/verify-tools.js";
+import { streamImportedLint } from "./verify/lint-import.js";
 
 // Re-export for consumers (tests + external scripts that imported these
 // names historically from this file). These names are load-bearing — the
@@ -340,6 +341,7 @@ async function runVerifyWithHeavyProcessLease(cwd: string, opts: VerifyOpts): Pr
 	});
 
 	streamSupermodelDeadCode(cwd, opts, allFlaggedFiles);
+	await streamImportedLint({ cwd, opts, skipChecks, allFlaggedFiles });
 
 	if (opts.suggestions) {
 		streamSuggestionsSummary(files, cwd);
@@ -420,7 +422,7 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 	const skipTools = [...new Set([...onlySkipTools, ...getSkipTools(skipChecks)])];
 	setActiveSkipChecks(skipChecks);
 
-	const report = await engine.runChecksAsync(scope, {
+	const report = await engine.runChecksAsync({ ...scope, lintCadence: opts.allChecks ? "all" : "hook" }, {
 		timeoutMs: CHECK_ENGINE_TIMEOUT_MS,
 		skipTools,
 		admissionAlreadyHeld: true,
@@ -434,8 +436,9 @@ async function runVerifyBatchJson({ engine, files, cwd, opts, scope }: VerifyBat
 	const eslintResults = byTool("eslint");
 	const semgrepResults = byTool("semgrep");
 	const gitleaksResults = byTool("gitleaks");
-	const linterResults = [...biomeResults, ...eslintResults];
-	const linterName = eslintResults.length > 0 ? "eslint" : "biome";
+	const linterResults = [...biomeResults, ...eslintResults, ...byTool("lint-import")];
+	let linterName = eslintResults.length > 0 ? "eslint" : "biome";
+    if (report.toolsRun.some((tool) => tool.id === "lint-import")) linterName = "lint";
 	const auditResult = opts.only && opts.only !== "sca" ? null : engine.runDepAudit();
 	const cq = opts.only
 		? emptyResults()

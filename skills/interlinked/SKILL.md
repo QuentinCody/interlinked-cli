@@ -37,6 +37,7 @@ Everything is per-`cwd` under `<repo>/.interlinked/`. Key files:
 | `config.local.json` | gitignored | token, agent name, workspace, sync mode |
 | `guard-rules.json` / `.local.json` | team / local | guard rules, file reminders, per-edit coverage/mutation policy |
 | `check-policy.json` / `.local.json` | team / local | report-ratchet settings, including the mutation-score floor |
+| `lint-import.json`, `lint-baseline.json` | team | imported analyzer scopes/configuration digests and tighten-only existing-debt allowances |
 | `package-allowlist.json` | committed | approved dependencies (default-deny installs) |
 | `verify-suppressions.json` | committed | file/glob check suppressions |
 | `*-baseline.json`, `metric-caps.json` | mixed | ratchet water-lines (coverage/mutation/line-cap/caps); the daemon folds session evidence into three of them at SessionEnd, tighten-only — see **interlinked-quality-gates** |

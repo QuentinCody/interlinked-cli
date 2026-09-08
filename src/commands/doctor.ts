@@ -9,6 +9,7 @@ import { getConfigDir, resolveConfig } from "../lib/config.js";
 import { c, divider, header } from "../lib/formatter.js";
 import { getOutputMode, output } from "../lib/output.js";
 import { adoptionArtifactChecks } from "./adopt.js";
+import { lintAdoptionChecks } from "./doctor-lint.js";
 import { resolve } from "node:path";
 import { resolveHookBinaryPath } from "../lib/hooks.js";
 import { captureChecks } from "./doctor-data.js";
@@ -243,6 +244,7 @@ export async function doctorCommand(opts: { fix?: boolean; json?: boolean }): Pr
 	// verify screams on legacy repos and the ratchets are inert; the fix is
 	// one command: `interlinked adopt`.
 	results.push(...adoptionArtifactChecks(cwd));
+	results.push(...lintAdoptionChecks(cwd));
 
 	// ===========================================
 	// Server Checks (need auth)

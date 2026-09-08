@@ -7,6 +7,7 @@ export type ToolId =
 	| "tsc"
 	| "biome"
 	| "eslint"
+	| "lint-import"
 	| "tseslint-types"
 	| "semgrep"
 	| "gitleaks"
@@ -58,6 +59,8 @@ export interface CheckScope {
 	targetFile?: string;
 	/** When mode="file", filter project-wide tool output to only this file's results. */
 	filterToFile?: boolean;
+	/** Imported audit profiles run only when explicitly requested by a verification caller. */
+	lintCadence?: "hook" | "audit" | "all";
 }
 
 /** Controls HOW checks run. */

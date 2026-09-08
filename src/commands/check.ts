@@ -303,6 +303,7 @@ const ALL_TOOL_IDS = [
 	"swift-build",
 	"lizard",
 	"docs-check",
+	"lint-import",
 ] as const satisfies readonly ToolId[];
 
 // Compile-time drift guard: `--only <tool>` must accept EVERY engine ToolId.
