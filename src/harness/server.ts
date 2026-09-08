@@ -240,6 +240,7 @@ function resetIdleTimer(): void {
 	if (!IDLE_TIMEOUT_MS) return; // 0 = disabled
 	if (idleTimer) clearTimeout(idleTimer);
 	idleTimer = setTimeout(() => {
+		if (serverRuntime.hookCoverage?.verification?.isRunning()) { resetIdleTimer(); return; }
 		logAlways(`Shutting down after ${IDLE_TIMEOUT_MS / MS_PER_MINUTE}min idle`);
 		shutdownWith("idle-timeout");
 	}, IDLE_TIMEOUT_MS);
@@ -248,7 +249,6 @@ function resetIdleTimer(): void {
 // Sponsor-runtime activity signal: stamped on every event-loop dispatch (the
 // event loop already calls the idle-timer reset per event), so sponsor
 // rotation-impressions only count windows with real hook traffic.
-		if (serverRuntime.hookCoverage?.verification?.isRunning()) { resetIdleTimer(); return; }
 let lastHookEventAtMs = 0;
 function noteActivityAndResetIdleTimer(): void {
 	lastHookEventAtMs = Date.now();

@@ -965,6 +965,19 @@ describe("startSessionDaemon", () => {
 				session_id: "idle-boundary",
 				idle_shutdown_ms: 100,
 				state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
+
+			});
+
+			await vi.advanceTimersByTimeAsync(99);
+			expect(existsSync(paths.pid)).toBe(true);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(existsSync(paths.pid)).toBe(false);
+			daemon = null;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("keeps the listener available for background work, then resumes idle shutdown", async () => {
 		vi.useFakeTimers();
 		try {
@@ -983,18 +996,6 @@ describe("startSessionDaemon", () => {
 			working = false;
 			await vi.advanceTimersByTimeAsync(100);
 			expect(existsSync(paths.socket)).toBe(false);
-			expect(existsSync(paths.pid)).toBe(false);
-			daemon = null;
-		} finally {
-			vi.useRealTimers();
-		}
-	});
-
-			});
-
-			await vi.advanceTimersByTimeAsync(99);
-			expect(existsSync(paths.pid)).toBe(true);
-			await vi.advanceTimersByTimeAsync(1);
 			expect(existsSync(paths.pid)).toBe(false);
 			daemon = null;
 		} finally {
