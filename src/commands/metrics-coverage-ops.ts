@@ -29,7 +29,7 @@ export async function metricsCoverageCommand(kind: "warm" | "status", options: M
         const root = options.cwd ?? process.cwd(), timeout = Number(options.timeout ?? 60_000);
         if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 3_600_000) throw new Error("Timeout must be 1–3600000 ms");
         if (kind === "status") {
-            const result = coverageIndexStatus(coverageIndexContext(collectRepositoryInventory(root)));
+            const result = await coverageIndexStatus(await coverageIndexContext(collectRepositoryInventory(root), new Map(), { deadline: Date.now() + timeout }));
             output(getOutputMode(options), result, { normal: () => [`Coverage index: ${result.valid ? "current" : "unavailable or stale"}; ${result.shards} test shards`, ...result.reasons].join("\n"), short: () => `valid=${result.valid}; shards=${result.shards}` });
             return;
         }

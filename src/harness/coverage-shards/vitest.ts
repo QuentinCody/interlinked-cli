@@ -45,6 +45,8 @@ import {
 export { istanbulToElementSets } from "./vitest-istanbul.js";
 
 import { canonicalPath, isRecord, istanbulToElementSets } from "./vitest-istanbul.js";
+import { coverageIndexSpawn } from "./discovery.js";
+import { indexedVitestCommand } from "./index-command.js";
 
 /** Filename of the loud non-authoritative marker inside a capture directory. */
 const CAPTURE_DEGRADED_FILENAME = "capture-degraded.json";
@@ -258,6 +260,8 @@ interface CaptureVitestShardsOpts {
 	timeoutMs?: number;
 	/** Injectable spawn for tests; omit for the real async spawn. */
 	spawn?: SpawnFn;
+	/** Indexed capture freezes the effective environment and routes Vite caches to captureDir. */
+	environment?: NodeJS.ProcessEnv;
 	/** Injectable coverage-v8 resolver for tests; omit for the real `resolveCoverageV8Url`. */
 	resolveV8Url?: (projectRoot: string) => string | null;
 }
@@ -280,6 +284,7 @@ interface VitestShardCaptureResult {
 	shards: CapturedShard[];
 	/** Why capture is NON-AUTHORITATIVE (degraded marker / no records), or null when clean. */
 	degraded: string | null;
+	argv?: string[];
 }
 
 /**
@@ -387,12 +392,12 @@ export async function captureVitestShards(
 	const providerPath = join(opts.captureDir, "capture-provider.mjs");
 	writeFileSync(providerPath, captureProviderSource(v8Url, shardsDir), "utf-8");
 
-	const testCommand = [
+	const testCommand = opts.environment ? indexedVitestCommand(opts.projectRoot, opts.captureDir, opts.selectedTests) : [
 		...defaultJsTestCommand(coverageDir, opts.selectedTests),
 		"--coverage.provider=custom",
 		`--coverage.customProviderModule=${providerPath}`,
 	];
-	const runner = new JsCoverageRunner(opts.spawn);
+	const runner = new JsCoverageRunner(opts.environment ? coverageIndexSpawn(opts.environment) : opts.spawn);
 	const runResult = await runner.run({
 		projectRoot: opts.projectRoot,
 		coverageDir,
@@ -402,7 +407,7 @@ export async function captureVitestShards(
 
 	const { shards, degraded } = readCapturedShards(shardsDir, opts.projectRoot);
 	if (runResult.ok && shards.length === 0 && degraded === null) {
-		return { runResult, shards, degraded: "run succeeded but no shard records were captured" };
+		return { runResult, shards, degraded: "run succeeded but no shard records were captured", argv: testCommand };
 	}
-	return { runResult, shards, degraded };
+	return { runResult, shards, degraded, argv: testCommand };
 }

@@ -181,11 +181,13 @@ export type CreateCoverageOverlayFn = (
  *  the linked/skipped triad, plus generated output under either policy
  *  (root-only names apply here; any-depth names apply here too). */
 function isSkippedTopLevelEntry(entry: string): boolean {
-	return (
-		SKIP_ENTRIES.has(entry) ||
-		GENERATED_ROOT_ONLY_DIRS.has(entry) ||
-		GENERATED_ANY_DEPTH_DIRS.has(entry)
-	);
+	return entry === "node_modules" || skipsCoverageOverlayEntry(entry, 0);
+}
+
+/** Mirror selection shared with runtime verification; dependencies are linked inputs. */
+export function skipsCoverageOverlayEntry(name: string, depth: number): boolean {
+	return GENERATED_ANY_DEPTH_DIRS.has(name) || (depth === 0 &&
+		((SKIP_ENTRIES.has(name) && name !== "node_modules") || GENERATED_ROOT_ONLY_DIRS.has(name)));
 }
 
 /**
@@ -205,7 +207,7 @@ function makeMirrorFilter(
 			nestedNodeModules.push([src, dst]);
 			return false;
 		}
-		return !GENERATED_ANY_DEPTH_DIRS.has(base);
+		return !skipsCoverageOverlayEntry(base, 1);
 	};
 }
 

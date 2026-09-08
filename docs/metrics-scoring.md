@@ -212,11 +212,17 @@ interlinked metrics gates --json
 
 A full Vitest warm run measures an isolated overlay, checks full-report parity,
 and records per-test-file contributions. Its scoring receipt is inconclusive
-because warming does not verify complete runtime/dependency/environment provenance;
+because the index's overlay input identity differs from scoring receipt provenance;
 use `metrics evidence run` for local composite scoring evidence. Incremental runs
 replace affected contributions, retain unchanged ones and preserve zero-hit
 denominators. Source, test, configuration, dependency, discovery, import-graph,
-runner and environment changes invalidate the appropriate evidence.
+runner and environment changes invalidate the appropriate evidence. Vitest's native
+discovery supplies the executable test universe; helpers, resolved setup/global-setup
+files and configuration dependencies remain inputs. Their static import closure
+invalidates every shard, including files with product-like names. Streamed snapshots cover the actual overlay policy, including
+Git-ignored inputs and linked dependency bytes. They are checked before and after
+execution, including reuse with no selected tests; unreadable, unstable or
+over-budget snapshots cannot authorize reuse.
 Opaque dependencies broaden selection conservatively. Multi-project or ambiguous
 capture and incomplete exact locations may prevent reuse; status explains why.
 
@@ -231,7 +237,8 @@ ratchet reach is not current test coverage. A disabled gate measures nothing.
 The local development checkout remains explicitly disabled pending an acceptable
 full-suite warm run; the controlled benchmark does not justify silently enabling it.
 Its eight-file fixture measured a median 668 ms incremental versus 1,997 ms full
-run, rerunning one test file while retaining all eight files' coverage.
+run, rerunning one test file while retaining all eight files' coverage. Those
+timings predate runtime-byte revalidation and do not estimate current latency.
 
 ## Deletion trials
 

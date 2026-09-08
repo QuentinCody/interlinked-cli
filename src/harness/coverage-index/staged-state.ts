@@ -8,6 +8,7 @@ import { dependencyHashes, type CoverageIndexContext } from "./context.js";
 import type { StrictCapturedShard } from "./captured-elements.js";
 import type { CoverageIndexManifest, ShardCoverageContribution, ShardManifestEntry } from "./types.js";
 import { coverageSignature } from "./strict-elements.js";
+import { verifyOriginalRuntime } from "./runtime-context.js";
 
 export function indexStore(root: string): string { return storeDirFor(root, "vitest-exact-v1"); }
 export function readContributions(root: string, manifest: CoverageIndexManifest): Map<string, ShardCoverageContribution> {
@@ -20,9 +21,10 @@ export function readContributions(root: string, manifest: CoverageIndexManifest)
     return result;
 }
 /** Lazy reconciliation only accepts a proposal whose complete input fingerprint is now on disk. */
-export function promoteMatchingProposal(context: CoverageIndexContext): boolean {
+export async function promoteMatchingProposal(context: CoverageIndexContext): Promise<boolean> {
     const actual = hashBytes(JSON.stringify(evidenceIdentity(collectRepositoryInventory(context.inventory.root))));
-    if (actual !== context.fingerprint) return false;
+    if (actual !== context.sourceFingerprint) return false;
+    await verifyOriginalRuntime(context.inventory.root, context.runtime);
     const directory = indexStore(context.inventory.root), pending = join(directory, "pending");
     if (!existsSync(pending)) return false;
     const proposals = readdirSync(pending).filter(path => /^[a-f0-9]{64}$/.test(path)).slice(-100);

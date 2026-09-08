@@ -783,14 +783,25 @@ report with no report-covered paths in scope (for example, excluded test-only
 changes) explicitly states that no coverage pass was certified.
 
 `metrics coverage warm --timeout <ms>` runs full Vitest coverage in an overlay and
-initializes an exact per-test-file contribution index. Its scoring receipt is
-explicitly inconclusive: this overlay path does not yet verify the complete
-runtime/dependency/environment provenance required for local composite scoring.
+initializes an exact per-test-file contribution index. Its scoring receipt remains
+explicitly inconclusive: index validation uses its own overlay input policy, not
+the workspace identity required by local composite scoring receipts.
 Use `metrics evidence run` to obtain that scoring evidence. Warming and index
 operations remain available; warming alone does not certify a composite score.
 Affected tests replace their previous contribution; untouched shards and zero-hit
 denominators remain. Input/configuration/dependency/discovery/runner/environment
-changes invalidate reuse. Dynamic dependencies widen selection. Unsupported,
+changes invalidate reuse. A bounded child process uses Vitest's native discovery
+to identify executable test files. Both warm and status load the project's Vitest
+configuration in that child; status does not execute tests. Helpers, resolved setup
+and global-setup files, and configuration dependencies remain invalidating inputs
+without being counted as executable shards. Their static import closure is global
+support even when filenames otherwise look like product code. Streamed snapshots bind the
+actual overlay inputs, including Git-ignored files and linked dependency bytes,
+before and after execution. They require a project-root `node_modules` directory
+(a verified dependency mount may be linked), allow at most 200,000 entries and
+4 GiB per snapshot, and share the command deadline. Vite's bundle directory is
+initialized before capture; existing cache contents remain hashed. Unreadable,
+unstable or over-budget inputs prevent an authoritative index verdict. Dynamic dependencies widen selection. Unsupported,
 multi-project, incomplete-location or ambiguous capture degrades visibly.
 A staged generation promotes only after its exact source is on disk. Corruption
 prevents reuse; identical-input coverage churn quarantines it until three full

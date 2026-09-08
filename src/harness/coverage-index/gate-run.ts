@@ -15,11 +15,11 @@ export function hasCoverageIndex(root: string, language: string): boolean {
 export async function runCoverageForGate(ctx: GateContext, runner: CoverageRunner, options: CoverageRunOpts): Promise<GateCoverageRun> {
     if (!hasCoverageIndex(ctx.projectRoot, ctx.language)) return { result: await runner.run(options), fullUniverse: options.selectedTests === undefined, selectedTests: options.selectedTests };
     try {
-        const inventory = collectRepositoryInventory(ctx.projectRoot);
-        promoteMatchingProposal(coverageIndexContext(inventory));
+        const deadline = Date.now() + ctx.budgetMs, inventory = collectRepositoryInventory(ctx.projectRoot);
+        await promoteMatchingProposal(await coverageIndexContext(inventory, new Map(), { deadline }));
         const changes = new Map((ctx.overlayFiles ?? []).map(file => [file.relPath, file.delete ? null : file.content]));
         changes.set(ctx.relPath, ctx.proposed);
-        const context = coverageIndexContext(inventoryWithOverrides(inventory, changes), changes);
+        const context = await coverageIndexContext(inventoryWithOverrides(inventory, changes), changes, { workspace: options.projectRoot, deadline });
         const measured = await runIndexedCoverage({ context, workspace: options.projectRoot, timeoutMs: ctx.budgetMs });
         if (!measured.indexed) return { result: { ...measured.result, ok: false, error: `Incremental coverage unmeasured: ${measured.reason}` }, fullUniverse: false, selectedTests: measured.selectedTests };
         return { result: measured.result, fullUniverse: true, selectedTests: measured.selectedTests };
