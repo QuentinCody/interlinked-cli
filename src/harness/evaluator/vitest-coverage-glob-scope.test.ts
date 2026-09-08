@@ -6,6 +6,16 @@ function config(include: string[], exclude: string[]): string {
 }
 
 describe("coverage glob scope at the config gate", () => {
+	it("compares glob scope when coverage configuration keys are quoted", () => {
+		const narrower = config(["src/**/*.ts"], []);
+		const broader = `export default ${JSON.stringify({ test: { coverage: { include: ["src/**/*.{ts,tsx}"], exclude: [] } } })};`;
+		expect(decideVitestCoverageWaterLine("vitest.config.ts", narrower, broader)).toEqual({ kind: "allow" });
+		expect(decideVitestCoverageWaterLine("vitest.config.ts", broader, narrower)).toEqual({
+			kind: "block",
+			reason: expect.stringContaining('Path example "src/coverage-file.tsx"'),
+		});
+	});
+
 	it.each([
 		{ name: "widens includes with brace alternatives", before: config(["src/**/*.ts"], []), after: config(["src/**/*.{ts,tsx}"], []) },
 		{ name: "narrows exclusions with brace alternatives", before: config(["src/**/*.ts"], ["**/*.{test,spec}.ts"]), after: config(["src/**/*.ts"], ["**/*.test.ts"]) },
