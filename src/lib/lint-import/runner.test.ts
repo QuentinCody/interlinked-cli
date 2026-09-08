@@ -96,6 +96,29 @@ describe("imported lint execution", () => {
         await expect(measureImportedLint(root, policy)).rejects.toThrow("configuration changed");
         expect(runProcessAsync).not.toHaveBeenCalled();
     });
+    it("rejects truncated stdout even when its captured prefix parses", async () => {
+        const root = project();
+        vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, stdout: "[]", stderr: "", stdoutTruncated: true, timedOut: false, killed: false });
+        const measurement = (await measureImportedLint(root, planLintImport(discoverLint(root)).policy))[0];
+        expect(measurement).toMatchObject({ status: "unavailable", findings: [], reason: "Analyzer stdout report was truncated; no verdict" });
+    });
+    it("keeps a complete stdout report when only unrelated stderr was truncated", async () => {
+        const root = project();
+        vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, stdout: "[]", stderr: "verbose logging", stderrTruncated: true, timedOut: false, killed: false });
+        const measurement = (await measureImportedLint(root, planLintImport(discoverLint(root)).policy))[0];
+        expect(measurement).toMatchObject({ status: "measured", findings: [] });
+    });
+    it.each([
+        { stdout: "", stderrTruncated: true, stream: "stderr" },
+        { stdout: " ", stdoutTruncated: true, stream: "stdout" },
+    ])("rejects Stylelint's fallback when $stream capture is incomplete", async ({ stream, ...capture }) => {
+        const root = project();
+        rmSync(join(root, "ruff.toml"));
+        writeFileSync(join(root, ".stylelintrc.json"), "{}");
+        vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, stderr: "[]", timedOut: false, killed: false, ...capture });
+        const measurement = (await measureImportedLint(root, planLintImport(discoverLint(root)).policy))[0];
+        expect(measurement).toMatchObject({ status: "unavailable", findings: [], reason: `Analyzer ${stream} report was truncated; no verdict` });
+    });
     it("requires review when a newly added configuration changes an adopted scope", async () => {
         const root = project();
         const policy = planLintImport(discoverLint(root)).policy;

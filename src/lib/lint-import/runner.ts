@@ -45,7 +45,14 @@ async function measureEntry(root: string, entry: LintImportEntry, timeoutMs: num
         if (result.timedOut || result.killed || result.code === null) throw new Error("Analyzer unavailable or timed out; no verdict");
         if (!invocation.successCodes.includes(result.code)) throw new Error(`Analyzer exited ${result.code}: ${result.stderr.slice(0, 500)}`);
         // Both a zero exit status with warnings and a nonzero lint exit must be parsed.
-        const output = entry.tool === "stylelint" && !result.stdout.trim() ? result.stderr : result.stdout;
+        const useStderr = entry.tool === "stylelint" && !result.stdout.trim();
+        // Stylelint's fallback requires complete, empty stdout: a captured
+        // whitespace prefix cannot establish that the full report was empty.
+        if (result.stdoutTruncated || (useStderr && result.stderrTruncated)) {
+            const stream = result.stdoutTruncated ? "stdout" : "stderr";
+            throw new Error(`Analyzer ${stream} report was truncated; no verdict`);
+        }
+        const output = useStderr ? result.stderr : result.stdout;
         const diagnostics = entry.report ? parseSarif(output) : parseImportedLint({ tool: entry.tool, output });
         const findings = diagnostics.map((row) => finding(root, entry, row));
         if (result.code !== 0 && findings.length === 0) throw new Error("Analyzer failed without usable diagnostics");

@@ -19,15 +19,14 @@
 //     than throwing, so runners can decide whether the missing tool is fatal.
 //
 // stdout and stderr are captured independently into UTF-8 strings, capped
-// at MAX_BUFFER_BYTES to defend against runaway output. Capping silently
-// truncates rather than rejecting — large output is usually a noisy linter,
-// not a security issue.
+// at MAX_BUFFER_BYTES to defend against runaway output. Capping
+// truncates rather than rejecting. The result identifies each truncated stream
+// so report consumers can refuse an incomplete measurement.
 
 import { type ChildProcess, spawn } from "node:child_process";
 
-/** Hard cap on per-stream capture. 10 MB is enough for any real linter
- *  output; runners that legitimately produce more should stream-process
- *  rather than buffer. */
+/** Per-stream capture threshold. Complete reports that exceed it require
+ *  streaming; bounded prefixes must not stand in for complete measurements. */
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 /** Grace period after SIGTERM before escalating to SIGKILL. */
 const SIGKILL_GRACE_MS = 1000;
@@ -50,6 +49,10 @@ export interface RunProcessOptions {
 export interface RunProcessResult {
 	stdout: string;
 	stderr: string;
+	/** True when capture discarded stdout bytes; omitted for complete output. */
+	stdoutTruncated?: boolean;
+	/** True when capture discarded stderr bytes; omitted for complete output. */
+	stderrTruncated?: boolean;
 	/** Process exit code. `null` when the process never started (ENOENT etc.)
 	 *  or was killed before it could exit. */
 	code: number | null;
@@ -80,6 +83,8 @@ class SpawnedProcessRun {
 	private stderr = "";
 	private stdoutBytes = 0;
 	private stderrBytes = 0;
+	private stdoutTruncated = false;
+	private stderrTruncated = false;
 	private timedOut = false;
 	private killed = false;
 	private settled = false;
@@ -119,13 +124,19 @@ class SpawnedProcessRun {
 	}
 
 	private captureStdout(chunk: Buffer): void {
-		if (this.stdoutBytes >= MAX_BUFFER_BYTES) return;
+		if (this.stdoutBytes >= MAX_BUFFER_BYTES) {
+			this.stdoutTruncated = true;
+			return;
+		}
 		this.stdoutBytes += chunk.length;
 		this.stdout += chunk.toString("utf-8");
 	}
 
 	private captureStderr(chunk: Buffer): void {
-		if (this.stderrBytes >= MAX_BUFFER_BYTES) return;
+		if (this.stderrBytes >= MAX_BUFFER_BYTES) {
+			this.stderrTruncated = true;
+			return;
+		}
 		this.stderrBytes += chunk.length;
 		this.stderr += chunk.toString("utf-8");
 	}
@@ -135,13 +146,16 @@ class SpawnedProcessRun {
 		this.settled = true;
 		this.clearLifecycleTimers();
 		this.opts.signal?.removeEventListener("abort", this.onAbort);
-		this.resolve({
+		const result: RunProcessResult = {
 			stdout: this.stdout,
 			stderr: this.stderr,
 			code,
 			timedOut: this.timedOut,
 			killed: this.killed,
-		});
+		};
+		if (this.stdoutTruncated) result.stdoutTruncated = true;
+		if (this.stderrTruncated) result.stderrTruncated = true;
+		this.resolve(result);
 	}
 
 	private clearLifecycleTimers(): void {

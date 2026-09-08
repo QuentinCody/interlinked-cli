@@ -38,6 +38,8 @@ describe("runProcessAsync", () => {
 		});
 		expect(r.stdout).toContain("out");
 		expect(r.stderr).toContain("err");
+		expect(r.stdoutTruncated).not.toBe(true);
+		expect(r.stderrTruncated).not.toBe(true);
 	});
 
 	it("propagates non-zero exit code", async () => {
@@ -126,6 +128,8 @@ describe("runProcessAsync", () => {
 			{ timeout: 15_000 },
 		);
 		expect(r.stdout.length).toBeLessThan(11_000_000);
+		expect(r.stdoutTruncated).toBe(true);
+		expect(r.stderrTruncated).not.toBe(true);
 		expect(r.code).toBe(0);
 	}, 20_000);
 
@@ -136,6 +140,8 @@ describe("runProcessAsync", () => {
 			{ timeout: 15_000 },
 		);
 		expect(r.stderr.length).toBeLessThan(11_000_000);
+		expect(r.stderrTruncated).toBe(true);
+		expect(r.stdoutTruncated).not.toBe(true);
 		expect(r.code).toBe(0);
 	}, 20_000);
 

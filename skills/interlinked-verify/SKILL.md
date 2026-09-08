@@ -164,6 +164,10 @@ warn, never become automatic `pre_block` errors. `lint check` is the explicit
 gate: exit 0 = complete/no new debt, 1 = new debt, 2 = incomplete/no verdict.
 `lint check --update-baseline` seeds new scopes and tightens existing allowances.
 Ordinary complete checks also retire resolved debt; incomplete runs never do.
+Analyzer report capture has a 10 MiB threshold per stream. A truncated report is
+unavailable even if its captured prefix parses; it cannot seed or retire debt.
+Stylelint's stderr fallback also requires completely captured, empty stdout.
+Truncated diagnostic logging on stderr does not invalidate a complete stdout report.
 Config drift requires review with `lint import`, then `--write`. The default
 batch budget is 30000 ms (`--timeout`, maximum 300000 ms, on lint commands).
 
