@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { basename, extname } from "node:path";
 import { wireArray, wireLiteral, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 import type { HookCoverageLedger, HookPendingCheck } from "./hook-coverage-ledger.js";
+import { isLikelyTestFile } from "./quality-checks/test-classifier.js";
 
 export interface HookCheckEvidence {
     checks: string[];
@@ -30,6 +32,10 @@ interface VerificationOwner {
 // Stay within the ordinary external batch and related-test source caps.
 const BATCH_SIZE = 8;
 
+function sourceOrder(entry: HookPendingCheck): number {
+    return isLikelyTestFile(basename(entry.path, extname(entry.path)), entry.path) ? 0 : 1;
+}
+
 /** One explicit recovery run at a time. Socket calls only start/poll the job;
  * checks yield between files and never hold a hook request open for minutes. */
 export class HookCoverageVerification {
@@ -44,7 +50,9 @@ export class HookCoverageVerification {
     start(): void {
         if (this.stopped || this.current?.status === "running") return;
         this.owner.reconcile();
-        const entries = this.owner.ledger.snapshot().pending;
+        // Related-test batches operate on source files. Group test files first
+        // so a source's deferred related suite does not hold unrelated tests.
+        const entries = this.owner.ledger.snapshot().pending.sort((a, b) => sourceOrder(a) - sourceOrder(b));
         const job: HookVerificationStatus = { id: randomUUID(), status: "running", total: entries.length, processed: 0, checked: 0, findings: 0, unmeasured: [] };
         this.current = job;
         void this.run(entries, job).catch(error => {

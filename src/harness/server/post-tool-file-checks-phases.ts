@@ -15,10 +15,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { checkAssertionDensity, runBehavioralChecks } from "../behavioral-checks.js";
 import { isInsideRoot } from "../large-file-policy.js";
+import { runQualityChecksWithCoverage } from "../hook-coverage-post-tool.js";
 import {
 	countSuppressionDirectives,
 	findProjectRoot,
-	runQualityChecks,
 } from "../quality-checks.js";
 import { createChangeSetExternalBatch } from "../quality-checks/change-set-external.js";
 import { acknowledgeChecks, isAcknowledged } from "../session-state.js";
@@ -123,7 +123,7 @@ export async function runQualityPhase(
 	const batchedExternalResults = acc.externalCheckBatch
 		? await acc.externalCheckBatch.resultsForFile(editedFilePath)
 		: [];
-	const perFileQualityResults = await runQualityChecks(checkEvent, rules.quality_checks, CWD, {
+	const perFileQualityResults = await runQualityChecksWithCoverage({ watcher: ctx.hookCoverage, event: checkEvent, checks: rules.quality_checks, cwd: CWD, options: {
 		...qualityOpts,
 		...(currentBaseline !== undefined ? { baseline: currentBaseline } : {}),
 		...(rules.diff_aware !== undefined ? { diffAware: rules.diff_aware } : {}),
@@ -147,7 +147,7 @@ export async function runQualityPhase(
 		// tooling for a foreign file. Inline content checks
 		// still run. See `editedFileInRepo` above.
 		editedFileInRepo,
-	});
+	} });
 	const rawQualityResults = [...batchedExternalResults, ...perFileQualityResults];
 	// Phase mark — runQualityChecks ran tsc/biome/inline checks.
 	// The subprocess time is captured in tool_breakdown; this

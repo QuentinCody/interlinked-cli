@@ -33,6 +33,29 @@ ratchets separately allow existing debt to hold or shrink, including debt reveal
 - You need to write a probe/analysis script and want it in the right place.
 
 ## `interlinked verify`
+For `[interlinked:hook-coverage] NOT CHECKED`, use `interlinked harness coverage verify
+--json`. This starts one daemon-owned recovery run over the pending versions and waits
+for completion; `--no-wait` returns after starting it. Poll `harness coverage status
+--json` to inspect progress. Checks reuse the configured PostToolUse battery in bounded
+external batches. This does not replay PreToolUse guards or certify every hook phase.
+
+The daemon retains `automated_check` receipts with exact file identities, completed check
+names and findings. Completed checks may have findings; a receipt is not a clean verdict.
+Ordinary single-file PostToolUse checks also consume their exact pending version when
+they complete without deferral. Multi-file batches use the explicit recovery command,
+which accounts for shared external deferrals before attributing evidence to each file.
+Unavailable checks, unreadable/excluded/absent files, and file or policy changes during
+verification stay pending. With waiting enabled, findings or remaining pending versions
+produce exit 1. Re-run after the reported capacity/tool problem is resolved. A daemon
+restart interrupts the job; recorded receipts survive and unchecked entries remain pending.
+
+Released reservations remain watched while pending, so review cannot acknowledge a stale
+historical hash. `harness coverage acknowledge <id> <generation> <identity> <evidence>`
+records an explicit manual review of the current version, including a reviewed deletion or
+optional absence. It does not manufacture automated evidence. Do not bulk-acknowledge
+unreviewed files. Checking/reviewing files never accepts protected policy; that is the
+separate `harness coverage accept-policy <digest>` operation. Writer identity stays unknown.
+
 ```
 interlinked verify [target]
   --all-checks        add the advisory smell/complexity/dead-code tier to the default gate
@@ -331,3 +354,21 @@ interlinked verify-changeset --file cs.json --json
 - **interlinked-harness** — how blocks read, suppression grammar, determinism tags.
 - **interlinked-quality-gates** — the function-token/coverage/complexity/line-cap ratchets the content gate does NOT run.
 - **interlinked-supply-chain** — the package-install gate.
+
+### Verify writes observed outside tool gates
+
+`interlinked harness coverage status --json` shows pending exact file identities,
+watcher readiness, automated check receipts and manual review receipts. Run
+`interlinked harness coverage verify --json` to check the pending versions through
+the daemon's configured PostToolUse checks; `--no-wait` starts the job and returns.
+Polling status reports progress. A completed job can still contain findings or
+unmeasured versions. Missing files, excluded paths, deferred checks and concurrent
+changes do not gain a clean verdict. Receipts enumerate the checks actually run;
+they do not certify PreToolUse enforcement or approve a baseline rewrite.
+
+For an explicitly reviewed absence or other manual disposition, use
+`harness coverage acknowledge <id> <generation> <identity> <evidence>` with the
+current status values and a concrete review record. This records manual review,
+not a test pass. Stale identities/generations are refused. If a mutation's response
+is lost, inspect status before retrying. Never blanket-acknowledge pending entries
+to silence the warning. Policy acceptance is a separate explicit action.

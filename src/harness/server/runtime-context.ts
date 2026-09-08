@@ -47,6 +47,8 @@ export interface ServerRuntime {
 	readonly cwd: string;
 	/** `<cwd>/.interlinked`. */
 	readonly interlinkedDir: string;
+	hookCoverage?: ReturnType<typeof import("../hook-filesystem-watch.js").startHookFilesystemWatch>;
+	hookCoverageUnavailable?: string;
 
 	/** Active rule config. Reassigned by the rules watcher + SIGHUP. */
 	rules: GuardRulesConfig;

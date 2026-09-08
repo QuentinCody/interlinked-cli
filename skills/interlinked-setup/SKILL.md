@@ -127,6 +127,15 @@ interlinked harness restart            # after editing config / changing mode
 
 `harness restart` performs that recursive freshness check and any required
 build **before** stopping the serving daemon, in normal and `--json` modes. A
+`interlinked harness capabilities --json` reports runtime hook profiles, installation
+and emission evidence, and filesystem coverage. `harness coverage status --json` shows
+pending identities, manual reviews, automated check receipts, and any recovery job.
+For `[interlinked:hook-coverage] NOT CHECKED`, run `harness coverage verify --json` and
+follow **interlinked-verify** for evidence scope, deferred checks and reviewed absences.
+If a running daemon predates the verifier, rebuild/restart using the normal lifecycle.
+Observing or checking protected files does not accept their policy digest.
+
+
 failed build, or one that leaves `dist/` stale, aborts the restart and keeps the
 incumbent serving; Interlinked never knowingly replaces it with stale code.
 

@@ -102,4 +102,17 @@ describe("coverage verification evidence", () => {
         expect(verifier.status()?.unmeasured.join(" ")).toContain("runner unavailable");
         expect(owner.ledger.snapshot().pending).toHaveLength(1);
     });
+
+    it("keeps source-related deferrals out of test-only batches", async () => {
+        const owner = fixture();
+        for (let index = 0; index < 8; index++) owner.ledger.observe(`case-${index}.test.ts`, "test", "reservation");
+        const verifier = new HookCoverageVerification(owner, async entries => {
+            const unavailable = entries.some(entry => entry.path === "source.ts") ? ["related tests timed out"] : [];
+            return new Map(entries.map(entry => [entry.id, { checks: ["typescript"], findings: [], unavailable }]));
+        });
+        verifier.start();
+        await expect.poll(() => verifier.status()?.status).toBe("complete");
+        expect(owner.ledger.snapshot().pending.map(entry => entry.path)).toEqual(["source.ts"]);
+        expect(verifier.status()).toMatchObject({ total: 9, checked: 8 });
+    });
 });
