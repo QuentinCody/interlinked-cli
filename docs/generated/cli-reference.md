@@ -758,37 +758,58 @@ Scan the whole codebase: function tokens, companion-test presence, coverage,
 complexity, and CRAP
 
 Options:
-  --cwd <path>                 Project root (default: current directory)
-  --top <n>                    Number of function/file token and CRAP hotspots
-                               to show (default: 25)
-  --include-tests              Include test/spec functions as advisory token
-                               measurements
-  --json                       Machine-readable output (full per-file +
-                               per-function)
-  --short                      One-line summary
-  --full                       Show every per-file and per-function token
-                               measurement
-  -h, --help                   display help for command
+  --cwd <path>                        Project root (default: current directory)
+  --top <n>                           Number of function/file token and CRAP
+                                      hotspots to show (default: 25)
+  --include-tests                     Include test/spec functions as advisory
+                                      token measurements
+  --json                              Machine-readable output (full per-file +
+                                      per-function)
+  --short                             One-line summary
+  --full                              Show every per-file and per-function
+                                      token measurement
+  -h, --help                          display help for command
 
 Commands:
-  coupling [options]           Change coupling from git history — co-changed
-                               file pairs; pairs with no import edge are
-                               flagged 'hidden'
-  arch [options]               Martin metrics per directory (Ca/Ce/instability)
-                               + propagation cost from the import graph
-  rework [options]             Churn age from git blame — share of changed
-                               lines whose previous version was written in the
-                               last --window days
-  complexity [options]         Complexity census: percentiles, histograms,
-                               top-N hotspots, per-file mass, and over-cap
-                               counts for cyclomatic / cognitive / lines
-  split-plan [options] <file>  Where to cut one over-cap file: intra-file
-                               reference graph (TS AST) → 2–4 cohesive modules
-                               with line count, ΣCC, imports, a suggested
-                               filename each, and the cross-module references
-                               the split creates
-  score [options]              Experimental structural burden scores from local
-                               AST analysis; no model calls
+  coupling [options]                  Change coupling from git history —
+                                      co-changed file pairs; pairs with no
+                                      import edge are flagged 'hidden'
+  arch [options]                      Martin metrics per directory
+                                      (Ca/Ce/instability) + propagation cost
+                                      from the import graph
+  rework [options]                    Churn age from git blame — share of
+                                      changed lines whose previous version was
+                                      written in the last --window days
+  complexity [options]                Complexity census: percentiles,
+                                      histograms, top-N hotspots, per-file
+                                      mass, and over-cap counts for cyclomatic
+                                      / cognitive / lines
+  split-plan [options] <file>         Where to cut one over-cap file:
+                                      intra-file reference graph (TS AST) → 2–4
+                                      cohesive modules with line count, ΣCC,
+                                      imports, a suggested filename each, and
+                                      the cross-module references the split
+                                      creates
+  score [options]                     Explained 0–100 quality burden with
+                                      explicit evidence completeness; no model
+                                      calls
+  gates [options]                     Show disabled gates, actual coverage
+                                      executions, freshness and runtime
+                                      percentiles
+  coverage                            Operate the exact Vitest contribution
+                                      index used by per-edit coverage
+  corpus [options] <manifest>         Score pinned clean local repositories and
+                                      persist reproducible reports
+  catalog [options]                   List metric contracts and every
+                                      check/guard disposition
+  explain [options] <metric>          Explain one metric's denominator, burden
+                                      and composite weight
+  compare [options] <before> <after>  Compare saved score JSON with profile and
+                                      evidence compatibility checks
+  deletions [options]                 Join redundancy, reachability, coverage
+                                      and survivor review candidates
+  evidence                            Bound coverage and mutation evidence to
+                                      source, tests, runner and artifact hashes
 ```
 
 ### metrics coupling
@@ -886,13 +907,255 @@ Options:
 ```
 Usage: interlinked metrics score [options]
 
-Experimental structural burden scores from local AST analysis; no model calls
+Explained 0–100 quality burden with explicit evidence completeness; no model
+calls
 
 Options:
-  --cwd <path>  Project root (default: current directory)
-  --json        Full measurements, profile, hashes and explicit evidence gaps
-  --short       One-line structural score and measurement status
+  --profile <name>  slop-v1 (default) or legacy structure-v1
+  --cwd <path>      Project root (default: current directory)
+  --json            Full measurements, profile, hashes and explicit evidence
+                    gaps
+  --short           One-line score and evidence status
+  -h, --help        display help for command
+```
+
+### metrics catalog
+
+```
+Usage: interlinked metrics catalog [options]
+
+List metric contracts and every check/guard disposition
+
+Options:
+  --cwd <path>  Repository root
+  --json        Machine-readable result
+  --short       Compact summary
+  --checks      Include individual check and guard dispositions
   -h, --help    display help for command
+```
+
+### metrics explain
+
+```
+Usage: interlinked metrics explain [options] <metric>
+
+Explain one metric's denominator, burden and composite weight
+
+Options:
+  --cwd <path>  Repository root
+  --json        Machine-readable result
+  --short       Compact summary
+  -h, --help    display help for command
+```
+
+### metrics compare
+
+```
+Usage: interlinked metrics compare [options] <before> <after>
+
+Compare saved score JSON with profile and evidence compatibility checks
+
+Options:
+  --cwd <path>  Repository root
+  --json        Machine-readable result
+  --short       Compact summary
+  -h, --help    display help for command
+```
+
+### metrics corpus
+
+```
+Usage: interlinked metrics corpus [options] <manifest>
+
+Score pinned clean local repositories and persist reproducible reports
+
+Options:
+  --cwd <path>       Repository root
+  --json             Machine-readable result
+  --short            Compact summary
+  --out <directory>  Directory for per-repository reports and corpus summary
+  -h, --help         display help for command
+```
+
+### metrics gates
+
+```
+Usage: interlinked metrics gates [options]
+
+Show disabled gates, actual coverage executions, freshness and runtime
+percentiles
+
+Options:
+  --cwd <path>  Repository root
+  --json        Machine-readable result
+  --short       Compact summary
+  -h, --help    display help for command
+```
+
+### metrics deletions
+
+```
+Usage: interlinked metrics deletions [options] [command]
+
+Join redundancy, reachability, coverage and survivor review candidates
+
+Options:
+  --cwd <path>               Repository root
+  --json                     Machine-readable result
+  --short                    Compact summary
+  -h, --help                 display help for command
+
+Commands:
+  validate [options] <plan>  Test an explicit removal plan in an isolated copy;
+                             preserve the repository
+```
+
+### metrics deletions validate
+
+```
+Usage: interlinked metrics deletions validate [options] <plan>
+
+Test an explicit removal plan in an isolated copy; preserve the repository
+
+Options:
+  --cwd <path>    Repository root
+  --json          Machine-readable result
+  --short         Compact summary
+  --timeout <ms>  Total trial budget (default: "60000")
+  -h, --help      display help for command
+```
+
+### metrics evidence
+
+```
+Usage: interlinked metrics evidence [options] [command]
+
+Bound coverage and mutation evidence to source, tests, runner and artifact
+hashes
+
+Options:
+  -h, --help                             display help for command
+
+Commands:
+  status [options]                       List current, stale and inconclusive behavioral receipts
+  identity [options]                     Export current input hashes for CI receipts
+  import [options] <receipt> <artifact>  Validate and import a CI-produced receipt and report
+  run [options]                          Run an explicit command in a bounded isolated copy; no model calls by Interlinked
+  help [command]                         display help for command
+```
+
+### metrics evidence status
+
+```
+Usage: interlinked metrics evidence status [options]
+
+List current, stale and inconclusive behavioral receipts
+
+Options:
+  --cwd <path>  Repository root
+  --json        Machine-readable result
+  --short       Compact summary
+  -h, --help    display help for command
+```
+
+### metrics evidence identity
+
+```
+Usage: interlinked metrics evidence identity [options]
+
+Export current input hashes for CI receipts
+
+Options:
+  --cwd <path>  Repository root
+  --json        Machine-readable result
+  --short       Compact summary
+  -h, --help    display help for command
+```
+
+### metrics evidence import
+
+```
+Usage: interlinked metrics evidence import [options] <receipt> <artifact>
+
+Validate and import a CI-produced receipt and report
+
+Options:
+  --cwd <path>  Repository root
+  --json        Machine-readable result
+  --short       Compact summary
+  -h, --help    display help for command
+```
+
+### metrics evidence run
+
+```
+Usage: interlinked metrics evidence run [options]
+
+Run an explicit command in a bounded isolated copy; no model calls by
+Interlinked
+
+Options:
+  --cwd <path>                Repository root
+  --json                      Machine-readable result
+  --short                     Compact summary
+  --kind <kind>               coverage or mutation
+  --command <json>            JSON argv array, executed without a shell
+  --artifact <path>           Repository-relative Istanbul or mutation JSON
+                              output
+  --runner-version <version>  Declared runner version
+  --policy <id>               Coverage/mutation operator policy identity
+  --timeout <ms>              Total copy and execution budget (default:
+                              "60000")
+  --resume                    Reuse a passing receipt only when all inputs and
+                              runner identity match
+  -h, --help                  display help for command
+```
+
+### metrics coverage
+
+```
+Usage: interlinked metrics coverage [options] [command]
+
+Operate the exact Vitest contribution index used by per-edit coverage
+
+Options:
+  -h, --help        display help for command
+
+Commands:
+  warm [options]    Measure the full suite in an overlay and initialize the
+                    contribution index
+  status [options]  Validate coverage index inputs and report stale shards
+  help [command]    display help for command
+```
+
+### metrics coverage status
+
+```
+Usage: interlinked metrics coverage status [options]
+
+Validate coverage index inputs and report stale shards
+
+Options:
+  --cwd <path>    Repository root
+  --json          Machine-readable result
+  --short         Compact summary
+  --timeout <ms>  Coverage execution budget (default: "60000")
+  -h, --help      display help for command
+```
+
+### metrics coverage warm
+
+```
+Usage: interlinked metrics coverage warm [options]
+
+Measure the full suite in an overlay and initialize the contribution index
+
+Options:
+  --cwd <path>    Repository root
+  --json          Machine-readable result
+  --short         Compact summary
+  --timeout <ms>  Coverage execution budget (default: "60000")
+  -h, --help      display help for command
 ```
 
 ## Harness
