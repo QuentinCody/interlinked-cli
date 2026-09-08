@@ -64,10 +64,13 @@ describe("imported lint execution", () => {
         const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(5).mockReturnValue(25);
         vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, stdout: "[]", stderr: "", timedOut: false, killed: false });
         const report = await measureImportedLint(root, policy, { timeoutMs: 20, now });
-        expect(report.map((entry) => entry.status)).toEqual(["measured", "unavailable"]);
+        expect(report.map((entry) => entry.status)).toEqual(["unavailable", "unavailable"]);
+        expect(report[0]?.reason).toContain("snapshot time budget exhausted");
         expect(report[1]?.reason).toContain("budget exhausted");
         expect(runProcessAsync).toHaveBeenCalledTimes(1);
-        expect(runProcessAsync).toHaveBeenCalledWith("ruff", ["check", "--output-format=json", "."], expect.objectContaining({ timeout: 15 }));
+        const timeout = vi.mocked(runProcessAsync).mock.calls[0]?.[2]?.timeout;
+        expect(timeout).toBeGreaterThan(0);
+        expect(timeout).toBeLessThanOrEqual(15);
     });
     it("keeps warnings from successful processes and uses the project executable", async () => {
         const root = project();

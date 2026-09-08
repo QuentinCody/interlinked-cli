@@ -168,6 +168,28 @@ Analyzer report capture has a 10 MiB threshold per stream. A truncated report is
 unavailable even if its captured prefix parses; it cannot seed or retire debt.
 Stylelint's stderr fallback also requires completely captured, empty stdout.
 Truncated diagnostic logging on stderr does not invalidate a complete stdout report.
+Source snapshots before/after each analyzer and again at batch completion reject
+changed, added, deleted or replaced files; stale clean reports cannot retire debt.
+Snapshots stream SHA-256 over every regular file in the working scope, including
+custom extensions, dependencies, generated files and Git-ignored output. They also
+compare file identity, mode and nanosecond timestamps; metadata alone cannot
+detect unflushed memory-mapped writes. This is observational before/after freshness,
+not an atomic filesystem snapshot or proof of arbitrary reads outside that closure.
+Regular symlink targets are hashed; confined directory links are traversed with
+cycle detection. Escaping directory links are unavailable. Diagnostic anchors use
+a checked stream matching the original digest; out-of-snapshot diagnostics fail.
+The census omits `.git`, `.interlinked`, `__pycache__`, `.mypy_cache`,
+`.ruff_cache`, `.pytest_cache`, `.eslintcache` and `.stylelintcache`; explicit
+targets or ignore overrides intersecting omitted runtime state are unavailable.
+Each snapshot permits 100,000 entries and 4 GiB total, streamed in 64 KiB chunks
+within the shared batch deadline. Large files do not require whole-file allocation;
+diagnostic anchor lines have a separate 1 MiB character limit. Unreadable inputs or
+exhausted bounds mean unavailable, never clean. Large scopes incur repeated reads
+and may need a longer timeout or narrower valid working scope. Native ignores are
+not guessed to make a census fit.
+Analyzers that write generated outputs inside their scope (for example, Clippy's
+`target` output) can be unavailable until that tree is stable; only the listed
+runtime/cache exclusions are omitted.
 Config drift requires review with `lint import`, then `--write`. The default
 batch budget is 30000 ms (`--timeout`, maximum 300000 ms, on lint commands).
 

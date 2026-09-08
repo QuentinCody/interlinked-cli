@@ -4,7 +4,7 @@ import { join, sep } from "node:path";
 const OMIT = new Set(["node_modules", ".git", ".interlinked", ".venv", "venv", "vendor", "scratch", "dist", "build", "target", "coverage", "__pycache__", ".next", ".cache", ".wrangler", ".stryker-tmp"]);
 const MAX_SOURCE_ENTRIES = 100_000;
 
-/** Shared bounded source census for file-only analyzers and report freshness snapshots. */
+/** Bounded default file expansion for the file-only ShellCheck/Hadolint adapters. */
 export function lintSourceFiles(root: string): string[] {
     const files: string[] = [];
     const pending = [""];

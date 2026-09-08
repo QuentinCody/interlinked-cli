@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { runProcessAsync } from "../../harness/check-engine/spawn-async.js";
 import { lintDigest } from "./discovery.js";
@@ -6,6 +6,7 @@ import { importedLintInvocation } from "./invocation.js";
 import { type LintDiagnostic, parseImportedLint } from "./parsers.js";
 import { parseSarif } from "./sarif.js";
 import { checkLintSources, lintPath } from "./policy.js";
+import { captureLintSourceSnapshot, checkLintSourceSnapshot, lintSnapshotLine, type LintSourceSnapshot } from "./source-snapshot.js";
 import type { ImportedLintFinding, LintImportEntry, LintImportPolicy, LintMeasurement } from "./types.js";
 
 function executable({ root, cwd, command }: { root: string; cwd: string; command: string }): string {
@@ -22,13 +23,11 @@ function executable({ root, cwd, command }: { root: string; cwd: string; command
     }
 }
 
-function finding(root: string, entry: LintImportEntry, row: LintDiagnostic): ImportedLintFinding {
+function finding(root: string, entry: LintImportEntry, row: LintDiagnostic, snapshot: LintSourceSnapshot, deadline: number): ImportedLintFinding {
     const absolute = isAbsolute(row.file) ? row.file : resolve(root, entry.scope, row.file);
     const file = relative(root, absolute).split("\\").join("/");
-    const path = lintPath(root, file);
-    const lines = readFileSync(path, "utf8").split(/\r?\n/);
-    const anchor = lines[row.line - 1];
-    if (anchor === undefined) throw new Error(`Stale lint location: ${file}:${row.line}`);
+    lintPath(root, file);
+    const anchor = lintSnapshotLine(root, file, row.line, snapshot, deadline);
     const profile = entry.config === undefined ? {} : { config: entry.config };
     const identity = [entry.tool, entry.scope, file, row.rule, row.message, anchor.trim()];
     if (entry.config !== undefined) identity.push(entry.config);
@@ -37,11 +36,22 @@ function finding(root: string, entry: LintImportEntry, row: LintDiagnostic): Imp
     return { tool: entry.tool, scope: entry.scope, ...profile, file, line: row.line, rule: row.rule, message: row.message, fingerprint };
 }
 
-async function measureEntry(root: string, entry: LintImportEntry, timeoutMs: number): Promise<LintMeasurement> {
+interface EntryMeasurement { measurement: LintMeasurement; snapshot?: LintSourceSnapshot }
+
+function unavailable(entry: LintImportEntry, error: unknown): LintMeasurement {
+    return { entry, status: "unavailable", findings: [], reason: error instanceof Error ? error.message : String(error) };
+}
+
+async function measureEntry(root: string, entry: LintImportEntry, timeoutMs: number): Promise<EntryMeasurement> {
     try {
+        const deadline = performance.now() + timeoutMs;
         const invocation = importedLintInvocation(root, entry);
         const cwd = lintPath(root, entry.scope);
-        const result = await runProcessAsync(executable({ root, cwd, command: invocation.command }), invocation.args, { cwd, timeout: timeoutMs });
+        const command = executable({ root, cwd, command: invocation.command });
+        const snapshot = captureLintSourceSnapshot(root, entry, deadline);
+        const remaining = deadline - performance.now();
+        if (remaining <= 0) throw new Error("Lint batch budget exhausted; no verdict");
+        const result = await runProcessAsync(command, invocation.args, { cwd, timeout: remaining });
         if (result.timedOut || result.killed || result.code === null) throw new Error("Analyzer unavailable or timed out; no verdict");
         if (!invocation.successCodes.includes(result.code)) throw new Error(`Analyzer exited ${result.code}: ${result.stderr.slice(0, 500)}`);
         // Both a zero exit status with warnings and a nonzero lint exit must be parsed.
@@ -54,11 +64,12 @@ async function measureEntry(root: string, entry: LintImportEntry, timeoutMs: num
         }
         const output = useStderr ? result.stderr : result.stdout;
         const diagnostics = entry.report ? parseSarif(output) : parseImportedLint({ tool: entry.tool, output });
-        const findings = diagnostics.map((row) => finding(root, entry, row));
+        checkLintSourceSnapshot(snapshot, captureLintSourceSnapshot(root, entry, deadline));
+        const findings = diagnostics.map((row) => finding(root, entry, row, snapshot, deadline));
         if (result.code !== 0 && findings.length === 0) throw new Error("Analyzer failed without usable diagnostics");
-        return { entry, status: "measured", findings };
+        return { measurement: { entry, status: "measured", findings }, snapshot };
     } catch (error) {
-        return { entry, status: "unavailable", findings: [], reason: error instanceof Error ? error.message : String(error) };
+        return { measurement: unavailable(entry, error) };
     }
 }
 
@@ -67,18 +78,25 @@ export async function measureImportedLint(root: string, policy: LintImportPolicy
     checkLintSources(root, policy);
     const now = options.now ?? performance.now.bind(performance);
     const deadline = now() + (options.timeoutMs ?? 30_000);
-    const results: LintMeasurement[] = [];
+    const results: EntryMeasurement[] = [];
     for (const entry of entriesForCadence(policy, options.cadence)) {
         const remaining = deadline - now();
         if (remaining <= 0) {
-            results.push({ entry, status: "unavailable", findings: [], reason: "Lint batch budget exhausted; no verdict" });
+            results.push({ measurement: unavailable(entry, "Lint batch budget exhausted; no verdict") });
         } else {
             results.push(await measureEntry(root, entry, remaining));
         }
     }
     // A configuration edit during execution cannot produce a valid baseline.
     checkLintSources(root, policy);
-    return results;
+    // An earlier profile can go stale while a later analyzer is running.
+    return results.map(({ measurement, snapshot }) => {
+        if (!snapshot) return measurement;
+        try {
+            checkLintSourceSnapshot(snapshot, captureLintSourceSnapshot(root, measurement.entry, performance.now() + Math.max(0, deadline - now())));
+            return measurement;
+        } catch (error) { return unavailable(measurement.entry, error); }
+    });
 }
 
 function entriesForCadence(policy: LintImportPolicy, cadence = "all"): LintImportEntry[] {
