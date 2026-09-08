@@ -171,7 +171,16 @@ Truncated diagnostic logging on stderr does not invalidate a complete stdout rep
 Config drift requires review with `lint import`, then `--write`. The default
 batch budget is 30000 ms (`--timeout`, maximum 300000 ms, on lint commands).
 
-Literal config/plugin imports and package/lock context are fingerprinted. Discovery
+Literal config/plugin imports and package/lock context are fingerprinted. Ruff's
+`extend` and local Biome/Oxlint JSON `extends` paths also enter the transitive digest
+closure, including bare relative names such as `base.toml`. Paths resolve from each
+declaring config, not the analyzer's working directory. Missing, out-of-project or
+unresolved literal inputs prevent measurement. Existing policies missing one of these
+dependencies require re-import; checking does not silently approve the new input.
+Ruff's reader handles ordinary literal strings and table/dotted/inline keys; unsupported
+string escapes or multiline inline inheritance require review. Biome package presets
+retain package/lock tracking. This is not general YAML or dynamic inheritance resolution.
+Discovery
 does not execute config or expand arbitrary environment/matrix/build expressions.
 YAML task parsing needs the optional `yaml` package; unavailable/invalid YAML remains
 review evidence. Follow the supply-chain skill if adding the parser is blocked;

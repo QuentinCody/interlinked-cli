@@ -1,5 +1,5 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, relative, sep } from "node:path";
 import { randomUUID } from "node:crypto";
 import { supportsLintImport } from "./catalog.js";
 import { discoverLint, lintDigest } from "./discovery.js";
@@ -9,23 +9,14 @@ import { applyLintEntryOptions } from "./entry-options.js";
 import { LINT_ADAPTERS } from "./adapters.js";
 import { lintSourceNeedsReview } from "./review.js";
 import { LINT_ADAPTER_PATH } from "./custom-adapters.js";
+import { includeLintInputGraph } from "./input-graph.js";
+import { lintPath } from "./input-path.js";
+export { lintPath } from "./input-path.js";
 export { lintJson, lintObject } from "./json.js";
 import type { LintImportEntry, LintImportPolicy, LintInventory, LintSource } from "./types.js";
 
 export const LINT_POLICY_PATH = ".interlinked/lint-import.json";
 export const LINT_BASELINE_PATH = ".interlinked/lint-baseline.json";
-
-/** Source/policy paths must remain inside the selected codebase, including through symlinks. */
-// interlinked: defer same_typed_primitive_params -- Root then relative path matches filesystem helper conventions; confinement is checked here.
-export function lintPath(root: string, file: string): string {
-    if (isAbsolute(file) || file.split(/[\\/]/).includes("..")) throw new Error(`Out-of-project lint path: ${file}`);
-    const absolute = resolve(root, file);
-    let existing = absolute;
-    while (!existsSync(existing)) existing = dirname(existing);
-    const rel = relative(realpathSync(root), realpathSync(existing));
-    if (rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) throw new Error(`Lint path escapes project: ${file}`);
-    return absolute;
-}
 
 export function normalizedLintPath(root: string, file: string): string {
     if (!file.trim()) throw new Error("Empty lint path");
@@ -129,20 +120,31 @@ export function loadLintPolicy(root: string): LintImportPolicy | null {
 }
 
 export function checkLintSources(root: string, policy: LintImportPolicy): void {
-    checkNewLintSources(root, policy);
+    const inventory = checkNewLintSources(root, policy);
     for (const [file, digest] of Object.entries(policy.digests)) {
         const path = lintPath(root, file);
         if (!existsSync(path) || lintDigest(readFileSync(path, "utf8")) !== digest) {
             throw new Error(`Lint configuration changed: ${file}; review with interlinked lint import, then apply with --write`);
         }
     }
+    checkInputDependencies(inventory, policy);
 }
 
 function checkNewRegistry(root: string, policy: LintImportPolicy): void {
     if (existsSync(lintPath(root, LINT_ADAPTER_PATH)) && !Object.hasOwn(policy.digests, LINT_ADAPTER_PATH)) throw new Error("New lint adapter registry; review interlinked lint import --write");
 }
 
-function checkNewLintSources(root: string, policy: LintImportPolicy): void {
+function checkInputDependencies(inventory: LintInventory, policy: LintImportPolicy): void {
+    for (const entry of policy.entries) {
+        const current = { ...entry, sources: [...entry.sources] };
+        includeLintInputGraph(inventory, current);
+        for (const file of current.sources) {
+            if (!Object.hasOwn(policy.digests, file)) throw new Error(`New lint configuration dependency: ${file}; review interlinked lint import --write`);
+        }
+    }
+}
+
+function checkNewLintSources(root: string, policy: LintImportPolicy): LintInventory {
     const inventory = discoverLint(root);
     if (!inventory.complete) throw new Error("Lint configuration discovery is incomplete; no verdict");
     checkNewRegistry(root, policy);
@@ -150,6 +152,7 @@ function checkNewLintSources(root: string, policy: LintImportPolicy): void {
         const applies = source.tool === "invocation" || policy.entries.some((entry) => sourceApplies(source, entry));
         if (applies && !Object.hasOwn(policy.digests, source.file)) throw new Error(`New lint configuration: ${source.file}; review interlinked lint import --write`);
     }
+    return inventory;
 }
 
 // interlinked: defer same_typed_primitive_params -- Preserve the root/path filesystem convention shared with lintPath; writes validate that boundary.

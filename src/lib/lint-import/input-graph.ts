@@ -1,8 +1,9 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { dirname, posix } from "node:path";
 import { inspectLintInput } from "./discovery.js";
-import { lintPath } from "./policy.js";
+import { lintPath } from "./input-path.js";
 import { lintJson, lintObject } from "./json.js";
+import { lintInheritance } from "./inheritance.js";
 import type { LintImportEntry, LintInventory } from "./types.js";
 
 const RESOLUTIONS = ["", ".js", ".mjs", ".cjs", ".ts", ".json", "/index.js", "/index.mjs", "/index.ts"];
@@ -21,8 +22,19 @@ function existingInput(root: string, file: string): boolean {
     return existsSync(path) && lstatSync(path).isFile();
 }
 
-function localReferences(root: string, file: string, content: string): string[] {
-    const files: string[] = [];
+function inheritanceInputs(root: string, tool: string, file: string, content: string): string[] {
+    const name = posix.basename(file);
+    if (CONTEXT.includes(name) && name !== "pyproject.toml") return [];
+    return lintInheritance(tool, file, content).map((value) => {
+        if (/^(?:[a-z]+:|\/|~)|[$*?{}\\\r\n]/i.test(value)) throw new Error(`Lint inheritance requires review: ${file} -> ${value}`);
+        const inherited = posix.normalize(posix.join(dirname(file), value));
+        if (!existingInput(root, inherited)) throw new Error(`Missing lint inheritance input: ${file} -> ${value}`);
+        return inherited;
+    });
+}
+
+function localReferences(root: string, tool: string, file: string, content: string): string[] {
+    const files = inheritanceInputs(root, tool, file, content);
     const expression = /\.[cm]?[jt]s$/.test(file) ? IMPORT_LOCAL : QUOTED_LOCAL;
     for (const match of referenceText(file, content).matchAll(expression)) {
         const value = match[1] ?? "";
@@ -67,7 +79,7 @@ export function includeLintInputGraph(inventory: LintInventory, entry: LintImpor
         const content = includeInput(inventory, entry, file);
         bytes += content.length;
         if (bytes > 20_000_000) throw new Error("Lint configuration dependency graph exceeds its read budget");
-        if (!/(?:lock|\.sum)$/.test(file) && !file.endsWith("-lock.json")) pending.push(...localReferences(inventory.root, file, content));
+        if (!/(?:lock|\.sum)$/.test(file) && !file.endsWith("-lock.json")) pending.push(...localReferences(inventory.root, entry.tool, file, content));
     }
     entry.sources = [...seen].sort();
 }
