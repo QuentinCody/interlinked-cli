@@ -915,6 +915,10 @@ Commands:
                             agents
   checks [options]          Show the authoritative check inventory — per-family
                             counts + total (static; no daemon needed)
+  capabilities [options]    Inspect runtime hook profiles, selected events,
+                            installation and observation evidence
+  coverage                  Inspect and review daemon-owned filesystem
+                            observations
   health [options]          Check-health report from the recurrence log:
                             repeat-rate per check id, probation candidates
                             (demotion signal)
@@ -985,6 +989,100 @@ Options:
 Usage: interlinked harness status [options]
 
 Show harness status, loaded rules, and active agents
+
+Options:
+  --json      Machine-readable output
+  -h, --help  display help for command
+```
+
+### harness checks
+
+```
+Usage: interlinked harness checks [options]
+
+Show the authoritative check inventory — per-family counts + total (static; no
+daemon needed)
+
+Options:
+  --json      Machine-readable output
+  --short     One-line summary
+  --full      Include each count's authoritative source
+  -h, --help  display help for command
+```
+
+### harness capabilities
+
+```
+Usage: interlinked harness capabilities [options]
+
+Inspect runtime hook profiles, selected events, installation and observation
+evidence
+
+Options:
+  --json      Full capability catalog and coverage identities
+  -h, --help  display help for command
+```
+
+### harness coverage
+
+```
+Usage: interlinked harness coverage [options] [command]
+
+Inspect and review daemon-owned filesystem observations
+
+Options:
+  -h, --help                                                     display help for command
+
+Commands:
+  status [options]
+  verify [options]                                               Check pending file versions and retain exact-version evidence and findings
+  accept-policy [options] <digest>                               Explicitly accept the exact current protected-policy digest
+  acknowledge [options] <id> <generation> <identity> <evidence>  Record manual review evidence for an exact pending file version; does not claim automated checks
+  help [command]                                                 display help for command
+```
+
+### harness coverage status
+
+```
+Usage: interlinked harness coverage status [options]
+
+Options:
+  --json      Machine-readable output
+  -h, --help  display help for command
+```
+
+### harness coverage verify
+
+```
+Usage: interlinked harness coverage verify [options]
+
+Check pending file versions and retain exact-version evidence and findings
+
+Options:
+  --json      Machine-readable output
+  --no-wait   Start the daemon verification job and return immediately
+  -h, --help  display help for command
+```
+
+### harness coverage acknowledge
+
+```
+Usage: interlinked harness coverage acknowledge [options] <id> <generation> <identity> <evidence>
+
+Record manual review evidence for an exact pending file version; does not claim
+automated checks
+
+Options:
+  --json      Machine-readable output
+  -h, --help  display help for command
+```
+
+### harness coverage accept-policy
+
+```
+Usage: interlinked harness coverage accept-policy [options] <digest>
+
+Explicitly accept the exact current protected-policy digest
 
 Options:
   --json      Machine-readable output

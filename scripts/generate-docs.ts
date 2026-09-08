@@ -343,7 +343,7 @@ const CLI_COMMAND_SUBCOMMANDS: Record<string, string[]> = {
 	workspace: ["list", "switch"],
 	index: ["build", "update", "status", "query"],
 	trace: ["export", "import"],
-	harness: ["start", "stop", "restart", "status", "test"],
+	harness: ["start", "stop", "restart", "status", "checks", "capabilities", "coverage", "coverage status", "coverage verify", "coverage acknowledge", "coverage accept-policy", "test"],
 	guard: ["install", "check", "status", "uninstall"],
 	git: ["context", "link-checkpoint"],
 	reminder: ["add", "list", "remove"],
