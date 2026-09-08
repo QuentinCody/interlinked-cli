@@ -338,8 +338,9 @@ export const PROCESS_RULES_GIT_FS_INLINE: GuardRule[] = [
 			{
 				// Bounded walker (excludes shell metacharacters) keeps the match
 				// inside `git add`'s own segment; executed_only masks quotes.
+				// Plain newlines end commands; escaped newlines continue them.
 				field: "command",
-				regex: "\\bgit\\s+add\\s+(?:[^\\s;&|<>()`]+\\s+)*(?:-i|-p|-e|--interactive|--patch|--edit)\\b",
+				regex: "\\bgit(?:[ \\t]|\\\\\\r?\\n)+add(?:[ \\t]|\\\\\\r?\\n)+(?:[^\\s;&|<>()`]+(?:[ \\t]|\\\\\\r?\\n)+)*(?:-i|-p|-e|--interactive|--patch|--edit)\\b",
 				flags: "i",
 				executed_only: true,
 			},

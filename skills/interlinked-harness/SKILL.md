@@ -68,7 +68,9 @@ defeat the pattern.
 ## When you're BLOCKED: what to do
 For selected-hunk staging, prepare and review a patch, then run `git apply --cached <patch>`.
 It changes only the index and preserves other working-tree edits. `git add -p`, `-i`, and `-e`
-remain blocked as interactive operations; use `git add <paths>` for whole files. A normal
+remain blocked as interactive operations; use `git add <paths>` for whole files.
+Flags on a later shell command do not make staging interactive; a backslash-escaped
+newline continues the same command and retains its interactive restrictions. A normal
 `git apply` or `git apply --index` still writes the working tree and must use the content gate.
 
 1. **Read the `reason` and `Suggestion:`.** The suggestion is the intended path (force-push →
