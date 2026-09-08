@@ -1,4 +1,5 @@
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -26,6 +27,15 @@ function fixture(): EvidenceRunOptions {
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("behavioral evidence provenance", () => {
+    it("does not invalidate a Git repository receipt when its evidence directory is first created", async () => {
+        const options = fixture();
+        execFileSync("git", ["init", "--quiet"], { cwd: options.root });
+        const first = await runBehavioralEvidence(options);
+        expect(first.evidence?.observations.state).toBe("measured");
+        const stored = loadEvidence(collectRepositoryInventory(options.root));
+        expect(stored.entries[0]?.observations.state, stored.issues.join()).toBe("measured");
+        expect((await runBehavioralEvidence(options)).cached).toBe(true);
+    });
     it("runs a real assertion in an isolated workspace and reuses only matching evidence", async () => {
         const options = fixture(), first = await runBehavioralEvidence(options);
         expect(first.outcome, first.issues.join("; ")).toBe("passed");

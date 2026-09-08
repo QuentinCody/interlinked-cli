@@ -6,7 +6,7 @@ const LANGUAGES: Readonly<Record<string, string>> = {
     ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
     ".py": "python", ".go": "go", ".rs": "rust", ".java": "java", ".swift": "swift",
     ".c": "c", ".h": "c", ".cpp": "cpp", ".cc": "cpp", ".cs": "csharp",
-    ".rb": "ruby", ".php": "php", ".sh": "shell", ".sql": "sql", ".vue": "vue", ".svelte": "svelte",
+    ".rb": "ruby", ".php": "php", ".sh": "shell", ".sql": "sql", ".vue": "vue", ".svelte": "svelte", ".astro": "astro",
 };
 
 export function sourceLanguage(path: string): string | null {

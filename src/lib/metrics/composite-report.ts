@@ -35,6 +35,7 @@ export function collectCompositeScoreReport(root: string): CompositeScoreReport 
     if (analysis.gaps.length) blockers.push(`${analysis.gaps.length} source files could not be measured`);
     if (catalog.registryHash !== REVIEWED_REGISTRY_HASH) blockers.push("Check registry changed; scoring disposition review required");
     const composite = composeScore(metrics, blockers);
+    if (analysis.gaps.length || inventory.issues.length) composite.range = { lower: 0, upper: 100 };
     return { schemaVersion: 2, ...composite, profile: COMPOSITE_PROFILE, modelCalls: 0, registryHash: catalog.registryHash,
         sourceHash: inventory.sourceHash, inputHash: inventory.inputHash,
         languages: [...new Set(inventory.files.filter(file => file.role === "product").map(file => file.language ?? "unknown"))].sort(),

@@ -20,6 +20,15 @@ function testCall(node: TS.Node, { ts, sf }: ParsedTsSource): boolean {
     return /^(it|test)(\.(only|skip|todo|concurrent|each|fails|skipIf|runIf))*(\([\s\S]*\))?$/.test(node.expression.getText(sf));
 }
 
+function typeOnlyImport(node: TS.ImportDeclaration | TS.ExportDeclaration, ts: typeof TS): boolean {
+    if (ts.isExportDeclaration(node) && node.isTypeOnly) return true;
+    if (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) return true;
+    if (ts.isImportDeclaration(node) && node.importClause?.name) return false;
+    const clause = ts.isImportDeclaration(node) ? node.importClause?.namedBindings : node.exportClause;
+    if (!clause || !(ts.isNamedImports(clause) || ts.isNamedExports(clause))) return false;
+    return clause.elements.length > 0 && clause.elements.every(element => element.isTypeOnly);
+}
+
 function staticImport(node: TS.ImportDeclaration | TS.ExportDeclaration, parsed: ParsedTsSource): ImportReference | null {
     const { ts } = parsed;
     if (!node.moduleSpecifier || !ts.isStringLiteral(node.moduleSpecifier)) return null;
@@ -27,7 +36,7 @@ function staticImport(node: TS.ImportDeclaration | TS.ExportDeclaration, parsed:
     const names = clause && (ts.isNamedImports(clause) || ts.isNamedExports(clause))
         ? clause.elements.map(element => (element.propertyName ?? element.name).text) : ["*"];
     if (ts.isImportDeclaration(node) && node.importClause?.name) names.push("*");
-    const typeOnly = ts.isImportDeclaration(node) ? node.importClause?.isTypeOnly === true : node.isTypeOnly;
+    const typeOnly = typeOnlyImport(node, ts);
     return { specifier: node.moduleSpecifier.text, line: syntaxSpan(node, parsed).line, names, typeOnly };
 }
 

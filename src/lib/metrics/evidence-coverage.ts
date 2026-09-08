@@ -1,7 +1,7 @@
 import type { CoverageCount, CoverageObservation } from "./behavioral-types.js";
 import { artifactSourcePath, natural, record, sourceSpan } from "./evidence-json.js";
 import type { JsonObject } from "../json-types.js";
-import { coverageBranchLocations, coverageFunctionSpan } from "./coverage-span.js";
+import { coverageBranchLocations, coverageFunctionSpan, coverageSpan } from "./coverage-span.js";
 
 interface Statement { line: number; endLine: number; hits: number; }
 function counts(values: number[]): CoverageCount { return { total: values.length, covered: values.filter(value => value > 0).length }; }
@@ -9,7 +9,7 @@ function counts(values: number[]): CoverageCount { return { total: values.length
 function statements(data: JsonObject): Statement[] {
     const map = record(data.statementMap, "statementMap"), hits = record(data.s, "statement counts");
     if (Object.keys(map).length !== Object.keys(hits).length) throw new Error("Statement map/count mismatch");
-    return Object.entries(map).map(([id, loc]) => ({ ...sourceSpan(loc), hits: natural(hits[id], "statement hit count") }));
+    return Object.entries(map).map(([id, loc]) => ({ ...coverageSpan(loc), hits: natural(hits[id], "statement hit count") }));
 }
 
 function branchCounts(data: JsonObject): CoverageCount {

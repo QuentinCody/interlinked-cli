@@ -30,7 +30,7 @@ export const METRIC_CATALOG: readonly MetricDefinition[] = [
     metric("redundancy.disconnected", "Disconnected modules", "redundancy", "percent", "product modules", "graph"),
     metric("redundancy.clones", "Duplicate implementations", "redundancy", "percent", "exclusively owned function syntax tokens", "syntax"),
     metric("redundancy.dead_stores", "Overwritten initial values", "redundancy", "percent", "local initializers", "syntax"),
-    metric("types.unsafe", "Unsafe type operations", "types", "percent", "typed property access, call and assertion sites", "typed"),
+    metric("types.unsafe", "Unsafe type operations", "types", "percent", "typed access, call, assertion, assignment and return sites", "typed"),
     metric("architecture.cycles", "Modules in dependency cycles", "architecture", "percent", "product modules", "graph"),
     metric("architecture.reach", "Dependency propagation", "architecture", "percent", "ordered pairs of distinct product modules", "graph", [[0, 0], [5, 0], [25, .5], [100, 1]]),
     metric("architecture.boundaries", "Declared boundary violations", "architecture", "percent", "resolved product import edges", "graph"),

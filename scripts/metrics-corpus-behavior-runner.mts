@@ -13,7 +13,7 @@ const output = join(process.cwd(), ".interlinked/pilot");
 mkdirSync(output, { recursive: true });
 const config = join(output, "vitest.config.mjs");
 writeFileSync(config, `export default ${JSON.stringify({
-    esbuild: { tsconfigRaw: { compilerOptions: { target: "ES2022", module: "ESNext" } } },
+    oxc: { tsconfig: false, target: "es2022" },
     test: { include: ["test/**/*.test.ts"], maxWorkers: 1,
         coverage: { provider: "v8", include: ["src/**/*.ts"], reporter: ["json"], reportsDirectory: ".interlinked/pilot/coverage" } },
 })};`);

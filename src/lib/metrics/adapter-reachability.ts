@@ -13,7 +13,7 @@ function unusedDeclarations(analysis: RepositoryAnalysis, graph: ScoringGraph): 
             total++;
             if ((file.syntax.identifiers.get(declaration.name) ?? 0) > 1) continue;
             if (declaration.exported && graph.publicEntries.includes(file.input.path)) continue;
-            if (incoming.some(edge => edge.names.includes("*") || edge.names.includes(declaration.name))) continue;
+            if (declaration.exported && incoming.some(edge => edge.names.includes("*") || edge.names.includes(declaration.name))) continue;
             findings.push(qualityFinding({ metric: "redundancy.unused", file: file.input, line: declaration.line,
                 message: `${declaration.name} has no reference in the resolved scope; check external consumers before removal` }));
         }
@@ -23,7 +23,7 @@ function unusedDeclarations(analysis: RepositoryAnalysis, graph: ScoringGraph): 
 
 export function measureReachability(analysis: RepositoryAnalysis, graph: ScoringGraph): AdapterResult {
     const products = analysis.files.filter(file => file.input.role === "product");
-    const reached = reachableModules(graph.entries, graph.edges.filter(edge => !edge.typeOnly));
+    const reached = reachableModules(graph.entries, graph.edges);
     const testRoots = analysis.files.filter(file => file.input.role === "test").map(file => file.input.path);
     const testsReach = reachableModules(testRoots, graph.edges);
     const disconnected = products.filter(file => !reached.has(file.input.path));

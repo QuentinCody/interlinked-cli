@@ -20,18 +20,23 @@ function walk(root: string, directory: string, result: InventoryPaths): void {
     }
 }
 
+function filesystemPaths(root: string): InventoryPaths {
+    const result: InventoryPaths = { discovery: "filesystem", paths: [], issues: [] };
+    walk(root, root, result);
+    if (result.paths.length >= 50_000) result.issues.push("Discovery reached the 50000-path limit");
+    result.paths.sort();
+    return result;
+}
+
 export function inventoryPaths(root: string): InventoryPaths {
     try {
         const output = execFileSync("git", ["-c", "core.fsmonitor=false", "ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
             cwd: root, encoding: "utf8", timeout: 15_000, maxBuffer: 32 * 1024 * 1024,
             stdio: ["ignore", "pipe", "ignore"],
         });
-        return { discovery: "git", paths: [...new Set(output.split("\0").filter(Boolean))].sort(), issues: [] };
+        const paths = [...new Set(output.split("\0").filter(Boolean))].sort();
+        return paths.length ? { discovery: "git", paths, issues: [] } : filesystemPaths(root);
     } catch {
-        const result: InventoryPaths = { discovery: "filesystem", paths: [], issues: [] };
-        walk(root, root, result);
-        if (result.paths.length >= 50_000) result.issues.push("Discovery reached the 50000-path limit");
-        result.paths.sort();
-        return result;
+        return filesystemPaths(root);
     }
 }

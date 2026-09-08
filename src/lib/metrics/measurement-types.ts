@@ -29,6 +29,7 @@ export interface MetricReading {
     eligibleEntities: number;
     evidenceIds: string[];
     limitations: string[];
+    details?: Record<string, number>;
 }
 
 export interface QualityFinding {

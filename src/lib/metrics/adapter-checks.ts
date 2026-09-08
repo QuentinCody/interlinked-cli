@@ -10,7 +10,9 @@ function checkFile(file: AnalyzedFile, dimension: "test_integrity" | "correctnes
     for (const check of CHECK_REGISTRY) {
         if (SCORED_CHECKS[check.id] !== dimension) continue;
         try {
-            for (const match of check.fn(file.input.content, file.input.path)) findings.push(qualityFinding({
+            const matches = check.fn(file.input.content, file.input.path);
+            if (matches.length >= 10) failures.push(`${check.id}: reporting cap may be saturated in ${file.input.path}; findings are a lower bound`);
+            for (const match of matches) findings.push(qualityFinding({
                 metric, file: file.input, line: match.line, message: `${check.id}: ${match.text}`,
                 severity: check.severity, evidence: check.determinism === "fully_deterministic" ? "proven" : "heuristic",
             }));

@@ -1,6 +1,7 @@
 import { dirname, join, normalize } from "node:path";
 import { isJsonObject } from "../json-types.js";
 import type { InventoryFile, RepositoryInventory } from "./measurement-types.js";
+import { frameworkScoringEntries } from "./framework-entries.js";
 
 export function resolveSourceTarget(target: string, known: ReadonlySet<string>): string | null {
     const clean = normalize(target).replaceAll("\\", "/").replace(/^\.\//, "");
@@ -54,7 +55,8 @@ function documentedEntries(file: InventoryFile, context: EntryContext): void {
 
 export function discoverScoringEntries(inventory: RepositoryInventory, known: ReadonlySet<string>): { entries: string[]; publicEntries: string[] } {
     const context: EntryContext = { known, entries: new Set(), publicEntries: new Set() };
-    for (const path of ["src/index.ts", "src/index.js", "index.ts", "index.js"]) if (known.has(path)) context.entries.add(path);
+    for (const path of ["src/index.ts", "src/index.js", "index.ts", "index.js", "src/main.ts", "src/main.tsx", "src/main.js", "src/main.jsx"]) if (known.has(path)) context.entries.add(path);
+    for (const path of frameworkScoringEntries(inventory, known)) { context.entries.add(path); context.publicEntries.add(path); }
     for (const file of inventory.files) {
         if (file.path.endsWith("package.json")) packageEntries(file, context);
         if (file.role === "documentation") documentedEntries(file, context);

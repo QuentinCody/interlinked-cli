@@ -6,7 +6,7 @@ import type { RepositoryInventory } from "./measurement-types.js";
 
 export interface TypedMeasurementProgram { ts: typeof TS; program: TS.Program; options: TS.CompilerOptions; issues: string[]; }
 
-function compilerOptions(inventory: RepositoryInventory, ts: typeof TS): { options: TS.CompilerOptions; issues: string[] } {
+export function measurementCompilerOptions(inventory: RepositoryInventory, ts: typeof TS): { options: TS.CompilerOptions; issues: string[] } {
     const defaults: TS.CompilerOptions = { strict: true, noEmit: true, skipLibCheck: true,
         target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler };
     const config = inventory.files.find(file => file.path === "tsconfig.json");
@@ -22,10 +22,10 @@ export function createTypedMeasurementProgram(inventory: RepositoryInventory): T
     const loaded = parseTsSource("", "measurement.ts");
     if (!loaded) return null;
     const { ts } = loaded;
-    const { options, issues } = compilerOptions(inventory, ts);
+    const { options, issues } = measurementCompilerOptions(inventory, ts);
     const files = inventory.files.filter(file => file.language === "typescript" && file.role === "product");
     const contents = new Map(inventory.files.map(file => [resolve(inventory.root, file.path), file.content]));
-    const host = ts.createCompilerHost(options);
+    const host = ts.createCompilerHost(options, true);
     const originalRead = host.readFile;
     host.readFile = path => contents.get(resolve(path)) ?? originalRead(path);
     const program = ts.createProgram(files.map(file => resolve(inventory.root, file.path)), options, host);
