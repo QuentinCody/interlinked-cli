@@ -6,7 +6,8 @@ import type { RepositoryInventory } from "./measurement-types.js";
 const OUTCOMES: Readonly<Record<string, MutantOutcome>> = { Killed: "killed", Survived: "survived", NoCoverage: "no-coverage", Timeout: "timeout", RuntimeError: "error", CompileError: "error", Ignored: "ignored", Pending: "error" };
 
 function mutant(value: unknown, path: string): MutantObservation {
-    const row = record(value, "mutant"), status = textField(row.status, "mutant status"), outcome = OUTCOMES[status];
+    const row = record(value, "mutant"), status = textField(row.status, "mutant status");
+    const outcome = Object.hasOwn(OUTCOMES, status) ? OUTCOMES[status] : undefined;
     if (!outcome) throw new Error(`Unsupported mutant status: ${status}`);
     return { id: textField(row.id, "mutant id"), path, ...sourceSpan(row.location), operator: textField(row.mutatorName, "operator"),
         replacement: typeof row.replacement === "string" ? row.replacement : "", outcome };

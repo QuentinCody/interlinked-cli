@@ -9,6 +9,7 @@ import { runEvidenceProcess } from "./evidence-process.js";
 import { runBehavioralEvidence, type EvidenceRunOptions } from "./evidence-run.js";
 import { loadEvidence, validateEvidence } from "./evidence-store.js";
 import { collectRepositoryInventory } from "./inventory.js";
+import { collectCompositeScoreReport } from "./composite-report.js";
 
 const roots: string[] = [];
 const SOURCE = "module.exports = (x) => x + 1;\n";
@@ -77,6 +78,19 @@ describe("behavioral evidence provenance", () => {
         expect(parseMutationEvidence(report, inventory).mutants[0]?.outcome).toBe("timeout");
         report.files["index.cjs"].source = "old source";
         expect(() => parseMutationEvidence(report, inventory)).toThrow("source mismatch");
+    });
+    it.each(["constructor", "toString", "__proto__"])("rejects inherited mutation status %s before it can remove scoring opportunities", async status => {
+        const options = fixture();
+        options.kind = "mutation";
+        const report = { files: { "index.cjs": { source: SOURCE, mutants: [{ id: "0", status, mutatorName: "ArithmeticOperator", replacement: "x - 1", location: LOCATION }] } } };
+        writeFileSync(join(options.root, "tests/run.cjs"), `const assert = require('node:assert/strict'); assert.equal(require('../index.cjs')(1), 2); require('node:fs').writeFileSync('report.json', JSON.stringify(${JSON.stringify(report)}));`);
+        const result = await runBehavioralEvidence(options);
+        expect(result.outcome).toBe("error");
+        expect(result.issues.join()).toContain(`Unsupported mutant status: ${status}`);
+        expect(result.evidence).toBeNull();
+        expect(loadEvidence(collectRepositoryInventory(options.root)).entries).toEqual([]);
+        const readings = collectCompositeScoreReport(options.root).metrics.filter(row => row.id.startsWith("mutation."));
+        expect(readings.map(row => row.state)).toEqual(["missing", "missing"]);
     });
     it("terminates bounded execution and honors pre-cancellation", async () => {
         const options = fixture();
