@@ -3,7 +3,7 @@ import { LINT_ADAPTERS } from "./adapters.js";
 import { validateLintArguments } from "./argv.js";
 import { lintPath } from "./policy.js";
 import type { LintImportEntry } from "./types.js";
-import { lintSourceFiles } from "./source-files.js";
+import { lintSourceFiles, literalLintTargets } from "./source-files.js";
 import { LINT_VALUE_OPTIONS } from "./option-specs.js";
 
 export interface LintInvocation { command: string; args: string[]; successCodes: number[] }
@@ -33,6 +33,7 @@ function targetArguments(root: string, entry: LintImportEntry, defaults: string[
     const targets = entry.targets ?? defaults;
     if (!FILE_TARGET_TOOLS.has(entry.tool)) return targets;
     const cwd = lintPath(root, entry.scope);
+    if (entry.targets !== undefined) return literalLintTargets(cwd, entry.targets);
     const files = lintSourceFiles(cwd).filter((file) => targets.some((target) => matchesGlob(file, target)));
     if (files.length === 0) throw new Error(`No ${entry.tool} source files found; no verdict`);
     return files;

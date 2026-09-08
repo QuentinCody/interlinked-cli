@@ -51,10 +51,12 @@ function unavailable(entry: LintImportEntry, error: unknown): LintMeasurement {
 async function measureEntry(root: string, entry: LintImportEntry, timeoutMs: number): Promise<EntryMeasurement> {
     try {
         const deadline = performance.now() + timeoutMs;
-        const invocation = importedLintInvocation(root, entry);
         const cwd = lintPath(root, entry.scope);
-        const command = executable({ root, cwd, command: invocation.command });
         const snapshot = captureLintSourceSnapshot(root, entry, deadline);
+        // Target selection belongs inside the observed source interval: a file
+        // added during expansion must not be silently absent from the run.
+        const invocation = importedLintInvocation(root, entry);
+        const command = executable({ root, cwd, command: invocation.command });
         const remaining = deadline - performance.now();
         if (remaining <= 0) throw new Error("Lint batch budget exhausted; no verdict");
         const result = await runAnalyzer(root, entry, invocation, command, { cwd, timeout: remaining });

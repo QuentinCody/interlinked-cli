@@ -7,6 +7,7 @@ import { discoverLint } from "./discovery.js";
 import { planLintImport } from "./policy.js";
 import { measureImportedLint } from "./runner.js";
 import { prepareLintImport } from "./selection.js";
+import * as sourceFiles from "./source-files.js";
 
 vi.mock("../../harness/check-engine/spawn-async.js", () => ({ runProcessAsync: vi.fn() }));
 const directories: string[] = [];
@@ -24,6 +25,23 @@ afterEach(() => {
 });
 
 describe("imported lint execution", () => {
+    it("rejects a source added while default file targets are selected", async () => {
+        const root = project();
+        rmSync(join(root, "ruff.toml"));
+        writeFileSync(join(root, ".shellcheckrc"), "disable=SC2034\n");
+        writeFileSync(join(root, "before.sh"), "echo before\n");
+        const census = sourceFiles.lintSourceFiles;
+        vi.spyOn(sourceFiles, "lintSourceFiles").mockImplementationOnce(cwd => {
+            const selected = census(cwd);
+            writeFileSync(join(root, "added.sh"), "echo $unquoted\n");
+            return selected;
+        });
+        vi.mocked(runProcessAsync).mockResolvedValue({ code: 0, stdout: '{"comments":[]}', stderr: "", timedOut: false, killed: false });
+        const report = await measureImportedLint(root, prepareLintImport(root, {}).policy);
+        expect(report).toMatchObject([{ status: "unavailable", reason: expect.stringContaining("added.sh") }]);
+        expect(runProcessAsync).toHaveBeenCalledWith("shellcheck", ["--format=json1", "before.sh"], expect.any(Object));
+    });
+
     it("passes a selected config as one argument with an independent working scope", async () => {
         const root = project();
         rmSync(join(root, "ruff.toml"));

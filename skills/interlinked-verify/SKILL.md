@@ -175,6 +175,13 @@ custom extensions, dependencies, generated files and Git-ignored output. They al
 compare file identity, mode and nanosecond timestamps; metadata alone cannot
 detect unflushed memory-mapped writes. This is observational before/after freshness,
 not an atomic filesystem snapshot or proof of arbitrary reads outside that closure.
+For native ShellCheck and Hadolint, explicit targets must name existing regular
+files in the working scope; confined regular-file symlinks are supported. Each
+target is checked independently, including files under `vendor` or other default
+discovery exclusions. Missing files, directories, escaping links and explicit
+glob patterns make the result unavailable; another valid target cannot hide them.
+Default inferred targets still use the adapter's discovery exclusions. Expand
+explicit globs into a reviewed literal file list before importing the command.
 Regular symlink targets are hashed; confined directory links are traversed with
 cycle detection. Escaping directory links are unavailable. Diagnostic anchors use
 a checked stream matching the original digest; out-of-snapshot diagnostics fail.
