@@ -40,6 +40,10 @@ defeat the pattern.
   quoted/heredoc/comment text, so *mentioning* `rm -rf /` in an `echo` is allowed while the
   bare command blocks. Compound commands (`&&`, `||`, `;`, `|`, newline) are decomposed and
   each part checked.
+- The log-output guard measures ordinary single-file `head`/`tail` windows of up to 200
+  lines before rejecting a file over 100 KiB. Small windows pass on large logs; a selected
+  line over the byte budget still blocks. Signed counts and unfamiliar option combinations
+  retain the file-size gate. Daemon and generated-hook paths use the same bounded reader.
 
 > **Two unrelated things are called "guard".** This skill is the **PreToolUse guard** (the
 > daemon, operated via `interlinked harness …`). `interlinked guard` is a separate **git

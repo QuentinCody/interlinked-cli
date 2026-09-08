@@ -5,7 +5,8 @@
 // daemon's richer `src/harness/evaluator/file-dump-guard.ts`. Three block
 // conditions:
 //   1. `tail -f` / `-F` in the foreground (no trailing `&`, no nohup) — hangs.
-//   2. No filter, no redirect, file over 100KB — refused regardless of `-n`.
+//   2. No filter, no redirect, file over 100KB — refused unless an ordinary
+//      head/tail window is measured within the byte budget.
 //   3. No filter, no redirect, more than 200 lines requested.
 // Redirects bypass the size checks; `-c` on tail/head counts as a filter.
 //
@@ -25,10 +26,80 @@
 
 import type { ColdWriteVerdict } from "./cold-write-guards.js";
 
+export interface FileDumpWindowDeps {
+    openSync?: ((path: string, flags: string) => number) | null;
+    readSync?: ((fd: number, buffer: Uint8Array, offset: number, length: number, position: number) => number) | null;
+    closeSync?: ((fd: number) => void) | null;
+}
+
+interface FileDumpWindow {
+    path: string;
+    size: number;
+    verb: string;
+    lines: number | null;
+    maxBytes: number;
+}
+
+/** Only ordinary, single-file count forms establish a small line window.
+ * Signed counts, multiple options, and unfamiliar forms retain the size gate. */
+export function fileDumpWindowLines(tokens: string[]): number | null {
+    if (tokens[0] !== "head" && tokens[0] !== "tail") return null;
+    let count: string | undefined;
+    if (tokens.length === 2) count = "10";
+    if (tokens.length === 3) count = tokens[1]?.match(/^(?:-n?|-n=|--lines=)(\d+)$/)?.[1];
+    if (tokens.length === 4 && (tokens[1] === "-n" || tokens[1] === "--lines")) count = tokens[2];
+    if (count === undefined || !/^\d+$/.test(count)) return null;
+    const lines = Number(count);
+    return Number.isSafeInteger(lines) && lines <= 200 ? lines : null;
+}
+
+function fileDumpHeadBytes(bytes: Uint8Array, lines: number, complete: boolean): number | null {
+    let at = -1;
+    for (let line = 0; line < lines; line++) {
+        at = bytes.indexOf(10, at + 1);
+        if (at < 0) return complete ? bytes.length : null;
+    }
+    return at + 1;
+}
+
+function fileDumpTailBytes(bytes: Uint8Array, lines: number, complete: boolean): number | null {
+    let at = bytes.length;
+    if (bytes[at - 1] === 10) at--;
+    for (let line = 0; line < lines; line++) {
+        if (at === 0) return complete ? bytes.length : null;
+        at = bytes.lastIndexOf(10, at - 1);
+        if (at < 0) return complete ? bytes.length : null;
+    }
+    return bytes.length - at - 1;
+}
+
+function readFileDumpWindow(input: FileDumpWindow, deps: FileDumpWindowDeps): number | null {
+    const { openSync, readSync, closeSync } = deps;
+    if (!openSync || !readSync || !closeSync || input.lines === null) return null;
+    if (input.lines === 0) return 0;
+    const length = Math.min(input.size, input.maxBytes + 1);
+    const position = input.verb === "tail" ? input.size - length : 0;
+    const fd = openSync(input.path, "r");
+    try {
+        const bytes = new Uint8Array(length);
+        if (readSync(fd, bytes, 0, length, position) !== length) return null;
+        const complete = length === input.size;
+        return input.verb === "head" ? fileDumpHeadBytes(bytes, input.lines, complete) : fileDumpTailBytes(bytes, input.lines, complete);
+    } finally { closeSync(fd); }
+}
+
+/** Read at most the byte budget plus one, even for a multi-gigabyte log.
+ * Missing readers, short reads, and oversized lines retain the original size. */
+export function measureFileDumpWindow(input: FileDumpWindow, deps: FileDumpWindowDeps): number {
+    if (input.lines === null || input.size <= input.maxBytes) return input.size;
+    try { return readFileDumpWindow(input, deps) ?? input.size; }
+    catch { return input.size; }
+}
+
 /** Filesystem/path functions injected by the caller — the .mjs passes its own
  *  top-level imports. Any member may be null; the guard then declines to
  *  evaluate rather than throwing. */
-export interface ColdDumpDeps {
+export interface ColdDumpDeps extends FileDumpWindowDeps {
 	existsSync: ((p: string) => boolean) | null;
 	statSync: ((p: string) => { size: number; isFile: () => boolean }) | null;
 	readFileSync: ((p: string, enc: "utf8") => string) | null;
@@ -314,6 +385,7 @@ function fdcStatFiles(
 	verb: string,
 	requestedLines: number | null,
 	deps: ColdDumpDeps,
+	windowLines: number | null,
 ): ColdDumpStats {
 	const out: ColdDumpStats = {
 		largestBytes: 0,
@@ -330,8 +402,9 @@ function fdcStatFiles(
 			if (!existsSyncFn(abs)) continue;
 			const st = statSyncFn(abs);
 			if (!st.isFile()) continue;
-			if (st.size > out.largestBytes) {
-				out.largestBytes = st.size;
+			const outputBytes = measureFileDumpWindow({ path: abs, size: st.size, verb: verb, lines: windowLines, maxBytes: 100 * 1024 }, deps);
+			if (outputBytes > out.largestBytes) {
+				out.largestBytes = outputBytes;
 				out.largestPath = fp;
 			}
 			fdcCountCatLines(abs, st.size, verb, requestedLines, deps, out);
@@ -464,7 +537,8 @@ export function checkFileDumpCold(
 	const requestedLines = fdcParseCount(shape.tokens, "-n");
 	const files = fdcFilePaths(shape.tokens);
 	if (!files || !files.length) return null;
-	const stats = fdcStatFiles(files, cwd, shape.verb, requestedLines, deps);
+	const windowLines = files.length === 1 ? fileDumpWindowLines(shape.tokens) : null;
+	const stats = fdcStatFiles(files, cwd, shape.verb, requestedLines, deps, windowLines);
 	return fdcBudgetVerdict(shape.verb, stats, fdcEffectiveLines(requestedLines, shape.verb, stats));
 }
 
@@ -474,6 +548,7 @@ export function checkFileDumpCold(
  * Declarations hoist, so the join order does not matter.
  */
 export const FILE_DUMP_COLD_GUARD_SOURCE: string = [
+	fileDumpWindowLines, fileDumpHeadBytes, fileDumpTailBytes, readFileDumpWindow, measureFileDumpWindow,
 	fdcSplitPipeline, fdcAdvanceQuoted, fdcPushIfNonEmpty, fdcTokenize,
 	fdcStripWrappers,
 	fdcCountOf,

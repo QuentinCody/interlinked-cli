@@ -42,6 +42,9 @@ function inlineFsDeps() {
         existsSync: typeof existsSync === "undefined" ? null : existsSync,
         statSync: typeof statSync === "undefined" ? null : statSync,
         readFileSync: typeof readFileSync === "undefined" ? null : readFileSync,
+        openSync: typeof openSync === "undefined" ? null : openSync,
+        readSync: typeof readSync === "undefined" ? null : readSync,
+        closeSync: typeof closeSync === "undefined" ? null : closeSync,
         join: typeof join === "undefined" ? null : join,
     };
 }

@@ -7,7 +7,7 @@
 //
 //   1. `tail -f` / `tail -F` in the foreground (no trailing `&`) — hangs.
 //   2. No downstream filter & no output redirection & file > 100KB — blocks
-//      at any requested line count, including the default 10.
+//      unless an ordinary head/tail window is measured within the byte budget.
 //   3. No downstream filter & no output redirection & lines requested > 50
 //      — blocks regardless of file size.
 //
@@ -27,8 +27,9 @@
 // `lib/hook-template-chunks/guards-inline.ts` per the two-implementations
 // memory (see `project_hook_paths_two_implementations.md`).
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { fileDumpWindowLines, measureFileDumpWindow } from "../../lib/hook-template-chunks/file-dump-cold-guard.js";
 import type { HarnessDecision } from "../types.js";
 import {
 	extractFilePaths,
@@ -151,7 +152,8 @@ export function evaluateFileDumpGuard(args: FileDumpGuardArgs): FileDumpGuardRes
 	if (filePaths.length === 0) return { kind: "allow" };
 
 	// 7. Stat the file args and resolve the effective line count.
-	const summary = statDumpFiles(filePaths, cwd, verb, requestedLines);
+	const windowLines = filePaths.length === 1 && !hasFilter ? fileDumpWindowLines(tokens) : null;
+	const summary = statDumpFiles(filePaths, cwd, verb, requestedLines, windowLines);
 	const lines = resolveDumpLines(requestedLines, verb, summary);
 
 	// 8. Verdict: filtered (soft ceiling, waived for terminal-bounded pipes)
@@ -228,6 +230,7 @@ function statDumpFiles(
 	cwd: string,
 	verb: string,
 	requestedLines: number | null,
+	windowLines: number | null,
 ): DumpStatSummary {
 	const summary: DumpStatSummary = {
 		largestBytes: 0,
@@ -241,8 +244,9 @@ function statDumpFiles(
 			if (!existsSync(abs)) continue;
 			const stat = statSync(abs);
 			if (!stat.isFile()) continue;
-			if (stat.size > summary.largestBytes) {
-				summary.largestBytes = stat.size;
+			const outputBytes = measureFileDumpWindow({ path: abs, size: stat.size, verb, lines: windowLines, maxBytes: FILE_SIZE_BLOCK_BYTES }, { openSync, readSync, closeSync });
+			if (outputBytes > summary.largestBytes) {
+				summary.largestBytes = outputBytes;
 				summary.largestPath = fp;
 			}
 			countCatNewlines(abs, verb, requestedLines, stat.size, summary);
