@@ -1,0 +1,683 @@
+{
+  "measuredAt": "2026-09-08",
+  "scorerCommit": "596174b1",
+  "node": "v22.22.0",
+  "vitest": "4.1.8",
+  "stryker": "9.6.1",
+  "corpus": {
+    "schemaVersion": 2,
+    "modelCalls": 0,
+    "repositoryCodeExecuted": false,
+    "uniformProfile": true,
+    "repositories": [
+      {
+        "name": "mesqueeb/is-what",
+        "commit": "dadd235f03d201ffbd8fd73dcc5d1891d754fcd4",
+        "stars": 200,
+        "cohort": "calibration",
+        "artifact": "001.json",
+        "status": "provisional",
+        "structuralScore": 2.694410271067369,
+        "observedScore": 15.92,
+        "slopScore": null,
+        "evidenceCompleteness": 63.16,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "a36d35919f1602c152bc5b0818c931323b3149231fa325370036165008aa96cc",
+        "files": 45,
+        "functions": 43,
+        "durationMs": 1538.921292
+      },
+      {
+        "name": "antfu/diff-match-patch-es",
+        "commit": "4f35fb7fd57df68d69068cdee0780bb779f5497f",
+        "stars": 199,
+        "cohort": "calibration",
+        "artifact": "002.json",
+        "status": "provisional",
+        "structuralScore": 50.21556277288518,
+        "observedScore": 26.12,
+        "slopScore": null,
+        "evidenceCompleteness": 68.42,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "0fd21deea8746ff0f8f328f7b5665d332de9c243a0e3f8ff30ea9d1b395afd1a",
+        "files": 6,
+        "functions": 42,
+        "durationMs": 528.6487499999994
+      },
+      {
+        "name": "caderek/aocrunner",
+        "commit": "7eaba95faa8708b4b0b9c79b0b3eaf13347ead57",
+        "stars": 199,
+        "cohort": "calibration",
+        "artifact": "003.json",
+        "status": "provisional",
+        "structuralScore": 15.358691618971097,
+        "observedScore": 8.9,
+        "slopScore": null,
+        "evidenceCompleteness": 42.11,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "4532a69e40e6375b87a6cea82e8f6bededa84f6bc82a8c87658c9f574079a889",
+        "files": 38,
+        "functions": 95,
+        "durationMs": 529.8072499999998
+      },
+      {
+        "name": "sergiodxa/remix-auth-oauth2",
+        "commit": "6e7bfd2a5741f5b04dafd4f9f57c83775936a39a",
+        "stars": 200,
+        "cohort": "calibration",
+        "artifact": "004.json",
+        "status": "provisional",
+        "structuralScore": 11.317757302404209,
+        "observedScore": 24.53,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "44daa57b7ba34729b1300e829d1623f279835519d2c7286159941ae4a9da8810",
+        "files": 4,
+        "functions": 24,
+        "durationMs": 299.92783299999974
+      },
+      {
+        "name": "JNKKKK/pianochord.io",
+        "commit": "568efa33124a034d131e787fd20c28b298780433",
+        "stars": 200,
+        "cohort": "calibration",
+        "artifact": "005.json",
+        "status": "provisional",
+        "structuralScore": 18.44137027385048,
+        "observedScore": 15.73,
+        "slopScore": null,
+        "evidenceCompleteness": 42.11,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "17fd33ffa2e324181943370cf46edc6e9e88406578cd9750e31770f8f81166d5",
+        "files": 50,
+        "functions": 239,
+        "durationMs": 501.7972499999996
+      },
+      {
+        "name": "QuentinCody/interlinked-cli",
+        "commit": "a2d4e41fb1ccb0a6514e9e177170f0386e399f06",
+        "stars": 174,
+        "cohort": "calibration",
+        "artifact": "006.json",
+        "status": "provisional",
+        "structuralScore": 11.668238115941179,
+        "observedScore": 8,
+        "slopScore": null,
+        "evidenceCompleteness": 42.11,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "6c257577867447da690e979886d8fdc0a6d59ec691f15ef026b6e00d61b303dd",
+        "files": 1496,
+        "functions": 15287,
+        "durationMs": 40385.297292
+      },
+      {
+        "name": "figma/vite-plugin-yaml",
+        "commit": "2273c3f46fdfdb4de2dc9a273e8ee062e54dff35",
+        "stars": 100,
+        "cohort": "calibration",
+        "artifact": "007.json",
+        "status": "provisional",
+        "structuralScore": 1.398988413547237,
+        "observedScore": 0.7,
+        "slopScore": null,
+        "evidenceCompleteness": 42.11,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "3b2c67abd2d5f846e40aa418178e39e48a310beec3f2618db3a0e433dde26848",
+        "files": 4,
+        "functions": 7,
+        "durationMs": 239.77333299999736
+      },
+      {
+        "name": "jokull/python-ts-graphql-demo",
+        "commit": "52d4fb5a9bf2143c7585fadc43bbaa574e59e3db",
+        "stars": 100,
+        "cohort": "calibration",
+        "artifact": "008.json",
+        "status": "provisional",
+        "structuralScore": 1.6266061459640957,
+        "observedScore": 0.81,
+        "slopScore": null,
+        "evidenceCompleteness": 42.11,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "80f573f1575391771ad3eb529e02236bd692e89af5d643fb9909c4f892a4e5d3",
+        "files": 3,
+        "functions": 20,
+        "durationMs": 272.37945800000307
+      },
+      {
+        "name": "dcodesdev/LetterSpace",
+        "commit": "5e9b3391bcae33ab9069b0821c3fce85a57c0e47",
+        "stars": 100,
+        "cohort": "calibration",
+        "artifact": "009.json",
+        "status": "provisional",
+        "structuralScore": 30.556346408552262,
+        "observedScore": 15.67,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "b4d59c207e4f7fdbee078ed928ffc77cc518ac2facd730eb15fb037af2298aa2",
+        "files": 263,
+        "functions": 931,
+        "durationMs": 1211.0682920000036
+      },
+      {
+        "name": "wobsoriano/solid-sonner",
+        "commit": "4082d5e52074a846d5e139fcbeccb75addb6871b",
+        "stars": 100,
+        "cohort": "calibration",
+        "artifact": "010.json",
+        "status": "provisional",
+        "structuralScore": 29.864173502768647,
+        "observedScore": 15.69,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "fd3a9c38c5eca3ff3f00ef1f6a3b211b18c74b7ee03d6b22a05d85372f22d629",
+        "files": 16,
+        "functions": 252,
+        "durationMs": 429.7869170000049
+      },
+      {
+        "name": "mk12/vscode-better-git-line-blame",
+        "commit": "20528d8fadb681b5598cefc7b84b891583dc4643",
+        "stars": 100,
+        "cohort": "calibration",
+        "artifact": "011.json",
+        "status": "provisional",
+        "structuralScore": 27.175129858348644,
+        "observedScore": 19.48,
+        "slopScore": null,
+        "evidenceCompleteness": 42.11,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "ceb3f827061a9f470d625ffe6ad71f7930663680c2e934dfc6e08841d4bfe062",
+        "files": 1,
+        "functions": 67,
+        "durationMs": 241.88458399999945
+      },
+      {
+        "name": "gmickel/turborepo-shadcn-nextjs",
+        "commit": "c1f19e41b36f84cd731d8a3a62b9ca5a7436b3d0",
+        "stars": 100,
+        "cohort": "calibration",
+        "artifact": "012.json",
+        "status": "provisional",
+        "structuralScore": 6.458989780711093,
+        "observedScore": 3.49,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "f41896f70aa674d2a06da60a632bd8f53d68cb0a77f7a6974d09efa39267e4ab",
+        "files": 33,
+        "functions": 34,
+        "durationMs": 275.2545420000024
+      },
+      {
+        "name": "charto/cwait",
+        "commit": "1ab8a54360ed456e35d6c9103a8f57de7856cac5",
+        "stars": 200,
+        "cohort": "calibration",
+        "artifact": "013.json",
+        "status": "provisional",
+        "structuralScore": 3.3562996622068355,
+        "observedScore": 1.68,
+        "slopScore": null,
+        "evidenceCompleteness": 47.06,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "19a761817884673927fbb330908c0151805e69569cba4481c030b0384248b505",
+        "files": 3,
+        "functions": 16,
+        "durationMs": 235.1041669999977
+      },
+      {
+        "name": "nksaraf/magiql",
+        "commit": "252a9cc0a8a0ea86d69acf48d88cd2fffd8d9d5e",
+        "stars": 200,
+        "cohort": "calibration",
+        "artifact": "014.json",
+        "status": "provisional",
+        "structuralScore": 17.435967269369897,
+        "observedScore": 10.59,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "d15d512240beea7d6e4b01dcb45589dc0717aa89c1fe9d4a659fe94382031e85",
+        "files": 85,
+        "functions": 561,
+        "durationMs": 744.8425409999982
+      },
+      {
+        "name": "ParthibanRajasekaran/delivery-intel",
+        "commit": "225ee342615da893faa480c2bd737570ae3eff52",
+        "stars": 200,
+        "cohort": "calibration",
+        "artifact": "015.json",
+        "status": "provisional",
+        "structuralScore": 39.29500445539925,
+        "observedScore": 21.52,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "960243d10139e5a4f6013dee68e9e7786ccf4bfa575dc0bd4f090ac562956629",
+        "files": 76,
+        "functions": 649,
+        "durationMs": 1133.639667000003
+      },
+      {
+        "name": "ajtowf/ng2_play",
+        "commit": "779809fc85ccded92d9fce084a91b24ec9b43618",
+        "stars": 200,
+        "cohort": "calibration",
+        "artifact": "016.json",
+        "status": "provisional",
+        "structuralScore": 0,
+        "observedScore": 0.02,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "c81c2243a5ec15d6c3976067f41e43eaa92dfbcaaca71e5de109956331a97c43",
+        "files": 29,
+        "functions": 51,
+        "durationMs": 262.49808300000586
+      },
+      {
+        "name": "EvanBacon/react-native-web-hooks",
+        "commit": "5c8da26d57ed3b5d8ce688c5fbce64450b10505b",
+        "stars": 200,
+        "cohort": "calibration",
+        "artifact": "017.json",
+        "status": "provisional",
+        "structuralScore": 2.6634240310364996,
+        "observedScore": 1.5,
+        "slopScore": null,
+        "evidenceCompleteness": 42.11,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "f03751392a6e8380a2fc40b5761fabcd55616314c9a8c76a522afa9191e7f100",
+        "files": 16,
+        "functions": 41,
+        "durationMs": 251.9455420000013
+      },
+      {
+        "name": "simonguo/react-code-view",
+        "commit": "0fcaeb1aeef1aebd21bc379311832815ec14dd66",
+        "stars": 200,
+        "cohort": "calibration",
+        "artifact": "018.json",
+        "status": "provisional",
+        "structuralScore": 25.354967926230856,
+        "observedScore": 22.42,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "169b438fdf1661c8ec4c40942f89548926fdd14d10821b0d05716908d4cb2adc",
+        "files": 78,
+        "functions": 143,
+        "durationMs": 509.42149999999674
+      },
+      {
+        "name": "nzambello/react-csv-reader",
+        "commit": "d4bc22799f387d6ce881a30cfe5e2b26c9e93eea",
+        "stars": 200,
+        "cohort": "held-out",
+        "artifact": "019.json",
+        "status": "provisional",
+        "structuralScore": 42.52363413759786,
+        "observedScore": 32.38,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "1ca85dd205ab5a752f563395786ef9d03dd002a9ce8ee26cc72e077bea1d379d",
+        "files": 31,
+        "functions": 24063,
+        "durationMs": 9156.416708999997
+      },
+      {
+        "name": "goldvideo/demuxer",
+        "commit": "2c1312b31129158a736233b31569ec14d616c904",
+        "stars": 200,
+        "cohort": "held-out",
+        "artifact": "020.json",
+        "status": "provisional",
+        "structuralScore": 34.25098444476088,
+        "observedScore": 24.18,
+        "slopScore": null,
+        "evidenceCompleteness": 63.16,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "d8ae585d970c3e577eec4750fe4387fa01cffa72b944b22a811bf137959826f2",
+        "files": 73,
+        "functions": 300,
+        "durationMs": 671.5751660000024
+      },
+      {
+        "name": "draftswithea/react-query-key-manager",
+        "commit": "4ce28bc5dd8379204bb5b597a866ad04e425ba64",
+        "stars": 200,
+        "cohort": "held-out",
+        "artifact": "021.json",
+        "status": "provisional",
+        "structuralScore": 2.817547546140066,
+        "observedScore": 10.12,
+        "slopScore": null,
+        "evidenceCompleteness": 57.89,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "e09edfaaa7ab5584e9c417b05a546d022a12309a570b522d86a8d2e836640070",
+        "files": 1,
+        "functions": 6,
+        "durationMs": 239.3510000000024
+      },
+      {
+        "name": "correttojs/graphql-codegen-apollo-next-ssr",
+        "commit": "1e3b57d64ea251f2665a5a499ff2c51f425e736f",
+        "stars": 200,
+        "cohort": "held-out",
+        "artifact": "022.json",
+        "status": "provisional",
+        "structuralScore": 13.808708407137784,
+        "observedScore": 6.38,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "89bbebe59e8efe83173ee19bab866dad33e29fd1b62ab6221492e158da0d2b14",
+        "files": 7,
+        "functions": 29,
+        "durationMs": 214.51616600000125
+      },
+      {
+        "name": "clavia-labs/tardigrade",
+        "commit": "d0cfa1cdbcc1c4696294c827a3bef9f867299831",
+        "stars": 200,
+        "cohort": "held-out",
+        "artifact": "023.json",
+        "status": "provisional",
+        "structuralScore": 26.835807214185593,
+        "observedScore": 20.36,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "0680fe3bbf8f6873596f940cc6e75096076867bb64cc87046373f85ab2051f9a",
+        "files": 373,
+        "functions": 3571,
+        "durationMs": 4229.167665999994
+      },
+      {
+        "name": "tanpreetjolly/browser-whisper",
+        "commit": "03cbfb70148f7a48335d7ba93ae494fe933191e0",
+        "stars": 200,
+        "cohort": "held-out",
+        "artifact": "024.json",
+        "status": "provisional",
+        "structuralScore": 16.198922665442797,
+        "observedScore": 12.06,
+        "slopScore": null,
+        "evidenceCompleteness": 52.63,
+        "profileHash": "efeaae91c235e24ecf374afcbfd45ba67b4c6b58d163f4530a129165b3dd6a4c",
+        "sourceHash": "18de33bfc85dcfdae932bcc69154d68bdf7e0a89da22716c6bd429f88df54897",
+        "files": 17,
+        "functions": 171,
+        "durationMs": 343.56958300000406
+      }
+    ]
+  },
+  "distributions": {
+    "calibration": {
+      "repositories": 18,
+      "observedScore": {
+        "min": 0.02,
+        "median": 13.129999999999999,
+        "max": 26.12
+      },
+      "evidenceCompleteness": {
+        "min": 42.11,
+        "median": 52.63,
+        "max": 68.42
+      }
+    },
+    "held-out": {
+      "repositories": 6,
+      "observedScore": {
+        "min": 6.38,
+        "median": 16.21,
+        "max": 32.38
+      },
+      "evidenceCompleteness": {
+        "min": 52.63,
+        "median": 52.63,
+        "max": 63.16
+      }
+    }
+  },
+  "behavioralPilots": [
+    {
+      "repository": "mesqueeb/is-what",
+      "outcomes": {
+        "no-coverage": 19,
+        "killed": 299,
+        "survived": 31
+      },
+      "reportedMutationFiles": 42,
+      "coverageDurationMs": 3090,
+      "mutationDurationMs": 17438,
+      "metrics": [
+        {
+          "id": "coverage.lines",
+          "value": 10.9375,
+          "state": "inconclusive",
+          "numerator": 7,
+          "denominator": 64,
+          "score": 31.874999999999996,
+          "measuredEntities": 64,
+          "eligibleEntities": 64,
+          "evidenceIds": [
+            "dcbf23a95fb3f853a8951d738d23a050437a877afdc4657b7c311da6fb10884e"
+          ],
+          "limitations": [
+            "1 eligible product files absent from evidence"
+          ]
+        },
+        {
+          "id": "coverage.branches",
+          "value": 4.938271604938271,
+          "state": "inconclusive",
+          "numerator": 4,
+          "denominator": 81,
+          "score": 19.753086419753085,
+          "measuredEntities": 81,
+          "eligibleEntities": 81,
+          "evidenceIds": [
+            "dcbf23a95fb3f853a8951d738d23a050437a877afdc4657b7c311da6fb10884e"
+          ],
+          "limitations": [
+            "1 eligible product files absent from evidence"
+          ]
+        },
+        {
+          "id": "coverage.functions",
+          "value": 6.976744186046512,
+          "state": "inconclusive",
+          "numerator": 3,
+          "denominator": 43,
+          "score": 23.953488372093023,
+          "measuredEntities": 43,
+          "eligibleEntities": 43,
+          "evidenceIds": [
+            "dcbf23a95fb3f853a8951d738d23a050437a877afdc4657b7c311da6fb10884e"
+          ],
+          "limitations": [
+            "1 eligible product files absent from evidence"
+          ]
+        },
+        {
+          "id": "coverage.crap",
+          "value": 8.1865889212828,
+          "state": "inconclusive",
+          "numerator": null,
+          "denominator": null,
+          "score": 7.9664723032069995,
+          "measuredEntities": 39,
+          "eligibleEntities": 43,
+          "evidenceIds": [
+            "dcbf23a95fb3f853a8951d738d23a050437a877afdc4657b7c311da6fb10884e"
+          ],
+          "limitations": [
+            "Diagnostic maximum only; composite excludes CRAP to avoid counting complexity and coverage twice.",
+            "1 eligible product files absent from evidence"
+          ]
+        },
+        {
+          "id": "mutation.survivors",
+          "value": 9.393939393939394,
+          "state": "inconclusive",
+          "numerator": 31,
+          "denominator": 330,
+          "score": 28.78787878787879,
+          "measuredEntities": 330,
+          "eligibleEntities": 330,
+          "evidenceIds": [
+            "48d484af52bbc38e6391664507048571faec33db03d0a4f4cf9f84ba1b04b23e"
+          ],
+          "limitations": [
+            "3 eligible product files absent from evidence",
+            "Uncovered mutants leave assertion discrimination unmeasured at those sites"
+          ]
+        },
+        {
+          "id": "mutation.uncovered",
+          "value": 5.444126074498567,
+          "state": "inconclusive",
+          "numerator": 19,
+          "denominator": 349,
+          "score": 20.888252148997136,
+          "measuredEntities": 349,
+          "eligibleEntities": 349,
+          "evidenceIds": [
+            "48d484af52bbc38e6391664507048571faec33db03d0a4f4cf9f84ba1b04b23e"
+          ],
+          "limitations": [
+            "3 eligible product files absent from evidence"
+          ]
+        }
+      ],
+      "rankingEligible": false,
+      "observedScore": 15.92,
+      "evidenceCompleteness": 63.16
+    },
+    {
+      "repository": "antfu/diff-match-patch-es",
+      "outcomes": {
+        "no-coverage": 1,
+        "killed": 95,
+        "survived": 40,
+        "timeout": 7
+      },
+      "reportedMutationFiles": 1,
+      "coverageDurationMs": 3028,
+      "mutationDurationMs": 10306,
+      "metrics": [
+        {
+          "id": "coverage.lines",
+          "value": 0.7070707070707071,
+          "state": "measured",
+          "numerator": 7,
+          "denominator": 990,
+          "score": 2.8282828282828283,
+          "measuredEntities": 990,
+          "eligibleEntities": 990,
+          "evidenceIds": [
+            "2d8ef3b9660eb23e79e44dccdbacf26fbf6666f12d8bd5d288877976e9ccf66f"
+          ],
+          "limitations": []
+        },
+        {
+          "id": "coverage.branches",
+          "value": 2.6465028355387523,
+          "state": "measured",
+          "numerator": 14,
+          "denominator": 529,
+          "score": 10.586011342155011,
+          "measuredEntities": 529,
+          "eligibleEntities": 529,
+          "evidenceIds": [
+            "2d8ef3b9660eb23e79e44dccdbacf26fbf6666f12d8bd5d288877976e9ccf66f"
+          ],
+          "limitations": []
+        },
+        {
+          "id": "coverage.functions",
+          "value": 0,
+          "state": "measured",
+          "numerator": 0,
+          "denominator": 42,
+          "score": 0,
+          "measuredEntities": 42,
+          "eligibleEntities": 42,
+          "evidenceIds": [
+            "2d8ef3b9660eb23e79e44dccdbacf26fbf6666f12d8bd5d288877976e9ccf66f"
+          ],
+          "limitations": []
+        },
+        {
+          "id": "coverage.crap",
+          "value": 32,
+          "state": "inconclusive",
+          "numerator": null,
+          "denominator": null,
+          "score": 54.666666666666664,
+          "measuredEntities": 41,
+          "eligibleEntities": 42,
+          "evidenceIds": [
+            "2d8ef3b9660eb23e79e44dccdbacf26fbf6666f12d8bd5d288877976e9ccf66f"
+          ],
+          "limitations": [
+            "Diagnostic maximum only; composite excludes CRAP to avoid counting complexity and coverage twice."
+          ]
+        },
+        {
+          "id": "mutation.survivors",
+          "value": 29.62962962962963,
+          "state": "inconclusive",
+          "numerator": 40,
+          "denominator": 135,
+          "score": 56.018518518518526,
+          "measuredEntities": 135,
+          "eligibleEntities": 135,
+          "evidenceIds": [
+            "fa4c86982b9c48933aa5237408bad193eb1a4f0adc54c20ed41e7997978a92f9"
+          ],
+          "limitations": [
+            "5 eligible product files absent from evidence",
+            "Uncovered mutants leave assertion discrimination unmeasured at those sites",
+            "Timeout, error and ignored mutants are not counted as kills"
+          ]
+        },
+        {
+          "id": "mutation.uncovered",
+          "value": 0.7352941176470589,
+          "state": "inconclusive",
+          "numerator": 1,
+          "denominator": 136,
+          "score": 2.941176470588235,
+          "measuredEntities": 136,
+          "eligibleEntities": 136,
+          "evidenceIds": [
+            "fa4c86982b9c48933aa5237408bad193eb1a4f0adc54c20ed41e7997978a92f9"
+          ],
+          "limitations": [
+            "5 eligible product files absent from evidence",
+            "Timeout, error and ignored mutants are not counted as kills"
+          ]
+        }
+      ],
+      "rankingEligible": false,
+      "observedScore": 22.38,
+      "evidenceCompleteness": 84.21
+    }
+  ],
+  "modelCalls": 0,
+  "artifacts": {
+    "archive": "reports.tar.gz",
+    "sha256": "a986cb4fc2144d1ba5352cc0d6554a51bd3826a37071955543b1fe1ee553eddc",
+    "bytes": 1634158
+  }
+}

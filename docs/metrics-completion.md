@@ -77,3 +77,13 @@ full-suite cost. The local per-edit gate remains explicitly disabled pending an
 acceptable full-suite warm run. At the September 8 snapshot, the historical ratchet
 knew 1,565 of 2,004 eligible files (78.1% reach); no per-edit execution journal existed.
 Those figures describe measurement reach, not the fraction of source lines tested.
+
+Stage 7: expanded to 24 pinned repositories with 100–200 observed stars, including
+six held out. Fixed-profile calibration corrected scope, alias, type-binding,
+entry-point and real coverage-format errors. Existing tests in two libraries
+evaluated 492 generated mutants; missing files, survivors, uncovered sites and
+timeouts remain distinct. The archived committed source passed TypeScript and
+404 focused tests. Portable manifests, hashed reports and reproduction details
+are in [the calibration report](metrics-corpus-2026-09-08.md). No model calls were
+used for these measurements. Full composite rankings remain withheld wherever
+evidence is incomplete.

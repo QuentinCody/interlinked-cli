@@ -1,0 +1,174 @@
+{
+  "checkedAt": "2026-09-08T11:01:10.637610+00:00",
+  "selection": "Twelve retained pilot pins plus twelve new TypeScript repositories chosen before measurement from GitHub stars:100..200, sorted stars descending; six held out. Purposive sample, not representative.",
+  "repositories": [
+    {
+      "name": "mesqueeb/is-what",
+      "path": "repositories/mesqueeb__is-what",
+      "commit": "dadd235f03d201ffbd8fd73dcc5d1891d754fcd4",
+      "stars": 200,
+      "cohort": "calibration"
+    },
+    {
+      "name": "antfu/diff-match-patch-es",
+      "path": "repositories/antfu__diff-match-patch-es",
+      "commit": "4f35fb7fd57df68d69068cdee0780bb779f5497f",
+      "stars": 199,
+      "cohort": "calibration"
+    },
+    {
+      "name": "caderek/aocrunner",
+      "path": "repositories/caderek__aocrunner",
+      "commit": "7eaba95faa8708b4b0b9c79b0b3eaf13347ead57",
+      "stars": 199,
+      "cohort": "calibration"
+    },
+    {
+      "name": "sergiodxa/remix-auth-oauth2",
+      "path": "repositories/sergiodxa__remix-auth-oauth2",
+      "commit": "6e7bfd2a5741f5b04dafd4f9f57c83775936a39a",
+      "stars": 200,
+      "cohort": "calibration"
+    },
+    {
+      "name": "JNKKKK/pianochord.io",
+      "path": "repositories/JNKKKK__pianochord.io",
+      "commit": "568efa33124a034d131e787fd20c28b298780433",
+      "stars": 200,
+      "cohort": "calibration"
+    },
+    {
+      "name": "QuentinCody/interlinked-cli",
+      "path": "repositories/QuentinCody__interlinked-cli",
+      "commit": "a2d4e41fb1ccb0a6514e9e177170f0386e399f06",
+      "stars": 174,
+      "cohort": "calibration"
+    },
+    {
+      "name": "figma/vite-plugin-yaml",
+      "path": "repositories/figma__vite-plugin-yaml",
+      "commit": "2273c3f46fdfdb4de2dc9a273e8ee062e54dff35",
+      "stars": 100,
+      "cohort": "calibration"
+    },
+    {
+      "name": "jokull/python-ts-graphql-demo",
+      "path": "repositories/jokull__python-ts-graphql-demo",
+      "commit": "52d4fb5a9bf2143c7585fadc43bbaa574e59e3db",
+      "stars": 100,
+      "cohort": "calibration"
+    },
+    {
+      "name": "dcodesdev/LetterSpace",
+      "path": "repositories/dcodesdev__LetterSpace",
+      "commit": "5e9b3391bcae33ab9069b0821c3fce85a57c0e47",
+      "stars": 100,
+      "cohort": "calibration"
+    },
+    {
+      "name": "wobsoriano/solid-sonner",
+      "path": "repositories/wobsoriano__solid-sonner",
+      "commit": "4082d5e52074a846d5e139fcbeccb75addb6871b",
+      "stars": 100,
+      "cohort": "calibration"
+    },
+    {
+      "name": "mk12/vscode-better-git-line-blame",
+      "path": "repositories/mk12__vscode-better-git-line-blame",
+      "commit": "20528d8fadb681b5598cefc7b84b891583dc4643",
+      "stars": 100,
+      "cohort": "calibration"
+    },
+    {
+      "name": "gmickel/turborepo-shadcn-nextjs",
+      "path": "repositories/gmickel__turborepo-shadcn-nextjs",
+      "commit": "c1f19e41b36f84cd731d8a3a62b9ca5a7436b3d0",
+      "stars": 100,
+      "cohort": "calibration"
+    },
+    {
+      "name": "charto/cwait",
+      "path": "repositories/charto__cwait",
+      "commit": "1ab8a54360ed456e35d6c9103a8f57de7856cac5",
+      "stars": 200,
+      "cohort": "calibration"
+    },
+    {
+      "name": "nksaraf/magiql",
+      "path": "repositories/nksaraf__magiql",
+      "commit": "252a9cc0a8a0ea86d69acf48d88cd2fffd8d9d5e",
+      "stars": 200,
+      "cohort": "calibration"
+    },
+    {
+      "name": "ParthibanRajasekaran/delivery-intel",
+      "path": "repositories/ParthibanRajasekaran__delivery-intel",
+      "commit": "225ee342615da893faa480c2bd737570ae3eff52",
+      "stars": 200,
+      "cohort": "calibration"
+    },
+    {
+      "name": "ajtowf/ng2_play",
+      "path": "repositories/ajtowf__ng2_play",
+      "commit": "779809fc85ccded92d9fce084a91b24ec9b43618",
+      "stars": 200,
+      "cohort": "calibration"
+    },
+    {
+      "name": "EvanBacon/react-native-web-hooks",
+      "path": "repositories/EvanBacon__react-native-web-hooks",
+      "commit": "5c8da26d57ed3b5d8ce688c5fbce64450b10505b",
+      "stars": 200,
+      "cohort": "calibration"
+    },
+    {
+      "name": "simonguo/react-code-view",
+      "path": "repositories/simonguo__react-code-view",
+      "commit": "0fcaeb1aeef1aebd21bc379311832815ec14dd66",
+      "stars": 200,
+      "cohort": "calibration"
+    },
+    {
+      "name": "nzambello/react-csv-reader",
+      "path": "repositories/nzambello__react-csv-reader",
+      "commit": "d4bc22799f387d6ce881a30cfe5e2b26c9e93eea",
+      "stars": 200,
+      "cohort": "held-out"
+    },
+    {
+      "name": "goldvideo/demuxer",
+      "path": "repositories/goldvideo__demuxer",
+      "commit": "2c1312b31129158a736233b31569ec14d616c904",
+      "stars": 200,
+      "cohort": "held-out"
+    },
+    {
+      "name": "draftswithea/react-query-key-manager",
+      "path": "repositories/draftswithea__react-query-key-manager",
+      "commit": "4ce28bc5dd8379204bb5b597a866ad04e425ba64",
+      "stars": 200,
+      "cohort": "held-out"
+    },
+    {
+      "name": "correttojs/graphql-codegen-apollo-next-ssr",
+      "path": "repositories/correttojs__graphql-codegen-apollo-next-ssr",
+      "commit": "1e3b57d64ea251f2665a5a499ff2c51f425e736f",
+      "stars": 200,
+      "cohort": "held-out"
+    },
+    {
+      "name": "clavia-labs/tardigrade",
+      "path": "repositories/clavia-labs__tardigrade",
+      "commit": "d0cfa1cdbcc1c4696294c827a3bef9f867299831",
+      "stars": 200,
+      "cohort": "held-out"
+    },
+    {
+      "name": "tanpreetjolly/browser-whisper",
+      "path": "repositories/tanpreetjolly__browser-whisper",
+      "commit": "03cbfb70148f7a48335d7ba93ae494fe933191e0",
+      "stars": 200,
+      "cohort": "held-out"
+    }
+  ]
+}
