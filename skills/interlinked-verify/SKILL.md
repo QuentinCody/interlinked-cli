@@ -48,6 +48,11 @@ For `[interlinked:hook-coverage] NOT CHECKED`, use `interlinked harness coverage
 for completion; `--no-wait` returns after starting it. Poll `harness coverage status
 --json` to inspect progress. Checks reuse the configured PostToolUse battery in bounded
 external batches. This does not replay PreToolUse guards or certify every hook phase.
+While waiting, an unavailable status response is retried up to three consecutive
+polls without restarting verification. A responsive report resets that counter.
+Persistent unavailability exits nonzero with the original reason; the job may still
+be running. Only a ready response with a missing or different job establishes that
+the observed job changed or disappeared.
 Recovery allows at least two minutes for each related-test process; ordinary hook
 deadlines and the shared admission/source-count limits remain in effect on their paths.
 

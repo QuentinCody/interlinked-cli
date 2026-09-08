@@ -15,7 +15,7 @@ describe("coverage control delivery", () => {
     });
     it("does not retry a mutation on another transport after an ambiguous response", async () => {
         const result = await queryHookCoverage("/repo", { operation: "accept_policy", digest: "reviewed" });
-        expect(mocks.raw).toHaveBeenCalledOnce();
+        expect(mocks.raw).toHaveBeenCalledExactlyOnceWith("/repo", { hook_event: "HookCoverage", request: { operation: "accept_policy", digest: "reviewed" } }, 10_000);
         expect(mocks.framed).not.toHaveBeenCalled();
         expect(result).toMatchObject({ readiness: "unmeasured", reason: expect.stringContaining("may already have completed") });
     });
@@ -23,7 +23,7 @@ describe("coverage control delivery", () => {
         mocks.exists.mockReturnValue(false);
         await queryHookCoverage("/repo", { operation: "accept_policy", digest: "reviewed" });
         expect(mocks.raw).not.toHaveBeenCalled();
-        expect(mocks.framed).toHaveBeenCalledExactlyOnceWith("daemon.coverage", { operation: "accept_policy", digest: "reviewed" });
+        expect(mocks.framed).toHaveBeenCalledExactlyOnceWith("daemon.coverage", { operation: "accept_policy", digest: "reviewed" }, { timeout_ms: 10_000 });
     });
     it("can retry a read-only status query", async () => {
         expect(await queryHookCoverage("/repo", { operation: "status" })).toEqual({ readiness: "ready" });

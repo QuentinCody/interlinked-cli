@@ -12,10 +12,14 @@ import { output, getOutputMode } from "../lib/output.js";
 import { getFramedSocketPath, getSocketPath } from "./harness-process.js";
 import { queryHarness } from "./harness-status-helpers.js";
 
+// Coverage reconciles watched files and returns retained receipts. Large ledgers
+// need more time than the short hook/health RPC deadline, especially during recovery.
+const COVERAGE_CONTROL_TIMEOUT_MS = 10_000;
+
 /** Raw repo daemon and framed-only deployments share the same control handler. */
 export async function queryHookCoverage(cwd: string, request: HookCoverageRequest): Promise<HookCoverageReport> {
     if (!existsSync(getSocketPath(cwd))) return queryFramedCoverage(cwd, request);
-    const raw = await queryHarness(cwd, { hook_event: "HookCoverage", request });
+    const raw = await queryHarness(cwd, { hook_event: "HookCoverage", request }, COVERAGE_CONTROL_TIMEOUT_MS);
     if (typeof raw?.additional_context === "string") {
         try { const report: unknown = JSON.parse(raw.additional_context); if (isHookCoverageReport(report)) return report; }
         catch { /* Intentional: a stale raw response is not evidence; try the framed control below. */ }
@@ -26,7 +30,7 @@ export async function queryHookCoverage(cwd: string, request: HookCoverageReques
 
 async function queryFramedCoverage(cwd: string, request: HookCoverageRequest): Promise<HookCoverageReport> {
     try {
-        const report = await createDaemonClient(getFramedSocketPath(cwd, undefined)).call("daemon.coverage", request);
+        const report = await createDaemonClient(getFramedSocketPath(cwd, undefined)).call("daemon.coverage", request, { timeout_ms: COVERAGE_CONTROL_TIMEOUT_MS });
         return isHookCoverageReport(report) ? report : { readiness: "unmeasured", reason: "Invalid coverage daemon response; inspect status before retrying a mutation" };
     }
     catch (error) { return { readiness: "unmeasured", reason: `Coverage daemon unavailable or response lost; inspect status before retrying a mutation: ${String(error)}` }; }

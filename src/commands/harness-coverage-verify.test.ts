@@ -53,6 +53,50 @@ describe("harness coverage verify CLI", () => {
         expect(vi.mocked(console.log).mock.calls.flat().join(" ")).toContain("daemon restarted");
     });
 
+    it("waits through transient status failures without starting another verification", async () => {
+        query.mockResolvedValueOnce(report("running"))
+            .mockResolvedValueOnce({ readiness: "unmeasured", reason: "timeout" })
+            .mockResolvedValueOnce({ readiness: "unmeasured", reason: "timeout" })
+            .mockResolvedValueOnce(report("complete"));
+        const completion = harnessCoverageVerifyCommand({ json: true });
+        await vi.advanceTimersByTimeAsync(3000);
+        await completion;
+        expect(query.mock.calls.map(call => call[1])).toEqual([
+            { operation: "verify" }, { operation: "status" }, { operation: "status" }, { operation: "status" },
+        ]);
+        expect(process.exitCode).toBe(0);
+        expect(vi.mocked(console.log).mock.calls.flat().join(" ")).toContain('"status": "complete"');
+    });
+
+    it("resets the unavailable poll budget after a responsive running report", async () => {
+        const unavailable = { readiness: "unmeasured", reason: "timeout" };
+        query.mockResolvedValueOnce(report("running"))
+            .mockResolvedValueOnce(unavailable).mockResolvedValueOnce(unavailable)
+            .mockResolvedValueOnce(report("running"))
+            .mockResolvedValueOnce(unavailable).mockResolvedValueOnce(unavailable)
+            .mockResolvedValueOnce(report("complete"));
+        const completion = harnessCoverageVerifyCommand({ json: true });
+        await vi.advanceTimersByTimeAsync(6000);
+        await completion;
+        expect(query).toHaveBeenCalledTimes(7);
+        expect(query).toHaveBeenLastCalledWith(process.cwd(), { operation: "status" });
+        expect(process.exitCode).toBe(0);
+    });
+
+    it.each([true, false])("bounds unavailable polling and preserves its reason with json=%s", async json => {
+        query.mockResolvedValueOnce(report("running"))
+            .mockResolvedValue({ readiness: "unmeasured", reason: "Coverage socket timed out" });
+        const completion = harnessCoverageVerifyCommand({ json });
+        await vi.advanceTimersByTimeAsync(3000);
+        await completion;
+        expect(query).toHaveBeenCalledTimes(4);
+        expect(process.exitCode).toBe(1);
+        const printed = vi.mocked(console.log).mock.calls.flat().join(" ");
+        expect(printed).toContain("Coverage socket timed out");
+        expect(printed).toContain("may still be running");
+        expect(printed).not.toContain("daemon restarted");
+    });
+
     it("fails when the running daemon cannot start verification", async () => {
         query.mockResolvedValue({ readiness: "ready", changed: false });
         await harnessCoverageVerifyCommand({ json: true });
