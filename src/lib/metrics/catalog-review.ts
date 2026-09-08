@@ -1,2 +1,4 @@
 /** Reviewed registry composition. New or reclassified checks require explicit profile review. */
-export const REVIEWED_REGISTRY_HASH = "b5515a3d94b132d78913dca945fe48b7e3d8103a8a9802f99764df62760a51f8";
+// This review includes the committed enforcement-only no-op sequence sentinel.
+// The corpus artifact retains the corresponding catalog for subsequent reviews.
+export const REVIEWED_REGISTRY_HASH = "0d68c5f5314048208985c7cea847586dd1b43169f0ccbeb5ec56b33779defd18";

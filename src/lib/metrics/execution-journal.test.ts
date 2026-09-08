@@ -12,7 +12,7 @@ afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: 
 function fixture(): string { const root = mkdtempSync(join(tmpdir(), "metrics-execution-")); roots.push(root); writeFileSync(join(root, "a.ts"), "export const a = 1;"); return root; }
 it("reports a proposed coverage measurement as stale until its source actually lands", () => {
     const root = fixture(), proposed = "export const a = 2;", ctx = { projectRoot: root, relPath: "a.ts", proposed, language: "ts" as const, editedLines: new Set([1]), budgetMs: 1000 };
-    recordCoverageExecution(ctx, { hook_event: "PreToolUse", session_id: "fixture", agent_source: "test", timestamp: "2026-07-02T00:00:00Z" }, { ok: true, testsPassed: true, suiteMs: 25,
+    recordCoverageExecution(ctx, { hook_event: "PreToolUse", session_id: "fixture", agent_source: "codex", timestamp: "2026-07-02T00:00:00Z" }, { ok: true, testsPassed: true, suiteMs: 25,
         perFile: new Map([["a.ts", { filePath: "a.ts", mtime: 0, functions: [] }]]) }, 1_783_000_000_000);
     expect(coverageExecutionReach(root, ["a.ts"]).measured).toBe(0);
     writeFileSync(join(root, "a.ts"), proposed);
