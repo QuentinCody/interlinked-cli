@@ -34,9 +34,9 @@ unsupported source languages, source-role spoofing, and complete registry covera
 Stage 2: structural, behavioral, test-integrity, duplicate/dead-store/reachability,
 typed-operation, import-architecture and declarative-contract adapters implemented.
 Eleven catalog/inventory/adapter tests passed. The initial two stages are committed
-as `2d4bc02f` and `68a03cda`; final isolated validation and agent guidance follow
-after CLI integration. Repository-wide type checking currently encounters separate
-concurrent edits; those failures are not counted as passing checks.
+as `2d4bc02f` and `68a03cda`. Final validation and agent guidance are recorded below;
+validation uses committed snapshots because the shared working tree has concurrent
+edits. Failures in that changing tree are not counted as passing checks.
 
 Stage 3: strict Istanbul and Stryker-style readers, hashed receipts, stale-input
 detection, bounded isolated execution, cancellation and content-matched resume
@@ -53,8 +53,9 @@ plus type checking. Sixteen focused tests passed; committed as `689c9402`.
 Stage 5: `interlinked-slop-v1` distributes 100 points across bounded groups,
 explains each metric, and reports observed burden, missing-evidence bounds and
 ranking eligibility separately. CRAP and uncovered mutation sites remain
-diagnostics. Twelve adapter/composite/report tests passed. CLI integration,
-operational coverage evidence, corpus calibration and final guidance remain.
+diagnostics. Twelve adapter/composite/report tests passed. The following stages
+complete CLI integration, operational coverage evidence, corpus calibration and
+agent guidance.
 
 Stage 6: the CLI now exposes score profiles, catalog, explanation, comparison,
 corpus, behavioral evidence, deletion validation, gate reach and coverage-index
@@ -87,3 +88,39 @@ timeouts remain distinct. The archived committed source passed TypeScript and
 are in [the calibration report](metrics-corpus-2026-09-08.md). No model calls were
 used for these measurements. Full composite rankings remain withheld wherever
 evidence is incomplete.
+
+Stage 8: [the scoring contract](metrics-scoring.md) now documents the 23 metrics,
+versioned composite, source roles, missing-evidence bounds, evidence provenance,
+deletion trials, incremental coverage and compatibility profile. Public guidance
+uses syntax tokens for parser-counted source units and distinguishes them from
+embedding-model tokens. The inclusive 500-token gate and hold-or-shrink semantics
+are preserved; no embedding model or model calls are required for enforcement.
+Six source skills were updated and validated: the router, quality gates, semantic
+index, simplification, observability and verification. Generated CLI help includes
+every nested metrics command and matches regeneration from committed source.
+
+## Final validation and integration
+
+All eight implementation stages are complete. An immutable archive of committed
+snapshot `cfc89599` passed `npm run typecheck`, `npm run build`, and 535 focused
+tests across 37 files covering metrics, evidence, coverage indexing, gates and
+the integrated recovery controls. A separate generated-document freshness run
+passed 16 tests. All six affected committed skills passed the skill validator.
+The built and source CLI produced identical score JSON for the pinned
+`antfu/diff-match-patch-es` checkout, including zero model calls. This is focused
+validation, not a claim that the entire repository test suite ran.
+
+The documentation commit `e45d6b50` also included concurrently staged harness
+recovery files after a staging check failed and the commit incorrectly proceeded.
+Those changes were preserved because subsequent commits already depended on them.
+Commits `7e1ef385` and `cfc89599` repaired callback placement and fixture contracts;
+the combined committed snapshot is the one validated above. Subsequent commits
+used explicit file scopes. Unrelated working-tree changes remain with their owners.
+
+Operational limits remain visible: this repository's local per-edit coverage gate
+is still disabled pending acceptable full-suite warm-run cost; the shared harness
+did not confirm the final pending-version verification request, so it is recorded
+as unmeasured. Neither condition is presented as passing coverage. The corpus
+contains provisional observations rather than complete repository rankings, and
+deletion candidates still require review. Reducing existing oversized functions
+is intentionally deferred to the separately authorized future campaign.
