@@ -415,7 +415,9 @@ describe("checkFunctionComplexityWrite — Python dispatch", () => {
 			{ file_path: join(pyTmp, "app.py"), content: "def greet():\n    pass\n" },
 			pyTmp,
 		);
-		expect(pythonMock).toHaveBeenCalledTimes(2); // before + after content
+		expect(pythonMock).toHaveBeenCalledTimes(2);
+		expect(pythonMock).toHaveBeenNthCalledWith(1, "def greet():\n    pass\n", join(pyTmp, "app.py"));
+		expect(pythonMock).toHaveBeenNthCalledWith(2, "", join(pyTmp, "app.py"));
 	});
 
 	it("blocks a Python Write whose function is over the cap (cyc 26)", () => {

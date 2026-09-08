@@ -528,21 +528,25 @@ describe("runPostToolScan — response shape + fallback branches", () => {
 	});
 
 	it("falls back to DEFAULT_SCAN_TIMEOUT_MS when scan_timeout_ms is unset (0)", async () => {
-		const session = makeSession();
-		const scanner = makeScanner([]);
-		const cfg = makeScannerConfig();
-		cfg.local = { ...cfg.local, scan_timeout_ms: 0 };
-		const r = await runPostToolScan({
-			event: makeEvent({ tool_response: "hello" }),
-			session,
-			rules: makeRules(cfg),
-			scanner,
-			compiledAllowlist: NO_ALLOWLIST,
-		});
-		// No throw, and the call still went through with the default timeout.
-		expect(r.findings).toEqual([]);
-		const scanSpy = scanner.scan as unknown as ReturnType<typeof vi.fn>;
-		expect(scanSpy).toHaveBeenCalledTimes(1);
+		const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+		try {
+			const session = makeSession();
+			const scanner = makeScanner([]);
+			const cfg = makeScannerConfig();
+			cfg.local = { ...cfg.local, scan_timeout_ms: 0 };
+			const r = await runPostToolScan({
+				event: makeEvent({ tool_response: "hello" }),
+				session,
+				rules: makeRules(cfg),
+				scanner,
+				compiledAllowlist: NO_ALLOWLIST,
+			});
+			expect(r.findings).toEqual([]);
+			expect(scanner.scan).toHaveBeenCalledTimes(1);
+			expect(timeoutSpy).toHaveBeenCalledExactlyOnceWith(1500);
+		} finally {
+			timeoutSpy.mockRestore();
+		}
 	});
 });
 

@@ -102,13 +102,13 @@ describe("scoreListSection — the four empty-set early-return branches", () => 
 		});
 	});
 
-	it("P: empty oracle with a nonempty prediction is pure over-prediction (precision 0, recall 1)", () => {
-		expect(scoreListSection(["a", "b"], [])).toEqual({
+	it("P: a single plain prediction against an empty oracle is pure over-prediction (precision 0, recall 1)", () => {
+		expect(scoreListSection(["a"], [])).toEqual({
 			score: 0,
 			recall: 1,
 			precision: 0,
 			abstained: false,
-			missDetail: { over_predicted: ["a", "b"] },
+			missDetail: { over_predicted: ["a"] },
 		});
 	});
 

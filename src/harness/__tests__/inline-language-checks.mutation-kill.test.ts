@@ -344,7 +344,7 @@ describe("stripForLanguage — case-label routing", () => {
 // ===========================================
 
 describe("pyStepLineMode — comment-interior blanking (exact text)", () => {
-	it("kills eef59b587ea26e5d: every character inside a # comment blanks to a space, not to nothing", () => {
+	it("kills eef59b587ea26e5d and edb3de7527e530d4: every character inside a # comment blanks to a space, not to nothing", () => {
 		const prefix = "x = 1  ";
 		const comment = "# trailing comment";
 		const src = `${prefix}${comment}\n`;
@@ -369,7 +369,7 @@ describe("pyStepLineMode — comment-interior blanking (exact text)", () => {
 // ===========================================
 
 describe("pyStepStringMode — triple-quote closing (exact text + downstream flow)", () => {
-	it('kills e1600db1ee57f43b (both directions), c7ef6fcbd398b901, c170edf624b0c284, 7f566a2d45003a3f, 59c3fa27da05bf9f, 137527a3ed29179d, 37b5dc5317813bd9, d4577f1a27d57fff: a """-delimited string closes at the real delimiter and blanks it to exactly 3 spaces', () => {
+	it('kills e1600db1ee57f43b (both directions), c7ef6fcbd398b901, c170edf624b0c284, 7f566a2d45003a3f, 59c3fa27da05bf9f, 137527a3ed29179d, 37b5dc5317813bd9, d4577f1a27d57fff, and cdcf1a8cc992f47d: a """-delimited string closes at the real delimiter and blanks it to exactly 3 spaces', () => {
 		// One exact-match assertion on the FULL stripped output pins the
 		// closing condition (both AND-operands and the whole conditional,
 		// INCLUDING the `next3 === delim` sub-clause alone forced to `true`
@@ -386,7 +386,7 @@ describe("pyStepStringMode — triple-quote closing (exact text + downstream flo
 		expect(stripped).toBe(expected);
 	});
 
-	it("kills e1600db1ee57f43b/c7ef6fcbd398b901/c170edf624b0c284/59c3fa27da05bf9f for the '''-delimited variant too", () => {
+	it("kills e1600db1ee57f43b/c7ef6fcbd398b901/c170edf624b0c284/59c3fa27da05bf9f/ec5a3206ca6c1884/c4cf7c09f2d14b70 for the '''-delimited variant too", () => {
 		const src = "x = '''abc'''\nmore_code_here()\n";
 		const stripped = stripPython(src);
 		const expected = "x = " + "'''" + " ".repeat(3) + " ".repeat(3) + "\n" + "more_code_here()\n";
@@ -506,17 +506,6 @@ describe("pyStepStringMode — ordinary string characters stay hidden", () => {
 // pyStepCodeMode
 // ===========================================
 
-describe("pyStepCodeMode — # comment opener (exact text)", () => {
-	it("kills edb3de7527e530d4: the leading # of a comment blanks to a space too", () => {
-		const prefix = "x = 1  ";
-		const comment = "# trailing comment";
-		const src = `${prefix}${comment}\n`;
-		const stripped = stripPython(src);
-		const expected = `${prefix}${" ".repeat(comment.length)}\n`;
-		expect(stripped).toBe(expected);
-	});
-});
-
 describe("pyStepCodeMode — triple-quote-open detection", () => {
 	it('kills d44d725ebc5825b9, af7beee70c9198be, b94aee1370307184, e6456dc05977af5f, 6d82bcba911b151c: a """ opener is recognized (not corrupted into 3 single-quote pairs)', () => {
 		const src = 'x = """a"b"""\n';
@@ -525,20 +514,6 @@ describe("pyStepCodeMode — triple-quote-open detection", () => {
 		// reinterpreted as a bare single-quote open, and the lone interior
 		// `"` closes that fake string early — leaking the trailing 'b'.
 		expect(stripped).not.toContain("b");
-	});
-
-	it("kills cdcf1a8cc992f47d: the '\"\"\"' literal in the open-detection condition is intact (occurrence-verified against the PyStringDelim type alias)", () => {
-		const src = 'x = """abc"""\nmore_code_here()\n';
-		const stripped = stripPython(src);
-		const expected = "x = " + '"""' + " ".repeat(3) + " ".repeat(3) + "\n" + "more_code_here()\n";
-		expect(stripped).toBe(expected);
-	});
-
-	it("kills ec5a3206ca6c1884, c4cf7c09f2d14b70: a ''' opener is recognized (single-quote-triple variant)", () => {
-		const src = "x = '''abc'''\nmore_code_here()\n";
-		const stripped = stripPython(src);
-		const expected = "x = " + "'''" + " ".repeat(3) + " ".repeat(3) + "\n" + "more_code_here()\n";
-		expect(stripped).toBe(expected);
 	});
 
 	it("kills fa0f7b93000076fb: opening a plain (non-triple) string doesn't silently truncate the rest of the file", () => {
@@ -674,7 +649,7 @@ describe("stepStringMode — escape handling doesn't silently truncate", () => {
 // ===========================================
 
 describe("stepCodeMode — // and /* opener detection (exact conditions + text)", () => {
-	it("kills 5cd47e2475001078: a lone division-like slash is not mistaken for a // comment opener", () => {
+	it("kills 5cd47e2475001078 and 048d19ca9f5dbc01: a lone division-like slash is not mistaken for a comment opener", () => {
 		const src = "a / b\nreal();\n";
 		const stripped = stripCStyle(src);
 		expect(stripped).toBe(src);
@@ -691,12 +666,6 @@ describe("stepCodeMode — // and /* opener detection (exact conditions + text)"
 		const stripped = stripCStyle(src);
 		const expected = "  " + " " + "\n" + "real();\n";
 		expect(stripped).toBe(expected);
-	});
-
-	it("kills 048d19ca9f5dbc01: a lone slash is not mistaken for a /* opener (next==='*' check is load-bearing)", () => {
-		const src = "a / b\nreal();\n";
-		const stripped = stripCStyle(src);
-		expect(stripped).toBe(src);
 	});
 
 	it("kills 809f928fc5e09df7: the /* opener blanks to exactly two spaces", () => {

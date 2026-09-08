@@ -130,7 +130,7 @@ describe("writeGuardDisable", () => {
 
 	it("stamps `at` when no explicit timestamp is given", () => {
 		const rec = writeGuardDisable(dir, {});
-		expect(typeof rec.at).toBe("string");
+		expect(rec.at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 	});
 });
 

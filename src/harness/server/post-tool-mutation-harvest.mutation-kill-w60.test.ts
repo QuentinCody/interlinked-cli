@@ -223,7 +223,8 @@ describe("appendMutationHarvestWarning", () => {
 	it("appends the formatted survivor warning without polluting existing/absent warnings", async () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
 		vi.mocked(takePending).mockReturnValue([{ file: "target.ts" } as never]);
-		vi.mocked(harvestPending).mockResolvedValue({ harvested: 1, survivors: [{}] } as never);
+		const survivors = [{}];
+		vi.mocked(harvestPending).mockResolvedValue({ harvested: 1, survivors } as never);
 		vi.mocked(formatHarvestWarning).mockReturnValue("SURVIVOR_FOUND");
 		const decision: HarnessDecision = {} as HarnessDecision;
 		await appendMutationHarvestWarning(
@@ -233,6 +234,7 @@ describe("appendMutationHarvestWarning", () => {
 			{ readDisk: () => null },
 		);
 		expect(decision.warnings).toEqual(["SURVIVOR_FOUND"]);
+		expect(formatHarvestWarning).toHaveBeenCalledWith("target.ts", survivors);
 	});
 
 	it("builds the harvest request options from resolved config, and the not-measured warning stays clean", async () => {

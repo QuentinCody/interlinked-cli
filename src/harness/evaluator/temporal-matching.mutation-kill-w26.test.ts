@@ -214,10 +214,12 @@ describe("describeUnsatisfied() tool-field OR mutation — kills 62dced46", () =
 	});
 });
 
-describe("describeUnsatisfied() bash-field clause — kills c6ab0905", () => {
+describe("describeUnsatisfied() bash-field clause and file_read suppression — kills c6ab0905/a7bdbdf0/b089b032", () => {
 	// test-contract: public-api — an unset bash_match field contributes no
 	// message (mutant c6ab0905e409b50e forces the clause to always push,
 	// even when pred.bash_match is undefined)
+	// The same case also kills a7bdbdf0419f4731 and b089b032bd604041:
+	// suppressing the defined, unsatisfied file_read clause loses its message.
 	it("reports only the file_read gap when bash_match is unset", () => {
 		const result = evaluateRequiresPrior(session(), { file_read: "nope.ts" });
 		expect(result.reason).toBe("no prior file read matching nope.ts");
@@ -234,17 +236,6 @@ describe("describeUnsatisfied() file_read-field clause — kills 920f3c67/fae715
 			tool: "Read",
 		});
 		expect(result.reason).toBe("no prior `Read` tool call");
-	});
-});
-
-describe("describeUnsatisfied() file_read-field suppression — kills a7bdbdf0/b089b032", () => {
-	// test-contract: public-api — a defined, unsatisfied file_read field DOES
-	// contribute its message (mutant a7bdbdf0419f4731 forces the clause to
-	// always false, suppressing the push entirely; mutant b089b032bd604041
-	// flips !== to ===, which is false whenever file_read is actually defined)
-	it("reports the specific file_read gap, not the generic fallback", () => {
-		const result = evaluateRequiresPrior(session(), { file_read: "nope.ts" });
-		expect(result.reason).toBe("no prior file read matching nope.ts");
 	});
 });
 

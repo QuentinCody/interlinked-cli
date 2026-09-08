@@ -608,8 +608,10 @@ describe("pathsOverlap", () => {
 		]);
 		expect(firstOfPattern(traces, "destructive_sequence")).toBeDefined();
 	});
-	// Kills `na === nb` -> `true`: genuinely different target names must
-	// never be treated as overlapping.
+	// Kills `na === nb` -> `true` and the RECREATE branch's
+	// `target && pathsOverlap(...)` -> `true` / `||`: genuinely different
+	// target names must never be treated as overlapping or accepted as a
+	// recreate that completes the cycle.
 	it("N: genuinely different target names never overlap", () => {
 		const traces = observeAll(createTrajectoryDetector(), [
 			ev({ ts_ms: T0, tool_input: { command: "rm -rf build" } }),
@@ -745,17 +747,6 @@ describe("findDestructiveCyclePrefix", () => {
 			ev({ ts_ms: T0, tool_input: { command: "mkdir build" } }), // the real, legitimate recreate — furthest back
 			ev({ ts_ms: T0 + 5_000, tool_input: { command: "rm -rf build" } }), // premature "earlier rm" candidate
 			ev({ ts_ms: T0 + 10_000, tool_input: { command: "rm -rf build" } }), // trailing rm
-		]);
-		expect(firstOfPattern(traces, "destructive_sequence")).toBeUndefined();
-	});
-	// Kills the RECREATE branch's `target && pathsOverlap(...)` -> `true` /
-	// `||`. A recreate whose target genuinely does NOT match the trailing
-	// target must never be accepted.
-	it("N: a recreate targeting a DIFFERENT path never completes the cycle", () => {
-		const traces = observeAll(createTrajectoryDetector(), [
-			ev({ ts_ms: T0, tool_input: { command: "rm -rf build" } }),
-			ev({ ts_ms: T0 + 5_000, tool_input: { command: "mkdir staging" } }),
-			ev({ ts_ms: T0 + 10_000, tool_input: { command: "rm -rf build" } }),
 		]);
 		expect(firstOfPattern(traces, "destructive_sequence")).toBeUndefined();
 	});

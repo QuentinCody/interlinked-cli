@@ -436,6 +436,7 @@ describe("setup action — branches", () => {
 		await program.parseAsync(["setup"], { from: "user" });
 		expect(loginCommand).not.toHaveBeenCalled();
 		expect(logSpy).toHaveBeenCalledTimes(1); // only "Skipping login"
+		expect(logSpy.mock.calls[0]?.[0]).toContain("Auth token already present. Skipping login.");
 	});
 
 	it("no token, no existing auth: falls through to interactive login", async () => {

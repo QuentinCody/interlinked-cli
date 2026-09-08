@@ -50,7 +50,6 @@ import {
 	runTrajectoryDetector,
 } from "./pre-tool-helpers.js";
 import {
-	drainPendingSessionWarnings,
 	evaluateCurlMcpPhase,
 	evaluateDiagnosticsPhase,
 	evaluateMarkdownFirstPhase,
@@ -328,26 +327,6 @@ describe("evaluateProjectSetupPhase", () => {
 });
 
 // ============================================================
-// drainPendingSessionWarnings
-// ============================================================
-describe("drainPendingSessionWarnings", () => {
-	it("P1: session carries pending warnings -> drains them into warnings and clears the queue", () => {
-		const session = makeSession() as SessionTrajectory & { pendingSessionWarnings?: string[] };
-		session.pendingSessionWarnings = ["P1", "P2"];
-		const warnings: string[] = [];
-		drainPendingSessionWarnings(session, warnings);
-		expect(warnings).toEqual(["P1", "P2"]);
-		expect(session.pendingSessionWarnings).toEqual([]);
-	});
-
-	it("N1: session undefined -> no-op, never throws", () => {
-		const warnings: string[] = ["existing"];
-		expect(() => drainPendingSessionWarnings(undefined, warnings)).not.toThrow();
-		expect(warnings).toEqual(["existing"]);
-	});
-});
-
-// ============================================================
 // evaluateDiagnosticsPhase (+ module-level DIAGNOSTIC_EXTENSIONS regex)
 // ============================================================
 describe("evaluateDiagnosticsPhase", () => {
@@ -365,8 +344,10 @@ describe("evaluateDiagnosticsPhase", () => {
 	it("P2: a plain .js path also matches the diagnosable-extension regex", () => {
 		const toolInput = { file_path: "src/foo.js" } as ToolInput;
 		const warnings: string[] = [];
-		evaluateDiagnosticsPhase(makeEvent(), makeRules(), "Write", toolInput, warnings);
-		expect(getPreToolUseDiagnostics).toHaveBeenCalled();
+		const event = makeEvent();
+		const rules = makeRules();
+		evaluateDiagnosticsPhase(event, rules, "Write", toolInput, warnings);
+		expect(getPreToolUseDiagnostics).toHaveBeenCalledWith("src/foo.js", event.cwd, rules.quality_checks);
 	});
 
 	it("N1: a path merely CONTAINING .tsx mid-string (not at the end) does not match", () => {

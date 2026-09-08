@@ -305,7 +305,14 @@ describe("evaluateUnified — post-tool baseline-effect gating", () => {
 	it("surfaces a baseline-loosening warning on a real (non-dry-run) post-tool call", async () => {
 		consumeBaselineSnapshotMock.mockReturnValue("BASELINE LOOSENED: caps.json");
 		postMock.mockReturnValue({ decision: "allow" });
-		const decision = await evaluateUnified(makePostToolEvent(), makeCtx());
+		const event = makePostToolEvent();
+		const ctx = makeCtx();
+		const decision = await evaluateUnified(event, ctx);
+		expect(consumeBaselineSnapshotMock).toHaveBeenCalledOnce();
+		expect(consumeBaselineSnapshotMock).toHaveBeenCalledWith(
+			JSON.stringify({ toolUseId: "tu-1", sessionId: "s", timestamp: "2026-04-23T00:00:00.000Z" }),
+			"/repo",
+		);
 		expect(decision.warnings).toEqual(["BASELINE LOOSENED: caps.json"]);
 	});
 
@@ -340,7 +347,14 @@ describe("evaluateUnified — post-tool baseline-effect gating", () => {
 	it("merges the loosening warning into decision.warnings when one is found", async () => {
 		consumeBaselineSnapshotMock.mockReturnValue("BASELINE LOOSENED: caps.json");
 		postMock.mockReturnValue({ decision: "allow", warnings: ["existing"] });
-		const decision = await evaluateUnified(makePostToolEvent(), makeCtx());
+		const event = makePostToolEvent();
+		const ctx = makeCtx();
+		const decision = await evaluateUnified(event, ctx);
+		expect(consumeBaselineSnapshotMock).toHaveBeenCalledOnce();
+		expect(consumeBaselineSnapshotMock).toHaveBeenCalledWith(
+			JSON.stringify({ toolUseId: "tu-1", sessionId: "s", timestamp: "2026-04-23T00:00:00.000Z" }),
+			"/repo",
+		);
 		expect(decision.warnings).toContain("BASELINE LOOSENED: caps.json");
 		expect(decision.warnings).toContain("existing");
 	});

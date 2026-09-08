@@ -264,6 +264,8 @@ describe("evaluatePreChecksTail — pushTailWarnings mutation contracts (wave 2)
 		vi.mocked(checkDirtyWorkingTree).mockReturnValueOnce({ warning: "dirty" });
 		const warnings: string[] = [];
 		evaluatePreChecksTail(event(), undefined, undefined, "Bash", { command: "git status" }, warnings);
+		expect(checkDirtyWorkingTree).toHaveBeenCalledOnce();
+		expect(checkDirtyWorkingTree).toHaveBeenCalledWith("git status", CWD);
 		expect(warnings).toEqual(["dirty"]);
 	});
 

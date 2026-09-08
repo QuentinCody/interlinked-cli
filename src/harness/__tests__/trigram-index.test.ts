@@ -158,6 +158,7 @@ describe("extractTrigrams", () => {
 	it("extracts consistent trigrams regardless of surrounding context", () => {
 		const t1 = extractTrigrams("xxhandleAuthyy");
 		const t2 = extractTrigrams("handleAuth");
+		expect(t2.size).toBe(8);
 		// t2's trigrams should be a subset of t1's
 		for (const tri of t2) {
 			expect(t1.has(tri)).toBe(true);
@@ -1343,8 +1344,9 @@ describe("end-to-end integration", () => {
 describe("edge cases", () => {
 	it("handles files with only whitespace", () => {
 		const trigrams = extractTrigrams("   \n\n\t\t   ");
-		// Should extract some whitespace trigrams
-		expect(trigrams.size).toBeGreaterThanOrEqual(0);
+		// 7 unique 3-char windows over the 10-char string (tab/newline pass
+		// the control-char filter, so this is not the trivial empty case).
+		expect(trigrams.size).toBe(7);
 	});
 
 	it("handles very long strings efficiently", () => {

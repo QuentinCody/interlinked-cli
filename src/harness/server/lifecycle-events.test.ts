@@ -690,13 +690,14 @@ describe("handleLifecycleEvent — dispatch branches", () => {
 
 	it("default arm: records activity and returns null for an unhandled event", async () => {
 		const ctx = bCtx();
+		const event = bEvent({ hook_event: "Notification" });
 		const out = await handleLifecycleEvent(
 			ctx,
-			bEvent({ hook_event: "Notification" }),
+			event,
 			bSession(),
 		);
 		expect(out).toBeNull();
-		expect(fnOf(ctx.cohort.recordActivity)).toHaveBeenCalled();
+		expect(fnOf(ctx.cohort.recordActivity)).toHaveBeenCalledWith(event);
 	});
 
 	it("TaskCompleted: records cohort activity and falls through to null", async () => {
@@ -1149,8 +1150,12 @@ describe("Stop handler — branch coverage", () => {
 
 	it("surfaces the stale-baseline nudge when the ratchet water-line is old", async () => {
 		mBuildStaleBaseline.mockReturnValue("STALE-BASELINE-NUDGE");
-		const out = await stop(bCtx());
+		const ctx = bCtx();
+		const event = bEvent({ hook_event: "Stop" });
+		const session = bSession({ files_written: new Set(["src/changed.ts"]) });
+		const out = await stop(ctx, event, session);
 		expect(out?.warnings).toContain("STALE-BASELINE-NUDGE");
+		expect(mBuildStaleBaseline).toHaveBeenCalledWith(ctx, event, true);
 	});
 
 	it("does not fabricate a session-rework nudge for a freshly-folded (empty) trajectory", async () => {

@@ -459,12 +459,15 @@ describe("policy classifier escalation", () => {
 	it("reuses a pre-seeded classifier state (false branch of the create guard)", async () => {
 		mEvaluate.mockReturnValue({ decision: "allow", _escalation: escalation() });
 		const ctx = classifierCtx();
-		ctx.classifierSessions.set("s", {
+		const seeded = {
 			calls_this_session: 7,
 			consecutive_failures: 0,
-		} as unknown as ReturnType<typeof Map.prototype.get>);
+		};
+		ctx.classifierSessions.set("s", seeded as unknown as ReturnType<typeof Map.prototype.get>);
 		await runPreToolPipeline(ctx, ev({ tool_name: "WebFetch" }), makeSession());
 		expect(mCallClassifier).toHaveBeenCalledOnce();
+		expect(mCallClassifier.mock.calls[0]?.[2]).toBe(seeded);
+		expect(ctx.classifierSessions.get("s")).toBe(seeded);
 	});
 
 	it("computes would_have_changed=true for a confident deny", async () => {
@@ -1191,6 +1194,7 @@ describe("learned rules", () => {
 			makeSession(),
 		);
 		expect(learnedRules.observe).toHaveBeenCalledWith("Bash(npm test *)", "s");
+		expect(learnedRules.observe).toHaveBeenCalledOnce();
 		expect(
 			decision.warnings?.some((w) => w.includes("[interlinked:learned]") && w.includes("5 times")),
 		).toBe(true);
@@ -1220,6 +1224,7 @@ describe("learned rules", () => {
 			ev({ tool_name: "Bash", tool_input: { command: "npm test" } }),
 			makeSession(),
 		);
+		expect(learnedRules.observe).toHaveBeenCalledWith("Bash(npm test *)", "s");
 		expect(learnedRules.observe).toHaveBeenCalledOnce();
 		expect(decision.warnings).toBeUndefined();
 	});
@@ -1357,13 +1362,17 @@ describe("grep acceleration substitution", () => {
 			.mockReturnValueOnce("abc1234def\n") // git rev-parse HEAD
 			.mockReturnValueOnce(""); // git status --porcelain (clean)
 		mCheckGrep.mockReturnValue({ decision: "block", reason: "GREP RESULTS" });
-		const decision = await runPreToolPipeline(
-			searchCtx(),
-			ev({ tool_name: "Grep", tool_input: { pattern: "foo" } }),
-			makeSession(),
-		);
+		const ctx = searchCtx();
+		const event = ev({ tool_name: "Grep", tool_input: { pattern: "foo" } });
+		const decision = await runPreToolPipeline(ctx, event, makeSession());
 		expect(decision.decision).toBe("block");
 		expect(decision.reason).toBe("GREP RESULTS");
+		expect(mCheckGrep).toHaveBeenCalledWith(
+			event,
+			ctx.trigramIndex,
+			{ indexFresh: true },
+			ctx.fileContentCache,
+		);
 	});
 
 	it("merges preDecision warnings into the accelerated decision's warnings", async () => {
@@ -1423,12 +1432,16 @@ describe("grep acceleration substitution", () => {
 	it("recognizes a Bash rg command as a search tool", async () => {
 		mExecSync.mockReturnValueOnce("abc1234def\n").mockReturnValueOnce("");
 		mCheckGrep.mockReturnValue({ decision: "block", reason: "BASH-RG" });
-		const decision = await runPreToolPipeline(
-			searchCtx(),
-			ev({ tool_name: "Bash", tool_input: { command: "rg foo src/" } }),
-			makeSession(),
-		);
+		const ctx = searchCtx();
+		const event = ev({ tool_name: "Bash", tool_input: { command: "rg foo src/" } });
+		const decision = await runPreToolPipeline(ctx, event, makeSession());
 		expect(decision.reason).toBe("BASH-RG");
+		expect(mCheckGrep).toHaveBeenCalledWith(
+			event,
+			ctx.trigramIndex,
+			{ indexFresh: true },
+			ctx.fileContentCache,
+		);
 	});
 
 	it("recognizes ugrep via the ugrepAwareSearch widening", async () => {
@@ -1903,11 +1916,17 @@ describe("commit gate wiring", () => {
 	});
 
 	it("the commit gate runs AFTER the coverage gate (both invoked on a clean allow)", async () => {
-		mRunCoverageGate.mockResolvedValue(null);
-		mRunCommitGate.mockResolvedValue(null);
+		const phaseOrder: string[] = [];
+		mRunCoverageGate.mockImplementation(async () => {
+			phaseOrder.push("coverage");
+			return null;
+		});
+		mRunCommitGate.mockImplementation(async () => {
+			phaseOrder.push("commit");
+			return null;
+		});
 		await runPreToolPipeline(makeCtx(), commitEv(), makeSession());
-		expect(mRunCoverageGate).toHaveBeenCalledOnce();
-		expect(mRunCommitGate).toHaveBeenCalledOnce();
+		expect(phaseOrder).toEqual(["coverage", "commit"]);
 	});
 });
 
@@ -1925,7 +1944,9 @@ describe("blocked decisions skip allow-gated layers but still run tail stages", 
 		);
 		// captureDiffAwareBaseline + injectStructureContext run regardless of decision.
 		expect(mCaptureBaseline).toHaveBeenCalledOnce();
+		expect(mCaptureBaseline.mock.calls[0]?.[1]).toMatchObject({ tool_name: "Bash" });
 		expect(mInjectStructure).toHaveBeenCalledOnce();
+		expect(mInjectStructure.mock.calls[0]?.[1]).toMatchObject({ tool_name: "Bash" });
 		// But the TDD / project-wide gates always run too (they internally gate).
 		expect(mTddGate).toHaveBeenCalledOnce();
 		expect(mProjectWide).toHaveBeenCalledOnce();

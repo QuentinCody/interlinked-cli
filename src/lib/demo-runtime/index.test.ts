@@ -117,8 +117,7 @@ describe("mountDemoBanner / DemoBanner (vanilla DOM)", () => {
 		// In a non-DOM environment the banner mounts nothing and returns
 		// a callable unmount that's safe to invoke.
 		const unmount = mountDemoBanner();
-		expect(typeof unmount).toBe("function");
-		unmount();
+		expect(unmount()).toBeUndefined();
 	});
 
 	it("DemoBanner is exported as the JSX-friendly alias of mountDemoBanner", () => {
@@ -126,7 +125,9 @@ describe("mountDemoBanner / DemoBanner (vanilla DOM)", () => {
 		// JSX-shaped React-component compatible function so plain JSX
 		// `<DemoBanner />` calls work in React/Preact codebases without
 		// taking on a framework dependency in this package.
-		expect(typeof DemoBanner).toBe("function");
+		const rendered = DemoBanner();
+		unmountDemoBanner();
+		expect(rendered).toBeNull();
 	});
 });
 

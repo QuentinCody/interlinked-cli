@@ -273,6 +273,7 @@ describe("dry-run baseline/workspace snapshot gate", () => {
 	it("captures the baseline snapshot when event.dry_run is false/absent", async () => {
 		await runPreToolPipeline(makeCtx(), ev({ tool_name: "Read" }), makeSession());
 		expect(mRememberBaselineSnapshot).toHaveBeenCalledOnce();
+		expect(mRememberBaselineSnapshot).toHaveBeenCalledWith("s:2026-04-23T00:00:00.000Z", "/repo");
 	});
 });
 
@@ -353,24 +354,29 @@ describe("graph resolution filePath fallback", () => {
 describe("commit-baseline and laundering gate short circuits", () => {
 	// test-contract: exact-observable — a commit-baseline verdict short-circuits
 	it("returns the commit-baseline gate's decision when it fires", async () => {
+		const preDecision: HarnessDecision = { decision: "allow" };
+		mEvaluate.mockReturnValue(preDecision);
 		mRunCommitBaselineGate.mockReturnValue({ decision: "block", reason: "BASELINE-LOOSENED" });
-		const decision = await runPreToolPipeline(
-			makeCtx(),
-			ev({ tool_name: "Bash", tool_input: { command: "git commit -m x" } }),
-			makeSession(),
-		);
+		const ctx = makeCtx();
+		const event = ev({ tool_name: "Bash", tool_input: { command: "git commit -m x" } });
+		const decision = await runPreToolPipeline(ctx, event, makeSession());
 		expect(decision).toEqual({ decision: "block", reason: "BASELINE-LOOSENED" });
+		expect(mRunCommitBaselineGate).toHaveBeenCalledWith(event, preDecision);
 	});
 
 	// test-contract: exact-observable — a laundering verdict short-circuits
 	it("returns the commit-laundering gate's decision when it fires", async () => {
 		mRunCommitLaunderingGate.mockReturnValue({ decision: "block", reason: "LAUNDERED" });
-		const decision = await runPreToolPipeline(
-			makeCtx(),
-			ev({ tool_name: "Bash", tool_input: { command: "git commit -m x" } }),
-			makeSession(),
-		);
+		const ctx = makeCtx();
+		const event = ev({ tool_name: "Bash", tool_input: { command: "git commit -m x" } });
+		const session = makeSession();
+		const decision = await runPreToolPipeline(ctx, event, session);
 		expect(decision).toEqual({ decision: "block", reason: "LAUNDERED" });
+		expect(mRunCommitLaunderingGate).toHaveBeenCalledWith(
+			event,
+			session,
+			expect.objectContaining({ nowMs: expect.any(Number) }),
+		);
 	});
 
 	// test-contract: exact-observable — nowMs is a real timestamp, not {}

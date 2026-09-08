@@ -65,6 +65,7 @@ describe("ensureSessionsDir mkdir guard (ad9f2a4d)", () => {
 		mkdirSpy.mockClear();
 		liveSnapshotPath(cwd, "sess1"); // dir missing -> should mkdir
 		expect(mkdirSpy).toHaveBeenCalledTimes(1);
+		expect(mkdirSpy).toHaveBeenCalledWith(join(cwd, ".interlinked", "sessions"), { recursive: true });
 		liveSnapshotPath(cwd, "sess2"); // dir now exists -> should NOT mkdir again
 		expect(mkdirSpy).toHaveBeenCalledTimes(1);
 	});

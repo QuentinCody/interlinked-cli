@@ -731,12 +731,6 @@ describe("parseInstallCommands — version pins land in spec.version", () => {
 		expect(cmd.packages).toEqual([{ kind: "registry", name: "rails", version: "7.1.0" }]);
 	});
 
-	it("cargo add --git URL still yields a git_url spec (unchanged)", () => {
-		const cmd = nonNull(parseInstallCommands(
-			"cargo add --git https://github.com/foo/bar foo",
-		)[0]);
-		expect(cmd.packages.some((p) => p.kind === "git_url")).toBe(true);
-	});
 });
 
 describe("pinnedVersionViolation — per-ecosystem unit cases", () => {

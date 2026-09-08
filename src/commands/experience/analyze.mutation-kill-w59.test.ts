@@ -140,14 +140,9 @@ describe("analyzeExperience — negative (must not fire / structural)", () => {
 		expect(blockGuard.guard.warns).toBe(0);
 	});
 
-	it("N8: ix?.guard optional chaining on the warn branch — no ix does not throw", () => {
-		const noIx: ExperienceRecord = {
-			role: "assistant",
-			content: null,
-			tool_calls: [{ id: "t1", name: "Bash", args: "{}" }],
-			timestamp: "2026-01-01T00:00:00.000Z",
-		};
-		expect(() => analyzeExperience([noIx])).not.toThrow();
+	it("N8: ix?.guard optional chaining on the warn branch — an ix without guard records no warn", () => {
+		const result = analyzeExperience([assistantIx({ ix: {} })]);
+		expect(result.guard.warns).toBe(0);
 	});
 
 	it("N9: reworked counts files with count >= 2, not files with count >= 1", () => {

@@ -69,7 +69,7 @@ describe("appendLatencyLog", () => {
 	it("emits an ISO timestamp string", () => {
 		appendLatencyLog(tmp, SAMPLE_ENTRY);
 		const parsed = JSON.parse(readFileSync(logPath(), "utf-8").trim());
-		expect(typeof parsed.ts).toBe("string");
+		expect(parsed.ts).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
 	});
 
 	it("appends multiple events without overwriting", () => {

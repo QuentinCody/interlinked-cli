@@ -77,7 +77,9 @@ vi.mock("./spec-ledger-phase.js", () => ({ prerefreshSpecLedger: vi.fn() }));
 
 import { runPostToolPipeline } from "./post-tool-pipeline.js";
 
-function context(overrides: Record<string, unknown> = {}) {
+type ContextFixture = Parameters<typeof runPostToolPipeline>[0] & { log: ReturnType<typeof vi.fn> };
+
+function context(overrides: Record<string, unknown> = {}): ContextFixture {
 	return {
 		cwd: "/repo",
 		interlinkedDir: "/repo/.interlinked",
@@ -280,7 +282,7 @@ describe("runFileChecksWithMarker — existsSync guard", () => {
 			// any error being logged (mkdirSync would throw if pointed at a file,
 			// but silently succeeds on an existing dir either way — so assert via
 			// the absence of any logged error, which only occurs on failure paths).
-			expect((ctx as { log: ReturnType<typeof vi.fn> }).log).not.toHaveBeenCalled();
+			expect(ctx.log).not.toHaveBeenCalled();
 		} finally {
 			rmSync(root, { recursive: true, force: true });
 		}
@@ -361,8 +363,12 @@ describe("testEvidenceWarning forwarding", () => {
 	// mutant 99598c370bcb61df: `testEvidenceWarning` -> `false`
 	it("forwards a truthy test-evidence warning into the decision", async () => {
 		mocks.trackTestRun.mockReturnValue("test evidence warning");
-		const decision = await runPostToolPipeline(context(), event(), session());
+		const ctx = context();
+		const currentEvent = event();
+		const currentSession = session();
+		const decision = await runPostToolPipeline(ctx, currentEvent, currentSession);
 		expect(decision.warnings).toContain("test evidence warning");
+		expect(mocks.trackTestRun).toHaveBeenCalledWith(currentEvent, currentSession, ctx.cwd);
 	});
 });
 

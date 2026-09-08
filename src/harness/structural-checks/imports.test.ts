@@ -692,7 +692,8 @@ describe("checkHallucinatedImports", () => {
 		const graph = makeGraph({ dependencies: [] });
 		expect(checkHallucinatedImports("/a.ts", "a.ts", graph)).toEqual([]);
 		// existsSync was consulted at least once during the walk.
-		expect(mockFs.existsSync).toHaveBeenCalled();
+		expect(mockFs.existsSync).toHaveBeenCalledOnce();
+		expect(mockFs.existsSync).toHaveBeenCalledWith("/package.json");
 	});
 
 	it("treats a malformed package.json as absent (L326 catch → pkgJson stays null)", () => {

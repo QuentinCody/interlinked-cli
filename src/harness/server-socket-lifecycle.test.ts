@@ -275,6 +275,7 @@ describe("writePidFile — pid-ownership self-heal tick", () => {
 		// Only the initial write; three ticks read and returned early.
 		expect(writeFileSync).toHaveBeenCalledTimes(1);
 		expect(readMock()).toHaveBeenCalledTimes(3);
+		expect(readMock()).toHaveBeenLastCalledWith("/tmp/heal-ours.pid", "utf-8");
 	});
 
 	it("rewrites the pid file on a heal tick when it is missing or unreadable", () => {
@@ -331,6 +332,7 @@ describe("writePidFile — pid-ownership self-heal tick", () => {
 
 		// 2 explicit writes + exactly 1 heal write (a second interval would make 4).
 		expect(writeFileSync).toHaveBeenCalledTimes(3);
+		expect(writeFileSync).toHaveBeenLastCalledWith("/tmp/heal-once.pid", String(process.pid));
 	});
 
 	it("stops healing the pid file once shutdown() runs", async () => {
@@ -345,6 +347,7 @@ describe("writePidFile — pid-ownership self-heal tick", () => {
 		lc.writePidFile();
 		vi.advanceTimersByTime(HEAL_INTERVAL_MS);
 		expect(writeFileSync).toHaveBeenCalledTimes(2);
+		expect(writeFileSync).toHaveBeenLastCalledWith("/tmp/heal-stop.pid", String(process.pid));
 
 		lc.shutdown();
 		await vi.runAllTimersAsync();
@@ -726,8 +729,11 @@ describe("shutdown — framed daemon stop", () => {
 			() => {},
 			() => {},
 		);
-		// setFramedDaemon never called → framedDaemon stays null.
+		// setFramedDaemon never called → framedDaemon stays null, even while
+		// the independent raw-server shutdown path remains active.
+		lc.startRawServer();
 		await runShutdown(lc);
+		expect(lastServer?.close).toHaveBeenCalledOnce();
 		expect(lastExitCode()).toBe(0);
 	});
 
@@ -853,6 +859,7 @@ describe("shutdown — force-exit umbrella (forceExit timer)", () => {
 	it("clears the force-exit timer once shutdownAsync wins the race (exits 0, not 1)", async () => {
 		vi.useFakeTimers();
 		const clearSpy = vi.spyOn(global, "clearTimeout");
+		const scheduleSpy = vi.spyOn(global, "setTimeout");
 		const { deps } = makeDeps();
 		const lc = createSocketLifecycle(deps);
 		lc.setUnwatchers(
@@ -861,9 +868,12 @@ describe("shutdown — force-exit umbrella (forceExit timer)", () => {
 		);
 		// Graceful path resolves immediately → finally() clears the force timer.
 		lc.shutdown();
+		expect(scheduleSpy).toHaveBeenNthCalledWith(1, expect.any(Function), 3000);
+		const forceExitTimer = scheduleSpy.mock.results[0]?.value;
 		await vi.runAllTimersAsync();
 		expect(lastExitCode()).toBe(0);
-		expect(clearSpy).toHaveBeenCalled();
+		expect(clearSpy).toHaveBeenCalledWith(forceExitTimer);
+		scheduleSpy.mockRestore();
 		clearSpy.mockRestore();
 	});
 });

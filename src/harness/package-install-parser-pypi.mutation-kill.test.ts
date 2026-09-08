@@ -244,10 +244,11 @@ describe("parsePip — subcommand-routing guard, positionals.length===0 branch, 
 		});
 	});
 
-	it("install with no positionals: action is sync and fromManifest is true (OR-short-circuit, not forced)", () => {
+	it("install with no positionals: action is sync with no packages and fromManifest is true (OR-short-circuit, not forced)", () => {
 		const cmd = parsePip("pip", ["pip", "install"], {});
 		expect(cmd?.action).toBe("sync");
 		expect(cmd?.fromManifest).toBe(true);
+		expect(cmd?.packages).toEqual([]);
 	});
 
 	it("a manifest file present alongside a real positional: fromManifest stays true (the OR, not an AND with noPositionals)", () => {

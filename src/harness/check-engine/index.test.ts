@@ -454,6 +454,7 @@ describe("CheckEngine.isToolAvailable", () => {
 		expect(eng.isToolAvailable("knip")).toBe(false);
 		expect(eng.isToolAvailable("knip")).toBe(false);
 		expect(discoverSingleToolSpy).toHaveBeenCalledTimes(1);
+		expect(discoverSingleToolSpy).toHaveBeenCalledWith("knip", ROOT);
 	});
 
 	it("returns false when the single-tool probe yields undefined", () => {
@@ -569,14 +570,14 @@ describe("CheckEngine.runChecks", () => {
 	it("excludes unavailable tools and tags them tool_missing with the reason", () => {
 		discoverToolsImpl = () => [
 			avail("tsc", true),
-			avail("ruff", false, { reason: "not installed" }),
+			avail("ruff", false, { reason: "missing executable" }),
 		];
 		const eng = new CheckEngine(ROOT);
 		const rep = eng.runChecks({ projectRoot: ROOT, mode: "file" });
 		expect(rep.toolsRun.map((t) => t.id)).toEqual(["tsc"]);
 		const ruffSkip = rep.skipped.find((s) => s.check === "ruff");
 		expect(ruffSkip?.category).toBe("tool_missing");
-		expect(ruffSkip?.reason).toBe("not installed");
+		expect(ruffSkip?.reason).toBe("missing executable");
 	});
 
 	it("falls back to 'not installed' when an unavailable tool has no reason", () => {

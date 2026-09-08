@@ -53,6 +53,10 @@ describe("runTscOverlay — typescript unresolvable anywhere", () => {
 
 		expect(out).toEqual([]);
 		expect(requireResolveMock).toHaveBeenCalledTimes(1);
+		expect(requireResolveMock).toHaveBeenCalledWith("typescript", {
+			paths: ["/nonexistent/project/root"],
+		});
 		expect(requireCallMock).toHaveBeenCalledTimes(1);
+		expect(requireCallMock).toHaveBeenCalledWith("typescript");
 	});
 });

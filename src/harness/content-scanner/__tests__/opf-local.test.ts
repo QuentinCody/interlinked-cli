@@ -283,6 +283,7 @@ describe("OpfLocalScanner — lifecycle / status surface", () => {
 		// A subsequently-registered well-behaved listener still gets its snapshot.
 		scanner.onStatusChange(good);
 		expect(good).toHaveBeenCalledTimes(1);
+		expect(good).toHaveBeenCalledWith(expect.objectContaining({ state: "idle" }));
 	});
 
 	it("notifies registered listeners on a real status transition and survives one that throws", async () => {

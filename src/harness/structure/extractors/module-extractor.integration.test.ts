@@ -52,6 +52,7 @@ describe("module-extractor", () => {
 	it("labels every node as kind=module + determinism_ceiling=partially_deterministic", () => {
 		writeFileSync(join(tmp, "x.ts"), "");
 		const { nodes } = extract(tmp);
+		expect(nodes.map((node) => node.label)).toEqual(["x.ts"]);
 		for (const n of nodes) {
 			expect(n.kind).toBe("module");
 			expect(n.determinism_ceiling).toBe("partially_deterministic");

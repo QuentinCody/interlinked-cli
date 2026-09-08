@@ -94,6 +94,7 @@ describe("tsc-overlay-sidecar-client", () => {
 		const { runOverlayViaSidecar } = await importClient();
 		expect(runOverlayViaSidecar(INPUT)).toEqual([]);
 		expect(warnSpy).toHaveBeenCalledTimes(1);
+		expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("sidecar spawn failed: ENOENT"));
 	});
 
 	// kind: boundary — negative (must not fire / degrade gracefully)
@@ -102,6 +103,7 @@ describe("tsc-overlay-sidecar-client", () => {
 		const { runOverlayViaSidecar } = await importClient();
 		expect(runOverlayViaSidecar(INPUT)).toEqual([]);
 		expect(warnSpy).toHaveBeenCalledTimes(1);
+		expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("sidecar exited with code 1"));
 	});
 
 	// kind: boundary — negative (must not fire / degrade gracefully)
@@ -110,6 +112,7 @@ describe("tsc-overlay-sidecar-client", () => {
 		const { runOverlayViaSidecar } = await importClient();
 		expect(runOverlayViaSidecar(INPUT)).toEqual([]);
 		expect(warnSpy).toHaveBeenCalledTimes(1);
+		expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("sidecar killed by signal SIGTERM"));
 	});
 
 	// kind: boundary — negative (must not fire / degrade gracefully)
@@ -118,6 +121,7 @@ describe("tsc-overlay-sidecar-client", () => {
 		const { runOverlayViaSidecar } = await importClient();
 		expect(runOverlayViaSidecar(INPUT)).toEqual([]);
 		expect(warnSpy).toHaveBeenCalledTimes(1);
+		expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("sidecar returned a malformed reply"));
 	});
 
 	// kind: boundary — negative (must not fire / degrade gracefully)
@@ -126,6 +130,7 @@ describe("tsc-overlay-sidecar-client", () => {
 		const { runOverlayViaSidecar } = await importClient();
 		expect(runOverlayViaSidecar(INPUT)).toEqual([]);
 		expect(warnSpy).toHaveBeenCalledTimes(1);
+		expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("sidecar reported an error: sidecar: broke"));
 	});
 
 	// kind: invariant — positive (must fire)

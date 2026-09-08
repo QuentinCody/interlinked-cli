@@ -120,8 +120,9 @@ describe("recordSkillLeave", () => {
 		expect(session.active_skills?.size).toBe(0);
 	});
 
-	it("returns false for unknown skill names", () => {
+	it("returns false for an unknown skill in an initialized map", () => {
 		const session = makeSession();
+		session.active_skills = new Map();
 		expect(recordSkillLeave(session, "ship")).toBe(false);
 	});
 

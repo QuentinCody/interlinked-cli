@@ -202,6 +202,10 @@ describe("detectFixtureLeaks — git invocation shape", () => {
 
 		expect(leaks).toEqual([]);
 		expect(mockedExecSync).toHaveBeenCalledTimes(1);
+		expect(mockedExecSync).toHaveBeenCalledWith(
+			"git ls-files --others --exclude-standard",
+			expect.objectContaining({ cwd: dir }),
+		);
 	});
 });
 

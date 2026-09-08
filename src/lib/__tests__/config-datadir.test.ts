@@ -70,7 +70,7 @@ describe("getDataDir", () => {
 		delete process.env.INTERLINKED_DATA_DIR;
 		delete process.env.INTERLINKED_HOME;
 		mockExistsSync.mockReturnValue(true);
-		mockReadFileSync.mockReturnValue(JSON.stringify({ data_dir: "/config/data" }));
+		mockReadFileSync.mockReturnValue(JSON.stringify({ data_dir: "/config/data", future_option: true }));
 		expect(getDataDir("/some/cwd")).toBe("/config/data");
 	});
 

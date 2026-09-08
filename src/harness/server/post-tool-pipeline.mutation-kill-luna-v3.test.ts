@@ -67,7 +67,7 @@ vi.mock("./spec-ledger-phase.js", () => ({ prerefreshSpecLedger: vi.fn() }));
 
 import { runPostToolPipeline } from "./post-tool-pipeline.js";
 
-function context() {
+function context(): Parameters<typeof runPostToolPipeline>[0] {
     return {
         cwd: "/repo",
 		interlinkedDir: "/repo/.interlinked",
@@ -112,15 +112,33 @@ describe("post-tool pipeline contracts", () => {
     // test-contract: a scanner warning is forwarded, while an empty warning list adds nothing.
     it("forwards only nonempty scanner output", async () => {
         mocks.scan.mockResolvedValueOnce({ warnings: ["scan warning"] });
-        const decision = await runPostToolPipeline(context(), event(), session());
+        const ctx = context();
+        const currentEvent = event();
+        const currentSession = session();
+        const decision = await runPostToolPipeline(ctx, currentEvent, currentSession);
         expect(decision.warnings).toContain("scan warning");
+        expect(mocks.scan).toHaveBeenCalledWith({
+            event: currentEvent,
+            session: currentSession,
+            rules: ctx.rules,
+            scanner: ctx.contentScanner,
+            compiledAllowlist: ctx.compiledAllowlist,
+        });
     });
 
     // test-contract: failure-channel warnings are forwarded only for an error with actual warnings.
     it("forwards only nonempty failure-channel output", async () => {
         mocks.channels.mockReturnValueOnce({ warnings: ["failure warning"] });
-        const decision = await runPostToolPipeline(context(), event({ tool_outcome: "error" }), session());
+        const ctx = context();
+        const currentEvent = event({ tool_outcome: "error" });
+        const currentSession = session();
+        const decision = await runPostToolPipeline(ctx, currentEvent, currentSession);
         expect(decision.warnings).toContain("failure warning");
+        expect(mocks.channels).toHaveBeenCalledWith({
+            event: currentEvent,
+            session: currentSession,
+            cwd: ctx.cwd,
+        });
     });
 
     // test-contract: a named skipped path returns the exact nonblocking allow decision.

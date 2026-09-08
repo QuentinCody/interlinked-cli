@@ -245,11 +245,14 @@ describe("skip_paths short-circuit", () => {
 
 	it("does not short-circuit when the raw path is empty (no file_path/path)", async () => {
 		const event = ev({ tool_name: "Read" });
-		const decision = await runPostToolPipeline(makeCtx(), event, makeSession());
+		const ctx = makeCtx();
+		const session = makeSession();
+		const decision = await runPostToolPipeline(ctx, event, session);
 		expect(decision.summary).toBeUndefined();
 		// shouldSkipPath is short-circuited away by the empty-string guard.
 		expect(mShouldSkip).not.toHaveBeenCalled();
 		expect(mEvaluate).toHaveBeenCalledOnce();
+		expect(mEvaluate).toHaveBeenCalledWith(event, ctx.rules, session, ctx.reservations, ctx.cohort);
 	});
 
 	it("short-circuits only when every observed effect matches skip_paths", async () => {
@@ -801,10 +804,13 @@ describe("observed-check outcome tracking", () => {
 describe("failure-recovery channels", () => {
 	it("appends channel warnings when tool_outcome is error", async () => {
 		mFailureChannels.mockReturnValue({ warnings: ["CHAN-1", "CHAN-2"] });
+		const ctx = makeCtx();
 		const event = ev({ tool_name: "Bash", tool_outcome: "error" });
-		const decision = await runPostToolPipeline(makeCtx(), event, makeSession());
+		const session = makeSession();
+		const decision = await runPostToolPipeline(ctx, event, session);
 		expect(decision.warnings).toEqual(["CHAN-1", "CHAN-2"]);
 		expect(mFailureChannels).toHaveBeenCalledOnce();
+		expect(mFailureChannels).toHaveBeenCalledWith({ event, session, cwd: ctx.cwd });
 	});
 
 	it("merges channel warnings into an existing warnings array", async () => {
@@ -875,10 +881,19 @@ describe("content scanner post-scan", () => {
 
 	it("appends post-scan warnings when scanner enabled and warnings produced", async () => {
 		mPostScan.mockResolvedValue({ warnings: ["PII-RATCHET"], findings: [] });
+		const ctx = ctxWithScanner();
 		const event = ev({ tool_name: "Read", tool_input: { file_path: "src/a.ts" } });
-		const decision = await runPostToolPipeline(ctxWithScanner(), event, makeSession());
+		const session = makeSession();
+		const decision = await runPostToolPipeline(ctx, event, session);
 		expect(decision.warnings).toEqual(["PII-RATCHET"]);
 		expect(mPostScan).toHaveBeenCalledOnce();
+		expect(mPostScan).toHaveBeenCalledWith({
+			event,
+			session,
+			rules: ctx.rules,
+			scanner: ctx.contentScanner,
+			compiledAllowlist: ctx.compiledAllowlist,
+		});
 	});
 
 	it("merges post-scan warnings into an existing warnings array", async () => {

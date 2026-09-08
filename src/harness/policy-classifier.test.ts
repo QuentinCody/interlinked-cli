@@ -1350,13 +1350,17 @@ describe("callViaHttp (OpenAI-compatible providers)", () => {
 	// dropped clearTimeout means every classifier call leaks a timer that
 	// outlives the call by up to timeout_ms.
 	it("clears the abort timer in `finally` after a successful call", async () => {
+		const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
 		const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
 		stubFetch(() =>
 			jsonResponse({ choices: [{ message: { content: '{"compliant":true,"confidence":0.5,"reasoning":"ok"}' } }] }),
 		);
 		const state = createClassifierSessionState();
 		await callClassifier(makeEvidence(), makeConfig({ provider: "groq" }), state);
-		expect(clearTimeoutSpy).toHaveBeenCalled();
+		const timer = setTimeoutSpy.mock.results[0]?.value;
+		expect(timer).toBeDefined();
+		expect(clearTimeoutSpy).toHaveBeenCalledOnce();
+		expect(clearTimeoutSpy).toHaveBeenCalledWith(timer);
 	});
 });
 

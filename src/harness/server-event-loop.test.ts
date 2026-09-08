@@ -270,8 +270,11 @@ describe("processEvent — parse + dispatch (via evaluateEventLine)", () => {
 
 		await loop.evaluateEventLine(preEvent(), "raw");
 
-		expect(h.deps.resetIdleTimer).toHaveBeenCalledTimes(1);
-		expect(h.sessions.recordEvent).toHaveBeenCalledTimes(1);
+		expect(h.deps.resetIdleTimer).toHaveBeenCalledOnce();
+		expect(h.sessions.recordEvent).toHaveBeenCalledOnce();
+		expect(h.sessions.recordEvent).toHaveBeenCalledWith(
+			expect.objectContaining({ session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } }),
+		);
 		expect(h.deps.syncRuntimeIn).toHaveBeenCalledTimes(1);
 		expect(h.deps.syncRuntimeOut).toHaveBeenCalledTimes(1);
 	});

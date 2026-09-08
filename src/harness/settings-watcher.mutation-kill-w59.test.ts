@@ -284,6 +284,10 @@ describe("watchSettingsFiles — watchFile wiring", () => {
 		});
 		cleanup();
 		expect(unwatchFileMock).toHaveBeenCalledTimes(2);
+		expect(unwatchFileMock.mock.calls).toEqual([
+			["/tmp/fileA", watchFileMock.mock.calls[0]?.[2]],
+			["/tmp/fileB", watchFileMock.mock.calls[1]?.[2]],
+		]);
 		cleanup();
 		expect(unwatchFileMock).toHaveBeenCalledTimes(2);
 	});

@@ -963,6 +963,7 @@ describe("runProjectWideSweepPhase", () => {
 		await runProjectWideSweepPhase(ctx, FILE, true, false, { decision: "allow" }, acc);
 		// recordFileChecked still fires (it runs before the once-guard), but no sweep.
 		expect(ctx.projectWideSweepState.recordFileChecked).toHaveBeenCalledOnce();
+		expect(ctx.projectWideSweepState.recordFileChecked).toHaveBeenCalledWith(FILE);
 		expect(ctx.projectWideSweepState.recordEdit).not.toHaveBeenCalled();
 		expect(mRunProjectWide).not.toHaveBeenCalled();
 	});
@@ -1236,8 +1237,11 @@ describe("runStructureChecksPhase", () => {
 	it("STILL runs when over budget but a cached graph exists", () => {
 		const ctx = makeCtx({ structureGraph: { cached: true } });
 		const acc = makeAcc({ postStartMs: Date.now() - 60_000 });
-		callStruct({ ctx, acc });
+		const session = makeSession();
+		session.files_written.add("src/changed-sibling.ts");
+		callStruct({ ctx, acc, session });
 		expect(mRunStructure).toHaveBeenCalledOnce();
+		expect(mRunStructure).toHaveBeenCalledWith(FILE, CWD, { cached: true }, null, session.files_written);
 	});
 
 	it("runs structure checks, updates the graph cache, and loads the config when absent", () => {

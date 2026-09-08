@@ -12,7 +12,8 @@ describe("R2 SQL contract adapter", () => {
         expect(sql).toBe('SELECT DISTINCT "id", "event_ms" FROM "evidence"."events" WHERE "tenant"=\'tenant-a\' AND "project"=\'project-a\' AND "session"=\'s\'\'1\' AND "event_ms">=123 AND strpos("text_ascii_folded",\'x\'\'or\')>0 ORDER BY "event_ms" DESC NULLS LAST, "id" LIMIT 4 OFFSET 2');
     });
     it("rejects foreign scopes, identifier injection and unsupported predicates", () => {
-        expect(() => evidenceAnalyticsSql(scope, { tenant: "foreign" })).toThrow("foreign");
+        expect(() => evidenceAnalyticsSql(scope, { tenant: "foreign" })).toThrow("foreign tenant");
+        expect(() => evidenceAnalyticsSql(scope, { project: "foreign" })).toThrow("foreign project");
         expect(() => evidenceAnalyticsSql({ ...scope, table: "events;DROP TABLE x" }, {})).toThrow("table");
         expect(() => evidenceAnalyticsSql(scope, { file: "src/a.ts" })).toThrow("not implemented");
     });

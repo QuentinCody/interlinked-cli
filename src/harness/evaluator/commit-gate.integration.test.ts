@@ -643,7 +643,7 @@ describe("checkCommitGate — fail-open", () => {
 			deps(failing, ["src/a.ts"], [fn({ name: "f", line: 1, endLine: 3, cyclomatic: 3 })]),
 		);
 		expect(decision).toBeNull();
-		expect(errSpy).toHaveBeenCalled();
+		expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("(boom)"));
 		errSpy.mockRestore();
 	});
 
@@ -658,7 +658,7 @@ describe("checkCommitGate — fail-open", () => {
 			readFile: () => JS_SRC,
 		});
 		expect(decision).toBeNull();
-		expect(errSpy).toHaveBeenCalled();
+		expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("(no coverage runner for ts)"));
 		errSpy.mockRestore();
 	});
 
@@ -672,7 +672,7 @@ describe("checkCommitGate — fail-open", () => {
 		);
 		expect(decision).toBeNull();
 		expect(ran()).toBe(false);
-		expect(errSpy).toHaveBeenCalled();
+		expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("(git diff unavailable"));
 		errSpy.mockRestore();
 	});
 
@@ -690,7 +690,7 @@ describe("checkCommitGate — fail-open", () => {
 		};
 		const decision = await checkCommitGate(commitEvent('git commit -m "x"'), rules(), throwingDeps);
 		expect(decision).toBeNull();
-		expect(errSpy).toHaveBeenCalled();
+		expect(errSpy).toHaveBeenCalledWith(expect.stringContaining("(git exploded)"));
 		errSpy.mockRestore();
 	});
 
@@ -707,7 +707,9 @@ describe("checkCommitGate — fail-open", () => {
 			deps(stubRunner(result).runner, ["src/a.ts"], null),
 		);
 		expect(decision).toBeNull();
-		expect(errSpy).toHaveBeenCalled();
+		expect(errSpy).toHaveBeenCalledWith(
+			expect.stringContaining("(no cyclomatic analysis for src/a.ts — CRAP / cyclomatic checks skipped)"),
+		);
 		errSpy.mockRestore();
 	});
 

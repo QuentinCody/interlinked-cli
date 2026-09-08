@@ -229,7 +229,10 @@ describe("consumeDecision — unlink race", () => {
 		});
 
 		expect(() => consumeDecision(CWD, "k1")).not.toThrow();
-		expect(unlinkSyncMock).toHaveBeenCalled();
+		expect(unlinkSyncMock.mock.calls).toEqual([
+			["/repo/.interlinked/scanner/pending/k1.review.json"],
+			["/repo/.interlinked/scanner/pending/k1.decision.json"],
+		]);
 	});
 });
 

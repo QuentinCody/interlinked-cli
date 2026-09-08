@@ -122,5 +122,7 @@ describe("installCrashResilience — startup-phase routing", () => {
 		lastHandlerFor("uncaughtException")(new Error("no predicate"));
 		expect(onStartupFailure).not.toHaveBeenCalled();
 		expect(spy).toHaveBeenCalledTimes(2);
+		expect(spy).toHaveBeenNthCalledWith(1, expect.stringContaining("no handler"));
+		expect(spy).toHaveBeenNthCalledWith(2, expect.stringContaining("no predicate"));
 	});
 });

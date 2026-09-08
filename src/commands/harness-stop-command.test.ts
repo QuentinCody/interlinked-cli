@@ -54,9 +54,12 @@ import { harnessStopCommand, harnessTestCommand } from "./harness-stop-command.j
 
 let logSpy: ReturnType<typeof vi.spyOn>;
 let errorSpy: ReturnType<typeof vi.spyOn>;
+let previousExitCode: typeof process.exitCode;
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	previousExitCode = process.exitCode;
+	process.exitCode = undefined;
 	logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
 	errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 	mocks.getSocketPath.mockReturnValue("/tmp/repo/.interlinked/harness.sock");
@@ -64,6 +67,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.restoreAllMocks();
+	process.exitCode = previousExitCode;
 });
 
 describe("harnessStopCommand", () => {
@@ -124,7 +128,6 @@ describe("harnessTestCommand", () => {
 	it("prints ALLOWED for a non-blocking decision and leaves exitCode untouched", async () => {
 		mocks.existsSync.mockReturnValue(true);
 		mocks.queryHarness.mockResolvedValue({ decision: "allow" });
-		process.exitCode = undefined;
 		await harnessTestCommand("ls", {});
 		const printed = logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
 		expect(printed).toContain("ALLOWED");
@@ -138,22 +141,29 @@ describe("harnessTestCommand", () => {
 			reason: "nope",
 			warnings: ["careful"],
 		});
-		process.exitCode = undefined;
 		await harnessTestCommand("rm -rf /", {});
 		const printed = logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
 		expect(printed).toContain("BLOCKED");
 		expect(printed).toContain("nope");
 		expect(printed).toContain("careful");
 		expect(process.exitCode).toBe(1);
-		process.exitCode = undefined;
 	});
 
 	it("emits the JSON shape under --json", async () => {
 		mocks.existsSync.mockReturnValue(true);
-		mocks.queryHarness.mockResolvedValue({ decision: "allow" });
+		mocks.queryHarness.mockResolvedValue({
+			decision: "block",
+			reason: "json reason",
+			warnings: ["json warning"],
+		});
 		await harnessTestCommand("ls", { json: true });
 		const printed = JSON.parse((logSpy.mock.calls[0] as [string])[0]);
-		expect(printed).toEqual({ decision: "allow" });
+		expect(printed).toEqual({
+			decision: "block",
+			reason: "json reason",
+			warnings: ["json warning"],
+		});
+		expect(process.exitCode).toBe(1);
 	});
 
 	it("reports an error to outputError on a thrown failure", async () => {

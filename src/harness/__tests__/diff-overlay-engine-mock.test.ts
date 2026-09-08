@@ -96,7 +96,10 @@ describe("evaluateBiomeDiffOverlay — unreadable file", () => {
 			{ tool: "tsc", severity: "error", file: "x.ts", line: 2, message: "unrelated tool" },
 		]);
 		const result = evaluateBiomeDiffOverlay(dirPath, "content", TMP_ROOT);
-		expect(result).toEqual({ newFindings: [], elapsedMs: 0, exceededBudget: false });
+		expect(result).toEqual({
+			newFindings: [], proposedFindings: null, elapsedMs: 0, exceededBudget: false,
+			checkerUnavailable: "Biome baseline could not be read",
+		});
 		expect(mockEngine.getBiomeDiagnosticsForOverlay).not.toHaveBeenCalled();
 	});
 });
@@ -128,6 +131,24 @@ describe("evaluateTscDiffOverlay — tscCacheKey stat race", () => {
 		statTrapPath = null;
 		expect(result.newFindings).toEqual([]);
 		expect(mockEngine.getTscDiagnosticsForOverlay).toHaveBeenCalledTimes(2);
+	});
+});
+
+describe("evaluateTscDiffOverlay — independent baselines", () => {
+	it("runs the disk baseline and overlay against each proposed content", () => {
+		resetEngineMocks();
+		const filePath = join(TMP_ROOT, "baseline-content.ts");
+		writeFileSync(filePath, "old content");
+		mockEngine.getTscDiagnosticsForOverlay.mockReturnValue([]);
+		expect(evaluateTscDiffOverlay(filePath, "new content", TMP_ROOT).newFindings).toEqual([]);
+		expect(evaluateTscDiffOverlay(filePath, "newer content", TMP_ROOT).newFindings).toEqual([]);
+		expect(mockEngine.getTscDiagnosticsForOverlay).toHaveBeenCalledTimes(4);
+		expect(mockEngine.getTscDiagnosticsForOverlay.mock.calls.map(([path, content]) => [path, content])).toEqual([
+			[filePath, "old content"],
+			[filePath, "new content"],
+			[filePath, "old content"],
+			[filePath, "newer content"],
+		]);
 	});
 });
 

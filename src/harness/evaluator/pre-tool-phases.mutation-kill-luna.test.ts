@@ -293,9 +293,12 @@ describe("evaluateErrorMemory mutation contracts", () => {
 		const h = history();
 		const g = graph();
 		const configured = rules({ enabled: true } as GuardRulesConfig["error_memory"]);
-		evaluateErrorMemory(event(), configured, session(), g, h, "Read", { file_path: "a.ts" }, []);
+		const activeSession = session();
+		evaluateErrorMemory(event(), configured, activeSession, g, h, "Read", { file_path: "a.ts" }, []);
 		evaluateErrorMemory(event(), configured, session(), g, h, "Bash", { file_path: "a.ts" }, []);
-		expect(h.getFileHistoryWarning).toHaveBeenCalledTimes(1);
+		expect(g.toRelative).toHaveBeenCalledExactlyOnceWith("a.ts");
+		expect(h.getFileHistoryWarning).toHaveBeenCalledExactlyOnceWith("relative/a.ts");
+		expect(getPatternWarnings).toHaveBeenCalledExactlyOnceWith([], "relative/a.ts", activeSession, undefined);
 	});
 
 	// test-contract: invariant — an Edit with old_string estimates a line and passes it exactly to pattern detection; other tools do not.

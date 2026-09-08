@@ -328,9 +328,10 @@ describe("type-discipline — optional 'typescript' dep unavailable", () => {
 	// than re-invoking createRequire.
 	it("memoizes a failed typescript require — createRequire runs once across repeated detector calls", async () => {
 		vi.resetModules();
-		const createRequireMock = vi.fn(() => () => {
+		const requireMock = vi.fn(() => {
 			throw new Error("cannot find module 'typescript'");
 		});
+		const createRequireMock = vi.fn(() => requireMock);
 		vi.doMock("node:module", () => ({ createRequire: createRequireMock }));
 		const spreadMod = await import("./type-discipline.js");
 		const content = "const a = { ...(cond ? {} : { field: value }) };";
@@ -339,6 +340,8 @@ describe("type-discipline — optional 'typescript' dep unavailable", () => {
 		expect(first).toEqual([]);
 		expect(second).toEqual([]);
 		expect(createRequireMock).toHaveBeenCalledTimes(1);
+		expect(createRequireMock).toHaveBeenCalledWith(`${process.cwd()}/_`);
+		expect(requireMock.mock.calls).toEqual([["typescript"]]);
 	});
 });
 

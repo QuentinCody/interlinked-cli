@@ -759,7 +759,14 @@ describe("evaluateUnified — telemetry", () => {
 	});
 	it("runs without a telemetry sink", async () => {
 		preMock.mockReturnValue({ decision: "allow" });
-		const decision = await evaluateUnified(makeEvent(), makeCtx());
+		const event = makeEvent();
+		const ctx = makeCtx();
+		const decision = await evaluateUnified(event, ctx);
+		expect(preMock).toHaveBeenCalledOnce();
+		expect(preMock).toHaveBeenCalledWith(
+			toHarnessEvent(event), ctx.rules, ctx.session, ctx.reservations, ctx.cohort,
+			ctx.graph, ctx.sessions, ctx.routeMap, ctx.errorHistory,
+		);
 		expect(decision).toEqual({ decision: "allow" });
 	});
 	it("emits check_filtered with the filtered count when the filter reports findings removed", async () => {
@@ -828,7 +835,13 @@ describe("evaluateUnified — budget timeout race", () => {
 		vi.useFakeTimers();
 		preMock.mockReturnValue({ decision: "block", reason: "fast" });
 		const ctx = makeCtx({ budgets: { ...DEFAULT_BUDGETS, modify_budget_ms: 1000 } });
-		const decision = await evaluateUnified(makeEvent(), ctx);
+		const event = makeEvent();
+		const decision = await evaluateUnified(event, ctx);
+		expect(preMock).toHaveBeenCalledOnce();
+		expect(preMock).toHaveBeenCalledWith(
+			toHarnessEvent(event), ctx.rules, ctx.session, ctx.reservations, ctx.cohort,
+			ctx.graph, ctx.sessions, ctx.routeMap, ctx.errorHistory,
+		);
 		expect(decision).toEqual({ decision: "block", reason: "fast" });
 	});
 });

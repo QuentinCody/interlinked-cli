@@ -275,8 +275,12 @@ describe("measureOneFile", () => {
 			skipPreflight: true,
 			measure: stdMeasure(),
 		});
-		const callArg = computeMutationTestScopeForRepoMock.mock.calls[0]![0];
-		expect(callArg.maxScope).toBe(5);
+		expect(computeMutationTestScopeForRepoMock).toHaveBeenCalledOnce();
+		expect(computeMutationTestScopeForRepoMock).toHaveBeenCalledWith({
+			editedRelPath: "f.ts",
+			projectRoot: "/proj",
+			maxScope: 5,
+		});
 	});
 
 	it("omits maxScope from computeMutationTestScopeForRepo when configuredMaxTestScope returns undefined", async () => {
@@ -297,11 +301,17 @@ describe("measureOneFile", () => {
 		expect("maxScope" in callArg).toBe(false);
 	});
 
-	it("uses scope.tests directly via ?? even when companionScope is falsy (not && short-circuit)", async () => {
+	it.each([
+		["no companion scope", undefined],
+		["a distinct companion scope", ["companion.test.ts"]],
+	])("uses scope.tests directly when there is %s", async (_case, companionScope) => {
 		readDiskSafeMock.mockReturnValue("content");
 		normalizeManifestKeyMock.mockReturnValue("f.ts");
 		configuredRunnerEndpointsMock.mockResolvedValue({ endpoints: ["http://runner"] });
-		computeMutationTestScopeForRepoMock.mockReturnValue({ tests: ["a.test.ts"], companionScope: undefined });
+		computeMutationTestScopeForRepoMock.mockReturnValue({
+			tests: ["graph.test.ts"],
+			companionScope,
+		});
 		buildScopedMeasureOverlaysMock.mockReturnValue({ overlays: [], unreadable: [] });
 		await measureOneFile({
 			file: "f.ts",
@@ -310,7 +320,7 @@ describe("measureOneFile", () => {
 			skipPreflight: true,
 			measure: stdMeasure(),
 		});
-		expect(buildScopedMeasureOverlaysMock.mock.calls[0]![3]).toEqual(["a.test.ts"]);
+		expect(buildScopedMeasureOverlaysMock.mock.calls[0]![3]).toEqual(["graph.test.ts"]);
 	});
 
 	it("passes the literal quiet flag through to the injected preflight", async () => {

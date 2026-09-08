@@ -473,9 +473,16 @@ describe("planCognitiveFlattening — negative (must not fire)", () => {
 	});
 
 	it("N7: picked moves never overlap on source lines", () => {
-		const plan = planCognitiveFlattening(wrapped(12), "/tmp/wrapped.ts", "wrapped", 1);
+		const source = `export function independent(a: boolean, b: boolean, c: boolean): number {
+ let score = 0;
+ if ((a && b) || c) { score++; }
+ if ((b && c) || a) { score += 2; }
+ return score;
+}`;
+		const plan = planCognitiveFlattening(source, "/tmp/independent.ts", "independent", 1);
 		assertPlan(plan);
 		const spans = plan.moves.map((m) => [m.startLine, m.endLine] as const);
+		expect(spans).toHaveLength(2);
 		for (let i = 0; i < spans.length; i++) {
 			for (let j = i + 1; j < spans.length; j++) {
 				const a = spans[i];

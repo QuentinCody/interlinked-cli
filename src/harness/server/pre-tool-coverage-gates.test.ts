@@ -43,12 +43,14 @@ import { checkCommitGate } from "../evaluator/commit-gate.js";
 import { checkCoverageWrite } from "../evaluator/coverage-write-guard.js";
 import { createCloudMutationRunner } from "../mutation/cloud-runner.js";
 import { runPerEditMutationGate } from "../mutation/gate.js";
+import { loadManifestState } from "../mutation/manifest.js";
 import { runCommitGate, runCoverageWriteGate, runMutationWriteGate } from "./pre-tool-coverage-gates.js";
 
 const mCheckCoverage = checkCoverageWrite as unknown as Mock;
 const mCheckCommit = checkCommitGate as unknown as Mock;
 const mMutation = runPerEditMutationGate as unknown as Mock;
 const mCreateRunner = createCloudMutationRunner as unknown as Mock;
+const mLoadManifestState = vi.mocked(loadManifestState);
 
 function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
 	return {
@@ -148,6 +150,8 @@ describe("runCoverageWriteGate — debt-evasion arming (2026-07-17)", () => {
 
 beforeEach(() => {
 	vi.clearAllMocks();
+	mLoadManifestState.mockReset();
+	mLoadManifestState.mockReturnValue({ kind: "missing" });
 	mCheckCoverage.mockResolvedValue(null);
 	mCheckCommit.mockResolvedValue(null);
 	mMutation.mockResolvedValue(null);
@@ -654,8 +658,7 @@ describe("runMutationWriteGate", () => {
 	// In every case the gate itself never runs, so even a clean runner result
 	// can persist nothing.
 	async function corruptManifestCase(cfg: Record<string, unknown>) {
-		const { loadManifestState } = await import("../mutation/manifest.js");
-		(loadManifestState as unknown as Mock).mockReturnValueOnce({
+		mLoadManifestState.mockReturnValueOnce({
 			kind: "corrupt",
 			detail: "Unexpected token < in JSON",
 		});
@@ -692,6 +695,7 @@ describe("runMutationWriteGate", () => {
 	it("N: mode=off produces NOTHING — not even a warning", async () => {
 		const d = await corruptManifestCase({ enabled: true, mode: "off", unavailable_behavior: "block" });
 		expect(d).toBeNull();
+		expect(mLoadManifestState).not.toHaveBeenCalled();
 		expect(mMutation).not.toHaveBeenCalled();
 	});
 });
@@ -727,6 +731,7 @@ describe("runMutationWriteGate — the callbacks handed to the gate", () => {
 		// same shape a graph-init failure produces. The gate must decline with an
 		// honest reason, never a silently narrowed scope.
 		const args = await callbacks(ctxMutation({ enabled: true, mode: "block" }), ev({ tool_name: "Write" }));
+		expect(mMutation).toHaveBeenCalledOnce();
 		expect(args.selectTests("src/subject.ts")).toEqual({
 			kind: "unavailable",
 			reason: "dependency graph unavailable — exact mutation test scope is unproven",

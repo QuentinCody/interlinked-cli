@@ -315,7 +315,13 @@ describe("evaluateTddGate — mutation kill", () => {
 			decision: "block",
 			reason: "needs characterization test",
 		} as unknown);
-		const result = evaluateTddGate(makeEvent(), makeRules(), makeSession(), "Write", []);
+		const event = makeEvent();
+		const rules = makeRules();
+		const session = makeSession();
+		const warnings: string[] = [];
+		const result = evaluateTddGate(event, rules, session, "Write", warnings);
+		expect(mocks.evaluateCharacterizeForEvent).toHaveBeenCalledOnce();
+		expect(mocks.evaluateCharacterizeForEvent).toHaveBeenCalledWith(event, rules, session);
 		expect(result?.decision).toBe("block");
 		expect(result?.reason).toBe("needs characterization test");
 	});
@@ -368,7 +374,7 @@ describe("evaluateBaselineIntegrityGate — mutation kill", () => {
 		const event = makeEvent({ tool_name: "Bash", tool_input: { command: "echo hi" } });
 		const result = evaluateBaselineIntegrityGate(event, "Bash", []);
 		expect(result).toBeNull();
-		expect(mocks.baselineBashWriteRefusal).toHaveBeenCalled();
+		expect(mocks.baselineBashWriteRefusal).toHaveBeenCalledWith("echo hi", event.cwd);
 	});
 
 	// test-contract: bug — event.tool_input?.command (line 273) must tolerate

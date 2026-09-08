@@ -247,9 +247,26 @@ describe("runSessionEndJobs", () => {
 	it("falls back to nodeSpawn/process.execPath/resolveCliEntry when no deps are given", async () => {
 		const { spawn: mockedNodeSpawn } = await import("node:child_process");
 		vi.mocked(mockedNodeSpawn).mockClear();
-		const ctx = makeCtx();
-		runSessionEndJobs(ctx, activePlan, {});
-		expect(vi.mocked(mockedNodeSpawn)).toHaveBeenCalled();
+		const originalArgv = [...process.argv];
+		process.argv.splice(1, 1, "/repo/dist/harness/server.js");
+		try {
+			runSessionEndJobs(makeCtx(), activePlan, {});
+			expect(vi.mocked(mockedNodeSpawn)).toHaveBeenCalledTimes(2);
+			expect(vi.mocked(mockedNodeSpawn)).toHaveBeenNthCalledWith(
+				1,
+				"taskpolicy",
+				["-b", process.execPath, "/repo/dist/index.js", "recurrence", "scan", "--record"],
+				{ cwd: "/repo", detached: true, stdio: "ignore" },
+			);
+			expect(vi.mocked(mockedNodeSpawn)).toHaveBeenNthCalledWith(
+				2,
+				"taskpolicy",
+				["-b", process.execPath, "/repo/dist/index.js", "coverage", "check", "--update-baseline"],
+				{ cwd: "/repo", detached: true, stdio: "ignore" },
+			);
+		} finally {
+			process.argv.splice(0, process.argv.length, ...originalArgv);
+		}
 	});
 });
 

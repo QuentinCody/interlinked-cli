@@ -113,8 +113,10 @@ import { checkLockfileDrift } from "./lockfile-drift.js";
 import { checkPackageJsonConsistency } from "./package-json.js";
 import { containsSecrets } from "./secret-detection.js";
 import {
+	collectSoftwareVersionReferences,
 	detectSoftwareVersionFreshnessConcerns,
 	detectSoftwareVersionRegressions,
+	type SoftwareVersionReference,
 } from "./software-version-regression.js";
 import { findAnyTypes } from "./strong-typing.js";
 import { isLikelyTestFile } from "./test-classifier.js";
@@ -135,6 +137,7 @@ const mockRunInlineLanguageChecks = vi.mocked(runInlineLanguageChecks);
 const mockCheckLockfileDrift = vi.mocked(checkLockfileDrift);
 const mockCheckPackageJsonConsistency = vi.mocked(checkPackageJsonConsistency);
 const mockContainsSecrets = vi.mocked(containsSecrets);
+const mockCollectSoftwareVersionReferences = vi.mocked(collectSoftwareVersionReferences);
 const mockDetectRegressions = vi.mocked(detectSoftwareVersionRegressions);
 const mockDetectFreshness = vi.mocked(detectSoftwareVersionFreshnessConcerns);
 const mockFindAnyTypes = vi.mocked(findAnyTypes);
@@ -232,6 +235,7 @@ beforeEach(() => {
 	mockCheckLockfileDrift.mockReset();
 	mockCheckPackageJsonConsistency.mockReset().mockReturnValue([]);
 	mockContainsSecrets.mockReset().mockReturnValue([]);
+	mockCollectSoftwareVersionReferences.mockReset().mockReturnValue([]);
 	mockDetectRegressions.mockReset().mockReturnValue([]);
 	mockDetectFreshness.mockReset().mockReturnValue([]);
 	mockFindAnyTypes.mockReset().mockReturnValue([]);
@@ -310,6 +314,7 @@ describe("runToolCheckLoop — skip guards", () => {
 		);
 		expect(out).toEqual([]); // engine ran, found nothing
 		expect(run).toHaveBeenCalledTimes(1);
+		expect(mockConfigNameToToolId).toHaveBeenCalledWith("gitleaks");
 	});
 
 	it("skips command-based checks when the edited file is outside the repo", async () => {
@@ -608,6 +613,7 @@ describe("runToolCheckLoop — dependency_audit", () => {
 		mockParseOsvScannerJson.mockReturnValue({ detail: "CVE-2026-1" } as never);
 		const out = await runToolCheckLoop(auditCtx());
 		expect(out[0]?.detail).toBe("CVE-2026-1");
+		expect(mockParseOsvScannerJson).toHaveBeenCalledWith("{osv}");
 	});
 
 	it("osv-scanner parser: reports no verdict when non-zero output is unparsable", async () => {
@@ -697,6 +703,7 @@ describe("runToolCheckLoop — inline_language_checks", () => {
 			makeCtx({ getSharedContent: () => null, checks: { inline_language_checks: cfg() } }),
 		);
 		expect(out).toEqual([]);
+		expect(mockGetProfileForFile).toHaveBeenCalledWith("src/x.ts");
 		expect(mockRunInlineLanguageChecks).not.toHaveBeenCalled();
 	});
 
@@ -1060,6 +1067,15 @@ describe("runToolCheckLoop — software version / freshness", () => {
 	});
 
 	it("reconstructs beforeRefs from the bare old_string when new_string is absent", async () => {
+		const beforeRefs: SoftwareVersionReference[] = [{
+			anchor: "old-only",
+			label: "old-only",
+			kind: "generic",
+			version: "1",
+			line: 1,
+			text: "old-only=1",
+		}];
+		mockCollectSoftwareVersionReferences.mockReturnValue(beforeRefs);
 		const event = {
 			...baseEvent,
 			tool_name: "Edit",
@@ -1067,7 +1083,9 @@ describe("runToolCheckLoop — software version / freshness", () => {
 		};
 		const out = await runToolCheckLoop(svCtx({ event, baseline: undefined }));
 		expect(out).toEqual([]);
-		expect(mockDetectRegressions).toHaveBeenCalledTimes(1);
+		expect(mockCollectSoftwareVersionReferences).toHaveBeenCalledWith("only-old", "src/x.ts");
+		expect(mockDetectRegressions).toHaveBeenCalledOnce();
+		expect(mockDetectRegressions).toHaveBeenCalledWith(beforeRefs, []);
 	});
 
 	it("uses empty beforeRefs when neither old_string nor new_string is present", async () => {

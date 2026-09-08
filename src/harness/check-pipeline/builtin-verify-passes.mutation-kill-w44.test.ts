@@ -56,7 +56,7 @@ describe("typeof-narrowing regex", () => {
 
 	// test-contract: public-api — a multi-char identifier ("foo") must still
 	// satisfy the typeof-narrowing regex's identifier class.
-	it("kills [\\w.]+ -> [\\w.] mutant: multi-char identifier still narrows", () => {
+	it("kills [\\w.]+ -> [\\w.] and typeof-pass checkId corruption mutants: multi-char identifier still narrows", () => {
 		const content = 'if (typeof foo === "string") {';
 		const kept = applyVerifyPasses(CHECK_ID, [match(1)], content, SAFE_PATH);
 		expect(kept).toEqual([]);
@@ -122,7 +122,7 @@ describe("isEnumComparisonMatch", () => {
 	// test-contract: public-api — isEnumComparisonMatch must actually
 	// evaluate its regex, not always return a falsy default (BlockStatement
 	// mutant guts the function body to `{}`/undefined).
-	it("kills BlockStatement->{} mutant: a genuine enum comparison must still be dropped", () => {
+	it("kills BlockStatement->{}, \\s* -> \\S*, and [A-Z0-9_]+ negation mutants: a genuine enum comparison must still be dropped", () => {
 		const kept = applyVerifyPasses(CHECK_ID, [match(1, "x === STATUS_OK")], content, SAFE_PATH);
 		expect(kept).toEqual([]);
 	});
@@ -141,58 +141,10 @@ describe("isEnumComparisonMatch", () => {
 		expect(kept).toEqual([]);
 	});
 
-	// test-contract: public-api — real whitespace after the operator must
-	// still satisfy `\s*` (not the negated `\S*`).
-	it("kills \\s* -> \\S* mutant: spaced enum comparison must still be dropped", () => {
-		const kept = applyVerifyPasses(CHECK_ID, [match(1, "x === STATUS_OK")], content, SAFE_PATH);
-		expect(kept).toEqual([]);
-	});
-
-	// test-contract: public-api — an all-caps/underscore identifier must
-	// still satisfy the (non-negated) `[A-Z0-9_]+` tail class.
-	it("kills [A-Z0-9_]+ negation mutant: all-caps identifier must still be dropped", () => {
-		const kept = applyVerifyPasses(CHECK_ID, [match(1, "x === STATUS_OK")], content, SAFE_PATH);
-		expect(kept).toEqual([]);
-	});
-
 	// test-contract: public-api — word characters immediately before the dot
 	// must still satisfy the (non-negated) `\w+\.` prefix.
-	it("kills \\w+\\. negation mutant: dotted Status identifier must still be dropped", () => {
+	it("kills \\w+\\., [A-Z], and trailing \\w+ negation mutants: dotted Status identifier must still be dropped", () => {
 		const kept = applyVerifyPasses(CHECK_ID, [match(1, "x === obj.Status")], content, SAFE_PATH);
-		expect(kept).toEqual([]);
-	});
-
-	// test-contract: public-api — an uppercase letter right after the dot
-	// must still satisfy the (non-negated) `[A-Z]` class.
-	it("kills [A-Z] negation (after dot) mutant: dotted Status identifier must still be dropped", () => {
-		const kept = applyVerifyPasses(CHECK_ID, [match(1, "x === obj.Status")], content, SAFE_PATH);
-		expect(kept).toEqual([]);
-	});
-
-	// test-contract: public-api — word characters after the post-dot
-	// uppercase letter must still satisfy the (non-negated) trailing `\w+`.
-	it("kills trailing \\w+ negation mutant: dotted Status identifier must still be dropped", () => {
-		const kept = applyVerifyPasses(CHECK_ID, [match(1, "x === obj.Status")], content, SAFE_PATH);
-		expect(kept).toEqual([]);
-	});
-});
-
-describe("registration wiring", () => {
-	// test-contract: invariant — the typeof-narrowing pass must be registered
-	// under the real "magic_literal_in_conditional" checkId, or it silently
-	// stops applying.
-	it("kills typeof-pass checkId corruption mutant: typeof lines are still filtered", () => {
-		const content = 'if (typeof foo === "string") {';
-		const kept = applyVerifyPasses(CHECK_ID, [match(1)], content, SAFE_PATH);
-		expect(kept).toEqual([]);
-	});
-
-	// test-contract: invariant — the enum-comparison pass's whole
-	// registration object (checkId + verify fn) must survive intact, or it
-	// silently stops applying.
-	it("kills enum-pass registration-object corruption mutant: enum comparisons are still filtered", () => {
-		const content = "console.log(1);";
-		const kept = applyVerifyPasses(CHECK_ID, [match(1, "x === STATUS_OK")], content, SAFE_PATH);
 		expect(kept).toEqual([]);
 	});
 });

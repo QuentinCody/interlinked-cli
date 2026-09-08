@@ -370,7 +370,9 @@ describe("extract — warnWalkTruncated observability", () => {
 		const tmp = mkdtempSync(join(tmpdir(), "env-ext-warn-trunc-"));
 		try {
 			extract(tmp, { entriesVisited: 0, deadline: performance.now() + 8000, truncated: true });
-			expect(errorSpy).toHaveBeenCalled();
+			expect(errorSpy).toHaveBeenCalledExactlyOnceWith(
+				`[interlinked-harness] env-extractor walk hit the hard cap (>50000 entries or >8000ms) under ${tmp}; artifact graph is partial. This usually means repoRoot resolved to an unexpectedly large tree.`,
+			);
 		} finally {
 			rmSync(tmp, { recursive: true, force: true });
 		}

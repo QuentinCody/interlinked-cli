@@ -882,7 +882,7 @@ describe("collectionJoinFrom — per-field type guards", () => {
 describe("annotateCall — command source precedence and pattern gating", () => {
 	it("prefers the joined command over row.tool_input, not the other way round", () => {
 		const ix = buildSingleToolUseIx({
-			toolInput: {},
+			toolInput: { command: "ls -la" },
 			collection: { action: { command: "npx vitest run x" } },
 		});
 		expect(ix).toStrictEqual({ episode: 0, is_verification: true });

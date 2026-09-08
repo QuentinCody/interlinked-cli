@@ -40,6 +40,7 @@ import type { ContentScanner, ScannerStatus } from "./content-scanner/types.js";
 import { DEFAULT_CONFIG } from "./rules/default-config.js";
 import type { GuardRulesConfig } from "./types/config.js";
 import type { HarnessDecision } from "./types.js";
+import type { UnifiedHookEvent } from "./unified-event.js";
 
 const lifecycleMocks = vi.hoisted(() => ({
 	reapZombieIncumbent: vi.fn(async () => "gone" as const),
@@ -778,7 +779,22 @@ describe("harness server.ts — startup wiring (dual protocol, default flags)", 
 		const evalCtx = ctxFactory?.();
 		// getEvaluatorContext closes over getGraphForFile → resolves the fake graph.
 		expect(evalCtx?.graph).toBe(fakeGraph);
-		expect(cap.sessionDaemonOpts?.state.evaluateHook).toBe(evaluateUnifiedViaRuntimeMock);
+		const event: UnifiedHookEvent = {
+			schema_version: "1",
+			event_id: "startup-evaluator",
+			session_id: "startup-session",
+			ts: "2026-09-07T00:00:00.000Z",
+			runner: "codex",
+			runner_native_event: "PreToolUse",
+			phase: "pre-tool",
+			action: { kind: "tool_call", tool_name: "Read", tool_class: "read", tool_input: {}, tool_input_redacted: {} },
+			context: { cwd: "/repo" },
+			raw: {},
+		};
+		evaluateUnifiedViaRuntimeMock.mockResolvedValueOnce({ decision: "block", reason: "startup sentinel" });
+		const decision = await cap.sessionDaemonOpts?.state.evaluateHook(event);
+		expect(evaluateUnifiedViaRuntimeMock).toHaveBeenCalledExactlyOnceWith(event);
+		expect(decision).toMatchObject({ decision: "block", reason: "startup sentinel" });
 		expect(cap.sessionDaemonOpts?.state.tsgo).toEqual({ __tsgo: true });
 	});
 });
@@ -1602,13 +1618,13 @@ describe("harness server.ts — cyclomatic gate capability", () => {
 
 describe("harness server.ts — writeCollectionRecord guard-decision branch (line 496)", () => {
 	it("writes a guard decision record when a decision is present", async () => {
+		const aw = await import("./server/activity-writer.js");
 		await loadServer();
-		expect(() =>
-			cap.eventLoopDeps?.writeCollectionRecord(
-				{ hook_event: "PreToolUse" },
-				{ decision: "allow" } as HarnessDecision,
-			),
-		).not.toThrow();
+		vi.mocked(aw.writeGuardDecisionRecord).mockClear();
+		const event = { hook_event: "PreToolUse", session_id: "guard-decision" };
+		const decision: HarnessDecision = { decision: "allow" };
+		cap.eventLoopDeps?.writeCollectionRecord(event, decision);
+		expect(aw.writeGuardDecisionRecord).toHaveBeenCalledWith(event, decision, expect.any(String));
 	});
 });
 
@@ -1972,25 +1988,20 @@ describe("harness server.ts — refreshStatuslineSnapshot (mutation hardening)",
 	});
 });
 
-describe("harness server.ts — resetIdleTimer internals (mutation hardening)", () => {
-	it("does not call clearTimeout on the very first arm (idleTimer starts undefined)", async () => {
-		const clearSpy = vi.spyOn(globalThis, "clearTimeout");
-		clearSpy.mockClear();
-		await loadServer(["--idle-timeout", "5000"]);
-		// loadServer's own bottom-of-file resetIdleTimer() call is the first
-		// ever call in this fresh module instance, so idleTimer was undefined.
-		// Kills: `idleTimer` -> `true` (ConditionalExpression).
-		expect(clearSpy).not.toHaveBeenCalled();
-		clearSpy.mockRestore();
-	});
-
+describe("harness server.ts — idle timeout scheduling", () => {
 	it("calls clearTimeout to cancel a previously armed timer on a second call", async () => {
 		const clearSpy = vi.spyOn(globalThis, "clearTimeout");
 		await loadServer(["--idle-timeout", "5000"]);
+		const scheduleSpy = vi.spyOn(globalThis, "setTimeout");
+		cap.eventLoopDeps?.resetIdleTimer();
+		expect(scheduleSpy).toHaveBeenCalledExactlyOnceWith(expect.any(Function), 5000);
+		const armedTimer = scheduleSpy.mock.results[0]?.value;
 		clearSpy.mockClear();
 		cap.eventLoopDeps?.resetIdleTimer(); // second call -> idleTimer now truthy
 		// Kills: `idleTimer` -> `false` (ConditionalExpression).
-		expect(clearSpy).toHaveBeenCalledTimes(1);
+		expect(clearSpy).toHaveBeenCalledOnce();
+		expect(clearSpy).toHaveBeenCalledWith(armedTimer);
+		scheduleSpy.mockRestore();
 		clearSpy.mockRestore();
 	});
 

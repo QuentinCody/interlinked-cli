@@ -17,7 +17,7 @@ describe("resolveScreenVersion — hyphen-range extra-dot-components probe", () 
 	// kills: f427cead3a551440, d1f2bd6519ec1391, 2700345fbf49f5f1, c74fbc2aa05456dd,
 	// b896884ff18166ed, e5584c87ee485762, 70a3970041e48598, 014adb37c5d939fd, b14aa2d8ad1438b5.
 	// test-contract: public-api — resolveScreenVersion(range) must resolve the npm hyphen-range floor via the LEFT endpoint literal (module doc: "An npm hyphen range floors at its left endpoint").
-	it("preserves the full un-normalizable literal via the hyphen path", () => {
+	it("preserves the full un-normalizable literal via the hyphen path and accepts a bare right-hand endpoint", () => {
 		expect(resolveScreenVersion("1.2.3.4.5 - 9.0.0")).toBe("1.2.3.4.5");
 	});
 
@@ -37,12 +37,6 @@ describe("resolveScreenVersion — hyphen-range extra-dot-components probe", () 
 	// surrounding whitespace; kills 117f169f5cec4e36.
 	it("two spaces after the dash are still accepted (\\s+, not a single \\s)", () => {
 		expect(resolveScreenVersion("1.2.3.4.5 -  9.0.0")).toBe("1.2.3.4.5");
-	});
-
-	// test-contract: public-api — the hyphen range's right endpoint accepts a
-	// bare (unprefixed) version per the npm hyphen-range grammar; kills 0c34844205bb32ea.
-	it("right-hand endpoint with no v prefix is still accepted ([vV]? optional)", () => {
-		expect(resolveScreenVersion("1.2.3.4.5 - 9.0.0")).toBe("1.2.3.4.5");
 	});
 
 	// test-contract: public-api — the hyphen range's right endpoint also

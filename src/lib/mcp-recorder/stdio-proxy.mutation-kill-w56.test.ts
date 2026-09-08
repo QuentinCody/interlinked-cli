@@ -174,13 +174,17 @@ describe("signal forwarding — positive (must fire)", () => {
 
 describe("settle / cleanup idempotency — positive (must fire)", () => {
     it("only tears down stdin listeners once even if close+error both fire", async () => {
+        const onSpy = vi.spyOn(process.stdin, "on");
         const offSpy = vi.spyOn(process.stdin, "off");
         const promise = runMcpStdioProxy({ ...baseOpts });
+        const registeredListeners = onSpy.mock.calls.slice(-3);
+        expect(registeredListeners.map(([event]) => event)).toEqual(["data", "end", "error"]);
         closeChild(0);
         currentChild.emit("error", new Error("late-error"));
         await promise;
         // exactly one teardown pass: data, end, error => 3 off calls
         expect(offSpy).toHaveBeenCalledTimes(3);
+        expect(offSpy.mock.calls).toEqual(registeredListeners);
     });
 });
 

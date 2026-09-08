@@ -35,55 +35,26 @@ describe("detectPatchApplier — WRITE_CALL_RE exact spacing (must fire)", () =>
 		expect(result?.writeCall).toContain("writeFileSync");
 	});
 
-	// test-contract: public-api — WRITE_CALL_RE's open() alternative allows
-	// zero whitespace between "open" and "(". The mode argument deliberately
-	// uses a mismatched quote pair ('w") so stripCommentsAndStrings (which
-	// WRITE_CALL_RE is matched against) cannot blank it out as a complete
-	// same-line string — this is the only way to observe the open() branch
-	// post-stripping.
-	it("P3: open() with zero spaces before '(' is still a write call", () => {
-		// \bopen\s*\( must allow ZERO spaces; a mutant requiring \s (mandatory
-		// one) or \S* (no space allowed) both diverge from this input.
-		const content = `open(x, 'w")\nconst t = 'src/foo.py';`;
-		const result = detectPatchApplier(content, "probe.py");
-		expect(result?.writeCall).toBe(`open(x, 'w"`);
+	// test-contract: security — executable Python open calls in write/append modes must be detected.
+	it.each([
+		{ call: 'open("src/foo.py", "w")', evidence: 'open("src/foo.py", "w"' },
+		{ call: 'open ("src/foo.py", "a")', evidence: 'open ("src/foo.py", "a"' },
+		{ call: 'open("src/foo.py", mode="w+")', evidence: 'open("src/foo.py", mode="w+"' },
+		{ call: 'open("src/foo.py", "w", encoding="utf-8")', evidence: 'open("src/foo.py", "w"' },
+	])("detects $call", ({ call, evidence }) => {
+		expect(detectPatchApplier(call, "probe.py")?.writeCall).toBe(evidence);
 	});
 
-	// test-contract: public-api — WRITE_CALL_RE's open() alternative also
-	// allows whitespace between "open" and "(" (same mismatched-quote trick).
-	it("P4: open with a space before '(' is still a write call", () => {
-		// \bopen\s*\( must allow the space; a \S* mutant fails here.
-		const content = `open (x, 'w")\nconst t = 'src/foo.py';`;
-		const result = detectPatchApplier(content, "probe.py");
-		expect(result?.writeCall).toBe(`open (x, 'w"`);
+	// test-contract: security — a read-only open or data string must not become a write block.
+	it.each([
+		'open("src/foo.py", "r")',
+		'open("src/foo.py", "r", encoding="w")',
+		'payload = \'open("src/foo.py", "w")\'',
+		'# open("src/foo.py", "w")',
+	])("ignores $0", (content) => {
+		expect(detectPatchApplier(content, "probe.py")).toBeNull();
 	});
 
-	// test-contract: public-api — [^)]* is documented to span an arbitrary
-	// argument list before the mode-quote portion of the open() alternative.
-	it("P5: a long argument list between '(' and the mode quote still matches", () => {
-		// [^)]* must consume "x, y, z, "; a mutant dropping the star to a
-		// single char, or narrowing the class to only ')' characters, cannot
-		// bridge that gap.
-		const content = `open(x, y, z, 'w")\nconst t = 'src/foo.py';`;
-		const result = detectPatchApplier(content, "probe.py");
-		expect(result?.writeCall).toBe(`open(x, y, z, 'w"`);
-	});
-
-	// test-contract: public-api — the mode-quote grammar `['"][wa]\+?['"]`
-	// is exercised at its exact minimal shape: quote, mode char, close quote,
-	// with no extra characters and no '+'.
-	it("N2: the mode literal quote-w-quote with no extra character, no '+', matches exactly", () => {
-		// Exercises: ['"][wa]\+?['"] as written — quote, then immediately 'w',
-		// no mandatory extra char, no mandatory '+', closed by a real quote
-		// (here a mismatched double-quote, chosen so stripCommentsAndStrings
-		// cannot pre-blank the whole "'w\"" run as a paired string literal).
-		// Mutants that (a) insert a required [^'"] gap, (b) negate [wa] to
-		// [^wa], (c) make \+? mandatory, or (d) negate the closing ['"] all
-		// fail to match this exact literal.
-		const content = `open(x, 'w")\nconst t = 'src/foo.py';`;
-		const result = detectPatchApplier(content, "probe.py");
-		expect(result?.writeCall).toBe(`open(x, 'w"`);
-	});
 });
 
 describe("detectPatchApplier — REPO_TARGET_RE exact grammar (must fire)", () => {
@@ -137,6 +108,9 @@ describe("detectPatchApplier — REPO_TARGET_RE exact grammar (must fire)", () =
 		const content = `writeFileSync(x, y); const p = os.getcwd();`;
 		const result = detectPatchApplier(content, "probe.mjs");
 		expect(result).not.toBeNull();
+		// P13's zero-space-inside-parens condition is covered by this same
+		// tightly-packed `os.getcwd()` call; keeping a second identical body
+		// would not add mutation coverage.
 	});
 
 	// test-contract: public-api — the os.getcwd() alternative's first `\s*`
@@ -153,16 +127,6 @@ describe("detectPatchApplier — REPO_TARGET_RE exact grammar (must fire)", () =
 	it("P12: os.getcwd( ) with a space inside the parens matches", () => {
 		// The second \s* must allow the space; a \S* mutant there fails.
 		const content = `writeFileSync(x, y); const p = os.getcwd( );`;
-		const result = detectPatchApplier(content, "probe.mjs");
-		expect(result).not.toBeNull();
-	});
-
-	// test-contract: public-api — the os.getcwd() alternative's second
-	// `\s*` also tolerates ZERO whitespace inside the call parens.
-	it("P13: os.getcwd() with zero spaces inside the parens matches", () => {
-		// The second \s* must allow ZERO spaces; a mutant requiring a
-		// mandatory single \s fails on the tightly-packed "()" here.
-		const content = `writeFileSync(x, y); const p = os.getcwd();`;
 		const result = detectPatchApplier(content, "probe.mjs");
 		expect(result).not.toBeNull();
 	});

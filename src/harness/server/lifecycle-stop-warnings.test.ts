@@ -223,6 +223,7 @@ function makeSession(over: Record<string, unknown> = {}): SessionTrajectory {
 		verification_observed: new Set<string>(),
 		stubs_introduced: [],
 		tdd_cycles: new Map(),
+		test_runs: new Map(),
 		commands_run: [],
 		files_written: new Set<string>(),
 	};
@@ -884,6 +885,11 @@ describe("buildVerificationStopWarnings", () => {
 		// verify-before-stop cadence nudges never co-emit (see the dedicated
 		// mutual-exclusion tests above).
 		expect(out).toEqual(["W1", "W3", "W4", "W5", "W6", "W7", "W8", "W9"]);
+		expect(mFormatUnverifiedCodeWarning).toHaveBeenCalledWith({
+			codeFilesEdited: 1,
+			verifyCommandCount: 0,
+			verificationObserved: session.verification_observed,
+		});
 	});
 
 	// --- warn_unresolved_red gated wrapper (checkUnresolvedRed) -------------
@@ -1260,14 +1266,19 @@ describe("buildVerificationStopWarnings", () => {
 		// Proves the deferred-coverage gate is per_edit_coverage.enabled, not a
 		// vsc warn flag: every warn_* is false here yet the nudge still appears.
 		const ctx = makeCtx({ rules: coverageRules(true) });
+		const session = makeSession({ session_id: "coverage-session" });
 		mReadDeferredCoverageObligations.mockReturnValue([
-			{ kind: "coverage", file: "src/a.ts", session_id: "s1" },
+			{ kind: "coverage", file: "src/a.ts", session_id: "coverage-session" },
 		] as never);
 		mFormatDeferredCoverageWarning.mockReturnValue("DEFERRED-COVERAGE");
 
-		const out = buildVerificationStopWarnings(ctx, makeEvent(), makeSession());
+		const out = buildVerificationStopWarnings(ctx, makeEvent(), session);
 
 		expect(out).toEqual(["DEFERRED-COVERAGE"]);
+		expect(mReadDeferredCoverageObligations).toHaveBeenCalledWith(ctx.cwd, "coverage-session");
+		expect(mFormatDeferredCoverageWarning).toHaveBeenCalledWith({
+			obligations: [{ kind: "coverage", file: "src/a.ts", session_id: "coverage-session" }],
+		});
 	});
 
 	it("still fires the existing red nudge unchanged alongside the deferred-coverage nudge", () => {

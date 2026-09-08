@@ -64,6 +64,10 @@ describe("ensureRemoteOnboarding mutation contracts", () => {
         const result = await ensureRemoteOnboarding();
 
         expect(result.agentName).toBe("ServerAgent");
+        expect(mockCallTool).toHaveBeenCalledWith("get_started", {
+            name: "ConfiguredAgent",
+            program: "interlinked-cli",
+        });
     });
 
     // test-contract: blank agent names and handles are treated as absent.

@@ -366,8 +366,8 @@ describe("shortClusterTakesValue — leading-dash guard (w41)", () => {
 	// test-contract: invariant — a genuine dash-prefixed cluster ending in a
 	// value-taking letter still reports true (regression guard alongside the
 	// dash-less case above).
-	it("is true for a genuine dash-prefixed cluster ending in a value-taking letter", () => {
-		expect(shortClusterTakesValue("-am")).toBe(true);
+	it("is true for a multi-letter dash-prefixed cluster ending in a value-taking letter", () => {
+		expect(shortClusterTakesValue("-qm")).toBe(true);
 	});
 });
 

@@ -322,13 +322,17 @@ describe("runTddCommitGate", () => {
 
 	it("skips the TDD-cycle gate when there are no tdd_cycles, runs the rest", () => {
 		const pre = allow();
-		runTddCommitGate(makeCtx(), commitEvent(), makeSession(), pre);
+		const session = makeSession();
+		runTddCommitGate(makeCtx(), commitEvent(), session, pre);
 		// tdd_cycles.size === 0 → checkTddCommitGate NOT called…
 		expect(checkTddCommitGate).not.toHaveBeenCalled();
 		// …but the other gates ARE.
 		expect(checkProdDeltaWithoutTestDelta).toHaveBeenCalledOnce();
 		expect(checkProdTestLocRatio).toHaveBeenCalledOnce();
 		expect(checkTppLeapfrog).toHaveBeenCalledOnce();
+		expect(checkProdDeltaWithoutTestDelta).toHaveBeenCalledWith(session);
+		expect(checkProdTestLocRatio).toHaveBeenCalledWith(session);
+		expect(checkTppLeapfrog).toHaveBeenCalledWith(session);
 	});
 
 	it("runs the TDD-cycle gate when tdd_cycles is non-empty", () => {
@@ -507,6 +511,7 @@ describe("runProjectWideGitGate", () => {
 			commitPre,
 		);
 		expect(checkProjectTypecheckClean).toHaveBeenCalledOnce();
+		expect(checkProjectTypecheckClean).toHaveBeenCalledWith("/repo");
 
 		vi.clearAllMocks();
 		const pushPre = allow();
@@ -518,6 +523,8 @@ describe("runProjectWideGitGate", () => {
 		);
 		expect(checkProjectTypecheckClean).toHaveBeenCalledOnce();
 		expect(checkProjectTestsClean).toHaveBeenCalledOnce();
+		expect(checkProjectTypecheckClean).toHaveBeenCalledWith("/repo");
+		expect(checkProjectTestsClean).toHaveBeenCalledWith("/repo");
 	});
 
 	it("runs the typecheck gate on commit and stays clean when no results", () => {
