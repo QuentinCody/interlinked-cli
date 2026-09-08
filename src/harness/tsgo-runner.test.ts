@@ -504,7 +504,7 @@ describe("createTsgoRunner — onExit cleanup handler", () => {
 
 		// The handler's try/catch must swallow the throw — process exit cleanup
 		// must never itself crash the process.
-		expect(() => onExit()).not.toThrow();
+		expect(() => onExit(0)).not.toThrow();
 
 		killSpy.mockRestore();
 		disposeRunner(runner);
