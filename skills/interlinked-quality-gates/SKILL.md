@@ -143,9 +143,14 @@ Supported comparisons cover positive relative globs with literal directories,
 complete globstars, filename suffix wildcards and bounded comma brace alternatives.
 Widened includes, narrowed exclusions and equivalent redundant patterns pass.
 Negation, extglobs, character classes, unsupported wildcard placement, unknown
-defaults or unresolved overlaps allow with an explicit abstention warning:
+defaults, computed object keys or unresolved overlaps allow with an explicit abstention warning:
 review manually; an abstention makes no measured or clean claim. The shared
 baseline bypass policy is unchanged.
+Any computed property name in the config source causes abstention, including
+literal-looking computed names and nested objects accessed through aliases or
+factories. The gate does not evaluate JavaScript bindings to prove a computed
+value irrelevant. Ordinary identifiers and quoted property names retain the
+literal-array/glob comparison.
 
 **CRAP** = `cyclomatic² · (1 − coverage/100)³ + cyclomatic`, where coverage is a percentage.
 Full coverage reduces the score to cyclomatic, but low coverage can exceed the default threshold

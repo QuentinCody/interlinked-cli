@@ -17,6 +17,59 @@ describe("coverage glob scope at the config gate", () => {
 	});
 
 	it.each([
+		{ name: "include", source: 'const key = "include"; export default { test: { coverage: { include: ["src/core/**"], exclude: [], [key]: ["src/**"] } } };' },
+		{ name: "exclude", source: 'const key = "exclude"; export default { test: { coverage: { include: ["src/**"], exclude: ["src/legacy/**"], [key]: [] } } };' },
+		{ name: "coverage", source: 'const key = "coverage"; export default { test: { coverage: { include: ["src/core/**"], exclude: [] }, [key]: { include: ["src/**"], exclude: [] } } };' },
+		{ name: "test", source: 'const key = "test"; const settings = { include: ["src/**"], exclude: [] }; export default { test: { coverage: { include: ["src/core/**"], exclude: [] } }, [key]: { coverage: settings } };' },
+		{ name: "indirect test config", source: 'const key = "test"; const settings = { include: ["src/**"], exclude: [] }; const candidate = { coverage: { include: ["src/core/**"], exclude: [] } }; export default { test: candidate, [key]: { coverage: settings } };' },
+		{ name: "computed exported root", source: 'const key = "test"; const settings = { include: ["src/**"], exclude: [] }; const candidate = { coverage: { include: ["src/core/**"], exclude: [] } }; export default defineConfig(({ [key]: { coverage: settings } }));' },
+		{ name: "exported root binding", source: 'const key = "test"; const settings = { include: ["src/**"], exclude: [] }; const candidate = { coverage: { include: ["src/core/**"], exclude: [] } }; const config = { [key]: { coverage: settings } }; export default config;' },
+		{ name: "local factory binding", source: 'const key = "test"; const settings = { include: ["src/**"], exclude: [] }; const candidate = { coverage: { include: ["src/core/**"], exclude: [] } }; export default defineConfig(() => { const config = { [key]: { coverage: settings } }; return config; });' },
+	])("abstains when a computed $name key restores the original effective scope", ({ source }) => {
+		const warnings: string[] = [];
+		expect(evaluateVitestCoverageWaterLine("vitest.config.ts", config(["src/**"], []), source, warnings)).toBeNull();
+		expect(warnings).toEqual([expect.stringContaining("computed key")]);
+	});
+
+	it.each([
+		'defineConfig(() => ({ [key]: { coverage: settings } }))',
+		'defineConfig(() => { return { [key]: { coverage: settings } }; })',
+		'defineConfig(function () { return { [key]: { coverage: settings } }; })',
+		'function () { return { [key]: { coverage: settings } }; }',
+		'defineConfig(async () => { return await Promise.resolve({ [key]: { coverage: settings } }); })',
+	])("abstains on a computed config root returned by a factory: %s", factory => {
+		const source = `const key = "test"; const settings = { include: ["src/**"], exclude: [] }; const candidate = { coverage: { include: ["src/core/**"], exclude: [] } }; export default ${factory};`;
+		expect(decideVitestCoverageWaterLine("vitest.config.ts", config(["src/**"], []), source)).toEqual({
+			kind: "allow",
+			warning: expect.stringContaining("computed key"),
+		});
+	});
+
+	it("abstains when HEAD's computed include overrides an apparently broader literal", () => {
+		const before = 'const key = "include"; export default { test: { coverage: { include: ["src/**"], exclude: [], [key]: ["src/core/**"] } } };';
+		expect(decideVitestCoverageWaterLine("vitest.config.ts", before, config(["src/core/**"], []))).toEqual({
+			kind: "allow",
+			warning: expect.stringMatching(/HEAD.*computed key/),
+		});
+	});
+
+	it("abstains on a computed coverage property shadowed by a later config reference", () => {
+		const after = 'const settings = { include: ["src/**"], exclude: [] }; export default { test: { ["coverage"]: { include: ["src/core/**"], exclude: [] }, coverage: settings } };';
+		expect(decideVitestCoverageWaterLine("vitest.config.ts", config(["src/**"], []), after)).toEqual({
+			kind: "allow",
+			warning: expect.stringContaining("computed key"),
+		});
+	});
+
+	it("abstains when a nested computed value becomes the exported config through a property reference", () => {
+		const after = 'const key = "test"; const settings = { include: ["src/**"], exclude: [] }; const candidate = { coverage: { include: ["src/core/**"], exclude: [] } }; const holder = { config: { [key]: { coverage: settings } } }; export default holder.config;';
+		expect(decideVitestCoverageWaterLine("vitest.config.ts", config(["src/**"], []), after)).toEqual({
+			kind: "allow",
+			warning: expect.stringContaining("computed key"),
+		});
+	});
+
+	it.each([
 		{ name: "widens includes with brace alternatives", before: config(["src/**/*.ts"], []), after: config(["src/**/*.{ts,tsx}"], []) },
 		{ name: "narrows exclusions with brace alternatives", before: config(["src/**/*.ts"], ["**/*.{test,spec}.ts"]), after: config(["src/**/*.ts"], ["**/*.test.ts"]) },
 		{ name: "narrows an excluded directory", before: config(["src/**/*.ts"], ["src/legacy/**"]), after: config(["src/**/*.ts"], ["src/legacy/generated/**"]) },

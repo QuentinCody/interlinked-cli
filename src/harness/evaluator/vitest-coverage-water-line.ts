@@ -83,6 +83,22 @@ function propertyName(ts: TsModule, name: TS.PropertyName): string | null {
 	return null;
 }
 
+/** Config references/factories can promote any nested object to the effective
+ *  root. Without evaluating JavaScript, computed keys require abstention. */
+function findComputedProperty(ts: TsModule, sf: TS.SourceFile): TS.ComputedPropertyName | undefined {
+	let found: TS.ComputedPropertyName | undefined;
+	const visit = (node: TS.Node): void => {
+		if (found) return;
+		if (ts.isComputedPropertyName(node)) {
+			found = node;
+			return;
+		}
+		ts.forEachChild(node, visit);
+	};
+	ts.forEachChild(sf, visit);
+	return found;
+}
+
 /**
  * `parseDiagnostics` is the only syntax-error signal a standalone
  * `createSourceFile` exposes (a Program would be far too expensive on the hook
@@ -180,6 +196,8 @@ export function extractVitestCoverageArrays(content: string, filePath: string): 
 	const { ts, sf } = parsed;
 	const errors = parseErrorCount(sf);
 	if (errors > 0) return { kind: "parse_error", detail: `${errors} syntax error(s)` };
+	const override = findComputedProperty(ts, sf);
+	if (override) return { kind: "undecidable", detail: `a computed key (${snippet(override)}) makes the effective coverage configuration undecidable` };
 	const [first, second] = findCoverageObjects(ts, sf);
 	if (first === undefined) return { kind: "ok", arrays: { include: null, exclude: null } };
 	if (second !== undefined) {
