@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evidenceIdentity, identityDifferences } from "./evidence-identity.js";
 import { runEvidenceProcess, type EvidenceProcessResult } from "./evidence-process.js";
-import { copyEvidenceWorkspace } from "./evidence-workspace.js";
+import { copyEvidenceWorkspace, removeEvidenceWorkspace } from "./evidence-workspace.js";
 import { collectRepositoryInventory, containedFile, hashBytes } from "./inventory.js";
 import type { RepositoryInventory } from "./measurement-types.js";
 import { parseRemovalPlan, type RemovalCheck, type RemovalEdit, type RemovalPlan } from "./removal-plan.js";
@@ -63,5 +63,5 @@ export async function validateRemoval(options: RemovalTrialOptions): Promise<Rem
         const changed = identityDifferences(identity, evidenceIdentity(collectRepositoryInventory(options.root)));
         if (changed.length) { result.verdict = "inconclusive"; result.issues.push(...changed); }
         return result;
-    } finally { rmSync(workspace, { recursive: true, force: true }); }
+    } finally { await removeEvidenceWorkspace(workspace); }
 }

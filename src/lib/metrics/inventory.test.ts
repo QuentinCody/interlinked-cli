@@ -3,6 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { collectRepositoryInventory } from "./inventory.js";
+import { analyzeRepository } from "./analysis.js";
+import { inventoryWithOverrides } from "./inventory-overrides.js";
+import { evidenceIdentity } from "./evidence-identity.js";
 
 const roots: string[] = [];
 function fixture(): string {
@@ -15,6 +18,31 @@ function fixture(): string {
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("repository measurement scope", () => {
+    it("separates lock-named implementation changes from dependency lockfile changes", () => {
+        const root = fixture();
+        writeFileSync(join(root, "src/clock.ts"), "export function clock() { return 1; }\n");
+        writeFileSync(join(root, "yarn.lock"), "first dependency resolution\n");
+        const inventory = collectRepositoryInventory(root), before = evidenceIdentity(inventory);
+        const sourceEdit = inventoryWithOverrides(inventory, new Map([["src/clock.ts", "export function clock() { return 2; }\n"]]));
+        expect(evidenceIdentity(sourceEdit).dependencyHash).toBe(before.dependencyHash);
+        expect(sourceEdit.sourceHash).not.toBe(inventory.sourceHash);
+        const dependencyEdit = inventoryWithOverrides(inventory, new Map([["yarn.lock", "second dependency resolution\n"]]));
+        expect(evidenceIdentity(dependencyEdit).dependencyHash).not.toBe(before.dependencyHash);
+        expect(dependencyEdit.sourceHash).toBe(inventory.sourceHash);
+    });
+
+    it.each(["clock.ts", "file-mutation-lock.ts"])("measures %s as product source on disk and in proposed edits", name => {
+        const root = fixture(), path = `src/${name}`;
+        writeFileSync(join(root, path), "export function run(enabled: boolean) { return enabled ? 1 : 0; }\n");
+        const inventory = collectRepositoryInventory(root);
+        const analysis = analyzeRepository(inventory);
+        expect(analysis.files.find(file => file.input.path === path)).toMatchObject({ input: { role: "product" },
+            structure: { state: "measured", functions: [{ name: "run", cyclomatic: 2 }] } });
+        const proposed = inventoryWithOverrides(inventory, new Map([[path, "export function run() { return 2; }\n"]]));
+        expect(analyzeRepository(proposed).files.find(file => file.input.path === path)?.structure).toMatchObject({ state: "measured", functions: [{ name: "run", cyclomatic: 1 }] });
+        expect(proposed.sourceHash).not.toBe(inventory.sourceHash);
+    });
+
     it("binds test and configuration edits without changing the product source hash", () => {
         const root = fixture();
         writeFileSync(join(root, "src/main.test.ts"), "test code");

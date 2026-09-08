@@ -5,7 +5,7 @@ import { inventoryPaths } from "./inventory-paths.js";
 import { isScoreInput, sourceLanguage, sourceRole } from "./inventory-roles.js";
 import type { InventoryFile, RepositoryInventory } from "./measurement-types.js";
 
-export const SOURCE_ROLE_VERSION = "interlinked-source-roles-v1";
+export const SOURCE_ROLE_VERSION = "interlinked-source-roles-v2";
 
 export function hashBytes(content: string | Uint8Array): string {
     return createHash("sha256").update(content).digest("hex");

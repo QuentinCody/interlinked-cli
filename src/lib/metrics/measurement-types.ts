@@ -60,7 +60,7 @@ export interface InventoryFile {
 
 export interface InventoryGap { path: string; role: SourceRole; reason: string; }
 export interface RepositoryInventory {
-    version: "interlinked-source-roles-v1";
+    version: "interlinked-source-roles-v2";
     root: string;
     discovery: "git" | "filesystem";
     files: InventoryFile[];

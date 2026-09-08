@@ -96,6 +96,14 @@ export. Analysis shares a compiler program and reads inventoried project source
 plus the compiler's standard library without executing modules. Historical corpus
 results from revision `2026-09-08.1` retain their original measurement identity.
 
+Revision `2026-09-08.3` uses source-role policy `interlinked-source-roles-v2`:
+ordinary implementation names such as `clock.ts` and `file-mutation-lock.ts`
+remain product source. Lockfile configuration requires a `.lock` suffix or a
+recognized filename such as `package-lock.json`, `pnpm-lock.yaml` or `bun.lockb`,
+rather than the substring `lock`. The changed role policy invalidates evidence
+scope identities, and the revised profile hash prevents comparisons with earlier
+measurements that omitted those implementations.
+
 ## Scope and interpretation
 
 Product source, tests, configuration, documentation, generated outputs, fixtures,

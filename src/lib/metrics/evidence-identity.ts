@@ -3,6 +3,7 @@ import { containedFile, hashBytes, inventoryHash } from "./inventory.js";
 import type { RepositoryInventory } from "./measurement-types.js";
 import type { EvidenceIdentity, EvidenceRunner } from "./evidence-types.js";
 import { IDENTITY_KEYS } from "./evidence-receipt.js";
+import { isDependencyLockfile } from "./inventory-roles.js";
 
 function controlPath(path: string): boolean {
     return /(^|\/)\.(git|interlinked|claude|codex|agents)(\/|$)/.test(path);
@@ -29,12 +30,12 @@ export function evidenceIdentity(inventory: RepositoryInventory, overrides: Read
     return { sourceHash: inventory.sourceHash, inputHash: inventory.inputHash,
         testHash: inventoryHash(inventory.files.filter(file => file.role === "test")),
         configurationHash: inventoryHash(inventory.files.filter(file => file.role === "configuration")),
-        dependencyHash: inventoryHash(inventory.files.filter(file => /(^|\/)(package(-lock)?\.json|[^/]*lock[^/]*)$/.test(file.path))),
+        dependencyHash: inventoryHash(inventory.files.filter(file => /(^|\/)package\.json$/.test(file.path) || isDependencyLockfile(file.path))),
         scopeHash: hashBytes(JSON.stringify([inventory.version, inventory.excluded.filter(file => !controlPath(file.path)).sort((a, b) => a.path.localeCompare(b.path)), inventory.gaps, inventory.issues])), supportHash: supportHash(inventory, overrides) };
 }
 
 export function evidenceCacheKey(identity: EvidenceIdentity, runner: EvidenceRunner, kind: string): string {
-    return hashBytes(JSON.stringify([IDENTITY_KEYS.map(key => identity[key]), runner.argv, runner.version, runner.operatorPolicy, runner.environmentHash, kind]));
+    return hashBytes(JSON.stringify([IDENTITY_KEYS.map(key => identity[key]), runner.argv, runner.version, runner.operatorPolicy, runner.environmentHash, runner.workspaceHash ?? null, kind]));
 }
 
 export function identityDifferences(before: EvidenceIdentity, after: EvidenceIdentity): string[] {

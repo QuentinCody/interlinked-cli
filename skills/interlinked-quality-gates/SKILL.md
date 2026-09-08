@@ -687,6 +687,11 @@ enforcement disposition. A changed registry requires scoring review. Scoring
 supports JS/TS; recognized unsupported source remains a gap, even when another
 CLI capability supports that language. Generated/vendor/fixture/test roles cannot
 pad product denominators. Bare `@generated` comments do not exempt product code.
+Only recognized dependency lockfile names and suffixes receive the configuration
+role; product filenames containing `lock`, such as `clock.ts` or
+`file-mutation-lock.ts`, remain product. Source roles use
+`interlinked-source-roles-v2`; composite profile revision `2026-09-08.3` invalidates
+older scope and score comparisons.
 
 `types.unsafe` scores unsafe access/call/assertion/assignment/return sites and
 reports explicit `any`/`unknown` counts separately. Safe unknown narrowing and
@@ -715,6 +720,18 @@ its string entries and Node runtime identity, never raw environment values. Any
 environment change, including a feature flag, invalidates `--resume`; absent and
 empty values remain distinct. Unchanged environments can reuse matching receipts.
 Imported CI receipts continue to assert their own runner environment provenance.
+
+Local `--resume` also requires a digest of the actual disposable workspace inputs,
+including Git-ignored runtime files such as `.env`, installed dependency bytes,
+relative symlinks and file/directory permissions. The configured output artifact
+and control directories omitted by the copy policy are excluded. Raw runtime
+configuration is never added to receipts. A cache lookup still copies and hashes
+the workspace; this can be substantial for installed dependencies. Copying and
+hashing share the execution deadline and the 200,000-entry / 4-GiB workspace
+bounds. Unavailable, escaping or unstable inputs cannot produce measured evidence.
+The original inputs must match the copy before execution and remain unchanged
+afterward; new runner outputs are allowed. Older receipts without the workspace
+digest remain readable but cannot satisfy local `--resume`.
 
 Coverage accepts strict Istanbul maps; mutation accepts source-bound Stryker-style
 reports. Missing files remain inconclusive. Timeout/error/ignored outcomes are not

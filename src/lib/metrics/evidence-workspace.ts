@@ -1,10 +1,14 @@
 import { constants } from "node:fs";
-import { copyFile, lstat, mkdir, readdir, readlink, realpath, symlink } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, readdir, readlink, realpath, rm, symlink } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
-const EXCLUDED = new Set([".git", ".interlinked", ".codex", ".claude", ".agents", ".cache"]);
-const MAX_FILES = 200_000, MAX_BYTES = 4 * 1024 ** 3;
+export const EVIDENCE_WORKSPACE_EXCLUDED = new Set([".git", ".interlinked", ".codex", ".claude", ".agents", ".cache"]);
+export const MAX_WORKSPACE_FILES = 200_000, MAX_WORKSPACE_BYTES = 4 * 1024 ** 3;
 export interface CopyWorkspaceOptions { source: string; destination: string; deadline: number; signal?: AbortSignal; }
+
+export function assertWorkspaceActive(options: Pick<CopyWorkspaceOptions, "deadline" | "signal">): void {
+    if (options.signal?.aborted || Date.now() >= options.deadline) throw new Error("Workspace copy or hashing cancelled or exceeded time budget");
+}
 
 async function copyLink(source: string, target: string, root: string): Promise<void> {
     const resolved = relative(root, await realpath(source));
@@ -14,25 +18,49 @@ async function copyLink(source: string, target: string, root: string): Promise<v
     await symlink(link, target);
 }
 
-interface CopyProgress { queue: string[]; count: number; bytes: number; root: string; }
+interface CopyProgress { queue: string[]; directories: Array<{ path: string; mode: number }>; count: number; bytes: number; root: string; }
 async function copyEntry(path: string, options: CopyWorkspaceOptions, progress: CopyProgress): Promise<void> {
-    if (options.signal?.aborted || Date.now() >= options.deadline) throw new Error("Workspace copy cancelled or exceeded time budget");
+    assertWorkspaceActive(options);
     const source = join(progress.root, path), target = resolve(options.destination, path), stat = await lstat(source);
     progress.bytes += stat.size;
-    if (++progress.count > MAX_FILES || progress.bytes > MAX_BYTES) throw new Error("Workspace exceeds isolation copy bound (200k entries / 4 GiB)");
+    if (++progress.count > MAX_WORKSPACE_FILES || progress.bytes > MAX_WORKSPACE_BYTES) throw new Error("Workspace exceeds isolation copy bound (200k entries / 4 GiB)");
     await mkdir(dirname(target), { recursive: true });
-    if (stat.isDirectory()) { await mkdir(target, { recursive: true }); progress.queue.push(path); return; }
+    if (stat.isDirectory()) { await mkdir(target, { recursive: true }); progress.queue.push(path); progress.directories.push({ path: target, mode: stat.mode & 0o777 }); return; }
     if (stat.isSymbolicLink()) { await copyLink(source, target, progress.root); return; }
     if (!stat.isFile()) throw new Error(`Unsupported workspace input: ${path}`);
     await copyFile(source, target, constants.COPYFILE_FICLONE);
 }
 
 export async function copyEvidenceWorkspace(options: CopyWorkspaceOptions): Promise<void> {
-    const progress: CopyProgress = { queue: [""], root: await realpath(options.source), count: 0, bytes: 0 };
+    assertWorkspaceActive(options);
+    const progress: CopyProgress = { queue: [""], directories: [], root: await realpath(options.source), count: 0, bytes: 0 };
     for (let index = 0; index < progress.queue.length; index++) {
+        assertWorkspaceActive(options);
         const directory = progress.queue[index] ?? "";
         for (const child of await readdir(join(progress.root, directory), { withFileTypes: true })) {
-            if (!EXCLUDED.has(child.name)) await copyEntry(join(directory, child.name), options, progress);
+            if (!EVIDENCE_WORKSPACE_EXCLUDED.has(child.name)) await copyEntry(join(directory, child.name), options, progress);
         }
     }
+    for (const directory of progress.directories.reverse()) {
+        assertWorkspaceActive(options);
+        await chmod(directory.path, directory.mode);
+    }
+    assertWorkspaceActive(options);
+}
+
+/** Only call for the disposable mkdtemp tree. Links are removed without changing their targets. */
+export async function removeEvidenceWorkspace(workspace: string): Promise<void> {
+    const directories = [workspace];
+    for (const directory of directories) {
+        const stat = await lstat(directory).catch(error => {
+            if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+            throw error;
+        });
+        if (!stat?.isDirectory()) continue;
+        await chmod(directory, (stat.mode & 0o777) | 0o700);
+        for (const child of await readdir(directory, { withFileTypes: true })) {
+            if (child.isDirectory()) directories.push(join(directory, child.name));
+        }
+    }
+    await rm(workspace, { recursive: true, force: true });
 }
