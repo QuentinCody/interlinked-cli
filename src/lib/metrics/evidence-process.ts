@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { EvidenceOutcome } from "./evidence-types.js";
 
-export interface EvidenceProcessOptions { cwd: string; argv: string[]; timeoutMs: number; signal?: AbortSignal; }
+export interface EvidenceProcessOptions { cwd: string; argv: string[]; timeoutMs: number; signal?: AbortSignal; environment?: NodeJS.ProcessEnv; }
 export interface EvidenceProcessResult { outcome: EvidenceOutcome; durationMs: number; output: string; }
 
 /** Executes only an explicitly selected command; process groups are terminated on cancellation. */
@@ -12,7 +12,7 @@ export async function runEvidenceProcess(options: EvidenceProcessOptions): Promi
     if (options.signal?.aborted) return { outcome: "cancelled", durationMs: 0, output: "" };
     const started = Date.now();
     return new Promise(resolve => {
-        const child = spawn(executable, options.argv.slice(1), { cwd: options.cwd, shell: false, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+        const child = spawn(executable, options.argv.slice(1), { cwd: options.cwd, env: options.environment, shell: false, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
         let forced: EvidenceOutcome | undefined, output = "";
         const collect = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-65536); };
         const stop = (reason: EvidenceOutcome) => {

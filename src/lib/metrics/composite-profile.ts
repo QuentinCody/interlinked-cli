@@ -20,9 +20,9 @@ export const COMPOSITE_GROUPS: readonly CompositeGroup[] = [
 ];
 
 export const COMPOSITE_PROFILE = {
-    id: "interlinked-slop-v1", version: 1, measurementRevision: "2026-09-08.1", direction: "lower-is-better", groups: COMPOSITE_GROUPS,
+    id: "interlinked-slop-v1", version: 1, measurementRevision: "2026-09-08.2", direction: "lower-is-better", groups: COMPOSITE_GROUPS,
     diagnosticOnly: { "coverage.crap": "Derived from complexity and coverage, already scored", "mutation.uncovered": "Overlaps uncovered execution; cannot stand in for assertion discrimination" },
     syntaxTokenGate: { limit: 500, grandfathering: "hold-or-shrink", independentOfScore: true },
     calibration: "experimental-policy; deterministic measurements do not establish universal architecture quality",
-    hash: hashBytes(JSON.stringify(["2026-09-08.1", COMPOSITE_GROUPS, METRIC_CATALOG])),
+    hash: hashBytes(JSON.stringify(["2026-09-08.2", COMPOSITE_GROUPS, METRIC_CATALOG])),
 } as const;

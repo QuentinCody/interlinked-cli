@@ -87,6 +87,15 @@ may expose individual measured metric deltas, but have no composite ranking delt
 Measurement revisions are included in the profile hash; do not compare old parser
 or adapter results as though they used identical measurements.
 
+Revision `2026-09-08.2` resolves declared export contracts against module export
+names: export lists, aliases and re-exports count, while a named default function
+only establishes `default`. TypeScript type exports remain part of this declared
+surface. Unresolved export bindings, conflicting exports and missing re-export
+source remain inconclusive; unrelated semantic errors do not hide a known local
+export. Analysis shares a compiler program and reads inventoried project source
+plus the compiler's standard library without executing modules. Historical corpus
+results from revision `2026-09-08.1` retain their original measurement identity.
+
 ## Scope and interpretation
 
 Product source, tests, configuration, documentation, generated outputs, fixtures,
@@ -222,4 +231,3 @@ checkout is unchanged. The command does not automatically apply a removal.
 See the [calibration report](metrics-corpus-2026-09-08.md) for pinned repository
 results and original behavioral artifacts, and
 [the completion record](metrics-completion.md) for implementation validation.
-

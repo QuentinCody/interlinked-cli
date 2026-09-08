@@ -5,7 +5,6 @@ import { afterEach, expect, it } from "vitest";
 import { coverageExecutionReach, recordCoverageExecution } from "../../harness/coverage-execution.js";
 import { readMeasurementExecutions } from "./execution-journal.js";
 import { runBehavioralEvidence } from "./evidence-run.js";
-import { hashBytes } from "./inventory.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -25,7 +24,7 @@ it("does not resume an older pass after a newer cancelled attempt with identical
     const location = { start: { line: 1, column: 0 }, end: { line: 1, column: 19 } };
     const report = { "a.ts": { statementMap: { 0: location }, s: { 0: 1 }, fnMap: {}, f: {}, branchMap: {}, b: {} } };
     const options = { root, kind: "coverage" as const, artifact: "report.json", timeoutMs: 10000, resume: true,
-        runner: { argv: [process.execPath, "-e", `require('node:fs').writeFileSync('report.json', ${JSON.stringify(JSON.stringify(report))})`], version: process.version, operatorPolicy: "fixture", environmentHash: hashBytes("fixture") } };
+        runner: { argv: [process.execPath, "-e", `require('node:fs').writeFileSync('report.json', ${JSON.stringify(JSON.stringify(report))})`], version: process.version, operatorPolicy: "fixture" } };
     expect((await runBehavioralEvidence(options)).evidence?.observations.state).toBe("measured");
     const controller = new AbortController(); controller.abort();
     expect((await runBehavioralEvidence({ ...options, resume: false, signal: controller.signal })).outcome).toBe("cancelled");

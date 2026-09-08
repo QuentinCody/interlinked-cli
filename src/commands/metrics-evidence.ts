@@ -5,7 +5,7 @@ import { stringList } from "../lib/metrics/evidence-json.js";
 import { parseEvidenceReceipt } from "../lib/metrics/evidence-receipt.js";
 import { runBehavioralEvidence, type EvidenceRunOptions } from "../lib/metrics/evidence-run.js";
 import { loadEvidence, readEvidenceArtifact, saveEvidence } from "../lib/metrics/evidence-store.js";
-import { collectRepositoryInventory, hashBytes } from "../lib/metrics/inventory.js";
+import { collectRepositoryInventory } from "../lib/metrics/inventory.js";
 import { parseRemovalPlan } from "../lib/metrics/removal-plan.js";
 import { validateRemoval } from "../lib/metrics/removal-validation.js";
 import type { MetricsAnalysisOptions } from "./metrics-analysis.js";
@@ -56,7 +56,7 @@ export async function metricsEvidenceRunCommand(options: MetricsEvidenceOptions)
         if (!options.command || !options.artifact || !options.runnerVersion || !options.policy) throw new Error("Runner command, artifact, version and policy are required");
         const argv = stringList(JSON.parse(options.command), "command");
         const request: EvidenceRunOptions = { root: options.cwd ?? process.cwd(), kind: options.kind, artifact: options.artifact, timeoutMs: timeout(options.timeout), resume: options.resume === true,
-            runner: { argv, version: options.runnerVersion, operatorPolicy: options.policy, environmentHash: hashBytes(JSON.stringify([process.version, process.platform, process.arch, process.env.NODE_OPTIONS ?? "", process.env.NODE_ENV ?? "test"])) } };
+            runner: { argv, version: options.runnerVersion, operatorPolicy: options.policy } };
         const result = await cancellable(signal => runBehavioralEvidence({ ...request, signal }));
         output(getOutputMode(options), result, { normal: () => `${result.outcome}; ${result.durationMs} ms; cached=${result.cached}\n${result.issues.join("\n")}`, short: () => `${result.outcome}; cached=${result.cached}; ${result.durationMs} ms` });
         if (result.outcome !== "passed" || result.evidence?.observations.state !== "measured") process.exitCode = 1;

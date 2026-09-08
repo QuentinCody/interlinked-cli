@@ -8,7 +8,7 @@ import { parseMutationEvidence } from "./evidence-mutation.js";
 import { runEvidenceProcess } from "./evidence-process.js";
 import { runBehavioralEvidence, type EvidenceRunOptions } from "./evidence-run.js";
 import { loadEvidence, validateEvidence } from "./evidence-store.js";
-import { collectRepositoryInventory, hashBytes } from "./inventory.js";
+import { collectRepositoryInventory } from "./inventory.js";
 
 const roots: string[] = [];
 const SOURCE = "module.exports = (x) => x + 1;\n";
@@ -22,7 +22,7 @@ function fixture(): EvidenceRunOptions {
     writeFileSync(join(root, "index.cjs"), SOURCE);
     writeFileSync(join(root, "tests/run.cjs"), `const assert = require('node:assert/strict'); assert.equal(require('../index.cjs')(1), 2); require('node:fs').writeFileSync('report.json', JSON.stringify(${JSON.stringify(coverage())}));`);
     return { root, kind: "coverage", artifact: "report.json", timeoutMs: 10_000, resume: true,
-        runner: { argv: [process.execPath, "tests/run.cjs"], version: process.version, operatorPolicy: "istanbul-v1", environmentHash: hashBytes("fixture") } };
+        runner: { argv: [process.execPath, "tests/run.cjs"], version: process.version, operatorPolicy: "istanbul-v1" } };
 }
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 

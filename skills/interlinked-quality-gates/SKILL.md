@@ -658,6 +658,17 @@ CRAP and uncovered mutation sites remain diagnostics to avoid overlap.
 `--profile structure-v1` retains the schema-1 structural report and its earlier
 field names. Select it explicitly for existing consumers. Do not silently compare
 different profile hashes, parser revisions, source roles or behavioral policies.
+Export-surface correction revision `2026-09-08.2` changes the profile hash;
+historical `2026-09-08.1` corpus measurements retain their original identity.
+
+Declared `export` contracts name the module's exported binding, including aliases
+and re-exports; use `name: "default"` for a default export. A default function's
+local declaration name does not establish a named export. The compiler reads
+inventoried project source and its standard library; unresolved export bindings,
+re-export dependencies outside that inventory, conflicting exports and malformed
+modules remain inconclusive. Unrelated type errors or unresolved ordinary imports
+do not erase a provable local export name. This checks the declared export surface,
+including TypeScript type exports, without executing the module or proving its behavior.
 
 ```bash
 interlinked metrics catalog --checks --json
@@ -698,11 +709,28 @@ exist. Resume requires matching inputs; failed/cancelled attempts cannot be hidd
 by older passes. These runs consume CPU time but make no model calls by Interlinked.
 An explicitly selected third-party command remains responsible for its own behavior.
 
+Local evidence runs capture the complete inherited environment before asynchronous
+work and pass that snapshot to the child process. The receipt stores a digest of
+its string entries and Node runtime identity, never raw environment values. Any
+environment change, including a feature flag, invalidates `--resume`; absent and
+empty values remain distinct. Unchanged environments can reuse matching receipts.
+Imported CI receipts continue to assert their own runner environment provenance.
+
 Coverage accepts strict Istanbul maps; mutation accepts source-bound Stryker-style
 reports. Missing files remain inconclusive. Timeout/error/ignored outcomes are not
 kills, and no-coverage mutants cannot establish assertion discrimination. Imported
 CI receipts have asserted provenance and hash integrity, not signed CI attestation
 or independent verification of all installed dependency bytes.
+
+In this repository, the pre-push gate unions and deduplicates source paths across
+every protected ref update. A new ref or unknown comparison base requires that
+ref's full tracked source tree. Its coverage summary must be newer than every
+protected tip, and the gate passes that exact summary to `coverage check --strict
+--json`. It checks the JSON measurement verdict as well as the exit code: partial,
+missing or malformed evidence cannot certify coverage, even when the CLI exits 0.
+The CLI's existing advisory/partial-report exit behavior is unchanged. A complete
+report with no report-covered paths in scope (for example, excluded test-only
+changes) explicitly states that no coverage pass was certified.
 
 `metrics coverage warm --timeout <ms>` runs full Vitest coverage in an overlay and
 initializes an exact per-test-file contribution index plus scoring evidence.

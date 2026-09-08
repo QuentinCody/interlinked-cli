@@ -27,9 +27,8 @@ protected_branch_re='^(main|master)$'
 should_run=0
 docs_only=1
 pkg_touched=0
-# Newest commit being pushed to a protected branch, and the net file list of
-# the push range — both consumed by the coverage-ratchet step near the end.
-push_sha=""
+# Keep every protected ref: a later docs-only ref must not erase code scope.
+push_shas=()
 changed_paths=""
 while read -r local_ref local_sha remote_ref remote_sha; do
 	[ -z "$local_ref" ] && continue
@@ -39,7 +38,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 	branch_short="${remote_ref##refs/heads/}"
 	if [[ "$branch_short" =~ $protected_branch_re ]]; then
 		should_run=1
-		push_sha="$local_sha"
+		push_shas+=("$local_sha")
 		# Docs-only fast-path: if the net diff being pushed to a protected
 		# branch touches only Markdown files, skip the typecheck + test gate
 		# (which would otherwise stash the working tree — racy under
@@ -58,19 +57,19 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 			# New branch being created on the remote — no diff base.
 			docs_only=0
 			pkg_touched=1
+			diff_files="$(git ls-tree -r --name-only "$local_sha")" || exit 1
 		elif diff_files="$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null)"; then
-			changed_paths="$diff_files"
 			# `git diff` exited 0. Empty diff or any non-md file → full gate.
 			# Otherwise (every changed path ends in .md) leave docs_only=1.
 			if [ -z "$diff_files" ] \
-				|| printf '%s\n' "$diff_files" | grep -qvE '\.md$'; then
+				|| printf '%s\n' "$diff_files" | grep -vE '\.md$' >/dev/null; then
 				docs_only=0
 			fi
 			# Package-surface change → also run the build + distribution smokes
 			# (build / publint / attw / pack / install / onboarding). Ordinary
 			# source/test pushes skip them so they stay fast; the cloud ubuntu
 			# leg is the backstop either way.
-			if printf '%s\n' "$diff_files" | grep -qE '^(package(-lock)?\.json|\.npmignore|tsup\.config|src/index\.ts|src/hook-entry\.ts|src/harness/server\.ts|src/lib/demo-runtime/|scripts/(fix-dist-dts|copy-runtime-assets|ci-packaging|ci-local|smoke-tarball-install|smoke-onboarding)\.)'; then
+			if printf '%s\n' "$diff_files" | grep -E '^(package(-lock)?\.json|\.npmignore|tsup\.config|src/index\.ts|src/hook-entry\.ts|src/harness/server\.ts|src/lib/demo-runtime/|scripts/(fix-dist-dts|copy-runtime-assets|ci-packaging|ci-local|smoke-tarball-install|smoke-onboarding)\.)' >/dev/null; then
 				pkg_touched=1
 			fi
 		else
@@ -79,7 +78,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 			# what's actually being pushed, so don't trust the fast-path.
 			docs_only=0
 			pkg_touched=1
+			diff_files="$(git ls-tree -r --name-only "$local_sha")" || exit 1
 		fi
+		changed_paths="${changed_paths}${changed_paths:+$'\n'}${diff_files}"
 	fi
 done
 
@@ -244,15 +245,18 @@ fi
 # export has neither.
 # ---------------------------------------------------------------------------
 cov_report="coverage/coverage-summary.json"
-cov_sha="$(git rev-parse --short "${push_sha:-HEAD}" 2>/dev/null || echo unknown)"
 # node, not `stat`: -c is GNU and -f is BSD, and this hook runs on both.
 cov_report_time="$(node -e 'try{process.stdout.write(String(Math.floor(require("node:fs").statSync(process.argv[1]).mtimeMs/1000)))}catch{process.stdout.write("0")}' "$cov_report" 2>/dev/null || echo 0)"
-cov_commit_time="$(git log -1 --format=%ct "${push_sha:-HEAD}" 2>/dev/null || echo 0)"
-# Net range diff when we could compute one, else the tip commit's own files.
-if [ -z "$changed_paths" ] && [ -n "$push_sha" ]; then
-	changed_paths="$(git show --name-only --format= "$push_sha" 2>/dev/null || true)"
-fi
-cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | paste -sd, - || true)"
+cov_commit_time=0
+cov_sha=""
+for push_sha in "${push_shas[@]}"; do
+	ref_commit_time="$(git log -1 --format=%ct "$push_sha")" || exit 1
+	if [ "$ref_commit_time" -ge "$cov_commit_time" ]; then
+		cov_commit_time="$ref_commit_time"
+		cov_sha="$push_sha"
+	fi
+done
+cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | LC_ALL=C sort -u | paste -sd, - || true)"
 
 if [ -z "$cov_files" ]; then
 	echo "[pre-push] coverage check SKIPPED: no src/ code files in the push range."
@@ -280,18 +284,40 @@ else
 	# wc counts separators and reports 0 for a single file.
 	echo "[pre-push] Running strict coverage ratchet on $(printf '%s' "$cov_files" | awk -F, '{print NF}') changed file(s)..."
 	set +e
-	"${cov_cli[@]}" coverage check --strict --changed-files "$cov_files"
+	cov_json="$("${cov_cli[@]}" coverage check --strict --report "$cov_report" --changed-files "$cov_files" --json)"
 	cov_status=$?
 	set -e
 	if [ "$cov_status" -ne 0 ]; then
 		echo ""
-		echo "❌ pre-push: per-file coverage dropped (exit $cov_status) on a file this push changes."
+		printf '%s\n' "$cov_json"
+		echo "❌ pre-push: coverage check failed or is unavailable (exit $cov_status)."
 		echo "   Add tests to restore coverage. The baseline is a HIGH-WATER mark:"
 		echo "   'interlinked coverage check --update-baseline' only ever raises it and cannot accept a drop."
 		echo "   Bypass: git push --no-verify (use sparingly — same risk as red CI)"
 		exit 1
 	fi
-	echo "[pre-push] ✓ no per-file coverage regressions in the push range"
+	# --strict deliberately exits zero for a partial report. Inspect the verdict
+	# before certifying coverage; process success alone is not measurement.
+	if ! printf '%s\n' "$cov_json" | node -e '
+try {
+    const result = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+    if (result.partialReport?.partial !== false || !Array.isArray(result.findings)
+        || !Number.isSafeInteger(result.stats?.files_checked) || result.stats.files_checked < 0) {
+        throw new Error("Coverage is partial or unmeasured. Run npm run test:coverage before pushing.");
+    }
+    if (result.findings.length > 0) throw new Error("Coverage findings remain in the push scope.");
+    if (result.stats.files_checked === 0) {
+        console.log("[pre-push] No report-covered files in the push scope; no coverage pass certified.");
+    } else {
+        console.log(`[pre-push] ✓ no coverage regressions in ${result.stats.files_checked} measured file(s)`);
+    }
+} catch (error) {
+    console.error(`[pre-push] ${error.message}`);
+    process.exitCode = 1;
+}
+'; then
+		exit 1
+	fi
 fi
 
 # Package-surface pushes also run the build + distribution smokes (the CI steps

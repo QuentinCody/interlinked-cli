@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmS
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { evidenceCacheKey, evidenceIdentity, identityDifferences } from "./evidence-identity.js";
+import { captureEvidenceEnvironment } from "./evidence-environment.js";
 import { runEvidenceProcess } from "./evidence-process.js";
 import { evidenceDirectory, loadEvidence, readEvidenceArtifact, saveEvidence } from "./evidence-store.js";
 import type { EvidenceIdentity, EvidenceOutcome, EvidenceReceipt, EvidenceRunner, StoredEvidence } from "./evidence-types.js";
@@ -12,12 +13,13 @@ import { appendMeasurementExecution } from "./execution-journal.js";
 import { executionEvidenceBlockers } from "./execution-evidence.js";
 
 export interface EvidenceRunOptions {
-    root: string; kind: "coverage" | "mutation"; artifact: string; runner: EvidenceRunner;
+    root: string; kind: "coverage" | "mutation"; artifact: string; runner: Omit<EvidenceRunner, "environmentHash">;
     timeoutMs: number; signal?: AbortSignal; resume?: boolean;
 }
 export interface EvidenceRunResult { outcome: EvidenceOutcome; cached: boolean; evidence: StoredEvidence | null; durationMs: number; issues: string[]; }
+interface PreparedEvidenceRunOptions extends EvidenceRunOptions { runner: EvidenceRunner; environment: NodeJS.ProcessEnv; }
 
-function cachedRun(inventory: RepositoryInventory, options: EvidenceRunOptions): StoredEvidence | undefined {
+function cachedRun(inventory: RepositoryInventory, options: PreparedEvidenceRunOptions): StoredEvidence | undefined {
     if (!options.resume || executionEvidenceBlockers(inventory).length) return undefined;
     const key = evidenceCacheKey(evidenceIdentity(inventory), options.runner, options.kind);
     const latest = loadEvidence(inventory).entries.filter(entry => evidenceCacheKey(entry.receipt.identity, entry.receipt.runner, entry.receipt.kind) === key)
@@ -25,7 +27,7 @@ function cachedRun(inventory: RepositoryInventory, options: EvidenceRunOptions):
     return latest?.observations.state === "measured" ? latest : undefined;
 }
 
-function executionRecord(options: EvidenceRunOptions, result: EvidenceRunResult, identity: EvidenceIdentity): void {
+function executionRecord(options: PreparedEvidenceRunOptions, result: EvidenceRunResult, identity: EvidenceIdentity): void {
     const directory = evidenceDirectory(options.root);
     mkdirSync(directory, { recursive: true });
     appendFileSync(join(directory, "executions.jsonl"), `${JSON.stringify({ schemaVersion: 1, kind: options.kind, at: new Date().toISOString(),
@@ -44,7 +46,7 @@ function changedWorkspaceInputs(inventory: RepositoryInventory, workspace: strin
 }
 
 interface RunContext { inventory: RepositoryInventory; identity: EvidenceIdentity; started: number; }
-async function executeWorkspace(options: EvidenceRunOptions, context: RunContext, workspace: string): Promise<EvidenceRunResult> {
+async function executeWorkspace(options: PreparedEvidenceRunOptions, context: RunContext, workspace: string): Promise<EvidenceRunResult> {
     const { inventory, identity, started } = context;
     const signal = options.signal ? { signal: options.signal } : {};
     await copyEvidenceWorkspace({ source: inventory.root, destination: workspace, deadline: started + options.timeoutMs, ...signal });
@@ -52,7 +54,7 @@ async function executeWorkspace(options: EvidenceRunOptions, context: RunContext
     const rel = relative(workspace, artifact);
     if (rel.startsWith("..") || !rel) throw new Error("Artifact must be a relative file inside the workspace");
     rmSync(artifact, { force: true });
-    const run = await runEvidenceProcess({ cwd: workspace, argv: options.runner.argv, timeoutMs: Math.max(1, started + options.timeoutMs - Date.now()), ...signal });
+    const run = await runEvidenceProcess({ cwd: workspace, argv: options.runner.argv, environment: options.environment, timeoutMs: Math.max(1, started + options.timeoutMs - Date.now()), ...signal });
     if (run.outcome !== "passed") return { ...run, durationMs: Date.now() - started, cached: false, evidence: null, issues: [`Runner ${run.outcome}`] };
     const issues = [...changedWorkspaceInputs(inventory, workspace), ...identityDifferences(identity, evidenceIdentity(collectRepositoryInventory(options.root))),
         ...identityDifferences(identity, evidenceIdentity({ ...inventory, root: workspace })).map(issue => `Workspace ${issue}`)];
@@ -63,7 +65,9 @@ async function executeWorkspace(options: EvidenceRunOptions, context: RunContext
     return { outcome: "passed", cached: false, evidence: saveEvidence(inventory, receipt, content), durationMs: receipt.durationMs, issues };
 }
 
-export async function runBehavioralEvidence(options: EvidenceRunOptions): Promise<EvidenceRunResult> {
+export async function runBehavioralEvidence(request: EvidenceRunOptions): Promise<EvidenceRunResult> {
+    const { environment, environmentHash } = captureEvidenceEnvironment();
+    const options: PreparedEvidenceRunOptions = { ...request, environment, runner: { argv: [...request.runner.argv], version: request.runner.version, operatorPolicy: request.runner.operatorPolicy, environmentHash } };
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1) throw new Error("Positive timeout required");
     const inventory = collectRepositoryInventory(options.root), cached = cachedRun(inventory, options), started = Date.now();
     if (cached) { const result: EvidenceRunResult = { outcome: "passed", cached: true, evidence: cached, durationMs: 0, issues: [] }; executionRecord(options, result, cached.receipt.identity); return result; }
