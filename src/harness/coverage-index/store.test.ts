@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Tests for the coverage-index persistent store — pins the section 8.2 layout
 // (per-runner subtree, contribution blobs + checksums, manifest generations)
 // and the section 12 atomicity requirements (CAS promotion, torn data reads as
@@ -119,7 +120,7 @@ describe("contribution blobs", () => {
 		const entry = writeContributionBlob(storeDir, contribution);
 		expect(entry).not.toBeNull();
 		expect(entry?.contributionPath.startsWith("shards/")).toBe(true);
-		const revived = readContributionBlob(storeDir, entry as NonNullable<typeof entry>);
+		const revived = readContributionBlob(storeDir, nonNull(entry));
 		expect(revived?.shardId).toBe(contribution.shardId);
 		expect(revived?.files.get("src/m.ts")?.lines.get(1)).toBe(2);
 	});
@@ -297,7 +298,7 @@ describe("blob + manifest integration", () => {
 		const read = readAcceptedManifest(storeDir);
 		const shardEntry = read?.shards[contribution.shardId];
 		expect(shardEntry).toBeDefined();
-		const revived = readContributionBlob(storeDir, shardEntry as NonNullable<typeof shardEntry>);
+		const revived = readContributionBlob(storeDir, nonNull(shardEntry));
 		expect(revived?.files.get("src/m.ts")?.branches.get("1:0:0")).toBe(1);
 	});
 
@@ -570,7 +571,9 @@ describe("atomic-write failure paths (rename collision forces the catch branch)"
 		// renameSync(tmp, absPath) fails with EISDIR after writeFileSync(tmp)
 		// already succeeded — forces atomicWrite's own catch (rmSync + rethrow)
 		// and writeContributionBlob's outer catch.
-		const relPath = `shards/${createHash("sha256").update(contribution.shardId).digest("hex").slice(0, 32)}.json.gz`;
+		const initial = nonNull(writeContributionBlob(storeDir, contribution));
+		const relPath = initial.contributionPath;
+		rmSync(join(storeDir, relPath));
 		mkdirSync(join(storeDir, relPath), { recursive: true });
 		expect(writeContributionBlob(storeDir, contribution)).toBeNull();
 	});

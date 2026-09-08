@@ -13,16 +13,16 @@
 // torn accepted file; torn/corrupted data READS as absent (null) rather than
 // throwing — "can't read" degrades to "no index" and the gate falls back to
 // the full-run path. Manifest promotion is compare-and-swap on the accepted
-// generation. The CAS is read-check-rename (no OS lock): one daemon per repo
-// makes contention rare, and PostToolUse hash verification — not this file —
-// is the integrity backstop that keeps a lost race from corrupting decisions.
-// Multi-process hardening (O_EXCL generation files) can land later without
-// changing callers.
+// generation. An exclusive promotion lock holds the generation check through
+// rename. A crash-residue lock refuses promotion until an operator verifies
+// no writer remains and removes it. Contribution blobs are content-addressed:
+// staging a replacement never mutates an accepted generation's bytes.
 
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
+import { withPromotionLock } from "./promotion-lock.js";
 import type { JsonObject } from "../../lib/json-types.js";
 import type {
 	CanonicalCoverageElementSet,
@@ -179,8 +179,8 @@ interface ContributionBlobEntry {
 }
 
 /** Filesystem-safe blob name for a shard id (ids are test paths with slashes). */
-function shardBlobName(shardId: string): string {
-	return `${createHash("sha256").update(shardId).digest("hex").slice(0, 32)}.json.gz`;
+function shardBlobName(compressed: Buffer): string {
+	return `${sha256Hex(compressed)}.json.gz`;
 }
 
 /**
@@ -195,7 +195,7 @@ export function writeContributionBlob(
 	try {
 		const json = JSON.stringify(contributionToJson(contribution));
 		const compressed = gzipSync(Buffer.from(json, "utf-8"));
-		const relPath = `shards/${shardBlobName(contribution.shardId)}`;
+		const relPath = `shards/${shardBlobName(compressed)}`;
 		atomicWrite(join(storeDir, relPath), compressed);
 		return { contributionPath: relPath, contributionChecksum: sha256Hex(compressed) };
 	} catch {
@@ -213,6 +213,7 @@ export function readContributionBlob(
 	storeDir: string,
 	entry: ContributionBlobEntry,
 ): ShardCoverageContribution | null {
+	if (!/^shards\/[a-f0-9]{32,64}\.json\.gz$/.test(entry.contributionPath)) return null;
 	let compressed: Buffer;
 	try {
 		compressed = readFileSync(join(storeDir, entry.contributionPath));
@@ -221,7 +222,7 @@ export function readContributionBlob(
 	}
 	if (sha256Hex(compressed) !== entry.contributionChecksum) return null;
 	try {
-		const parsed: unknown = JSON.parse(gunzipSync(compressed).toString("utf-8"));
+		const parsed: unknown = JSON.parse(gunzipSync(compressed, { maxOutputLength: 64 * 1024 * 1024 }).toString("utf-8"));
 		return contributionFromJson(parsed);
 	} catch {
 		return null;
@@ -431,6 +432,11 @@ export function promoteManifest(
 	next: CoverageIndexManifest,
 	expectedGeneration: number | null,
 ): boolean {
+	try { return withPromotionLock(storeDir, () => promoteUnderLock(storeDir, next, expectedGeneration)); }
+	catch { return false; }
+}
+
+function promoteUnderLock(storeDir: string, next: CoverageIndexManifest, expectedGeneration: number | null): boolean {
 	const current = readAcceptedManifest(storeDir);
 	const currentGeneration = current?.generation ?? null;
 	if (currentGeneration !== expectedGeneration) return false;
