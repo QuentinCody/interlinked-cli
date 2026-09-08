@@ -126,7 +126,7 @@ function makeHarness(cwd = "/repo") {
 		recordEvent: vi.fn((_e: HarnessEvent) => ({ tag: "session" })),
 		// G3: the loop mints a per-session ordinal on every observed event.
 		nextSeq: vi.fn((_id: string) => 1),
-		serialize: vi.fn((_id: string) => ({ snap: true }) as JsonObject | null),
+		serialize: vi.fn((_id: string): JsonObject | null => ({ snap: true })),
 	};
 
 	const ctx = {

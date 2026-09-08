@@ -75,7 +75,7 @@ beforeEach(() => {
 		graph,
 	}));
 	mocks.getGraphForFile.mockReturnValue({});
-	mocks.extractApplyPatchRaw.mockReturnValue(undefined);
+	mocks.extractApplyPatchRaw.mockReturnValue("");
 	mocks.looksLikeApplyPatch.mockReturnValue(false);
 	mocks.parseApplyPatchSections.mockReturnValue([]);
 	mocks.checkCoverageWrite.mockResolvedValue(null);
@@ -142,7 +142,7 @@ describe("editedFileForEvent / depViewForEvent via runCoverageWriteGate", () => 
 	});
 
 	it("no raw patch text resolves to no file even if shape check would pass (kills ebf60e7b)", async () => {
-		mocks.extractApplyPatchRaw.mockReturnValue(undefined);
+		mocks.extractApplyPatchRaw.mockReturnValue("");
 		mocks.looksLikeApplyPatch.mockReturnValue(true);
 		mocks.parseApplyPatchSections.mockReturnValue([{ path: "y.ts" }]);
 		const dv = await depViewFor({});
