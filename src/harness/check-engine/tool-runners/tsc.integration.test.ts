@@ -938,6 +938,11 @@ describe("runTscAsync — file mode + standalone", () => {
 		const { runTscAsync } = await loadTsc();
 		expect(await runTscAsync(input(fileScope()))).toEqual([]);
 		expect(runProcessAsyncMock).toHaveBeenCalledTimes(1);
+		expect(runProcessAsyncMock).toHaveBeenCalledWith(
+			"npx",
+			["tsc", "--noEmit", "--pretty", "false"],
+			{ cwd: PROJECT_ROOT, timeout: 5_000 },
+		);
 	});
 
 	it("standalone-async (no tsconfig) uses minimal tsc flags ending in the file path", async () => {

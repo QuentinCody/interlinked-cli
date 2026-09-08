@@ -25,7 +25,7 @@ import { parseWire, wireArray, wireRecord, wireUnknown } from "../lib/value-vali
 // the public entry) is covered: single-file (stdin / --from-file / neither),
 // batch-manifest validation (every guard), path validation (inside / outside /
 // system-prefix / --unsafe-outside-repo), gate-pass vs gate-block, the
-// atomic-write success and failure (rename throw → temp cleanup) paths, and
+// shared-transaction success and failure propagation, and
 // every JSON-vs-human output fork including non-blocking gate warnings.
 //
 // The `detectBashCodeFileWrite` allowlist regressions at the bottom are
@@ -63,6 +63,12 @@ vi.mock("../harness/content-gate.js", async () => {
 	};
 });
 
+// Transaction mechanics have real-filesystem coverage in gated-write-transaction.test.ts.
+vi.mock("../lib/gated-file-transaction.js", () => ({
+	captureGatedWriteBaseline: vi.fn(() => ({ id: "test-transaction", repoRoot: "/repo", writes: [] })),
+	commitGatedWrites: vi.fn(),
+}));
+
 import {
 	chmodSync,
 	existsSync,
@@ -79,6 +85,7 @@ import {
 	gateProposedContent,
 } from "../harness/content-gate.js";
 import { nonNull } from "../lib/non-null.js";
+import { captureGatedWriteBaseline, commitGatedWrites } from "../lib/gated-file-transaction.js";
 import { type WriteCommandOptions, writeCommand } from "./write.js";
 
 const mockExistsSync = vi.mocked(existsSync);
@@ -89,6 +96,8 @@ const mockUnlinkSync = vi.mocked(unlinkSync);
 const mockStatSync = vi.mocked(statSync);
 const mockChmodSync = vi.mocked(chmodSync);
 const mockGate = vi.mocked(gateProposedContent);
+const mockCommit = vi.mocked(commitGatedWrites);
+const mockCapture = vi.mocked(captureGatedWriteBaseline);
 
 // ── process.exit sentinel. The real handler is `never`-returning; we mimic
 //    that by throwing so control flow stops at the call site, then surface the
@@ -188,6 +197,7 @@ beforeEach(() => {
 
 	// Gate passes unless a test overrides.
 	mockGate.mockReturnValue(gateOk());
+	mockCommit.mockReset();
 });
 
 afterEach(() => {
@@ -234,6 +244,8 @@ async function withStdinError<T>(payload: unknown, fn: () => Promise<T>): Promis
 describe("write command module", () => {
 	it("exports writeCommand as a function", () => {
 		expect(typeof writeCommand).toBe("function");
+		expect(writeCommand.name).toBe("writeCommand");
+		expect(writeCommand.length).toBe(2);
 	});
 });
 
@@ -252,12 +264,10 @@ describe("interlinked write — single-file mode", () => {
 			// Transactional path: unavailable tsc checker aborts (review pass 18).
 			{ tscUnavailableSeverity: "error" },
 		);
-		// Atomic write: a temp file written, then renamed into place.
-		expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
-		const [tmpPath, writtenContent] = nonNull(mockWriteFileSync.mock.calls[0]);
-		expect(String(tmpPath)).toContain(`${target}.interlinked-write-`);
-		expect(writtenContent).toBe(content);
-		expect(mockRenameSync).toHaveBeenCalledWith(tmpPath, target);
+		expect(mockCapture).toHaveBeenCalledWith(process.cwd(), [{ path: target, content }], { allowOutsideRepo: false });
+		expect(mockCommit).toHaveBeenCalledWith(mockCapture.mock.results[0]?.value);
+		expect(mockCapture.mock.invocationCallOrder[0]).toBeLessThan(nonNull(mockGate.mock.invocationCallOrder[0]));
+		expect(mockGate.mock.invocationCallOrder[0]).toBeLessThan(nonNull(mockCommit.mock.invocationCallOrder[0]));
 		// Human output names the count and the path.
 		expect(loggedOut()).toContain("1 file written");
 		expect(loggedOut()).toContain(target);
@@ -474,9 +484,8 @@ describe("interlinked write — batch manifest validation", () => {
 			],
 			{ tscUnavailableSeverity: "error" },
 		);
-		// Two temps written, two renames.
-		expect(mockWriteFileSync).toHaveBeenCalledTimes(2);
-		expect(mockRenameSync).toHaveBeenCalledTimes(2);
+		expect(mockCapture.mock.calls[0]?.[1]).toHaveLength(2);
+		expect(mockCommit).toHaveBeenCalledWith(mockCapture.mock.results[0]?.value);
 		expect(loggedOut()).toContain("2 files written");
 	});
 
@@ -523,14 +532,10 @@ describe("interlinked write — path validation", () => {
 			run(outside, { stdin: true, unsafeOutsideRepo: true }),
 		);
 		expect(r.exitCode).toBeUndefined();
-		expect(mockGate).toHaveBeenCalled();
-	});
-
-	it("accepts the project root itself (absolute === root branch)", async () => {
-		const r = await withStdin("x\n", () => run(process.cwd(), { stdin: true }));
-		// cwd === root passes the boundary check; gate runs and write proceeds.
-		expect(r.exitCode).toBeUndefined();
-		expect(mockGate).toHaveBeenCalled();
+		expect(mockGate).toHaveBeenCalledWith(
+			[{ path: outside, content: "x\n" }],
+			{ tscUnavailableSeverity: "error" },
+		);
 	});
 
 	it.each([
@@ -608,7 +613,7 @@ describe("interlinked write — gate outcomes", () => {
 		mockGate.mockReturnValue(gateWith([warnFailure]));
 		const r = await withStdin("x\n", () => run(inRepo("foo.ts"), { stdin: true }));
 		expect(r.exitCode).toBeUndefined();
-		expect(mockRenameSync).toHaveBeenCalledTimes(1);
+		expect(mockCommit).toHaveBeenCalledWith(mockCapture.mock.results[0]?.value);
 		const out = loggedOut();
 		expect(out).toContain("1 file written");
 		expect(out).toContain("Gate warnings (non-blocking)");
@@ -641,276 +646,29 @@ describe("interlinked write — gate outcomes", () => {
 // ════════════════════════════════════════════════════════════════════════════
 // Atomic write failure — rename throws → temp cleanup, exit 1
 // ════════════════════════════════════════════════════════════════════════════
-describe("interlinked write — atomic write failure", () => {
-	it("cleans up temp files and exits 1 (human) when rename fails", async () => {
-		// Temp write succeeds; rename throws. Cleanup unlinks the temp (we make
-		// existsSync(temp) true so the unlink branch executes).
-		mockRenameSync.mockImplementation(() => {
-			throw new Error("EXDEV: cross-device link not permitted");
-		});
-		mockExistsSync.mockReturnValue(true); // temp "exists" → unlink runs
-
-		const r = await withStdin("x\n", () => run(inRepo("foo.ts"), { stdin: true }));
-
-		expect(r.exitCode).toBe(1);
-		expect(loggedErr()).toContain("atomic write failed");
-		expect(loggedErr()).toContain("EXDEV");
-		// The temp written in phase 1 is cleaned up in the catch.
-		expect(mockUnlinkSync).toHaveBeenCalledTimes(1);
-		const tmpWritten = String(nonNull(mockWriteFileSync.mock.calls[0])[0]);
-		expect(mockUnlinkSync).toHaveBeenCalledWith(tmpWritten);
-	});
-
-	it("restores an existing target when a later batch rename fails", async () => {
-		const manifest = inRepo("batch.json");
-		const a = inRepo("a.ts");
-		const b = inRepo("b.ts");
-		const raw = JSON.stringify({
-			version: 1,
-			writes: [
-				{ path: a, content: "new a\n" },
-				{ path: b, content: "new b\n" },
-			],
-		});
-		mockExistsSync.mockImplementation((path) => [manifest, a, b].includes(String(path)));
-		mockReadFileSync.mockImplementation((path) => {
-			if (String(path) === manifest) return raw;
-			if (String(path) === a) return "old a\n";
-			if (String(path) === b) return "old b\n";
-			return "";
-		});
-		let renames = 0;
-		mockRenameSync.mockImplementation(() => {
-			renames++;
-			if (renames === 2) throw new Error("second rename failed");
-		});
-
-		const result = await run(undefined, { batch: manifest });
-
-		expect(result.exitCode).toBe(1);
-		expect(mockWriteFileSync).toHaveBeenCalledWith(
-			expect.stringContaining("a.ts.interlinked-rollback-"),
-			"old a\n",
-		);
-		expect(mockRenameSync).toHaveBeenLastCalledWith(
-			expect.stringContaining("a.ts.interlinked-rollback-"),
-			a,
-		);
-	});
-
-	// test-contract: invariant — an existing target's mode is applied to both its staged replacement and its rollback restoration temp
-	it("preserves an existing target mode on staged and rollback temps", async () => {
-		const manifest = inRepo("mode-batch.json");
-		const a = inRepo("mode-a.ts");
-		const b = inRepo("mode-b.ts");
-		const raw = JSON.stringify({
-			version: 1,
-			writes: [
-				{ path: a, content: "new a\n" },
-				{ path: b, content: "new b\n" },
-			],
-		});
-		mockExistsSync.mockImplementation((path) => [manifest, a, b].includes(String(path)));
-		mockReadFileSync.mockImplementation((path) => {
-			if (String(path) === manifest) return raw;
-			if (String(path) === a) return "old a\n";
-			if (String(path) === b) return "old b\n";
-			return "";
-		});
-		mockStatSync.mockImplementation((path) => ({
-			// stat.mode includes regular-file type bits; chmod receives only
-			// permission/special bits from the public write behavior.
-			mode: String(path) === a ? 0o100640 : 0o100600,
-		}) as ReturnType<typeof statSync>);
-		let renames = 0;
-		mockRenameSync.mockImplementation(() => {
-			renames++;
-			if (renames === 2) throw new Error("second rename failed");
-		});
-
-		const result = await run(undefined, { batch: manifest });
-
-		expect(result.exitCode).toBe(1);
-		expect(mockChmodSync).toHaveBeenCalledWith(
-			expect.stringContaining("mode-a.ts.interlinked-write-"),
-			0o640,
-		);
-		expect(mockChmodSync).toHaveBeenCalledWith(
-			expect.stringContaining("mode-a.ts.interlinked-rollback-"),
-			0o640,
-		);
-	});
-
-	// test-contract: invariant — a temp path is cleaned up even when writing its contents throws
-	it("cleans up a temp path registered before a partial write failure", async () => {
-		const target = inRepo("partial-write.ts");
-		mockExistsSync.mockImplementation((path) => String(path).includes(".interlinked-write-"));
-		mockWriteFileSync.mockImplementation(() => {
-			throw new Error("disk full after partial write");
-		});
-
-		const result = await withStdin("x\n", () => run(target, { stdin: true }));
-
-		expect(result.exitCode).toBe(1);
-		expect(loggedErr()).toContain("disk full after partial write");
-		const tmpWritten = String(nonNull(mockWriteFileSync.mock.calls[0])[0]);
-		expect(mockUnlinkSync).toHaveBeenCalledWith(tmpWritten);
-	});
-
-	// test-contract: invariant — a failed later commit removes an earlier target that did not exist in the captured pre-write state
-	it("removes a newly-created earlier target when a later batch rename fails", async () => {
-		const manifest = inRepo("new-target-batch.json");
-		const a = inRepo("new-a.ts");
-		const b = inRepo("new-b.ts");
-		const raw = JSON.stringify({
-			version: 1,
-			writes: [
-				{ path: a, content: "new a\n" },
-				{ path: b, content: "new b\n" },
-			],
-		});
-		const renamedTemps = new Set<string>();
-		let aCommitted = false;
-		mockExistsSync.mockImplementation((path) => {
-			const value = String(path);
-			if (value === manifest) return true;
-			if (value === a) return aCommitted;
-			return value.includes(".interlinked-write-") && !renamedTemps.has(value);
-		});
-		mockReadFileSync.mockImplementation((path) => {
-			if (String(path) === manifest) return raw;
-			throw new Error("unexpected target read");
-		});
-		let renames = 0;
-		mockRenameSync.mockImplementation((from, to) => {
-			renames++;
-			if (renames === 1) {
-				renamedTemps.add(String(from));
-				aCommitted = true;
-				return;
-			}
-			throw new Error(`rename ${String(to)} failed`);
-		});
-
-		const result = await run(undefined, { batch: manifest });
-
-		expect(result.exitCode).toBe(1);
-		expect(mockUnlinkSync).toHaveBeenCalledWith(a);
-		expect(mockWriteFileSync).not.toHaveBeenCalledWith(
-			expect.stringContaining(".interlinked-rollback-"),
-			expect.anything(),
-		);
-	});
-
-	it("stringifies a non-Error thrown by rename (String(err) arm of the atomic-write catch)", async () => {
-		mockRenameSync.mockImplementation(() => {
-			throw "rename failed as a string"; // intentional non-Error throw
-		});
-		mockExistsSync.mockReturnValue(false);
-		const r = await withStdin("x\n", () => run(inRepo("foo.ts"), { stdin: true }));
-		expect(r.exitCode).toBe(1);
-		expect(loggedErr()).toContain("atomic write failed");
-		expect(loggedErr()).toContain("rename failed as a string");
-	});
-
-	it("renders the atomic-write failure as JSON when --json is set", async () => {
-		mockRenameSync.mockImplementation(() => {
-			throw new Error("EXDEV");
-		});
-		mockExistsSync.mockReturnValue(false); // temp not found → unlink skipped
-		const r = await withStdin("x\n", () =>
-			run(inRepo("foo.ts"), { stdin: true, json: true }),
-		);
-		expect(r.exitCode).toBe(1);
-		const payload = loggedJson();
-		expect(payload.ok).toBe(false);
-		expect(String(payload.error)).toContain("EXDEV");
-		// existsSync false → no unlink attempt.
-		expect(mockUnlinkSync).not.toHaveBeenCalled();
-	});
-
-	it("swallows a unlink error during cleanup (best-effort) and still exits 1", async () => {
-		mockRenameSync.mockImplementation(() => {
-			throw new Error("rename boom");
-		});
-		mockExistsSync.mockReturnValue(true);
-		mockUnlinkSync.mockImplementation(() => {
-			throw new Error("unlink boom"); // must be swallowed, not rethrown
-		});
-		const r = await withStdin("x\n", () => run(inRepo("foo.ts"), { stdin: true }));
-		expect(r.exitCode).toBe(1);
-		expect(loggedErr()).toContain("atomic write failed");
-		expect(loggedErr()).toContain("rename boom");
-	});
-
-	/**
-	 * Arrange a two-file batch where the SECOND commit rename fails and the
-	 * rollback rename that would restore the first (already-committed) target
-	 * fails too — the only state that reaches `rollbackCommitted`'s catch.
-	 * Returns the two target paths so each test can assert on them.
-	 */
-	function arrangeFailedRollback(): { a: string; b: string } {
-		const manifest = inRepo("rollback-fail-batch.json");
-		const a = inRepo("rollback-fail-a.ts");
-		const b = inRepo("rollback-fail-b.ts");
-		const raw = JSON.stringify({
-			version: 1,
-			writes: [
-				{ path: a, content: "new a\n" },
-				{ path: b, content: "new b\n" },
-			],
-		});
-		mockExistsSync.mockImplementation((path) => {
-			const value = String(path);
-			return [manifest, a, b].includes(value) || value.includes(".interlinked-rollback-");
-		});
-		mockReadFileSync.mockImplementation((path) => {
-			if (String(path) === manifest) return raw;
-			if (String(path) === a) return "old a\n";
-			if (String(path) === b) return "old b\n";
-			return "";
-		});
-		let renames = 0;
-		mockRenameSync.mockImplementation(() => {
-			renames++;
-			if (renames === 1) return; // a committed
-			if (renames === 2) throw new Error("second rename failed");
-			throw new Error("restore rename failed"); // the rollback rename
-		});
-		return { a, b };
-	}
-
-	// test-contract: invariant — a rollback that cannot be completed is reported alongside the originating failure, never swallowed
-	it("appends the unrestored target to the error when its rollback rename fails", async () => {
-		const { a } = arrangeFailedRollback();
-
-		const result = await run(undefined, { batch: inRepo("rollback-fail-batch.json") });
-
-		expect(result.exitCode).toBe(1);
-		expect(loggedErr()).toContain(
-			`second rename failed; rollback incomplete (${a}: restore rename failed)`,
-		);
-	});
-
-	it("removes the rollback temp it staged for a target it could not restore", async () => {
-		const { a } = arrangeFailedRollback();
-
-		await run(undefined, { batch: inRepo("rollback-fail-batch.json") });
-
-		const rollbackFilter = (path: string): boolean => path.includes(".interlinked-rollback-");
-		const staged = mockWriteFileSync.mock.calls.map((call) => String(call[0])).filter(rollbackFilter);
-		const removed = mockUnlinkSync.mock.calls.map((call) => String(call[0])).filter(rollbackFilter);
-		// Exactly one rollback temp is staged (for `a`), and the failing restore
-		// leaves none of it behind.
-		expect(staged).toHaveLength(1);
-		expect(nonNull(staged[0]).startsWith(`${a}.interlinked-rollback-`)).toBe(true);
-		expect(removed).toEqual(staged);
-	});
+describe("interlinked write — transaction failures", () => {
+    it.each([new Error("transaction lock busy"), "write failed", new Error("guarded rollback incomplete: a.ts")])("surfaces transaction failure with exit 1: %s", async (error) => {
+        mockCommit.mockImplementationOnce(() => { throw error; });
+        const result = await withStdin("new", () => run(inRepo("a.ts"), { stdin: true, json: true }));
+        expect(result.exitCode).toBe(1);
+        expect(loggedJson()).toEqual({ ok: false, error: error instanceof Error ? error.message : error });
+    });
+    it.each([new Error("transaction lock busy"), "write failed", new Error("guarded rollback incomplete: a.ts")])("reports transaction failure to stderr in human output: %s", async (error) => {
+        mockCommit.mockImplementationOnce(() => { throw error; });
+        const result = await withStdin("new", () => run(inRepo("a.ts"), { stdin: true }));
+        expect(result.exitCode).toBe(1);
+        expect(loggedErr()).toContain(`interlinked write: atomic write failed — ${error instanceof Error ? error.message : error}`);
+    });
+    it("reports a snapshot failure before executing any checker", async () => {
+        mockCapture.mockImplementationOnce(() => { throw new Error("target is a symlink"); });
+        const result = await withStdin("new", () => run(inRepo("a.ts"), { stdin: true }));
+        expect(result.exitCode).toBe(2);
+        expect(loggedErr()).toContain("target is a symlink");
+        expect(mockGate).not.toHaveBeenCalled();
+        expect(mockCommit).not.toHaveBeenCalled();
+    });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// process.exit was actually invoked with the sentinel codes
-// ════════════════════════════════════════════════════════════════════════════
 describe("interlinked write — exit codes", () => {
 	it("uses exit code 2 for usage errors", async () => {
 		await run(undefined, {});

@@ -10,7 +10,7 @@ Interlinked gates edits at **three moments**, and they run different check sets:
   without synchronously launching biome/tsc on the daemon event loop; those external overlays
   are reported as **NOT CHECKED** and run asynchronously after the write. Transactional CLI
   paths (`interlinked write` / `verify-changeset`) still run `pre_block → biome → tsc` and fail
-  closed. (`interlinked multi-edit` runs **only biome + tsc**, not `pre_block`; see below.)
+  closed. `interlinked multi-edit` uses the same shared content gate.
 - **Other PreToolUse guards** (real Edit/Write only): function tokens, coverage, cyclomatic, CRAP, baseline —
   see **interlinked-quality-gates**; package/allowlist — see **interlinked-supply-chain**.
 - **PostToolUse** (after the write lands): external tools (tsc/biome/eslint/semgrep/gitleaks/…)
@@ -359,8 +359,7 @@ not verification.
 
 ## Landing multi-file edits (the ordering rule)
 Three agent-callable commands gate proposed content **without** running function-token/coverage/complexity/post
-checks. `interlinked write` and `verify-changeset` run `pre_block → biome → tsc`; `interlinked
-multi-edit` runs **biome + tsc only** (no `pre_block` — it does *not* screen for eval/injection/etc.):
+checks. `interlinked write`, `multi-edit`, and `verify-changeset` share `pre_block → biome → tsc`:
 
 ```bash
 interlinked write <path> --stdin                 # single gated write, content on stdin
@@ -384,6 +383,39 @@ interlinked verify-changeset --file <cs.json>    # preview the gate, write nothi
   in the *current* buffer state.
 - **`verify-changeset`** previews (Write/Edit/MultiEdit shapes), enforces nothing; exit 1 =
   "would be blocked".
+
+**Transactional consistency.** `write` and `multi-edit` capture target bytes and modes before
+verification, then compare them again under a shared project commit lock. A concurrent change
+aborts the batch: re-read the targets and rebuild the proposal. Unchanged multi-edit members
+still participate in this comparison. Both commands preserve existing file permissions and use
+guarded rollback that refuses to overwrite newer content. Targets must be regular files or
+missing; symlink targets, duplicate physical targets, and escapes through parent symlinks are
+rejected. Parent resolution is checked again before staging, committing, and rollback;
+a redirected parent aborts the operation. A failed `multi-edit` reports the actual failing
+target in `error_detail.path`. `write --unsafe-outside-repo` retains its explicit outside-root exception. This lock
+coordinates Interlinked transactions; it does not make ordinary editors participate or make
+multi-file writes crash-atomic. An incumbent lock is an unavailable transaction, never permission
+to delete the lock blindly.
+
+**Biome availability.** A configured analyzer that times out, crashes, or returns unreadable
+diagnostics produces `biome-overlay-unavailable` and aborts transactional writes/previews.
+Ordinary edit hooks retain asynchronous PostToolUse checking and visible NOT CHECKED feedback.
+Unconfigured projects skip Biome. Existing and proposed contents are measured with the same
+analyzer; moving existing lint debt is allowed, while another occurrence of the same rule is
+new debt. A missing diagnostic cache never establishes a clean baseline. Overlay execution
+uses installed tooling without installing a missing package.
+
+The Biome overlay uses a sibling temporary file. It supports directory and simple
+extension selectors; filename selectors (including `*.test.ts`), inherited config,
+plugins, VCS ignore rules, filename-sensitive rules, and `BIOME_CONFIG_PATH` report
+unavailable because the temporary file cannot reproduce their semantics. Nested
+target configs are discovered even without a root config. For an unsupported
+configuration, use the ordinary edit workflow and run Biome on the actual file;
+do not interpret an unavailable preview as approval or weaken project rules to
+make the preview pass.
+Creating, changing, or deleting a governing Biome config in the same proposal also
+reports unavailable, since the analyzer reads disk configuration. Land that config
+change before the source batch. A submitted config whose bytes equal disk is unchanged.
 
 > **CRITICAL — exporter before importers.** The tsc overlay blocks *newly-introduced* type
 > errors per file, so importing a not-yet-exported symbol is a `TS2305`/`TS2304` the overlay
@@ -460,21 +492,3 @@ interlinked verify-changeset --file cs.json --json
 - **interlinked-harness** — how blocks read, suppression grammar, determinism tags.
 - **interlinked-quality-gates** — the function-token/coverage/complexity/line-cap ratchets the content gate does NOT run.
 - **interlinked-supply-chain** — the package-install gate.
-
-### Verify writes observed outside tool gates
-
-`interlinked harness coverage status --json` shows pending exact file identities,
-watcher readiness, automated check receipts and manual review receipts. Run
-`interlinked harness coverage verify --json` to check the pending versions through
-the daemon's configured PostToolUse checks; `--no-wait` starts the job and returns.
-Polling status reports progress. A completed job can still contain findings or
-unmeasured versions. Missing files, excluded paths, deferred checks and concurrent
-changes do not gain a clean verdict. Receipts enumerate the checks actually run;
-they do not certify PreToolUse enforcement or approve a baseline rewrite.
-
-For an explicitly reviewed absence or other manual disposition, use
-`harness coverage acknowledge <id> <generation> <identity> <evidence>` with the
-current status values and a concrete review record. This records manual review,
-not a test pass. Stale identities/generations are refused. If a mutation's response
-is lost, inspect status before retrying. Never blanket-acknowledge pending entries
-to silence the warning. Policy acceptance is a separate explicit action.

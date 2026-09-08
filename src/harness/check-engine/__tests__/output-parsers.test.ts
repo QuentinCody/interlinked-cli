@@ -865,22 +865,13 @@ describe("parseDocsCheckOutput", () => {
 		expect(nonNull(results[0]).message).toBe("drift");
 	});
 
-	it("requires at least one character after 'expected:'/'actual:' (no fold on a bare colon)", () => {
-		const out = ["[docs:fail] a.md: drift", "  expected:1", "  actual:2"].join("\n");
+	it("folds values without whitespace after 'expected:'/'actual:'", () => {
+		const out = ["[docs:fail] a.md: drift", "  expected:5", "  actual:8"].join("\n");
 		const results = parseDocsCheckOutput(out);
-		expect(nonNull(results[0]).message).toBe("drift (expected 1, actual 2)");
+		expect(nonNull(results[0]).message).toBe("drift (expected 5, actual 8)");
 	});
 
-	it("AUDIT: actually exercises a bare colon with zero content — the test above never does", () => {
-		// The preceding test's title promises "no fold on a bare colon" but its
-		// body only ever supplies non-empty content ("1"/"2"), so it can't
-		// distinguish the real `(.+)$` (1+ chars required) from a `(.*)$`
-		// mutant (0+ chars allowed) — both produce an identical fold on that
-		// input. This case supplies a genuinely empty value after the colon,
-		// which is the only input that actually discriminates the two: real
-		// code declines to fold (message stays "drift"); a `(.*)$` mutant would
-		// fold in empty values ("drift (expected , actual )"). Verified via
-		// scratch/audit-docscheck-barecolon-probe.mjs against a copy of both.
+	it("does not fold empty 'expected:'/'actual:' values", () => {
 		const out = ["[docs:fail] a.md: drift", "  expected:", "  actual:"].join("\n");
 		const results = parseDocsCheckOutput(out);
 		expect(nonNull(results[0]).message).toBe("drift");

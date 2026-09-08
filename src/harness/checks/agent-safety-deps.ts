@@ -4,9 +4,10 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
+import { scanSelfImports } from "./self-import-scan.js";
 import {
 	getExtension,
 	type InlineMatch,
@@ -18,43 +19,22 @@ import {
 // --- 2. Import Hygiene ---
 
 /**
- * Detect self-imports: a module importing from itself (causes infinite loops or empty values).
+ * Detect self-imports: a module importing from itself (causes infinite loops or
+ * empty values). The scan itself lives in `self-import-scan.ts` — it reads whole
+ * DECLARATIONS off the TypeScript AST, because the line-oriented parser this
+ * file used to carry missed every multiline `import { … } from "./self.js"`
+ * (Finding 4 [P2], reviewer-reproduced 2026-09-05). That module also owns the
+ * resolved-path comparison that keeps a same-basename sibling out of the report.
+ * When the optional `typescript` dep is absent the scan returns null — NOT
+ * MEASURED — and this entry point reports no findings: a `pre_block` check
+ * never blocks on a guess, so there is no line-scanner fallback (sixth review
+ * pass, finding 1). The daemon discloses that state at startup and per JS/TS
+ * edit (`selfImportNotMeasuredWarning`). This signature is the registry's
+ * entry point and stays unchanged.
  */
 export function checkSelfImport(content: string, filePath: string): InlineMatch[] {
 	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
-	const stripped = stripCommentsAndStrings(content);
-	const originalLines = content.split("\n");
-	const strippedLines = stripped.split("\n");
-	const matches: InlineMatch[] = [];
-
-	// Get the base filename without extension for matching
-	const base = basename(filePath).replace(/\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/, "");
-
-	for (let i = 0; i < strippedLines.length; i++) {
-		if (matches.length >= 5) break;
-		const trimmed = nonNull(strippedLines[i]).trim();
-		if (!/^import\s/.test(trimmed)) continue;
-		// Match the specifier against the ORIGINAL line, not the stripped one.
-		// `stripCommentsAndStrings` blanks string CONTENTS (`"./foo.js"` -> `""`),
-		// and this regex requires >=1 char between the quotes — so reading it from
-		// `trimmed` made `fromMatch` always null and every line hit `continue`.
-		// This detector could never fire (measured 2026-08-06; the same defect
-		// killed `checkExtraneousDependencies` below). The stripped line is still
-		// what decides whether this LOOKS like an import statement, so a `from
-		// "..."` inside a comment or string literal is still ignored.
-		const fromMatch = nonNull(originalLines[i]).match(/from\s+['"]([^'"]+)['"]/);
-		if (!fromMatch) continue;
-		const specifier = fromMatch[1];
-		if (!nonNull(specifier).startsWith(".")) continue;
-		const importBase = nonNull(specifier)
-			.split("/")
-			.pop()
-			?.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
-		if (importBase === base) {
-			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-		}
-	}
-	return matches;
+	return scanSelfImports(content, filePath) ?? [];
 }
 
 /**

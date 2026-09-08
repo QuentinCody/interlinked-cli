@@ -583,7 +583,7 @@ Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline 
 | `interlinked metrics score [--profile structure-v1] [--cwd <path>] [--json\|--short]` | Explained composite and individual burdens, explicit evidence bounds and ranking eligibility; legacy structure profile remains selectable. |
 | `interlinked metrics arch [--cwd <path>] [--json]` | Import graph statistics including isolated modules; graphVersion 2 retains N² propagation cost and adds normalizedReach with N(N−1). |
 | `interlinked metrics split-plan <file>` | Where to cut one over-cap file: 2–4 cohesive modules from the intra-file reference graph. |
-| `interlinked coverage check [--update-baseline] [--json]` | Full-suite per-file coverage ratchet vs `coverage-baseline.json`. |
+| `interlinked coverage check [--strict] [--changed-files a,b] [--report <p>] [--update-baseline] [--json]` | Full-suite per-file coverage ratchet vs `coverage-baseline.json`. ADVISORY by default (exit 0 with findings); `--strict` exits 1 on any per-file drop; `--changed-files` scopes to a comma-separated list (what the pre-push hook passes). |
 | `interlinked mutation check [--report <p>] [--update-baseline]` | Per-file mutation-score ratchet vs `mutation-baseline.json` (needs a Stryker report). |
 | `interlinked mutation measure <file> [--record]` | Measure one source file; `--record` persists a complete, conclusive measured report as an explicit manifest baseline update. Recording is not a clean verdict. |
 | `interlinked mutation survivors [--file <substr>]` | Rank open manifest survivors by file, symbol, and mutator. |
@@ -975,12 +975,56 @@ public `interlinked mutation adopt` command.
   Extract a helper or simplify the control flow.
 - **`tsgo` ≠ `typescript` for the AST gate.** The cyclomatic/CRAP gate parses with the optional
   `typescript` compiler API; `tsgo` is typecheck-only with no importable JS API. Installing with
-  `--omit=optional` makes the cyclomatic gate fail open (silent enforcement gap) — keep
-  `typescript` installed. Python needs `radon` on PATH.
+  `--omit=optional` makes the cyclomatic gate fail open to the regex walker AND leaves the
+  `self_import` pre_block check **NOT MEASURED**: it reports no findings rather than guessing
+  from a line scanner, and every JS/TS edit then carries a `[interlinked:self_import] NOT
+  MEASURED` warning (the daemon startup warning names both degrades). A clean edit in that state
+  was not scanned for self-imports — keep `typescript` installed. Python needs `radon` on PATH.
+  Module resolution respects each usage's mode: dynamic imports in CommonJS use import
+  resolution, while import-equals declarations in ESM use require resolution. Parser
+  availability at startup does not establish that any particular file was measured.
+  `self_import` resolves each specifier with the PROJECT's own compiler options (the nearest
+  tsconfig, following `references` to the project whose `files`/`include` claim the file; nothing
+  cached, so an edited `extends` target or a new nearer tsconfig applies on the next edit). Five
+  more states are NOT MEASURED rather than guessed, each with its own `[interlinked:self_import]
+  NOT MEASURED` warning: a tsconfig on that walk that cannot be parsed, two referenced projects
+  that both claim the file, a reference walk that hits its 32-project bound with projects
+  unvisited, a file that no config in reach claims by a `files`/`include` pattern (the nearest
+  config, its `references`, and its sibling `tsconfig*.json` files are all consulted; an
+  unclaimed file may be a transitive member — a `/// <reference>` target — which root patterns
+  cannot decide, so it is never guessed into the nearest config), and an importer whose
+  directory is not on disk yet. Inside a batch (`write --batch`, `multi-edit`, `verify-changeset`
+  — all three run the one shared gate) every check sees the WHOLE proposed batch: a sibling the
+  batch creates is visible to `self_import` AND to the type checker's overlay, and the
+  introduced-only baseline is judged against the DISK, so an exporter-first batch that adds
+  `widget.native.ts` and points `widget.ts` at it passes end to end, while a batch that rewrites
+  `tsconfig.json` so an existing re-export becomes a self-import is refused as INTRODUCED. A
+  batch that rewrites any file of the project's configuration graph — the selected tsconfig,
+  any file its `extends` chain reaches whatever its name (`base.json` counts), or a
+  tsconfig/jsconfig/package.json anywhere in the batch — gets a `type checker cannot see the
+  proposed configuration` row for its TypeScript entries (the checker reads the disk's config):
+  land the configuration change first, then the sources. A member whose bytes equal the disk
+  is still type-checked against the members that differ (a changed exporter can break an
+  untouched consumer); `multi-edit` validates every manifest member and writes only the
+  changed ones. Only a batch whose members are ALL unchanged skips the type check, and a
+  config member whose bytes equal the disk is not a rewrite. The type checker judges each
+  file under the SAME project `self_import` selects (one program per governing config); a
+  file no single project claims is `type checker unavailable (project_orphan: …)` rather than
+  checked under the project root's config. Its disk baseline is recomputed on every check, so
+  a dependency repaired on disk cannot mask a reintroduced error; a warm compiler service is
+  rebuilt when the content of its tsconfig or any `extends` target changes on disk and
+  re-reads the project's root files on every reuse (a declaration file added or removed on
+  disk joins or leaves the program), sees a dependency rewritten on disk whatever its
+  timestamp says, and forgets a proposal the moment its check ends (a refused proposal never
+  colours a later check); and a configured project with no source on disk yet still measures
+  the first source written into it.
 
 The type checker's snapshot and its identity share one captured compiler text per file
 per check. The identity preserves every UTF-16 code unit, including lone surrogates;
 UTF-8 replacement encoding would incorrectly merge distinct compiler texts.
+An unreadable disk baseline is unavailable, not an empty baseline. Diagnostic comparison
+counts repeated equivalent findings, so moving existing debt is allowed while another
+occurrence remains new debt.
 
 ## Dead code: two controls, four evidence layers, buckets before deletion
 
@@ -1024,7 +1068,8 @@ interlinked caps                       # current caps + provenance
 interlinked metrics --top 10           # token distributions + top function/file outliers
 interlinked metrics --json             # exhaustive functionTokenMetrics inventory
 interlinked adopt --dry-run            # preview seeding a legacy repo
-interlinked coverage check             # full-suite coverage ratchet
+interlinked coverage check             # full-suite coverage ratchet (advisory: exit 0)
+interlinked coverage check --strict    # same, exit 1 on any per-file drop (pre-push uses --changed-files)
 interlinked mutation check --report reports/mutation/mutation.json
 interlinked mutation baseline          # inspect report-ratchet high-water scores
 interlinked mutation survivors --short # rank live-manifest survivor debt

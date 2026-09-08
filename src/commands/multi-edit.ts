@@ -5,9 +5,10 @@ import { nonNull } from "../lib/non-null.js";
 //
 // Applies N `old_string → new_string` pairs per file as an in-memory buffer
 // transform, runs the content-quality gate ONCE on the final content per
-// file, and writes all files atomically if the gate passes. Any failure
-// (ambiguous match, missing match, gate reject, read/write I/O) is
-// transactional: either all files change or none do.
+// file, then commits under the shared project lock if the gate passes and
+// target snapshots still match. Failed commits attempt guarded rollback;
+// concurrent external writes can prevent restoration. Each rename is atomic,
+// but the filesystem does not provide a crash-atomic multi-file commit.
 //
 // This exists because the Edit tool applies one replacement at a time, and
 // the tsc/biome diff-overlays check each intermediate state. Coordinated
@@ -15,12 +16,8 @@ import { nonNull } from "../lib/non-null.js";
 // use site", "widen a signature AND update callers") deadlock under serial
 // Edits because one half of the change is invalid without the other.
 //
-// Eventually this command should call a shared `gateProposedContent()`
-// helper that the `interlinked write` subcommand also consumes — the
-// sibling design doc owns that shared API. Until it lands, we inline the
-// gate by calling the existing diff-overlay entry points directly. The
-// gate check path mirrors what `evaluator/write-content-guards.ts` already
-// does for single-Edit writes.
+// The content gate and transaction implementation are shared with
+// `interlinked write`; this command adds ordered substring-edit semantics.
 //
 // Related docs:
 //   cli/docs/design/multi-edit-atomic-coordinated-edits.md
@@ -29,13 +26,14 @@ import { nonNull } from "../lib/non-null.js";
 import { readFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { c } from "../lib/formatter.js";
+import { captureGatedWriteBaseline, commitGatedWrites } from "../lib/gated-file-transaction.js";
 import type { JsonObject } from "../lib/json-types.js";
 import {
 	applyEditsToBuffer,
-	atomicBatchWrite,
 	type EditBatch,
 	gateProposedContentInline,
 	MULTI_EDIT_ERROR_CODES,
+	transactionFailurePath,
 	type MultiEditResult,
 } from "./multi-edit-apply.js";
 import { normalizeManifest } from "./multi-edit-manifest.js";
@@ -127,8 +125,8 @@ function readAndApplyBatch(
  * Flow:
  *   1. Read pre-edit content for every file.
  *   2. Apply edits in order to each buffer, surfacing ambiguity/missing-match.
- *   3. Gate the final contents via the diff-overlay pipeline.
- *   4. Write all files atomically (temp+rename + rollback).
+ *   3. Capture target snapshots and gate the final contents.
+ *   4. Compare snapshots under the shared lock, then commit with guarded rollback.
  *
  * Public API — exported so tests can drive the pipeline directly without
  * going through the commander action handler and its stdin plumbing.
@@ -145,41 +143,56 @@ export function runMultiEdit(
 		finals.push(outcome.entry);
 	}
 
-	// Step 3 — gate. If the final content is identical to on-disk (no-op
-	// edits after composition), skip the gate AND the write for that file.
+	// Step 3 — gate. A manifest whose every edit composes to a no-op has
+	// nothing to judge or write. Otherwise EVERY member is validated — an
+	// unchanged member is judged against the changed ones, since their types
+	// can break it with its own bytes untouched (session review r5, finding 2)
+	// — and only the changed members are written.
 	const changedOnly = finals.filter((f) => f.content !== f.priorContent);
 	if (changedOnly.length === 0) {
-		// Nothing to do — all edits composed to a no-op. Successful trivially.
 		return { ok: true, file_changes_applied: [] };
 	}
+	return gateAndCommitBatches(finals, changedOnly, opts);
+}
 
-	const gateFailures = gateProposedContentInline(
-		changedOnly.map((f) => ({ path: f.path, content: f.content })),
-		opts,
-	);
-	if (gateFailures.length > 0) {
+/** Snapshot before verification, then compare all members under the shared commit lock. */
+function gateAndCommitBatches(
+	finals: AppliedBatch[],
+	changedOnly: AppliedBatch[],
+	opts: { projectRoot?: string },
+): MultiEditResult {
+	const root = opts.projectRoot ?? process.cwd();
+	try {
+		const transaction = captureGatedWriteBaseline(root, finals.map((entry) => ({
+			path: entry.path, content: entry.content, expectedContent: entry.priorContent,
+		})));
+		const gateFailures = gateProposedContentInline(
+			finals.map((f) => ({ path: f.path, content: f.content })), opts,
+		);
+		if (gateFailures.length > 0) {
+			return {
+				ok: false,
+				error_code: MULTI_EDIT_ERROR_CODES.GATE_REJECTED,
+				file_changes_applied: [],
+				gate_failures: gateFailures,
+			};
+		}
+		commitGatedWrites(transaction);
 		return {
-			ok: false,
-			error_code: MULTI_EDIT_ERROR_CODES.GATE_REJECTED,
-			file_changes_applied: [],
-			gate_failures: gateFailures,
+			ok: true,
+			file_changes_applied: changedOnly.map((f) => f.path),
 		};
-	}
-
-	// Step 4 — atomic batch write.
-	const wrote = atomicBatchWrite(changedOnly);
-	if (!wrote.ok) {
+	} catch (error) {
 		return {
 			ok: false,
 			error_code: MULTI_EDIT_ERROR_CODES.WRITE_FAILED,
 			file_changes_applied: [],
-			error_detail: { path: wrote.failedPath, message: wrote.message },
+			error_detail: {
+				path: transactionFailurePath(error) ?? finals[0]?.path ?? root,
+				message: error instanceof Error ? error.message : String(error),
+			},
 		};
 	}
-	return {
-		ok: true,
-		file_changes_applied: changedOnly.map((f) => f.path),
-	};
 }
 
 // ───────────────────────────────────────────────

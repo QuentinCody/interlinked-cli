@@ -32,6 +32,8 @@ import { join, relative, resolve } from "node:path";
 import { buildAgentSafetyChecks, buildCheckInstructions } from "./check-registry/builders.js";
 import { CHECK_REGISTRY } from "./check-registry/registry.js";
 import type { InlineMatch } from "./check-registry/types.js";
+import { withoutProposedFiles } from "./checks/proposed-files.js";
+import { selfImportNotMeasuredWarning } from "./checks/self-import-scan.js";
 import {
 	type FileSuppressions,
 	type InlineSuppressions,
@@ -209,12 +211,20 @@ function evaluatePreBlockCheck(
 	// findings are comparable; suppressions are not subtracted from the
 	// baseline — a directive only exempts lines in the proposed content.
 	if (state.baselineByCheck === null) {
-		state.baselineByCheck = new Map();
+		const baseline = new Map<string, InlineMatch[]>();
 		if (baselineContent != null && baselineContent !== "") {
-			for (const old of buildAgentSafetyChecks(baselineContent, filePath, "pre_block")) {
-				state.baselineByCheck.set(old.name, old.fn());
-			}
+			// The baseline is the PRE-change world: the on-disk bytes judged under
+			// the on-disk configuration and siblings. Inside a batch the ambient
+			// proposed view would otherwise leak into this scan and call a
+			// self-import the batch CREATES (by rewriting tsconfig) "pre-existing"
+			// (session review r4, finding 2). Suspend the view for the baseline.
+			withoutProposedFiles(() => {
+				for (const old of buildAgentSafetyChecks(baselineContent, filePath, "pre_block")) {
+					baseline.set(old.name, old.fn());
+				}
+			});
 		}
+		state.baselineByCheck = baseline;
 	}
 	const { introduced, preexisting } = splitIntroduced(
 		matches,
@@ -302,6 +312,23 @@ export function preBlockIntroducedBlock(
 		severity: "high",
 		category: "pre-block",
 	};
+}
+
+/** The pre_block checks that could NOT run for this file, one warning each.
+ *  A `pre_block` check that cannot measure returns no findings rather than a
+ *  guess, and this is where that state becomes visible on the edit itself
+ *  (sixth review pass 2026-09-05, finding 1). Today the only such check is
+ *  `self_import`, whose AST pass needs the optional `typescript` dep; add a
+ *  line here for any future check that gains a "not measurable" state. */
+export function preBlockNotMeasuredWarnings(filePath: string): PreBlockNotMeasured[] {
+	const selfImport = selfImportNotMeasuredWarning(filePath);
+	return selfImport === null ? [] : [{ checkId: "self_import", message: selfImport }];
+}
+
+/** One pre_block check that could not measure this file, with its disclosure. */
+export interface PreBlockNotMeasured {
+	readonly checkId: string;
+	readonly message: string;
 }
 
 /** Fix-what-you-touch warnings for outcomes carrying ONLY pre-existing

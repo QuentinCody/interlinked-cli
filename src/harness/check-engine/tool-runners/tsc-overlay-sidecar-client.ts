@@ -202,6 +202,10 @@ export function runOverlayViaSidecarTyped(input: RunTscOverlayInput): SidecarOve
 	if (isSidecarErrorResponse(reply)) return recordFailure(`sidecar reported an error: ${reply.error}`);
 
 	recordSuccess();
+	// The sidecar answered; the compiler simply could not measure this file
+	// (no single project claims it). Unavailable for the consumer, and never a
+	// failure for the cooldown.
+	if (reply.notMeasured !== undefined) return { status: "unavailable", reason: reply.notMeasured };
 	return { status: "ok", findings: reply.result };
 }
 

@@ -15,14 +15,6 @@ describe("C/C++ runners", () => {
 		rmSync(tmp, { recursive: true, force: true });
 	});
 
-	it("runCCompile is a function", () => {
-		expect(typeof runCCompile).toBe("function");
-	});
-
-	it("runClangTidy is a function", () => {
-		expect(typeof runClangTidy).toBe("function");
-	});
-
 	it("runCCompile returns [] on an empty tmpdir (no .c/.cpp files)", () => {
 		expect(
 			Array.isArray(

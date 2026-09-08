@@ -169,18 +169,26 @@ setTimeout(() => {
 	refreshStatuslineSnapshot();
 }, 0);
 
-// --- Strict cyclomatic gate capability ---
+// --- Strict cyclomatic gate + self_import capability ---
 // The PreToolUse cyclomatic block + CRAP scoring need the AST pass (the optional
 // `typescript` dep, now in optionalDependencies so a normal install has it).
 // `--omit=optional` or a stripped install drops it, degrading the gate to the
 // less-accurate regex walker. The fail-open in complexity-write-guard would hide
 // that, so surface it loudly here (stderr, not verbose-gated) — never silent.
+// The same dep carries the `self_import` pre_block check, which has NO regex
+// fallback (a pre_block check never blocks on a guess): without `typescript`
+// it is NOT MEASURED, and every JS/TS edit also says so on the decision
+// (`selfImportNotMeasuredWarning`). Both degrades are named here because a
+// warning that names only one of them under-discloses the other.
 if (astComplexityAvailable()) {
-	log("Cyclomatic gate: AST-accurate (typescript resolved)");
+	log("Cyclomatic gate: AST-accurate (typescript resolved); self_import: parser available");
 } else {
 	console.error(
 		"[interlinked] WARNING: `typescript` is not resolvable — the strict cyclomatic " +
-			"PreToolUse gate and CRAP scoring fell back to the less-accurate regex walker. " +
+			"PreToolUse gate and CRAP scoring fell back to the less-accurate regex walker, " +
+			"and the `self_import` pre-block check is NOT MEASURED (it reports no findings " +
+			"rather than guessing from a line scanner; each JS/TS edit carries a " +
+			"[interlinked:self_import] NOT MEASURED warning). " +
 			"Reinstall without `--omit=optional` to restore AST-accurate enforcement.",
 	);
 }

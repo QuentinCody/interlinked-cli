@@ -3,11 +3,13 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { closeSync, existsSync, openSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { parseBiomeOutput } from "../output-parsers.js";
 import { runProcessAsync } from "../spawn-async.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
+import { inspectBiomeOverlayConfig } from "./biome-overlay-config.js";
 
 /** Walk up to 5 levels to find biome.json or biome.jsonc. */
 function findBiomeConfig(startDir: string): boolean {
@@ -100,54 +102,95 @@ export async function runBiomeAsync(input: ToolRunnerInput): Promise<CheckResult
  * and suppresses diagnostic output (only prints "contents aren't fixed").
  * To get full diagnostics, we write the overlay content to a sibling
  * temp file in the same directory, run `biome check` on it, then delete.
- * Same-directory placement ensures biome resolves the same config and
- * path-scoped overrides (e.g. `src/ui/**`) as the real file.
+ * Same-directory placement preserves directory-scoped configuration. Configurations
+ * whose filename semantics cannot be preserved yield an unavailable measurement.
  *
- * Temp file naming: `<base>.overlay-<pid>-<ts>.<ext>`. No dotfile prefix,
+ * Temp file naming: `<base>.overlay-<pid>-<uuid>.<ext>`. No dotfile prefix,
  * so biome/gitignore default rules don't skip it.
  *
- * Cleanup is in a finally block — best-effort. A stray overlay file
- * would fail subsequent edits only if biome flags something new, which
- * the next overlay run would re-expose.
+ * Cleanup is best-effort and only removes a temporary file this run created.
  */
-export function runBiomeOverlay(input: {
+export interface BiomeOverlayInput {
 	projectRoot: string;
 	timeoutMs: number;
 	filePath: string;
 	content: string;
-}): CheckResult[] {
+}
+
+export type BiomeOverlayOutcome =
+	| { status: "ok"; findings: CheckResult[] }
+	| { status: "skipped"; reason: string }
+	| { status: "unavailable"; reason: string };
+
+function canonicalDiagnosticPath(path: string): string {
+	try { return realpathSync(path); } catch { return resolve(path); }
+}
+
+function remapOverlayFindings(findings: CheckResult[], input: { projectRoot: string; tmpPath: string; filePath: string }): CheckResult[] {
+	const temporary = canonicalDiagnosticPath(input.tmpPath);
+	const target = relative(input.projectRoot, input.filePath);
+	return findings.map((finding) =>
+		canonicalDiagnosticPath(resolve(input.projectRoot, finding.file)) === temporary
+			? { ...finding, file: target }
+			: finding,
+	);
+}
+
+/** Diagnostic-only compatibility API. Gate callers must use the typed outcome. */
+export function runBiomeOverlay(input: BiomeOverlayInput): CheckResult[] {
+	const outcome = runBiomeOverlayTyped(input);
+	return outcome.status === "ok" ? outcome.findings : [];
+}
+
+/** A failed or incomplete analyzer invocation never supplies a clean verdict. */
+export function runBiomeOverlayTyped(input: BiomeOverlayInput): BiomeOverlayOutcome {
 	const { projectRoot, timeoutMs, filePath, content } = input;
-	if (!findBiomeConfig(projectRoot)) return [];
+	const configuration = inspectBiomeOverlayConfig(filePath);
+	if (configuration.status !== "ok") return configuration;
 
 	const dir = dirname(filePath);
-	const ext = extname(filePath);
+	// Declaration syntax is selected by the complete .d.ts/.d.mts/.d.cts suffix.
+	const ext = /\.d\.[cm]?ts$/.test(filePath) ? filePath.slice(filePath.lastIndexOf(".d.")) : extname(filePath);
 	const base = basename(filePath, ext);
-	const tmpPath = join(dir, `${base}.overlay-${process.pid}-${Date.now()}${ext}`);
+	const tmpPath = join(dir, `${base}.overlay-${process.pid}-${randomUUID()}${ext}`);
+	let created = false;
 
 	try {
-		writeFileSync(tmpPath, content);
-		const result = spawnSync("npx", ["biome", "check", "--no-errors-on-unmatched", tmpPath], {
+		const fd = openSync(tmpPath, "wx");
+		created = true;
+		try {
+			writeFileSync(fd, content);
+		} finally {
+			closeSync(fd);
+		}
+		const result = spawnSync("npx", ["--no-install", "biome", "check", "--max-diagnostics=none", tmpPath], {
 			cwd: projectRoot,
 			timeout: timeoutMs,
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
 		});
-		if (result.status === 0) return [];
+		if (result.error || result.signal || result.status === null) {
+			return {
+				status: "unavailable",
+				reason: result.error?.message ?? `Biome terminated ${result.signal ?? "without an exit status"}`,
+			};
+		}
 		const output = (result.stdout || "") + (result.stderr || "");
 		const findings = parseBiomeOutput(output);
+		if (result.status !== 0 && findings.length === 0) {
+			return { status: "unavailable", reason: `Biome exited ${result.status} without readable diagnostics` };
+		}
 		// Rewrite tmp-file paths back to the target file path so downstream
-		// diffing (by file + ruleId) sees the same path as the cached
-		// pre-edit diagnostics.
-		const tmpRel = relative(projectRoot, tmpPath);
-		const targetRel = relative(projectRoot, filePath);
-		return findings.map((f) =>
-			f.file === tmpRel || f.file === tmpPath ? { ...f, file: targetRel } : f,
-		);
-	} catch {
-		return [];
+		// diffing (by file + ruleId) sees the same path on both sides.
+		return {
+			status: "ok",
+			findings: remapOverlayFindings(findings, { projectRoot, tmpPath, filePath }),
+		};
+	} catch (error) {
+		return { status: "unavailable", reason: error instanceof Error ? error.message : String(error) };
 	} finally {
 		try {
-			unlinkSync(tmpPath);
+			if (created) unlinkSync(tmpPath);
 		} catch {
 			/* intentional: best-effort cleanup of overlay temp file */
 		}

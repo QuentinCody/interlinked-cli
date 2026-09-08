@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { atomicBatchWrite, gateProposedContentInline } from "./multi-edit-apply.js";
+import { gateProposedContentInline } from "./multi-edit-apply.js";
+import { commitGatedWrites } from "../lib/gated-file-transaction.js";
 import { multiEditCommand, MULTI_EDIT_ERROR_CODES, runMultiEdit } from "./multi-edit.js";
 
 // Mutation-kill suite for src/commands/multi-edit.ts (wave pass1_w49).
@@ -16,22 +17,28 @@ vi.mock("./multi-edit-apply.js", async (importOriginal) => {
 	return {
 		...actual,
 		gateProposedContentInline: vi.fn(actual.gateProposedContentInline),
-		atomicBatchWrite: vi.fn(actual.atomicBatchWrite),
 	};
 });
 
+vi.mock("../lib/gated-file-transaction.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../lib/gated-file-transaction.js")>();
+	return { ...actual, commitGatedWrites: vi.fn(actual.commitGatedWrites) };
+});
+
 const mockGate = vi.mocked(gateProposedContentInline);
-const mockWrite = vi.mocked(atomicBatchWrite);
+const mockWrite = vi.mocked(commitGatedWrites);
 
 let dir: string;
 
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "multi-edit-w49-"));
+	vi.spyOn(process, "cwd").mockReturnValue(dir);
 });
 
 afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
 	vi.clearAllMocks();
+	vi.mocked(process.cwd).mockRestore();
 });
 
 afterAll(() => {
@@ -150,11 +157,7 @@ describe("runMultiEdit — gate-rejected and write-failed branches", () => {
 		const p = join(dir, "writefail.txt");
 		writeFileSync(p, "before", "utf-8");
 		mockGate.mockImplementationOnce(() => []);
-		mockWrite.mockImplementationOnce(() => ({
-			ok: false,
-			failedPath: p,
-			message: "disk full",
-		}));
+		mockWrite.mockImplementationOnce(() => { throw new Error("disk full"); });
 		const result = runMultiEdit([{ path: p, edits: [{ old_string: "before", new_string: "after" }] }]);
 		expect(result.ok).toBe(false);
 		expect(result.error_code).toBe(MULTI_EDIT_ERROR_CODES.WRITE_FAILED);
@@ -313,11 +316,7 @@ describe("multiEditCommand — emit() gate_failures survivors (non-JSON human ou
 		const p = join(dir, "gate-human.txt");
 		writeFileSync(p, "before", "utf-8");
 		mockGate.mockImplementationOnce(() => []);
-		mockWrite.mockImplementationOnce(() => ({
-			ok: false,
-			failedPath: p,
-			message: "boom",
-		}));
+		mockWrite.mockImplementationOnce(() => { throw new Error("boom"); });
 		const manifest = join(dir, "human-manifest.json");
 		writeFileSync(
 			manifest,

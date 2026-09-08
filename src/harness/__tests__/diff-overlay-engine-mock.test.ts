@@ -4,35 +4,18 @@
 // `diff-overlay.test.ts` (biome) and `tsc-overlay.test.ts` (tsc).
 //
 // `getOrCreateEngine` is mocked so no subprocess ever runs here — every case
-// is deterministic and fast. `statSync` is selectively trapped (by exact
-// path) to exercise the tscCacheKey race-condition fallback without
-// disturbing any other file's stat calls in the same run.
+// is deterministic and fast.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
+import type { BiomeOverlayOutcome } from "../check-engine/tool-runners/biome.js";
 import type { CheckResult } from "../check-engine/types.js";
 
-let statTrapPath: string | null = null;
-
-vi.mock("node:fs", async () => {
-	const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
-	return {
-		...actual,
-		statSync: (...args: Parameters<typeof actual.statSync>) => {
-			if (statTrapPath !== null && args[0] === statTrapPath) {
-				throw new Error("stat trap for coverage");
-			}
-			return actual.statSync(...args);
-		},
-	};
-});
-
 const mockEngine = {
-	getDiagnostics: vi.fn<(filePath: string) => CheckResult[]>(),
-	getBiomeDiagnosticsForOverlay: vi.fn<
-		(filePath: string, content: string, timeoutMs?: number) => CheckResult[]
+	getBiomeDiagnosticsForOverlayTyped: vi.fn<
+		(filePath: string, content: string, timeoutMs?: number) => BiomeOverlayOutcome
 	>(),
 	getTscDiagnosticsForOverlay: vi.fn<
 		(
@@ -76,36 +59,27 @@ afterAll(() => {
 });
 
 function resetEngineMocks(): void {
-	mockEngine.getDiagnostics.mockReset();
-	mockEngine.getBiomeDiagnosticsForOverlay.mockReset();
+	mockEngine.getBiomeDiagnosticsForOverlayTyped.mockReset();
 	mockEngine.getTscDiagnosticsForOverlay.mockReset();
 	mockEngine.clearCache.mockReset();
-	statTrapPath = null;
 }
 
 describe("evaluateBiomeDiffOverlay — unreadable file", () => {
-	it("returns empty when the target cannot be read as text (e.g. a directory)", () => {
+	it("reports unavailable when the target cannot be read as text (e.g. a directory)", () => {
 		resetEngineMocks();
 		const dirPath = join(TMP_ROOT, "biome-not-a-file.ts");
 		mkdirSync(dirPath);
-		// Non-empty and mixed-tool so the pre-edit `.filter((r) => r.tool ===
-		// "biome")` callback actually runs (both a match and a non-match) rather
-		// than short-circuiting on an empty array.
-		mockEngine.getDiagnostics.mockReturnValue([
-			{ tool: "biome", severity: "warning", file: "x.ts", line: 1, message: "pre-existing" },
-			{ tool: "tsc", severity: "error", file: "x.ts", line: 2, message: "unrelated tool" },
-		]);
 		const result = evaluateBiomeDiffOverlay(dirPath, "content", TMP_ROOT);
 		expect(result).toEqual({
 			newFindings: [], proposedFindings: null, elapsedMs: 0, exceededBudget: false,
 			checkerUnavailable: "Biome baseline could not be read",
 		});
-		expect(mockEngine.getBiomeDiagnosticsForOverlay).not.toHaveBeenCalled();
+		expect(mockEngine.getBiomeDiagnosticsForOverlayTyped).not.toHaveBeenCalled();
 	});
 });
 
 describe("evaluateTscDiffOverlay — unreadable file", () => {
-	it("returns empty when the target cannot be read as text (e.g. a directory)", () => {
+	it("reports unavailable when the target cannot be read as text (e.g. a directory)", () => {
 		resetEngineMocks();
 		const dirPath = join(TMP_ROOT, "tsc-not-a-file.ts");
 		mkdirSync(dirPath);
@@ -115,29 +89,48 @@ describe("evaluateTscDiffOverlay — unreadable file", () => {
 			proposedFindings: null,
 			elapsedMs: 0,
 			exceededBudget: false,
+			checkerUnavailable: "TypeScript baseline could not be read",
 		});
 		expect(mockEngine.getTscDiagnosticsForOverlay).not.toHaveBeenCalled();
 	});
 });
 
-describe("evaluateTscDiffOverlay — tscCacheKey stat race", () => {
-	it("falls back to a stable cache key and still runs the overlay when statSync fails post-read", () => {
+// Session review r6 (2026-09-06), finding 1: the disk baseline was cached by
+// the file's path and mtime, but a DEPENDENCY can change this file's disk
+// diagnostics without touching either. After a repair landed, reintroducing
+// the same error read as pre-existing. The baseline is now recomputed on every
+// evaluation, so it always describes the current pre-change tree.
+describe("evaluateTscDiffOverlay — the disk baseline follows the dependencies (review r6, finding 1)", () => {
+	it("P1: repair-then-regress in one process — the reintroduced error is NEW once the disk baseline is clean", () => {
 		resetEngineMocks();
-		const filePath = join(TMP_ROOT, "stat-race.ts");
-		writeFileSync(filePath, "old content");
-		statTrapPath = filePath;
-		mockEngine.getTscDiagnosticsForOverlay.mockReturnValue([]);
-		const result = evaluateTscDiffOverlay(filePath, "new content", TMP_ROOT);
-		statTrapPath = null;
-		expect(result.newFindings).toEqual([]);
-		expect(mockEngine.getTscDiagnosticsForOverlay).toHaveBeenCalledTimes(2);
+		const filePath = join(TMP_ROOT, "r6-consumer.ts");
+		const disk = 'import { value } from "./value.js";\nexport const count: number = value;\n';
+		writeFileSync(filePath, disk);
+		const ts2322: CheckResult = {
+			tool: "tsc",
+			ruleId: "TS2322",
+			severity: "error",
+			file: filePath,
+			line: 2,
+			message: "Type 'string' is not assignable to type 'number'.",
+		};
+		// Before the repair the disk program already has the error, and the
+		// proposal (a changed sibling) still shows it: pre-existing, nothing new.
+		let diskDiagnostics: CheckResult[] = [ts2322];
+		mockEngine.getTscDiagnosticsForOverlay.mockImplementation((_file, _content, siblings) =>
+			siblings === undefined ? diskDiagnostics : [ts2322],
+		);
+		const siblings = [{ filePath: join(TMP_ROOT, "value.ts"), content: 'export const value = "changed";\n' }];
+		expect(evaluateTscDiffOverlay(filePath, disk, TMP_ROOT, siblings).newFindings).toEqual([]);
+		// The dependency is repaired on disk; this file's bytes and mtime are untouched.
+		diskDiagnostics = [];
+		const regress = evaluateTscDiffOverlay(filePath, disk, TMP_ROOT, siblings);
+		expect(regress.newFindings.map((f) => f.ruleId)).toEqual(["TS2322"]);
 	});
-});
 
-describe("evaluateTscDiffOverlay — independent baselines", () => {
-	it("runs the disk baseline and overlay against each proposed content", () => {
+	it("N1: every evaluation runs its own baseline — two evaluations are two baseline runs and two overlay runs", () => {
 		resetEngineMocks();
-		const filePath = join(TMP_ROOT, "baseline-content.ts");
+		const filePath = join(TMP_ROOT, "r6-baseline-count.ts");
 		writeFileSync(filePath, "old content");
 		mockEngine.getTscDiagnosticsForOverlay.mockReturnValue([]);
 		expect(evaluateTscDiffOverlay(filePath, "new content", TMP_ROOT).newFindings).toEqual([]);
@@ -153,6 +146,22 @@ describe("evaluateTscDiffOverlay — independent baselines", () => {
 });
 
 describe("evaluateTscDiffOverlay — diagKey identity across tool/ruleId/message shapes", () => {
+	it("reports a second occurrence of an existing TypeScript diagnostic", () => {
+		resetEngineMocks();
+		const filePath = join(TMP_ROOT, "duplicate-diagnostic.ts");
+		writeFileSync(filePath, "old content");
+		const before: CheckResult = {
+			tool: "tsc", ruleId: "TS2322", file: filePath, line: 1, severity: "error",
+			message: "Type 'string' is not assignable to type 'number'.",
+		};
+		const moved = { ...before, line: 3 };
+		const introduced = { ...before, line: 4 };
+		mockEngine.getTscDiagnosticsForOverlay
+			.mockReturnValueOnce([before])
+			.mockReturnValueOnce([moved, introduced]);
+		expect(evaluateTscDiffOverlay(filePath, "new content", TMP_ROOT).newFindings).toEqual([introduced]);
+	});
+
 	it("diffs tsc and non-tsc findings with and without ruleId/message present", () => {
 		resetEngineMocks();
 		const filePath = join(TMP_ROOT, "diag-key.ts");
@@ -210,5 +219,46 @@ describe("_isJsTsExt", () => {
 
 	it("is false for a non-JS/TS extension", () => {
 		expect(_isJsTsExt("/a/b/c.py")).toBe(false);
+	});
+});
+
+// Session review r5 (2026-09-06), finding 2: the unchanged-text shortcut
+// returned before the engine ran whenever the target's proposed bytes equalled
+// its disk bytes — even when the batch overlaid CHANGED siblings the target
+// depends on. The shortcut now holds only while nothing around the target
+// changed either.
+describe("evaluateTscDiffOverlay — an unchanged target beside proposed siblings (review r5, finding 2)", () => {
+	const CONSUMER = 'import { value } from "./value.js";\nexport const count: number = value;\n';
+
+	function unchangedTarget(name: string): string {
+		const dir = join(TMP_ROOT, name);
+		mkdirSync(dir, { recursive: true });
+		const target = join(dir, "consumer.ts");
+		writeFileSync(target, CONSUMER);
+		return target;
+	}
+
+	function ts2322(file: string): CheckResult {
+		return { tool: "tsc", ruleId: "TS2322", severity: "error", file, line: 2, message: "Type 'string' is not assignable to type 'number'." };
+	}
+
+	it("P1: runs the overlay WITH the siblings and reports the finding the changed sibling introduces", () => {
+		resetEngineMocks();
+		const target = unchangedTarget("r5-sibling-changed");
+		mockEngine.getTscDiagnosticsForOverlay.mockImplementation((file, _content, siblings) =>
+			siblings !== undefined && siblings.length > 0 ? [ts2322(file)] : [],
+		);
+		const siblings = [{ filePath: join(dirname(target), "value.ts"), content: 'export const value = "changed";\n' }];
+		const result = evaluateTscDiffOverlay(target, readFileSync(target, "utf-8"), TMP_ROOT, siblings);
+		expect(result.newFindings.map((f) => f.ruleId)).toEqual(["TS2322"]);
+		expect(mockEngine.getTscDiagnosticsForOverlay).toHaveBeenLastCalledWith(target, CONSUMER, siblings);
+	});
+
+	it("N1: keeps the shortcut — the engine never runs — when no sibling is proposed", () => {
+		resetEngineMocks();
+		const target = unchangedTarget("r5-no-siblings");
+		const result = evaluateTscDiffOverlay(target, readFileSync(target, "utf-8"), TMP_ROOT);
+		expect(result.newFindings).toEqual([]);
+		expect(mockEngine.getTscDiagnosticsForOverlay).not.toHaveBeenCalled();
 	});
 });

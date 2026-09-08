@@ -4,7 +4,7 @@
 // Single source of truth for running external checks.
 // Two modes: "project" (batch scan) and "file" (incremental).
 
-import { extname } from "node:path";
+import { extname, relative } from "node:path";
 import { discoverSingleTool, discoverTools, formatToolReport } from "./discovery.js";
 import {
 	clearCheckEngineDiagnosticCache,
@@ -20,7 +20,7 @@ import {
 	toolRunnerFor,
 } from "./index-runtime.js";
 import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
-import { runBiomeOverlay } from "./tool-runners/biome.js";
+import { type BiomeOverlayOutcome, runBiomeOverlay, runBiomeOverlayTyped } from "./tool-runners/biome.js";
 import { runDepAudit } from "./tool-runners/generic.js";
 import {
 	clearTscOverlayCache,
@@ -360,6 +360,22 @@ export class CheckEngine {
 			? filePath.slice(this.projectRoot.length).replace(/^\/+/, "")
 			: filePath;
 		return results.filter((r) => r.file === rel || r.file === filePath);
+	}
+
+	/** Gate-facing API: configuration absence is skipped; execution failure is unavailable. */
+	getBiomeDiagnosticsForOverlayTyped(
+		filePath: string,
+		content: string,
+		timeoutMs = 500,
+	): BiomeOverlayOutcome {
+		const outcome = runBiomeOverlayTyped({ projectRoot: this.projectRoot, filePath, content, timeoutMs });
+		if (outcome.status !== "ok") return outcome;
+		const rel = relative(this.projectRoot, filePath);
+		const findings = outcome.findings.filter((r) => r.file === rel || r.file === filePath);
+		if (outcome.findings.length > 0 && findings.length === 0) {
+			return { status: "unavailable", reason: "Biome diagnostics could not be attributed to the proposed file" };
+		}
+		return { status: "ok", findings };
 	}
 
 	/**

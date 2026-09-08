@@ -15,10 +15,9 @@ import { parseWire, wireLiteral, wireObject, wireRecord, wireString, wireUnknown
 //   - `emit` — every JSON field-omission fork and every human-readable fork
 //     (no-op success, n-file success + path loop, failure with/without
 //     error_detail edit_index, failure with gate_failures).
-//   - `runMultiEdit` GATE_REJECTED + WRITE_FAILED paths, plus the
-//     transactional `atomicBatchWrite` rollback matrix — all reached through
-//     the public `runMultiEdit` entry (atomicBatchWrite is file-private) by
-//     driving a two-file batch whose second write throws.
+//   - `runMultiEdit` GATE_REJECTED + WRITE_FAILED paths and shared-transaction
+//     failure propagation. Real rollback mechanics are covered by the
+//     shared transaction tests and command filesystem integration suite.
 //   - `gateProposedContentInline` failure-mapping: biome + tsc findings,
 //     ruleId present vs absent (`?? "biome"` / `?? "tsc"`), and the
 //     projectRoot resolution chain (opts → findProjectRoot → cwd).
@@ -68,6 +67,11 @@ vi.mock("../harness/quality-checks/project-root.js", () => ({
 	findProjectRoot: vi.fn(),
 }));
 
+vi.mock("../lib/gated-file-transaction.js", () => ({
+	captureGatedWriteBaseline: vi.fn(() => ({ id: "test-transaction", repoRoot: "/repo", writes: [] })),
+	commitGatedWrites: vi.fn(),
+}));
+
 // ── formatter: identity color helpers so `.toContain` assertions match the
 //    literal text regardless of the runner's TTY/NO_COLOR state. ───────────────
 vi.mock("../lib/formatter.js", () => ({
@@ -84,6 +88,7 @@ import type { DiffOverlayResult } from "../harness/diff-overlay.js";
 import { evaluateBiomeDiffOverlay, evaluateTscDiffOverlay } from "../harness/diff-overlay.js";
 import { findProjectRoot } from "../harness/quality-checks/project-root.js";
 import { nonNull } from "../lib/non-null.js";
+import { captureGatedWriteBaseline, commitGatedWrites } from "../lib/gated-file-transaction.js";
 import {
 	countOccurrences,
 	type EditBatch,
@@ -104,6 +109,8 @@ const mockUnlinkSync = vi.mocked(unlinkSync);
 const mockBiome = vi.mocked(evaluateBiomeDiffOverlay);
 const mockTsc = vi.mocked(evaluateTscDiffOverlay);
 const mockFindProjectRoot = vi.mocked(findProjectRoot);
+const mockCommit = vi.mocked(commitGatedWrites);
+const mockCapture = vi.mocked(captureGatedWriteBaseline);
 
 // ───────────────────────────────────────────────
 // Builders + harnesses
@@ -192,6 +199,7 @@ beforeEach(() => {
 	mockWriteFileSync.mockReturnValue(undefined);
 	mockRenameSync.mockReturnValue(undefined);
 	mockUnlinkSync.mockReturnValue(undefined);
+	mockCommit.mockReset();
 	mockExistsSync.mockReturnValue(false);
 
 	// Gate passes by default (both overlays clean).
@@ -472,16 +480,10 @@ describe("runMultiEdit (mocked gate + fs)", () => {
 		const result = runMultiEdit(simpleBatch("/repo/a.ts"));
 		expect(result.ok).toBe(true);
 		expect(result.file_changes_applied).toEqual(["/repo/a.ts"]);
-		// temp + rename, no rollback.
-		expect(mockWriteFileSync).toHaveBeenCalledWith(
-			"/repo/a.ts.interlinked-multi-edit.tmp",
-			"const x = 2;\n",
-			"utf-8",
-		);
-		expect(mockRenameSync).toHaveBeenCalledWith(
-			"/repo/a.ts.interlinked-multi-edit.tmp",
-			"/repo/a.ts",
-		);
+		expect(mockCapture).toHaveBeenCalledWith(process.cwd(), [
+			{ path: "/repo/a.ts", content: "const x = 2;\n", expectedContent: "const original = 1;\n" },
+		]);
+		expect(mockCommit).toHaveBeenCalledWith(mockCapture.mock.results[0]?.value);
 	});
 
 	it("forwards opts.projectRoot to the gate", () => {
@@ -512,7 +514,7 @@ describe("runMultiEdit (mocked gate + fs)", () => {
 	});
 
 	it("returns WRITE_FAILED when the single-file atomic write throws (Error message arm)", () => {
-		mockRenameSync.mockImplementation(() => {
+		mockCommit.mockImplementationOnce(() => {
 			throw new Error("EACCES: permission denied");
 		});
 		const result = runMultiEdit(simpleBatch("/repo/a.ts"));
@@ -567,120 +569,52 @@ describe("runMultiEdit (mocked gate + fs)", () => {
 		expect(mockBiome).not.toHaveBeenCalled();
 		expect(mockWriteFileSync).not.toHaveBeenCalled();
 	});
+
+	it("validates an UNCHANGED manifest member against its changed siblings but does not write it (review r5, finding 2)", () => {
+		mockReadFileSync.mockReturnValue('const v = "alpha";\n');
+		const result = runMultiEdit([
+			{ path: "/repo/a.ts", edits: [{ old_string: '"alpha"', new_string: '"beta"' }] },
+			{
+				path: "/repo/b.ts",
+				edits: [
+					{ old_string: '"alpha"', new_string: '"gamma"' },
+					{ old_string: '"gamma"', new_string: '"alpha"' },
+				],
+			},
+		]);
+		expect(result.ok).toBe(true);
+		// Only the changed member is written …
+		expect(result.file_changes_applied).toEqual(["/repo/a.ts"]);
+		expect(mockCapture.mock.calls[0]?.[1]).toHaveLength(2);
+		expect(mockCommit).toHaveBeenCalledWith(mockCapture.mock.results[0]?.value);
+		// … but the gate judged BOTH members (one overlay pass per entry).
+		expect(mockBiome.mock.calls.map((call) => call[0])).toEqual(["/repo/a.ts", "/repo/b.ts"]);
+	});
 });
 
 // ───────────────────────────────────────────────
 // atomicBatchWrite rollback — reached through runMultiEdit's two-file path
 // ───────────────────────────────────────────────
-// atomicBatchWrite is file-private, so the rollback matrix is driven through
-// the public runMultiEdit entry: a two-file batch whose SECOND rename throws
-// forces the first file to roll back. Each test isolates one catch arm.
+// Real staging/rollback behavior lives in gated-file-transaction.test.ts;
+// this command boundary preserves the transaction failure for its caller.
 
-describe("atomicBatchWrite rollback (via runMultiEdit two-file batch)", () => {
-	it("rolls back the already-written first file and cleans the failed tmp", () => {
-		let renameCalls = 0;
-		mockRenameSync.mockImplementation(() => {
-			renameCalls += 1;
-			if (renameCalls === 2) throw new Error("disk full");
-		});
-		mockExistsSync.mockReturnValue(true); // tmp exists → unlinkSync runs.
-
-		const result = runMultiEdit(twoFileBatch());
-		expect(result.ok).toBe(false);
-		expect(result.error_code).toBe(MULTI_EDIT_ERROR_CODES.WRITE_FAILED);
-		expect(result.error_detail?.path).toBe("/repo/b.ts");
-		expect(result.error_detail?.message).toContain("disk full");
-
-		// Cleaned the failed file's tmp.
-		expect(mockUnlinkSync).toHaveBeenCalledWith("/repo/b.ts.interlinked-multi-edit.tmp");
-		// Rolled the first file back to its prior on-disk content.
-		expect(mockWriteFileSync).toHaveBeenCalledWith("/repo/a.ts", "const original = 1;\n", "utf-8");
-	});
-
-	it("stringifies a non-Error write rejection (String(err) arm)", () => {
-		mockRenameSync.mockImplementation(() => {
-			throw "plain string failure";
-		});
-		const result = runMultiEdit(simpleBatch("/repo/a.ts"));
-		expect(result.ok).toBe(false);
-		expect(result.error_code).toBe(MULTI_EDIT_ERROR_CODES.WRITE_FAILED);
-		expect(result.error_detail?.message).toBe("plain string failure");
-	});
-
-	it("logs a warning when the failed tmp cleanup itself throws (Error arm)", () => {
-		mockRenameSync.mockImplementation(() => {
-			throw new Error("rename boom");
-		});
-		mockExistsSync.mockReturnValue(true);
-		mockUnlinkSync.mockImplementation(() => {
-			throw new Error("unlink boom");
-		});
-		const result = runMultiEdit(simpleBatch("/repo/a.ts"));
-		expect(result.ok).toBe(false);
-		expect(loggedErr()).toContain("failed to clean up");
-		expect(loggedErr()).toContain("unlink boom");
-	});
-
-	it("stringifies a non-Error tmp-cleanup rejection (String(cleanupErr) arm)", () => {
-		mockRenameSync.mockImplementation(() => {
-			throw new Error("rename boom");
-		});
-		mockExistsSync.mockReturnValue(true);
-		mockUnlinkSync.mockImplementation(() => {
-			throw "cleanup-as-string";
-		});
-		const result = runMultiEdit(simpleBatch("/repo/a.ts"));
-		expect(result.ok).toBe(false);
-		expect(loggedErr()).toContain("cleanup-as-string");
-	});
-
-	it("logs CRITICAL when rolling the first file back also throws (Error arm)", () => {
-		let renameCalls = 0;
-		mockRenameSync.mockImplementation(() => {
-			renameCalls += 1;
-			if (renameCalls === 2) throw new Error("second write failed");
-		});
-		mockWriteFileSync.mockImplementation((p) => {
-			// Temp writes (path ends .tmp) succeed; the rollback restore writes
-			// the real .ts path directly → throw to hit the CRITICAL arm.
-			if (String(p).endsWith(".ts")) throw new Error("rollback failed");
-			return undefined;
-		});
-		const result = runMultiEdit(twoFileBatch());
-		expect(result.ok).toBe(false);
-		expect(loggedErr()).toContain("CRITICAL");
-		expect(loggedErr()).toContain("rollback failed");
-	});
-
-	it("stringifies a non-Error rollback rejection (String(rollbackErr) arm)", () => {
-		let renameCalls = 0;
-		mockRenameSync.mockImplementation(() => {
-			renameCalls += 1;
-			if (renameCalls === 2) throw new Error("second write failed");
-		});
-		mockWriteFileSync.mockImplementation((p) => {
-			if (String(p).endsWith(".ts")) throw "rollback-as-string";
-			return undefined;
-		});
-		const result = runMultiEdit(twoFileBatch());
-		expect(result.ok).toBe(false);
-		expect(loggedErr()).toContain("rollback-as-string");
-	});
-
-	it("does not clean tmp when it does not exist (existsSync false skips unlink)", () => {
-		mockRenameSync.mockImplementation(() => {
-			throw new Error("rename failed pre-tmp");
-		});
-		mockExistsSync.mockReturnValue(false); // tmp absent → unlink skipped.
-		const result = runMultiEdit(simpleBatch("/repo/a.ts"));
-		expect(result.ok).toBe(false);
-		expect(mockUnlinkSync).not.toHaveBeenCalled();
-	});
+describe("runMultiEdit transaction failures", () => {
+    it.each([new Error("transaction lock busy"), "write failed", new Error("guarded rollback incomplete: a.ts")])("retains the transaction failure in the command result: %s", (error) => {
+        mockCommit.mockImplementationOnce(() => { throw error; });
+        const result = runMultiEdit(twoFileBatch());
+        expect(result.ok).toBe(false);
+        expect(result.error_code).toBe(MULTI_EDIT_ERROR_CODES.WRITE_FAILED);
+        expect(result.error_detail?.message).toBe(error instanceof Error ? error.message : error);
+    });
+    it("refuses to verify an edit whose snapshot could not be captured", () => {
+        mockCapture.mockImplementationOnce(() => { throw new Error("concurrent edit"); });
+        const result = runMultiEdit(simpleBatch("/repo/a.ts"));
+        expect(result.ok).toBe(false);
+        expect(result.error_detail?.message).toBe("concurrent edit");
+        expect(mockBiome).not.toHaveBeenCalled();
+        expect(mockCommit).not.toHaveBeenCalled();
+    });
 });
-
-// ───────────────────────────────────────────────
-// multiEditCommand — input-mode + parse branches
-// ───────────────────────────────────────────────
 
 describe("multiEditCommand input modes", () => {
 	it("rejects when both --stdin and --manifest are passed (mutex), echoing the path", async () => {

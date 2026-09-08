@@ -388,7 +388,6 @@ function generateCliReference(): string {
 		"git",
 	];
 
-
 	for (const cmd of commandNames) {
 		const cmdHelp = getHelpOutput([cmd]);
 		if (!cmdHelp) continue;

@@ -22,7 +22,7 @@ import { isOverlayParams } from "./tsc-overlay-wire.js";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import type { SidecarOverlayRequest, SidecarOverlayResponse } from "./tsc-overlay-protocol.js";
-import { runOverlayCheckInProcess } from "./tsc-overlay-service.js";
+import { runOverlayCheckInProcessTyped } from "./tsc-overlay-service.js";
 
 /** Parse the raw stdin text into a request, or null if it isn't one. Kept
  *  permissive — a malformed request degrades to an error response, not a
@@ -48,8 +48,10 @@ function parseRequest(raw: string): SidecarOverlayRequest | null {
  *  throw always degrades to `{id, error}` instead of a nonzero exit. */
 function handleOne(req: SidecarOverlayRequest): SidecarOverlayResponse {
 	try {
-		const result = runOverlayCheckInProcess(req.params);
-		return { id: req.id, result };
+		const run = runOverlayCheckInProcessTyped(req.params);
+		return run.status === "ok"
+			? { id: req.id, result: run.findings }
+			: { id: req.id, result: [], notMeasured: run.reason };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		return { id: req.id, error: `sidecar: ${message}` };

@@ -120,4 +120,49 @@ describe("tsc-overlay-sidecar-main — real process round trip", () => {
 		},
 		30_000,
 	);
+
+	// kind: public-api — positive (must fire)
+	it(
+		"P2: an EMPTY configured project measures its first proposed source through the real process (review r7, finding 1)",
+		() => {
+			const dir = project({});
+			const res = runSidecarOnce({
+				id: 3,
+				method: "overlayCheck",
+				protocolVersion: 1,
+				params: {
+					projectRoot: dir,
+					filePath: join(dir, "widget.ts"),
+					content: 'export const count: number = "wrong";\n',
+				},
+			});
+			expect(isSidecarErrorResponse(res)).toBe(false);
+			const result = isSidecarErrorResponse(res) ? [] : res.result;
+			expect(result.some((r) => r.ruleId === "TS2322")).toBe(true);
+		},
+		30_000,
+	);
+
+	// kind: public-api — negative (must not fire as an error)
+	it(
+		"N2: a file no project claims comes back as an ok-shaped reply carrying notMeasured, never an error (review r6, finding 2)",
+		() => {
+			const dir = project({ "a.ts": "export const x = 1;\n" });
+			mkdirSync(join(dir, "lib"), { recursive: true });
+			const res = runSidecarOnce({
+				id: 4,
+				method: "overlayCheck",
+				protocolVersion: 1,
+				params: {
+					projectRoot: dir,
+					filePath: join(dir, "lib", "orphan.ts"),
+					content: "export const orphan: number = 1;\n",
+				},
+			});
+			expect(isSidecarErrorResponse(res)).toBe(false);
+			expect(isSidecarErrorResponse(res) ? undefined : res.notMeasured).toContain("project_orphan");
+			expect(res.id).toBe(4);
+		},
+		30_000,
+	);
 });

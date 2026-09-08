@@ -7,9 +7,10 @@
 // the proposed content so the evaluator can block the write with a targeted
 // reason.
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { extname } from "node:path";
 import { getOrCreateEngine } from "./check-engine/index.js";
+import type { BiomeOverlayOutcome } from "./check-engine/tool-runners/biome.js";
 import type { CheckResult } from "./check-engine/types.js";
 
 const JS_TS_EXT = /\.(tsx?|jsx?|mjs|cjs)$/;
@@ -46,6 +47,7 @@ export interface DiffOverlayResult {
 
 /** GateFailure `code` used by consumers when `checkerUnavailable` is set. */
 export const TSC_CHECKER_UNAVAILABLE_CODE = "tsc-overlay-unavailable";
+export const BIOME_CHECKER_UNAVAILABLE_CODE = "biome-overlay-unavailable";
 
 /**
  * The live PreToolUse hook's honest-unavailability warning (Grok 2026-08-28
@@ -109,46 +111,59 @@ export function evaluateBiomeDiffOverlay(
 ): DiffOverlayResult {
 	const empty: DiffOverlayResult = {
 		newFindings: [],
+		proposedFindings: null,
 		elapsedMs: 0,
 		exceededBudget: false,
 	};
 
 	if (!JS_TS_EXT.test(filePath)) return empty;
 
+	const snapshot = diskSnapshotOf(filePath);
+	if (snapshot === undefined) return { ...empty, checkerUnavailable: "Biome baseline could not be read" };
+	if (unchangedInContext(snapshot, proposedContent, undefined)) return empty;
 	const engine = getOrCreateEngine(projectRoot);
-
-	// Confirm an existing path is readable text before asking the engine for its
-	// cached diagnostics. Directories and transiently unreadable files are not
-	// valid overlay targets and must short-circuit without touching the cache.
-	const existsOnDisk = existsSync(filePath);
-	if (existsOnDisk) {
-		let onDisk = "";
-		try {
-			onDisk = readFileSync(filePath, "utf-8");
-		} catch {
-			return empty;
-		}
-		if (onDisk === proposedContent) return empty;
-	}
-
-	// A new file has an empty baseline, so every proposed diagnostic is new.
-	const preEdit = existsOnDisk
-		? engine.getCachedDiagnostics(filePath).filter((r) => r.tool === "biome")
-		: [];
-
 	const start = Date.now();
-	const overlay = engine.getBiomeDiagnosticsForOverlay(
+	// Both sides use the same analyzer; a cache miss is not a clean baseline.
+	const baseline: BiomeOverlayOutcome = snapshot.existsOnDisk
+		? engine.getBiomeDiagnosticsForOverlayTyped(filePath, snapshot.onDisk, BIOME_BUDGET_MS)
+		: { status: "ok", findings: [] };
+	if (baseline.status !== "ok") return biomeOverlayResult(baseline, [], start);
+	const overlay = engine.getBiomeDiagnosticsForOverlayTyped(
 		filePath,
 		proposedContent,
 		BIOME_BUDGET_MS,
 	);
+	return biomeOverlayResult(overlay, baseline.findings, start);
+}
+
+/** Each old occurrence pays for exactly one proposed occurrence. */
+function introducedDiagnostics(proposed: CheckResult[], baseline: CheckResult[]): CheckResult[] {
+	const allowances = new Map<string, number>();
+	for (const finding of baseline) {
+		const key = diagKey(finding);
+		allowances.set(key, (allowances.get(key) ?? 0) + 1);
+	}
+	return proposed.filter((finding) => {
+		const key = diagKey(finding);
+		const remaining = allowances.get(key) ?? 0;
+		if (remaining === 0) return true;
+		allowances.set(key, remaining - 1);
+		return false;
+	});
+}
+
+function biomeOverlayResult(outcome: BiomeOverlayOutcome, baseline: CheckResult[], start: number): DiffOverlayResult {
 	const elapsedMs = Date.now() - start;
-	const exceededBudget = elapsedMs > BIOME_BUDGET_MS;
-
-	const preKeys = new Set(preEdit.map(diagKey));
-	const newFindings = overlay.filter((r) => !preKeys.has(diagKey(r)));
-
-	return { newFindings, elapsedMs, exceededBudget };
+	const timing = { elapsedMs, exceededBudget: elapsedMs > BIOME_BUDGET_MS };
+	if (outcome.status === "unavailable") {
+		return { ...timing, newFindings: [], proposedFindings: null, checkerUnavailable: outcome.reason };
+	}
+	if (outcome.status === "skipped") return { ...timing, newFindings: [], proposedFindings: null };
+	return {
+		...timing,
+		newFindings: introducedDiagnostics(outcome.findings, baseline),
+		proposedFindings: outcome.findings,
+	};
 }
 
 // -------------------------------------------
@@ -186,17 +201,6 @@ const TSC_WARN_ONLY_CODES = new Set([
 	"TS2304", // Cannot find name 'X'
 	"TS2305", // Module 'Y' has no exported member 'X'
 ]);
-
-/** Pre-edit LS-diagnostic cache keyed by `${filePath}:${mtimeMs}` */
-const preEditTscCache = new Map<string, CheckResult[]>();
-
-function tscCacheKey(filePath: string): string {
-	try {
-		return `${filePath}:${statSync(filePath).mtimeMs}`;
-	} catch {
-		return `${filePath}:missing`;
-	}
-}
 
 /**
  * Returns whether a new finding should block (true) or only warn (false).
@@ -242,30 +246,59 @@ type PreEditTscBaseline =
 	| { status: "unavailable"; reason: string };
 
 /**
- * Pre-edit snapshot via LS overlay against disk content. Cached so we
- * don't re-run for every edit to the same file.
+ * Pre-edit snapshot via LS overlay against disk content, recomputed on EVERY
+ * evaluation. It used to be cached by the file's path and mtime, but a
+ * dependency can change this file's disk diagnostics without touching either:
+ * once a repair landed, reintroducing the same error read as pre-existing
+ * (session review r6, finding 1). The baseline must describe the current
+ * pre-change tree; the LanguageService behind it is incremental, so the
+ * recomputation is cheap.
  */
 function preEditTscBaseline(
 	engine: ReturnType<typeof getOrCreateEngine>,
 	filePath: string,
 	onDisk: string,
-	cacheKey: string,
 ): PreEditTscBaseline {
-	const cached = preEditTscCache.get(cacheKey);
-	if (cached) return { status: "ok", findings: cached };
-
 	const preOutcome = engine.getTscDiagnosticsForOverlayTyped(filePath, onDisk);
 	if (preOutcome.status === "unavailable") {
-		// Never cache an unavailable run as "no diagnostics" — that would
-		// poison the baseline for the cooldown window. Report honestly.
 		return { status: "unavailable", reason: preOutcome.reason };
 	}
 	// "skipped" (non-TS file / mode off): nothing to diff — the check
 	// deliberately does not apply here, distinct from checked-clean.
 	if (preOutcome.status === "skipped") return { status: "skipped" };
-
-	preEditTscCache.set(cacheKey, preOutcome.findings);
 	return { status: "ok", findings: preOutcome.findings };
+}
+
+interface DiskSnapshot {
+	readonly existsOnDisk: boolean;
+	/** "" when the file is not on disk. */
+	readonly onDisk: string;
+}
+
+/** The target's disk bytes; undefined when it cannot be read as text (a
+ *  directory) — nothing to diff then. */
+function diskSnapshotOf(filePath: string): DiskSnapshot | undefined {
+	if (!existsSync(filePath)) return { existsOnDisk: false, onDisk: "" };
+	try {
+		return { existsOnDisk: true, onDisk: readFileSync(filePath, "utf-8") };
+	} catch {
+		return undefined;
+	}
+}
+
+/** The unchanged-text shortcut holds only while nothing AROUND the file
+ *  changed either: a sibling the batch proposes can break this file's types
+ *  with its own bytes untouched (session review r5, finding 2). */
+function unchangedInContext(
+	snapshot: DiskSnapshot,
+	proposedContent: string,
+	siblings: ReadonlyArray<unknown> | undefined,
+): boolean {
+	return (
+		snapshot.existsOnDisk &&
+		snapshot.onDisk === proposedContent &&
+		(siblings === undefined || siblings.length === 0)
+	);
 }
 
 /**
@@ -275,9 +308,12 @@ function preEditTscBaseline(
  * - Uses the TypeScript LanguageService (via tsc-overlay runner) for both
  *   the pre-edit and proposed snapshots to ensure identical diagnostic
  *   semantics on both sides of the diff.
- * - Caches the pre-edit result by `(filePath, mtime)` so unchanged files
- *   don't re-run semantic analysis on every overlay call.
+ * - Recomputes the pre-edit baseline on every evaluation: a dependency can
+ *   change this file's diagnostics without touching its bytes or mtime
+ *   (session review r6, finding 1).
  * - New-file Writes use an empty baseline, so proposed diagnostics are new.
+ * - An unchanged file beside CHANGED siblings is still judged, against them
+ *   (`unchangedInContext`).
  */
 export function evaluateTscDiffOverlay(
 	filePath: string,
@@ -292,25 +328,18 @@ export function evaluateTscDiffOverlay(
 		exceededBudget: false,
 	};
 
-	if (!TS_OVERLAY_EXT.test(filePath)) return empty;
+	if (!isTscOverlayTarget(filePath)) return empty;
 
-	let onDisk = "";
-	const existsOnDisk = existsSync(filePath);
-	if (existsOnDisk) {
-		try {
-			onDisk = readFileSync(filePath, "utf-8");
-		} catch {
-			return empty;
-		}
-		if (onDisk === proposedContent) return empty;
-	}
+	const snapshot = diskSnapshotOf(filePath);
+	if (snapshot === undefined) return { ...empty, checkerUnavailable: "TypeScript baseline could not be read" };
+	if (unchangedInContext(snapshot, proposedContent, siblings)) return empty;
+	const { existsOnDisk, onDisk } = snapshot;
 
 	const engine = getOrCreateEngine(projectRoot);
 
-	const cacheKey = tscCacheKey(filePath);
 	let preEdit: CheckResult[] = [];
 	if (existsOnDisk) {
-		const baseline = preEditTscBaseline(engine, filePath, onDisk, cacheKey);
+		const baseline = preEditTscBaseline(engine, filePath, onDisk);
 		if (baseline.status === "unavailable") {
 			return { ...empty, checkerUnavailable: baseline.reason };
 		}
@@ -348,8 +377,7 @@ export function evaluateTscDiffOverlay(
 	}
 	const overlay = overlayOutcome.findings;
 
-	const preKeys = new Set(preEdit.map(diagKey));
-	const newFindings = overlay.filter((r) => !preKeys.has(diagKey(r)));
+	const newFindings = introducedDiagnostics(overlay, preEdit);
 
 	// TDD red-step tolerance: if the proposed content references a sibling
 	// module that doesn't resolve yet (a test written before its impl), every
@@ -370,6 +398,13 @@ export function _resetEngineCacheForTest(): void {
 	// Helpful for unit tests that rebuild file state between cases.
 	const eng = getOrCreateEngine(process.cwd());
 	eng.clearCache();
+}
+
+/** The files the tsc overlay judges at all: TypeScript sources. JavaScript and
+ *  everything else are outside it, so a "not type-checked" disclosure about
+ *  them would describe a check that never applies. */
+export function isTscOverlayTarget(filePath: string): boolean {
+	return TS_OVERLAY_EXT.test(filePath);
 }
 
 /** Exported for tests — strip extension check, used internally. */

@@ -114,6 +114,20 @@ describe("parseNpmAuditJson", () => {
 			metadata: { vulnerabilities: { critical: 0, high: "5", moderate: "3", low: "1" } },
 		});
 		expect(parseNpmAuditJson(payload)).toBeNull();
+		// Distinguish from a stub that always returns null: genuinely numeric
+		// vulnerabilities must produce a real, fully-populated result.
+		const validPayload = JSON.stringify({
+			metadata: { vulnerabilities: { critical: 0, high: 5, moderate: 3, low: 1 } },
+		});
+		expect(parseNpmAuditJson(validPayload)).toEqual({
+			tool: "npm audit",
+			total: 9,
+			critical: 0,
+			high: 5,
+			moderate: 3,
+			low: 1,
+			detail: "5 high, 3 moderate, 1 low",
+		});
 	});
 });
 

@@ -21,17 +21,23 @@
 //     the CLI path and the hook path stay in sync.
 
 import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { nonNull } from "../lib/non-null.js";
 import type { CheckResult } from "./check-engine/types.js";
 import { buildAgentSafetyChecks, buildCheckInstructions } from "./check-registry/index.js";
+import { withProposedFiles } from "./checks/proposed-files.js";
+import { configGraphFor } from "./config-graph.js";
 import {
+	BIOME_CHECKER_UNAVAILABLE_CODE,
 	evaluateBiomeDiffOverlay,
 	evaluateTscDiffOverlay,
 	isTscFindingBlocking,
+	isTscOverlayTarget,
 	TSC_CHECKER_UNAVAILABLE_CODE,
 } from "./diff-overlay.js";
 import {
 	lineList,
+	preBlockNotMeasuredWarnings,
 	resolveDiskBaseline,
 	runPreBlockRegistryGate,
 	suppressionHint,
@@ -127,6 +133,43 @@ interface GatePhaseContext {
 	content: string;
 	projectRoot: string;
 	failures: GateFailure[];
+	/** Every OTHER entry of the batch whose bytes differ from the disk, overlaid
+	 *  for the type checker so a cross-file reference resolves against the
+	 *  proposed tree (review r4, finding 1: the sibling a batch creates was
+	 *  invisible to tsc). A non-empty list also means an UNCHANGED entry must
+	 *  be re-checked — its types can break with its own bytes untouched
+	 *  (review r5, finding 2). */
+	siblings: ReadonlyArray<{ filePath: string; content: string }>;
+	/** The batch entry that rewrites the configuration this file is checked
+	 *  under, if any. The type checker judges the DISK's configuration, so a
+	 *  source file in such a batch is NOT type-checked under the proposed one —
+	 *  disclosed, never reported clean (review r4, finding 2; review r5,
+	 *  finding 1 for an `extends` target of any name). */
+	configRewrite: string | null;
+}
+
+/** `tsconfig*.json`, `jsconfig.json` and `package.json` decide how the type
+ *  checker reads every source file beside them — the conservative filename
+ *  floor. The project's actual configuration graph (`configGraphFor`) decides
+ *  the rest: an `extends` target is a configuration whatever it is called. */
+const CONFIG_BASENAME = /^(?:tsconfig[^/\\]*\.json|jsconfig\.json|package\.json)$/;
+
+function isConfigPath(path: string): boolean {
+	return CONFIG_BASENAME.test(path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1));
+}
+
+/** The CHANGED batch member that rewrites the configuration `path` is checked
+ *  under: a config-named member (the conservative filename floor), else a
+ *  member on the file's configuration graph — the tsconfig that governs `path`
+ *  and its `extends` closure (review r5, finding 1: a rewritten `base.json` is
+ *  a rewritten config). A member whose bytes equal the disk rewrites nothing
+ *  (review r6, finding 3), so only the members that differ are candidates. */
+function configRewriteFor(path: string, changedOthers: readonly GateInputEntry[], projectRoot: string): string | null {
+	const named = changedOthers.find((entry) => isConfigPath(entry.path));
+	if (named !== undefined) return named.path;
+	if (changedOthers.length === 0) return null;
+	const graph = new Set(configGraphFor(path, projectRoot));
+	return changedOthers.find((entry) => graph.has(resolve(entry.path)))?.path ?? null;
 }
 
 /**
@@ -169,12 +212,36 @@ function applyPreBlockPhase(ctx: GatePhaseContext): void {
 			});
 		}
 	}
+	// A pre_block check that could NOT run reports itself here as a warning
+	// (line 0: it names no line, it names an absent measurement), so a clean
+	// batch result never silently means "unscanned".
+	for (const notMeasured of preBlockNotMeasuredWarnings(path)) {
+		failures.push({
+			path,
+			tool: "pre_block",
+			code: notMeasured.checkId,
+			line: 0,
+			message: notMeasured.message,
+			severity: "warning",
+		});
+	}
 }
 
 /** Phase 2: biome diff-overlay. New files use an empty diagnostic baseline. */
 function applyBiomeOverlayPhase(ctx: GatePhaseContext): void {
 	const { path, content, projectRoot, failures } = ctx;
 	const biomeOverlay = evaluateBiomeDiffOverlay(path, content, projectRoot);
+	if (biomeOverlay.checkerUnavailable !== undefined) {
+		failures.push({
+			path,
+			tool: "biome",
+			code: BIOME_CHECKER_UNAVAILABLE_CODE,
+			line: 0,
+			message: `Biome unavailable (${biomeOverlay.checkerUnavailable}) — this file was NOT CHECKED`,
+			severity: "error",
+		});
+		return;
+	}
 	for (const f of biomeOverlay.newFindings) {
 		failures.push({
 			path,
@@ -190,8 +257,24 @@ function applyBiomeOverlayPhase(ctx: GatePhaseContext): void {
 
 /** Phase 3: tsc diff-overlay. New files use an empty diagnostic baseline. */
 function applyTscOverlayPhase(ctx: GatePhaseContext, unavailableSeverity: GateSeverity): void {
-	const { path, content, projectRoot, failures } = ctx;
-	const tscOverlay = evaluateTscDiffOverlay(path, content, projectRoot);
+	const { path, content, projectRoot, failures, siblings, configRewrite } = ctx;
+	if (configRewrite !== null && isTscOverlayTarget(path)) {
+		// The checker runs against the DISK's configuration; a batch that
+		// rewrites any file of it changes how every source it governs is read.
+		// That is not clean — it is not measured.
+		failures.push({
+			path,
+			tool: "tsc",
+			code: TSC_CHECKER_UNAVAILABLE_CODE,
+			line: 0,
+			message:
+				`type checker cannot see the proposed configuration (${configRewrite} is rewritten by this batch) — ` +
+				"this file was NOT type-checked under it; land the configuration change first, then the sources",
+			severity: unavailableSeverity,
+		});
+		return;
+	}
+	const tscOverlay = evaluateTscDiffOverlay(path, content, projectRoot, siblings);
 	if (tscOverlay.checkerUnavailable !== undefined) {
 		failures.push({
 			path,
@@ -265,17 +348,38 @@ export function gateProposedContent(batch: GateInputEntry[], opts: GateOptions =
 	const skipPreWarn = opts.skipPreWarn !== false; // default true
 	const tscUnavailableSeverity = opts.tscUnavailableSeverity ?? GATE_SEVERITY_WARNING;
 
-	for (const { path, content } of batch) {
-		const projectRoot =
-			opts.projectRoot ?? findProjectRoot(path, process.cwd()) ?? process.cwd();
-		const instructions = buildCheckInstructions();
-		const ctx: GatePhaseContext = { path, content, projectRoot, failures };
+	// The WHOLE batch is the proposed tree while any of its files is judged:
+	// a sibling created two entries earlier must exist for a resolver, and a
+	// config the batch rewrites must govern the batch (session review r3,
+	// finding 3 — a valid exporter-first batch was refused as a self-import
+	// because resolution saw the old disk). The registry contract cannot carry
+	// the changeset, so it travels as the ambient proposed-files view for the
+	// duration of this synchronous loop.
+	const proposedView = new Map(batch.map((entry) => [entry.path, entry.content] as const));
+	// Only a member whose bytes differ from the disk changes the tree the type
+	// checker sees; the others are judged against exactly those (review r5,
+	// finding 2: an unchanged member submitted beside a changed exporter).
+	const changed = new Set(
+		batch.filter((entry) => readOnDiskOrUndefined(entry.path) !== entry.content).map((entry) => entry.path),
+	);
+	withProposedFiles(proposedView, () => {
+		for (const { path, content } of batch) {
+			const projectRoot =
+				opts.projectRoot ?? findProjectRoot(path, process.cwd()) ?? process.cwd();
+			const instructions = buildCheckInstructions();
+			// The other members that actually change the tree: the siblings the
+			// checker overlays, and the only candidates for a configuration rewrite.
+			const changedOthers = batch.filter((entry) => entry.path !== path && changed.has(entry.path));
+			const siblings = changedOthers.map((entry) => ({ filePath: entry.path, content: entry.content }));
+			const configRewrite = configRewriteFor(path, changedOthers, projectRoot);
+			const ctx: GatePhaseContext = { path, content, projectRoot, failures, siblings, configRewrite };
 
-		applyPreBlockPhase(ctx);
-		applyBiomeOverlayPhase(ctx);
-		applyTscOverlayPhase(ctx, tscUnavailableSeverity);
-		applyPreWarnPhase(ctx, instructions, skipPreWarn);
-	}
+			applyPreBlockPhase(ctx);
+			applyBiomeOverlayPhase(ctx);
+			applyTscOverlayPhase(ctx, tscUnavailableSeverity);
+			applyPreWarnPhase(ctx, instructions, skipPreWarn);
+		}
+	});
 
 	const elapsedMs = Date.now() - start;
 	const blocking = failures.some((f) => f.severity === GATE_SEVERITY_ERROR);

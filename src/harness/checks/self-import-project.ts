@@ -267,8 +267,7 @@ function verdictFromWalk(root: ProjectConfig, walk: Walk): OptionsResolution {
 /**
  * The compiler options governing `filePath`: the nearest config when it claims
  * the file itself; otherwise the ONE referenced project that does; the caller's
- * `defaults` when no config exists at all; the nearest config's options when it
- * has no references and does not claim the file (the only program there is).
+ * `defaults` when no config exists at all.
  * NOT MEASURED — never a guess — when a config on the walk is unparsable, two
  * projects claim the file, the walk hit its bound, or a solution's projects
  * leave the file unclaimed by root patterns.

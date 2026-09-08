@@ -21,7 +21,7 @@
 // synchronous, so a scoped stack is exact. Nothing here is async-safe and
 // nothing here needs to be.
 
-import { resolve as toAbsolutePath } from "node:path";
+import { dirname, resolve as toAbsolutePath } from "node:path";
 
 /** Absolute path → proposed bytes, or `null` for a deletion. */
 export type ProposedFilesView = ReadonlyMap<string, string | null>;
@@ -50,8 +50,8 @@ function frameFor(view: ProposedFilesView): Frame {
 		// Every ancestor of a written file exists once the batch lands.
 		let dir = absolute;
 		for (;;) {
-			const parent = dir.slice(0, dir.lastIndexOf("/"));
-			if (parent === "" || parent === dir) break;
+			const parent = dirname(dir);
+			if (parent === dir) break;
 			directories.add(parent);
 			dir = parent;
 		}

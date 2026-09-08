@@ -81,9 +81,8 @@ function caught(run: () => void): Error {
 	try {
 		run();
 	} catch (error) {
-		// SAFETY: every throw site in the module under test throws an Error
-		// subclass, and each caller asserts on `name`/`message` only.
-		return error as Error;
+		if (error instanceof Error) return error;
+		throw new Error("expected an Error from the gated transaction", { cause: error });
 	}
 	throw new Error("expected the gated transaction to fail");
 }
@@ -424,6 +423,39 @@ describe("gated file transaction", () => {
 				`guarded rollback incomplete: ${join(realRoot, "a.txt")}: newer content present; rollback refused`,
 		);
 		expect(read("a.txt")).toBe("third-party");
+	});
+
+	it("refuses rollback through a parent redirected outside the project", () => {
+		const project = join(realRoot, "project");
+		const parent = join(project, "nested");
+		const originalParent = join(project, "original-nested");
+		const outside = join(realRoot, "outside");
+		mkdirSync(parent, { recursive: true });
+		mkdirSync(outside);
+		const first = join(parent, "a.txt");
+		const second = join(project, "b.txt");
+		writeFileSync(first, "before");
+		writeFileSync(second, "before");
+		writeFileSync(join(outside, "a.txt"), "ours");
+		const transaction = captureGatedWriteBaseline(project, [
+			{ path: first, content: "ours" },
+			{ path: second, content: "ours" },
+		]);
+		vi.mocked(renameSync).mockImplementation((from, to) => {
+			if (to === second) {
+				actualFs.renameSync(parent, originalParent);
+				symlinkSync(outside, parent, "dir");
+				throw new Error("second target failed");
+			}
+			actualFs.renameSync(from, to);
+		});
+		const error = caught(() => commitGatedWrites(transaction));
+		expect(error.name).toBe("GatedWriteRollbackError");
+		expect(error.message).toContain("guarded rollback incomplete");
+		expect(error).toHaveProperty("path", second);
+		expect(readFileSync(join(outside, "a.txt"), "utf-8")).toBe("ours");
+		expect(readFileSync(join(originalParent, "a.txt"), "utf-8")).toBe("ours");
+		expect(readFileSync(second, "utf-8")).toBe("before");
 	});
 
 	it.each([

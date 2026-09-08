@@ -354,6 +354,9 @@ describe("findEslintConfig boundary coverage", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runEslint(input(projectScope({ projectRoot: startDir })));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+		const [, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
+		expect(args[args.length - 1]).toBe(".");
+		expect(opts.cwd).toBe(startDir);
 	});
 
 	it("stops walking once dirname reaches a fixpoint (fs root) instead of repeating for all 5 iterations", () => {
@@ -484,6 +487,9 @@ describe("runEslint (sync)", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runEslint(input(fileScope()));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+		const [, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
+		expect(args[args.length - 1]).toBe(TARGET);
+		expect(opts.cwd).toBe(PROJECT_ROOT);
 	});
 
 	it("returns [] after exhausting the 5-level walk without reaching fs root", () => {
@@ -1074,6 +1080,7 @@ describe("runDepAudit (sync)", () => {
 		expect(runDepAudit(input(projectScope()))).toBeNull();
 		// only the osv-scanner spawn happened.
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+		expect(spawnSyncMock.mock.calls[0]?.[0]).toBe("osv-scanner");
 	});
 
 	it("uses npm audit directly when osv-scanner is unavailable and package.json exists", () => {

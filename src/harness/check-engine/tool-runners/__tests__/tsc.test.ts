@@ -15,10 +15,6 @@ describe("runTsc", () => {
 		rmSync(tmp, { recursive: true, force: true });
 	});
 
-	it("is a function with the ToolRunner signature", () => {
-		expect(typeof runTsc).toBe("function");
-	});
-
 	it("returns [] when there's no tsconfig.json in the project tree", () => {
 		const results = runTsc({
 			scope: { projectRoot: tmp, mode: "project" },

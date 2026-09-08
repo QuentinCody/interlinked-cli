@@ -187,10 +187,17 @@ PostToolUse is better because:
 3. If errors are found, the next provider-visible warning lets the agent self-correct
 4. A write followed by its fix is more efficient than blocking repeatedly
 
-Transactional CLI paths serve a different contract. `interlinked write` and
-`verify-changeset` evaluate proposed content with `pre_block → Biome → TypeScript`
-and fail closed before committing it. `interlinked multi-edit` is transactional
-but runs Biome + TypeScript only; it does not run `pre_block`.
+Transactional CLI paths serve a different contract. `interlinked write`,
+`multi-edit`, and `verify-changeset` evaluate proposed content with the shared
+`pre_block → Biome → TypeScript` gate. Unavailable analyzer results reject the
+transaction; a project without Biome configuration skips that analyzer.
+`verify-changeset` is read-only. Both write commands capture target bytes and
+permissions before verification, compare them under a shared project commit
+lock, and abort if any target changed. Parent-directory resolution is rechecked
+before staging, committing, and rollback. Rollback restores earlier targets only
+while their contents and parent resolution still match the transaction's write. This protects
+cooperating transactions from lost updates; it is not crash-atomic multi-file
+commit and does not lock out ordinary editors.
 
 ### 2. Auto File Reservation — Optimistic Locking
 

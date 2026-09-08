@@ -15,10 +15,6 @@ describe("runActionlint", () => {
 		rmSync(tmp, { recursive: true, force: true });
 	});
 
-	it("is a function", () => {
-		expect(typeof runActionlint).toBe("function");
-	});
-
 	it("returns an array on an empty tmpdir (no .github/workflows to lint)", () => {
 		expect(
 			Array.isArray(

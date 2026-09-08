@@ -64,6 +64,7 @@ vi.mock("../pre-block-gate.js", () => ({
 		warnings: [],
 		rule_id: "mock-pre-block",
 	})),
+	preBlockNotMeasuredWarnings: vi.fn(() => []),
 	preexistingPreBlockWarnings: vi.fn(() => []),
 	resolveDiskBaseline: vi.fn(() => null),
 	runPreBlockRegistryGate: vi.fn(() => []),
@@ -93,6 +94,7 @@ import { evaluateBiomeDiffOverlay, evaluateTscDiffOverlay, isTscFindingBlocking 
 import { resolveProposedContent } from "../overlay-content.js";
 import {
 	preBlockIntroducedBlock,
+	preBlockNotMeasuredWarnings,
 	preexistingPreBlockWarnings,
 	runPreBlockRegistryGate,
 } from "../pre-block-gate.js";
@@ -261,6 +263,7 @@ describe("evaluateWriteContentGuards", () => {
 		vi.mocked(buildCheckInstructions).mockReturnValue({});
 		vi.mocked(runPreBlockRegistryGate).mockReturnValue([]);
 		vi.mocked(preexistingPreBlockWarnings).mockReturnValue([]);
+		vi.mocked(preBlockNotMeasuredWarnings).mockReturnValue([]);
 		vi.mocked(findProjectRoot).mockReturnValue(null);
 		vi.mocked(applyTransientDebt).mockReturnValue({ decision: null, warnings: [] });
 		vi.mocked(deferrableFromTsc).mockReturnValue(null);
@@ -858,6 +861,18 @@ describe("evaluateWriteContentGuards", () => {
 		expect(result.kind).toBe("ok");
 		if (result.kind !== "ok") throw new Error("unreachable");
 		expect(result.warnings).toContain("[interlinked:pre-block] preexisting note");
+	});
+
+	it("carries a pre_block NOT MEASURED disclosure on an otherwise-allowed edit (sixth review pass 2026-09-05, finding 1)", () => {
+		vi.mocked(runPreBlockRegistryGate).mockReturnValue([]);
+		vi.mocked(preBlockNotMeasuredWarnings).mockReturnValue([
+			{ checkId: "self_import", message: "[interlinked:self_import] NOT MEASURED for src/a.ts" },
+		]);
+		const result = run({ file_path: "src/a.ts", content: 'import { x } from "./a.js";' });
+		expect(result.kind).toBe("ok");
+		if (result.kind !== "ok") throw new Error("unreachable");
+		expect(result.warnings).toContain("[interlinked:self_import] NOT MEASURED for src/a.ts");
+		expect(vi.mocked(preBlockNotMeasuredWarnings)).toHaveBeenCalledWith("src/a.ts");
 	});
 
 	it("blocks when the transient ledger returns a due decision for a deferrable finding, isolated from the tsc overlay's own debt call (L355 if(deferred) — false variant)", () => {

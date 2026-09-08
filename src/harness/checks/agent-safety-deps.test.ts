@@ -3,12 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
+import { claimingProjectRoot } from "./__tests__/self-import-fixture.js";
 import {
 	checkExtraneousDependencies,
 	checkPhantomDependencies,
 	checkSelfImport,
 	findWorkspaceRootFor,
 } from "./agent-safety-deps.js";
+
+// Session review r4, finding 3 (2026-09-05): a file no project claims is NOT
+// MEASURED (`[]` here), so the bare-name cases live under a throwaway project
+// that claims its whole root; the importer itself is never written.
+const at = claimingProjectRoot();
 
 // Smoke-test coverage for the agent-safety dependency-hygiene check family.
 // Deeper coverage lives in `src/harness/__tests__/generic-checks-extended-*.test.ts`
@@ -36,17 +42,144 @@ describe("agent-safety deps check surface — smoke", () => {
 // a comment or string literal is still ignored (see the N-cases below).
 describe("checkSelfImport — positive (must fire)", () => {
 	it("P1: flags a literal self-import (relative specifier matching the file's own base name)", () => {
-		const out = checkSelfImport('import { x } from "./same-file";\n', "same-file.ts");
+		const out = checkSelfImport('import { x } from "./same-file";\n', at("same-file.ts"));
 		expect(out).toEqual([{ line: 1, text: 'import { x } from "./same-file";' }]);
 	});
 
 	it("P2: flags a self-import written with an explicit .js extension from a .ts file", () => {
-		const out = checkSelfImport('import { x } from "./widget.js";\n', "widget.ts");
+		const out = checkSelfImport('import { x } from "./widget.js";\n', at("widget.ts"));
 		expect(out).toEqual([{ line: 1, text: 'import { x } from "./widget.js";' }]);
 	});
 
 	it("N0: does NOT flag an import of a DIFFERENT relative module", () => {
-		expect(checkSelfImport('import { x } from "./other";\n', "widget.ts")).toEqual([]);
+		expect(checkSelfImport('import { x } from "./other";\n', at("widget.ts"))).toEqual([]);
+	});
+
+	// The fixture directory must EXIST (it moved from the fictional `src/foo` to
+	// this real one on 2026-09-05): resolution runs the compiler against the real
+	// tree now, and the compiler will not look inside a directory that is not
+	// there. Verdict, assertion count and contract are unchanged.
+	it("P3: flags a self-import written as a round trip through the parent (review 2026-09-04)", () => {
+		const line = 'import { x } from "../checks/canonical.js";\n';
+		expect(checkSelfImport(line, "src/harness/checks/canonical.ts")).toEqual([
+			{ line: 1, text: 'import { x } from "../checks/canonical.js";' },
+		]);
+		expect(checkSelfImport('import { x } from "./sub/../widget.js";\n', at("widget.ts"))).toHaveLength(1);
+	});
+
+	it("N0b: does NOT flag a same-BASENAME module in another directory (FP found 2026-09-03)", () => {
+		const line = 'import { canonicalJson } from "../../mutation/protocol-v3/canonical.js";\n';
+		expect(checkSelfImport(line, "src/harness/shadow/protocol/canonical.ts")).toEqual([]);
+		expect(checkSelfImport('import { x } from "../canonical.js";\n', at("canonical.ts"))).toEqual([]);
+		expect(checkSelfImport('import { x } from "./sub/widget.js";\n', at("widget.ts"))).toEqual([]);
+	});
+
+	// Finding 7 [P2] (2026-09-04): the repaired detector still had deterministic
+	// false negatives on shapes with no `from "..."` clause, and treated .mts/.cts
+	// unevenly against the other JS/TS extensions. Fixed below.
+	it("P4: flags a side-effect self-import (no `from` clause at all)", () => {
+		const out = checkSelfImport('import "./widget.js";\n', at("widget.ts"));
+		expect(out).toEqual([{ line: 1, text: 'import "./widget.js";' }]);
+	});
+
+	it("P5: flags a self-import written as `export { x } from \"...\"`", () => {
+		const out = checkSelfImport('export { x } from "./widget.js";\n', at("widget.ts"));
+		expect(out).toEqual([{ line: 1, text: 'export { x } from "./widget.js";' }]);
+	});
+
+	it("P6: flags a self-import written as `export * from \"...\"`", () => {
+		const out = checkSelfImport('export * from "./widget";\n', at("widget.ts"));
+		expect(out).toEqual([{ line: 1, text: 'export * from "./widget";' }]);
+	});
+
+	it("P7: flags a self-import written as `export * as ns from \"...\"`", () => {
+		const out = checkSelfImport('export * as ns from "./widget.js";\n', at("widget.ts"));
+		expect(out).toEqual([{ line: 1, text: 'export * as ns from "./widget.js";' }]);
+	});
+
+	it("P8: flags a .mts file importing its own .mjs spelling (extension parity)", () => {
+		const out = checkSelfImport('import { x } from "./widget.mjs";\n', at("widget.mts"));
+		expect(out).toEqual([{ line: 1, text: 'import { x } from "./widget.mjs";' }]);
+	});
+
+	it("P9: flags a .cts file self-importing with a .cts extension", () => {
+		const out = checkSelfImport('import { x } from "./widget.cts";\n', at("widget.cts"));
+		expect(out).toEqual([{ line: 1, text: 'import { x } from "./widget.cts";' }]);
+	});
+
+	// Finding 4 [P1] (2026-09-05): the detector stripped EVERY TS/JS-family
+	// extension and compared stems, so these three named the importer. They do
+	// not: TypeScript resolves `"./widget.mjs"` to widget.mts/.mjs and
+	// `"./widget.cjs"` to widget.cts/.cjs, and a `.js` specifier never reaches the
+	// .mts family at all. `self_import` is a severity-error `pre_block` rail, so
+	// each of these was a valid import refused with no recourse. None of the three
+	// touches the filesystem — the importer is not a candidate at all.
+	it("N6: does NOT flag `./widget.mjs` from widget.ts — it names widget.mts/.mjs", () => {
+		expect(checkSelfImport('export { x } from "./widget.mjs";\n', at("widget.ts"))).toEqual([]);
+	});
+
+	it("N7: does NOT flag `./widget.cjs` from widget.ts — it names widget.cts/.cjs", () => {
+		expect(checkSelfImport('import { x } from "./widget.cjs";\n', at("widget.ts"))).toEqual([]);
+	});
+
+	it("N8: does NOT flag `./widget.js` from widget.mts — .js never reaches the .mts family", () => {
+		expect(checkSelfImport('import { x } from "./widget.js";\n', at("widget.mts"))).toEqual([]);
+	});
+
+	// Finding 4 [P2] (2026-09-05). The line-oriented parser saw no `from "…"` on
+	// the opening line of a multiline declaration, so the reviewer's ordinary
+	// `import {\n\tx\n} from "./widget.js";` in widget.ts returned NOTHING from a
+	// deterministic pre_block rail. The detector now reads declarations off the
+	// TypeScript AST and reports the declaration's START line.
+	it("P11: flags the reviewer's multiline self-import at the declaration's START line", () => {
+		const out = checkSelfImport('import {\n\tx\n} from "./widget.js";\n', at("widget.ts"));
+		expect(out).toEqual([{ line: 1, text: "import {" }]);
+	});
+
+	it("P12: flags a multiline `export … from` self-re-export", () => {
+		const out = checkSelfImport('export {\n\tx,\n} from "./widget.js";\n', at("widget.ts"));
+		expect(out).toEqual([{ line: 1, text: "export {" }]);
+	});
+
+	it("P13: flags `import x = require(\"./self\")`", () => {
+		const out = checkSelfImport('import x = require("./widget.js");\n', at("widget.ts"));
+		expect(out).toEqual([{ line: 1, text: 'import x = require("./widget.js");' }]);
+	});
+
+	it("P14: flags a dynamic `import(\"./self.js\")` with a string-literal argument", () => {
+		const src = 'export async function load() {\n\treturn import("./widget.js");\n}\n';
+		expect(checkSelfImport(src, at("widget.ts"))).toEqual([
+			{ line: 2, text: 'return import("./widget.js");' },
+		]);
+	});
+
+	it("N4: does NOT flag a multiline import of a DIFFERENT module", () => {
+		expect(checkSelfImport('import {\n\tx\n} from "./other.js";\n', at("widget.ts"))).toEqual([]);
+	});
+
+	it("N5: does NOT flag a dynamic import whose argument is a variable", () => {
+		const src = 'const p = "./widget.js";\nexport function f() {\n\treturn import(p);\n}\n';
+		expect(checkSelfImport(src, at("widget.ts"))).toEqual([]);
+	});
+
+	it("P10: flags a self-import through a nested platform-style path", () => {
+		const line = 'import { x } from "../protocol/canonical.js";\n';
+		expect(checkSelfImport(line, "src/harness/shadow/protocol/canonical.ts")).toEqual([
+			{ line: 1, text: 'import { x } from "../protocol/canonical.js";' },
+		]);
+	});
+
+	it("N1: does NOT flag a side-effect import of a DIFFERENT module", () => {
+		expect(checkSelfImport('import "./other.js";\n', at("widget.ts"))).toEqual([]);
+	});
+
+	it("N2: does NOT flag `export * from \"...\"` naming a different module", () => {
+		expect(checkSelfImport('export * from "./other.js";\n', at("widget.ts"))).toEqual([]);
+	});
+
+	it("N3: does NOT flag a same-basename .mts/.cts pair in different directories", () => {
+		const line = 'import { x } from "../../other/widget.mjs";\n';
+		expect(checkSelfImport(line, "src/harness/widget.mts")).toEqual([]);
 	});
 
 	it("returns [] for a non-JS/TS extension", () => {
@@ -55,12 +188,12 @@ describe("checkSelfImport — positive (must fire)", () => {
 	});
 
 	it("returns [] when the import specifier is not relative (bare specifier)", () => {
-		const out = checkSelfImport('import x from "thing";\n', "thing.ts");
+		const out = checkSelfImport('import x from "thing";\n', at("thing.ts"));
 		expect(out).toEqual([]);
 	});
 
 	it("returns [] for a line that isn't an import statement at all", () => {
-		const out = checkSelfImport("const x = 1;\n", "same-file.ts");
+		const out = checkSelfImport("const x = 1;\n", at("same-file.ts"));
 		expect(out).toEqual([]);
 	});
 });
@@ -463,5 +596,63 @@ describe("checkExtraneousDependencies", () => {
 			checkExtraneousDependencies('import a from "pkg-a";\n', join(tmp, "one.ts"));
 			checkExtraneousDependencies('import b from "pkg-b";\n', join(tmp, "two.ts"));
 		}).not.toThrow();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Review finding 1 [P1] (2026-09-05, seventh pass): `checkSelfImport` end to end
+// against a REAL project, with the real-filesystem probe and a real tsconfig —
+// the registry calls it with exactly these two arguments, so this is the surface
+// the pre_block rail actually blocks on. The reviewer's reproduction is the
+// first case: `moduleSuffixes`, carried in through an `extends` chain, sends
+// `"./widget.js"` to a sibling module, and a valid edit must not be refused.
+// ---------------------------------------------------------------------------
+
+describe("checkSelfImport — resolved under the project's own compiler options", () => {
+	let root: string;
+	const SELF_IMPORT = 'export { x } from "./widget.js";\n';
+
+	beforeEach(() => {
+		root = mkdtempSync(join(tmpdir(), "self-import-project-"));
+		mkdirSync(join(root, "cfg"));
+		mkdirSync(join(root, "src"));
+		writeFileSync(
+			join(root, "cfg", "base.json"),
+			JSON.stringify({ compilerOptions: { moduleSuffixes: [".native", ""] } }),
+		);
+		writeFileSync(
+			join(root, "tsconfig.json"),
+			JSON.stringify({
+				extends: "./cfg/base.json",
+				compilerOptions: { moduleResolution: "bundler", module: "esnext" },
+			}),
+		);
+		writeFileSync(join(root, "src", "widget.ts"), "export const x = 1;\n");
+	});
+
+	afterEach(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
+	// test-contract: bug — reviewer-reproduced with TypeScript 5.9.3: the
+	// candidate table blocked this edit because it could not see moduleSuffixes.
+	it("N9: does NOT flag when an extends chain's moduleSuffixes names a sibling module", () => {
+		writeFileSync(join(root, "src", "widget.native.ts"), "export const x = 1;\n");
+		expect(checkSelfImport(SELF_IMPORT, join(root, "src", "widget.ts"))).toEqual([]);
+	});
+
+	// test-contract: invariant — the fix must not cost the true positive: with no
+	// suffixed sibling the empty suffix wins and the import IS a self-import.
+	it("P15: still flags the same import in the same project once the sibling is gone", () => {
+		expect(checkSelfImport(SELF_IMPORT, join(root, "src", "widget.ts"))).toEqual([
+			{ line: 1, text: 'export { x } from "./widget.js";' },
+		]);
+	});
+
+	// test-contract: invariant — a config the compiler rejects yields NO findings
+	// rather than findings from a guessed configuration.
+	it("N10: reports nothing when the project's tsconfig cannot be parsed", () => {
+		writeFileSync(join(root, "tsconfig.json"), "{ not json ,,, }");
+		expect(checkSelfImport(SELF_IMPORT, join(root, "src", "widget.ts"))).toEqual([]);
 	});
 });

@@ -15,10 +15,6 @@ describe("runBiome", () => {
 		rmSync(tmp, { recursive: true, force: true });
 	});
 
-	it("is a function", () => {
-		expect(typeof runBiome).toBe("function");
-	});
-
 	it("returns [] on an empty tmpdir (no biome config → nothing to lint)", () => {
 		const results = runBiome({
 			scope: { projectRoot: tmp, mode: "project" },

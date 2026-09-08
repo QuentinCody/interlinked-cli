@@ -9,6 +9,7 @@ import {
 import {
 	type PreBlockCheckOutcome,
 	preBlockIntroducedBlock,
+	preBlockNotMeasuredWarnings,
 	preexistingPreBlockWarnings,
 	resolveDiskBaseline,
 	runPreBlockRegistryGate,
@@ -42,6 +43,7 @@ export function preBlockRegistryGuard(state: WriteContentGuardState): HarnessDec
 		if (decision) return decision;
 	}
 	warnings.push(...preexistingPreBlockWarnings(outcomes, filePath));
+	warnings.push(...preBlockNotMeasuredWarnings(filePath).map((row) => row.message));
 	return null;
 }
 
@@ -79,6 +81,10 @@ export function biomeDiffOverlayGuard(state: WriteContentGuardState): HarnessDec
 		return null;
 	}
 	const overlay = evaluateBiomeDiffOverlay(filePath, content, projectRootFor(state));
+	if (overlay.checkerUnavailable !== undefined) {
+		warnings.push(`[interlinked:biome-overlay] NOT CHECKED — ${filePath}: ${overlay.checkerUnavailable}`);
+		return null;
+	}
 	if (overlay.newFindings.length === 0) return null;
 	const first = nonNull(overlay.newFindings[0]);
 	if (overlay.exceededBudget) {

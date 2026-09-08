@@ -13,7 +13,7 @@
 // pre-existing findings) are already covered by `diff-overlay.test.ts`
 // and `tsc-overlay.test.ts`.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -67,7 +67,10 @@ vi.mock("../diff-overlay.js", async () => {
 		}
 		return actual.evaluateBiomeDiffOverlay(filePath, proposed, root);
 	};
-	const wrapTsc: typeof EvaluateTscDiffOverlay = (filePath, proposed, root) => {
+	// The wrapper forwards the SIBLING overlays too: dropping the fourth
+	// argument would re-create review r4 finding 1 (a sibling the batch creates
+	// is invisible to module resolution) inside this suite only.
+	const wrapTsc: typeof EvaluateTscDiffOverlay = (filePath, proposed, root, siblings) => {
 		if (filePath.includes(RULEID_FALLBACK_MARKER)) return synthetic("tsc", filePath);
 		if (filePath.includes(TSC_UNAVAILABLE_MARKER)) {
 			return {
@@ -78,11 +81,12 @@ vi.mock("../diff-overlay.js", async () => {
 				checkerUnavailable: TSC_UNAVAILABLE_REASON,
 			};
 		}
-		return actual.evaluateTscDiffOverlay(filePath, proposed, root);
+		return actual.evaluateTscDiffOverlay(filePath, proposed, root, siblings);
 	};
 	return { ...actual, evaluateBiomeDiffOverlay: wrapBiome, evaluateTscDiffOverlay: wrapTsc };
 });
 
+import { runMultiEdit } from "../../commands/multi-edit.js";
 import { nonNull } from "../../lib/non-null.js";
 import { _setTscOverlayModeOverrideForTest } from "../check-engine/tool-runners/tsc-overlay.js";
 import { TSC_CHECKER_UNAVAILABLE_CODE } from "../diff-overlay.js";
@@ -95,10 +99,15 @@ import {
 	readOnDiskOrUndefined,
 } from "../content-gate.js";
 
-// NB: for this file CLI_ROOT resolves to `src/harness` (two levels up from
-// `src/harness/__tests__`). It is only the parent used to keep the disposable
-// project under the repository, where biome can discover the repository config.
-const CLI_ROOT = resolve(import.meta.dirname, "../..");
+// NB: for this file CLI_ROOT resolves to the REPOSITORY ROOT (three levels up
+// from `src/harness/__tests__`). It is only the parent used to keep the
+// disposable project under the repository, where biome can discover the
+// repository config. It sits outside `src` on purpose (session review r5):
+// a fixture dir a killed run leaves behind used to land under `src`, inside
+// the root tsconfig's `include`, so its deliberately invalid sources showed up
+// in every project-wide type check and in the daemon's build-freshness probe
+// until the 30-minute sweep. Root-level `_*_fixtures-*/` is gitignored.
+const CLI_ROOT = resolve(import.meta.dirname, "../../..");
 // Fixture files live in a UNIQUE per-process `mkdtempSync` dir, so no two test
 // files (or parallel runs) ever write the same path — the parallel-safety
 // invariant (the prior fixed `<CLI_ROOT>/lib/_content_gate_fixtures` path raced
@@ -394,6 +403,331 @@ describe("gateProposedContent", () => {
 		expect(result.ok).toBe(true);
 	});
 
+	it("batch view: a sibling CREATED in the same batch is visible to self_import — exporter-first batch is not refused (session review r3, finding 3)", () => {
+		// On disk: a project whose moduleSuffixes make `./widget.js` resolve to
+		// widget.native.ts FIRST, and an importer that does not yet import it.
+		const project = resolve(FIXTURE_DIR, "_gate_batch_view");
+		mkdirSync(project, { recursive: true });
+		writeFileSync(
+			resolve(project, "tsconfig.json"),
+			JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "Bundler", moduleSuffixes: [".native", ""] }, include: ["*.ts"] }),
+		);
+		const importer = resolve(project, "widget.ts");
+		const sibling = resolve(project, "widget.native.ts");
+		writeFileSync(importer, "export const before = 1;\n");
+		const importing = 'export { x } from "./widget.js";\n';
+		// The batch creates the sibling and re-points the importer at it. Before
+		// the proposed-files view, resolution saw the old disk (no sibling) and
+		// called the import a self-import; the materialized batch has zero
+		// TypeScript diagnostics and resolves to widget.native.ts.
+		const withSibling = gateProposedContent(
+			[
+				{ path: sibling, content: "export const x = 1;\n" },
+				{ path: importer, content: importing },
+			],
+			{ projectRoot: project },
+		);
+		expect(withSibling.failures.filter((f) => f.code === "self_import")).toEqual([]);
+		// Review r4, finding 1: the WHOLE gate must pass — the type checker
+		// receives the created sibling as an overlay, so no TS2303 either.
+		expect(withSibling.failures.filter((f) => f.severity === "error")).toEqual([]);
+		expect(withSibling.ok).toBe(true);
+		// Control: the same importer edit WITHOUT the sibling in the batch really
+		// is a self-import (widget.native.ts does not exist anywhere).
+		const alone = gateProposedContent([{ path: importer, content: importing }], { projectRoot: project });
+		expect(alone.failures.some((f) => f.code === "self_import" && f.severity === "error")).toBe(true);
+	});
+
+	it("batch view: a batch that REWRITES tsconfig is judged against the proposed config, with the disk as the baseline (review r4, finding 2)", () => {
+		// On disk: suffix config, importer AND sibling — the re-export is valid
+		// today. The batch drops the suffix (unchanged importer bytes), which makes
+		// the same re-export a self-import; the materialized batch is TS2303.
+		const project = resolve(FIXTURE_DIR, "_gate_config_batch");
+		mkdirSync(project, { recursive: true });
+		const configPath = resolve(project, "tsconfig.json");
+		const suffixed = JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "Bundler", moduleSuffixes: [".native", ""] }, include: ["*.ts"] });
+		const plain = JSON.stringify({ compilerOptions: { module: "ESNext", moduleResolution: "Bundler", moduleSuffixes: [""] }, include: ["*.ts"] });
+		writeFileSync(configPath, suffixed);
+		const importer = resolve(project, "widget.ts");
+		const importing = 'export { x } from "./widget.js";\n';
+		writeFileSync(importer, importing);
+		writeFileSync(resolve(project, "widget.native.ts"), "export const x = 1;\n");
+		const dropSuffix = gateProposedContent(
+			[
+				{ path: configPath, content: plain },
+				{ path: importer, content: importing },
+			],
+			{ projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR },
+		);
+		expect(dropSuffix.ok).toBe(false);
+		// The self-import is INTRODUCED by the batch (the disk baseline, judged
+		// under the disk config, has none) — an error, not a "pre-existing" warning.
+		const selfImport = dropSuffix.failures.filter((f) => f.code === "self_import");
+		expect(selfImport.map((f) => f.severity)).toEqual(["error"]);
+		// And the type checker discloses that it could not judge the proposed config.
+		expect(dropSuffix.failures.some((f) => f.tool === "tsc" && f.message.includes("cannot see the proposed configuration"))).toBe(true);
+		// The other direction: the disk has NO suffix (so the re-export IS a
+		// self-import today), and the batch adds the suffix. Under the proposed
+		// config the re-export names the sibling: no self_import error.
+		writeFileSync(configPath, plain);
+		const addSuffix = gateProposedContent(
+			[
+				{ path: configPath, content: suffixed },
+				{ path: importer, content: importing },
+			],
+			{ projectRoot: project },
+		);
+		expect(addSuffix.failures.filter((f) => f.code === "self_import" && f.severity === "error")).toEqual([]);
+	});
+
+	// Session review r5 (2026-09-06), finding 1: the configuration disclosure
+	// keyed on FILENAMES, so a batch that rewrote `base.json` — the target of
+	// the project's `extends` — was judged under the disk's options and reported
+	// clean while the materialized program was TS2322. The gate now derives the
+	// configuration from the project's actual graph. Both spellings of the base
+	// must behave the same: the boundary is the graph, not the name.
+	const R5_OPTIONS = { target: "ES2022", module: "ESNext", moduleResolution: "Bundler", noEmit: true, skipLibCheck: true };
+
+	/** The reviewer's r5 project shape: a tsconfig extending `baseName`, and a
+	 *  batch that rewrites the base while touching a source. The source stays
+	 *  valid under every configuration — the disclosure is about the rewrite,
+	 *  not about a diagnostic, and this fixture lives under the repository's
+	 *  own `src` (the reviewer's probe holds the TS2322 materialization). */
+	function gateExtendsRewrite(baseName: string): ReturnType<typeof gateProposedContent> & { base: string; source: string } {
+		const project = resolve(FIXTURE_DIR, `_gate_extends_${baseName.replace(/[^a-z]/g, "_")}`);
+		mkdirSync(project, { recursive: true });
+		const base = resolve(project, baseName);
+		writeFileSync(base, JSON.stringify({ compilerOptions: { ...R5_OPTIONS, strictNullChecks: false } }));
+		writeFileSync(resolve(project, "tsconfig.json"), JSON.stringify({ extends: `./${baseName}`, include: ["*.ts"] }));
+		const source = resolve(project, "widget.ts");
+		writeFileSync(source, "export const value = 1;\n");
+		const result = gateProposedContent(
+			[
+				{ path: base, content: JSON.stringify({ compilerOptions: { ...R5_OPTIONS, strictNullChecks: true } }) },
+				{ path: source, content: "export const value = 1;\nexport const additional = 1;\n" },
+			],
+			{ projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR },
+		);
+		return { ...result, base, source };
+	}
+
+	it("batch view: rewriting a CUSTOM-named `extends` target is disclosed as a configuration the checker cannot see (review r5, finding 1)", () => {
+		const result = gateExtendsRewrite("base.json");
+		expect(result.ok).toBe(false);
+		const rows = result.failures.filter((f) => f.path === result.source && f.tool === "tsc" && f.code === TSC_CHECKER_UNAVAILABLE_CODE);
+		expect(rows.map((f) => f.severity)).toEqual([GATE_SEVERITY_ERROR]);
+		expect(nonNull(rows[0]).message).toContain(`${result.base} is rewritten by this batch`);
+	});
+
+	it("batch view: the recognized-name control (`tsconfig.base.json`) is disclosed the same way (review r5, finding 1)", () => {
+		const result = gateExtendsRewrite("tsconfig.base.json");
+		expect(result.ok).toBe(false);
+		const rows = result.failures.filter((f) => f.path === result.source && f.tool === "tsc" && f.code === TSC_CHECKER_UNAVAILABLE_CODE);
+		expect(rows.map((f) => f.severity)).toEqual([GATE_SEVERITY_ERROR]);
+	});
+
+	// Session review r5 (2026-09-06), finding 2: the tsc overlay returned before
+	// running whenever the target's proposed bytes equalled its disk bytes, so a
+	// consumer submitted UNCHANGED beside a changed exporter was never judged
+	// against the proposed tree. An unchanged member is still a member: it is
+	// re-checked whenever a sibling differs from the disk, and only skipped when
+	// nothing around it changed either.
+	const R5_CONSUMER = 'import { value } from "./value.js";\nexport const count: number = value;\n';
+
+	function siblingProject(name: string): { project: string; exporter: string; consumer: string } {
+		const project = resolve(FIXTURE_DIR, name);
+		mkdirSync(project, { recursive: true });
+		writeFileSync(resolve(project, "tsconfig.json"), JSON.stringify({ compilerOptions: R5_OPTIONS, include: ["*.ts"] }));
+		const exporter = resolve(project, "value.ts");
+		const consumer = resolve(project, "consumer.ts");
+		writeFileSync(exporter, "export const value = 1;\n");
+		writeFileSync(consumer, R5_CONSUMER);
+		return { project, exporter, consumer };
+	}
+
+	it("batch view: an UNCHANGED member is re-checked against the changed sibling that breaks it (review r5, finding 2)", () => {
+		const { project, exporter, consumer } = siblingProject("_gate_sibling_unchanged");
+		const result = gateProposedContent(
+			[
+				{ path: exporter, content: 'export const value = "changed";\n' },
+				{ path: consumer, content: R5_CONSUMER },
+			],
+			{ projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR },
+		);
+		expect(result.ok).toBe(false);
+		expect(result.failures.filter((f) => f.path === consumer && f.tool === "tsc").map((f) => f.code)).toEqual(["TS2322"]);
+	});
+
+	it("batch view: the changed-consumer control reports the same TS2322 (review r5, finding 2)", () => {
+		const { project, exporter, consumer } = siblingProject("_gate_sibling_changed");
+		const result = gateProposedContent(
+			[
+				{ path: exporter, content: 'export const value = "changed";\n' },
+				{ path: consumer, content: `${R5_CONSUMER}export const additional = 1;\n` },
+			],
+			{ projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR },
+		);
+		expect(result.ok).toBe(false);
+		expect(result.failures.filter((f) => f.path === consumer && f.tool === "tsc").map((f) => f.code)).toEqual(["TS2322"]);
+	});
+
+	// Session review r6 (2026-09-06), finding 2: the compiler phase took the
+	// tsconfig nearest the project root and forced the target into that
+	// program, while `self_import` selected the sibling project that claims
+	// the file. The complete gate now judges one program per file.
+	function independentProject(name: string): { project: string; importer: string } {
+		const project = resolve(FIXTURE_DIR, name);
+		mkdirSync(resolve(project, "modules"), { recursive: true });
+		writeFileSync(resolve(project, "tsconfig.json"), JSON.stringify({ compilerOptions: R5_OPTIONS, files: ["build.ts"] }));
+		writeFileSync(resolve(project, "build.ts"), "export const build = 1;\n");
+		writeFileSync(
+			resolve(project, "tsconfig.app.json"),
+			JSON.stringify({ compilerOptions: { ...R5_OPTIONS, moduleSuffixes: [".native", ""] }, include: ["modules"] }),
+		);
+		const importer = resolve(project, "modules", "widget.ts");
+		writeFileSync(importer, "export const before = 1;\n");
+		writeFileSync(resolve(project, "modules", "widget.native.ts"), "export const value = 1;\n");
+		return { project, importer };
+	}
+
+	it("batch view: the complete gate judges a file under the sibling project that claims it — the suffix re-export passes (review r6, finding 2)", () => {
+		const { project, importer } = independentProject("_gate_independent_ok");
+		const result = gateProposedContent(
+			[{ path: importer, content: 'export { value } from "./widget.js";\n' }],
+			{ projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR },
+		);
+		expect(result).toMatchObject({ ok: true, failures: [] });
+	});
+
+	it("batch view: control — an invalid import under that same project is rejected with TS2322 (review r6, finding 2)", () => {
+		const { project, importer } = independentProject("_gate_independent_bad");
+		const result = gateProposedContent(
+			[{ path: importer, content: 'import { value } from "./widget.js";\nexport const s: string = value;\n' }],
+			{ projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR },
+		);
+		expect(result.ok).toBe(false);
+		expect(result.failures.filter((f) => f.tool === "tsc").map((f) => f.code)).toEqual(["TS2322"]);
+	});
+
+	// Session review r6 (2026-09-06), finding 3: a config member whose proposed
+	// bytes equal the disk was still reported as a configuration rewrite, so a
+	// valid source edit beside an unchanged tsconfig was refused as unmeasured.
+	function unchangedConfigProject(name: string): { project: string; config: string; configContent: string; source: string } {
+		const project = resolve(FIXTURE_DIR, name);
+		mkdirSync(project, { recursive: true });
+		const config = resolve(project, "tsconfig.json");
+		const configContent = JSON.stringify({ compilerOptions: R5_OPTIONS, include: ["*.ts"] });
+		writeFileSync(config, configContent);
+		const source = resolve(project, "value.ts");
+		writeFileSync(source, "export const value = 1;\n");
+		return { project, config, configContent, source };
+	}
+
+	it("batch view: a config member whose bytes equal the disk is NOT a configuration rewrite (review r6, finding 3)", () => {
+		const { project, config, configContent, source } = unchangedConfigProject("_gate_unchanged_config");
+		const result = gateProposedContent(
+			[
+				{ path: source, content: "export const value = 2;\n" },
+				{ path: config, content: configContent },
+			],
+			{ projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR },
+		);
+		expect(result).toMatchObject({ ok: true, failures: [] });
+	});
+
+	it("multi-edit: a valid manifest with an unchanged tsconfig member passes the real command and writes only its changed source (review r6, finding 3)", () => {
+		const { project, config, configContent, source } = unchangedConfigProject("_gate_unchanged_config_cmd");
+		const result = runMultiEdit(
+			[
+				{ path: source, edits: [{ old_string: "export const value = 1;", new_string: "export const value = 2;" }] },
+				{ path: config, edits: [{ old_string: configContent, new_string: configContent }] },
+			],
+			{ projectRoot: project },
+		);
+		expect(result).toMatchObject({ ok: true, file_changes_applied: [source] });
+		expect(readFileSync(source, "utf-8")).toBe("export const value = 2;\n");
+		expect(readFileSync(config, "utf-8")).toBe(configContent);
+	});
+
+	// Session review r7 (2026-09-06), finding 1: a configured project with no
+	// source on disk yet built no compiler service, so its FIRST proposed
+	// source was reported clean without a diagnostic ever being requested.
+	function emptyConfiguredProject(name: string, seeded: boolean): { project: string; source: string } {
+		const project = resolve(FIXTURE_DIR, name);
+		mkdirSync(project, { recursive: true });
+		writeFileSync(resolve(project, "tsconfig.json"), JSON.stringify({ compilerOptions: R5_OPTIONS, include: ["*.ts"] }));
+		if (seeded) writeFileSync(resolve(project, "seed.ts"), "export const seed = 1;\n");
+		return { project, source: resolve(project, "widget.ts") };
+	}
+
+	it("batch view: the FIRST source written into an empty configured project is judged — TS2322 (review r7, finding 1)", () => {
+		const { project, source } = emptyConfiguredProject("_gate_first_source", false);
+		const result = gateProposedContent(
+			[{ path: source, content: 'export const count: number = "wrong";\n' }],
+			{ projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR },
+		);
+		expect(result.ok).toBe(false);
+		expect(result.failures.filter((f) => f.tool === "tsc").map((f) => f.code)).toEqual(["TS2322"]);
+	});
+
+	it("batch view: the seeded-project control reports the same TS2322 (review r7, finding 1)", () => {
+		const { project, source } = emptyConfiguredProject("_gate_first_source_seeded", true);
+		const result = gateProposedContent(
+			[{ path: source, content: 'export const count: number = "wrong";\n' }],
+			{ projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR },
+		);
+		expect(result.ok).toBe(false);
+		expect(result.failures.filter((f) => f.tool === "tsc").map((f) => f.code)).toEqual(["TS2322"]);
+	});
+
+	// Session review r7 (2026-09-06), finding 2: the in-process compiler service
+	// was reused by its config path alone, so an `extends` target rewritten on
+	// disk between two gate calls left the second judged under the old options.
+	it("batch view: an inherited config tightened on disk between two gate calls governs the second (review r7, finding 2)", () => {
+		const project = resolve(FIXTURE_DIR, "_gate_inherited_tightened");
+		mkdirSync(project, { recursive: true });
+		const base = resolve(project, "base.json");
+		writeFileSync(base, JSON.stringify({ compilerOptions: { ...R5_OPTIONS, strict: true, strictNullChecks: false } }));
+		writeFileSync(resolve(project, "tsconfig.json"), JSON.stringify({ extends: "./base.json", include: ["*.ts"] }));
+		writeFileSync(resolve(project, "seed.ts"), "export const seed = 1;\n");
+		const batch = [{ path: resolve(project, "widget.ts"), content: "export const value: string = null;\n" }];
+		const warm = gateProposedContent(batch, { projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR });
+		expect(warm).toMatchObject({ ok: true, failures: [] });
+		writeFileSync(base, JSON.stringify({ compilerOptions: { ...R5_OPTIONS, strict: true, strictNullChecks: true } }));
+		const tightened = gateProposedContent(batch, { projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR });
+		expect(tightened.ok).toBe(false);
+		expect(tightened.failures.filter((f) => f.tool === "tsc").map((f) => f.code)).toEqual(["TS2322"]);
+	});
+
+	// Session review r8 (2026-09-06), finding 1: the in-process compiler
+	// service froze its root file list at construction, so a declaration file
+	// added on disk between two gate calls never joined the program.
+	it("batch view: a declaration file added on disk between two gate calls is seen by the second (review r8, finding 1)", () => {
+		const project = resolve(FIXTURE_DIR, "_gate_declaration_added");
+		mkdirSync(project, { recursive: true });
+		writeFileSync(resolve(project, "tsconfig.json"), JSON.stringify({ compilerOptions: R5_OPTIONS, include: ["*.ts"] }));
+		writeFileSync(resolve(project, "seed.ts"), "export const seed = 1;\n");
+		const batch = [{ path: resolve(project, "widget.ts"), content: "export const v: number = MY_GLOBAL;\n" }];
+		const before = gateProposedContent(batch, { projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR });
+		// "Cannot find name" is TS2304, or TS2552 when the compiler offers a spelling suggestion.
+		expect(before.failures.filter((f) => f.tool === "tsc").map((f) => f.code)).toEqual([expect.stringMatching(/^TS(?:2304|2552)$/)]);
+		writeFileSync(resolve(project, "env.d.ts"), "declare const MY_GLOBAL: number;\n");
+		const after = gateProposedContent(batch, { projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR });
+		expect(after).toMatchObject({ ok: true, failures: [] });
+	});
+
+	it("batch view: members whose siblings are ALL unchanged keep the unchanged-text shortcut — clean and no findings", () => {
+		const { project, exporter, consumer } = siblingProject("_gate_sibling_all_unchanged");
+		const result = gateProposedContent(
+			[
+				{ path: exporter, content: "export const value = 1;\n" },
+				{ path: consumer, content: R5_CONSUMER },
+			],
+			{ projectRoot: project, tscUnavailableSeverity: GATE_SEVERITY_ERROR },
+		);
+		expect(result).toMatchObject({ ok: true, failures: [] });
+	});
+
 	it("projectRoot omitted: falls back to findProjectRoot/cwd and still gates", () => {
 		// No projectRoot option → the gate computes it per-entry. The fixture
 		// lives under the CLI tree, so findProjectRoot resolves a real root; an
@@ -419,8 +753,6 @@ describe("gateProposedContent", () => {
 		expect(result.failures.some((f) => f.tool === "pre_block" && f.code === "eval_usage")).toBe(
 			true,
 		);
-		// No diff-overlay findings: the file doesn't exist on disk.
-		expect(result.failures.filter((f) => f.tool === "biome")).toEqual([]);
 		expect(result.failures.filter((f) => f.tool === "tsc")).toEqual([]);
 	});
 

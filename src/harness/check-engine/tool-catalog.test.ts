@@ -14,6 +14,55 @@ import {
 	RUNNABLE_TOOL_IDS,
 	TOOL_CATALOG,
 } from "./tool-catalog.js";
+import { runActionlint } from "./tool-runners/actionlint.js";
+import { runBiome } from "./tool-runners/biome.js";
+import { runCCompile, runClangTidy } from "./tool-runners/c-cpp.js";
+import {
+	runEslint,
+	runGitleaks,
+	runKnip,
+	runOxlint,
+	runSemgrep,
+} from "./tool-runners/generic.js";
+import { runGoBuild, runGolangciLint } from "./tool-runners/go.js";
+import { runHadolint } from "./tool-runners/hadolint.js";
+import { runLizard } from "./tool-runners/lizard.js";
+import { runImportedLint } from "./tool-runners/lint-import.js";
+import { runMypy, runRuff, runRuffFormat } from "./tool-runners/python.js";
+import { runCargoCheck, runCargoClippy, runRustfmtCheck } from "./tool-runners/rust.js";
+import { runShellcheck } from "./tool-runners/shellcheck.js";
+import { runSwiftBuild, runSwiftLint } from "./tool-runners/swift.js";
+import { runTaplo } from "./tool-runners/taplo.js";
+import { runTsc } from "./tool-runners/tsc.js";
+
+/** The exact runner each catalog entry must wire — id -> import identity. */
+const EXPECTED_RUNNERS: Record<string, (...args: never[]) => unknown> = {
+	"lint-import": runImportedLint,
+	tsc: runTsc,
+	biome: runBiome,
+	eslint: runEslint,
+	oxlint: runOxlint,
+	knip: runKnip,
+	semgrep: runSemgrep,
+	gitleaks: runGitleaks,
+	mypy: runMypy,
+	ruff: runRuff,
+	"ruff-format": runRuffFormat,
+	"cargo-check": runCargoCheck,
+	"cargo-clippy": runCargoClippy,
+	rustfmt: runRustfmtCheck,
+	"go-build": runGoBuild,
+	"golangci-lint": runGolangciLint,
+	"c-compile": runCCompile,
+	"clang-tidy": runClangTidy,
+	shellcheck: runShellcheck,
+	actionlint: runActionlint,
+	hadolint: runHadolint,
+	taplo: runTaplo,
+	swiftlint: runSwiftLint,
+	"swift-build": runSwiftBuild,
+	lizard: runLizard,
+};
 
 describe("tool catalog — derived registry", () => {
 	const registry = buildToolRegistry();
@@ -67,9 +116,10 @@ describe("tool catalog — derived registry", () => {
 		}
 	});
 
-	it("every registry entry has a callable runner", () => {
-		for (const meta of Object.values(registry)) {
-			expect(typeof meta.runner).toBe("function");
+	it("every registry entry uses its designated runner", () => {
+		expect(Object.keys(registry).sort()).toEqual(Object.keys(EXPECTED_RUNNERS).sort());
+		for (const [id, meta] of Object.entries(registry)) {
+			expect(meta.runner).toBe(EXPECTED_RUNNERS[id]);
 		}
 	});
 });

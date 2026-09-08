@@ -1625,6 +1625,9 @@ describe("harness server.ts — cyclomatic gate capability", () => {
 		const logged = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
 		expect(logged).toContain("`typescript` is not resolvable");
 		expect(logged).toContain("less-accurate regex walker");
+		// Sixth review pass 2026-09-05, finding 1: the warning must disclose the
+		// self_import degrade too — that check has no fallback and is NOT MEASURED.
+		expect(logged).toContain("`self_import` pre-block check is NOT MEASURED");
 		errSpy.mockRestore();
 	});
 });

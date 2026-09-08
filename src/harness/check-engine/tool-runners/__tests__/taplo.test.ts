@@ -15,10 +15,6 @@ describe("runTaplo", () => {
 		rmSync(tmp, { recursive: true, force: true });
 	});
 
-	it("is a function", () => {
-		expect(typeof runTaplo).toBe("function");
-	});
-
 	it("returns an array on an empty tmpdir (no .toml files to validate)", () => {
 		expect(
 			Array.isArray(

@@ -109,6 +109,7 @@ describe("runProcessAsync — mutation-kill w34", () => {
 		const r = await promise;
 		expect(r.code).toBe(0);
 		expect(removeSpy).toHaveBeenCalledTimes(1);
+		expect(removeSpy).toHaveBeenCalledWith("abort", expect.any(Function));
 	});
 
 	// test-contract: mutation-kill — kills 663c866353eba7c9 (ConditionalExpression
@@ -117,12 +118,18 @@ describe("runProcessAsync — mutation-kill w34", () => {
 	it("finalize does not touch clearTimeout for a grace timer that was never armed", async () => {
 		const fakeChild = makeFakeChild(77);
 		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
+		const setSpy = vi.spyOn(global, "setTimeout");
 		const clearSpy = vi.spyOn(global, "clearTimeout");
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 30_000 });
 		fakeChild.emit("close", 0);
 		const r = await promise;
 		expect(r.code).toBe(0);
 		expect(clearSpy).toHaveBeenCalledTimes(1);
+		// The single clearTimeout call must target the deadline timer this run
+		// armed (setTimeout's own return value) — not a stray/no-op id, and not
+		// a second (grace-timer) clear that was never armed.
+		const deadlineTimer = setSpy.mock.results[0]?.value;
+		expect(clearSpy).toHaveBeenCalledWith(deadlineTimer);
 	});
 
 	// test-contract: mutation-kill — kills ebfa7cb30ee79916 (-> 'false'), bf92380bc170f2c6

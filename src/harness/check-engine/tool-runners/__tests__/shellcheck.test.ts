@@ -15,10 +15,6 @@ describe("runShellcheck", () => {
 		rmSync(tmp, { recursive: true, force: true });
 	});
 
-	it("is a function", () => {
-		expect(typeof runShellcheck).toBe("function");
-	});
-
 	it("returns an array on an empty tmpdir (no .sh files to scan)", () => {
 		expect(
 			Array.isArray(

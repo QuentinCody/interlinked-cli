@@ -464,6 +464,8 @@ describe("CheckEngine.isToolAvailable", () => {
 		// undefined results are not cached → a second call probes again.
 		expect(eng.isToolAvailable("taplo")).toBe(false);
 		expect(discoverSingleToolSpy).toHaveBeenCalledTimes(2);
+		expect(discoverSingleToolSpy).toHaveBeenNthCalledWith(1, "taplo", ROOT);
+		expect(discoverSingleToolSpy).toHaveBeenNthCalledWith(2, "taplo", ROOT);
 	});
 });
 

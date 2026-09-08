@@ -18,12 +18,18 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { claimingProjectRoot } from "./__tests__/self-import-fixture.js";
 import {
 	checkExtraneousDependencies,
 	checkPhantomDependencies,
 	checkSelfImport,
 	findWorkspaceRootFor,
 } from "./agent-safety-deps.js";
+
+// Session review r4, finding 3 (2026-09-05): a file no project claims is NOT
+// MEASURED (`[]` here), so the bare-name self-import cases live under a
+// throwaway project that claims its whole root; the importer is never written.
+const at = claimingProjectRoot();
 
 // ---------------------------------------------------------------------------
 // checkExtraneousDependencies — Node.js builtin module allowlist
@@ -369,7 +375,7 @@ describe("checkSelfImport — guard, cap, and regex edge cases", () => {
 	// first extension-shaped substring) is stripped when computing its base
 	// name for self-import comparison.
 	it("strips only the file's own trailing extension when computing its base name", () => {
-		const out = checkSelfImport('import { x } from "./widget.ts.ts";\n', "widget.js.ts");
+		const out = checkSelfImport('import { x } from "./widget.ts.ts";\n', at("widget.js.ts"));
 		expect(out).toEqual([]);
 	});
 
@@ -377,7 +383,7 @@ describe("checkSelfImport — guard, cap, and regex edge cases", () => {
 	// matches per file.
 	it("stops reporting self-imports after exactly 5 even when 6 qualify", () => {
 		const lines = Array.from({ length: 6 }, (_, i) => `import a${i} from "./self";`).join("\n");
-		const out = checkSelfImport(`${lines}\n`, "self.ts");
+		const out = checkSelfImport(`${lines}\n`, at("self.ts"));
 		expect(out).toHaveLength(5);
 	});
 
@@ -385,28 +391,41 @@ describe("checkSelfImport — guard, cap, and regex edge cases", () => {
 	// (an indented self-import is still recognized), and the reported text
 	// is the TRIMMED original line (leading whitespace stripped).
 	it("recognizes an indented self-import and reports it with leading whitespace stripped", () => {
-		const out = checkSelfImport('  import { x } from "./self";\n', "self.ts");
+		const out = checkSelfImport('  import { x } from "./self";\n', at("self.ts"));
 		expect(out).toEqual([{ line: 1, text: 'import { x } from "./self";' }]);
 	});
 
 	// test-contract: bug — a comment merely mentioning `from "./self"` must
 	// not be treated as a real self-import.
 	it("does not treat a comment mentioning `from \"./self\"` as an import", () => {
-		const out = checkSelfImport('// imported from "./self" historically\n', "self.ts");
+		const out = checkSelfImport('// imported from "./self" historically\n', at("self.ts"));
 		expect(out).toEqual([]);
 	});
 
-	// test-contract: invariant — `import` must be recognized only as a
-	// line-LEADING keyword, not merely present anywhere in the line.
+	// Before 2026-09-05 this case fed a REAL top-level `import` after a `;` —
+	// which the old line parser missed and the old assertion pinned as if that
+	// were correct. The invariant that survives is narrower: `import` merely
+	// PRESENT in a line (here inside a string literal) is text, not a
+	// declaration. The real shared-line import is the case directly below.
+	// test-contract: invariant — the AST pass never mistakes the word `import` inside a string literal for a declaration
 	it("does not recognize `import` unless it starts the trimmed line", () => {
-		const out = checkSelfImport('const y = 2; import z from "./self";\n', "self.ts");
+		const out = checkSelfImport("const y = 'import z from \"./self\"';\n", at("self.ts"));
 		expect(out).toEqual([]);
+	});
+
+	// A self-import is a DECLARATION, not a line: a real import that shares
+	// its line with another statement IS one, reported at the declaration's
+	// start line (review finding, 2026-09-05).
+	// test-contract: bug — the pre-2026-09-05 line parser required `import` to start the trimmed line and missed this real top-level self-import
+	it("recognizes a self-import that shares its line with another statement", () => {
+		const out = checkSelfImport('const y = 2; import z from "./self";\n', at("self.ts"));
+		expect(out).toEqual([{ line: 1, text: 'const y = 2; import z from "./self";' }]);
 	});
 
 	// test-contract: invariant — the `from` keyword may be followed by more
 	// than one whitespace character before the specifier's quote.
 	it("allows multiple spaces between `from` and the specifier's quote", () => {
-		const out = checkSelfImport('import x from   "./self";\n', "self.ts");
+		const out = checkSelfImport('import x from   "./self";\n', at("self.ts"));
 		expect(out).toEqual([{ line: 1, text: 'import x from   "./self";' }]);
 	});
 
@@ -414,14 +433,17 @@ describe("checkSelfImport — guard, cap, and regex edge cases", () => {
 	// quoted specifier (so `fromMatch` is null) must be safely skipped, not
 	// crash the check.
 	it("safely skips a line that matches the import guard but has no quoted specifier", () => {
+		// Bare path: no project claims it, so the scan is NOT MEASURED — and must
+		// still not throw. Claimed path: the AST pass really runs on the source.
 		expect(() => checkSelfImport("import { x } from somewhere;\n", "self.ts")).not.toThrow();
+		expect(() => checkSelfImport("import { x } from somewhere;\n", at("self.ts"))).not.toThrow();
 	});
 
 	// test-contract: invariant — the SPECIFIER's own trailing extension (not
 	// the first extension-shaped substring within it) is stripped when
 	// computing its importBase for self-import comparison.
 	it("strips only the specifier's own trailing extension when computing importBase", () => {
-		const out = checkSelfImport('import { x } from "./foo.mjs.js";\n', "foo.js.ts");
+		const out = checkSelfImport('import { x } from "./foo.mjs.js";\n', at("foo.js.ts"));
 		expect(out).toEqual([]);
 	});
 
@@ -430,7 +452,7 @@ describe("checkSelfImport — guard, cap, and regex edge cases", () => {
 	it("truncates the reported line text to 150 characters", () => {
 		const longName = "y".repeat(200);
 		const line = `import { ${longName} } from "./self";`;
-		const out = checkSelfImport(`${line}\n`, "self.ts");
+		const out = checkSelfImport(`${line}\n`, at("self.ts"));
 		expect(out).toEqual([{ line: 1, text: line.slice(0, 150) }]);
 	});
 });

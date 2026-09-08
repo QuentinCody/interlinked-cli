@@ -130,6 +130,17 @@ for interpreting the warning.
 
 ## Operating the daemon
 
+`interlinked harness capabilities --json` reports runtime hook profiles, installation
+and emission evidence, and filesystem coverage. `harness coverage status --json` shows
+pending identities, manual reviews, automated check receipts, and any recovery job.
+Coverage control calls allow ten seconds per transport for reconciliation and retained
+receipts. A timeout still means no verdict; inspect status before retrying a mutation,
+since the daemon may have completed it before the response was lost.
+For `[interlinked:hook-coverage] NOT CHECKED`, run `harness coverage verify --json` and
+follow **interlinked-verify** for evidence scope, deferred checks and reviewed absences.
+If a running daemon predates the verifier, rebuild/restart using the normal lifecycle.
+Observing or checking protected files does not accept their policy digest.
+
 Local data maintenance has its own `data.config.json` in the resolved data directory.
 `interlinked data configure --auto-index on` enables bounded SessionEnd index jobs;
 `--auto-compact on` also enables lossless collection/timeline rotation. Both default off.
@@ -153,18 +164,6 @@ interlinked harness restart            # after editing config / changing mode
 
 `harness restart` performs that recursive freshness check and any required
 build **before** stopping the serving daemon, in normal and `--json` modes. A
-`interlinked harness capabilities --json` reports runtime hook profiles, installation
-and emission evidence, and filesystem coverage. `harness coverage status --json` shows
-pending identities, manual reviews, automated check receipts, and any recovery job.
-Coverage control calls allow ten seconds per transport for reconciliation and retained
-receipts. A timeout still means no verdict; inspect status before retrying a mutation,
-since the daemon may have completed it before the response was lost.
-For `[interlinked:hook-coverage] NOT CHECKED`, run `harness coverage verify --json` and
-follow **interlinked-verify** for evidence scope, deferred checks and reviewed absences.
-If a running daemon predates the verifier, rebuild/restart using the normal lifecycle.
-Observing or checking protected files does not accept their policy digest.
-
-
 failed build, or one that leaves `dist/` stale, aborts the restart and keeps the
 incumbent serving; Interlinked never knowingly replaces it with stale code.
 

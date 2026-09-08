@@ -12,7 +12,7 @@ import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // FAILURE synthesis branch, and the overlay tmp-path → target-path rewrite.
 
 import type { SpawnSyncReturns } from "node:child_process";
-import { assert, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import type { RunProcessResult } from "../spawn-async.js";
 import type { CheckResult, CheckScope, ToolRunnerInput } from "../types.js";
@@ -20,8 +20,11 @@ import type { CheckResult, CheckScope, ToolRunnerInput } from "../types.js";
 const spawnSyncMock = vi.fn<SpawnSyncStub>();
 const runProcessAsyncMock = vi.fn<typeof import("../spawn-async.js").runProcessAsync>();
 const existsSyncMock = vi.fn();
+const readFileSyncMock = vi.fn();
 const writeFileSyncMock = vi.fn();
 const unlinkSyncMock = vi.fn();
+const openSyncMock = vi.fn();
+const closeSyncMock = vi.fn();
 
 vi.mock("node:child_process", () => ({
 	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
@@ -33,12 +36,15 @@ vi.mock("../spawn-async.js", () => ({
 
 vi.mock("node:fs", () => ({
 	existsSync: (...args: unknown[]) => existsSyncMock(...args),
+	readFileSync: (...args: unknown[]) => readFileSyncMock(...args),
 	writeFileSync: (...args: unknown[]) => writeFileSyncMock(...args),
 	unlinkSync: (...args: unknown[]) => unlinkSyncMock(...args),
+	openSync: (...args: unknown[]) => openSyncMock(...args),
+	closeSync: (...args: unknown[]) => closeSyncMock(...args),
 }));
 
 // Imported after the mocks are registered.
-const { runBiome, runBiomeAsync, runBiomeOverlay } = await import("./biome.js");
+const { runBiome, runBiomeAsync, runBiomeOverlay, runBiomeOverlayTyped } = await import("./biome.js");
 
 const PROJECT_ROOT = "/work/repo";
 const TARGET = "src/app.ts";
@@ -99,14 +105,19 @@ function procResult(over: Partial<RunProcessResult>): RunProcessResult {
 }
 
 beforeEach(() => {
+	vi.stubEnv("BIOME_CONFIG_PATH", undefined);
 	spawnSyncMock.mockReset();
 	runProcessAsyncMock.mockReset();
 	existsSyncMock.mockReset();
+	readFileSyncMock.mockReset().mockReturnValue("{}");
 	writeFileSyncMock.mockReset();
 	unlinkSyncMock.mockReset();
+	openSyncMock.mockReset().mockReturnValue(42);
+	closeSyncMock.mockReset();
 	// Default: a biome.json exists at the project root (first probe hits).
 	existsSyncMock.mockReturnValue(true);
 });
+afterEach(() => vi.unstubAllEnvs());
 
 describe("runBiome — .claude/ tooling exclusion", () => {
 	it("returns [] without spawning for a .claude/workflows target (file mode)", () => {
@@ -151,6 +162,12 @@ describe("biome-config discovery", () => {
 		const out = runBiome(input(fileScope()));
 		expect(out).toEqual([]);
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+		// Exactly the two probes at the start dir, in order - proves the walk
+		// stopped at the jsonc hit rather than continuing or matching by luck.
+		expect(existsSyncMock.mock.calls).toEqual([
+			[`${PROJECT_ROOT}/biome.json`],
+			[`${PROJECT_ROOT}/biome.jsonc`],
+		]);
 	});
 
 	it("discovers a config in an ANCESTOR directory (walks up past the start dir)", () => {
@@ -164,6 +181,13 @@ describe("biome-config discovery", () => {
 		const out = runBiome(input(fileScope()));
 		expect(out).toEqual([]);
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+		// Proves the hit really came from the PARENT directory's biome.json,
+		// not a start-dir match or a longer/shorter walk.
+		expect(existsSyncMock.mock.calls).toEqual([
+			[`${PROJECT_ROOT}/biome.json`],
+			[`${PROJECT_ROOT}/biome.jsonc`],
+			["/work/biome.json"],
+		]);
 	});
 });
 
@@ -369,8 +393,11 @@ describe("runBiomeOverlay", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runBiomeOverlay(overlayInput());
 		expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
-		const writtenPath = writeFileSyncMock.mock.calls[0]?.[0];
+		const writtenPath = openSyncMock.mock.calls[0]?.[0];
 		assert(typeof writtenPath === "string");
+		expect(openSyncMock).toHaveBeenCalledWith(writtenPath, "wx");
+		expect(writeFileSyncMock).toHaveBeenCalledWith(42, overlayInput().content);
+		expect(closeSyncMock).toHaveBeenCalledWith(42);
 		// Same directory as the target, base name preserved, `.ts` extension kept.
 		expect(writtenPath.startsWith(`${PROJECT_ROOT}/src/app.overlay-`)).toBe(true);
 		expect(writtenPath.endsWith(".ts")).toBe(true);
@@ -378,18 +405,55 @@ describe("runBiomeOverlay", () => {
 		expect(unlinkSyncMock).toHaveBeenCalledWith(writtenPath);
 	});
 
-	it("returns [] when biome exits clean (status === 0) on the overlay file", () => {
-		spawnSyncMock.mockReturnValue(spawnResult({ status: 0, stdout: biomeLintFinding() }));
+	it.each([["**/index.ts", "index.ts"], ["**/*.test.ts", "index.test.ts"]])("does not produce a verdict under a different filename override: %s", (selector, target) => {
+		readFileSyncMock.mockReturnValue(JSON.stringify({
+			linter: { rules: { style: { noDefaultExport: "error" } } },
+			overrides: [{ includes: [selector], linter: { rules: { style: { noDefaultExport: "off" } } } }],
+		}));
+		expect(runBiomeOverlayTyped(overlayInput(`${PROJECT_ROOT}/src/${target}`))).toEqual({
+			status: "unavailable", reason: expect.stringContaining("may depend on the filename"),
+		});
+		expect(openSyncMock).not.toHaveBeenCalled();
+		expect(spawnSyncMock).not.toHaveBeenCalled();
+	});
+
+	it("checks a nested-only target configuration even without a project-root configuration", () => {
+		existsSyncMock.mockImplementation((path) => path === `${PROJECT_ROOT}/src/biome.json`);
+		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
+		expect(runBiomeOverlayTyped(overlayInput())).toEqual({ status: "ok", findings: [] });
+		expect(readFileSyncMock).toHaveBeenCalledWith(`${PROJECT_ROOT}/src/biome.json`, "utf-8");
+		expect(spawnSyncMock).toHaveBeenCalledOnce();
+	});
+
+	it("does not write or run when an environment-selected configuration is unsupported", () => {
+		vi.stubEnv("BIOME_CONFIG_PATH", "/custom/config");
+		expect(runBiomeOverlayTyped(overlayInput())).toEqual({ status: "unavailable", reason: expect.stringContaining("BIOME_CONFIG_PATH") });
+		expect(openSyncMock).not.toHaveBeenCalled();
+		expect(spawnSyncMock).not.toHaveBeenCalled();
+	});
+
+	it.each(["d.ts", "d.mts", "d.cts"])("preserves declaration-file parser semantics for %s", (suffix) => {
+		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
+		expect(runBiomeOverlayTyped(overlayInput(`${PROJECT_ROOT}/src/types.${suffix}`))).toEqual({ status: "ok", findings: [] });
+		expect(openSyncMock).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`types\\.overlay-[^.]+\\.${suffix.replaceAll(".", "\\.")}$`)), "wx");
+	});
+
+	it("returns [] when biome exits clean without diagnostics on the overlay file", () => {
+		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		expect(runBiomeOverlay(overlayInput())).toEqual([]);
 		expect(unlinkSyncMock).toHaveBeenCalledTimes(1);
+		// The unlinked path is the exact temp file that was written for this
+		// run, not merely "unlink was called once".
+		expect(unlinkSyncMock).toHaveBeenCalledWith(openSyncMock.mock.calls[0]?.[0]);
 	});
 
 	it("rewrites tmp-file diagnostic paths back to the target file path", () => {
 		// biome reports the diagnostic against the temp file; the runner must
 		// rewrite that path to the real target so downstream diffing matches.
 		let tmpPath = "";
-		writeFileSyncMock.mockImplementation((p: string) => {
+		openSyncMock.mockImplementation((p: string) => {
 			tmpPath = p;
+			return 42;
 		});
 		spawnSyncMock.mockImplementation(() => {
 			// The diagnostic file equals the tmp path (relativized by the runner).
@@ -429,8 +493,9 @@ describe("runBiomeOverlay", () => {
 			throw new Error("boom");
 		});
 		expect(runBiomeOverlay(overlayInput())).toEqual([]);
-		// finally still runs the cleanup.
+		// finally still runs the cleanup, on the exact temp file written.
 		expect(unlinkSyncMock).toHaveBeenCalledTimes(1);
+		expect(unlinkSyncMock).toHaveBeenCalledWith(openSyncMock.mock.calls[0]?.[0]);
 	});
 
 	it("swallows a cleanup failure when unlinkSync throws in the finally block", () => {
@@ -441,5 +506,47 @@ describe("runBiomeOverlay", () => {
 		// The unlink error is caught — the overlay result is unaffected.
 		expect(runBiomeOverlay(overlayInput())).toEqual([]);
 		expect(unlinkSyncMock).toHaveBeenCalledTimes(1);
+		// Still targeted the real temp file (the throw is swallowed, not skipped).
+		expect(unlinkSyncMock).toHaveBeenCalledWith(openSyncMock.mock.calls[0]?.[0]);
+	});
+
+	it("distinguishes an unconfigured project from a checked-clean overlay", () => {
+		existsSyncMock.mockReturnValue(false);
+		expect(runBiomeOverlayTyped(overlayInput())).toEqual({ status: "skipped", reason: "no Biome configuration" });
+		expect(spawnSyncMock).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{ status: null, error: new Error("spawn timeout"), stdout: biomeLintFinding() },
+		{ status: null, signal: "SIGTERM" as const, stdout: biomeLintFinding() },
+		{ status: 1, stdout: "invalid configuration" },
+		{ status: null },
+	])("reports incomplete execution as unavailable even with partial diagnostics: %j", (result) => {
+		spawnSyncMock.mockReturnValue(spawnResult(result));
+		expect(runBiomeOverlayTyped(overlayInput())).toEqual({ status: "unavailable", reason: expect.any(String) });
+		expect(unlinkSyncMock).toHaveBeenCalledWith(openSyncMock.mock.calls[0]?.[0]);
+	});
+
+	it("retains diagnostics emitted with exit zero", () => {
+		spawnSyncMock.mockReturnValue(spawnResult({ status: 0, stdout: biomeLintFinding() }));
+		expect(runBiomeOverlayTyped(overlayInput())).toEqual({
+			status: "ok",
+			findings: [expect.objectContaining({ ruleId: "lint/suspicious/noDoubleEquals" })],
+		});
+	});
+
+	it("does not remove a temp file it failed to create exclusively", () => {
+		openSyncMock.mockImplementation(() => { throw new Error("EEXIST"); });
+		expect(runBiomeOverlayTyped(overlayInput())).toEqual({ status: "unavailable", reason: "EEXIST" });
+		expect(spawnSyncMock).not.toHaveBeenCalled();
+		expect(unlinkSyncMock).not.toHaveBeenCalled();
+	});
+
+	it("closes and removes its temporary file after a partial write failure", () => {
+		writeFileSyncMock.mockImplementation(() => { throw new Error("disk full"); });
+		expect(runBiomeOverlayTyped(overlayInput())).toEqual({ status: "unavailable", reason: "disk full" });
+		expect(closeSyncMock).toHaveBeenCalledWith(42);
+		expect(unlinkSyncMock).toHaveBeenCalledWith(openSyncMock.mock.calls[0]?.[0]);
+		expect(spawnSyncMock).not.toHaveBeenCalled();
 	});
 });

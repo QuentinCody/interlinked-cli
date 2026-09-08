@@ -53,6 +53,7 @@ export interface GatedWriteTransaction {
 
 export class GatedWriteConflictError extends Error {
 	readonly paths: readonly string[];
+	readonly path: string | undefined;
 
 	constructor(paths: readonly string[]) {
 		super(
@@ -60,6 +61,15 @@ export class GatedWriteConflictError extends Error {
 		);
 		this.name = "GatedWriteConflictError";
 		this.paths = [...paths];
+		this.path = paths[0];
+	}
+}
+
+class GatedWriteTargetError extends Error {
+	constructor(readonly path: string, options: { cause: unknown }) {
+		const { cause } = options;
+		super(cause instanceof Error ? cause.message : String(cause), { cause });
+		this.name = "GatedWriteTargetError";
 	}
 }
 
@@ -73,9 +83,10 @@ export class GatedWriteLockError extends Error {
 	}
 }
 
-/** Public so command handlers can distinguish partial rollback from clean aborts. */
+/** Preserve the original failing target while reporting an incomplete rollback. */
 class GatedWriteRollbackError extends Error {
 	readonly failures: readonly string[];
+	readonly path: string | undefined;
 
 	constructor(cause: unknown, failures: readonly string[]) {
 		const reason = cause instanceof Error ? cause.message : String(cause);
@@ -84,6 +95,7 @@ class GatedWriteRollbackError extends Error {
 		});
 		this.name = "GatedWriteRollbackError";
 		this.failures = [...failures];
+		this.path = cause instanceof GatedWriteTargetError ? cause.path : undefined;
 	}
 }
 
@@ -106,7 +118,16 @@ function errorCode(error: unknown): unknown {
 	return Reflect.get(error, "code");
 }
 
+function assertCanonicalParent(path: string): void {
+	if (realpathSync(dirname(path)) !== dirname(path)) {
+		throw new GatedWriteTargetError(path, {
+			cause: new Error(`Transactional target parent changed; re-read and re-gate: ${path}`),
+		});
+	}
+}
+
 function snapshot(path: string): FileSnapshot {
+	assertCanonicalParent(path);
 	let stat;
 	try {
 		stat = lstatSync(path);
@@ -211,8 +232,11 @@ function uniqueTempPath(opts: {
 
 function stageWrites(transaction: GatedWriteTransaction): StagedWrite[] {
 	const staged: StagedWrite[] = [];
+	let target: string | undefined;
 	try {
 		for (const write of transaction.writes) {
+			target = write.path;
+			assertCanonicalParent(write.path);
 			// Unchanged members still participate in the final comparison, but
 			// should not acquire new inodes or timestamps merely to validate a batch.
 			if (sameState(write.baseline, proposedState(write))) continue;
@@ -238,7 +262,8 @@ function stageWrites(transaction: GatedWriteTransaction): StagedWrite[] {
 		return staged;
 	} catch (error) {
 		cleanupTemps(staged);
-		throw error;
+		if (target === undefined || error instanceof GatedWriteConflictError) throw error;
+		throw new GatedWriteTargetError(target, { cause: error });
 	}
 }
 
@@ -357,12 +382,17 @@ function rollbackCommitted(
 }
 
 function applyStagedWrite(entry: StagedWrite): void {
-	if (entry.write.content === null) {
-		if (existsSync(entry.write.path)) unlinkSync(entry.write.path);
-		return;
+	try {
+		assertCanonicalParent(entry.write.path);
+		if (entry.write.content === null) {
+			if (existsSync(entry.write.path)) unlinkSync(entry.write.path);
+			return;
+		}
+		if (entry.tempPath === null) throw new Error(`Missing staged file for ${entry.write.path}`);
+		renameSync(entry.tempPath, entry.write.path);
+	} catch (error) {
+		throw new GatedWriteTargetError(entry.write.path, { cause: error });
 	}
-	if (entry.tempPath === null) throw new Error(`Missing staged file for ${entry.write.path}`);
-	renameSync(entry.tempPath, entry.write.path);
 }
 
 function rollbackFailure(

@@ -218,6 +218,7 @@ function captureBaselineForTarget(ctx: ServerRuntime, target: string): void {
 			),
 			ambientSeams: countAmbientSeams(preContent, baselineFilePath),
 			assertionStrength: countAssertionStrength(preContent, baselineFilePath),
+			assertionStrengthPreContent: preContent,
 		});
 	} catch (e) {
 		void e;

@@ -33,7 +33,7 @@ import {
 	clearOverlayServiceCache,
 	OVERLAY_EXT,
 	type RunTscOverlayInput,
-	runOverlayCheckInProcess,
+	runOverlayCheckInProcessTyped,
 } from "./tsc-overlay-service.js";
 
 export type { RunTscOverlayInput };
@@ -108,7 +108,10 @@ export function runTscOverlayTyped(input: RunTscOverlayInput): TscOverlayOutcome
 			};
 		}
 		try {
-			return { status: "ok", findings: runOverlayCheckInProcess(input) };
+			const run = runOverlayCheckInProcessTyped(input);
+			return run.status === "ok"
+				? { status: "ok", findings: run.findings }
+				: { status: "unavailable", reason: run.reason };
 		} finally {
 			releaseCompiler();
 		}

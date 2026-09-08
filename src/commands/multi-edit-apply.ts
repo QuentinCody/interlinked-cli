@@ -9,15 +9,10 @@
 // helpers. This module has NO import from `multi-edit.ts` — the dependency
 // direction is one-way (apply ← manifest ← command) so there is no cycle.
 
-import { existsSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { captureGatedWriteBaseline, commitGatedWrites } from "../lib/gated-file-transaction.js";
 import type { CheckResult } from "../harness/check-engine/types.js";
-import {
-	evaluateBiomeDiffOverlay,
-	evaluateTscDiffOverlay,
-	isTscFindingBlocking,
-	TSC_CHECKER_UNAVAILABLE_CODE,
-} from "../harness/diff-overlay.js";
-import { findProjectRoot } from "../harness/quality-checks/project-root.js";
+import { GATE_SEVERITY_ERROR, gateProposedContent } from "../harness/content-gate.js";
+import { isTscFindingBlocking } from "../harness/diff-overlay.js";
 import { nonNull } from "../lib/non-null.js";
 
 // ───────────────────────────────────────────────
@@ -170,11 +165,9 @@ export function applyEditsToBuffer(original: string, edits: EditPair[]): ApplyEd
 // ───────────────────────────────────────────────
 
 /**
- * Thin wrapper around the existing diff-overlay entry points. This is the
- * exact pipeline `evaluator/write-content-guards.ts` runs for single-Edit
- * writes, minus the registry/security checks that are out of scope here
- * (merge-conflict markers, binary-file guard, path traversal — we apply
- * path validation in the command itself).
+ * Adapt the shared pre_block, Biome and TypeScript content gate to the
+ * multi-edit result shape. The transaction layer validates physical paths;
+ * operation-level guards remain the responsibility of the caller's hooks.
  *
  * Returns a list of failures in the same shape as the design doc's `--json`
  * output. Empty list means the gate passed.
@@ -185,67 +178,23 @@ export function gateProposedContentInline(
 	batch: Array<{ path: string; content: string }>,
 	opts?: { projectRoot?: string },
 ): GateFailure[] {
-	const failures: GateFailure[] = [];
-	for (const { path, content } of batch) {
-		// Resolve the project root per-file (monorepos with per-package
-		// tsconfig.json work correctly this way).
-		const projectRoot =
-			opts?.projectRoot || findProjectRoot(path, process.cwd()) || process.cwd();
-
-		// Biome diff-overlay
-		const biome = evaluateBiomeDiffOverlay(path, content, projectRoot);
-		for (const f of biome.newFindings) {
-			failures.push({
-				path,
-				tool: "biome",
-				code: f.ruleId ?? "biome",
-				line: f.line,
-				message: f.message,
-			});
-		}
-
-		// Tsc diff-overlay — only blocking findings count (warn-only codes
-		// like TS6133 "unused" are intentionally non-blocking; the design
-		// doc's whole point is to permit transient unused-import-style
-		// intermediate states, and here the state is post-composition, so
-		// genuine unused imports will still surface as warnings via the
-		// harness PostToolUse path).
-		// Overlay every OTHER file in the batch so a transactional multi-file
-		// edit's cross-file references (new exports, shared types, added props)
-		// resolve against the proposed combined state instead of stale disk —
-		// the fix that lets multi-edit actually land coordinated refactors.
-		const siblings = batch
-			.filter((b) => b.path !== path)
-			.map((b) => ({ filePath: b.path, content: b.content }));
-		const tsc = evaluateTscDiffOverlay(path, content, projectRoot, siblings);
-		// Unavailable is NOT clean: multi-edit is a transaction, and an empty
-		// newFindings array from a checker that never ran (sidecar spawn
-		// failure / timeout / cooldown) must abort it, never land it. The
-		// caller treats any failure row as GATE_REJECTED — files unchanged.
-		if (tsc.checkerUnavailable !== undefined) {
-			failures.push({
-				path,
-				tool: "tsc",
-				code: TSC_CHECKER_UNAVAILABLE_CODE,
-				line: 0,
-				message:
-					`type checker unavailable (${tsc.checkerUnavailable}) — ` +
-					"this file was NOT type-checked; transaction aborted because unavailable is not clean",
-			});
-			continue;
-		}
-		const blocking = tsc.newFindings.filter(isTscFindingBlocking);
-		for (const f of blocking) {
-			failures.push({
-				path,
-				tool: "tsc",
-				code: f.ruleId ?? "tsc",
-				line: f.line,
-				message: f.message,
-			});
-		}
-	}
-	return failures;
+	// Converged on the SHARED gate (session review r4, finding 4): this
+	// command used to run only biome + tsc, so the identical edit was refused
+	// by `interlinked write --batch` and accepted here, and the pre_block
+	// registry (self_import among them) never saw the batch nor the proposed
+	// view that lets a sibling created in the same batch resolve. The shared
+	// gate runs every phase under the batch's proposed tree; multi-edit keeps
+	// its transactional stance by demanding that an UNAVAILABLE type checker
+	// be an error (unavailable is not clean) and by treating only error-severity
+	// rows as gate failures — non-blocking tsc findings (TS6133 "unused") and
+	// pre-existing pre_block instances stay warnings, exactly as before.
+	const shared = gateProposedContent(batch, {
+		...(opts?.projectRoot !== undefined ? { projectRoot: opts.projectRoot } : {}),
+		tscUnavailableSeverity: GATE_SEVERITY_ERROR,
+	});
+	return shared.failures
+		.filter((failure) => failure.severity === GATE_SEVERITY_ERROR)
+		.map(({ path, tool, code, line, message }) => ({ path, tool, code, line, message }));
 }
 
 /** Public API — the CheckResult row shape surfaced by diff-overlay. */
@@ -258,72 +207,30 @@ export { isTscFindingBlocking };
 // Transactional write
 // ───────────────────────────────────────────────
 
-/**
- * Best-effort cleanup of a leftover `.tmp` file after a failed write/rename.
- * Failure here is secondary — the primary write error is what the caller
- * surfaces — so we only log, never throw.
- */
-function cleanupTmpFile(tmp: string): void {
-	try {
-		if (existsSync(tmp)) unlinkSync(tmp);
-	} catch (cleanupErr) {
-		const cleanupMsg = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
-		console.error(`[multi-edit] warning: failed to clean up ${tmp}: ${cleanupMsg}`);
-	}
+/** Read the original target path preserved by transaction and rollback errors. */
+export function transactionFailurePath(error: unknown): string | undefined {
+    if (!(error instanceof Error) || !("path" in error)) return undefined;
+    return typeof error.path === "string" ? error.path : undefined;
 }
 
-/**
- * Restore every already-written file back to its prior on-disk content.
- * Best-effort per file — if one rollback fails we still attempt the rest,
- * logging each failure since there's no way to recover from it here.
- */
-function rollbackWrittenFiles(
-	written: string[],
-	finals: Array<{ path: string; content: string; priorContent: string }>,
-): void {
-	for (const rollbackPath of written) {
-		const prior = finals.find((f) => f.path === rollbackPath)?.priorContent;
-		if (prior === undefined) continue;
-		try {
-			writeFileSync(rollbackPath, prior, "utf-8");
-		} catch (rollbackErr) {
-			const rollbackMsg =
-				rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
-			console.error(
-				`[multi-edit] CRITICAL: rollback of ${rollbackPath} failed: ${rollbackMsg}`,
-			);
-		}
-	}
-}
-
-/**
- * Write a batch of (path, content) pairs atomically.
- *
- * "Atomic across the batch" means: if we can't complete all writes, we roll
- * back any writes we already made to their original on-disk content. The
- * individual file writes themselves use the standard temp+rename pattern
- * (which is atomic within a single file on POSIX). The rollback is
- * best-effort — if the process is killed mid-write we may leave a
- * partially-written batch, but that's the same failure mode git has.
+/** Compatibility API for callers that already hold the exact pre-edit bytes.
+ * Command handlers capture their transaction before running the gate.
  */
 export function atomicBatchWrite(
-	finals: Array<{ path: string; content: string; priorContent: string }>,
+    finals: Array<{ path: string; content: string; priorContent: string }>,
+    opts: { projectRoot?: string } = {},
 ): { ok: true } | { ok: false; failedPath: string; message: string } {
-	const written: string[] = [];
-	for (const { path, content } of finals) {
-		const tmp = `${path}.interlinked-multi-edit.tmp`;
-		try {
-			writeFileSync(tmp, content, "utf-8");
-			renameSync(tmp, path);
-			written.push(path);
-		} catch (err) {
-			// Rollback: clean up the leftover .tmp, then restore everything
-			// we already wrote back to its prior content.
-			cleanupTmpFile(tmp);
-			rollbackWrittenFiles(written, finals);
-			const msg = err instanceof Error ? err.message : String(err);
-			return { ok: false, failedPath: path, message: msg };
-		}
-	}
-	return { ok: true };
+    try {
+        const transaction = captureGatedWriteBaseline(opts.projectRoot ?? process.cwd(), finals.map((entry) => ({
+            path: entry.path, content: entry.content, expectedContent: entry.priorContent,
+        })));
+        commitGatedWrites(transaction);
+        return { ok: true };
+    } catch (error) {
+        return {
+            ok: false,
+            failedPath: transactionFailurePath(error) ?? finals[0]?.path ?? "",
+            message: error instanceof Error ? error.message : String(error),
+        };
+    }
 }

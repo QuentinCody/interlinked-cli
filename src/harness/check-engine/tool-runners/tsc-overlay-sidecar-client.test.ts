@@ -88,6 +88,15 @@ describe("tsc-overlay-sidecar-client", () => {
 		expect(runOverlayViaSidecar(INPUT)).toEqual([finding]);
 	});
 
+	// kind: public-api — positive (must fire)
+	it("P5: a reply carrying notMeasured is typed unavailable with that reason, and is not a sidecar failure (review r6, finding 2)", async () => {
+		const reason = "project_orphan: no project claims a.ts";
+		spawnSyncMock.mockReturnValue(ok(`${JSON.stringify({ id: 1, result: [], notMeasured: reason })}\n`));
+		const { runOverlayViaSidecarTyped } = await importClient();
+		expect(runOverlayViaSidecarTyped(INPUT)).toEqual({ status: "unavailable", reason });
+		expect(warnSpy).not.toHaveBeenCalled();
+	});
+
 	it.each([
 		{ result: [null] },
 		{ result: [{ tool: "tsc", severity: "error", file: "a.ts", line: "1", message: "bad" }] },

@@ -6,6 +6,33 @@ Copilot CLI, Gemini CLI, OpenCode, and Pi adapters; evaluates delivered tool
 hooks against deterministic rules; blocks the dangerous ones in
 milliseconds; keeps a local activity log you can grep.
 
+## Install in one line
+
+Node.js 22+ on macOS, Linux, or WSL. Pick one:
+
+```bash
+# A. Global install straight from GitHub (clone + build + link in one step)
+npm install -g github:QuentinCody/interlinked-cli
+
+# B. A readable checkout you can update in place with `interlinked update`
+git clone https://github.com/QuentinCody/interlinked-cli.git && cd interlinked-cli && npm ci && npm link
+
+# C. Pin to a specific commit (reproducible installs, CI)
+npm install -g github:QuentinCody/interlinked-cli#<commit-sha>
+```
+
+Then, inside the repo you want guarded:
+
+```bash
+interlinked            # wizard: review the posture, install hooks + skills, start the daemon
+```
+
+Restart your agent so it loads the installed hooks and skills. The guard checks
+events delivered by that client's supported hook integration. Use
+`interlinked harness capabilities --json` to inspect installation and observed
+coverage. These instructions install this repository directly; full details are in
+[Install From Source](#install-from-source).
+
 **The exit ramp, up front:** `interlinked disable` non-destructively stands the guard down.
 `interlinked disable --uninstall` removes an `enable`/wizard installation; the narrower
 `interlinked uninstall-hooks` removes only hooks installed through `install-hooks` —
@@ -167,8 +194,10 @@ for `setup` or `init` only when you need the login and workspace steps they add.
   never a clean result. For fail-closed proposed-content TypeScript/Biome
   checking and an actual write, use transactional `interlinked write`;
   `verify-changeset` previews that gate without writing. `interlinked
-  multi-edit` is transactional but runs Biome + TypeScript, not the
-  `pre_block` registry.
+  multi-edit` shares the same content gate. Both write commands capture target
+  state before checking, reject concurrent changes under a shared commit lock,
+  and preserve existing permissions. Unavailable Biome/TypeScript checks abort
+  transactional writes; ordinary edits retain asynchronous feedback.
 - **Auto file reservation.** With the harness running, each delivered
   write-class event takes a lease-based
   reservation with a 5-minute TTL and a 30-second idle auto-release.

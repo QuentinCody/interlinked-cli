@@ -26,6 +26,11 @@ export interface SidecarOverlayRequest {
 interface SidecarOverlayResponseOk {
 	id: number;
 	result: CheckResult[];
+	/** The sidecar ran but the compiler could not MEASURE this file: no single
+	 *  project claims it (session review r6, finding 2). Typed "unavailable" on
+	 *  the client, and NOT a sidecar failure — it never counts toward the
+	 *  cooldown. */
+	notMeasured?: string;
 }
 
 interface SidecarOverlayResponseErr {

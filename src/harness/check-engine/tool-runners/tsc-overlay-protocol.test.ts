@@ -18,6 +18,12 @@ describe("tsc-overlay-protocol", () => {
 		expect(isSidecarErrorResponse(res)).toBe(false);
 	});
 
+	// kind: public-api — negative (must not fire)
+	it("N3: an ok-shaped reply that carries notMeasured is not an error response (review r6, finding 2)", () => {
+		const res: SidecarOverlayResponse = { id: 1, result: [], notMeasured: "project_orphan: no project claims the file" };
+		expect(isSidecarErrorResponse(res)).toBe(false);
+	});
+
 	it("N2: protocol version is a stable positive integer", () => {
 		expect(Number.isInteger(SIDECAR_PROTOCOL_VERSION)).toBe(true);
 		expect(SIDECAR_PROTOCOL_VERSION).toBeGreaterThan(0);

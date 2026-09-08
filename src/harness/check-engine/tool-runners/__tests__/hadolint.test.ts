@@ -15,10 +15,6 @@ describe("runHadolint", () => {
 		rmSync(tmp, { recursive: true, force: true });
 	});
 
-	it("is a function", () => {
-		expect(typeof runHadolint).toBe("function");
-	});
-
 	it("returns an array on an empty tmpdir (no Dockerfile to lint)", () => {
 		expect(
 			Array.isArray(
