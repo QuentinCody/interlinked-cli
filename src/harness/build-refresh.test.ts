@@ -286,6 +286,20 @@ describe("startBuildRefreshWatcher", () => {
 		// path must schedule none, not merely avoid spawning on the next tick.
 		expect(vi.getTimerCount()).toBe(0);
 		dispose();
+
+		// Same call shape, but the initial stat succeeds — the watcher DOES
+		// register exactly one interval timer, proving the 0 above is the
+		// null-stat early return, not the watcher never scheduling at all.
+		const disposeOk = startBuildRefreshWatcher({
+			moduleUrl: distUrl,
+			cwd: "/repo",
+			lastActivityMs: () => 0,
+			log: vi.fn(),
+			env: {},
+			deps: { statMtimeMs: () => 5_000_000, spawn: makeSpawn() },
+		});
+		expect(vi.getTimerCount()).toBe(1);
+		disposeOk();
 	});
 
 	describe("startup staleness warning (real dist/src mtimes on disk — not mocked)", () => {
@@ -578,6 +592,16 @@ describe("startBuildRefreshWatcher", () => {
 				vi.advanceTimersByTime(61_000);
 
 				expect(spawn).toHaveBeenCalledTimes(1);
+				const call = spawn.mock.calls[0];
+				if (call === undefined) throw new Error("spawn was not called");
+				const [cmd, argv, opts] = call;
+				expect(cmd).toBe(process.execPath);
+				// resolveOwnArtifact derives the CLI entry from the dist/harness/*.js
+				// artifact path — .../dist/harness/server.js -> .../dist/index.js.
+				expect(argv).toEqual([join(dir, "dist", "index.js"), "harness", "restart"]);
+				expect(opts.cwd).toBe(dir);
+				expect(opts.detached).toBe(true);
+				expect(opts.stdio).toBe("ignore");
 				dispose();
 			} finally {
 				rmSync(dir, { recursive: true, force: true });

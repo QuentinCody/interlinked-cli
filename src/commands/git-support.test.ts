@@ -5,7 +5,6 @@ import {
 	formatGitContextOutput,
 	formatLinkCheckpointOutput,
 	resolveCheckpointId,
-	resolveServerContext,
 	serverPushResultPatch,
 } from "./git-support.js";
 
@@ -230,12 +229,6 @@ describe("resolveServerContext", () => {
 		expect(await mod.resolveServerContext(undefined)).toEqual({ error: "unreachable" });
 		vi.doUnmock("../lib/api-client.js");
 		vi.resetModules();
-	});
-});
-
-describe("resolveServerContext export identity", () => {
-	it("is a function", () => {
-		expect(typeof resolveServerContext).toBe("function");
 	});
 });
 

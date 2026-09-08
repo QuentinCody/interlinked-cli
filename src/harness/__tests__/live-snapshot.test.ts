@@ -110,6 +110,8 @@ describe("deleteLiveSnapshot", () => {
 
 	it("is idempotent on a missing snapshot", () => {
 		expect(() => deleteLiveSnapshot(tmpDir, "missing")).not.toThrow();
+		const path = nonNull(liveSnapshotPath(tmpDir, "missing"));
+		expect(existsSync(path)).toBe(false);
 	});
 });
 

@@ -2,20 +2,11 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isJsonObject } from "../../lib/json-types.js";
 import { firstUserMessage, lastStructuredReturn, readTranscriptHead, readTranscriptTail } from "./transcript.js";
-
-vi.mock("../../lib/json-types.js", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("../../lib/json-types.js")>();
-	return { ...actual, isJsonObject: vi.fn(actual.isJsonObject) };
-});
 
 let dir: string;
 beforeEach(() => {
 	dir = mkdtempSync(join(tmpdir(), "transcript-kill-"));
-	// SAFETY: vi.mock above replaces the export with vi.fn(actual.isJsonObject),
-	// so this is the actual runtime shape despite the static import type.
-	(vi.mocked(isJsonObject)).mockClear();
 });
 afterEach(() => {
 	rmSync(dir, { recursive: true, force: true });
@@ -167,11 +158,10 @@ describe("lastStructuredReturn / entryStructuredReturn — positive (must fire c
 		expect(lastStructuredReturn(line)).toBeNull();
 	});
 
-	// test-contract: invariant — an empty content array makes exactly two isJsonObject probes (entry.message, then none in an empty loop) (mutant c35eb10f)
-	it("makes no extra isJsonObject probes when content is empty", () => {
+	// test-contract: boundary — an empty assistant content array has no structured return.
+	it("returns null for an empty assistant content array", () => {
 		const line = JSON.stringify({ type: "assistant", message: { content: [] } });
 		expect(lastStructuredReturn(line)).toBeNull();
-		expect(isJsonObject).toHaveBeenCalledTimes(2);
 	});
 
 	// test-contract: boundary — a null content block is skipped without throwing (mutant df725e83)

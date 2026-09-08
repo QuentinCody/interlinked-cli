@@ -202,6 +202,7 @@ describe("--ignore-scripts enforcement", () => {
 		const event = makeEvent({ tool_input: { command: "npm install" } });
 		const result = evaluatePreToolUse(event, rules, session, reservations, cohort);
 		expect(result.decision).toBe("allow");
+		expect(result.warnings?.some((w) => w.includes("--ignore-scripts"))).toBe(true);
 	});
 
 	it("warning references supply chain attack context", () => {

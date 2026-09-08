@@ -146,26 +146,12 @@ describe("CI ↔ pre-push pipeline parity", () => {
 		expect(ciStepNamesInYaml.length).toBeGreaterThan(0);
 	});
 
-	it("every step in ci.yml is declared in CI_STEPS", () => {
-		const declared = new Set(CI_STEPS.map((s) => s.name));
-		const undeclared = ciStepNamesInYaml.filter((n) => !declared.has(n));
-		expect(undeclared).toEqual([]);
-	});
-
-	it("every entry in CI_STEPS exists in ci.yml", () => {
-		const inYaml = new Set(ciStepNamesInYaml);
-		const stale = CI_STEPS.filter((s) => !inYaml.has(s.name)).map((s) => s.name);
-		expect(stale).toEqual([]);
+	it("declared CI steps match the workflow step names", () => {
+		expect(new Set(ciStepNamesInYaml)).toEqual(new Set(CI_STEPS.map((step) => step.name)));
 	});
 
 	it("CI_STEPS has no duplicate step names", () => {
-		const seen = new Set<string>();
-		const dupes: string[] = [];
-		for (const s of CI_STEPS) {
-			if (seen.has(s.name)) dupes.push(s.name);
-			seen.add(s.name);
-		}
-		expect(dupes).toEqual([]);
+		expect(new Set(CI_STEPS.map((step) => step.name)).size).toBe(CI_STEPS.length);
 	});
 
 	describe("mirror: 'pre-push' entries appear in the hook script", () => {

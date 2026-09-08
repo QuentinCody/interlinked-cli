@@ -71,6 +71,10 @@ describe("listSourceFiles", () => {
 		// completes even with weird/symlinked content.
 		write("src/a.ts", "");
 		expect(() => listSourceFiles(tmp)).not.toThrow();
+		// Pins the non-default outcome too: a "swallow every error and
+		// return []" stub would also never throw, so the smoke test alone
+		// can't tell a real best-effort walk from one that gives up silently.
+		expect(listSourceFiles(tmp)).toEqual([join(tmp, "src/a.ts")]);
 	});
 });
 

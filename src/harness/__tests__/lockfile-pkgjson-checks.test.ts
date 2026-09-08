@@ -175,6 +175,7 @@ describe("checkLockfileDrift", () => {
 		const result = checkLockfileDrift(manifest);
 		expect(result.drifted).toBe(false);
 		expect(result.reason).toBe("grace");
+		expect(result.lockfile).toBeUndefined();
 	});
 
 	it("fires stale drift once the grace window has elapsed", () => {

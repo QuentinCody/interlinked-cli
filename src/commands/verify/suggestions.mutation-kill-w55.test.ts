@@ -171,6 +171,10 @@ describe("runSuggestions — scored.length > 0 gate", () => {
 		);
 		const result = runSuggestions({ files: [f], cwd: dir, limit: 100, threshold: 999999 });
 		expect(result.has("sql2.ts")).toBe(false);
+		// Prove the exclusion is the threshold, not a broken finder: the same
+		// file with a default threshold=0 must be included.
+		const unfiltered = runOn([f]);
+		expect(unfiltered.has("sql2.ts")).toBe(true);
 	});
 });
 

@@ -274,6 +274,9 @@ describe("buildAgentIoRecord — schema literal + nullish-coalesce defaults", ()
 			cwd,
 		);
 		expect(record.content_status).toBe("unavailable");
+		// The override touches only content_status — the raw content is still
+		// stored, which is what tells this apart from the raw:null default case.
+		expect(record.content).toBe("some text");
 	});
 
 	it("defaults input_capturable to true when omitted", () => {

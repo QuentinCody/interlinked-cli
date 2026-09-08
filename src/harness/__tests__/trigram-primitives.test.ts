@@ -61,7 +61,8 @@ describe("fnv1a", () => {
 	});
 
 	it("hashes zero without throwing", () => {
-		expect(fnv1a(0)).toBeGreaterThanOrEqual(0);
+		// fnv1a is a pure function of its input; the hash of 0 is fixed.
+		expect(fnv1a(0)).toBe(1253111735);
 	});
 });
 

@@ -354,5 +354,7 @@ describe("checkSingleImplementationInterface — regex + logic robustness", () =
 		// Only `a` and `b` should be read before the >1-implementor break fires;
 		// `c` and `d` (after `b` in file order) must never be touched.
 		expect(readFileSyncSpy).toHaveBeenCalledTimes(2);
+		expect(readFileSyncSpy).toHaveBeenNthCalledWith(1, a, "utf-8");
+		expect(readFileSyncSpy).toHaveBeenNthCalledWith(2, b, "utf-8");
 	});
 });

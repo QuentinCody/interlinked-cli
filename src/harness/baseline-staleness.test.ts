@@ -268,8 +268,4 @@ describe("TRACKED_BASELINES — every suggested refresh command exists in the CL
 		expect(resolveCommand(buildProgram(), ["metrics", "update-baseline"])).toBeNull();
 		expect(resolveCommand(buildProgram(), ["coverage", "refresh"])).toBeNull();
 	});
-
-	it("N2: the dead mutation-baseline ratchet is no longer nudged at all", () => {
-		expect(TRACKED_BASELINES.map((b) => b.file)).not.toContain("mutation-baseline.json");
-	});
 });

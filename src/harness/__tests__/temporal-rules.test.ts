@@ -386,6 +386,11 @@ describe("builtin-git-force-push-requires-inspection (temporal rule)", () => {
 			new CohortManager(),
 		);
 		expect(result.decision).toBe("allow");
+		// The temporal-gate rule must not have fired at all (not just
+		// resolved to "allow") — distinguishes real predicate-satisfied
+		// dormancy from a bug that trivially treats any non-empty
+		// commands_run as satisfying the "git log" requirement.
+		expect(result.rule_id).not.toBe("builtin-git-force-push-requires-inspection");
 	});
 
 	it("does not match `--force-with-lease` (the safer variant)", () => {
@@ -402,6 +407,10 @@ describe("builtin-git-force-push-requires-inspection (temporal rule)", () => {
 			new CohortManager(),
 		);
 		expect(result.decision).toBe("allow");
+		// `--force-with-lease` must not even trip the temporal-gate rule's
+		// pattern (it's a distinct command shape from `--force`/`-f`), not
+		// merely happen to end up allowed for some other reason.
+		expect(result.rule_id).not.toBe("builtin-git-force-push-requires-inspection");
 	});
 
 	it("under default config (hard-block enabled), force-push still BLOCKS", () => {
@@ -478,6 +487,11 @@ describe("builtin-rm-requires-prior-inspection (temporal rule)", () => {
 			new CohortManager(),
 		);
 		expect(result.decision).toBe("allow");
+		// The negation allowlist must exempt this path from the rule
+		// entirely — distinguishes the exemption from a bug that just
+		// happens to resolve "allow" (e.g. an empty tool_sequence being
+		// misread as "no prior actions to worry about").
+		expect(result.rule_id).not.toBe("builtin-rm-requires-prior-inspection");
 	});
 
 	it("does not fire on subcommand `rm` like `vercel rm <name>`", () => {

@@ -164,6 +164,7 @@ describe("audit trail + stderr line — positive (must appear)", () => {
 
 	it("P4: derives the session start from started_at", () => {
 		expect(sessionStartMs(mkSession([]))).toBe(0);
+		expect(sessionStartMs({ ...completeSessionFixture(), started_at: "2026-01-01T00:00:00.000Z" })).toBe(1767225600000);
 	});
 });
 

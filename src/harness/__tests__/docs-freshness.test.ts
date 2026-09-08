@@ -28,6 +28,7 @@ describe("docs freshness", () => {
 
 	it("every guard rule has a category", () => {
 		const rules = getBuiltinRules();
+		expect(rules.length).toBeGreaterThan(0);
 		const missing = rules.filter((r) => !(parseWire(r, wireObject({ "category": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value")).category);
 		expect(missing.map((r) => r.id)).toEqual([]);
 	});
@@ -124,6 +125,7 @@ describe("docs freshness", () => {
 
 	it("all guard rule IDs are unique", () => {
 		const rules = getBuiltinRules();
+		expect(rules.length).toBeGreaterThan(0);
 		const ids = rules.map((r) => r.id);
 		const dups = ids.filter((id, i) => ids.indexOf(id) !== i);
 		expect(dups, `Duplicate guard rule IDs: ${dups.join(", ")}`).toEqual([]);
@@ -146,6 +148,7 @@ describe("docs freshness", () => {
 	it("every sequence detector id appears in sequence-detectors.md", () => {
 		const path = join(DOCS_DIR, "sequence-detectors.md");
 		if (!existsSync(path)) return;
+		expect(ALL_SEQUENCE_DETECTORS.length).toBeGreaterThan(0);
 		const content = readFileSync(path, "utf-8");
 		const missing = ALL_SEQUENCE_DETECTORS.filter(
 			(d) => !content.includes(`\`${d.id}\``),

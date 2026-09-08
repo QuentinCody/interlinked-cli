@@ -20,12 +20,6 @@ describe("ERROR_ENTRIES", () => {
 		}
 	});
 
-	it("every entry has a callable fn", () => {
-		for (const c of ERROR_ENTRIES) {
-			expect(typeof c.fn).toBe("function");
-		}
-	});
-
 	it("includes the canonical error-class checks (sanity: promise_reject_non_error)", () => {
 		const ids = ERROR_ENTRIES.map((c) => c.id);
 		expect(ids).toContain("promise_reject_non_error");

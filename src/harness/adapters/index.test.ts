@@ -166,6 +166,12 @@ describe("encodeDecision maps the same allow across adapters", () => {
 			);
 			const out = a.encodeDecision(decision, event);
 			expect(out.exit_code).toBe(0);
+			// A stub that always returns { exit_code: 0 } regardless of the
+			// decision would pass the assertion above identically. Prove the
+			// decision is actually read by encoding a block and checking its
+			// literal reason surfaces somewhere in the adapter's output.
+			const blockOut = a.encodeDecision({ decision: "block", reason: "denied-u038" }, event);
+			expect(JSON.stringify(blockOut)).toContain("denied-u038");
 		});
 	}
 });

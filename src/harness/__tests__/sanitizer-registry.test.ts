@@ -18,12 +18,20 @@ import { nonNull } from "../../lib/non-null.js";
 // test below invoke the listener directly (deterministic, no 2s poll wait)
 // instead of racing node:fs's real poll interval.
 const capturedWatchListeners = vi.hoisted((): Array<() => void> => []);
+// Records every path the cleanup function actually unwatches, so the
+// "returns a cleanup function" test can prove cleanup() does real work
+// instead of asserting only its (near-universal) function type.
+const capturedUnwatchPaths = vi.hoisted((): string[] => []);
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
 		watchFile: (_path: string, _options: unknown, listener: () => void) => {
 			capturedWatchListeners.push(listener);
+		},
+		unwatchFile: (path: string, listener?: (...args: unknown[]) => void) => {
+			capturedUnwatchPaths.push(path);
+			return actual.unwatchFile(path, listener);
 		},
 	};
 });
@@ -106,9 +114,16 @@ describe("watchSanitizerFiles", () => {
 	it("returns a cleanup function and registers a watcher without throwing", () => {
 		mkdirSync(join(tmpRoot, ".interlinked"), { recursive: true });
 		writeFileSync(join(tmpRoot, ".interlinked", "sanitizers.json"), "{}");
+		capturedUnwatchPaths.length = 0;
 		const cleanup = watchSanitizerFiles(tmpRoot, () => undefined);
 		expect(typeof cleanup).toBe("function");
 		cleanup();
+		// A no-op cleanup (e.g. a stub `() => {}`) would leave this empty —
+		// prove it actually unwatches both files at their real paths.
+		expect(capturedUnwatchPaths).toEqual([
+			teamSanitizersPath(tmpRoot),
+			localSanitizersPath(tmpRoot),
+		]);
 	});
 
 	it("swallows an onReload callback that throws, so a bad reload never crashes the watcher", () => {
@@ -512,13 +527,24 @@ describe("load — team + local override merge", () => {
 		expect(isSanitized(reg, "html", "myCo.sanitize(x)")).toBe(false);
 	});
 
-	it("falls back to empty registry on malformed JSON", () => {
+	it("falls back to empty registry on malformed JSON, but a valid local override still merges", () => {
 		mkdirSync(join(tmpRoot, ".interlinked"), { recursive: true });
 		writeFileSync(join(tmpRoot, ".interlinked", "sanitizers.json"), "{not valid json");
+		writeRegistryFile("sanitizers.local.json", {
+			version: 1,
+			sanitizers: {
+				sql: [{ name: "pg-id", kind: "function", pattern: "pg.Identifier" }],
+			},
+		});
 		const reg = load(tmpRoot);
 		for (const cls of SINK_CLASSES) {
+			if (cls === "sql") continue;
 			expect(reg.sanitizers[cls]).toEqual([]);
 		}
+		// The malformed team file is treated as absent rather than aborting
+		// the whole load — a mutant that short-circuits on any parse error
+		// would drop this local-only entry too.
+		expect(isSanitized(reg, "sql", "pg.Identifier(t)")).toBe(true);
 	});
 
 	it("teamSanitizersPath / localSanitizersPath return expected paths", () => {

@@ -42,7 +42,9 @@ describe("checkCliResolvable — message content (kills 682dbad2, a9f98deea9142a
 	it("includes the repair hint's exact relink command when unresolved on PATH", () => {
 		const res = checkCliResolvable({ resolvedPath: null, linkTargetExists: false });
 		expect(res.status).toBe("fail");
-		expect(res.message).toContain("ln -sf <interlinked-cli>/dist/index.js ~/.local/bin/interlinked");
+		expect(res.message).toBe(
+			"'interlinked' does not resolve on PATH — shell-outs to the CLI will fail. Repair: (cd <interlinked-cli> && npm run build) then re-link, e.g. ln -sf <interlinked-cli>/dist/index.js ~/.local/bin/interlinked",
+		);
 	});
 });
 

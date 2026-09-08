@@ -767,13 +767,23 @@ describe("evaluatePreToolUse", () => {
 
 		it("does NOT skip `interlinked harness restart` or other non-test subcommands", () => {
 			// `restart` is not `test` — should NOT short-circuit, though no rule fires on
-			// the restart command itself so the verdict is still allow. This just pins
-			// that the prefix match is exact on `test`.
-			const event = makeEvent({
+			// the bare restart command itself so that verdict alone is still allow.
+			const bareEvent = makeEvent({
 				tool_input: { command: "interlinked harness restart" },
 			});
-			const result = evaluatePreToolUse(event, rules, session, reservations, cohort);
-			expect(result.decision).toBe("allow");
+			const bareResult = evaluatePreToolUse(bareEvent, rules, session, reservations, cohort);
+			expect(bareResult.decision).toBe("allow");
+
+			// Prove the prefix match is exact on `test`, not any `harness`-prefixed
+			// subcommand: wrapping a block-tier command in `harness restart "..."`
+			// must still block — the inspection-wrapper exemption must NOT apply to
+			// `restart`, unlike `test` (see the wrapper test above).
+			const wrappedEvent = makeEvent({
+				tool_input: { command: 'interlinked harness restart "wrangler delete my-worker"' },
+			});
+			const wrappedResult = evaluatePreToolUse(wrappedEvent, rules, session, reservations, cohort);
+			expect(wrappedResult.decision).toBe("block");
+			expect(wrappedResult.reason).toContain("irreversible");
 		});
 	});
 

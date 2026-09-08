@@ -24,9 +24,9 @@ import {
 	resolveDependencyView,
 	SupermodelDependencyView,
 } from "../dependency-view.js";
-import { resetWorkspaceActiveCache } from "../graph-prediction-classifier.js";
+import { classifyCase, resetWorkspaceActiveCache } from "../graph-prediction-classifier.js";
 import { ProjectGraph } from "../project-graph.js";
-import { parseGraphFile, type SupermodelGraph } from "../supermodel-graph.js";
+import { loadGraphForFile, parseGraphFile, type SupermodelGraph } from "../supermodel-graph.js";
 
 // -------------------------------------------
 // Helpers
@@ -144,6 +144,9 @@ describe("resolveDependencyView — freshness gate", () => {
 		const graph = new ProjectGraph(cwd);
 		const view = resolveDependencyView(sourcePath, cwd, graph);
 		expect(view.source).toBe("internal");
+		// Distinguishes this from every other fallback test below: the reason
+		// this file fell back is specifically Case A (no Supermodel at all).
+		expect(classifyCase(sourcePath, cwd).case).toBe("A");
 	});
 
 	it("falls back to the internal view for a greenfield file (Case C)", () => {
@@ -164,6 +167,9 @@ describe("resolveDependencyView — freshness gate", () => {
 		const graph = new ProjectGraph(cwd);
 		const view = resolveDependencyView(shardlessSource, cwd, graph);
 		expect(view.source).toBe("internal");
+		// Distinguishes this from Case A/C/parse-failure: the reason this
+		// file fell back is specifically Case D (repo active, no own shard).
+		expect(classifyCase(shardlessSource, cwd).case).toBe("D");
 	});
 
 	it("falls back to the internal view when a fresh shard fails to parse", () => {
@@ -176,6 +182,10 @@ describe("resolveDependencyView — freshness gate", () => {
 		const graph = new ProjectGraph(cwd);
 		const view = resolveDependencyView(sourcePath, cwd, graph);
 		expect(view.source).toBe("internal");
+		// Distinguishes this from Case A/D: classifyCase itself says the
+		// shard IS fresh — it is loadGraphForFile that rejects the content.
+		expect(classifyCase(sourcePath, cwd).case).toBe("E-fresh");
+		expect(loadGraphForFile(sourcePath)).toBeNull();
 	});
 });
 
@@ -249,6 +259,9 @@ describe("SupermodelDependencyView — shard mapping", () => {
 			]),
 		);
 		expect(view.classifyModule("x.ts")).toBe("hub");
+		// Distinguishes this from the HIGH-risk hub test: this shard is
+		// classified a hub on FAN-OUT (direct=6) even though risk is MEDIUM.
+		expect(view.getBlastRadius("x.ts")?.direct).toBe(6);
 	});
 
 	it("classifies a low-fanout shard as internal, and a zero-fanout shard as leaf", () => {
@@ -524,6 +537,11 @@ describe("buildPredictionOracle — backend selection + unavailable sections", (
 		graph.initialize();
 		const resolved = buildPredictionOracle(sourcePath, cwd, graph);
 		expect(resolved?.source).toBe("internal");
+		// Distinguishes this from "selects the internal backend..." above:
+		// this repo IS Supermodel-active and the shard IS fresh — it is
+		// loadGraphForFile that rejects the malformed content.
+		expect(classifyCase(sourcePath, cwd).case).toBe("E-fresh");
+		expect(loadGraphForFile(sourcePath)).toBeNull();
 	});
 });
 

@@ -253,6 +253,9 @@ describe("probeHarnessLive", () => {
 		mocks.queryHarnessSocket.mockResolvedValue(null);
 		await expect(probeHarnessLive("/repo", true, 0)).resolves.toBe(false);
 		expect(mocks.queryHarnessSocket).toHaveBeenCalledTimes(2);
+		expect(mocks.queryHarnessSocket.mock.calls[0]?.[0]).toBe(RAW);
+		expect(mocks.queryHarnessSocket.mock.calls[1]?.[0]).toBe(RAW);
+		expect(mocks.queryHarnessSocket.mock.calls[0]?.[2]).toBe(LIVENESS_PROBE_TIMEOUT_MS);
 	});
 
 	// N1: with no live pid there is nothing to wait for — "not running" stays
@@ -262,6 +265,8 @@ describe("probeHarnessLive", () => {
 		mocks.queryHarnessSocket.mockResolvedValue(null);
 		await expect(probeHarnessLive("/repo", false, 0)).resolves.toBe(false);
 		expect(mocks.queryHarnessSocket).toHaveBeenCalledTimes(1);
+		expect(mocks.queryHarnessSocket.mock.calls[0]?.[0]).toBe(RAW);
+		expect(mocks.queryHarnessSocket.mock.calls[0]?.[2]).toBe(LIVENESS_PROBE_TIMEOUT_MS);
 	});
 });
 

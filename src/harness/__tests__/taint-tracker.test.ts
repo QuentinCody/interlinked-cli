@@ -117,6 +117,11 @@ describe("classifyFileSensitivity", () => {
 			file_sensitivity: [{ glob: "config.local.json", level: "Internal" }],
 		};
 		expect(classifyFileSensitivity("/project/config.local.json", custom)).toBe("Public");
+		// Contrast: the SAME bare pattern DOES match when the path is an
+		// exact string match (the `filePath === pattern` branch at the top
+		// of the matcher), proving the "Public" result above comes from the
+		// fallthrough branch and not a stub that always returns "Public".
+		expect(classifyFileSensitivity("config.local.json", custom)).toBe("Internal");
 	});
 });
 
@@ -162,6 +167,10 @@ describe("ratchetSensitivity", () => {
 		const escalated = ratchetSensitivity(session, "public.txt", "Public", DEFAULT_TAINT_CONFIG);
 		expect(escalated).toBe(false);
 		expect(session.sensitivity_level).toBe("HighlyConfidential");
+		// The rejected downgrade must not be recorded as a taint source
+		// either — distinguishes true rejection from a stub that merely
+		// leaves the pre-set field untouched while still logging the file.
+		expect(session.taint_sources).toHaveLength(0);
 	});
 
 	it("tracks multiple taint sources", () => {

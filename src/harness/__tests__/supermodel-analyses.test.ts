@@ -249,10 +249,6 @@ describe("formatDeadCodeFindings", () => {
 });
 
 describe("isSupermodelCliAvailable", () => {
-	it("returns a boolean without throwing", () => {
-		expect(typeof isSupermodelCliAvailable()).toBe("boolean");
-	});
-
 	it("returns false for a binary that does not exist", () => {
 		expect(isSupermodelCliAvailable("supermodel-nonexistent-binary-xyz")).toBe(false);
 	});

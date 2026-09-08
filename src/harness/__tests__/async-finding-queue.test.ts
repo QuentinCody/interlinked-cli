@@ -159,7 +159,12 @@ describe("AsyncFindingQueue — clearSession", () => {
 
 	it("is a no-op for an unknown session", () => {
 		const q = new AsyncFindingQueue();
+		// A buggy clearSession that wipes every session (rather than just the
+		// named one) would still "not throw" — pin that an unrelated session's
+		// queue survives the call, not merely that it's exception-free.
+		q.enqueue("other", mkFinding({ id: "check:0" }));
 		expect(() => q.clearSession("never-seen")).not.toThrow();
+		expect(q.pending("other").map((f) => f.id)).toEqual(["check:0"]);
 	});
 });
 

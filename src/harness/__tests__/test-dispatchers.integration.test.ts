@@ -617,6 +617,17 @@ describe("runVitestDispatcher", () => {
 		});
 		expect(out).toEqual([]);
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+		expect(spawnSyncMock).toHaveBeenCalledWith(
+			"npx",
+			["vitest", "related", "/repo/src/related-pass.ts", "--run", "--reporter=verbose"],
+			{
+				shell: false,
+				timeout: 15000,
+				cwd: "/repo",
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			},
+		);
 	});
 
 	it("reports unavailable without spawning a fallback when the related runner has no status", async () => {
@@ -918,6 +929,30 @@ describe("runVitestDispatcher", () => {
 		// Convention runner WAS reached (two spawns), and a clean pass yields no
 		// finding.
 		expect(spawnSyncMock).toHaveBeenCalledTimes(2);
+		expect(spawnSyncMock).toHaveBeenNthCalledWith(
+			1,
+			"npx",
+			["vitest", "related", "/repo/src/conv-pass.ts", "--run", "--reporter=verbose"],
+			{
+				shell: false,
+				timeout: 15000,
+				cwd: "/repo",
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			},
+		);
+		expect(spawnSyncMock).toHaveBeenNthCalledWith(
+			2,
+			"npx",
+			["vitest", "run", "src/conv-pass.test.ts", "--reporter=verbose"],
+			{
+				shell: false,
+				timeout: 15000,
+				cwd: "/repo",
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			},
+		);
 	});
 
 	it("trims each output stream and preserves an empty combined output", async () => {
@@ -1020,6 +1055,30 @@ describe("runVitestDispatcher", () => {
 		// Convention runner ran (2 spawns) but the failure was classified
 		// pre-existing → suppressed.
 		expect(spawnSyncMock).toHaveBeenCalledTimes(2);
+		expect(spawnSyncMock).toHaveBeenNthCalledWith(
+			1,
+			"npx",
+			["vitest", "related", "/repo/src/conv-pre.ts", "--run", "--reporter=verbose"],
+			{
+				shell: false,
+				timeout: 15000,
+				cwd: "/repo",
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			},
+		);
+		expect(spawnSyncMock).toHaveBeenNthCalledWith(
+			2,
+			"npx",
+			["vitest", "run", "src/conv-pre.test.ts", "--reporter=verbose"],
+			{
+				shell: false,
+				timeout: 15000,
+				cwd: "/repo",
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			},
+		);
 	});
 
 	it("convention fallback returns empty when NO test-candidate file exists", async () => {
@@ -1041,6 +1100,17 @@ describe("runVitestDispatcher", () => {
 		expect(out).toEqual([]);
 		// Only the --related probe ran; no convention runner spawn.
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
+		expect(spawnSyncMock).toHaveBeenCalledWith(
+			"npx",
+			["vitest", "related", "/repo/src/no-test.ts", "--run", "--reporter=verbose"],
+			{
+				shell: false,
+				timeout: 15000,
+				cwd: "/repo",
+				encoding: "utf-8",
+				stdio: ["pipe", "pipe", "pipe"],
+			},
+		);
 	});
 
 	it("emits a related-failure detail tail combining stderr THEN stdout", async () => {

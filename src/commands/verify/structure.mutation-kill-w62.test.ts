@@ -203,6 +203,16 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 		buildStructureJsonSection("/fake/cwd", {});
 
 		expect(process.exitCode).toBeUndefined();
+
+		// Contrast: the SAME config, with a fully_deterministic finding instead,
+		// DOES set the exit code — proves the filter is discriminating on
+		// determinism, not just always leaving exitCode untouched.
+		process.exitCode = undefined;
+		(vi.mocked(evaluateStructureRules)).mockReturnValue([
+			finding("fully_deterministic"),
+		]);
+		buildStructureJsonSection("/fake/cwd", {});
+		expect(process.exitCode).toBe(1);
 	});
 
 	// -- kills baff382878f68ba2, 4e5347edd62aa14b, 7203a7415aea5f06/3bea2719c060ae2b --
@@ -324,8 +334,26 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 			adoption: adoption(),
 		});
 
-		return runStructureVerify("/fake/cwd", { json: true }).then(() => {
+		return runStructureVerify("/fake/cwd", { json: true }).then(async () => {
 			expect(process.exitCode).toBeUndefined();
+
+			// Contrast: the SAME config, with a fully_deterministic finding
+			// instead, DOES set the exit code — proves the filter is
+			// discriminating on determinism, not just always leaving it alone.
+			process.exitCode = undefined;
+			(vi.mocked(evaluateStructureRules)).mockReturnValue([
+				finding("fully_deterministic"),
+			]);
+			(vi.mocked(formatStructureVerifyOutput)).mockReturnValue({
+				mode: "standard",
+ catalog_fresh: true,
+ invalid_files: [],
+				findings: { fully_deterministic: 1, partially_deterministic: 0, heuristic: 0 },
+				details: [],
+				adoption: adoption(),
+			});
+			await runStructureVerify("/fake/cwd", { json: true });
+			expect(process.exitCode).toBe(1);
 		});
 	});
 });

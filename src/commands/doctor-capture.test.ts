@@ -76,7 +76,11 @@ describe("thinkingCaptureCheck", () => {
 
 	it("ignores empty/whitespace-only thinking strings", () => {
 		const d = setup(Array.from({ length: 6 }, (_, i) => start(i + 1, "   ")));
-		expect(thinkingCaptureCheck(d).status).toBe("warn");
+		const outcome = thinkingCaptureCheck(d);
+		expect(outcome.status).toBe("warn");
+		expect(outcome.message).toBe(
+			"0 of the last 6 tool calls carry reasoning traces -- the hook->daemon capture path may have regressed. If extended thinking is off for your model, ignore.",
+		);
 	});
 
 	it("skips malformed JSONL lines and still assesses the valid records", () => {
@@ -99,7 +103,9 @@ describe("thinkingCaptureCheck", () => {
 		dirs.push(d);
 		// .interlinked/activity.jsonl is a directory → read throws → fail-open warn.
 		mkdirSync(join(d, ".interlinked", "activity.jsonl"), { recursive: true });
-		expect(thinkingCaptureCheck(d).status).toBe("warn");
+		const result = thinkingCaptureCheck(d);
+		expect(result.status).toBe("warn");
+		expect(result.message).toBe("could not read activity log to assess capture health");
 	});
 
 	// -- parseToolUseStartSample (via thinkingCaptureCheck) — malformed lines --

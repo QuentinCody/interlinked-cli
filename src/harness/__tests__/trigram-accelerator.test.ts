@@ -345,8 +345,9 @@ describe("end-to-end integration", () => {
 describe("edge cases", () => {
 	it("handles files with only whitespace", () => {
 		const trigrams = extractTrigrams("   \n\n\t\t   ");
-		// Should extract some whitespace trigrams
-		expect(trigrams.size).toBeGreaterThanOrEqual(0);
+		// Ten characters yield eight windows. The first and last are both
+		// three spaces, leaving seven distinct packed trigrams.
+		expect(trigrams.size).toBe(7);
 	});
 
 	it("handles very long strings efficiently", () => {

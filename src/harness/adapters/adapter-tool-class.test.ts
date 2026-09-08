@@ -37,5 +37,6 @@ describe("adapterToolClassifier", () => {
 	it("tolerates a non-object tool input", () => {
 		const classify = adapterToolClassifier(undefined);
 		expect(() => classify("Read", undefined)).not.toThrow();
+		expect(classify("Read", undefined)).toBe("read");
 	});
 });

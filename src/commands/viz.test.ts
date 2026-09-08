@@ -22,8 +22,16 @@ describe("waitForSignal", () => {
 	it("resolves when the source emits SIGINT", async () => {
 		const source = new EventEmitter();
 		const stopped = waitForSignal(source);
+		let resolved = false;
+		stopped.then(() => {
+			resolved = true;
+		});
+		// Give any premature (stub) resolution a chance to land before we emit.
+		await new Promise((r) => setImmediate(r));
+		expect(resolved).toBe(false);
 		source.emit("SIGINT");
 		await expect(stopped).resolves.toBeUndefined();
+		expect(resolved).toBe(true);
 	});
 });
 
@@ -41,7 +49,9 @@ describe("runVizServe", () => {
 		write.mockRestore();
 		expect(code).toBe(0);
 		expect(startServer).toHaveBeenCalledTimes(1);
+		expect(startServer).toHaveBeenCalledWith({ root: process.cwd() });
 		expect(close).toHaveBeenCalledTimes(1);
+		expect(close).toHaveBeenCalledWith();
 	});
 
 	it("emits json and forwards an explicit port", async () => {

@@ -164,6 +164,10 @@ describe("store hygiene", () => {
 		recordBashEditObligations({ cwd, sessionId: "s1", filePath: abs, dryRun: false });
 		const raw = readFileSync(join(cwd, ".interlinked", "bash-edit-obligations.json"), "utf-8");
 		expect(() => JSON.parse(raw)).not.toThrow();
+		const parsed = JSON.parse(raw);
+		expect(parsed["src/a.ts"].session_id).toBe("s1");
+		expect(Array.isArray(parsed["src/a.ts"].checkIds)).toBe(true);
+		expect(parsed["src/a.ts"].checkIds.length).toBeGreaterThan(0);
 	});
 
 	it("a directory passed as the edited path can't be read as code, so it opens nothing", () => {

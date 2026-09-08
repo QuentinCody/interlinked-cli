@@ -274,11 +274,19 @@ describe("Cursor renderSettingsFragment", () => {
 		expect(f.hooks.postToolUseFailure?.[0]?.failClosed).toBeUndefined();
 		expect(f.hooks.subagentStop?.[0]?.failClosed).toBeUndefined();
 		expect(f.hooks.preCompact?.[0]?.failClosed).toBeUndefined();
+		// The hooks are still registered (not merely absent from the map) —
+		// each carries its own event name in the command.
+		expect(f.hooks.postToolUseFailure?.[0]?.command).toContain("--event 'postToolUseFailure'");
+		expect(f.hooks.subagentStop?.[0]?.command).toContain("--event 'subagentStop'");
+		expect(f.hooks.preCompact?.[0]?.command).toContain("--event 'preCompact'");
 	});
 	it("leaves failClosed unset on observation hooks", () => {
 		const f = flatHookSettings(fragment.fragment);
 		expect(f.hooks.afterFileEdit?.[0]?.failClosed).toBeUndefined();
 		expect(f.hooks.sessionStart?.[0]?.failClosed).toBeUndefined();
+		expect(f.hooks.afterFileEdit?.[0]?.type).toBe("command");
+		expect(f.hooks.afterFileEdit?.[0]?.command).toContain("--event 'afterFileEdit'");
+		expect(f.hooks.sessionStart?.[0]?.command).toContain("--event 'sessionStart'");
 	});
 });
 

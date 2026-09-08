@@ -108,6 +108,6 @@ describe("harnessReapCommand — negative (must not fire)", () => {
 				},
 			),
 		).resolves.toBeUndefined();
-		expect(errSpy).toHaveBeenCalled();
+		expect(errSpy).toHaveBeenCalledWith("Error: ps unavailable");
 	});
 });

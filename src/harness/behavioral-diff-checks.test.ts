@@ -102,14 +102,19 @@ describe("checkDisabledTestDelta — negative (must NOT fire)", () => {
 describe("checkAssertionStrengthWeakening — negative (must NOT fire)", () => {
 	it("N1: an unstaged test file is skipped while a genuinely-weakened one is still scanned", () => {
 		commitInitial("clean.test.ts", `it("a", () => { expect(x).toBe(1); });\n`);
-		// clean.test.ts has no staged diff; only foo.test.ts is staged, and its
-		// diff adds no weak matcher, so nothing fires overall.
+		// clean.test.ts has no staged diff, so it is skipped via `continue`.
+		// foo.test.ts is staged and its diff swaps a strong matcher for a
+		// weak one, so it is the only file the check should report on.
 		commitInitial("foo.test.ts", `it("a", () => { expect(x).toBe(1); });\n`);
-		stageEdit("foo.test.ts", `it("a", () => { expect(x).toBe(2); });\n`);
+		stageEdit("foo.test.ts", `it("a", () => { expect(x).toBeTruthy(); });\n`);
 		const results = checkAssertionStrengthWeakening(
 			makeSession(["clean.test.ts", "foo.test.ts"]),
 		);
-		expect(results).toEqual([]);
+		expect(results).toHaveLength(1);
+		expect(results[0]?.file).toContain("foo.test.ts");
+		expect(results[0]?.message).toContain(
+			"replaces strong assertions (toBe/toEqual/toMatch x1) with weak ones (toBeTruthy/toBeDefined/not.toThrow x1)",
+		);
 	});
 });
 
@@ -231,6 +236,15 @@ describe("checkClockMockAdded — negative (must NOT fire)", () => {
 		commitInitial("foo.ts", `function a() { return 1; }\n`);
 		stageEdit("foo.ts", `vi.setSystemTime(new Date());\nfunction a() { return 1; }\n`);
 		expect(checkClockMockAdded(makeSession(["foo.ts"]))).toEqual([]);
+
+		// Same clock-mock-shaped diff, but in a .test.ts file, DOES fire —
+		// proving the empty result above is the "non-test file" skip
+		// branch, not clock-mock detection being broken outright.
+		commitInitial("foo.test.ts", `function a() { return 1; }\n`);
+		stageEdit("foo.test.ts", `vi.setSystemTime(new Date());\nfunction a() { return 1; }\n`);
+		const results = checkClockMockAdded(makeSession(["foo.test.ts"]));
+		expect(results).toHaveLength(1);
+		expect(results[0]?.message).toContain("adds 1 clock-mock call(s)");
 	});
 
 	it("N2: an unstaged test file is skipped while another test file with no net addition stays silent", () => {

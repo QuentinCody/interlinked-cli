@@ -75,13 +75,6 @@ test("accepts three", () => { expect(3).toBe(3); });`;
 		expect(post.find((check) => check.name === "happy_path_only_test")?.fn().length).toBeGreaterThan(0);
 	});
 
-	it("returns entries with {name, severity, fn}", () => {
-		const [first] = buildAgentSafetyChecks("", "x.ts");
-		expect(first).toHaveProperty("name");
-		expect(first).toHaveProperty("severity");
-		expect(typeof nonNull(first).fn).toBe("function");
-	});
-
 	it("each built fn closes over the passed content + filePath", () => {
 		// floating_promises fires on a known-async call at statement position.
 		const checks = buildAgentSafetyChecks(
@@ -90,8 +83,7 @@ test("accepts three", () => { expect(3).toBe(3); });`;
 			"pre_warn",
 		);
 		const floating = checks.find((c) => c.name === "floating_promises");
-		if (!floating) return; // check may have moved phases; skip if absent
-		expect(floating.fn().length).toBeGreaterThan(0);
+		expect(nonNull(floating).fn().length).toBeGreaterThan(0);
 	});
 
 	// ===========================================

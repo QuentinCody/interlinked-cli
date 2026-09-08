@@ -687,7 +687,10 @@ describe("checkTddCommitGate — whole-suite red is not per-file evidence", () =
 	it("A2: still blocks a red that was observed recently", () => {
 		const s = sessionWithSuiteRed({ red_at: 140 });
 		s.test_runs.delete(SUITE);
-		expect(checkTddCommitGate(s, "enforce")[0]?.severity).toBe("error");
+		const gate = checkTddCommitGate(s, "enforce")[0];
+		expect(gate?.severity).toBe("error");
+		expect(gate?.message).toMatch(/Tests are FAILING/);
+		expect(gate?.message).not.toMatch(/no longer evidence about the current tree/);
 	});
 
 	it("P3: STILL blocks when the recorded suite run PASSED", () => {

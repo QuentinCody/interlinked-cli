@@ -105,5 +105,6 @@ describe("cleanStaleRestartFiles — a failed observation never deletes the file
 		expect(unlinked).toEqual([]);
 		// The null snapshot short-circuits before the confirming second read.
 		expect(readText).toHaveBeenCalledTimes(1);
+		expect(readText).toHaveBeenCalledWith(PID);
 	});
 });

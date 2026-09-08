@@ -169,6 +169,7 @@ describe("driveGraphPrediction — soft_gate mode", () => {
 			mode,
 		});
 		expect(r?.decision).toBe("allow");
+		expect(r?.observation?.case).toBe("D");
 	});
 
 	it("blocks an E-fresh edit when no cached prediction exists (Fire 1)", () => {

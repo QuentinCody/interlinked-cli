@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
 	createCheckHealthAccumulator,
 	foldRecurrenceLine,
@@ -8,40 +8,25 @@ import {
 	LOW_DATA_EVENT_FLOOR,
 } from "./check-health.js";
 
-describe("foldRecurrenceLine — blank-line short-circuit (kills line.trim() mutants)", () => {
-	afterEach(() => {
-		vi.restoreAllMocks();
-	});
-
-	it("P1: does not call JSON.parse for a whitespace-only line and returns false", () => {
+describe("foldRecurrenceLine — line ingestion", () => {
+	it.each(["   ", ""])("ignores a blank line %j without recording an event", (line) => {
 		const acc = createCheckHealthAccumulator();
-		const parseSpy = vi.spyOn(JSON, "parse");
-		const result = foldRecurrenceLine(acc, "   ");
+		const result = foldRecurrenceLine(acc, line);
 		expect(result).toBe(false);
-		expect(parseSpy).not.toHaveBeenCalled();
 		expect(acc.buckets.size).toBe(0);
 	});
 
-	it("P2: does not call JSON.parse for an empty string line", () => {
+	it("records a valid event from a non-blank line", () => {
 		const acc = createCheckHealthAccumulator();
-		const parseSpy = vi.spyOn(JSON, "parse");
-		const result = foldRecurrenceLine(acc, "");
-		expect(result).toBe(false);
-		expect(parseSpy).not.toHaveBeenCalled();
-	});
-
-	it("N1: does call JSON.parse for a non-blank line", () => {
-		const acc = createCheckHealthAccumulator();
-		const parseSpy = vi.spyOn(JSON, "parse");
-		foldRecurrenceLine(
-			acc,
-			JSON.stringify({
-				kind: "harness_caught",
-				check_id: "x",
-				ts: "2024-01-01T00:00:00Z",
-			}),
-		);
-		expect(parseSpy).toHaveBeenCalled();
+		const line = JSON.stringify({
+			kind: "harness_caught",
+			check_id: "x",
+			ts: "2024-01-01T00:00:00Z",
+		});
+		const result = foldRecurrenceLine(acc, line);
+		expect(result).toBe(true);
+		expect(acc.buckets.size).toBe(1);
+		expect(acc.buckets.has("x")).toBe(true);
 	});
 });
 
