@@ -83,13 +83,13 @@ function propertyName(ts: TsModule, name: TS.PropertyName): string | null {
 	return null;
 }
 
-/** Config references/factories can promote any nested object to the effective
- *  root. Without evaluating JavaScript, computed keys require abstention. */
-function findComputedProperty(ts: TsModule, sf: TS.SourceFile): TS.ComputedPropertyName | undefined {
-	let found: TS.ComputedPropertyName | undefined;
+/** References/factories can promote nested objects to the config root. A
+ *  source-wide check avoids guessing which binding supplies an override. */
+function findConfigOverride(ts: TsModule, sf: TS.SourceFile): TS.ComputedPropertyName | TS.SpreadAssignment | undefined {
+	let found: TS.ComputedPropertyName | TS.SpreadAssignment | undefined;
 	const visit = (node: TS.Node): void => {
 		if (found) return;
-		if (ts.isComputedPropertyName(node)) {
+		if (ts.isComputedPropertyName(node) || ts.isSpreadAssignment(node)) {
 			found = node;
 			return;
 		}
@@ -126,6 +126,41 @@ function findCoverageObjects(ts: TsModule, sf: TS.SourceFile): TS.ObjectLiteralE
 	};
 	ts.forEachChild(sf, visit);
 	return found;
+}
+
+function unwrapConfig(ts: TsModule, expression: TS.Expression): TS.Expression {
+	while (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression) || ts.isTypeAssertionExpression(expression)) expression = expression.expression;
+	return expression;
+}
+
+function importedDefineConfig(ts: TsModule, sf: TS.SourceFile, name: string): boolean {
+	return sf.statements.some(statement => {
+		if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly || !ts.isStringLiteral(statement.moduleSpecifier) || !["vitest/config", "vite"].includes(statement.moduleSpecifier.text)) return false;
+		const bindings = statement.importClause?.namedBindings;
+		return bindings !== undefined && ts.isNamedImports(bindings) && bindings.elements.some(binding => !binding.isTypeOnly && binding.name.text === name && (binding.propertyName ?? binding.name).text === "defineConfig");
+	});
+}
+
+function literalConfigProperty(ts: TsModule, object: TS.ObjectLiteralExpression, key: string): TS.ObjectLiteralExpression | undefined {
+	const [property, duplicate] = object.properties.filter(prop => prop.name && propertyName(ts, prop.name) === key);
+	if (!property || duplicate || !ts.isPropertyAssignment(property)) return undefined;
+	const value = unwrapConfig(ts, property.initializer);
+	return ts.isObjectLiteralExpression(value) ? value : undefined;
+}
+
+/** Only a direct exported literal establishes which candidate is effective.
+ *  Aliases, factories, duplicate keys and arbitrary calls need evaluation. */
+function exportedCoverageObject(ts: TsModule, sf: TS.SourceFile): TS.ObjectLiteralExpression | undefined {
+	const [assignment, duplicate] = sf.statements.filter(ts.isExportAssignment);
+	if (!assignment || duplicate || assignment.isExportEquals) return undefined;
+	let root = unwrapConfig(ts, assignment.expression);
+	if (ts.isCallExpression(root) && ts.isIdentifier(root.expression) && importedDefineConfig(ts, sf, root.expression.text) && root.arguments.length === 1) {
+		const argument = root.arguments[0];
+		if (argument) root = unwrapConfig(ts, argument);
+	}
+	if (!ts.isObjectLiteralExpression(root)) return undefined;
+	const test = literalConfigProperty(ts, root, "test");
+	return test && literalConfigProperty(ts, test, "coverage");
 }
 
 /** String-literal members of an array-literal initializer, or a human reason
@@ -196,16 +231,18 @@ export function extractVitestCoverageArrays(content: string, filePath: string): 
 	const { ts, sf } = parsed;
 	const errors = parseErrorCount(sf);
 	if (errors > 0) return { kind: "parse_error", detail: `${errors} syntax error(s)` };
-	const override = findComputedProperty(ts, sf);
-	if (override) return { kind: "undecidable", detail: `a computed key (${snippet(override)}) makes the effective coverage configuration undecidable` };
+	const override = findConfigOverride(ts, sf);
+	if (override && ts.isComputedPropertyName(override)) return { kind: "undecidable", detail: `a computed key (${snippet(override)}) makes the effective coverage configuration undecidable` };
 	const [first, second] = findCoverageObjects(ts, sf);
 	if (first === undefined) return { kind: "ok", arrays: { include: null, exclude: null } };
+	if (override) return { kind: "undecidable", detail: `an object spread (${snippet(override)}) makes the effective coverage configuration undecidable` };
 	if (second !== undefined) {
 		return {
 			kind: "undecidable",
 			detail: "more than one `coverage:` object literal in this file",
 		};
 	}
+	if (exportedCoverageObject(ts, sf) !== first) return { kind: "undecidable", detail: "the effective coverage object is not a unique literal in a direct default export or imported defineConfig call" };
 	return readIncludeExclude(ts, first);
 }
 

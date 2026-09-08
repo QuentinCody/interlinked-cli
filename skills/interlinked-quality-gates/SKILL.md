@@ -143,14 +143,22 @@ Supported comparisons cover positive relative globs with literal directories,
 complete globstars, filename suffix wildcards and bounded comma brace alternatives.
 Widened includes, narrowed exclusions and equivalent redundant patterns pass.
 Negation, extglobs, character classes, unsupported wildcard placement, unknown
-defaults, computed object keys or unresolved overlaps allow with an explicit abstention warning:
+defaults, computed object keys, object spreads or unresolved overlaps allow with an explicit abstention warning:
 review manually; an abstention makes no measured or clean claim. The shared
 baseline bypass policy is unchanged.
 Any computed property name in the config source causes abstention, including
 literal-looking computed names and nested objects accessed through aliases or
 factories. The gate does not evaluate JavaScript bindings to prove a computed
 value irrelevant. Ordinary identifiers and quoted property names retain the
-literal-array/glob comparison.
+literal-array/glob comparison. When a coverage literal exists, any object spread
+in the source also requires abstention: an enclosing or aliased spread may
+replace the entire `test` or `coverage` object. A blocking comparison requires
+unique plain `test.coverage` properties in a directly default-exported object,
+optionally wrapped by the named `defineConfig` import from `vitest/config` or
+`vite` (including an import alias). Duplicate keys, accessors, detached literals,
+exported bindings, factories, arbitrary calls and CommonJS assignments are not
+resolved by this guard; they warn when a coverage literal cannot be established
+as the effective configuration. Parentheses and TypeScript assertions are transparent.
 
 **CRAP** = `cyclomatic² · (1 − coverage/100)³ + cyclomatic`, where coverage is a percentage.
 Full coverage reduces the score to cyclomatic, but low coverage can exceed the default threshold
