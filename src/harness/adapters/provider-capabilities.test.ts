@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildAllAdapters } from "./index.js";
+import { ADDITIONAL_CLIENT_CAPABILITIES } from "./additional-client-capabilities.js";
 import {
 	CLAUDE_CODE_CAPABILITIES,
 	CODEX_CAPABILITIES,
@@ -31,6 +32,10 @@ const expectedCapabilitiesByRunner = new Map([
 	["gemini-cli", GEMINI_CLI_CAPABILITIES],
 	["opencode", OPENCODE_CAPABILITIES],
 	["pi", PI_CAPABILITIES],
+	["factory-droid", ADDITIONAL_CLIENT_CAPABILITIES["factory-droid"]],
+	["windsurf", ADDITIONAL_CLIENT_CAPABILITIES.windsurf],
+	["antigravity", ADDITIONAL_CLIENT_CAPABILITIES.antigravity],
+	["crush", ADDITIONAL_CLIENT_CAPABILITIES.crush],
 ] as const);
 
 describe("provider capability catalog", () => {

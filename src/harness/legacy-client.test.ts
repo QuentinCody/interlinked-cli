@@ -155,7 +155,7 @@ describe("callLegacyHarness", () => {
 		expect("id" in sent).toBe(false);
 		expect("method" in sent).toBe(false);
 
-		const decision: HarnessDecision = { decision: "allow", warnings: ["w"] };
+		const decision: HarnessDecision = { decision: "allow", warnings: ["w"], updated_input: { command: "safe" }, watch_paths: ["/repo/package.json"] };
 		socket.emit("data", Buffer.from(`${JSON.stringify(decision)}\n`));
 		await expect(promise).resolves.toEqual(decision);
 		// finish() must clean up the socket and clear the timer.

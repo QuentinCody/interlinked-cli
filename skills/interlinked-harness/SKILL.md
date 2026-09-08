@@ -112,6 +112,28 @@ current workspace. If isolation is genuinely required, ask a human operator to p
 approved worktree; listing and cleanup of existing worktrees remain allowed.
 
 ## Warnings: `[proven]` vs `[heuristic]`
+
+### Filesystem observations and native control limits
+
+The daemon watches protected policy files and literal in-workspace reservation
+paths, then reconciles content identities periodically and at delivery boundaries.
+Writes by a shell, editor or agent can create durable pending verification entries.
+Writer identity is `unknown`; a reservation is not proof that its holder performed
+the write. Glob reservations, symbolic links, inaccessible or oversized files
+remain explicitly unmeasured. A stopped or unavailable observer cannot certify coverage.
+
+`harness coverage accept-policy <digest>` records an explicitly reviewed current
+policy identity. It neither runs checks nor restores old policy bytes. A later
+Claude ConfigChange can refuse application of a differing identity, after the disk
+write has happened. This is not an immutable trust anchor or a universal policy
+reload interlock. Do not describe watcher readiness as baseline-integrity enforcement.
+
+Native translations are recorded in `.interlinked/hook-translations.jsonl` by the
+compiled entry point. A post-tool refusal may become context, continuation or batch
+cancellation; observational events cannot enforce a denial. Copilot/Gemini approval
+requests conservatively deny where native approval is not certified. Experimental
+Antigravity uses `force_ask`; Antigravity and Windsurf refuse a required input rewrite
+that their hook cannot apply. Read translation status separately from native enforcement.
 Harness-disable trajectory detection reads executable command positions, so a mutation-test
 filename containing `kill` is not a process-kill event. Failed commands do not establish a
 successful disable. A later event served by the daemon retires process/socket-outage suspicion;

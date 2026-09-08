@@ -11,11 +11,8 @@
 // `~/.codex/hooks.json` (user). Hooks are gated by a `[features]
 // hooks = true` flag in `.codex/config.toml` (legacy `codex_hooks` is
 // still recognized but emits a deprecation warning; our writer
-// migrates it on every run). The legacy installer in
-// `src/lib/hook-installers.ts` writes that flag automatically. The
-// modern installer in `src/harness/installer.ts` only writes the
-// hooks.json fragment — operators using Phase D should set the flag
-// themselves or call `interlinked enable --clients codex`.
+// migrates it on every run). Both the legacy installer and the adapter's
+// postInstall step write this flag automatically while preserving user config.
 
 import { ensureCodexFeatureFlag } from "../../lib/codex-feature-flag.js";
 import { hookTimeoutSecondsFor } from "../../lib/hook-timeouts.js";
@@ -294,6 +291,9 @@ function encodeCodexBlock(decision: HarnessDecision, event: UnifiedHookEvent): A
 
 function encodeCodexAllow(decision: HarnessDecision, event: UnifiedHookEvent): AdapterOutput {
 	const feedback = feedbackText(decision);
+	if (event.runner_native_event === EVT_PRE_TOOL && decision.updated_input) {
+		return { exit_code: 0, stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: EVT_PRE_TOOL, updatedInput: decision.updated_input, additionalContext: feedback } }) };
+	}
 	if (!feedback) {
 		return { exit_code: 0 };
 	}

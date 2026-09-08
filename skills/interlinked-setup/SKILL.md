@@ -314,6 +314,38 @@ runner is ready.
 
 ## Diagnosing problems
 
+### Hook capability inventory and experimental clients
+
+`interlinked harness capabilities --json` includes the sourced ecosystem catalog,
+adapter event/control declarations, installer manifest, last provider emission and
+filesystem coverage state. `selected` describes the adapter's subscription policy;
+inspect the manifest to establish installation. An emitted response or matching
+definition hash does not certify that the provider enforced it. Native enforcement
+remains `unmeasured` until a provider/version/mode conformance run establishes it.
+
+Factory Droid (`factory-droid`), Windsurf (`windsurf`), Google Antigravity
+(`antigravity`) and Crush (`crush`) are explicit experimental adapters through
+`interlinked install-hooks --runner <id>`. They require a built hook-entry runtime.
+They are separate from the seven `enable --clients` integrations and do not expand
+skill installation targets. Their command wrappers currently target POSIX shells;
+Windows shell behavior and native headless behavior are not certified. Antigravity
+uses `.agents/hooks.json`, separate from Gemini CLI's `.gemini/settings.json`.
+
+Claude FileChanged installs without a static matcher. SessionStart, CwdChanged and
+FileChanged responses publish the complete current `watchPaths` list. FileChanged
+is an observation after a write; it cannot deny or undo that write. PostToolBatch
+can cancel the loop before the next model request. Codex does not acquire either
+native event merely because it uses Claude-shaped payloads; daemon filesystem
+observation supplies a separate local fallback. Expanded boundary handling requires
+the compiled runtime. The adapter installer refuses a generated compatibility script
+instead of registering events that it cannot serve. Build the checkout and refresh
+hooks; previously installed legacy scripts retain their older compatibility behavior.
+
+The public `interlinked-cli/hook-bridge` export provides an application-owned Think
+tool bridge and a Durable Object storage journal adapter. It is not installed with
+coding-client command hooks. See the repository's `docs/hook-normalization.md` for
+its admission, replay and deployment contract.
+
 `interlinked doctor` is the first stop. It runs local + system + server checks and **exits
 non-zero if any check fails**. `--fix` repairs common drift (regenerates a drifted hook
 script, safely refreshes Interlinked-owned skill copies, strips malformed permission rules,

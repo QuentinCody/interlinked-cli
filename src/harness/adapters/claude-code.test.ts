@@ -140,8 +140,11 @@ describe("Claude Code renderSettingsFragment", () => {
 	// drift on ANY OTHER event (deleting TaskCompleted from one list passed
 	// every prior assertion). Full equality, order included — until the
 	// duplicate list is deleted and reporting derives from the adapter.
-	it("P: CLAUDE_HOOK_EVENTS and the adapter's nativeEventNames are the SAME list", () => {
-		expect([...CLAUDE_HOOK_EVENTS]).toEqual([...adapter.nativeEventNames]);
+	it("retains every legacy event and adds the documented observation boundaries", () => {
+		expect(adapter.nativeEventNames.filter(name => !CLAUDE_HOOK_EVENTS.some(legacy => legacy === name))).toEqual([
+			"PostToolBatch", "InstructionsLoaded", "ConfigChange", "CwdChanged", "DirectoryAdded", "FileChanged", "WorktreeRemove", "PostCompact",
+		]);
+		for (const name of CLAUDE_HOOK_EVENTS) expect(adapter.nativeEventNames).toContain(name);
 	});
 
 	it("parses a registered PermissionRequest into the normalized permission phase", () => {
@@ -223,12 +226,16 @@ describe("Claude Code renderSettingsFragment", () => {
 		expect(nonNull(nonNull(fragment.hooks.PreToolUse)[0]).matcher).toBe("");
 	});
 
-	it("uses empty matcher for every event EXCEPT PostToolUse", () => {
+	it("omits FileChanged's static matcher and scopes only PostToolUse", () => {
 		const fragment = frag.fragment as {
 			hooks: Record<string, Array<{ matcher: string }>>;
 		};
 		for (const eventName of Object.keys(fragment.hooks)) {
 			if (eventName === "PostToolUse") continue;
+			if (eventName === "FileChanged") {
+				expect(nonNull(nonNull(fragment.hooks[eventName])[0])).not.toHaveProperty("matcher");
+				continue;
+			}
 			expect(nonNull(nonNull(fragment.hooks[eventName])[0]).matcher).toBe("");
 		}
 	});

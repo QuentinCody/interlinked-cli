@@ -84,12 +84,20 @@ function parseHarnessDecision(value: unknown): HarnessDecision | null {
 		: undefined;
 	return {
 		decision,
+		...parseDecisionExtensions(value),
 		...(reason !== undefined ? { reason } : {}),
 		...(rule_id !== undefined ? { rule_id } : {}),
 		...(additional_context !== undefined ? { additional_context } : {}),
 		...(warnings !== undefined ? { warnings } : {}),
 		...(resolved_targets !== undefined ? { resolved_targets } : {}),
 	};
+}
+
+function parseDecisionExtensions(value: JsonObject): Partial<HarnessDecision> {
+	const extensions: Partial<HarnessDecision> = {};
+	if (isJsonObject(value.updated_input)) extensions.updated_input = value.updated_input;
+	if (Array.isArray(value.watch_paths) && value.watch_paths.every(path => typeof path === "string")) extensions.watch_paths = value.watch_paths;
+	return extensions;
 }
 
 export function callLegacyHarness(
@@ -294,6 +302,7 @@ const AGENT_SOURCE_BY_RUNNER: Partial<Record<UnifiedHookEvent["runner"], AgentSo
 	cursor: "cursor",
 	opencode: "opencode",
 	pi: "pi",
+	"factory-droid": "factory-droid", windsurf: "windsurf", antigravity: "antigravity", crush: "crush",
 };
 
 function mapAgentSource(runner: UnifiedHookEvent["runner"]): AgentSource {
@@ -305,6 +314,7 @@ function legacyToolName(
 	raw: JsonObject,
 	normalizedToolName: string,
 ): string {
+	if (["factory-droid", "windsurf", "antigravity", "crush"].includes(event.runner)) return claudeStyleToolName(normalizedToolName);
 	const rawTool =
 		readString(raw.tool_name) ?? readString(raw.toolName) ?? readString(raw.name);
 	if (rawTool) return rawTool;

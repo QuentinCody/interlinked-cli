@@ -869,6 +869,7 @@ function stageProviderStdout(response) {
 }
 
 function commitProviderStdout() {
+    if (pendingProviderStdout === null && terminalHookProvider === "gemini") pendingProviderStdout = "{}";
     if (providerStdoutCommitted || pendingProviderStdout === null) return;
     writeFileSync(1, pendingProviderStdout);
     providerStdoutCommitted = true;
@@ -1310,10 +1311,11 @@ ${PROVIDER_RESPONSES_CHUNK}
 		// PermissionRequest does not accept generic additionalContext output.
 		// An Interlinked allow is an abstention, not an auto-approval: keep any
 		// non-blocking explanation on stderr and emit zero stdout bytes.
-		if (guardDecision?.decision === "allow" && hookEvent === "PermissionRequest") {
+		if (guardDecision?.decision === "allow" && (hookEvent === "PermissionRequest" || guardDecision.updated_input)) {
 			writeProviderResponse("pre_allow", {
 				systemMessage: guardDecision.system_message,
 				additionalContext: guardDecision.additional_context,
+				updatedInput: guardDecision.updated_input,
 			});
 		}
 

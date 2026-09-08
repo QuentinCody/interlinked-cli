@@ -1,4 +1,6 @@
 import type { UnifiedPhase } from "../unified-event.js";
+import type { HookControl } from "./hook-contract.js";
+import { catalogControls } from "./catalog-controls.js";
 import type {
 	NativeDecisionControl,
 	NativeHookEventCapability,
@@ -6,6 +8,7 @@ import type {
 } from "./types.js";
 
 interface EventOptions {
+	controls?: readonly HookControl[];
 	install?: boolean;
 	control?: NativeDecisionControl;
 	modelContext?: boolean;
@@ -24,6 +27,7 @@ function event(
 		install: opts.install ?? true,
 		control: opts.control ?? "observe",
 		model_context: opts.modelContext ?? false,
+		...(opts.controls ? { controls: opts.controls } : {}),
 		...(opts.background ? { background: true } : {}),
 		missing_runtime: opts.missingRuntime ?? "warn_open",
 	};
@@ -37,7 +41,10 @@ export function defineCapabilities(input: RunnerCapabilities): RunnerCapabilitie
 		}
 		seen.add(item.name);
 	}
-	return input;
+	return { ...input, events: input.events.map(item => {
+		const controls = item.controls ?? catalogControls(input.project_hook_path, item.name);
+		return controls ? { ...item, controls } : item;
+	}) };
 }
 
 export function eventCapability(
@@ -85,6 +92,24 @@ export const CLAUDE_CODE_CAPABILITIES = defineCapabilities({
 		event("PreCompact", "pre-compact", { control: "continue", modelContext: true }),
 		event("TaskCompleted", "other"),
 		event("TeammateIdle", "other"),
+		event("Setup", "other", { controls: [], install: false }),
+		event("UserPromptExpansion", "other", { controls: ["deny", "context"], install: false }),
+		event("PermissionDenied", "other", { install: false }),
+		event("PostToolBatch", "post-tool-batch", { controls: ["context", "cancel"] }),
+		event("MessageDisplay", "other", { install: false }),
+		event("TaskCreated", "other", { controls: ["deny"], install: false }),
+		event("StopFailure", "error", { controls: [], install: false }),
+		event("InstructionsLoaded", "other", { controls: [] }),
+		event("ConfigChange", "config-change", { controls: ["deny"] }),
+		event("CwdChanged", "cwd-change", { controls: [] }),
+		event("DirectoryAdded", "other", { controls: [] }),
+		event("FileChanged", "file-change", { controls: [] }),
+		event("WorktreeRemove", "other", { controls: [] }),
+		event("PostCompact", "post-compact", { controls: [] }),
+		event("PreModelSwitch", "other", { controls: ["deny", "ask"], install: false }),
+		event("PostModelSwitch", "other", { controls: ["context"], install: false }),
+		event("Elicitation", "other", { install: false }),
+		event("ElicitationResult", "other", { install: false }),
 	],
 });
 
@@ -130,6 +155,14 @@ export const COPILOT_CLI_CAPABILITIES = defineCapabilities({
 		}),
 		event("postToolUse", "post-tool"),
 		event("errorOccurred", "error"),
+		event("agentStop", "stop", { controls: ["continue"], control: "continue" }),
+		event("notification", "notification", { controls: ["context", "wake"], modelContext: true }),
+		event("permissionRequest", "permission-request", { controls: ["deny"], control: "permission", missingRuntime: "fail_closed" }),
+		event("postToolUseFailure", "post-tool", { controls: [], install: false }),
+		event("preCompact", "pre-compact", { controls: [] }),
+		event("subagentStart", "subagent-start", { controls: ["context"], modelContext: true }),
+		event("subagentStop", "subagent-stop", { controls: ["continue", "replace_result"], control: "continue" }),
+		event("userPromptTransformed", "other", { controls: ["rewrite_input"], install: false }),
 	],
 });
 
@@ -141,15 +174,17 @@ export const GEMINI_CLI_CAPABILITIES = defineCapabilities({
 		event("SessionStart", "session-start"),
 		event("SessionEnd", "session-end"),
 		event("BeforeAgent", "user-prompt"),
-		event("AfterAgent", "other"),
+		event("AfterAgent", "stop", { controls: ["continue"], control: "continue" }),
 		event("BeforeTool", "pre-tool", {
 			control: "deny",
 			missingRuntime: "fail_closed",
 		}),
 		event("AfterTool", "post-tool"),
-		event("AfterModel", "other"),
+		event("AfterModel", "post-model"),
 		event("PreCompress", "pre-compact"),
 		event("Notification", "notification"),
+		event("BeforeModel", "pre-model", { controls: ["deny", "rewrite_input", "replace_result"], install: false }),
+		event("BeforeToolSelection", "tool-selection", { controls: ["rewrite_input"], install: false }),
 	],
 });
 

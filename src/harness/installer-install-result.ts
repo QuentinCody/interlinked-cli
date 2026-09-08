@@ -207,7 +207,7 @@ export function installHooks(opts: InstallOptions): InstallResult {
 	const postInstallFailures = collectPostInstallFailures(entries);
 
 	return {
-		ok: postInstallFailures.length === 0,
+		ok: postInstallFailures.length === 0 && skipped.length === 0,
 		post_install_failures: postInstallFailures,
 		entries,
 		skipped,
@@ -255,6 +255,7 @@ function installSingle(
 	installedAt: string,
 	dryRun: boolean,
 ): InstallSingleSuccess | InstallSingleFailure {
+    if (binaryAbs.endsWith("interlinked-activity.mjs")) return { ok: false, reason: "The generated compatibility script cannot serve the expanded adapter contract. Build Interlinked CLI, then refresh hooks with the compiled hook-entry runtime." };
 	const fragment = adapter.renderSettingsFragment(binaryAbs, scope);
 	const target = resolveSettingsPath(cwd, fragment.path);
 	if (fragment.fileContent !== undefined) {
@@ -400,7 +401,7 @@ function runPostInstall(
 // -----------------------------------------------------------------------------
 
 function selectAdapters(all: RunnerAdapter[], requested: RunnerId[]): RunnerAdapter[] {
-	if (requested.length === 0) return all;
+	if (requested.length === 0) return all.filter(adapter => adapter.installByDefault !== false);
 	const out: RunnerAdapter[] = [];
 	for (const id of new Set(requested)) {
 		const a = getAdapter(id, all);

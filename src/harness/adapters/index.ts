@@ -12,6 +12,7 @@ import { createGeminiCliAdapter } from "./gemini-cli.js";
 import { createOpenCodeAdapter } from "./opencode.js";
 import { createPiAdapter } from "./pi.js";
 import type { RunnerAdapter } from "./types.js";
+import { createAdditionalClientAdapter } from "./additional-clients.js";
 
 export interface AdapterRegistryOptions {
 	overrides?: ClassifierOverrides | undefined;
@@ -27,6 +28,10 @@ export function buildAllAdapters(opts: AdapterRegistryOptions = {}): RunnerAdapt
 		createCodexAdapter({ overrides: opts.overrides }),
 		createOpenCodeAdapter({ overrides: opts.overrides }),
 		createPiAdapter({ overrides: opts.overrides }),
+		createAdditionalClientAdapter("factory-droid"),
+		createAdditionalClientAdapter("windsurf"),
+		createAdditionalClientAdapter("antigravity"),
+		createAdditionalClientAdapter("crush"),
 	];
 }
 

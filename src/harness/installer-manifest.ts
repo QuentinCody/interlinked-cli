@@ -32,6 +32,7 @@ const VALID_MANIFEST_RUNNERS = new Set<string>([
 	"codex",
 	"opencode",
 	"pi",
+	"factory-droid", "windsurf", "antigravity", "crush",
 ]);
 
 /** Tri-state manifest read: MISSING is a legitimate never-installed state,

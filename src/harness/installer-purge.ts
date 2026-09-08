@@ -180,19 +180,20 @@ export function cleanProjectOwnedHooks(
 	settingsPath: string,
 	verdict: (entry: unknown) => PurgeVerdict,
 	dryRun: boolean,
+	container: "hooks" | "interlinked" | "root" = "hooks",
 ): number {
 	if (!existsSync(settingsPath)) return 0;
 	const settings = readJson(settingsPath);
 	// `null` = malformed JSON — leave a file we can't safely rewrite alone.
 	if (settings === null) return 0;
-	const hooksObj = settings.hooks;
+	const hooksObj = container === "root" ? settings : settings[container];
 	if (!isJsonObject(hooksObj)) return 0;
 	const report: PurgeReport = { removed: 0, foreign: 0 };
 	for (const event of Object.keys(hooksObj)) {
 		filterEventArrayInPlace(hooksObj, event, verdict, report);
 	}
 	if (report.removed > 0) {
-		if (Object.keys(hooksObj).length === 0) delete settings.hooks;
+		if (container !== "root" && Object.keys(hooksObj).length === 0) delete settings[container];
 		if (!dryRun) writeAtomic(settingsPath, settings);
 	}
 	return report.removed;

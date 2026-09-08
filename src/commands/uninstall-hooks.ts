@@ -21,6 +21,7 @@ const VALID_RUNNERS = new Set<RunnerId>([
 	"codex",
 	"opencode",
 	"pi",
+	"factory-droid", "windsurf", "antigravity", "crush",
 ]);
 
 export async function uninstallHooksCommand(options: UninstallHooksOptions): Promise<void> {
@@ -67,7 +68,8 @@ function parseRunners(raw: string | undefined): RunnerId[] {
 	const parts = raw.split(",").map((s) => s.trim());
 	const out: RunnerId[] = [];
 	for (const part of parts) {
-		if (VALID_RUNNERS.has(part as RunnerId)) out.push(part as RunnerId);
+		if (!VALID_RUNNERS.has(part as RunnerId)) throw new Error(`Unknown runner: ${part}; no hooks were removed`);
+		out.push(part as RunnerId);
 	}
 	return out;
 }

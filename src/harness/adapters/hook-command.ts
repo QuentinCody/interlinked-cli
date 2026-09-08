@@ -144,6 +144,14 @@ const readOnlyRequested = (raw) => {
 };
 const blockNatively = () => {
   fs.writeSync(2, message + "\n");
+  if (runner === "antigravity" && event === "PreToolUse") {
+    fs.writeSync(1, JSON.stringify({ decision: "deny", reason: message }));
+    process.exit(0);
+  }
+  if (runner === "copilot-cli" && event === "permissionRequest") {
+    fs.writeSync(1, JSON.stringify({ behavior: "deny", message }));
+    process.exit(0);
+  }
   if ((runner === "claude-code" || runner === "codex") && event === "PermissionRequest") {
     fs.writeSync(1, JSON.stringify({ hookSpecificOutput: { hookEventName: event, decision: { behavior: "deny", message } } }));
     process.exit(0);

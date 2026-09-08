@@ -125,16 +125,29 @@ export const PROVIDER_RESPONSES_CHUNK = `    // ══════════�
 
     function formatCopilotResponse(responseType, data) {
         if (responseType === "pre_block" || responseType === "pre_block_grep" || responseType === "pre_ask") {
-            // Copilot has no "ask" primitive — collapse to deny so the user
-            // sees the reason and can retry deliberately.
+            // Copilot has no certified approval receipt in this fallback;
+            // conservatively deny until the installed version is measured.
             return { permissionDecision: "deny", permissionDecisionReason: data.reason };
         }
         if (responseType === "post_block" || responseType === "post_warn") {
-            // Copilot postToolUse is observation-only — write to stderr instead.
-            if (data.reason) process.stderr.write(data.reason + "\\n");
-            return {};
+            const feedback = data.reason || data.summary;
+            return feedback ? { additionalContext: feedback } : {};
         }
+        if (responseType === "pre_allow" && data.updatedInput) return { modifiedArgs: data.updatedInput };
         return {};
+    }
+
+    function formatGeminiResponse(responseType, data, eventName) {
+        if (responseType === "pre_block" || responseType === "pre_block_grep" || responseType === "pre_ask" || responseType === "post_block") {
+            return { decision: "deny", reason: data.reason };
+        }
+        const nativeNames = { PreToolUse: "BeforeTool", PostToolUse: "AfterTool", UserPromptSubmit: "BeforeAgent", Stop: "AfterAgent" };
+        const native = nativeNames[eventName] || eventName;
+        const specific = { hookEventName: native };
+        if (native === "BeforeTool" && data.updatedInput) specific.tool_input = data.updatedInput;
+        const feedback = data.additionalContext || data.summary;
+        if (feedback) specific.additionalContext = feedback;
+        return Object.keys(specific).length > 1 ? { hookSpecificOutput: specific } : {};
     }
 
     function formatCursorResponse(responseType, data, incomingEvent, nativeEvent) {
@@ -264,7 +277,12 @@ export const PROVIDER_RESPONSES_CHUNK = `    // ══════════�
         const preEventEcho = isPreEvent ? incomingEvent : "PreToolUse";
         const postEventEcho = !isPreEvent ? incomingEvent : "PostToolUse";
 
+        if (responseType === "pre_allow" && incomingEvent === "PreToolUse" && data.updatedInput && (detectedClient === "claude" || detectedClient === "codex")) {
+            return { hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: data.updatedInput } };
+        }
+
         if (detectedClient === "copilot") return formatCopilotResponse(responseType, data);
+        if (detectedClient === "gemini") return formatGeminiResponse(responseType, data, incomingEvent);
         if (detectedClient === "codex") return formatCodexResponse(responseType, data, postEventEcho, incomingEvent);
         if (detectedClient === "cursor") {
             // Pass the raw Cursor event (cursorNativeEvent) so per-event
@@ -287,6 +305,6 @@ export const PROVIDER_RESPONSES_CHUNK = `    // ══════════�
     // log, which are the telemetry surfaces. The conversation is not.
     function writeProviderResponse(responseType, data) {
         const response = formatProviderResponse(responseType, data);
-        if (!response || Object.keys(response).length === 0) return;
+        if (!response || (Object.keys(response).length === 0 && detectedClient !== "gemini")) return;
         stageProviderStdout(response);
     }`;

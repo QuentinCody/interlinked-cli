@@ -45,6 +45,7 @@ const REGISTERED_RUNNERS = new Set([
 	"codex",
 	"opencode",
 	"pi",
+	"factory-droid", "windsurf", "antigravity", "crush",
 ]);
 const SHELL_KEYWORDS = new Set(["if", "then", "else", "elif", "fi", "while", "until", "do", "done", "!", "{", "}"]);
 const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;

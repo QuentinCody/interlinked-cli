@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { buildAllAdapters, detectAdapter, getAdapter } from "./harness/adapters/index.js";
 import type { RunnerAdapter } from "./harness/adapters/types.js";
+import { describeHookCapability } from "./harness/adapters/hook-contract.js";
 import { recordPayloadKeys } from "./harness/payload-key-census.js";
 import type { RunnerId, UnifiedHookEvent } from "./harness/unified-event.js";
 import { findRepoRoot } from "./hook-entry-project.js";
@@ -25,6 +26,12 @@ export function buildUnifiedHookEvent(
 	// Adapters are tolerant of unknown fields and never throw; this is the one
 	// seam that still holds the untruncated provider payload.
 	const event = adapter.parseHookInput(nativeJson, nativeEventName);
+	event.capability = describeHookCapability(adapter.capabilities, {
+		provider: adapter.id,
+		host: "unknown",
+		mode: "unknown",
+		...(event.runner_version ? { version: event.runner_version } : {}),
+	}, { name: nativeEventName, observed: true });
 	recordPayloadKeys({
 		runner: adapter.id,
 		nativeEvent: nativeEventName,

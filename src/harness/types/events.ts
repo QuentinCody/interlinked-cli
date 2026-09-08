@@ -50,7 +50,11 @@ export type AgentSource =
 	| "gemini"
 	| "cursor"
 	| "opencode"
-	| "pi";
+	| "pi"
+	| "factory-droid"
+	| "windsurf"
+	| "antigravity"
+	| "crush";
 
 /**
  * Whether a given agent runtime can surface an interactive permission prompt
@@ -60,7 +64,7 @@ export type AgentSource =
  * retry deliberately. Kept here in `types.ts` (rather than only in the
  * generated `.mjs`) so the harness evaluator and tests can reason about it.
  */
-export const ASK_CAPABLE_AGENTS = new Set<AgentSource>(["claude", "cursor", "pi"]);
+export const ASK_CAPABLE_AGENTS = new Set<AgentSource>(["claude", "cursor", "pi", "factory-droid", "antigravity"]);
 
 /** True when the agent runtime supports a per-call user confirmation flow. */
 export function agentSupportsAsk(source: string | undefined): boolean {

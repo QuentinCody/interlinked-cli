@@ -16,6 +16,7 @@ import { hookTimeoutSecondsFor } from "../../lib/hook-timeouts.js";
 import { agentWorktreeCreationBlockReason } from "../../lib/hook-template-chunks/destructive-command-guard.js";
 import { CLAUDE_CODE_WRITE_TOOLS } from "../../lib/write-tool-registry.js";
 import { formatAskReasonWithTargets } from "../evaluator/rule-matching.js";
+import { encodeClaudeAdditionalBoundary } from "./claude-extended-decisions.js";
 import type { ClassifierOverrides } from "../tool-class-classifier.js";
 import { adapterToolClassifier } from "./adapter-tool-class.js";
 import type { HarnessDecision } from "../types.js";
@@ -30,6 +31,15 @@ import {
 import type { AdapterOutput, RunnerAdapter, SettingsFragment } from "./types.js";
 
 const NATIVE_EVENTS = installedEventNames(CLAUDE_CODE_CAPABILITIES);
+
+function claudeHookSettings(event: string, command: string): Record<string, unknown> {
+	const timeout = hookTimeoutSecondsFor(event);
+	const matcher = event === "PostToolUse" ? CLAUDE_POST_TOOL_USE_MATCHER : "";
+	return {
+		...(event === "FileChanged" ? {} : { matcher }),
+		hooks: [{ type: "command", command, ...(timeout !== undefined ? { timeout } : {}) }],
+	};
+}
 
 function claudeMissingRuntimePolicy(event: string): "fail_closed" | "warn_open" {
 	return eventCapability(CLAUDE_CODE_CAPABILITIES, event)?.missing_runtime ?? "warn_open";
@@ -124,25 +134,16 @@ export function createClaudeCodeAdapter(opts: ClaudeCodeAdapterOptions = {}): Ru
 				// source): PreToolUse must outlast the per-edit coverage overlay,
 				// PostToolUse the full quality pass — Claude Code's 60s default
 				// killed the hook after the run's cost was already paid.
-				const timeout = hookTimeoutSecondsFor(event);
 				// PostToolUse is the ONLY scoped event: it is the one whose handler
 				// runs the per-file quality pipeline, so a read-only call must not
 				// reach it. Every other event is either tool-less or needs the full
 				// stream (PreToolUse must judge reads too).
-				const matcher = event === "PostToolUse" ? CLAUDE_POST_TOOL_USE_MATCHER : "";
-				hooks[event] = [
-					{
-						matcher,
-						hooks: [
-							{ type: "command", command: hookCommand, ...(timeout !== undefined ? { timeout } : {}) },
-						],
-					},
-				];
+				hooks[event] = [claudeHookSettings(event, hookCommand)];
 			}
 			return { path, fragment: { hooks }, mergeStrategy: "array-append" };
 		},
 
-		encodeDecision: encodeClaudeDecision,
+		encodeDecision: (decision, event) => encodeClaudeAdditionalBoundary(decision, event) ?? encodeClaudeDecision(decision, event),
 	};
 }
 

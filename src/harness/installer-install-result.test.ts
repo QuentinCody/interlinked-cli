@@ -24,6 +24,12 @@ describe("manifestPath", () => {
 });
 
 describe("installHooks", () => {
+	it("does not register expanded events against the legacy fallback", () => {
+		const result = installHooks({ cwd: tmp, binaryPath: join(tmp, ".interlinked/hooks/interlinked-activity.mjs"), runners: ["claude-code"], scope: "project" });
+		expect(result.ok).toBe(false);
+		expect(result.skipped[0]?.reason).toContain("compiled hook-entry");
+		expect(readManifest(manifestPath(tmp))).toEqual([]);
+	});
 	it("writes Claude Code hook settings + manifest, returning entries", () => {
 		const result = installHooks({
 			cwd: tmp,
@@ -69,13 +75,15 @@ describe("installHooks", () => {
 		).toThrow(/corrupt/);
 	});
 
-	it("selects every known runner when `runners` is empty", () => {
+	it("default selection retains established clients and requires opt-in for additional clients", () => {
 		const result = installHooks({
 			cwd: tmp,
 			binaryPath: "/usr/bin/interlinked-hook",
 			runners: [],
 		});
 		expect(result.entries.length + result.skipped.length).toBeGreaterThan(1);
+		expect(result.entries.map(entry => entry.runner)).not.toEqual(expect.arrayContaining(["factory-droid"]));
+		expect(result.entries.map(entry => entry.runner).filter(id => ["factory-droid", "windsurf", "antigravity", "crush"].includes(id))).toEqual([]);
 	});
 
 	it("preserves a managed provider file that turned foreign since the recorded install", () => {

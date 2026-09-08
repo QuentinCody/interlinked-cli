@@ -1,17 +1,16 @@
 // ===========================================
-// Gemini CLI adapter (experimental)
+// Gemini CLI adapter
 // ===========================================
-// Gemini CLI is pre-1.0 as of 2026-04-23. Native events observed:
-//   BeforeTool, AfterTool, AfterModel, PreCompress
-// Payload shape is provisional. When Gemini CLI ships 1.0 this adapter needs
-// a revisit — see docs/design/cli-hook-normalization.md.
+// Uses the documented command-hook contract. Native enforcement remains
+// unmeasured until exercised against a versioned Gemini runtime.
 
 import type { ClassifierOverrides } from "../tool-class-classifier.js";
 import { adapterToolClassifier } from "./adapter-tool-class.js";
 import { buildHookCommand } from "./hook-command.js";
 import { buildStandardAction, normalizeNativeHookEvent } from "./normalization.js";
 import { GEMINI_CLI_CAPABILITIES, installedEventNames } from "./provider-capabilities.js";
-import type { AdapterOutput, RunnerAdapter, SettingsFragment } from "./types.js";
+import { encodeGeminiDecision } from "./provider-decisions.js";
+import type { RunnerAdapter, SettingsFragment } from "./types.js";
 
 const NATIVE_EVENTS = installedEventNames(GEMINI_CLI_CAPABILITIES);
 
@@ -64,54 +63,11 @@ export function createGeminiCliAdapter(opts: GeminiCliAdapterOptions = {}): Runn
 					event,
 					event === "BeforeTool" ? "fail_closed" : "warn_open",
 				);
-				hooks[event] = [{ command: hookCommand }];
+				hooks[event] = [{ hooks: [{ type: "command", command: hookCommand }] }];
 			}
 			return { path, fragment: { hooks }, mergeStrategy: "array-append" };
 		},
 
-		encodeDecision(decision, event): AdapterOutput {
-			// Gemini CLI's decision protocol is provisional; match Cursor-style
-			// stdout JSON until the native shape is settled.
-			const stderr = (decision.warnings ?? []).join("\n");
-			if (decision.decision === "block") {
-				return {
-					stdout: JSON.stringify({
-						allow: false,
-						reason:
-							decision.reason ??
-							"Blocked by the interlinked harness, but no reason was attached — likely a " +
-								"harness bug; re-run, or run `interlinked harness restart`, then report it.",
-					}),
-					stderr: stderr || undefined,
-					exit_code: 2,
-				};
-			}
-			if (decision.decision === "ask") {
-				return {
-					stdout: JSON.stringify({
-						ask: true,
-						reason: decision.reason ?? "Confirmation required",
-					}),
-					stderr: stderr || undefined,
-					exit_code: 0,
-				};
-			}
-			if (event.runner_native_event === "AfterTool") {
-				// Gemini parses exit-0 stdout as JSON and its hook contract requires
-				// a valid JSON document even for a no-op. Therefore true zero-byte
-				// silence is not portable here; emit the smallest valid no-op (`{}`)
-				// instead of a redundant allow envelope on every clean tool result.
-				return {
-					stdout: "{}",
-					stderr: stderr || undefined,
-					exit_code: 0,
-				};
-			}
-			return {
-				stdout: JSON.stringify({ allow: true }),
-				stderr: stderr || undefined,
-				exit_code: 0,
-			};
-		},
+		encodeDecision: encodeGeminiDecision,
 	};
 }

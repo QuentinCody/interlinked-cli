@@ -151,13 +151,13 @@ describe("Copilot CLI encodeDecision", () => {
 			permissionDecisionReason: "nope",
 		});
 	});
-	it("ask collapses to deny since Copilot has no ask primitive", () => {
+	it("ask collapses to deny until the installed runtime's approval is certified", () => {
 		// Regression guard: previously this returned exit 0 with a stderr note,
 		// which let destructive ask rules (curl DELETE, GraphQL mutations)
 		// proceed unchecked on Copilot. The Copilot CLI ignores stderr from
 		// non-deny hooks, so the user never saw the prompt and the call ran.
-		// Mirrors the .mjs formatCopilotResponse path that downgrades pre_ask
-		// to permissionDecision:"deny".
+		// Current CLI docs support ask; earlier versions do not. The unknown
+		// runtime path and the generated .mjs path retain conservative denial.
 		const out = adapter.encodeDecision({ decision: "ask", reason: "confirm?" }, event);
 		expect(out.exit_code).toBe(0);
 		expect(copilotDenyPayload(out)).toEqual({
@@ -380,9 +380,9 @@ describe("Copilot CLI parseHookInput — error + unknown event actions", () => {
 
 	it("an unrecognized event becomes an `other` action keyed by the event name", () => {
 		const raw = { sessionId: "u1", foo: "bar" };
-		const event = adapter.parseHookInput(raw, "preCompact");
+		const event = adapter.parseHookInput(raw, "FutureBoundary");
 		if (event.action.kind !== "other") throw new Error("expected other");
-		expect(event.action.subkind).toBe("preCompact");
+		expect(event.action.subkind).toBe("FutureBoundary");
 		expect(event.action.data).toEqual(raw);
 	});
 });

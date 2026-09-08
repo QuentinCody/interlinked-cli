@@ -12,6 +12,7 @@ import type {
 } from "../unified-event.js";
 import { makeEventId as defaultMakeEventId } from "../unified-event.js";
 import { eventCapability } from "./provider-capabilities.js";
+import { observeNativeHook } from "./hook-observation.js";
 import type { RunnerCapabilities } from "./types.js";
 
 export interface NativeFieldAliases {
@@ -89,6 +90,8 @@ export function normalizeNativeHookEvent(
 	const metadata = extractEnvelopeMetadata(raw, aliases, opts.turnIdAsParentEventId === true);
 	const event = baseEvent({ opts, raw, phase, metadata });
 	copyOptionalEnvelopeFields(event, metadata);
+	const observation = observeNativeHook(event, raw);
+	if (observation) event.observation = observation;
 	return event;
 }
 

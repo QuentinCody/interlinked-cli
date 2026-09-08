@@ -29,6 +29,7 @@ const ENTRY_POINTS = [
     "src/harness/check-engine/tool-runners/tsc-overlay-sidecar-main.ts",
     "src/lib/demo-runtime/index.ts",
     "src/lib/viz/reporter-vitest.ts",
+    "src/lib/hook-bridge/index.ts",
 ];
 
 // Exported so the regression suite pins the public declaration surface.
@@ -40,6 +41,8 @@ export const REQUIRED_OUTPUTS = [
     "harness/check-engine/tool-runners/tsc-overlay-sidecar-main.js",
     "lib/demo-runtime/index.js",
     "lib/viz/reporter-vitest.js",
+    "lib/hook-bridge/index.js",
+    "lib/hook-bridge/index.d.ts",
     "index.d.ts",
     "hook-entry.d.ts",
     "harness/server.d.ts",

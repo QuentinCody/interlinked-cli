@@ -61,6 +61,10 @@
             "types": "./dist/lib/viz/reporter-vitest.d.ts",
             "default": "./dist/lib/viz/reporter-vitest.js"
         },
+        "./hook-bridge": {
+            "types": "./dist/lib/hook-bridge/index.d.ts",
+            "default": "./dist/lib/hook-bridge/index.js"
+        },
         "./package.json": "./package.json"
     },
     "bin": {
@@ -69,7 +73,7 @@
     },
     "scripts": {
         "build": "node scripts/build-atomic-cli.mjs",
-        "build:watch": "tsup src/index.ts src/hook-entry.ts src/harness/server.ts src/harness/replay/inference-proxy.ts src/harness/check-engine/tool-runners/tsc-overlay-sidecar-main.ts src/lib/demo-runtime/index.ts src/lib/viz/reporter-vitest.ts --format esm --watch",
+        "build:watch": "tsup src/index.ts src/hook-entry.ts src/harness/server.ts src/harness/replay/inference-proxy.ts src/harness/check-engine/tool-runners/tsc-overlay-sidecar-main.ts src/lib/demo-runtime/index.ts src/lib/viz/reporter-vitest.ts src/lib/hook-bridge/index.ts --format esm --watch",
         "dev": "tsx src/index.ts",
         "typecheck": "tsgo --noEmit",
         "typecheck:stable": "tsc --noEmit",

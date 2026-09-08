@@ -74,6 +74,7 @@ const PROVIDER_BY_SOURCE: Record<AgentSource, string> = {
 	cursor: "cursor",
 	opencode: "opencode",
 	pi: "pi",
+	"factory-droid": "factory-droid", windsurf: "windsurf", antigravity: "antigravity", crush: "crush",
 };
 
 /** Read the last `tailBytes` of a file as utf-8, dropping a partial first

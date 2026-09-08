@@ -21,6 +21,7 @@ import { methodForPhase } from "./harness/daemon-protocol.js";
 import type { HarnessDecision } from "./harness/types.js";
 import { resetSupervisorBackoff } from "./harness/supervisor-backoff.js";
 import type { RunnerId, UnifiedHookEvent } from "./harness/unified-event.js";
+import { encodeHookResult } from "./hook-entry-translation.js";
 import {
 	coldDestructiveCommandBlockReason,
 	coldGraphShardBlockReason,
@@ -191,13 +192,7 @@ export async function runHookEntry(opts: HookEntryOptions): Promise<HookEntryRes
 	// <root>/.interlinked/harness.sock, so its dirname IS the data dir.
 	writeLastCheckArtifact(dirname(socketPath), event, decision, Date.now() - callStartMs);
 
-	const output = adapter.encodeDecision(decision, event);
-	return {
-		stdout: output.stdout,
-		stderr: output.stderr,
-		exit_code: output.exit_code,
-		fell_back: fellBack,
-	};
+	return encodeHookResult({ adapter, decision, event, dataDir: dirname(socketPath), fellBack });
 }
 
 

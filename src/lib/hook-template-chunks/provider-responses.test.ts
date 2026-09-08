@@ -16,10 +16,11 @@ function executeProviderResponse(
 	responseType: string,
 	data: Record<string, unknown>,
 	hookEvent = "PermissionRequest",
+	detectedClient = "claude",
 ): { response: unknown; stderr: string } {
 	let stderr = "";
 	const sandbox: Record<string, unknown> = {
-		detectedClient: "claude",
+		detectedClient,
 		hookEvent,
 		cursorNativeEvent: undefined,
 		responseType,
@@ -40,6 +41,13 @@ function executeProviderResponse(
 }
 
 describe("PROVIDER_RESPONSES_CHUNK — shape", () => {
+	it.each(["pre_block", "pre_ask", "post_block"])("Gemini %s uses its native denial contract", responseType => {
+		expect(executeProviderResponse(responseType, { reason: "policy" }, "BeforeTool", "gemini").response).toEqual({ decision: "deny", reason: "policy" });
+	});
+	it("Gemini retains a rewrite and Copilot retains post-tool feedback", () => {
+		expect(executeProviderResponse("pre_allow", { updatedInput: { command: "safe" } }, "PreToolUse", "gemini").response).toEqual({ hookSpecificOutput: { hookEventName: "BeforeTool", tool_input: { command: "safe" } } });
+		expect(executeProviderResponse("post_block", { reason: "review" }, "PostToolUse", "copilot").response).toEqual({ additionalContext: "review" });
+	});
 	it("is a non-empty string", () => {
 		expect(typeof PROVIDER_RESPONSES_CHUNK).toBe("string");
 		expect(PROVIDER_RESPONSES_CHUNK.length).toBeGreaterThan(100);

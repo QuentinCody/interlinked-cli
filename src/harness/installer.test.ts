@@ -102,10 +102,10 @@ describe("installHooks — project scope", () => {
 
 		expect(result.purged).toBe(2);
 		const after = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			hooks: { BeforeTool: Array<{ command?: string }> };
+			hooks: { BeforeTool: Array<{ command?: string; hooks?: Array<{ command?: string }> }> };
 		};
 		expect(after.hooks.BeforeTool.slice(0, userHooks.length)).toEqual(userHooks);
-		const commands = after.hooks.BeforeTool.map((entry) => entry.command ?? "");
+		const commands = after.hooks.BeforeTool.flatMap((entry) => entry.hooks ?? [entry]).map((entry) => entry.command ?? "");
 		expect(commands.some((command) => command.includes("/old/dist/hook-entry.js"))).toBe(false);
 		expect(
 			commands.some((command) => command === "node .interlinked/hooks/interlinked-activity.mjs"),
@@ -942,10 +942,10 @@ describe("removeJsonPath — targeted removal", () => {
 // with the measured counts pinned so silent list growth/shrink is visible.
 describe("installedEventsFor — five-client parity with the adapters", () => {
 	const EXPECTED: Array<[Parameters<typeof installedEventsFor>[0], number]> = [
-		["claude-code", 14],
+		["claude-code", 22],
 		["codex", 12],
 		["cursor", 18],
-		["copilot-cli", 6],
+		["copilot-cli", 12],
 		["gemini-cli", 9],
 	];
 

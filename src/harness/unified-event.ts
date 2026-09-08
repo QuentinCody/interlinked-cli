@@ -1,4 +1,6 @@
 import type { JsonObject } from "../lib/json-types.js";
+import type { HookCapabilityReceipt, HookOutcome } from "./adapters/hook-contract.js";
+import type { HookObservation } from "./adapters/hook-observation.js";
 // ===========================================
 // Unified Hook Event Envelope — cross-runner normalization
 // ===========================================
@@ -18,6 +20,10 @@ export type RunnerId =
 	| "cursor"
 	| "opencode"
 	| "pi"
+	| "factory-droid"
+	| "windsurf"
+	| "antigravity"
+	| "crush"
 	| "unknown";
 
 /** User-perception latency class. Drives per-event budgets and which checks run.
@@ -28,6 +34,13 @@ export type ToolClass = "read" | "modify" | "side-effect" | "long-running" | "un
 export type UnifiedPhase =
 	| "pre-tool"
 	| "post-tool"
+	| "post-tool-batch"
+	| "file-change"
+	| "config-change"
+	| "cwd-change"
+	| "pre-model"
+	| "post-model"
+	| "tool-selection"
 	| "session-start"
 	| "session-end"
 	| "user-prompt"
@@ -150,8 +163,13 @@ export interface UnifiedHookEvent {
 	runner_version?: string | undefined;
 	/** The runner's own event name (e.g., "PreToolUse"). Preserved for forensics. */
 	runner_native_event: string;
+	/** Declaration/emission evidence; never equated with native enforcement. */
+	capability?: HookCapabilityReceipt;
+	/** Policy and tool execution are separate, including synthetic SDK results. */
+	outcome?: HookOutcome;
 
 	phase: UnifiedPhase;
+	observation?: HookObservation;
 	action: UnifiedAction;
 	context: UnifiedHookContext;
 

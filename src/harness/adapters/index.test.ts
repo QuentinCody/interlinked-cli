@@ -6,17 +6,21 @@ import { buildAllAdapters, detectAdapter, getAdapter } from "./index.js";
 
 describe("buildAllAdapters", () => {
 	const adapters = buildAllAdapters();
-	it("returns all seven runner adapters", () => {
-		expect(adapters.length).toBe(7);
+	it("returns the stable and explicit experimental runner adapters", () => {
+		expect(adapters.length).toBe(11);
 		const ids = adapters.map((a) => a.id).sort();
 		expect(ids).toEqual([
+			"antigravity",
 			"claude-code",
 			"codex",
 			"copilot-cli",
+			"crush",
 			"cursor",
+			"factory-droid",
 			"gemini-cli",
 			"opencode",
 			"pi",
+			"windsurf",
 		]);
 	});
 	it("every adapter conforms to the basic interface", () => {

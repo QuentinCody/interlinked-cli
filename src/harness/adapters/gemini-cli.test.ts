@@ -56,31 +56,32 @@ describe("Gemini CLI encodeDecision", () => {
 		{ session_id: "g", tool_name: "read_file", tool_input: {} },
 		"BeforeTool",
 	);
-	it("allow emits allow:true on stdout", () => {
+	it("allow emits the native JSON no-op", () => {
 		const out = adapter.encodeDecision({ decision: "allow" }, event);
-		expect(JSON.parse(out.stdout as string)).toEqual({ allow: true });
+		expect(JSON.parse(out.stdout as string)).toEqual({});
 	});
-	it("block emits allow:false with exit 2", () => {
+	it("block emits decision deny through the exit-zero JSON channel", () => {
 		const out = adapter.encodeDecision({ decision: "block", reason: "bad" }, event);
-		expect(out.exit_code).toBe(2);
-		expect(JSON.parse(out.stdout as string)).toEqual({ allow: false, reason: "bad" });
+		expect(out.exit_code).toBe(0);
+		expect(JSON.parse(out.stdout as string)).toEqual({ decision: "deny", reason: "bad" });
 	});
 	it("block with no reason falls back to the default harness-bug message", () => {
 		const out = adapter.encodeDecision({ decision: "block" }, event);
-		expect(out.exit_code).toBe(2);
-		const parsed = JSON.parse(out.stdout as string) as { allow: boolean; reason: string };
-		expect(parsed.allow).toBe(false);
+		expect(out.exit_code).toBe(0);
+		const parsed = JSON.parse(out.stdout as string) as { decision: string; reason: string };
+		expect(parsed.decision).toBe("deny");
 		expect(parsed.reason).toMatch(/harness bug/);
 	});
-	it("ask emits ask:true with the given reason on stdout, exit 0", () => {
+	it("an unsupported ask emits deny with the given reason", () => {
 		const out = adapter.encodeDecision({ decision: "ask", reason: "please confirm" }, event);
 		expect(out.exit_code).toBe(0);
-		expect(JSON.parse(out.stdout as string)).toEqual({ ask: true, reason: "please confirm" });
+		expect(JSON.parse(out.stdout as string)).toEqual({ decision: "deny", reason: "please confirm" });
+		expect(out.translation?.status).toBe("degraded");
 	});
 	it("ask with no reason falls back to the default confirmation message", () => {
 		const out = adapter.encodeDecision({ decision: "ask" }, event);
 		expect(JSON.parse(out.stdout as string)).toEqual({
-			ask: true,
+			decision: "deny",
 			reason: "Confirmation required",
 		});
 	});

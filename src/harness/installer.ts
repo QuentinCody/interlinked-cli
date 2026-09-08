@@ -119,7 +119,8 @@ function removeEntry(entry: InstallerManifestEntry, cwd: string): boolean {
 		if (baseVerdict !== "keep") return baseVerdict;
 		return isHookEntryInvokingBinary(candidate, entry.binary_path) ? "remove" : "keep";
 	};
-	cleanProjectOwnedHooks(entry.settings_path, verdict, false);
+	const container = entry.runner === "factory-droid" ? "root" : entry.runner === "antigravity" ? "interlinked" : "hooks";
+	cleanProjectOwnedHooks(entry.settings_path, verdict, false, container);
 	return true;
 }
 

@@ -42,6 +42,7 @@ const VALID_RUNNERS = new Set<RunnerId>([
 	"codex",
 	"opencode",
 	"pi",
+	"factory-droid", "windsurf", "antigravity", "crush",
 ]);
 const VALID_SCOPES = new Set(["user", "project", "local"]);
 const VALID_CLOUD_PRODUCTS = new Set(["guardrails", "agent-ci"]);

@@ -34,7 +34,7 @@ function setResult(
 	uninstallHooksMock.mockReturnValue({ removed, remaining });
 }
 
-function lastCallArg(): { cwd: string; dryRun: boolean; runners?: string[] } {
+function lastCallArg(): { cwd: string; dryRun: boolean; runners?: string[] | undefined } {
 	const call = uninstallHooksMock.mock.calls.at(-1);
 	if (!call) throw new Error("uninstallHooks was not called");
 	return call[0] as { cwd: string; dryRun: boolean; runners?: string[] };
@@ -68,13 +68,16 @@ describe("uninstallHooksCommand — runner parsing (kills parseRunners mutants)"
 		expect(callArg.runners).toEqual(["codex", "cursor"]);
 	});
 
-	// test-contract: boundary — an unrecognized runner id must be filtered out
-	// by VALID_RUNNERS.has(), not passed through.
-	it("invalid runner name is filtered out (VALID_RUNNERS.has must actually check)", async () => {
+	// test-contract: boundary — a typo must never expand into removing every runner.
+	it("invalid runner name refuses removal before touching any configuration", async () => {
 		setResult([], []);
-		await uninstallHooksCommand({ runner: "not-a-real-runner" });
-		const callArg = lastCallArg();
-		expect(callArg).not.toHaveProperty("runners");
+		await expect(uninstallHooksCommand({ runner: "not-a-real-runner" })).rejects.toThrow("Unknown runner");
+		expect(uninstallHooksMock).not.toHaveBeenCalled();
+	});
+	it.each(["factory-droid", "windsurf", "antigravity", "crush"])("keeps %s removal scoped to that adapter", async runner => {
+		setResult([], []);
+		await uninstallHooksCommand({ runner });
+		expect(lastCallArg().runners).toEqual([runner]);
 	});
 
 	// test-contract: public-api — "copilot-cli" is a member of VALID_RUNNERS.

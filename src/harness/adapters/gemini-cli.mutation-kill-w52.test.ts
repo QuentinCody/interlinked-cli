@@ -47,10 +47,11 @@ describe("createGeminiCliAdapter — positive (must fire)", () => {
 	});
 
 	// test-contract: public-api — PHASE_MAP entry for AfterModel.
-	it("parseHookInput: AfterModel maps to phase 'other'", () => {
+	it("parseHookInput: AfterModel maps to the model response boundary", () => {
 		const adapter = createGeminiCliAdapter();
 		const event = adapter.parseHookInput({}, "AfterModel");
-		expect(event.phase).toBe("other");
+		expect(event.phase).toBe("post-model");
+		expect(event.observation).toEqual({ kind: "model", boundary: "after_response" });
 	});
 
 	// test-contract: public-api — BeforeTool must build a tool_call action.
@@ -163,9 +164,9 @@ describe("createGeminiCliAdapter — positive (must fire)", () => {
 	it("renderSettingsFragment: the hook command string embeds the runner id 'gemini-cli'", () => {
 		const adapter = createGeminiCliAdapter();
 		const fragment = adapter.renderSettingsFragment("/usr/local/bin/interlinked-hook", "project");
-		const hooks = (fragment.fragment as { hooks: Record<string, [{ command: string }]> }).hooks;
+		const hooks = (fragment.fragment as { hooks: Record<string, [{ hooks: [{ command: string }] }]> }).hooks;
 		const entry = hooks.BeforeTool;
-		expect(entry?.[0]?.command).toContain("gemini-cli");
+		expect(entry?.[0]?.hooks[0]?.command).toContain("gemini-cli");
 	});
 
 	// test-contract: public-api — buildHookCommand embeds the binary path
@@ -173,9 +174,9 @@ describe("createGeminiCliAdapter — positive (must fire)", () => {
 	it("renderSettingsFragment: the hook command string embeds the binary path", () => {
 		const adapter = createGeminiCliAdapter();
 		const fragment = adapter.renderSettingsFragment("/usr/local/bin/interlinked-hook", "project");
-		const hooks = (fragment.fragment as { hooks: Record<string, [{ command: string }]> }).hooks;
+		const hooks = (fragment.fragment as { hooks: Record<string, [{ hooks: [{ command: string }] }]> }).hooks;
 		const entry = hooks.BeforeTool;
-		expect(entry?.[0]?.command).toContain("/usr/local/bin/interlinked-hook");
+		expect(entry?.[0]?.hooks[0]?.command).toContain("/usr/local/bin/interlinked-hook");
 	});
 
 	// test-contract: public-api — a block decision with warnings must set both
@@ -187,9 +188,9 @@ describe("createGeminiCliAdapter — positive (must fire)", () => {
 			reason: "nope",
 			warnings: ["w1", "w2"],
 		};
-		const out = adapter.encodeDecision(decision, {} as UnifiedHookEvent);
-		expect(out.exit_code).toBe(2);
-		expect(JSON.parse(out.stdout as string)).toEqual({ allow: false, reason: "nope" });
+		const out = adapter.encodeDecision(decision, adapter.parseHookInput({}, "BeforeTool"));
+		expect(out.exit_code).toBe(0);
+		expect(JSON.parse(out.stdout as string)).toEqual({ decision: "deny", reason: "nope" });
 		expect(out.stderr).toBe("w1\nw2");
 	});
 
@@ -199,7 +200,7 @@ describe("createGeminiCliAdapter — positive (must fire)", () => {
 	it("encodeDecision: block with no warnings has stderr undefined, not an empty string", () => {
 		const adapter = createGeminiCliAdapter();
 		const decision: HarnessDecision = { decision: "block", reason: "nope", warnings: [] };
-		const out = adapter.encodeDecision(decision, {} as UnifiedHookEvent);
+		const out = adapter.encodeDecision(decision, adapter.parseHookInput({}, "BeforeTool"));
 		expect(out.stderr).toBeUndefined();
 	});
 
@@ -208,19 +209,19 @@ describe("createGeminiCliAdapter — positive (must fire)", () => {
 	it("encodeDecision: block without a reason falls back to the harness-bug explanatory message", () => {
 		const adapter = createGeminiCliAdapter();
 		const decision = { decision: "block", warnings: [] } as unknown as HarnessDecision;
-		const out = adapter.encodeDecision(decision, {} as UnifiedHookEvent);
+		const out = adapter.encodeDecision(decision, adapter.parseHookInput({}, "BeforeTool"));
 		const parsed = JSON.parse(out.stdout as string) as { reason: string };
 		expect(parsed.reason).toContain("Blocked by the interlinked harness");
 	});
 
 	// test-contract: public-api — an ask decision must set ask:true and carry
 	// its own reason plus warnings via stderr, distinct from block/allow.
-	it("encodeDecision: ask decision sets ask:true, exit_code 0, and reports warnings via stderr", () => {
+	it("encodeDecision: ask decision conservatively denies, exit_code 0, and reports warnings via stderr", () => {
 		const adapter = createGeminiCliAdapter();
 		const decision: HarnessDecision = { decision: "ask", reason: "confirm?", warnings: ["hey"] };
-		const out = adapter.encodeDecision(decision, {} as UnifiedHookEvent);
+		const out = adapter.encodeDecision(decision, adapter.parseHookInput({}, "BeforeTool"));
 		expect(out.exit_code).toBe(0);
-		expect(JSON.parse(out.stdout as string)).toEqual({ ask: true, reason: "confirm?" });
+		expect(JSON.parse(out.stdout as string)).toEqual({ decision: "deny", reason: "confirm?" });
 		expect(out.stderr).toBe("hey");
 	});
 
@@ -230,9 +231,9 @@ describe("createGeminiCliAdapter — positive (must fire)", () => {
 	it("encodeDecision: allow decision with no warnings has stderr undefined", () => {
 		const adapter = createGeminiCliAdapter();
 		const decision: HarnessDecision = { decision: "allow", warnings: [] };
-		const out = adapter.encodeDecision(decision, {} as UnifiedHookEvent);
+		const out = adapter.encodeDecision(decision, adapter.parseHookInput({}, "BeforeTool"));
 		expect(out.exit_code).toBe(0);
-		expect(JSON.parse(out.stdout as string)).toEqual({ allow: true });
+		expect(JSON.parse(out.stdout as string)).toEqual({});
 		expect(out.stderr).toBeUndefined();
 	});
 
@@ -241,7 +242,7 @@ describe("createGeminiCliAdapter — positive (must fire)", () => {
 	it("encodeDecision: allow decision with warnings joins them into stderr", () => {
 		const adapter = createGeminiCliAdapter();
 		const decision: HarnessDecision = { decision: "allow", warnings: ["only-warning"] };
-		const out = adapter.encodeDecision(decision, {} as UnifiedHookEvent);
+		const out = adapter.encodeDecision(decision, adapter.parseHookInput({}, "BeforeTool"));
 		expect(out.stderr).toBe("only-warning");
 	});
 });
