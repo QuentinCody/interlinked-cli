@@ -4,7 +4,7 @@ export interface EvidenceIdentity {
     sourceHash: string; testHash: string; configurationHash: string; dependencyHash: string;
     inputHash: string; scopeHash: string; supportHash: string;
 }
-export interface EvidenceRunner { argv: string[]; version: string; operatorPolicy: string; environmentHash: string; workspaceHash?: string; }
+export interface EvidenceRunner { argv: string[]; version: string; operatorPolicy: string; environmentHash: string; workspaceHash?: string; artifactSelector?: string; }
 export type EvidenceOutcome = "passed" | "failed" | "timeout" | "cancelled" | "error";
 export interface EvidenceReceipt {
     schemaVersion: 1; kind: "coverage" | "mutation"; identity: EvidenceIdentity; runner: EvidenceRunner;

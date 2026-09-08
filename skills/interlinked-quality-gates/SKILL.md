@@ -136,6 +136,17 @@ then decides: red-bar (default on) → uncovered-added-line → per-file coverag
 keep working in that source/test pair until it is covered and green. The commit gate remains the
 ground-truth backstop.
 
+Vitest coverage include/exclude edits block only when a concrete path example is
+provably included by HEAD and omitted by the proposed combined scope. These
+examples describe configured path membership, not an on-disk file census.
+Supported comparisons cover positive relative globs with literal directories,
+complete globstars, filename suffix wildcards and bounded comma brace alternatives.
+Widened includes, narrowed exclusions and equivalent redundant patterns pass.
+Negation, extglobs, character classes, unsupported wildcard placement, unknown
+defaults or unresolved overlaps allow with an explicit abstention warning:
+review manually; an abstention makes no measured or clean claim. The shared
+baseline bypass policy is unchanged.
+
 **CRAP** = `cyclomatic² · (1 − coverage/100)³ + cyclomatic`, where coverage is a percentage.
 Full coverage reduces the score to cyclomatic, but low coverage can exceed the default threshold
 even at modest complexity (complexity 5 at 0% coverage scores 30). Treat complexity and coverage
@@ -334,6 +345,9 @@ implementations live under `src/harness/shadow/generation/`, outside the normati
 source inventory. Tuple schemas preserve required array entries and rest elements; the binding
 mismatch outcome requires a nonempty array. Regenerate its schema and digest together, and
 coordinate the matching contract with any remote verifier before using changed results.
+After updating the shadow protocol package, re-vendor and re-pin its regenerated
+contract digest in remote consumers. Literal ignored input paths retain their
+filename bytes, including brackets and Git pathspec prefixes.
 
 The authority key intentionally excludes contract digest and evaluator policy
 version. The head stores mechanical mutant identities and statuses, not an old
@@ -731,7 +745,21 @@ hashing share the execution deadline and the 200,000-entry / 4-GiB workspace
 bounds. Unavailable, escaping or unstable inputs cannot produce measured evidence.
 The original inputs must match the copy before execution and remain unchanged
 afterward; new runner outputs are allowed. Older receipts without the workspace
-digest remain readable but cannot satisfy local `--resume`.
+digest remain readable but cannot satisfy local `--resume`. The normalized
+`--artifact` selector is persisted and is part of cache identity: selecting
+`a.json` and then `b.json` requires separate evidence even for the same runner;
+equivalent relative spellings share one selector.
+
+Local evidence status and scoring revalidate the runtime digest and current
+inherited environment before treating a receipt as measured. Changed bytes or
+environment make it stale; missing provenance, unreadable inputs or exhausted
+validation budgets make it inconclusive. Synchronous reads share a ten-second
+validation deadline and hash each artifact selector at most once per store load;
+an execution's earlier deadline takes precedence. No raw environment/configuration
+values are persisted. Copied ignored directories such as `scratch` and `coverage`
+remain inputs, so changing them can invalidate evidence and increase hash cost.
+Imported CI receipts retain explicitly asserted provenance rather than claiming
+that the local process independently reproduced the CI runtime.
 
 Coverage accepts strict Istanbul maps; mutation accepts source-bound Stryker-style
 reports. Missing files remain inconclusive. Timeout/error/ignored outcomes are not
@@ -750,7 +778,11 @@ report with no report-covered paths in scope (for example, excluded test-only
 changes) explicitly states that no coverage pass was certified.
 
 `metrics coverage warm --timeout <ms>` runs full Vitest coverage in an overlay and
-initializes an exact per-test-file contribution index plus scoring evidence.
+initializes an exact per-test-file contribution index. Its scoring receipt is
+explicitly inconclusive: this overlay path does not yet verify the complete
+runtime/dependency/environment provenance required for local composite scoring.
+Use `metrics evidence run` to obtain that scoring evidence. Warming and index
+operations remain available; warming alone does not certify a composite score.
 Affected tests replace their previous contribution; untouched shards and zero-hit
 denominators remain. Input/configuration/dependency/discovery/runner/environment
 changes invalidate reuse. Dynamic dependencies widen selection. Unsupported,

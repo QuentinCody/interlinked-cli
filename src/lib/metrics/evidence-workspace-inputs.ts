@@ -4,21 +4,15 @@ import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { hashBytes } from "./inventory.js";
 import { assertWorkspaceActive, EVIDENCE_WORKSPACE_EXCLUDED, MAX_WORKSPACE_BYTES, MAX_WORKSPACE_FILES } from "./evidence-workspace.js";
+import { sameWorkspaceState, workspaceSnapshot, type EvidenceWorkspaceSnapshot, type WorkspaceInput, type WorkspaceSnapshotOptions } from "./evidence-workspace-state.js";
+export type { EvidenceWorkspaceSnapshot, WorkspaceSnapshotOptions } from "./evidence-workspace-state.js";
 
-interface WorkspaceInput { path: string; kind: "file" | "directory" | "symlink"; hash: string; mode: number; }
-export interface EvidenceWorkspaceSnapshot { hash: string; inputs: WorkspaceInput[]; }
-export interface WorkspaceSnapshotOptions { deadline: number; signal?: AbortSignal; artifact: string; }
 interface SnapshotContext { root: string; options: WorkspaceSnapshotOptions; count: number; bytes: number; buffer: Buffer; }
-const STATE_KEYS = ["dev", "ino", "size", "mode", "mtimeNs", "ctimeNs"] as const;
-
-function sameState(left: BigIntStats, right: BigIntStats): boolean {
-    return STATE_KEYS.every(key => left[key] === right[key]);
-}
 
 async function fileHash(path: string, before: BigIntStats, context: SnapshotContext): Promise<string> {
     const handle = await open(path, "r");
     try {
-        if (!sameState(before, await handle.stat({ bigint: true }))) throw new Error("Workspace input changed before hashing");
+        if (!sameWorkspaceState(before, await handle.stat({ bigint: true }))) throw new Error("Workspace input changed before hashing");
         const hash = createHash("sha256");
         for (let position = 0; position < Number(before.size);) {
             assertWorkspaceActive(context.options);
@@ -28,7 +22,7 @@ async function fileHash(path: string, before: BigIntStats, context: SnapshotCont
             hash.update(context.buffer.subarray(0, bytesRead));
             position += bytesRead;
         }
-        if (!sameState(before, await handle.stat({ bigint: true })) || !sameState(before, await lstat(path, { bigint: true }))) throw new Error("Workspace input changed while hashing");
+        if (!sameWorkspaceState(before, await handle.stat({ bigint: true })) || !sameWorkspaceState(before, await lstat(path, { bigint: true }))) throw new Error("Workspace input changed while hashing");
         return hash.digest("hex");
     } finally { await handle.close(); }
 }
@@ -71,10 +65,9 @@ export async function captureWorkspaceInputs(root: string, options: WorkspaceSna
             if (input.kind === "directory") directories.push(path);
         }
     }
-    inputs.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
-    const hash = hashBytes(JSON.stringify(["copied-runtime-inputs-v1", inputs]));
+    const snapshot = workspaceSnapshot(inputs);
     assertWorkspaceActive(options);
-    return { hash, inputs };
+    return snapshot;
 }
 
 /** Newly produced outputs are allowed; every original runtime input must remain unchanged. */

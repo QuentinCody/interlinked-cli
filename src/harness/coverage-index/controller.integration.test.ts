@@ -10,6 +10,8 @@ import { runIndexedCoverage, coverageIndexStatus } from "./controller.js";
 import { warmCoverageIndex } from "./warm.js";
 import { indexStore, promoteMatchingProposal } from "./staged-state.js";
 import { readAcceptedManifest } from "./store.js";
+import { loadEvidence } from "../../lib/metrics/evidence-store.js";
+import { collectCompositeScoreReport } from "../../lib/metrics/composite-report.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -56,4 +58,19 @@ it("invalidates test discovery and config changes and refuses corrupt contributi
     if (!entry) throw new Error("Missing expected shard");
     writeFileSync(join(indexStore(root), entry.contributionPath), "corrupt");
     expect(() => coverageIndexStatus(coverageIndexContext(collectRepositoryInventory(root)))).toThrow("corrupt");
+}, 60_000);
+
+it("warms the index while qualifying runtime-unverified coverage as inconclusive for scoring", async () => {
+    const root = fixture();
+    writeFileSync(join(root, ".env"), "RUNTIME_MODE=before\n");
+    const warm = await warmCoverageIndex(root, 30_000);
+    expect(warm.indexed, warm.reason ?? "").toBe(true);
+    expect(warm.status.valid).toBe(true);
+    const receipt = loadEvidence(collectRepositoryInventory(root)).entries[0];
+    expect(receipt?.observations.state).toBe("inconclusive");
+    expect(receipt?.observations.issues.join()).toContain("run metrics evidence run");
+    writeFileSync(join(root, ".env"), "RUNTIME_MODE=after\n");
+    const score = collectCompositeScoreReport(root);
+    expect(score.metrics.find(row => row.id === "coverage.lines")?.state).not.toBe("measured");
+    expect(score.groups.find(group => group.id === "coverage")?.reach).toBe(0);
 }, 60_000);

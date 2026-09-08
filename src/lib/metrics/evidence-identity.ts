@@ -35,7 +35,7 @@ export function evidenceIdentity(inventory: RepositoryInventory, overrides: Read
 }
 
 export function evidenceCacheKey(identity: EvidenceIdentity, runner: EvidenceRunner, kind: string): string {
-    return hashBytes(JSON.stringify([IDENTITY_KEYS.map(key => identity[key]), runner.argv, runner.version, runner.operatorPolicy, runner.environmentHash, runner.workspaceHash ?? null, kind]));
+    return hashBytes(JSON.stringify([IDENTITY_KEYS.map(key => identity[key]), runner.argv, runner.version, runner.operatorPolicy, runner.environmentHash, runner.workspaceHash ?? null, runner.artifactSelector ?? null, kind]));
 }
 
 export function identityDifferences(before: EvidenceIdentity, after: EvidenceIdentity): string[] {

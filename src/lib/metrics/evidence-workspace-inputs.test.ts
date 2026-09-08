@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { captureWorkspaceInputs, changedWorkspaceInputs } from "./evidence-workspace-inputs.js";
+import { captureWorkspaceInputsSync } from "./evidence-workspace-inputs-sync.js";
 import { copyEvidenceWorkspace, MAX_WORKSPACE_BYTES, removeEvidenceWorkspace } from "./evidence-workspace.js";
 
 const roots: string[] = [];
@@ -60,4 +61,14 @@ it("removes temporary links without following them into another workspace", asyn
     expect(existsSync(workspace)).toBe(false);
     expect(readFileSync(join(external, "retained.txt"), "utf8")).toBe("retained");
     await removeEvidenceWorkspace(workspace);
+});
+
+it("uses identical byte and link identity for execution and synchronous freshness checks", async () => {
+    const root = fixture();
+    writeFileSync(join(root, ".env"), Buffer.alloc(64 * 1024 + 7, 0xff));
+    symlinkSync(".env", join(root, "runtime-link"));
+    const executed = await captureWorkspaceInputs(root, options());
+    expect(captureWorkspaceInputsSync(root, options())).toEqual(executed);
+    writeFileSync(join(root, ".env"), Buffer.alloc(64 * 1024 + 7, 0xfe));
+    expect(captureWorkspaceInputsSync(root, options()).hash).not.toBe(executed.hash);
 });

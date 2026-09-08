@@ -1,4 +1,5 @@
 import { natural, record, stringList, textField } from "./evidence-json.js";
+import { normalizeEvidenceArtifact } from "./evidence-artifact-selector.js";
 import type { EvidenceIdentity, EvidenceOutcome, EvidenceReceipt, EvidenceRunner } from "./evidence-types.js";
 
 export const IDENTITY_KEYS = ["sourceHash", "testHash", "configurationHash", "dependencyHash", "inputHash", "scopeHash", "supportHash"] as const;
@@ -16,7 +17,8 @@ function runner(value: unknown): EvidenceRunner {
     const row = record(value, "runner"), argv = stringList(row.argv, "argv");
     if (!argv.length) throw new Error("Runner argv cannot be empty");
     return { argv, version: textField(row.version, "runner version"), operatorPolicy: textField(row.operatorPolicy, "operator policy"), environmentHash: digest(row.environmentHash),
-        ...(row.workspaceHash === undefined ? {} : { workspaceHash: digest(row.workspaceHash) }) };
+        ...(row.workspaceHash === undefined ? {} : { workspaceHash: digest(row.workspaceHash) }),
+        ...(row.artifactSelector === undefined ? {} : { artifactSelector: normalizeEvidenceArtifact(textField(row.artifactSelector, "artifact selector")) }) };
 }
 function outcome(value: unknown): EvidenceOutcome {
     if (value === "passed" || value === "failed" || value === "timeout" || value === "cancelled" || value === "error") return value;

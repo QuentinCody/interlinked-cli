@@ -12,18 +12,20 @@ import { collectRepositoryInventory, containedFile, hashBytes } from "./inventor
 import type { RepositoryInventory } from "./measurement-types.js";
 import { appendMeasurementExecution } from "./execution-journal.js";
 import { executionEvidenceBlockers } from "./execution-evidence.js";
+import { normalizeEvidenceArtifact } from "./evidence-artifact-selector.js";
+import type { EvidenceFreshnessOptions } from "./evidence-local-freshness.js";
 
 export interface EvidenceRunOptions {
-    root: string; kind: "coverage" | "mutation"; artifact: string; runner: Omit<EvidenceRunner, "environmentHash" | "workspaceHash">;
+    root: string; kind: "coverage" | "mutation"; artifact: string; runner: Omit<EvidenceRunner, "environmentHash" | "workspaceHash" | "artifactSelector">;
     timeoutMs: number; signal?: AbortSignal; resume?: boolean;
 }
 export interface EvidenceRunResult { outcome: EvidenceOutcome; cached: boolean; evidence: StoredEvidence | null; durationMs: number; issues: string[]; }
 interface PreparedEvidenceRunOptions extends EvidenceRunOptions { runner: EvidenceRunner; environment: NodeJS.ProcessEnv; }
 
-function cachedRun(inventory: RepositoryInventory, options: PreparedEvidenceRunOptions): StoredEvidence | undefined {
+function cachedRun(inventory: RepositoryInventory, options: PreparedEvidenceRunOptions, freshness: EvidenceFreshnessOptions): StoredEvidence | undefined {
     if (!options.resume || executionEvidenceBlockers(inventory).length) return undefined;
     const key = evidenceCacheKey(evidenceIdentity(inventory), options.runner, options.kind);
-    const latest = loadEvidence(inventory).entries.filter(entry => evidenceCacheKey(entry.receipt.identity, entry.receipt.runner, entry.receipt.kind) === key)
+    const latest = loadEvidence(inventory, freshness).entries.filter(entry => evidenceCacheKey(entry.receipt.identity, entry.receipt.runner, entry.receipt.kind) === key)
         .sort((a, b) => Date.parse(b.receipt.finishedAt) - Date.parse(a.receipt.finishedAt))[0];
     return latest?.observations.state === "measured" ? latest : undefined;
 }
@@ -46,7 +48,7 @@ async function executeWorkspace(options: PreparedEvidenceRunOptions, context: Ru
     const snapshotOptions = { artifact: options.artifact, deadline: started + options.timeoutMs, ...signal };
     const snapshot = await prepareEvidenceWorkspace(inventory, identity, workspace, snapshotOptions);
     options.runner.workspaceHash = snapshot.hash;
-    const cached = cachedRun(inventory, options);
+    const cached = cachedRun(inventory, options, snapshotOptions);
     assertWorkspaceActive(snapshotOptions);
     if (cached) return { outcome: "passed", cached: true, evidence: cached, durationMs: Date.now() - started, issues: [] };
     const run = await runEvidenceProcess({ cwd: workspace, argv: options.runner.argv, environment: options.environment, timeoutMs: Math.max(1, started + options.timeoutMs - Date.now()), ...signal });
@@ -56,12 +58,15 @@ async function executeWorkspace(options: PreparedEvidenceRunOptions, context: Ru
     const receipt: EvidenceReceipt = { schemaVersion: 1, kind: options.kind, identity, runner: options.runner,
         startedAt: new Date(started).toISOString(), finishedAt: new Date().toISOString(), durationMs: Date.now() - started,
         outcome: run.outcome, artifactHash: hashBytes(content), reportRoot: workspace, origin: "local", issues };
-    return { outcome: "passed", cached: false, evidence: saveEvidence(inventory, receipt, content), durationMs: receipt.durationMs, issues };
+    const evidence = saveEvidence(inventory, receipt, content, snapshotOptions);
+    assertWorkspaceActive(snapshotOptions);
+    return { outcome: "passed", cached: false, evidence, durationMs: receipt.durationMs, issues: evidence.observations.issues };
 }
 
 export async function runBehavioralEvidence(request: EvidenceRunOptions): Promise<EvidenceRunResult> {
     const { environment, environmentHash } = captureEvidenceEnvironment();
-    const options: PreparedEvidenceRunOptions = { ...request, environment, runner: { argv: [...request.runner.argv], version: request.runner.version, operatorPolicy: request.runner.operatorPolicy, environmentHash } };
+    const artifact = normalizeEvidenceArtifact(request.artifact);
+    const options: PreparedEvidenceRunOptions = { ...request, artifact, environment, runner: { argv: [...request.runner.argv], version: request.runner.version, operatorPolicy: request.runner.operatorPolicy, environmentHash, artifactSelector: artifact } };
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1) throw new Error("Positive timeout required");
     const inventory = collectRepositoryInventory(options.root), started = Date.now();
     const context: RunContext = { inventory, identity: evidenceIdentity(inventory), started };

@@ -9,7 +9,7 @@ import type { RepositoryInventory } from "./measurement-types.js";
 
 export async function prepareEvidenceWorkspace(inventory: RepositoryInventory, identity: EvidenceIdentity, workspace: string, options: WorkspaceSnapshotOptions): Promise<EvidenceWorkspaceSnapshot> {
     const artifact = join(workspace, options.artifact), path = relative(workspace, artifact);
-    if (path.startsWith("..") || !path) throw new Error("Artifact must be a relative file inside the workspace");
+    if (path === ".." || path.startsWith("../") || path.startsWith("..\\") || !path) throw new Error("Artifact must be a relative file inside the workspace");
     await copyEvidenceWorkspace({ source: inventory.root, destination: workspace, ...options });
     rmSync(artifact, { force: true });
     const copied = await captureWorkspaceInputs(workspace, options);

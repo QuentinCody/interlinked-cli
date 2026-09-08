@@ -3,9 +3,9 @@
 // ===========================================
 // `coverage.include` / `coverage.exclude` in a vitest config decide WHICH
 // FILES the coverage percentage is measured over. That set is a water-line in
-// exactly the sense `.interlinked/coverage-baseline.json` is: adding one
-// `exclude` glob raises every coverage number the ratchet reads without
-// testing a single line, and the agent being gated can write the file. So the
+// exactly the sense `.interlinked/coverage-baseline.json` is: excluding code
+// can raise coverage numbers without testing a single line, and the agent
+// being gated can write the file. So the
 // same direction rule applies — the denominator may only grow (or hold), never
 // shrink.
 //
@@ -24,6 +24,7 @@
 import type * as TS from "typescript";
 import { parseTsSource, type TsModule } from "../checks/cyclomatic-ast.js";
 import type { HarnessDecision } from "../types.js";
+import { compareCoverageGlobScope } from "./vitest-coverage-glob-scope.js";
 
 /** vitest.config.<ext>, vitest.<lane>.config.<ext>, vite.config.<ext>.
  *  `[cm]?[jt]s` covers ts / mts / cts / js / mjs / cjs. */
@@ -211,7 +212,7 @@ function blockReasonText(filePath: string, lines: string[]): string {
 	return (
 		`BLOCKED: this edit loosens the vitest coverage denominator in ${filePath}:\n  ${lines.join("\n  ")}\n\n` +
 		"The coverage include/exclude set is a ratchet water-line, exactly like `.interlinked/coverage-baseline.json`: " +
-		"shrinking the denominator raises every coverage number without adding one test. Cover the code (or delete it) " +
+		"shrinking the denominator can raise coverage without adding one test. Cover the code (or delete it) " +
 		"instead of removing it from the measurement. Intentional reset: INTERLINKED_DISABLE_BASELINE_GUARD=1."
 	);
 }
@@ -238,20 +239,27 @@ function compareArrays(
 	head: CoverageArrays,
 	proposed: CoverageArrays,
 ): WaterLineVerdict {
+	const warning =
+		presenceWarning(filePath, "exclude", head.exclude, proposed.exclude) ??
+		presenceWarning(filePath, "include", head.include, proposed.include);
+	if (warning !== null) return { kind: "allow", warning };
+	const unchanged = COVERAGE_KEYS.every(key => newMembers(head[key], proposed[key]).length === 0 && newMembers(proposed[key], head[key]).length === 0);
+	if (unchanged) return { kind: "allow" };
+	const comparison = compareCoverageGlobScope(head, proposed);
+	if (comparison.kind === "nondecreasing") return { kind: "allow" };
+	if (comparison.kind === "undecidable") {
+		return { kind: "allow", warning: `[interlinked:coverage-water-line] the coverage denominator in ${filePath} is undecidable: ${comparison.detail}. Allowing the edit; check the denominator by hand.` };
+	}
 	const addedExcludes = newMembers(head.exclude, proposed.exclude);
 	const droppedIncludes = newMembers(proposed.include, head.include);
-	const lines: string[] = [];
+	const lines: string[] = [`Path example "${comparison.witness}" is included by HEAD and omitted by the proposed scope (not an on-disk file census).`];
 	if (addedExcludes.length > 0) {
 		lines.push(`[coverage.exclude] adds ${addedExcludes.length}: ${quoteList(addedExcludes)}`);
 	}
 	if (droppedIncludes.length > 0) {
 		lines.push(`[coverage.include] drops ${droppedIncludes.length}: ${quoteList(droppedIncludes)}`);
 	}
-	if (lines.length > 0) return { kind: "block", reason: blockReasonText(filePath, lines) };
-	const warning =
-		presenceWarning(filePath, "exclude", head.exclude, proposed.exclude) ??
-		presenceWarning(filePath, "include", head.include, proposed.include);
-	return warning === null ? { kind: "allow" } : { kind: "allow", warning };
+	return { kind: "block", reason: blockReasonText(filePath, lines) };
 }
 
 function nonOkWarning(filePath: string, side: string, result: NonOkExtraction): string {
@@ -267,10 +275,9 @@ function nonOkWarning(filePath: string, side: string, result: NonOkExtraction): 
 /**
  * Public API — the whole decision as a pure function of the two texts.
  *
- * Blocks iff the proposed `coverage.exclude` is a strict superset of HEAD's,
- * or the proposed `coverage.include` is a strict subset of HEAD's. Everything
- * else — reordering, dedupe, reformatting, an untracked file, a widened
- * include, a narrowed exclude, and every undecidable shape — allows.
+ * Blocks only with a proven path that was in HEAD's include-minus-exclude
+ * scope and leaves it after the edit. Glob containment proves safe widening;
+ * unsupported syntax or unresolved overlap allows with an abstention warning.
  */
 export function decideVitestCoverageWaterLine(
 	filePath: string,
