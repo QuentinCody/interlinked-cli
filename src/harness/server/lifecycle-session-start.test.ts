@@ -1,3 +1,6 @@
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { buildTestIndex } from "../__tests__/fixtures/trigram.js";
+import type { FilePriority } from "../file-priority.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { autoStripAllScopes, defaultStripAuditLogPath } from "../../lib/settings-validator.js";
 import { refreshPriorityIfStale } from "../file-priority.js";
@@ -35,7 +38,7 @@ const bLog: string[] = [];
 const bLogAlways: string[] = [];
 
 function bCtx(over: Partial<ServerRuntime> = {}): ServerRuntime {
-	return {
+	return makeServerRuntime({
 		cwd: "/repo",
 		filePriorityMap: new Map(),
 		trigramIndex: null,
@@ -46,7 +49,13 @@ function bCtx(over: Partial<ServerRuntime> = {}): ServerRuntime {
 			bLogAlways.push(msg);
 		},
 		...over,
-	} as unknown as ServerRuntime;
+	});
+}
+
+function trigram(update: NonNullable<ServerRuntime["trigramIndex"]>["incrementalUpdate"]): NonNullable<ServerRuntime["trigramIndex"]> {
+ const index = buildTestIndex({});
+ vi.spyOn(index, "incrementalUpdate").mockImplementation(update);
+ return index;
 }
 
 afterEach(() => {
@@ -58,7 +67,7 @@ afterEach(() => {
 
 describe("refreshFilePriorityOnSessionStart", () => {
 	it("assigns the refreshed map and logs when non-empty", () => {
-		const refreshed = new Map([["a.ts", { score: 1 } as never]]);
+		const refreshed = new Map<string, FilePriority>([["a.ts", { ageDays: 1, tier: "hot" }]]);
 		mRefreshPriority.mockReturnValue(refreshed);
 		const ctx = bCtx();
 		refreshFilePriorityOnSessionStart(ctx, ctx.log);
@@ -86,25 +95,21 @@ describe("refreshFilePriorityOnSessionStart", () => {
 
 describe("refreshTrigramIndexOnSessionStart", () => {
 	it("refreshes the index and logs when files were updated", () => {
-		const trigramIndex = { incrementalUpdate: vi.fn(() => 7) };
-		const ctx = bCtx({ trigramIndex: trigramIndex as never });
+		const trigramIndex = trigram(() => 7);
+		const ctx = bCtx({ trigramIndex });
 		refreshTrigramIndexOnSessionStart(ctx, ctx.log);
 		expect(trigramIndex.incrementalUpdate).toHaveBeenCalled();
 		expect(bLog.some((l) => l.includes("Trigram index refreshed: 7 files updated"))).toBe(true);
 	});
 
 	it("does not log a refresh when zero files updated", () => {
-		const ctx = bCtx({ trigramIndex: { incrementalUpdate: vi.fn(() => 0) } as never });
+		const ctx = bCtx({ trigramIndex: trigram(() => 0) });
 		refreshTrigramIndexOnSessionStart(ctx, ctx.log);
 		expect(bLog.some((l) => l.includes("Trigram index refreshed"))).toBe(false);
 	});
 
 	it("swallows an incrementalUpdate error non-fatally", () => {
-		const trigramIndex = {
-			incrementalUpdate: vi.fn(() => {
-				throw new Error("index boom");
-			}),
-		} as never;
+		const trigramIndex = trigram(() => { throw new Error("index boom"); });
 		const ctx = bCtx({ trigramIndex });
 		expect(() => refreshTrigramIndexOnSessionStart(ctx, ctx.log)).not.toThrow();
 		expect(bLog.some((l) => l.includes("Trigram index refresh failed (non-fatal)"))).toBe(true);
@@ -112,14 +117,14 @@ describe("refreshTrigramIndexOnSessionStart", () => {
 
 	it("warns via logAlways when an index exists but ripgrep is missing", () => {
 		mFindRipgrep.mockReturnValue(null);
-		const ctx = bCtx({ trigramIndex: { incrementalUpdate: vi.fn(() => 0) } as never });
+		const ctx = bCtx({ trigramIndex: trigram(() => 0) });
 		refreshTrigramIndexOnSessionStart(ctx, ctx.log);
 		expect(bLogAlways.some((l) => l.includes("ripgrep (rg) not found"))).toBe(true);
 	});
 
 	it("does NOT warn about ripgrep when rg is present", () => {
 		mFindRipgrep.mockReturnValue("/usr/bin/rg");
-		const ctx = bCtx({ trigramIndex: { incrementalUpdate: vi.fn(() => 0) } as never });
+		const ctx = bCtx({ trigramIndex: trigram(() => 0) });
 		refreshTrigramIndexOnSessionStart(ctx, ctx.log);
 		expect(bLogAlways.some((l) => l.includes("ripgrep"))).toBe(false);
 	});
@@ -133,7 +138,7 @@ describe("refreshTrigramIndexOnSessionStart", () => {
 
 describe("autoStripSessionStartPermissions", () => {
 	it("returns null and does nothing when nothing was stripped", () => {
-		mAutoStrip.mockReturnValue({ totalStripped: 0, entries: [] } as never);
+		mAutoStrip.mockReturnValue({ totalStripped: 0, entries: [] });
 		const ctx = bCtx();
 		const out = autoStripSessionStartPermissions(ctx, ctx.log, []);
 		expect(out).toBeNull();
@@ -145,6 +150,7 @@ describe("autoStripSessionStartPermissions", () => {
 			totalStripped: 2,
 			entries: [
 				{
+					timestamp: "2026-06-05T00:00:00.000Z",
 					file: "/repo/.claude/settings.json",
 					bucket: "allow",
 					index: 0,
@@ -152,6 +158,7 @@ describe("autoStripSessionStartPermissions", () => {
 					reason: "paren_imbalance",
 				},
 				{
+					timestamp: "2026-06-05T00:00:00.000Z",
 					file: "/repo/.claude/settings.local.json",
 					bucket: "deny",
 					index: 1,
@@ -159,7 +166,7 @@ describe("autoStripSessionStartPermissions", () => {
 					reason: "empty_rule",
 				},
 			],
-		} as never);
+		});
 		const ctx = bCtx();
 		const out = autoStripSessionStartPermissions(ctx, ctx.log, ["heavy1"]);
 		expect(out?.decision).toBe("allow");
@@ -173,14 +180,15 @@ describe("autoStripSessionStartPermissions", () => {
 	});
 
 	it("truncates the preview list past 5 entries with a count suffix", () => {
-		const entries = Array.from({ length: 7 }, (_, i) => ({
+		const entries: ReturnType<typeof autoStripAllScopes>["entries"] = Array.from({ length: 7 }, (_, i) => ({
+			timestamp: "2026-06-05T00:00:00.000Z",
 			file: `/repo/.claude/settings.json`,
 			bucket: "allow",
 			index: i,
 			rule: `rule${i}`,
 			reason: "empty_rule",
 		}));
-		mAutoStrip.mockReturnValue({ totalStripped: 7, entries } as never);
+		mAutoStrip.mockReturnValue({ totalStripped: 7, entries });
 		const ctx = bCtx();
 		const out = autoStripSessionStartPermissions(ctx, ctx.log, []);
 		expect(out?.warnings?.[0]).toContain("...and 2 more");

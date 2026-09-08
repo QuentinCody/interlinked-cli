@@ -3,6 +3,7 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
+import { hasErrorCode } from "../tool-errors.js";
 import {
 	filterResultsToFile,
 	parseGoBuildOutput,
@@ -39,7 +40,7 @@ export function runGoBuild(input: ToolRunnerInput): CheckResult[] {
 			env: resolveGoEnv(process.env),
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		if (result.status === 0) return [];
@@ -84,7 +85,7 @@ export function runGolangciLint(input: ToolRunnerInput): CheckResult[] {
 			env: resolveGoEnv(process.env),
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		// Exit 0 = clean, exit 1 = issues found

@@ -49,12 +49,7 @@ function makeTsgo(): TsgoRunner {
 }
 
 function makeEvaluatorContext(): EvaluateUnifiedContext {
-	return {
-		rules: { version: 1, enabled: false } as unknown as EvaluateUnifiedContext["rules"],
-		session: undefined,
-		reservations: {} as EvaluateUnifiedContext["reservations"],
-		cohort: {} as EvaluateUnifiedContext["cohort"],
-	};
+	throw new Error("these transport tests do not invoke the hook evaluator");
 }
 
 describe("DaemonClient.call — happy path", () => {
@@ -82,7 +77,7 @@ describe("DaemonClient.call — happy path", () => {
 		const client = createDaemonClient(paths.socket);
 		const ack = await client.call("daemon.invalidate", { path: "/x.ts" });
 		expect(ack.ack).toBe(true);
-		expect(nonNull((tsgo.invalidate as ReturnType<typeof vi.fn>).mock.calls[0])[0]).toBe("/x.ts");
+		expect(nonNull(vi.mocked(tsgo.invalidate).mock.calls[0])[0]).toBe("/x.ts");
 	});
 
 	it("ignores responses whose id does not match the request", async () => {
@@ -140,13 +135,16 @@ describe("DaemonClient.call — errors", () => {
 		await expect(client.call("daemon.health", {}, { timeout_ms: 250 })).rejects.toBeDefined();
 	});
 
-	it("skips an undecodable frame and resolves from the next well-formed one", async () => {
+	it("skips malformed frames and resolves from the next valid method result", async () => {
 		const socketPath = join(tmp, "garbage.sock");
 		server = createServer((socket) => {
 			socket.on("data", () => {
 				// Not JSON: decodeFrame throws, so parseResponseFrame must swallow
 				// it and report `null` for this frame only.
 				socket.write("{ not json\n");
+				socket.write(`${JSON.stringify({ id: "garbage-id", error: {} })}\n`);
+				socket.write(`${JSON.stringify({ id: "garbage-id", result: { ack: true } })}\n`);
+				socket.write(`${JSON.stringify({ id: "garbage-id", method: "daemon.health", params: {} })}\n`);
 				socket.write(
 					encodeFrame({
 						id: "garbage-id",
@@ -164,9 +162,8 @@ describe("DaemonClient.call — errors", () => {
 		});
 		await new Promise<void>((resolve) => server?.listen(socketPath, resolve));
 
-		// Resolving with the SECOND frame's payload is the discriminating
-		// observable: a decode failure that was not swallowed would escape the
-		// `data` listener, leaving the call to reject on its deadline instead.
+		// Only the final frame has a valid health result. Earlier matching ids
+		// must neither settle the call with an invalid result nor crash the listener.
 		const health = await createDaemonClient(socketPath).call(
 			"daemon.health",
 			{},

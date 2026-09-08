@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // install-hooks --refresh — snapshot/rollback/idempotency contract
 // ===========================================
@@ -65,9 +66,7 @@ describe("refreshInstalledHooks — positive (must fire)", () => {
 	it("P1b: a prepended user hook survives refresh", () => {
 		const settingsPath = installGemini(BINARY);
 		// SAFETY: written by installHooks moments ago; JSON by construction.
-		const doc = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			hooks: Record<string, unknown[]>;
-		};
+		const doc = parseWire(JSON.parse(readFileSync(settingsPath, "utf-8")), wireObject({ "hooks": wireRecord(wireArray(wireUnknown)) }), "test JSON value");
 		const userHooks = [
 			{ command: `echo ${NEW_BINARY} # user note` },
 			{ command: "node /home/user/hook-entry.js" },

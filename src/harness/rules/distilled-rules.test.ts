@@ -136,9 +136,8 @@ describe("loadDistilledRules", () => {
 		expect(rules).toHaveLength(1);
 		expect(nonNull(rules[0]).action).toBe("ask");
 		expect(nonNull(rules[0]).severity).toBe("medium");
-		// user_modified is a sidecar field; cast through unknown to read it
-		// without widening the GuardRule type for tests.
-		expect((rules[0] as unknown as { user_modified?: boolean }).user_modified).toBe(true);
+		// The override also retains its review metadata.
+		expect(rules[0]).toMatchObject({ user_modified: true });
 	});
 
 	it("returns [] when distilled-rules.json is malformed (fail-open)", () => {

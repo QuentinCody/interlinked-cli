@@ -26,6 +26,8 @@ interface AttachOptions {
 	agent?: string;
 	auto?: boolean;
 	json?: boolean;
+	short?: boolean;
+	full?: boolean;
 }
 
 interface AttachResult {

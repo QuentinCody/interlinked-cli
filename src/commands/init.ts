@@ -20,6 +20,7 @@ import { createInterface } from "node:readline/promises";
 import { resolveAuthToken } from "../lib/auth.js";
 import { initConfig, type LocalConfig, updateLocalConfig } from "../lib/config.js";
 import { c } from "../lib/formatter.js";
+import { isJsonObject } from "../lib/json-types.js";
 import {
 	findProjectRoot,
 	HOOK_SCRIPT_VERSION,
@@ -156,11 +157,16 @@ async function resolveAgentName(
 }
 
 /** Step 5: write config + hook script and install hooks for detected clients. */
+function parseSyncMode(value: string): NonNullable<LocalConfig["sync_mode"]> {
+	if (value === "realtime" || value === "local" || value === "manual") return value;
+	throw new Error(`Invalid --sync-mode: ${value}. Expected realtime, local, or manual.`);
+}
+
 function installConfigAndHooks(
 	cwd: string,
 	serverUrl: string,
 	agentName: string,
-	syncMode: string,
+	syncMode: NonNullable<LocalConfig["sync_mode"]>,
 	detectedNames: ClientName[],
 	isJson: boolean,
 ): void {
@@ -169,7 +175,7 @@ function installConfigAndHooks(
 	}
 
 	initConfig({ serverUrl, agentName }, cwd);
-	updateLocalConfig({ sync_mode: syncMode as NonNullable<LocalConfig["sync_mode"]> }, cwd);
+	updateLocalConfig({ sync_mode: syncMode }, cwd);
 
 	if (!isJson) {
 		console.log(`   ${c.green("✓")} Config written to .interlinked/`);
@@ -261,11 +267,13 @@ async function checkServerHealth(
 
 		let onlineAgents = 0;
 		try {
-			const result = await client.callTool<{ agents?: { name: string }[] }>(
+			const result = await client.callTool(
 				"list_online_agents",
 				{ threshold_minutes: 5 },
 			);
-			onlineAgents = result.agents?.length || 0;
+			if (isJsonObject(result) && Array.isArray(result.agents) && result.agents.every((agent) => isJsonObject(agent) && typeof agent.name === "string")) {
+				onlineAgents = result.agents.length;
+			}
 		} catch (_) {
 			/* intentional: list_online_agents is best-effort during init */
 		}
@@ -360,7 +368,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
 	const agentName = await resolveAgentName(options, detectedNames, autoConfirm, isJson);
 
 	// Step 5: Sync mode
-	const syncMode = options["sync-mode"] || "realtime";
+	const syncMode = parseSyncMode(options["sync-mode"] || "realtime");
 
 	if (dryRun) {
 		emitDryRun(serverUrl, agentName, projectName, syncMode, detectedNames, isJson);

@@ -107,8 +107,9 @@ describe("trajectoryShowCommand — malformed snapshot error cause", () => {
 			caught = err;
 		}
 		expect(caught).toBeInstanceOf(Error);
-		expect((caught as Error).cause).toBeDefined();
-		expect((caught as Error).cause).toBeInstanceOf(Error);
+		if (!(caught instanceof Error)) throw new Error("Expected a replay error");
+		expect(caught.cause).toBeDefined();
+		expect(caught.cause).toBeInstanceOf(Error);
 	});
 });
 

@@ -1,3 +1,6 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
+import { parseWire, wireArray, wireString } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // Unit tests for behavioral-diff-checks-reintro.ts — the re-introduces-removed-code
 // detector. Every I/O boundary (`node:fs` for findRepoCwd, `node:child_process`
 // for the git plumbing behind getStagedDiff/gitLogContainsRemoval) is mocked so
@@ -43,7 +46,7 @@ beforeEach(() => {
 	cpMock.spawnSync.mockImplementation((_cmd: string, args: string[]) => {
 		const sub = args[2];
 		if (sub === "diff") {
-			const file = args[args.length - 1] as string;
+			const file = nonNull(args[args.length - 1]);
 			return diffConfig.get(file) ?? { status: 1, stdout: "" };
 		}
 		if (sub === "log") {
@@ -54,7 +57,7 @@ beforeEach(() => {
 			return cfg ?? { status: 0, stdout: "" };
 		}
 		if (sub === "show") {
-			const sha = args[args.length - 1] as string;
+			const sha = nonNull(args[args.length - 1]);
 			return showConfig.get(sha) ?? { status: 1, stdout: "" };
 		}
 		return { status: 1, stdout: "" };
@@ -62,9 +65,9 @@ beforeEach(() => {
 });
 
 function makeSession(files: string[]): SessionTrajectory {
-	return {
+	return ({ ...completeSessionFixture(), ...{
 		files_written: new Set(files),
-	} as unknown as SessionTrajectory;
+	} });
 }
 
 function diffAdding(...lines: string[]): string {
@@ -95,7 +98,7 @@ describe("checkReintroducesRemovedCode — negative (must NOT fire)", () => {
 		// No "log" subcommand call happened — confirms the length<8 short-circuit,
 		// not a git-log miss, produced the empty result.
 		const logCalls = cpMock.spawnSync.mock.calls.filter(
-			(c: unknown[]) => (c[1] as string[])[2] === "log",
+			(c: unknown[]) => (parseWire(c[1], wireArray(wireString), "test JSON value"))[2] === "log",
 		);
 		expect(logCalls).toEqual([]);
 	});
@@ -256,8 +259,8 @@ describe("checkReintroducesRemovedCode — positive (must fire)", () => {
 		expect(results.some((r) => r.message.includes(p7))).toBe(false);
 		// file4 was never even asked for its diff.
 		const diffCalls = cpMock.spawnSync.mock.calls.filter(
-			(c: unknown[]) => (c[1] as string[])[2] === "diff",
+			(c: unknown[]) => (parseWire(c[1], wireArray(wireString), "test JSON value"))[2] === "diff",
 		);
-		expect(diffCalls.some((c: unknown[]) => (c[1] as string[]).includes(file4))).toBe(false);
+		expect(diffCalls.some((c: unknown[]) => (parseWire(c[1], wireArray(wireString), "test JSON value")).includes(file4))).toBe(false);
 	});
 });

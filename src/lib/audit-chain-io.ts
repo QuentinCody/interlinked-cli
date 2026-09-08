@@ -1,3 +1,4 @@
+import { isJsonObject } from "./json-types.js";
 // Bounded archived/live line readers for audit-chain verification.
 
 import {
@@ -118,8 +119,8 @@ export function* iterateFileLines(
  *  compile time regardless of what a naive type annotation would claim, so
  *  every field is narrowed with `typeof`/`Array.isArray` before use. */
 function auditSegmentSeq(segment: unknown): number {
-	if (segment === null || typeof segment !== "object") return 0;
-	const seq = (segment as { seq?: unknown }).seq;
+	if (!isJsonObject(segment)) return 0;
+	const seq = segment.seq;
 	return typeof seq === "number" ? seq : 0;
 }
 
@@ -138,23 +139,13 @@ function readArchivedSegmentPointers(cwd: string): ArchivedSegmentPointer[] {
 	} catch (error) {
 		throw new ManifestReadError(manifestPath, error, { cause: error });
 	}
-	// SAFETY: parsed is unknown disk-controlled JSON; narrowed via typeof
-	// before the field read.
-	const segmentsField =
-		parsed !== null && typeof parsed === "object"
-			? (parsed as { segments?: unknown }).segments
-			: undefined;
+	const segmentsField = isJsonObject(parsed) ? parsed.segments : undefined;
 	if (!Array.isArray(segmentsField)) {
 		throw new ManifestReadError(manifestPath, "segments is not an array");
 	}
 	const segments = [...segmentsField].sort((a: unknown, b: unknown) => auditSegmentSeq(a) - auditSegmentSeq(b));
 	return segments.map((segment, index) => {
-		// SAFETY: segment is unknown disk-controlled JSON; narrowed via typeof
-		// before the field read.
-		const file =
-			segment !== null && typeof segment === "object"
-				? (segment as { file?: unknown }).file
-				: undefined;
+		const file = isJsonObject(segment) ? segment.file : undefined;
 		if (typeof file !== "string") {
 			throw new ManifestReadError(manifestPath, `segment entry ${index} has no file`);
 		}

@@ -10,7 +10,7 @@
 import { nonNull } from "../lib/non-null.js";
 import { CHECK_REGISTRY } from "./check-registry/index.js";
 import { BUILTIN_RULES } from "./rules/builtin-rules.js";
-import type { GuardRule, GuardRulesConfig, QualityCheckConfig, StructuralChecksConfig } from "./types.js";
+import type { GuardRule, GuardRulesConfig, QualityCheckConfig } from "./types.js";
 
 export interface CheckCounts {
 	/** Subprocess wrappers — entries in `quality_checks` with a `command`. */
@@ -38,9 +38,7 @@ const AGENT_SAFETY_PIPELINE = "agent_safety" as const;
 export function countChecks(rules: GuardRulesConfig): CheckCounts {
 	let tools = 0;
 	let inlineFromConfig = 0;
-	// SAFETY: a malformed/partial config can omit a quality_checks entry or
-	// structural_checks entirely — widened to match runtime reality.
-	for (const cfg of Object.values(rules.quality_checks) as (QualityCheckConfig | undefined)[]) {
+	for (const cfg of Object.values(rules.quality_checks)) {
 		if (!cfg?.enabled) continue;
 		if (isToolRunner(cfg)) {
 			tools++;
@@ -51,7 +49,7 @@ export function countChecks(rules: GuardRulesConfig): CheckCounts {
 	const inlineFromRegistry = CHECK_REGISTRY.filter(
 		(c) => c.pipeline === AGENT_SAFETY_PIPELINE,
 	).length;
-	const structural = (rules.structural_checks as StructuralChecksConfig | undefined)?.enabled ? 1 : 0;
+	const structural = rules.structural_checks?.enabled ? 1 : 0;
 	return {
 		tools,
 		inline: inlineFromConfig + inlineFromRegistry + structural,
@@ -140,7 +138,7 @@ export function buildLoadedChecksMarkdown(rules: GuardRulesConfig): string {
 	const sections: string[][] = [
 		buildChecksHeaderSection(counts),
 		buildToolRunnersSection(enabledTools),
-		buildConfigInlineSection(enabledInlineFromConfig, (rules.structural_checks as StructuralChecksConfig | undefined)?.enabled === true),
+		buildConfigInlineSection(enabledInlineFromConfig, rules.structural_checks?.enabled === true),
 		buildRegistryInlineSection(inlineRegistryEntries),
 		buildDisabledSection(disabled),
 	];

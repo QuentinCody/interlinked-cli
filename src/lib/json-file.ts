@@ -34,9 +34,8 @@ export function readJsonFile<T>(
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
 		if (validate) return validate(parsed) ? parsed : null;
-		// SAFETY: unvalidated by construction — this is the cast-based variant,
-		// documented as "the caller asserts the shape". Use readJsonObject (or a
-		// domain parser on top of it) when the shape must actually be checked.
+		// SAFETY: legacy opt-in caller assertion; no shape validation occurs on this path.
+		// Callers needing checked data must provide validate or use readJsonObject.
 		return parsed as T;
 	} catch {
 		return null;

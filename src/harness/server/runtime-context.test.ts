@@ -1,3 +1,4 @@
+import { makeServerRuntime } from "./__tests__/fixtures.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,9 +18,7 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
-/** Minimal ServerRuntime stub — only the fields the helpers under test
- *  actually read. Cast through unknown so we don't have to populate the
- *  ~30 managers the full interface declares. */
+/** Runtime with real managers and a temporary project root. */
 function makeCtx(overrides: Partial<ServerRuntime> = {}): ServerRuntime {
 	const base = {
 		cwd: tmp,
@@ -29,7 +28,7 @@ function makeCtx(overrides: Partial<ServerRuntime> = {}): ServerRuntime {
 		log: () => {},
 		logAlways: () => {},
 	};
-	return { ...base, ...overrides } as unknown as ServerRuntime;
+	return makeServerRuntime({ ...base, ...overrides });
 }
 
 describe("summarizeToolInput", () => {

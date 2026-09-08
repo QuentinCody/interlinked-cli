@@ -1,3 +1,7 @@
+import { nonNull } from "../../lib/non-null.js";
+import { makeServerRuntime, makeServerRules } from "./__tests__/fixtures.js";
+import { buildTestIndex } from "../__tests__/fixtures/trigram.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 // Behavioral coverage for `./post-tool-file-checks-phases-quality.js` — the
 // quality-phase helpers extracted out of the PostToolUse
 // per-file check orchestrator (buildSmartTscOpts,
@@ -25,7 +29,7 @@
 //     function returns `void`; an empty catch vs `void e;` then falling off
 //     the end are indistinguishable for every input.
 
-import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { QualityCheckResult } from "../quality-checks/result-types.js";
 import type {
 	GuardRulesConfig,
@@ -117,20 +121,20 @@ import { collectSuggestionFindings } from "./suggestion-checks.js";
 // the runtime value, so each is re-cast to vitest's untyped `Mock` to call
 // `.mockReturnValue()` / `.mock.calls` — the same fixture-boundary pattern
 // the sibling `post-tool-file-checks-phases.test.ts` uses for its mocks.
-const mExistsSync = existsSync as unknown as Mock;
-const mReadFileSync = readFileSync as unknown as Mock;
-const mClassifyDeterminism = classifyDeterminism as unknown as Mock;
-const mFormatQuality = formatQualityWarnings as unknown as Mock;
-const mFindProjectRoot = findProjectRoot as unknown as Mock;
-const mIsAck = isAcknowledged as unknown as Mock;
-const mExpandSiblings = expandSiblings as unknown as Mock;
-const mScoreFindings = scoreFindings as unknown as Mock;
-const mFormatScored = formatScoredFindings as unknown as Mock;
-const mWriteTelemetry = writeTelemetry as unknown as Mock;
-const mLoadFileSup = loadFileSuppressions as unknown as Mock;
-const mScanInlineSup = scanInlineSuppressions as unknown as Mock;
-const mDeletionHygiene = collectDeletionHygieneDiffFindings as unknown as Mock;
-const mCollectSuggestions = collectSuggestionFindings as unknown as Mock;
+const mExistsSync = vi.mocked(existsSync);
+const mReadFileSync = vi.mocked(readFileSync);
+const mClassifyDeterminism = vi.mocked(classifyDeterminism);
+const mFormatQuality = vi.mocked(formatQualityWarnings);
+const mFindProjectRoot = vi.mocked(findProjectRoot);
+const mIsAck = vi.mocked(isAcknowledged);
+const mExpandSiblings = vi.mocked(expandSiblings);
+const mScoreFindings = vi.mocked(scoreFindings);
+const mFormatScored = vi.mocked(formatScoredFindings);
+const mWriteTelemetry = vi.mocked(writeTelemetry);
+const mLoadFileSup = vi.mocked(loadFileSuppressions);
+const mScanInlineSup = vi.mocked(scanInlineSuppressions);
+const mDeletionHygiene = vi.mocked(collectDeletionHygieneDiffFindings);
+const mCollectSuggestions = vi.mocked(collectSuggestionFindings);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -151,13 +155,8 @@ function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
 	};
 }
 
-// SAFETY: fixture-boundary cast (same pattern as the sibling
-// post-tool-file-checks-phases.test.ts's makeSession/makeRules/makeCtx) —
-// only the fields the functions under test actually read are populated;
-// satisfying every field of the real ~15/~10/~30-field interface would add
-// bulk with no behavioral value.
 function makeSession(partial: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		agent_name: "agent-x",
 		tool_call_count: 7,
 		files_written: new Set<string>(),
@@ -165,27 +164,22 @@ function makeSession(partial: Partial<SessionTrajectory> = {}): SessionTrajector
 		pending_completions: new Map(),
 		tool_sequence: ["Read", "Edit"],
 		...partial,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
-// SAFETY: fixture-boundary cast — see makeSession above.
-function makeRules(partial: Record<string, unknown> = {}): GuardRulesConfig {
-	return {
-		quality_checks: {},
-		...partial,
-	} as unknown as GuardRulesConfig;
+function makeRules(partial: NonNullable<Parameters<typeof makeServerRules>[0]> = {}): GuardRulesConfig {
+ return makeServerRules({ ...partial });
 }
 
-// SAFETY: fixture-boundary cast — see makeSession above.
-function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
-	return {
+function makeCtx(over: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime {
+	return makeServerRuntime({
 		cwd: CWD,
 		interlinkedDir: `${CWD}/.interlinked`,
 		rules: makeRules(),
 		trigramIndex: null,
 		log: vi.fn(),
 		...over,
-	} as unknown as ServerRuntime;
+	});
 }
 
 function makeAcc(partial: Partial<PerFileCheckCtx> = {}): PerFileCheckCtx {
@@ -220,7 +214,7 @@ beforeEach(() => {
 	mFormatScored.mockImplementation((ss: { check: string }[]) => ss.map((s) => `[sugg] ${s.check}`));
 	mWriteTelemetry.mockReturnValue(undefined);
 	mLoadFileSup.mockReturnValue(new Set<string>());
-	mScanInlineSup.mockReturnValue([]);
+	mScanInlineSup.mockReturnValue(new Map());
 	mDeletionHygiene.mockReturnValue([]);
 	mCollectSuggestions.mockReturnValue([]);
 });
@@ -250,7 +244,7 @@ describe("buildSmartTscOpts", () => {
 		});
 		const result = buildSmartTscOpts(
 			ctx,
-			{ smart_tsc: true } as unknown as GuardRulesConfig["structural_checks"],
+			{ ...makeServerRules().structural_checks, smart_tsc: true },
 			FILE,
 			false,
 		);
@@ -282,7 +276,7 @@ describe("expandQualitySiblings", () => {
 				message: "sibling msg",
 			},
 		]);
-		const ctx = makeCtx({ trigramIndex: {} });
+		const ctx = makeCtx({ trigramIndex: buildTestIndex({}) });
 		const qualityResults = [triggerResult()];
 		expandQualitySiblings(ctx, FILE, qualityResults);
 		expect(qualityResults).toEqual([
@@ -296,7 +290,7 @@ describe("expandQualitySiblings", () => {
 	// fan-out summary at all (an empty run stays silent, not a "0 rows" line).
 	it("does not log when expandSiblings returns zero siblings", () => {
 		mExpandSiblings.mockReturnValue([]);
-		const ctx = makeCtx({ trigramIndex: {} });
+		const ctx = makeCtx({ trigramIndex: buildTestIndex({}) });
 		expandQualitySiblings(ctx, FILE, [triggerResult()]);
 		expect(ctx.log).not.toHaveBeenCalled();
 	});
@@ -308,11 +302,9 @@ describe("expandQualitySiblings", () => {
 	// local to expandQualitySiblings and never itself exported.
 	it("wires a reader that reads `${cwd}/${relPath}` as utf-8", () => {
 		mExpandSiblings.mockReturnValue([]);
-		const ctx = makeCtx({ trigramIndex: {}, cwd: "/repo" });
+		const ctx = makeCtx({ trigramIndex: buildTestIndex({}), cwd: "/repo" });
 		expandQualitySiblings(ctx, FILE, [triggerResult()]);
-		const callArgs = mExpandSiblings.mock.calls[0]?.[0] as {
-			reader: { read(p: string): string | undefined };
-		};
+		const callArgs = nonNull(mExpandSiblings.mock.calls[0])[0];
 		mReadFileSync.mockReturnValueOnce("contents");
 		expect(callArgs.reader.read("src/bar.ts")).toBe("contents");
 		expect(mReadFileSync).toHaveBeenCalledWith("/repo/src/bar.ts", "utf-8");
@@ -579,7 +571,7 @@ describe("runScoredSuggestionsPhase", () => {
 	beforeEach(() => {
 		mExistsSync.mockReturnValue(true);
 		mReadFileSync.mockReturnValue("const x = 1;\n");
-		mCollectSuggestions.mockReturnValue([{ check: "c1", severity: "warning", line: 1, message: "m1" }]);
+		mCollectSuggestions.mockReturnValue([{ check: "c1", source: "quality", line: 1, message: "m1" }]);
 	});
 
 	// test-contract: public-api — loadFileSuppressions must receive the exact
@@ -608,36 +600,11 @@ describe("runScoredSuggestionsPhase", () => {
 		);
 	});
 
-	// test-contract: boundary — `session` can be undefined at runtime despite
-	// its non-optional param type (defensive `session?.agent_name`); losing
-	// the `?.` throws inside the try block, which the outer catch swallows —
-	// telemetry would then silently never fire instead of using "unknown".
-	it("falls back to 'unknown' telemetry agentName without throwing when session is undefined", () => {
-		// Calls the SUT directly (not via callSugg's `over.session ??
-		// makeSession()` convenience default, which would itself swallow an
-		// explicit `undefined` back into a real session and defeat this
-		// probe).
-		// SAFETY: deliberately violates the SessionTrajectory param type to
-		// probe the `session?.agent_name` runtime null-guard the source
-		// itself defends against; this is the exact shape that guard exists
-		// for, not an unrealistic input.
-		const session = undefined as unknown as SessionTrajectory;
-		const decision: HarnessDecision = { decision: "allow" };
-		expect(() =>
-			runScoredSuggestionsPhase(makeCtx(), ev(), FILE, session, decision, makeAcc()),
-		).not.toThrow();
-		expect(mWriteTelemetry).toHaveBeenCalledWith(
-			expect.anything(),
-			expect.anything(),
-			expect.objectContaining({ agentName: "unknown" }),
-		);
-	});
-
 	// test-contract: bug — the telemetry threshold's `?? 0.5` default must use
 	// nullish coalescing, not `&&` (which collapses an absent
 	// `suggestion_threshold` to `undefined` instead of the documented default).
 	it("defaults the telemetry threshold to 0.5 when rules.suggestion_threshold is unset", () => {
-		const ctx = makeCtx({ rules: makeRules({ suggestion_threshold: undefined }) });
+		const ctx = makeCtx({ rules: makeRules() });
 		callSugg({ ctx });
 		expect(mWriteTelemetry).toHaveBeenCalledWith(
 			expect.anything(),
@@ -661,8 +628,8 @@ describe("runScoredSuggestionsPhase", () => {
 	it("logs the exact 'Suggestions: check(score), check(score)' summary for 2+ scored items", () => {
 		const ctx = makeCtx();
 		mScoreFindings.mockReturnValue([
-			{ check: "c1", severity: "warning", line: 1, message: "m1", score: 0.7 },
-			{ check: "c2", severity: "warning", line: 2, message: "m2", score: 0.3333 },
+			{ check: "c1", source: "quality", line: 1, message: "m1", score: 0.7 },
+			{ check: "c2", source: "quality", line: 2, message: "m2", score: 0.3333 },
 		]);
 		callSugg({ ctx });
 		expect(ctx.log).toHaveBeenCalledWith("Suggestions: c1(0.70), c2(0.33)");
@@ -682,10 +649,7 @@ describe("runScoredSuggestionsPhase", () => {
 			mReadFileSync.mockReturnValue("something real");
 			const event = ev({ tool_input: { file_path: FILE, old_string: "" } });
 			callSugg({ event });
-			const opts = mScoreFindings.mock.calls[0]?.[1] as {
-				editStartLine?: number;
-				editEndLine?: number;
-			};
+			const opts = nonNull(nonNull(mScoreFindings.mock.calls[0])[1]);
 			expect(opts.editStartLine).toBeUndefined();
 			expect(opts.editEndLine).toBeUndefined();
 		});
@@ -698,10 +662,7 @@ describe("runScoredSuggestionsPhase", () => {
 			mReadFileSync.mockReturnValue("hello world");
 			const event = ev({ tool_input: { file_path: FILE, old_string: "hello" } });
 			callSugg({ event });
-			const opts = mScoreFindings.mock.calls[0]?.[1] as {
-				editStartLine?: number;
-				editEndLine?: number;
-			};
+			const opts = nonNull(nonNull(mScoreFindings.mock.calls[0])[1]);
 			expect(opts.editStartLine).toBe(1);
 			expect(opts.editEndLine).toBe(2);
 		});

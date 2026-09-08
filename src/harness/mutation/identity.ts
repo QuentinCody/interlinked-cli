@@ -26,6 +26,7 @@ let tsCache: TsModule | null | undefined;
 function loadTs(): TsModule | null {
 	if (tsCache !== undefined) return tsCache;
 	try {
+		// SAFETY: the runtime package is TypeScript itself; TS describes its published compiler API.
 		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
 	} catch {
 		tsCache = null;
@@ -82,16 +83,16 @@ function normalizeTokens(ts: TsModule, text: string): string {
 /** Best-effort local name for a function-like node (mirrors cyclomatic-ast). */
 function localName(ts: TsModule, sf: TS.SourceFile, node: TS.Node): string {
 	if (ts.isConstructorDeclaration(node)) return "constructor";
-	const named = node as { name?: TS.Node };
-	if (named.name && (ts.isIdentifier(named.name) || ts.isPrivateIdentifier(named.name))) {
-		return named.name.getText(sf);
+	const name = isFunctionLike(ts, node) ? node.name : undefined;
+	if (name && (ts.isIdentifier(name) || ts.isPrivateIdentifier(name))) {
+		return name.getText(sf);
 	}
 	// SAFETY: `typescript`'s own .d.ts types `Node.parent` as non-optional
 	// `Node`, but at runtime it is `undefined` for the SourceFile root and any
 	// node visited before binding — the compiler API's well-known type lie.
 	// Cast to the true runtime shape so the null guard below stays live
 	// instead of reading as an impossible branch.
-	const p = node.parent as TS.Node | undefined;
+	const p = node.parent;
 	if (p && ts.isVariableDeclaration(p) && ts.isIdentifier(p.name)) return p.name.getText(sf);
 	if (p && ts.isPropertyAssignment(p)) return p.name.getText(sf);
 	if (p && ts.isPropertyDeclaration(p)) return p.name.getText(sf);
@@ -114,13 +115,13 @@ function qualifiedName(ts: TsModule, sf: TS.SourceFile, node: TS.Node): string {
 		else if (ts.isModuleDeclaration(cur)) parts.unshift(cur.name.getText(sf));
 		// SAFETY: see the `Node.parent` type-lie note in `localName` above —
 		// `.parent` is typed `Node` but is `undefined` at the SourceFile root.
-		cur = cur.parent as TS.Node | undefined;
+		cur = cur.parent;
 	}
 	return parts.length > 0 ? parts.join(".") : MODULE_QUALIFIED_NAME;
 }
 
-function arityOf(node: TS.Node): number {
-	return (node as TS.FunctionLikeDeclaration).parameters.length;
+function arityOf(node: TS.FunctionLikeDeclaration): number {
+	return node.parameters.length;
 }
 
 function symbolIdFor(file: string, qualified: string, arity: number): StableId {
@@ -128,8 +129,8 @@ function symbolIdFor(file: string, qualified: string, arity: number): StableId {
 }
 
 /** Deepest function-like node whose span contains `offset`, or null (top level). */
-function enclosingFunction(ts: TsModule, sf: TS.SourceFile, offset: number): TS.Node | null {
-	let best: TS.Node | null = null;
+function enclosingFunction(ts: TsModule, sf: TS.SourceFile, offset: number): TS.FunctionLikeDeclaration | null {
+	let best: TS.FunctionLikeDeclaration | null = null;
 	const visit = (node: TS.Node): void => {
 		if (offset < node.getStart(sf) || offset >= node.getEnd()) return;
 		if (isFunctionLike(ts, node)) best = node;
@@ -150,7 +151,7 @@ function anonymousContextOrdinal(ts: TsModule, sf: TS.SourceFile, target: TS.Nod
 	let boundary: TS.Node = sf;
 	// SAFETY: see the `Node.parent` type-lie note in `localName` above —
 	// `.parent` is typed `Node` but is `undefined` at the SourceFile root.
-	let cursor = target.parent as TS.Node | undefined;
+	let cursor = target.parent;
 	while (cursor && cursor !== sf) {
 		if (
 			(isFunctionLike(ts, cursor) && localName(ts, sf, cursor) !== "(anonymous)") ||
@@ -352,8 +353,8 @@ export interface SymbolHashEntry {
  *  module scope must EXCLUDE. A bodiless function-like (an overload / ambient
  *  signature) is not one: it carries no expression an engine can rewrite, so no
  *  mutant anchors inside it. */
-function isHashedFunction(ts: TsModule, node: TS.Node): boolean {
-	return isFunctionLike(ts, node) && (node as TS.FunctionLikeDeclaration).body !== undefined;
+function isHashedFunction(ts: TsModule, node: TS.Node): node is TS.FunctionLikeDeclaration {
+	return isFunctionLike(ts, node) && node.body !== undefined;
 }
 
 /** Half-open spans of the OUTERMOST hashed functions, in source order. Nested

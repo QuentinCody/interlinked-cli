@@ -1,3 +1,5 @@
+import { nonNull } from "../../lib/non-null.js";
+import { flatHookSettings, outputString } from "./test-output.js";
 import { describe, expect, it } from "vitest";
 import { createCursorAdapter } from "./cursor.js";
 import type { UnifiedHookEvent } from "../unified-event.js";
@@ -12,10 +14,10 @@ function baseEvent(nativeEvent: string): UnifiedHookEvent {
 		runner: "cursor",
 		runner_native_event: nativeEvent,
 		phase: "pre-tool",
-		action: { kind: "other" } as unknown as UnifiedHookEvent["action"],
+		action: { kind: "other", subkind: nativeEvent, data: {} },
 		context: { cwd: "/tmp" },
 		raw: {},
-	} as UnifiedHookEvent;
+	};
 }
 
 describe("createCursorAdapter — classifyToolClass overrides (mutantId aaec67830947d129)", () => {
@@ -82,7 +84,7 @@ describe("createCursorAdapter — ask/reason separators use real newlines (mutan
 describe("createCursorAdapter — NATIVE_EVENTS string contents (mutantIds 40f49ee1/4d4c295c/2d987ec2/9dde065c/d6f635f7/b6f49912/25e215c3/9a131e73/36e8c7bf/1fd7b30b/93c91cd1/3044b59c/c358e160/1f5122aa/46a7bd81/fe5f5d3a)", () => {
 	it("nativeEventNames contains the exact literal event names, not empty strings", () => {
 		const adapter = createCursorAdapter({});
-		const names = adapter.nativeEventNames as readonly string[];
+		const names = adapter.nativeEventNames;
 		expect(names).toContain("beforeMcpToolExecution");
 		expect(names).toContain("beforeMCPExecution");
 		expect(names).toContain("afterMCPExecution");
@@ -151,18 +153,18 @@ describe("createCursorAdapter — settings fragment (mutantIds 59b867fbf6edcc8a/
 	it("renderSettingsFragment returns version 1, mergeStrategy array-append, real hook entries", () => {
 		const adapter = createCursorAdapter({});
 		const frag = adapter.renderSettingsFragment("/usr/local/bin/interlinked-hook", "user");
-		const fragment = frag.fragment as { version: number; hooks: Record<string, unknown[]> };
+		const fragment = flatHookSettings(frag.fragment);
 		expect(fragment.version).toBe(1);
 		expect(frag.mergeStrategy).toBe("array-append");
 		expect(frag.mergeStrategy).not.toBe("");
 
 		const preToolEntries = fragment.hooks.preToolUse;
 		expect(preToolEntries).toBeDefined();
-		const entry = preToolEntries?.[0] as { command: string; type: string; failClosed?: boolean };
+		const entry = nonNull(preToolEntries?.[0]);
 		expect(entry.type).toBe("command");
 		expect(entry.type).not.toBe("");
 		expect(typeof entry.command).toBe("string");
-		expect(entry.command.length).toBeGreaterThan(0);
+		expect(outputString(entry.command).length).toBeGreaterThan(0);
 		expect(entry.failClosed).toBe(true);
 	});
 });
@@ -175,7 +177,7 @@ describe("createCursorAdapter — buildCursorAction override plumbing (isObject 
 	// fallback, changing what parseHookInput reads session_id/cwd from.
 	it("parseHookInput falls back to defaults when nativeJson is not an object (a string)", () => {
 		const adapter = createCursorAdapter({});
-		const parsed = adapter.parseHookInput("not-an-object" as unknown, "sessionStart");
+		const parsed = adapter.parseHookInput("not-an-object", "sessionStart");
 		expect(parsed.session_id).toBe("unknown");
 		expect(parsed.raw).toEqual({});
 	});

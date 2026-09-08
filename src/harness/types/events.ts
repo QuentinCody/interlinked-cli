@@ -69,7 +69,7 @@ export const ASK_CAPABLE_AGENTS = new Set<AgentSource>(["claude", "cursor", "pi"
 /** True when the agent runtime supports a per-call user confirmation flow. */
 export function agentSupportsAsk(source: string | undefined): boolean {
 	if (!source) return false;
-	return ASK_CAPABLE_AGENTS.has(source as AgentSource);
+	return Array.from(ASK_CAPABLE_AGENTS).some((agent) => agent === source);
 }
 
 /** Role classification for agent capability scoping */
@@ -81,8 +81,8 @@ export interface HarnessEvent {
 	hook_event: HookEventName;
 	/** Session identifier from the coding agent */
 	session_id: string;
-	/** Which coding agent produced this event */
-	agent_source: AgentSource;
+	/** Observed source identity, including internal CLI events and captured legacy clients. */
+	agent_source: string;
 	/** Resolved agent name (from config or MCP registration) */
 	agent_name?: string;
 

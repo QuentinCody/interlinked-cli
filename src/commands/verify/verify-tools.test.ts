@@ -130,7 +130,7 @@ beforeEach(() => {
 	process.stderr.write = ((chunk: string) => {
 		stderr.push(chunk);
 		return true;
-	}) as typeof process.stderr.write;
+	});
 	vi.useFakeTimers();
 });
 
@@ -140,12 +140,12 @@ afterEach(() => {
 });
 
 /** Build a fake CheckEngine whose discoverTools() marks `ids` available. */
-function fakeEngine(ids: string[]): CheckEngine {
+function fakeEngine(ids: string[]): Pick<CheckEngine, "discoverTools"> {
 	const all: ToolAvailability[] = TOOLS_TO_RUN.map((t) => ({
 		id: t.id,
 		available: ids.includes(t.id),
 	}));
-	return { discoverTools: () => all } as unknown as CheckEngine;
+	return { discoverTools: () => all };
 }
 
 interface RunOpts {
@@ -227,6 +227,8 @@ describe("TOOLS_TO_RUN", () => {
 		const sample: ToolSpec = nonNull(TOOLS_TO_RUN[0]);
 		expect(sample).toHaveProperty("id");
 		expect(sample).toHaveProperty("cmd");
+		expect(sample.id).toBe("oxlint");
+		expect(sample.cmd).toEqual(["npx", "oxlint", "--format=json", "."]);
 	});
 });
 
@@ -520,6 +522,8 @@ describe("streamExternalTools — tool selection", () => {
 			skip: ["sca", "dep-audit"],
 		});
 		expect(runToolWithSpinner).toHaveBeenCalledTimes(1);
+		const arg = nonNull(runToolWithSpinner.mock.calls[0]?.[0]);
+		expect(arg.cmd).toContain("tsc");
 	});
 
 	it("--only with no matching tool runs nothing", async () => {
@@ -540,7 +544,7 @@ describe("streamExternalTools — tool selection", () => {
 		});
 		// biome alone -> fast path; cmd routed to the biome key.
 		expect(runToolWithSpinner).toHaveBeenCalledTimes(1);
-		const arg = runToolWithSpinner.mock.calls[0]?.[0] as RunArgs;
+		const arg = nonNull(runToolWithSpinner.mock.calls[0]?.[0]);
 		expect(arg.cmd).toContain("biome");
 	});
 
@@ -553,7 +557,7 @@ describe("streamExternalTools — tool selection", () => {
 			skip: ["sca", "dep-audit"],
 		});
 		expect(runToolWithSpinner).toHaveBeenCalledTimes(1);
-		const arg = runToolWithSpinner.mock.calls[0]?.[0] as RunArgs;
+		const arg = nonNull(runToolWithSpinner.mock.calls[0]?.[0]);
 		expect(arg.cmd).toContain("tsc");
 	});
 });
@@ -614,7 +618,7 @@ describe("streamExternalTools — dependency audit gating", () => {
 		const { out } = await run({ available: ["tsc", "biome"], only: "sca" });
 		// availableTools is empty (only !== any tool id) but runDepAudit true.
 		expect(runToolSilent).toHaveBeenCalledTimes(1);
-		const arg = runToolSilent.mock.calls[0]?.[0] as RunArgs;
+		const arg = nonNull(runToolSilent.mock.calls[0]?.[0]);
 		expect(arg.cmd).toEqual(["npm", "audit", "--json", "--audit-level=moderate"]);
 		expect(out).toContain("dependency audit (SCA)");
 	});
@@ -775,7 +779,7 @@ describe("streamExternalTools — availability lookup", () => {
 		// `avail.available` this throws a TypeError inside the filter callback
 		// and the whole streamExternalTools() promise rejects instead of
 		// resolving to an empty, no-op run.
-		const engine = { discoverTools: () => [] } as unknown as CheckEngine;
+		const engine = { discoverTools: () => [] };
 		const summary: Array<{ label: string; count: number; color: string }> = [];
 		const flagged = new Set<string>();
 		const p = streamExternalTools({

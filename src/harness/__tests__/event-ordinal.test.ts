@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../../lib/value-validation.js";
 // G3 event-ordinal regression: the per-session monotonic `seq`
 // (docs/design/reproducibility/g3-event-ordinal.md). Pins: monotonicity,
 // restart continuation via serialize()/hydrate() (`last_seq`), per-session
@@ -65,7 +66,7 @@ describe("SessionTracker.nextSeq — G3 event ordinal", () => {
 		const t = new SessionTracker();
 		t.recordEvent(toolEvent());
 		const snap = mustSerialize(t, "sess-g3");
-		delete (snap as Record<string, unknown>).last_seq;
+		delete (parseWire(snap, wireRecord(wireUnknown), "test JSON value")).last_seq;
 		const restarted = new SessionTracker();
 		expect(restarted.hydrate(snap)).not.toBeNull();
 		expect(restarted.nextSeq("sess-g3")).toBe(1);

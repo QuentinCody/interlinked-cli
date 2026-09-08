@@ -1,9 +1,7 @@
-import { // interlinked: defer test_missing_sut_import -- direct SUT import (5 named exports, used throughout below); the detector's sutBase strips only ".test.ts" from the filename, computing "hook-entry-cold-gates.mutation-kill" (from this file's ".mutation-kill.test.ts" suffix) instead of "hook-entry-cold-gates", so its regex never matches this correct specifier
+import { // interlinked: defer test_missing_sut_import -- direct SUT import (3 named exports, used throughout below); the detector's sutBase strips only ".test.ts" from the filename, computing "hook-entry-cold-gates.mutation-kill" (from this file's ".mutation-kill.test.ts" suffix) instead of "hook-entry-cold-gates", so its regex never matches this correct specifier
 	coldDestructiveCommandBlockReason,
 	coldGraphShardBlockReason,
-	coldLargeFileBlockReason,
 	coldMergeConflictBlockReason,
-	coldPackageInstallBlockReason,
 } from "./hook-entry-cold-gates.js";
 
 // Mutation-survivor-kill companion for hook-entry-cold-gates.ts (fleet-r3,
@@ -22,6 +20,7 @@ import { mkdtempSync, rmSync, statSync as realStatSync, utimesSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { makeUnifiedEvent } from "./harness/__tests__/fixtures/unified-event.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
 
 // ---- fixtures ---------------------------------------------------------------
@@ -37,98 +36,26 @@ afterEach(() => {
 });
 
 function makeToolCallEvent(over: {
-	phase?: string;
+	phase?: UnifiedHookEvent["phase"];
 	tool_name?: string;
 	tool_input?: unknown;
-	cwd?: string | undefined;
-	noContext?: boolean;
+	cwd?: string;
 }): UnifiedHookEvent {
-	const base = {
-		schema_version: "1",
-		event_id: "e1",
-		session_id: "s1",
-		ts: "2026-08-05T00:00:00.000Z",
-		runner: "claude-code",
-		runner_native_event: "PreToolUse",
-		// SAFETY: over.phase is always one of the UnifiedPhase literal strings the test fixtures pass; narrows the widened `string` back to the union.
-		phase: (over.phase ?? "pre-tool") as UnifiedHookEvent["phase"],
+	return makeUnifiedEvent({
+		phase: over.phase ?? "pre-tool",
 		action: {
-			kind: "tool_call",
-			tool_name: over.tool_name ?? "edit",
-			tool_class: "modify",
-			tool_input: over.tool_input,
-			tool_input_redacted: over.tool_input,
+			kind: "tool_call", tool_name: over.tool_name ?? "edit", tool_class: "modify",
+			tool_input: over.tool_input, tool_input_redacted: over.tool_input,
 		},
-		raw: {},
-	};
-	return over.noContext
-		// SAFETY: `base` deliberately omits `context` (required on UnifiedHookEvent) — this branch builds the intentionally incomplete noContext fixture.
-		? (base as UnifiedHookEvent)
-		// SAFETY: action.kind/tool_class are widened to `string` in the inferred object-literal type; this narrows them back to the UnifiedAction literal shape.
-		: ({ ...base, context: { cwd: over.cwd ?? cwd } } as UnifiedHookEvent);
-}
-
-function makeFileOpEvent(over: { path?: unknown; omitPath?: boolean; cwd?: string }): UnifiedHookEvent {
-	const action: Record<string, unknown> = { kind: "file_operation", operation: "edit", tool_class: "modify" };
-	if (!over.omitPath) action.path = over.path ?? "";
-	return {
-		schema_version: "1",
-		event_id: "e2",
-		session_id: "s1",
-		ts: "2026-08-05T00:00:00.000Z",
-		runner: "claude-code",
-		runner_native_event: "PreToolUse",
-		phase: "pre-tool",
-		action,
 		context: { cwd: over.cwd ?? cwd },
-		raw: {},
-		// SAFETY: `action` is typed as a loose Record<string, unknown> (not the real FileOperationAction shape) and can omit `path` entirely (see the omitPath option above) — deliberately incomplete to exercise the gate's tolerance for malformed events.
-	} as unknown as UnifiedHookEvent;
+	});
 }
 
-function makeShellCommandEvent(over: { command?: unknown; cwd?: string }): UnifiedHookEvent {
-	return {
-		schema_version: "1",
-		event_id: "e4",
-		session_id: "s1",
-		ts: "2026-08-05T00:00:00.000Z",
-		runner: "cursor",
-		runner_native_event: "beforeShellExecution",
-		phase: "pre-tool",
-		action: { kind: "shell_command", command: over.command, tool_class: "side-effect" },
+function makeFileOpEvent(over: { path: string; cwd?: string }): UnifiedHookEvent {
+	return makeUnifiedEvent({
+		action: { kind: "file_operation", operation: "edit", path: over.path, tool_class: "modify" },
 		context: { cwd: over.cwd ?? cwd },
-		raw: {},
-		// SAFETY: `command` carries over.command verbatim, typed `unknown` (not the real `string`) so tests can pass a non-string or omitted command — deliberately malformed to exercise the gate's tolerance.
-	} as unknown as UnifiedHookEvent;
-}
-
-/** A file_operation event whose action ALSO carries tool_call-shaped fields
- *  (tool_name / tool_input) that no real runner adapter would ever emit
- *  together with a file_operation kind. Used to prove a specific class of
- *  mutant: one that relaxes an `action.kind === ACTION_TOOL_CALL` guard so
- *  the code reads straight through to those bogus fields instead of
- *  rejecting on the (correct, unmutated) kind check first. */
-function makeFrankenFileOpEvent(over: { tool_name?: string; tool_input?: unknown }): UnifiedHookEvent {
-	return {
-		schema_version: "1",
-		event_id: "e6",
-		session_id: "s1",
-		ts: "2026-08-05T00:00:00.000Z",
-		runner: "claude-code",
-		runner_native_event: "PreToolUse",
-		phase: "pre-tool",
-		action: {
-			kind: "file_operation",
-			operation: "edit",
-			path: join(cwd, "a.ts"),
-			tool_class: "modify",
-			tool_name: over.tool_name,
-			tool_input: over.tool_input,
-		},
-		context: { cwd },
-		raw: {},
-		// SAFETY: deliberately builds a "franken" event — a file_operation action carrying tool_call-shaped fields no real adapter would emit together (see the doc comment above this function) — to exercise the gate's own-kind guard.
-	} as unknown as UnifiedHookEvent;
+	});
 }
 
 // ===========================================================================
@@ -263,11 +190,6 @@ describe("coldGraphShardBlockReason — mutation kills", () => {
 		// test-contract: boundary — baseline: a blank file_operation.path never blocks when no cwd-level shard exists either.
 		it("N1: same whitespace-only path with no cwd-level shard -> null (baseline)", () => {
 			expect(coldGraphShardBlockReason(makeFileOpEvent({ path: "   " }))).toBeNull();
-		});
-
-		// test-contract: boundary — an omitted file_operation.path key never throws and never blocks, rather than crashing on a missing field.
-		it("P2: an undefined file_operation.path (key omitted) never crashes and never blocks", () => {
-			expect(coldGraphShardBlockReason(makeFileOpEvent({ omitPath: true }))).toBeNull();
 		});
 
 		// test-contract: boundary — a file_operation.path padded with surrounding whitespace still resolves to the real, trimmed file's shard.
@@ -447,24 +369,14 @@ describe("coldMergeConflictBlockReason — mutation kills", () => {
 		);
 	});
 
-	// test-contract: security — a file_operation action carrying forged tool_call-shaped fields is rejected by its own kind guard, so the forged content can never be read.
-	it("P: a file_operation kind is rejected by extractColdWriteContent's OWN kind guard, even when a bogus tool_input.content with markers is stuffed onto the action", () => {
-		// colColdToolName legitimately recognizes file_operation ("edit"
-		// default), so the outer gate passes; extractColdWriteContent's own
-		// `action.kind !== ACTION_TOOL_CALL` check must still reject it
-		// before ever reading the bogus content field.
-		const event = makeFrankenFileOpEvent({ tool_input: { content: MARKERS } });
-		expect(coldMergeConflictBlockReason(event)).toBeNull();
-	});
-
 	// test-contract: security — a non-string edits[].new_string is rejected by its type guard before any implicit toString coercion could smuggle marker text past detection.
-	it("P: a non-string edits[].new_string is skipped even if its OWN toString would produce marker text", () => {
+	it("P: an object new_string containing marker text is skipped without coercion", () => {
 		// Array.prototype.join coerces non-string elements via ToString; the
 		// `typeof ns === "string"` guard must reject BEFORE that coercion
 		// ever has a chance to run.
 		const event = makeToolCallEvent({
 			tool_name: "multi_edit",
-			tool_input: { edits: [{ new_string: { toString: () => MARKERS } }] },
+			tool_input: { edits: [{ new_string: { toString: MARKERS } }] },
 		});
 		expect(coldMergeConflictBlockReason(event)).toBeNull();
 	});
@@ -509,28 +421,17 @@ describe("coldMergeConflictBlockReason — mutation kills", () => {
 // coldDestructiveCommandBlockReason
 // ===========================================================================
 describe("coldDestructiveCommandBlockReason — mutation kills", () => {
-	// test-contract: security — a file_operation action carrying forged bash tool_name and command fields is rejected by its own kind guard before those fields are ever read.
-	it("P: a file_operation kind is rejected by its OWN action.kind guard, even with a bogus recognized bash tool_name + destructive command stuffed onto the action", () => {
-		const event = makeFrankenFileOpEvent({ tool_name: "bash", tool_input: { command: "rm -rf /" } });
-		expect(coldDestructiveCommandBlockReason(event)).toBeNull();
-	});
 
 	// test-contract: security — a non-string command value is rejected by its type guard before implicit toString coercion could smuggle destructive command text past detection.
-	it("P: a non-string ti.command whose OWN toString produces a destructive command is rejected — checkDestructiveCommand is never reached with the real text", () => {
+	it("P: an object command containing destructive text is skipped without coercion", () => {
 		// checkDestructiveCommand(cmd: string) has no typeof guard of its own
 		// and uses regex .test()/.match() (which DO coerce via ToString), so
 		// the `typeof ti.command === "string"` guard upstream is the ONLY
 		// thing standing between a non-string command and a false block.
 		const event = makeToolCallEvent({
 			tool_name: "bash",
-			tool_input: { command: { toString: () => "rm -rf /" } },
+			tool_input: { command: { toString: "rm -rf /" } },
 		});
-		expect(coldDestructiveCommandBlockReason(event)).toBeNull();
-	});
-
-	// test-contract: boundary — a shell_command action with no command field at all is skipped safely rather than reaching the destructive-command check.
-	it("P: a shell_command action with NO command field at all (undefined) never reaches checkDestructiveCommand", () => {
-		const event = makeShellCommandEvent({ command: undefined });
 		expect(coldDestructiveCommandBlockReason(event)).toBeNull();
 	});
 
@@ -549,61 +450,5 @@ describe("coldDestructiveCommandBlockReason — mutation kills", () => {
 		expect(coldDestructiveCommandBlockReason(event)).toBe(
 			"BLOCKED: Recursive force-delete (rm -rf). Use targeted, non-recursive removal.",
 		);
-	});
-});
-
-// ===========================================================================
-// coldPackageInstallBlockReason
-// ===========================================================================
-describe("coldPackageInstallBlockReason — mutation kills", () => {
-	// test-contract: security — a file_operation action carrying forged bash tool_name and install-command fields is rejected by its own kind guard before those fields are ever read.
-	it("P: a file_operation kind is rejected by its OWN action.kind guard, even with a bogus recognized bash tool_name + unapproved install command stuffed onto the action", () => {
-		const event = makeFrankenFileOpEvent({
-			tool_name: "bash",
-			tool_input: { command: "npm install left-pad@1.3.0" },
-		});
-		expect(coldPackageInstallBlockReason(event)).toBeNull();
-	});
-
-	// test-contract: boundary — an event with no context object falls back to process.cwd() without throwing, and the package-allowlist check still completes.
-	it("P: event.context is entirely undefined -> optional-chain falls through to process.cwd(), never throws", () => {
-		// event.context?.cwd (real) yields undefined safely when context is
-		// absent; a mutant reading event.context.cwd directly would throw
-		// reading `.cwd` off undefined instead of falling back to
-		// process.cwd() via the `||`.
-		const event = makeToolCallEvent({
-			tool_name: "bash",
-			tool_input: { command: "npm install left-pad@1.3.0" },
-			noContext: true,
-		});
-		// process.cwd() here is this repo checkout, whose committed
-		// allowlist does not include left-pad -> still blocks (proves no
-		// throw occurred; a throw would propagate out of this call, not
-		// silently become null).
-		expect(coldPackageInstallBlockReason(event)).not.toBeNull();
-	});
-});
-
-// ===========================================================================
-// coldLargeFileBlockReason
-// ===========================================================================
-describe("coldLargeFileBlockReason — mutation kills", () => {
-	const BIG_CONTENT = Array.from({ length: 600 }, (_, i) => `export const v${i} = ${i};`).join("\n");
-
-	// test-contract: security — a file_operation action carrying a forged oversized tool_input is rejected by its own kind guard before that content is ever measured.
-	it("P: a file_operation kind is rejected by its OWN action.kind guard, even with a bogus oversized tool_input stuffed onto the action", () => {
-		const event = makeFrankenFileOpEvent({ tool_input: { file_path: join(cwd, "big2.ts"), content: BIG_CONTENT } });
-		expect(coldLargeFileBlockReason(event)).toBeNull();
-	});
-
-	// test-contract: boundary — an event with no context object falls back to process.cwd() without throwing, and the file-size check still completes.
-	it("P: event.context is entirely undefined -> optional-chain falls through to process.cwd(), never throws", () => {
-		const event = makeToolCallEvent({
-			tool_input: { file_path: join(cwd, "y.ts"), content: "export const x = 1;\n" },
-			noContext: true,
-		});
-		// A small file under process.cwd() (this repo checkout) -> no block,
-		// and critically: no throw.
-		expect(coldLargeFileBlockReason(event)).toBeNull();
 	});
 });

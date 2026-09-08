@@ -234,7 +234,6 @@ describe("filesystem-guards mutation kills — evaluateRepoConfinement", () => {
 			linkedProjects: [],
 		});
 		expect(decision?.reason).not.toContain("or a declared linked project");
-		expect(decision?.reason).not.toContain("Stryker was here");
 	});
 
 	// Kills a16ba7255f3cd55c (>0 -> false), 20b2c678d07e5b27

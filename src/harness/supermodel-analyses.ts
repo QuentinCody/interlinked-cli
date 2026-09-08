@@ -49,24 +49,6 @@ const DEFAULT_FINDING_CAP = 20;
 /** Timeout for the local `supermodel version` availability probe. */
 const CLI_VERSION_CHECK_TIMEOUT_MS = 5000;
 
-/** Raw, untyped shapes for parsing `supermodel dead-code` JSON. Every
- *  field is `unknown` and validated at runtime by parseDeadCodeJson — the
- *  named shapes document the expected payload without trusting it. */
-interface RawDeadCodeResult {
-	deadCodeCandidates?: unknown;
-	metadata?: unknown;
-}
-interface RawCandidate {
-	file?: unknown;
-	name?: unknown;
-	line?: unknown;
-	confidence?: unknown;
-	reason?: unknown;
-}
-interface RawMetadata {
-	totalDeclarations?: unknown;
-}
-
 export interface RunDeadCodeOptions {
 	minConfidence?: "high" | "medium" | "low";
 	limit?: number;
@@ -113,8 +95,8 @@ function parseDeadCodeRoot(stdout: string): DeadCodeRoot | null {
 	} catch {
 		return null;
 	}
-	if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
-	const obj = raw as RawDeadCodeResult;
+	if (!isJsonObject(raw)) return null;
+	const obj = raw;
 	if (!Array.isArray(obj.deadCodeCandidates)) return null;
 	return { entries: obj.deadCodeCandidates, metadata: obj.metadata };
 }
@@ -122,8 +104,8 @@ function parseDeadCodeRoot(stdout: string): DeadCodeRoot | null {
 /** Validate one raw candidate entry. Null for a malformed entry (skipped
  *  by the caller); an unrecognized confidence degrades to "low". */
 function toDeadCodeCandidate(entry: unknown): DeadCodeCandidate | null {
-	if (typeof entry !== "object" || entry === null) return null;
-	const e = entry as RawCandidate;
+	if (!isJsonObject(entry)) return null;
+	const e = entry;
 	if (typeof e.file !== "string" || typeof e.name !== "string") return null;
 	const conf = e.confidence;
 	const confidence: DeadCodeCandidate["confidence"] =
@@ -139,8 +121,8 @@ function toDeadCodeCandidate(entry: unknown): DeadCodeCandidate | null {
 
 /** `metadata.totalDeclarations` when it is a number; 0 otherwise. */
 function readTotalDeclarations(meta: unknown): number {
-	if (typeof meta === "object" && meta !== null) {
-		const td = (meta as RawMetadata).totalDeclarations;
+	if (isJsonObject(meta)) {
+		const td = meta.totalDeclarations;
 		if (typeof td === "number") return td;
 	}
 	return 0;
@@ -226,3 +208,4 @@ export function formatDeadCodeFindings(
 	}
 	return lines;
 }
+import { isJsonObject } from "../lib/json-types.js";

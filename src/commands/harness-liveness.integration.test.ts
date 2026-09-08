@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireBoolean, wireNumber, wireObject, wireOptional, wireString, wireUnknown } from "../lib/value-validation.js";
 // Spawned-process regression pins for the liveness defects (external review
 // 2026-08-26, both passes). Real child processes, real unix sockets, real
 // timers — no mocks, no fake timers.
@@ -72,9 +73,9 @@ function runProbeInChild(cwd: string, confirmDelayMs: number): Promise<ChildRun>
 			["tsx", driver],
 			{ cwd: REPO_ROOT, timeout: SPAWN_TIMEOUT_MS },
 			(err, stdout, stderr) => {
-				const code = err && typeof (err as { code?: unknown }).code === "number"
+				const code = err && typeof (parseWire(err, wireObject({ "code": wireAbsentOptional(wireOptional(wireUnknown)) }), "test JSON value")).code === "number"
 					? // SAFETY: execFile's error carries the child exit code as `code` when numeric
-						((err as { code?: number }).code ?? null)
+						((parseWire(err, wireObject({ "code": wireAbsentOptional(wireOptional(wireNumber)) }), "test JSON value")).code ?? null)
 					: err
 						? null
 						: 0;
@@ -107,7 +108,7 @@ describe("probeHarnessLive — spawned process against a REAL framed-protocol da
 				const split = splitFrames(chunk.toString(), pending);
 				pending = split.remainder;
 				for (const frame of split.frames) {
-					const msg = JSON.parse(frame) as { id?: string; method?: string };
+					const msg = parseWire(JSON.parse(frame), wireObject({ "id": wireAbsentOptional(wireOptional(wireString)), "method": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 					if (typeof msg.id === "string" && msg.method === "daemon.health") {
 						sock.write(`${JSON.stringify({ id: msg.id, result: VALID_HEALTH })}\n`);
 					}
@@ -141,7 +142,7 @@ function framedResponder(): Server {
 			const split = splitFrames(chunk.toString(), pending);
 			pending = split.remainder;
 			for (const frame of split.frames) {
-				const msg = JSON.parse(frame) as { id?: string; method?: string };
+				const msg = parseWire(JSON.parse(frame), wireObject({ "id": wireAbsentOptional(wireOptional(wireString)), "method": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 				if (typeof msg.id === "string" && msg.method === "daemon.health") {
 					sock.write(`${JSON.stringify({ id: msg.id, result: VALID_HEALTH })}\n`);
 				}
@@ -239,7 +240,7 @@ describe("probeHarnessLive — spawned process, live pid, NO socket (the unref r
 				const { code, stdout, stderr } = await runProbeInChild(tmp, CONFIRM_DELAY_MS);
 				expect(stderr).not.toContain("unsettled top-level await");
 				expect(code).toBe(0);
-				const parsed = JSON.parse(stdout.trim()) as { ok: boolean; elapsedMs: number };
+				const parsed = parseWire(JSON.parse(stdout.trim()), wireObject({ "ok": wireBoolean, "elapsedMs": wireNumber }), "test JSON value");
 				expect(parsed.ok).toBe(false);
 				// The child itself measured the wait: reintroducing timer.unref()
 				// exits before the delay elapses, so this bound kills that mutant.

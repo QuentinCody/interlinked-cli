@@ -80,7 +80,8 @@ describe("spawnVitestSuite", () => {
 	it("runs exactly the requested test paths and resolves the child exit result", async () => {
 		vi.resetModules();
 		const execFile = vi.fn((...args: unknown[]) => {
-			const callback = args[3] as (error: unknown, stdout: string, stderr: string) => void;
+			const callback = args[3];
+			if (typeof callback !== "function") throw new Error("expected execFile callback");
 			callback(null, "vitest stdout", "vitest stderr");
 			return { on: vi.fn() };
 		});

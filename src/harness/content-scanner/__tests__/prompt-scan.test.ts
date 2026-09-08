@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { GuardRulesConfig } from "../../types.js";
 import { scanUserPrompt } from "../prompt-scan.js";
 import type { ContentScanner, ContentScannerConfig, ScanFinding } from "../types.js";
 
@@ -30,8 +29,8 @@ function makeConfig(overrides: Partial<ContentScannerConfig> = {}): ContentScann
 	};
 }
 
-function makeRules(cfg: ContentScannerConfig): GuardRulesConfig {
-	return { content_scanner: cfg } as unknown as GuardRulesConfig;
+function makeRules(cfg: ContentScannerConfig): Parameters<typeof scanUserPrompt>[1] {
+	return { content_scanner: cfg };
 }
 
 function makeScanner(findings: ScanFinding[]): ContentScanner {

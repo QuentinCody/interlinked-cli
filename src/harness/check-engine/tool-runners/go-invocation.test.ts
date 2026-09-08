@@ -60,7 +60,7 @@ describe("goPackagePattern — negative (must not fire)", () => {
 
 	it("N3: keeps the whole module when targetFile is absent in file mode", () => {
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete scope.targetFile;
 		expect(goPackagePattern(scope)).toBe(WHOLE_MODULE_PATTERN);
 	});
 

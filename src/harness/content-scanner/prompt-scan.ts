@@ -33,7 +33,7 @@ export interface PromptScanResult {
  */
 export async function scanUserPrompt(
 	prompt: string,
-	rules: GuardRulesConfig,
+	rules: Pick<GuardRulesConfig, "content_scanner"> & { output_scanning?: OutputScanningConfig | undefined },
 	scanner: ContentScanner | undefined,
 ): Promise<PromptScanResult | undefined> {
 	if (!scanner) return undefined;
@@ -41,12 +41,7 @@ export async function scanUserPrompt(
 	if (!cfg?.enabled || !cfg.scan_points.user_prompt) return undefined;
 	if (!prompt || prompt.length === 0) return undefined;
 
-	// SAFETY: GuardRulesConfig declares `output_scanning` as required, but a
-	// hand-built or partially-merged rules object can omit it in practice
-	// (proven by tests elsewhere that delete this field and expect no
-	// throw) — cast to the honest optional shape so the chain below reflects
-	// reality instead of the (unenforced) declared type.
-	const outputScanning = rules.output_scanning as OutputScanningConfig | undefined;
+	const outputScanning: OutputScanningConfig | undefined = rules.output_scanning;
 	const scanLimit = cfg.max_scan_bytes || outputScanning?.max_scan_bytes || 100_000;
 	const text = prompt.slice(0, scanLimit);
 

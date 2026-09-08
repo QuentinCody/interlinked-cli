@@ -93,7 +93,8 @@ export function isLabeledJump(ts: TsModule, node: TS.Node): boolean {
  * rule); 0 when it continues the same run. `op` is the node's own kind.
  */
 function logicalOpRunDelta(ts: TsModule, node: TS.Node, op: TS.SyntaxKind): number {
-	const left = unwrapParens(ts, (node as TS.BinaryExpression).left);
+	if (!ts.isBinaryExpression(node)) return 0;
+	const left = unwrapParens(ts, node.left);
 	return logicalOpKind(ts, left) !== op ? 1 : 0;
 }
 

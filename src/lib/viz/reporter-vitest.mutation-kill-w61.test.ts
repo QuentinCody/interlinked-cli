@@ -1,3 +1,4 @@
+import { nonNull } from "../non-null.js";
 import { describe, expect, it } from "vitest";
 import { InterlinkedVizReporter } from "./reporter-vitest.js";
 import type { TestEvent } from "./test-events.js";
@@ -63,7 +64,7 @@ describe("mutation-kill w61: reporter-vitest.ts", () => {
 		reporter.onTestCaseResult({ result: () => ({ state: "passed" }) });
 		const testCall = calls.find(([, ev]) => ev.kind === "test");
 		expect(testCall).toBeDefined();
-		expect(Object.hasOwn(testCall?.[1] as object, "name")).toBe(false);
+		expect(Object.hasOwn(nonNull(testCall)[1], "name")).toBe(false);
 	});
 
 	// mutant 571b23d74d6eeabe: `if (file) ev.file = file` condition -> true
@@ -72,7 +73,7 @@ describe("mutation-kill w61: reporter-vitest.ts", () => {
 		reporter.onTestCaseResult({ result: () => ({ state: "passed" }) });
 		const testCall = calls.find(([, ev]) => ev.kind === "test");
 		expect(testCall).toBeDefined();
-		expect(Object.hasOwn(testCall?.[1] as object, "file")).toBe(false);
+		expect(Object.hasOwn(nonNull(testCall)[1], "file")).toBe(false);
 	});
 
 	// mutant 8b38d7e5240958ef: testCase?.module?.moduleId -> testCase?.module.moduleId
@@ -133,7 +134,7 @@ describe("mutation-kill w61: reporter-vitest.ts", () => {
 		reporter.onTestCaseResult({ result: () => ({ state: "failed" }) });
 		const testCall = calls.find(([, ev]) => ev.kind === "test");
 		expect(testCall).toBeDefined();
-		expect(Object.hasOwn(testCall?.[1] as object, "error")).toBe(false);
+		expect(Object.hasOwn(nonNull(testCall)[1], "error")).toBe(false);
 	});
 
 	// mutant c8456a95dc5bfcc5: `status === "fail"` -> `status !== "fail"` inside count()

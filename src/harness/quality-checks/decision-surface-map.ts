@@ -15,17 +15,8 @@
 // compete (e.g. a monorepo orchestrator alongside a bundler) breaks the
 // "distinct choices" semantic the metric depends on.
 
-export type DecisionSurfaceCategory =
-	| "package_manager"
-	| "test_framework"
-	| "linter"
-	| "formatter"
-	| "bundler"
-	| "http_client"
-	| "date_lib";
-
 /** Stable iteration order for output. */
-export const DECISION_SURFACE_CATEGORIES: readonly DecisionSurfaceCategory[] = [
+export const DECISION_SURFACE_CATEGORIES = [
 	"package_manager",
 	"test_framework",
 	"linter",
@@ -33,7 +24,15 @@ export const DECISION_SURFACE_CATEGORIES: readonly DecisionSurfaceCategory[] = [
 	"bundler",
 	"http_client",
 	"date_lib",
-];
+] as const;
+
+export type DecisionSurfaceCategory = (typeof DECISION_SURFACE_CATEGORIES)[number];
+
+/** Build one value for every category in the report's canonical key set. */
+export function decisionCategoryRecord<T>(create: (category: DecisionSurfaceCategory) => T): Record<DecisionSurfaceCategory, T> {
+	// SAFETY: DecisionSurfaceCategory is derived from this exact tuple; each key receives one callback-produced value.
+	return Object.fromEntries(DECISION_SURFACE_CATEGORIES.map((category) => [category, create(category)])) as Record<DecisionSurfaceCategory, T>;
+}
 
 interface ToolEntry {
 	/** Canonical tool name used for dedup across signal sources

@@ -5,7 +5,7 @@
 // helpers keep the evaluator focused on authentication and classification.
 
 import { createHash } from "node:crypto";
-import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { isJsonObject } from "../../lib/json-types.js";
 import type { ClaimedMutationJob } from "./mutation-journal-types.js";
 import { hasExactJsonKeys } from "./mutation-cloud-v3-http.js";
 import {
@@ -120,38 +120,37 @@ function assertReason(reason: string | null): void {
 	if (reason !== null) fail(reason);
 }
 
+function checkedString(value: unknown, where: string, check: (value: unknown, where: string) => string | null): string {
+	assertReason(check(value, where));
+	if (typeof value !== "string") fail(`${where} must be a string`);
+	return value;
+}
+
 export function expectedJobFromJournal(value: unknown): V3JobBinding {
 	if (!isJsonObject(value)) fail("journal expectedJob must be an object");
 	assertReason(unknownKeysIn(value, EXPECTED_JOB_KEYS, "journal expectedJob"));
-	assertReason(checkBoundedString(value.tenant, "journal expectedJob.tenant"));
-	assertReason(checkBoundedString(value.project, "journal expectedJob.project"));
-	assertReason(checkBoundedString(value.repository, "journal expectedJob.repository"));
-	assertReason(checkFullGitCommitSha(value.commit, "journal expectedJob.commit"));
-	assertReason(checkRepoRelativePath(value.target_file, "journal expectedJob.target_file"));
-	assertReason(checkSha256Hex(value.target_content_hash, "journal expectedJob.target_content_hash"));
-	assertReason(checkBoundedString(value.job_key, "journal expectedJob.job_key"));
 	return {
-		tenant: value.tenant as string,
-		project: value.project as string,
-		repository: value.repository as string,
-		commit: value.commit as string,
-		target_file: value.target_file as string,
-		target_content_hash: value.target_content_hash as string,
-		job_key: value.job_key as string,
+		tenant: checkedString(value.tenant, "journal expectedJob.tenant", checkBoundedString),
+		project: checkedString(value.project, "journal expectedJob.project", checkBoundedString),
+		repository: checkedString(value.repository, "journal expectedJob.repository", checkBoundedString),
+		commit: checkedString(value.commit, "journal expectedJob.commit", checkFullGitCommitSha),
+		target_file: checkedString(value.target_file, "journal expectedJob.target_file", checkRepoRelativePath),
+		target_content_hash: checkedString(value.target_content_hash, "journal expectedJob.target_content_hash", checkSha256Hex),
+		job_key: checkedString(value.job_key, "journal expectedJob.job_key", checkBoundedString),
 	};
 }
 
 export function expectedAdmissionFromJournal(value: unknown): ExpectedAdmission {
 	if (!isJsonObject(value)) fail("journal expectedAdmission must be an object");
 	assertReason(unknownKeysIn(value, EXPECTED_ADMISSION_KEYS, "journal expectedAdmission"));
-	assertReason(checkSha256Hex(value.request_hash, "journal expectedAdmission.request_hash"));
-	assertReason(checkSha256Hex(value.changeset_hash, "journal expectedAdmission.changeset_hash"));
+	const requestHash = checkedString(value.request_hash, "journal expectedAdmission.request_hash", checkSha256Hex);
+	const changesetHash = checkedString(value.changeset_hash, "journal expectedAdmission.changeset_hash", checkSha256Hex);
 	assertReason(checkSourceArtifactBinding(value.source_artifact, "journal expectedAdmission.source_artifact"));
 	// SAFETY: checkSourceArtifactBinding proved this exact four-field shape.
 	const artifact = value.source_artifact as V3SourceArtifactBinding;
 	return {
-		request_hash: value.request_hash as string,
-		changeset_hash: value.changeset_hash as string,
+		request_hash: requestHash,
+		changeset_hash: changesetHash,
 		source_artifact: {
 			format: artifact.format,
 			artifact_id: artifact.artifact_id,
@@ -161,7 +160,7 @@ export function expectedAdmissionFromJournal(value: unknown): ExpectedAdmission 
 	};
 }
 
-export function targetContentFromJournal(job: Readonly<ClaimedMutationJob>, expectedJob: V3JobBinding): string {
+export function targetContentFromJournal(job: Readonly<Pick<ClaimedMutationJob, "acceptanceReceiptHash" | "targetSha256" | "targetBytes">>, expectedJob: V3JobBinding): string {
 	assertReason(checkSha256Hex(job.acceptanceReceiptHash, "journal acceptanceReceiptHash"));
 	assertReason(checkSha256Hex(job.targetSha256, "journal targetSha256"));
 	if (!(job.targetBytes instanceof Uint8Array)) fail("journal targetBytes must be a byte array");
@@ -207,12 +206,11 @@ export function manifestFromHead(value: unknown): MutationManifest {
 }
 
 function reportPointer(envelope: ParsedEnvelope): { bytes: number } | null {
-	const raw = envelope as unknown as JsonObject;
-	if (raw.report === undefined) return null;
-	if (!isJsonObject(raw.report) || typeof raw.report.bytes !== "number") {
+	if (!("report" in envelope) || envelope.report === undefined) return null;
+	if (!isJsonObject(envelope.report) || typeof envelope.report.bytes !== "number") {
 		fail("parsed envelope contains an invalid report pointer");
 	}
-	return { bytes: raw.report.bytes };
+	return { bytes: envelope.report.bytes };
 }
 
 export function reportBytes(envelope: ParsedEnvelope, bytes: Uint8Array | null): Uint8Array | undefined {
@@ -235,15 +233,16 @@ export function reportBytes(envelope: ParsedEnvelope, bytes: Uint8Array | null):
 
 export function receiptInputs(wire: ProtocolV3RemoteEvidence, envelope: ParsedEnvelope) {
 	const executionArm = envelope.execution_receipt_hash !== undefined;
-	if (executionArm && (wire.execution_receipt === null || wire.terminalization_record !== null)) {
-		fail("terminal evidence receipt arm disagrees with the envelope execution receipt hash");
+	if (executionArm) {
+		if (wire.execution_receipt === null || wire.terminalization_record !== null) {
+			fail("terminal evidence receipt arm disagrees with the envelope execution receipt hash");
+		}
+		return { acceptance: wire.acceptance_receipt, execution: wire.execution_receipt };
 	}
-	if (!executionArm && (wire.terminalization_record === null || wire.execution_receipt !== null)) {
+	if (wire.terminalization_record === null || wire.execution_receipt !== null) {
 		fail("terminal evidence receipt arm disagrees with the envelope terminalization record hash");
 	}
-	return executionArm
-		? { acceptance: wire.acceptance_receipt, execution: wire.execution_receipt as string }
-		: { acceptance: wire.acceptance_receipt, terminalization: wire.terminalization_record as string };
+	return { acceptance: wire.acceptance_receipt, terminalization: wire.terminalization_record };
 }
 
 export function authenticatedEvidenceHash(bundle: {

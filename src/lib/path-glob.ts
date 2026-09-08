@@ -68,7 +68,7 @@ function processBraceToken(glob: string, i: number): GlobTokenResult {
 
 /** Translate the single glob token starting at index `i`. */
 function processGlobToken(glob: string, i: number): GlobTokenResult {
-	const ch = glob[i] as string;
+	const ch = glob.charAt(i);
 	if (ch === "*") return processStarToken(glob, i);
 	if (ch === "?") return { appended: "[^/]", nextIndex: i + 1 };
 	if (ch === "[") return processBracketToken(glob, i);

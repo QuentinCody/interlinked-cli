@@ -152,8 +152,7 @@ describe("verificationFieldSatisfied() undefined-observed guard — kills e5b502
 	// flips || to && — both let `.has` run on an undefined set)
 	it("never touches an undefined verification set", () => {
 		const withoutVerification = session();
-		delete (withoutVerification as { verification_observed?: Set<string> })
-			.verification_observed;
+		delete withoutVerification.verification_observed;
 		expect(() =>
 			evaluateRequiresPrior(withoutVerification, { verification_kind: "test" }),
 		).not.toThrow();

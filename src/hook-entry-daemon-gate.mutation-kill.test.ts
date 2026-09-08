@@ -38,7 +38,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 		...actual,
 		spawn: (command: string, args: string[], options: unknown) => {
 			spawnCalls.push({ command, args, options });
-			return { pid: process.pid, unref: () => {} } as unknown as ReturnType<typeof actual.spawn>;
+			return Object.assign(new actual.ChildProcess(), { pid: process.pid });
 		},
 	};
 });
@@ -57,23 +57,17 @@ function makeEvent(cwd: string): UnifiedHookEvent {
 		event_id: "e1",
 		session_id: "s1",
 		ts: "2026-08-17T00:00:00.000Z",
-		// SAFETY: a minimal PreToolUse envelope — only `phase`/`action`/`context`
-		// are read by the gate under test; the runner tag is opaque to it.
-		runner: "claude-code" as never,
+		runner: "claude-code",
 		runner_native_event: "PreToolUse",
 		phase: "pre-tool",
-		// SAFETY: a ShellCommandAction literal narrowed via `as never`, matching
-		// the existing hook-entry-daemon-gate.test.ts `makeEvent` convention.
-		action: { kind: "shell_command", command: "echo hi", cwd } as never,
+		action: { kind: "shell_command", command: "echo hi", cwd, tool_class: "read" },
 		context: { cwd },
 		raw: null,
-	} as UnifiedHookEvent;
+	};
 }
 
 function shell(command: string): UnifiedHookEvent["action"] {
-	// SAFETY: a ShellCommandAction literal; the predicate under test reads only
-	// `kind` and `command`.
-	return { kind: "shell_command", command } as UnifiedHookEvent["action"];
+	return { kind: "shell_command", command, tool_class: "modify" };
 }
 
 /** Build a string of exactly `n` literal spaces — avoids miscounting spaces by

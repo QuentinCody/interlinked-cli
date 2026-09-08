@@ -21,6 +21,11 @@ import type {
 
 const MAX_DEAD_LETTER_LIST = 100;
 
+function jobStatus(value: string): JournalJobView["status"] {
+	if (value === "pending" || value === "evaluated" || value === "acked" || value === "dead_letter") return value;
+	throw new Error("mutation journal job has invalid status");
+}
+
 export function readCommittedResult(
 	db: SqliteDatabase,
 	jobId: string,
@@ -43,10 +48,8 @@ export function readJournalJob(db: SqliteDatabase, jobId: string): JournalJobVie
 	const deadLetteredAtMs = nullableNumber(row, "dead_lettered_at_ms");
 	return {
 		jobId,
-		// SAFETY: the database CHECK constrains the stored status; the only
-		// additional projection is the explicit dead-letter timestamp below.
 		status: deadLetteredAtMs === null
-			? stringField(row, "status") as JournalJobView["status"]
+			? jobStatus(stringField(row, "status"))
 			: "dead_letter",
 		leaseOwner: nullableString(row, "lease_owner"),
 		leaseToken: nullableString(row, "lease_token"),

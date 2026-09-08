@@ -17,7 +17,7 @@ const FIXED_NOW = 1_700_000_000_000;
 const FIXED_SESSION_STARTED_AT = new Date(FIXED_NOW - 60_000).toISOString();
 
 function makeSession(
-	overrides: Partial<SessionTrajectory> & { declared_plan?: CapturedPlan } = {},
+	overrides: Partial<SessionTrajectory> = {},
 ): SessionTrajectory {
 	const base: SessionTrajectory = {
 		session_id: "test-session",
@@ -57,14 +57,7 @@ function makeSession(
 		bloat_warned: new Set(),
 		assertion_counts: new Map(),
 	};
-	// `declared_plan` is added to SessionTrajectory by Item #2 of the
-	// agent-quality rollout. Until that field is merged, we attach it
-	// dynamically with the same defensive cast the detector uses.
-	const merged = { ...base, ...overrides } as SessionTrajectory & {
-		declared_plan?: CapturedPlan;
-	};
-	if (overrides.declared_plan) merged.declared_plan = overrides.declared_plan;
-	return merged;
+	return { ...base, ...overrides };
 }
 
 function step(intent: string, extra: Partial<PlanStep> = {}): PlanStep {

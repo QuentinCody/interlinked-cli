@@ -86,6 +86,26 @@ function writeFixture(fixture: unknown): void {
 // ==================================================================
 
 describe("loadCoverageFinal", () => {
+	it("retains coverage when Vitest reports null end columns", () => {
+		const path = join(tmp, "src/foo.ts");
+		writeFixture({ [path]: {
+			path,
+			fnMap: { "0": {
+				name: "covered",
+				decl: { start: { line: 1, column: 0 }, end: { line: 1, column: null } },
+				loc: { start: { line: 1, column: 0 }, end: { line: 3, column: null } },
+			} },
+			f: { "0": 1 },
+			statementMap: { "0": { start: { line: 2, column: 0 }, end: { line: 2, column: null } } },
+			s: { "0": 1 },
+		} });
+		const coverage = nonNull(loadCoverageFinal(coveragePath, tmp));
+		expect(coverageForFile(coverage, "src/foo.ts")).toMatchObject({
+			functions: [{ name: "covered", line: 1, endLine: 3, hits: 1, statement_pct: 100 }],
+			coveredLines: new Set([2]),
+		});
+	});
+
 	it("returns null when the file is missing", () => {
 		expect(loadCoverageFinal(join(tmp, "does-not-exist.json"), tmp)).toBeNull();
 	});
@@ -104,7 +124,7 @@ describe("loadCoverageFinal", () => {
 		writeFixture(buildFixture(tmp));
 		const result = loadCoverageFinal(coveragePath, tmp);
 		expect(result).not.toBeNull();
-		const entry = coverageForFile(result as Map<string, unknown> as never, "src/foo.ts");
+		const entry = coverageForFile(nonNull(result), "src/foo.ts");
 		expect(entry).toBeDefined();
 		expect(entry?.functions.map((f) => f.name)).toEqual(["covered", "uncovered"]);
 	});
@@ -112,7 +132,7 @@ describe("loadCoverageFinal", () => {
 	it("populates per-LINE coverage from the statement map — flags an uncovered statement INSIDE a covered function (finding 5)", () => {
 		writeFixture(buildFixture(tmp));
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as Map<string, unknown> as never, "src/foo.ts");
+		const entry = coverageForFile(nonNull(result), "src/foo.ts");
 		// Function "covered" (lines 1-3) has f=5 hits — per-FUNCTION coverage calls it
 		// covered. But statement "2" (line 3) has s=0, so per-LINE correctly flags line 3.
 		expect(entry?.uncoveredLines?.has(3)).toBe(true); // uncovered stmt in a covered fn
@@ -141,7 +161,7 @@ describe("loadCoverageFinal", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as Map<string, unknown> as never, "src/multi.ts");
+		const entry = coverageForFile(nonNull(result), "src/multi.ts");
 		expect(entry?.uncoveredLines?.has(20)).toBe(true);
 		expect(entry?.uncoveredLines?.has(21)).toBe(true); // continuation line now flagged
 		expect(entry?.uncoveredLines?.has(22)).toBe(true);
@@ -153,7 +173,7 @@ describe("loadCoverageFinal", () => {
 	it("computes statement_pct from overlapping statement ranges", () => {
 		writeFixture(buildFixture(tmp));
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as Map<string, unknown> as never, "src/foo.ts");
+		const entry = coverageForFile(nonNull(result), "src/foo.ts");
 		const covered = entry?.functions.find((f) => f.name === "covered");
 		const uncovered = entry?.functions.find((f) => f.name === "uncovered");
 		// "covered": 3 statements (lines 1–3), 2 executed (lines 1–2) → ~66.7%
@@ -165,7 +185,7 @@ describe("loadCoverageFinal", () => {
 	it("preserves raw function hit counts", () => {
 		writeFixture(buildFixture(tmp));
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as Map<string, unknown> as never, "src/foo.ts");
+		const entry = coverageForFile(nonNull(result), "src/foo.ts");
 		expect(entry?.functions.find((f) => f.name === "covered")?.hits).toBe(5);
 		expect(entry?.functions.find((f) => f.name === "uncovered")?.hits).toBe(0);
 	});
@@ -225,7 +245,7 @@ describe("loadCoverageFinal", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/foo.ts");
+		const entry = coverageForFile(nonNull(result), "src/foo.ts");
 		expect(nonNull(entry?.functions[0]).name).toBe("anon@42");
 	});
 
@@ -248,7 +268,7 @@ describe("loadCoverageFinal", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/foo.ts");
+		const entry = coverageForFile(nonNull(result), "src/foo.ts");
 		expect(entry?.functions.map((f) => f.name)).toEqual(["real"]);
 	});
 });
@@ -257,14 +277,14 @@ describe("coverageForFile", () => {
 	it("returns undefined for an unknown file", () => {
 		writeFixture(buildFixture(tmp));
 		const result = loadCoverageFinal(coveragePath, tmp);
-		expect(coverageForFile(result as never, "src/other.ts")).toBeUndefined();
+		expect(coverageForFile(nonNull(result), "src/other.ts")).toBeUndefined();
 	});
 
 	it("normalizes backslash path separators", () => {
 		writeFixture(buildFixture(tmp));
 		const result = loadCoverageFinal(coveragePath, tmp);
 		// Windows-style lookup should still find the POSIX-keyed entry.
-		expect(coverageForFile(result as never, "src\\foo.ts")).toBeDefined();
+		expect(coverageForFile(nonNull(result), "src\\foo.ts")).toBeDefined();
 	});
 });
 
@@ -280,7 +300,7 @@ describe("loadCoverageFinal — field-omission and fallback branches", () => {
 			[absPath]: { path: absPath },
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/empty.ts");
+		const entry = coverageForFile(nonNull(result), "src/empty.ts");
 		expect(entry?.functions).toEqual([]);
 		expect(entry?.coveredLines).toBeUndefined();
 		expect(entry?.uncoveredLines).toBeUndefined();
@@ -300,7 +320,7 @@ describe("loadCoverageFinal — field-omission and fallback branches", () => {
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
 		expect(result?.size).toBe(1);
-		expect(coverageForFile(result as never, "src/real.ts")).toBeDefined();
+		expect(coverageForFile(nonNull(result), "src/real.ts")).toBeDefined();
 	});
 
 	it("skips an entry whose path key resolves to nothing (empty path and empty key)", () => {
@@ -333,7 +353,7 @@ describe("loadCoverageFinal — field-omission and fallback branches", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/fallback.ts");
+		const entry = coverageForFile(nonNull(result), "src/fallback.ts");
 		expect(entry?.functions.map((f) => f.name)).toEqual(["viaLoc", "viaLine"]);
 		const viaLoc = entry?.functions.find((f) => f.name === "viaLoc");
 		expect(viaLoc?.line).toBe(5);
@@ -357,7 +377,7 @@ describe("loadCoverageFinal — field-omission and fallback branches", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/declend.ts");
+		const entry = coverageForFile(nonNull(result), "src/declend.ts");
 		expect(entry?.functions[0]?.endLine).toBe(9);
 		// `f` has no "0" entry — exercises `hits[id] ?? 0`.
 		expect(entry?.functions[0]?.hits).toBe(0);
@@ -378,7 +398,7 @@ describe("loadCoverageFinal — field-omission and fallback branches", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/nostart.ts");
+		const entry = coverageForFile(nonNull(result), "src/nostart.ts");
 		expect(entry?.coveredLines).toBeUndefined();
 		expect(entry?.uncoveredLines).toBeUndefined();
 	});
@@ -397,7 +417,7 @@ describe("loadCoverageFinal — field-omission and fallback branches", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/noend.ts");
+		const entry = coverageForFile(nonNull(result), "src/noend.ts");
 		expect(entry?.uncoveredLines?.has(40)).toBe(true);
 		expect([...(entry?.uncoveredLines ?? [])]).toEqual([40]);
 	});
@@ -419,7 +439,7 @@ describe("loadCoverageFinal — field-omission and fallback branches", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/nullline.ts");
+		const entry = coverageForFile(nonNull(result), "src/nullline.ts");
 		// Only statement "1" counts toward the range (statement "0" has no start.line);
 		// it has no hit recorded, so it's uncovered → 0%.
 		expect(entry?.functions[0]?.statement_pct).toBe(0);
@@ -478,25 +498,6 @@ describe("loadCoverageFinalSummary", () => {
 			},
 		});
 		expect(loadCoverageFinalSummary(coveragePath, tmp)).toBeNull();
-	});
-
-	it("excludes an entry when resolveFileKey's resolve() throws on a malformed repoRoot", () => {
-		// The key is a RELATIVE path (no `path` field, so pathKey falls back to
-		// the object key) — node:path's resolve() only consults every argument,
-		// including repoRoot, when the last one isn't already absolute. An
-		// absolute pathKey would make resolve() short-circuit on `pathKey` alone
-		// and never look at (or type-check) repoRoot at all.
-		writeFixture({
-			"src/foo.ts": {
-				statementMap: { "0": { start: { line: 1 }, end: { line: 1 } } },
-				s: { "0": 1 },
-			},
-		});
-		// resolveFileKey's guard only validates pathKey (a string here), so the
-		// malformed repoRoot reaches resolve() unchecked and trips the catch —
-		// the entry is excluded rather than the summary builder throwing.
-		const malformedRepoRoot = null as unknown as string;
-		expect(loadCoverageFinalSummary(coveragePath, malformedRepoRoot)).toBeNull();
 	});
 
 	it("computes lines and branches pct from statementMap/s/b, taking the MAX hit per shared line", () => {

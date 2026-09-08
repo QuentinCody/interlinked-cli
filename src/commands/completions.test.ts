@@ -1,3 +1,4 @@
+import { parseWire, wireString } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { completionsCommand } from "./completions.js";
 
@@ -22,27 +23,32 @@ describe("completionsCommand", () => {
 	// and log a string); this helper centralizes the one cast instead of
 	// repeating it at every call site.
 	function getLoggedOutput(): string {
-		return logSpy.mock.calls[0][0] as string;
+		return parseWire(logSpy.mock.calls[0][0], wireString, "test JSON value");
 	}
 
 	it("prints bash completions for 'bash'", async () => {
 		await completionsCommand("bash");
-		expect(logSpy).toHaveBeenCalled();
+		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("# interlinked bash completion"));
+		expect(getLoggedOutput()).toContain("complete -F _interlinked_completions interlinked");
 	});
 
 	it("prints zsh completions for 'zsh'", async () => {
 		await completionsCommand("zsh");
-		expect(logSpy).toHaveBeenCalled();
+		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("#compdef interlinked"));
+		expect(getLoggedOutput()).toContain('_interlinked "$@"');
 	});
 
 	it("prints fish completions for 'fish'", async () => {
 		await completionsCommand("fish");
-		expect(logSpy).toHaveBeenCalled();
+		expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("# interlinked fish completion"));
+		expect(getLoggedOutput()).toContain("complete -c interlinked -f");
 	});
 
 	it("is case-insensitive on the shell name", async () => {
 		await completionsCommand("BASH");
-		expect(logSpy).toHaveBeenCalled();
+		// "BASH" must resolve to the same generator as "bash", not the unknown-shell path.
+		expect(getLoggedOutput()).toContain("# interlinked bash completion");
+		expect(errSpy).not.toHaveBeenCalled();
 	});
 
 	it("exits with code 1 for an unknown shell", async () => {

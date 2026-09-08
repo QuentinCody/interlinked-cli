@@ -1,3 +1,4 @@
+import { isJsonObject } from "../json-types.js";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,7 +39,7 @@ interface RecorderInstance {
 let recorderInstance: RecorderInstance;
 
 vi.mock("./recorder.js", () => ({
-    McpProtocolRecorder: vi.fn().mockImplementation(function (this: unknown, opts: unknown) {
+    McpProtocolRecorder: vi.fn().mockImplementation(function (opts: unknown) {
         recorderInstance = {
             opts,
             recordJsonLine: vi.fn(),
@@ -46,7 +47,6 @@ vi.mock("./recorder.js", () => ({
             recordTransportError: vi.fn(),
             recordTransportClose: vi.fn(),
         };
-        Object.assign(this as object, recorderInstance);
         return recorderInstance;
     }),
 }));
@@ -85,15 +85,16 @@ function closeChild(code: number | null, signal: NodeJS.Signals | null = null): 
 describe("runMcpStdioProxy spawn options — positive (must fire)", () => {
     it("uses serverCwd when provided, and falls back to cwd (?? not &&) when serverCwd is absent", async () => {
         const promise = runMcpStdioProxy({ ...baseOpts, cwd: "/base/cwd" });
-        const spawnOpts = spawnMock.mock.calls[0]?.[2] as { cwd?: string };
-        expect(spawnOpts.cwd).toBe("/base/cwd");
+        const spawnOpts = spawnMock.mock.calls[0]?.[2];
+        expect(spawnOpts).toHaveProperty("cwd", "/base/cwd");
         closeChild(0);
         await promise;
     });
 
     it("passes process.env by reference when opts.env is absent (?? not &&)", async () => {
         const promise = runMcpStdioProxy({ ...baseOpts });
-        const spawnOpts = spawnMock.mock.calls[0]?.[2] as { env?: unknown };
+        const spawnOpts = spawnMock.mock.calls[0]?.[2];
+        if (!isJsonObject(spawnOpts)) throw new Error("Expected spawn options");
         expect(spawnOpts.env).toBe(process.env);
         closeChild(0);
         await promise;
@@ -140,7 +141,7 @@ describe("runMcpStdioProxy error listener wiring — positive (must fire)", () =
 describe("signal forwarding — positive (must fire)", () => {
     it("kills the child with SIGINT when the process receives SIGINT", async () => {
         const promise = runMcpStdioProxy({ ...baseOpts });
-        process.emit("SIGINT" as NodeJS.Signals);
+        process.emit("SIGINT");
         expect(currentChild.kill).toHaveBeenCalledWith("SIGINT");
         closeChild(0);
         await promise;
@@ -148,7 +149,7 @@ describe("signal forwarding — positive (must fire)", () => {
 
     it("kills the child with SIGTERM when the process receives SIGTERM", async () => {
         const promise = runMcpStdioProxy({ ...baseOpts });
-        process.emit("SIGTERM" as NodeJS.Signals);
+        process.emit("SIGTERM");
         expect(currentChild.kill).toHaveBeenCalledWith("SIGTERM");
         closeChild(0);
         await promise;
@@ -157,7 +158,7 @@ describe("signal forwarding — positive (must fire)", () => {
     it("does not forward the signal when the child is already killed", async () => {
         const promise = runMcpStdioProxy({ ...baseOpts });
         currentChild.killed = true;
-        process.emit("SIGINT" as NodeJS.Signals);
+        process.emit("SIGINT");
         expect(currentChild.kill).not.toHaveBeenCalled();
         closeChild(0);
         await promise;
@@ -167,7 +168,7 @@ describe("signal forwarding — positive (must fire)", () => {
         const promise = runMcpStdioProxy({ ...baseOpts });
         closeChild(0);
         await promise;
-        process.emit("SIGINT" as NodeJS.Signals);
+        process.emit("SIGINT");
         expect(currentChild.kill).not.toHaveBeenCalled();
     });
 });

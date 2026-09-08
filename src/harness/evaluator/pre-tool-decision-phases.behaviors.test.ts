@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Behavioral coverage for the block-or-null decision phases in
 // `pre-tool-decision-phases.ts` NOT already exercised by the apply_patch
 // leasing regression suite (pre-tool-decision-phases.reservations.test.ts).
@@ -5,6 +6,7 @@
 // two-branch (blockFinding present/absent, incoming-warnings empty/non-empty)
 // shape is driven directly rather than through a real trajectory detector.
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { describe, expect, it, vi } from "vitest";
 
 const preBlockQueue: Array<
@@ -46,7 +48,7 @@ const FIXED_TS = "2026-04-01T00:00:00.000Z";
 const CWD = "/repo";
 
 function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "t",
 		agent_name: "agent",
 		started_at: FIXED_TS,
@@ -62,7 +64,7 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 		taint_sources: [],
 		step_limit: Number.POSITIVE_INFINITY,
 		...overrides,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -75,7 +77,7 @@ function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 		cwd: CWD,
 		timestamp: FIXED_TS,
 		...overrides,
-	} as HarnessEvent;
+	};
 }
 
 function makeCtx(): PreToolCtx {
@@ -83,7 +85,7 @@ function makeCtx(): PreToolCtx {
 }
 
 function makeRules(overrides?: Partial<GuardRulesConfig>): GuardRulesConfig {
-	return {
+	return ({ ...makeGuardRules(),
 		version: 1,
 		enabled: true,
 		rules: [],
@@ -91,12 +93,12 @@ function makeRules(overrides?: Partial<GuardRulesConfig>): GuardRulesConfig {
 		file_reminders: [],
 		curl_mcp_detection: { enabled: false, localhost_ports: [], escalate_after: 5, message: "" },
 		quality_checks: {},
-		structural_checks: {} as GuardRulesConfig["structural_checks"],
-		error_memory: { enabled: false, expires_after_s: 0, scope: "file" },
-		taint_tracking: { enabled: false } as GuardRulesConfig["taint_tracking"],
-		output_scanning: { enabled: false } as GuardRulesConfig["output_scanning"],
+		structural_checks: { ...makeGuardRules().structural_checks, },
+		error_memory: { ...makeGuardRules().error_memory,  enabled: false, max_age_s: 0, max_records: 0 },
+		taint_tracking: { ...makeGuardRules().taint_tracking,  enabled: false },
+		output_scanning: { ...makeGuardRules().output_scanning,  enabled: false },
 		...overrides,
-	} as GuardRulesConfig;
+	} satisfies GuardRulesConfig);
 }
 
 // ============================================================
@@ -349,9 +351,9 @@ describe("evaluateGraphPrediction", () => {
 
 	it("returns null when enabled but the tool call is a non-write, non-shard-read", () => {
 		const ctx = makeCtx();
-		const sharedConfig = {
+		const sharedConfig = ({ version: 1, server_url: "https://example.test",
 			harness: { graph_prediction: { enabled: true, mode: "shadow" } },
-		} as unknown as SharedConfig;
+		} satisfies SharedConfig);
 		const warnings: string[] = [];
 		const decision = evaluateGraphPrediction(
 			makeEvent({ tool_name: "Bash", tool_input: { command: "ls" } }),
@@ -374,7 +376,7 @@ describe("evaluateTaintPhase", () => {
 	it("returns null when taint tracking is disabled", () => {
 		const ctx = makeCtx();
 		const decision = evaluateTaintPhase(
-			makeRules({ taint_tracking: { enabled: false } as GuardRulesConfig["taint_tracking"] }),
+			makeRules({ taint_tracking: ({ ...makeGuardRules().taint_tracking,  enabled: false } satisfies GuardRulesConfig["taint_tracking"]) }),
 			makeSession(),
 			"Bash",
 			{ command: "curl http://example.com" },

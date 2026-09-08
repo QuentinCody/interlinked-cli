@@ -6,10 +6,10 @@
 // Leaf cluster extracted from pre-tool.ts: the side-effect-only PreToolUse
 // phases that never return a block decision (trajectory detector, curl-to-MCP,
 // markdown-first nudges, structural context injection, Supermodel graph
-// awareness, project-setup validation, file diagnostics, and the pending
-// session-warning drain). Each pushes into a shared `warnings` array by
+// awareness, project-setup validation, and file diagnostics). Each pushes into a shared `warnings` array by
 // reference. Moved verbatim; the orchestrator in pre-tool.ts imports them.
 
+import { readToolString } from "./tool-input-values.js";
 import type { SharedConfig } from "../../lib/config.js";
 import type { ProjectGraph } from "../project-graph.js";
 import type { RouteMap } from "../route-map.js";
@@ -75,7 +75,7 @@ export function evaluateCurlMcpPhase(
 	warnings: string[],
 ): void {
 	if (!isBash(toolName)) return;
-	const mcpScanCommand = extractScannableText((toolInput.command as string) || "");
+	const mcpScanCommand = extractScannableText(readToolString(toolInput.command));
 	const targetsMcpPath = /\/(?:mcp|sse|messages?)\b/i.test(mcpScanCommand);
 	warnings.push(
 		...evaluateCurlMcpGuards({
@@ -98,7 +98,7 @@ export function evaluateMarkdownFirstPhase(
 	warnings: string[],
 ): void {
 	if (isBrowserNavigate(toolName)) {
-		const url = (toolInput.url as string) || "";
+		const url = readToolString(toolInput.url);
 		if (url && /^https?:\/\//i.test(url)) {
 			warnings.push(
 				"[interlinked:markdown-first] Browser navigation to read web content is token-expensive. " +
@@ -109,7 +109,7 @@ export function evaluateMarkdownFirstPhase(
 		}
 	}
 	if (isBash(toolName)) {
-		const cmd = (toolInput.command as string) || "";
+		const cmd = readToolString(toolInput.command);
 		warnings.push(...evaluateMarkdownFirstCurlGuard(cmd));
 	}
 }
@@ -189,7 +189,7 @@ export function evaluateDiagnosticsPhase(
 	// OR-gated) instead of being lint-dead.
 	const qualityChecksPresent: unknown = rules.quality_checks;
 	if (!(isFileWrite(toolName) && qualityChecksPresent)) return;
-	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 	if (filePath && DIAGNOSTIC_EXTENSIONS.test(filePath)) {
 		const diagWarnings = getPreToolUseDiagnostics(
 			filePath,
@@ -197,22 +197,5 @@ export function evaluateDiagnosticsPhase(
 			rules.quality_checks,
 		);
 		warnings.push(...diagWarnings);
-	}
-}
-
-/**
- * Drain pending session warnings (queued by SessionStart async checks).
- * Warning-only; clears the queue after draining.
- */
-export function drainPendingSessionWarnings(
-	session: SessionTrajectory | undefined,
-	warnings: string[],
-): void {
-	if (!session) return;
-	const carrier = session as SessionTrajectory & { pendingSessionWarnings?: string[] };
-	const pending = carrier.pendingSessionWarnings;
-	if (pending && pending.length > 0) {
-		warnings.push(...pending);
-		carrier.pendingSessionWarnings = [];
 	}
 }

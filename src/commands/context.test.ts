@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked context — behavioral tests
 // ===========================================
@@ -144,7 +145,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 	errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-	exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+	exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("Unexpected process.exit"); });
 	process.exitCode = 0;
 	// Snapshot + clear env so override-detection branches are deterministic.
 	savedEnv = {};
@@ -236,8 +237,8 @@ describe("contextCommand: json mode", () => {
 			installed_mode: null,
 			stale: false,
 		});
-		expect((out.clients as Record<string, unknown>).detected).toEqual(["claude"]);
-		expect((out.clients as Record<string, unknown>).all).toEqual([
+		expect(out).toHaveProperty(["clients","detected"], ["claude"]);
+		expect(out).toHaveProperty(["clients","all"], [
 			{ name: "claude", installed: true },
 			{ name: "codex", installed: false },
 		]);
@@ -266,8 +267,8 @@ describe("contextCommand: json mode", () => {
 		expect(out.project_key).toBe("main");
 		expect(out.agent_name).toBeNull();
 		expect(out.agent_handle).toBeNull();
-		expect((out.auth as Record<string, unknown>).expires_at).toBeNull();
-		expect((out.hooks as Record<string, unknown>).installed_version).toBe("9.9.9");
+		expect((parseWire(out.auth, wireRecord(wireUnknown), "test JSON value")).expires_at).toBeNull();
+		expect(out).toHaveProperty(["hooks","installed_version"], "9.9.9");
 	});
 });
 
@@ -281,7 +282,7 @@ describe("contextCommand: token_source ternary", () => {
 		mockResolveAuthToken.mockReturnValue("anything");
 
 		await contextCommand({ json: true });
-		const auth = loggedJson().auth as Record<string, unknown>;
+		const auth = parseWire(loggedJson().auth, wireRecord(wireUnknown), "test JSON value");
 		expect(auth.token_source).toBe("config.local.json");
 		expect(auth.has_token).toBe(true);
 	});
@@ -291,7 +292,7 @@ describe("contextCommand: token_source ternary", () => {
 		mockResolveAuthToken.mockReturnValue("cc-token");
 
 		await contextCommand({ json: true });
-		const auth = loggedJson().auth as Record<string, unknown>;
+		const auth = parseWire(loggedJson().auth, wireRecord(wireUnknown), "test JSON value");
 		expect(auth.token_source).toBe("Claude Code credentials");
 	});
 
@@ -300,7 +301,7 @@ describe("contextCommand: token_source ternary", () => {
 		mockResolveAuthToken.mockReturnValue(null);
 
 		await contextCommand({ json: true });
-		const auth = loggedJson().auth as Record<string, unknown>;
+		const auth = parseWire(loggedJson().auth, wireRecord(wireUnknown), "test JSON value");
 		expect(auth.token_source).toBe("none");
 		expect(auth.has_token).toBe(false);
 	});
@@ -332,7 +333,7 @@ describe("contextCommand: hook version (json reflects detect result)", () => {
 		mockExistsSync.mockReturnValue(false);
 
 		await contextCommand({ json: true });
-		const hooks = loggedJson().hooks as Record<string, unknown>;
+		const hooks = parseWire(loggedJson().hooks, wireRecord(wireUnknown), "test JSON value");
 		expect(hooks.installed_version).toBeNull();
 		// stale is false when installed is null (short-circuit on `!== null`)
 		expect(hooks.stale).toBe(false);
@@ -345,7 +346,7 @@ describe("contextCommand: hook version (json reflects detect result)", () => {
 		mockReadFileSync.mockReturnValue("no sentinel here");
 
 		await contextCommand({ json: true });
-		const hooks = loggedJson().hooks as Record<string, unknown>;
+		const hooks = parseWire(loggedJson().hooks, wireRecord(wireUnknown), "test JSON value");
 		expect(hooks.installed_version).toBe("unknown");
 		// "unknown" !== "9.9.9" -> stale true
 		expect(hooks.stale).toBe(true);
@@ -356,7 +357,7 @@ describe("contextCommand: hook version (json reflects detect result)", () => {
 		mockReadFileSync.mockReturnValue("// interlinked-hook-version: 0.1.0+mode-budget\n");
 
 		await contextCommand({ json: true });
-		const hooks = loggedJson().hooks as Record<string, unknown>;
+		const hooks = parseWire(loggedJson().hooks, wireRecord(wireUnknown), "test JSON value");
 		expect(hooks.installed_version).toBe("0.1.0+mode-budget");
 		expect(hooks.stale).toBe(true);
 	});
@@ -368,7 +369,7 @@ describe("contextCommand: hook version (json reflects detect result)", () => {
 		});
 
 		await contextCommand({ json: true });
-		const hooks = loggedJson().hooks as Record<string, unknown>;
+		const hooks = parseWire(loggedJson().hooks, wireRecord(wireUnknown), "test JSON value");
 		expect(hooks.installed_version).toBeNull();
 		expect(hooks.stale).toBe(false);
 	});
@@ -378,7 +379,7 @@ describe("contextCommand: hook version (json reflects detect result)", () => {
 		mockReadFileSync.mockReturnValue("interlinked-hook-version: 9.9.9");
 
 		await contextCommand({ json: true });
-		const hooks = loggedJson().hooks as Record<string, unknown>;
+		const hooks = parseWire(loggedJson().hooks, wireRecord(wireUnknown), "test JSON value");
 		expect(hooks.stale).toBe(false);
 	});
 });

@@ -56,11 +56,10 @@ import {
 export function buildVerificationStopWarnings(
 	ctx: ServerRuntime,
 	event: HarnessEvent,
-	// Nullable: see buildCommitCadenceNudge above — same pinned contract.
-	session: SessionTrajectory | undefined,
+	session: SessionTrajectory,
 ): string[] {
 	const vsc = ctx.rules.verification_stop_checks;
-	if (!vsc?.enabled || !session) return [];
+	if (!vsc?.enabled) return [];
 	const verificationObserved = session.verification_observed ?? new Set<string>();
 	const warnings: string[] = [];
 	const unverifiedCode = vsc.warn_unverified_code

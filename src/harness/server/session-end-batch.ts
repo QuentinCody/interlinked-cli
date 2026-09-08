@@ -11,7 +11,7 @@
 // os read that fails must not break SessionEnd cleanup. Returns the plan for the
 // jobs (and tests) to consume, or null on an unexpected error.
 
-import { spawn as nodeSpawn } from "node:child_process";
+import { spawn as nodeSpawn, type SpawnOptions } from "node:child_process";
 import os from "node:os";
 import { dirname, resolve } from "node:path";
 import { dataMaintenanceJobs } from "../../lib/data/maintenance.js";
@@ -78,8 +78,16 @@ export function governedSpawn(
 }
 
 /** Injectable seams for testing the spawn without launching a real process. */
+export interface SessionEndChild {
+	on(event: "error", listener: (error: Error) => void): unknown;
+	on(event: "exit", listener: () => void): unknown;
+	unref(): void;
+}
+
+export type SessionEndSpawn = (file: string, args: string[], options: SpawnOptions) => SessionEndChild;
+
 export interface SessionEndJobDeps {
-	spawn?: typeof nodeSpawn;
+	spawn?: SessionEndSpawn;
 	cliEntry?: string;
 	execPath?: string;
 	/** Test seam. Production uses the daemon-process singleton below. */
@@ -121,7 +129,7 @@ const SESSION_END_JOBS: SessionEndJob[] = [
 interface SpawnGovernedJobInput {
 	ctx: ServerRuntime;
 	plan: ResourcePlan;
-	spawn: typeof nodeSpawn;
+	spawn: SessionEndSpawn;
 	execPath: string;
 	cliEntry: string;
 	job: SessionEndJob;

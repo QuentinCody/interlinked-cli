@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,9 +9,9 @@ import type { GuardRulesConfig, HarnessEvent } from "../types.js";
 import { evaluateSpecPreGates, projectAfterContent } from "./spec-pre-gates.js";
 
 // SAFETY: the gate reads only rules.spec_checks; a minimal config suffices.
-const ENABLED = { spec_checks: { enabled: true } } as unknown as GuardRulesConfig;
+const ENABLED = ({ ...makeGuardRules(),  spec_checks: { enabled: true } } satisfies GuardRulesConfig);
 // SAFETY: same minimal shape, disabled — exercises the config off-switch.
-const DISABLED = { spec_checks: { enabled: false } } as unknown as GuardRulesConfig;
+const DISABLED = ({ ...makeGuardRules(),  spec_checks: { enabled: false } } satisfies GuardRulesConfig);
 
 const roots: string[] = [];
 afterEach(() => {
@@ -31,12 +32,12 @@ function setup(files: Record<string, string>): string {
 function writeEvent(filePath: string, content: string): HarnessEvent {
 	// SAFETY: the gate reads only tool_input from the event; the remaining
 	// HarnessEvent fields are irrelevant to this unit.
-	return {
+	return ({ agent_source: "claude", timestamp: "2026-09-01T00:00:00Z",
 		hook_event: "PreToolUse",
 		session_id: "s",
 		tool_name: "Write",
 		tool_input: { file_path: filePath, content },
-	} as unknown as HarnessEvent;
+	} satisfies HarnessEvent);
 }
 
 describe("projectAfterContent", () => {

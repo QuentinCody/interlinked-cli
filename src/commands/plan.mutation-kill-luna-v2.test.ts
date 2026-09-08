@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireString, wireUnknown } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -46,7 +47,7 @@ function record(overrides: Record<string, unknown> = {}): Record<string, unknown
 }
 
 function jsonOutput(): unknown[] {
-	 return JSON.parse(stdout.join("")) as unknown[];
+	 return parseWire(JSON.parse(stdout.join("")), wireArray(wireUnknown), "test JSON value");
 }
 
 describe("plan mutation boundaries", () => {
@@ -91,7 +92,7 @@ describe("plan mutation boundaries", () => {
 		 ];
 		 rows.forEach((row) => writePlanFile(`${row.session_id}.jsonl`, JSON.stringify(row)));
 		 await planListCommand({ cwd, json: true });
-		 expect((jsonOutput() as Array<{ session_id: string }>).map((row) => row.session_id)).toEqual([
+		 expect((parseWire(jsonOutput(), wireArray(wireObject({ "session_id": wireString })), "test JSON value")).map((row) => row.session_id)).toEqual([
 			 "valid", "older", "both-invalid-a", "both-invalid-b", "one-invalid",
 		 ]);
 	});
@@ -107,7 +108,7 @@ describe("plan mutation boundaries", () => {
 		 mkdirSync(join(root, "directory.jsonl"));
 		 stdout.length = 0;
 		 await planListCommand({ cwd, json: true });
-		 expect((jsonOutput() as Array<{ session_id: string }>).map((row) => row.session_id)).toEqual(["kept"]);
+		 expect((parseWire(jsonOutput(), wireArray(wireObject({ "session_id": wireString })), "test JSON value")).map((row) => row.session_id)).toEqual(["kept"]);
 	});
 
 	// test-contract: reverse scanning must skip blank and malformed trailing lines and show exact human-readable metadata and step numbering.

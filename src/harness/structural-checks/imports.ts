@@ -8,6 +8,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import type { ProjectGraph } from "../project-graph.js";
+
+/** Only graph operations used by the import relationship checks. */
+export type ImportGraph = Pick<ProjectGraph, "getDependencies" | "getExports" | "findDuplicateExports" | "toRelative">;
 import type { ExportedSymbol, ImportEdge, StructuralCheckResult } from "../types.js";
 import { escapeRegex } from "./helpers.js";
 import {
@@ -24,7 +27,7 @@ import {
 export function checkImportResolution(
 	filePath: string,
 	relPath: string,
-	graph: ProjectGraph,
+	graph: ImportGraph,
 ): StructuralCheckResult[] {
 	const results: StructuralCheckResult[] = [];
 	const edges = graph.getDependencies(filePath);
@@ -68,7 +71,7 @@ function checkImportedSymbolsExist(
 	edge: ImportEdge,
 	filePath: string,
 	relPath: string,
-	graph: ProjectGraph,
+	graph: ImportGraph,
 ): StructuralCheckResult[] {
 	if (edge.symbols.length === 0) return [];
 	const targetExports = graph.getExports(edge.toFile);
@@ -98,7 +101,7 @@ export function checkDuplicateSymbols(
 	filePath: string,
 	relPath: string,
 	oldExports: ExportedSymbol[],
-	graph: ProjectGraph,
+	graph: ImportGraph,
 	boundary?: string,
 ): StructuralCheckResult[] {
 	const results: StructuralCheckResult[] = [];
@@ -390,7 +393,7 @@ function resolveBarePackageName(edge: ImportEdge): string | null {
 export function checkHallucinatedImports(
 	filePath: string,
 	relPath: string,
-	graph: ProjectGraph,
+	graph: ImportGraph,
 ): StructuralCheckResult[] {
 	const results: StructuralCheckResult[] = [];
 	const edges = graph.getDependencies(filePath);
@@ -427,7 +430,7 @@ export function checkHallucinatedImports(
 export function checkCrossPackageImports(
 	filePath: string,
 	relPath: string,
-	graph: ProjectGraph,
+	graph: ImportGraph,
 ): StructuralCheckResult[] {
 	const results: StructuralCheckResult[] = [];
 	const edges = graph.getDependencies(filePath);

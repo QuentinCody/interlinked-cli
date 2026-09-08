@@ -24,14 +24,7 @@ export { readRecentLines };
  *  confirms "object or null" and leaves the per-variant shape unchecked. */
 function summarizeAction(action: JsonObject | null | undefined): string | null {
 	if (!action) return null;
-	const a = action as {
-		command?: unknown;
-		path?: unknown;
-		pattern?: unknown;
-		url?: unknown;
-		task?: unknown;
-		tool?: unknown;
-	};
+	const a = action;
 	const str = (v: unknown): string | null => (typeof v === "string" && v.length > 0 ? v : null);
 	return (
 		str(a.command) ??

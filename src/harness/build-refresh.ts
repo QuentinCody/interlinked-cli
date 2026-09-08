@@ -17,7 +17,7 @@
 // dev iterates via `interlinked reload`. Escape hatch (parallel to
 // INTERLINKED_NO_SELF_HEAL): INTERLINKED_NO_AUTO_RESTART=1.
 
-import { spawn as nodeSpawn } from "node:child_process";
+import { type ChildProcess, type SpawnOptions, spawn as nodeSpawn } from "node:child_process";
 import { statSync } from "node:fs";
 import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -116,7 +116,7 @@ export function shouldHandOver(input: HandOverInput): boolean {
 /** Injectable I/O so the watcher is unit-testable without spawning daemons. */
 interface BuildRefreshDeps {
 	statMtimeMs: (path: string) => number | null;
-	spawn: typeof nodeSpawn;
+	spawn: (command: string, args: readonly string[], options: SpawnOptions) => Pick<ChildProcess, "unref">;
 }
 
 interface BuildRefreshOptions {
@@ -144,7 +144,7 @@ function defaultStatMtimeMs(path: string): number | null {
  *  restart → start → daemon, where the startup guard stamps the `listening`
  *  row). Returns whether a child was actually launched. */
 function spawnSuccessor(
-	spawn: typeof nodeSpawn,
+	spawn: BuildRefreshDeps["spawn"],
 	own: OwnArtifact,
 	cwd: string,
 	attemptId: string,

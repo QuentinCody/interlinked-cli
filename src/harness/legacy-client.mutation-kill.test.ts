@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 // ===========================================================================
 // Mutation-kill residue pass (W6) for src/harness/legacy-client.ts.
 //
@@ -118,7 +119,7 @@ describe("parseResolvedTarget — non-object and wrong-typed entries", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit(
 			"data",
 			Buffer.from(
@@ -138,7 +139,7 @@ describe("parseResolvedTarget — non-object and wrong-typed entries", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit(
 			"data",
 			Buffer.from(
@@ -160,7 +161,7 @@ describe("parseResolvedTarget — non-object and wrong-typed entries", () => {
 			const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 				timeout_ms: 250,
 			});
-			const socket = lastSocket as FakeSocket;
+			const socket = nonNull(lastSocket);
 			socket.emit(
 				"data",
 				Buffer.from(
@@ -189,7 +190,7 @@ describe("parseHarnessDecision — omitted optionals stay absent, not undefined-
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit("data", Buffer.from(`${JSON.stringify({ decision: "allow" })}\n`));
 		const resolved = await promise;
 		expect(resolved).toStrictEqual({ decision: "allow" });
@@ -203,7 +204,7 @@ describe("parseHarnessDecision — omitted optionals stay absent, not undefined-
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit("data", Buffer.from("null\n"));
 		await expect(promise).rejects.toThrow("malformed legacy harness decision");
 	});
@@ -215,7 +216,7 @@ describe("parseHarnessDecision — omitted optionals stay absent, not undefined-
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit(
 			"data",
 			Buffer.from(
@@ -239,7 +240,7 @@ describe("callLegacyHarness — finish() idempotency", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		const destroySpy = vi.spyOn(socket, "destroy");
 		try {
 			const decision: HarnessDecision = { decision: "allow" };

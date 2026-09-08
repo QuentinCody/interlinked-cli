@@ -1,3 +1,4 @@
+import { parseWire, wireString } from "../lib/value-validation.js";
 // Behavioral coverage for failure-record.ts — the disk substrate for the
 // local failure-recovery channel. We mock node:fs (capture the three writes
 // without touching disk) and node:crypto's randomFillSync (deterministic
@@ -53,7 +54,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	// Restore the default deterministic fill (clearAllMocks wipes the impl).
 	randomFillSyncMock.mockImplementation((buf) => {
-		(buf as Uint8Array).fill(0);
+		new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength).fill(0);
 		return buf;
 	});
 });
@@ -79,7 +80,7 @@ describe("writeFailureRecord", () => {
 		expect(recordEnc).toBe("utf-8");
 		// Pretty-printed (2-space indent) and round-trips to the full record.
 		expect(recordBody).toBe(JSON.stringify(record, null, 2));
-		expect(JSON.parse(recordBody as string)).toEqual(record);
+		expect(JSON.parse(parseWire(recordBody, wireString, "test JSON value"))).toEqual(record);
 
 		// 3. Index row appended as one JSONL line with the projected fields.
 		expect(appendFileSyncMock).toHaveBeenCalledTimes(1);
@@ -96,7 +97,7 @@ describe("writeFailureRecord", () => {
 			})}\n`,
 		);
 		// The index projects only the five summary fields (not the whole record).
-		const parsedRow = JSON.parse((indexBody as string).trimEnd());
+		const parsedRow = JSON.parse((parseWire(indexBody, wireString, "test JSON value")).trimEnd());
 		expect(parsedRow).toEqual({
 			failure_id: record.failure_id,
 			session_id: record.session_id,
@@ -136,14 +137,14 @@ describe("mintFailureId", () => {
 		);
 		// randomFillSync was used to seed the 16-byte buffer.
 		expect(randomFillSyncMock).toHaveBeenCalledTimes(1);
-		expect((nonNull(randomFillSyncMock.mock.calls[0])[0] as Uint8Array).length).toBe(16);
+		expect(nonNull(randomFillSyncMock.mock.calls[0])).toHaveProperty([0,"length"], 16);
 	});
 
 	it("preserves the low nibble of byte 6 and low 6 bits of byte 8 from randomness", () => {
 		// Fill every byte with 0xff so the masks are observable:
 		// byte6 -> (0xff & 0x0f)|0x70 = 0x7f ; byte8 -> (0xff & 0x3f)|0x80 = 0xbf.
 		randomFillSyncMock.mockImplementationOnce((buf) => {
-			(buf as Uint8Array).fill(0xff);
+			new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength).fill(0xff);
 			return buf;
 		});
 		const id = mintFailureId(0);

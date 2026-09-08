@@ -13,7 +13,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import {
 	findDirtyDependents,
 	formatDirtyDependentWarning,
@@ -157,11 +157,11 @@ function readCurrentFileContent(absPath: string): string | null {
 /** Apply one MultiEdit `edits[]` entry. An entry that does not carry a
  *  string old/new pair leaves the content unchanged. */
 function applyEditEntry(content: string, edit: unknown): string {
-	if (!edit || typeof edit !== "object") return content;
-	const oldS = (edit as JsonObject).old_string;
-	const newS = (edit as JsonObject).new_string;
+	if (!isJsonObject(edit)) return content;
+	const oldS = edit.old_string;
+	const newS = edit.new_string;
 	if (typeof oldS !== "string" || typeof newS !== "string") return content;
-	return applyReplacement(content, oldS, newS, (edit as JsonObject).replace_all === true);
+	return applyReplacement(content, oldS, newS, edit.replace_all === true);
 }
 
 /**
@@ -190,7 +190,7 @@ export function computeFullNewContent(
 		const current = readCurrentFileContent(absPath);
 		if (current === null) return null;
 		let result = current;
-		for (const edit of toolInput.edits as unknown[]) result = applyEditEntry(result, edit);
+		for (const edit of toolInput.edits) result = applyEditEntry(result, edit);
 		return result;
 	}
 	return null;

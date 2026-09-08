@@ -171,7 +171,7 @@ describe("mutationOutcomeToDecision", () => {
 
 // SAFETY: StableId is a branded string; these are opaque site handles the
 // formatter only ever counts, never parses, so any distinct value is valid.
-const siteId = (s: string): StableId => s as StableId;
+const siteId = (s: string): StableId => s;
 
 describe("block reasons say which problem it is", () => {
 	it("names the survivor count and lists the survivors", () => {

@@ -305,6 +305,7 @@ export function parseDiagnosticLine(line: string, defaultFile: string): TsgoDiag
 			file: nonNull(m1[1]),
 			line: Number.parseInt(nonNull(m1[2]), 10),
 			column: Number.parseInt(nonNull(m1[3]), 10),
+			// SAFETY: the fourth capture in the matching m1 regex enumerates exactly these three severities.
 			severity: m1[4] as "error" | "warning" | "info",
 			code: Number.parseInt(nonNull(m1[5]), 10),
 			message: nonNull(m1[6]),
@@ -317,6 +318,7 @@ export function parseDiagnosticLine(line: string, defaultFile: string): TsgoDiag
 			file: nonNull(m2[1]),
 			line: Number.parseInt(nonNull(m2[2]), 10),
 			column: Number.parseInt(nonNull(m2[3]), 10),
+			// SAFETY: the fourth capture in the matching m2 regex enumerates exactly these three severities.
 			severity: m2[4] as "error" | "warning" | "info",
 			code: Number.parseInt(nonNull(m2[5]), 10),
 			message: nonNull(m2[6]),
@@ -331,6 +333,7 @@ export function parseDiagnosticLine(line: string, defaultFile: string): TsgoDiag
 				file: defaultFile,
 				line: 0,
 				column: 0,
+				// SAFETY: the first capture in the matching m3 regex enumerates exactly these three severities.
 				severity: m3[1] as "error" | "warning" | "info",
 				code: Number.parseInt(nonNull(m3[2]), 10),
 				message: nonNull(m3[3]),

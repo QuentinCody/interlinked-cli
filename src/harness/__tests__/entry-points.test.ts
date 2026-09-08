@@ -1,3 +1,4 @@
+import { makeRouteMap as completeRouteMapFixture } from "./fixtures/managers.js";
 // Phase A2 — tests for `entry-points.ts::collectEntryPoints`.
 //
 // Three sources cover-tested with ≥4 cases each (per Phase A2 plan):
@@ -375,9 +376,9 @@ describe("collectEntryPoints — extra branch coverage", () => {
 			auth_chain: [],
 			declared_params: [],
 		};
-		const fakeRouteMap = {
+		const fakeRouteMap = completeRouteMapFixture({
 			extractAllEndpoints: () => [endpoint, { ...endpoint }],
-		} as unknown as RouteMap;
+		});
 
 		const eps = collectEntryPoints(workdir, { routeMap: fakeRouteMap });
 		const http = eps.filter((e) => e.kind === "http_handler");

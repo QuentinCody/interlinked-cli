@@ -1,3 +1,5 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
+import { nonNull } from "../lib/non-null.js";
 // ===========================================================================
 // Mutation-kill companion for src/harness/behavioral-diff-checks-reintro.ts.
 //
@@ -24,7 +26,7 @@ const fsMock = vi.hoisted(() => ({
 vi.mock("node:fs", () => fsMock);
 
 const cpMock = vi.hoisted(() => ({
-	spawnSync: vi.fn(),
+	spawnSync: vi.fn<(...args: SpawnArgs) => SpawnResult>(),
 }));
 vi.mock("node:child_process", () => cpMock);
 
@@ -61,7 +63,7 @@ beforeEach(() => {
 			// SAFETY: every diff invocation in this file's source ends the args
 			// array with the target file path (a string literal built by the
 			// caller), never a nested array or object.
-			const file = args[args.length - 1] as string;
+			const file = nonNull(args[args.length - 1]);
 			return diffConfig.get(file) ?? { status: 1, stdout: "" };
 		}
 		if (sub === "log") {
@@ -78,7 +80,7 @@ beforeEach(() => {
 			// SAFETY: every show invocation in this file's source ends the args
 			// array with the commit sha (a string extracted from the log output),
 			// never a nested array or object.
-			const sha = args[args.length - 1] as string;
+			const sha = nonNull(args[args.length - 1]);
 			return showConfig.get(sha) ?? { status: 1, stdout: "" };
 		}
 		return { status: 1, stdout: "" };
@@ -90,9 +92,9 @@ function makeSession(files: string[]): SessionTrajectory {
 	// session, so a minimal object carrying just that field is sound for
 	// every call site exercised in this file (matches the existing
 	// hand-written companion's makeSession).
-	return {
+	return ({ ...completeSessionFixture(), ...{
 		files_written: new Set(files),
-	} as unknown as SessionTrajectory;
+	} });
 }
 
 function diffAdding(...lines: string[]): string {
@@ -100,10 +102,7 @@ function diffAdding(...lines: string[]): string {
 }
 
 function callsFor(sub: string): SpawnArgs[] {
-	// SAFETY: every call the mockImplementation above receives is shaped
-	// exactly like SpawnArgs (cmd, args, options) — vi.fn's untyped
-	// `.mock.calls` just needs re-asserting into that shape.
-	return (cpMock.spawnSync.mock.calls as SpawnArgs[]).filter((c) => c[1][2] === sub);
+	return cpMock.spawnSync.mock.calls.filter((c) => c[1][2] === sub);
 }
 
 function logPhrase(call: SpawnArgs): string | undefined {
@@ -242,7 +241,7 @@ describe("checkReintroducesRemovedCode — top-level guard mutants (mutation-kil
 		const file = "/repo/src/emptydiff-marker.ts";
 		const results = checkReintroducesRemovedCode(makeSession([file]));
 		expect(results).toEqual([]);
-		const existsCalls = (fsMock.existsSync.mock.calls as [string][]).map((c) => c[0]);
+		const existsCalls = fsMock.existsSync.mock.calls.map((c) => c[0]);
 		expect(existsCalls).not.toContain(file);
 	});
 

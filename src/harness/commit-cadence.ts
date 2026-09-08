@@ -23,6 +23,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { nonNull } from "../lib/non-null.js";
+import { isJsonObject } from "../lib/json-types.js";
 
 /** Default doc-file globs. Editable via `commit_cadence.doc_globs` config.
  *  These are paths/patterns whose edits do NOT count toward "uncommitted
@@ -161,12 +162,12 @@ interface RawUsage {
 }
 
 function extractUsage(obj: unknown): RawUsage | null {
-	if (!obj || typeof obj !== "object") return null;
-	const o = obj as Record<string, unknown>;
+	if (!isJsonObject(obj)) return null;
+	const o = obj;
 	if (o.type !== "assistant") return null;
-	const message = o.message as Record<string, unknown> | undefined;
-	const usage = (message?.usage ?? o.usage) as Record<string, unknown> | undefined;
-	if (!usage) return null;
+	const message = isJsonObject(o.message) ? o.message : undefined;
+	const usage = message?.usage ?? o.usage;
+	if (!isJsonObject(usage)) return null;
 	const input = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
 	const output = typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
 	if (input === 0 && output === 0) return null;

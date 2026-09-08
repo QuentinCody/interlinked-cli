@@ -6,17 +6,18 @@
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import {
 	checkUnknownKeys,
 	err,
 	fail,
+	includes,
 	isRepoRelativePath,
 	ok,
 	type ValidationError,
 	type ValidationResult,
 } from "./schema-validator-helpers.js";
-import type { ArtifactFileKey, StructureConfig, StructureMode } from "./types.js";
+import type { ArtifactFileKey, StructureConfig } from "./types.js";
 import {
 	DEFAULT_ADOPTION_THRESHOLDS,
 	DEFAULT_BUILTINS,
@@ -56,7 +57,7 @@ const STRUCTURE_ROOT_KEYS = [
 	"adoption",
 	"builtins",
 ];
-const VERIFY_KEYS = [
+const VERIFY_KEYS: Array<keyof StructureConfig["verify"]> = [
 	"fail_on_deterministic",
 	"fail_on_invalid_structure",
 	"fail_on_partial",
@@ -64,7 +65,7 @@ const VERIFY_KEYS = [
 ];
 const POSTTOOLUSE_KEYS = ["emit_deterministic", "emit_partial", "emit_heuristic", "max_heuristics"];
 const ADOPTION_KEYS = ["coverage_thresholds"];
-const BUILTINS_KEYS = [
+const BUILTINS_KEYS: Array<keyof StructureConfig["builtins"]> = [
 	"public_symbol_companions",
 	"public_symbol_test_case",
 	"env_key_companions",
@@ -73,7 +74,7 @@ const BUILTINS_KEYS = [
 	"glossary_residue",
 	"package_boundary_violations",
 ];
-const ARTIFACT_FILE_KEYS: ArtifactFileKey[] = [
+export const ARTIFACT_FILE_KEYS: ArtifactFileKey[] = [
 	"public_api",
 	"env",
 	"config",
@@ -87,10 +88,10 @@ const ARTIFACT_FILE_KEYS: ArtifactFileKey[] = [
 const COVERAGE_KEYS = ARTIFACT_FILE_KEYS;
 
 export function validateStructureJson(data: unknown): ValidationResult {
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!isJsonObject(data)) {
 		return fail([err("$", "Must be a JSON object")]);
 	}
-	const obj = data as JsonObject;
+	const obj = data;
 	const errors: ValidationError[] = [
 		...checkUnknownKeys(obj, STRUCTURE_ROOT_KEYS, "$"),
 		...validateVersionField(obj),
@@ -121,7 +122,7 @@ function validateVersionField(obj: JsonObject): ValidationError[] {
 }
 
 function validateModeField(obj: JsonObject): ValidationError[] {
-	if (typeof obj.mode !== "string" || !VALID_MODES.includes(obj.mode as StructureMode)) {
+	if (!includes(VALID_MODES, obj.mode)) {
 		return [err("$.mode", `Must be one of: ${VALID_MODES.join(", ")}`)];
 	}
 	return [];
@@ -202,10 +203,10 @@ function validateAdoptionField(obj: JsonObject): ValidationError[] {
 	const a = obj.adoption;
 	errors.push(...checkUnknownKeys(a, ADOPTION_KEYS, "$.adoption"));
 	if (a.coverage_thresholds !== undefined) {
-		if (typeof a.coverage_thresholds !== "object" || a.coverage_thresholds === null) {
+		if (!isJsonObject(a.coverage_thresholds)) {
 			errors.push(err("$.adoption.coverage_thresholds", "Must be an object"));
 		} else {
-			errors.push(...validateCoverageThresholds(a.coverage_thresholds as JsonObject));
+			errors.push(...validateCoverageThresholds(a.coverage_thresholds));
 		}
 	}
 	return errors;
@@ -232,37 +233,53 @@ function validateBuiltinsField(obj: JsonObject): ValidationError[] {
 // -------------------------------------------
 
 export function resolveStructureConfig(data: JsonObject): StructureConfig {
-	const mode = (data.mode as StructureMode | undefined) || "standard";
+	const mode = includes(VALID_MODES, data.mode) ? data.mode : "standard";
 	const defaults = MODE_DEFAULTS[mode];
-
-	const verify: StructureConfig["verify"] = {
-		...defaults.verify,
-		...((data.verify as Partial<StructureConfig["verify"]> | undefined) || {}),
-	};
-	const posttooluse: StructureConfig["posttooluse"] = {
-		...defaults.posttooluse,
-		...((data.posttooluse as Partial<StructureConfig["posttooluse"]> | undefined) || {}),
-	};
-	const adoption: StructureConfig["adoption"] = {
-		coverage_thresholds: {
-			...DEFAULT_ADOPTION_THRESHOLDS,
-			...((data.adoption as Record<string, Record<string, number>> | undefined)
-				?.coverage_thresholds || {}),
-		},
-	};
-	const builtins: StructureConfig["builtins"] = {
-		...DEFAULT_BUILTINS,
-		...((data.builtins as Partial<StructureConfig["builtins"]> | undefined) || {}),
-	};
+	const { artifacts, adoption } = resolveArtifactSettings(data);
 
 	return {
 		version: 1,
 		mode,
-		artifacts: (data.artifacts as StructureConfig["artifacts"] | undefined) || {},
-		verify,
-		posttooluse,
+		artifacts,
+		verify: resolveBooleanSettings(data.verify, defaults.verify, VERIFY_KEYS),
+		posttooluse: resolvePosttooluse(data.posttooluse, defaults.posttooluse),
 		adoption,
-		builtins,
+		builtins: resolveBooleanSettings(data.builtins, DEFAULT_BUILTINS, BUILTINS_KEYS),
+	};
+}
+
+function resolveBooleanSettings<K extends string>(input: unknown, defaults: Record<K, boolean>, keys: readonly K[]): Record<K, boolean> {
+	const result = { ...defaults };
+	const values = isJsonObject(input) ? input : {};
+	for (const key of keys) {
+		const value = values[key];
+		if (typeof value === "boolean") result[key] = value;
+	}
+	return result;
+}
+
+function resolveArtifactSettings(data: JsonObject): Pick<StructureConfig, "artifacts" | "adoption"> {
+	const coverage_thresholds = { ...DEFAULT_ADOPTION_THRESHOLDS };
+	const adoptionInput = isJsonObject(data.adoption) ? data.adoption : {};
+	const thresholds = isJsonObject(adoptionInput.coverage_thresholds) ? adoptionInput.coverage_thresholds : {};
+	const artifacts: StructureConfig["artifacts"] = {};
+	const artifactInput = isJsonObject(data.artifacts) ? data.artifacts : {};
+	for (const key of ARTIFACT_FILE_KEYS) {
+		const threshold = thresholds[key];
+		if (typeof threshold === "number") coverage_thresholds[key] = threshold;
+		const path = artifactInput[key];
+		if (typeof path === "string") artifacts[key] = path;
+	}
+	return { artifacts, adoption: { coverage_thresholds } };
+}
+
+function resolvePosttooluse(input: unknown, defaults: StructureConfig["posttooluse"]): StructureConfig["posttooluse"] {
+	const values = isJsonObject(input) ? input : {};
+	return {
+		emit_deterministic: typeof values.emit_deterministic === "boolean" ? values.emit_deterministic : defaults.emit_deterministic,
+		emit_partial: typeof values.emit_partial === "boolean" ? values.emit_partial : defaults.emit_partial,
+		emit_heuristic: typeof values.emit_heuristic === "boolean" ? values.emit_heuristic : defaults.emit_heuristic,
+		max_heuristics: typeof values.max_heuristics === "number" ? values.max_heuristics : defaults.max_heuristics,
 	};
 }
 

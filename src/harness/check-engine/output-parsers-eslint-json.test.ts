@@ -51,4 +51,15 @@ describe("parseEslintJson — negative (must not fire)", () => {
 	it("N2: entries without a filePath or messages array are skipped", () => {
 		expect(parseEslintJson(JSON.stringify([{ messages: [] }, { filePath: "x" }, 7]))).toEqual([]);
 	});
+
+	it("keeps valid messages when neighboring rows and optional fields are malformed", () => {
+		const out = parseEslintJson(JSON.stringify([
+			null,
+			{ filePath: "a.ts", messages: [null, { message: 5 }, { message: "real warning", ruleId: { bad: true }, line: "7" }] },
+		]));
+		expect(out).toEqual([{
+			tool: "eslint", severity: "warning", file: "a.ts", line: 0, column: 0,
+			message: "real warning", ruleId: undefined,
+		}]);
+	});
 });

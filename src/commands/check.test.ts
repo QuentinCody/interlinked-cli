@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // Behavioral tests for `checkCommand` — the project-wide structural + engine
 // check handler. The pure helpers (`findDeadImports`, `extractBindings`) are
 // covered in __tests__/check.test.ts; this file drives the large async command
@@ -621,7 +622,7 @@ describe("checkCommand", () => {
 		});
 		await checkCommand({ json: true, tools: true, cwd: "/abs" });
 		const { stdout } = io.mocks();
-		const parsed = JSON.parse(stdout) as Record<string, unknown>;
+		const parsed = parseWire(JSON.parse(stdout), wireRecord(wireUnknown), "test JSON value");
 		expect(parsed["blast-radius"]).toEqual({ count: 1, files: ["src/hub.ts"] });
 		expect(parsed.tsc).toEqual({
 			count: 1,
@@ -636,7 +637,7 @@ describe("checkCommand", () => {
 		graphState.fileCount = 0;
 		await checkCommand({ json: true, cwd: "/abs" });
 		const { stdout } = io.mocks();
-		const parsed = JSON.parse(stdout) as Record<string, unknown>;
+		const parsed = parseWire(JSON.parse(stdout), wireRecord(wireUnknown), "test JSON value");
 		expect(parsed["broken-imports"]).toEqual({ count: 0, files: [] });
 		expect(parsed.tsc).toBeUndefined();
 	});
@@ -1161,7 +1162,7 @@ describe("checkCommand — mutation-targeted branch isolation", () => {
 		await checkCommand({ only: "blast-radius", json: true, cwd: "/abs" });
 		const { stdout } = io.mocks();
 		// SAFETY: JSON.parse of our own captured stdout in a controlled test.
-		const parsed = JSON.parse(stdout) as Record<string, unknown>;
+		const parsed = parseWire(JSON.parse(stdout), wireRecord(wireUnknown), "test JSON value");
 		expect(parsed).toStrictEqual({ "blast-radius": { count: 1, files: ["src/hub.ts"] } });
 	});
 
@@ -1202,7 +1203,7 @@ describe("checkCommand — mutation-targeted branch isolation", () => {
 		await checkCommand({ only: "tsc", json: true, cwd: "/abs" });
 		const { stdout } = io.mocks();
 		// SAFETY: JSON.parse of our own captured stdout in a controlled test.
-		const parsed = JSON.parse(stdout) as Record<string, unknown>;
+		const parsed = parseWire(JSON.parse(stdout), wireRecord(wireUnknown), "test JSON value");
 		expect(parsed).toStrictEqual({
 			tsc: {
 				count: 1,

@@ -128,7 +128,7 @@ export const fetchedExternalThenSecretRead: SequenceDetector = {
 	determinism: "fully_deterministic",
 	fn: (trajectory, candidate) => {
 		if (!isReadCandidate(candidate.tool_name)) return [];
-		const filePath = (candidate.tool_input?.file_path as string) || "";
+		const filePath = (typeof candidate.tool_input?.file_path === "string" ? candidate.tool_input?.file_path : "") || "";
 		if (!filePath) return [];
 		const filePathLower = filePath.toLowerCase();
 		// Sensitive-shape heuristic — match on common secret-bearing filenames.

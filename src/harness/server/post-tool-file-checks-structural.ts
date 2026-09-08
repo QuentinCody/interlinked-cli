@@ -1,3 +1,4 @@
+import { readOptionalToolString } from "../evaluator/tool-input-values.js";
 // interlinked-tdd: exempt
 // ===========================================
 // PostToolUse — structural-checks block helpers
@@ -260,9 +261,9 @@ async function recordOneStructuralErrorMemory(
 ): Promise<void> {
 	if (result.severity !== "error" && result.severity !== "warning") return;
 
-	const editOldString = checkEvent.tool_input?.old_string as string | undefined;
-	const editNewString = checkEvent.tool_input?.new_string as string | undefined;
-	const editContent = checkEvent.tool_input?.content as string | undefined;
+	const editOldString = readOptionalToolString(checkEvent.tool_input?.old_string);
+	const editNewString = readOptionalToolString(checkEvent.tool_input?.new_string);
+	const editContent = readOptionalToolString(checkEvent.tool_input?.content);
 	const diffContext = ErrorHistory.buildErrorContext({
 		file: relPath,
 		fileRole,
@@ -275,7 +276,7 @@ async function recordOneStructuralErrorMemory(
 		...(editContent !== undefined ? { content: editContent } : {}),
 	});
 	// Estimate line number from old_string position
-	const lineStart = estimateErrorLineStart(editedFilePath, checkEvent.tool_input?.old_string as string | undefined);
+	const lineStart = estimateErrorLineStart(editedFilePath, readOptionalToolString(checkEvent.tool_input?.old_string));
 
 	await ctx.errorHistory.recordError(
 		event.session_id,
@@ -339,9 +340,9 @@ export function recordStructuralFixMemory(
 	fileGraph: ProjectGraph,
 ): void {
 	const relPath = fileGraph.toRelative(editedFilePath);
-	const queryOldString = checkEvent.tool_input?.old_string as string | undefined;
-	const queryNewString = checkEvent.tool_input?.new_string as string | undefined;
-	const queryContent = checkEvent.tool_input?.content as string | undefined;
+	const queryOldString = readOptionalToolString(checkEvent.tool_input?.old_string);
+	const queryNewString = readOptionalToolString(checkEvent.tool_input?.new_string);
+	const queryContent = readOptionalToolString(checkEvent.tool_input?.content);
 	const fixContext = ErrorHistory.buildQueryContext({
 		file: relPath,
 		fileRole: fileGraph.classifyModule(editedFilePath),

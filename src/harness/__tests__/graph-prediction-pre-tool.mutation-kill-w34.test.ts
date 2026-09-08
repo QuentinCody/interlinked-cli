@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // ===========================================
 // Mutation-kill suite — wave 34 survivors for graph-prediction-pre-tool.ts
 // ===========================================
@@ -118,7 +119,7 @@ describe("driveGraphPrediction — observation row telemetry (w34)", () => {
 		const obsPath = join(dir, ".interlinked", "graph-observations.jsonl");
 		expect(existsSync(obsPath)).toBe(true);
 		const lines = readFileSync(obsPath, "utf8").trim().split("\n");
-		const row = JSON.parse(lines[lines.length - 1] as string);
+		const row = JSON.parse(nonNull(lines[lines.length - 1]));
 		expect(row.session_id).toBe("sess-1");
 		expect(row.file_path).toBe(join(dir, "src", "obs-target.ts"));
 		expect(row.case).toBe("D");
@@ -340,7 +341,7 @@ describe("driveGraphPrediction — reconciled_at timestamp fallback (w34)", () =
 
 		const reconPath = join(dir, ".interlinked", "graph-reconciliations.jsonl");
 		const lines = readFileSync(reconPath, "utf8").trim().split("\n");
-		const row = JSON.parse(lines[lines.length - 1] as string);
+		const row = JSON.parse(nonNull(lines[lines.length - 1]));
 		expect(typeof row.reconciled_at).toBe("string");
 		expect(row.reconciled_at.length).toBeGreaterThan(0);
 		expect(row.reconciled_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);

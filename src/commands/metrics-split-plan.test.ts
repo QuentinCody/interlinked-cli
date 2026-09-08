@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireLiteral, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 // ===========================================
 // interlinked metrics split-plan — plan assembly, naming, render, command
 // ===========================================
@@ -19,6 +20,8 @@ import {
 	type SplitPlan,
 	toKebabCase,
 } from "./metrics-split-plan.js";
+
+const isCapturedSplitPlan = wireObject({ "source": wireString, "totalLines": wireNumber, "lineCap": wireNumber, "overCap": wireLiteral(false, true), "unitCount": wireNumber, "preambleLines": wireNumber, "cyclomatic": wireNumber, "modules": wireArray(wireObject({ "file": wireString, "units": wireArray(wireObject({ "name": wireString, "kind": wireLiteral("function", "class", "type", "value"), "lines": wireNumber, "cyclomatic": wireNumber, "exported": wireLiteral(false, true) })), "lines": wireNumber, "cyclomatic": wireNumber, "imports": wireArray(wireString) })), "crossEdges": wireArray(wireObject({ "from": wireString, "fromModule": wireString, "to": wireString, "toModule": wireString })), "newlyExported": wireArray(wireString) });
 
 // buildSplitGraph is mocked (default implementation delegates to the real
 // function) so one command test can force the "typescript unavailable" path
@@ -270,7 +273,7 @@ describe("metricsSplitPlanCommand", () => {
 		writeFileSync(join(dir, "loader.ts"), SOURCE);
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
 		await metricsSplitPlanCommand({ file: "loader.ts", cwd: dir, json: true });
-		const printed = JSON.parse(String(log.mock.calls[0]?.[0])) as SplitPlan;
+		const printed = parseWire(JSON.parse(String(log.mock.calls[0]?.[0])), isCapturedSplitPlan, "test JSON value");
 		expect(printed.modules.map((m) => m.file)).toContain("loader.ts");
 		expect(process.exitCode ?? 0).toBe(0);
 	});
@@ -316,7 +319,7 @@ describe("metricsSplitPlanCommand", () => {
 		writeFileSync(join(dir, "thing.ts"), COLLISION_SOURCE);
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
 		await metricsSplitPlanCommand({ file: "thing.ts", cwd: dir, json: true, maxClusters: "2" });
-		const printed = JSON.parse(String(log.mock.calls[0]?.[0])) as SplitPlan;
+		const printed = parseWire(JSON.parse(String(log.mock.calls[0]?.[0])), isCapturedSplitPlan, "test JSON value");
 		expect(printed.modules).toHaveLength(2);
 	});
 
@@ -325,7 +328,7 @@ describe("metricsSplitPlanCommand", () => {
 		writeFileSync(join(dir, "thing.ts"), COLLISION_SOURCE);
 		const log = vi.spyOn(console, "log").mockImplementation(() => {});
 		await metricsSplitPlanCommand({ file: "thing.ts", cwd: dir, json: true, maxClusters: "not-a-number" });
-		const printed = JSON.parse(String(log.mock.calls[0]?.[0])) as SplitPlan;
+		const printed = parseWire(JSON.parse(String(log.mock.calls[0]?.[0])), isCapturedSplitPlan, "test JSON value");
 		expect(printed.modules).toHaveLength(3);
 	});
 

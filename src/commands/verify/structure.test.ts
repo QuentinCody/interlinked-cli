@@ -18,25 +18,35 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	ArtifactEdge,
 	ArtifactNode,
+	BaselineFile,
 	StructureConfig,
 	StructureFinding,
 	StructureVerifyOutput,
 } from "../../harness/structure/types.js";
 
 // --- mock module-scoped state (hoisted-safe handles) -------------------------
-const m = {
-	loadResult: undefined as
-		| { config: StructureConfig | null; errors: string[]; implicit: boolean }
-		| undefined,
-	findings: [] as StructureFinding[],
-	baseline: { schema_version: 1 as const, entries: [] as never[] },
+const m: {
+	loadResult: { config: StructureConfig | null; errors: string[]; implicit: boolean } | undefined;
+	findings: StructureFinding[];
+	baseline: BaselineFile;
+	isBaselinedFn: ReturnType<typeof vi.fn<(finding: StructureFinding) => boolean>>;
+	adoption: Record<string, number>;
+	output: StructureVerifyOutput | undefined;
+	cacheStale: boolean;
+	nodes: ArtifactNode[];
+	edges: ArtifactEdge[];
+	throwIn: string | null;
+} = {
+	loadResult: undefined,
+	findings: [],
+	baseline: { schema_version: 1, entries: [] },
 	isBaselinedFn: vi.fn((_f: StructureFinding) => false),
-	adoption: {} as Record<string, number>,
-	output: undefined as StructureVerifyOutput | undefined,
+	adoption: {},
+	output: undefined,
 	cacheStale: false,
-	nodes: [] as ArtifactNode[],
-	edges: [] as ArtifactEdge[],
-	throwIn: null as null | string, // module name to throw from (for catch coverage)
+	nodes: [],
+	edges: [],
+	throwIn: null, // module name to throw from (for catch coverage)
 };
 
 vi.mock("../../harness/structure/adoption.js", () => ({
@@ -185,7 +195,7 @@ function makeOutput(over: Partial<StructureVerifyOutput> = {}): StructureVerifyO
 		mode: "standard",
 		catalog_fresh: true,
 		invalid_files: [],
-		adoption: {} as StructureVerifyOutput["adoption"],
+		adoption: { public_api: 0, env: 0, config: 0, tests: 0, docs: 0, examples: 0, glossary: 0, layers: 0, packages: 0 },
 		findings: { fully_deterministic: 0, partially_deterministic: 0, heuristic: 0 },
 		details: [],
 		...over,
@@ -194,7 +204,7 @@ function makeOutput(over: Partial<StructureVerifyOutput> = {}): StructureVerifyO
 
 // adoption maps with arbitrary keys (to exercise color tiers cleanly)
 function adoptionMap(rec: Record<string, number>): StructureVerifyOutput["adoption"] {
-	return rec as unknown as StructureVerifyOutput["adoption"];
+	return rec;
 }
 
 // --- capture / reset ---------------------------------------------------------
@@ -225,11 +235,11 @@ beforeEach(() => {
 	process.stdout.write = ((c: string) => {
 		stdoutChunks.push(c);
 		return true;
-	}) as typeof process.stdout.write;
+	});
 	process.stderr.write = ((c: string) => {
 		stderrChunks.push(c);
 		return true;
-	}) as typeof process.stderr.write;
+	});
 	origExitCode = process.exitCode;
 	process.exitCode = undefined;
 });
@@ -258,11 +268,17 @@ describe("buildStructureJsonSection", () => {
 	});
 
 	it("filters baselined findings out before counting (isBaselined true drops them)", () => {
-		m.findings = [makeFinding(), makeFinding({ name: "other" })];
+		const first = makeFinding();
+		const second = makeFinding({ name: "other" });
+		m.findings = [first, second];
 		m.isBaselinedFn = vi.fn(() => true);
 		buildStructureJsonSection("/repo", {});
 		// every finding considered, then filtered → none reach deterministic gate
 		expect(m.isBaselinedFn).toHaveBeenCalledTimes(2);
+		// Pin the ACTUAL findings passed — a call count alone would still pass
+		// if isBaselined were invoked twice with the wrong (or swapped) finding.
+		expect(m.isBaselinedFn).toHaveBeenNthCalledWith(1, first);
+		expect(m.isBaselinedFn).toHaveBeenNthCalledWith(2, second);
 		expect(process.exitCode).toBeUndefined();
 	});
 

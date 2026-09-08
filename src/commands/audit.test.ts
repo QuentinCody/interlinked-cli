@@ -1,3 +1,4 @@
+import { parseWire, wireNullable, wireNumber, wireObject, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked audit — CLI surface behavioral tests
 // ===========================================
@@ -109,7 +110,7 @@ describe("auditVerifyCommand — JSON output", () => {
 
 		// Exactly one console.log call in JSON mode.
 		expect(logged).toHaveLength(1);
-		const parsed = JSON.parse(nonNull(logged[0])) as Record<string, unknown>;
+		const parsed = parseWire(JSON.parse(nonNull(logged[0])), wireRecord(wireUnknown), "test JSON value");
 		expect(parsed).toEqual({
 			valid: true,
 			total_events: 250,
@@ -132,7 +133,7 @@ describe("auditVerifyCommand — JSON output", () => {
 			baseResult({ guard_events: 3, chained_events: 1 }),
 		);
 		await auditVerifyCommand({ json: true });
-		const parsed = JSON.parse(nonNull(logged[0])) as { coverage_pct: number };
+		const parsed = parseWire(JSON.parse(nonNull(logged[0])), wireObject({ "coverage_pct": wireNumber }), "test JSON value");
 		expect(parsed.coverage_pct).toBe(33);
 	});
 
@@ -141,7 +142,7 @@ describe("auditVerifyCommand — JSON output", () => {
 			baseResult({ guard_events: 0, chained_events: 0, last_hash: undefined }),
 		);
 		await auditVerifyCommand({ json: true });
-		const parsed = JSON.parse(nonNull(logged[0])) as { coverage_pct: number | null };
+		const parsed = parseWire(JSON.parse(nonNull(logged[0])), wireObject({ "coverage_pct": wireNullable(wireNumber) }), "test JSON value");
 		expect(parsed.coverage_pct).toBeNull();
 	});
 

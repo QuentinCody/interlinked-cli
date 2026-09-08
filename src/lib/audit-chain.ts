@@ -31,7 +31,7 @@ import {
 } from "./audit-chain-io.js";
 import { getDataDir } from "./config.js";
 import { withFileMutationLock } from "./file-mutation-lock.js";
-import { isJsonObject, type JsonObject } from "./json-types.js";
+import { isJsonObject } from "./json-types.js";
 import { readRecentLines } from "./reverse-line-reader.js";
 
 export { iterateFileLines } from "./audit-chain-io.js";
@@ -82,9 +82,9 @@ export function canonicalJson(value: unknown): string {
 	// the undefined case is handled explicitly rather than via `?? "null"`
 	// (which type-checks as dead code against the dishonest signature).
 	if (value === undefined) return "null";
-	if (value === null || typeof value !== "object") return JSON.stringify(value);
 	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-	const obj = value as JsonObject;
+	if (!isJsonObject(value)) return JSON.stringify(value);
+	const obj = value;
 	const keys = Object.keys(obj).sort();
 	return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(",")}}`;
 }
@@ -291,8 +291,8 @@ function consumeAuditLine(
 		return chainFailure(state, lineNumber, `invalid audit row at line ${lineNumber}: ${parsed.reason}`);
 	}
 	const { record } = parsed;
-	const type = record.type as string;
-	if (!CHAINED_AUDIT_TYPES.has(type)) return null;
+	const type = record.type;
+	if (typeof type !== "string" || !CHAINED_AUDIT_TYPES.has(type)) return null;
 	state.guardEvents += 1;
 
 	const storedHash =

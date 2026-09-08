@@ -1,3 +1,4 @@
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CohortManager } from "../cohort.js";
 import { ReservationManager } from "../reservations.js";
@@ -15,7 +16,6 @@ vi.mock("./edit-contract-phase.js", () => ({ evaluateEditContractPhase: vi.fn(nu
 vi.mock("./interpreter-write-guard.js", () => ({ evaluateInterpreterWriteGuard: vi.fn(nullPhase) }));
 vi.mock("./mutation-directed-guard.js", () => ({ evaluateMutationDirectedProfile: vi.fn(nullPhase) }));
 vi.mock("./pre-tool-context-phases.js", () => ({
-	drainPendingSessionWarnings: vi.fn(),
 	evaluateCurlMcpPhase: vi.fn(),
 	evaluateDiagnosticsPhase: vi.fn(),
 	evaluateMarkdownFirstPhase: vi.fn(),
@@ -101,7 +101,7 @@ const event = (overrides: Partial<HarnessEvent> = {}): HarnessEvent => ({
 	...overrides,
 });
 
-const session = (): SessionTrajectory => ({
+const session = (): SessionTrajectory => (({ ...makeSessionFixture(),
 	session_id: "session-1",
 	agent_name: "agent",
 	started_at: "2026-08-20T00:00:00.000Z",
@@ -117,7 +117,7 @@ const session = (): SessionTrajectory => ({
 	taint_sources: [],
 	step_limit: Number.POSITIVE_INFINITY,
 // SAFETY: this fixture includes the session fields consumed by the public evaluator.
-} as unknown as SessionTrajectory);
+} satisfies SessionTrajectory));
 
 const rules = (enabled = true): GuardRulesConfig => ({ ...getDefaultConfig(), enabled });
 const reservations = new ReservationManager();

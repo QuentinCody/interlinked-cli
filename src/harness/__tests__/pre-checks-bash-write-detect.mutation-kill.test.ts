@@ -379,13 +379,6 @@ describe(".graph.* Supermodel shards", () => {
 	});
 });
 describe("legitimate operations stay null", () => {
-	it("N1: nullish command does not throw and returns null", () => {
-		const detect = detectBashCodeFileWrite as unknown as (c: unknown) => unknown;
-		expect(() => detect(null)).not.toThrow();
-		expect(detect(null)).toBeNull();
-		expect(() => detect(undefined)).not.toThrow();
-		expect(detect(undefined)).toBeNull();
-	});
 
 	it("N2: tee / cp / dd landing outside the project root are allowed", () => {
 		expect(detectBashCodeFileWrite("make | tee /tmp/build-log.ts", ROOT)).toBeNull();

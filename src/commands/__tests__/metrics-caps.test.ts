@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetMetricCapsCache } from "../../harness/metric-caps.js";
+import { parseWire, wireNumber, wireObject } from "../../lib/value-validation.js";
 import { metricsCommand } from "../metrics.js";
 
 let tmp: string;
@@ -65,7 +66,11 @@ interface JsonReport {
 	};
 }
 function lastJson(): JsonReport {
-	return JSON.parse(logged) as JsonReport;
+	return parseWire(JSON.parse(logged), wireObject<JsonReport>({
+		caps: wireObject({ crap: wireNumber, cyclomatic: wireNumber, cyclomaticReview: wireNumber, minCoveragePct: wireNumber, functionTokens: wireNumber }),
+		scope: wireObject({ functions: wireNumber }),
+		gates: wireObject({ functionsCyclomaticReview: wireNumber, functionsCyclomaticBad: wireNumber, functionsOverCrap: wireNumber }),
+	}), "metrics report");
 }
 
 beforeEach(() => {

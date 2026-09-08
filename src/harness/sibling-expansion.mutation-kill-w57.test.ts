@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 import { describe, expect, it } from "vitest";
 import { decomposePattern } from "./regex-trigrams.js";
 import {
@@ -48,14 +49,14 @@ describe("DEFAULT_TRIGGERS message templates — positive (must fire)", () => {
 
 	it("as_any pattern requires one-or-more whitespace (kills \\s+ -> \\s mutant)", () => {
 		const trig = DEFAULT_TRIGGERS.find((t) => t.triggerName === "as_any_ratchet");
-		const pattern = trig?.pattern as RegExp;
+		const pattern = nonNull(trig?.pattern);
 		pattern.lastIndex = 0;
 		expect(pattern.test("let z = x as  any;")).toBe(true);
 	});
 
 	it("JSON.parse pattern requires whitespace-only gap before paren (kills \\s* -> \\S* mutant)", () => {
 		const trig = DEFAULT_TRIGGERS.find((t) => t.triggerName === "unvalidated_json_boundary");
-		const pattern = trig?.pattern as RegExp;
+		const pattern = nonNull(trig?.pattern);
 		pattern.lastIndex = 0;
 		expect(pattern.test("JSON.parse (x)")).toBe(true);
 		pattern.lastIndex = 0;

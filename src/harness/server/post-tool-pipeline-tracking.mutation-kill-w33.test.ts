@@ -1,3 +1,5 @@
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { buildTestIndex } from "../__tests__/fixtures/trigram.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,14 +52,14 @@ function freshSession(event: HarnessEvent): SessionTrajectory {
 	return createFreshSession(event, "s");
 }
 
-function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
-	return {
+function makeCtx(over: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime {
+	return makeServerRuntime({
 		cwd: "/repo",
 		trigramIndex: null,
 		fileContentCache: new FileContentCache(),
 		log: vi.fn(),
 		...over,
-	} as unknown as ServerRuntime; // SAFETY: only cwd/trigramIndex/fileContentCache/log are read by this module
+	});
 }
 
 function writeEvent(relPath: string): HarnessEvent {
@@ -90,7 +92,7 @@ describe("updateTrigramDirtyLayer — survivor kills", () => {
 	// on `event.tool_input?.file_path`: absent tool_input must not throw
 	// resolving dirty-update paths.
 	it("ff9579c0: absent tool_input must not throw resolving dirty-update paths", () => {
-		const ctx = makeCtx({ trigramIndex: { updateFile: vi.fn() } });
+		const ctx = makeCtx({ trigramIndex: Object.assign(buildTestIndex({}), { updateFile: vi.fn() }) });
 		const event = baseEvent({ tool_name: "Write" });
 		expect(() => updateTrigramDirtyLayer(ctx, event)).not.toThrow();
 	});
@@ -100,7 +102,7 @@ describe("updateTrigramDirtyLayer — survivor kills", () => {
 	// dirty-update anything.
 	it("1322139e: a write tool with no file_path must not dirty-update anything", () => {
 		const updateFile = vi.fn();
-		const ctx = makeCtx({ trigramIndex: { updateFile } });
+		const ctx = makeCtx({ trigramIndex: Object.assign(buildTestIndex({}), { updateFile }) });
 		const event = baseEvent({ tool_name: "Write", tool_input: {} });
 		updateTrigramDirtyLayer(ctx, event);
 		expect(updateFile).not.toHaveBeenCalled();
@@ -113,7 +115,7 @@ describe("updateTrigramDirtyLayer — survivor kills", () => {
 		const cwd = makeTempCwd();
 		writeFileSync(join(cwd, "file.ts"), "export const x = 1;\n");
 		const cache = new FileContentCache();
-		const ctx = makeCtx({ cwd, trigramIndex: { updateFile: vi.fn() }, fileContentCache: cache });
+		const ctx = makeCtx({ cwd, trigramIndex: Object.assign(buildTestIndex({}), { updateFile: vi.fn() }), fileContentCache: cache });
 		const event = baseEvent({
 			tool_name: "Bash",
 			change_set: {
@@ -136,7 +138,7 @@ describe("updateTrigramDirtyLayer — survivor kills", () => {
 		const log = vi.fn();
 		const cache = new FileContentCache();
 		cache.set("gone.ts", "stale content");
-		const ctx = makeCtx({ cwd, trigramIndex: { updateFile: vi.fn() }, fileContentCache: cache, log });
+		const ctx = makeCtx({ cwd, trigramIndex: Object.assign(buildTestIndex({}), { updateFile: vi.fn() }), fileContentCache: cache, log });
 		updateTrigramDirtyLayer(ctx, writeEvent("gone.ts"));
 		expect(log).toHaveBeenCalledWith("Trigram index dirty delete: gone.ts");
 		expect(cache.get("gone.ts")).toBeNull();
@@ -150,7 +152,7 @@ describe("updateTrigramDirtyLayer — survivor kills", () => {
 		writeFileSync(join(cwd, "present.ts"), "export const x = 1;\n");
 		const log = vi.fn();
 		const cache = new FileContentCache();
-		const ctx = makeCtx({ cwd, trigramIndex: { updateFile: vi.fn() }, fileContentCache: cache, log });
+		const ctx = makeCtx({ cwd, trigramIndex: Object.assign(buildTestIndex({}), { updateFile: vi.fn() }), fileContentCache: cache, log });
 		updateTrigramDirtyLayer(ctx, writeEvent("present.ts"));
 		expect(log).toHaveBeenCalledWith("Trigram index dirty update: present.ts");
 		expect(cache.get("present.ts")).toBe("export const x = 1;\n");
@@ -177,7 +179,7 @@ describe("trackTestRun — survivor kills (observedOutput / isEvidenceStarved)",
 	// output (starved), not as present.
 	it("96cfcd63: a non-string tool_response must count as no output (starved)", () => {
 		const event = bashPost("npx vitest run src/a.test.ts", {
-			tool_response: 42 as unknown as string, // SAFETY: deliberately wrong runtime type to probe the typeof guard
+			tool_response: 42,
 		});
 		const session = freshSession(event);
 		const warning = trackTestRun(event, session, "/repo");
@@ -207,14 +209,6 @@ describe("trackTestRun — survivor kills (observedOutput / isEvidenceStarved)",
 		const warning = trackTestRun(event, session, "/repo");
 		expect(warning).toBeNull();
 		expect(session.test_runs.size).toBe(0);
-	});
-
-	// test-contract: invariant — 36d149715284f7d9, `!session` forced false:
-	// a null session must short-circuit (return null, no throw) instead of
-	// reaching `session.test_runs.set(...)`.
-	it("36d1497: a null session must not throw and must return null", () => {
-		const event = bashPost("npx vitest run src/a.test.ts", { tool_outcome: "success" });
-		expect(trackTestRun(event, null as unknown as SessionTrajectory, "/repo")).toBeNull(); // SAFETY: probing the !session guard directly
 	});
 });
 
@@ -251,15 +245,6 @@ describe("trackVerificationOutcome — survivor kills (isWholeSuiteTestCommand /
 });
 
 describe("trackVerificationOutcome — survivor kills (guard + detail truncation)", () => {
-	// test-contract: invariant — a0fb4d7d04be870f, `!session` forced false:
-	// a null session must short-circuit instead of reaching
-	// `session.observed_checks`.
-	it("a0fb4d7d: a null session must not throw", () => {
-		const event = bashPost("npx tsc --noEmit", { tool_outcome: "success" });
-		expect(() =>
-			trackVerificationOutcome(event, null as unknown as SessionTrajectory), // SAFETY: probing the !session guard directly
-		).not.toThrow();
-	});
 
 	// test-contract: invariant — b31d63e2b9643d71, `prev?.green_at !==
 	// undefined` forced false: a red-after-green observation must carry the

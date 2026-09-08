@@ -1,4 +1,5 @@
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject } from "../../lib/json-types.js";
+import { stringDependencies } from "../checks/package-dependencies.js";
 
 // ===========================================
 // Package.json Consistency Check
@@ -63,17 +64,18 @@ function findInvalidSemverInSection(
 export function checkPackageJsonConsistency(content: string): PkgConsistencyIssue[] {
 	const issues: PkgConsistencyIssue[] = [];
 
-	let parsed: JsonObject;
+	let parsed: unknown;
 	try {
 		parsed = JSON.parse(content);
 	} catch {
 		return []; // Malformed JSON — JSON syntax checks handle this elsewhere
 	}
 
-	const deps = parsed.dependencies as Record<string, string> | undefined;
-	const devDeps = parsed.devDependencies as Record<string, string> | undefined;
-	const peerDeps = parsed.peerDependencies as Record<string, string> | undefined;
-	const optDeps = parsed.optionalDependencies as Record<string, string> | undefined;
+	if (!isJsonObject(parsed)) return [];
+	const deps = stringDependencies(parsed.dependencies);
+	const devDeps = stringDependencies(parsed.devDependencies);
+	const peerDeps = stringDependencies(parsed.peerDependencies);
+	const optDeps = stringDependencies(parsed.optionalDependencies);
 
 	// 1. Duplicate detection: same package in both deps and devDeps
 	if (deps && devDeps) {

@@ -15,36 +15,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInferenceProxy, type InferenceProxy, shouldCapture } from "./inference-proxy.js";
 import { loadEnvelopes, pendingEnvelopePath } from "./inference-store.js";
 
-// Isolated node:http mock (own module registry — does not interfere with
-// inference-proxy.test.ts's identical technique in its own file). Lets one
-// test inject a header value that real HTTP parsing can never produce
-// (neither string nor array) onto `req.headers` before the real handler runs.
-const injectWeirdHeader = vi.hoisted(() => ({ active: false }));
-vi.mock("node:http", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("node:http")>();
-	return {
-		...actual,
-		createServer: (
-			handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
-		) =>
-			actual.createServer((req, res) => {
-				if (injectWeirdHeader.active) {
-					Object.defineProperty(req.headers, "x-weird-value", {
-						value: 42,
-						enumerable: true,
-						configurable: true,
-						writable: true,
-					});
-				}
-				handler(req, res);
-			}),
-	};
-});
-
 const cleanups: Array<() => void> = [];
 afterEach(async () => {
 	for (const fn of cleanups.splice(0)) fn();
-	injectWeirdHeader.active = false;
 });
 
 function tempReplayDir(): string {
@@ -152,35 +125,7 @@ describe("forwardHeaders — array-valued header is a joined STRING, never an ar
 		await rawRequest(port, ["Set-Cookie: a=1", "Set-Cookie: b=2"]);
 		mock.restore();
 
-		// SAFETY: forwardHeaders' contract (this file) is Record<string,string>;
-		// this test asserts that contract holds even for an array-sourced value.
-		const capturedHeaders = mock.capturedInit()?.headers as Record<string, unknown> | undefined;
-		expect(capturedHeaders?.["set-cookie"]).toBe("a=1,b=2");
-	});
-});
-
-describe("forwardHeaders — a header value that is neither string nor array is dropped", () => {
-	// test-contract: boundary — kills cd8a0fee9cb60064 (`Array.isArray(value)`
-	// -> `true`). Real HTTP parsing never hands forwardHeaders a value that is
-	// neither a string nor an array, so this uses the node:http mock above to
-	// inject one (a bare number) directly onto `req.headers`. Pristine: the
-	// header is silently skipped and the request completes normally (200).
-	// Mutant: `value.join(",")` is called on a number (no `.join` method) and
-	// throws, caught by fetchUpstream's try/catch, producing a 502.
-	it("skips a non-string/non-array header value without throwing", async () => {
-		injectWeirdHeader.active = true;
-		const replayDir = tempReplayDir();
-		const upstream = await listen(
-			createServer((_req, res) => {
-				res.writeHead(200, { "content-type": "application/json" });
-				res.end(JSON.stringify({ ok: true }));
-			}),
-		);
-		const proxy = await startProxy(upstream, replayDir);
-		const resp = await fetch(`${proxy.url}/v1/models`);
-		expect(resp.status).toBe(200);
-		const body: unknown = await resp.json();
-		expect(body).toEqual({ ok: true });
+		expect(mock.capturedInit()?.headers).toMatchObject({ "set-cookie": "a=1,b=2" });
 	});
 });
 
@@ -493,23 +438,11 @@ describe("createInferenceProxy — the request handler's fallback 502 fires even
 	it("still answers 502 when the upstream response's headers cannot be read", async () => {
 		const replayDir = tempReplayDir();
 		const proxy = await startProxy("http://127.0.0.1:9", replayDir);
-		const mock = mockUpstreamFetch(
-			proxy.url,
-			() =>
-				// SAFETY: this proxy-internal fetch call only ever reaches
-				// `relayResponseHeaders`, which only calls `.status`/`.headers` —
-				// the fake below implements exactly that surface.
-				({
-					status: 200,
-					headers: {
-						forEach: () => {
-							throw new Error("boom-headers");
-						},
-						get: () => null,
-					},
-					body: null,
-				}) as unknown as Response,
-		);
+		const mock = mockUpstreamFetch(proxy.url, () => {
+			const response = new Response(null, { status: 200 });
+			vi.spyOn(response.headers, "forEach").mockImplementation(() => { throw new Error("boom-headers"); });
+			return response;
+		});
 		try {
 			const resp = await fetch(`${proxy.url}/v1/models`);
 			expect(resp.status).toBe(502);

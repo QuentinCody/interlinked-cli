@@ -4,13 +4,14 @@ import { join } from "node:path";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../harness/trigram-index.js", () => ({
-	TrigramIndex: {
-		build: vi.fn(),
-		load: vi.fn(),
-		loadMeta: vi.fn(),
-	},
-}));
+vi.mock("../harness/trigram-index.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../harness/trigram-index.js")>();
+	return { ...actual, TrigramIndex: class extends actual.TrigramIndex {
+		static override build = vi.fn<typeof actual.TrigramIndex.build>();
+		static override load = vi.fn<typeof actual.TrigramIndex.load>();
+		static override loadMeta = vi.fn<typeof actual.TrigramIndex.loadMeta>();
+	} };
+});
 
 vi.mock("../harness/regex-trigrams.js", () => ({
 	decomposePattern: vi.fn(),
@@ -99,19 +100,24 @@ describe("index-cmd — build command (elapsed arithmetic, progress threshold, b
 	});
 
 	it("P2: progress reporting fires only after the >500ms threshold is crossed", async () => {
+		const index = new TrigramIndex([], new Map(), new Set(), "abcdef1234567890", "/repo");
 		const saveMock = vi.fn();
 		const statsMock = vi.fn(() => ({
+			...index.stats(),
 			fileCount: 1,
 			trigramCount: 1,
 			stopTrigramCount: 0,
 			indexSizeBytes: 1,
 			baseCommit: "abcdef1234567890",
 		}));
-		vi.mocked(TrigramIndex.build).mockImplementation(((opts: { onProgress?: (i: number, t: number) => void }) => {
-			opts.onProgress?.(1, 10);
-			opts.onProgress?.(2, 10);
-			return { save: saveMock, stats: statsMock };
-		}) as never);
+		const stats = statsMock();
+		vi.spyOn(index, "save").mockImplementation(saveMock);
+		vi.spyOn(index, "stats").mockReturnValue(stats);
+		vi.mocked(TrigramIndex.build).mockImplementation((opts) => {
+			opts?.onProgress?.(1, 10);
+			opts?.onProgress?.(2, 10);
+			return index;
+		});
 
 		// startTime=0, onProgress#1 now=500 (500-0=500, NOT >500), onProgress#2 now=501 (501-0=501, >500)
 		dateSpy = vi.spyOn(Date, "now").mockImplementation(dateNowSequence([0, 500, 501, 501]));
@@ -126,15 +132,20 @@ describe("index-cmd — build command (elapsed arithmetic, progress threshold, b
 	});
 
 	it("P3: elapsed seconds use (now-start)/1000 and base commit is sliced to 8 chars; clear-line write happens", async () => {
+		const index = new TrigramIndex([], new Map(), new Set(), "abcdef1234567890", "/repo");
 		const saveMock = vi.fn();
 		const statsMock = vi.fn(() => ({
+			...index.stats(),
 			fileCount: 1,
 			trigramCount: 1,
 			stopTrigramCount: 0,
 			indexSizeBytes: 1,
 			baseCommit: "abcdef1234567890",
 		}));
-		vi.mocked(TrigramIndex.build).mockImplementation((() => ({ save: saveMock, stats: statsMock })) as never);
+		const stats = statsMock();
+		vi.spyOn(index, "save").mockImplementation(saveMock);
+		vi.spyOn(index, "stats").mockReturnValue(stats);
+		vi.mocked(TrigramIndex.build).mockReturnValue(index);
 
 		// startTime=1000, elapsed calc now=4000 => (4000-1000)/1000 = 3.0
 		dateSpy = vi.spyOn(Date, "now").mockImplementation(dateNowSequence([1000, 4000]));
@@ -170,11 +181,10 @@ describe("index-cmd — update command (elapsed arithmetic)", () => {
 
 	it("P4: elapsed seconds use (now-start)/1000, not *1000 or now+start", async () => {
 		const saveMock = vi.fn();
-		vi.mocked(TrigramIndex.load).mockReturnValue({
-			baseCommit: "1111111122222222",
-			incrementalUpdate: () => 5,
-			save: saveMock,
-		} as never);
+		const index = new TrigramIndex([], new Map(), new Set(), "1111111122222222", "/repo");
+		vi.spyOn(index, "incrementalUpdate").mockReturnValue(5);
+		vi.spyOn(index, "save").mockImplementation(saveMock);
+		vi.mocked(TrigramIndex.load).mockReturnValue(index);
 
 		// startTime=1000, elapsed calc now=4000 => (4000-1000)/1000 = 3.0
 		dateSpy = vi.spyOn(Date, "now").mockImplementation(dateNowSequence([1000, 4000]));
@@ -207,7 +217,9 @@ describe("index-cmd — status command (meta text lines, optional chaining, fres
 	});
 
 	it("P5: meta text lines render exact field values (trigrams/stop-grams/index-size/base-commit) and undefined avgNextMaskBits does not throw", async () => {
+		const { avgNextMaskBits: _avgNextMaskBits, ...meta } = new TrigramIndex([], new Map(), new Set(), "", "/repo").stats();
 		vi.mocked(TrigramIndex.loadMeta).mockReturnValue({
+			...meta,
 			fileCount: 100,
 			trigramCount: 200,
 			stopTrigramCount: 30,
@@ -215,8 +227,7 @@ describe("index-cmd — status command (meta text lines, optional chaining, fres
 			baseCommit: "1234567890abcdef",
 			builtAt: "2026-01-01T00:00:00Z",
 			avgLocMaskBits: 5.2,
-			avgNextMaskBits: undefined,
-		} as never);
+		});
 
 		const program = buildProgram();
 		await run(program, ["status", "--cwd", tmpDir]);
@@ -231,7 +242,7 @@ describe("index-cmd — status command (meta text lines, optional chaining, fres
 	});
 
 	it("N1: freshness section is absent when meta is null (no crash, no leftover text)", async () => {
-		vi.mocked(TrigramIndex.loadMeta).mockReturnValue(null as never);
+		vi.mocked(TrigramIndex.loadMeta).mockReturnValue(null);
 		const program = buildProgram();
 		await run(program, ["status", "--cwd", tmpDir]);
 		const logs = logLines(logSpy);
@@ -246,7 +257,7 @@ describe("index-cmd — status command (meta text lines, optional chaining, fres
 			indexSizeBytes: 1,
 			baseCommit: "abcdef1234567890",
 			builtAt: "2026-01-01T00:00:00Z",
-		} as never);
+		});
 
 		const indexDir = join(tmpDir, ".interlinked", "index");
 		mkdirSync(indexDir, { recursive: true });
@@ -281,7 +292,7 @@ describe("index-cmd — status command (meta text lines, optional chaining, fres
 			indexSizeBytes: 1,
 			baseCommit: "abcdef1234567890",
 			builtAt: "2026-01-01T00:00:00Z",
-		} as never);
+		});
 
 		const indexDir = join(tmpDir, ".interlinked", "index");
 		mkdirSync(indexDir, { recursive: true });
@@ -318,14 +329,13 @@ describe("index-cmd — query command (candidate truncation boundary)", () => {
 
 	it("P8: exactly 50 candidates prints all 50 with no '...and N more' suffix", async () => {
 		const files = Array.from({ length: 50 }, (_, i) => `file-${i}.ts`);
-		vi.mocked(TrigramIndex.load).mockReturnValue({
-			totalFiles: 100,
-			queryCandidatePaths: () => files,
-		} as never);
+		const index = new TrigramIndex(Array.from({ length: 100 }, (_, i) => `file-${i}.ts`), new Map(), new Set(), "", "/repo");
+		vi.spyOn(index, "queryCandidatePaths").mockReturnValue(files);
+		vi.mocked(TrigramIndex.load).mockReturnValue(index);
 		vi.mocked(decomposePattern).mockReturnValue({
 			hasLiterals: true,
-			requiredTrigrams: ["abc"],
-		} as never);
+			requiredTrigrams: [0x616263], literalSegments: ["abc"], isLiteral: true, trigramSequences: [[0x616263]],
+		});
 
 		const program = buildProgram();
 		await run(program, ["query", "abc"]);

@@ -8,7 +8,7 @@
 import { createReadStream, existsSync, watchFile } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { createTelemetrySpool, type SpoolEvent } from "../harness/telemetry-spool.js";
+import { createTelemetrySpool, parseJsonl, type SpoolEvent } from "../harness/telemetry-spool.js";
 
 export interface TelemetryOptions {
 	json?: boolean;
@@ -99,13 +99,7 @@ async function followSpool(spoolPath: string, options: TelemetryOptions): Promis
 
 function handleLine(line: string, options: TelemetryOptions): void {
 	if (!line) return;
-	let ev: SpoolEvent | null = null;
-	try {
-		const parsed = JSON.parse(line);
-		if (parsed && typeof parsed === "object") ev = parsed as SpoolEvent;
-	} catch {
-		ev = null;
-	}
+	const ev = parseJsonl(line)[0];
 	if (!ev) return;
 	if (options.json) {
 		process.stdout.write(`${line}\n`);
@@ -116,7 +110,7 @@ function handleLine(line: string, options: TelemetryOptions): void {
 
 function printEventLine(e: SpoolEvent): void {
 	const session = typeof e.session_id === "string" ? e.session_id : "-";
-	const extra = e.kind === "hook_decision" ? ((e.decision as string | undefined) ?? "") : "";
+	const extra = e.kind === "hook_decision" ? (typeof e.decision === "string" ? e.decision : "") : "";
 	process.stdout.write(`${e.ts}  ${e.kind.padEnd(22)} ${session.padEnd(20)} ${extra}\n`);
 }
 

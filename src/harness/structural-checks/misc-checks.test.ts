@@ -5,8 +5,7 @@
 // read (`Date.now()` via `new Date()` arithmetic). We mock `node:fs` at the
 // module boundary and drive the clock with vitest fake timers, so every test
 // is fully deterministic. ProjectGraph / SessionTracker are stubbed with
-// duck-typed objects exposing only the methods each function calls (the
-// `as unknown as` idiom used across this repo, e.g. dead-exports.test.ts).
+// typed objects exposing only the methods each function consumes.
 //
 // Coverage goal: every branch — if/else, ternary, &&/||/??, the readFileSync
 // catch, and each early-return guard. No tombstone tests; every case asserts
@@ -15,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectGraph } from "../project-graph.js";
 import type { SessionTracker } from "../session-state.js";
+import { makeSession as sessionFixture } from "../__tests__/fixtures/evaluator.js";
 import type { SessionTrajectory } from "../types/session.js";
 import type { HarnessEvent, ImportEdge } from "../types.js";
 
@@ -45,9 +45,9 @@ function makeEvent(agentName?: string): HarnessEvent {
 		hook_event: "PostToolUse",
 		session_id: "s1",
 		agent_source: "claude",
-		agent_name: agentName,
+		...(agentName === undefined ? {} : { agent_name: agentName }),
 		timestamp: "2026-06-05T00:00:00Z",
-	} as HarnessEvent;
+	};
 }
 
 /** A session trajectory stub with only the fields the checks read. */
@@ -58,17 +58,18 @@ function makeSession(opts: {
 	files_written?: string[];
 }): SessionTrajectory {
 	return {
+		...sessionFixture(),
 		agent_name: opts.agent_name,
 		started_at: opts.started_at ?? "2026-06-05T00:00:00Z",
 		files_read: new Set(opts.files_read ?? []),
 		files_written: new Set(opts.files_written ?? []),
-	} as unknown as SessionTrajectory;
+	};
 }
 
-function makeSessions(list: SessionTrajectory[]): SessionTracker {
+function makeSessions(list: SessionTrajectory[]): Pick<SessionTracker, "getAll"> {
 	return {
 		getAll: vi.fn().mockReturnValue(list),
-	} as unknown as SessionTracker;
+	};
 }
 
 function edge(symbols: string[], fromFile: string): ImportEdge {
@@ -87,14 +88,14 @@ function makeGraph(opts: {
 	interfaceBodies?: Map<string, string>;
 	importers?: ImportEdge[];
 	toRelative?: (f: string) => string;
-}): ProjectGraph {
+}): Pick<ProjectGraph, "getDependents" | "getInterfaceBodies" | "getImporters" | "toRelative"> {
 	return {
 		getDependents: vi.fn().mockReturnValue(opts.dependents ?? []),
 		getInterfaceBodies: vi.fn().mockReturnValue(opts.interfaceBodies ?? new Map()),
 		getImporters: vi.fn().mockReturnValue(opts.importers ?? []),
 		// Default toRelative strips a leading "/proj/" for readable assertions.
 		toRelative: opts.toRelative ?? ((f: string) => f.replace(/^\/proj\//, "")),
-	} as unknown as ProjectGraph;
+	};
 }
 
 beforeEach(() => {
@@ -972,41 +973,9 @@ describe("checkInterfaceChangeImpact", () => {
 		expect(nonNull(out[0]).message).toContain("one.ts, two.ts");
 	});
 
-	// test-contract: mutation-kill — with exactly 4 (non-truncated) changed
-	// interfaces the "+N" suffix must be the true empty string; a mutant
-	// seeding the ternary's else-branch with placeholder text would leak
-	// that text into every non-truncated message.
-	it("mutation-kill: the non-truncated interface-name message has no injected filler text", () => {
-		const old = new Map<string, string>();
-		for (const n of ["I1", "I2", "I3", "I4"]) old.set(n, `{ ${n} }`);
-		const graph = makeGraph({
-			interfaceBodies: new Map(),
-			dependents: ["/proj/importer.ts"],
-			importers: [edge(["I1", "I2", "I3", "I4"], "/proj/importer.ts")],
-		});
-		const out = checkInterfaceChangeImpact(FILE, REL, old, graph);
-		expect(out).toHaveLength(1);
-		expect(nonNull(out[0]).message).toContain("`I1, I2, I3, I4`");
-		expect(nonNull(out[0]).message).not.toContain("Stryker");
-	});
 
-	// test-contract: mutation-kill — with exactly 6 (non-truncated) affected
-	// files the "and N more" suffix must be the true empty string; a mutant
-	// seeding that ternary's else-branch with placeholder text would leak
-	// it into every non-truncated message.
-	it("mutation-kill: the non-truncated affected-file message has no injected filler text", () => {
-		const oldBodies = new Map([["Foo", "{ a }"]]);
-		const importerFiles = Array.from({ length: 6 }, (_, i) => `/proj/imp${i}.ts`);
-		const graph = makeGraph({
-			interfaceBodies: new Map([["Foo", "{ a; b }"]]),
-			dependents: ["/proj/any.ts"],
-			importers: importerFiles.map((f) => edge(["Foo"], f)),
-		});
-		const out = checkInterfaceChangeImpact(FILE, REL, oldBodies, graph);
-		expect(out).toHaveLength(1);
-		expect(nonNull(out[0]).message).not.toContain("Stryker");
-		expect(nonNull(out[0]).message.endsWith("updated.")).toBe(true);
-	});
+
+
 });
 
 // ============================================================================

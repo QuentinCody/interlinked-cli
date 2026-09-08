@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireString } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Wrap node:fs as a passthrough (every real fn intact) so real fixture files
@@ -182,7 +183,7 @@ describe("plan.ts mutation-kill w40", () => {
 		const calledWithTrap = fsCalls.readFileSyncArgs.some((call) => call[0] === trapPath);
 		expect(calledWithTrap).toBe(false);
 		// SAFETY: fixture writes one valid CapturedPlan JSON line; shape matches.
-		const rows = JSON.parse(stdout.join("")) as Array<{ session_id: string }>;
+		const rows = parseWire(JSON.parse(stdout.join("")), wireArray(wireObject({ "session_id": wireString })), "test JSON value");
 		expect(rows.map((r) => r.session_id)).toEqual(["sess-live"]);
 	});
 
@@ -195,7 +196,7 @@ describe("plan.ts mutation-kill w40", () => {
 		const calledWithLoop = fsCalls.readFileSyncArgs.some((call) => call[0] === loopPath);
 		expect(calledWithLoop).toBe(false);
 		// SAFETY: fixture writes one valid CapturedPlan JSON line; shape matches.
-		const rows = JSON.parse(stdout.join("")) as Array<{ session_id: string }>;
+		const rows = parseWire(JSON.parse(stdout.join("")), wireArray(wireObject({ "session_id": wireString })), "test JSON value");
 		expect(rows.map((r) => r.session_id)).toEqual(["sess-live2"]);
 	});
 
@@ -208,7 +209,7 @@ describe("plan.ts mutation-kill w40", () => {
 		expect(parseSpy).toHaveBeenCalledTimes(1);
 		expect(parseSpy).toHaveBeenCalledWith(validLine);
 		// SAFETY: fixture writes one valid CapturedPlan JSON line; shape matches.
-		const rows = JSON.parse(stdout.join("")) as Array<{ session_id: string }>;
+		const rows = parseWire(JSON.parse(stdout.join("")), wireArray(wireObject({ "session_id": wireString })), "test JSON value");
 		expect(rows.map((r) => r.session_id)).toEqual(["sess-valid-line"]);
 		parseSpy.mockRestore();
 	});
@@ -254,7 +255,7 @@ describe("plan.ts mutation-kill w40", () => {
 		);
 		await planListCommand({ cwd, json: true });
 		// SAFETY: fixture writes one valid record with one step; shape matches.
-		const rows = JSON.parse(stdout.join("")) as Array<{ steps: Array<{ status: string }> }>;
+		const rows = parseWire(JSON.parse(stdout.join("")), wireArray(wireObject({ "steps": wireArray(wireObject({ "status": wireString })) })), "test JSON value");
 		expect(rows[0]?.steps[0]?.status).toBe("pending");
 	});
 });

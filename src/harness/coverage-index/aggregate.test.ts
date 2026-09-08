@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Tests for the coverage-index union/replacement math — pins every case in
 // docs/design/incremental-per-edit-coverage-crap-ratchet.md section 16.1 plus
 // the section 5.2 worked example and the copy-on-write recompute contract.
@@ -129,7 +130,7 @@ describe("replaceShards + updateAggregate", () => {
 		]);
 		const agg = updateAggregate(aggregateFiles(prev.values()), next, affectedFiles);
 		expect(agg.get("src/m.ts")?.lines.get(2)).toBe(0);
-		expect(elementSetMetrics(agg.get("src/m.ts") as CanonicalCoverageElementSet).lines).toEqual({
+		expect(elementSetMetrics(nonNull(agg.get("src/m.ts"))).lines).toEqual({
 			covered: 1,
 			total: 2,
 			pct: 50,

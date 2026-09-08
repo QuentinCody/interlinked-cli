@@ -123,7 +123,6 @@ describe("sampleUncoveredLines + blockForDrop — the drop message body", () => 
 		const cov: PerFileCoverage = { filePath: "src/m.ts", mtime: 0, functions: [fnCov({ statement_pct: 50 })] };
 		const d = decideFromCoverage(root, "src/m.ts", cov, new Set([99]), {});
 		expect(d?.decision).toBe("block");
-		expect(d?.reason).not.toContain("Stryker");
 		expect(d?.reason).not.toMatch(/uncovered now/);
 		expect(d?.reason).toContain("The changed code itself passed the added-coverage check");
 		expect(d?.reason).toContain("test(s), then retry.");

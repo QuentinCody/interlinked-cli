@@ -17,10 +17,10 @@ import type { HarnessEvent, StructuralCheckResult } from "../types.js";
 /** Sessions (other than the editing agent) that recently read one of the dependents. */
 function collectStaleAgentReads(
 	dependents: string[],
-	sessions: SessionTracker,
+	sessions: Pick<SessionTracker, "getAll">,
 	agentName: string,
 	stalenessMs: number,
-	graph: ProjectGraph,
+	graph: Pick<ProjectGraph, "getDependents" | "getInterfaceBodies" | "getImporters" | "toRelative">,
 ): Array<{ agent: string; file: string }> {
 	const affectedAgents: Array<{ agent: string; file: string }> = [];
 	const now = Date.now();
@@ -71,8 +71,8 @@ export function checkCoDependencyStaleness(
 	filePath: string,
 	relPath: string,
 	event: HarnessEvent,
-	graph: ProjectGraph,
-	sessions: SessionTracker,
+	graph: Pick<ProjectGraph, "getDependents" | "getInterfaceBodies" | "getImporters" | "toRelative">,
+	sessions: Pick<SessionTracker, "getAll">,
 	stalenessWindowS: number,
 ): StructuralCheckResult[] {
 	const results: StructuralCheckResult[] = [];
@@ -206,7 +206,7 @@ export function checkInterfaceChangeImpact(
 	filePath: string,
 	relPath: string,
 	oldBodies: Map<string, string>,
-	graph: ProjectGraph,
+	graph: Pick<ProjectGraph, "getDependents" | "getInterfaceBodies" | "getImporters" | "toRelative">,
 ): StructuralCheckResult[] {
 	const newBodies = graph.getInterfaceBodies(filePath);
 	const results: StructuralCheckResult[] = [];
@@ -267,7 +267,7 @@ export function checkTestProximity(
 	filePath: string,
 	relPath: string,
 	event: HarnessEvent,
-	sessions: SessionTracker,
+	sessions: Pick<SessionTracker, "getAll">,
 ): StructuralCheckResult[] {
 	const results: StructuralCheckResult[] = [];
 	const ext = extname(filePath);

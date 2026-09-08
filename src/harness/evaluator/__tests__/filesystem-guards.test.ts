@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { evaluateProtectedFiles, evaluateRepoConfinement } from "../filesystem-guards.js";
 
@@ -11,8 +11,8 @@ describe("evaluateProtectedFiles", () => {
 			filePath: ".env",
 			content: "SECRET=x",
 			protectedFiles: [
-				{ glob: "**/.env", reason: "nope", operations: ["Write"] as unknown as string[] },
-			] as unknown as Parameters<typeof evaluateProtectedFiles>[0]["protectedFiles"],
+				{ glob: "**/.env", reason: "nope", operations: ["Write"] },
+			],
 			containsSecrets: () => true,
 		});
 		expect(decision?.decision).toBe("block");
@@ -29,9 +29,9 @@ describe("evaluateProtectedFiles", () => {
 					glob: "**/.env",
 					reason: "secrets only",
 					check: "secrets",
-					operations: ["Write"] as unknown as string[],
+					operations: ["Write"],
 				},
-			] as unknown as Parameters<typeof evaluateProtectedFiles>[0]["protectedFiles"],
+			],
 			containsSecrets: () => false,
 		});
 		expect(decision).toBeNull();
@@ -47,9 +47,9 @@ describe("evaluateProtectedFiles", () => {
 					{
 						glob: "**/.env",
 						reason: "env",
-						operations: ["Write"] as unknown as string[],
+						operations: ["Write"],
 					},
-				] as unknown as Parameters<typeof evaluateProtectedFiles>[0]["protectedFiles"],
+				],
 				containsSecrets: () => true,
 			}),
 		).toBeNull();
@@ -118,7 +118,7 @@ describe("evaluateRepoConfinement", () => {
 	it("resolves a relative linked project against the project root", () => {
 		const sibling = mkdtempSync(join(tmpdir(), "confine-linked-"));
 		try {
-			const rel = join("..", sibling.split("/").pop() as string);
+			const rel = join("..", basename(sibling));
 			expect(
 				evaluateRepoConfinement({
 					rawPath: join(sibling, "x.ts"),

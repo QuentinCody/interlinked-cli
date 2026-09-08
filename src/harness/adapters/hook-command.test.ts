@@ -1,3 +1,4 @@
+import { outputObject, flatHookSettings, outputString } from "./test-output.js";
 // Grok 2026-08-28 issue 6: an installed hook command whose baked binary path
 // has disappeared (npm run clean, unbuilt clone, moved checkout) must FAIL
 // CLOSED, not silently exit 0 — the old shape turned every hook into a no-op
@@ -82,12 +83,7 @@ function expectNativeBlock(
 	expect(result.stderr).toContain("blocking mutating or unclassified tool calls");
 	if ((runner === "claude-code" || runner === "codex") && event === "PermissionRequest") {
 		expect(result.code).toBe(0);
-		const parsed = JSON.parse(result.stdout ?? "") as {
-			hookSpecificOutput?: {
-				hookEventName?: string;
-				decision?: { behavior?: string };
-			};
-		};
+		const parsed = outputObject(JSON.parse(result.stdout ?? ""));
 		expect(parsed.hookSpecificOutput).toMatchObject({
 			hookEventName: "PermissionRequest",
 			decision: { behavior: "deny" },
@@ -96,15 +92,9 @@ function expectNativeBlock(
 	}
 	if (runner === "codex") {
 		expect(result.code).toBe(0);
-		const parsed = JSON.parse(result.stdout ?? "") as {
-			hookSpecificOutput?: {
-				hookEventName?: string;
-				permissionDecision?: string;
-				decision?: { behavior?: string };
-			};
-		};
-		expect(parsed.hookSpecificOutput?.hookEventName).toBe(event);
-		expect(parsed.hookSpecificOutput?.permissionDecision).toBe("deny");
+		const parsed = outputObject(JSON.parse(result.stdout ?? ""));
+		expect(outputObject(parsed.hookSpecificOutput).hookEventName).toBe(event);
+		expect(outputObject(parsed.hookSpecificOutput).permissionDecision).toBe("deny");
 		return;
 	}
 	if (runner === "copilot-cli") {
@@ -691,15 +681,13 @@ describe("every adapter's rendered pre-tool command applies the degraded fallbac
 	it("property: every Cursor fragment entry's exit code matches its own failClosed flag", () => {
 		const cursor = createCursorAdapter();
 		const missing = join(dir, "gone.js");
-		const fragment = cursor.renderSettingsFragment(missing, "project").fragment as {
-			hooks: Record<string, Array<{ command: string; failClosed?: boolean }>>;
-		};
+		const fragment = flatHookSettings(cursor.renderSettingsFragment(missing, "project").fragment);
 		const entries = Object.entries(fragment.hooks);
 		expect(entries.length).toBeGreaterThan(10); // the property must not pass vacuously
 		const gatedEvents: string[] = [];
 		for (const [event, [entry]] of entries) {
 			if (!entry) throw new Error(`no entry for ${event}`);
-			const code = runSh(entry.command).code;
+			const code = runSh(outputString(entry.command)).code;
 			if (entry.failClosed === true) {
 				gatedEvents.push(event);
 				expect({ event, code }).toEqual({ event, code: 2 });

@@ -130,6 +130,7 @@ describe("checkFileDumpCold — negative (must not fire)", () => {
 
 describe("FILE_DUMP_COLD_GUARD_SOURCE — embeddable into the .mjs", () => {
 	it("reconstructs and agrees with the imported function", () => {
+		// SAFETY: FILE_DUMP_COLD_GUARD_SOURCE serializes checkFileDumpCold; the returned named export is checked against the imported guard over the corpus below.
 		const rebuilt = new Function(
 			`"use strict"; ${FILE_DUMP_COLD_GUARD_SOURCE}; return checkFileDumpCold;`,
 		)() as DumpFn;

@@ -9,7 +9,7 @@ import { applyTransientDebt, deferrableFromTsc } from "./transient-debt-guard.js
 let root = "";
 
 function tsc(ruleId: string, line = 3, message = "declared but never read"): CheckResult {
-	return { tool: "tsc", severity: "warning", file: "a.ts", ruleId, line, message } as CheckResult;
+	return { tool: "tsc", severity: "warning", file: "a.ts", ruleId, line, message };
 }
 
 function run(over: {

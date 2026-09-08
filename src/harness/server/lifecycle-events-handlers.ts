@@ -1,3 +1,4 @@
+import { readOptionalToolString } from "../evaluator/tool-input-values.js";
 // interlinked-tdd: exempt
 // ===========================================
 // Lifecycle event handlers — leaf helpers
@@ -90,12 +91,13 @@ export function handleSkillEnter(
 	session: SessionTrajectory,
 ): HarnessDecision {
 	const { sessions, log } = ctx;
-	const name = (event.tool_input?.name as string | undefined)?.trim();
+	const name = readOptionalToolString(event.tool_input?.name)?.trim();
 	if (!name) {
 		return { decision: "allow", warnings: ["SkillEnter: missing tool_input.name"] };
 	}
-	const ttl = event.tool_input?.ttl_seconds as number | undefined;
-	const sourceRaw = event.tool_input?.source as string | undefined;
+	const ttlRaw = event.tool_input?.ttl_seconds;
+	const ttl = typeof ttlRaw === "number" && Number.isFinite(ttlRaw) ? ttlRaw : undefined;
+	const sourceRaw = readOptionalToolString(event.tool_input?.source);
 	const source: "cli" | "hook" | "manual" =
 		sourceRaw === SKILL_SOURCE_HOOK || sourceRaw === SKILL_SOURCE_MANUAL
 			? sourceRaw
@@ -122,7 +124,7 @@ export function handleSkillLeave(
 	session: SessionTrajectory,
 ): HarnessDecision {
 	const { sessions, log } = ctx;
-	const name = (event.tool_input?.name as string | undefined)?.trim();
+	const name = readOptionalToolString(event.tool_input?.name)?.trim();
 	if (!name) {
 		return { decision: "allow", warnings: ["SkillLeave: missing tool_input.name"] };
 	}

@@ -1,3 +1,5 @@
+import { parseWire, wireArray, wireNullable, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // ============================================================================
 // Behavioral tests for the harness daemon entry point (`server.ts`).
 // ============================================================================
@@ -37,9 +39,11 @@ import {
 	vi,
 } from "vitest";
 import type { ContentScanner, ScannerStatus } from "./content-scanner/types.js";
+import { DEFAULT_AUTO_COORDINATION_CONFIG } from "./auto-coordinate.js";
 import { DEFAULT_CONFIG } from "./rules/default-config.js";
 import type { GuardRulesConfig } from "./types/config.js";
-import type { HarnessDecision } from "./types.js";
+import type { GuardRule, HarnessDecision } from "./types.js";
+import type { SocketLifecycle } from "./server-socket-lifecycle.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 
 const lifecycleMocks = vi.hoisted(() => ({
@@ -75,7 +79,7 @@ interface Captured {
 	socketSetters: {
 		setFramedDaemon: Mock | null;
 		setUnwatchers: Mock | null;
-		startRawServer: Mock | null;
+		startRawServer: Mock<SocketLifecycle["startRawServer"]> | null;
 		cleanupSocket: Mock | null;
 		writePidFile: Mock | null;
 		shutdown: Mock | null;
@@ -167,16 +171,32 @@ let scannerOverride: ContentScanner | undefined;
 // Per-test override for what createServerBridge returns.
 let serverBridgeOverride: { shutdown: Mock } | null;
 
-// A VALID GuardRulesConfig built off the shipped `DEFAULT_CONFIG` so every
-// required nested config (curl_mcp_detection, structural_checks, error_memory,
-// taint_tracking, output_scanning, …) is fully-formed without hand-construction.
-// `loadRules`/`watchRulesFiles` are mocked, so this is the single source of the
-// daemon's "rules". Deep-clone the default so per-test overrides never mutate
-// the shared const. `content_scanner` is absent by default (the disabled
-// branch); tests pass it in via `overrides`.
-function makeRules(overrides: Partial<GuardRulesConfig> = {}): GuardRulesConfig {
+type RulesOverrides = Omit<Partial<GuardRulesConfig>, "content_scanner" | "policy_classifier" | "auto_coordination"> & {
+	content_scanner?: Partial<NonNullable<GuardRulesConfig["content_scanner"]>>;
+	policy_classifier?: Partial<NonNullable<GuardRulesConfig["policy_classifier"]>>;
+	auto_coordination?: Partial<NonNullable<GuardRulesConfig["auto_coordination"]>>;
+};
+
+// Keep the shipped startup defaults; individual cases override only relevant settings.
+function makeRules(overrides: RulesOverrides = {}): GuardRulesConfig {
 	const base = structuredClone(DEFAULT_CONFIG);
-	return { ...base, ...overrides };
+	const { content_scanner, policy_classifier, auto_coordination, ...fields } = overrides;
+	return {
+		...base,
+		...fields,
+		...(content_scanner && { content_scanner: { ...nonNull(base.content_scanner), ...content_scanner } }),
+		...(auto_coordination && { auto_coordination: { ...DEFAULT_AUTO_COORDINATION_CONFIG, ...auto_coordination } }),
+		...(policy_classifier && { policy_classifier: {
+			enabled: false, mode: "shadow", provider: "claude_code", endpoint: "",
+			api_key_env: "", model: "fixture", timeout_ms: 3000, max_input_tokens: 800,
+			confidence_threshold: 0.8, max_calls_per_session: 50, ...policy_classifier,
+		} }),
+	};
+}
+
+function makeRule(id: string): GuardRule {
+	return { id, enabled: true, trigger: "PreToolUse", tool_match: ["*"],
+		action: "warn", patterns: [], reason: id, severity: "low" };
 }
 
 // ---------------------------------------------------------------------------
@@ -320,9 +340,9 @@ vi.mock("./server-socket-lifecycle.js", () => ({
 // ---------------------------------------------------------------------------
 // server-event-loop — capture deps; return controllable entry points.
 // ---------------------------------------------------------------------------
-const evaluateEventLineMock = vi.fn(async () => ({ decision: "allow" }) as HarnessDecision);
+const evaluateEventLineMock = vi.fn(async () : Promise<HarnessDecision> => ({ decision: "allow" }));
 const evaluateUnifiedViaRuntimeMock = vi.fn(
-	async () => ({ decision: "allow" }) as HarnessDecision,
+	async () : Promise<HarnessDecision> => ({ decision: "allow" }),
 );
 const writeProtocolStatusMock = vi.fn();
 vi.mock("./server-event-loop.js", () => ({
@@ -534,9 +554,6 @@ vi.mock("./mutation/manifest.js", () => ({
 vi.mock("./evaluator/pre-tool.js", () => ({
 	resetProjectSetupWarningsCache: vi.fn(),
 }));
-vi.mock("./auto-coordinate.js", () => ({
-	DEFAULT_AUTO_COORDINATION_CONFIG: { enabled: false, interval_ms: 1000 },
-}));
 
 // ---------------------------------------------------------------------------
 // checks/cyclomatic-ast — astComplexityAvailable capability probe. Default
@@ -614,7 +631,7 @@ let processRemoveSpy: ReturnType<typeof vi.spyOn>;
 let processExitSpy: ReturnType<typeof vi.spyOn>;
 
 class ProcessExitError extends Error {
-	constructor(public code: number | undefined) {
+	constructor(public code: Parameters<typeof process.exit>[0]) {
 		super(`process.exit(${code})`);
 	}
 }
@@ -641,9 +658,9 @@ function installProcessShims(): void {
 			signalHandlers.set(key, list);
 			return process;
 		});
-	processExitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+	processExitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
 		throw new ProcessExitError(code);
-	}) as never);
+	});
 }
 
 function lastSignalHandler(sig: string): ((...a: unknown[]) => void) | undefined {
@@ -837,7 +854,7 @@ describe("harness server.ts — content scanner branches", () => {
 
 	it("registers an onStatusChange writer when the scanner supports lifecycle", async () => {
 		rulesOverride = makeRules({
-			content_scanner: { enabled: true, runtime: "local" } as never,
+			content_scanner: { enabled: true, runtime: "local" },
 		});
 		const onStatusChange = vi.fn((cb: (s: ScannerStatus) => void) => {
 			cap.scannerStatusCb = cb;
@@ -854,7 +871,7 @@ describe("harness server.ts — content scanner branches", () => {
 
 	it("marks an HTTP scanner without lifecycle as ready", async () => {
 		rulesOverride = makeRules({
-			content_scanner: { enabled: true, runtime: "http" } as never,
+			content_scanner: { enabled: true, runtime: "custom_http" },
 		});
 		scannerOverride = makeScanner({ runtime: "http" });
 		// Strip the optional lifecycle hooks so the else-branch runs.
@@ -921,35 +938,35 @@ describe("harness server.ts — rules hot-reload callback", () => {
 		await loadServer();
 		cap.statusWriters.writeScannerStatus.mockClear();
 		cap.rulesReloadCb?.(
-			makeRules({ content_scanner: { enabled: true, runtime: "local" } as never }),
+			makeRules({ content_scanner: { enabled: true, runtime: "local" } }),
 		);
 		expect(cap.statusWriters.writeScannerStatus).toHaveBeenCalledWith("down:needs_restart");
 	});
 
 	it("on reload with a live lifecycle scanner, writes the formatted status", async () => {
 		rulesOverride = makeRules({
-			content_scanner: { enabled: true, runtime: "local" } as never,
+			content_scanner: { enabled: true, runtime: "local" },
 		});
 		const getStatus = vi.fn((): ScannerStatus => ({ state: "dormant", sinceIso: "t" }));
 		scannerOverride = makeScanner({ getStatus });
 		await loadServer();
 		cap.statusWriters.writeScannerStatus.mockClear();
 		cap.rulesReloadCb?.(
-			makeRules({ content_scanner: { enabled: true, runtime: "local" } as never }),
+			makeRules({ content_scanner: { enabled: true, runtime: "local" } }),
 		);
 		expect(cap.statusWriters.writeScannerStatus).toHaveBeenCalledWith("scanner:dormant");
 	});
 
 	it("on reload with a live scanner lacking getStatus, falls back to ready:<runtime>", async () => {
 		rulesOverride = makeRules({
-			content_scanner: { enabled: true, runtime: "local" } as never,
+			content_scanner: { enabled: true, runtime: "local" },
 		});
 		scannerOverride = makeScanner({ runtime: "local" });
 		delete scannerOverride.getStatus;
 		await loadServer();
 		cap.statusWriters.writeScannerStatus.mockClear();
 		cap.rulesReloadCb?.(
-			makeRules({ content_scanner: { enabled: true, runtime: "local" } as never }),
+			makeRules({ content_scanner: { enabled: true, runtime: "local" } }),
 		);
 		expect(cap.statusWriters.writeScannerStatus).toHaveBeenCalledWith("ready:local");
 	});
@@ -1191,7 +1208,7 @@ describe("harness server.ts — policy classifier startup log", () => {
 	it("logs a ready classifier when enabled and an API key resolves", async () => {
 		const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		rulesOverride = makeRules({
-			policy_classifier: { enabled: true, provider: "groq", model: "m1" } as never,
+			policy_classifier: { enabled: true, provider: "groq", model: "m1" },
 		});
 		await loadServer(["--verbose"]);
 		const logged = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -1204,7 +1221,7 @@ describe("harness server.ts — policy classifier startup log", () => {
 		const pc = await import("./policy-classifier.js");
 		vi.mocked(pc.resolveApiKey).mockReturnValueOnce(undefined);
 		rulesOverride = makeRules({
-			policy_classifier: { enabled: true, provider: "groq", model: "m2" } as never,
+			policy_classifier: { enabled: true, provider: "groq", model: "m2" },
 		});
 		await loadServer(["--verbose"]);
 		const logged = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -1215,7 +1232,7 @@ describe("harness server.ts — policy classifier startup log", () => {
 	it("treats the claude_code provider as ready without resolving an API key", async () => {
 		const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		rulesOverride = makeRules({
-			policy_classifier: { enabled: true, provider: "claude_code", model: "cc" } as never,
+			policy_classifier: { enabled: true, provider: "claude_code", model: "cc" },
 		});
 		await loadServer(["--verbose"]);
 		const logged = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -1227,7 +1244,7 @@ describe("harness server.ts — policy classifier startup log", () => {
 describe("harness server.ts — content scanner constructed-undefined branch", () => {
 	it("writes 'disabled' when content_scanner is configured but createScanner returns undefined", async () => {
 		rulesOverride = makeRules({
-			content_scanner: { enabled: true, runtime: "local" } as never,
+			content_scanner: { enabled: true, runtime: "local" },
 		});
 		scannerOverride = undefined; // misconfigured backend → undefined scanner
 		await loadServer();
@@ -1524,9 +1541,7 @@ describe("harness server.ts — anti-stomp loser paths", () => {
 	// reporter handed to `startRawServer` is the startup guard itself.
 	it("raw path: a listen failure exits 78 and records startup-failed", async () => {
 		await loadServer();
-		const reporter = cap.socketSetters.startRawServer?.mock.calls[0]?.[0] as
-			| { fail: (what: string, err: unknown) => void }
-			| undefined;
+		const reporter = cap.socketSetters.startRawServer?.mock.calls[0]?.[0];
 		expect(reporter).toBeDefined();
 		expect(() =>
 			reporter?.fail("raw socket bind", Object.assign(new Error("listen EADDRINUSE"), { code: "EADDRINUSE" })),
@@ -1548,9 +1563,7 @@ describe("harness server.ts — anti-stomp loser paths", () => {
 				.filter((line) => line.includes('"event":"listening"'));
 		// Framed reported during startup; the raw listener has not yet.
 		expect(listeningRows()).toHaveLength(0);
-		const reporter = cap.socketSetters.startRawServer?.mock.calls[0]?.[0] as
-			| { note: (which: "raw" | "framed") => void }
-			| undefined;
+		const reporter = cap.socketSetters.startRawServer?.mock.calls[0]?.[0];
 		reporter?.note("raw");
 		expect(listeningRows()).toHaveLength(1);
 		// Idempotent: a second report does not write a second row.
@@ -1793,22 +1806,22 @@ describe("harness server.ts — rules-reload optional chaining (mutation hardeni
 
 describe("harness server.ts — auto_coordination merge (mutation hardening)", () => {
 	it("module-scope autoCoordConfig merges rules.auto_coordination when present", async () => {
-		rulesOverride = makeRules({ auto_coordination: { enabled: true, interval_ms: 42 } as never });
+		rulesOverride = makeRules({ auto_coordination: { enabled: true, min_interval_ms: 42 } });
 		await loadServer();
-		const cfg = cap.eventLoopDeps?.ctx.autoCoordConfig as Record<string, unknown>;
+		const cfg = parseWire(cap.eventLoopDeps?.ctx.autoCoordConfig, wireRecord(wireUnknown), "test JSON value");
 		// Kills (module scope): ConditionalExpression->true/false and the
 		// ||->&& LogicalOperator, and the whole-object-literal->{} mutant —
-		// all of them fail to carry `enabled:true, interval_ms:42` through.
-		expect(cfg).toMatchObject({ enabled: true, interval_ms: 42 });
+		// all of them fail to carry `enabled:true, min_interval_ms:42` through.
+		expect(cfg).toMatchObject({ enabled: true, min_interval_ms: 42 });
 	});
 
 	it("rules-reload callback re-merges rules.auto_coordination via Object.assign", async () => {
 		await loadServer();
-		const cfg = cap.eventLoopDeps?.ctx.autoCoordConfig as Record<string, unknown>;
-		cap.rulesReloadCb?.(makeRules({ auto_coordination: { enabled: true, interval_ms: 99 } as never }));
+		const cfg = parseWire(cap.eventLoopDeps?.ctx.autoCoordConfig, wireRecord(wireUnknown), "test JSON value");
+		cap.rulesReloadCb?.(makeRules({ auto_coordination: { enabled: true, min_interval_ms: 99 } }));
 		// Kills (reload-callback scope): ConditionalExpression->true/false and
 		// the ||->&& LogicalOperator on `rules.auto_coordination || {}`.
-		expect(cfg).toMatchObject({ enabled: true, interval_ms: 99 });
+		expect(cfg).toMatchObject({ enabled: true, min_interval_ms: 99 });
 	});
 });
 
@@ -1817,7 +1830,7 @@ describe("harness server.ts — log-message content (mutation hardening)", () =>
 		const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		await loadServer(["--verbose"]);
 		errSpy.mockClear();
-		cap.rulesReloadCb?.(makeRules({ rules: [{ id: "r1" } as never, { id: "r2" } as never] }));
+		cap.rulesReloadCb?.(makeRules({ rules: [makeRule("r1"), makeRule("r2")] }));
 		const logged = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
 		// Kills: `Rules reloaded: ${...} rules active` -> ``.
 		expect(logged).toContain("Rules reloaded: 2 rules active");
@@ -1953,10 +1966,7 @@ describe("harness server.ts — refreshStatuslineSnapshot (mutation hardening)",
 		cap.rulesReloadCb?.(makeRules()); // triggers a fresh refreshStatuslineSnapshot()
 		// Kills: the whole-body -> {} wipe (nothing would be written at all).
 		expect(vi.mocked(snap.writeStatuslineArtifacts)).toHaveBeenCalledTimes(1);
-		const arg = vi.mocked(snap.writeStatuslineArtifacts).mock.calls[0]?.[0] as unknown as Record<
-			string,
-			unknown
-		>;
+		const arg = parseWire(vi.mocked(snap.writeStatuslineArtifacts).mock.calls[0]?.[0], wireRecord(wireUnknown), "test JSON value");
 		// Kills: "ready" -> "" and the whole-object-argument -> {} mutant.
 		expect(arg.indexStatus).toBe("ready");
 		// Kills: `trigramIndex?.files.length ?? 0` -> `... && 0`.
@@ -1973,10 +1983,7 @@ describe("harness server.ts — refreshStatuslineSnapshot (mutation hardening)",
 		await loadServer();
 		vi.mocked(snap.writeStatuslineArtifacts).mockClear();
 		cap.rulesReloadCb?.(makeRules());
-		const arg = vi.mocked(snap.writeStatuslineArtifacts).mock.calls[0]?.[0] as unknown as Record<
-			string,
-			unknown
-		>;
+		const arg = parseWire(vi.mocked(snap.writeStatuslineArtifacts).mock.calls[0]?.[0], wireRecord(wireUnknown), "test JSON value");
 		// Kills: "missing" -> "".
 		expect(arg.indexStatus).toBe("missing");
 		// Kills the `??` -> `&&` mutant from the opposite side (undefined && 0
@@ -2039,31 +2046,28 @@ describe("harness server.ts — syncRuntimeIn / syncRuntimeOut (mutation hardeni
 	it("syncRuntimeIn pushes the module-level trigramIndex into the runtime context", async () => {
 		trigramLoadResult = { files: ["p.ts"], baseCommit: "1234567890abcdef", incrementalUpdate: vi.fn(() => 0) };
 		await loadServer();
-		const ctx = cap.eventLoopDeps?.ctx as Record<string, unknown>;
+		const ctx = nonNull(cap.eventLoopDeps?.ctx);
 		// Corrupt the runtime-context copy; syncRuntimeIn must overwrite it back
 		// from the module-level `trigramIndex` let.
-		ctx.trigramIndex = "SENTINEL" as never;
+		ctx.trigramIndex = "SENTINEL";
 		cap.eventLoopDeps?.syncRuntimeIn();
 		// Kills: the whole syncRuntimeIn body -> {}.
 		expect(ctx.trigramIndex).not.toBe("SENTINEL");
-		expect((ctx.trigramIndex as { files: string[] } | null)?.files).toEqual(["p.ts"]);
+		expect((parseWire(ctx.trigramIndex, wireNullable(wireObject({ "files": wireArray(wireString) })), "test JSON value"))?.files).toEqual(["p.ts"]);
 	});
 
 	it("syncRuntimeOut pulls the runtime context's trigramIndex back into module state (observable via refreshStatuslineSnapshot)", async () => {
 		const snap = await import("./statusline-snapshot.js");
 		await loadServer();
-		const ctx = cap.eventLoopDeps?.ctx as Record<string, unknown>;
-		ctx.trigramIndex = { files: new Array(9).fill("x"), baseCommit: "deadbeef00000000" } as never;
+		const ctx = nonNull(cap.eventLoopDeps?.ctx);
+		ctx.trigramIndex = { files: new Array(9).fill("x"), baseCommit: "deadbeef00000000" };
 		cap.eventLoopDeps?.syncRuntimeOut();
 		vi.mocked(snap.writeStatuslineArtifacts).mockClear();
 		// refreshStatuslineSnapshot reads the MODULE-LEVEL `trigramIndex`, not
 		// ctx.trigramIndex directly, so this only reflects the sentinel if
 		// syncRuntimeOut actually ran.
 		cap.rulesReloadCb?.(makeRules());
-		const arg = vi.mocked(snap.writeStatuslineArtifacts).mock.calls[0]?.[0] as unknown as Record<
-			string,
-			unknown
-		>;
+		const arg = parseWire(vi.mocked(snap.writeStatuslineArtifacts).mock.calls[0]?.[0], wireRecord(wireUnknown), "test JSON value");
 		// Kills: the whole syncRuntimeOut body -> {}.
 		expect(arg.indexFiles).toBe(9);
 	});
@@ -2091,7 +2095,7 @@ describe("harness server.ts — writeCollectionRecord (mutation hardening)", () 
 		// reflects only this test's own actions.
 		vi.mocked(aw.writeGuardDecisionRecord).mockClear();
 		const event = { hook_event: "PreToolUse", session_id: "s3" };
-		const decision = { decision: "block", reason: "x" } as unknown as HarnessDecision;
+		const decision: HarnessDecision = { decision: "block", reason: "x" };
 
 		cap.eventLoopDeps?.writeCollectionRecord(event, decision);
 		// Kills: `decision` -> `false` (ConditionalExpression) — would never
@@ -2137,7 +2141,7 @@ describe("harness server.ts — shutdownWith arithmetic (mutation hardening)", (
 			heapUsed: 104_857_600, // 100 MiB
 			external: 15_728_640, // 15 MiB
 			arrayBuffers: 1_048_576, // 1 MiB -> ext total 16 MiB
-		} as never);
+		});
 		await loadServer();
 		vi.mocked(fs.appendFileSync).mockClear();
 		vi.advanceTimersByTime(60_000); // 60s of "uptime" for a stable, non-zero window
@@ -2149,7 +2153,7 @@ describe("harness server.ts — shutdownWith arithmetic (mutation hardening)", (
 		// Kills: the whole ledger-object literal -> {}, "exit" -> "", and
 		// "rss-ceiling" -> "" (shutdown hook's own StringLiteral argument).
 		expect(exitRow).toBeDefined();
-		const row = exitRow as string;
+		const row = nonNull(exitRow);
 		// Kills: `rss / 1048576` -> `rss * 1048576`.
 		expect(row).toContain('"rss_mb":200');
 		// Kills: `heapUsed / 1048576` -> `heapUsed * 1048576`.
@@ -2295,7 +2299,7 @@ describe("harness server.ts — settings-strip callback formatting (mutation har
 describe("harness server.ts — module-scoped path constants (mutation hardening)", () => {
 	it("computes INTERLINKED_DIR as <cwd>/.interlinked", async () => {
 		await loadServer();
-		const ctx = cap.eventLoopDeps?.ctx as Record<string, unknown>;
+		const ctx = nonNull(cap.eventLoopDeps?.ctx);
 		// Kills: the INTERLINKED_DIR-site ".interlinked" -> "" StringLiteral —
 		// without the suffix, interlinkedDir would just equal CWD.
 		expect(String(ctx.interlinkedDir)).toMatch(/\.interlinked$/);
@@ -2346,7 +2350,7 @@ describe("harness server.ts — module-scoped path constants (mutation hardening
 describe("harness server.ts — content-scanner and AST-gate startup logs (mutation hardening)", () => {
 	it("logs the exact content-scanner enabled banner with name and runtime", async () => {
 		const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-		rulesOverride = makeRules({ content_scanner: { enabled: true, runtime: "local" } as never });
+		rulesOverride = makeRules({ content_scanner: { enabled: true, runtime: "local" } });
 		scannerOverride = makeScanner({ name: "my-scanner-42", runtime: "local" });
 		await loadServer();
 		const logged = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
@@ -2428,7 +2432,7 @@ describe("harness server.ts — protocol status and runtime-context objects (mut
 		// so `.mock.calls[0]` reflects THIS test's own loadServer() call.
 		vi.mocked(ps.createProtocolStatus).mockClear();
 		await loadServer(["--protocol", "raw"]);
-		const call = vi.mocked(ps.createProtocolStatus).mock.calls[0]?.[0] as Record<string, unknown>;
+		const call = parseWire(vi.mocked(ps.createProtocolStatus).mock.calls[0]?.[0], wireRecord(wireUnknown), "test JSON value");
 		// Kills: the whole createProtocolStatus argument object -> {}.
 		expect(call).toMatchObject({
 			protocol: "raw",
@@ -2440,7 +2444,7 @@ describe("harness server.ts — protocol status and runtime-context objects (mut
 
 	it("serverRuntime carries the full daemon-scoped context (not an empty stub)", async () => {
 		await loadServer();
-		const ctx = cap.eventLoopDeps?.ctx as Record<string, unknown>;
+		const ctx = nonNull(cap.eventLoopDeps?.ctx);
 		// Kills: the whole serverRuntime object literal -> {}.
 		expect(ctx.cwd).toBeDefined();
 		expect(ctx.interlinkedDir).toBeDefined();
@@ -2454,9 +2458,9 @@ describe("harness server.ts — protocol status and runtime-context objects (mut
 	it("passes exact startup-message fields to buildStartupMessage", async () => {
 		const ps = await import("./server/protocol-status.js");
 		vi.mocked(ps.buildStartupMessage).mockClear();
-		rulesOverride = makeRules({ rules: [{ id: "x" } as never, { id: "y" } as never, { id: "z" } as never] });
+		rulesOverride = makeRules({ rules: [makeRule("x"), makeRule("y"), makeRule("z")] });
 		await loadServer(["--idle-timeout", "9000"]);
-		const call = vi.mocked(ps.buildStartupMessage).mock.calls[0]?.[0] as Record<string, unknown>;
+		const call = parseWire(vi.mocked(ps.buildStartupMessage).mock.calls[0]?.[0], wireRecord(wireUnknown), "test JSON value");
 		// Kills: the whole buildStartupMessage argument object -> {}.
 		expect(call).toMatchObject({
 			protocol: "dual",
@@ -2510,7 +2514,7 @@ describe("harness server.ts — policy classifier claude_code branch (mutation h
 		const pc = await import("./policy-classifier.js");
 		vi.mocked(pc.resolveApiKey).mockReturnValueOnce(undefined);
 		rulesOverride = makeRules({
-			policy_classifier: { enabled: true, provider: "claude_code", model: "cc2" } as never,
+			policy_classifier: { enabled: true, provider: "claude_code", model: "cc2" },
 		});
 		await loadServer(["--verbose"]);
 		const logged = errSpy.mock.calls.map((c) => String(c[0])).join("\n");

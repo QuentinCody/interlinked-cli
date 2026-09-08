@@ -9,13 +9,13 @@
 // flaky. Everything else uses real temp files, real git repos, and real
 // `.graph` shards so the parsing/formatting code runs for real.
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { execFileSync as run } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SharedConfig } from "../../lib/config.js";
-import type { JsonObject } from "../../lib/json-types.js";
 import type { CheckResult } from "../check-engine/types.js";
 import { ProjectGraph } from "../project-graph.js";
 import type {
@@ -60,7 +60,7 @@ import {
 const FIXED_TS = "2026-04-01T00:00:00.000Z";
 
 function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "t",
 		agent_name: "agent",
 		started_at: FIXED_TS,
@@ -76,7 +76,7 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 		taint_sources: [],
 		step_limit: Number.POSITIVE_INFINITY,
 		...overrides,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -125,24 +125,24 @@ describe("readGraphPredictionMode", () => {
 	});
 
 	it("defaults to shadow when the harness block is absent", () => {
-		expect(readGraphPredictionMode({} as SharedConfig)).toBe("shadow");
+		expect(readGraphPredictionMode(({ version: 1, server_url: "https://example.test", } satisfies SharedConfig))).toBe("shadow");
 	});
 
 	it("defaults to shadow on an unrecognized mode string", () => {
-		const cfg = { harness: { graph_prediction: { mode: "bananas" } } } as unknown as SharedConfig;
+		const cfg = ({ version: 1, server_url: "https://example.test",  harness: { graph_prediction: { mode: "bananas" } } } satisfies SharedConfig);
 		expect(readGraphPredictionMode(cfg)).toBe("shadow");
 	});
 
 	// test-contract: boundary — an empty persisted mode is invalid and must use the documented shadow default
 	it("defaults to shadow when the persisted mode is empty", () => {
-		const cfg = { harness: { graph_prediction: { mode: "" } } } as unknown as SharedConfig;
+		const cfg = ({ version: 1, server_url: "https://example.test",  harness: { graph_prediction: { mode: "" } } } satisfies SharedConfig);
 		expect(readGraphPredictionMode(cfg)).toBe("shadow");
 	});
 
 	it.each(["shadow", "soft_gate", "enforced"] as const)(
 		"passes through the valid mode %s",
 		(mode) => {
-			const cfg = { harness: { graph_prediction: { mode } } } as unknown as SharedConfig;
+			const cfg = ({ version: 1, server_url: "https://example.test",  harness: { graph_prediction: { mode } } } satisfies SharedConfig);
 			expect(readGraphPredictionMode(cfg)).toBe(mode);
 		},
 	);
@@ -151,12 +151,12 @@ describe("readGraphPredictionMode", () => {
 describe("isGraphPredictionEnabled", () => {
 	it("requires an explicit true boolean", () => {
 		expect(isGraphPredictionEnabled(null)).toBe(false);
-		expect(isGraphPredictionEnabled({} as SharedConfig)).toBe(false);
+		expect(isGraphPredictionEnabled(({ version: 1, server_url: "https://example.test", } satisfies SharedConfig))).toBe(false);
 		expect(
-			isGraphPredictionEnabled({ harness: { graph_prediction: { enabled: false } } } as unknown as SharedConfig),
+			isGraphPredictionEnabled(({ version: 1, server_url: "https://example.test",  harness: { graph_prediction: { enabled: false } } } satisfies SharedConfig)),
 		).toBe(false);
 		expect(
-			isGraphPredictionEnabled({ harness: { graph_prediction: { enabled: true } } } as unknown as SharedConfig),
+			isGraphPredictionEnabled(({ version: 1, server_url: "https://example.test",  harness: { graph_prediction: { enabled: true } } } satisfies SharedConfig)),
 		).toBe(true);
 	});
 });
@@ -175,19 +175,19 @@ describe("computeFullNewContent", () => {
 
 	it("returns Write content verbatim", () => {
 		const abs = join(dir, "a.txt");
-		expect(computeFullNewContent(abs, { content: "hello" } as JsonObject)).toBe("hello");
+		expect(computeFullNewContent(abs, { content: "hello" })).toBe("hello");
 	});
 
 	it("applies an Edit (old/new) against existing file content", () => {
 		const abs = join(dir, "b.txt");
 		writeFileSync(abs, "alpha beta gamma");
-		const out = computeFullNewContent(abs, { old_string: "beta", new_string: "BETA" } as JsonObject);
+		const out = computeFullNewContent(abs, { old_string: "beta", new_string: "BETA" });
 		expect(out).toBe("alpha BETA gamma");
 	});
 
 	it("treats a missing file as empty string for an Edit", () => {
 		const abs = join(dir, "missing.txt");
-		const out = computeFullNewContent(abs, { old_string: "x", new_string: "y" } as JsonObject);
+		const out = computeFullNewContent(abs, { old_string: "x", new_string: "y" });
 		// "" .replace("x","y") === "" — the replace target isn't present.
 		expect(out).toBe("");
 	});
@@ -205,13 +205,13 @@ describe("computeFullNewContent", () => {
 				{ old_string: 42, new_string: "x" },
 				{ old_string: "two" }, // missing new_string
 			],
-		} as unknown as JsonObject);
+		});
 		expect(out).toBe("1 two 3");
 	});
 
 	it("returns null for a shape that doesn't map to full content (apply_patch-like)", () => {
 		const abs = join(dir, "d.txt");
-		expect(computeFullNewContent(abs, { patch: "@@ ..." } as JsonObject)).toBeNull();
+		expect(computeFullNewContent(abs, { patch: "@@ ..." })).toBeNull();
 	});
 
 	it("returns null for an Edit when the existing file can't be read (EISDIR)", () => {
@@ -220,7 +220,7 @@ describe("computeFullNewContent", () => {
 		const asDir = join(dir, "subdir");
 		mkdirSync(asDir);
 		expect(
-			computeFullNewContent(asDir, { old_string: "a", new_string: "b" } as JsonObject),
+			computeFullNewContent(asDir, { old_string: "a", new_string: "b" }),
 		).toBeNull();
 	});
 
@@ -230,7 +230,7 @@ describe("computeFullNewContent", () => {
 		expect(
 			computeFullNewContent(asDir, {
 				edits: [{ old_string: "a", new_string: "b" }],
-			} as unknown as JsonObject),
+			}),
 		).toBeNull();
 	});
 });
@@ -477,7 +477,7 @@ describe("supermodel graph shard consumers", () => {
 describe("getPreToolUseDiagnostics", () => {
 	let dir: string;
 	const qc: Record<string, QualityCheckConfig> = {
-		tsc: { enabled: true } as unknown as QualityCheckConfig,
+		tsc: ({ file_types: [".ts"], timeout_ms: 1000, severity: "warning",  enabled: true } satisfies QualityCheckConfig),
 	};
 
 	beforeEach(() => {
@@ -667,7 +667,7 @@ describe("runTrajectoryDetector", () => {
 		const trajectory: Record<string, boolean> = {};
 		const harness: Record<string, Record<string, boolean>> = { trajectory };
 		for (const f of flags) trajectory[f] = true;
-		return { harness } as unknown as SharedConfig;
+		return ({ version: 1, server_url: "https://example.test",  harness } satisfies SharedConfig);
 	}
 
 	// test-contract: invariant — dark-shipped trajectory flags must not even instantiate per-session detector state
@@ -1071,13 +1071,13 @@ describe("evaluateCurlMcpGuards", () => {
 		localhost_ports: [8787],
 		escalate_after: 3,
 		message: "Use the MCP tool instead of curl.",
-	} as unknown as import("../types.js").GuardRulesConfig["curl_mcp_detection"];
+	};
 
 	it("returns [] when detection is disabled (and command targets no /mcp route)", () => {
 		const out = evaluateCurlMcpGuards({
 			mcpScanCommand: "curl http://localhost:8787/status",
 			targetsMcpPath: true,
-			curlMcpDetection: { ...detection, enabled: false } as typeof detection,
+			curlMcpDetection: { ...detection, enabled: false },
 			session: makeSession(),
 		});
 		// Detection counter block is gated on `enabled`; the /mcp-direct nudge is

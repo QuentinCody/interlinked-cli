@@ -3,6 +3,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
+import { isJsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
 	getExtension,
@@ -35,8 +36,8 @@ function nearestPackageName(startDir: string): string | null {
 		const pkgPath = join(dir, "package.json");
 		if (existsSync(pkgPath)) {
 			try {
-				const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as { name?: unknown };
-				const name = typeof pkg.name === "string" && pkg.name.length > 0 ? pkg.name : null;
+				const pkg: unknown = JSON.parse(readFileSync(pkgPath, "utf-8"));
+				const name = isJsonObject(pkg) && typeof pkg.name === "string" && pkg.name.length > 0 ? pkg.name : null;
 				_pkgNameCache.set(dir, name);
 				return name;
 			} catch {

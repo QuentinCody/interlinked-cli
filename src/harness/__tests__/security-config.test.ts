@@ -99,11 +99,7 @@ describe("validate()", () => {
 			some_unknown_key: { weird: true },
 		});
 		expect(cfg.endpoint_auth_missing.exempt_paths).toEqual(["/x"]);
-		// Should not throw or pollute the typed config. Cast through `unknown`
-		// because `SecurityConfig` and the index-signature view of it don't
-		// sufficiently overlap (which is the point — unknown keys are dropped).
-		const cfgAsRecord = cfg as unknown as { readonly [k: string]: unknown };
-		expect(cfgAsRecord.some_unknown_key).toBeUndefined();
+		expect(cfg).not.toHaveProperty("some_unknown_key");
 	});
 
 	it("drops non-string entries from string arrays", () => {

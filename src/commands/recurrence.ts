@@ -49,7 +49,7 @@ interface ScanOpts extends CommonOpts {
 	record?: boolean;
 }
 
-const KNOWN_KINDS: ReadonlySet<RecurrenceKind> = new Set([
+const KNOWN_KINDS = new Set<string>([
 	"harness_caught",
 	"harness_missed",
 	"codebase_existing",
@@ -57,7 +57,7 @@ const KNOWN_KINDS: ReadonlySet<RecurrenceKind> = new Set([
 ]);
 
 function isRecurrenceKind(value: string | undefined): value is RecurrenceKind {
-	return value !== undefined && KNOWN_KINDS.has(value as RecurrenceKind);
+	return value !== undefined && KNOWN_KINDS.has(value);
 }
 
 function buildFilters(opts: ListOpts): RecurrenceFilters {

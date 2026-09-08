@@ -15,6 +15,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { wireAbsentOptional, wireBoolean, wireNumber, wireObject, wireRecord, wireString, type WireValidator } from "../../src/lib/value-validation.js";
 
 const SCRIPT_DIR = new URL(".", import.meta.url).pathname;
 const CLI_DIR = join(SCRIPT_DIR, "../..");
@@ -65,9 +66,10 @@ function run(cmd: string, cwd: string, timeout: number = DEFAULT_RUN_TIMEOUT_MS)
     };
 }
 
-function parseJson(text: string): unknown {
+function parseJson<T>(text: string, validate: WireValidator<T>): T | null {
     try {
-        return JSON.parse(text);
+        const value: unknown = JSON.parse(text);
+        return validate(value) ? value : null;
     } catch {
         return null;
     }
@@ -127,7 +129,7 @@ function runClaudeCodeSoloOffline(): Report {
         {
             const { status, duration_ms } = timed(() => {
                 const r = run(`${CLI} guard install --json`, repo);
-                const data = parseJson(r.stdout) as { mode?: string; pre_commit?: { installed?: boolean } } | null;
+                const data = parseJson(r.stdout, wireObject({ mode: wireAbsentOptional(wireString), pre_commit: wireAbsentOptional(wireObject({ installed: wireAbsentOptional(wireBoolean) })) }));
                 if (!data) return "fail";
                 if (data.mode !== "warn") return "fail";
                 if (!data.pre_commit?.installed) return "fail";
@@ -141,7 +143,7 @@ function runClaudeCodeSoloOffline(): Report {
         {
             const { status, duration_ms } = timed(() => {
                 const r = run(`${CLI} guard install --json`, repo);
-                const data = parseJson(r.stdout) as { pre_commit?: { installed?: boolean } } | null;
+                const data = parseJson(r.stdout, wireObject({ pre_commit: wireAbsentOptional(wireObject({ installed: wireAbsentOptional(wireBoolean) })) }));
                 if (!data) return "fail";
                 if (data.pre_commit?.installed !== false) return "fail";
                 return "pass";
@@ -153,7 +155,7 @@ function runClaudeCodeSoloOffline(): Report {
         {
             const { status, duration_ms } = timed(() => {
                 const r = run(`${CLI} guard status --json`, repo);
-                const data = parseJson(r.stdout) as { mode?: string; hooks?: { pre_commit?: boolean }; git_repo?: boolean } | null;
+                const data = parseJson(r.stdout, wireObject({ mode: wireAbsentOptional(wireString), hooks: wireAbsentOptional(wireObject({ pre_commit: wireAbsentOptional(wireBoolean) })), git_repo: wireAbsentOptional(wireBoolean) }));
                 if (!data) return "fail";
                 if (data.mode !== "warn") return "fail";
                 if (!data.hooks?.pre_commit) return "fail";
@@ -167,7 +169,7 @@ function runClaudeCodeSoloOffline(): Report {
         {
             const { status, duration_ms } = timed(() => {
                 const r = run(`${CLI} git context --json`, repo);
-                const data = parseJson(r.stdout) as { branch?: string; head?: string } | null;
+                const data = parseJson(r.stdout, wireObject({ branch: wireAbsentOptional(wireString), head: wireAbsentOptional(wireString) }));
                 if (!data) return "fail";
                 if (data.branch !== "main") return "fail";
                 if (!data.head) return "fail";
@@ -187,7 +189,7 @@ Interlinked-Checkpoint: 42
 Interlinked-Agent: Worker-Alpha"`, repo);
 
                 const r = run(`${CLI} git context --json`, repo);
-                const data = parseJson(r.stdout) as { trailers?: Record<string, string> } | null;
+                const data = parseJson(r.stdout, wireObject({ trailers: wireAbsentOptional(wireRecord(wireString)) }));
                 if (!data?.trailers) return "fail";
                 if (data.trailers["Interlinked-Checkpoint"] !== "42") return "fail";
                 if (data.trailers["Interlinked-Agent"] !== "Worker-Alpha") return "fail";
@@ -200,7 +202,7 @@ Interlinked-Agent: Worker-Alpha"`, repo);
         {
             const { status, duration_ms } = timed(() => {
                 const r = run(`${CLI} guard check --files src/auth/login.ts --json`, repo);
-                const data = parseJson(r.stdout) as { clean?: boolean; files_checked?: number } | null;
+                const data = parseJson(r.stdout, wireObject({ clean: wireAbsentOptional(wireBoolean), files_checked: wireAbsentOptional(wireNumber) }));
                 if (!data) return "fail";
                 if (!data.clean) return "fail";
                 return "pass";
@@ -215,7 +217,7 @@ Interlinked-Agent: Worker-Alpha"`, repo);
                 run("git add src/auth/login.ts", repo);
 
                 const r = run(`${CLI} guard check --json`, repo);
-                const data = parseJson(r.stdout) as { files_checked?: number; clean?: boolean } | null;
+                const data = parseJson(r.stdout, wireObject({ files_checked: wireAbsentOptional(wireNumber), clean: wireAbsentOptional(wireBoolean) }));
                 if (!data) return "fail";
                 if (data.files_checked !== 1) return "fail";
                 return "pass";
@@ -241,7 +243,7 @@ Interlinked-Agent: Worker-Alpha"`, repo);
         {
             const { status, duration_ms } = timed(() => {
                 const r = run(`${CLI} guard install --mode block --json`, repo);
-                const data = parseJson(r.stdout) as { mode?: string } | null;
+                const data = parseJson(r.stdout, wireObject({ mode: wireAbsentOptional(wireString) }));
                 if (!data) return "fail";
                 if (data.mode !== "block") return "fail";
                 return "pass";
@@ -253,7 +255,7 @@ Interlinked-Agent: Worker-Alpha"`, repo);
         {
             const { status, duration_ms } = timed(() => {
                 const r = run(`${CLI} guard uninstall --json`, repo);
-                const data = parseJson(r.stdout) as { pre_commit?: { removed?: boolean }; mode?: string } | null;
+                const data = parseJson(r.stdout, wireObject({ pre_commit: wireAbsentOptional(wireObject({ removed: wireAbsentOptional(wireBoolean) })), mode: wireAbsentOptional(wireString) }));
                 if (!data) return "fail";
                 if (!data.pre_commit?.removed) return "fail";
                 if (data.mode !== "off") return "fail";
@@ -268,7 +270,7 @@ Interlinked-Agent: Worker-Alpha"`, repo);
             const { status, duration_ms } = timed(() => {
                 run("git remote add origin https://github.com/user/my-cool-project.git", repo);
                 const r = run(`${CLI} attach --auto --json`, repo);
-                const data = parseJson(r.stdout) as { default_workspace_key?: string } | null;
+                const data = parseJson(r.stdout, wireObject({ default_workspace_key: wireAbsentOptional(wireString) }));
                 if (!data) return "fail";
                 if (data.default_workspace_key !== "my-cool-project") return "fail";
                 return "pass";

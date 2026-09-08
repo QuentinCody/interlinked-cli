@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Tests for the slow-test Stop nudge (measurement integrity — bug #13,
 // scratch/fleet-r3/repair-followups.txt: a legitimate-but-slow test timed out
 // Stryker's mutation dry run and poisoned kill-measurement for its whole
@@ -20,6 +21,7 @@ import {
 	type SlowTestHit,
 } from "./slow-test-stop-check.js";
 import type { ServerRuntime } from "./server/runtime-context.js";
+import { makeServerRuntime } from "./server/__tests__/fixtures.js";
 import type { HarnessEvent, SessionTrajectory } from "./types.js";
 
 const CWD = "/repo";
@@ -269,16 +271,9 @@ describe("formatSlowTestsWarning", () => {
 function makeCtx(): ServerRuntime & { logged: string[] } {
 	const logged: string[] = [];
 	return {
-		cwd: CWD,
-		rules: {},
-		log: (msg: string) => {
-			logged.push(msg);
-		},
-		logAlways: () => {},
+		...makeServerRuntime({ cwd: CWD, log: (msg) => { logged.push(msg); } }),
 		logged,
-		// SAFETY: only cwd/rules/log/logAlways are read by checkSlowTests; the
-		// other ServerRuntime fields are never touched by the code under test.
-	} as unknown as ServerRuntime & { logged: string[] };
+	};
 }
 
 function makeEvent(over: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -293,8 +288,7 @@ function makeEvent(over: Partial<HarnessEvent> = {}): HarnessEvent {
 }
 
 function makeSession(startedAt: string): SessionTrajectory {
-	// SAFETY: checkSlowTests reads only `started_at` off the session.
-	return { started_at: startedAt } as unknown as SessionTrajectory;
+	return ({ ...completeSessionFixture(), ...{ started_at: startedAt } });
 }
 
 describe("checkSlowTests", () => {

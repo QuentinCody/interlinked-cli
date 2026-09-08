@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -15,6 +15,26 @@ const row = {
 };
 
 describe("mutation run log — the live per-run stream", () => {
+	it.each([{ source: "other" }, { survived: null }])("skips malformed required run fields: %j", (invalid) => {
+		const root = mkdtempSync(join(tmpdir(), "run-log-"));
+		try {
+			appendMutationRun(root, row);
+			appendFileSync(join(root, MUTATION_RUNS_REL), `${JSON.stringify({ ...row, ...invalid })}\n`);
+			expect(readRecentMutationRuns(root, 10)).toEqual([row]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+	it("drops malformed optional values while retaining a valid run", () => {
+		const root = mkdtempSync(join(tmpdir(), "run-log-"));
+		try {
+			appendMutationRun(root, row);
+			appendFileSync(join(root, MUTATION_RUNS_REL), `${JSON.stringify({ ...row, shards: "many", outcome: "invented", partial: "yes" })}\n`);
+			expect(readRecentMutationRuns(root, 1)).toEqual([row]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
 	it("P1: appends one JSON line per run and reads it back newest-last", () => {
 		const root = mkdtempSync(join(tmpdir(), "run-log-"));
 		try {
@@ -53,7 +73,6 @@ describe("mutation run log — the live per-run stream", () => {
 		const root = mkdtempSync(join(tmpdir(), "run-log-"));
 		try {
 			appendMutationRun(root, row);
-			const { appendFileSync } = require("node:fs") as typeof import("node:fs");
 			appendFileSync(join(root, MUTATION_RUNS_REL), "{torn\n");
 			appendMutationRun(root, { ...row, file: "src/h.ts" });
 			expect(readRecentMutationRuns(root, 10).map((r) => r.file)).toEqual(["src/f.ts", "src/h.ts"]);

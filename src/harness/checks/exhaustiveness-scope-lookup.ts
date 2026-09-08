@@ -26,7 +26,7 @@ export function findDeclaredTypeForIdentifier(
 	// `Node | undefined` here so the loop guard below stays real.
 	// SAFETY: correcting a known-inaccurate .d.ts type, not suppressing a
 	// real type error — `parent` really can be undefined at the AST root.
-	let current = ident.parent as import("typescript").Node | undefined;
+	let current: import("typescript").Node | undefined = ident.parent;
 	while (current) {
 		const paramType = findParamType(ts, current, name);
 		if (paramType) return paramType;

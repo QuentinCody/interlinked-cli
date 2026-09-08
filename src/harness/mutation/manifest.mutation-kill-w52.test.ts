@@ -22,6 +22,7 @@ vi.mock("./instability.js", async (importOriginal) => {
 	return { ...actual, updateInstability: vi.fn(actual.updateInstability) };
 });
 
+import type { MutationManifest, MutationReceipt } from "./types.js";
 import { freshInstability, updateInstability } from "./instability.js";
 import {
 	applyMeasuredRun,
@@ -196,54 +197,54 @@ describe("saveManifest / appendReceipt encoding", () => {
 		const manifest = emptyManifest({ ...META, authoritativeAt: "2022-05-05T00:00:00Z" });
 		saveManifest(dir, manifest);
 		const raw = readFileSync(mutationManifestPath(dir), "utf-8");
-		const parsed = JSON.parse(raw as string);
+		const parsed = JSON.parse(raw);
 		expect(parsed.version).toBe(1);
 		expect(parsed.authoritativeAt).toBe("2022-05-05T00:00:00Z");
 	});
 
 	it("appendReceipt writes a UTF-8 JSONL line that round-trips through JSON.parse", () => {
 		const dir = makeDir();
-		const receipt = { kind: "measured-clean", at: "2022-05-05T00:00:00Z" } as any;
+		const receipt: MutationReceipt = { overlayHash: "overlay", generation: 1, sites: [], engine: "stryker", engineVersion: "1", measuredAt: "2022-05-05T00:00:00Z", outcome: "measured_clean" };
 		appendReceipt(dir, receipt);
-		const raw = readFileSync(join(dir, "mutation-receipts.jsonl"), "utf-8") as string;
+		const raw = readFileSync(join(dir, "mutation-receipts.jsonl"), "utf-8");
 		const line = raw.trim().split("\n")[0]!;
 		const parsed = JSON.parse(line);
-		expect(parsed.at).toBe("2022-05-05T00:00:00Z");
+		expect(parsed.measuredAt).toBe("2022-05-05T00:00:00Z");
 	});
 });
 
 describe("hasFileBaseline / changedSymbols on per-file records", () => {
 	it("hasFileBaseline reads an existing file's symbol records without throwing", () => {
-		const manifest = {
+		const manifest: MutationManifest = {
 			...emptyManifest(META),
 			files: {
 				"src/foo.ts": {
 					sym1: { symbolId: "sym1", qualifiedName: "foo", symbolHash: "H1", mutants: {}, instability: freshInstability() },
 				},
 			},
-		} as any;
+		};
 		expect(hasFileBaseline(manifest, "src/foo.ts")).toBe(true);
 		expect(hasFileBaseline(manifest, "src/missing.ts")).toBe(false);
 	});
 
 	it("changedSymbols flags a brand-new symbol without throwing on the missing prior record", () => {
 		const manifest = emptyManifest(META);
-		const overlay = new Map([["sym1", { symbolId: "sym1", qualifiedName: "foo", symbolHash: "H1" }]]) as any;
-		const changed = changedSymbols(manifest as any, "src/foo.ts", overlay);
+		const overlay = new Map([["sym1", { symbolId: "sym1", qualifiedName: "foo", symbolHash: "H1" }]]);
+		const changed = changedSymbols(manifest, "src/foo.ts", overlay);
 		expect(changed.has("sym1")).toBe(true);
 		expect(changed.size).toBe(1);
 	});
 
 	it("changedSymbols does not flag an existing symbol whose hash is unchanged", () => {
-		const manifest = {
+		const manifest: MutationManifest = {
 			...emptyManifest(META),
 			files: {
 				"src/foo.ts": {
 					sym1: { symbolId: "sym1", qualifiedName: "foo", symbolHash: "H1", mutants: {}, instability: freshInstability() },
 				},
 			},
-		} as any;
-		const overlay = new Map([["sym1", { symbolId: "sym1", qualifiedName: "foo", symbolHash: "H1" }]]) as any;
+		};
+		const overlay = new Map([["sym1", { symbolId: "sym1", qualifiedName: "foo", symbolHash: "H1" }]]);
 		const changed = changedSymbols(manifest, "src/foo.ts", overlay);
 		expect(changed.size).toBe(0);
 	});
@@ -251,7 +252,7 @@ describe("hasFileBaseline / changedSymbols on per-file records", () => {
 
 describe("applyMeasuredRun", () => {
 	it("replaces a symbol's snapshot when its hash changed, even with zero fresh measurements", () => {
-		const base = {
+		const base: MutationManifest = {
 			...emptyManifest(META),
 			files: {
 				"src/bar.ts": {
@@ -264,8 +265,8 @@ describe("applyMeasuredRun", () => {
 					},
 				},
 			},
-		} as any;
-		const overlay = new Map([["sym1", { symbolId: "sym1", qualifiedName: "bar", symbolHash: "NEW" }]]) as any;
+		};
+		const overlay = new Map([["sym1", { symbolId: "sym1", qualifiedName: "bar", symbolHash: "NEW" }]]);
 		const result = applyMeasuredRun({
 			base,
 			file: "src/bar.ts",
@@ -273,14 +274,15 @@ describe("applyMeasuredRun", () => {
 			measured: [],
 			at: "2020-01-02T00:00:00Z",
 		});
-		const rec = (result.files["src/bar.ts"] as any)["sym1"];
+		const rec = result.files["src/bar.ts"]?.sym1;
+		if (!rec) throw new Error("measured symbol must remain in the manifest");
 		expect(rec.symbolHash).toBe("NEW");
 		expect(Object.keys(rec.mutants)).toHaveLength(0);
 	});
 
 	it("forwards an explicit stabilityThreshold instead of silently defaulting", () => {
 		const base = emptyManifest(META);
-		const overlay = new Map([["sym1", { symbolId: "sym1", qualifiedName: "baz", symbolHash: "H1" }]]) as any;
+		const overlay = new Map([["sym1", { symbolId: "sym1", qualifiedName: "baz", symbolHash: "H1" }]]);
 		vi.mocked(updateInstability).mockClear();
 		applyMeasuredRun({
 			base,
@@ -293,6 +295,6 @@ describe("applyMeasuredRun", () => {
 		const calls = vi.mocked(updateInstability).mock.calls;
 		expect(calls.length).toBeGreaterThan(0);
 		const lastArgs = calls.at(-1)!;
-		expect((lastArgs[1] as any).threshold).toBe(1);
+		expect(lastArgs[1].threshold).toBe(1);
 	});
 });

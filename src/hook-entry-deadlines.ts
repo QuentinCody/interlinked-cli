@@ -75,7 +75,7 @@ const EDIT_TOOL_NAMES = new Set(["write", "edit", "multiedit", "applypatch", "no
 
 /** A PreToolUse whose tool could trigger the per-edit coverage overlay. */
 export function isCodeEditEvent(event: UnifiedHookEvent): boolean {
-	const action = event.action as { kind?: string; tool_name?: string };
+	const action: { kind?: string; tool_name?: string } = event.action;
 	if (action.kind === ACTION_FILE_OPERATION) return true;
 	return (
 		action.kind === ACTION_TOOL_CALL &&

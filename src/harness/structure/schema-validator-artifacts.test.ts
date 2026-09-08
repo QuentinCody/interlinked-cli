@@ -457,7 +457,7 @@ describe("validateArtifactFile", () => {
 	});
 
 	it("rejects an unknown artifact file key", () => {
-		const result = validateArtifactFile("bogus" as never, {});
+		const result = validateArtifactFile("bogus", {});
 		expect(result.valid).toBe(false);
 		expect(errAt(result, "$")?.message).toBe('Unknown artifact file key: bogus');
 	});

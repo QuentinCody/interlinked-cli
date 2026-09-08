@@ -43,7 +43,7 @@ vi.mock("../harness/daemon-process-identity.js", async (importOriginal) => {
 
 vi.mock("node:fs", () => {
 	const enoent = (p: string): NodeJS.ErrnoException => {
-		const err = new Error(`ENOENT: no such file or directory, '${p}'`) as NodeJS.ErrnoException;
+		const err: NodeJS.ErrnoException = new Error(`ENOENT: no such file or directory, '${p}'`);
 		err.code = "ENOENT";
 		return err;
 	};
@@ -367,7 +367,7 @@ describe("harness-process — reapOrphanHarnesses", () => {
 	it("returns empty when execSync yields a non-string (defensive)", () => {
 		mocks.execSync.mockImplementation((cmd: string) => {
 			if (cmd.includes("pid=,ppid= -ax")) return "";
-			return undefined as unknown as string;
+			return undefined;
 		});
 		const result = reapOrphanHarnesses(CWD, { dryRun: true });
 		expect(result.candidates).toEqual([]);
@@ -390,7 +390,7 @@ describe("harness-process — reapOrphanHarnesses", () => {
 		): true => {
 			if (sig === 0) {
 				if (dead.has(pid)) {
-					const e = new Error("ESRCH") as NodeJS.ErrnoException;
+					const e: NodeJS.ErrnoException = new Error("ESRCH");
 					e.code = "ESRCH";
 					throw e;
 				}
@@ -399,14 +399,14 @@ describe("harness-process — reapOrphanHarnesses", () => {
 			sent.push({ pid, sig: sig ?? 0 });
 			if (sig === "SIGTERM" || sig === "SIGKILL") dead.add(pid);
 			return true;
-		}) as typeof process.kill);
+		}));
 		const stderrChunks: string[] = [];
 		const stderrSpy = vi
 			.spyOn(process.stderr, "write")
 			.mockImplementation(((chunk: string | Uint8Array): boolean => {
 				stderrChunks.push(String(chunk));
 				return true;
-			}) as typeof process.stderr.write);
+			}));
 		try {
 			const result = reapOrphanHarnesses(CWD);
 			expect(result.dryRun).toBe(false);
@@ -438,7 +438,7 @@ describe("harness-process — reapOrphanHarnesses", () => {
 		): true => {
 			if (sig === 0) {
 				if (dead.has(pid)) {
-					const e = new Error("ESRCH") as NodeJS.ErrnoException;
+					const e: NodeJS.ErrnoException = new Error("ESRCH");
 					e.code = "ESRCH";
 					throw e;
 				}
@@ -446,14 +446,14 @@ describe("harness-process — reapOrphanHarnesses", () => {
 			}
 			if (sig === "SIGTERM" || sig === "SIGKILL") dead.add(pid);
 			return true;
-		}) as typeof process.kill);
+		}));
 		const chunks: string[] = [];
 		const stderrSpy = vi
 			.spyOn(process.stderr, "write")
 			.mockImplementation(((chunk: string | Uint8Array): boolean => {
 				chunks.push(String(chunk));
 				return true;
-			}) as typeof process.stderr.write);
+			}));
 		try {
 			reapOrphanHarnesses(CWD);
 			expect(chunks.join("")).toMatch(/Reaped 1 orphan harness daemon:/);
@@ -479,7 +479,7 @@ describe("harness-process — reapOrphanHarnesses", () => {
 				// Always still alive → push time past the grace window so the
 				// poll loop exits and SIGKILL is issued. After SIGKILL we let it die.
 				if (sent.some((s) => s.pid === pid && s.sig === "SIGKILL")) {
-					const e = new Error("ESRCH") as NodeJS.ErrnoException;
+					const e: NodeJS.ErrnoException = new Error("ESRCH");
 					e.code = "ESRCH";
 					throw e;
 				}
@@ -487,7 +487,7 @@ describe("harness-process — reapOrphanHarnesses", () => {
 				return true;
 			}
 			return true;
-		}) as typeof process.kill);
+		}));
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		try {
 			reapOrphanHarnesses(CWD);
@@ -521,12 +521,12 @@ describe("harness-process — reapOrphanHarnesses", () => {
 			if (sig === "SIGKILL") {
 				// ...but the SIGKILL itself races a natural exit → ESRCH, which
 				// counts as reaped (the L266 catch branch).
-				const e = new Error("ESRCH") as NodeJS.ErrnoException;
+				const e: NodeJS.ErrnoException = new Error("ESRCH");
 				e.code = "ESRCH";
 				throw e;
 			}
 			return true;
-		}) as typeof process.kill);
+		}));
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		try {
 			const result = reapOrphanHarnesses(CWD);
@@ -564,12 +564,12 @@ describe("harness-process — reapOrphanHarnesses", () => {
 					return true;
 				}
 				// Trailing post-loop poll: process is now gone.
-				const e = new Error("ESRCH") as NodeJS.ErrnoException;
+				const e: NodeJS.ErrnoException = new Error("ESRCH");
 				e.code = "ESRCH";
 				throw e;
 			}
 			return true;
-		}) as typeof process.kill);
+		}));
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		try {
 			const result = reapOrphanHarnesses(CWD);
@@ -593,12 +593,12 @@ describe("harness-process — reapOrphanHarnesses", () => {
 			sig?: string | number,
 		): true => {
 			if (sig === "SIGTERM") {
-				const e = new Error("EPERM") as NodeJS.ErrnoException;
+				const e: NodeJS.ErrnoException = new Error("EPERM");
 				e.code = "EPERM";
 				throw e;
 			}
 			return true;
-		}) as typeof process.kill);
+		}));
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		try {
 			const result = reapOrphanHarnesses(CWD);
@@ -626,12 +626,12 @@ describe("harness-process — reapOrphanHarnesses", () => {
 				return true;
 			}
 			if (sig === "SIGKILL") {
-				const e = new Error("EPERM") as NodeJS.ErrnoException;
+				const e: NodeJS.ErrnoException = new Error("EPERM");
 				e.code = "EPERM";
 				throw e;
 			}
 			return true; // SIGTERM ok
-		}) as typeof process.kill);
+		}));
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		try {
 			const result = reapOrphanHarnesses(CWD);
@@ -660,12 +660,12 @@ describe("harness-process — reapOrphanHarnesses", () => {
 			sig?: string | number,
 		): true => {
 			if (sig === "SIGTERM") {
-				const e = new Error("ESRCH") as NodeJS.ErrnoException;
+				const e: NodeJS.ErrnoException = new Error("ESRCH");
 				e.code = "ESRCH";
 				throw e;
 			}
 			return true;
-		}) as typeof process.kill);
+		}));
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		try {
 			const result = reapOrphanHarnesses(CWD);
@@ -684,12 +684,12 @@ describe("harness-process — reapOrphanHarnesses", () => {
 			sig?: string | number,
 		): true => {
 			if (sig === "SIGTERM") {
-				const e = new Error("ESRCH") as NodeJS.ErrnoException;
+				const e: NodeJS.ErrnoException = new Error("ESRCH");
 				e.code = "ESRCH";
 				throw e;
 			}
 			return true;
-		}) as typeof process.kill);
+		}));
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		try {
 			const result = reapOrphanHarnesses(CWD);
@@ -711,20 +711,20 @@ describe("harness-process — reapOrphanHarnesses", () => {
 		): true => {
 			if (sig === 0) {
 				now += 5000;
-				const e = new Error("EPERM") as NodeJS.ErrnoException;
+				const e: NodeJS.ErrnoException = new Error("EPERM");
 				e.code = "EPERM";
 				throw e;
 			}
 			// SIGTERM/SIGKILL succeed but the process never dies (EPERM on poll).
 			return true;
-		}) as typeof process.kill);
+		}));
 		const chunks: string[] = [];
 		const stderrSpy = vi
 			.spyOn(process.stderr, "write")
 			.mockImplementation(((chunk: string | Uint8Array): boolean => {
 				chunks.push(String(chunk));
 				return true;
-			}) as typeof process.stderr.write);
+			}));
 		try {
 			const result = reapOrphanHarnesses(CWD);
 			expect(result.killed).toEqual([]);
@@ -881,7 +881,7 @@ describe("harness-process — pid-file cleanup edge cases", () => {
 		): true => {
 			if (sig === 0) {
 				if (dead.has(pid)) {
-					const e = new Error("ESRCH") as NodeJS.ErrnoException;
+					const e: NodeJS.ErrnoException = new Error("ESRCH");
 					e.code = "ESRCH";
 					throw e;
 				}
@@ -889,7 +889,7 @@ describe("harness-process — pid-file cleanup edge cases", () => {
 			}
 			if (sig === "SIGTERM" || sig === "SIGKILL") dead.add(pid);
 			return true;
-		}) as typeof process.kill);
+		}));
 	}
 
 	it("skips pid files whose content does not match a killed pid", () => {
@@ -967,15 +967,13 @@ describe("harness-process — pid-file cleanup edge cases", () => {
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		const fs = await import("node:fs");
 		const origRead = fs.readFileSync;
-		const readSpy = vi.spyOn(fs, "readFileSync").mockImplementation(((
-			p: string | URL,
-			...rest: unknown[]
-		) => {
+		const readSpy = vi.spyOn(fs, "readFileSync").mockImplementation((...args) => {
+			const [p] = args;
 			if (String(p) === "/repo/.interlinked/harness-unreadable.pid") {
 				throw new Error("EACCES");
 			}
-			return (origRead as (...a: unknown[]) => string)(p, ...rest);
-		}) as typeof fs.readFileSync);
+			return origRead(...args);
+		});
 		try {
 			reapOrphanHarnesses(CWD);
 			// Unreadable file left in place (the read-failure continue branch).
@@ -1071,8 +1069,15 @@ describe("harness-process — daemon stderr log", () => {
 		expect(readDaemonStderrLog(log)).toBe("");
 	});
 
-	it("closeDaemonStderrLog no-ops for a null log", () => {
-		expect(() => closeDaemonStderrLog(null)).not.toThrow();
+	it("closeDaemonStderrLog no-ops for a null log", async () => {
+		const fs = await import("node:fs");
+		const closeSpy = vi.spyOn(fs, "closeSync");
+		try {
+			expect(() => closeDaemonStderrLog(null)).not.toThrow();
+			expect(closeSpy).not.toHaveBeenCalled();
+		} finally {
+			closeSpy.mockRestore();
+		}
 	});
 
 	it("closeDaemonStderrLog closes a real fd", async () => {
@@ -1093,6 +1098,7 @@ describe("harness-process — daemon stderr log", () => {
 		});
 		try {
 			expect(() => closeDaemonStderrLog({ fd: 7, path: LOG_PATH, startOffset: 0 })).not.toThrow();
+			expect(closeSpy).toHaveBeenCalledWith(7);
 		} finally {
 			closeSpy.mockRestore();
 		}

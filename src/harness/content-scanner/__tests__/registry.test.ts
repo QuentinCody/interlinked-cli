@@ -80,11 +80,7 @@ describe("createScanner", () => {
 	});
 
 	it("returns undefined for an unknown runtime", () => {
-		// Cast through unknown — the union type would otherwise reject the bad
-		// value. Tests the runtime defensive switch, not the static check.
-		const bad = makeConfig({
-			runtime: "made_up" as unknown as ContentScannerConfig["runtime"],
-		});
+		const bad = { ...makeConfig(), runtime: "made_up" };
 		expect(createScanner(bad)).toBeUndefined();
 	});
 
@@ -244,4 +240,3 @@ describe("wrapWithDisabledLabels", () => {
 		expect(out).toEqual([]);
 	});
 });
-

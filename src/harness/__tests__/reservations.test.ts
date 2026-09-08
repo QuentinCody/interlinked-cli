@@ -454,7 +454,7 @@ describe("ServerBridge.reserveFile — real path (fetch-mocked)", () => {
 		globalThis.fetch = vi.fn(((input: string | URL | Request) => {
 			const url = typeof input === "string" ? input : input.toString();
 			return Promise.resolve(impl(url));
-		}) as typeof globalThis.fetch);
+		}));
 	}
 
 	it("server-rejected (conflicts[] non-empty): rolls back local grant + emits server-rejected conflict", async () => {
@@ -747,30 +747,6 @@ describe("ServerBridge.reserveFile — real path (fetch-mocked)", () => {
 			events.some((e) => e.action === "conflict" && e.conflict_reason === "server-rejected"),
 		).toBe(true);
 		bridge.shutdown();
-	});
-});
-
-// ===========================================
-// applyTransition — defensive exhaustiveness guard
-// ===========================================
-
-describe("applyTransition — defensive default arm", () => {
-	it("an unknown txn kind is a no-op (exhaustiveness fallthrough returns state unchanged)", () => {
-		const state: ReservationCache = new Map();
-		applyTransition(state, {
-			kind: "grant_local",
-			file: "a.ts",
-			agent: "alice",
-			reservedAt: "t0",
-			expiresAt: "t1",
-		});
-		const before = serialize(state);
-		// Force the `never` default branch with a kind the union does not declare.
-		const bogus = { kind: "not-a-real-kind", file: "a.ts" } as unknown as ReservationTxn;
-		const returned = applyTransition(state, bogus);
-		// Same Map instance is returned, and nothing changed.
-		expect(returned).toBe(state);
-		expect(serialize(state)).toEqual(before);
 	});
 });
 

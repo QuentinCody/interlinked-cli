@@ -20,7 +20,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname } from "node:path";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 
 type SpoolEventKind =
@@ -32,6 +32,11 @@ type SpoolEventKind =
 	| "daemon_fallback_cold"
 	| "budget_exceeded"
 	| "custom";
+
+const SPOOL_EVENT_KINDS: readonly SpoolEventKind[] = [
+	"hook_decision", "check_finding", "session_lifecycle", "daemon_event",
+	"suppression_applied", "daemon_fallback_cold", "budget_exceeded", "custom",
+];
 
 export interface SpoolEvent {
 	schema: "v1";
@@ -185,12 +190,12 @@ function tryParseEvent(line: string): SpoolEvent | null {
 	} catch {
 		return null;
 	}
-	if (parsed == null || typeof parsed !== "object") return null;
-	const obj = parsed as JsonObject;
-	if (obj.schema !== "v1" || typeof obj.kind !== "string" || typeof obj.ts !== "string") {
+	if (!isJsonObject(parsed)) return null;
+	const kind = SPOOL_EVENT_KINDS.find((candidate) => candidate === parsed.kind);
+	if (parsed.schema !== "v1" || kind === undefined || typeof parsed.ts !== "string") {
 		return null;
 	}
-	return obj as SpoolEvent;
+	return { ...parsed, schema: "v1", kind, ts: parsed.ts };
 }
 
 // -----------------------------------------------------------------------------

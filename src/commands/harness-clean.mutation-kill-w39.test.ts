@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireBoolean, wireObject, wireString } from "../lib/value-validation.js";
 // ===========================================
 // `interlinked harness clean` — wave-39 mutation-kill suite
 // ===========================================
@@ -92,7 +93,7 @@ describe("harnessCleanCommand — running/pid guard (LogicalOperator / Condition
 		// evaluation to true, triggering a refusal that must not happen here.
 		expect(exitCode).toBe(previousExitCode);
 		// SAFETY: harnessCleanCommand({ json: true }) always emits this shape; asserted structurally below
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; removed: string[] };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "removed": wireArray(wireString) }), "test JSON value");
 		expect(parsed.ok).toBe(true);
 	});
 });
@@ -103,7 +104,7 @@ describe("harnessCleanCommand — removed[] accumulation (ArrayDeclaration / out
 	it("reports removed: [] when neither file exists (kills 09d6349202b82fd8)", async () => {
 		const captured = await captureStdout(() => harnessCleanCommand({ json: true }));
 		// SAFETY: harnessCleanCommand({ json: true }) always emits this shape; asserted structurally below
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; removed: string[] };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "removed": wireArray(wireString) }), "test JSON value");
 		expect(parsed.removed).toEqual([]);
 	});
 
@@ -113,7 +114,7 @@ describe("harnessCleanCommand — removed[] accumulation (ArrayDeclaration / out
 		writeFileSync(pidPath(), "123");
 		const captured = await captureStdout(() => harnessCleanCommand({ json: true }));
 		// SAFETY: harnessCleanCommand({ json: true }) always emits this shape; asserted structurally below
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; removed: string[] };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "removed": wireArray(wireString) }), "test JSON value");
 		expect(parsed.removed).toEqual([pidPath()]);
 		// existsSync(pidPath) mutated to `false` would skip the real unlinkSync
 		// call entirely while still reporting it removed — catch that here.
@@ -126,7 +127,7 @@ describe("harnessCleanCommand — removed[] accumulation (ArrayDeclaration / out
 		writeFileSync(sockPath(), "");
 		const captured = await captureStdout(() => harnessCleanCommand({ json: true }));
 		// SAFETY: harnessCleanCommand({ json: true }) always emits this shape; asserted structurally below
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; removed: string[] };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "removed": wireArray(wireString) }), "test JSON value");
 		expect(parsed.removed).toEqual([sockPath()]);
 	});
 
@@ -146,7 +147,7 @@ describe("harnessCleanCommand — removed[] accumulation (ArrayDeclaration / out
 		});
 		const captured = await captureStdout(() => harnessCleanCommand({ json: true }));
 		// SAFETY: harnessCleanCommand({ json: true }) always emits this shape; asserted structurally below
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; removed: string[] };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "removed": wireArray(wireString) }), "test JSON value");
 		expect(parsed.removed).toContain(sockPath());
 	});
 });

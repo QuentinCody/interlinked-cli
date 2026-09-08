@@ -9,9 +9,8 @@ function ctxFor(content: string, file: string): Parameters<typeof runOverExtract
 		relPath: file,
 		cwd: "/tmp/wiring-probe",
 		r: emptyResults(),
-		// SAFETY: `piiOpts` is the only omitted field and this helper never
-		// reads it — it passes content / file / relPath / r straight through.
-	} as Parameters<typeof runOverExtractionChecks>[0];
+		piiOpts: {},
+	};
 }
 
 const OVER_EXTRACTED = `function processItems(items: number[]): number[] {

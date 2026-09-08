@@ -32,7 +32,7 @@ export class ProjectWideSweepState {
 	readonly reportedFindings = new Set<string>();
 
 	/** Record a file edit, returns true if a sweep should fire based on interval. */
-	recordEdit(config: ProjectWideCheckConfig): boolean {
+	recordEdit(config: Pick<ProjectWideCheckConfig, "edit_interval">): boolean {
 		this.editsSinceLastSweep++;
 		return this.editsSinceLastSweep >= config.edit_interval;
 	}

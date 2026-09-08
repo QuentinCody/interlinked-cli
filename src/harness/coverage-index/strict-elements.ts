@@ -13,6 +13,11 @@ function spanKey(value: unknown): string {
     const span = sourceSpan(value);
     return JSON.stringify([span.line, span.column, span.endLine, span.endColumn]);
 }
+function readSpanKey(key: string): ReturnType<typeof sourceSpan> {
+    const values: unknown = JSON.parse(key);
+    if (!Array.isArray(values) || values.length !== 4) throw new Error("Invalid coverage span key");
+    return sourceSpan({ start: { line: values[0], column: values[1] }, end: { line: values[2], column: values[3] } });
+}
 function put(map: Map<string, number>, key: string, hits: unknown): void {
     if (map.has(key)) throw new Error("Ambiguous coverage element identity");
     map.set(key, natural(hits, "coverage hits"));
@@ -34,7 +39,7 @@ function branches(data: JsonObject): Map<string, number> {
 }
 function fileElements(raw: unknown, content: string, path: string): CanonicalCoverageElementSet {
     const data = record(raw, "coverage file"), statements = locationElements(data, "statementMap", "s", spanKey), lines = new Map<number, number>();
-    for (const [key, hits] of statements) { const [line] = JSON.parse(key) as number[]; if (line !== undefined) lines.set(line, Math.max(lines.get(line) ?? 0, hits)); }
+    for (const [key, hits] of statements) { const { line } = readSpanKey(key); lines.set(line, Math.max(lines.get(line) ?? 0, hits)); }
     const functions = locationElements(data, "fnMap", "f", entry => functionLocationKey(entry, content, path));
     return { lines, statements, functions, branches: branches(data) };
 }
@@ -43,9 +48,9 @@ export function strictElements(raw: unknown, root: string): Map<string, Canonica
     return new Map(Object.entries(record(raw, "report")).map(([path, file]) => [artifactSourcePath(root, path), fileElements(file, readFileSync(containedFile(root, path), "utf8"), path)]));
 }
 function functionCoverage(key: string, hits: number, statements: Map<string, number>): PerFileCoverage["functions"][number] {
-    const [line = 0, column = 0, endLine = 0, endColumn = 0] = JSON.parse(key) as number[];
+    const { line, column, endLine, endColumn } = readSpanKey(key);
     const within = [...statements].filter(([span]) => {
-        const [start = 0, startColumn = 0, end = 0, finishColumn = 0] = JSON.parse(span) as number[];
+        const { line: start, column: startColumn, endLine: end, endColumn: finishColumn } = readSpanKey(span);
         return (start > line || start === line && startColumn >= column) && (end < endLine || end === endLine && finishColumn <= endColumn);
     });
     return { name: `function@${line}:${column}`, line, endLine, hits, statement_pct: within.length ? within.filter(([, count]) => count > 0).length / within.length * 100 : hits > 0 ? 100 : 0 };

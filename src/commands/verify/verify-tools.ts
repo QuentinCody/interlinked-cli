@@ -164,7 +164,7 @@ interface VerifyToolOpts {
 }
 
 interface StreamExternalToolsArgs {
-	engine: CheckEngine;
+	engine: Pick<CheckEngine, "discoverTools">;
 	cwd: string;
 	opts: VerifyToolOpts;
 	skipChecks: Set<string>;

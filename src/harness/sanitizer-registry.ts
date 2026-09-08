@@ -176,7 +176,7 @@ function emptyRegistry(): SanitizerRegistry {
 export function validate(raw: unknown): SanitizerRegistry {
 	const out = emptyRegistry();
 	if (!raw || typeof raw !== "object") return out;
-	const r = raw as RawRegistry;
+	const r: RawRegistry = raw;
 	if (typeof r.version === "number") out.version = r.version;
 	const sanitizers = r.sanitizers;
 	if (!sanitizers || typeof sanitizers !== "object") return out;
@@ -196,7 +196,7 @@ export function validate(raw: unknown): SanitizerRegistry {
 /** Validate one entry. Returns null if invalid. */
 function validateEntry(raw: unknown): SanitizerEntry | null {
 	if (!raw || typeof raw !== "object") return null;
-	const e = raw as RawEntry;
+	const e: RawEntry = raw;
 	const name = typeof e.name === "string" ? e.name : null;
 	const kind =
 		e.kind === SANITIZER_KIND_FUNCTION ||

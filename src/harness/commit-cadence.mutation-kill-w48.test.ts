@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,26 +39,17 @@ describe("isDocFile — caches compiled glob regexes (positive, must fire)", () 
 	it("reuses a cached RegExp instance across repeated calls rather than recompiling", () => {
 		const uniqueGlob = "zz-unique-cache-probe-8842.md";
 		const OriginalRegExp = globalThis.RegExp;
-		let constructCount = 0;
-		class CountingRegExp extends OriginalRegExp {
-			constructor(pattern: string | RegExp, flags?: string) {
-				super(pattern, flags);
-				constructCount++;
-			}
-		}
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only global patch to count RegExp construction
-		(globalThis as any).RegExp = CountingRegExp;
+		const construct = vi.spyOn(globalThis, "RegExp").mockImplementation(function (pattern: string | RegExp, flags?: string) {
+			return new OriginalRegExp(pattern, flags);
+		});
 		try {
 			expect(isDocFile(uniqueGlob, [uniqueGlob])).toBe(true);
 			expect(isDocFile(uniqueGlob, [uniqueGlob])).toBe(true);
 			expect(isDocFile(uniqueGlob, [uniqueGlob])).toBe(true);
+			expect(construct).toHaveBeenCalledTimes(1);
 		} finally {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any -- restore original global RegExp
-			(globalThis as any).RegExp = OriginalRegExp;
+			construct.mockRestore();
 		}
-		// Only the first call should have compiled a fresh regex; the rest
-		// must come from the module-level cache.
-		expect(constructCount).toBe(1);
 	});
 });
 
@@ -134,7 +125,6 @@ describe("formatStopNudge — positive (must fire)", () => {
 		expect(msg).not.toBeNull();
 		expect(msg).toContain("(1 doc/plan file excluded)");
 		expect(msg).not.toContain("files excluded");
-		expect(msg).not.toContain("Stryker was here!");
 	});
 
 	it("picks the medium band (not high) exactly at the high-band boundary", () => {

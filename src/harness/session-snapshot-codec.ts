@@ -81,8 +81,8 @@ export function readStubsIntroduced(
 	if (!Array.isArray(v)) return [];
 	const out: Array<{ file: string; kind: string; snippet: string }> = [];
 	for (const e of v) {
-		if (!e || typeof e !== "object") continue;
-		const r = e as JsonObject;
+		if (!isPlainObject(e)) continue;
+		const r = e;
 		if (typeof r.file !== "string" || typeof r.kind !== "string" || typeof r.snippet !== "string") {
 			continue;
 		}
@@ -153,10 +153,12 @@ export function readNumberRecord(v: unknown): Record<number, number> {
 }
 
 export function readSensitivity(v: unknown): SensitivityLevel {
-	if (typeof v === "string" && SENSITIVITY_LEVELS.has(v as SensitivityLevel)) {
-		return v as SensitivityLevel;
-	}
-	return "Public";
+	return readMember(SENSITIVITY_LEVELS, v) ?? "Public";
+}
+
+function readMember<T>(values: ReadonlySet<T>, input: unknown): T | undefined {
+	for (const value of values) if (value === input) return value;
+	return undefined;
 }
 
 export function readConsecutivePattern(v: unknown): { pattern: string; count: number } | null {
@@ -177,10 +179,7 @@ const TAINT_PROVENANCE_VALUES: ReadonlySet<TaintProvenance> = new Set<TaintProve
 /** Coerce an unknown to a TaintProvenance, defaulting to "local_read" for
  *  older snapshots (pre-provenance field) and any malformed value. */
 function readProvenance(v: unknown): TaintProvenance {
-	if (typeof v === "string" && TAINT_PROVENANCE_VALUES.has(v as TaintProvenance)) {
-		return v as TaintProvenance;
-	}
-	return "local_read";
+	return readMember(TAINT_PROVENANCE_VALUES, v) ?? "local_read";
 }
 
 export function readTaintSources(v: unknown): TaintSource[] {
@@ -251,7 +250,7 @@ export function readWarnings(v: unknown): Map<string, WarningRecord> {
 	return out;
 }
 
-const TDD_STATES = new Set(["no_test", "red", "green", "regression"]);
+const TDD_STATES = new Set<TddCycle["state"]>(["no_test", "red", "green", "regression"]);
 
 /** Builds one {@link TddCycle} record from a raw snapshot entry, or returns
  *  `null` when the entry lacks a `source_file` (the caller's drop condition).
@@ -259,11 +258,8 @@ const TDD_STATES = new Set(["no_test", "red", "green", "regression"]);
 function buildTddCycle(raw: Record<string, unknown>): TddCycle | null {
 	const sourceFile = readString(raw.source_file);
 	if (!sourceFile) return null;
-	const stateStr = typeof raw.state === "string" ? raw.state : "no_test";
-	const state = (TDD_STATES.has(stateStr) ? stateStr : "no_test") as TddCycle["state"];
-	const prevStr = typeof raw.previous_state === "string" ? raw.previous_state : undefined;
-	const previous_state =
-		prevStr && TDD_STATES.has(prevStr) ? (prevStr as TddCycle["state"]) : undefined;
+	const state = readMember(TDD_STATES, raw.state) ?? "no_test";
+	const previous_state = readMember(TDD_STATES, raw.previous_state);
 	return {
 		source_file: sourceFile,
 		test_file: typeof raw.test_file === "string" ? raw.test_file : null,
@@ -287,8 +283,8 @@ export function readTddCycles(v: unknown): Map<string, TddCycle> {
 	return out;
 }
 
-const OBSERVED_CHECK_KINDS = new Set(["typecheck", "build", "lint"]);
-const OBSERVED_CHECK_STATUSES = new Set(["red", "green"]);
+const OBSERVED_CHECK_KINDS = new Set<ObservedCheck["kind"]>(["typecheck", "build", "lint"]);
+const OBSERVED_CHECK_STATUSES = new Set<ObservedCheck["status"]>(["red", "green"]);
 
 /** Defensive read of `session.observed_checks`. Mirrors {@link readTddCycles}:
  *  validate the `kind` / `status` enums, coerce the optional step counters,
@@ -301,13 +297,10 @@ const OBSERVED_CHECK_STATUSES = new Set(["red", "green"]);
  *  condition). Extracted from {@link readObservedChecks} to keep that loop
  *  body flat. */
 function buildObservedCheck(raw: Record<string, unknown>): ObservedCheck | null {
-	const kindStr = typeof raw.kind === "string" ? raw.kind : "";
-	const statusStr = typeof raw.status === "string" ? raw.status : "";
-	if (!OBSERVED_CHECK_KINDS.has(kindStr) || !OBSERVED_CHECK_STATUSES.has(statusStr)) return null;
-	const entry: ObservedCheck = {
-		kind: kindStr as ObservedCheck["kind"],
-		status: statusStr as ObservedCheck["status"],
-	};
+	const kind = readMember(OBSERVED_CHECK_KINDS, raw.kind);
+	const status = readMember(OBSERVED_CHECK_STATUSES, raw.status);
+	if (!kind || !status) return null;
+	const entry: ObservedCheck = { kind, status };
 	if (typeof raw.red_at === "number" && Number.isFinite(raw.red_at)) entry.red_at = raw.red_at;
 	if (typeof raw.green_at === "number" && Number.isFinite(raw.green_at)) {
 		entry.green_at = raw.green_at;
@@ -448,10 +441,7 @@ export function serializeCapturedPlan(plan: CapturedPlan): JsonObject {
 function buildPlanStep(raw: JsonObject): PlanStep | null {
 	const intent = readString(raw.intent);
 	if (!intent) return null;
-	const statusRaw = typeof raw.status === "string" ? raw.status : "pending";
-	const status = PLAN_STEP_STATUSES.has(statusRaw as PlanStepStatus)
-		? (statusRaw as PlanStepStatus)
-		: "pending";
+	const status = readMember(PLAN_STEP_STATUSES, raw.status) ?? "pending";
 	const step: PlanStep = { intent, status };
 	const toolHint = readString(raw.tool_hint);
 	if (toolHint) step.tool_hint = toolHint;
@@ -479,10 +469,7 @@ export function readCapturedPlan(v: unknown): CapturedPlan | undefined {
 	const agentName = readString(v.agent_name);
 	const createdAtIso = readString(v.created_at_iso);
 	if (!sessionId || !agentName || !createdAtIso) return undefined;
-	const sourceRaw = typeof v.source === "string" ? v.source : "";
-	const source = PLAN_SOURCES.has(sourceRaw as PlanSource)
-		? (sourceRaw as PlanSource)
-		: "TaskCreate";
+	const source = readMember(PLAN_SOURCES, v.source) ?? "TaskCreate";
 	return {
 		session_id: sessionId,
 		agent_name: agentName,

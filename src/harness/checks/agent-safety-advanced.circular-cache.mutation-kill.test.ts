@@ -23,12 +23,12 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		readFileSync: (path: unknown, ...args: unknown[]) => {
+		readFileSync: (...[path, ...args]: Parameters<typeof actual.readFileSync>) => {
 			if (typeof path === "string" && path === state.dPath) {
 				state.n += 1;
 				return state.n === 1 ? state.content1 : state.content2;
 			}
-			return (actual.readFileSync as (...a: unknown[]) => unknown)(path, ...args);
+			return actual.readFileSync(path, ...args);
 		},
 	};
 });

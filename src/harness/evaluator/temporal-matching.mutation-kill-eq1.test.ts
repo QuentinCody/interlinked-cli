@@ -68,7 +68,7 @@ describe("getCachedRegex() cache reuse — mutation kill (eq1 falsification)", (
 		const OriginalRegExp = globalThis.RegExp;
 		const ctorSpy = vi
 			.spyOn(globalThis, "RegExp")
-			.mockImplementation(function (...args: unknown[]) {
+			.mockImplementation(function (...args: ConstructorParameters<typeof RegExp>) {
 				// SAFETY: args are exactly the arguments the spied RegExp
 				// constructor was invoked with — production code only ever
 				// calls `new RegExp(pattern, flags)`, matching this shape.
@@ -83,7 +83,7 @@ describe("getCachedRegex() cache reuse — mutation kill (eq1 falsification)", (
 					OriginalRegExp,
 					// SAFETY: test fixture — the spy is only ever invoked as `new RegExp(pattern, flags)`
 					// by production code, so `args` is structurally a RegExp constructor argument tuple.
-					args as ConstructorParameters<typeof RegExp>,
+					args,
 				);
 			});
 		const s = session({ commands_run: ["run foo now"] });

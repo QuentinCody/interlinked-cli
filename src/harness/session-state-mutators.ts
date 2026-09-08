@@ -300,8 +300,8 @@ function resolvePendingCompletions(session: SessionTrajectory, filePath: string)
  * both a file_path and a tool_name.
  */
 export function trackFileOperations(session: SessionTrajectory, event: HarnessEvent): void {
-	const filePath = event.tool_input?.file_path as string | undefined;
-	if (!filePath || !event.tool_name) return;
+	const filePath = event.tool_input?.file_path;
+	if (typeof filePath !== "string" || !filePath || !event.tool_name) return;
 	const eventCwd = event.cwd ?? process.cwd();
 	const absPath = resolvePath(eventCwd, filePath);
 	trackReadWrite(session, event, filePath, absPath);
@@ -320,8 +320,8 @@ export function trackFileOperations(session: SessionTrajectory, event: HarnessEv
  * non-Bash tools or an absent command.
  */
 export function trackCommand(session: SessionTrajectory, event: HarnessEvent): void {
-	const command = event.tool_input?.command as string | undefined;
-	if (!command || !isBashTool(event.tool_name)) return;
+	const command = event.tool_input?.command;
+	if (typeof command !== "string" || !command || !isBashTool(event.tool_name)) return;
 	session.commands_run.push(command.length > 200 ? command.slice(0, 200) : command);
 	if (session.commands_run.length > 100) {
 		session.commands_run = session.commands_run.slice(-100);

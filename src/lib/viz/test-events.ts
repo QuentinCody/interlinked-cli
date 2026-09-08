@@ -12,7 +12,7 @@
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { JsonObject } from "../json-types.js";
+import { isJsonObject, type JsonObject } from "../json-types.js";
 import { readRecentLines } from "../local-activity-collection.js";
 import { createJsonlTailer } from "./event-stream.js";
 
@@ -71,11 +71,7 @@ export function appendTestEvent(path: string, ev: TestEvent): boolean {
 
 /** Narrow an arbitrary JSON value to an indexable object, or null. */
 function asRecord(v: unknown): JsonObject | null {
-	if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
-	// SAFETY: a non-null, non-array typeof-"object" value is an indexable
-	// record at runtime; JsonObject's index signature makes this the one
-	// narrowing point every field read below routes through.
-	return v as JsonObject;
+	return isJsonObject(v) ? v : null;
 }
 
 function str(o: JsonObject, key: string): string | undefined {

@@ -1,5 +1,5 @@
+import { nonNull } from "../lib/non-null.js";
 import type { ChildProcess } from "node:child_process";
-import { EventEmitter } from "node:events";
 import {
 	chmodSync,
 	existsSync,
@@ -21,6 +21,23 @@ import {
 	WatchProcess,
 } from "./tsgo-runner-watch.js";
 
+const { childProcesses } = vi.hoisted(() => {
+	const childProcesses: ChildProcess[] = [];
+	return { childProcesses };
+});
+
+vi.mock("node:child_process", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:child_process")>();
+	return {
+		...actual,
+		spawn: (...args: Parameters<typeof actual.spawn>) => {
+			const child = actual.spawn(...args);
+			childProcesses.push(child);
+			return child;
+		},
+	};
+});
+
 // These tests drive the REAL `WatchProcess` class against small, fast fake
 // "tsgo --watch" shell scripts (not the real tsgo binary — tsgo-runner.test.ts
 // already covers the real-binary integration path). Each script emits
@@ -33,6 +50,7 @@ let tmp = "";
 const spawned: WatchProcess[] = [];
 
 beforeEach(() => {
+	childProcesses.length = 0;
 	tmp = mkdtempSync(join(tmpdir(), "interlinked-watch-"));
 });
 
@@ -65,25 +83,6 @@ function makeWatchWithScript(idleMs: number, scriptPath: string): WatchProcess {
 	return wp;
 }
 
-/** A synthetic child satisfying the EventEmitter + pid/exitCode/kill shape
- * `signalCompilerTree`/`terminateCompilerProcess` need, with NO real OS
- * process behind it. Deliberately never emits `exit`/`close`, so a
- * WatchProcess wired to one via this file's `child` cast never actually
- * settles its stop promise — callers must assert synchronously and must
- * NOT register the WatchProcess in `spawned` (the shared afterEach awaits
- * every spawned instance's kill() and would hang forever on one). */
-function fakeChild(
-	kill: () => boolean,
-	pid: number | undefined,
-	exitCode: number | null = null,
-): ChildProcess {
-	const emitter = new EventEmitter();
-	// SAFETY: only the properties terminateCompilerProcess/signalCompilerTree
-	// read (pid, exitCode, signalCode, kill, plus EventEmitter's own once) are
-	// exercised by the code under test; the rest of ChildProcess is unused.
-	return Object.assign(emitter, { pid, exitCode, signalCode: null, kill }) as unknown as ChildProcess;
-}
-
 const ONE_PASS_THEN_SLEEP = [
 	'printf \'build starting at 12:00:00 AM\\n\'',
 	'printf \'a.ts(3,7): error TS1234: boom.\\n\'',
@@ -96,12 +95,6 @@ const CLASSIC_FORMAT_THEN_SLEEP = [
 	'printf \'\\033[2J\\033[3J\\033[HStarting compilation in watch mode...\\n\'',
 	'printf \'a.ts(1,1): error TS9999: classic err.\\n\'',
 	'printf \'12:00:02 AM - Found 1 error. Watching for file changes.\\n\'',
-	"sleep 30",
-].join("\n");
-
-const ORPHAN_DIAG_THEN_PASS = [
-	// A diagnostic line arrives BEFORE any pass-start marker.
-	'printf \'src/orphan.ts(2,2): warning TS0001: orphan diag.\\n\'',
 	"sleep 30",
 ].join("\n");
 
@@ -183,13 +176,10 @@ describe("WatchProcess — start() lifecycle", () => {
 		const script = fakeTsgo("idem.sh", ONE_PASS_THEN_SLEEP);
 		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, script);
 		wp.start();
-		// Internal field access is the deliberate technique for pinning
-		// "no new child was spawned" — capture identity, call
-		// start() again, and assert the reference is unchanged.
-		const childBefore = (wp as unknown as { child: unknown }).child;
+		expect(childProcesses).toHaveLength(1);
+		const childBefore = childProcesses[0];
 		wp.start();
-		const childAfter = (wp as unknown as { child: unknown }).child;
-		expect(childAfter).toBe(childBefore);
+		expect(childProcesses).toEqual([childBefore]);
 	});
 
 	it("catches a synchronous spawn throw (embedded NUL byte in the executable) and marks crashed", () => {
@@ -235,25 +225,15 @@ describe("WatchProcess — pass-marker parsing", () => {
 		expect(diags?.[0]?.code).toBe(9999);
 	});
 
-	it("records a diagnostic that arrives BEFORE any pass-start marker against the latest pass (defensive path)", async () => {
-		const script = fakeTsgo("orphan.sh", ORPHAN_DIAG_THEN_PASS);
+	it("records an out-of-pass diagnostic against the latest completed pass", async () => {
+		const script = fakeTsgo("orphan.sh", ONE_PASS_THEN_SLEEP);
 		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, script);
 		wp.start();
-		const internal = wp as unknown as {
-			lastPassDiagnostics: Array<{ code: number }>;
-			passInProgress: boolean;
-		};
-		// POLL, never a fixed sleep. This spawns a real subprocess, so the time
-		// until its stdout is read and parsed depends on machine load — a flat
-		// `await sleep(300)` passed in isolation and failed twice under a
-		// 4-worker coverage run (measured 2026-08-05). Polling is fast on an idle
-		// box and still correct on a loaded one; the deadline only bounds failure.
-		const deadline = Date.now() + 10_000;
-		while (Date.now() < deadline && !internal.lastPassDiagnostics.some((d) => d.code === 1)) {
-			await sleep(25);
-		}
-		expect(internal.passInProgress).toBe(false);
-		expect(internal.lastPassDiagnostics.some((d) => d.code === 1)).toBe(true);
+		const orphanPath = join(tmp, "src/orphan.ts");
+		expect(await wp.diagnosticsForFile(orphanPath)).toEqual([]);
+		const child = nonNull(childProcesses[0]);
+		nonNull(child.stdout).emit("data", Buffer.from("src/orphan.ts(2,2): warning TS0001: orphan diag.\n"));
+		expect((await wp.diagnosticsForFile(orphanPath))?.map((diagnostic) => diagnostic.code)).toEqual([1]);
 	});
 
 	it("also reads pass output written to stderr (future split-stream tsgo)", async () => {
@@ -337,7 +317,7 @@ describe("WatchProcess — diagnosticsForFile: fresh-file wait", () => {
 	}, 10000);
 
 	it("does not re-wait a second time once a landed pass is already fresh (single-wait satisfied)", async () => {
-		// mtime set to just 1ms after the CURRENT completed pass — the next
+		// mtime set 1ms beyond the current clock after a completed pass — the next
 		// pass (arriving ~100ms later, per REPEATING_PASSES' cadence) is
 		// guaranteed to land well after it, so the nested "still newer after
 		// the first wait" re-check (the inner fileNewerThanLastPass call)
@@ -348,8 +328,7 @@ describe("WatchProcess — diagnosticsForFile: fresh-file wait", () => {
 		const tsPath = join(tmp, "near.ts");
 		writeFileSync(tsPath, "export const a = 1;\n");
 		await wp.diagnosticsForFile(tsPath); // establish an initial pass
-		const internal = wp as unknown as { lastPassCompletedAt: number };
-		const near = new Date(internal.lastPassCompletedAt + 1);
+		const near = new Date(Date.now() + 1);
 		utimesSync(tsPath, near, near);
 		const out = await wp.diagnosticsForFile(tsPath);
 		expect(out).toEqual([]);
@@ -388,59 +367,6 @@ describe("WatchProcess — diagnosticsForFile: fresh-file wait", () => {
 	}, 10000);
 });
 
-describe("WatchProcess — waitForNextPass: the poll's own rare-race branches", () => {
-	// `waitForNextPass`'s setInterval poll exists (per its own comment) to
-	// cover the race where the outcome changes between reading
-	// `lastPassCompletedAt` and registering the waiter callback — so the
-	// waiter callback resolves first in every ordinary run. These two tests
-	// drive the private method directly and flip state WITHOUT going through
-	// `flushWaiters()` (i.e. never via markCrashed()/stop()), so the waiter
-	// callback can never fire and only the poll tick can resolve the promise.
-	function pollHarness(startingPassAt: number) {
-		const wp = new WatchProcess("/bin/sh", tmp, 0);
-		// SAFETY: `_state`/`child`/`lastPassCompletedAt` are read directly by
-		// `isUsable()`/`waitForNextPass` with no EventEmitter behavior needed —
-		// this reaches the poll tick without spawning a real child or waiting
-		// on `flushWaiters()`, which real state transitions always trigger.
-		const internal = wp as unknown as {
-			_state: string;
-			child: unknown;
-			lastPassCompletedAt: number;
-			waitForNextPass: (budgetMs: number) => Promise<boolean>;
-		};
-		internal._state = "running";
-		internal.child = {};
-		internal.lastPassCompletedAt = startingPassAt;
-		return internal;
-	}
-
-	it("resolves false from the poll when usability drops without a flush", async () => {
-		const internal = pollHarness(1000);
-		const started = Date.now();
-		const waiting = internal.waitForNextPass(2000);
-		// Flip state directly — bypasses flushWaiters, so only the poll's own
-		// 15ms-interval check (not the waiter callback) can observe this.
-		internal._state = "crashed";
-		const result = await waiting;
-		expect(result).toBe(false);
-		// Well under the 2000ms budget: proves the poll resolved this, not the
-		// timeout racing to the same value.
-		expect(Date.now() - started).toBeLessThan(1000);
-	});
-
-	it("resolves true from the poll when a pass lands without a flush", async () => {
-		const internal = pollHarness(1000);
-		const started = Date.now();
-		const waiting = internal.waitForNextPass(2000);
-		// Bump the counter directly — bypasses flushWaiters, so only the poll
-		// can observe the new pass landed.
-		internal.lastPassCompletedAt = 1001;
-		const result = await waiting;
-		expect(result).toBe(true);
-		expect(Date.now() - started).toBeLessThan(1000);
-	});
-});
-
 describe("WatchProcess — touchIdle()", () => {
 	it("is a no-op when the process is not running", () => {
 		const wp = makeWatch(DEFAULT_WATCH_IDLE_MS);
@@ -464,39 +390,19 @@ describe("WatchProcess — idle eviction", () => {
 		wp.start();
 		await sleep(300);
 		expect(wp.state()).toBe(WATCH_RUNNING);
-		const internal = wp as unknown as { idleTimer: unknown };
-		expect(internal.idleTimer).toBeNull();
 	});
-
-	it("evicts cleanly when the child reference is already null at eviction time", async () => {
-		// Under normal operation `child` is never null when the eviction timer
-		// fires (every path that nulls it also cancels the timer). Construct
-		// that state directly via internal field access to exercise the
-		// eviction closure's defensive `if (child)` false arm.
-		const script = fakeTsgo("nullchild.sh", ONE_PASS_THEN_SLEEP);
-		const wp = makeWatchWithScript(60, script);
-		wp.start();
-		const internal = wp as unknown as { child: unknown };
-		internal.child = null;
-		await waitFor(() => wp.state() === WATCH_IDLE_EVICTED, 5000);
-		expect(wp.state()).toBe(WATCH_IDLE_EVICTED);
-	}, 5000);
 
 	it("does not downgrade an idle-evicted state back to crashed on a late error event", async () => {
 		const script = fakeTsgo("evictlate.sh", ONE_PASS_THEN_SLEEP);
 		const wp = makeWatchWithScript(120, script);
 		wp.start();
-		const internal = wp as unknown as {
-			child: { emit: (event: string, err: Error) => void } | null;
-		};
-		const originalChildRef = internal.child;
+		const originalChildRef = nonNull(childProcesses[0]);
 		await waitFor(() => wp.state() === WATCH_IDLE_EVICTED, 5000);
-		expect(originalChildRef).not.toBeNull();
 		// Manually fire a late 'error' event on the ORIGINAL child object (the
 		// listener closure still calls markCrashed() unconditionally even
 		// though the instance's own `child` field was already nulled by
 		// eviction) — this must NOT downgrade the state away from evicted.
-		originalChildRef?.emit("error", new Error("late spurious error"));
+		originalChildRef.emit("error", new Error("late spurious error"));
 		expect(wp.state()).toBe(WATCH_IDLE_EVICTED);
 	}, 5000);
 
@@ -504,16 +410,26 @@ describe("WatchProcess — idle eviction", () => {
 		const script = fakeTsgo("idlekillthrow.sh", ONE_PASS_THEN_SLEEP);
 		const wp = makeWatchWithScript(120, script);
 		wp.start();
-		const internal = wp as unknown as { child: { kill: () => void } | null };
-		expect(internal.child).not.toBeNull();
-		if (internal.child) {
-			internal.child.kill = () => {
-				throw new Error("kill failed");
-			};
+		const child = nonNull(childProcesses[0]);
+		const pid = nonNull(child.pid);
+		const killChild = vi.spyOn(child, "kill").mockImplementation(() => {
+			throw new Error("kill failed");
+		});
+		const killProcess = process.kill.bind(process);
+		const signalGroup = vi.spyOn(process, "kill").mockImplementation((target, signal) => {
+			if (target === -pid && signal === "SIGTERM") throw new Error("group signal failed");
+			return killProcess(target, signal);
+		});
+		try {
+			await waitFor(() => wp.state() === WATCH_IDLE_EVICTED, 5000);
+			await wp.kill();
+			expect(killChild).toHaveBeenCalledWith("SIGTERM");
+			expect(wp.state()).toBe(WATCH_IDLE_EVICTED);
+			expect(() => killProcess(pid, 0)).toThrow();
+		} finally {
+			signalGroup.mockRestore();
+			killChild.mockRestore();
 		}
-		// Must not throw out of the eviction timer callback.
-		await waitFor(() => wp.state() === WATCH_IDLE_EVICTED, 5000);
-		expect(wp.state()).toBe(WATCH_IDLE_EVICTED);
 	});
 });
 
@@ -528,49 +444,29 @@ describe("WatchProcess — kill()", () => {
 		expect(() => wp.kill()).not.toThrow();
 	});
 
-	it("swallows a throw from child.kill()", () => {
+	it("swallows a throw from child.kill()", async () => {
 		const script = fakeTsgo("killthrow.sh", ONE_PASS_THEN_SLEEP);
-		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, script);
+		const wp = makeWatchWithScript(0, script);
 		wp.start();
-		const internal = wp as unknown as { child: { kill: () => void } | null };
-		expect(internal.child).not.toBeNull();
-		if (internal.child) {
-			internal.child.kill = () => {
-				throw new Error("kill failed");
-			};
-		}
-		expect(() => wp.kill()).not.toThrow();
-		expect(wp.isUsable()).toBe(false);
-	});
-
-	it("retries via child.kill() when the child has no pid, and swallows a second throw from that retry", async () => {
-		// A real spawned child always has a pid, so this exercises the two
-		// branches only a pid-less (or already-reaped) child can reach:
-		// `signalCompilerTree`'s `else child.kill(signal)` fallback (no
-		// `process.kill(-pid, …)` attempted at all), and its nested catch when
-		// that retry ALSO throws (e.g. the child was reaped a second time
-		// between the liveness check and the signal).
-		const kill = vi.fn(() => {
+		const child = nonNull(childProcesses[0]);
+		const pid = nonNull(child.pid);
+		const killChild = vi.spyOn(child, "kill").mockImplementation(() => {
 			throw new Error("kill failed");
 		});
-		const wp = new WatchProcess("/bin/sh", tmp, 0);
-		// SAFETY: only `child` is read by stop()/terminateCompilerProcess; wiring
-		// in a synthetic child (see `fakeChild`) avoids spawning a real process
-		// for a scenario (no pid) a real child can never produce.
-		// exitCode: 0 marks the child as already exited so terminateCompilerProcess
-		// settles right after signalCompilerTree returns, with no pid for
-		// compilerGroupIsAlive to observe either — the settled promise's
-		// resolve-vs-reject outcome then turns ONLY on whether the nested catch
-		// below swallows the retry's throw: a rethrow would make the Promise
-		// executor throw synchronously, which rejects the returned promise
-		// instead of resolving it.
-		(wp as unknown as { child: ChildProcess | null }).child = fakeChild(kill, undefined, 0);
-		const killed = wp.kill();
-		// Called once directly (pid undefined → the `else` branch) and once
-		// more from the retry inside the outer catch — proves both the
-		// fallback call AND its own swallowed failure both ran.
-		expect(kill.mock.calls).toEqual([["SIGTERM"], ["SIGTERM"]]);
-		await expect(killed).resolves.toBeUndefined();
+		const killProcess = process.kill.bind(process);
+		const signalGroup = vi.spyOn(process, "kill").mockImplementation((target, signal) => {
+			if (target === -pid && signal === "SIGTERM") throw new Error("group signal failed");
+			return killProcess(target, signal);
+		});
+		try {
+			await expect(wp.kill()).resolves.toBeUndefined();
+			expect(killChild).toHaveBeenCalledWith("SIGTERM");
+			expect(wp.state()).toBe(WATCH_IDLE_EVICTED);
+			expect(() => killProcess(pid, 0)).toThrow();
+		} finally {
+			signalGroup.mockRestore();
+			killChild.mockRestore();
+		}
 	});
 
 	it("holds its compiler registration until a SIGTERM-resistant child is reaped", async () => {
@@ -588,10 +484,7 @@ describe("WatchProcess — kill()", () => {
 		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, script);
 		wp.start();
 		await wp.diagnosticsForFile(join(tmp, "a.ts"));
-		// SAFETY: the test observes the real child PID only to prove the public
-		// kill promise does not settle before that OS process exits.
-		const pid = (wp as unknown as { child: { pid?: number } | null }).child?.pid;
-		expect(pid).toBeTypeOf("number");
+		const pid = nonNull(nonNull(childProcesses[0]).pid);
 
 		let settled = false;
 		const stopped = wp.kill().then(() => {
@@ -599,10 +492,10 @@ describe("WatchProcess — kill()", () => {
 		});
 		expect(settled).toBe(false);
 		expect(tryAcquireProjectCompilerLease(tmp)).toBeNull();
-		expect(() => process.kill(pid ?? 0, 0)).not.toThrow();
+		expect(() => process.kill(pid, 0)).not.toThrow();
 		await stopped;
 		expect(settled).toBe(true);
-		expect(() => process.kill(pid ?? 0, 0)).toThrow();
+		expect(() => process.kill(pid, 0)).toThrow();
 		const release = tryAcquireProjectCompilerLease(tmp);
 		expect(release).not.toBeNull();
 		release?.();

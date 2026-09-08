@@ -139,7 +139,7 @@ describe("append-safe suffix replacement", () => {
 			// SAFETY: `options` is exactly what the caller passed to the mocked
 			// statSync; forwarding it verbatim to the real implementation is the
 			// whole point of the passthrough branch.
-			return actualStatSync(target, options as Parameters<typeof statSync>[1]);
+			return actualStatSync(target, options);
 		});
 		expect(() => replaceFileWithSuffix(path, 0, { afterInitialCopy })).toThrow(
 			`refusing to hold the append lock while copying ${64 * 1024 * 1024 + 1} catch-up bytes`,

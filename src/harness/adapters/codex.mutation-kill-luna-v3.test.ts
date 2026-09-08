@@ -1,3 +1,4 @@
+import { nestedHookSettings } from "./test-output.js";
 import { describe, expect, it } from "vitest";
 import { createCodexAdapter } from "./codex.js";
 
@@ -59,7 +60,7 @@ describe("Codex adapter survivor contracts", () => {
     // test-contract: PostToolUse is write-scoped; lifecycle and pre-tool events stay unscoped.
     it("renders one matcher entry for every native event", () => {
         const fragment = adapter.renderSettingsFragment("/bin/hook", "project");
-        const hooks = (fragment.fragment as { hooks: Record<string, Array<{ matcher: string; hooks: Array<{ type: string }> }> | undefined> }).hooks;
+        const hooks = (nestedHookSettings(fragment.fragment)).hooks;
         const names = [
             "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop", "PreToolUse",
             "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact",

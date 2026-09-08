@@ -282,7 +282,8 @@ function sendSkillEvent(event: JsonObject): Promise<JsonObject | null> {
 				clearTimeout(timeout);
 				sock.destroy();
 				try {
-					resolve(JSON.parse(data.slice(0, nlIdx)) as JsonObject);
+					const parsed: unknown = JSON.parse(data.slice(0, nlIdx));
+					resolve(isJsonObject(parsed) ? parsed : null);
 				} catch {
 					resolve(null);
 				}

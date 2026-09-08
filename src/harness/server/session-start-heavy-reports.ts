@@ -14,6 +14,7 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isJsonObject } from "../../lib/json-types.js";
 
 /** A benchmark mean rising past this fraction over baseline is a regression. */
 const BENCH_REGRESSION_THRESHOLD = 0.2;
@@ -51,13 +52,14 @@ function drainReports(dir: string): unknown[] {
 
 /** Failed-test count + up-to-5 failed file names from a vitest json report. */
 export function fuzzFailuresFrom(report: unknown): { failed: number; files: string[] } {
-	if (typeof report !== "object" || report === null) return { failed: 0, files: [] };
-	const r = report as { numFailedTests?: unknown; testResults?: unknown };
+	if (!isJsonObject(report)) return { failed: 0, files: [] };
+	const r = report;
 	const failed = typeof r.numFailedTests === "number" ? r.numFailedTests : 0;
 	const files: string[] = [];
 	if (Array.isArray(r.testResults)) {
 		for (const t of r.testResults) {
-			const tr = t as { status?: unknown; name?: unknown };
+			if (!isJsonObject(t)) continue;
+			const tr = t;
 			if (tr.status === "failed" && typeof tr.name === "string") files.push(tr.name);
 		}
 	}
@@ -71,8 +73,8 @@ export function benchPointsFrom(report: unknown, acc: Map<string, number> = new 
 		for (const item of report) benchPointsFrom(item, acc);
 		return acc;
 	}
-	if (typeof report !== "object" || report === null) return acc;
-	const o = report as Record<string, unknown>;
+	if (!isJsonObject(report)) return acc;
+	const o = report;
 	if (typeof o.name === "string" && typeof o.mean === "number" && o.mean > 0) {
 		acc.set(o.name, o.mean);
 	}
@@ -86,12 +88,21 @@ function benchBaselinePath(cwd: string): string {
 	return join(cwd, ".interlinked", "bench-baseline.json");
 }
 
+function numericBenchBaseline(data: unknown): Record<string, number> {
+	if (!isJsonObject(data)) return {};
+	const baseline: Record<string, number> = {};
+	for (const [name, value] of Object.entries(data)) {
+		if (typeof value === "number" && Number.isFinite(value) && value > 0) baseline[name] = value;
+	}
+	return baseline;
+}
+
 function loadBenchBaseline(cwd: string): Record<string, number> {
 	try {
 		const p = benchBaselinePath(cwd);
 		if (!existsSync(p)) return {};
-		const data = JSON.parse(readFileSync(p, "utf-8"));
-		return typeof data === "object" && data !== null ? (data as Record<string, number>) : {};
+		const data: unknown = JSON.parse(readFileSync(p, "utf-8"));
+		return numericBenchBaseline(data);
 	} catch (err) {
 		void err;
 		return {};

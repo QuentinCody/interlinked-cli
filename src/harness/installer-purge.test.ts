@@ -14,7 +14,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
+import { parseWire, wireArray, wireObject, wireRecord, wireUnknown } from "../lib/value-validation.js";
 import { installHooks } from "./installer.js";
 import {
 	cleanProjectOwnedHooks,
@@ -48,9 +49,8 @@ function freshReport(): PurgeReport {
 }
 
 function hooksOf(base: JsonObject): Record<string, unknown> {
-	// SAFETY: every fixture in this file is built literally below with a
-	// `hooks` object at the root, so the narrowing cannot fail here.
-	return base.hooks as Record<string, unknown>;
+	if (!isJsonObject(base.hooks)) throw new Error("expected hook settings object");
+	return base.hooks;
 }
 
 describe("purgePriorEntries — undeclared-event sweep — positive (must fire)", () => {
@@ -209,7 +209,7 @@ describe("cleanProjectOwnedHooks — file-level cleanup", () => {
 		);
 
 		expect(removed).toBe(1);
-		const after = JSON.parse(readFileSync(settingsPath, "utf-8")) as { hooks: JsonObject };
+		const after = parseWire(JSON.parse(readFileSync(settingsPath, "utf-8")), wireObject({ hooks: wireRecord(wireUnknown) }), "purged hook settings");
 		expect(after.hooks).not.toHaveProperty("PreToolUse");
 		expect(after.hooks).toHaveProperty("PostToolUseFailure");
 	});
@@ -262,9 +262,7 @@ describe("installHooks — the live PostToolUseFailure double-count", () => {
 
 		const result = installHooks({ cwd: tmp, binaryPath, runners: ["claude-code"] });
 
-		const after = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			hooks: Record<string, unknown[]>;
-		};
+		const after = parseWire(JSON.parse(readFileSync(settingsPath, "utf-8")), wireObject({ hooks: wireRecord(wireArray(wireUnknown)) }), "installed hook settings");
 		// Pre-fix the stale key survived every install, so the runner kept
 		// reporting "2 PostToolUse hooks ran".
 		expect(after.hooks).not.toHaveProperty("PostToolUseFailure");

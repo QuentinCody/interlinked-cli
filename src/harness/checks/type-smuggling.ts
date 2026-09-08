@@ -79,6 +79,7 @@ function loadTs(): TsModule | null {
 		// uses CWD as the resolution base. Node only needs a parent path;
 		// the file doesn't have to exist.
 		const req = createRequire(`${process.cwd()}/_`);
+		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
 		_ts = req("typescript") as TsModule;
 	} catch {
 		_ts = null;

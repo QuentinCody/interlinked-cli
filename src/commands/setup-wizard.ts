@@ -44,6 +44,10 @@ export type WizardDeadCode = "flag" | "delete" | "off";
 const WIZARD_MODES = ["strict", "lenient", "balanced"] as const;
 export type WizardMode = (typeof WIZARD_MODES)[number];
 
+export function parseWizardMode(value: unknown): WizardMode | undefined {
+	return WIZARD_MODES.find((mode) => mode === value);
+}
+
 export interface WizardChoices {
 	/** Runner client ids to hook, or null = every detected client. */
 	runners: string[] | null;
@@ -228,11 +232,7 @@ export function parseWizardCapOverrides(raw: string): Record<string, number> {
 export function choicesFromNonInteractive(
 	raw: Partial<Record<"mode" | "scope" | "adopt" | "runners" | "syncMode" | "deadCode", string>>,
 ): WizardChoices {
-	// SAFETY: the cast is guarded by the includes() membership test on the same
-	// value — outside the union it falls to the default branch.
-	const mode = WIZARD_MODES.includes(raw.mode as WizardMode)
-		? (raw.mode as WizardMode)
-		: DEFAULT_WIZARD_CHOICES.mode;
+	const mode = parseWizardMode(raw.mode) ?? DEFAULT_WIZARD_CHOICES.mode;
 	const scope: WizardScope =
 		raw.scope === "diff" || raw.scope === "whole-file" ? raw.scope : DEFAULT_WIZARD_CHOICES.scope;
 	const adopt =

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { noopSequenceDetector } from "./_placeholder.js";
+import { signatureChangeCallersNotUpdated } from "./quality.js";
 import { ALL_SEQUENCE_DETECTORS, getSequenceDetectorById } from "./registry.js";
 
 describe("ALL_SEQUENCE_DETECTORS", () => {
-	it("includes the noop sentinel detector", () => {
-		expect(ALL_SEQUENCE_DETECTORS).toContain(noopSequenceDetector);
+	it("includes the signature-change detector", () => {
+		expect(ALL_SEQUENCE_DETECTORS).toContain(signatureChangeCallersNotUpdated);
 	});
 
 	it("contains no duplicate ids", () => {
@@ -22,7 +22,7 @@ describe("ALL_SEQUENCE_DETECTORS", () => {
 
 describe("getSequenceDetectorById", () => {
 	it("returns the detector for a known id", () => {
-		expect(getSequenceDetectorById(noopSequenceDetector.id)).toBe(noopSequenceDetector);
+		expect(getSequenceDetectorById(signatureChangeCallersNotUpdated.id)).toBe(signatureChangeCallersNotUpdated);
 	});
 
 	it("returns undefined for an unknown id", () => {

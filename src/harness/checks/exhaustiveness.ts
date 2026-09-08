@@ -37,6 +37,7 @@ let _tsCache: TsModule | null | undefined;
 function loadTs(): TsModule | null {
 	if (_tsCache !== undefined) return _tsCache;
 	try {
+		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
 		_tsCache = nodeRequire("typescript") as TsModule;
 	} catch {
 		_tsCache = null;

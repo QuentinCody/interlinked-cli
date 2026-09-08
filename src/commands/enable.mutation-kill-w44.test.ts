@@ -128,8 +128,8 @@ function skill(client: ClientName, over: Partial<SkillInstallResult> = {}): Skil
 }
 
 function logged(spy: ReturnType<typeof vi.spyOn>): string {
-	const calls = spy.mock.calls as unknown[][];
-	return stripAnsi(calls.map((args) => args.join(" ")).join("\n"));
+	const calls = spy.mock.calls;
+	return stripAnsi(calls.map((args: unknown[]) => args.join(" ")).join("\n"));
 }
 
 let logSpy: ReturnType<typeof vi.spyOn>;
@@ -149,7 +149,7 @@ beforeEach(() => {
 	vi.mocked(resolveConfig).mockReturnValue({
 		server_url: "http://localhost:8787",
 		sync_mode: "realtime",
-	} as never);
+	});
 	vi.mocked(detectHookManagers).mockReturnValue([]);
 	vi.mocked(writeHookScript).mockReturnValue(`${CWD}/.interlinked/hooks/interlinked-activity.mjs`);
 	vi.mocked(getHookScriptPath).mockReturnValue(
@@ -160,7 +160,7 @@ beforeEach(() => {
 	vi.mocked(ensureGitignore).mockReturnValue(false);
 	vi.mocked(installStatusLine).mockReturnValue(null);
 	vi.mocked(installSkills).mockReturnValue([]);
-	vi.mocked(isHarnessRunning).mockReturnValue({ running: true, pid: 4242 } as never);
+	vi.mocked(isHarnessRunning).mockReturnValue({ running: true, pid: 4242 });
 	vi.mocked(harnessStartCommand).mockResolvedValue(undefined);
 	vi.mocked(structureInitCommand).mockResolvedValue(undefined);
 });
@@ -325,7 +325,7 @@ describe("ensureIndexBuilt", () => {
 
 describe("startHarnessIfNeeded", () => {
 	it("prints the '!' failure marker when harness start throws", async () => {
-		vi.mocked(isHarnessRunning).mockReturnValue({ running: false } as never);
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: false });
 		vi.mocked(harnessStartCommand).mockRejectedValue(new Error("port in use"));
 
 		await enableCommand({});

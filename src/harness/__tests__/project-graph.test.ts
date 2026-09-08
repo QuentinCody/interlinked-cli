@@ -28,16 +28,18 @@ function exportNames(symbols: ExportedSymbol[]): string[] {
 	return symbols.map((s) => s.name).sort();
 }
 
-const mockedExistsSync = existsSync as unknown as ReturnType<typeof vi.fn>;
-const mockedStatSync = statSync as unknown as ReturnType<typeof vi.fn>;
-const mockedReadFileSync = readFileSync as unknown as ReturnType<typeof vi.fn>;
-const mockedReaddirSync = readdirSync as unknown as ReturnType<typeof vi.fn>;
+const mockedExistsSync = vi.mocked(existsSync);
+const mockedStatSync = vi.mocked(statSync);
+const mockedReadFileSync = vi.mocked(readFileSync);
+const mockedReaddirSync = vi.mocked(readdirSync);
+const realFs = await vi.importActual<typeof import("node:fs")>("node:fs");
+const regularFileStat = realFs.statSync(import.meta.filename);
 
 function mockFileExists(paths: Set<string>) {
-	mockedExistsSync.mockImplementation((p: string) => paths.has(p));
-	mockedStatSync.mockImplementation((p: string) => {
-		if (paths.has(p)) {
-			return { isFile: () => true, isDirectory: () => false };
+	mockedExistsSync.mockImplementation((p) => paths.has(String(p)));
+	mockedStatSync.mockImplementation((p) => {
+		if (paths.has(String(p))) {
+			return regularFileStat;
 		}
 		throw new Error("ENOENT");
 	});
@@ -46,8 +48,8 @@ function mockFileExists(paths: Set<string>) {
 function mockFileSystem(files: Map<string, string>) {
 	const pathSet = new Set(files.keys());
 	mockFileExists(pathSet);
-	mockedReadFileSync.mockImplementation((p: string) => {
-		const content = files.get(p as string);
+	mockedReadFileSync.mockImplementation((p) => {
+		const content = files.get(String(p));
 		if (content !== undefined) return content;
 		throw new Error("ENOENT");
 	});

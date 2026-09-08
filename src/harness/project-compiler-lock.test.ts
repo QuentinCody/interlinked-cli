@@ -33,17 +33,13 @@ vi.mock("node:fs", async () => {
 	const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
 	return {
 		...actual,
-		readFileSync: (path: Parameters<typeof actual.readFileSync>[0], ...rest: unknown[]) => {
+		readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+			const [path] = args;
 			if (typeof path === "string" && fakeProcFiles.has(path)) {
 				const content = fakeProcFiles.get(path);
 				if (content !== undefined) return content;
 			}
-			// SAFETY: `rest` is always the tail of the real readFileSync argument
-			// list (an encoding string or options object), so this passthrough
-			// call has the same argument shape actual.readFileSync accepts; the
-			// cast only works around TS not narrowing a spread tail.
-			// biome-ignore lint/suspicious/noExplicitAny: passthrough to the real signature
-			return (actual.readFileSync as any)(path, ...rest);
+			return actual.readFileSync(...args);
 		},
 	};
 });

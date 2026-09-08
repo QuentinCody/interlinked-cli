@@ -63,7 +63,7 @@ function makeSession(over: {
 		files_written: new Set<string>(over.written ?? []),
 		file_write_times: new Map<string, string>(over.writeTimes ?? []),
 	};
-	return base as unknown as SessionTrajectory;
+	return { ...completeSessionFixture(), ...base };
 }
 
 beforeEach(() => {
@@ -954,3 +954,4 @@ describe("checkLargeFileLineCountWrite — fail-open + fallback paths", () => {
 		expect(result?.block).not.toContain("already");
 	});
 });
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";

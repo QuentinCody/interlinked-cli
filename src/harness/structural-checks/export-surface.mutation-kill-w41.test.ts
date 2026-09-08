@@ -20,9 +20,9 @@ type SpawnResult = {
 	error?: NodeJS.ErrnoException | null;
 };
 let spawnImpl: () => SpawnResult = () => ({ status: 0, stdout: "", stderr: "", error: null });
-const spawnSyncMock = vi.fn(() => spawnImpl());
+const spawnSyncMock = vi.fn((..._args: unknown[]) => spawnImpl());
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...(args as [])),
+	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
 }));
 
 type EngineStub = {
@@ -67,7 +67,7 @@ function makeGraph(
 		role?: "leaf" | "internal" | "hub" | "root";
 		projectBoundary?: string;
 	} = {},
-): ProjectGraph {
+): Pick<ProjectGraph, "getExports" | "getDependents" | "getImporters" | "classifyModule" | "getProjectBoundary" | "toRelative"> {
 	const boundary = opts.projectBoundary ?? "/proj";
 	return {
 		getExports: vi.fn().mockReturnValue(opts.exports ?? []),
@@ -76,7 +76,7 @@ function makeGraph(
 		classifyModule: vi.fn().mockReturnValue(opts.role ?? "leaf"),
 		getProjectBoundary: vi.fn().mockReturnValue(boundary),
 		toRelative: vi.fn((f: string) => f.replace(`${boundary}/`, "")),
-	} as unknown as ProjectGraph;
+	};
 }
 
 const FILE = "/proj/target.ts";

@@ -7,9 +7,15 @@
 //
 // Security note: team config is committed, so any arbitrary `command`
 // field could silently execute on every developer's machine. We allow
-// team config to toggle safe fields only — see QUALITY_CHECK_SAFE_FIELDS.
+// team config to toggle safe fields only — see applySafeQualityFields.
 
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 import type { GuardRulesConfig, QualityCheckConfig } from "../types.js";
+import { SECTION_DEFAULTS, type GuardRulesOverrides, type TeamRulesOverrides, type OptionalSectionKey, type ContentScannerOverrides } from "./config-overrides.js";
+import { DEFAULT_CONFIG } from "./default-config.js";
+import { isStringList } from "./parsed-rule.js";
+import { readLocalQualityCheckOverride } from "./quality-check-overrides.js";
 
 /**
  * `JSON.stringify`'s lib.d.ts return type is `string`, but that is a lie for
@@ -18,7 +24,7 @@ import type { GuardRulesConfig, QualityCheckConfig } from "../types.js";
  * fallback below is doing real work, not silencing a redundant condition.
  */
 function safeJsonStringify(value: unknown): string {
-	const stringified = JSON.stringify(value) as string | undefined;
+	const stringified: string | undefined = JSON.stringify(value);
 	return stringified ?? "undefined";
 }
 
@@ -38,21 +44,13 @@ function safeJsonStringify(value: unknown): string {
  *   - Set or change the `command` field on quality checks
  *   - Add new quality check entries with custom commands
  */
-const QUALITY_CHECK_SAFE_FIELDS = new Set([
-	"enabled",
-	"file_types",
-	"timeout_ms",
-	"severity",
-	"description",
-]);
-
 /**
  * Public API — consumed by `rules/loader.ts` via `loadRules()`.
  *
  * Merges team-level config into the default config. Mutates `config`
  * in place. Ignores dangerous fields like `command` on unknown checks.
  */
-export function mergeTeamRules(config: GuardRulesConfig, team: Partial<GuardRulesConfig>): void {
+export function mergeTeamRules(config: GuardRulesConfig, team: TeamRulesOverrides): void {
 	if (team.enabled === false) config.enabled = false;
 	if (team.rules) config.rules = team.rules;
 	if (team.protected_files) config.protected_files = team.protected_files;
@@ -75,9 +73,7 @@ export function mergeTeamRules(config: GuardRulesConfig, team: Partial<GuardRule
 	if (team.auto_coordination) {
 		config.auto_coordination = team.auto_coordination;
 	}
-	if (team.project_wide_checks && config.project_wide_checks) {
-		Object.assign(config.project_wide_checks, team.project_wide_checks);
-	}
+	mergeOptionalSection(config, team, "project_wide_checks");
 	// Grep-acceleration substitution toggle. Without this branch the flag the
 	// pre-tool pipeline reads (`grep_acceleration.substitution_enabled`) was
 	// silently dropped from team config — the documented re-enable path never
@@ -92,12 +88,7 @@ export function mergeTeamRules(config: GuardRulesConfig, team: Partial<GuardRule
 	// profile silently never fired: the recurring "configured but unreachable"
 	// class, proven to exist on the team side too. Pinned by the loadRules
 	// filesystem test in mutation-directed-guard.team-config.test.ts.
-	if (team.mutation_directed_strict_profile) {
-		config.mutation_directed_strict_profile = {
-			...config.mutation_directed_strict_profile,
-			...team.mutation_directed_strict_profile,
-		};
-	}
+	mergeOptionalSection(config, team, "mutation_directed_strict_profile");
 	// Mode/wizard POSTURE sections (review 2026-08-30 P0): `interlinked mode`
 	// and the setup wizard write these to the committed file, but the team
 	// tier refused every one — three different modes wrote three different
@@ -112,6 +103,10 @@ export function mergeTeamRules(config: GuardRulesConfig, team: Partial<GuardRule
  *  ONLY legal values (review 2026-08-30: field-name whitelisting alone let
  *  `test_first_mode: "typo"` into the runtime config). An invalid value is
  *  dropped — it never enters the loaded configuration. */
+const TEAM_STRUCTURAL_BOOLEAN_FIELDS = new Set(
+	Object.entries(DEFAULT_CONFIG.structural_checks).filter(([, value]) => typeof value === "boolean").map(([key]) => key),
+);
+
 const TEAM_STRUCTURAL_ENUM_VALUES: Record<string, ReadonlySet<string>> = {
 	test_first_mode: new Set(["nudge", "warn", "enforce"]),
 	characterize_mode: new Set(["block", "warn", "off"]),
@@ -182,14 +177,14 @@ export function sanitizePostureEnums(config: GuardRulesConfig): PostureEnumViola
  *  dead_imports, enabled, …) plus the three posture enums with validated
  *  values. A number here is a perf/runtime knob and never merges from the
  *  committed file. */
-function applyTeamStructuralPosture(config: GuardRulesConfig, team: Partial<GuardRulesConfig>): void {
+function applyTeamStructuralPosture(config: GuardRulesConfig, team: Pick<GuardRulesOverrides, "structural_checks">): void {
 	const override = team.structural_checks;
 	if (!override || typeof override !== "object") return;
 	// SAFETY: structural_checks is a plain settings object; the writes below set
 	// only whitelisted boolean/enum keys, preserving its declared shape.
 	const target = config.structural_checks as unknown as Record<string, unknown>;
 	for (const [key, value] of Object.entries(override)) {
-		if (typeof value === "boolean") target[key] = value;
+		if (typeof value === "boolean" && TEAM_STRUCTURAL_BOOLEAN_FIELDS.has(key)) target[key] = value;
 		else if (typeof value === "string" && TEAM_STRUCTURAL_ENUM_VALUES[key]?.has(value)) {
 			target[key] = value;
 		}
@@ -199,29 +194,23 @@ function applyTeamStructuralPosture(config: GuardRulesConfig, team: Partial<Guar
 /** The named boolean-only posture fields the team tier accepts per section.
  *  Everything else in these sections (budget_ms, block_on_*, thresholds)
  *  stays personal/local. */
-const TEAM_BOOLEAN_POSTURE_FIELDS = [
-	["per_edit_coverage", ["enabled", "debt_mode"]],
-	["verification_stop_checks", ["enabled"]],
-	["commit_cadence", ["enabled"]],
-	["diff_aware", ["enabled"]],
-] as const satisfies ReadonlyArray<readonly [keyof GuardRulesConfig, readonly string[]]>;
+const TEAM_BOOLEAN_SECTIONS = ["per_edit_coverage", "verification_stop_checks", "commit_cadence", "diff_aware"] as const;
 
-function applyTeamBooleanPosture(config: GuardRulesConfig, team: Partial<GuardRulesConfig>): void {
-	for (const [section, fields] of TEAM_BOOLEAN_POSTURE_FIELDS) {
-		const override: unknown = team[section];
-		if (!override || typeof override !== "object") continue;
-		// SAFETY: every section named in the table defaults to a real object in
-		// default-config.ts (nullish fallback covers absence); only whitelisted
-		// boolean keys are written, so the section's declared shape is kept.
-		const target = (config[section] ?? {}) as unknown as Record<string, unknown>;
-		for (const field of fields) {
-			const value = (override as Record<string, unknown>)[field];
-			if (typeof value === "boolean") target[field] = value;
-		}
-		// SAFETY: same object (or a fresh one for an absent section) with only
-		// its own boolean fields set.
-		config[section] = target as never;
+function applyTeamBooleanPosture(config: GuardRulesConfig, team: Pick<GuardRulesOverrides, typeof TEAM_BOOLEAN_SECTIONS[number]>): void {
+	for (const section of TEAM_BOOLEAN_SECTIONS) applyTeamEnabled(config, team[section], section);
+	const coverage = team.per_edit_coverage;
+	if (isJsonObject(coverage) && typeof coverage.debt_mode === "boolean" && config.per_edit_coverage) {
+		config.per_edit_coverage.debt_mode = coverage.debt_mode;
 	}
+}
+
+function applyTeamEnabled<K extends typeof TEAM_BOOLEAN_SECTIONS[number]>(
+	config: Pick<GuardRulesConfig, K>, override: unknown, section: K,
+): void {
+	if (!isJsonObject(override)) return;
+	const target = config[section] ?? structuredClone(SECTION_DEFAULTS[section]);
+	if (typeof override.enabled === "boolean") target.enabled = override.enabled;
+	config[section] = target;
 }
 
 /**
@@ -233,7 +222,7 @@ function applyTeamBooleanPosture(config: GuardRulesConfig, team: Partial<GuardRu
  */
 export function mergeLocalOverrides(
 	config: GuardRulesConfig,
-	local: Partial<GuardRulesConfig>,
+	local: GuardRulesOverrides,
 ): void {
 	if (local.disabled_rules) {
 		config.disabled_rules = local.disabled_rules;
@@ -250,9 +239,7 @@ export function mergeLocalOverrides(
 		applyLocalQualityCheckOverrides(config, local.quality_checks);
 	}
 	// Local can override project-wide checks (e.g., disable on slow machines)
-	if (local.project_wide_checks && config.project_wide_checks) {
-		Object.assign(config.project_wide_checks, local.project_wide_checks);
-	}
+	mergeOptionalSection(config, local, "project_wide_checks");
 	// Local can toggle the ML content scanner on/off and tweak individual
 	// knobs. Nested blocks (`local`, `huggingface`, `custom_http`, `scan_points`)
 	// are deep-merged so a partial override like `{local: {pool_size: 1}}`
@@ -260,11 +247,8 @@ export function mergeLocalOverrides(
 	// (A previous shallow `Object.assign` replaced whole nested objects and
 	// silently dropped required defaults.)
 	if (local.content_scanner) {
-		if (config.content_scanner) {
-			mergeContentScanner(config.content_scanner, local.content_scanner);
-		} else {
-			config.content_scanner = local.content_scanner;
-		}
+		config.content_scanner ??= structuredClone(nonNull(DEFAULT_CONFIG.content_scanner));
+		mergeContentScanner(config.content_scanner, local.content_scanner);
 	}
 	// Local can disable / tune the structural-checks suite. Without this branch
 	// `{structural_checks: {enabled: false}}` in guard-rules.local.json was
@@ -348,22 +332,32 @@ export function mergeLocalOverrides(
  * entries — unlike team config, guard-rules.local.json is not attacker-reachable
  * via a PR. Extracted from `mergeLocalOverrides` (its deepest-nested block).
  */
-function applyLocalQualityCheckOverrides(
-	config: GuardRulesConfig,
-	localQualityChecks: GuardRulesConfig["quality_checks"],
-): void {
-	for (const [key, check] of Object.entries(localQualityChecks)) {
-		const existing = config.quality_checks[key];
-		if (existing) {
-			Object.assign(existing, check);
-		} else {
-			config.quality_checks[key] = check;
-		}
+function applyLocalQualityCheckOverrides(config: GuardRulesConfig, localQualityChecks: unknown): void {
+	if (!isJsonObject(localQualityChecks)) return;
+	for (const [key, raw] of Object.entries(localQualityChecks)) {
+		const check = readLocalQualityCheckOverride(raw);
+		if (check) applyLocalQualityCheck(config, key, check);
 	}
 }
 
+function applyLocalQualityCheck(config: GuardRulesConfig, key: string, check: Partial<QualityCheckConfig>): void {
+	const existing = Object.hasOwn(config.quality_checks, key) ? config.quality_checks[key] : undefined;
+	if (existing) {
+		Object.assign(existing, check);
+		return;
+	}
+	const complete = completeQualityCheck(check);
+	if (complete) Object.defineProperty(config.quality_checks, key, { value: complete, enumerable: true, writable: true, configurable: true });
+}
+
+function completeQualityCheck(check: Partial<QualityCheckConfig>): QualityCheckConfig | null {
+	const { enabled, file_types, timeout_ms, severity } = check;
+	if (enabled === undefined || file_types === undefined || timeout_ms === undefined || severity === undefined) return null;
+	return { ...check, enabled, file_types, timeout_ms, severity };
+}
+
 /**
- * Team config can only toggle safe fields (see QUALITY_CHECK_SAFE_FIELDS) on
+ * Team config can only toggle safe fields (see applySafeQualityFields) on
  * EXISTING quality-check entries — it can neither add new entries nor set a
  * `command` on one, since a committed config file is attacker-reachable via a
  * malicious PR. Extracted from `mergeTeamRules` (its deepest-nested block) so
@@ -377,46 +371,43 @@ function applyTeamQualityCheckOverrides(
 	// `Record<string, QualityCheckConfig>` field type is aspirational, not
 	// verified — a hand-edited guard-rules.json can put anything here. The
 	// `unknown` below is what makes the shape checks that follow real checks.
-	teamQualityChecks: Record<string, unknown>,
+	teamQualityChecks: unknown,
 ): void {
+	if (!isJsonObject(teamQualityChecks)) return;
 	for (const [key, teamCheck] of Object.entries(teamQualityChecks)) {
+		if (!Object.hasOwn(config.quality_checks, key)) continue;
 		const existing = config.quality_checks[key];
 		if (!existing) continue; // Team cannot add new check entries
-		if (!teamCheck || typeof teamCheck !== "object") continue;
-		const checkOverrides: Partial<QualityCheckConfig> = teamCheck;
-		for (const field of Object.keys(checkOverrides)) {
-			if (!QUALITY_CHECK_SAFE_FIELDS.has(field)) continue;
-			// Safe fields: enabled, file_types, timeout_ms, severity, description
-			const safeKey = field as keyof Pick<
-				QualityCheckConfig,
-				"enabled" | "file_types" | "timeout_ms" | "severity" | "description"
-			>;
-			const val = checkOverrides[safeKey];
-			if (val !== undefined) {
-				existing[safeKey] = val as never;
-			}
-		}
+		if (!isJsonObject(teamCheck)) continue;
+		applySafeQualityFields(existing, teamCheck);
 	}
 }
 
+function applySafeQualityFields(existing: QualityCheckConfig, override: JsonObject): void {
+	if (typeof override.enabled === "boolean") existing.enabled = override.enabled;
+	if (isStringList(override.file_types)) existing.file_types = override.file_types;
+	if (typeof override.timeout_ms === "number" && Number.isFinite(override.timeout_ms)) {
+		existing.timeout_ms = override.timeout_ms;
+	}
+	if (override.severity === "warning" || override.severity === "error") {
+		existing.severity = override.severity;
+	}
+	if (typeof override.description === "string") existing.description = override.description;
+}
+
 /** Shallow-merge one optional config section: assign into the existing
- *  section, or install the local override when the default had none. The
+ *  section, or clone its defaults before applying a supplied override. The
  *  shared shape of the recurring "key added to GuardRulesConfig but never
  *  merged" bug class — see the merge-parity test for the classification. */
-function mergeOptionalSection<K extends keyof GuardRulesConfig>(
+function mergeOptionalSection<K extends OptionalSectionKey>(
 	config: Pick<GuardRulesConfig, K>,
-	local: Partial<Pick<GuardRulesConfig, K>>,
+	local: Pick<GuardRulesOverrides, K>,
 	key: K,
 ): void {
 	const override = local[key];
 	if (!override) return;
-	if (config[key]) {
-		// SAFETY: both sides are the same optional-section object type for K;
-		// the truthy check above guarantees a real object target.
-		Object.assign(config[key] as object, override);
-	} else {
-		config[key] = override;
-	}
+	const target = config[key] ?? structuredClone(SECTION_DEFAULTS[key]);
+	config[key] = Object.assign(target, override);
 }
 
 /** Deep-merge overrides for the content scanner config. Nested blocks
@@ -425,7 +416,7 @@ function mergeOptionalSection<K extends keyof GuardRulesConfig>(
  *  python_bin / sidecar_script / timeouts. Scalar top-level knobs overwrite. */
 function mergeContentScanner(
 	target: NonNullable<GuardRulesConfig["content_scanner"]>,
-	override: Partial<NonNullable<GuardRulesConfig["content_scanner"]>>,
+	override: ContentScannerOverrides,
 ): void {
 	if (override.enabled !== undefined) target.enabled = override.enabled;
 	if (override.runtime !== undefined) target.runtime = override.runtime;

@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireNullable, wireNumber, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // `confirm()` in mode.ts reads a yes/no answer via fs.readSync(0, ...). The rest
@@ -26,8 +27,10 @@ vi.mock("node:fs", async (importOriginal) => {
 // defensive guard against exactly that drift. We mock modes.js as the same
 // kind of passthrough as node:fs above, with a per-test override so one test
 // can simulate the drift without touching the real registry for anyone else.
-const modesStub = vi.hoisted(() => ({
-	getPresetOverride: null as ((name: string) => unknown) | null,
+const modesStub = vi.hoisted((): {
+	getPresetOverride: typeof import("../harness/modes.js").getPreset | null;
+} => ({
+	getPresetOverride: null,
 }));
 
 vi.mock("../harness/modes.js", async (importOriginal) => {
@@ -36,10 +39,7 @@ vi.mock("../harness/modes.js", async (importOriginal) => {
 		...actual,
 		getPreset: (name: Parameters<typeof actual.getPreset>[0]) =>
 			modesStub.getPresetOverride
-				? // SAFETY: the override is a test-only stub; every call site sets it
-					// to `() => null` to simulate registry drift, so the cast is sound
-					// for this suite's own usage.
-					(modesStub.getPresetOverride(name) as ReturnType<typeof actual.getPreset>)
+				? modesStub.getPresetOverride(name)
 				: actual.getPreset(name),
 	};
 });
@@ -62,8 +62,8 @@ function primeConfirm(answer: string | typeof THROW): void {
 		return;
 	}
 	fsStub.readSyncImpl = (_fd: unknown, buf: unknown) => {
-		const b = buf as Buffer;
-		return b.write(answer, 0, "utf-8");
+		if (!Buffer.isBuffer(buf)) throw new Error("expected the confirmation read buffer");
+		return buf.write(answer, 0, "utf-8");
 	};
 }
 
@@ -88,17 +88,17 @@ afterEach(() => {
 	cwdSpy?.mockRestore();
 	process.exitCode = 0;
 	rmSync(tmp, { recursive: true, force: true });
-	(process.stdin as { isTTY: boolean | undefined }).isTTY = originalIsTTY;
+	(parseWire(process.stdin, wireObject({ "isTTY": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).isTTY = originalIsTTY;
 });
 
 function captureStdout(): { text: () => string; restore: () => void } {
 	let captured = "";
-	const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+	const spy = vi.spyOn(process.stdout, "write").mockImplementation((
 		buf: string | Uint8Array,
 	) => {
 		captured += typeof buf === "string" ? buf : Buffer.from(buf).toString("utf-8");
 		return true;
-	}) as unknown as typeof process.stdout.write);
+	});
 	return { text: () => captured, restore: () => spy.mockRestore() };
 }
 
@@ -211,10 +211,7 @@ describe("modeCommand — show current", () => {
 		const cap = captureStdout();
 		await modeCommand(undefined, { json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			mode: string;
-			available_modes: Array<{ name: string }>;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "mode": wireString, "available_modes": wireArray(wireObject({ "name": wireString })) }), "test JSON value");
 		expect(payload.mode).toBe("balanced");
 		expect(payload.available_modes.length).toBe(3);
 	});
@@ -240,7 +237,7 @@ describe("modeCommand — diff preview", () => {
 		const cap = captureStdout();
 		await modeCommand("strict", { diff: true, json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as { mode: string; changes: unknown[] };
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "mode": wireString, "changes": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.mode).toBe("strict");
 		expect(payload.changes.length).toBeGreaterThan(0);
 	});
@@ -269,7 +266,7 @@ describe("modeCommand — apply with --force", () => {
 		const cap = captureStdout();
 		await modeCommand("strict", { force: true, json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as { ok: boolean; path: string; scope: string };
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "ok": wireBoolean, "path": wireString, "scope": wireString }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		expect(payload.path.endsWith("check-policy.json")).toBe(true);
 		expect(payload.scope).toBe("shared");
@@ -279,12 +276,7 @@ describe("modeCommand — apply with --force", () => {
 		const cap = captureStdout();
 		await modeCommand("lenient", { force: true, json: true, local: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			ok: boolean;
-			mode: string;
-			scope: string;
-			path: string;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "ok": wireBoolean, "mode": wireString, "scope": wireString, "path": wireString }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		expect(payload.mode).toBe("lenient");
 		expect(payload.scope).toBe("local");
@@ -312,7 +304,7 @@ describe("modeCommand — error paths", () => {
 		const cap = captureStdout();
 		await modeCommand("super-strict", { json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as { ok: boolean; reason: string };
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "ok": wireBoolean, "reason": wireString }), "test JSON value");
 		expect(payload.ok).toBe(false);
 		expect(payload.reason).toContain("unknown mode: super-strict");
 		// Known modes are listed so the caller can recover.
@@ -362,7 +354,7 @@ describe("modeCommand — writeMode failure surfaces via the command-level fail(
 
 describe("modeCommand — interactive confirmation (no --force, no --json)", () => {
 	it("applies the mode when the user answers yes", async () => {
-		(process.stdin as { isTTY: boolean | undefined }).isTTY = true;
+		(parseWire(process.stdin, wireObject({ "isTTY": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).isTTY = true;
 		primeConfirm("y\n");
 		const cap = captureStdout();
 		await modeCommand("strict", {});
@@ -371,14 +363,14 @@ describe("modeCommand — interactive confirmation (no --force, no --json)", () 
 		expect(cap.text()).toContain("Switching to strict would change");
 		expect(cap.text()).toContain("Apply strict mode?");
 		expect(cap.text()).toContain("Mode set to strict");
-		const parsed = JSON.parse(
+		const parsed = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "check-policy.json"), "utf-8"),
-		) as { mode: string };
+		), wireObject({ "mode": wireString }), "test JSON value");
 		expect(parsed.mode).toBe("strict");
 	});
 
 	it("accepts a full 'yes' (case-insensitive) as confirmation", async () => {
-		(process.stdin as { isTTY: boolean | undefined }).isTTY = true;
+		(parseWire(process.stdin, wireObject({ "isTTY": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).isTTY = true;
 		primeConfirm("YES\n");
 		const cap = captureStdout();
 		await modeCommand("lenient", {});
@@ -388,7 +380,7 @@ describe("modeCommand — interactive confirmation (no --force, no --json)", () 
 	});
 
 	it("aborts (no write) when the user answers no", async () => {
-		(process.stdin as { isTTY: boolean | undefined }).isTTY = true;
+		(parseWire(process.stdin, wireObject({ "isTTY": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).isTTY = true;
 		primeConfirm("n\n");
 		const cap = captureStdout();
 		await modeCommand("strict", {});
@@ -399,7 +391,7 @@ describe("modeCommand — interactive confirmation (no --force, no --json)", () 
 	});
 
 	it("aborts when stdin is not a TTY (non-interactive shells never confirm)", async () => {
-		(process.stdin as { isTTY: boolean | undefined }).isTTY = false;
+		(parseWire(process.stdin, wireObject({ "isTTY": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).isTTY = false;
 		// readSync must NOT be consulted in this path; make it explode if it is.
 		primeConfirm(THROW);
 		const cap = captureStdout();
@@ -412,7 +404,7 @@ describe("modeCommand — interactive confirmation (no --force, no --json)", () 
 	});
 
 	it("treats a readSync failure as a declined prompt (catch → empty answer)", async () => {
-		(process.stdin as { isTTY: boolean | undefined }).isTTY = true;
+		(parseWire(process.stdin, wireObject({ "isTTY": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).isTTY = true;
 		primeConfirm(THROW);
 		const cap = captureStdout();
 		await modeCommand("strict", {});
@@ -424,7 +416,7 @@ describe("modeCommand — interactive confirmation (no --force, no --json)", () 
 	});
 
 	it("treats whitespace-only / empty input as a declined prompt", async () => {
-		(process.stdin as { isTTY: boolean | undefined }).isTTY = true;
+		(parseWire(process.stdin, wireObject({ "isTTY": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).isTTY = true;
 		primeConfirm("   \n");
 		const cap = captureStdout();
 		await modeCommand("lenient", {});
@@ -475,9 +467,9 @@ describe("modeCommand — custom mode (no preset)", () => {
 		await modeCommand("custom", { force: true });
 		cap.restore();
 		expect(cap.text()).toContain("Mode set to custom");
-		const parsed = JSON.parse(
+		const parsed = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "check-policy.json"), "utf-8"),
-		) as { mode: string };
+		), wireObject({ "mode": wireString }), "test JSON value");
 		expect(parsed.mode).toBe("custom");
 	});
 });
@@ -512,11 +504,7 @@ describe("modeCommand — show current with a local override present", () => {
 		const cap = captureStdout();
 		await modeCommand(undefined, { json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			mode: string;
-			shared_path: string | null;
-			local_path: string | null;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "mode": wireString, "shared_path": wireNullable(wireString), "local_path": wireNullable(wireString) }), "test JSON value");
 		// Local override wins for the effective mode.
 		expect(payload.mode).toBe("lenient");
 		expect(payload.shared_path).not.toBeNull();
@@ -529,10 +517,7 @@ describe("modeCommand — show current with a local override present", () => {
 		const cap = captureStdout();
 		await modeCommand(undefined, { json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			shared_path: string | null;
-			local_path: string | null;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "shared_path": wireNullable(wireString), "local_path": wireNullable(wireString) }), "test JSON value");
 		expect(payload.shared_path).toBeNull();
 		expect(payload.local_path).toBeNull();
 	});
@@ -545,7 +530,7 @@ describe("modeCommand — unknown mode message lists known modes comma-separated
 		const cap = captureStdout();
 		await modeCommand("super-strict", { json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as { reason: string };
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "reason": wireString }), "test JSON value");
 		expect(payload.reason).toContain("strict, lenient, balanced");
 	});
 });
@@ -614,9 +599,7 @@ describe("modeCommand — show current, literal text fixtures", () => {
 		const cap = captureStdout();
 		await modeCommand(undefined, { json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			available_modes: Array<{ name: string; description: string }>;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "available_modes": wireArray(wireObject({ "name": wireString, "description": wireString })) }), "test JSON value");
 		for (const m of payload.available_modes) {
 			expect(typeof m.name).toBe("string");
 			expect(m.name.length).toBeGreaterThan(0);
@@ -743,18 +726,12 @@ describe("writeMode — applyModeGuardOverrides stderr reporting", () => {
 	it("P: unlinks a newly-created guard-rules.json when the check-policy write fails afterward", async () => {
 		const fsMod = await import("node:fs");
 		const realWriteFileSync = fsMod.writeFileSync;
-		const writeSpy = vi.spyOn(fsMod, "writeFileSync").mockImplementation(((
-			path: unknown,
-			...rest: unknown[]
-		) => {
+		const writeSpy = vi.spyOn(fsMod, "writeFileSync").mockImplementation((path, data, options) => {
 			if (typeof path === "string" && path.endsWith("check-policy.json")) {
 				throw new Error("simulated disk failure");
 			}
-			// SAFETY: delegates to the real (pre-mock) writeFileSync for every path
-			// other than check-policy.json, so guard-rules.json still lands on disk
-			// exactly as the non-mocked call would — only the targeted path throws.
-			return (realWriteFileSync as (...a: unknown[]) => unknown)(path, ...rest);
-		}) as unknown as typeof fsMod.writeFileSync);
+			return realWriteFileSync(path, data, options);
+		});
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		const guardPath = join(tmp, ".interlinked", "guard-rules.json");
 		const policyPath = join(tmp, ".interlinked", "check-policy.json");
@@ -797,7 +774,7 @@ describe("modeCommand — confirm() regex anchoring", () => {
 	// test-contract: behavior — the yes/no regex must require a FULL match
 	// (both ^ and $), not merely "contains yes somewhere".
 	it("N: does not confirm when trailing garbage follows 'yes' (end anchor)", async () => {
-		(process.stdin as { isTTY: boolean | undefined }).isTTY = true;
+		(parseWire(process.stdin, wireObject({ "isTTY": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).isTTY = true;
 		primeConfirm("yesplease\n");
 		const cap = captureStdout();
 		await modeCommand("strict", {});
@@ -807,7 +784,7 @@ describe("modeCommand — confirm() regex anchoring", () => {
 	});
 
 	it("N: does not confirm when 'yes' only appears as a suffix (start anchor)", async () => {
-		(process.stdin as { isTTY: boolean | undefined }).isTTY = true;
+		(parseWire(process.stdin, wireObject({ "isTTY": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).isTTY = true;
 		primeConfirm("xyz-yes\n");
 		const cap = captureStdout();
 		await modeCommand("strict", {});
@@ -825,9 +802,9 @@ describe("writeMode — edge cases", () => {
 			expect(existsSync(join(fresh, ".interlinked"))).toBe(false);
 			writeMode(fresh, "strict", false);
 			expect(existsSync(join(fresh, ".interlinked"))).toBe(true);
-			const parsed = JSON.parse(
+			const parsed = parseWire(JSON.parse(
 				readFileSync(join(fresh, ".interlinked", "check-policy.json"), "utf-8"),
-			) as { mode: string };
+			), wireObject({ "mode": wireString }), "test JSON value");
 			expect(parsed.mode).toBe("strict");
 		} finally {
 			rmSync(fresh, { recursive: true, force: true });
@@ -838,10 +815,7 @@ describe("writeMode — edge cases", () => {
 		const path = join(tmp, ".interlinked", "check-policy.json");
 		writeFileSync(path, "{ this is not valid json ");
 		writeMode(tmp, "lenient", false);
-		const parsed = JSON.parse(readFileSync(path, "utf-8")) as {
-			version: number;
-			mode: string;
-		};
+		const parsed = parseWire(JSON.parse(readFileSync(path, "utf-8")), wireObject({ "version": wireNumber, "mode": wireString }), "test JSON value");
 		expect(parsed.mode).toBe("lenient");
 		expect(parsed.version).toBe(1);
 	});
@@ -851,11 +825,7 @@ describe("writeMode — edge cases", () => {
 		// Valid JSON but no `version` key — exercises the `?? 1` fallback.
 		writeFileSync(path, JSON.stringify({ mode: "balanced", checks: {} }));
 		writeMode(tmp, "strict", false);
-		const parsed = JSON.parse(readFileSync(path, "utf-8")) as {
-			version: number;
-			mode: string;
-			checks: Record<string, unknown>;
-		};
+		const parsed = parseWire(JSON.parse(readFileSync(path, "utf-8")), wireObject({ "version": wireNumber, "mode": wireString, "checks": wireRecord(wireUnknown) }), "test JSON value");
 		expect(parsed.version).toBe(1);
 		expect(parsed.mode).toBe("strict");
 		// Pre-existing (non-version) fields are preserved.
@@ -866,7 +836,7 @@ describe("writeMode — edge cases", () => {
 		const path = join(tmp, ".interlinked", "check-policy.json");
 		writeFileSync(path, JSON.stringify({ version: 1, mode: "balanced" }));
 		writeMode(tmp, "lenient", false);
-		const parsed = JSON.parse(readFileSync(path, "utf-8")) as { version: number };
+		const parsed = parseWire(JSON.parse(readFileSync(path, "utf-8")), wireObject({ "version": wireNumber }), "test JSON value");
 		expect(parsed.version).toBe(1);
 	});
 });

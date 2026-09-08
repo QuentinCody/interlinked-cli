@@ -1,3 +1,4 @@
+import { makeSession as makeSessionFixture } from "../../__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import { CohortManager } from "../../cohort.js";
 import { ReservationManager } from "../../reservations.js";
@@ -21,7 +22,7 @@ function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 }
 
 function makeSession(): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "t",
 		agent_name: "test-agent",
 		started_at: FIXED_TIMESTAMP,
@@ -36,7 +37,7 @@ function makeSession(): SessionTrajectory {
 		injection_detected_steps: [],
 		taint_sources: [],
 		step_limit: Number.POSITIVE_INFINITY,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 describe("evaluatePreToolUse smoke", () => {

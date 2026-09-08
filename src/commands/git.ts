@@ -14,8 +14,6 @@ import { getOutputMode, output, outputError } from "../lib/output.js";
 import {
 	type GitContextResult,
 	type LinkCheckpointResult,
-	type ServerGitContext,
-	type ServerPushResult,
 	applyCheckpointToHead,
 	formatGitContextOutput,
 	formatLinkCheckpointOutput,
@@ -23,6 +21,7 @@ import {
 	resolveServerContext,
 	serverPushResultPatch,
 } from "./git-support.js";
+import { parseGitContext, parsePushResult } from "./git-response.js";
 
 // ===========================================
 // git context
@@ -102,15 +101,15 @@ export async function gitLinkCheckpointCommand(opts: {
 
 		// If no checkpoint specified, get latest from server
 		const checkpointId = await resolveCheckpointId(opts.checkpoint, () =>
-			client.callTool<ServerGitContext | null>("get_git_context", {}),
+			client.callTool("get_git_context", {}).then(parseGitContext),
 		);
 
 		// Call push_checkpoint_to_git (checkpoint_id is a number per schema)
-		const serverResult = await client.callTool<ServerPushResult | null>("push_checkpoint_to_git", {
+		const serverResult = await client.callTool("push_checkpoint_to_git", {
 			checkpoint_id: checkpointId,
 			commit_sha: commitSha,
 			...(branch ? { branch_name: branch } : {}),
-		});
+		}).then(parsePushResult);
 
 		const result: LinkCheckpointResult = {
 			checkpoint_id: checkpointId,

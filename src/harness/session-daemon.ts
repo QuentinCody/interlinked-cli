@@ -20,6 +20,7 @@ import {
 } from "node:fs";
 import type { Server, Socket } from "node:net";
 import { dirname } from "node:path";
+import { isJsonObject } from "../lib/json-types.js";
 import { readHarnessProcessIdentity } from "./daemon-process-identity.js";
 import { type DispatcherState, dispatchRpc } from "./daemon-dispatcher.js";
 import { pidFileNames, removePidFileIfOwned } from "./daemon-pid-ownership.js";
@@ -29,6 +30,7 @@ import {
 	isRequest,
 	makeError,
 	type RpcMessage,
+	type RpcEnvelope,
 	splitFrames,
 } from "./daemon-protocol.js";
 import { reapZombieIncumbent } from "./server/anti-stomp.js";
@@ -53,10 +55,10 @@ export interface SessionDaemonOptions {
 	session_id: string;
 	/** Milliseconds with no activity before the daemon self-terminates. */
 	idle_shutdown_ms?: number;
-	/** Dispatcher state — tsgo runner + evaluator context factory. */
-	state: Omit<DispatcherState, "shutdown" | "started_at" | "rpc_inflight">;
 	/** Keep the listener available while daemon-owned background work runs. */
 	hasBackgroundWork?: () => boolean;
+	/** Dispatcher state — tsgo runner + evaluator context factory. */
+	state: Omit<DispatcherState, "shutdown" | "started_at" | "rpc_inflight">;
 }
 
 export interface SessionDaemonHandle {
@@ -104,7 +106,7 @@ function attemptClaimLock(lock: SessionClaimLock): ClaimLockAttempt {
 		writeFileSync(lock.path, lock.raw, { flag: "wx" });
 		return { lock };
 	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+		if (!isJsonObject(err) || err.code !== "EEXIST") throw err;
 	}
 	const observedRaw = readFileText(lock.path);
 	if (liveClaimLockIsCurrent(claimLockRecord(observedRaw))) return { retry: true };
@@ -259,6 +261,10 @@ async function claimSessionOwnership(args: SessionOwnershipArgs): Promise<void> 
 	await replaceSessionOwner(args, claim.ownerPid);
 }
 
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
 interface SessionRpcRuntime {
 	onConnection(socket: Socket): void;
 	destroyClients(): void;
@@ -281,11 +287,11 @@ function createSessionRpcRuntime(args: {
 		shutdown: args.shutdown,
 	};
 	const handleFrame = async (frame: string, socket: Socket): Promise<void> => {
-		let message: RpcMessage;
+		let message: RpcEnvelope;
 		try {
 			message = decodeFrame(frame);
 		} catch (err) {
-			socket.write(encodeFrame(makeError("unknown", "bad_request", (err as Error).message)));
+			socket.write(encodeFrame(makeError("unknown", "bad_request", errorMessage(err))));
 			return;
 		}
 		if (!isRequest(message)) return;
@@ -295,7 +301,7 @@ function createSessionRpcRuntime(args: {
 		try {
 			response = await dispatchRpc(message, state);
 		} catch (err) {
-			response = makeError(message.id, "internal", (err as Error).message);
+			response = makeError(message.id, "internal", errorMessage(err));
 		}
 		inflight--;
 		state.rpc_inflight = inflight;

@@ -30,7 +30,7 @@ function makeEvent(overrides: Partial<HarnessEvent>): HarnessEvent {
 		timestamp: new Date().toISOString(),
 		cwd: dir,
 		...overrides,
-	} as HarnessEvent;
+	};
 }
 
 function makeSession(): SessionTrajectory {

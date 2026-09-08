@@ -1,3 +1,7 @@
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { daemonPathsFor } from "../session-paths.js";
+import { ProjectGraph } from "../project-graph.js";
 // ===========================================
 // activateDaemon — startup wiring seams
 // ===========================================
@@ -11,8 +15,8 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import type { DaemonLedgerEvent } from "../daemon-ledger.js";
 import { recordDaemonEvent } from "../daemon-ledger.js";
 import { acquireStartupLock } from "../startup-lock.js";
-import type { GuardRulesConfig } from "../types.js";
 import { installDaemonTimers } from "./daemon-timers.js";
+import { activateHookCoverage } from "./hook-coverage.js";
 import { activateDaemon } from "./server-daemon-activation.js";
 import { runStartupSelfCheck } from "./startup-guard.js";
 
@@ -29,7 +33,8 @@ vi.mock("../mutation/mutation-cloud-v3-background.js", () => ({
 	startMutationCloudV3Background: vi.fn(() => ({ stop: vi.fn() })),
 }));
 vi.mock("../policy-classifier.js", () => ({ resolveApiKey: vi.fn(() => undefined) }));
-vi.mock("../rules-loader.js", () => ({
+vi.mock("../rules-loader.js", async (importOriginal) => ({
+	...await importOriginal<typeof import("../rules-loader.js")>(),
 	loadRules: vi.fn(() => ({ rules: [] })),
 	watchRulesFiles: vi.fn(() => () => {}),
 }));
@@ -47,6 +52,8 @@ vi.mock("./daemon-timers.js", () => ({
 	heapSpaceSummary: vi.fn(() => "old=1MB"),
 }));
 vi.mock("./idle-shrink.js", () => ({ makeShrinkIdleMemory: vi.fn(() => () => {}) }));
+// This suite tests startup wiring; filesystem observation has its own real-FS tests.
+vi.mock("./hook-coverage.js", () => ({ activateHookCoverage: vi.fn(() => () => {}) }));
 vi.mock("./incumbent-check.js", () => ({
 	antiStompDepsFor: vi.fn(() => ({})),
 	settleIncumbentAtBind: vi.fn(async () => ({ verdict: "free" })),
@@ -62,22 +69,24 @@ vi.mock("./startup-guard.js", () => ({
 }));
 
 const CWD = "/tmp/daemon-activation-cwd";
-const RULES = { rules: [] } as unknown as GuardRulesConfig;
+const RULES = makeGuardRules();
+const { createProtocolStatus } = await vi.importActual<typeof import("./protocol-status.js")>("./protocol-status.js");
+vi.mock("./hook-coverage.js", () => ({ activateHookCoverage: vi.fn(() => () => {}) }));
 
 type ActivateOptions = Parameters<typeof activateDaemon>[0];
 
 /** The daemon collaborators `activateDaemon` reads, reduced to the members it
  *  actually touches — every heavyweight one is mocked at module scope above. */
 function makeOptions(): ActivateOptions {
-	// SAFETY: activateDaemon only forwards these objects to mocked collaborators
-	// and reads the members set here; a structural stub is sufficient.
+	const runtime = makeServerRuntime({ cwd: CWD, rules: RULES });
 	return {
 		cli: {
 			cwd: CWD,
 			interlinkedDir: `${CWD}/.interlinked`,
 			socketPath: `${CWD}/.interlinked/harness.sock`,
 			pidPath: `${CWD}/.interlinked/harness.pid`,
-			framedPaths: { socket: `${CWD}/.interlinked/framed.sock` },
+			framedPaths: daemonPathsFor(CWD, "sess-activation"),
+			verbose: false,
 			framedSessionId: "sess-activation",
 			protocolMode: "raw",
 			runRawSocket: false,
@@ -85,18 +94,12 @@ function makeOptions(): ActivateOptions {
 			idleTimeoutMs: 600_000,
 		},
 		state: {
-			cohort: { detectLostAgents: () => [] },
-			reservations: { releaseAllForAgent: () => {} },
-			sessions: new Map(),
-			routeMap: {},
-			errorHistory: {},
-			autoCoordConfig: {},
-			contentScanner: null,
-			writeClassifierStatus: vi.fn(),
-			writeScannerStatus: vi.fn(),
-			deliverMutationFindingToSessions: vi.fn(),
+			...runtime, writeScannerStatus: vi.fn(), deliverMutationFindingToSessions: vi.fn(() => 0),
+			serverBridge: null,
+			protocolStatusPath: `${CWD}/.interlinked/harness-protocol.json`,
+			protocolStatus: createProtocolStatus({ protocol: "raw", rawSocketPath: null, framedSocketPath: null, framedSessionId: null }),
 		},
-		runtime: { rules: RULES, compiledAllowlist: null },
+		runtime,
 		socketLifecycle: {
 			setUnwatchers: vi.fn(),
 			setFramedDaemon: vi.fn(),
@@ -105,7 +108,7 @@ function makeOptions(): ActivateOptions {
 			startRawServer: vi.fn(),
 			shutdown: vi.fn(),
 		},
-		startupGuard: {},
+		startupGuard: { note: vi.fn(), fail: vi.fn(), isStartupComplete: () => true, onStartupFailure: vi.fn() },
 		earlyShutdown: { upgrade: vi.fn() },
 		moduleUrl: "file:///dist/harness/server.js",
 		getRules: () => RULES,
@@ -113,16 +116,16 @@ function makeOptions(): ActivateOptions {
 		setCompiledAllowlist: vi.fn(),
 		getLastHookEventAtMs: () => 0,
 		getTrigramIndex: () => null,
-		getGraphForFile: () => ({}),
+		getGraphForFile: () => new ProjectGraph(CWD),
 		resetIdleTimer: vi.fn(),
 		refreshStatuslineSnapshot: vi.fn(),
 		shutdownWith: vi.fn(),
-		evaluateEventLine: vi.fn(),
-		evaluateUnifiedViaRuntime: vi.fn(),
+		evaluateEventLine: vi.fn<ActivateOptions["evaluateEventLine"]>(async () => ({ decision: "allow" })),
+		evaluateUnifiedViaRuntime: vi.fn<NonNullable<ActivateOptions["evaluateUnifiedViaRuntime"]>>(async () => ({ decision: "allow" })),
 		writeProtocolStatus: vi.fn(),
 		log: vi.fn(),
 		logAlways: vi.fn(),
-	} as unknown as ActivateOptions;
+	};
 }
 
 describe("activateDaemon — callbacks handed to collaborators", () => {
@@ -137,7 +140,9 @@ describe("activateDaemon — callbacks handed to collaborators", () => {
 	});
 
 	it("gives the daemon timers a recycle lease that reports the startup lock outcome", async () => {
-		await activateDaemon(makeOptions());
+		const options = makeOptions();
+		await activateDaemon(options);
+		expect(activateHookCoverage).toHaveBeenCalledWith(options.runtime);
 		const timerHooks = vi.mocked(installDaemonTimers).mock.calls[0]?.[0];
 
 		vi.mocked(acquireStartupLock).mockReturnValueOnce({

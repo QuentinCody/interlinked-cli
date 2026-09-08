@@ -593,7 +593,7 @@ describe("detectImplicitSwitchFallthrough — optional 'typescript' dep unavaila
 
 	it("returns [] when ts.createSourceFile throws (parse failure is swallowed)", async () => {
 		vi.resetModules();
-		const real = (await vi.importActual("typescript")) as Record<string, unknown>;
+		const real = (await vi.importActual("typescript"));
 		vi.doMock("node:module", () => ({
 			createRequire: () => () => ({
 				...real,

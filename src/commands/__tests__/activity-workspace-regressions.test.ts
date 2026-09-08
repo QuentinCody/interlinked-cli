@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../../lib/value-validation.js";
 // ===========================================
 // CLI Activity + Workspace Regression Tests
 // ===========================================
@@ -61,10 +62,7 @@ describe("Activity feed response contract regressions", () => {
 
 		const printed = logSpy.mock.calls.at(-1)?.[0];
 		expect(typeof printed).toBe("string");
-		const payload = JSON.parse(printed as string) as {
-			source: string;
-			events: Array<Record<string, unknown>>;
-		};
+		const payload = parseWire(JSON.parse(parseWire(printed, wireString, "test JSON value")), wireObject({ "source": wireString, "events": wireArray(wireRecord(wireUnknown)) }), "test JSON value");
 		expect(payload.source).toBe("server");
 		expect(payload.events).toHaveLength(1);
 		expect(payload.events[0]).toMatchObject({
@@ -95,9 +93,7 @@ describe("Activity feed response contract regressions", () => {
 
 		const printed = logSpy.mock.calls.at(-1)?.[0];
 		expect(typeof printed).toBe("string");
-		const payload = JSON.parse(printed as string) as {
-			events: Array<Record<string, unknown>>;
-		};
+		const payload = parseWire(JSON.parse(parseWire(printed, wireString, "test JSON value")), wireObject({ "events": wireArray(wireRecord(wireUnknown)) }), "test JSON value");
 		expect(payload.events).toHaveLength(1);
 		expect(payload.events[0]).toMatchObject({
 			agent_name: "agent-legacy",
@@ -126,10 +122,7 @@ describe("Activity feed response contract regressions", () => {
 
 		const printed = logSpy.mock.calls.at(-1)?.[0];
 		expect(typeof printed).toBe("string");
-		const payload = JSON.parse(printed as string) as {
-			source: string;
-			timeline: Array<Record<string, unknown>>;
-		};
+		const payload = parseWire(JSON.parse(parseWire(printed, wireString, "test JSON value")), wireObject({ "source": wireString, "timeline": wireArray(wireRecord(wireUnknown)) }), "test JSON value");
 		expect(payload.source).toBe("merged");
 		expect(payload.timeline).toHaveLength(1);
 		expect(payload.timeline[0]).toMatchObject({
@@ -159,9 +152,7 @@ describe("Activity feed response contract regressions", () => {
 
 		const printed = logSpy.mock.calls.at(-1)?.[0];
 		expect(typeof printed).toBe("string");
-		const payload = JSON.parse(printed as string) as {
-			timeline: Array<{ agent: string }>;
-		};
+		const payload = parseWire(JSON.parse(parseWire(printed, wireString, "test JSON value")), wireObject({ "timeline": wireArray(wireObject({ "agent": wireString })) }), "test JSON value");
 		expect(payload.timeline).toHaveLength(1);
 		expect(payload.timeline[0]?.agent).toBe("agent-server-only");
 	});
@@ -214,12 +205,9 @@ describe("Workspace switch regressions", () => {
 		const { workspaceSwitchCommand } = await import("../workspace.js");
 		await workspaceSwitchCommand("ws_new");
 
-		const updated = JSON.parse(
+		const updated = parseWire(JSON.parse(
 			readFileSync(join(tempDir, ".interlinked", "config.local.json"), "utf-8"),
-		) as {
-			workspace_id?: string;
-			servers?: Record<string, { workspace_id?: string }>;
-		};
+		), wireObject({ "workspace_id": wireAbsentOptional(wireOptional(wireString)), "servers": wireAbsentOptional(wireOptional(wireRecord(wireObject({ "workspace_id": wireAbsentOptional(wireOptional(wireString)) })))) }), "test JSON value");
 		expect(updated.workspace_id).toBe("ws_new");
 		expect(updated.servers?.production?.workspace_id).toBe("ws_new");
 		expect(updated.servers?.local?.workspace_id).toBe("ws_local");
@@ -242,9 +230,9 @@ describe("Workspace switch regressions", () => {
 		const { workspaceSwitchCommand } = await import("../workspace.js");
 		await workspaceSwitchCommand("ws_newtop");
 
-		const updated = JSON.parse(
+		const updated = parseWire(JSON.parse(
 			readFileSync(join(tempDir, ".interlinked", "config.local.json"), "utf-8"),
-		) as { workspace_id?: string };
+		), wireObject({ "workspace_id": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		expect(updated.workspace_id).toBe("ws_newtop");
 
 		logSpy.mockRestore();

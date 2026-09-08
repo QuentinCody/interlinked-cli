@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireUnknown } from "../lib/value-validation.js";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,12 +64,12 @@ describe("uninstall-hooks — round trip with install-hooks", () => {
 
 	it("JSON output reports removal counts", async () => {
 		let captured = "";
-		const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+		const spy = vi.spyOn(process.stdout, "write").mockImplementation((
 			buf: string | Uint8Array,
 		) => {
 			captured += typeof buf === "string" ? buf : Buffer.from(buf).toString("utf-8");
 			return true;
-		}) as unknown as typeof process.stdout.write);
+		});
 		await installHooksCommand({
 			runner: "claude-code",
 			binary: "/usr/bin/ih-json",
@@ -77,7 +78,7 @@ describe("uninstall-hooks — round trip with install-hooks", () => {
 		captured = "";
 		await uninstallHooksCommand({ json: true });
 		spy.mockRestore();
-		const payload = JSON.parse(captured) as { removed: unknown[] };
+		const payload = parseWire(JSON.parse(captured), wireObject({ "removed": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.removed.length).toBe(1);
 	});
 });

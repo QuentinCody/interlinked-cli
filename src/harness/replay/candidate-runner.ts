@@ -14,7 +14,7 @@
 // Off-policy by construction: the candidate's action is scored, never fed
 // back into the next step's observation.
 
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import type { InferenceEnvelope } from "./inference-store.js";
 
 /** Bounds a single candidate turn. Generous — hard reference turns ran for
@@ -34,16 +34,14 @@ export interface CandidateRunResult {
 }
 
 function asObject(value: unknown): JsonObject | null {
-	return value !== null && typeof value === "object" && !Array.isArray(value)
-		? (value as JsonObject)
-		: null;
+	return isJsonObject(value) ? value : null;
 }
 
 /** Remove thinking blocks from assistant turns; everything else verbatim. */
 export function stripPriorThinking(messages: readonly JsonObject[]): JsonObject[] {
 	return messages.map((message) => {
 		if (message.role !== "assistant" || !Array.isArray(message.content)) return message;
-		const content = (message.content as unknown[]).filter((block) => {
+		const content = message.content.filter((block) => {
 			const b = asObject(block);
 			return b === null || (b.type !== "thinking" && b.type !== "redacted_thinking");
 		});
@@ -61,7 +59,7 @@ export function buildCandidateRequest(
 	const body: JsonObject = { model: candidateModel };
 	if (request.system !== undefined) body.system = request.system;
 	if (request.tools !== undefined) body.tools = request.tools;
-	const messages = Array.isArray(request.messages) ? (request.messages as JsonObject[]) : [];
+	const messages = Array.isArray(request.messages) ? request.messages.filter(isJsonObject) : [];
 	body.messages = opts.keepThinking ? messages : stripPriorThinking(messages);
 	const params = asObject(request.params) ?? {};
 	for (const [key, value] of Object.entries(params)) {
@@ -118,7 +116,7 @@ export async function runCandidate(args: RunCandidateArgs): Promise<CandidateRun
 		throw new Error(`candidate request failed (${resp.status}): ${text.slice(0, 300)}`);
 	}
 	const raw = asObject(JSON.parse(text)) ?? {};
-	const content = Array.isArray(raw.content) ? (raw.content as JsonObject[]) : [];
+	const content = Array.isArray(raw.content) ? raw.content.filter(isJsonObject) : [];
 	return {
 		raw,
 		stop_reason: typeof raw.stop_reason === "string" ? raw.stop_reason : null,

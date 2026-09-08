@@ -36,8 +36,8 @@ describe("loadCloudUrl — existsSync gate and encoding literal (positive/negati
 	// test-contract: public-api — loadCloudUrl(cwd) must return null without
 	// reading the file when existsSync says the config file is absent.
 	test("N: returns null and never reads the file when existsSync is false", () => {
-		const existsMock = fsMod.existsSync as unknown as ReturnType<typeof vi.fn>;
-		const readMock = fsMod.readFileSync as unknown as ReturnType<typeof vi.fn>;
+		const existsMock = vi.mocked(fsMod.existsSync);
+		const readMock = vi.mocked(fsMod.readFileSync);
 		existsMock.mockReturnValueOnce(false);
 		readMock.mockReturnValueOnce(
 			JSON.stringify({ cloud_governor: { url: "https://example.com/should-not-be-read" } }),
@@ -52,8 +52,8 @@ describe("loadCloudUrl — existsSync gate and encoding literal (positive/negati
 	// test-contract: public-api — loadCloudUrl must decode the config file as
 	// utf8 text (not a Buffer / other encoding) before JSON.parse.
 	test("P: reads the config file with utf8 encoding when it exists", () => {
-		const existsMock = fsMod.existsSync as unknown as ReturnType<typeof vi.fn>;
-		const readMock = fsMod.readFileSync as unknown as ReturnType<typeof vi.fn>;
+		const existsMock = vi.mocked(fsMod.existsSync);
+		const readMock = vi.mocked(fsMod.readFileSync);
 		existsMock.mockReturnValueOnce(true);
 		readMock.mockReturnValueOnce(JSON.stringify({ cloud_governor: { url: "https://example.com/y" } }));
 
@@ -186,8 +186,8 @@ describe("cloudRecentCommand — fetchRecent error detail literal (negative)", (
 	});
 
 	test("N: a non-401 failure reports the status line with NO extra detail suffix", async () => {
-		const existsMock = fsMod.existsSync as unknown as ReturnType<typeof vi.fn>;
-		const readMock = fsMod.readFileSync as unknown as ReturnType<typeof vi.fn>;
+		const existsMock = vi.mocked(fsMod.existsSync);
+		const readMock = vi.mocked(fsMod.readFileSync);
 		existsMock.mockReturnValueOnce(true);
 		readMock.mockReturnValueOnce(
 			JSON.stringify({ cloud_governor: { url: "https://example.com/governor/evaluate" } }),
@@ -200,9 +200,9 @@ describe("cloudRecentCommand — fetchRecent error detail literal (negative)", (
 		});
 		vi.stubGlobal("fetch", fetchMock);
 
-		const exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+		const exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
 			throw new Error(`exit:${code}`);
-		}) as never);
+		});
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
 		const opts: CloudRecentOpts = { cwd: "/whatever", limit: 10 };

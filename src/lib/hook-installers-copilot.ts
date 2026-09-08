@@ -7,9 +7,10 @@
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { buildHookCommand, isPlainObject } from "./hook-installers-shared.js";
+import { buildHookCommand, hookEventEntries, isPlainObject } from "./hook-installers-shared.js";
 import { isInterlinkedHookEntry } from "./hook-ownership.js";
 import { CLIENT_COPILOT, INTERLINKED_MARKER } from "./hook-types.js";
+import type { JsonObject } from "./json-types.js";
 
 // GitHub Copilot CLI hook events (camelCase — Copilot convention)
 /** Public API — consumed by `src/lib/hooks.ts`. */
@@ -29,7 +30,7 @@ function getCopilotHooksPath(cwd: string): string {
 // Narrow shape of the Copilot hooks.json we read/write.
 interface CopilotConfig {
 	version: number;
-	hooks: Record<string, unknown[]>;
+	hooks: JsonObject;
 }
 
 /**
@@ -41,7 +42,7 @@ interface CopilotConfig {
 function parseCopilotConfigShape(raw: unknown): CopilotConfig | null {
 	if (!isPlainObject(raw)) return null;
 	const hooks = isPlainObject(raw.hooks) ? raw.hooks : {};
-	return { version: 1, hooks: hooks as Record<string, unknown[]> };
+	return { version: 1, hooks };
 }
 
 function safeReadCopilotConfig(path: string): CopilotConfig | null {
@@ -73,11 +74,11 @@ export function installCopilotHooks(cwd: string, hookScriptPath: string): void {
 	const config = safeReadCopilotConfig(hooksPath) || { version: 1, hooks: {} };
 
 	for (const eventName of COPILOT_HOOK_EVENTS) {
-		if (!config.hooks[eventName]) config.hooks[eventName] = [];
-		const entries = config.hooks[eventName] as Array<{ type: string; bash?: string }>;
+		const entries = hookEventEntries(config.hooks, eventName);
 
 		// Check if already installed — update if stale
-		const existing = entries.find((e) => e.bash?.includes(INTERLINKED_MARKER));
+		const existing = entries.filter(isPlainObject).find((entry) =>
+			typeof entry.bash === "string" && entry.bash.includes(INTERLINKED_MARKER));
 		if (existing) {
 			if (existing.bash !== hookCommand) {
 				existing.bash = hookCommand;

@@ -21,7 +21,10 @@ type SpawnRet = {
 	stderr?: string | null;
 	error?: (Error & { code?: string }) | undefined;
 };
-const ret = (r: SpawnRet) => r as never;
+const ret = (r: SpawnRet): ReturnType<typeof spawnSync> => {
+	// SAFETY: null/absent stdio is intentional malformed process output; these cases exercise the runners' fallback handling.
+	return { pid: 123, output: [], signal: null, status: null, stdout: "", stderr: "", ...r } as ReturnType<typeof spawnSync>;
+};
 
 /** Standard "this binary exists" answer for a `--version` probe. */
 const versionOk = (): SpawnRet => ({ status: 0, stdout: "v1", stderr: "" });
@@ -235,7 +238,7 @@ describe("runCCompile — syntax check outcomes", () => {
 		const compileCall = spawnMock.mock.calls[1];
 		expect(compileCall?.[0]).toBe("gcc");
 		expect(compileCall?.[1]).toEqual(["-fsyntax-only", "-Wall", "/proj/a.c"]);
-		expect((compileCall?.[2] as { cwd?: string })?.cwd).toBe("/my/root");
+		expect(compileCall?.[2]?.cwd).toBe("/my/root");
 	});
 });
 
@@ -345,7 +348,7 @@ describe("runClangTidy — outcomes", () => {
 		const call = spawnMock.mock.calls[0];
 		expect(call?.[0]).toBe("clang-tidy");
 		expect(call?.[1]).toEqual(["/proj/a.cpp", "--quiet"]);
-		expect((call?.[2] as { cwd?: string })?.cwd).toBe("/my/root");
+		expect(call?.[2]?.cwd).toBe("/my/root");
 	});
 });
 

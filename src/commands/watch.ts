@@ -1,3 +1,4 @@
+import { errorMessage } from "../lib/error-message.js";
 // ===========================================
 // Watch Command — Monitor server for pending work
 // ===========================================
@@ -56,25 +57,7 @@ interface WorkStatus {
 	notifications: string[];
 }
 
-// callTool casts an unvalidated network response, so these arrays are honestly optional.
-interface ListTasksResponse {
-	tasks?: Array<{
-		id: number;
-		title: string;
-		status: string;
-		priority: string;
-		assignee_name: string | null;
-	}>;
-	count: number;
-}
-interface ListAgentsResponse {
-	agents?: Array<{
-		name: string;
-		role: string | null;
-		status: string;
-		last_active_ts: string | null;
-	}>;
-}
+import { parseWatchAgents, parseWatchMessages, parseWatchTasks } from "./watch-response.js";
 
 // ===========================================
 // Data Fetching
@@ -97,13 +80,9 @@ async function fetchWorkStatus(previous: WorkStatus | null): Promise<WorkStatus>
 
 	// Fetch all data in parallel
 	const [msgResult, taskResult, agentResult] = await Promise.allSettled([
-		client.callTool<{
-			has_unread: boolean;
-			unread_count: number;
-			oldest_unread_at: string | null;
-		}>("has_unread_messages", {}),
-		client.callTool<ListTasksResponse>("list_tasks", { limit: 50 }),
-		client.callTool<ListAgentsResponse>("list_agents", {}),
+		client.callTool("has_unread_messages", {}).then(parseWatchMessages),
+		client.callTool("list_tasks", { limit: 50 }).then(parseWatchTasks),
+		client.callTool("list_agents", {}).then(parseWatchAgents),
 	]);
 
 	const messages =
@@ -471,7 +450,7 @@ export async function watchCommand(opts: {
 			});
 			previousStatus = data;
 		} catch (err) {
-			outputError(mode, (err as Error).message);
+			outputError(mode, errorMessage(err));
 		}
 	};
 

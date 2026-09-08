@@ -46,6 +46,7 @@ Commands:
   guard                                      File reservation enforcement via git hooks
   handoff [options] <from-agent> <to-agent>  Explicit agent-to-agent handoff with context transfer
   harness                                    Local harness server: guard evaluation, auto-reservations, agent lifecycle
+  help [command]                             display help for command
   impact [options]                           Report evidence-classed local impact facts without causal attribution
   inbox [options]                            Show recent messages from the server
   index                                      Manage the trigram search index for grep acceleration
@@ -96,7 +97,6 @@ Commands:
   watch [options]                            Monitor server for pending work (messages, tasks, agents)
   workspace                                  Registry workspace management (ws_ IDs)
   write [options] [path]                     Write file(s) through the content-quality gate (pre_block + biome + tsc diff-overlay). Supports --stdin, --from-file, and --batch <manifest.json> with rollback protection.
-  help [command]                             display help for command
 ```
 
 ## Data

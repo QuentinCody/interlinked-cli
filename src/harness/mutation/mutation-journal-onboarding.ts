@@ -122,7 +122,7 @@ function parseCanonicalRequest(requestBytes: Uint8Array): ValidMutationJobReques
 	let parsedJson: unknown;
 	try {
 		decoded = new TextDecoder("utf-8", { fatal: true }).decode(requestBytes);
-		parsedJson = JSON.parse(decoded) as unknown;
+		parsedJson = JSON.parse(decoded);
 	} catch (error) {
 		throw new Error("mutation onboarding requestBytes must be valid UTF-8 JSON", { cause: error });
 	}

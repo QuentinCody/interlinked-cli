@@ -1,3 +1,5 @@
+import { nonNull } from "../../lib/non-null.js";
+import { makeServerRuntime, makeServerRules, makeTrigramIndex } from "./__tests__/fixtures.js";
 // Mutation-kill companion for src/harness/server/pre-tool-pipeline-search.ts.
 //
 // HAND-WRITTEN (no generator applies): golden-gen/generate.mts refuses any
@@ -50,11 +52,8 @@ import {
 	type SearchToolFlags,
 } from "./pre-tool-pipeline-search.js";
 
-/** classifySearchTool's 2nd param is the full GuardRulesConfig; none of
- *  these fixtures read anything off it except (untested here)
- *  grep_acceleration.substitution_enabled, so an empty object cast is the
- *  correct minimal fixture. */
-const EMPTY_RULES = {} as unknown as ServerRuntime["rules"];
+
+const EMPTY_RULES = makeServerRules();
 
 const mExecSync = vi.mocked(execSync);
 const mCheckGrepAcceleration = vi.mocked(checkGrepAcceleration);
@@ -76,15 +75,15 @@ function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
 }
 
 /** ServerRuntime stub — only the fields these functions read are real. */
-function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
-	return {
+function makeCtx(over: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime {
+	return makeServerRuntime({
 		cwd: "/repo",
 		trigramIndex: null,
 		indexWarningSent: new Set<string>(),
 		fileContentCache: {},
 		log: () => {},
 		...over,
-	} as unknown as ServerRuntime;
+	});
 }
 
 const ALL_TRUE_FLAGS: SearchToolFlags = {
@@ -143,7 +142,7 @@ describe("emitIndexStatusWarning", () => {
 	// no-op (no session marked, no warnings touched) whenever decision !==
 	// "allow", regardless of every other condition being satisfied.
 	it("does nothing when preDecision.decision is not 'allow'", () => {
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "z", isDirty: false } });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("z", false) });
 		const preDecision: HarnessDecision = { decision: "block" };
 		emitIndexStatusWarning(
 			ctx,
@@ -161,7 +160,7 @@ describe("emitIndexStatusWarning", () => {
 	// is marked so this does not repeat every search call.
 	it("warns when the index is loaded but ripgrep is not installed", () => {
 		mFindRipgrep.mockReturnValue(null);
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "z", isDirty: false } });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("z", false) });
 		const preDecision: HarnessDecision = { decision: "allow" };
 		emitIndexStatusWarning(
 			ctx,
@@ -181,8 +180,8 @@ describe("emitIndexStatusWarning", () => {
 	// must be the one actually run, not a mutated stand-in.
 	it("emits no warning when HEAD equals the index's recorded base commit", () => {
 		mFindRipgrep.mockReturnValue("/usr/bin/rg");
-		mExecSync.mockReturnValueOnce("basecommit000\n" as never);
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "basecommit000", isDirty: false } });
+		mExecSync.mockReturnValueOnce("basecommit000\n");
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("basecommit000", false) });
 		const preDecision: HarnessDecision = { decision: "allow" };
 		emitIndexStatusWarning(
 			ctx,
@@ -206,8 +205,8 @@ describe("emitIndexStatusWarning", () => {
 	// the second git invocation's exact command/options must match.
 	it("warns with the exact behind-count when HEAD has moved past the base commit", () => {
 		mFindRipgrep.mockReturnValue("/usr/bin/rg");
-		mExecSync.mockReturnValueOnce("999999999999\n" as never).mockReturnValueOnce("3\n" as never);
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "abc123def456", isDirty: false } });
+		mExecSync.mockReturnValueOnce("999999999999\n").mockReturnValueOnce("3\n");
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("abc123def456", false) });
 		const preDecision: HarnessDecision = { decision: "allow" };
 		emitIndexStatusWarning(
 			ctx,
@@ -233,7 +232,7 @@ describe("emitIndexStatusWarning", () => {
 	// single &&→|| slip or any sub-chain collapsed to `true`.
 	it("stays silent for a Grep call with no search pattern", () => {
 		mFindRipgrep.mockReturnValue(null);
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "z", isDirty: false } });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("z", false) });
 		const preDecision: HarnessDecision = { decision: "allow" };
 		emitIndexStatusWarning(
 			ctx,
@@ -250,8 +249,8 @@ describe("emitIndexStatusWarning", () => {
 	// branch of isIndexApplicableSearch.
 	it("stays silent for a non-Bash, non-Grep tool even with a parseable command", () => {
 		mFindRipgrep.mockReturnValue(null);
-		mParseGrepCommand.mockReturnValue({ pattern: "foo", isRegex: true, path: undefined } as never);
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "z", isDirty: false } });
+		mParseGrepCommand.mockReturnValue({ pattern: "foo", isRegex: true, caseInsensitive: false });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("z", false) });
 		const preDecision: HarnessDecision = { decision: "allow" };
 		emitIndexStatusWarning(
 			ctx,
@@ -268,7 +267,7 @@ describe("emitIndexStatusWarning", () => {
 	// disjuncts of `searchPath === "~" || searchPath.startsWith("~/")`.
 	it("stays silent for a search path of exactly '~'", () => {
 		mFindRipgrep.mockReturnValue(null);
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "z", isDirty: false } });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("z", false) });
 		const preDecision: HarnessDecision = { decision: "allow" };
 		emitIndexStatusWarning(
 			ctx,
@@ -284,7 +283,7 @@ describe("emitIndexStatusWarning", () => {
 	// nonsensical) shape that this fixture does not exercise.
 	it("stays silent for a search path starting with '~/'", () => {
 		mFindRipgrep.mockReturnValue(null);
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "z", isDirty: false } });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("z", false) });
 		const preDecision: HarnessDecision = { decision: "allow" };
 		emitIndexStatusWarning(
 			ctx,
@@ -301,7 +300,7 @@ describe("emitIndexStatusWarning", () => {
 	// tree (the class this whole guard exists to prevent).
 	it("stays silent for a search path of '..' (outside the indexed project)", () => {
 		mFindRipgrep.mockReturnValue(null);
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "z", isDirty: false } });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("z", false) });
 		const preDecision: HarnessDecision = { decision: "allow" };
 		emitIndexStatusWarning(
 			ctx,
@@ -323,7 +322,7 @@ describe("runGrepAcceleration", () => {
 	// upgraded into a grep-substitution attempt; the guard's `allow` check
 	// must gate isGrepIndexFresh/checkGrepAcceleration entirely.
 	it("does nothing when preDecision.decision is not 'allow'", () => {
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "z", isDirty: false } });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("z", false) });
 		const preDecision: HarnessDecision = { decision: "block" };
 		const out = runGrepAcceleration(
 			ctx,
@@ -344,14 +343,14 @@ describe("runGrepAcceleration", () => {
 	// pinned too, since checkGrepAcceleration is only ever as trustworthy
 	// as the query it was told to run.
 	it("reports the index fresh when HEAD matches and the tree is clean", () => {
-		mExecSync.mockReturnValueOnce("freshhead\n" as never).mockReturnValueOnce(" \n" as never);
+		mExecSync.mockReturnValueOnce("freshhead\n").mockReturnValueOnce(" \n");
 		mCheckGrepAcceleration.mockReturnValue(null);
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "freshhead", isDirty: false } });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("freshhead", false) });
 		const preDecision: HarnessDecision = { decision: "allow" };
 		runGrepAcceleration(ctx, ev({ tool_name: "Grep", tool_input: { pattern: "x" } }), preDecision, ALL_TRUE_FLAGS);
 
 		expect(mCheckGrepAcceleration).toHaveBeenCalledOnce();
-		const cfgArg = mCheckGrepAcceleration.mock.calls[0]?.[2] as { indexFresh: boolean };
+		const cfgArg = nonNull(nonNull(mCheckGrepAcceleration.mock.calls[0])[2]);
 		expect(cfgArg.indexFresh).toBe(true);
 		expect(mExecSync).toHaveBeenNthCalledWith(1, "git rev-parse HEAD", {
 			cwd: "/repo",
@@ -369,7 +368,7 @@ describe("runGrepAcceleration", () => {
 	// short-circuits before ANY of the substitution machinery runs; this
 	// pins that the early guard is a real gate, not a decoration.
 	it("never calls checkGrepAcceleration when the guard blocks", () => {
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "z", isDirty: false } });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("z", false) });
 		const preDecision: HarnessDecision = { decision: "block" };
 		runGrepAcceleration(ctx, ev({ tool_name: "Grep", tool_input: { pattern: "x" } }), preDecision, ALL_TRUE_FLAGS);
 		expect(mCheckGrepAcceleration).not.toHaveBeenCalled();
@@ -386,7 +385,7 @@ describe("runGrepAcceleration", () => {
 		mCheckGrepAcceleration.mockReturnValue({ decision: "block", reason: "blocked by index" });
 		const logs: string[] = [];
 		const ctx = makeCtx({
-			trigramIndex: { baseCommit: "z", isDirty: false },
+			trigramIndex: makeTrigramIndex("z", false),
 			log: (m: string) => logs.push(m),
 		});
 		const preDecision: HarnessDecision = { decision: "allow" };
@@ -404,7 +403,7 @@ describe("runGrepAcceleration", () => {
 			throw new Error("git unavailable");
 		});
 		mCheckGrepAcceleration.mockReturnValue({ decision: "block", reason: "x" });
-		const ctx = makeCtx({ trigramIndex: { baseCommit: "z", isDirty: false } });
+		const ctx = makeCtx({ trigramIndex: makeTrigramIndex("z", false) });
 		const preDecision: HarnessDecision = { decision: "allow" };
 		const out = runGrepAcceleration(
 			ctx,

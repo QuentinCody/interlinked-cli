@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 // ===========================================
 // interlinked harness — process / orphan-daemon utilities
 // ===========================================
@@ -159,7 +160,7 @@ export function collectAncestorPids(): Set<number> {
 		const childToParent = new Map<number, number>();
 		for (const line of psOut.split("\n")) {
 			const m = line.trim().match(/^(\d+)\s+(\d+)$/);
-			if (m) childToParent.set(Number.parseInt(m[1] as string, 10), Number.parseInt(m[2] as string, 10));
+			if (m) childToParent.set(Number.parseInt(nonNull(m[1]), 10), Number.parseInt(nonNull(m[2]), 10));
 		}
 		let current = process.ppid;
 		for (let i = 0; i < 10 && current > 1; i++) {

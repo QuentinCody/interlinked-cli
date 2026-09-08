@@ -127,7 +127,7 @@ export function createStripDebouncer(opts: StripDebouncerOptions): StripDebounce
 		// the method as optional rather than trusting the declared type.
 		// SAFETY: `NodeJS.Timeout` structurally satisfies `{ unref?: () => void }`,
 		// so this narrows the assumed shape rather than lying about it.
-		const timer = pendingTimer as { unref?: () => void };
+		const timer: { unref?: () => void } = pendingTimer;
 		timer.unref?.();
 	};
 

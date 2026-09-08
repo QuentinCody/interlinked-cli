@@ -1,3 +1,4 @@
+import { readOptionalToolString } from "../evaluator/tool-input-values.js";
 // interlinked-tdd: exempt
 // ===========================================
 // PostToolUse — quality + scored-suggestion phase helpers
@@ -311,10 +312,7 @@ export function runScoredSuggestionsPhase(
 	ctx: ServerRuntime,
 	checkEvent: HarnessEvent,
 	editedFilePath: string,
-	// `session` is typed required, but the PostToolUse caller looks it up by
-	// id and can genuinely come up empty at runtime (see the sibling
-	// `session` comment in post-tool-file-checks.ts) — honest about that here.
-	session: SessionTrajectory | undefined,
+	session: SessionTrajectory,
 	decision: HarnessDecision,
 	acc: PerFileCheckCtx,
 ): void {
@@ -336,7 +334,7 @@ function applyScoredSuggestions(
 	ctx: ServerRuntime,
 	checkEvent: HarnessEvent,
 	editedFilePath: string,
-	session: SessionTrajectory | undefined,
+	session: SessionTrajectory,
 	decision: HarnessDecision,
 	acc: PerFileCheckCtx,
 ): void {
@@ -360,8 +358,8 @@ function applyScoredSuggestions(
 	// These compare old_string vs new_string to catch the agent hedging.
 	allFindings.push(
 		...collectDeletionHygieneDiffFindings({
-			oldString: checkEvent.tool_input?.old_string as string | undefined,
-			newString: checkEvent.tool_input?.new_string as string | undefined,
+			oldString: readOptionalToolString(checkEvent.tool_input?.old_string),
+			newString: readOptionalToolString(checkEvent.tool_input?.new_string),
 			filePath: editedFilePath,
 		}),
 	);
@@ -372,7 +370,7 @@ function applyScoredSuggestions(
 	if (allFindings.length === 0) return;
 
 	// Compute edit region for proximity scoring
-	const oldStr = checkEvent.tool_input?.old_string as string | undefined;
+	const oldStr = readOptionalToolString(checkEvent.tool_input?.old_string);
 	const editRegion = computeEditRegion(suggContent, oldStr);
 
 	const rawScored = scoreFindings(allFindings, {
@@ -421,7 +419,7 @@ function applyScoredSuggestions(
 	writeTelemetry(allFindings, scored, {
 		interlinkedDir: join(CWD, ".interlinked"),
 		sessionId: checkEvent.session_id,
-		agentName: session?.agent_name || "unknown",
+		agentName: session.agent_name || "unknown",
 		filePath: relPath,
 		threshold: rules.suggestion_threshold ?? 0.5,
 	});

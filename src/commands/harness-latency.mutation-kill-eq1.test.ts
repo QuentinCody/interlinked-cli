@@ -27,7 +27,7 @@ vi.mock("node:fs", () => ({
 	readFileSync: (path: string) => {
 		const content = files.get(path);
 		if (content === undefined) {
-			const err = new Error("ENOENT") as Error & { code?: string };
+			const err: Error & { code?: string } = new Error("ENOENT");
 			err.code = "ENOENT";
 			throw err;
 		}

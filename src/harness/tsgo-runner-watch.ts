@@ -405,12 +405,11 @@ export class WatchProcess {
 				resolveWait(ok);
 			};
 			const timer = setTimeout(() => finish(false), budgetMs);
-			// Poll in addition to the waiter callback: covers the (rare) race
-			// where a pass completes between our read of lastPassCompletedAt
-			// and registering the waiter. The poll also keeps the idle timer
-			// fresh — a check that is awaiting a pass IS activity, so the child
-			// must not be idle-evicted out from under an in-flight check (which
-			// matters most when the idle window is short).
+			// Keep the idle timer fresh while a check awaits a pass. Pass and
+			// crash events synchronously flush registered waiters; the repeated
+			// state checks below are redundant with those event notifications.
+			// The timer still matters when the idle window is shorter than the
+			// initial-pass budget.
 			const poll = setInterval(() => {
 				this.touchIdle();
 				if (!this.isUsable() && this.lastPassCompletedAt === startPassAt) {

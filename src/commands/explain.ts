@@ -5,6 +5,7 @@
 // Activity-only: messages and tasks are server-side concerns.
 
 import { type ActivityEvent, formatActivitySummary, parseDuration } from "../lib/activity-utils.js";
+import { type ActivityFeedResponse, parseActivityFeed } from "../lib/activity-response.js";
 import { getClient } from "../lib/api-client.js";
 import { c, divider, header, indent, shortTimestamp } from "../lib/formatter.js";
 import {
@@ -13,12 +14,6 @@ import {
 	readLocalActivity,
 } from "../lib/local-activity.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
-
-interface ActivityFeedResponse {
-	events?: ActivityEvent[];
-	activity?: ActivityEvent[];
-	activities?: ActivityEvent[];
-}
 
 interface TimelineEvent {
 	timestamp: string;
@@ -32,6 +27,7 @@ interface TimelineEvent {
 export async function explainCommand(opts: {
 	agent?: string;
 	since?: string;
+	short?: boolean;
 	full?: boolean;
 	json?: boolean;
 }): Promise<void> {
@@ -49,9 +45,9 @@ export async function explainCommand(opts: {
 					limit: 200,
 				}),
 			),
-			getClient().callTool<ActivityFeedResponse | undefined>("query_activity_feed", {
+			getClient().callTool("query_activity_feed", {
 				limit: 100,
-			}),
+			}).then(parseActivityFeed),
 		]);
 
 		const isServerDown = activityResult.status === "rejected";

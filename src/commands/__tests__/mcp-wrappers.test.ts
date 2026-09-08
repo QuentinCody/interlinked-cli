@@ -132,7 +132,16 @@ describe("inbox command", () => {
 		const { inboxCommand } = await import("../inbox.js");
 		await inboxCommand({ json: true });
 
-		expect(console.error).toHaveBeenCalled();
+		expect(console.error).toHaveBeenCalledWith(
+			JSON.stringify(
+				{
+					error: "Server error: Connection refused",
+					details: { hint: "Is the Server reachable?" },
+				},
+				null,
+				2,
+			),
+		);
 	});
 
 	it("fails fast when no agent identity is configured", async () => {
@@ -142,7 +151,17 @@ describe("inbox command", () => {
 		await inboxCommand({ json: true });
 
 		expect(mockCallTool).not.toHaveBeenCalled();
-		expect(console.error).toHaveBeenCalled();
+		expect(console.error).toHaveBeenCalledWith(
+			JSON.stringify(
+				{
+					error:
+						"Server error: agent_name is required. Set it with 'interlinked enable --agent <name>' or pass --agent.",
+					details: { hint: "Is the Server reachable?" },
+				},
+				null,
+				2,
+			),
+		);
 	});
 });
 
@@ -246,7 +265,16 @@ describe("tasks create command", () => {
 		await tasksCreateCommand("Test task", { json: true });
 
 		expect(mockCallTool).not.toHaveBeenCalled();
-		expect(console.error).toHaveBeenCalled();
+		expect(console.error).toHaveBeenCalledWith(
+			JSON.stringify(
+				{
+					error:
+						"Server error: agent_name is required for task creation. Set it with 'interlinked enable --agent <name>'.",
+				},
+				null,
+				2,
+			),
+		);
 	});
 });
 

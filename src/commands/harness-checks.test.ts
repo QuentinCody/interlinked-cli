@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -35,7 +36,7 @@ describe("harnessChecksCommand", () => {
 		// SAFETY: --json mode serialized getCheckInventory() with JSON.stringify;
 		// parsing it back yields the identical CheckInventory shape, which the
 		// assertions below verify field-by-field.
-		const parsed = JSON.parse(out) as ReturnType<typeof getCheckInventory>;
+		const parsed = parseWire(JSON.parse(out), wireObject({ "families": wireArray(wireObject({ "key": wireString, "label": wireString, "count": wireNumber, "source": wireString })), "total": wireNumber }), "test JSON value");
 		const inv = getCheckInventory();
 		expect(parsed.total).toBe(inv.total);
 		expect(parsed.families).toEqual(inv.families);

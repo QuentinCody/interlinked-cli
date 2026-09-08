@@ -5,7 +5,7 @@
 // tests, docs, examples, glossary, layers, packages).
 // Depends only on schema-validator-helpers.ts — no circular deps.
 
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import {
 	validateDocsFile,
 	validateExamplesFile,
@@ -20,6 +20,7 @@ import {
 	fail,
 	includes,
 	isRepoRelativePath,
+	isStringArray,
 	ok,
 	validateLocalId,
 	validateStringArray,
@@ -48,7 +49,8 @@ export {
 // and the three string-array fields. The deepest-nested block in the
 // original monolithic validator — pulled out so it scores against its own
 // (unnested) baseline instead of the module loop's nesting.
-function validateModuleSymbol(s: JsonObject, sp: string): ValidationError[] {
+function validateModuleSymbol(s: unknown, sp: string): ValidationError[] {
+	if (!isJsonObject(s)) return [err(sp, "Must be a JSON object")];
 	const errors: ValidationError[] = [];
 	errors.push(
 		...checkUnknownKeys(s, ["name", "kind", "stability", "docs", "tests", "examples"], sp),
@@ -78,7 +80,7 @@ function validateModuleSymbols(symbols: unknown, mp: string): ValidationError[] 
 		return errors;
 	}
 	for (let j = 0; j < symbols.length; j++) {
-		const s = symbols[j] as JsonObject;
+		const s: unknown = symbols[j];
 		errors.push(...validateModuleSymbol(s, `${mp}.symbols[${j}]`));
 	}
 	return errors;
@@ -87,10 +89,11 @@ function validateModuleSymbols(symbols: unknown, mp: string): ValidationError[] 
 // Validates one entry of `modules[]`: shape, id (incl. duplicate detection
 // against the caller-owned `moduleIds` set), file, and symbols.
 function validateModuleEntry(
-	m: JsonObject,
+	m: unknown,
 	mp: string,
 	moduleIds: Set<string>,
 ): ValidationError[] {
+	if (!isJsonObject(m)) return [err(mp, "Must be a JSON object")];
 	const errors: ValidationError[] = [];
 	errors.push(...checkUnknownKeys(m, ["id", "file", "symbols"], mp));
 
@@ -113,10 +116,10 @@ function validateModuleEntry(
 }
 
 export function validatePublicApiFile(data: unknown): ValidationResult {
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!isJsonObject(data)) {
 		return fail([err("$", "Must be a JSON object")]);
 	}
-	const obj = data as JsonObject;
+	const obj = data;
 	const errors = checkUnknownKeys(obj, ["version", "modules"], "$");
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
@@ -128,7 +131,7 @@ export function validatePublicApiFile(data: unknown): ValidationResult {
 
 	const moduleIds = new Set<string>();
 	for (let i = 0; i < obj.modules.length; i++) {
-		const m = obj.modules[i] as JsonObject;
+		const m: unknown = obj.modules[i];
 		errors.push(...validateModuleEntry(m, `$.modules[${i}]`, moduleIds));
 	}
 	return errors.length > 0 ? fail(errors) : ok();
@@ -142,11 +145,11 @@ export function validatePublicApiFile(data: unknown): ValidationResult {
 // string-array members. Called only when the key is present, matching the
 // original `obj.sources !== undefined` guard.
 function validateEnvSources(sources: unknown, errors: ValidationError[]): void {
-	if (typeof sources !== "object" || sources === null || Array.isArray(sources)) {
+	if (!isJsonObject(sources)) {
 		errors.push(err("$.sources", "Must be an object"));
 		return;
 	}
-	const src = sources as JsonObject;
+	const src = sources;
 	errors.push(...checkUnknownKeys(src, ["declarations", "defaults"], "$.sources"));
 	errors.push(...validateStringArray(src.declarations || [], "$.sources.declarations"));
 	errors.push(...validateStringArray(src.defaults || [], "$.sources.defaults"));
@@ -154,7 +157,8 @@ function validateEnvSources(sources: unknown, errors: ValidationError[]): void {
 
 // Validates one entry of `$.keys[]`: shape, name pattern + duplicate detection
 // against the caller-owned `keyNames` set, `required`, and the string arrays.
-function validateEnvKey(k: JsonObject, kp: string, keyNames: Set<string>): ValidationError[] {
+function validateEnvKey(k: unknown, kp: string, keyNames: Set<string>): ValidationError[] {
+	if (!isJsonObject(k)) return [err(kp, "Must be a JSON object")];
 	const errors: ValidationError[] = [];
 	errors.push(
 		...checkUnknownKeys(
@@ -183,10 +187,10 @@ function validateEnvKey(k: JsonObject, kp: string, keyNames: Set<string>): Valid
 }
 
 export function validateEnvFile(data: unknown): ValidationResult {
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!isJsonObject(data)) {
 		return fail([err("$", "Must be a JSON object")]);
 	}
-	const obj = data as JsonObject;
+	const obj = data;
 	const errors = checkUnknownKeys(obj, ["version", "sources", "keys"], "$");
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
@@ -200,7 +204,7 @@ export function validateEnvFile(data: unknown): ValidationResult {
 
 	const keyNames = new Set<string>();
 	for (let i = 0; i < obj.keys.length; i++) {
-		const k = obj.keys[i] as JsonObject;
+		const k: unknown = obj.keys[i];
 		errors.push(...validateEnvKey(k, `$.keys[${i}]`, keyNames));
 	}
 	return errors.length > 0 ? fail(errors) : ok();
@@ -212,7 +216,8 @@ export function validateEnvFile(data: unknown): ValidationResult {
 
 // Validates one entry of `$.roots[]`: shape, `id` local-ID rules + duplicate
 // detection against the caller-owned `rootIds` set, and `file` path shape.
-function validateConfigRoot(r: JsonObject, rp: string, rootIds: Set<string>): ValidationError[] {
+function validateConfigRoot(r: unknown, rp: string, rootIds: Set<string>): ValidationError[] {
+	if (!isJsonObject(r)) return [err(rp, "Must be a JSON object")];
 	const errors: ValidationError[] = [];
 	errors.push(...checkUnknownKeys(r, ["id", "file"], rp));
 	if (typeof r.id !== "string") errors.push(err(`${rp}.id`, "Must be a string"));
@@ -232,14 +237,15 @@ function validateConfigRoot(r: JsonObject, rp: string, rootIds: Set<string>): Va
 function validateConfigRoots(roots: unknown[], errors: ValidationError[]): void {
 	const rootIds = new Set<string>();
 	for (let i = 0; i < roots.length; i++) {
-		const r = roots[i] as JsonObject;
+		const r = roots[i];
 		errors.push(...validateConfigRoot(r, `$.roots[${i}]`, rootIds));
 	}
 }
 
 // Validates one entry of `$.keys[]`: shape, `name`, `required`, and the four
 // string-array fields.
-function validateConfigKey(k: JsonObject, kp: string): ValidationError[] {
+function validateConfigKey(k: unknown, kp: string): ValidationError[] {
+	if (!isJsonObject(k)) return [err(kp, "Must be a JSON object")];
 	const errors: ValidationError[] = [];
 	errors.push(
 		...checkUnknownKeys(k, ["name", "required", "docs", "tests", "examples", "declared_in"], kp),
@@ -257,10 +263,10 @@ function validateConfigKey(k: JsonObject, kp: string): ValidationError[] {
 }
 
 export function validateConfigFile(data: unknown): ValidationResult {
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!isJsonObject(data)) {
 		return fail([err("$", "Must be a JSON object")]);
 	}
-	const obj = data as JsonObject;
+	const obj = data;
 	const errors = checkUnknownKeys(obj, ["version", "roots", "keys"], "$");
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
@@ -273,7 +279,7 @@ export function validateConfigFile(data: unknown): ValidationResult {
 	}
 
 	for (let i = 0; i < obj.keys.length; i++) {
-		const k = obj.keys[i] as JsonObject;
+		const k: unknown = obj.keys[i];
 		errors.push(...validateConfigKey(k, `$.keys[${i}]`));
 	}
 	return errors.length > 0 ? fail(errors) : ok();
@@ -314,7 +320,7 @@ function validateTermCanonical(
 			err(`${tp}.canonical`, `"${t.canonical}" collides with term "${allCanonicals.get(lower)}"`),
 		);
 	}
-	allCanonicals.set(lower, t.id as string);
+	if (typeof t.id === "string") allCanonicals.set(lower, t.id);
 	return errors;
 }
 
@@ -338,12 +344,16 @@ function registerTermVariants(
 }
 
 function validateGlossaryTerm(
-	t: JsonObject,
+	t: unknown,
 	tp: string,
 	termIds: Set<string>,
 	allCanonicals: Map<string, string>,
 	errors: ValidationError[],
 ): void {
+	if (!isJsonObject(t)) {
+		errors.push(err(tp, "Must be a JSON object"));
+		return;
+	}
 	errors.push(...checkUnknownKeys(t, ["id", "canonical", "aliases", "deprecated", "docs"], tp));
 	errors.push(...validateTermId(t, tp, termIds));
 	errors.push(...validateTermCanonical(t, tp, allCanonicals));
@@ -353,18 +363,19 @@ function validateGlossaryTerm(
 	errors.push(...validateStringArray(t.docs || [], `${tp}.docs`));
 
 	// Register aliases and deprecated for collision checking
-	const termId = t.id as string;
-	const aliases = (t.aliases as string[] | undefined) || [];
-	const deprecated = (t.deprecated as string[] | undefined) || [];
+	if (typeof t.id !== "string") return;
+	const termId = t.id;
+	const aliases = isStringArray(t.aliases) ? t.aliases : [];
+	const deprecated = isStringArray(t.deprecated) ? t.deprecated : [];
 	errors.push(...registerTermVariants(aliases, `${tp}.aliases`, termId, allCanonicals));
 	errors.push(...registerTermVariants(deprecated, `${tp}.deprecated`, termId, allCanonicals));
 }
 
 export function validateGlossaryFile(data: unknown): ValidationResult {
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!isJsonObject(data)) {
 		return fail([err("$", "Must be a JSON object")]);
 	}
-	const obj = data as JsonObject;
+	const obj = data;
 	const errors = checkUnknownKeys(obj, ["version", "terms"], "$");
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
@@ -378,7 +389,7 @@ export function validateGlossaryFile(data: unknown): ValidationResult {
 	const allCanonicals = new Map<string, string>(); // lowered → owning term id
 	for (let i = 0; i < obj.terms.length; i++) {
 		validateGlossaryTerm(
-			obj.terms[i] as JsonObject,
+			obj.terms[i],
 			`$.terms[${i}]`,
 			termIds,
 			allCanonicals,
@@ -402,8 +413,12 @@ function validateLayerDeclarations(layers: unknown, errors: ValidationError[]): 
 		return layerIds;
 	}
 	for (let i = 0; i < layers.length; i++) {
-		const l = layers[i] as JsonObject;
+		const l: unknown = layers[i];
 		const lp = `$.layers[${i}]`;
+		if (!isJsonObject(l)) {
+			errors.push(err(lp, "Must be a JSON object"));
+			continue;
+		}
 		errors.push(...checkUnknownKeys(l, ["id", "globs"], lp));
 
 		if (typeof l.id !== "string") errors.push(err(`${lp}.id`, "Must be a string"));
@@ -431,17 +446,21 @@ function validateLayerRules(
 		return;
 	}
 	for (let i = 0; i < rules.length; i++) {
-		const r = rules[i] as JsonObject;
+		const r: unknown = rules[i];
 		const rp = `$.rules[${i}]`;
+		if (!isJsonObject(r)) {
+			errors.push(err(rp, "Must be a JSON object"));
+			continue;
+		}
 		validateLayerRuleEntry(r, rp, layerIds, errors);
 	}
 }
 
 export function validateLayersFile(data: unknown): ValidationResult {
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!isJsonObject(data)) {
 		return fail([err("$", "Must be a JSON object")]);
 	}
-	const obj = data as JsonObject;
+	const obj = data;
 	const errors = checkUnknownKeys(obj, ["version", "layers", "rules"], "$");
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
@@ -456,7 +475,7 @@ export function validateLayersFile(data: unknown): ValidationResult {
 // Dispatcher: validate any artifact file by key
 // -------------------------------------------
 
-const VALIDATORS: Record<ArtifactFileKey, (data: unknown) => ValidationResult> = {
+const VALIDATORS: Readonly<Record<string, ((data: unknown) => ValidationResult) | undefined>> = {
 	public_api: validatePublicApiFile,
 	env: validateEnvFile,
 	config: validateConfigFile,
@@ -466,18 +485,9 @@ const VALIDATORS: Record<ArtifactFileKey, (data: unknown) => ValidationResult> =
 	glossary: validateGlossaryFile,
 	layers: validateLayersFile,
 	packages: validatePackagesFile,
-};
+} satisfies Record<ArtifactFileKey, (data: unknown) => ValidationResult>;
 
-export function validateArtifactFile(key: ArtifactFileKey, data: unknown): ValidationResult {
-	// `key` is typed `ArtifactFileKey`, but this is a public, exported entry
-	// point: a caller outside this module's compile-time checking (a `.js`
-	// consumer, or a coerced/`as never` value from upstream key-derivation
-	// logic) can hand in a string that isn't actually one of the known keys —
-	// so the lookup stays defensively `Partial`-typed rather than trusting
-	// `VALIDATORS`' exhaustive `Record<ArtifactFileKey, …>` declaration.
-	const validator = (
-		VALIDATORS as Partial<Record<ArtifactFileKey, (data: unknown) => ValidationResult>>
-	)[key];
-	if (!validator) return fail([err("$", `Unknown artifact file key: ${key}`)]);
-	return validator(data);
+export function validateArtifactFile(key: string, data: unknown): ValidationResult {
+	const validator = Object.hasOwn(VALIDATORS, key) ? VALIDATORS[key] : undefined;
+	return validator ? validator(data) : fail([err("$", `Unknown artifact file key: ${key}`)]);
 }

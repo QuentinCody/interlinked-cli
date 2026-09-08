@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireBoolean, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../../lib/value-validation.js";
 // End-to-end tests for `interlinked harness mode [name]` — exercise the
 // filesystem side effects (config.json write + .mjs hook regeneration) by
 // pointing INTERLINKED_HOME at a fresh tmp dir per test. The command module
@@ -49,7 +50,7 @@ afterEach(() => {
 function readSharedConfig(): Record<string, unknown> {
 	const path = join(workDir, ".interlinked", "config.json");
 	if (!existsSync(path)) return {};
-	return JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+	return parseWire(JSON.parse(readFileSync(path, "utf-8")), wireRecord(wireUnknown), "test JSON value");
 }
 
 function writeSharedConfigFile(data: Record<string, unknown>): void {
@@ -122,13 +123,13 @@ async function captureStdio(fn: () => Promise<void>): Promise<CapturedStdio> {
 			typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"),
 		);
 		return true;
-	}) as typeof process.stdout.write;
+	});
 	process.stderr.write = ((chunk: string | Uint8Array): boolean => {
 		stderrChunks.push(
 			typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"),
 		);
 		return true;
-	}) as typeof process.stderr.write;
+	});
 	try {
 		await fn();
 	} finally {
@@ -143,7 +144,7 @@ describe("harness mode — show current", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand(undefined, { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { mode: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "mode": wireString }), "test JSON value");
 		expect(parsed.mode).toBe("quality");
 	});
 
@@ -156,7 +157,7 @@ describe("harness mode — show current", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand(undefined, { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { mode: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "mode": wireString }), "test JSON value");
 		expect(parsed.mode).toBe("ci");
 	});
 
@@ -169,7 +170,7 @@ describe("harness mode — show current", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand(undefined, { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { mode: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "mode": wireString }), "test JSON value");
 		expect(parsed.mode).toBe("quality");
 	});
 });
@@ -257,7 +258,7 @@ describe("harness mode — switch", () => {
 		);
 		const exitCode = process.exitCode;
 		process.exitCode = previousExitCode;
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; reason: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "reason": wireString }), "test JSON value");
 		expect(parsed.ok).toBe(false);
 		expect(parsed.reason).toMatch(/unknown harness mode/i);
 		expect(parsed.reason).toContain("totally_bogus");
@@ -353,11 +354,7 @@ describe("harness mode — runner-mismatch warning (Copilot CLI floor)", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand("ci", { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as {
-			ok: boolean;
-			mode: string;
-			warning?: string;
-		};
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "mode": wireString, "warning": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		expect(parsed.ok).toBe(true);
 		expect(parsed.mode).toBe("ci");
 		expect(parsed.warning).toBeDefined();
@@ -371,7 +368,7 @@ describe("harness mode — runner-mismatch warning (Copilot CLI floor)", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand("budget", { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { warning?: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "warning": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		// budget fits the 30 s floor — no mismatch, no warning key.
 		expect(parsed.warning).toBeUndefined();
 		expect(captured.stderr).toBe("");
@@ -383,7 +380,7 @@ describe("harness mode — runner-mismatch warning (Copilot CLI floor)", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand("quality", { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { warning?: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "warning": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		expect(parsed.warning).toBeUndefined();
 		expect(captured.stderr).toBe("");
 	});
@@ -406,7 +403,7 @@ describe("harness mode — active-runner detection", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand(undefined, { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { mode: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "mode": wireString }), "test JSON value");
 		expect(parsed.mode).toBe("budget");
 	});
 
@@ -422,7 +419,7 @@ describe("harness mode — active-runner detection", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand(undefined, { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { mode: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "mode": wireString }), "test JSON value");
 		expect(parsed.mode).toBe("quality");
 	});
 
@@ -433,7 +430,7 @@ describe("harness mode — active-runner detection", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand("quality", { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { warning?: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "warning": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		expect(parsed.warning).toBeDefined();
 		expect(parsed.warning).toContain("Copilot CLI");
 	});
@@ -454,7 +451,7 @@ describe("harness mode — config resilience on switch", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand("ci", { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; mode: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "mode": wireString }), "test JSON value");
 		expect(parsed.ok).toBe(true);
 		expect(parsed.mode).toBe("ci");
 		const config = readSharedConfig();
@@ -470,7 +467,7 @@ describe("harness mode — config resilience on switch", () => {
 		const captured = await captureStdio(() =>
 			harnessModeCommand("ci", { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean }), "test JSON value");
 		expect(parsed.ok).toBe(true);
 		const config = readSharedConfig();
 		expect(config.server_url).toBe("http://localhost:8787");
@@ -507,7 +504,7 @@ describe("harness mode — config resilience on switch", () => {
 		// persisted back to the committed config.json on this write.
 		writeFileSync(join(workDir, ".interlinked", "config.json"), JSON.stringify(["a", "b", "c"]));
 		const captured = await captureStdio(() => harnessModeCommand("ci", { json: true }));
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; mode: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "mode": wireString }), "test JSON value");
 		expect(parsed.ok).toBe(true);
 		expect(parsed.mode).toBe("ci");
 		const config = readSharedConfig();
@@ -521,12 +518,19 @@ describe("harness mode — config resilience on switch", () => {
 	it("N2: a bare JSON null config.json falls back to defaults without throwing", async () => {
 		writeFileSync(join(workDir, ".interlinked", "config.json"), "null");
 		const captured = await captureStdio(() => harnessModeCommand("ci", { json: true }));
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; mode: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "mode": wireString }), "test JSON value");
 		expect(parsed.ok).toBe(true);
 		expect(parsed.mode).toBe("ci");
 		const config = readSharedConfig();
 		expect(config.mode).toBe("ci");
 		expect(config.server_url).toBe("http://localhost:8787");
+		// A `null` payload passes `typeof value === "object"`, so without the
+		// explicit `value !== null` guard in isJsonObject, `{...parsed}` would
+		// spread nothing (harmless) but `parsed.server_url` would throw on
+		// null — pin the repaired file's version too, not just server_url.
+		expect(config.version).toBe(1);
+		const rewritten = readFileSync(join(workDir, ".interlinked", "config.json"), "utf-8");
+		expect(() => JSON.parse(rewritten)).not.toThrow();
+		expect(JSON.parse(rewritten)).not.toBeNull();
 	});
 });
-

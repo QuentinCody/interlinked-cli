@@ -41,7 +41,7 @@ function makeSpyElement(writes: string[]): SpyElement {
 		// mountDemoBanner touches (a getter/setter pair standing in for the
 		// real CSSStyleDeclaration accessor); the cast bridges that shape to
 		// the plain-object type SpyElement declares for it.
-		style: style as unknown as { cssText: string; display: string },
+		style: style,
 		textContent: "",
 		parentNode: null,
 		children: [],
@@ -63,13 +63,11 @@ function makeSpyElement(writes: string[]): SpyElement {
 function installSpyDocument(writes: string[]): { restore: () => void } {
 	const body = makeSpyElement([]);
 	const fakeDoc = { body, createElement: () => makeSpyElement(writes) };
-	const previous = (globalThis as { document?: unknown }).document;
-	// SAFETY: test-only stand-in implementing exactly the DOM surface
-	// mountDemoBanner calls; cast bridges the fake shape to the DOM lib type.
-	(globalThis as { document?: unknown }).document = fakeDoc as unknown as Document;
+	const previous: unknown = Reflect.get(globalThis, "document");
+	Reflect.set(globalThis, "document", fakeDoc);
 	return {
 		restore: () => {
-			(globalThis as { document?: unknown }).document = previous;
+			Reflect.set(globalThis, "document", previous);
 		},
 	};
 }

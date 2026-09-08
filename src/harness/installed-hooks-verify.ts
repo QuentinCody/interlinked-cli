@@ -1,3 +1,4 @@
+import { isJsonObject } from "../lib/json-types.js";
 // ===========================================
 // Semantic verification of one runner's installed hooks
 // ===========================================
@@ -107,9 +108,7 @@ function collectHookCommands(value: unknown, out: string[]): void {
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
-	return value !== null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
+	return isJsonObject(value) ? value : null;
 }
 
 /** One expected native array (e.g. `hooks.PreToolUse`): the document's array

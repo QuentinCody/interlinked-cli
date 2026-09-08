@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Tests for derived case floors and detector mutation scores.
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -51,18 +52,18 @@ describe("detectorCyclomatic — positive (must measure)", () => {
 	it("P1: measures a branchy detector above 1", () => {
 		const c = detectorCyclomatic(BRANCHY, "src/checks/thing.ts", "detectThing");
 		expect(c).not.toBeNull();
-		expect(c as number).toBeGreaterThan(3);
+		expect(nonNull(c)).toBeGreaterThan(3);
 	});
 
 	it("P2: measures a near-linear detector low", () => {
 		const c = detectorCyclomatic(BRANCHY, "src/checks/thing.ts", "detectSimple");
 		expect(c).not.toBeNull();
-		expect(c as number).toBeLessThan(4);
+		expect(nonNull(c)).toBeLessThan(4);
 	});
 
 	it("P3: distinguishes two functions in one file", () => {
-		const a = detectorCyclomatic(BRANCHY, "src/checks/thing.ts", "detectThing") as number;
-		const b = detectorCyclomatic(BRANCHY, "src/checks/thing.ts", "detectSimple") as number;
+		const a = nonNull(detectorCyclomatic(BRANCHY, "src/checks/thing.ts", "detectThing"));
+		const b = nonNull(detectorCyclomatic(BRANCHY, "src/checks/thing.ts", "detectSimple"));
 		expect(a).toBeGreaterThan(b);
 	});
 });

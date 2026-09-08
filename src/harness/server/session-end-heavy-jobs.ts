@@ -19,7 +19,7 @@ import type { ResourcePlan } from "../resource-governor.js";
 import type { HarnessEvent } from "../types.js";
 import { detectFuzzTargets } from "./fuzz-targets.js";
 import type { ServerRuntime } from "./runtime-context.js";
-import { governedSpawn, type SessionEndJobDeps } from "./session-end-batch.js";
+import { governedSpawn, type SessionEndJobDeps, type SessionEndSpawn } from "./session-end-batch.js";
 
 /** Elevated fast-check case count for the SessionEnd fuzz-smoke (per-edit cap is 25). */
 const FUZZ_SMOKE_NUMRUNS = "500";
@@ -76,7 +76,7 @@ const HEAVY_JOBS: HeavyJob[] = [
 function spawnHeavyJob(
 	ctx: ServerRuntime,
 	plan: ResourcePlan,
-	spawn: typeof nodeSpawn,
+	spawn: SessionEndSpawn,
 	name: string,
 	reportPath: string,
 	cmd: HeavyJobCommand,

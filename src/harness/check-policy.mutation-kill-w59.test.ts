@@ -30,9 +30,18 @@ afterEach(() => {
 function fakeCheck(overrides: Partial<CheckRegistration> = {}): CheckRegistration {
 	return {
 		id: "fake_check",
+		name: "Fake check",
+		description: "Policy resolution fixture",
+		tier: 1,
+		determinism: "fully_deterministic",
+		severity: "warning",
+		pipeline: "agent_safety",
+		fix_instruction: "Fix the finding",
+		fn: () => [],
+		resultsPropName: "fakeCheck",
 		phase: "post",
 		...overrides,
-	} as CheckRegistration;
+	};
 }
 
 describe("loadCheckPolicy — no policy files present", () => {

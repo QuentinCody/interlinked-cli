@@ -307,10 +307,9 @@ describe("parseGitCommit / isGitPushCommand — the non-string runtime guard is 
 	// A truthy, non-string, array-like value that indexes/iterates identically
 	// to its equivalent string in every splitSegments/shellSplit loop (each
 	// element IS the single character a real string index would yield) — the
-	// only way to reach a TRUTHY typeof-mismatch without a parse-time TS error,
-	// mirroring the existing `// @ts-expect-error` pattern in commit-parse.test.ts.
-	const commitCharArray = Array.from("git commit -m x") as unknown as string;
-	const pushCharArray = Array.from("git push") as unknown as string;
+	// parser must reject them before interpreting characters as shell syntax.
+	const commitCharArray = Array.from("git commit -m x");
+	const pushCharArray = Array.from("git push");
 
 	it("a truthy non-string is rejected even though `!command` alone would not catch it", () => {
 		// Kills: 5c51b5fe9e0ef796 (ConditionalExpression typeof-check disabled),
@@ -328,7 +327,6 @@ describe("parseGitCommit / isGitPushCommand — the non-string runtime guard is 
 	});
 
 	it("parseGitCommit(null) returns null cleanly rather than throwing past a disabled guard", () => {
-		// @ts-expect-error runtime guard covers non-null-typed callers too
 		expect(parseGitCommit(null)).toBeNull();
 	});
 });

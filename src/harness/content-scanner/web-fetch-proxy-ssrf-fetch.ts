@@ -15,6 +15,7 @@
 // depends on node builtins) to keep the main proxy module under the
 // per-file line cap. No behaviour change.
 
+import type { LookupOptions } from "node:dns";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -118,8 +119,7 @@ function parseV4Octets(addr: string): [number, number, number, number] | null {
 	const parts = addr.split(".").map((p) => Number.parseInt(p, 10));
 	/* v8 ignore next -- defensive: every caller reaches here only after isIP(addr)===4, so a dotted-quad always splits into four numeric octets; the malformed-input null path is structurally unreachable. */
 	if (parts.length !== 4 || parts.some((n) => Number.isNaN(n))) return null;
-	const [a, b, c, d] = parts as [number, number, number, number];
-	return [a, b, c, d];
+	return [nonNull(parts[0]), nonNull(parts[1]), nonNull(parts[2]), nonNull(parts[3])];
 }
 
 function isBlockedV4(addr: string): boolean {
@@ -292,6 +292,11 @@ export interface PinnedFetchResponse {
  *  skips lookup) or a name (Node calls lookup with `all: true`). */
 type LookupAllCb = (err: Error | null, addresses: { address: string; family: number }[]) => void;
 type LookupPositionalCb = (err: Error | null, address: string, family: number) => void;
+type PinnedLookup = LookupFunction & {
+	(hostname: string, callback: LookupPositionalCb): void;
+	(hostname: string, options: { all: true }, callback: LookupAllCb): void;
+	(hostname: string, options: { all?: false }, callback: LookupPositionalCb): void;
+};
 
 /** Build the `lookup` override that pins every connect to the single vetted
  *  address. Factored out of `pinnedFetch` so the dual-shape callback is its
@@ -300,26 +305,28 @@ type LookupPositionalCb = (err: Error | null, address: string, family: number) =
  *  socket can only ever connect to `target.vettedAddress`. Exported so both
  *  the `{ all: true }` (real Node) and the positional / two-argument
  *  invocation shapes can be unit-tested without a live socket. */
-export function makePinnedLookup(target: VettedTarget) {
-	return (
+export function makePinnedLookup(target: VettedTarget): PinnedLookup {
+	const lookup = (
 		_hostname: string,
-		options: { all?: boolean } | LookupPositionalCb,
-		cb?: LookupAllCb | LookupPositionalCb,
+		options: LookupOptions | LookupPositionalCb,
+		cb?: Parameters<LookupFunction>[2],
 	): void => {
-		// Node may call `(hostname, callback)` (options omitted) or
-		// `(hostname, options, callback)`. Normalise to (options, callback).
-		const opts = typeof options === "function" ? {} : options;
-		const callback = (typeof options === "function" ? options : cb) as
-			| LookupAllCb
-			| LookupPositionalCb;
-		if (opts.all) {
-			(callback as LookupAllCb)(null, [
+		if (typeof options === "function") {
+			options(null, target.vettedAddress, target.vettedFamily);
+			return;
+		}
+		const callback = nonNull(cb);
+		if (options.all) {
+			callback(null, [
 				{ address: target.vettedAddress, family: target.vettedFamily },
 			]);
 			return;
 		}
-		(callback as LookupPositionalCb)(null, target.vettedAddress, target.vettedFamily);
+		callback(null, target.vettedAddress, target.vettedFamily);
 	};
+	// SAFETY: each overload pairs its callback with the matching all flag;
+	// the implementation sends an array only for all:true and positional values otherwise.
+	return lookup as PinnedLookup;
 }
 
 /** Issues a single HTTP/HTTPS request whose underlying TCP `connect` is
@@ -366,7 +373,7 @@ export function pinnedFetch(target: VettedTarget): Promise<PinnedFetchResponse> 
 			method: "GET",
 			headers: { ...FETCH_HEADERS, Host: target.url.host },
 			timeout: FETCH_TIMEOUT_MS,
-			lookup: makePinnedLookup(target) as unknown as LookupFunction,
+			lookup: makePinnedLookup(target),
 			servername: target.url.hostname,
 		});
 		req.on("response", (res) => {

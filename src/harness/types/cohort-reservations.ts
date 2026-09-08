@@ -3,8 +3,6 @@
 // Interlinked Harness — Agent Cohort & File Reservation Types
 // ===========================================
 
-import type { AgentSource } from "./events.js";
-
 // ===========================================
 // Agent Cohort
 // ===========================================
@@ -19,7 +17,7 @@ export interface CohortAgent {
 	/** Stable spawned-thread id. Present for subagents that expose one. */
 	subagent_id?: string;
 	/** Which coding agent runtime */
-	source: AgentSource;
+	source: string;
 	/** Current status */
 	status: AgentStatus;
 	/** If subagent, who spawned it */

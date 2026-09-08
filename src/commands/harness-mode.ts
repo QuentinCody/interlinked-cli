@@ -30,11 +30,10 @@ import type { RunnerId } from "../harness/unified-event.js";
 import {
 	getSharedConfigPath,
 	readSharedConfig,
-	type SharedConfig,
 	writeSharedConfig,
 } from "../lib/config.js";
 import { writeHookScript } from "../lib/hooks.js";
-import { isJsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 
 export interface HarnessModeOptions {
@@ -149,7 +148,7 @@ export async function harnessModeCommand(
 	// the file (server_url, skip_paths, pii_patterns, ...). If no shared
 	// config exists yet, we initialise one with the minimum required shape.
 	const existing = readSharedConfigSafe(cwd);
-	const updated: SharedConfig = {
+	const updated = {
 		...existing,
 		version: 1,
 		server_url: existing.server_url || "http://localhost:8787",
@@ -197,13 +196,13 @@ export async function harnessModeCommand(
 	);
 }
 
-const DEFAULT_SHARED_CONFIG: SharedConfig = { version: 1, server_url: "http://localhost:8787" };
+const DEFAULT_SHARED_CONFIG = { version: 1, server_url: "http://localhost:8787" };
 
 /** Read shared config with a clean object fallback so the spread above
  *  always has a defined source. Distinct from readSharedConfig because that
  *  helper returns null when no file exists, which would make the spread
  *  expand to nothing usable. */
-function readSharedConfigSafe(cwd: string): SharedConfig {
+function readSharedConfigSafe(cwd: string): JsonObject & { version: number; server_url: string } {
 	const sharedPath = getSharedConfigPath(cwd);
 	if (!existsSync(sharedPath)) {
 		return DEFAULT_SHARED_CONFIG;
@@ -218,21 +217,14 @@ function readSharedConfigSafe(cwd: string): SharedConfig {
 		if (!isJsonObject(raw)) {
 			return DEFAULT_SHARED_CONFIG;
 		}
-		// Per-field validation of the rest of SharedConfig's shape
-		// (pii_patterns/skip_paths/harness/...) is intentionally not done here:
-		// this helper's job is lossless round-trip ("preserve whatever else was
-		// in the file"), and readers that need a specific field narrow it
-		// themselves at their own read site (see readCurrentMode's `mode`
-		// narrowing above). Only version + server_url are guaranteed. The
-		// `unknown` hop is required because `JsonObject`'s index signature and
-		// SharedConfig's named fields don't structurally overlap enough for a
-		// direct cast -- this is now a GATED cast (isJsonObject already ruled
-		// out arrays/primitives/null above), not a blind one.
-		const parsed = raw as unknown as SharedConfig;
+		// Preserve unknown fields for round-trip writes while promising only the
+		// version and server URL checked here. Readers validate their own settings.
+		const parsed = raw;
 		return {
 			...parsed,
 			version: 1,
-			server_url: parsed.server_url || DEFAULT_SHARED_CONFIG.server_url,
+			server_url: typeof parsed.server_url === "string" && parsed.server_url.length > 0
+				? parsed.server_url : DEFAULT_SHARED_CONFIG.server_url,
 		};
 	} catch {
 		return DEFAULT_SHARED_CONFIG;

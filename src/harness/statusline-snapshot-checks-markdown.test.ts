@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireBoolean, wireObject, wireOptional } from "../lib/value-validation.js";
 import { describe, expect, it } from "vitest";
 import { CHECK_REGISTRY } from "./check-registry/index.js";
 import { getDefaultConfig } from "./rules-loader.js";
@@ -64,7 +65,7 @@ describe("countChecks", () => {
 	it("counts an enabled command-less entry, the agent_safety registry, and structural_checks as inline", () => {
 		const cfg = emptyConfig();
 		cfg.quality_checks = { secrets_in_source: inlineCheck() };
-		(cfg as { structural_checks?: { enabled: boolean } }).structural_checks = { enabled: true };
+		(parseWire(cfg, wireObject({ "structural_checks": wireAbsentOptional(wireOptional(wireObject({ "enabled": wireBoolean }))) }), "test JSON value")).structural_checks = { enabled: true };
 		const counts = countChecks(cfg);
 		expect(counts.inline).toBe(1 + REGISTRY_AGENT_SAFETY + 1);
 	});
@@ -154,7 +155,7 @@ describe("buildLoadedChecksMarkdown", () => {
 	it("folds the structural_checks bundle into the config-driven section header count", () => {
 		const cfg = emptyConfig();
 		cfg.quality_checks = {};
-		(cfg as { structural_checks?: { enabled: boolean } }).structural_checks = { enabled: true };
+		(parseWire(cfg, wireObject({ "structural_checks": wireAbsentOptional(wireOptional(wireObject({ "enabled": wireBoolean }))) }), "test JSON value")).structural_checks = { enabled: true };
 		const md = buildLoadedChecksMarkdown(cfg);
 		expect(md).toContain("## Inline detectors — config-driven (1)");
 		expect(md).toContain("`structural_checks` — error — bundle");

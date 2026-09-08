@@ -15,6 +15,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { manifestDigestOf } from "../src/harness/shadow/protocol/manifest-digest.js";
+import { parsePostImageEntry } from "../src/harness/shadow/protocol/parse-core-entries.js";
 import { computeMissingSetDigestV1 } from "../src/harness/shadow/protocol/missing-set.js";
 import { computeChangeSet } from "../src/harness/shadow/protocol/changeset.js";
 import { applyPostImages, blobDigestOf, byteLengthOf } from "../src/harness/shadow/protocol/post-image-apply.js";
@@ -90,16 +91,18 @@ const BASE_MAP: ReadonlyMap<string, OracleFile> = new Map(Object.entries(BASE));
 const ROWS: readonly Row[] = PROJECTION_ROWS;
 
 function toOracleInput(input: NormalizedToolInputV1): OracleToolInput {
-	// SAFETY: `NormalizedToolInputV1` is structurally the oracle's own union
-	// (same discriminator, same fields); the extra transport fields are ignored.
-	return input as unknown as OracleToolInput;
+	return input;
 }
 function preImagesOf(touches: readonly string[]): Map<string, OracleFile | null> {
 	return new Map(touches.map((path) => [path, BASE[path] ?? null]));
 }
 function entryOf(record: OracleRecord): PostImageEntryV1 {
-	if (record.tag === "D") return { tag: "D", path: record.path } as PostImageEntryV1;
-	return { tag: "W", path: record.path, mode: record.mode, blob_digest: oracleBlobDigest(record.content), bytes: oracleByteLength(record.content) } as PostImageEntryV1;
+	const entry = record.tag === "D"
+		? { tag: "D", path: record.path }
+		: { tag: "W", path: record.path, mode: record.mode, blob_digest: oracleBlobDigest(record.content), bytes: oracleByteLength(record.content) };
+	const parsed = parsePostImageEntry(entry);
+	if (!parsed.ok) throw new Error(`Oracle post-image entry is invalid: ${parsed.reason}`);
+	return parsed.value;
 }
 function sortEntries(entries: readonly PostImageEntryV1[]): PostImageEntryV1[] {
 	return [...entries].sort((left, right) => Buffer.compare(Buffer.from(left.path, "utf8"), Buffer.from(right.path, "utf8")));

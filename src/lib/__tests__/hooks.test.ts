@@ -47,11 +47,12 @@ describe("HOOK_SCRIPT_VERSION — readPackageVersion fallback branches", () => {
 			const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
 			return {
 				...actual,
-				readFileSync: vi.fn((path: unknown, ...rest: unknown[]) => {
+				readFileSync: vi.fn((...args: Parameters<typeof actual.readFileSync>) => {
+					const path = args[0];
 					if (String(path).endsWith("package.json")) {
 						return JSON.stringify(["not", "an", "object"]);
 					}
-					return (actual.readFileSync as (...a: unknown[]) => unknown)(path, ...rest);
+					return actual.readFileSync(...args);
 				}),
 			};
 		});
@@ -65,11 +66,12 @@ describe("HOOK_SCRIPT_VERSION — readPackageVersion fallback branches", () => {
 			const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
 			return {
 				...actual,
-				readFileSync: vi.fn((path: unknown, ...rest: unknown[]) => {
+				readFileSync: vi.fn((...args: Parameters<typeof actual.readFileSync>) => {
+					const path = args[0];
 					if (String(path).endsWith("package.json")) {
 						return JSON.stringify({ name: "interlinked-cli", version: 42 });
 					}
-					return (actual.readFileSync as (...a: unknown[]) => unknown)(path, ...rest);
+					return actual.readFileSync(...args);
 				}),
 			};
 		});
@@ -243,9 +245,9 @@ describe("packagedHookEntryPath — nothing packaged anywhere", () => {
 			const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
 			return {
 				...actual,
-				existsSync: vi.fn((path: unknown, ...rest: unknown[]) => {
+				existsSync: vi.fn((path: Parameters<typeof actual.existsSync>[0]) => {
 					if (String(path).endsWith("hook-entry.js")) return false;
-					return (actual.existsSync as (...a: unknown[]) => boolean)(path, ...rest);
+					return actual.existsSync(path);
 				}),
 			};
 		});

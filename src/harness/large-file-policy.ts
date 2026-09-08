@@ -187,7 +187,7 @@ interface RawBaseline {
 /** Validate + normalize a parsed baseline; returns null when unusable. */
 function normalizeBaseline(raw: unknown): LargeFileBaseline | null {
 	if (typeof raw !== "object" || raw === null) return null;
-	const obj = raw as RawBaseline;
+	const obj: RawBaseline = raw;
 	if (typeof obj.max_lines !== "number" || obj.max_lines <= 0) return null;
 	const files: Record<string, number> = {};
 	if (typeof obj.files === "object" && obj.files !== null) {

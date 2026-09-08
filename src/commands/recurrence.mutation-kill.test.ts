@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireUnknown } from "../lib/value-validation.js";
 // Mutation-kill hardening for `interlinked recurrence` (src/commands/recurrence.ts).
 //
 // The existing companion `__tests__/recurrence.test.ts` already drives every
@@ -86,7 +87,7 @@ function isoSecondsAgo(seconds: number): string {
  *  Recurrence rows (recurrenceListCommand's json branch) — the source
  *  guarantees an array, so `unknown[]` is the sound (not `unknown`) shape. */
 function capturedJsonArray(): unknown[] {
-	return JSON.parse(captured()) as unknown[];
+	return parseWire(JSON.parse(captured()), wireArray(wireUnknown), "test JSON value");
 }
 
 function seedThreeCaughtEvents(): void {

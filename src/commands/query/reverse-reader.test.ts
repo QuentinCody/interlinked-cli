@@ -1,3 +1,4 @@
+import { parseWire, wireNumber } from "../../lib/value-validation.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -110,7 +111,7 @@ describe("scanJsonlTail", () => {
 			path,
 			{ maxRecords: 100_000, maxBytes: 64 * 1024 * 1024 },
 			(record) => {
-				seen.push(record.i as number);
+				seen.push(parseWire(record.i, wireNumber, "test JSON value"));
 				return seen.length < 5;
 			},
 		);

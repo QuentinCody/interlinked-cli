@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Integration tests for the tsc diff-overlay gate.
 // These spin up the TypeScript LanguageService, so the first test is slow
 // (~1-3s warmup). Subsequent tests reuse the cached LS and run in ~50ms.
@@ -90,7 +91,7 @@ describe("evaluateTscDiffOverlay", () => {
 		const result = evaluateTscDiffOverlay(FIXTURE_FILE, proposed, CLI_ROOT);
 		const [ts2322] = result.newFindings.filter((f) => f.ruleId === "TS2322");
 		expect(ts2322).toBeDefined();
-		expect(isTscFindingBlocking(ts2322 as NonNullable<typeof ts2322>)).toBe(true);
+		expect(isTscFindingBlocking(nonNull(ts2322))).toBe(true);
 	});
 
 	it("TS6133 (unused variable) is classified as warn-only", () => {
@@ -117,7 +118,7 @@ describe("evaluateTscDiffOverlay", () => {
 		const result = evaluateTscDiffOverlay(FIXTURE_FILE, proposed, CLI_ROOT);
 		const [ts2304] = result.newFindings.filter((f) => f.ruleId === "TS2304");
 		expect(ts2304).toBeDefined();
-		expect(isTscFindingBlocking(ts2304 as NonNullable<typeof ts2304>)).toBe(false);
+		expect(isTscFindingBlocking(nonNull(ts2304))).toBe(false);
 	});
 
 	it("TS2305 (module has no exported member) is classified as warn-only", () => {

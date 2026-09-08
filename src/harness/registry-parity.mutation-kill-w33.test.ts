@@ -1,3 +1,5 @@
+import assert from "node:assert/strict";
+import { nonNull } from "../lib/non-null.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,8 +55,8 @@ describe("loadRegistryParityConfig — negative (must not fire / throw distingui
 		} catch (err) {
 			caught = err;
 		}
-		expect(caught).toBeInstanceOf(Error);
-		const err = caught as Error;
+		assert(caught instanceof Error);
+		const err = caught;
 		expect(err.message).toMatch(/^registry-parity config at .* is not valid JSON: /);
 		expect(err.cause).toBeDefined();
 	});
@@ -241,7 +243,7 @@ describe("arrayOfString (via loadRegistryParityConfig) — positive + negative",
 				{ name: "n", left: { file: "a", key_re: "b" }, right: { file: "c", key_re: "d" } },
 			],
 		});
-		const result = loadRegistryParityConfig(dir) as RegistryParityConfig;
+		const result = nonNull(loadRegistryParityConfig(dir));
 		expect(result.pairs[0]?.left_only_allowed).toEqual([]);
 		expect(result.pairs[0]?.right_only_allowed).toEqual([]);
 	});

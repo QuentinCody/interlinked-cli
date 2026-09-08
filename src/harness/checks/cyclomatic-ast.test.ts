@@ -144,12 +144,8 @@ describe("cyclomatic-ast — parse memo", () => {
 });
 
 function scriptKindOf(parsed: ParsedTsSource): number {
-	// SAFETY: `scriptKind` is written by ts.createSourceFile's 5th argument and
-	// read throughout the TS compiler at runtime (verified empirically: parsing
-	// each extension below and reading back `.scriptKind` returns the exact
-	// enum value that extension's branch passed in). It is simply narrower than
-	// this TS toolchain's bundled public `SourceFile` .d.ts surface.
-	return (parsed.sf as unknown as { scriptKind: number }).scriptKind;
+	if (!("scriptKind" in parsed.sf) || typeof parsed.sf.scriptKind !== "number") throw new Error("Missing compiler script kind");
+	return parsed.sf.scriptKind;
 }
 
 describe("cyclomatic-ast — scriptKindFor (extension → ScriptKind exact table)", () => {

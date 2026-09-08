@@ -39,7 +39,7 @@ export const COMPLEXITY_METRICS = ["cyclomatic", "cognitive"] as const;
 export type ComplexityMetric = (typeof COMPLEXITY_METRICS)[number];
 
 export function isComplexityMetric(value: string): value is ComplexityMetric {
-	return (COMPLEXITY_METRICS as readonly string[]).includes(value);
+	return COMPLEXITY_METRICS.some((metric) => metric === value);
 }
 
 /** One grandfathered function: repo-relative POSIX `file`, the analyzer's

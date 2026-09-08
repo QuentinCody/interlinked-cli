@@ -7,6 +7,7 @@
 // scoped overlay under-selected, so editing the message tripped the
 // uncovered-added-line gate).
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -42,7 +43,7 @@ function bashEvent(command: string): HarnessEvent {
 		tool_name: "Bash",
 		tool_input: { command },
 		timestamp: "2026-06-15T00:00:00Z",
-	} as HarnessEvent;
+	};
 }
 
 describe("evaluateDestructiveRules — bash-code-file-write-bypass", () => {
@@ -96,7 +97,7 @@ describe("evaluateDestructiveRules — bash-code-file-write-bypass", () => {
 
 describe("evaluateDestructiveRules — out-of-repo scratch/ steer (warn-only, 2026-07-07)", () => {
 	function bashEventWithCwd(command: string): HarnessEvent {
-		return { ...bashEvent(command), cwd: "/Users/dev/project" } as HarnessEvent;
+		return { ...bashEvent(command), cwd: "/Users/dev/project" };
 	}
 
 	it("warns (never blocks) on a code-file write outside the repo, steering to scratch/", () => {
@@ -142,7 +143,7 @@ describe("evaluateDestructiveRules — scratchpad code-write block (2026-07-09)"
 	const SCRATCHPAD = "/tmp/claude-501/-Users-dev-project/pre-tool-rules-test/scratchpad";
 
 	function bashEventWithCwd(command: string): HarnessEvent {
-		return { ...bashEvent(command), cwd: "/Users/dev/project" } as HarnessEvent;
+		return { ...bashEvent(command), cwd: "/Users/dev/project" };
 	}
 
 	it("blocks a redirect into THIS session's scratchpad with the scratch/ redirect", () => {
@@ -275,15 +276,15 @@ describe("evaluateDestructiveRules — soft_block action", () => {
 	}
 
 	function emptySession(): SessionTrajectory {
-		return {
+		return ({ ...makeSessionFixture(),
 			session_id: "soft-block-session",
 			tool_sequence: [],
 			commands_run: [],
-			files_read: [],
-			files_written: [],
-			verification_observed: [],
+			files_read: new Set(),
+			files_written: new Set(),
+			verification_observed: new Set(),
 			soft_blocks: new Set<string>(),
-		} as unknown as SessionTrajectory;
+		} satisfies SessionTrajectory);
 	}
 
 	it("blocks on the first attempt and records the soft-block key on the session", () => {
@@ -323,7 +324,7 @@ describe("evaluateDestructiveRules — applies_to_roles gating", () => {
 			patterns: [{ field: "command", regex: "role-only-op" }],
 			applies_to_roles: ["lead"],
 		});
-		const event = { ...bashEvent("role-only-op"), agent_role: "worker" } as HarnessEvent;
+		const event = ({  ...bashEvent("role-only-op"), agent_role: "worker" } satisfies HarnessEvent);
 		const decision = evaluateDestructiveRules(event, withCustomRule(rule), undefined, []);
 		expect(decision?.rule_id).not.toBe("custom-role-scoped");
 	});
@@ -334,7 +335,7 @@ describe("evaluateDestructiveRules — scratchpad_guard.code_write_mode 'off'", 
 		const base = getDefaultConfig();
 		const rules: GuardRulesConfig = { ...base, scratchpad_guard: { code_write_mode: "off" } };
 		const warnings: string[] = [];
-		const event = { ...bashEvent("echo x > /tmp/probe.mts"), cwd: "/Users/dev/project" } as HarnessEvent;
+		const event = ({  ...bashEvent("echo x > /tmp/probe.mts"), cwd: "/Users/dev/project" } satisfies HarnessEvent);
 		const decision = evaluateDestructiveRules(event, rules, undefined, warnings);
 		expect(decision).toBeNull();
 		expect(warnings.some((w) => w.includes("[interlinked:scratch]"))).toBe(false);
@@ -378,7 +379,7 @@ describe("evaluateDestructiveRules — compound command block/rewrite (anchored 
 
 describe("evaluateDestructiveRules — missing tool_name", () => {
 	it("does not crash and evaluates cleanly when tool_name is absent", () => {
-		const event = { ...bashEvent("echo hi"), tool_name: undefined } as unknown as HarnessEvent;
+		const event = ({  ...bashEvent("echo hi"), tool_name: undefined } satisfies HarnessEvent);
 		const decision = evaluateDestructiveRules(event, getDefaultConfig(), undefined, []);
 		expect(decision).toBeNull();
 	});
@@ -396,10 +397,10 @@ describe("evaluateDestructiveRules — builtin-patch-applier (exec-time, gap 5)"
 	it("blocks a Bash command that executes a pre-existing hand-rolled patch-applier script", () => {
 		const script = join(root, "apply.mjs");
 		writeFileSync(script, "import fs from 'node:fs';\nfs.writeFileSync('src/harness/x.ts', body);\n");
-		const event = {
+		const event = ({
 			...bashEvent(`node ${script}`),
 			cwd: root,
-		} as HarnessEvent;
+		} satisfies HarnessEvent);
 		const decision = evaluateDestructiveRules(event, getDefaultConfig(), undefined, []);
 		expect(decision?.decision).toBe("block");
 		expect(decision?.rule_id).toBe("builtin-patch-applier");
@@ -412,10 +413,10 @@ describe("evaluateDestructiveRules — builtin-patch-applier (exec-time, gap 5)"
 	it("does not block executing an ordinary script with no repo-source write", () => {
 		const script = join(root, "check.mjs");
 		writeFileSync(script, "console.log('just checking');\n");
-		const event = {
+		const event = ({
 			...bashEvent(`node ${script}`),
 			cwd: root,
-		} as HarnessEvent;
+		} satisfies HarnessEvent);
 		const decision = evaluateDestructiveRules(event, getDefaultConfig(), undefined, []);
 		expect(decision?.rule_id).not.toBe("builtin-patch-applier");
 	});

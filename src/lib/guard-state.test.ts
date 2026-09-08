@@ -166,10 +166,8 @@ describe("appendGuardEvent", () => {
 			at: "2026-06-14T00:00:00.000Z",
 		});
 		const line = readFileSync(join(dir, AUDIT), "utf-8").trim();
-		const obj = JSON.parse(line) as Record<string, unknown>;
-		expect(obj.action).toBe("enable");
-		expect(obj.by).toBe("qcody");
-		expect(typeof obj.ts).toBe("string");
+		const obj: unknown = JSON.parse(line);
+		expect(obj).toMatchObject({ action: "enable", by: "qcody", ts: expect.any(String) });
 	});
 
 	it("never throws on an unwritable target", () => {

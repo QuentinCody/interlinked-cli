@@ -27,7 +27,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { sanitizeSessionId } from "./session-paths.js";
 
 const LIVE_SUFFIX = ".live.json";
@@ -99,9 +99,9 @@ export function readLiveSnapshot(cwd: string, sessionId: string): JsonObject | n
 	if (!target || !existsSync(target)) return null;
 	try {
 		const raw = readFileSync(target, "utf-8");
-		const parsed = JSON.parse(raw);
-		return parsed != null && typeof parsed === "object" && !Array.isArray(parsed)
-			? (parsed as JsonObject)
+		const parsed: unknown = JSON.parse(raw);
+		return isJsonObject(parsed)
+			? (parsed)
 			: null;
 	} catch {
 		return null;

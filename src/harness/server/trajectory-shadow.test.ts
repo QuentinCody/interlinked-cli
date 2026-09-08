@@ -166,7 +166,7 @@ describe("trajectoryShadowWarnings", () => {
 	});
 
 	it("fails open (returns []) when the engine throws internally", () => {
-		const badInput = new Proxy(
+		const badInput: NonNullable<HarnessEvent["tool_input"]> = new Proxy(
 			{},
 			{
 				get(): never {
@@ -175,7 +175,7 @@ describe("trajectoryShadowWarnings", () => {
 			},
 			// SAFETY: Proxy simulates a malformed tool_input whose property reads throw,
 			// forcing toInput()'s field copy to raise so the outer try/catch is exercised.
-		) as unknown as HarnessEvent["tool_input"];
+		);
 		const event: HarnessEvent = {
 			hook_event: "PostToolUse",
 			session_id: "sess-throw",

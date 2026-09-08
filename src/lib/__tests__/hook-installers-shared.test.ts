@@ -219,10 +219,8 @@ describe("cleanJsonHookFile", () => {
 		);
 
 		expect(cleanJsonHookFile(path)).toBe(true);
-		const written = JSON.parse(readFileSync(path, "utf-8")) as {
-			hooks: { PreToolUse: unknown[] };
-		};
-		expect(written.hooks.PreToolUse).toEqual([userLegacyBasename, userAdapterBasename]);
+		const written: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		expect(written).toHaveProperty("hooks.PreToolUse", [userLegacyBasename, userAdapterBasename]);
 	});
 });
 

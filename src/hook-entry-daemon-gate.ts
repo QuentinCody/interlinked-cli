@@ -33,6 +33,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { hasErrorCode } from "./harness/check-engine/tool-errors.js";
 import {
 	describeLastExit,
 	describeLastLedgerEvent,
@@ -139,7 +140,7 @@ function isPidAlive(pid: number): boolean {
 		process.kill(pid, 0);
 		return true;
 	} catch (err) {
-		return (err as NodeJS.ErrnoException).code === "EPERM";
+		return hasErrorCode(err, "EPERM");
 	}
 }
 

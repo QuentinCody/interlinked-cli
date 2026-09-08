@@ -1,3 +1,8 @@
+import { ARTIFACT_FILE_KEYS } from "../harness/structure/schema-validator.js";
+import { VALID_ARTIFACT_KINDS } from "../harness/structure/types.js";
+import { parseWire } from "../lib/value-validation.js";
+import { isEditableEnv, isEditablePublicApi } from "./structure-edit-files.js";
+import { errorMessage } from "../lib/error-message.js";
 // interlinked-tdd: exempt
 // Structure command helpers — leaf utilities extracted from structure.ts.
 // Pure I/O, formatting, accept-batch, and doctor-check helpers. No module-private
@@ -9,13 +14,10 @@ import type {
 	ArtifactFileKey,
 	ArtifactKind,
 	CatalogItem,
-	EnvFile,
-	PublicApiFile,
-	PublicModuleEntry,
 	StructureConfig,
 } from "../harness/structure/types.js";
 import { c } from "../lib/formatter.js";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 
 // --- Catalog constants ---
 export const KEY_TO_KIND: Record<string, ArtifactKind> = {
@@ -57,10 +59,10 @@ export const SCAFFOLDS: Record<string, { file: string; content: JsonObject }> = 
 };
 
 // --- I/O helpers ---
-export function readJson<T>(path: string, fallback: T): T {
+export function readJson(path: string, fallback: unknown): unknown {
 	if (!existsSync(path)) return fallback;
 	try {
-		return JSON.parse(readFileSync(path, "utf-8")) as T;
+		return JSON.parse(readFileSync(path, "utf-8"));
 	} catch {
 		return fallback;
 	}
@@ -84,7 +86,7 @@ export function catalogToNode(item: CatalogItem): import("../harness/structure/t
 	const idx = item.global_ref.indexOf(":");
 	return {
 		id: item.global_ref,
-		kind: (idx > 0 ? item.global_ref.slice(0, idx) : "module") as ArtifactKind,
+		kind: VALID_ARTIFACT_KINDS.find((kind) => kind === item.global_ref.slice(0, idx)) ?? "module",
 		label: item.local_id,
 		file: item.file,
 		provenance: item.provenance,
@@ -107,7 +109,7 @@ export function acceptSymbols(
 	catalog: import("../harness/structure/types.js").CategoryCatalog,
 	path: string,
 ): { accepted: number; skipped: SkipEntry[] } {
-	const file: PublicApiFile = readJson(path, { version: 1, modules: [] });
+	const file = parseWire(readJson(path, { version: 1, modules: [] }), isEditablePublicApi, "public API artifact");
 	// Build set of existing "moduleId#symbolName" entries for dedup
 	const have = new Set<string>();
 	for (const m of file.modules) for (const s of m.symbols) have.add(`${m.id}#${s.name}`);
@@ -123,7 +125,7 @@ export function acceptSymbols(
 		const hashIdx = localId.indexOf("#");
 		const moduleId = hashIdx >= 0 ? localId.slice(0, hashIdx) : localId;
 		const symbolName = hashIdx >= 0 ? localId.slice(hashIdx + 1) : localId;
-		let mod = file.modules.find((m: PublicModuleEntry) => m.id === moduleId);
+		let mod = file.modules.find((m) => m.id === moduleId);
 		if (!mod) {
 			mod = { id: moduleId, file: item.file, symbols: [] };
 			file.modules.push(mod);
@@ -147,11 +149,11 @@ export function acceptEnv(
 	catalog: import("../harness/structure/types.js").CategoryCatalog,
 	path: string,
 ): { accepted: number; skipped: SkipEntry[] } {
-	const file: EnvFile = readJson(path, {
+	const file = parseWire(readJson(path, {
 		version: 1,
 		sources: { declarations: [], defaults: [] },
 		keys: [],
-	});
+	}), isEditableEnv, "environment artifact");
 	const have = new Set(file.keys.map((k) => k.name));
 	const skipped: SkipEntry[] = [];
 	let n = 0;
@@ -197,7 +199,7 @@ export function doctorValidateConfig(
 		parsed = JSON.parse(readFileSync(path, "utf-8"));
 	} catch (e) {
 		return [
-			{ severity: "error", message: `structure.json: invalid JSON: ${(e as Error).message}` },
+			{ severity: "error", message: `structure.json: invalid JSON: ${errorMessage(e)}` },
 		];
 	}
 	const result = validateFn(parsed);
@@ -219,7 +221,8 @@ export function doctorCheckFiles(
 	) => { data: JsonObject | null; errors: string[] },
 ): Issue[] {
 	const issues: Issue[] = [];
-	for (const [key, rel] of Object.entries(config.artifacts)) {
+	for (const key of ARTIFACT_FILE_KEYS) {
+		const rel = config.artifacts[key];
 		if (!rel) continue;
 		if (!existsSync(resolve(cwd, "interlinked", rel))) {
 			issues.push({
@@ -228,7 +231,7 @@ export function doctorCheckFiles(
 			});
 			continue;
 		}
-		for (const err of load(cwd, key as ArtifactFileKey, rel).errors)
+		for (const err of load(cwd, key, rel).errors)
 			issues.push({ severity: "error", message: `${key} (${rel}): ${err}` });
 	}
 	return issues;
@@ -240,8 +243,8 @@ function extractPathsFromData(data: JsonObject): string[] {
 		const arr = data[col];
 		if (!Array.isArray(arr)) continue;
 		for (const item of arr) {
-			if (typeof item !== "object" || item === null) continue;
-			const rec = item as JsonObject;
+			if (!isJsonObject(item)) continue;
+			const rec = item;
 			if (typeof rec.file === "string") paths.push(rec.file);
 			if (typeof rec.root === "string") paths.push(rec.root);
 		}
@@ -259,9 +262,10 @@ export function doctorCheckPaths(
 	) => { data: JsonObject | null; errors: string[] },
 ): Issue[] {
 	const issues: Issue[] = [];
-	for (const [key, rel] of Object.entries(config.artifacts)) {
+	for (const key of ARTIFACT_FILE_KEYS) {
+		const rel = config.artifacts[key];
 		if (!rel) continue;
-		const { data } = load(cwd, key as ArtifactFileKey, rel);
+		const { data } = load(cwd, key, rel);
 		if (!data) continue;
 		for (const fp of extractPathsFromData(data)) {
 			if (!existsSync(resolve(cwd, fp)))

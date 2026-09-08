@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import {
@@ -37,7 +38,7 @@ function only(state: ObligationState): Obligation {
 	const open = [...state.values()];
 	expect(open).toHaveLength(1);
 	// SAFETY: toHaveLength(1) asserted above ⇒ index 0 is present.
-	return open[0] as Obligation;
+	return nonNull(open[0]);
 }
 
 // ----- obligationId ------------------------------------------------------
@@ -266,7 +267,7 @@ describe("parseObligationTxn — accepts", () => {
 		const txn = parseObligationTxn({ op: "open", kind: "coverage", file: "src/a.ts", contentHash: "c", sessionId: "s", atMs: 1 });
 		expect(txn).not.toBeNull();
 		// SAFETY: asserted non-null on the line above.
-		const state = replayObligations([txn as ObligationTxn]);
+		const state = replayObligations([nonNull(txn)]);
 		expect(openObligations(state)).toHaveLength(1);
 	});
 
@@ -402,7 +403,7 @@ describe("red_suite failing-test evidence (open txn field)", () => {
 	});
 
 	it("a re-open REPLACES the evidence (latest red run is the truth) while keeping the openedAtMs anchor", () => {
-		const later: ObligationTxn = { ...openRed(["lib/b.test.ts"]), atMs: 9 } as ObligationTxn;
+		const later: ObligationTxn = { ...openRed(["lib/b.test.ts"]), atMs: 9 };
 		const state = replayObligations([openRed(["lib/a.test.ts"]), later]);
 		const ob = openObligations(state)[0];
 		expect(ob?.failingTestFiles).toEqual(["lib/b.test.ts"]);

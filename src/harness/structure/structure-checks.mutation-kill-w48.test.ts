@@ -4,26 +4,8 @@ import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // -------------------------------------------
-// Mocks: replace ArtifactGraph with a plain recorder so we can assert on the
-// exact node/edge objects `layerDeclaredArtifacts` and `runStructureChecks`
-// build, without depending on artifact-graph.ts internals. Replace the
-// extractors and rules modules similarly so `runStructureChecks` can be
-// exercised without touching the real filesystem walk / rule engine.
-// -------------------------------------------
-
-vi.mock("./artifact-graph.js", () => {
-	class MockGraph {
-		nodes: unknown[] = [];
-		edges: unknown[] = [];
-		addNode(n: unknown) {
-			this.nodes.push(n);
-		}
-		addEdge(e: unknown) {
-			this.edges.push(e);
-		}
-	}
-	return { ArtifactGraph: MockGraph };
-});
+// Use the real graph's public serialization API to inspect declared contributions.
+// Only repository extraction and rule evaluation are mocked.
 
 vi.mock("./extractors/index.js", () => ({
 	runAllExtractors: () => ({ nodes: [], edges: [] }),
@@ -65,7 +47,7 @@ function writeArtifact(relPath: string, data: Record<string, unknown>): void {
 
 function freshConfig() {
 	const config = getImplicitConfig();
-	config.artifacts = {} as typeof config.artifacts;
+	config.artifacts = {};
 	return config;
 }
 
@@ -81,20 +63,17 @@ describe("layerDeclaredArtifacts — packages (declaredNode + extractPackageCont
 		});
 		const config = freshConfig();
 		config.artifacts.packages = "packages.json";
-		const graph = new ArtifactGraph() as unknown as {
-			nodes: Array<Record<string, unknown>>;
-			edges: unknown[];
-		};
+		const graph = new ArtifactGraph();
 
-		layerDeclaredArtifacts(graph as unknown as ArtifactGraph, repoRoot, config);
+		layerDeclaredArtifacts(graph, repoRoot, config);
 
-		const node = graph.nodes.find((n) => n.id === "package:pkg1");
+		const node = graph.toNodesJson().nodes.find((n) => n.id === "package:pkg1");
 		expect(node).toBeDefined();
 		expect(node?.determinism_ceiling).toBe("fully_deterministic");
 		expect(node?.provenance).toBe("declared");
 		expect(node?.file).toBe("src/pkg1");
 		// extractPackageContributions always contributes zero edges
-		expect(graph.edges).toEqual([]);
+		expect(graph.toEdgesJson().edges).toEqual([]);
 	});
 });
 
@@ -107,14 +86,11 @@ describe("layerDeclaredArtifacts — layers (extractLabelOnlyContributions)", ()
 		writeArtifact("layers.json", { layers: [{ id: "L1" }], rules: [] });
 		const config = freshConfig();
 		config.artifacts.layers = "layers.json";
-		const graph = new ArtifactGraph() as unknown as {
-			nodes: Array<Record<string, unknown>>;
-			edges: unknown[];
-		};
+		const graph = new ArtifactGraph();
 
-		layerDeclaredArtifacts(graph as unknown as ArtifactGraph, repoRoot, config);
+		layerDeclaredArtifacts(graph, repoRoot, config);
 
-		const node = graph.nodes.find((n) => n.id === "layer:L1");
+		const node = graph.toNodesJson().nodes.find((n) => n.id === "layer:L1");
 		expect(node).toBeDefined();
 		expect(node?.file).toBe("");
 	});
@@ -129,17 +105,14 @@ describe("layerDeclaredArtifacts — glossary (extractGlossaryContributions)", (
 		writeArtifact("glossary.json", { terms: [{ id: "T1", canonical: "Term One" }] });
 		const config = freshConfig();
 		config.artifacts.glossary = "glossary.json";
-		const graph = new ArtifactGraph() as unknown as {
-			nodes: Array<Record<string, unknown>>;
-			edges: unknown[];
-		};
+		const graph = new ArtifactGraph();
 
-		layerDeclaredArtifacts(graph as unknown as ArtifactGraph, repoRoot, config);
+		layerDeclaredArtifacts(graph, repoRoot, config);
 
-		const node = graph.nodes.find((n) => n.id === "term:T1");
+		const node = graph.toNodesJson().nodes.find((n) => n.id === "term:T1");
 		expect(node).toBeDefined();
 		expect(node?.file).toBe("");
-		expect(graph.edges).toEqual([]);
+		expect(graph.toEdgesJson().edges).toEqual([]);
 	});
 });
 
@@ -179,27 +152,23 @@ describe("layerDeclaredArtifacts — public_api (extractPublicApiContributions +
 		});
 		const config = freshConfig();
 		config.artifacts.public_api = "public_api.json";
-		const graph = new ArtifactGraph() as unknown as {
-			nodes: Array<Record<string, unknown>>;
-			edges: Array<Record<string, unknown>>;
-		};
+		const graph = new ArtifactGraph();
 
-		layerDeclaredArtifacts(graph as unknown as ArtifactGraph, repoRoot, config);
+		layerDeclaredArtifacts(graph, repoRoot, config);
 
-		const moduleNode = graph.nodes.find((n) => n.id === "module:mod1");
+		const moduleNode = graph.toNodesJson().nodes.find((n) => n.id === "module:mod1");
 		expect(moduleNode).toBeDefined();
 
 		// Exactly 5 edges: module's own contribution is empty (0), fn1
 		// contributes exports+doc+test+example (4), fn2 contributes only
 		// exports (1). A mutated `[]` default anywhere in this path would
-		// inflate this count or inject a bogus "Stryker was here" entry.
-		expect(graph.edges).toHaveLength(5);
-		for (const e of graph.edges) {
+		// inflate this count or inject a non-edge entry.
+		expect(graph.toEdgesJson().edges).toHaveLength(5);
+		for (const e of graph.toEdgesJson().edges) {
 			expect(typeof e).toBe("object");
-			expect(e).not.toBe("Stryker was here");
 		}
 
-		const exportsFn1 = graph.edges.find(
+		const exportsFn1 = graph.toEdgesJson().edges.find(
 			(e) => e.from === "module:mod1" && e.to === "public_symbol:mod1#fn1",
 		);
 		expect(exportsFn1).toMatchObject({
@@ -208,7 +177,7 @@ describe("layerDeclaredArtifacts — public_api (extractPublicApiContributions +
 			provenance: "declared",
 		});
 
-		const docEdge = graph.edges.find((e) => e.to === "doc:doc1");
+		const docEdge = graph.toEdgesJson().edges.find((e) => e.to === "doc:doc1");
 		expect(docEdge).toMatchObject({
 			id: "edge:public_symbol:mod1#fn1->doc:doc1",
 			kind: "documents",
@@ -216,7 +185,7 @@ describe("layerDeclaredArtifacts — public_api (extractPublicApiContributions +
 			provenance: "declared",
 		});
 
-		const testEdge = graph.edges.find((e) => e.to === "test:test1");
+		const testEdge = graph.toEdgesJson().edges.find((e) => e.to === "test:test1");
 		expect(testEdge).toMatchObject({
 			id: "edge:public_symbol:mod1#fn1->test:test1",
 			kind: "tests",
@@ -224,7 +193,7 @@ describe("layerDeclaredArtifacts — public_api (extractPublicApiContributions +
 			provenance: "declared",
 		});
 
-		const exampleEdge = graph.edges.find((e) => e.to === "example:ex1");
+		const exampleEdge = graph.toEdgesJson().edges.find((e) => e.to === "example:ex1");
 		expect(exampleEdge).toMatchObject({
 			id: "edge:public_symbol:mod1#fn1->example:ex1",
 			kind: "illustrates",
@@ -234,7 +203,7 @@ describe("layerDeclaredArtifacts — public_api (extractPublicApiContributions +
 
 		// fn2 has no docs/tests/examples declared: it must contribute
 		// exactly its exports edge and nothing else.
-		const fn2Edges = graph.edges.filter(
+		const fn2Edges = graph.toEdgesJson().edges.filter(
 			(e) => e.from === "public_symbol:mod1#fn2" || e.to === "public_symbol:mod1#fn2",
 		);
 		expect(fn2Edges).toHaveLength(1);
@@ -264,31 +233,28 @@ describe("layerDeclaredArtifacts — env (extractSimpleKeyContributions)", () =>
 		});
 		const config = freshConfig();
 		config.artifacts.env = "env.json";
-		const graph = new ArtifactGraph() as unknown as {
-			nodes: Array<Record<string, unknown>>;
-			edges: Array<Record<string, unknown>>;
-		};
+		const graph = new ArtifactGraph();
 
-		layerDeclaredArtifacts(graph as unknown as ArtifactGraph, repoRoot, config);
+		layerDeclaredArtifacts(graph, repoRoot, config);
 
-		const myEnvNode = graph.nodes.find((n) => n.id === "env_key:MY_ENV");
+		const myEnvNode = graph.toNodesJson().nodes.find((n) => n.id === "env_key:MY_ENV");
 		expect(myEnvNode).toMatchObject({ file: "src/env.ts", provenance: "declared" });
 
-		const docEdge = graph.edges.find((e) => e.from === "env_key:MY_ENV" && e.to === "doc:d1");
+		const docEdge = graph.toEdgesJson().edges.find((e) => e.from === "env_key:MY_ENV" && e.to === "doc:d1");
 		expect(docEdge).toMatchObject({
 			id: "edge:env_key:MY_ENV->doc:d1",
 			kind: "documents",
 			provenance: "declared",
 		});
 
-		const testEdge = graph.edges.find((e) => e.from === "env_key:MY_ENV" && e.to === "test:t1");
+		const testEdge = graph.toEdgesJson().edges.find((e) => e.from === "env_key:MY_ENV" && e.to === "test:t1");
 		expect(testEdge).toMatchObject({
 			id: "edge:env_key:MY_ENV->test:t1",
 			kind: "tests",
 			provenance: "declared",
 		});
 
-		const exEdge = graph.edges.find((e) => e.from === "env_key:MY_ENV" && e.to === "example:e1");
+		const exEdge = graph.toEdgesJson().edges.find((e) => e.from === "env_key:MY_ENV" && e.to === "example:e1");
 		expect(exEdge).toMatchObject({
 			id: "edge:env_key:MY_ENV->example:e1",
 			kind: "illustrates",
@@ -297,9 +263,9 @@ describe("layerDeclaredArtifacts — env (extractSimpleKeyContributions)", () =>
 
 		// OTHER_ENV declares no docs/tests/examples/default_sources/declared_in:
 		// file must fall back to "" and it must contribute zero edges.
-		const otherNode = graph.nodes.find((n) => n.id === "env_key:OTHER_ENV");
+		const otherNode = graph.toNodesJson().nodes.find((n) => n.id === "env_key:OTHER_ENV");
 		expect(otherNode?.file).toBe("");
-		const otherEdges = graph.edges.filter(
+		const otherEdges = graph.toEdgesJson().edges.filter(
 			(e) => e.from === "env_key:OTHER_ENV" || e.to === "env_key:OTHER_ENV",
 		);
 		expect(otherEdges).toHaveLength(0);
@@ -324,17 +290,14 @@ describe("layerDeclaredArtifacts — docs (extractFileEntryContributions)", () =
 		});
 		const config = freshConfig();
 		config.artifacts.docs = "docs.json";
-		const graph = new ArtifactGraph() as unknown as {
-			nodes: Array<Record<string, unknown>>;
-			edges: Array<Record<string, unknown>>;
-		};
+		const graph = new ArtifactGraph();
 
-		layerDeclaredArtifacts(graph as unknown as ArtifactGraph, repoRoot, config);
+		layerDeclaredArtifacts(graph, repoRoot, config);
 
-		const docNode = graph.nodes.find((n) => n.id === "doc:d1");
+		const docNode = graph.toNodesJson().nodes.find((n) => n.id === "doc:d1");
 		expect(docNode).toMatchObject({ file: "docs/d1.md", provenance: "declared" });
 
-		const coversEdge = graph.edges.find((e) => e.to === "doc:d1");
+		const coversEdge = graph.toEdgesJson().edges.find((e) => e.to === "doc:d1");
 		expect(coversEdge).toMatchObject({
 			id: "edge:module:mod1->doc:d1",
 			kind: "documents",
@@ -378,7 +341,7 @@ describe("runStructureChecks — filterByEmissionConfig determinism gating", () 
 			emit_partial: true,
 			emit_heuristic: true,
 			max_heuristics: 999,
-		} as typeof config.posttooluse;
+		};
 
 		const result = runStructureChecks("file.ts", repoRoot, null, config);
 
@@ -397,7 +360,7 @@ describe("runStructureChecks — filterByEmissionConfig determinism gating", () 
 			emit_partial: false,
 			emit_heuristic: true,
 			max_heuristics: 999,
-		} as typeof config.posttooluse;
+		};
 
 		const result = runStructureChecks("file.ts", repoRoot, null, config);
 

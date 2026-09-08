@@ -21,6 +21,7 @@
 // Escape hatch (placement only — never the secrets scan):
 // INTERLINKED_DISABLE_SCRATCH_GUARD=1.
 
+import { readToolString } from "./tool-input-values.js";
 import { existsSync } from "node:fs";
 import { join, sep } from "node:path";
 import {
@@ -112,9 +113,8 @@ export function evaluateScratchpadWriteGuard(
 	warnings: string[],
 ): HarnessDecision | null {
 	if (!isFileWrite(toolName) || !event.cwd) return null;
-	// SAFETY: hook payloads type tool_input values as unknown; file_path/path
-	// are strings when present (same extraction as pre-tool-guards.ts).
-	const rawPath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+
+	const rawPath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 	if (!rawPath) return null;
 	const resolved = resolveWriteTargetPath(rawPath, event.cwd);
 	const ephemeral = isEphemeralTempPath(resolved);
@@ -122,10 +122,10 @@ export function evaluateScratchpadWriteGuard(
 	// throwaway script, so the applier check spans both. Nothing else here does.
 	if (!ephemeral && !isRepoScratchPath(resolved, event.cwd)) return null;
 
-	// SAFETY: content/new_string are strings when present (hook payload shape).
-	const content = (toolInput.content as string) || (toolInput.new_string as string) || "";
+	const content = readToolString(toolInput.content) || readToolString(toolInput.new_string);
 	const decision = decideEphemeralWrite({
 		event,
+		projectRoot: event.cwd,
 		rawPath,
 		resolved,
 		content,
@@ -158,6 +158,7 @@ function isRepoScratchPath(resolved: string, projectRoot: string): boolean {
  *  entry point stays a thin decide-then-record shell. */
 function decideEphemeralWrite(opts: {
 	event: HarnessEvent;
+	projectRoot: string;
 	rawPath: string;
 	resolved: string;
 	content: string;
@@ -166,7 +167,7 @@ function decideEphemeralWrite(opts: {
 	warnings: string[];
 }): HarnessDecision | null {
 	const { event, rawPath, resolved, content, ephemeral, rules, warnings } = opts;
-	const projectRoot = event.cwd as string;
+	const projectRoot = opts.projectRoot;
 
 	if (ephemeral && content && containsSecrets(content)) {
 		return {

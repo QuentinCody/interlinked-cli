@@ -3,6 +3,7 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
+import { hasErrorCode } from "../tool-errors.js";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { hasOsvScanner } from "../../quality-checks/dependency-audit.js";
@@ -90,7 +91,7 @@ export function runOxlint(input: ToolRunnerInput): CheckResult[] {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		// Exit 0 = clean, exit 1 = issues found
@@ -119,7 +120,7 @@ export function runKnip(input: ToolRunnerInput): CheckResult[] {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		// Exit 0 = clean, exit 1 = issues found, exit 2 = config error
@@ -170,7 +171,7 @@ export function runSemgrep(input: ToolRunnerInput): CheckResult[] {
 			},
 		);
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		// Exit 2 = semgrep config/auth error — skip silently
@@ -217,7 +218,7 @@ export function runGitleaks(input: ToolRunnerInput): CheckResult[] {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 
@@ -390,7 +391,7 @@ function runOsvScanner(cwd: string, timeoutMs: number): AuditResult | null {
 			},
 		);
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return null;
 		}
 		// Exit 0 = clean. Exit 1 = vulns found (parse stdout). Other codes
@@ -415,7 +416,7 @@ function runNpmAudit(cwd: string, timeoutMs: number): AuditResult | null {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return null;
 		}
 

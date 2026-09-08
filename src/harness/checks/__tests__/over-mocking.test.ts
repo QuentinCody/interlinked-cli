@@ -1,3 +1,4 @@
+import { nonNull } from "../../../lib/non-null.js";
 // Over-mocking detector tests.
 //
 // checkOverMocking(content, filePath) flags test files whose mock/spy call
@@ -18,7 +19,6 @@
 
 import { describe, expect, it } from "vitest";
 import { checkOverMocking } from "../over-mocking.js";
-import type { InlineMatch } from "../shared.js";
 
 const TEST_TS = "src/lib/widget.test.ts";
 const TEST_TSX = "src/ui/widget.test.tsx";
@@ -76,7 +76,7 @@ describe("checkOverMocking — threshold", () => {
 	it("P1: fires at exactly 8 mock calls (boundary, count >= 8)", () => {
 		const matches = checkOverMocking(mockLines(8), TEST_TS);
 		expect(matches).toHaveLength(1);
-		const m = matches[0] as InlineMatch;
+		const m = nonNull(matches[0]);
 		expect(m.text).toContain("[8 mock/spy calls");
 	});
 
@@ -98,7 +98,7 @@ describe("checkOverMocking — counting", () => {
 	it("reports the exact total when above threshold", () => {
 		const matches = checkOverMocking(mockLines(11), TEST_TS);
 		expect(matches).toHaveLength(1);
-		expect((matches[0] as InlineMatch).text).toContain("[11 mock/spy calls");
+		expect((nonNull(matches[0])).text).toContain("[11 mock/spy calls");
 	});
 
 	it("counts vi.mock, jest.mock, vi.spyOn and jest.spyOn together", () => {
@@ -115,20 +115,20 @@ describe("checkOverMocking — counting", () => {
 		].join("\n");
 		const matches = checkOverMocking(code, TEST_TS);
 		expect(matches).toHaveLength(1);
-		expect((matches[0] as InlineMatch).text).toContain("[8 mock/spy calls");
+		expect((nonNull(matches[0])).text).toContain("[8 mock/spy calls");
 	});
 
 	it("fires for a .tsx test file", () => {
 		const matches = checkOverMocking(mockLines(9, "vi.spyOn"), TEST_TSX);
 		// vi.spyOn with one positional arg still matches /\b(vi|jest)\.(mock|spyOn)\s*\(/.
 		expect(matches).toHaveLength(1);
-		expect((matches[0] as InlineMatch).text).toContain("[9 mock/spy calls");
+		expect((nonNull(matches[0])).text).toContain("[9 mock/spy calls");
 	});
 
 	it("fires for a .jsx spec file", () => {
 		const matches = checkOverMocking(mockLines(8, "jest.mock"), TEST_JSX);
 		expect(matches).toHaveLength(1);
-		expect((matches[0] as InlineMatch).text).toContain("[8 mock/spy calls");
+		expect((nonNull(matches[0])).text).toContain("[8 mock/spy calls");
 	});
 
 	it("tolerates whitespace between the verb and the paren", () => {
@@ -136,7 +136,7 @@ describe("checkOverMocking — counting", () => {
 		const code = Array.from({ length: 8 }, (_, i) => `vi.mock ("./d-${i}.js");`).join("\n");
 		const matches = checkOverMocking(code, TEST_TS);
 		expect(matches).toHaveLength(1);
-		expect((matches[0] as InlineMatch).text).toContain("[8 mock/spy calls");
+		expect((nonNull(matches[0])).text).toContain("[8 mock/spy calls");
 	});
 
 	it("does NOT count look-alikes that are not vi/jest mock/spy calls", () => {
@@ -170,7 +170,7 @@ describe("checkOverMocking — anchor line", () => {
 		].join("\n");
 		const matches = checkOverMocking(code, TEST_TS);
 		expect(matches).toHaveLength(1);
-		const m = matches[0] as InlineMatch;
+		const m = nonNull(matches[0]);
 		expect(m.line).toBe(3); // 1-based: the first mock line
 		expect(m.text).toContain("[9 mock/spy calls");
 		expect(m.text).toContain('vi.mock("./first.js");');
@@ -185,7 +185,7 @@ describe("checkOverMocking — anchor line", () => {
 		].join("\n");
 		const matches = checkOverMocking(code, TEST_TS);
 		expect(matches).toHaveLength(1);
-		const m = matches[0] as InlineMatch;
+		const m = nonNull(matches[0]);
 		expect(m.line).toBe(2);
 		// Anchor text is the *trimmed* line, so leading tabs are gone.
 		expect(m.text).toContain('jest.spyOn(globalThis, "x");');
@@ -201,7 +201,7 @@ describe("checkOverMocking — anchor line", () => {
 		);
 		const matches = checkOverMocking(code, TEST_TS);
 		expect(matches).toHaveLength(1);
-		const m = matches[0] as InlineMatch;
+		const m = nonNull(matches[0]);
 		// The snippet portion after the count prefix is sliced to 100 chars.
 		const prefix = "[8 mock/spy calls — tests may be testing mocks rather than real behavior] ";
 		expect(m.text.startsWith(prefix)).toBe(true);

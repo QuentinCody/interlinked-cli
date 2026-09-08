@@ -86,7 +86,7 @@ export function computeObjectPathByLine(content: string, lineCount: number): str
 	let lineIndex = 0;
 
 	for (let i = 0; i < content.length; i++) {
-		const ch = content[i] as string;
+		const ch = content.charAt(i);
 
 		if (ch === "\n") {
 			out[lineIndex] = st.stack.join(".");

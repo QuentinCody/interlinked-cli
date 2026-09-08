@@ -1,25 +1,25 @@
 import { describe, expect, it } from "vitest";
-import type { UnifiedHookEvent } from "./harness/unified-event.js";
+import type { UnifiedAction, UnifiedHookEvent } from "./harness/unified-event.js";
+import { makeUnifiedEvent } from "./harness/__tests__/fixtures/unified-event.js";
 import {
 	defaultTimeoutForPhase,
 	isCodeEditEvent,
 	isCommitOrPushEvent,
 } from "./hook-entry-deadlines.js";
 
-// Minimal structural fixtures — the routing functions read only phase + action.
-function preTool(action: Record<string, unknown>): UnifiedHookEvent {
-	return { phase: "pre-tool", action } as unknown as UnifiedHookEvent;
+function preTool(action: UnifiedAction): UnifiedHookEvent {
+	return makeUnifiedEvent({ action });
 }
 function edit(tool: string): UnifiedHookEvent {
-	return preTool({ kind: "tool_call", tool_name: tool });
+	return preTool({ kind: "tool_call", tool_name: tool, tool_class: "modify", tool_input: {}, tool_input_redacted: {} });
 }
 function bash(command: string): UnifiedHookEvent {
-	return preTool({ kind: "shell_command", command });
+	return preTool({ kind: "shell_command", command, tool_class: "modify" });
 }
 
 describe("isCodeEditEvent", () => {
 	it("is true for file operations and edit tool calls (any naming style)", () => {
-		expect(isCodeEditEvent(preTool({ kind: "file_operation" }))).toBe(true);
+		expect(isCodeEditEvent(preTool({ kind: "file_operation", operation: "edit", path: "/workspace/a.ts", tool_class: "modify" }))).toBe(true);
 		for (const t of ["Write", "Edit", "MultiEdit", "multi_edit", "apply_patch", "notebook_edit"]) {
 			expect(isCodeEditEvent(edit(t))).toBe(true);
 		}
@@ -63,7 +63,7 @@ describe("defaultTimeoutForPhase — the invariant client < 240s hook grant", ()
 	});
 
 	it("gives non-PreToolUse events the 60s default", () => {
-		const post = { phase: "post-tool", action: { kind: "tool_call", tool_name: "Edit" } } as unknown as UnifiedHookEvent;
+		const post = makeUnifiedEvent({ phase: "post-tool" });
 		expect(defaultTimeoutForPhase(post)).toBe(60_000);
 	});
 
@@ -75,7 +75,7 @@ describe("defaultTimeoutForPhase — the invariant client < 240s hook grant", ()
 		// 30s of keystroke latency (observed live 2026-07-28, daemon mid heap
 		// spike). Prompt-time context is nice-to-have; on timeout the prompt
 		// proceeds without it, which is the correct degradation.
-		const prompt = { phase: "user-prompt", action: { kind: "prompt" } } as unknown as UnifiedHookEvent;
+		const prompt = makeUnifiedEvent({ phase: "user-prompt", action: { kind: "user_prompt", text: "hello" } });
 		expect(defaultTimeoutForPhase(prompt)).toBeLessThanOrEqual(3_000);
 	});
 

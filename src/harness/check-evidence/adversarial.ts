@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../lib/json-types.js";
 // Check Evidence Contract — the independent adversarial pass.
 //
 // Spec: docs/design/verification-density-program.md (Phase 4).
@@ -99,8 +100,8 @@ export function describeAdversarialGap(gap: AdversarialGap): string {
 
 /** Narrow unknown JSON to one record, or null when malformed. */
 function parseRecord(raw: unknown): AdversarialRecord | null {
-	if (!raw || typeof raw !== "object") return null;
-	const o = raw as Record<string, unknown>;
+	if (!isJsonObject(raw)) return null;
+	const o = raw;
 	if (typeof o.reviewer !== "string" || typeof o.detector_sha256 !== "string") return null;
 	const findings = Array.isArray(o.findings)
 		? o.findings.filter((f): f is string => typeof f === "string")
@@ -127,11 +128,11 @@ export function loadAdversarialStore(repoRoot: string): AdversarialStore {
 
 /** Narrow unknown JSON to the store, failing closed to an empty one. */
 export function parseAdversarialStore(raw: unknown): AdversarialStore {
-	if (!raw || typeof raw !== "object") return EMPTY_ADVERSARIAL;
-	const checks = (raw as { checks?: unknown }).checks;
-	if (!checks || typeof checks !== "object") return EMPTY_ADVERSARIAL;
+	if (!isJsonObject(raw)) return EMPTY_ADVERSARIAL;
+	const checks = raw.checks;
+	if (!isJsonObject(checks)) return EMPTY_ADVERSARIAL;
 	const out: Record<string, AdversarialRecord> = {};
-	for (const [id, value] of Object.entries(checks as Record<string, unknown>)) {
+	for (const [id, value] of Object.entries(checks)) {
 		const record = parseRecord(value);
 		if (record) out[id] = record;
 	}

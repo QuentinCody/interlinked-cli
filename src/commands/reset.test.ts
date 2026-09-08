@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked reset — behavioral coverage
 // ===========================================
@@ -103,7 +104,7 @@ let logs: string[];
 let errs: string[];
 
 function lastJson(): Record<string, unknown> {
-	return JSON.parse(logs.at(-1) as string) as Record<string, unknown>;
+	return parseWire(JSON.parse(nonNull(logs.at(-1))), wireRecord(wireUnknown), "test JSON value");
 }
 function allOut(): string {
 	return logs.join("\n");
@@ -296,7 +297,7 @@ describe("reset --force — legacy .claude/interlinked-session.json", () => {
 		vfs.existing.add(LEGACY_CONFIG);
 		vfs.rmThrows.set(LEGACY_CONFIG, new Error("locked"));
 		await resetCommand({ force: true, json: true });
-		expect((lastJson().failed as string[])[0]).toBe(".claude/interlinked-session.json: locked");
+		expect(lastJson()).toHaveProperty(["failed",0], ".claude/interlinked-session.json: locked");
 		expect(process.exitCode).toBe(1);
 	});
 
@@ -331,9 +332,7 @@ describe("reset --force — legacy .claude/hooks/interlinked-activity.mjs", () =
 		vfs.existing.add(LEGACY_HOOK);
 		vfs.rmThrows.set(LEGACY_HOOK, new Error("denied"));
 		await resetCommand({ force: true, json: true });
-		expect((lastJson().failed as string[])[0]).toBe(
-			".claude/hooks/interlinked-activity.mjs: denied",
-		);
+		expect(lastJson()).toHaveProperty(["failed",0], ".claude/hooks/interlinked-activity.mjs: denied");
 		expect(process.exitCode).toBe(1);
 	});
 
@@ -456,7 +455,7 @@ describe("reset --force — Claude Code settings.json hook cleanup", () => {
 		vfs.files[CLAUDE_SETTINGS] = "{ this is not json but mentions interlinked-activity";
 		await resetCommand({ force: true, json: true });
 		const payload = lastJson();
-		expect((payload.failed as string[]).some((f) => f.startsWith(".claude/settings.json:"))).toBe(
+		expect((parseWire(payload.failed, wireArray(wireString), "test JSON value")).some((f) => f.startsWith(".claude/settings.json:"))).toBe(
 			true,
 		);
 		expect(payload.failed_count).toBe(1);
@@ -566,7 +565,7 @@ describe("reset --force — Gemini settings.json hook cleanup", () => {
 		vfs.files[GEMINI_SETTINGS] = "not json :: interlinked-activity";
 		await resetCommand({ force: true, json: true });
 		const payload = lastJson();
-		expect((payload.failed as string[]).some((f) => f.startsWith(".gemini/settings.json:"))).toBe(
+		expect((parseWire(payload.failed, wireArray(wireString), "test JSON value")).some((f) => f.startsWith(".gemini/settings.json:"))).toBe(
 			true,
 		);
 		expect(process.exitCode).toBe(1);
@@ -647,7 +646,7 @@ describe("reset --force — Codex config.toml notify cleanup", () => {
 		// no entry in vfs.files -> readFileSync throws Error
 		await resetCommand({ force: true, json: true });
 		const payload = lastJson();
-		expect((payload.failed as string[]).some((f) => f.startsWith(".codex/config.toml:"))).toBe(true);
+		expect((parseWire(payload.failed, wireArray(wireString), "test JSON value")).some((f) => f.startsWith(".codex/config.toml:"))).toBe(true);
 		expect(process.exitCode).toBe(1);
 	});
 
@@ -656,7 +655,7 @@ describe("reset --force — Codex config.toml notify cleanup", () => {
 		vfs.files[CODEX_CONFIG] = "notify = interlinked-activity\n";
 		vfs.writeThrows.set(CODEX_CONFIG, "codex-string-error");
 		await resetCommand({ force: true, json: true });
-		expect((lastJson().failed as string[])[0]).toBe(".codex/config.toml: codex-string-error");
+		expect(lastJson()).toHaveProperty(["failed",0], ".codex/config.toml: codex-string-error");
 		expect(process.exitCode).toBe(1);
 	});
 });

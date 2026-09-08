@@ -1,3 +1,4 @@
+import { parseWire, wireLiteral, wireNullable, wireObject, wireString } from "../lib/value-validation.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,7 +41,7 @@ function rows(): BackgroundTaskRecord[] {
 		.split("\n")
 		.filter(Boolean)
 		// SAFETY: written by recordBackgroundTasks in this test; shape is ours.
-		.map((line) => JSON.parse(line) as BackgroundTaskRecord);
+		.map((line) => parseWire(JSON.parse(line), wireObject({ "schema": wireLiteral("background-task.v1"), "ts": wireString, "session_id": wireNullable(wireString), "hook_event": wireString, "id": wireString, "type": wireNullable(wireString), "status": wireNullable(wireString), "description": wireNullable(wireString), "agent_type": wireNullable(wireString) }), "test JSON value"));
 }
 
 function record(tasks: unknown, ts = TS): number {

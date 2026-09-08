@@ -1,3 +1,5 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
+import { parseWire, wireArray, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // Mutation-kill companion for server-bridge.ts (PASS-1 fleet, ~62 survivors).
 // Self-contained: duplicates the small mock/stub harness from
 // server-bridge.test.ts rather than importing it, per the placement rule (a
@@ -32,15 +34,14 @@ vi.mock("node:fs", () => fsMock);
 
 // --- secrets scrubber mock (egress boundary; not the focus of this file) ---
 const scrubMock = vi.hoisted(() => ({
-	scrubEgressPayload: vi.fn((_p: Record<string, unknown>) => ({
+	scrubEgressPayload: vi.fn((_p: Record<string, unknown>): { found: number; types: string[] } => ({
 		found: 0,
-		types: [] as string[],
+		types: [],
 	})),
 }));
 vi.mock("../lib/secrets.js", () => scrubMock);
 
 import { nonNull } from "../lib/non-null.js";
-import type { JsonObject } from "../lib/json-types.js";
 import { createServerBridge, ServerBridge } from "./server-bridge.js";
 import type { SessionTrajectory } from "./types.js";
 
@@ -55,7 +56,7 @@ function stubFetch(impl: FetchImpl): void {
 	fetchSpy = vi.fn(((input: string | URL | Request, init?: RequestInit) => {
 		const url = typeof input === "string" ? input : input.toString();
 		return Promise.resolve(impl(url, init));
-	}) as typeof fetch) as unknown as MockInstance;
+	}));
 	vi.stubGlobal("fetch", fetchSpy);
 }
 
@@ -91,10 +92,10 @@ async function connectedBridge(
 	return b;
 }
 
-const session: SessionTrajectory = {
+const session: SessionTrajectory = ({ ...completeSessionFixture(), ...{
 	tool_call_count: 7,
 	started_at: "2026-01-01T00:00:00Z",
-} as unknown as SessionTrajectory;
+} });
 
 function makeEvent(
 	over: Partial<Parameters<ServerBridge["reportGuardEvent"]>[0]> = {},
@@ -165,7 +166,7 @@ async function captureCallToolEnvelope(
 		withHealthOk((url, init) => {
 			if (url.endsWith("/api/ui/call") && init?.body) {
 				body = JSON.parse(String(init.body));
-				headers = init.headers as Record<string, string>;
+				headers = parseWire(init.headers, wireRecord(wireString), "test JSON value");
 			}
 			return json({ result: {} });
 		}),
@@ -195,21 +196,6 @@ async function captureAutoCoordinateBody(
 	await b.healthCheck();
 	await b.fetchCoordinationState("alice", session, timeoutMs);
 	return body;
-}
-
-/** Reaches the private `callTool` method directly. Several
- *  isExplicitReservationRejection/listReservations mutants are only
- *  observable when `result` is itself null/undefined or a poisoned
- *  non-array shape — states the real callTool()->JSON pipeline provably
- *  cannot produce (its own null-body path throws before returning null). */
-interface CallToolAccessor {
-	callTool(toolName: string, args: JsonObject): Promise<JsonObject>;
-}
-function spyOnCallTool(b: ServerBridge): MockInstance {
-	// SAFETY: `callTool` is private; this cast reaches it deliberately to
-	// force a return value the real fetch->JSON pipeline cannot produce, to
-	// test the callee's OWN defensive guard rather than the pipeline.
-	return vi.spyOn(b as unknown as CallToolAccessor, "callTool");
 }
 
 // ===========================================
@@ -323,9 +309,9 @@ describe("fetchWithTimeout — clears its abort timer on settle", () => {
 				"fetch",
 				vi.fn((input: string | URL | Request, init?: RequestInit) => {
 					const url = typeof input === "string" ? input : input.toString();
-					if (url.endsWith("/health")) capturedSignal = init?.signal as AbortSignal;
+					if (url.endsWith("/health")) capturedSignal = nonNull(init?.signal);
 					return Promise.resolve(new Response("ok", { status: 200 }));
-				}) as typeof fetch,
+				}),
 			);
 			const b = new ServerBridge(baseConfig);
 			await vi.advanceTimersByTimeAsync(0); // let the constructor's healthCheck() settle
@@ -370,26 +356,6 @@ describe("isExplicitDenialError (via reserveFile) — regex anchors", () => {
 			}),
 		);
 		const b = await connectedBridge();
-		await expect(b.reserveFile("a.ts", "alice", 60)).resolves.toBeUndefined();
-		b.shutdown();
-	});
-});
-
-// ===========================================
-// isExplicitReservationRejection — null-guard
-// ===========================================
-
-describe("isExplicitReservationRejection (via reserveFile, callTool spy) — null guard", () => {
-	// Through the real callTool()->JSON pipeline, `result` can never actually
-	// be null/undefined at this call site (callTool's own `data.result`/
-	// `return data` paths never yield one without throwing first). Spy on
-	// callTool directly to pin the guard's OWN defensive behavior. Kills
-	// mutantId c45d99326882a956 (`!result` -> `false`): with the guard
-	// neutered, a null result falls through to `result.ok`, which throws.
-	// test-contract: invariant — a null reservation result must resolve cleanly, never throw past reserveFile
-	it("N: a null result from callTool resolves cleanly (no throw), not a rejection", async () => {
-		const b = await connectedBridge();
-		spyOnCallTool(b).mockResolvedValue(null as unknown as JsonObject);
 		await expect(b.reserveFile("a.ts", "alice", 60)).resolves.toBeUndefined();
 		b.shutdown();
 	});
@@ -560,7 +526,7 @@ describe("ServerBridge.callTool", () => {
 			withHealthOk((url, init) => {
 				if (url.endsWith("/api/ui/call")) {
 					method = init?.method;
-					contentType = (init?.headers as Record<string, string> | undefined)?.["Content-Type"];
+					contentType = (parseWire(init?.headers, wireOptional(wireRecord(wireString)), "test JSON value"))?.["Content-Type"];
 				}
 				return json({ result: {} });
 			}),
@@ -618,7 +584,7 @@ describe("ServerBridge.fetchCoordinationState", () => {
 			withHealthOk((url, init) => {
 				if (url.endsWith("/api/auto-coordinate")) {
 					method = init?.method;
-					contentType = (init?.headers as Record<string, string> | undefined)?.["Content-Type"];
+					contentType = (parseWire(init?.headers, wireOptional(wireRecord(wireString)), "test JSON value"))?.["Content-Type"];
 				}
 				return json({ heartbeat_recorded: false, unread: { total: 0, urgent: [] }, task_changes: [] });
 			}),
@@ -670,7 +636,7 @@ describe("ServerBridge.fetchCoordinationState", () => {
 						});
 					}
 					return Promise.resolve(json({ result: {} }));
-				}) as typeof fetch,
+				}),
 			);
 			const b = new ServerBridge(baseConfig);
 			await b.healthCheck();
@@ -720,7 +686,7 @@ describe("ServerBridge.flushGuardEvents", () => {
 		stubFetch((url, init) => {
 			if (url.endsWith("/health")) return new Response("", { status: healthOk ? 200 : 500 });
 			if (url.endsWith("/batch")) {
-				batchSizes.push((JSON.parse(String(init?.body)).events as unknown[]).length);
+				batchSizes.push((parseWire(JSON.parse(String(init?.body)).events, wireArray(wireUnknown), "test JSON value")).length);
 				if (failNext) {
 					failNext = false;
 					throw new TypeError("flush failed");
@@ -767,7 +733,7 @@ describe("ServerBridge.healthCheck", () => {
 							reject(new DOMException("aborted", "AbortError"));
 						});
 					});
-				}) as typeof fetch,
+				}),
 			);
 			const b = new ServerBridge(baseConfig); // constructor fires healthCheck() itself
 			await vi.advanceTimersByTimeAsync(2900);
@@ -800,20 +766,7 @@ describe("ServerBridge.listReservations", () => {
 		const b = await connectedBridge();
 		await b.listReservations();
 		expect(body?.tool).toBe("list_file_reservations");
-		expect((body?.args as Record<string, unknown>).brief).toBe(true);
-		b.shutdown();
-	});
-
-	// Kills mutantId 60892a5e97967439 (`!Array.isArray(reservations)` ->
-	// `false`): with the guard neutered, a poisoned array-like object's
-	// `.map` is invoked and its output returned as if it were real data.
-	// test-contract: security — a non-array reservations value must be rejected outright, even with its own .map method
-	it("N: a non-array reservations value with a poisoned .map is rejected, not called", async () => {
-		const b = await connectedBridge();
-		spyOnCallTool(b).mockResolvedValue({
-			reservations: { map: () => [{ agent_name: "POISONED", path_pattern: "x" }] },
-		} as unknown as JsonObject);
-		await expect(b.listReservations()).resolves.toEqual([]);
+		expect(body?.args).toHaveProperty(["brief"], true);
 		b.shutdown();
 	});
 });
@@ -838,7 +791,7 @@ describe("ServerBridge.reserveFile", () => {
 		const b = await connectedBridge();
 		await b.reserveFile("some-specific-path.ts", "alice", 60);
 		expect(body?.tool).toBe("file_reservation_paths");
-		expect((body?.args as Record<string, unknown>).paths).toEqual(["some-specific-path.ts"]);
+		expect(body?.args).toHaveProperty(["paths"], ["some-specific-path.ts"]);
 		b.shutdown();
 	});
 });

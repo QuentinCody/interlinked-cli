@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { dispatchRpc, type DispatcherState } from "./daemon-dispatcher.js";
-import type { RpcError, RpcRequest, RpcResponse } from "./daemon-protocol.js";
+import type { RpcError, RpcResponse } from "./daemon-protocol.js";
 import type { TsgoRunner } from "./tsgo-runner.js";
 import { validateUnifiedEvent, type UnifiedHookEvent } from "./unified-event.js";
 
@@ -37,7 +37,7 @@ function makeState(overrides: Partial<DispatcherState> = {}): DispatcherState {
 }
 
 function isError(m: RpcResponse | RpcError): m is RpcError {
-	return (m as RpcError).error !== undefined;
+	return "error" in m;
 }
 
 const toolCallEvent: UnifiedHookEvent = {
@@ -63,7 +63,7 @@ describe("dispatchRpc — schema_mismatch exact wire shape", () => {
 	// test-contract: invariant — StringLiteral (message template -> ``) + BooleanLiteral (recoverable false -> true)
 	it("reports the exact message and recoverable=false", async () => {
 		const result = await dispatchRpc(
-			{ schema_version: "2" as unknown as "1", id: "r", method: "daemon.health", params: {} },
+			{ schema_version: "2", id: "r", method: "daemon.health", params: {} },
 			makeState(),
 		);
 		if (!isError(result)) throw new Error("expected error");
@@ -80,7 +80,7 @@ describe("dispatchRpc — unknown_method exact wire shape", () => {
 			id: "r12b",
 			method: "not.a.method",
 			params: {},
-		} as unknown as RpcRequest;
+		};
 		const result = await dispatchRpc(req, makeState());
 		if (!isError(result)) throw new Error("expected error");
 		expect(result.error.message).toBe("unknown method: not.a.method");
@@ -129,7 +129,7 @@ describe("dispatchRpc — case-label routing for hook methods", () => {
 describe("dispatchHookDecision — bad_request exact message", () => {
 	// test-contract: invariant — StringLiteral (`invalid event: ${...}` -> ``) + StringLiteral ("; " -> "")
 	it("joins multiple violations with the exact '; ' separator", async () => {
-		const badEvent = {} as UnifiedHookEvent;
+		const badEvent = {};
 		const violations = validateUnifiedEvent(badEvent);
 		expect(violations.length).toBeGreaterThan(1);
 		const result = await dispatchRpc(
@@ -164,7 +164,7 @@ describe("dispatchHookDecision — isLifecycleHookMethod branch", () => {
 			makeState(),
 		);
 		if (isError(result)) throw new Error(`unexpected error: ${result.error.code}`);
-		expect((result.result as { decision: string }).decision).toBe("allow");
+		expect((result.result).decision).toBe("allow");
 	});
 });
 
@@ -180,7 +180,7 @@ describe("dispatchTsgoCheck — guard clause + error shape", () => {
 				schema_version: "1",
 				id: "rc1",
 				method: "tsgo.check_file",
-				params: undefined as unknown as { path: string },
+				params: undefined,
 			},
 			state,
 		);
@@ -198,7 +198,7 @@ describe("dispatchTsgoCheck — guard clause + error shape", () => {
 				schema_version: "1",
 				id: "rc2",
 				method: "tsgo.check_file",
-				params: { path: 123 as unknown as string },
+				params: { path: 123 },
 			},
 			state,
 		);
@@ -258,7 +258,7 @@ describe("dispatchTsgoSimulate — guard clause + error shape", () => {
 				schema_version: "1",
 				id: "rs1",
 				method: "tsgo.simulate_edit",
-				params: undefined as unknown as { path: string; old_string: string; new_string: string },
+				params: undefined,
 			},
 			state,
 		);
@@ -275,7 +275,7 @@ describe("dispatchTsgoSimulate — guard clause + error shape", () => {
 				schema_version: "1",
 				id: "rs2",
 				method: "tsgo.simulate_edit",
-				params: { path: 123 as unknown as string, old_string: "x", new_string: "y" },
+				params: { path: 123, old_string: "x", new_string: "y" },
 			},
 			state,
 		);
@@ -292,7 +292,7 @@ describe("dispatchTsgoSimulate — guard clause + error shape", () => {
 				schema_version: "1",
 				id: "rs3",
 				method: "tsgo.simulate_edit",
-				params: { path: "/a.ts", old_string: 1 as unknown as string, new_string: "y" },
+				params: { path: "/a.ts", old_string: 1, new_string: "y" },
 			},
 			state,
 		);
@@ -309,7 +309,7 @@ describe("dispatchTsgoSimulate — guard clause + error shape", () => {
 				schema_version: "1",
 				id: "rs4",
 				method: "tsgo.simulate_edit",
-				params: { path: "/a.ts", old_string: "x", new_string: 1 as unknown as string },
+				params: { path: "/a.ts", old_string: "x", new_string: 1 },
 			},
 			state,
 		);
@@ -325,11 +325,7 @@ describe("dispatchTsgoSimulate — guard clause + error shape", () => {
 				schema_version: "1",
 				id: "rs5",
 				method: "tsgo.simulate_edit",
-				params: { path: "/a.ts", old_string: "x" } as unknown as {
-					path: string;
-					old_string: string;
-					new_string: string;
-				},
+				params: { path: "/a.ts", old_string: "x" },
 			},
 			makeState(),
 		);
@@ -388,7 +384,7 @@ describe("buildHealthResponse — warm_caches + uptime exact values", () => {
 			state,
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		const health = result.result as { warm_caches: string[] };
+		const health = result.result;
 		expect(health.warm_caches).toEqual([]);
 	});
 
@@ -403,7 +399,7 @@ describe("buildHealthResponse — warm_caches + uptime exact values", () => {
 			state,
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		const health = result.result as { warm_caches: string[] };
+		const health = result.result;
 		expect(health.warm_caches).toEqual(["tsgo"]);
 	});
 
@@ -418,7 +414,7 @@ describe("buildHealthResponse — warm_caches + uptime exact values", () => {
 			state,
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		const health = result.result as { warm_caches: string[] };
+		const health = result.result;
 		expect(health.warm_caches).toEqual(["mtime"]);
 	});
 
@@ -430,7 +426,7 @@ describe("buildHealthResponse — warm_caches + uptime exact values", () => {
 			state,
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		const health = result.result as { uptime_ms: number };
+		const health = result.result;
 		expect(health.uptime_ms).toBe(100);
 	});
 });

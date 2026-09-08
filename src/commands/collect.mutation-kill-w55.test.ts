@@ -1,17 +1,18 @@
+import { parseWire, wireString } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Command } from "commander";
 
-const collectCodexSessionsMock = vi.fn();
-const codexSessionsDirMock = vi.fn(() => "/mock/codex/sessions");
-const parseDurationMock = vi.fn();
+const collectCodexSessionsMock = vi.fn<typeof import("../harness/codex-collect.js").collectCodexSessions>();
+const codexSessionsDirMock = vi.fn<typeof import("../harness/codex-collect.js").codexSessionsDir>(() => "/mock/codex/sessions");
+const parseDurationMock = vi.fn<typeof import("../lib/activity-utils.js").parseDuration>();
 
 vi.mock("../harness/codex-collect.js", () => ({
-	collectCodexSessions: (...args: any[]) => (collectCodexSessionsMock as any)(...args),
-	codexSessionsDir: (...args: any[]) => (codexSessionsDirMock as any)(...args),
+	collectCodexSessions: (...args: Parameters<typeof collectCodexSessionsMock>) => collectCodexSessionsMock(...args),
+	codexSessionsDir: (...args: Parameters<typeof codexSessionsDirMock>) => codexSessionsDirMock(...args),
 }));
 
 vi.mock("../lib/activity-utils.js", () => ({
-	parseDuration: (...args: any[]) => (parseDurationMock as any)(...args),
+	parseDuration: (...args: Parameters<typeof parseDurationMock>) => parseDurationMock(...args),
 }));
 
 import { registerCollectCommand } from "./collect.js";
@@ -56,7 +57,7 @@ describe("collect command", () => {
 	// bfe9898de7931d7b: reportCollectError's `ok: false` -> `ok: true`
 	it("emits ok:false in the json error envelope for an unsupported provider", async () => {
 		await runCollect(["--provider", "bogus", "--json"]);
-		const parsed = JSON.parse(logSpy.mock.calls[0][0] as string);
+		const parsed = JSON.parse(parseWire(logSpy.mock.calls[0][0], wireString, "test JSON value"));
 		expect(parsed.ok).toBe(false);
 		expect(typeof parsed.error).toBe("string");
 	});
@@ -68,7 +69,7 @@ describe("collect command", () => {
 
 		await runCollect(["--json"]);
 
-		const parsed = JSON.parse(logSpy.mock.calls[0][0] as string);
+		const parsed = JSON.parse(parseWire(logSpy.mock.calls[0][0], wireString, "test JSON value"));
 		expect(parsed).toEqual({ ok: false, error: "timeline contains a malformed row" });
 		expect(process.exitCode).toBe(2);
 	});
@@ -89,13 +90,13 @@ describe("collect command", () => {
 	// 7c042b165641cafd: `provider === "claude" || provider === "claude-code"` -> true
 	it("gives a generic unknown-provider message for a non-claude, non-codex provider", async () => {
 		await runCollect(["--provider", "foo", "--json"]);
-		const parsed = JSON.parse(logSpy.mock.calls[0][0] as string);
+		const parsed = JSON.parse(parseWire(logSpy.mock.calls[0][0], wireString, "test JSON value"));
 		expect(parsed.error).toBe('Unknown provider "foo". Supported: codex.');
 	});
 
 	it("gives the claude-specific message only for claude/claude-code providers", async () => {
 		await runCollect(["--provider", "claude", "--json"]);
-		const parsed = JSON.parse(logSpy.mock.calls[0][0] as string);
+		const parsed = JSON.parse(parseWire(logSpy.mock.calls[0][0], wireString, "test JSON value"));
 		expect(parsed.error).toMatch(/Claude sessions are already captured/);
 	});
 
@@ -128,7 +129,7 @@ describe("collect command", () => {
 	// 0b11a0443c28169b: `if (opts.json)` -> true
 	it("prints human-readable text, not json, when --json is not passed", async () => {
 		await runCollect([]);
-		const output = logSpy.mock.calls[0][0] as string;
+		const output = parseWire(logSpy.mock.calls[0][0], wireString, "test JSON value");
 		expect(output.startsWith("{")).toBe(false);
 		expect(output).toContain("codex: scanned");
 	});
@@ -148,7 +149,7 @@ describe("collect command", () => {
 
 	it("reports dryRun:true in the json envelope when --dry-run --json are set", async () => {
 		await runCollect(["--dry-run", "--json"]);
-		const parsed = JSON.parse(logSpy.mock.calls[0][0] as string);
+		const parsed = JSON.parse(parseWire(logSpy.mock.calls[0][0], wireString, "test JSON value"));
 		expect(parsed.dryRun).toBe(true);
 	});
 
@@ -156,7 +157,7 @@ describe("collect command", () => {
 	it("uses the word 'added' (not 'would add') when --dry-run is not set", async () => {
 		collectCodexSessionsMock.mockReturnValue({ files: 1, sessions: 1, added: 3, parsed: 3 });
 		await runCollect([]);
-		const output = logSpy.mock.calls[0][0] as string;
+		const output = parseWire(logSpy.mock.calls[0][0], wireString, "test JSON value");
 		expect(output).toContain("added 3 new record(s)");
 		expect(output).not.toContain("would add");
 	});
@@ -164,7 +165,7 @@ describe("collect command", () => {
 	it("uses the phrase 'would add' when --dry-run is set", async () => {
 		collectCodexSessionsMock.mockReturnValue({ files: 1, sessions: 1, added: 3, parsed: 3 });
 		await runCollect(["--dry-run"]);
-		const output = logSpy.mock.calls[0][0] as string;
+		const output = parseWire(logSpy.mock.calls[0][0], wireString, "test JSON value");
 		expect(output).toContain("would add 3 new record(s)");
 	});
 
@@ -172,7 +173,7 @@ describe("collect command", () => {
 	it("prints the full scanned-files summary sentence", async () => {
 		collectCodexSessionsMock.mockReturnValue({ files: 7, sessions: 4, added: 2, parsed: 9 });
 		await runCollect([]);
-		const output = logSpy.mock.calls[0][0] as string;
+		const output = parseWire(logSpy.mock.calls[0][0], wireString, "test JSON value");
 		expect(output).toBe(
 			"codex: scanned 7 rollout file(s) across 4 session(s); added 2 new record(s) to .interlinked/timeline.jsonl (parsed 9).",
 		);

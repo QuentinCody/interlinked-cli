@@ -1,3 +1,4 @@
+import { isJsonObject } from "./json-types.js";
 // ===========================================
 // Hook version — resolved from the BUILT bundle, not the source tree
 // ===========================================
@@ -32,7 +33,7 @@ const DIST_CLI = join(REPO_ROOT, "dist", "index.js");
 
 function ownVersion(): string {
 	const pkg: unknown = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf-8"));
-	const version = (pkg as { version?: unknown }).version;
+	const version = isJsonObject(pkg) ? pkg.version : undefined;
 	if (typeof version !== "string") throw new Error("package.json has no string version");
 	return version;
 }
@@ -84,8 +85,8 @@ describe("hook version resolved from the built bundle", () => {
 		"P: `context --json` from dist reports THIS package's version, not an ancestor's",
 		() => {
 			const parsed = runBuiltContext();
-			const hooks = (parsed as { hooks?: { current_version?: unknown } }).hooks;
-			const current = hooks?.current_version;
+			const hooks = isJsonObject(parsed) ? parsed.hooks : undefined;
+			const current = isJsonObject(hooks) ? hooks.current_version : undefined;
 			expect(typeof current).toBe("string");
 			// The version may carry a `+mode-<preset>` suffix; the base must be ours.
 			expect(String(current).split("+")[0]).toBe(ownVersion());
@@ -101,12 +102,11 @@ describe("hook version resolved from the built bundle", () => {
 			const ancestorPkg = join(REPO_ROOT, "..", "package.json");
 			if (!existsSync(ancestorPkg)) return; // nothing to be confused by here
 			const ancestor: unknown = JSON.parse(readFileSync(ancestorPkg, "utf-8"));
-			const ancestorVersion = (ancestor as { version?: unknown }).version;
+			const ancestorVersion = isJsonObject(ancestor) ? ancestor.version : undefined;
 			if (typeof ancestorVersion !== "string" || ancestorVersion === ownVersion()) return;
 			const parsed = runBuiltContext();
-			const current = String(
-				(parsed as { hooks?: { current_version?: unknown } }).hooks?.current_version ?? "",
-			);
+			const hooks = isJsonObject(parsed) ? parsed.hooks : undefined;
+			const current = String(isJsonObject(hooks) ? hooks.current_version ?? "" : "");
 			expect(current.split("+")[0]).not.toBe(ancestorVersion);
 		},
 	);

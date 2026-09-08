@@ -28,7 +28,8 @@ import type { ActivityEvent } from "../lib/activity-utils.js";
 import type { EventAttribution, LocalActivityEvent } from "../lib/local-activity.js";
 
 // ---- module boundary mocks (the only things that touch fs / network) ----
-vi.mock("../lib/api-client.js", () => ({
+vi.mock("../lib/api-client.js", async (importOriginal) => ({
+	...await importOriginal<typeof import("../lib/api-client.js")>(),
 	getClient: vi.fn(),
 }));
 
@@ -43,7 +44,7 @@ vi.mock("../lib/local-activity.js", async (importOriginal) => {
 	};
 });
 
-import { getClient } from "../lib/api-client.js";
+import { getClient, InterlinkedClient } from "../lib/api-client.js";
 import { readLocalActivity } from "../lib/local-activity.js";
 import { explainCommand } from "./explain.js";
 
@@ -116,19 +117,21 @@ function localEvent(over: Partial<LocalActivityEvent> = {}): LocalActivityEvent 
 }
 
 /** A fake api-client whose callTool behavior is configurable per test. */
-function fakeClient(callTool: () => Promise<unknown>): { callTool: () => Promise<unknown> } {
-	return { callTool };
+function fakeClient(callTool: () => Promise<unknown>): InterlinkedClient {
+	const client = new InterlinkedClient({ serverUrl: "https://api.example", token: "test-token" });
+	vi.spyOn(client, "callTool").mockImplementation(callTool);
+	return client;
 }
 /** Wire getClient → a client whose callTool resolves to `value`. */
 function serverResolves(value: unknown): void {
 	mocks.getClient.mockReturnValue(
-		fakeClient(() => Promise.resolve(value)) as unknown as ReturnType<typeof getClient>,
+		fakeClient(() => Promise.resolve(value)),
 	);
 }
 /** Wire getClient → a client whose callTool rejects (server-down path). */
 function serverRejects(err: unknown = new Error("server down")): void {
 	mocks.getClient.mockReturnValue(
-		fakeClient(() => Promise.reject(err)) as unknown as ReturnType<typeof getClient>,
+		fakeClient(() => Promise.reject(err)),
 	);
 }
 
@@ -159,7 +162,7 @@ describe("explainCommand — data fetch wiring", () => {
 	it("passes the parsed since-window and limits into readLocalActivity and callTool", async () => {
 		const callTool = vi.fn().mockResolvedValue({ events: [] });
 		mocks.getClient.mockReturnValue(
-			fakeClient(callTool) as unknown as ReturnType<typeof getClient>,
+			fakeClient(callTool),
 		);
 
 		await explainCommand({ since: "30m" });
@@ -646,7 +649,7 @@ describe("explainCommand — short mode", () => {
 	it("renders the normal-mode output (explain provides no dedicated short renderer)", async () => {
 		serverResolves({ events: [serverEvent({ tool_input_summary: "short.ts" })] });
 
-		await explainCommand({ short: true } as Parameters<typeof explainCommand>[0]);
+		await explainCommand({ short: true });
 
 		// Falls through to renderers.normal() → same header + count as normal mode.
 		const out = logged();
@@ -675,7 +678,7 @@ describe("explainCommand — short mode", () => {
 		await explainCommand({
 			short: true,
 			full: true,
-		} as Parameters<typeof explainCommand>[0]);
+		});
 
 		const out = logged();
 		expect(out).toContain("Timeline (last 1h)"); // the NORMAL header, not the full one

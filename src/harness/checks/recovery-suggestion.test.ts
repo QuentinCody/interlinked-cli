@@ -187,8 +187,8 @@ describe("suggestRecovery — fallback by label (no template match)", () => {
 	});
 
 	it("label with no fallback entry at all → returns null", () => {
-		// Force a label that isn't a key in FALLBACK_BY_LABEL.
 		const triage = makeTriage("agent-error", "x");
+		// SAFETY: the invalid triage label deliberately exercises the missing-fallback branch outside the declared label union.
 		const bogus: TriageResult = { ...triage, label: "not-a-real-label" as TriageLabel };
 		const out = suggestRecovery(makeEvent(), bogus);
 		expect(out).toBeNull();

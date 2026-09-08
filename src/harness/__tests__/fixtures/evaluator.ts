@@ -5,15 +5,21 @@ import type { HarnessEvent, SessionTrajectory } from "../../types.js";
 export const FIXED_NOW = 1_700_000_000_000;
 export const FIXED_TIMESTAMP = new Date(FIXED_NOW).toISOString();
 
-export function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
+export function makeMinimalEvent(): HarnessEvent {
 	return {
 		hook_event: "PreToolUse",
 		session_id: "test-session",
 		agent_source: "claude",
+		timestamp: FIXED_TIMESTAMP,
+	};
+}
+
+export function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
+	return {
+		...makeMinimalEvent(),
 		agent_name: "test-agent",
 		tool_name: "Bash",
 		tool_input: { command: "ls -la" },
-		timestamp: FIXED_TIMESTAMP,
 		...overrides,
 	};
 }

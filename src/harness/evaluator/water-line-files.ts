@@ -58,9 +58,7 @@ export const WATER_LINE_RE = new RegExp(
 /** The water-line stem a path names, or null when it names no water-line. */
 export function waterLineStem(filePath: string): WaterLineStem | null {
 	const match = WATER_LINE_RE.exec(filePath.replace(/\\/g, "/"));
-	// SAFETY: group 1 of WATER_LINE_RE is an alternation built from
-	// WATER_LINE_FILES, so any capture is by construction a WaterLineStem.
-	return (match?.[1] as WaterLineStem | undefined) ?? null;
+	return WATER_LINE_FILES.find((stem) => stem === match?.[1]) ?? null;
 }
 
 /** True when `filePath` names a `.interlinked/` water-line file. */

@@ -1,3 +1,5 @@
+import { wireAbsentOptional, wireLiteral } from "../lib/value-validation.js";
+import { parseWire, wireArray, wireBoolean, wireNumber, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked adopt — ratchet-from-here bootstrap tests
 // ===========================================
@@ -59,19 +61,19 @@ function seedFixture(): void {
 }
 
 /** Run adopt with --json and return the parsed step results. */
-async function runAdopt(opts: { dryRun?: boolean } = {}): Promise<AdoptStepResult[]> {
+async function runAdopt(opts: Parameters<typeof adoptCommand>[0] = {}): Promise<AdoptStepResult[]> {
 	const spy = vi.spyOn(console, "log").mockImplementation(() => {});
 	try {
 		await adoptCommand({ cwd, json: true, ...opts });
-		const raw = spy.mock.calls.at(-1)?.[0] as string;
-		return (JSON.parse(raw) as { steps: AdoptStepResult[] }).steps;
+		const raw = parseWire(spy.mock.calls.at(-1)?.[0], wireString, "test JSON value");
+		return (parseWire(JSON.parse(raw), wireObject({ "steps": wireArray(wireObject({ "step": wireLiteral("index", "large_files", "untested_files", "coverage", "metric_caps", "allowlist_snapshot", "suite_baseline"), "label": wireString, "action": wireLiteral("written", "would-write", "unchanged", "failed"), "detail": wireString, "note": wireAbsentOptional(wireString), "kept_tighter": wireAbsentOptional(wireNumber) })) }), "test JSON value")).steps;
 	} finally {
 		spy.mockRestore();
 	}
 }
 
 function readJson(rel: string): Record<string, unknown> {
-	return JSON.parse(readFileSync(join(cwd, rel), "utf-8")) as Record<string, unknown>;
+	return parseWire(JSON.parse(readFileSync(join(cwd, rel), "utf-8")), wireRecord(wireUnknown), "test JSON value");
 }
 
 beforeAll(() => {
@@ -116,14 +118,14 @@ describe("interlinked adopt — full run", () => {
 		// (b) over-cap file grandfathered at its current count; cap preserved
 		const large = readJson(".interlinked/large-files-baseline.json");
 		expect(large.max_lines).toBe(DEFAULT_MAX_LINES);
-		expect((large.files as Record<string, number>)["src/big.ts"]).toBe(DEFAULT_MAX_LINES + 50);
+		expect(large).toHaveProperty(["files","src/big.ts"], DEFAULT_MAX_LINES + 50);
 		// non-code / under-cap files must NOT be grandfathered
-		expect(Object.keys(large.files as Record<string, number>)).toEqual(["src/big.ts"]);
+		expect(Object.keys(parseWire(large.files, wireRecord(wireNumber), "test JSON value"))).toEqual(["src/big.ts"]);
 
 		// (c) untested files exempted; tested + data-only files excluded
 		const untested = readJson(".interlinked/untested-files-baseline.json");
 		expect(untested.min_coverage_pct).toBe(DEFAULT_MIN_COVERAGE_PCT);
-		const files = untested.files as string[];
+		const files = parseWire(untested.files, wireArray(wireString), "test JSON value");
 		expect(files).toContain("src/untested.ts");
 		expect(files).toContain("src/big.ts");
 		expect(files).not.toContain("src/tested.ts");
@@ -157,7 +159,7 @@ describe("interlinked adopt — full run", () => {
 		expect(snap?.action).toBe("written");
 		expect(snap?.detail).toContain("package.json");
 		const allowlist = readJson(".interlinked/package-allowlist.json");
-		const snaps = allowlist.lockfile_snapshots as Record<string, { approved_by: string }>;
+		const snaps = parseWire(allowlist.lockfile_snapshots, wireRecord(wireObject({ "approved_by": wireString })), "test JSON value");
 		expect(snaps["package.json"]?.approved_by).toBe("adopt");
 	});
 
@@ -191,7 +193,7 @@ describe("interlinked adopt — full run", () => {
 		);
 		const steps = await runAdopt();
 		const large = readJson(".interlinked/large-files-baseline.json");
-		expect((large.files as Record<string, number>)["src/big.ts"]).toBe(tighter);
+		expect(large).toHaveProperty(["files","src/big.ts"], tighter);
 		expect(steps[1]?.kept_tighter).toBe(1);
 		expect(steps[1]?.detail).toContain("kept at their tighter recorded count");
 	});
@@ -205,7 +207,7 @@ describe("interlinked adopt — full run", () => {
 		const large = readJson(".interlinked/large-files-baseline.json");
 		expect(large.files).toEqual({});
 		const untested = readJson(".interlinked/untested-files-baseline.json");
-		expect(untested.files as string[]).not.toContain("src/untested.ts");
+		expect(untested.files).not.toContain("src/untested.ts");
 		expect(steps[2]?.detail).toContain("1 dropped");
 	});
 });
@@ -222,7 +224,7 @@ describe("interlinked adopt — coverage report handling", () => {
 		const steps = await runAdopt();
 		// coverage >= threshold counts the companion-less file as tested
 		const untested = readJson(".interlinked/untested-files-baseline.json");
-		expect(untested.files as string[]).not.toContain("src/untested.ts");
+		expect(untested.files).not.toContain("src/untested.ts");
 		// and the coverage baseline records the high-water
 		const baseline = loadBaseline(join(cwd, ".interlinked"));
 		expect(baseline.files["src/untested.ts"]?.lines_pct).toBe(90);
@@ -349,7 +351,7 @@ describe("interlinked adopt — default cwd (opts.cwd omitted)", () => {
 		let raw: string;
 		try {
 			await adoptCommand({ json: true, dryRun: true });
-			raw = spy.mock.calls.at(-1)?.[0] as string;
+			raw = parseWire(spy.mock.calls.at(-1)?.[0], wireString, "test JSON value");
 		} finally {
 			spy.mockRestore();
 			cwdSpy.mockRestore();
@@ -357,17 +359,14 @@ describe("interlinked adopt — default cwd (opts.cwd omitted)", () => {
 		// dry-run: nothing written, but the JSON payload should report cwd
 		// as the fixture directory we chdir'd into. process.cwd() resolves
 		// macOS's /tmp -> /private/tmp symlink, so compare resolved forms.
-		const parsed = JSON.parse(raw) as { cwd: string };
+		const parsed = parseWire(JSON.parse(raw), wireObject({ "cwd": wireString }), "test JSON value");
 		expect(parsed.cwd).toBe(realpathSync(cwd));
 	});
 });
 
 describe("interlinked adopt — suiteBaseline opt-in step", () => {
 	it("adds a 7th step when suiteBaseline is requested", async () => {
-		const steps = await runAdopt({ dryRun: true, suiteBaseline: true } as {
-			dryRun?: boolean;
-			suiteBaseline?: boolean;
-		});
+		const steps = await runAdopt({ dryRun: true, suiteBaseline: true });
 		expect(steps).toHaveLength(7);
 		expect(steps[6]?.step).toBe("suite_baseline");
 		// The synthetic fixture has no package.json / test runner config, so
@@ -395,7 +394,7 @@ describe("interlinked adopt — unreadable file during the offender scan", () =>
 				"allowlist_snapshot",
 			]);
 			const large = readJson(".interlinked/large-files-baseline.json");
-			expect(Object.keys(large.files as Record<string, number>)).not.toContain(
+			expect(Object.keys(parseWire(large.files, wireRecord(wireNumber), "test JSON value"))).not.toContain(
 				"src/unreadable.ts",
 			);
 		} finally {
@@ -458,7 +457,7 @@ describe("interlinked adopt — mutation-kill additions (wave 28)", () => {
 			expect(spy).toHaveBeenCalledTimes(1);
 			// SAFETY: adoptCommand's json branch always logs a JSON.stringify
 			// of {cwd, dry_run, steps} — parsing the sole call's argument here.
-			const parsed = JSON.parse(spy.mock.calls[0]?.[0] as string) as { dry_run: boolean };
+			const parsed = parseWire(JSON.parse(parseWire(spy.mock.calls[0]?.[0], wireString, "test JSON value")), wireObject({ "dry_run": wireBoolean }), "test JSON value");
 			expect(parsed.dry_run).toBe(true);
 		} finally {
 			spy.mockRestore();
@@ -545,9 +544,9 @@ describe("interlinked adopt — mutation-kill additions (wave 28)", () => {
 	// empty; a seeded junk entry would leak into the written baseline.
 	it("does not leak a seeded junk entry into the untested-files list", async () => {
 		const steps = await runAdopt();
-		const untested = JSON.parse(
+		const untested = parseWire(JSON.parse(
 			readFileSync(join(cwd, ".interlinked/untested-files-baseline.json"), "utf-8"),
-		) as { files: string[] };
+		), wireObject({ "files": wireArray(wireString) }), "test JSON value");
 		expect(untested.files).not.toContain("Stryker was here");
 		expect(untested.files).toHaveLength(2);
 		void steps;
@@ -558,9 +557,9 @@ describe("interlinked adopt — mutation-kill additions (wave 28)", () => {
 	it("does not grandfather a file at exactly the line cap (boundary is exclusive)", async () => {
 		put("src/exact.ts", bigFileContent(DEFAULT_MAX_LINES));
 		const steps = await runAdopt();
-		const large = JSON.parse(
+		const large = parseWire(JSON.parse(
 			readFileSync(join(cwd, ".interlinked/large-files-baseline.json"), "utf-8"),
-		) as { files: Record<string, number> };
+		), wireObject({ "files": wireRecord(wireNumber) }), "test JSON value");
 		expect(Object.keys(large.files)).not.toContain("src/exact.ts");
 		void steps;
 	});
@@ -570,9 +569,9 @@ describe("interlinked adopt — mutation-kill additions (wave 28)", () => {
 	it("normalizes a literal backslash in a file name to a forward slash", async () => {
 		put("src/odd\\name.ts", "export function w(x: number): number { return x; }\n");
 		await runAdopt();
-		const untested = JSON.parse(
+		const untested = parseWire(JSON.parse(
 			readFileSync(join(cwd, ".interlinked/untested-files-baseline.json"), "utf-8"),
-		) as { files: string[] };
+		), wireObject({ "files": wireArray(wireString) }), "test JSON value");
 		expect(untested.files).toContain("src/odd/name.ts");
 		expect(untested.files).not.toContain("src/odd\\name.ts");
 	});

@@ -29,18 +29,15 @@ interface FakeChild extends EventEmitter {
 }
 
 function makeFakeChild(): FakeChild {
-    const child = new EventEmitter() as FakeChild;
-    child.stdin = Object.assign(new EventEmitter(), {
-        writable: true,
-        write: vi.fn(),
-        end: vi.fn(),
-    });
-    child.stdout = new EventEmitter();
-    child.stderr = new EventEmitter();
-    child.killed = false;
-    child.kill = vi.fn((_signal?: string) => {
-        child.killed = true;
-        return true;
+    const child: FakeChild = Object.assign(new EventEmitter(), {
+        stdin: Object.assign(new EventEmitter(), { writable: true, write: vi.fn(), end: vi.fn() }),
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+        killed: false,
+        kill: vi.fn((_signal?: string) => {
+            child.killed = true;
+            return true;
+        }),
     });
     return child;
 }
@@ -111,7 +108,7 @@ describe("runMcpStdioProxy — happy path", () => {
 
         // Forwarded SIGINT: the module's process.once("SIGINT", ...) handler
         // should kill the still-alive child.
-        process.emit("SIGINT" as NodeJS.Signals);
+        process.emit("SIGINT");
         expect(child.kill).toHaveBeenCalledWith("SIGINT");
         expect(child.killed).toBe(true);
 

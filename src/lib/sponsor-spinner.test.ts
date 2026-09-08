@@ -2,6 +2,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { isJsonObject } from "./json-types.js";
 import { addSponsorSpinnerVerb, removeSponsorSpinnerVerbs } from "./sponsor-spinner.js";
 
 const ESC = String.fromCharCode(27);
@@ -19,7 +20,9 @@ describe("sponsor spinner verb management", () => {
 	});
 
 	function readSettings(): Record<string, unknown> {
-		return JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
+		const value: unknown = JSON.parse(readFileSync(settingsPath, "utf8"));
+		if (!isJsonObject(value)) throw new Error("Expected installed settings object");
+		return value;
 	}
 
 	it("creates the file and an append-mode entry when nothing exists", () => {

@@ -1,3 +1,5 @@
+import { wireLiteral } from "../lib/value-validation.js";
+import { parseWire, wireArray, wireBoolean, wireObject, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked telemetry — behavioral coverage
 // ===========================================
@@ -99,7 +101,7 @@ vi.mock("node:readline", () => ({
 		const rl: FakeRl = {
 			lineHandlers: [],
 			closeHandlers: [],
-			input: opts.input as FakeRl["input"],
+			input: opts.input,
 			emitLine: (line: string) => {
 				for (const h of rl.lineHandlers) h(line);
 			},
@@ -108,9 +110,9 @@ vi.mock("node:readline", () => ({
 			},
 		};
 		const api = {
-			on: (event: string, handler: (...a: never[]) => void) => {
-				if (event === "line") rl.lineHandlers.push(handler as (l: string) => void);
-				if (event === "close") rl.closeHandlers.push(handler as () => void);
+			on: (event: string, handler: (...args: unknown[]) => void) => {
+				if (event === "line") rl.lineHandlers.push(handler);
+				if (event === "close") rl.closeHandlers.push(handler);
 				return api;
 			},
 		};
@@ -124,7 +126,8 @@ vi.mock("node:readline", () => ({
 // captures the path the command resolved so we can assert default-vs-custom.
 let readAllImpl: () => SpoolEvent[];
 let lastSpoolOpts: { spoolPath: string } | undefined;
-vi.mock("../harness/telemetry-spool.js", () => ({
+vi.mock("../harness/telemetry-spool.js", async (importOriginal) => ({
+	...await importOriginal<typeof import("../harness/telemetry-spool.js")>(),
 	createTelemetrySpool: (opts: { spoolPath: string }) => {
 		lastSpoolOpts = opts;
 		return { readAll: () => readAllImpl() };
@@ -148,7 +151,7 @@ function ev(overrides: Partial<SpoolEvent> = {}): SpoolEvent {
 		ts: "2026-04-23T00:00:00.000Z",
 		session_id: "s1",
 		...overrides,
-	} as SpoolEvent;
+	};
 }
 
 beforeEach(() => {
@@ -163,10 +166,10 @@ beforeEach(() => {
 	readAllImpl = () => [];
 	lastSpoolOpts = undefined;
 	vi.spyOn(process, "cwd").mockReturnValue("/repo");
-	vi.spyOn(process.stdout, "write").mockImplementation(((buf: string | Uint8Array) => {
+	vi.spyOn(process.stdout, "write").mockImplementation((buf: string | Uint8Array) => {
 		out += typeof buf === "string" ? buf : Buffer.from(buf).toString("utf-8");
 		return true;
-	}) as unknown as typeof process.stdout.write);
+	});
 });
 
 afterEach(() => {
@@ -193,7 +196,7 @@ describe("telemetryShowCommand — missing spool", () => {
 		await telemetryShowCommand({ json: true });
 		const text = captured();
 		expect(text.endsWith("\n")).toBe(true);
-		const payload = JSON.parse(text) as { ok: boolean; events: unknown[]; path: string };
+		const payload = parseWire(JSON.parse(text), wireObject({ "ok": wireBoolean, "events": wireArray(wireUnknown), "path": wireString }), "test JSON value");
 		expect(payload).toEqual({ ok: true, events: [], path: DEFAULT_PATH });
 		expect(lastSpoolOpts).toBeUndefined();
 	});
@@ -233,7 +236,7 @@ describe("telemetryShowCommand — static text output", () => {
 	});
 
 	it("non-string session_id collapses to '-' placeholder", async () => {
-		readAllImpl = () => [ev({ kind: "session_lifecycle", session_id: 12345 as unknown as string })];
+		readAllImpl = () => [ev({ kind: "session_lifecycle", session_id: 12345 })];
 		await telemetryShowCommand({});
 		expect(captured()).toContain(` ${"-".padEnd(20)} \n`);
 	});
@@ -257,7 +260,7 @@ describe("telemetryShowCommand — static json output", () => {
 		const text = captured();
 		// Pretty-printed (2-space indent) -> contains newlines inside the object.
 		expect(text).toContain('\n  "ok": true');
-		const payload = JSON.parse(text) as { ok: boolean; events: SpoolEvent[]; path: string };
+		const payload = parseWire(JSON.parse(text), wireObject({ "ok": wireBoolean, "events": wireArray(wireObject({ "schema": wireLiteral("v1"), "kind": wireLiteral("custom", "hook_decision", "check_finding", "session_lifecycle", "daemon_event", "suppression_applied", "daemon_fallback_cold", "budget_exceeded"), "ts": wireString })), "path": wireString }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		expect(payload.path).toBe(DEFAULT_PATH);
 		expect(payload.events).toHaveLength(1);
@@ -267,7 +270,7 @@ describe("telemetryShowCommand — static json output", () => {
 	it("empty spool yields an empty events array in json mode", async () => {
 		readAllImpl = () => [];
 		await telemetryShowCommand({ json: true });
-		const payload = JSON.parse(captured()) as { events: unknown[] };
+		const payload = parseWire(JSON.parse(captured()), wireObject({ "events": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.events).toEqual([]);
 	});
 });
@@ -286,35 +289,35 @@ describe("telemetryShowCommand — limit slicing", () => {
 	it("valid --limit keeps the last N (slice(-limit)) preserving order", async () => {
 		readAllImpl = tenEvents;
 		await telemetryShowCommand({ limit: "3", json: true });
-		const payload = JSON.parse(captured()) as { events: Array<{ session_id: string }> };
+		const payload = parseWire(JSON.parse(captured()), wireObject({ "events": wireArray(wireObject({ "session_id": wireString })) }), "test JSON value");
 		expect(payload.events.map((e) => e.session_id)).toEqual(["s-7", "s-8", "s-9"]);
 	});
 
 	it("no --limit returns the whole list (limit null -> no slice)", async () => {
 		readAllImpl = tenEvents;
 		await telemetryShowCommand({ json: true });
-		const payload = JSON.parse(captured()) as { events: unknown[] };
+		const payload = parseWire(JSON.parse(captured()), wireObject({ "events": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.events).toHaveLength(10);
 	});
 
 	it("--limit 0 is treated as no limit (parseLimit -> null)", async () => {
 		readAllImpl = tenEvents;
 		await telemetryShowCommand({ limit: "0", json: true });
-		const payload = JSON.parse(captured()) as { events: unknown[] };
+		const payload = parseWire(JSON.parse(captured()), wireObject({ "events": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.events).toHaveLength(10);
 	});
 
 	it("negative --limit is rejected (parseLimit n>0 guard -> null)", async () => {
 		readAllImpl = tenEvents;
 		await telemetryShowCommand({ limit: "-4", json: true });
-		const payload = JSON.parse(captured()) as { events: unknown[] };
+		const payload = parseWire(JSON.parse(captured()), wireObject({ "events": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.events).toHaveLength(10);
 	});
 
 	it("non-numeric --limit is rejected (NaN -> null)", async () => {
 		readAllImpl = tenEvents;
 		await telemetryShowCommand({ limit: "abc", json: true });
-		const payload = JSON.parse(captured()) as { events: unknown[] };
+		const payload = parseWire(JSON.parse(captured()), wireObject({ "events": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.events).toHaveLength(10);
 	});
 });

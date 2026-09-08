@@ -312,10 +312,10 @@ class SqliteMutationJournal implements MutationJournal {
 	#claimed(row: DbRow, token: string, expires: number): ClaimedMutationJob {
 		const jobId = stringField(row, "job_id");
 		const status = stringField(row, "status");
-		// SAFETY: these JSON fields were written only by enqueue after
-		// validateEnqueue checked the complete expected-job/admission types;
-		// the database schema makes both non-null and immutable thereafter.
+		// SAFETY: enqueue validates the complete expected-job shape before writing
+		// this non-null immutable database field; only this store writes it.
 		const expectedJob = parsedJson(row.expected_job_json) as ClaimedMutationJob["expectedJob"];
+		// SAFETY: enqueue validates admission before this immutable journal field is serialized; the evaluator validates it again before trusting evidence.
 		const expectedAdmission = parsedJson(
 			row.expected_admission_json,
 		) as ClaimedMutationJob["expectedAdmission"];

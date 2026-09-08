@@ -1,6 +1,7 @@
 // test-contract: boundary — protocol-v3 overlay capture never trusts dirty worktree bytes.
 
-import { execFileSync } from "node:child_process";
+import { nonNull } from "../../lib/non-null.js";
+import { execFileSync, type ExecFileSyncOptions } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -20,19 +21,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * test; every other call, including this file's own `git()`/`archiveFile()`
  * helpers, passes straight through to the real binary.
  */
-const execOverrides = vi.hoisted(() => ({
+const execOverrides = vi.hoisted((): {
+	repoRootBytes: Buffer | null;
+	headBytes: Buffer | null;
+	lsTreeBytes: Buffer | null;
+	tarExtractThrows: boolean;
+	tamperAfterExtract: { relPath: string; kind: "delete" | "replace-with-dir" | "corrupt-content"; bytes?: Buffer } | null;
+} => ({
 	/** Bytes to return instead of running `git rev-parse --show-toplevel`. */
-	repoRootBytes: null as Buffer | null,
+	repoRootBytes: null,
 	/** Bytes to return instead of running the FIRST `rev-parse --verify HEAD^{commit}`. */
-	headBytes: null as Buffer | null,
+	headBytes: null,
 	/** Bytes to return instead of running `git ls-tree …`. */
-	lsTreeBytes: null as Buffer | null,
+	lsTreeBytes: null,
 	/** Throw instead of running the `tar -x` extraction. */
 	tarExtractThrows: false,
 	/** After a REAL `tar -x` extraction, tamper with one archived file. */
-	tamperAfterExtract: null as
-		| { relPath: string; kind: "delete" | "replace-with-dir" | "corrupt-content"; bytes?: Buffer }
-		| null,
+	tamperAfterExtract: null,
 }));
 
 // Mirrors MUTATION_ONBOARDING_ARCHIVE_PREFIX minus its trailing slash (asserted
@@ -65,9 +70,7 @@ function tamperExtractedFile(
 	spec: NonNullable<(typeof execOverrides)["tamperAfterExtract"]>,
 ): void {
 	const destIndex = args.indexOf("-C");
-	// SAFETY: the SUT always calls tar as ["-x","-f","-","-C",container] — "-C" is
-	// followed by exactly one path argument.
-	const dest = args[destIndex + 1] as string;
+	const dest = nonNull(args[destIndex + 1]);
 	const target = join(dest, ARCHIVE_PREFIX_DIR, spec.relPath);
 	if (spec.kind === "delete") {
 		rmSync(target, { force: true });
@@ -83,22 +86,14 @@ function tamperExtractedFile(
 
 vi.mock("node:child_process", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:child_process")>();
-	// SAFETY: every call site in this file (the SUT's `git()`/tar invocations and
-	// this test file's own `git()` helper) passes a concrete args array plus a
-	// `{ encoding: "buffer", ... }` options object, so the real function always
-	// returns a Buffer here despite the wider overloaded signature.
-	const passthrough = actual.execFileSync as unknown as (
-		file: string,
-		args: readonly string[],
-		options?: Record<string, unknown>,
-	) => Buffer;
+
 	return {
 		...actual,
 		execFileSync: (
 			file: string,
 			args: readonly string[] = [],
-			options?: Record<string, unknown>,
-		): Buffer => {
+			options?: ExecFileSyncOptions,
+		) => {
 			if (isRevParseShowToplevel(file, args) && execOverrides.repoRootBytes !== null) {
 				return execOverrides.repoRootBytes;
 			}
@@ -113,7 +108,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 			if (isTarExtract(file, args) && execOverrides.tarExtractThrows) {
 				throw new Error("simulated tar extraction failure");
 			}
-			const result = passthrough(file, args, options);
+			const result = actual.execFileSync(file, args, options);
 			if (isTarExtract(file, args) && execOverrides.tamperAfterExtract !== null) {
 				tamperExtractedFile(args, execOverrides.tamperAfterExtract);
 			}

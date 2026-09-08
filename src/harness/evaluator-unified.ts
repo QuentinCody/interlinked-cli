@@ -151,8 +151,8 @@ export async function evaluateUnified(
 
 /** Convert the tagged-union action to the flat HarnessEvent shape consumed by
  *  the existing evaluator. Only the fields the evaluator reads are populated. */
-export function toHarnessEvent(event: UnifiedHookEvent): HarnessEvent {
-	const out: HarnessEvent = {
+export function toHarnessEvent(event: UnifiedHookEvent): HarnessEvent & { cwd: string } {
+	const out: HarnessEvent & { cwd: string } = {
 		hook_event: unifiedToNativeEventName(event),
 		session_id: event.session_id,
 		agent_source: mapAgentSource(event.runner),
@@ -190,7 +190,7 @@ export function toHarnessEvent(event: UnifiedHookEvent): HarnessEvent {
 
 function runEvaluator(
 	event: UnifiedHookEvent,
-	harnessEvent: HarnessEvent,
+	harnessEvent: HarnessEvent & { cwd: string },
 	ctx: EvaluateUnifiedContext,
 ): Promise<HarnessDecision> {
 	if (event.phase === "pre-tool") {
@@ -228,14 +228,14 @@ function runEvaluator(
  * run the server's pre/post pipelines. Same shared helpers as the socket path,
  * so both runners get identical semantics from one implementation.
  */
-function withBaselineEffectWarning(event: HarnessEvent, decision: HarnessDecision): HarnessDecision {
+function withBaselineEffectWarning(event: HarnessEvent & { cwd: string }, decision: HarnessDecision): HarnessDecision {
 	if (event.dry_run) return decision;
 	const key = baselineCallKey({
 		toolUseId: event.tool_use_id,
 		sessionId: event.session_id,
 		timestamp: event.timestamp,
 	});
-	const warning = consumeBaselineSnapshot(key, event.cwd ?? process.cwd());
+	const warning = consumeBaselineSnapshot(key, event.cwd);
 	if (!warning) return decision;
 	return { ...decision, warnings: [...(decision.warnings ?? []), warning] };
 }

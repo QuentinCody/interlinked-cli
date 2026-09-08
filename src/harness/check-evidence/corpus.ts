@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../lib/json-types.js";
 // Check Evidence Contract — corpus dogfood records.
 //
 // Spec: docs/design/verification-density-program.md (Phase 2).
@@ -118,8 +119,8 @@ export function buildCorpusRecord(
 
 /** Narrow unknown JSON to a corpus record, discarding malformed parts. */
 function parseRecord(raw: unknown): CorpusRecord | null {
-	if (!raw || typeof raw !== "object") return null;
-	const o = raw as Record<string, unknown>;
+	if (!isJsonObject(raw)) return null;
+	const o = raw;
 	const hits = Array.isArray(o.hits) ? o.hits.filter((h): h is string => typeof h === "string") : [];
 	const filesScanned = typeof o.files_scanned === "number" ? o.files_scanned : 0;
 	return {
@@ -132,12 +133,12 @@ function parseRecord(raw: unknown): CorpusRecord | null {
 /** Narrow the adjudication map, dropping entries with an unrecognized verdict. */
 function parseAdjudications(raw: unknown): Record<string, AdjudicationRecord> {
 	const out: Record<string, AdjudicationRecord> = {};
-	if (!raw || typeof raw !== "object") return out;
-	for (const [sig, value] of Object.entries(raw as Record<string, unknown>)) {
-		if (!value || typeof value !== "object") continue;
-		const verdict = (value as { verdict?: unknown }).verdict;
+	if (!isJsonObject(raw)) return out;
+	for (const [sig, value] of Object.entries(raw)) {
+		if (!isJsonObject(value)) continue;
+		const verdict = value.verdict;
 		if (verdict !== "true_positive" && verdict !== "false_positive") continue;
-		const note = (value as { note?: unknown }).note;
+		const note = value.note;
 		out[sig] = { verdict, ...(typeof note === "string" ? { note } : {}) };
 	}
 	return out;
@@ -145,11 +146,11 @@ function parseAdjudications(raw: unknown): Record<string, AdjudicationRecord> {
 
 /** Narrow unknown JSON to the corpus store, failing closed to an empty store. */
 export function parseCorpusStore(raw: unknown): CorpusStore {
-	if (!raw || typeof raw !== "object") return EMPTY_CORPUS;
-	const checks = (raw as { checks?: unknown }).checks;
-	if (!checks || typeof checks !== "object") return EMPTY_CORPUS;
+	if (!isJsonObject(raw)) return EMPTY_CORPUS;
+	const checks = raw.checks;
+	if (!isJsonObject(checks)) return EMPTY_CORPUS;
 	const out: Record<string, CorpusRecord> = {};
-	for (const [id, value] of Object.entries(checks as Record<string, unknown>)) {
+	for (const [id, value] of Object.entries(checks)) {
 		const record = parseRecord(value);
 		if (record) out[id] = record;
 	}

@@ -38,6 +38,7 @@ let tsCache: TsModule | null | undefined;
 function loadTs(): TsModule | null {
 	if (tsCache !== undefined) return tsCache;
 	try {
+		// SAFETY: the installed TypeScript package exposes the compiler API described by the erased TS module import.
 		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
 	} catch {
 		tsCache = null;
@@ -80,6 +81,11 @@ function scriptKindFor(ts: TsModule, filePath: string): TS.ScriptKind {
 export interface ParsedTsSource {
 	ts: TsModule;
 	sf: TS.SourceFile;
+}
+
+/** TypeScript records recovered syntax diagnostics on source files at runtime. */
+export function hasParseErrors(source: TS.SourceFile): boolean {
+	return "parseDiagnostics" in source && Array.isArray(source.parseDiagnostics) && source.parseDiagnostics.length > 0;
 }
 
 /**
@@ -152,7 +158,7 @@ export function parseTsSource(content: string, filePath: string): ParsedTsSource
 	return { ts, sf: parseTsSourceWith(ts, content, filePath) };
 }
 
-export function isFunctionLike(ts: TsModule, node: TS.Node): boolean {
+export function isFunctionLike(ts: TsModule, node: TS.Node): node is TS.FunctionLikeDeclaration {
 	return (
 		ts.isFunctionDeclaration(node) ||
 		ts.isFunctionExpression(node) ||
@@ -171,7 +177,7 @@ export function isFunctionLike(ts: TsModule, node: TS.Node): boolean {
  * expressions always have a body; only declaration kinds can be bodiless.
  */
 export function isImplementationFunction(ts: TsModule, node: TS.Node): boolean {
-	return isFunctionLike(ts, node) && (node as TS.FunctionLikeDeclaration).body !== undefined;
+	return isFunctionLike(ts, node) && node.body !== undefined;
 }
 
 /**
@@ -224,9 +230,9 @@ function complexityOf(ts: TsModule, fn: TS.Node): number {
 /** Best-effort human name; matches the golden dataset's `(callback)` fallback. */
 export function functionName(ts: TsModule, node: TS.Node, sf: TS.SourceFile): string {
 	if (ts.isConstructorDeclaration(node)) return "constructor";
-	const named = node as { name?: TS.Node };
-	if (named.name && (ts.isIdentifier(named.name) || ts.isPrivateIdentifier(named.name))) {
-		return named.name.getText(sf);
+	const name = isFunctionLike(ts, node) ? node.name : undefined;
+	if (name && (ts.isIdentifier(name) || ts.isPrivateIdentifier(name))) {
+		return name.getText(sf);
 	}
 	const parent = node.parent;
 	if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {

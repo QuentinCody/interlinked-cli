@@ -12,11 +12,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileMutationProcessIdentity } from "./file-mutation-lock-identity.js";
 
-const fsOverride = vi.hoisted(() => ({
-	impl: null as ((path: string) => string) | null,
+const fsOverride = vi.hoisted((): { impl: ((path: string) => string) | null } => ({
+	impl: null,
 }));
-const execOverride = vi.hoisted(() => ({
-	impl: null as ((file: string, args: readonly string[]) => string) | null,
+const execOverride = vi.hoisted((): { impl: ((file: string, args: readonly string[]) => string) | null } => ({
+	impl: null,
 }));
 
 vi.mock("node:fs", async () => {
@@ -35,9 +35,13 @@ vi.mock("node:child_process", async () => {
 	return {
 		...actual,
 		execFileSync: (...args: Parameters<typeof actual.execFileSync>) => {
-			// SAFETY: every call site in the module under test passes a string[]
-			// as the second execFileSync argument (never omitted, never a Buffer).
-			if (execOverride.impl) return execOverride.impl(String(args[0]), args[1] as readonly string[]);
+			if (execOverride.impl) {
+				const argv = args[1];
+				if (!Array.isArray(argv) || !argv.every((arg) => typeof arg === "string")) {
+					throw new Error("Expected execFileSync argument vector");
+				}
+				return execOverride.impl(String(args[0]), argv);
+			}
 			return actual.execFileSync(...args);
 		},
 	};

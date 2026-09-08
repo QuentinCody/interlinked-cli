@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { nonNull } from "../non-null.js";
 import {
 	FEATURE_DEFAULTS,
 	getActiveServerKey,
@@ -25,8 +26,8 @@ import {
 // A feature-flag key that is in FEATURE_DEFAULTS with a known default of `true`.
 // Picked at module load so a future default flip surfaces here rather than
 // hard-coding a literal flag name in every assertion.
-const A_TRUE_DEFAULT = Object.entries(FEATURE_DEFAULTS).find(([, v]) => v === true)?.[0] as string;
-const A_FALSE_DEFAULT = Object.entries(FEATURE_DEFAULTS).find(([, v]) => v === false)?.[0] as string;
+const A_TRUE_DEFAULT = nonNull(Object.entries(FEATURE_DEFAULTS).find(([, v]) => v === true)?.[0]);
+const A_FALSE_DEFAULT = nonNull(Object.entries(FEATURE_DEFAULTS).find(([, v]) => v === false)?.[0]);
 
 describe("config paths", () => {
 	let tmp: string;
@@ -237,10 +238,10 @@ describe("writeSharedConfig", () => {
 		// Nested cwd that has no .interlinked dir — writeJson must mkdir -p.
 		const nested = join(tmp, "deep", "nested");
 		writeSharedConfig({ version: 1, server_url: "https://nested.example" }, nested);
-		const onDisk = JSON.parse(
+		const onDisk: unknown = JSON.parse(
 			readFileSync(getSharedConfigPath(nested), "utf-8"),
-		) as { server_url: string };
-		expect(onDisk.server_url).toBe("https://nested.example");
+		);
+		expect(onDisk).toHaveProperty("server_url", "https://nested.example");
 	});
 
 	it("writes pretty-printed JSON with a trailing newline", () => {
@@ -314,10 +315,8 @@ describe("isFeatureEnabled", () => {
 	});
 
 	function writeShared(harness: unknown): void {
-		writeSharedConfig(
-			{ version: 1, server_url: "https://x", harness: harness as never },
-			tmp,
-		);
+		mkdirSync(getConfigDir(tmp), { recursive: true });
+		writeFileSync(getSharedConfigPath(tmp), JSON.stringify({ version: 1, server_url: "https://x", harness }));
 	}
 
 	it("returns the FEATURE_DEFAULTS value when config is null", () => {

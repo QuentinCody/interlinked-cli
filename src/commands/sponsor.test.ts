@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireNullable, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import { sign as edSign, generateKeyPairSync } from "node:crypto";
 import {
 	existsSync,
@@ -68,15 +69,15 @@ describe("sponsor command actions", () => {
 	});
 
 	function localConfig(): Record<string, unknown> {
-		return JSON.parse(
+		return parseWire(JSON.parse(
 			readFileSync(join(cwd, ".interlinked", "config.local.json"), "utf8"),
-		) as Record<string, unknown>;
+		), wireRecord(wireUnknown), "test JSON value");
 	}
 
 	it("enable writes the sponsor block and a stable anonymous install id", async () => {
 		await sponsorEnableAction({}, { cwd, claudeSettingsPath: settingsPath });
 		const cfg = localConfig();
-		const sponsor = cfg.sponsor as Record<string, unknown>;
+		const sponsor = parseWire(cfg.sponsor, wireRecord(wireUnknown), "test JSON value");
 		expect(sponsor.enabled).toBe(true);
 		expect(sponsor.telemetry).toBe(true);
 		expect(typeof cfg.install_id).toBe("string");
@@ -97,23 +98,21 @@ describe("sponsor command actions", () => {
 	it("enable --spinner fetches the feed and writes a tracked spinner verb", async () => {
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction(
 			{ spinner: true },
 			{ cwd, claudeSettingsPath: settingsPath, fetchImpl },
 		);
-		const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
-			spinnerVerbs?: { verbs?: string[] };
-		};
+		const settings = parseWire(JSON.parse(readFileSync(settingsPath, "utf8")), wireObject({ "spinnerVerbs": wireAbsentOptional(wireOptional(wireObject({ "verbs": wireAbsentOptional(wireOptional(wireArray(wireString))) }))) }), "test JSON value");
 		expect(settings.spinnerVerbs?.verbs?.[0]).toContain("Alpha");
-		const sponsor = localConfig().sponsor as { spinner_verbs_written?: string[] };
+		const sponsor = parseWire(localConfig().sponsor, wireObject({ "spinner_verbs_written": wireAbsentOptional(wireOptional(wireArray(wireString))) }), "test JSON value");
 		expect(sponsor.spinner_verbs_written).toEqual(settings.spinnerVerbs?.verbs);
 	});
 
 	it("disable flips the flag, clears the status file, and removes our verbs", async () => {
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction(
 			{ spinner: true },
 			{ cwd, claudeSettingsPath: settingsPath, fetchImpl },
@@ -121,13 +120,13 @@ describe("sponsor command actions", () => {
 		// Simulate a daemon-written status row.
 		writeFileSync(join(cwd, ".interlinked", SPONSOR_STATUS_FILE), "enabled=1\n");
 		await sponsorDisableAction({}, { cwd, claudeSettingsPath: settingsPath });
-		const sponsor = localConfig().sponsor as Record<string, unknown>;
+		const sponsor = parseWire(localConfig().sponsor, wireRecord(wireUnknown), "test JSON value");
 		expect(sponsor.enabled).toBe(false);
 		expect(sponsor.spinner_verbs_written).toEqual([]);
 		expect(readFileSync(join(cwd, ".interlinked", SPONSOR_STATUS_FILE), "utf8")).toContain(
 			"enabled=0",
 		);
-		const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
+		const settings = parseWire(JSON.parse(readFileSync(settingsPath, "utf8")), wireRecord(wireUnknown), "test JSON value");
 		expect(settings.spinnerVerbs).toBeUndefined();
 	});
 
@@ -141,10 +140,7 @@ describe("sponsor command actions", () => {
 		logSpy.mockClear();
 		await sponsorStatusAction({ json: true }, { cwd, claudeSettingsPath: settingsPath });
 		const printed = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
-		const parsed = JSON.parse(printed) as {
-			enabled: boolean;
-			live: Record<string, string>;
-		};
+		const parsed = parseWire(JSON.parse(printed), wireObject({ "enabled": wireBoolean, "live": wireRecord(wireString) }), "test JSON value");
 		expect(parsed.enabled).toBe(true);
 		expect(parsed.live.creative).toBe("alpha");
 	});
@@ -195,7 +191,7 @@ describe("sponsor command actions", () => {
 		);
 		expect(code).toBe(0);
 		const printed = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
-		const parsed = JSON.parse(printed) as { enabled: boolean; install_id: string };
+		const parsed = parseWire(JSON.parse(printed), wireObject({ "enabled": wireBoolean, "install_id": wireString }), "test JSON value");
 		expect(parsed.enabled).toBe(true);
 		expect(typeof parsed.install_id).toBe("string");
 	});
@@ -205,7 +201,7 @@ describe("sponsor command actions", () => {
 			{ feedUrl: "https://feed.example/custom" },
 			{ cwd, claudeSettingsPath: settingsPath },
 		);
-		const sponsor = localConfig().sponsor as { feed_url?: string };
+		const sponsor = parseWire(localConfig().sponsor, wireObject({ "feed_url": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		expect(sponsor.feed_url).toBe("https://feed.example/custom");
 	});
 
@@ -228,7 +224,7 @@ describe("sponsor command actions", () => {
 	});
 
 	it("enable --spinner reports skipped when the feed fetch fails (wire is null)", async () => {
-		const fetchImpl = (async () => ({ ok: false })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(null, { status: 503 });
 		await sponsorEnableAction(
 			{ spinner: true },
 			{ cwd, claudeSettingsPath: settingsPath, fetchImpl },
@@ -236,7 +232,7 @@ describe("sponsor command actions", () => {
 		const errSpy = vi.mocked(console.error);
 		const printed = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
 		expect(printed).toContain("Spinner surface skipped: no verified feed/creative available yet.");
-		const sponsor = localConfig().sponsor as { spinner?: boolean };
+		const sponsor = parseWire(localConfig().sponsor, wireObject({ "spinner": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value");
 		expect(sponsor.spinner).toBeUndefined();
 	});
 
@@ -244,7 +240,7 @@ describe("sponsor command actions", () => {
 		const { wire } = makeSignedWire(FEED);
 		// No INTERLINKED_SPONSOR_PUBKEY set (or set to a mismatched key) → verifyWire fails.
 		delete process.env.INTERLINKED_SPONSOR_PUBKEY;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction(
 			{ spinner: true },
 			{ cwd, claudeSettingsPath: settingsPath, fetchImpl },
@@ -261,7 +257,7 @@ describe("sponsor command actions", () => {
 		};
 		const { wire, pubB64 } = makeSignedWire(expiredFeed);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction(
 			{ spinner: true },
 			{ cwd, claudeSettingsPath: settingsPath, fetchImpl },
@@ -275,7 +271,7 @@ describe("sponsor command actions", () => {
 		writeFileSync(settingsPath, "{ not valid json");
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction(
 			{ spinner: true },
 			{ cwd, claudeSettingsPath: settingsPath, fetchImpl },
@@ -283,7 +279,7 @@ describe("sponsor command actions", () => {
 		const errSpy = vi.mocked(console.error);
 		const printed = errSpy.mock.calls.map((c) => String(c[0])).join("\n");
 		expect(printed).toContain("Spinner surface skipped: settings.json not parseable — left untouched");
-		const sponsor = localConfig().sponsor as { spinner?: boolean };
+		const sponsor = parseWire(localConfig().sponsor, wireObject({ "spinner": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value");
 		expect(sponsor.spinner).toBeUndefined();
 	});
 
@@ -294,7 +290,7 @@ describe("sponsor command actions", () => {
 		const cfgBefore = localConfig();
 		writeFileSync(
 			join(cwd, ".interlinked", "config.local.json"),
-			JSON.stringify({ ...cfgBefore, sponsor: { ...(cfgBefore.sponsor as object), telemetry: false } }),
+			JSON.stringify({ ...cfgBefore, sponsor: { ...(parseWire(cfgBefore.sponsor, wireRecord(wireUnknown), "sponsor config")), telemetry: false } }),
 		);
 		const logSpy = vi.mocked(console.log);
 		logSpy.mockClear();
@@ -306,7 +302,7 @@ describe("sponsor command actions", () => {
 	it("disable on a fresh project (no prior sponsor config) is a safe no-op", async () => {
 		const code = await sponsorDisableAction({}, { cwd, claudeSettingsPath: settingsPath });
 		expect(code).toBe(0);
-		const sponsor = localConfig().sponsor as Record<string, unknown>;
+		const sponsor = parseWire(localConfig().sponsor, wireRecord(wireUnknown), "test JSON value");
 		expect(sponsor.enabled).toBe(false);
 		expect(sponsor.spinner_verbs_written).toEqual([]);
 	});
@@ -316,11 +312,7 @@ describe("sponsor command actions", () => {
 		logSpy.mockClear();
 		await sponsorStatusAction({ json: true }, { cwd, claudeSettingsPath: settingsPath });
 		const printed = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
-		const parsed = JSON.parse(printed) as {
-			enabled: boolean;
-			telemetry: boolean;
-			install_id: string | null;
-		};
+		const parsed = parseWire(JSON.parse(printed), wireObject({ "enabled": wireBoolean, "telemetry": wireBoolean, "install_id": wireNullable(wireString) }), "test JSON value");
 		expect(parsed.enabled).toBe(false);
 		expect(parsed.telemetry).toBe(true);
 		expect(parsed.install_id).toBeNull();
@@ -331,7 +323,7 @@ describe("sponsor command actions", () => {
 		const cfgBefore = localConfig();
 		writeFileSync(
 			join(cwd, ".interlinked", "config.local.json"),
-			JSON.stringify({ ...cfgBefore, sponsor: { ...(cfgBefore.sponsor as object), telemetry: false } }),
+			JSON.stringify({ ...cfgBefore, sponsor: { ...(parseWire(cfgBefore.sponsor, wireRecord(wireUnknown), "sponsor config")), telemetry: false } }),
 		);
 		const logSpy = vi.mocked(console.log);
 		logSpy.mockClear();
@@ -353,7 +345,7 @@ describe("sponsor command actions", () => {
 	it("disable reports when settings.json is not parseable so verbs can't be removed", async () => {
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction(
 			{ spinner: true },
 			{ cwd, claudeSettingsPath: settingsPath, fetchImpl },

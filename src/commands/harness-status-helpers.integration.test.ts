@@ -445,8 +445,11 @@ describe("readFramedSocketStatuses", () => {
 		const health = {
 			status: "ready",
 			protocol_version: "1",
-			pid: process.pid,
-		} as unknown as Awaited<ReturnType<ReturnType<typeof createDaemonClient>["call"]>>;
+			uptime_ms: 0,
+			warm_caches: [],
+			tsgo_status: "ready",
+			rpc_inflight: 0,
+		} satisfies import("../harness/daemon-protocol.js").DaemonHealth;
 		const callMock = vi.fn().mockResolvedValue(health);
 		createDaemonClientMock.mockReturnValue({ call: callMock });
 

@@ -72,7 +72,8 @@ describe("appendCollection", () => {
 		);
 		expect(mockFs.appendFileSync).toHaveBeenCalledTimes(2);
 
-		const written = (mockFs.appendFileSync.mock.calls[0] as [string, string])[1];
+		const written = mockFs.appendFileSync.mock.calls[0]?.[1];
+		if (typeof written !== "string") throw new Error("Expected a serialized collection record");
 		expect(written.endsWith("\n")).toBe(true);
 
 		const parsed = JSON.parse(written.trim());

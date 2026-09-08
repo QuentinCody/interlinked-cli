@@ -1,3 +1,4 @@
+import { makeServerRuntime } from "./__tests__/fixtures.js";
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,9 +20,7 @@ const plan: ResourcePlan = {
 };
 
 function makeCtx(cwd: string, log: (message: string) => void = () => {}): ServerRuntime {
-	// SAFETY: the heavy-jobs runner reads only ctx.cwd and ctx.log; a minimal
-	// structural stub is sufficient for these tests.
-	return { cwd, log } as unknown as ServerRuntime;
+	return makeServerRuntime({ cwd, log });
 }
 
 function endEvent(): HarnessEvent {
@@ -52,7 +51,7 @@ beforeEach(() => {
 	spawn = ((file: string, args: string[]) => {
 		calls.push({ file, args });
 		return fakeChild();
-	}) as unknown as SpawnFn;
+	}) satisfies SpawnFn;
 });
 afterEach(() => {
 	rmSync(cwd, { recursive: true, force: true });
@@ -124,7 +123,7 @@ describe("runSessionEndHeavyJobs", () => {
 				},
 				unref() {},
 			};
-		}) as unknown as SpawnFn;
+		}) satisfies SpawnFn;
 
 		runSessionEndHeavyJobs(makeCtx(cwd, (m) => logs.push(m)), endEvent(), plan, {
 			spawn: capturingSpawn,
@@ -139,7 +138,7 @@ describe("runSessionEndHeavyJobs", () => {
 		// SAFETY: a spawn that throws synchronously, to exercise the never-throw path.
 		const boom = (() => {
 			throw new Error("ENOENT");
-		}) as unknown as SpawnFn;
+		}) satisfies SpawnFn;
 		expect(() => runSessionEndHeavyJobs(makeCtx(cwd), endEvent(), plan, { spawn: boom })).not.toThrow();
 	});
 });

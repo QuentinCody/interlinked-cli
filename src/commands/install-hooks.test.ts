@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireNumber, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +16,7 @@ vi.mock("node:fs", async (importOriginal) => {
 		...real,
 		readSync: (...args: Parameters<typeof real.readSync>): number => {
 			if (mockReadSync.getMockImplementation()) {
-				return mockReadSync(...args) as number;
+				return parseWire(mockReadSync(...args), wireNumber, "test JSON value");
 			}
 			return real.readSync(...args);
 		},
@@ -81,12 +82,12 @@ afterEach(() => {
 /** Capture everything written to process.stdout while `fn` runs. */
 async function captureStdout(fn: () => Promise<void>): Promise<string> {
 	let captured = "";
-	const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+	const spy = vi.spyOn(process.stdout, "write").mockImplementation((
 		buf: string | Uint8Array,
 	) => {
 		captured += typeof buf === "string" ? buf : Buffer.from(buf).toString("utf-8");
 		return true;
-	}) as unknown as typeof process.stdout.write);
+	});
 	try {
 		await fn();
 	} finally {
@@ -145,9 +146,7 @@ describe("install-hooks command", () => {
 		// hook — a bare existsSync would pass on an empty `{}`. The claude-code
 		// adapter registers a `command`-type hook per native event whose shell
 		// line invokes the supplied binary with the runner tag.
-		const settings = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			hooks?: Record<string, Array<{ hooks: Array<{ type: string; command: string }> }>>;
-		};
+		const settings = parseWire(JSON.parse(readFileSync(settingsPath, "utf-8")), wireObject({ "hooks": wireAbsentOptional(wireOptional(wireRecord(wireArray(wireObject({ "hooks": wireArray(wireObject({ "type": wireString, "command": wireString })) }))))) }), "test JSON value");
 		const preToolUse = settings.hooks?.PreToolUse;
 		expect(Array.isArray(preToolUse)).toBe(true);
 		const command = preToolUse?.[0]?.hooks?.[0]?.command ?? "";
@@ -161,9 +160,9 @@ describe("install-hooks command", () => {
 		const spy = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 		await installHooksCommand({ runner: "all", binary: "/usr/bin/ih-binary" });
 		spy.mockRestore();
-		const manifest = JSON.parse(
+		const manifest = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "installer-manifest.json"), "utf-8"),
-		) as { entries: Array<{ runner: string }> };
+		), wireObject({ "entries": wireArray(wireObject({ "runner": wireString })) }), "test JSON value");
 		expect(manifest.entries.length).toBe(7);
 	});
 
@@ -187,13 +186,9 @@ describe("install-hooks command", () => {
 			tokenEnv: "MY_TOKEN",
 		});
 		spy.mockRestore();
-		const cloud = JSON.parse(
+		const cloud = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "cloud.json"), "utf-8"),
-		) as {
-			enabled: boolean;
-			product: string;
-			token_source: { env: string };
-		};
+		), wireObject({ "enabled": wireBoolean, "product": wireString, "token_source": wireObject({ "env": wireString }) }), "test JSON value");
 		expect(cloud.enabled).toBe(true);
 		expect(cloud.product).toBe("guardrails");
 		expect(cloud.token_source.env).toBe("MY_TOKEN");
@@ -242,7 +237,7 @@ describe("install-hooks command", () => {
 		});
 		spy.mockRestore();
 		const path = join(tmp, ".interlinked", "check-policy.json");
-		const parsed = JSON.parse(readFileSync(path, "utf-8")) as { mode: string };
+		const parsed = parseWire(JSON.parse(readFileSync(path, "utf-8")), wireObject({ "mode": wireString }), "test JSON value");
 		expect(parsed.mode).toBe("strict");
 	});
 
@@ -270,19 +265,19 @@ describe("install-hooks command", () => {
 
 	it("produces JSON output when --json set", async () => {
 		let captured = "";
-		const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+		const spy = vi.spyOn(process.stdout, "write").mockImplementation((
 			buf: string | Uint8Array,
 		) => {
 			captured += typeof buf === "string" ? buf : Buffer.from(buf).toString("utf-8");
 			return true;
-		}) as unknown as typeof process.stdout.write);
+		});
 		await installHooksCommand({
 			runner: "claude-code",
 			binary: "/usr/bin/ih-binary",
 			json: true,
 		});
 		spy.mockRestore();
-		const payload = JSON.parse(captured) as { ok: boolean; entries: unknown[] };
+		const payload = parseWire(JSON.parse(captured), wireObject({ "ok": wireBoolean, "entries": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		expect(payload.entries.length).toBe(1);
 	});
@@ -308,11 +303,7 @@ describe("install-hooks — a failed postInstall is not reported as success", ()
 		const out = await captureStdout(() =>
 			installHooksCommand({ runner: "codex", binary: "/usr/bin/ih-broken", json: true }),
 		);
-		const payload = JSON.parse(out) as {
-			ok: boolean;
-			post_install_failures: Array<{ runner: string; reason: string }>;
-			entries: Array<{ post_install: string }>;
-		};
+		const payload = parseWire(JSON.parse(out), wireObject({ "ok": wireBoolean, "post_install_failures": wireArray(wireObject({ "runner": wireString, "reason": wireString })), "entries": wireArray(wireObject({ "post_install": wireString })) }), "test JSON value");
 		expect(payload.ok).toBe(false);
 		expect(nonNullRow(payload.post_install_failures[0]).runner).toBe("codex");
 		expect(nonNullRow(payload.entries[0]).post_install).toBe("failed");
@@ -342,10 +333,7 @@ describe("install-hooks — a failed postInstall is not reported as success", ()
 		const out = await captureStdout(() =>
 			installHooksCommand({ runner: "codex", binary: "/usr/bin/ih-healthy", json: true }),
 		);
-		const payload = JSON.parse(out) as {
-			ok: boolean;
-			post_install_failures: unknown[];
-		};
+		const payload = parseWire(JSON.parse(out), wireObject({ "ok": wireBoolean, "post_install_failures": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		expect(payload.post_install_failures).toEqual([]);
 		expect(process.exitCode).toBe(0);
@@ -362,7 +350,7 @@ describe("install-hooks — a failed mode write is not reported as success", () 
 		const out = await captureStdout(() =>
 			installHooksCommand({ runner: "gemini-cli", binary: "/usr/bin/ih-mode-fail", json: true }),
 		);
-		const payload = JSON.parse(out) as { ok: boolean; mode: string };
+		const payload = parseWire(JSON.parse(out), wireObject({ "ok": wireBoolean, "mode": wireString }), "test JSON value");
 
 		expect(payload.ok).toBe(false);
 		expect(payload.mode).toBe("balanced");
@@ -416,9 +404,9 @@ describe("install-hooks — interactive mode prompt", () => {
 		expect(out).toContain("Pick an enforcement mode");
 		expect(out).toContain("balanced (default)");
 		expect(mockReadSync).toHaveBeenCalled();
-		const policy = JSON.parse(
+		const policy = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "check-policy.json"), "utf-8"),
-		) as { mode: string };
+		), wireObject({ "mode": wireString }), "test JSON value");
 		expect(policy.mode).toBe("lenient");
 		expect(out).toContain("mode: lenient");
 	});
@@ -434,9 +422,9 @@ describe("install-hooks — interactive mode prompt", () => {
 			installHooksCommand({ runner: "claude-code", binary: "/usr/bin/ih-prompt2" }),
 		);
 		setStdinTTY(false);
-		const policy = JSON.parse(
+		const policy = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "check-policy.json"), "utf-8"),
-		) as { mode: string };
+		), wireObject({ "mode": wireString }), "test JSON value");
 		expect(policy.mode).toBe("lenient");
 	});
 
@@ -451,9 +439,9 @@ describe("install-hooks — interactive mode prompt", () => {
 			installHooksCommand({ runner: "claude-code", binary: "/usr/bin/ih-prompt3" }),
 		);
 		setStdinTTY(false);
-		const policy = JSON.parse(
+		const policy = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "check-policy.json"), "utf-8"),
-		) as { mode: string };
+		), wireObject({ "mode": wireString }), "test JSON value");
 		expect(policy.mode).toBe("balanced");
 	});
 
@@ -467,9 +455,9 @@ describe("install-hooks — interactive mode prompt", () => {
 			installHooksCommand({ runner: "claude-code", binary: "/usr/bin/ih-prompt4" }),
 		);
 		setStdinTTY(false);
-		const policy = JSON.parse(
+		const policy = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "check-policy.json"), "utf-8"),
-		) as { mode: string };
+		), wireObject({ "mode": wireString }), "test JSON value");
 		expect(policy.mode).toBe("balanced");
 	});
 
@@ -481,7 +469,7 @@ describe("install-hooks — interactive mode prompt", () => {
 		setStdinTTY(false);
 		expect(out).not.toContain("Pick an enforcement mode");
 		expect(mockReadSync).not.toHaveBeenCalled();
-		const payload = JSON.parse(out) as { mode: string };
+		const payload = parseWire(JSON.parse(out), wireObject({ "mode": wireString }), "test JSON value");
 		expect(payload.mode).toBe("balanced");
 	});
 });
@@ -491,7 +479,7 @@ describe("install-hooks — binary path resolution fallback", () => {
 		const out = await captureStdout(() =>
 			installHooksCommand({ runner: "claude-code", json: true }),
 		);
-		const payload = JSON.parse(out) as { ok: boolean; entries: unknown[] };
+		const payload = parseWire(JSON.parse(out), wireObject({ "ok": wireBoolean, "entries": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		expect(payload.entries.length).toBe(1);
 		// In a BUILT checkout the install now resolves the packaged
@@ -507,7 +495,7 @@ describe("install-hooks — binary path resolution fallback", () => {
 		const out = await captureStdout(() =>
 			installHooksCommand({ runner: "claude-code", dryRun: true, json: true }),
 		);
-		const payload = JSON.parse(out) as { ok: boolean; dry_run: boolean };
+		const payload = parseWire(JSON.parse(out), wireObject({ "ok": wireBoolean, "dry_run": wireBoolean }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		expect(payload.dry_run).toBe(true);
 		// dry-run path passes writeFallback:false → no settings file written.
@@ -533,7 +521,7 @@ describe("install-hooks — scope parsing", () => {
 				json: true,
 			}),
 		);
-		const payload = JSON.parse(out) as { ok: boolean; entries: Array<{ settings_path: string }> };
+		const payload = parseWire(JSON.parse(out), wireObject({ "ok": wireBoolean, "entries": wireArray(wireObject({ "settings_path": wireString })) }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		// user scope targets ~/.claude/settings.json, not the project tmp dir.
 		expect(nonNull(payload.entries[0]).settings_path).not.toContain(tmp);
@@ -553,7 +541,7 @@ describe("install-hooks — scope parsing", () => {
 		expect(stderrSpy).toHaveBeenCalledWith(
 			expect.stringContaining('unknown scope "galaxy"'),
 		);
-		const payload = JSON.parse(out) as { ok: boolean; error: string };
+		const payload = parseWire(JSON.parse(out), wireObject({ "ok": wireBoolean, "error": wireString }), "test JSON value");
 		expect(payload.ok).toBe(false);
 		expect(payload.error).toContain("expected user, project, or local");
 		expect(process.exitCode).toBe(1);
@@ -590,9 +578,9 @@ describe("install-hooks — cloud config branches", () => {
 				cloud: "agent-ci",
 			}),
 		);
-		const cloud = JSON.parse(
+		const cloud = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "cloud.json"), "utf-8"),
-		) as { product: string; portal_url: string; token_source: unknown };
+		), wireObject({ "product": wireString, "portal_url": wireString, "token_source": wireUnknown }), "test JSON value");
 		expect(cloud.product).toBe("agent-ci");
 		expect(cloud.portal_url).toContain("agent-ci");
 		expect(cloud.token_source).toBeNull();
@@ -633,9 +621,9 @@ describe("install-hooks — cloud config branches", () => {
 		vi.doUnmock("../harness/installer.js");
 		vi.resetModules();
 		expect(existsSync(join(tmp, ".interlinked", "cloud.json"))).toBe(true);
-		const cloud = JSON.parse(
+		const cloud = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "cloud.json"), "utf-8"),
-		) as { product: string; portal_url: string };
+		), wireObject({ "product": wireString, "portal_url": wireString }), "test JSON value");
 		expect(cloud.product).toBe("guardrails");
 		expect(cloud.portal_url).toContain("interlinked.dev/mcp");
 	});
@@ -692,9 +680,9 @@ describe("install-hooks — cloud config branches", () => {
 		// touched .interlinked. cloud.json proves the mkdir branch ran.
 		expect(existsSync(join(tmp, ".interlinked", "check-policy.json"))).toBe(false);
 		expect(existsSync(join(tmp, ".interlinked", "cloud.json"))).toBe(true);
-		const cloud = JSON.parse(
+		const cloud = parseWire(JSON.parse(
 			readFileSync(join(tmp, ".interlinked", "cloud.json"), "utf-8"),
-		) as { product: string; portal_url: string; token_source: { env: string } };
+		), wireObject({ "product": wireString, "portal_url": wireString, "token_source": wireObject({ "env": wireString }) }), "test JSON value");
 		expect(cloud.product).toBe("agent-ci");
 		expect(cloud.portal_url).toContain("interlinked.dev/agent-ci");
 		expect(cloud.token_source.env).toBe("CI_TOKEN");

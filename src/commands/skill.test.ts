@@ -115,7 +115,7 @@ describe("skillEnterCommand", () => {
 	// test-contract: boundary — errors and sets exitCode=1 when name is undefined (optional-chain branch)
 	it("errors and sets exitCode=1 when name is undefined (optional-chain branch)", async () => {
 		// name?.trim() with undefined exercises the ?. branch.
-		await skillEnterCommand(undefined as unknown as string, {});
+		await skillEnterCommand(undefined, {});
 		expect(errs.join("\n")).toContain("skill name required");
 		expect(process.exitCode).toBe(1);
 	});
@@ -675,7 +675,7 @@ describe("skillLeaveCommand — additional coverage", () => {
 	// test-contract: mutation-kill — exercises name?.trim on `undefined`
 	// (OptionalChaining mutant turns this into a throwing `name.trim`).
 	it("errors and sets exitCode=1 when name is undefined (optional-chain branch)", async () => {
-		await skillLeaveCommand(undefined as unknown as string, {});
+		await skillLeaveCommand(undefined, {});
 		expect(errs.join("\n")).toContain("skill name required");
 		expect(process.exitCode).toBe(1);
 		expect(createConnectionMock).not.toHaveBeenCalled();

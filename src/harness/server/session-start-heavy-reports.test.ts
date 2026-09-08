@@ -10,6 +10,9 @@ import {
 } from "./session-start-heavy-reports.js";
 
 describe("fuzzFailuresFrom", () => {
+	it.each([null, false, 42, "invalid", []])("skips malformed result %j while retaining valid later failures", (entry) => {
+		expect(fuzzFailuresFrom({ numFailedTests: 1, testResults: [entry, { status: "failed", name: "src/a.test.ts" }] })).toEqual({ failed: 1, files: ["src/a.test.ts"] });
+	});
 	it("extracts failed count and failed file names", () => {
 		const r = {
 			numFailedTests: 2,

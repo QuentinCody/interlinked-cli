@@ -165,8 +165,8 @@ export function loadTsconfigPathsFor(projectRoot: string): Record<string, string
 		const cleaned = raw.replace(/\/\/.*$/gm, "");
 		const config: unknown = JSON.parse(cleaned);
 		const paths = isJsonObject(config) && isJsonObject(config.compilerOptions) ? config.compilerOptions.paths : undefined;
-		if (isJsonObject(paths) && Object.values(paths).every((t) => Array.isArray(t) && t.every((s): s is string => typeof s === "string"))) {
-			return paths as Record<string, string[]>;
+		if (wireRecord(wireArray(wireString))(paths)) {
+			return paths;
 		}
 		return undefined;
 	} catch (err) {
@@ -174,3 +174,4 @@ export function loadTsconfigPathsFor(projectRoot: string): Record<string, string
 		return undefined;
 	}
 }
+import { wireArray, wireRecord, wireString } from "../lib/value-validation.js";

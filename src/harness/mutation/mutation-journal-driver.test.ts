@@ -74,6 +74,6 @@ describe("openNodeSqlite", () => {
 		expect(error.message).toBe(
 			"node:sqlite could not open the durable mutation journal (unable to open database file); no non-SQLite fallback is used",
 		);
-		expect((error.cause as { code?: string } | undefined)?.code).toBe("ERR_SQLITE_ERROR");
+		expect(error.cause).toMatchObject({ code: "ERR_SQLITE_ERROR" });
 	});
 });

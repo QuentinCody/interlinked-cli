@@ -54,8 +54,7 @@ describe("readManifestState — adapter/path binding (review 2026-08-30)", () =>
 		);
 		const state = readManifestState(mfPath());
 		expect(state).toMatchObject({ kind: "corrupt" });
-		// SAFETY: asserted corrupt above.
-		expect((state as { reason: string }).reason).toContain("adapter-derived");
+		expect(state).toHaveProperty("reason", expect.stringContaining("adapter-derived"));
 	});
 
 	// test-contract: security — prototype-chain segments in added_paths
@@ -70,7 +69,7 @@ describe("readManifestState — adapter/path binding (review 2026-08-30)", () =>
 		);
 		const state = readManifestState(mfPath());
 		expect(state).toMatchObject({ kind: "corrupt" });
-		expect((state as { reason: string }).reason).toContain("forbidden");
+		expect(state).toHaveProperty("reason", expect.stringContaining("forbidden"));
 	});
 
 	// test-contract: invariant — one entry per RUNNER, whatever the scopes:
@@ -86,7 +85,7 @@ describe("readManifestState — adapter/path binding (review 2026-08-30)", () =>
 		);
 		const state = readManifestState(mfPath());
 		expect(state).toMatchObject({ kind: "corrupt" });
-		expect((state as { reason: string }).reason).toContain("duplicate");
+		expect(state).toHaveProperty("reason", expect.stringContaining("duplicate"));
 	});
 
 	// test-contract: invariant — an empty binary_path is invalid (the binding
@@ -111,7 +110,7 @@ describe("readManifestState — adapter/path binding (review 2026-08-30)", () =>
 		);
 		const state = readManifestState(mfPath());
 		expect(state).toMatchObject({ kind: "corrupt" });
-		expect((state as { reason: string }).reason).toContain('invalid artifact_kind "shell-script"');
+		expect(state).toHaveProperty("reason", expect.stringContaining('invalid artifact_kind "shell-script"'));
 	});
 
 	// test-contract: invariant — artifact_sha256, when present, must be a
@@ -126,7 +125,7 @@ describe("readManifestState — adapter/path binding (review 2026-08-30)", () =>
 		);
 		const state = readManifestState(mfPath());
 		expect(state).toMatchObject({ kind: "corrupt" });
-		expect((state as { reason: string }).reason).toContain("invalid artifact_sha256");
+		expect(state).toHaveProperty("reason", expect.stringContaining("invalid artifact_sha256"));
 	});
 
 	// test-contract: invariant — added_paths must be an array of strings; a
@@ -142,6 +141,6 @@ describe("readManifestState — adapter/path binding (review 2026-08-30)", () =>
 		);
 		const state = readManifestState(mfPath());
 		expect(state).toMatchObject({ kind: "corrupt" });
-		expect((state as { reason: string }).reason).toContain("non-string added_paths array");
+		expect(state).toHaveProperty("reason", expect.stringContaining("non-string added_paths array"));
 	});
 });

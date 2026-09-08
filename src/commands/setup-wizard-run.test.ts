@@ -39,7 +39,7 @@ describe("runSetupWizardNonInteractive — positive/negative", () => {
 		vi.mocked(enableCommand).mockClear();
 		vi.mocked(adoptCommand).mockClear();
 		await runSetupWizardNonInteractive(
-			{ INTERLINKED_CLIENTS: "claude,codex", INTERLINKED_ADOPT: "false" } as NodeJS.ProcessEnv,
+			{ INTERLINKED_CLIENTS: "claude,codex", INTERLINKED_ADOPT: "false" },
 			"/repo",
 		);
 		expect(vi.mocked(enableCommand).mock.calls[0]?.[0]).toMatchObject({
@@ -53,7 +53,7 @@ describe("runSetupWizardNonInteractive — positive/negative", () => {
 	it("N1: empty env bootstraps with defaults (local sync, adopt on)", async () => {
 		vi.mocked(enableCommand).mockClear();
 		vi.mocked(adoptCommand).mockClear();
-		await runSetupWizardNonInteractive({} as NodeJS.ProcessEnv, "/repo");
+		await runSetupWizardNonInteractive({}, "/repo");
 		expect(vi.mocked(enableCommand).mock.calls[0]?.[0]).toMatchObject({ syncMode: "local" });
 		expect(vi.mocked(adoptCommand)).toHaveBeenCalledTimes(1);
 	});

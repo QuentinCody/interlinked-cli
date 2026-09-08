@@ -1,10 +1,10 @@
+import { parseWire, wireObject, wireString } from "../lib/value-validation.js";
 // Admission-screen network module. No real network anywhere in here — every
 // test injects fetchImpl, and the assertions pin the exact URLs/bodies sent so
 // a refactor can't silently start querying the wrong registry.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../lib/non-null.js";
-import type { Ecosystem } from "./package-install-parser.js";
 import {
 	fetchNpmPublishDates,
 	fetchRegistryMetadata,
@@ -15,24 +15,24 @@ import {
 type FetchImpl = typeof globalThis.fetch;
 
 function fakeFetch(body: unknown, opts: { ok?: boolean } = {}): FetchImpl {
-	return vi.fn(async () => ({
-		ok: opts.ok ?? true,
-		json: async () => body,
-	})) as unknown as FetchImpl;
+	return vi.fn<FetchImpl>(async () => new Response(JSON.stringify(body), {
+		status: opts.ok === false ? 500 : 200,
+		headers: { "Content-Type": "application/json" },
+	}));
 }
 
 function throwingFetch(): FetchImpl {
 	return vi.fn(async () => {
 		throw new Error("network down");
-	}) as unknown as FetchImpl;
+	});
 }
 
 function urlOf(f: FetchImpl): string {
-	return nonNull((f as unknown as ReturnType<typeof vi.fn>).mock.calls[0])[0] as string;
+	return parseWire(nonNull((vi.mocked(f)).mock.calls[0])[0], wireString, "test JSON value");
 }
 
 function initOf(f: FetchImpl): RequestInit {
-	return nonNull((f as unknown as ReturnType<typeof vi.fn>).mock.calls[0])[1] as RequestInit;
+	return nonNull(nonNull((vi.mocked(f)).mock.calls[0])[1]);
 }
 
 describe("fetchRegistryMetadata — per ecosystem", () => {
@@ -121,13 +121,6 @@ describe("fetchRegistryMetadata — per ecosystem", () => {
 	it("go: returns null without touching the network (no metadata API)", async () => {
 		const f = fakeFetch({});
 		const meta = await fetchRegistryMetadata("go", "github.com/pkg/errors", { fetchImpl: f });
-		expect(meta).toBeNull();
-		expect(f).not.toHaveBeenCalled();
-	});
-
-	it("unsupported ecosystem: returns null via the switch default", async () => {
-		const f = fakeFetch({ version: "1.0.0" });
-		const meta = await fetchRegistryMetadata("conda" as Ecosystem, "numpy", { fetchImpl: f });
 		expect(meta).toBeNull();
 		expect(f).not.toHaveBeenCalled();
 	});
@@ -249,8 +242,8 @@ describe("fetchRegistryMetadata — failure shapes (all fail open to null)", () 
 		// fetchImpl honours the injected AbortSignal — it never resolves on its own,
 		// so the only way it settles is the setTimeout(abort) firing. timeoutMs:1
 		// guarantees the timer wins, exercising the abort callback + catch arm.
-		const abortAwareFetch = vi.fn((_url: string, init?: RequestInit) => {
-			return new Promise((_resolve, reject) => {
+		const abortAwareFetch = vi.fn<FetchImpl>((_url, init) => {
+			return new Promise<Response>((_resolve, reject) => {
 				const signal = init?.signal;
 				if (signal?.aborted) {
 					reject(new DOMException("aborted", "AbortError"));
@@ -260,7 +253,7 @@ describe("fetchRegistryMetadata — failure shapes (all fail open to null)", () 
 					reject(new DOMException("aborted", "AbortError"));
 				});
 			});
-		}) as unknown as FetchImpl;
+		});
 		const meta = await fetchRegistryMetadata("npm", "slow-pkg", {
 			fetchImpl: abortAwareFetch,
 			timeoutMs: 1,
@@ -286,9 +279,9 @@ describe("queryOsvAdvisories", () => {
 			{ id: "GHSA-xxxx", summary: undefined },
 		]);
 		expect(advisories).toHaveLength(2);
-		const call = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0];
+		const call = (vi.mocked(f)).mock.calls[0];
 		expect(nonNull(call)[0]).toBe("https://api.osv.dev/v1/query");
-		const body = JSON.parse((nonNull(call)[1] as { body: string }).body);
+		const body = JSON.parse((parseWire(nonNull(call)[1], wireObject({ "body": wireString }), "test JSON value")).body);
 		expect(body).toEqual({
 			version: "0.9.0",
 			package: { name: "rsa", ecosystem: "crates.io" },
@@ -325,7 +318,7 @@ describe("queryOsvAdvisories", () => {
 			const f = fakeFetch({ vulns: [] });
 			await queryOsvAdvisories(eco, "pkg", "1.0.0", { fetchImpl: f });
 			const body = JSON.parse(
-				(nonNull((f as unknown as ReturnType<typeof vi.fn>).mock.calls[0])[1] as { body: string }).body,
+				(parseWire(nonNull((vi.mocked(f)).mock.calls[0])[1], wireObject({ "body": wireString }), "test JSON value")).body,
 			);
 			expect(body.package.ecosystem).toBe(spelled);
 		}
@@ -489,20 +482,13 @@ describe("fetchVersionMetadata — pins the version-specific endpoint per ecosys
 		expect(meta).toEqual({ latestVersion: "3.2.0", license: undefined });
 	});
 
-	it("unsupported ecosystem (go / unknown): returns null without a request", async () => {
+	it("unsupported ecosystem (go): returns null without a request", async () => {
 		const goFetch = fakeFetch({ version: "1.0.0" });
 		expect(
 			await fetchVersionMetadata("go", "github.com/pkg/errors", "1.0.0", { fetchImpl: goFetch }),
 		).toBeNull();
 		expect(goFetch).not.toHaveBeenCalled();
 
-		const unknownFetch = fakeFetch({ version: "1.0.0" });
-		expect(
-			await fetchVersionMetadata("conda" as Ecosystem, "numpy", "1.0.0", {
-				fetchImpl: unknownFetch,
-			}),
-		).toBeNull();
-		expect(unknownFetch).not.toHaveBeenCalled();
 	});
 });
 

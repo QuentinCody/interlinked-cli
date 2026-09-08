@@ -1,11 +1,11 @@
+import { makeEvent as makeEventFixture } from "../__tests__/fixtures/evaluator.js";
+import type { JsonObject } from "../../lib/json-types.js";
 import { describe, expect, it } from "vitest";
 import type { HarnessEvent } from "../types.js";
 import { isGeneratedArtifactPath, resolveEditedPaths } from "./post-tool-pipeline-paths.js";
 
-function ev(tool_name: string | undefined, tool_input?: unknown): HarnessEvent {
-	// SAFETY: only the fields resolveEditedPaths reads; the full event shape is
-	// irrelevant to path resolution.
-	return { tool_name, tool_input } as unknown as HarnessEvent;
+function ev(tool_name: string | undefined, tool_input?: JsonObject): HarnessEvent {
+	return { ...makeEventFixture({ tool_name: undefined, tool_input: undefined }), tool_name, tool_input };
 }
 
 function evWithFiles(
@@ -13,7 +13,7 @@ function evWithFiles(
 	files: { path: string }[],
 ): HarnessEvent {
 	// SAFETY: only tool_name/tool_input/change_set are read by resolveEditedPaths.
-	return {
+	return { ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 		tool_name,
 		tool_input: {},
 		change_set: {
@@ -23,8 +23,7 @@ function evWithFiles(
 			after_captured_at: "2026-08-13T00:00:01.000Z",
 			files: files.map((f) => ({ ...f, kind: "modified", before_sha256: "a", after_sha256: "b" })),
 		},
-		// SAFETY: resolveEditedPaths only reads tool_name/tool_input/change_set.
-	} as unknown as HarnessEvent;
+	};
 }
 
 // mutantId c3c106171b498058: "/" -> "" in norm.split("/")

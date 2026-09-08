@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resolveStructureConfig } from "../../harness/structure/schema-validator.js";
+import type { ArtifactFileKey, Determinism, StructureConfig, StructureFinding } from "../../harness/structure/types.js";
+
+const nodesJsonHolder = vi.hoisted((): { value: { nodes: Array<{ file: string | null }> } } => ({ value: { nodes: [] } }));
 
 // ---------------------------------------------------------------------------
 // Mocks for every dependency of src/commands/verify/structure.ts. Each test
@@ -13,7 +17,6 @@ vi.mock("../../harness/structure/adoption.js", () => ({
 }));
 
 vi.mock("../../harness/structure/artifact-graph.js", () => {
-	const nodesJsonHolder = { value: { nodes: [] as Array<{ file: string | null }> } };
 	class MockArtifactGraph {
 		addNode() {}
 		addEdge() {}
@@ -21,9 +24,6 @@ vi.mock("../../harness/structure/artifact-graph.js", () => {
 			return nodesJsonHolder.value;
 		}
 	}
-	// Expose the holder on the class so tests can set nodes.
-	(MockArtifactGraph as unknown as { __nodesJsonHolder: typeof nodesJsonHolder }).__nodesJsonHolder =
-		nodesJsonHolder;
 	return { ArtifactGraph: MockArtifactGraph };
 });
 
@@ -38,7 +38,7 @@ vi.mock("../../harness/structure/cache-manager.js", () => ({
 }));
 
 vi.mock("../../harness/structure/extractors/index.js", () => ({
-	runAllExtractors: vi.fn(() => ({ nodes: [], edges: [] })),
+	runAllExtractors: vi.fn(() => ({ nodes: [], edges: [], truncated: false })),
 }));
 
 vi.mock("../../harness/structure/rules/index.js", () => ({
@@ -51,10 +51,12 @@ vi.mock("../../harness/structure/structure-checks.js", () => ({
 
 vi.mock("../../harness/structure/structure-formatter.js", () => ({
 	formatStructureVerifyOutput: vi.fn(() => ({
-		mode: "declared",
+		mode: "standard",
+ catalog_fresh: true,
+ invalid_files: [],
 		findings: { fully_deterministic: 0, partially_deterministic: 0, heuristic: 0 },
 		details: [],
-		adoption: {},
+		adoption: adoption(),
 	})),
 }));
 
@@ -63,7 +65,6 @@ vi.mock("../../harness/structure/structure-loader.js", () => ({
 	loadStructureConfig: vi.fn(),
 }));
 
-import { ArtifactGraph } from "../../harness/structure/artifact-graph.js";
 import { isCacheStale } from "../../harness/structure/cache-manager.js";
 import { runAllExtractors } from "../../harness/structure/extractors/index.js";
 import { evaluateStructureRules } from "../../harness/structure/rules/index.js";
@@ -72,30 +73,25 @@ import { loadStructureConfig } from "../../harness/structure/structure-loader.js
 import { calculateAdoption } from "../../harness/structure/adoption.js";
 import { buildStructureJsonSection, runStructureVerify } from "./structure.js";
 
-const nodesJsonHolder = (
-	ArtifactGraph as unknown as { __nodesJsonHolder: { value: { nodes: Array<{ file: string | null }> } } }
-).__nodesJsonHolder;
+function adoption(overrides: Partial<Record<ArtifactFileKey, number>> = {}): Record<ArtifactFileKey, number> {
+ return { public_api: 0, env: 0, config: 0, tests: 0, docs: 0, examples: 0, glossary: 0, layers: 0, packages: 0, ...overrides };
+}
 
-function baseConfig(overrides: Record<string, unknown> = {}) {
-	return {
-		mode: "declared",
-		verify: {
-			fail_on_invalid_structure: false,
-			fail_on_deterministic: false,
-		},
-		adoption: {
-			coverage_thresholds: {},
-		},
-		...overrides,
-	};
+function finding(determinism: Determinism): StructureFinding {
+ return { name: "test-finding", severity: "warning", message: "Companion update required", file: "src/a.ts", determinism, provenance: "declared", artifact_kind: "module", artifact_id: "a", required_updates: [], confidence: 1 };
+}
+
+function baseConfig(overrides: { verify?: Partial<StructureConfig["verify"]>; adoption?: { coverage_thresholds: Partial<Record<ArtifactFileKey, number>> } } = {}): StructureConfig {
+ const base = resolveStructureConfig({ version: 1, mode: "standard" });
+ return { ...base, verify: { ...base.verify, fail_on_invalid_structure: false, fail_on_deterministic: false, ...overrides.verify }, adoption: { coverage_thresholds: adoption(overrides.adoption?.coverage_thresholds) } };
 }
 
 function setLoadStructureConfig(opts: {
-	config?: Record<string, unknown> | null;
+	config?: StructureConfig | null;
 	errors?: string[];
 	implicit?: boolean;
 }) {
-	(loadStructureConfig as ReturnType<typeof vi.fn>).mockReturnValue({
+	(vi.mocked(loadStructureConfig)).mockReturnValue({
 		config: opts.config ?? baseConfig(),
 		errors: opts.errors ?? [],
 		implicit: opts.implicit ?? false,
@@ -117,16 +113,18 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 		});
 		stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
-		(evaluateStructureRules as ReturnType<typeof vi.fn>).mockReset().mockReturnValue([]);
-		(formatStructureVerifyOutput as ReturnType<typeof vi.fn>).mockReset().mockReturnValue({
-			mode: "declared",
+		(vi.mocked(evaluateStructureRules)).mockReset().mockReturnValue([]);
+		(vi.mocked(formatStructureVerifyOutput)).mockReset().mockReturnValue({
+			mode: "standard",
+ catalog_fresh: true,
+ invalid_files: [],
 			findings: { fully_deterministic: 0, partially_deterministic: 0, heuristic: 0 },
 			details: [],
-			adoption: {},
+			adoption: adoption(),
 		});
-		(calculateAdoption as ReturnType<typeof vi.fn>).mockReset().mockReturnValue({});
-		(isCacheStale as ReturnType<typeof vi.fn>).mockReset().mockReturnValue(false);
-		(runAllExtractors as ReturnType<typeof vi.fn>).mockReset().mockReturnValue({ nodes: [], edges: [] });
+		(vi.mocked(calculateAdoption)).mockReset().mockReturnValue(adoption());
+		(vi.mocked(isCacheStale)).mockReset().mockReturnValue(false);
+		(vi.mocked(runAllExtractors)).mockReset().mockReturnValue({ nodes: [], edges: [], truncated: false });
 		setLoadStructureConfig({});
 	});
 
@@ -142,7 +140,7 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 
 		buildStructureJsonSection("/fake/cwd", {});
 
-		const calls = (formatStructureVerifyOutput as ReturnType<typeof vi.fn>).mock.calls;
+		const calls = (vi.mocked(formatStructureVerifyOutput)).mock.calls;
 		expect(calls.length).toBe(1);
 		const call = calls[0]![0];
 		expect(call.invalidFiles).toEqual([]);
@@ -156,7 +154,7 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 
 		buildStructureJsonSection("/fake/cwd", {});
 
-		const calls = (evaluateStructureRules as ReturnType<typeof vi.fn>).mock.calls;
+		const calls = (vi.mocked(evaluateStructureRules)).mock.calls;
 		expect(calls.length).toBe(1);
 		const allFilesArg = calls[0]![2];
 		expect(allFilesArg).toEqual(["a.ts", "b.ts"]);
@@ -164,14 +162,14 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 
 	// -- kills a272c65a01ad0339, 0c593fa34fbd8db9 --------------------------
 	it("passes the full structured object (not {}) to the formatter, with catalogFresh derived from isCacheStale", () => {
-		(isCacheStale as ReturnType<typeof vi.fn>).mockReturnValue(true);
+		(vi.mocked(isCacheStale)).mockReturnValue(true);
 		const config = baseConfig();
 		setLoadStructureConfig({ config, errors: [], implicit: false });
-		(evaluateStructureRules as ReturnType<typeof vi.fn>).mockReturnValue([]);
+		(vi.mocked(evaluateStructureRules)).mockReturnValue([]);
 
 		buildStructureJsonSection("/fake/cwd", {});
 
-		const calls2 = (formatStructureVerifyOutput as ReturnType<typeof vi.fn>).mock.calls;
+		const calls2 = (vi.mocked(formatStructureVerifyOutput)).mock.calls;
 		expect(calls2.length).toBe(1);
 		const call = calls2[0]![0];
 		expect(call).toHaveProperty("config");
@@ -187,7 +185,7 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 			adoption: { coverage_thresholds: { docs: 0.9 } },
 		});
 		setLoadStructureConfig({ config, errors: [], implicit: false });
-		(calculateAdoption as ReturnType<typeof vi.fn>).mockReturnValue({ docs: 0.1 });
+		(vi.mocked(calculateAdoption)).mockReturnValue(adoption({ docs: 0.1 }));
 
 		buildStructureJsonSection("/fake/cwd", { adoptionGate: false });
 
@@ -200,7 +198,7 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 			verify: { fail_on_invalid_structure: false, fail_on_deterministic: true },
 		});
 		setLoadStructureConfig({ config, errors: [], implicit: false });
-		(evaluateStructureRules as ReturnType<typeof vi.fn>).mockReturnValue([{ determinism: "heuristic" }]);
+		(vi.mocked(evaluateStructureRules)).mockReturnValue([finding("heuristic")]);
 
 		buildStructureJsonSection("/fake/cwd", {});
 
@@ -209,29 +207,41 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 
 	// -- kills baff382878f68ba2, 4e5347edd62aa14b, 7203a7415aea5f06/3bea2719c060ae2b --
 	it("text report omits the blank separator line when there are no details", () => {
-		(formatStructureVerifyOutput as ReturnType<typeof vi.fn>).mockReturnValue({
-			mode: "declared",
+		(vi.mocked(formatStructureVerifyOutput)).mockReturnValue({
+			mode: "standard",
+ catalog_fresh: true,
+ invalid_files: [],
 			findings: { fully_deterministic: 0, partially_deterministic: 0, heuristic: 0 },
 			details: [],
-			adoption: { cat: 0.5 },
+			adoption: adoption({ docs: 0.5 }),
 		});
 
 		return runStructureVerify("/fake/cwd", { json: false }).then(() => {
 			const full = stderrWrites.join("");
 			const expected =
 				"\n  \x1b[1minterlinked verify --structure\x1b[0m\n" +
-				"  mode: declared\n" +
+				"  mode: standard\n" +
 				"  findings: 0 deterministic, 0 partial, 0 heuristic\n" +
 				"\n  \x1b[1madoption:\x1b[0m\n" +
-				"    cat: \x1b[33m50%\x1b[0m\n" +
+				"    public_api: \x1b[31m0%\x1b[0m\n" +
+				"    env: \x1b[31m0%\x1b[0m\n" +
+				"    config: \x1b[31m0%\x1b[0m\n" +
+				"    tests: \x1b[31m0%\x1b[0m\n" +
+				"    docs: \x1b[33m50%\x1b[0m\n" +
+				"    examples: \x1b[31m0%\x1b[0m\n" +
+				"    glossary: \x1b[31m0%\x1b[0m\n" +
+				"    layers: \x1b[31m0%\x1b[0m\n" +
+				"    packages: \x1b[31m0%\x1b[0m\n" +
 				"\n";
 			expect(full).toBe(expected);
 		});
 	});
 
 	it("text report includes the blank separator line and each detail when details is non-empty", () => {
-		(formatStructureVerifyOutput as ReturnType<typeof vi.fn>).mockReturnValue({
-			mode: "declared",
+		(vi.mocked(formatStructureVerifyOutput)).mockReturnValue({
+			mode: "standard",
+ catalog_fresh: true,
+ invalid_files: [],
 			findings: { fully_deterministic: 0, partially_deterministic: 0, heuristic: 0 },
 			details: [
 				{
@@ -239,23 +249,32 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 					file: "f.ts",
 					artifact_id: "a1",
 					determinism: "heuristic",
+					provenance: "declared",
 					required_updates: [],
 				},
 			],
-			adoption: { cat: 0.5 },
+			adoption: adoption({ docs: 0.5 }),
 		});
 
 		return runStructureVerify("/fake/cwd", { json: false }).then(() => {
 			const full = stderrWrites.join("");
 			const expected =
 				"\n  \x1b[1minterlinked verify --structure\x1b[0m\n" +
-				"  mode: declared\n" +
+				"  mode: standard\n" +
 				"  findings: 0 deterministic, 0 partial, 0 heuristic\n" +
 				"\n" +
 				"  \x1b[33mx\x1b[0m f.ts\n" +
 				"    artifact: a1 (heuristic)\n" +
 				"\n  \x1b[1madoption:\x1b[0m\n" +
-				"    cat: \x1b[33m50%\x1b[0m\n" +
+				"    public_api: \x1b[31m0%\x1b[0m\n" +
+				"    env: \x1b[31m0%\x1b[0m\n" +
+				"    config: \x1b[31m0%\x1b[0m\n" +
+				"    tests: \x1b[31m0%\x1b[0m\n" +
+				"    docs: \x1b[33m50%\x1b[0m\n" +
+				"    examples: \x1b[31m0%\x1b[0m\n" +
+				"    glossary: \x1b[31m0%\x1b[0m\n" +
+				"    layers: \x1b[31m0%\x1b[0m\n" +
+				"    packages: \x1b[31m0%\x1b[0m\n" +
 				"\n";
 			expect(full).toBe(expected);
 		});
@@ -267,7 +286,7 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 			adoption: { coverage_thresholds: { docs: 0.9 } },
 		});
 		setLoadStructureConfig({ config, errors: [], implicit: false });
-		(calculateAdoption as ReturnType<typeof vi.fn>).mockReturnValue({ docs: 0.1 });
+		(vi.mocked(calculateAdoption)).mockReturnValue(adoption({ docs: 0.1 }));
 
 		return runStructureVerify("/fake/cwd", { json: true, adoptionGate: false }).then(() => {
 			expect(process.exitCode).toBeUndefined();
@@ -280,7 +299,7 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 			adoption: { coverage_thresholds: { docs: 0.9 } },
 		});
 		setLoadStructureConfig({ config, errors: [], implicit: false });
-		(calculateAdoption as ReturnType<typeof vi.fn>).mockReturnValue({ docs: 0.1 });
+		(vi.mocked(calculateAdoption)).mockReturnValue(adoption({ docs: 0.1 }));
 
 		return runStructureVerify("/fake/cwd", { json: false, adoptionGate: true }).then(() => {
 			const failLine = stderrWrites.find((s) => s.includes("adoption gate failed"));
@@ -295,12 +314,14 @@ describe("buildStructureJsonSection / runStructureVerify — mutation kill (w62)
 			verify: { fail_on_invalid_structure: false, fail_on_deterministic: true },
 		});
 		setLoadStructureConfig({ config, errors: [], implicit: false });
-		(evaluateStructureRules as ReturnType<typeof vi.fn>).mockReturnValue([{ determinism: "heuristic" }]);
-		(formatStructureVerifyOutput as ReturnType<typeof vi.fn>).mockReturnValue({
-			mode: "declared",
+		(vi.mocked(evaluateStructureRules)).mockReturnValue([finding("heuristic")]);
+		(vi.mocked(formatStructureVerifyOutput)).mockReturnValue({
+			mode: "standard",
+ catalog_fresh: true,
+ invalid_files: [],
 			findings: { fully_deterministic: 0, partially_deterministic: 0, heuristic: 1 },
 			details: [],
-			adoption: {},
+			adoption: adoption(),
 		});
 
 		return runStructureVerify("/fake/cwd", { json: true }).then(() => {

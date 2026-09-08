@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked clean — behavioral coverage
 // ===========================================
@@ -89,7 +90,7 @@ const DAY = 24 * 60 * 60 * 1000;
 let logs: string[];
 
 function lastJson(): Record<string, unknown> {
-	return JSON.parse(logs.at(-1) as string) as Record<string, unknown>;
+	return parseWire(JSON.parse(nonNull(logs.at(-1))), wireRecord(wireUnknown), "test JSON value");
 }
 function allOutput(): string {
 	return logs.join("\n");
@@ -161,7 +162,7 @@ describe("clean — stale hook session files", () => {
 	it("dry-run: lists stale file, does NOT unlink, age in days", async () => {
 		await cleanCommand({ json: true });
 		const payload = lastJson();
-		const items = payload.stale_items as Array<{ type: string; path: string; age?: string }>;
+		const items = parseWire(payload.stale_items, wireArray(wireObject({ "type": wireString, "path": wireString, "age": wireAbsentOptional(wireOptional(wireString)) })), "test JSON value");
 		expect(items).toHaveLength(1);
 		expect(nonNull(items[0]).type).toBe("session_file");
 		expect(nonNull(items[0]).path).toBe(`${HOOK_SESSIONS}/old.json`);
@@ -188,11 +189,18 @@ describe("clean — stale hook session files", () => {
 	});
 
 	it("25h-old file formats age as 1d (days branch of formatAge)", async () => {
-		vfs.dirs[HOOK_SESSIONS] = ["h.json"];
-		vfs.files = { [`${HOOK_SESSIONS}/h.json`]: { mtimeMs: NOW - 25 * 60 * 60 * 1000 } };
+		vfs.dirs[HOOK_SESSIONS] = ["h.json", "h2.json"];
+		vfs.files = {
+			[`${HOOK_SESSIONS}/h.json`]: { mtimeMs: NOW - 25 * 60 * 60 * 1000 },
+			[`${HOOK_SESSIONS}/h2.json`]: { mtimeMs: NOW - 49 * 60 * 60 * 1000 },
+		};
 		await cleanCommand({ json: true });
-		const items = lastJson().stale_items as Array<{ age?: string }>;
-		expect(nonNull(items[0]).age).toBe("1d"); // 25h -> 1d
+		const items = parseWire(lastJson().stale_items, wireArray(wireObject({ "path": wireString, "age": wireAbsentOptional(wireOptional(wireString)) })), "test JSON value");
+		const ageByPath = Object.fromEntries(items.map((i) => [i.path, i.age]));
+		// Two different mtimes must floor to two different day buckets — proves
+		// the "1d" above isn't a hardcoded default shared with the 30h-old case.
+		expect(ageByPath[`${HOOK_SESSIONS}/h.json`]).toBe("1d"); // 25h -> 1d
+		expect(ageByPath[`${HOOK_SESSIONS}/h2.json`]).toBe("2d"); // 49h -> 2d
 	});
 
 	it("readdir throwing on hook sessions dir is swallowed (treated empty)", async () => {
@@ -222,7 +230,7 @@ describe("clean — large activity log", () => {
 		vfs.existing.add(ACTIVITY);
 		vfs.files[ACTIVITY] = { size: 60 * 1024 * 1024 };
 		await cleanCommand({ json: true });
-		const items = lastJson().stale_items as Array<{ type: string; detail: string }>;
+		const items = parseWire(lastJson().stale_items, wireArray(wireObject({ "type": wireString, "detail": wireString })), "test JSON value");
 		expect(items).toHaveLength(1);
 		expect(nonNull(items[0]).type).toBe("large_activity_log");
 		expect(nonNull(items[0]).detail).toContain("60.0 MB");
@@ -283,7 +291,7 @@ describe("clean — stale local sessions", () => {
 
 	it("dry-run: only stale .json flagged; .txt and stat-error skipped", async () => {
 		await cleanCommand({ json: true });
-		const items = lastJson().stale_items as Array<{ type: string; path: string; age?: string }>;
+		const items = parseWire(lastJson().stale_items, wireArray(wireObject({ "type": wireString, "path": wireString, "age": wireAbsentOptional(wireOptional(wireString)) })), "test JSON value");
 		expect(items).toHaveLength(1);
 		expect(nonNull(items[0]).type).toBe("stale_session");
 		expect(nonNull(items[0]).path).toBe(`${LOCAL_SESSIONS}/old.json`);
@@ -324,7 +332,7 @@ describe("clean — orphaned hook entries", () => {
 		vfs.files[CLAUDE_SETTINGS] = { content: orphanContent };
 		// /gone/interlinked-activity.mjs is NOT in existing -> orphan
 		await cleanCommand({ json: true });
-		const items = lastJson().stale_items as Array<{ type: string; detail: string }>;
+		const items = parseWire(lastJson().stale_items, wireArray(wireObject({ "type": wireString, "detail": wireString })), "test JSON value");
 		expect(items).toHaveLength(1);
 		expect(nonNull(items[0]).type).toBe("orphaned_hook");
 		expect(nonNull(items[0]).detail).toContain("Claude Code");
@@ -408,15 +416,14 @@ describe("clean — output mode fallbacks", () => {
 	// commander forwards --short/--full even though cleanCommand's declared
 	// param type omits them; cast to exercise the short/full branches of
 	// output() (both fall back to the normal renderer).
-	type CleanOpts = Parameters<typeof cleanCommand>[0];
 
 	it("short mode falls back to the normal renderer", async () => {
-		await cleanCommand({ short: true } as CleanOpts);
+		await cleanCommand({ short: true });
 		expect(allOutput()).toContain("== Clean (dry-run) ==");
 	});
 
 	it("full mode falls back to the normal renderer", async () => {
-		await cleanCommand({ full: true } as CleanOpts);
+		await cleanCommand({ full: true });
 		expect(allOutput()).toContain("== Clean (dry-run) ==");
 	});
 });

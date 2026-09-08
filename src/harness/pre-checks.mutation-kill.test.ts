@@ -1,3 +1,5 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
+import { nonNull } from "../lib/non-null.js";
 // Mutation-directed public-contract tests for src/harness/pre-checks.ts.
 //
 // These cases exercise only exported checks and assert the policy outcomes
@@ -24,7 +26,6 @@ import {
 	checkSelfKill,
 	checkStaleBranch,
 } from "./pre-checks.js";
-import type { SessionTrajectory } from "./types.js";
 
 const execSyncMock = vi.mocked(mockedExecSync);
 
@@ -302,7 +303,7 @@ describe("checkConcurrentEdit mutation contracts", () => {
 		vi.setSystemTime(new Date("2026-01-01T00:10:00.000Z"));
 		const filePath = "/repo/src/shared.ts";
 		const writeTime = "2026-01-01T00:09:18.000Z"; // exactly 42s before frozen "now"
-		const other = {
+		const other = ({ ...completeSessionFixture(), ...{
 			session_id: "other-session",
 			agent_name: "other-agent",
 			files_written: new Set([filePath]),
@@ -310,7 +311,7 @@ describe("checkConcurrentEdit mutation contracts", () => {
 			// SAFETY: checkConcurrentEdit only reads session_id, agent_name,
 			// files_written, and file_write_times — the remaining SessionTrajectory
 			// fields it never touches are safely omitted from this fixture.
-		} as unknown as SessionTrajectory;
+		} });
 
 		const result = checkConcurrentEdit(filePath, "current-session", [other]);
 		expect(result?.warning).toBe(
@@ -360,7 +361,7 @@ describe("getProtectedPids / protectedPids mutation contracts (fresh module per 
 		// SAFETY: "ppid" is always a real own property of the live process object
 		// (verified: Object.getOwnPropertyDescriptor(process, "ppid") never
 		// returns undefined on any supported Node build), so this is never null.
-		const original = Object.getOwnPropertyDescriptor(process, "ppid") as PropertyDescriptor;
+		const original = nonNull(Object.getOwnPropertyDescriptor(process, "ppid"));
 		Object.defineProperty(process, "ppid", { get: () => value, configurable: true });
 		try {
 			return fn();

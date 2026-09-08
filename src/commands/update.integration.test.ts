@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireString } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ===========================================
@@ -160,9 +161,9 @@ beforeEach(() => {
 	logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 	errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 	stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-	exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-		throw new ProcessExit(code ?? 0);
-	}) as never);
+	exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+		throw new ProcessExit(Number(code ?? 0));
+	});
 	vi.spyOn(process, "cwd").mockReturnValue("/cwd");
 	// process.argv[1] is read by resolveCliRoot; give it a stable value.
 	process.argv[1] = "/bin/interlinked";
@@ -403,7 +404,7 @@ describe("update — git failure paths", () => {
 		// Clone happened (execFileSync), but no git porcelain/pull/rev-parse ran.
 		expect(
 			mocks.execFileSync.mock.calls.some(
-				(call: unknown[]) => Array.isArray(call[1]) && (call[1] as string[]).includes("clone"),
+				(call: unknown[]) => Array.isArray(call[1]) && (parseWire(call[1], wireArray(wireString), "test JSON value")).includes("clone"),
 			),
 		).toBe(true);
 		expect(ranCmd("git pull")).toBe(false);
@@ -693,7 +694,7 @@ describe("update — managed checkout (not a source install)", () => {
 	it("exits 1 with the clone error when git clone fails", async () => {
 		setNonSourceInstall({ checkoutExists: false });
 		mocks.execFileSync.mockImplementation((_file: unknown, args: unknown) => {
-			if (Array.isArray(args) && (args as string[]).includes("clone")) {
+			if (Array.isArray(args) && (parseWire(args, wireArray(wireString), "test JSON value")).includes("clone")) {
 				throw new Error("clone refused");
 			}
 			return "";
@@ -709,7 +710,7 @@ describe("update — managed checkout (not a source install)", () => {
 	it("emits a JSON clone error when git clone fails under --json", async () => {
 		setNonSourceInstall({ checkoutExists: false });
 		mocks.execFileSync.mockImplementation((_file: unknown, args: unknown) => {
-			if (Array.isArray(args) && (args as string[]).includes("clone")) {
+			if (Array.isArray(args) && (parseWire(args, wireArray(wireString), "test JSON value")).includes("clone")) {
 				throw new Error("nope");
 			}
 			return "";
@@ -761,7 +762,7 @@ describe("update — managed checkout (not a source install)", () => {
 	it("set-url failure is non-fatal (swallowed) and the update proceeds", async () => {
 		setNonSourceInstall({ checkoutExists: true });
 		mocks.execFileSync.mockImplementation((_file: unknown, args: unknown) => {
-			if (Array.isArray(args) && (args as string[]).includes("set-url")) {
+			if (Array.isArray(args) && (parseWire(args, wireArray(wireString), "test JSON value")).includes("set-url")) {
 				throw new Error("remote weirdness");
 			}
 			return "";

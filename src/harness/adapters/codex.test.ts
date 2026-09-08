@@ -1,3 +1,4 @@
+import { nestedHookSettings } from "./test-output.js";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -240,17 +241,8 @@ describe("Codex renderSettingsFragment", () => {
 	});
 	it("includes Claude-shaped {matcher, hooks:[{type, command}]} entries", () => {
 		const fragment = adapter.renderSettingsFragment("/bin/hook", "project");
-		const root = fragment.fragment as { hooks: Record<string, unknown[]> };
-		const entries = root.hooks.PreToolUse as Array<{
-			matcher: string;
-			hooks: Array<{
-				type: string;
-				command: string;
-				timeout: number;
-				statusMessage: string;
-				additionalContextLimit: number;
-			}>;
-		}>;
+		const root = nestedHookSettings(fragment.fragment);
+		const entries = nonNull(root.hooks.PreToolUse);
 		const handler = nonNull(nonNull(entries[0]).hooks[0]);
 		expect(handler).toMatchObject({
 			type: "command",
@@ -261,8 +253,8 @@ describe("Codex renderSettingsFragment", () => {
 	});
 	it("scopes PostToolUse to Codex's mutating tools", () => {
 		const fragment = adapter.renderSettingsFragment("/bin/hook", "project");
-		const root = fragment.fragment as { hooks: Record<string, unknown[]> };
-		const entries = root.hooks.PostToolUse as Array<{ matcher: string }>;
+		const root = nestedHookSettings(fragment.fragment);
+		const entries = nonNull(root.hooks.PostToolUse);
 		expect(nonNull(entries[0]).matcher).toBe("Bash|apply_patch");
 		expect(nonNull(entries[0]).matcher).toBe(CODEX_POST_TOOL_USE_MATCHER);
 		expect(CODEX_POST_TOOL_USE_MATCHER.split("|")).toEqual([...CODEX_WRITE_TOOLS]);
@@ -270,9 +262,9 @@ describe("Codex renderSettingsFragment", () => {
 
 	it("uses an empty matcher for every event except PostToolUse", () => {
 		const fragment = adapter.renderSettingsFragment("/bin/hook", "project");
-		const root = fragment.fragment as { hooks: Record<string, unknown[]> };
+		const root = nestedHookSettings(fragment.fragment);
 		for (const eventName of Object.keys(root.hooks)) {
-			const entries = root.hooks[eventName] as Array<{ matcher: string }>;
+			const entries = nonNull(root.hooks[eventName]);
 			if (eventName === "PostToolUse") continue;
 			expect(nonNull(entries[0]).matcher).toBe("");
 		}
@@ -280,10 +272,8 @@ describe("Codex renderSettingsFragment", () => {
 
 	it("runs SessionEnd detached within Codex's three-second deadline", () => {
 		const fragment = adapter.renderSettingsFragment("/bin/hook", "project");
-		const root = fragment.fragment as { hooks: Record<string, unknown[]> };
-		const entries = root.hooks.SessionEnd as Array<{
-			hooks: Array<{ command: string; timeout: number }>;
-		}>;
+		const root = nestedHookSettings(fragment.fragment);
+		const entries = nonNull(root.hooks.SessionEnd);
 		const handler = nonNull(nonNull(entries[0]).hooks[0]);
 		expect(handler.timeout).toBe(3);
 		expect(handler.command).toContain(">/dev/null 2>&1 &");
@@ -291,10 +281,8 @@ describe("Codex renderSettingsFragment", () => {
 
 	it("runs Interrupt asynchronously with a three-second telemetry ceiling", () => {
 		const fragment = adapter.renderSettingsFragment("/bin/hook", "project");
-		const root = fragment.fragment as { hooks: Record<string, unknown[]> };
-		const entries = root.hooks.Interrupt as Array<{
-			hooks: Array<{ async: boolean; timeout: number; additionalContextLimit?: number }>;
-		}>;
+		const root = nestedHookSettings(fragment.fragment);
+		const entries = nonNull(root.hooks.Interrupt);
 		const handler = nonNull(nonNull(entries[0]).hooks[0]);
 		expect(handler).toMatchObject({ async: true, timeout: 3 });
 		expect(handler.additionalContextLimit).toBeUndefined();

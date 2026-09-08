@@ -6,6 +6,7 @@ import { redactPii, scrubEgressPayload } from "../secrets.js";
 // Build the hook's self-contained inline redactPii from REDACTION_CHUNK so we
 // can assert the canonical TS scrubber and the .mjs mirror behave identically.
 // Test-only eval of trusted in-repo source — this is the parity guarantee.
+// SAFETY: REDACTION_CHUNK declares redactPii(text), and this factory returns that named export; the corpus below checks its string output against the canonical scrubber.
 const mjs = new Function(`${REDACTION_CHUNK}; return { redactPii };`)() as {
 	redactPii: (t: string) => string;
 };

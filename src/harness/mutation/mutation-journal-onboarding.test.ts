@@ -81,6 +81,7 @@ function stripCheckConstraints(sql: string): string {
  */
 function withRelaxedOnboardingTable(dbPath: string, mutate: (raw: ReturnType<typeof openNodeSqlite>) => void): void {
 	const raw = openNodeSqlite(dbPath);
+	// SAFETY: sqlite_master.sql is SQLite's CREATE TABLE text; this fixture created the named onboarding table before rebuilding its constraints.
 	const schema = raw.prepare(
 		`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mutation_onboarding_intents'`,
 	).get() as { sql: string };

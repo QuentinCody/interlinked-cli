@@ -39,9 +39,6 @@ vi.mock("node:fs", async (importOriginal) => {
 
 import { getTrackedFiles } from "./trigram-git.js";
 
-type ExecSyncArgs = Parameters<typeof execSync>;
-type ReaddirArgs = Parameters<typeof readdirSync>;
-
 let actualExecSync: typeof execSync;
 let actualReaddirSync: typeof readdirSync;
 let repo: string;
@@ -59,12 +56,12 @@ beforeEach(async () => {
 	// module, so each cast below just restates the (identical) type that
 	// `typeof execSync` / `typeof readdirSync` already infer — it exists only
 	// to satisfy the mock's overload-erased parameter type.
-	vi.mocked(execSync).mockImplementation(actualExecSync as (...args: ExecSyncArgs) => ReturnType<typeof execSync>);
+	vi.mocked(execSync).mockImplementation(actualExecSync);
 	// SAFETY: fsActual.statSync is the real implementation (see above).
-	vi.mocked(statSync).mockImplementation(fsActual.statSync as typeof statSync);
+	vi.mocked(statSync).mockImplementation(fsActual.statSync);
 	// SAFETY: actualReaddirSync is the real implementation (see above).
 	vi.mocked(readdirSync).mockImplementation(
-		actualReaddirSync as (...args: ReaddirArgs) => ReturnType<typeof readdirSync>,
+		actualReaddirSync,
 	);
 
 	repo = mkdtempSync(join(tmpdir(), "trigram-git-unit-"));
@@ -93,7 +90,7 @@ describe("getTrackedFiles — non-fatal sub-discovery failures", () => {
 			// SAFETY: `opts` here is always the ExecSyncOptions object this same
 			// module passed in — we only intercept the command string above.
 			return actualExecSync(cmd, opts as Parameters<typeof execSync>[1]);
-		}) as typeof execSync);
+		}));
 
 		expect(getTrackedFiles(repo)).toEqual(["tracked.ts"]);
 	});
@@ -103,7 +100,7 @@ describe("getTrackedFiles — non-fatal sub-discovery failures", () => {
 			if (cmd.includes("-- scratch/")) throw new Error("simulated git failure");
 			// SAFETY: see the equivalent cast in the test above.
 			return actualExecSync(cmd, opts as Parameters<typeof execSync>[1]);
-		}) as typeof execSync);
+		}));
 
 		expect(getTrackedFiles(repo)).toEqual(["tracked.ts"]);
 	});
@@ -132,7 +129,7 @@ describe("getTrackedFiles — scratch/ over the index cap", () => {
 			if (cmd.includes("-- scratch/")) return Buffer.from(`${names.join("\0")}\0`);
 			// SAFETY: see the equivalent cast in the sub-discovery tests above.
 			return actualExecSync(cmd, opts as Parameters<typeof execSync>[1]);
-		}) as typeof execSync);
+		}));
 		const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 
 		const files = getTrackedFiles(repo);
@@ -172,7 +169,7 @@ describe("getTrackedFiles — filesystem-walk fallback error handling", () => {
 			// SAFETY: `path`/`opts` here are always what this same module passed
 			// in — we only intercept the one "locked" subdirectory path above.
 			return actualReaddirSync(path as Parameters<typeof readdirSync>[0], opts as Parameters<typeof readdirSync>[1]);
-		}) as typeof readdirSync);
+		}));
 
 		// `walkDir` was never `git init`-ed, so getTrackedFiles falls back to
 		// the filesystem walk, which is where the mocked readdirSync throws.

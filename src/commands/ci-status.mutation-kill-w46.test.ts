@@ -1,6 +1,8 @@
+import { parseWire, wireArray, wireString } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const execFileSyncMock = vi.hoisted(() => vi.fn());
+const execFileSyncMock = vi.hoisted(() => vi.fn<typeof import("node:child_process").execFileSync>());
 
 vi.mock("node:child_process", () => ({
 	execFileSync: execFileSyncMock,
@@ -36,7 +38,7 @@ describe("GhCliFetcher.listRuns — args + parsing (positive/negative)", () => {
 		const fetcher = new GhCliFetcher();
 		fetcher.listRuns({ limit: 7, branch: undefined });
 		expect(execFileSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args] = execFileSyncMock.mock.calls[0] as [string, string[], unknown];
+		const [cmd, args] = nonNull(execFileSyncMock.mock.calls[0]);
 		expect(cmd).toBe("gh");
 		expect(args).toEqual([
 			"run",
@@ -52,7 +54,7 @@ describe("GhCliFetcher.listRuns — args + parsing (positive/negative)", () => {
 		execFileSyncMock.mockReturnValue("[]");
 		const fetcher = new GhCliFetcher();
 		fetcher.listRuns({ limit: 5, branch: "main" });
-		const args = execFileSyncMock.mock.calls[0]?.[1] as string[];
+		const args = parseWire(execFileSyncMock.mock.calls[0]?.[1], wireArray(wireString), "test JSON value");
 		expect(args).toContain("--branch");
 		expect(args[args.indexOf("--branch") + 1]).toBe("main");
 	});
@@ -61,7 +63,7 @@ describe("GhCliFetcher.listRuns — args + parsing (positive/negative)", () => {
 		execFileSyncMock.mockReturnValue("[]");
 		const fetcher = new GhCliFetcher();
 		fetcher.listRuns({ limit: 5, branch: undefined });
-		const args = execFileSyncMock.mock.calls[0]?.[1] as string[];
+		const args = parseWire(execFileSyncMock.mock.calls[0]?.[1], wireArray(wireString), "test JSON value");
 		expect(args).not.toContain("--branch");
 	});
 

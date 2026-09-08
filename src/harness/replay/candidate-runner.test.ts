@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // T1 candidate runner — sends a captured envelope's EXACT observation to a
 // candidate model and returns its proposed action. Pins the two documented
 // transforms (docs/design/reproducibility/tier1-teacher-forced-eval.md):
@@ -6,8 +7,8 @@
 // parameter rides along verbatim. Verified against a mock upstream.
 
 import { createServer } from "node:http";
-import { describe, expect, it } from "vitest";
-import type { JsonObject } from "../../lib/json-types.js";
+import { assert, describe, expect, it } from "vitest";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import {
 	buildCandidateRequest,
 	extractProposedAction,
@@ -16,7 +17,7 @@ import {
 } from "./candidate-runner.js";
 import type { InferenceEnvelope } from "./inference-store.js";
 
-function envelope(): InferenceEnvelope {
+function envelope() {
 	return {
 		schema: "inference-envelope.v1",
 		request_index: 1,
@@ -47,13 +48,13 @@ function envelope(): InferenceEnvelope {
 		request_sha256: "0".repeat(64),
 		session_id: "sess",
 		seq: 5,
-	};
+	} satisfies InferenceEnvelope;
 }
 
 describe("stripPriorThinking", () => {
 	it("removes thinking blocks from assistant turns, keeps everything else", () => {
-		const stripped = stripPriorThinking(envelope().request.messages as JsonObject[]);
-		const assistant = stripped[1] as JsonObject;
+		const stripped = stripPriorThinking(envelope().request.messages);
+		const assistant = nonNull(stripped[1]);
 		expect(assistant.content).toEqual([{ type: "text", text: "ok" }]);
 		expect(stripped[0]).toEqual({ role: "user", content: "go" });
 		expect(stripped).toHaveLength(3);
@@ -68,7 +69,8 @@ describe("buildCandidateRequest", () => {
 		expect(body.tools).toEqual([{ name: "Bash" }]);
 		expect(body.max_tokens).toBe(64);
 		expect(body.stream).toBeUndefined();
-		const assistant = (body.messages as JsonObject[])[1] as JsonObject;
+		assert(Array.isArray(body.messages));
+		const assistant = nonNull(body.messages[1]);
 		expect(JSON.stringify(assistant)).not.toContain("thinking");
 	});
 
@@ -97,14 +99,16 @@ describe("extractProposedAction", () => {
 
 describe("runCandidate (mock upstream)", () => {
 	it("POSTs the transformed request with auth and returns the proposal", async () => {
-		let seenBody: JsonObject | null = null;
-		let seenKey: string | undefined;
+		const received: { body?: JsonObject } = {};
+		let seenKey: string | string[] | undefined;
 		const server = createServer((req, res) => {
-			seenKey = req.headers["x-api-key"] as string | undefined;
+			seenKey = req.headers["x-api-key"];
 			const chunks: Buffer[] = [];
 			req.on("data", (c: Buffer) => chunks.push(c));
 			req.on("end", () => {
-				seenBody = JSON.parse(Buffer.concat(chunks).toString("utf-8")) as JsonObject;
+				const body: unknown = JSON.parse(Buffer.concat(chunks).toString("utf-8"));
+				assert(isJsonObject(body));
+				received.body = body;
 				res.writeHead(200, { "content-type": "application/json" });
 				res.end(
 					JSON.stringify({
@@ -129,7 +133,7 @@ describe("runCandidate (mock upstream)", () => {
 				apiKey: "sk-test",
 			});
 			expect(seenKey).toBe("sk-test");
-			expect((seenBody as JsonObject | null)?.model).toBe("candidate-y");
+			expect(received.body?.model).toBe("candidate-y");
 			expect(result.stop_reason).toBe("tool_use");
 			expect(result.proposed).toEqual({ tool: "Bash", input: { command: "ls" } });
 		} finally {

@@ -1,3 +1,4 @@
+import { isJsonObject } from "../lib/json-types.js";
 // Dependency extractors for the JVM/.NET/PHP manifest formats added to the
 // supply-chain guard (composer.json / pom.xml / build.gradle[.kts] /
 // packages.config). Each returns a Map<name, value> with the same contract as
@@ -22,12 +23,12 @@ export function extractComposerDeps(content: string): Map<string, string> {
 	} catch {
 		return deps;
 	}
-	if (!parsed || typeof parsed !== "object") return deps;
-	const root = parsed as Record<string, unknown>;
+	if (!isJsonObject(parsed)) return deps;
+	const root = parsed;
 	for (const field of ["require", "require-dev"]) {
 		const block = root[field];
-		if (!block || typeof block !== "object") continue;
-		for (const [name, value] of Object.entries(block as Record<string, unknown>)) {
+		if (!isJsonObject(block)) continue;
+		for (const [name, value] of Object.entries(block)) {
 			if (isComposerPlatformPackage(name)) continue;
 			deps.set(name, String(value));
 		}

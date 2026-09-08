@@ -9,7 +9,7 @@ import { checkDuplicateTypeDeclaration } from "../../harness/checks/type-redunda
 import type { FileCheckContext } from "./file-checks-shared.js";
 import { toIssues } from "./file-checks-shared.js";
 
-export function runTypeRedundancyChecks(ctx: FileCheckContext): void {
+export function runTypeRedundancyChecks(ctx: Pick<FileCheckContext, "content" | "file" | "relPath" | "cwd" | "r">): void {
 	const { content, file, relPath, cwd, r } = ctx;
 	r.deadTypeExports.push(
 		...toIssues("dead_type_exports", relPath, checkDeadTypeExports(content, file, cwd)),

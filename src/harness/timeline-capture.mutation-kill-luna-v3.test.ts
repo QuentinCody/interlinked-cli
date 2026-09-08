@@ -1,3 +1,4 @@
+import { parseWire, wireObject, wireString } from "../lib/value-validation.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,7 +37,7 @@ function texts(cwd: string): string[] {
         .trim()
         .split("\n")
         .filter(Boolean)
-        .map((line) => (JSON.parse(line) as { text: string }).text);
+        .map((line) => (parseWire(JSON.parse(line), wireObject({ "text": wireString }), "test JSON value")).text);
 }
 
 describe("timeline capture mutation contracts", () => {

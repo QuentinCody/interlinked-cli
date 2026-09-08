@@ -1,3 +1,5 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // ===========================================
 // interlinked logs — behavioral coverage
 // ===========================================
@@ -125,7 +127,7 @@ function allErr(): string {
 	return errs.join("\n");
 }
 function lastJson(): unknown {
-	return JSON.parse(logs.at(-1) as string);
+	return JSON.parse(nonNull(logs.at(-1)));
 }
 
 function ev(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -183,7 +185,7 @@ describe("logsCommand — guard paths", () => {
 	it("no activity log in json mode: structured error", async () => {
 		fsState.exists = false;
 		await logsCommand({ json: true });
-		const payload = JSON.parse(errs.at(-1) as string) as { error: string };
+		const payload = parseWire(JSON.parse(nonNull(errs.at(-1))), wireObject({ "error": wireString }), "test JSON value");
 		expect(payload.error).toBe(
 			"No activity log found. Run `interlinked enable` to install hooks.",
 		);
@@ -242,7 +244,7 @@ describe("logsCommand — query option assembly", () => {
 	it("valid --since sets a numeric cutoff in the past", async () => {
 		const before = Date.now();
 		await logsCommand({ since: "1h" });
-		const opts = lastReadOpts as { since: number; limit: number; cwd: string };
+		const opts = parseWire(lastReadOpts, wireObject({ "since": wireNumber, "limit": wireNumber, "cwd": wireString }), "test JSON value");
 		expect(opts.limit).toBe(20);
 		// 1h ago, computed as Date.now() - 3_600_000.
 		expect(opts.since).toBeLessThanOrEqual(before - 3_600_000 + 5);
@@ -269,15 +271,15 @@ describe("logsCommand — query option assembly", () => {
 		readLocalActivityImpl = () => events.slice();
 		await logsCommand({ tool: "Bash", limit: "3", json: true });
 		// Over-fetch budget = 3 * 5 = 15.
-		expect((lastReadOpts as { limit: number }).limit).toBe(15);
-		const out = lastJson() as Record<string, unknown>[];
+		expect(lastReadOpts).toHaveProperty(["limit"], 15);
+		const out = parseWire(lastJson(), wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(out).toHaveLength(2);
 		expect(out.every((e) => e.tool === "Bash")).toBe(true);
 	});
 
 	it("custom --limit (no tool) is passed through unmultiplied", async () => {
 		await logsCommand({ limit: "7" });
-		expect((lastReadOpts as { limit: number }).limit).toBe(7);
+		expect(lastReadOpts).toHaveProperty(["limit"], 7);
 	});
 });
 
@@ -290,7 +292,7 @@ describe("logsCommand — json mode", () => {
 		// readLocalActivity yields newest-first; logs reverses to oldest-first.
 		readLocalActivityImpl = () => [ev({ summary: "newest" }), ev({ summary: "oldest" })];
 		await logsCommand({ json: true });
-		const out = lastJson() as Record<string, unknown>[];
+		const out = parseWire(lastJson(), wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(out.map((e) => e.summary)).toEqual(["oldest", "newest"]);
 	});
 

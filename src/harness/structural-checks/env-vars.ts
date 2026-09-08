@@ -39,7 +39,7 @@ function narrowToEditedVars(
 	event: HarnessEvent | undefined,
 ): Set<string> | null {
 	const editContent =
-		(event?.tool_input?.new_string as string) || (event?.tool_input?.content as string) || "";
+		(typeof event?.tool_input?.new_string === "string" ? event?.tool_input?.new_string : "") || (typeof event?.tool_input?.content === "string" ? event?.tool_input?.content : "") || "";
 	if (!editContent) return usedVars;
 
 	const editVars = collectEnvVarRefs(editContent);

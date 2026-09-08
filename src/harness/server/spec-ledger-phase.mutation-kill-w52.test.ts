@@ -1,3 +1,9 @@
+import { makeServerRuntime, makePerFileCheckCtx } from "./__tests__/fixtures.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
+import { SpecLedger, type SpecDriftFinding } from "../spec/ledger.js";
+import type { HarnessDecision, SessionTrajectory } from "../types.js";
+import type { ServerRuntime } from "./runtime-context.js";
+import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,19 +14,13 @@ import {
 	setSharedSpecLedgerForTesting,
 } from "./spec-ledger-phase.js";
 
-interface FakeFinding {
-	kind: string;
-	file: string;
-	line: number;
-	message: string;
-	relatedFiles: string[];
-}
+
 
 function makeFinding(
-	kind: string,
+	kind: SpecDriftFinding["kind"],
 	file: string,
 	opts: Partial<{ relatedFiles: string[]; line: number; message: string }> = {},
-): FakeFinding {
+): SpecDriftFinding {
 	return {
 		kind,
 		file,
@@ -30,58 +30,25 @@ function makeFinding(
 	};
 }
 
-function fakeLedger(findings: FakeFinding[]) {
-	return {
-		refreshFile: vi.fn(),
-		removeFile: vi.fn(),
-		computeDrift: vi.fn(() => findings),
-	};
+function fakeLedger(findings: SpecDriftFinding[]): SpecLedger {
+	const ledger = new SpecLedger(tmp);
+	vi.spyOn(ledger, "refreshFile").mockImplementation(() => {});
+	vi.spyOn(ledger, "removeFile").mockImplementation(() => {});
+	vi.spyOn(ledger, "computeDrift").mockReturnValue(findings);
+	return ledger;
 }
 
-interface FakeSession {
-	spec_drift_outstanding: Array<{ file: string; line: number; message: string }> | undefined;
-	pending_completions: Map<
-		string,
-		{
-			source_file: string;
-			affected_files: string[];
-			resolved_files: Set<string>;
-			recorded_at_tool_call: number;
-			description: string;
-		}
-	>;
-	tool_call_count: number;
-}
 
-function fakeSession(): FakeSession {
-	return {
-		spec_drift_outstanding: undefined,
-		pending_completions: new Map(),
-		tool_call_count: 7,
-	};
-}
 
-function fakeCtx(cwd: string, specLedger: unknown = null) {
-	return {
-		cwd,
-		rules: { spec_checks: undefined as { enabled?: boolean } | undefined },
-		log: vi.fn(),
-		specLedger,
-	};
-}
+function fakeSession(): SessionTrajectory { return { ...makeSessionFixture(), tool_call_count: 7 }; }
 
-interface FakeAcc {
-	checksRan: string[];
-	allCheckResults: Array<{ determinism: string }>;
-}
+function fakeCtx(cwd: string, specLedger: SpecLedger | null = null): ServerRuntime { return makeServerRuntime({ cwd, specLedger }); }
 
-function fakeDecision(): { warnings?: string[] } {
-	return {};
-}
 
-function fakeAcc(): FakeAcc {
-	return { checksRan: [], allCheckResults: [] };
-}
+
+function fakeDecision(): HarnessDecision { return { decision: "allow" }; }
+
+function fakeAcc(): PerFileCheckCtx { return makePerFileCheckCtx(); }
 
 let tmp: string;
 let outsideDirs: string[];
@@ -119,7 +86,7 @@ describe("driftDeterminism / driftTag via runSpecLedgerPhase — positive (must 
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		const warnings = decision.warnings;
 		expect(warnings).toBeDefined();
@@ -141,7 +108,7 @@ describe("driftDeterminism / driftTag via runSpecLedgerPhase — positive (must 
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		expect(decision.warnings?.[0]).toContain("[proven]");
 		expect(decision.warnings?.[0]).not.toContain("[heuristic]");
@@ -161,7 +128,7 @@ describe("driftDeterminism / driftTag via runSpecLedgerPhase — positive (must 
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		expect(decision.warnings?.[0]).toContain("[proven]");
 		expect(acc.allCheckResults[0]?.determinism).toBe("fully_deterministic");
@@ -183,16 +150,16 @@ describe("canonicalPath catch-fallback via toLedgerPath — positive (must fire)
 		const acc = fakeAcc();
 
 		runSpecLedgerPhase(
-			ctx as never,
+			ctx,
 			missing,
 			true,
-			session as never,
-			decision as never,
-			acc as never,
+			session,
+			decision,
+			acc,
 		);
 
 		expect(ctx.log).toHaveBeenCalledTimes(1);
-		const msg = ctx.log.mock.calls[0]?.[0] as string;
+		const msg = vi.mocked(ctx.log).mock.calls[0]?.[0];
 		expect(msg).toContain("Spec-ledger phase error:");
 		expect(msg).toMatch(/ENOENT/);
 	});
@@ -215,7 +182,7 @@ describe("runSpecLedgerPhase — early-return guards — positive/negative (must
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		expect(ledger.refreshFile).not.toHaveBeenCalled();
 		expect(decision.warnings).toBeUndefined();
@@ -233,7 +200,7 @@ describe("runSpecLedgerPhase — early-return guards — positive/negative (must
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		expect(ledger.refreshFile).not.toHaveBeenCalled();
 		expect(decision.warnings).toBeUndefined();
@@ -256,7 +223,7 @@ describe("toLedgerPath separator normalization — positive (must fire)", () => 
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		expect(ledger.refreshFile).toHaveBeenCalledWith("sub/doc.md", "# nested\n");
 	});
@@ -274,7 +241,7 @@ describe("prerefreshSpecLedger — gating and filtering — positive/negative (m
 		const ctx = fakeCtx(tmp, ledger);
 		ctx.rules.spec_checks = { enabled: false };
 
-		prerefreshSpecLedger(ctx as never, [a, b]);
+		prerefreshSpecLedger(ctx, [a, b]);
 
 		expect(ledger.refreshFile).not.toHaveBeenCalled();
 	});
@@ -291,7 +258,7 @@ describe("prerefreshSpecLedger — gating and filtering — positive/negative (m
 		const ledger = fakeLedger([]);
 		const ctx = fakeCtx(tmp, ledger);
 
-		prerefreshSpecLedger(ctx as never, [a, notMd, ""]);
+		prerefreshSpecLedger(ctx, [a, notMd, ""]);
 
 		expect(ledger.refreshFile).not.toHaveBeenCalled();
 	});
@@ -307,7 +274,7 @@ describe("prerefreshSpecLedger — gating and filtering — positive/negative (m
 		const ledger = fakeLedger([]);
 		const ctx = fakeCtx(tmp, ledger);
 
-		prerefreshSpecLedger(ctx as never, [a, b]);
+		prerefreshSpecLedger(ctx, [a, b]);
 
 		expect(ledger.refreshFile).toHaveBeenCalledTimes(2);
 		expect(ledger.refreshFile).toHaveBeenCalledWith("a.md", "content-a");
@@ -331,7 +298,7 @@ describe("recordFindings — stash cap and message cap — positive (must fire)"
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		expect(session.spec_drift_outstanding).toHaveLength(10);
 	});
@@ -351,7 +318,7 @@ describe("recordFindings — stash cap and message cap — positive (must fire)"
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		const stashed = session.spec_drift_outstanding?.[0]?.message;
 		expect(stashed).toHaveLength(200);
@@ -377,7 +344,7 @@ describe("recordFindings — MAX_WARNINGS_PER_EVENT boundary — positive/negati
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		expect(decision.warnings).toHaveLength(5);
 	});
@@ -395,7 +362,7 @@ describe("recordFindings — MAX_WARNINGS_PER_EVENT boundary — positive/negati
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		const hasOverflow = decision.warnings?.some((w) => w.includes("more cross-file finding")) ?? false;
 		expect(hasOverflow).toBe(false);
@@ -416,7 +383,7 @@ describe("recordFindings — MAX_WARNINGS_PER_EVENT boundary — positive/negati
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		expect(decision.warnings).toHaveLength(6);
 		expect(decision.warnings?.[5]).toContain("…and 1 more cross-file finding(s)");
@@ -439,7 +406,7 @@ describe("recordSiblingCompletions — pending-completion payload — positive (
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		const entry = session.pending_completions.get("spec:declared_fact_drift:other.md:3");
 		expect(entry?.affected_files).toEqual(["other.md"]);
@@ -456,7 +423,7 @@ describe("recordSiblingCompletions — pending-completion payload — positive (
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		const entry = session.pending_completions.get("spec:declared_fact_drift:other.md:3");
 		expect(entry?.source_file).toBe(rel);
@@ -477,7 +444,7 @@ describe("recordSiblingCompletions — pending-completion payload — positive (
 		const decision = fakeDecision();
 		const acc = fakeAcc();
 
-		runSpecLedgerPhase(ctx as never, abs, true, session as never, decision as never, acc as never);
+		runSpecLedgerPhase(ctx, abs, true, session, decision, acc);
 
 		const entry = session.pending_completions.get("spec:declared_fact_drift:other.md:3");
 		expect(entry?.description).toBe(

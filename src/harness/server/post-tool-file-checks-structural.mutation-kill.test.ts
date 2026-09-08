@@ -1,3 +1,7 @@
+import { nonNull } from "../../lib/non-null.js";
+import { makeServerRuntime, makeServerRules } from "./__tests__/fixtures.js";
+import { InternalDependencyView } from "../dependency-view.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 // Mutation-kill companion tests for post-tool-file-checks-structural.ts.
 //
 // Every sibling module this file imports is mocked at the boundary (matching
@@ -24,8 +28,8 @@
 // for empirical verification against the manifest's exact originalLexeme/replacement text.
 
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, type Mock, type MockInstance, vi } from "vitest";
-import type { ProjectGraph } from "../project-graph.js";
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
+import { ProjectGraph } from "../project-graph.js";
 import type {
 	CheckResultEntry,
 	ExportedSymbol,
@@ -110,21 +114,17 @@ import {
 	runImpactOrFallback,
 } from "./post-tool-file-checks-structural.js";
 
-// SAFETY: each binding below is the SAME function object vi.mock() above
-// replaced with a vi.fn() factory — the runtime value already IS a Mock, this
-// only recovers that at the type level (the vi.mock factory's return type is
-// erased to the real module's signature by the `importOriginal` spread).
-const mExistsSync = existsSync as unknown as Mock;
-const mReadFileSync = readFileSync as unknown as Mock;
-const mRunStructural = runStructuralChecks as unknown as Mock;
-const mFormatStructural = formatStructuralWarnings as unknown as Mock;
-const mRunImpact = runImpactAnalysis as unknown as Mock;
-const mFormatImpact = formatImpactWarning as unknown as Mock;
-const mRecordImpactFollowUps = recordImpactFollowUps as unknown as Mock;
-const mResolveDepView = resolveDependencyView as unknown as Mock;
-const mCheckOrphaned = checkOrphanedTests as unknown as Mock;
-const mLoadFileSup = loadFileSuppressions as unknown as Mock;
-const mIsAck = isAcknowledged as unknown as Mock;
+const mExistsSync = vi.mocked(existsSync);
+const mReadFileSync = vi.mocked(readFileSync);
+const mRunStructural = vi.mocked(runStructuralChecks);
+const mFormatStructural = vi.mocked(formatStructuralWarnings);
+const mRunImpact = vi.mocked(runImpactAnalysis);
+const mFormatImpact = vi.mocked(formatImpactWarning);
+const mRecordImpactFollowUps = vi.mocked(recordImpactFollowUps);
+const mResolveDepView = vi.mocked(resolveDependencyView);
+const mCheckOrphaned = vi.mocked(checkOrphanedTests);
+const mLoadFileSup = vi.mocked(loadFileSuppressions);
+const mIsAck = vi.mocked(isAcknowledged);
 
 // Spy on the real (unmocked) static context builders so the exact opts object
 // each function assembles can be inspected — see file header for why
@@ -139,6 +139,7 @@ let buildQueryContextSpy: MockInstance<typeof ErrorHistory.buildQueryContext>;
 // ---------------------------------------------------------------------------
 
 const CWD = "/repo";
+const fixtureView = new InternalDependencyView(new ProjectGraph(CWD));
 const FILE = "/repo/src/mod.ts";
 
 function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -154,7 +155,7 @@ function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
 }
 
 function makeSession(partial: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		agent_name: "agent-x",
 		tool_call_count: 3,
 		files_written: new Set<string>(),
@@ -162,35 +163,22 @@ function makeSession(partial: Partial<SessionTrajectory> = {}): SessionTrajector
 		pending_completions: new Map(),
 		tool_sequence: ["Read", "Edit"],
 		...partial,
-		// SAFETY: fixture covers only the SessionTrajectory fields the six
-		// functions under test read/write; the real interface has many more.
-	} as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 function makeDecision(partial: Partial<HarnessDecision> = {}): HarnessDecision {
 	return { decision: "allow", ...partial };
 }
 
-function makeGraph(over: Record<string, unknown> = {}): ProjectGraph {
-	return {
-		isInitialized: true,
-		getExports: vi.fn((): ExportedSymbol[] => []),
-		getInterfaceBodies: vi.fn(() => new Map<string, string>()),
-		updateFile: vi.fn(),
-		toRelative: vi.fn((f: string) => f.replace(`${CWD}/`, "")),
-		classifyModule: vi.fn(() => "leaf"),
-		getDependents: vi.fn((): string[] => []),
-		getDependencies: vi.fn((): unknown[] => []),
-		...over,
-		// SAFETY: fixture covers only the methods the six functions under test
-		// actually call (verified against their source above); the full
-		// ProjectGraph interface has many unrelated members this suite never
-		// exercises.
-	} as unknown as ProjectGraph;
+function makeGraph(over: Partial<ProjectGraph> = {}): ProjectGraph {
+ const { isInitialized = true, ...methods } = over;
+ const graph = new ProjectGraph(CWD);
+ vi.spyOn(graph, "isInitialized", "get").mockReturnValue(isInitialized);
+ return Object.assign(graph, { getExports: vi.fn((): ExportedSymbol[] => []), getInterfaceBodies: vi.fn(() => new Map<string, string>()), updateFile: vi.fn(), toRelative: vi.fn((f: string) => f.replace(CWD + "/", "")), classifyModule: vi.fn<ProjectGraph["classifyModule"]>(() => "leaf"), getDependents: vi.fn((): string[] => []), getDependencies: vi.fn((): ReturnType<ProjectGraph["getDependencies"]> => []), ...methods });
 }
 
-function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
-	return {
+function makeCtx(over: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime {
+	return makeServerRuntime({
 		cwd: CWD,
 		interlinkedDir: join(CWD, ".interlinked"),
 		sessions: {},
@@ -200,10 +188,7 @@ function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
 		},
 		log: vi.fn(),
 		...over,
-		// SAFETY: fixture covers only the ServerRuntime fields the six
-		// functions under test read (cwd, sessions, errorHistory, log); the
-		// interface has ~30 fields this suite never touches.
-	} as unknown as ServerRuntime;
+	});
 }
 
 /** A structural finding fixture; `check` names default to keys present (or
@@ -220,12 +205,7 @@ function exp(name: string): ExportedSymbol {
 	return { name, kind: "function", isTypeOnly: false, line: 1 };
 }
 
-function makeStructuralConfig(over: Partial<StructuralChecksConfig> = {}): StructuralChecksConfig {
-	// SAFETY: only `enabled` (+ whatever the caller overrides, e.g.
-	// impact_analysis) is read by the functions under test; the real
-	// StructuralChecksConfig has many more boolean flags this suite ignores.
-	return { enabled: true, ...over } as StructuralChecksConfig;
-}
+function makeStructuralConfig(over: Partial<StructuralChecksConfig> = {}): StructuralChecksConfig { return { ...makeServerRules().structural_checks, enabled: true, ...over }; }
 
 beforeEach(() => {
 	// resetAllMocks (not clearAllMocks) so per-test mockImplementation
@@ -240,7 +220,7 @@ beforeEach(() => {
 	mIsAck.mockReturnValue(false);
 	mCheckOrphaned.mockReturnValue([]);
 	mFormatImpact.mockReturnValue([]);
-	mResolveDepView.mockReturnValue({});
+	mResolveDepView.mockReturnValue(fixtureView);
 	// These are real ErrorHistory static methods, so recreate their observing
 	// spies after each reset. A module-scope spy would stay installed after
 	// resetAllMocks and leak its wrapper into later suites.
@@ -638,10 +618,10 @@ describe("recordStructuralErrorMemory", () => {
 		const ctx = makeCtx();
 		const fileGraph = makeGraph({
 			toRelative: vi.fn((f: string) => f.replace("/repo/", "")),
-			classifyModule: vi.fn(() => "leaf"),
+			classifyModule: vi.fn<ProjectGraph["classifyModule"]>(() => "leaf"),
 			getExports: vi.fn(() => [exp("foo"), exp("bar")]),
 			getDependents: vi.fn(() => ["/repo/a.ts"]),
-			getDependencies: vi.fn(() => ["/repo/b.ts"]),
+			getDependencies: vi.fn(() => [{ fromFile: "/repo/mod.ts", toFile: "/repo/b.ts", specifier: "./b", symbols: [], isTypeOnly: false }]),
 		});
 		mReadFileSync.mockReturnValue("OLD_TEXT tail");
 		const checkEvent = ev({
@@ -680,7 +660,7 @@ describe("recordStructuralErrorMemory", () => {
 
 		expect(mReadFileSync).toHaveBeenCalledWith("/repo/mod.ts", "utf-8");
 		expect(ctx.errorHistory.recordError).toHaveBeenCalledTimes(1);
-		const call = (ctx.errorHistory.recordError as unknown as Mock).mock.calls[0] as unknown[];
+		const call = nonNull(vi.mocked(ctx.errorHistory.recordError).mock.calls[0]);
 		expect(call[0]).toBe("sess-9");
 		expect(call[1]).toBe("agent-z");
 		expect(call[2]).toBe("mod.ts");
@@ -737,7 +717,7 @@ describe("recordStructuralErrorMemory", () => {
 			[sc("export_surface", "error")],
 		);
 
-		const call = (ctx.errorHistory.recordError as unknown as Mock).mock.calls[0] as unknown[];
+		const call = nonNull(vi.mocked(ctx.errorHistory.recordError).mock.calls[0]);
 		expect(call[6]).toStrictEqual({
 			co_edited_files: [],
 			pre_error_sequence: ["Read", "Edit"],
@@ -770,10 +750,10 @@ describe("recordStructuralFixMemory", () => {
 		const ctx = makeCtx();
 		const fileGraph = makeGraph({
 			toRelative: vi.fn((f: string) => f.replace("/repo/", "")),
-			classifyModule: vi.fn(() => "hub"),
+			classifyModule: vi.fn<ProjectGraph["classifyModule"]>(() => "hub"),
 			getExports: vi.fn(() => [exp("foo"), exp("bar")]),
 			getDependents: vi.fn(() => ["/repo/a.ts", "/repo/c.ts"]),
-			getDependencies: vi.fn(() => ["/repo/b.ts"]),
+			getDependencies: vi.fn(() => [{ fromFile: "/repo/mod.ts", toFile: "/repo/b.ts", specifier: "./b", symbols: [], isTypeOnly: false }]),
 		});
 		const checkEvent = ev({
 			tool_input: { old_string: "O", new_string: "N", content: "IGNORED" },

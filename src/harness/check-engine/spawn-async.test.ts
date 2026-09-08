@@ -1,5 +1,4 @@
-import { EventEmitter } from "node:events";
-import type { ChildProcess } from "node:child_process";
+import { makeFakeChild } from "./test-child-process.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runProcessAsync } from "./spawn-async.js";
 
@@ -19,19 +18,6 @@ import { spawn } from "node:child_process";
 /** A minimal EventEmitter-based stand-in for a Node ChildProcess, controllable
  *  enough to drive signalTree's undefined-pid / throwing-kill branches and to
  *  fire 'error' independently of 'exit'/'close'. */
-function makeFakeChild(pid: number | undefined) {
-	const child = new EventEmitter() as EventEmitter & {
-		pid: number | undefined;
-		stdout: EventEmitter;
-		stderr: EventEmitter;
-		kill: ReturnType<typeof vi.fn>;
-	};
-	child.pid = pid;
-	child.stdout = new EventEmitter();
-	child.stderr = new EventEmitter();
-	child.kill = vi.fn(() => true);
-	return child;
-}
 
 describe("runProcessAsync", () => {
 	afterEach(() => {
@@ -188,7 +174,7 @@ describe("runProcessAsync", () => {
 		// group-signal path has anything to target) must still deliver the
 		// signal via the direct child.kill() fallback rather than throwing.
 		const fakeChild = makeFakeChild(undefined);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const controller = new AbortController();
 		controller.abort();
 		const promise = runProcessAsync("fake-cmd", [], { signal: controller.signal, timeout: 30_000 });
@@ -206,7 +192,7 @@ describe("runProcessAsync", () => {
 		// throw ESRCH; signalTree must swallow it and retry via child.kill()
 		// rather than letting the exception escape the executor.
 		const fakeChild = makeFakeChild(999_999_999);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const controller = new AbortController();
 		controller.abort();
 		const promise = runProcessAsync("fake-cmd", [], { signal: controller.signal, timeout: 30_000 });
@@ -225,7 +211,7 @@ describe("runProcessAsync", () => {
 		fakeChild.kill = vi.fn(() => {
 			throw new Error("ESRCH");
 		});
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const controller = new AbortController();
 		controller.abort();
 		const promise = runProcessAsync("fake-cmd", [], { signal: controller.signal, timeout: 30_000 });
@@ -244,7 +230,7 @@ describe("runProcessAsync", () => {
 		// recycled pid, and the grace timer would keep the daemon's event loop
 		// alive for up to SIGKILL_GRACE_MS after resolution.
 		const fakeChild = makeFakeChild(999_999_997);
-		vi.mocked(spawn).mockImplementationOnce(() => fakeChild as unknown as ChildProcess);
+		vi.mocked(spawn).mockImplementationOnce(() => fakeChild);
 		const promise = runProcessAsync("fake-cmd", [], { timeout: 10 });
 		// Let the timeout timer fire and call killTree(), arming the grace timer.
 		await new Promise((r) => setTimeout(r, 50));

@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireObject, wireOptional, wireString } from "../../lib/value-validation.js";
 // ===========================================
 // CLI Bug Regression Tests
 // ===========================================
@@ -9,6 +10,13 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// fetchWorkspaces() on a localhost dev server needs no token; stub the refresh
+// path so the real fetch call below is the only thing under test.
+vi.mock("../../lib/auth.js", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../../lib/auth.js")>();
+	return { ...actual, resolveAuthTokenWithRefresh: vi.fn().mockResolvedValue(null) };
+});
 
 // Deterministic unique-dir suffix: avoids Date.now()/Math.random() so tests are reproducible.
 let uniqueDirCounter = 0;
@@ -32,6 +40,27 @@ describe("Bug 4: workspace list uses direct API", () => {
 
 		// The fix: fetchWorkspaces() method must exist
 		expect(typeof client.fetchWorkspaces).toBe("function");
+
+		// The fix is the endpoint, not just the method's existence: it must hit
+		// GET /api/workspaces directly, never the /api/ui/call MCP-tool proxy
+		// that requires a workspace already selected.
+		const fetchSpy = vi
+			.spyOn(global, "fetch")
+			.mockResolvedValue(
+				new Response(JSON.stringify({ workspaces: [{ id: "w1", name: "Test Workspace" }] }), {
+					status: 200,
+				}),
+			);
+		try {
+			const result = await client.fetchWorkspaces();
+			expect(result).toEqual([{ id: "w1", name: "Test Workspace" }]);
+			expect(fetchSpy).toHaveBeenCalledWith(
+				"http://localhost:8787/api/workspaces",
+				expect.objectContaining({ method: "GET" }),
+			);
+		} finally {
+			fetchSpy.mockRestore();
+		}
 	});
 });
 
@@ -206,7 +235,7 @@ describe("Bug 23: reset --json", () => {
 
 		const last = logSpy.mock.calls.at(-1)?.[0];
 		expect(typeof last).toBe("string");
-		const payload = JSON.parse(last as string) as { error?: string; usage?: string };
+		const payload = parseWire(JSON.parse(parseWire(last, wireString, "test JSON value")), wireObject({ "error": wireAbsentOptional(wireOptional(wireString)), "usage": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		expect(payload.error).toContain("--force");
 		expect(payload.usage).toContain("interlinked reset --force");
 		expect(process.exitCode).toBe(1);

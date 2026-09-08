@@ -1,3 +1,4 @@
+import { parseWire, wireNumber, wireObject } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const CWD = "/mutation-latency";
@@ -149,7 +150,7 @@ describe("harnessLatencyCommand output", () => {
 	it("renders JSON output with stable report fields", async () => {
 		writeLines(record({ checks_timing_ms: 25 }));
 		const output = await captureStdout(() => harnessLatencyCommand({ json: true }));
-		const parsed = JSON.parse(output) as { total_events: number; post_tool_use: { max: number } };
+		const parsed = parseWire(JSON.parse(output), wireObject({ "total_events": wireNumber, "post_tool_use": wireObject({ "max": wireNumber }) }), "test JSON value");
 		expect(parsed.total_events).toBe(1);
 		expect(parsed.post_tool_use.max).toBe(25);
 		expect(output).not.toContain("Stryker was here!");

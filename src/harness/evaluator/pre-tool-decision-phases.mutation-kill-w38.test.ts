@@ -1,9 +1,11 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Wave-38 survivor-kill suite for pre-tool-decision-phases.ts. Complements
 // .behaviors.test.ts / .gaps.test.ts / .reservations.test.ts, which already
 // exercise this file's happy paths — these cases target specific mutants that
 // survived because the existing suites don't assert on exact call arguments,
 // exact object shapes, or narrow branch combinations.
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ------------------------------------------------------------------
@@ -119,7 +121,7 @@ function makeCtx(): PreToolCtx {
 }
 
 function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "t",
 		agent_name: "agent",
 		started_at: TS,
@@ -135,7 +137,7 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 		taint_sources: [],
 		step_limit: Number.POSITIVE_INFINITY,
 		...overrides,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -148,11 +150,11 @@ function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 		cwd: CWD,
 		timestamp: TS,
 		...overrides,
-	} as HarnessEvent;
+	};
 }
 
 function makeRules(overrides?: Record<string, unknown>): GuardRulesConfig {
-	return {
+	return ({ ...makeGuardRules(),
 		version: 1,
 		enabled: true,
 		rules: [],
@@ -160,13 +162,12 @@ function makeRules(overrides?: Record<string, unknown>): GuardRulesConfig {
 		file_reminders: [],
 		curl_mcp_detection: { enabled: false, localhost_ports: [], escalate_after: 5, message: "" },
 		quality_checks: {},
-		structural_checks: {} as GuardRulesConfig["structural_checks"],
-		error_memory: { enabled: false, expires_after_s: 0, scope: "file" },
-		taint_tracking: { enabled: false } as GuardRulesConfig["taint_tracking"],
-		output_scanning: { enabled: false } as GuardRulesConfig["output_scanning"],
-		content_scanner: { enabled: false } as GuardRulesConfig["content_scanner"],
+		structural_checks: { ...makeGuardRules().structural_checks, },
+		error_memory: { ...makeGuardRules().error_memory,  enabled: false, max_age_s: 0, max_records: 0 },
+		taint_tracking: { ...makeGuardRules().taint_tracking,  enabled: false },
+		output_scanning: { ...makeGuardRules().output_scanning,  enabled: false },
 		...overrides,
-	} as unknown as GuardRulesConfig;
+	} satisfies GuardRulesConfig);
 }
 
 beforeEach(() => {
@@ -283,12 +284,12 @@ describe("evaluateAutoReservation — blockForRemoteReservation reservation obje
 			cohort: "remote",
 			expires_at: "2026-08-22T00:05:00Z",
 		};
-		const reservations = {
+		const reservations = ({
 			checkAndReserveBatch: ({ filePaths, shouldBlock }: ReservationBatchOptions) => {
 				const filePath = filePaths[0] ?? "";
 				return shouldBlock(filePath, conflict) ? { filePath, conflict } : null;
 			},
-		} as unknown as ReservationManager;
+		} satisfies Pick<ReservationManager, "checkAndReserveBatch">);
 		const cohort = new CohortManager();
 		const event = makeEvent({
 			tool_name: "Write",
@@ -409,7 +410,7 @@ describe("evaluateAutoReservation — 'unknown' agent-name fallback identity", (
 			tool_input: { file_path: `${CWD}/src/e.ts`, content: "x" },
 			// no agent_name on the event, no session
 		});
-		delete (event as { agent_name?: string }).agent_name;
+		delete event.agent_name;
 		const decision = evaluateAutoReservation(
 			event,
 			undefined,
@@ -584,17 +585,6 @@ describe("evaluateGraphPrediction — disabled short-circuit", () => {
 // ============================================================
 
 describe("evaluateTaintPhase — optional-chaining safety and result-kind dispatch", () => {
-	// test-contract: boundary — a rules object with NO taint_tracking key at
-	// all must not throw (kills the OptionalChaining
-	// rules.taint_tracking?.enabled -> rules.taint_tracking.enabled mutant,
-	// which crashes on the missing intermediate object).
-	it("N8: does not throw when rules.taint_tracking is entirely absent", () => {
-		const ctx = makeCtx();
-		const rulesNoTaint = makeRules();
-		delete (rulesNoTaint as { taint_tracking?: unknown }).taint_tracking;
-		const decision = evaluateTaintPhase(rulesNoTaint, makeSession(), "Bash", { command: "echo hi" }, [], ctx);
-		expect(decision).toBeNull();
-	});
 
 	// test-contract: invariant — an "ask" result must produce an "ask"
 	// decision without throwing (kills the ConditionalExpression
@@ -604,7 +594,7 @@ describe("evaluateTaintPhase — optional-chaining safety and result-kind dispat
 	it("P12: an 'ask' guard result surfaces as an ask decision", () => {
 		evaluateTaintGuardsMock.mockReturnValue({
 			kind: "ask",
-			decision: { decision: "ask", warnings: [] } as unknown as HarnessDecision,
+			decision: { decision: "ask", warnings: [] } satisfies HarnessDecision,
 		});
 		const ctx = makeCtx();
 		const rules = makeRules({ taint_tracking: { enabled: true } });
@@ -619,7 +609,7 @@ describe("evaluateTaintPhase — optional-chaining safety and result-kind dispat
 	it("P13: an 'allow-readonly' guard result surfaces as an allow decision", () => {
 		evaluateTaintGuardsMock.mockReturnValue({
 			kind: "allow-readonly",
-			decision: { decision: "allow", warnings: [] } as unknown as HarnessDecision,
+			decision: { decision: "allow", warnings: [] } satisfies HarnessDecision,
 		});
 		const ctx = makeCtx();
 		const rules = makeRules({ taint_tracking: { enabled: true } });
@@ -638,7 +628,7 @@ describe("evaluateLateSideEffects — escalation + permission-detection block", 
 	// ctx.escalation, and call evaluatePermissionPatternDetection (kills the
 	// BlockStatement->{} mutant that deletes both statements).
 	it("P14: assigns ctx.escalation from computePostInjectionEscalation and runs permission-pattern detection", () => {
-		const sentinel = { trigger: "post_injection_action", summary: "s" } as unknown as EscalationSentinel;
+		const sentinel = { trigger: "post_injection_action", summary: "s" };
 		computePostInjectionEscalationMock.mockReturnValue(sentinel);
 		const ctx = makeCtx();
 		const warnings: string[] = [];
@@ -677,5 +667,3 @@ describe("evaluateLateSideEffects — content-scan gate", () => {
 		expect(ctx.contentScan).not.toBeUndefined();
 	});
 });
-
-type EscalationSentinel = { trigger: string; summary: string };

@@ -11,6 +11,7 @@
 // holder (also defined here). Moved verbatim; the orchestrator in pre-tool.ts
 // imports them.
 
+import { readToolString } from "./tool-input-values.js";
 import type { SharedConfig } from "../../lib/config.js";
 import { type CohortManager, isLineage } from "../cohort.js";
 import { extractScannableContent } from "../content-scanner/extractor.js";
@@ -35,7 +36,6 @@ import type {
 	HarnessEvent,
 	ReservationConflict,
 	SessionTrajectory,
-	TaintTrackingConfig,
 } from "../types.js";
 import { evaluateFileDumpGuard } from "./file-dump-guard.js";
 import type { ToolInput } from "./pre-tool-context-phases.js";
@@ -209,7 +209,7 @@ export function evaluateAutoReservation(
 	session: SessionTrajectory | undefined,
 	toolName: string,
 	toolInput: ToolInput,
-	reservations: ReservationManager,
+	reservations: Pick<ReservationManager, "checkAndReserveBatch">,
 	cohort: CohortManager,
 	warnings: string[],
 ): HarnessDecision | null {
@@ -259,7 +259,7 @@ export function evaluateFileDumpPhase(
 	warnings: string[],
 ): HarnessDecision | null {
 	if (!isBash(toolName)) return null;
-	const cmd = (toolInput.command as string) || "";
+	const cmd = readToolString(toolInput.command);
 	const result = evaluateFileDumpGuard({ command: cmd, cwd: process.cwd() });
 	if (result.kind === "block") {
 		return { ...result.decision, warnings };
@@ -285,7 +285,7 @@ export function evaluateExfilPhase(
 	ctx: PreToolCtx,
 ): HarnessDecision | null {
 	if (!isBash(toolName)) return null;
-	const cmd = (toolInput.command as string) || "";
+	const cmd = readToolString(toolInput.command);
 	const exfilResult = evaluateExfilGuards({
 		cmd,
 		toolName,
@@ -349,7 +349,7 @@ export function evaluateReadPhase(
 	warnings: string[],
 ): HarnessDecision | null {
 	if (!(isReadOperation(toolName) && toolInput.file_path)) return null;
-	const filePath = toolInput.file_path as string;
+	const filePath = readToolString(toolInput.file_path);
 	const readResult = evaluateReadGuards(filePath);
 	if (readResult.block) {
 		return { ...readResult.block, warnings };
@@ -415,12 +415,8 @@ export function evaluateTaintPhase(
 	warnings: string[],
 	ctx: PreToolCtx,
 ): HarnessDecision | null {
-	// SAFETY: GuardRulesConfig declares `taint_tracking` as required, but a
-	// hand-built or partially-merged rules object can omit it in practice
-	// (proven by the N8 mutation-kill test below, which deletes this field
-	// and expects no throw) — cast to the honest optional shape so the
-	// chain below reflects reality instead of the (unenforced) declared type.
-	const taintTracking = rules.taint_tracking as TaintTrackingConfig | undefined;
+
+	const taintTracking = rules.taint_tracking;
 	if (!(taintTracking?.enabled && session)) return null;
 	const taintResult = evaluateTaintGuards({
 		toolName,

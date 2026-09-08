@@ -51,7 +51,7 @@ const makeEvent = (overrides: Partial<HarnessEvent> = {}): HarnessEvent =>
 		cwd: ROOT,
 		...overrides,
 		// SAFETY: guard reads only the fields set above.
-	}) as HarnessEvent;
+	});
 
 const run = (cmd: string, overrides: Partial<HarnessEvent> = {}) => {
 	const warnings: string[] = [];

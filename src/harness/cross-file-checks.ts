@@ -11,6 +11,8 @@ import { nonNull } from "../lib/non-null.js";
 import type { ProjectGraph } from "./project-graph.js";
 import type { StructuralCheckResult } from "./types.js";
 
+type CrossFileGraph = Pick<ProjectGraph, "allFiles" | "toRelative" | "getExports">;
+
 const SWITCH_DISC = /\bswitch\s*\(\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+)\s*\)/g;
 const DISC_TAIL = /\.(kind|type|tag|variant|_tag)$/;
 
@@ -38,7 +40,7 @@ function findDiscriminantEcho(
 	disc: string,
 	filePath: string,
 	relPath: string,
-	graph: ProjectGraph,
+	graph: CrossFileGraph,
 ): StructuralCheckResult | null {
 	const otherFiles: string[] = [];
 	for (const other of graph.allFiles()) {
@@ -72,7 +74,7 @@ function findDiscriminantEcho(
 export function checkCrossFileSwitchDiscriminant(
 	filePath: string,
 	relPath: string,
-	graph: ProjectGraph,
+	graph: CrossFileGraph,
 ): StructuralCheckResult[] {
 	const content = safeRead(filePath);
 	if (!content) return [];
@@ -98,7 +100,7 @@ function mentionsAsImpl(content: string, name: string): boolean {
 	return false;
 }
 
-function findImplementors(name: string, filePath: string, graph: ProjectGraph): string[] {
+function findImplementors(name: string, filePath: string, graph: CrossFileGraph): string[] {
 	const implementors: string[] = [];
 	for (const other of graph.allFiles()) {
 		if (other === filePath) continue;
@@ -115,7 +117,7 @@ function findImplementors(name: string, filePath: string, graph: ProjectGraph): 
 export function checkSingleImplementationInterface(
 	filePath: string,
 	_relPath: string,
-	graph: ProjectGraph,
+	graph: CrossFileGraph,
 ): StructuralCheckResult[] {
 	const exports = graph.getExports(filePath);
 	const interfaces = exports.filter((e) => e.kind === "interface");

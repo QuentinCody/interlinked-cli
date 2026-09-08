@@ -8,6 +8,7 @@
 // suppression-comment justification. Extracted verbatim from post-tool.ts;
 // the orchestrator calls only `collectPostWriteFileWarnings`.
 
+import { readToolString } from "./tool-input-values.js";
 import { readFileSync } from "node:fs";
 import { checkPhantomDependencies, checkTyposquatDependencies } from "../generic-checks.js";
 import { countLines, isCappableFile, maxLinesFor } from "../large-file-policy.js";
@@ -22,7 +23,7 @@ export function collectPostWriteFileWarnings(event: HarnessEvent): string[] {
 	if (!isFileWrite(toolName)) return warnings;
 
 	const filePath =
-		(event.tool_input?.file_path as string) || (event.tool_input?.path as string) || "";
+		readToolString(event.tool_input?.file_path) || readToolString(event.tool_input?.path);
 	if (!filePath) return warnings;
 
 	const ext = filePath.replace(/^.*\./, ".").toLowerCase();

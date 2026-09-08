@@ -482,9 +482,9 @@ describe("writeManagedSkillFiles — duplicate targets and rollback", () => {
         mockedRealpathSync
             .mockImplementationOnce(
                 (...args: Parameters<typeof realpathSync>) =>
-                    callThrough!(...args) as ReturnType<typeof realpathSync>,
+                    callThrough!(...args),
             )
-            .mockImplementationOnce(() => "/definitely-outside-the-repo" as ReturnType<typeof realpathSync>);
+            .mockImplementationOnce(() => "/definitely-outside-the-repo");
         try {
             expect(() => writeManagedSkillFiles(tmpRoot, manifest, [spec])).toThrow(
                 `Skill target parent escapes the repository: ${spec.relPath}`,

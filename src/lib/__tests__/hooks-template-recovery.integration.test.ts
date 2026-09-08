@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseWire, wireArray, wireString } from "../value-validation.js";
 import { buildHookScript } from "../hooks-template.js";
 
 interface HookRun {
@@ -133,7 +134,7 @@ async function spawnedExecArgv(root: string): Promise<string[][]> {
         .trim()
         .split("\n")
         .filter(Boolean)
-        .map((line) => JSON.parse(line) as string[]);
+        .map((line) => parseWire(JSON.parse(line), wireArray(wireString), "recorded process arguments"));
 }
 
 afterEach(() => {
@@ -341,10 +342,8 @@ describe("generated hook daemon recovery", () => {
 		recordPriorDaemon(root);
         const result = await runHook(root, preTool("rm -rf /", root), join(root, "empty-path"));
         expect(result.status).toBe(0);
-        const response = JSON.parse(result.stdout) as {
-            hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
-        };
-        expect(response.hookSpecificOutput?.permissionDecision).toBe("deny");
-        expect(response.hookSpecificOutput?.permissionDecisionReason).toMatch(/BLOCKED|rm -rf|recursive/i);
+        const response: unknown = JSON.parse(result.stdout);
+        expect(response).toHaveProperty("hookSpecificOutput.permissionDecision", "deny");
+        expect(response).toHaveProperty("hookSpecificOutput.permissionDecisionReason", expect.stringMatching(/BLOCKED|rm -rf|recursive/i));
     });
 });

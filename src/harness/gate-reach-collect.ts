@@ -26,6 +26,7 @@
 import { coverageExecutionReach } from "./coverage-execution.js";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { wireAbsentOptional, wireArray, wireLiteral, wireNumber, wireObject, wireRecord, wireString } from "../lib/value-validation.js";
 
 import { baselinePath, loadBaseline } from "./coverage-ratchet.js";
 import {
@@ -124,18 +125,20 @@ export function recordGateReach(cwd: string, snapshot: GateReachSnapshot): void 
 }
 
 /** Shape-check a parsed ledger row before trusting it. */
+const isGateReachSnapshot = wireObject<GateReachSnapshot>({
+	version: wireLiteral(1), at: wireString, session_id: wireString,
+	gates: wireArray(wireObject<GateReachSnapshot["gates"][number]>({
+		gate: wireString, unit: wireLiteral("files", "fns"),
+		status: wireLiteral("measured", "disabled", "source_unavailable"),
+		eligible: wireNumber, measured: wireNumber, skipped: wireRecord(wireNumber),
+		unmeasured: wireNumber, reach: wireNumber, reason: wireAbsentOptional(wireString),
+	})),
+});
+
 function parseSnapshotLine(line: string): GateReachSnapshot | null {
 	try {
 		const raw: unknown = JSON.parse(line);
-		if (typeof raw !== "object" || raw === null) return null;
-		// SAFETY: object-ness checked above; each required field is type-tested
-		// below before the row is handed to a caller.
-		const candidate: Partial<GateReachSnapshot> = raw;
-		if (candidate.version !== 1) return null;
-		if (typeof candidate.at !== "string" || typeof candidate.session_id !== "string") return null;
-		if (!Array.isArray(candidate.gates)) return null;
-		// SAFETY: version/at/session_id/gates verified on the lines above.
-		return candidate as GateReachSnapshot;
+		return isGateReachSnapshot(raw) ? raw : null;
 	} catch (err) {
 		void err; // a torn final line from a killed daemon is expected
 		return null;

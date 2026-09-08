@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { parseWire, wireObject, wireArray, wireRecord, wireString, wireNumber, wireAbsentOptional, wireBoolean } from "../value-validation.js";
 import {
 	CURSOR_FAIL_CLOSED_EVENTS,
 	installCodexHooks,
@@ -28,6 +29,13 @@ interface HookGroup {
 interface HookFile {
 	hooks: Record<string, HookGroup[]>;
 }
+
+const isHookFile = wireObject<HookFile>({
+	hooks: wireRecord(wireArray(wireObject<HookGroup>({
+		matcher: wireString,
+		hooks: wireArray(wireObject<HookEntry>({ type: wireString, command: wireString })),
+	}))),
+});
 
 // zsh isn't installed on GitHub Actions ubuntu-latest runners. The bash/sh
 // cases already cover the original regression (the old `[...].join("; ")`
@@ -49,7 +57,7 @@ afterEach(() => {
 
 function readPreToolCommand(): string {
 	const path = join(tmp, ".codex", "hooks.json");
-	const parsed = JSON.parse(readFileSync(path, "utf-8")) as HookFile;
+	const parsed = parseWire(JSON.parse(readFileSync(path, "utf-8")), isHookFile, "installed Codex hooks");
 	return parsed.hooks.PreToolUse[0].hooks[0].command;
 }
 
@@ -139,13 +147,20 @@ interface CursorHookFile {
 	hooks: Record<string, CursorHookEntry[]>;
 }
 
+const isCursorHookFile = wireObject<CursorHookFile>({
+	version: wireNumber,
+	hooks: wireRecord(wireArray(wireObject<CursorHookEntry>({
+		type: wireString, command: wireString, failClosed: wireAbsentOptional(wireBoolean),
+	}))),
+});
+
 function readCursorBeforeShellCommand(): string {
 	return readCursorEventCommand("beforeShellExecution");
 }
 
 function readCursorEventCommand(eventName: string): string {
 	const path = join(tmp, ".cursor", "hooks.json");
-	const parsed = JSON.parse(readFileSync(path, "utf-8")) as CursorHookFile;
+	const parsed = parseWire(JSON.parse(readFileSync(path, "utf-8")), isCursorHookFile, "installed Cursor hooks");
 	const entry = parsed.hooks[eventName]?.[0];
 	if (!entry) throw new Error(`no ${eventName} hook entry`);
 	return entry.command;

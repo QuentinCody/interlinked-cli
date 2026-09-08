@@ -52,6 +52,7 @@
 // (placed anywhere after `preDecision` is known-allow and before the
 // function returns — e.g. right after the `runCommitBaselineGate` block).
 
+import { readToolString } from "./tool-input-values.js";
 import { resolve } from "node:path";
 import {
 	diffPairContent,
@@ -87,11 +88,8 @@ function stagedDrift(repoRoot: string): RegistryDriftFinding[] {
  * (fail-open) and never blocks.
  */
 export function checkCommitRegistryParityGate(event: HarnessEvent): HarnessDecision | null {
-	// SAFETY: HarnessEvent.tool_input is a loosely-typed JsonObject; a Bash
-	// event's `command` field is a string when present. The `|| ""` fallback
-	// covers `undefined`/non-string values (parseGitCommit("") is just
-	// !isCommit), so a malformed payload degrades to a no-op, not a throw.
-	const command = (event.tool_input?.command as string) || "";
+
+	const command = readToolString(event.tool_input?.command);
 	const parse = parseGitCommit(command);
 	if (!parse?.isCommit) return null;
 

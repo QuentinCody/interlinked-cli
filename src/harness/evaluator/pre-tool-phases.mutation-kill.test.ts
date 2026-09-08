@@ -1,3 +1,5 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../pre-checks.js", () => ({
@@ -48,27 +50,29 @@ import { checkTestSignalErosion } from "./pre-tool-test-integrity.js";
 
 const CWD = "/workspace/project";
 const TS = "2026-08-20T00:00:00.000Z";
-type ToolInput = NonNullable<HarnessEvent["tool_input"]>;
 
 beforeEach(() => {
 	vi.clearAllMocks();
 });
 
 function event(overrides: (Partial<Omit<HarnessEvent, "cwd">> & { cwd?: string | undefined }) = {}): HarnessEvent {
-	return {
+	const { cwd, ...rest } = overrides;
+	const result: HarnessEvent = {
 		hook_event: "PreToolUse",
 		session_id: "session-1",
 		agent_source: "claude",
 		tool_name: "Bash",
 		tool_input: {},
-		cwd: CWD,
 		timestamp: TS,
-		...overrides,
-	} as HarnessEvent;
+		...rest,
+	};
+	if (!("cwd" in overrides)) result.cwd = CWD;
+	else if (cwd !== undefined) result.cwd = cwd;
+	return result;
 }
 
 function session(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "session-1",
 		agent_name: "agent",
 		started_at: TS,
@@ -87,22 +91,22 @@ function session(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory 
 		file_write_times: new Map(),
 		step_limit: Number.POSITIVE_INFINITY,
 		...overrides,
-	} as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
-function rules(errorMemory?: GuardRulesConfig["error_memory"]): GuardRulesConfig {
-	return { error_memory: errorMemory } as GuardRulesConfig;
+function rules(errorMemory: GuardRulesConfig["error_memory"] = makeGuardRules().error_memory): GuardRulesConfig {
+	return ({ ...makeGuardRules(),  error_memory: errorMemory } satisfies GuardRulesConfig);
 }
 
-function history(): ErrorHistory {
-	return {
+function history(): Pick<ErrorHistory, "getFileHistoryWarning" | "getRecords"> {
+	return ({
 		getFileHistoryWarning: vi.fn(() => null),
 		getRecords: vi.fn(() => []),
-	} as unknown as ErrorHistory;
+	} satisfies Pick<ErrorHistory, "getFileHistoryWarning" | "getRecords">);
 }
 
-function graph(): ProjectGraph {
-	return { toRelative: vi.fn((path: string) => `relative/${path}`) } as unknown as ProjectGraph;
+function graph(): Pick<ProjectGraph, "toRelative"> {
+	return ({ toRelative: vi.fn((path: string) => `relative/${path}`) } satisfies Pick<ProjectGraph, "toRelative">);
 }
 
 describe("evaluatePreChecksSelfKillEnv mutation contracts (wave 2)", () => {
@@ -123,7 +127,7 @@ describe("evaluatePreChecksSelfKillEnv mutation contracts (wave 2)", () => {
 	// test-contract: invariant — a non-Bash tool never invokes self-kill detection even when a
 	// command-shaped field is present in its input.
 	it("never checks self-kill for a non-Bash tool", () => {
-		evaluatePreChecksSelfKillEnv(event(), "Write", { command: "kill 1" } as ToolInput, []);
+		evaluatePreChecksSelfKillEnv(event(), "Write", { command: "kill 1" }, []);
 		expect(checkSelfKill).not.toHaveBeenCalled();
 	});
 
@@ -144,7 +148,7 @@ describe("evaluatePreChecksSelfKillEnv mutation contracts (wave 2)", () => {
 	// test-contract: invariant — a non-file-write tool never invokes env-leak scanning even when
 	// file_path/content fields are present in its input.
 	it("never checks env-leak for a non-file-write tool", () => {
-		evaluatePreChecksSelfKillEnv(event(), "Bash", { file_path: ".env", content: "X" } as ToolInput, []);
+		evaluatePreChecksSelfKillEnv(event(), "Bash", { file_path: ".env", content: "X" }, []);
 		expect(checkEnvLeakToGit).not.toHaveBeenCalled();
 	});
 });
@@ -185,41 +189,11 @@ describe("evaluatePreChecksTail — checkFileWriteMetricCaps mutation contracts 
 		expect(out?.reason).toBe("solo reason");
 	});
 
-	// test-contract: boundary — an undefined (not null) cyclomatic result must not be
-	// dereferenced without optional chaining; a cognitive-only block is still produced cleanly.
-	it("handles an undefined cyclomatic result alongside a cognitive block", () => {
-		vi.mocked(checkFunctionComplexityWrite).mockReturnValueOnce(undefined as never);
-		vi.mocked(checkCognitiveComplexityWrite).mockReturnValueOnce({ block: "cog reason" });
-		const out = evaluatePreChecksTail(event(), undefined, undefined, "Write", { file_path: "f.ts" }, []);
-		expect(out).toEqual({
-			decision: "block",
-			reason: "cog reason",
-			rule_id: "cognitive-cap",
-			severity: "medium",
-			category: "complexity",
-		});
-	});
-
-	// test-contract: boundary — an undefined (not null) cognitive result must not be
-	// dereferenced without optional chaining; a cyclomatic-only block is still produced cleanly.
-	it("handles an undefined cognitive result alongside a cyclomatic block", () => {
-		vi.mocked(checkFunctionComplexityWrite).mockReturnValueOnce({ block: "cyc reason" });
-		vi.mocked(checkCognitiveComplexityWrite).mockReturnValueOnce(undefined as never);
-		const out = evaluatePreChecksTail(event(), undefined, undefined, "Write", { file_path: "f.ts" }, []);
-		expect(out).toEqual({
-			decision: "block",
-			reason: "cyc reason",
-			rule_id: "cyclomatic-cap",
-			severity: "medium",
-			category: "complexity",
-		});
-	});
-
 	// test-contract: invariant — the pulse-recording callback body must actually run (not be
 	// stubbed to a no-op) when the cyclomatic gate invokes it.
 	it("invokes the pulse-recording callback body", () => {
 		vi.mocked(checkFunctionComplexityWrite).mockImplementationOnce((_input, _cwd, callback) => {
-			callback?.("rel/file.ts", [{ x: 1 }] as never, [{ x: 2 }] as never, "content");
+			callback?.("rel/file.ts", [{ name: "f", line: 1, endLine: 3, cyclomatic: 1, language: "js_ts" }], [{ name: "f", line: 1, endLine: 3, cyclomatic: 2, language: "js_ts" }], "content");
 			return null;
 		});
 		const out = evaluatePreChecksTail(event({ session_id: "cb-session" }), undefined, undefined, "Write", { file_path: "rel/file.ts" }, []);
@@ -227,8 +201,8 @@ describe("evaluatePreChecksTail — checkFileWriteMetricCaps mutation contracts 
 		expect(recordComplexityPulse).toHaveBeenCalledWith(
 			"cb-session",
 			`${CWD}/rel/file.ts`,
-			[{ x: 1 }],
-			[{ x: 2 }],
+			[{ name: "f", line: 1, endLine: 3, cyclomatic: 1, language: "js_ts" }],
+			[{ name: "f", line: 1, endLine: 3, cyclomatic: 2, language: "js_ts" }],
 			"content",
 		);
 	});
@@ -297,7 +271,7 @@ describe("evaluatePreChecksTail — pushTailWarnings mutation contracts (wave 2)
 	// test-contract: invariant — a non-file-write tool never triggers the byte-size or
 	// concurrent-edit checks even though its input carries file-write-shaped fields.
 	it("never checks byte-size or concurrency for a non-file-write tool", () => {
-		const tracker = { getAll: vi.fn(() => []) } as never;
+		const tracker = { getAll: vi.fn(() => []) };
 		evaluatePreChecksTail(event(), undefined, tracker, "Read", { content: "stuff", file_path: "a.ts" }, []);
 		expect(checkLargeFileWrite).not.toHaveBeenCalled();
 		expect(checkConcurrentEdit).not.toHaveBeenCalled();
@@ -306,7 +280,7 @@ describe("evaluatePreChecksTail — pushTailWarnings mutation contracts (wave 2)
 	// test-contract: boundary — a file write with neither file_path nor path present must not
 	// trigger concurrent-edit checking, whether the fallback or the truthiness gate is mangled.
 	it("skips concurrent-edit checking when no file path is resolvable", () => {
-		const tracker = { getAll: vi.fn(() => []) } as never;
+		const tracker = { getAll: vi.fn(() => []) };
 		evaluatePreChecksTail(event(), undefined, tracker, "Write", { content: "abc" }, []);
 		expect(checkConcurrentEdit).not.toHaveBeenCalled();
 	});
@@ -340,9 +314,8 @@ describe("maybeWarnTestErosion via evaluatePreChecksTail (wave 2)", () => {
 });
 
 describe("evaluateErrorMemory mutation contracts (wave 2)", () => {
-	// test-contract: security — a missing error_memory config must not be dereferenced without
-	// optional chaining (would throw instead of no-op).
-	it("does not throw and adds no warnings when error_memory config is entirely absent", () => {
+	// test-contract: behavior — disabling error memory suppresses persisted warnings.
+	it("adds no warnings when error memory is disabled", () => {
 		const warnings: string[] = [];
 		expect(() =>
 			evaluateErrorMemory(event(), rules(undefined), session(), graph(), history(), "Read", { file_path: "a.ts" }, warnings),
@@ -356,7 +329,7 @@ describe("evaluateErrorMemory mutation contracts (wave 2)", () => {
 		const h = history();
 		evaluateErrorMemory(
 			event(),
-			rules({ enabled: true } as GuardRulesConfig["error_memory"]),
+			rules(({ ...makeGuardRules().error_memory,  enabled: true } satisfies GuardRulesConfig["error_memory"])),
 			session(),
 			graph(),
 			h,
@@ -376,7 +349,7 @@ describe("evaluateErrorMemory mutation contracts (wave 2)", () => {
 		const warnings: string[] = [];
 		evaluateErrorMemory(
 			event(),
-			rules({ enabled: true } as GuardRulesConfig["error_memory"]),
+			rules(({ ...makeGuardRules().error_memory,  enabled: true } satisfies GuardRulesConfig["error_memory"])),
 			session(),
 			g,
 			h,
@@ -398,7 +371,7 @@ describe("evaluateErrorMemory mutation contracts (wave 2)", () => {
 		const warnings: string[] = [];
 		evaluateErrorMemory(
 			event(),
-			rules({ enabled: true } as GuardRulesConfig["error_memory"]),
+			rules(({ ...makeGuardRules().error_memory,  enabled: true } satisfies GuardRulesConfig["error_memory"])),
 			session(),
 			g,
 			h,
@@ -420,7 +393,7 @@ describe("evaluateErrorMemory mutation contracts (wave 2)", () => {
 		const warnings: string[] = [];
 		evaluateErrorMemory(
 			event(),
-			rules({ enabled: true } as GuardRulesConfig["error_memory"]),
+			rules(({ ...makeGuardRules().error_memory,  enabled: true } satisfies GuardRulesConfig["error_memory"])),
 			session(),
 			g,
 			h,

@@ -10,7 +10,7 @@
 import type { CodeQualityIssue, CodeQualityResults } from "./tool-results-types.js";
 
 /** Public API — consumed by verify submodules. Every top-level key. */
-export const CQ_RESULT_KEYS: ReadonlyArray<keyof CodeQualityResults> = [
+export const CQ_RESULT_KEYS = [
 	"strongTyping",
 	"suppressions",
 	"largeFiles",
@@ -270,16 +270,18 @@ export const CQ_RESULT_KEYS: ReadonlyArray<keyof CodeQualityResults> = [
 	"endpointMissingTenantFilter",
 	"endpointSsrfShape",
 	"endpointMassAssignment",
-];
+] as const satisfies readonly (keyof CodeQualityResults)[];
+
+// A newly added result bucket must also be initialized by the factory.
+const coversEveryResult: [Exclude<keyof CodeQualityResults, (typeof CQ_RESULT_KEYS)[number]>] extends [never] ? true : false = true;
+void coversEveryResult;
 
 /** Public API — consumed by verify submodules. Build an empty result set. */
 export function emptyResults(): CodeQualityResults {
-	// `CodeQualityResults` is structurally a `Record<keyof CodeQualityResults,
-	// CodeQualityIssue[]>` — every bucket is a `CodeQualityIssue[]`. Building
-	// the record from the canonical key list lets TS verify completeness
-	// instead of trusting a `{} as CodeQualityResults` smuggling cast.
+	// SAFETY: the exhaustive key tuple is checked above against every result
+	// bucket; this map creates each key with a separately allocated, typed array.
 	const r: Record<keyof CodeQualityResults, CodeQualityIssue[]> = Object.fromEntries(
-		CQ_RESULT_KEYS.map((key) => [key, [] as CodeQualityIssue[]]),
+		CQ_RESULT_KEYS.map((key): [keyof CodeQualityResults, CodeQualityIssue[]] => [key, []]),
 	) as Record<keyof CodeQualityResults, CodeQualityIssue[]>;
 	return r;
 }

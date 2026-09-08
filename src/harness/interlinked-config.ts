@@ -8,7 +8,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject } from "../lib/json-types.js";
 import type { ToolClassBudgets } from "./evaluator-unified.js";
 import type { RunnerId } from "./unified-event.js";
 
@@ -74,8 +74,8 @@ export function loadInterlinkedConfig(cwd: string): InterlinkedConfig {
 /** Merge a parsed raw object over the defaults. Fields with wrong types are
  *  silently replaced with the default — cautious parsing. */
 export function mergeConfig(base: InterlinkedConfig, raw: unknown): InterlinkedConfig {
-	if (raw == null || typeof raw !== "object") return base;
-	const obj = raw as JsonObject;
+	if (!isJsonObject(raw)) return base;
+	const obj = raw;
 	return {
 		schema_version: "1",
 		binary_version: pickString(obj.binary_version, base.binary_version),
@@ -92,8 +92,8 @@ export function mergeConfig(base: InterlinkedConfig, raw: unknown): InterlinkedC
 // -----------------------------------------------------------------------------
 
 function mergeDaemon(raw: unknown, base: InterlinkedConfig["daemon"]): InterlinkedConfig["daemon"] {
-	if (raw == null || typeof raw !== "object") return base;
-	const obj = raw as JsonObject;
+	if (!isJsonObject(raw)) return base;
+	const obj = raw;
 	return {
 		auto_start: pickBool(obj.auto_start, base.auto_start),
 		idle_shutdown_ms: pickNumber(obj.idle_shutdown_ms, base.idle_shutdown_ms),
@@ -103,8 +103,8 @@ function mergeDaemon(raw: unknown, base: InterlinkedConfig["daemon"]): Interlink
 }
 
 function mergeBudgets(raw: unknown, base: ToolClassBudgets): ToolClassBudgets {
-	if (raw == null || typeof raw !== "object") return base;
-	const obj = raw as JsonObject;
+	if (!isJsonObject(raw)) return base;
+	const obj = raw;
 	return {
 		read_budget_ms: pickNumber(obj.read_budget_ms, base.read_budget_ms),
 		modify_budget_ms: pickNumber(obj.modify_budget_ms, base.modify_budget_ms),
@@ -115,8 +115,8 @@ function mergeBudgets(raw: unknown, base: ToolClassBudgets): ToolClassBudgets {
 }
 
 function mergeCloud(raw: unknown, base: InterlinkedConfig["cloud"]): InterlinkedConfig["cloud"] {
-	if (raw == null || typeof raw !== "object") return base;
-	const obj = raw as JsonObject;
+	if (!isJsonObject(raw)) return base;
+	const obj = raw;
 	return {
 		enabled: pickBool(obj.enabled, base.enabled),
 		product: pickCloudProduct(obj.product, base.product),
@@ -170,8 +170,9 @@ function pickRunners(v: unknown, fallback: RunnerId[]): RunnerId[] {
 	const entries: readonly unknown[] = v;
 	const out: RunnerId[] = [];
 	for (const e of entries) {
-		if (typeof e === "string" && (VALID_RUNNERS as readonly string[]).includes(e)) {
-			out.push(e as RunnerId);
+		const runner = VALID_RUNNERS.find((candidate) => candidate === e);
+		if (runner !== undefined) {
+			out.push(runner);
 		}
 	}
 	return out.length > 0 ? out : fallback;
@@ -192,7 +193,7 @@ function readSafe(path: string): string | null {
 		text = readFileSync(path, "utf-8");
 	} catch (err) {
 		ok = false;
-		process.stderr.write(`[interlinked] could not read ${path}: ${(err as Error).message}\n`);
+		process.stderr.write(`[interlinked] could not read ${path}: ${(err instanceof Error ? err.message : String(err))}\n`);
 	}
 	return ok ? text : null;
 }
@@ -205,7 +206,7 @@ function parseSafe(text: string, path: string): unknown {
 	} catch (err) {
 		ok = false;
 		process.stderr.write(
-			`[interlinked] could not parse ${path} (${(err as Error).message}); using defaults\n`,
+			`[interlinked] could not parse ${path} (${(err instanceof Error ? err.message : String(err))}); using defaults\n`,
 		);
 	}
 	return ok ? parsed : null;

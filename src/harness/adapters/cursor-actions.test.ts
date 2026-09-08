@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import type { JsonObject } from "../../lib/json-types.js";
 import { buildCursorAction } from "./cursor-actions.js";
 
@@ -92,7 +92,8 @@ describe("buildCursorAction", () => {
 			"beforeMCPExecution",
 			{ tool_name: "Some_Tool", arguments: JSON.stringify({ x: 1 }) },
 			undefined,
-		) as { kind: string; tool_name: string; tool_input: unknown };
+		);
+		assert(action.kind === "tool_call");
 		expect(action.kind).toBe("tool_call");
 		expect(action.tool_name).toBe("some_tool");
 		expect(action.tool_input).toEqual({ x: 1 });
@@ -103,15 +104,14 @@ describe("buildCursorAction", () => {
 			"beforeMcpToolExecution",
 			{ tool_name: "t", tool_input: "{not valid json" },
 			undefined,
-		) as { kind: string; tool_input: unknown };
+		);
+		assert(action.kind === "tool_call");
 		expect(action.tool_input).toBe("{not valid json");
 	});
 
 	it("MCP event falls back through name -> unknown, and args -> {} when nothing present", () => {
-		const action = buildCursorAction("afterMCPExecution", {}, undefined) as {
-			tool_name: string;
-			tool_input: unknown;
-		};
+		const action = buildCursorAction("afterMCPExecution", {}, undefined);
+		assert(action.kind === "tool_call");
 		expect(action.tool_name).toBe("unknown");
 		expect(action.tool_input).toEqual({});
 	});
@@ -121,7 +121,8 @@ describe("buildCursorAction", () => {
 			"afterMcpToolExecution",
 			{ name: "MyTool", args: { y: 2 } },
 			undefined,
-		) as { tool_name: string; tool_input: unknown };
+		);
+		assert(action.kind === "tool_call");
 		expect(action.tool_name).toBe("mytool");
 		expect(action.tool_input).toEqual({ y: 2 });
 	});
@@ -131,7 +132,8 @@ describe("buildCursorAction", () => {
 			"beforeMCPExecution",
 			{ tool_name: "t", tool_response: "ok", error: "boom" },
 			undefined,
-		) as { tool_response: unknown; tool_error: unknown };
+		);
+		assert(action.kind === "tool_call");
 		expect(action.tool_response).toBe("ok");
 		expect(action.tool_error).toBe("boom");
 	});
@@ -145,7 +147,8 @@ describe("buildCursorAction", () => {
 			"beforeMCPExecution",
 			{ tool_name: "t" },
 			overrides,
-		) as { tool_class: string };
+		);
+		assert(action.kind === "tool_call");
 		expect(action.tool_class).toBe("side-effect");
 	});
 
@@ -155,7 +158,8 @@ describe("buildCursorAction", () => {
 				eventName,
 				{ tool_name: "Bash", tool_input: { command: "ls" } },
 				undefined,
-			) as { kind: string; tool_name: string; tool_class: string };
+			);
+		assert(action.kind === "tool_call");
 			expect(action.kind).toBe("tool_call");
 			expect(action.tool_name).toBe("bash");
 			expect(action.tool_class).toBe("read");
@@ -163,10 +167,8 @@ describe("buildCursorAction", () => {
 	});
 
 	it("toolUse event with missing tool_name defaults to 'unknown' and tool_input to {}", () => {
-		const action = buildCursorAction("preToolUse", {}, undefined) as {
-			tool_name: string;
-			tool_input: unknown;
-		};
+		const action = buildCursorAction("preToolUse", {}, undefined);
+		assert(action.kind === "tool_call");
 		expect(action.tool_name).toBe("unknown");
 		expect(action.tool_input).toEqual({});
 	});

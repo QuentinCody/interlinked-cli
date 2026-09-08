@@ -8,7 +8,7 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 
 function guardRulesPath(cwd: string, local: boolean): string {
 	return join(cwd, ".interlinked", local ? "guard-rules.local.json" : "guard-rules.json");
@@ -18,7 +18,8 @@ function readGuardRulesFile(cwd: string, local: boolean): JsonObject | null {
 	const path = guardRulesPath(cwd, local);
 	if (!existsSync(path)) return null;
 	try {
-		return JSON.parse(readFileSync(path, "utf-8"));
+		const value: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		return isJsonObject(value) ? value : null;
 	} catch {
 		return null;
 	}

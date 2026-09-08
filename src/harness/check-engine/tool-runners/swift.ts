@@ -3,6 +3,7 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
+import { hasErrorCode } from "../tool-errors.js";
 import { nonNull } from "../../../lib/non-null.js";
 import { filterResultsToFile } from "../output-parsers.js";
 import { runProcessAsync } from "../spawn-async.js";
@@ -73,7 +74,7 @@ export function runSwiftLint(input: ToolRunnerInput): CheckResult[] {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 
@@ -147,7 +148,7 @@ export function runSwiftBuild(input: ToolRunnerInput): CheckResult[] {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		if (result.status === 0) return [];

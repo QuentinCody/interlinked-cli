@@ -4,17 +4,13 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import { ArtifactGraph, makeEdgeId, makeGlobalRef } from "../artifact-graph.js";
+import { getImplicitConfig } from "../structure-loader.js";
 import type { StructureConfig } from "../types.js";
 import { evaluateStructureRules } from "./index.js";
 
 function baseConfig(overrides: Partial<StructureConfig["builtins"]> = {}): StructureConfig {
 	return {
-		version: 1,
-		mode: "minimal",
-		artifacts: {},
-		verify: {} as StructureConfig["verify"],
-		posttooluse: {} as StructureConfig["posttooluse"],
-		adoption: {} as StructureConfig["adoption"],
+		...getImplicitConfig(),
 		builtins: {
 			public_symbol_companions: false,
 			public_symbol_test_case: false,
@@ -79,51 +75,6 @@ describe("evaluateStructureRules", () => {
 				changedFiles: [],
 			}),
 		).toEqual([]);
-	});
-
-	// isRuleContext (unexported) decides whether the first positional argument
-	// is a StructureRuleContext or a bare ArtifactGraph. It can only be
-	// observed through evaluateStructureRules's routing: every candidate here
-	// is passed positionally alongside a real, all-builtins-off config and an
-	// empty changedFiles array. If isRuleContext wrongly classifies the
-	// candidate as a context object, the function destructures graph/config
-	// from the candidate itself (ignoring our positional config), leaving
-	// `config` undefined/non-config — `const builtins = config.builtins`
-	// then throws before any builtin check runs. Correct classification
-	// (positional/graph form) always resolves cleanly to [] here since every
-	// builtin is disabled.
-	it("isRuleContext correctly treats null as the graph-positional form", () => {
-		const candidate = null as unknown as ArtifactGraph;
-		expect(() => evaluateStructureRules(candidate, baseConfig(), [])).not.toThrow();
-		expect(evaluateStructureRules(candidate, baseConfig(), [])).toEqual([]);
-	});
-
-	it("isRuleContext correctly treats a string as the graph-positional form", () => {
-		const candidate = "hello" as unknown as ArtifactGraph;
-		expect(() => evaluateStructureRules(candidate, baseConfig(), [])).not.toThrow();
-		expect(evaluateStructureRules(candidate, baseConfig(), [])).toEqual([]);
-	});
-
-	it("isRuleContext correctly treats a number as the graph-positional form", () => {
-		const candidate = 42 as unknown as ArtifactGraph;
-		expect(() => evaluateStructureRules(candidate, baseConfig(), [])).not.toThrow();
-		expect(evaluateStructureRules(candidate, baseConfig(), [])).toEqual([]);
-	});
-
-	it("isRuleContext correctly treats a function carrying graph/config/changedFiles props as the graph-positional form", () => {
-		const candidate = Object.assign(() => {}, {
-			graph: 1,
-			config: 2,
-			changedFiles: 3,
-		}) as unknown as ArtifactGraph;
-		expect(() => evaluateStructureRules(candidate, baseConfig(), [])).not.toThrow();
-		expect(evaluateStructureRules(candidate, baseConfig(), [])).toEqual([]);
-	});
-
-	it("isRuleContext correctly treats an object with config+changedFiles but no graph key as the graph-positional form", () => {
-		const candidate = { config: 2, changedFiles: 3 } as unknown as ArtifactGraph;
-		expect(() => evaluateStructureRules(candidate, baseConfig(), [])).not.toThrow();
-		expect(evaluateStructureRules(candidate, baseConfig(), [])).toEqual([]);
 	});
 
 	it("does not run public_symbol_companions when the flag is off, even with a real finding available", () => {

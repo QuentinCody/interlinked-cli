@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireObject, wireOptional, wireString } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const uninstallHooksMock = vi.fn();
@@ -37,7 +38,7 @@ function setResult(
 function lastCallArg(): { cwd: string; dryRun: boolean; runners?: string[] | undefined } {
 	const call = uninstallHooksMock.mock.calls.at(-1);
 	if (!call) throw new Error("uninstallHooks was not called");
-	return call[0] as { cwd: string; dryRun: boolean; runners?: string[] };
+	return parseWire(call[0], wireObject({ "cwd": wireString, "dryRun": wireBoolean, "runners": wireAbsentOptional(wireOptional(wireArray(wireString))) }), "test JSON value");
 }
 
 describe("uninstallHooksCommand — runner parsing (kills parseRunners mutants)", () => {

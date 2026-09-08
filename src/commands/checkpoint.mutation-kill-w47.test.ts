@@ -1,3 +1,5 @@
+import { parseWire, wireNumber, wireObject } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock the checkpoints lib so no real git operations run.
@@ -42,7 +44,7 @@ function makeCheckpoint(overrides: Partial<Checkpoint> = {}): Checkpoint {
 		timestamp: "2026-01-01T00:00:00.000Z",
 		base_commit: "deadbeefcafebabe",
 		trigger: "manual",
-		files_changed: [] as string[],
+		files_changed: [],
 		restorable: true,
 		...overrides,
 	};
@@ -146,10 +148,16 @@ describe("checkpointListCommand — header, table headers, empty-array default, 
 
 	it("DOES pass since (a number) when opts.since is provided", () => {
 		vi.mocked(listCheckpoints).mockReturnValue([]);
+		const before = Date.now();
 		checkpointListCommand({ since: "1h" });
-		const call = vi.mocked(listCheckpoints).mock.calls[0]?.[0] as { since?: number };
+		const after = Date.now();
+		const call = nonNull(vi.mocked(listCheckpoints).mock.calls[0]?.[0]);
 		expect(call).toHaveProperty("since");
 		expect(typeof call.since).toBe("number");
+		// since = Date.now() - 1h at call time; pin it to that exact formula,
+		// bounded by wall-clock samples taken immediately around the call.
+		expect(nonNull(call.since)).toBeGreaterThanOrEqual(before - 3600000);
+		expect(nonNull(call.since)).toBeLessThanOrEqual(after - 3600000);
 	});
 
 	it("does NOT pass limit when opts.limit is undefined", () => {
@@ -162,7 +170,7 @@ describe("checkpointListCommand — header, table headers, empty-array default, 
 	it("DOES pass limit when opts.limit is provided", () => {
 		vi.mocked(listCheckpoints).mockReturnValue([]);
 		checkpointListCommand({ limit: "5" });
-		const call = vi.mocked(listCheckpoints).mock.calls[0]?.[0] as { limit?: number };
+		const call = nonNull(vi.mocked(listCheckpoints).mock.calls[0]?.[0]);
 		expect(call).toEqual({ limit: 5 });
 	});
 
@@ -301,7 +309,7 @@ describe("parseSinceDuration (indirectly via checkpointListCommand -> since opti
 
 	function sinceArg(input: string): number {
 		checkpointListCommand({ since: input });
-		const call = vi.mocked(listCheckpoints).mock.calls[0]?.[0] as { since: number };
+		const call = parseWire(vi.mocked(listCheckpoints).mock.calls[0]?.[0], wireObject({ "since": wireNumber }), "test JSON value");
 		return call.since;
 	}
 

@@ -11,10 +11,11 @@
 //     `.interlinked/sync-errors.jsonl` on disk)
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { nonNull } from "../lib/non-null.js";
 
-const mockAppendSyncError = vi.fn();
+const mockAppendSyncError = vi.fn<typeof import("../lib/local-activity.js").appendSyncError>();
 vi.mock("../lib/local-activity.js", () => ({
-	appendSyncError: (entry: unknown) => mockAppendSyncError(entry),
+	appendSyncError: (...args: Parameters<typeof mockAppendSyncError>) => mockAppendSyncError(...args),
 }));
 
 const mockReadBoundedResponseBody = vi.fn();
@@ -62,7 +63,7 @@ describe("sendOneBatch", () => {
 			retriesUsed: 0,
 		});
 		expect(mockAppendSyncError).toHaveBeenCalledTimes(1);
-		const [entry] = mockAppendSyncError.mock.calls[0] as [{ message: string }];
+		const [entry] = nonNull(mockAppendSyncError.mock.calls[0]);
 		expect(entry.message).toContain("response was not JSON:");
 	});
 });

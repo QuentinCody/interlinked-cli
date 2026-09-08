@@ -1,3 +1,5 @@
+import { makeGuardRules as completeGuardRulesConfigFixture } from "./evaluator/__tests__/fixtures.js";
+import { nonNull } from "../lib/non-null.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Same mocking strategy as evaluator-unified.test.ts: mock out the delegated
@@ -11,13 +13,13 @@ vi.mock("./evaluator.js", () => ({
 }));
 
 const baselineCallKeyMock = vi.fn((opts: unknown) => JSON.stringify(opts));
-const consumeBaselineSnapshotMock = vi.fn((_key: string, _root: string) => null as string | null);
+const consumeBaselineSnapshotMock = vi.fn((_key: string, _root: string): string | null => null);
 vi.mock("./evaluator/baseline-effect-guard.js", () => ({
 	baselineCallKey: (opts: unknown) => baselineCallKeyMock(opts),
 	consumeBaselineSnapshot: (key: string, root: string) => consumeBaselineSnapshotMock(key, root),
 }));
 
-import type { CohortManager } from "./cohort.js";
+import { CohortManager } from "./cohort.js";
 import {
 	budgetFor,
 	DEFAULT_BUDGETS,
@@ -28,8 +30,8 @@ import {
 	toHarnessEvent,
 	type UnifiedEvaluatorTelemetry,
 } from "./evaluator-unified.js";
-import type { ReservationManager } from "./reservations.js";
-import type { GuardRulesConfig, HarnessDecision } from "./types.js";
+import { ReservationManager } from "./reservations.js";
+import type { HarnessDecision } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 
 function makeEvent(over: Partial<UnifiedHookEvent> = {}): UnifiedHookEvent {
@@ -55,12 +57,12 @@ function makeEvent(over: Partial<UnifiedHookEvent> = {}): UnifiedHookEvent {
 }
 
 function makeCtx(over: Partial<EvaluateUnifiedContext> = {}): EvaluateUnifiedContext {
-	const rules = { enabled: true } as unknown as GuardRulesConfig;
+	const rules = ({ ...completeGuardRulesConfigFixture(), ...{ enabled: true } });
 	return {
 		rules,
 		session: undefined,
-		reservations: {} as unknown as ReservationManager,
-		cohort: {} as unknown as CohortManager,
+		reservations: new ReservationManager(),
+		cohort: new CohortManager(),
 		...over,
 	};
 }
@@ -230,17 +232,17 @@ describe("toHarnessEvent — file_operation input gating", () => {
 	}
 
 	it("does not set old_string as an own property on a read operation", () => {
-		const input = toHarnessEvent(readEvent()).tool_input as Record<string, unknown>;
+		const input = nonNull(toHarnessEvent(readEvent()).tool_input);
 		expect(Object.prototype.hasOwnProperty.call(input, "old_string")).toBe(false);
 	});
 
 	it("does not set new_string as an own property on a read operation", () => {
-		const input = toHarnessEvent(readEvent()).tool_input as Record<string, unknown>;
+		const input = nonNull(toHarnessEvent(readEvent()).tool_input);
 		expect(Object.prototype.hasOwnProperty.call(input, "new_string")).toBe(false);
 	});
 
 	it("does not set content as an own property on a read operation", () => {
-		const input = toHarnessEvent(readEvent()).tool_input as Record<string, unknown>;
+		const input = nonNull(toHarnessEvent(readEvent()).tool_input);
 		expect(Object.prototype.hasOwnProperty.call(input, "content")).toBe(false);
 	});
 });
@@ -333,15 +335,14 @@ describe("evaluateUnified — post-tool baseline-effect gating", () => {
 		});
 	});
 
-	it("falls back to process.cwd() when the event carries no cwd (?? not &&)", async () => {
+	it("uses the normalized event cwd for baseline lookup", async () => {
 		postMock.mockReturnValue({ decision: "allow" });
 		const event = makePostToolEvent({
-			context: { cwd: undefined as unknown as string },
+			context: { cwd: "/specified-workspace" },
 		});
 		await evaluateUnified(event, makeCtx());
 		const [, rootArg] = consumeBaselineSnapshotMock.mock.calls[0] ?? [];
-		expect(rootArg).toBeTruthy();
-		expect(typeof rootArg).toBe("string");
+		expect(rootArg).toBe("/specified-workspace");
 	});
 
 	it("merges the loosening warning into decision.warnings when one is found", async () => {

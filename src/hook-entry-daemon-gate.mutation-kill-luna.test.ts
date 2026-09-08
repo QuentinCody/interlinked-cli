@@ -12,7 +12,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 		spawn: (command: string, args: string[], options: unknown) => {
 			const call = { command, args, options, unrefCalls: 0 };
 			spawnCalls.push(call);
-			return { pid: process.pid, unref: () => { call.unrefCalls++; } } as unknown as ReturnType<typeof actual.spawn>;
+			return Object.assign(new actual.ChildProcess(), { pid: process.pid, unref: () => { call.unrefCalls++; } });
 		},
 	};
 });
@@ -31,17 +31,17 @@ function event(cwd: string): UnifiedHookEvent {
 		event_id: "luna",
 		session_id: "s1",
 		ts: "2026-08-20T00:00:00.000Z",
-		runner: "claude-code" as never,
+		runner: "claude-code",
 		runner_native_event: "PreToolUse",
 		phase: "pre-tool",
-		action: { kind: "shell_command", command: "echo hi", cwd } as never,
+		action: { kind: "shell_command", command: "echo hi", cwd, tool_class: "read" },
 		context: { cwd },
 		raw: null,
-	} as UnifiedHookEvent;
+	};
 }
 
 function shell(command: string): UnifiedHookEvent["action"] {
-	return { kind: "shell_command", command } as UnifiedHookEvent["action"];
+	return { kind: "shell_command", command, tool_class: "modify" };
 }
 
 let dir: string;

@@ -1,3 +1,4 @@
+import { errorMessage } from "../lib/error-message.js";
 // ===========================================
 // interlinked daemons — list active harness daemons (Phase J polish)
 // ===========================================
@@ -85,7 +86,7 @@ async function probeHealth(
 	try {
 		health = await client.call("daemon.health", {}, { timeout_ms: timeoutMs });
 	} catch (e) {
-		err = (e as Error).message;
+		err = errorMessage(e);
 	}
 	if (health) {
 		row.health = health;

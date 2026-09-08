@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { ClientName } from "./settings.js";
+import { isJsonObject } from "./json-types.js";
 
 export const SKILL_INSTALL_MANIFEST = join(".interlinked", "skill-install-manifest.json");
 
@@ -105,10 +106,10 @@ function ensureSafeParent(cwd: string, relPath: string): string {
 }
 
 function manifestEntries(value: unknown): Array<[string, unknown]> {
-    if (!value || typeof value !== "object") {
+    if (!isJsonObject(value)) {
         throw new Error("Skill install manifest is not an object");
     }
-    const candidate = value as { version?: unknown; files?: unknown };
+    const candidate = value;
     if (
         candidate.version !== 1 ||
         !candidate.files ||
@@ -140,10 +141,10 @@ function isValidManifestPath(relPath: string, entry: SkillManifestEntry): boolea
 }
 
 function validatedManifestEntry(relPath: string, value: unknown): SkillManifestEntry {
-    if (!value || typeof value !== "object") {
+    if (!isJsonObject(value)) {
         throw new Error(`Malformed skill install manifest entry: ${relPath}`);
     }
-    const entry = value as Partial<SkillManifestEntry>;
+    const entry = value;
     if (
         !isSkillOwner(entry.owner) ||
         typeof entry.sha256 !== "string" ||
@@ -153,7 +154,7 @@ function validatedManifestEntry(relPath: string, value: unknown): SkillManifestE
     ) {
         throw new Error(`Malformed skill install manifest entry: ${relPath}`);
     }
-    const complete = entry as SkillManifestEntry;
+    const complete: SkillManifestEntry = { owner: entry.owner, sha256: entry.sha256, skill: entry.skill, kind: entry.kind };
     if (!isValidManifestPath(relPath, complete)) {
         throw new Error(`Unsafe skill install manifest entry: ${relPath}`);
     }

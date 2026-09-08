@@ -365,7 +365,7 @@ describe("createJsonlTailer — interval handle unref guard", () => {
 	it("does not throw when the interval handle lacks unref", () => {
 		vi.stubGlobal(
 			"setInterval",
-			vi.fn(() => ({}) as ReturnType<typeof setInterval>),
+			vi.fn(() => ({})),
 		);
 		vi.stubGlobal("clearInterval", vi.fn());
 		let tailer: { stop: () => void } | undefined;
@@ -384,7 +384,7 @@ describe("createJsonlTailer — interval handle unref guard", () => {
 		const fakeUnref = vi.fn();
 		vi.stubGlobal(
 			"setInterval",
-			vi.fn(() => ({ unref: fakeUnref }) as unknown as ReturnType<typeof setInterval>),
+			vi.fn(() => ({ unref: fakeUnref })),
 		);
 		vi.stubGlobal("clearInterval", vi.fn());
 		const tailer = createActivityTailer("/nonexistent/path.jsonl", () => undefined, 1000);

@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -30,7 +30,6 @@ afterEach(() => {
 });
 
 function mkdtempRoot(): string {
-	const { mkdtempSync } = require("node:fs") as typeof import("node:fs");
 	return mkdtempSync(join(tmpdir(), "stop-self-heal-"));
 }
 

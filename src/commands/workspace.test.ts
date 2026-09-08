@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNullable, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked workspace — behavioral coverage
 // ===========================================
@@ -81,9 +82,9 @@ beforeEach(() => {
 	errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 	// process.exit is stubbed to throw so the catch-path's exit(1) is
 	// observable AND halts execution exactly like the real call would.
-	exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
+	exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
 		throw new Error(`process.exit:${code}`);
-	}) as never);
+	});
 });
 
 afterEach(() => {
@@ -203,10 +204,7 @@ describe("workspaceListCommand", () => {
 
 		await workspaceListCommand({ json: true });
 
-		const payload = JSON.parse(lastLog()) as {
-			workspaces: unknown[];
-			active_workspace: string | null;
-		};
+		const payload = parseWire(JSON.parse(lastLog()), wireObject({ "workspaces": wireArray(wireUnknown), "active_workspace": wireNullable(wireString) }), "test JSON value");
 		expect(payload.workspaces).toEqual(workspaces);
 		expect(payload.active_workspace).toBe("ws_json");
 	});
@@ -217,7 +215,7 @@ describe("workspaceListCommand", () => {
 
 		await workspaceListCommand({ json: true });
 
-		const payload = JSON.parse(lastLog()) as { active_workspace: string | null };
+		const payload = parseWire(JSON.parse(lastLog()), wireObject({ "active_workspace": wireNullable(wireString) }), "test JSON value");
 		expect(payload.active_workspace).toBeNull();
 	});
 
@@ -252,7 +250,7 @@ describe("workspaceListCommand", () => {
 
 		await workspaceListCommand({ json: true });
 
-		const payload = JSON.parse(lastErr()) as { error: string };
+		const payload = parseWire(JSON.parse(lastErr()), wireObject({ "error": wireString }), "test JSON value");
 		expect(payload.error).toBe("boom");
 		expect(process.exitCode).toBe(1);
 	});
@@ -277,10 +275,7 @@ describe("workspaceSwitchCommand", () => {
 		await workspaceSwitchCommand("ws_new");
 
 		expect(mockUpdateLocalConfig).toHaveBeenCalledTimes(1);
-		const arg = nonNull(mockUpdateLocalConfig.mock.calls[0])[0] as {
-			workspace_id: string;
-			servers: Record<string, { workspace_id: string; server_url: string }>;
-		};
+		const arg = parseWire(nonNull(mockUpdateLocalConfig.mock.calls[0])[0], wireObject({ "workspace_id": wireString, "servers": wireRecord(wireObject({ "workspace_id": wireString, "server_url": wireString })) }), "test JSON value");
 		expect(arg.workspace_id).toBe("ws_new");
 		// Active entry updated; other entries preserved (spread).
 		expect(arg.servers.production).toEqual({ server_url: "https://prod", workspace_id: "ws_new" });
@@ -303,9 +298,7 @@ describe("workspaceSwitchCommand", () => {
 
 		await workspaceSwitchCommand("ws_new");
 
-		const arg = nonNull(mockUpdateLocalConfig.mock.calls[0])[0] as {
-			servers: Record<string, { workspace_id: string }>;
-		};
+		const arg = parseWire(nonNull(mockUpdateLocalConfig.mock.calls[0])[0], wireObject({ "servers": wireRecord(wireObject({ "workspace_id": wireString })) }), "test JSON value");
 		expect(nonNull(arg.servers.production).workspace_id).toBe("ws_new");
 	});
 

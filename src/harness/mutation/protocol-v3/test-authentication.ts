@@ -14,6 +14,7 @@
 
 import { createHash, createPrivateKey, createPublicKey, sign as edSign, type KeyObject } from "node:crypto";
 import { canonicalJson, type V3KeyRegistry } from "./canonical.js";
+import { isRecord } from "./field-checks.js";
 import { canonicalReceiptHash } from "./receipts.js";
 import { buildStructuralReport } from "./report.js";
 import type {
@@ -53,6 +54,13 @@ export const TEST_REGISTRY: V3KeyRegistry = {
 };
 export const TEST_NOW = "2026-08-31T13:00:00.000Z";
 
+/** Decode a test receipt for intentional field mutation, checking its editable shell. */
+export function parseReceiptFixture(text: string): Record<string, unknown> & { payload: Record<string, unknown> } {
+	const raw: unknown = JSON.parse(text);
+	if (!isRecord(raw) || !isRecord(raw.payload)) throw new Error("fixture receipt must contain an object payload");
+	return { ...raw, payload: raw.payload };
+}
+
 /** Sign one receipt payload into its wire text ({payload, signature}). */
 export function signReceipt(payload: Record<string, unknown>, keyId: "k_control" | "k_runner" = "k_control"): string {
 	const key = keyId === "k_control" ? CONTROL_KEY : RUNNER_KEY;
@@ -76,6 +84,7 @@ export function seal(
 	// signed field of the attestation payload.
 	const signature = { key_id: keyId, value: "" };
 	raw.signature = signature;
+	// SAFETY: this fabricator intentionally signs untrusted envelopes before the parser and verifier under test validate their shape.
 	signature.value = edSign(null, Buffer.from(attestationPayload(raw as never), "utf8"), key).toString(
 		"base64",
 	);

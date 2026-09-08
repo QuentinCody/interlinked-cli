@@ -15,12 +15,12 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-const CFG = {
+const CFG = ({
 	enabled: true,
 	mode: "block",
 	budget_ms: 25_000,
 	languages: ["js", "ts", "python"],
-} as NonNullable<GuardRulesConfig["per_edit_coverage"]>;
+} satisfies NonNullable<GuardRulesConfig["per_edit_coverage"]>);
 
 function event(toolName: string, toolInput: Record<string, unknown>): HarnessEvent {
 	return {

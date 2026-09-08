@@ -1,3 +1,4 @@
+import { isJsonObject, type JsonObject } from "../json-types.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Checkpoint } from "../checkpoints.js";
 
@@ -34,6 +35,14 @@ const mockExistsSync = vi.mocked(existsSync);
 const mockReadFileSync = vi.mocked(readFileSync);
 const mockWriteFileSync = vi.mocked(writeFileSync);
 const mockExecSync = vi.mocked(execSync);
+
+function writtenCheckpoints(): JsonObject[] {
+	const written = mockWriteFileSync.mock.calls.at(-1)?.[1];
+	if (typeof written !== "string") throw new Error("Expected a checkpoint JSON write");
+	const value: unknown = JSON.parse(written);
+	if (!Array.isArray(value) || !value.every(isJsonObject)) throw new Error("Expected checkpoint objects");
+	return value;
+}
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -501,8 +510,7 @@ describe("createCheckpoint (edge cases)", () => {
 		expect(cp.metadata).toEqual({ task: "ABC-1", count: 3 });
 
 		// Newly written array appends to the prior checkpoint (read-modify-write).
-		const written = mockWriteFileSync.mock.calls.at(-1)?.[1] as string;
-		const parsed = JSON.parse(written) as Checkpoint[];
+		const parsed = writtenCheckpoints();
 		expect(parsed).toHaveLength(2);
 		expect(parsed[0].id).toBe("prior");
 		expect(parsed[1].id).toBe(cp.id);
@@ -577,8 +585,7 @@ describe("pruneCheckpoints (older_than_days)", () => {
 			const removed = pruneCheckpoints({ older_than_days: 7, cwd: "/test" });
 			expect(removed).toBe(1);
 
-			const written = mockWriteFileSync.mock.calls.at(-1)?.[1] as string;
-			const survivors = JSON.parse(written) as Checkpoint[];
+			const survivors = writtenCheckpoints();
 			expect(survivors.map((c) => c.id)).toEqual(["recent"]);
 		} finally {
 			vi.useRealTimers();
@@ -592,8 +599,7 @@ describe("pruneCheckpoints (older_than_days)", () => {
 
 		const removed = pruneCheckpoints({ cwd: "/test" });
 		expect(removed).toBe(0);
-		const written = mockWriteFileSync.mock.calls.at(-1)?.[1] as string;
-		expect(JSON.parse(written)).toHaveLength(2);
+		expect(writtenCheckpoints()).toHaveLength(2);
 	});
 });
 
@@ -631,8 +637,7 @@ describe("archiveCheckpoints (limit + no-op paths)", () => {
 			});
 			expect(result.archived).toBe(2);
 
-			const written = mockWriteFileSync.mock.calls.at(-1)?.[1] as string;
-			const parsed = JSON.parse(written) as Checkpoint[];
+			const parsed = writtenCheckpoints();
 			const stillRestorable = parsed.filter((c) => c.restorable);
 			// The loop walks newest-first and archives while count > max, decrementing
 			// each time; so the newest two (r1, r2) get archived and the oldest of the

@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 import { describe, it, expect, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,7 +48,7 @@ describe("parseCoveragePyJson — happy path: toLineSet + relForKey composite", 
 		const result = parseCoveragePyJson(path, root);
 		expect(result).not.toBeNull();
 		// SAFETY: guarded by the not.toBeNull() assertion immediately above.
-		return result as Map<string, import("./coverage-final-reader.js").PerFileCoverage>;
+		return nonNull(result);
 	}
 
 	// test-contract: invariant — a key escaping projectRoot (leading "..") and a
@@ -92,7 +93,7 @@ describe("toLineSet — absent line arrays", () => {
 		const result = parseCoveragePyJson(path, root);
 		expect(result).not.toBeNull();
 		// SAFETY: guarded by the not.toBeNull() assertion immediately above.
-		const map = result as Map<string, import("./coverage-final-reader.js").PerFileCoverage>;
+		const map = nonNull(result);
 		const entry = map.get("empty.py");
 		expect(entry).toBeDefined();
 		expect(entry?.coveredLines).toEqual(new Set());

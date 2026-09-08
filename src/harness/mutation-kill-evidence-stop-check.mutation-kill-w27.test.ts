@@ -1,3 +1,4 @@
+import { makeMinimalEvent as completeEventFixture, makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Mutation-kill campaign (wave 27) — targets survived mutants in
 // mutation-kill-evidence-stop-check.ts per .interlinked/mutation-manifest.json.
 // Companion to mutation-kill-evidence-stop-check.test.ts (which already covers
@@ -16,7 +17,6 @@ import {
 	type MutationKillEvidenceHit,
 } from "./mutation-kill-evidence-stop-check.js";
 import type { ServerRuntime } from "./server/runtime-context.js";
-import type { HarnessEvent, SessionTrajectory } from "./types.js";
 
 vi.mock("node:child_process", () => ({ execFileSync: vi.fn() }));
 vi.mock("node:fs", () => ({ existsSync: vi.fn(), readFileSync: vi.fn() }));
@@ -429,14 +429,14 @@ describe("checkMutationKillEvidence — event.cwd fallback (|| not &&)", () => {
 		// SAFETY: the check reads only `cwd` and `log` off the runtime.
 		const ctx = { cwd: "/repo", log: vi.fn() } as unknown as ServerRuntime;
 		// SAFETY: the check reads only `cwd` off the event (deliberately absent here).
-		const event = { session_id: "S" } as unknown as HarnessEvent; // no cwd field
+		const event = ({ ...completeEventFixture(), ...{ session_id: "S" } }); // no cwd field
 		// SAFETY: the check reads only these four trajectory fields.
-		const session = {
+		const session = ({ ...completeSessionFixture(), ...{
 			session_id: "S",
 			files_written: new Set([abs]),
 			file_write_times: new Map([[abs, "2026-08-14T10:00:00.000Z"]]),
-			git_session_baseline: { head_sha: SHA },
-		} as unknown as SessionTrajectory;
+			git_session_baseline: { head_sha: SHA, modified: new Set<string>(), staged: new Set<string>(), untracked: new Set<string>() },
+		} });
 		expect(() => checkMutationKillEvidence(ctx, event, session)).not.toThrow();
 	});
 });
@@ -449,14 +449,14 @@ describe("checkMutationKillEvidence — ctx.log message", () => {
 		// SAFETY: the check reads only `cwd` and `log` off the runtime.
 		const ctx = { cwd: "/repo", log } as unknown as ServerRuntime;
 		// SAFETY: the check reads only `cwd` off the event.
-		const event = { cwd: "/repo", session_id: "S" } as unknown as HarnessEvent;
+		const event = ({ ...completeEventFixture(), ...{ cwd: "/repo", session_id: "S" } });
 		// SAFETY: the check reads only these four trajectory fields.
-		const session = {
+		const session = ({ ...completeSessionFixture(), ...{
 			session_id: "S",
 			files_written: new Set([abs]),
 			file_write_times: new Map([[abs, "2026-08-14T10:00:00.000Z"]]),
-			git_session_baseline: { head_sha: SHA },
-		} as unknown as SessionTrajectory;
+			git_session_baseline: { head_sha: SHA, modified: new Set<string>(), staged: new Set<string>(), untracked: new Set<string>() },
+		} });
 		mockExistsSync.mockReturnValue(true);
 		mockReadFileSync.mockReturnValue(unmarkedCase("mutant"));
 		mockExecFileSync.mockReturnValue("");
@@ -474,14 +474,14 @@ describe("checkMutationKillEvidence — warning===null short-circuit", () => {
 		// SAFETY: the check reads only `cwd` and `log` off the runtime.
 		const ctx = { cwd: "/repo", log } as unknown as ServerRuntime;
 		// SAFETY: the check reads only `cwd` off the event.
-		const event = { cwd: "/repo", session_id: "S" } as unknown as HarnessEvent;
+		const event = ({ ...completeEventFixture(), ...{ cwd: "/repo", session_id: "S" } });
 		// SAFETY: the check reads only these four trajectory fields.
-		const session = {
+		const session = ({ ...completeSessionFixture(), ...{
 			session_id: "S",
 			files_written: new Set([abs]),
 			file_write_times: new Map([[abs, "2026-08-14T10:00:00.000Z"]]),
-			git_session_baseline: { head_sha: SHA },
-		} as unknown as SessionTrajectory;
+			git_session_baseline: { head_sha: SHA, modified: new Set<string>(), staged: new Set<string>(), untracked: new Set<string>() },
+		} });
 		mockExistsSync.mockReturnValue(false); // file "absent" ⇒ readFile → null ⇒ zero hits
 		const result = checkMutationKillEvidence(ctx, event, session);
 		expect(result).toBeNull();

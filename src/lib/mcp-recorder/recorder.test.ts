@@ -786,9 +786,9 @@ describe("McpProtocolRecorder", () => {
             recorder.recordStderrLine("default-append path");
 
             const written = readFileSync(getMcpEventsPath(tmp), "utf-8").trim();
-            const parsed = JSON.parse(written) as McpEventRecord;
-            expect(parsed.message_type).toBe("transport_stderr");
-            expect(parsed.payload).toBe("default-append path");
+            const parsed: unknown = JSON.parse(written);
+            expect(parsed).toHaveProperty("message_type", "transport_stderr");
+            expect(parsed).toHaveProperty("payload", "default-append path");
         });
     });
 

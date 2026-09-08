@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Exercises runDirectImporterCompanions (test-dispatchers.ts's phase 3) in
 // isolation from phases 1/2 (vitest --related + the edited file's own
 // convention fallback), which have their own coverage in
@@ -73,7 +74,7 @@ function mkResult(opts: { status?: number | null; stdout?: string; stderr?: stri
 		// real SpawnSyncReturns carries pid/stdout/stderr typed as Buffer
 		// unions this fixture never needs; only the fields runDirectImporterCompanions
 		// actually reads (status, stdout, stderr) are asserted on.
-	} as SpawnSyncReturns<string>;
+	};
 }
 
 beforeEach(() => {
@@ -117,7 +118,7 @@ describe("runDirectImporterCompanions — positive (must fire)", () => {
 		expect(out[0]?.message).toContain("src/modes.ts");
 		expect(out[0]?.message).toContain("install-hooks.test.ts");
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0]?.[1]);
 		expect(args).toContain("src/install-hooks.test.ts");
 	});
 
@@ -160,7 +161,7 @@ describe("runDirectImporterCompanions — positive (must fire)", () => {
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
 		// SAFETY: spawnSync's second positional arg is always the string[]
 		// argv this dispatcher builds itself two lines above the call site.
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0]?.[1]);
 		expect(args).toContain("src/a.test.ts");
 		expect(args).toContain("src/b.test.ts");
 	});
@@ -269,7 +270,7 @@ describe("runDirectImporterCompanions — negative (must not fire)", () => {
 		expect(out).toEqual([]);
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
 		// SAFETY: same argv shape as the P3 spawnSync call above.
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0]?.[1]);
 		expect(args.filter((a) => a.endsWith(".test.ts"))).toHaveLength(8);
 	});
 

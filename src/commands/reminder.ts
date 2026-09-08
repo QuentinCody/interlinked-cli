@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireObject, wireString } from "../lib/value-validation.js";
 // ===========================================
 // interlinked reminder — File reminder management
 // ===========================================
@@ -18,6 +19,16 @@ import { getOutputMode, output, outputError } from "../lib/output.js";
 // ===========================================
 // Helpers
 // ===========================================
+
+const isFileReminder = wireObject<FileReminder>({
+ glob: wireString, message: wireString, operations: wireAbsentOptional(wireArray(wireString)),
+ once_per_session: wireAbsentOptional(wireBoolean), id: wireAbsentOptional(wireString),
+ created_at: wireAbsentOptional(wireString), created_by: wireAbsentOptional(wireString),
+});
+
+function parseReminders(value: unknown): FileReminder[] {
+ return value == null ? [] : parseWire(value, wireArray(isFileReminder), "file reminders");
+}
 
 function generateId(glob: string): string {
 	const hash = createHash("sha256").update(glob).digest("hex").slice(0, 8);
@@ -76,7 +87,7 @@ export function reminderAddCommand(opts: {
 
 	const existing = read() || {};
 	const reminders: FileReminder[] =
-		(existing.file_reminders as FileReminder[] | undefined) ?? [];
+		parseReminders(existing.file_reminders);
 
 	const duplicate = reminders.find((r) => r.id === id);
 	if (duplicate) {
@@ -107,13 +118,13 @@ export function reminderListCommand(opts: {
 	const localRules = readLocalGuardRules();
 
 	const teamReminders: AnnotatedReminder[] = (
-		(teamRules?.file_reminders as FileReminder[] | undefined) ?? []
+		parseReminders(teamRules?.file_reminders)
 	).map((r) => ({
 		...r,
 		source: "team" as const,
 	}));
 	const localReminders: AnnotatedReminder[] = (
-		(localRules?.file_reminders as FileReminder[] | undefined) ?? []
+		parseReminders(localRules?.file_reminders)
 	).map((r) => ({
 		...r,
 		source: "local" as const,
@@ -156,7 +167,7 @@ export function reminderRemoveCommand(
 
 	const existing = read() || {};
 	const reminders: FileReminder[] =
-		(existing.file_reminders as FileReminder[] | undefined) ?? [];
+		parseReminders(existing.file_reminders);
 
 	if (opts.all) {
 		const count = reminders.length;

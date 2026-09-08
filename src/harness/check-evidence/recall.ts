@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../lib/json-types.js";
 // Check Evidence Contract — recall: derived case floors and detector mutation.
 //
 // Spec: docs/design/verification-density-program.md (Phase 3).
@@ -88,12 +89,12 @@ export function loadMutationScores(repoRoot: string): MutationScores {
 
 /** Narrow the mutation baseline to a file→score map. */
 export function parseMutationScores(raw: unknown): MutationScores {
-	if (!raw || typeof raw !== "object") return {};
-	const files = (raw as { files?: unknown }).files;
-	if (!files || typeof files !== "object") return {};
+	if (!isJsonObject(raw)) return {};
+	const files = raw.files;
+	if (!isJsonObject(files)) return {};
 	const out: Record<string, number> = {};
-	for (const [file, value] of Object.entries(files as Record<string, unknown>)) {
-		const score = value && typeof value === "object" ? (value as { score?: unknown }).score : undefined;
+	for (const [file, value] of Object.entries(files)) {
+		const score = isJsonObject(value) ? value.score : undefined;
 		if (typeof score === "number" && Number.isFinite(score)) out[file] = score;
 	}
 	return out;

@@ -161,7 +161,7 @@ export const ACTION_BUILDERS: Record<ToolClass, (ctx: ActionContext) => Collecti
 			// `input.edits` is unvalidated tool-call JSON — an element can
 			// legitimately be anything (string, null, …), not just an object,
 			// so `isJsonObject` is a real runtime guard rather than dead code.
-			for (const e of input.edits as unknown[]) {
+			for (const e of input.edits) {
 				if (isJsonObject(e)) {
 					hunks.push({ old: String(e.old_string || ""), new: String(e.new_string || "") });
 				}
@@ -227,8 +227,8 @@ export const ACTION_BUILDERS: Record<ToolClass, (ctx: ActionContext) => Collecti
 // --- Observation builders ---
 
 function buildShellObservation(resp: unknown): CollectionObservation {
-	if (resp && typeof resp === "object" && !Array.isArray(resp)) {
-		const r = resp as JsonObject;
+	if (isJsonObject(resp)) {
+		const r = resp;
 		return {
 			stdout: strField(r, "stdout"),
 			stderr: strField(r, "stderr"),
@@ -246,10 +246,10 @@ function buildFileReadObservation(resp: unknown): CollectionObservation {
 	let content: string | null = null;
 	if (typeof resp === "string") {
 		content = resp;
-	} else if (resp && typeof resp === "object") {
-		const r = resp as JsonObject;
-		if (r.file && typeof r.file === "object") {
-			content = strField(r.file as JsonObject, "content");
+	} else if (isJsonObject(resp)) {
+		const r = resp;
+		if (isJsonObject(r.file)) {
+			content = strField(r.file, "content");
 		} else {
 			content = strField(r, "content");
 		}
@@ -267,8 +267,8 @@ function buildSearchObservation(resp: unknown): CollectionObservation {
 }
 
 function buildFetchObservation(resp: unknown): CollectionObservation {
-	if (resp && typeof resp === "object" && !Array.isArray(resp)) {
-		const r = resp as JsonObject;
+	if (isJsonObject(resp)) {
+		const r = resp;
 		return {
 			status: numField(r, "status"),
 			result: r.result ?? r.content ?? null,
@@ -304,8 +304,8 @@ function buildObservation(toolClass: ToolClass, resp: unknown): CollectionObserv
 // --- Fidelity ---
 
 function isInterlinkedCapped(resp: unknown): boolean {
-	if (resp && typeof resp === "object" && !Array.isArray(resp)) {
-		return "_interlinked_truncated_bytes" in (resp as JsonObject);
+	if (isJsonObject(resp)) {
+		return "_interlinked_truncated_bytes" in resp;
 	}
 	return false;
 }
@@ -341,8 +341,8 @@ function buildFidelity(
 	const capped = isInterlinkedCapped(opts.resp);
 	const payloadBytes = typeof opts.event.tool_output_bytes === "number" ? opts.event.tool_output_bytes : 0;
 
-	if (opts.phase === "post" && opts.observation !== null) {
-		const obs = opts.observation as JsonObject;
+	if (opts.phase === "post" && isJsonObject(opts.observation)) {
+		const obs = opts.observation;
 		const fieldKeys = FIDELITY_FIELD_MAP[opts.toolClass];
 		if (fieldKeys) {
 			for (const fk of fieldKeys) {
@@ -413,9 +413,7 @@ export function buildCollectionRecord(event: JsonObject): CollectionRecord | nul
 	const outcome = resolveOutcome(phase, key.eventType);
 
 	const toolClass = classifyTool(toolName);
-	const input = (event.tool_input && typeof event.tool_input === "object"
-		? event.tool_input
-		: {}) as JsonObject;
+	const input = isJsonObject(event.tool_input) ? event.tool_input : {};
 	const cwd = strField(event, "cwd");
 	const resp = phase === "post" ? (event.tool_response ?? null) : null;
 

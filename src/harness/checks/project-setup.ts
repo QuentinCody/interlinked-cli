@@ -4,7 +4,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { dirname, resolve } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { stringDependencies } from "./package-dependencies.js";
 import { describeReason, suggestRuleFix, validateSettingsFile } from "../../lib/settings-validator.js";
 
 /**
@@ -15,12 +16,13 @@ import { describeReason, suggestRuleFix, validateSettingsFile } from "../../lib/
  */
 function readAllDeps(pkgJsonPath: string): Record<string, string> {
 	try {
-		const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as JsonObject;
+		const pkg: unknown = JSON.parse(readFileSync(pkgJsonPath, "utf-8"));
+		if (!isJsonObject(pkg)) return {};
 		return {
-			...((pkg.dependencies as Record<string, string> | undefined) || {}),
-			...((pkg.devDependencies as Record<string, string> | undefined) || {}),
-			...((pkg.peerDependencies as Record<string, string> | undefined) || {}),
-			...((pkg.optionalDependencies as Record<string, string> | undefined) || {}),
+			...stringDependencies(pkg.dependencies),
+			...stringDependencies(pkg.devDependencies),
+			...stringDependencies(pkg.peerDependencies),
+			...stringDependencies(pkg.optionalDependencies),
 		};
 	} catch {
 		return {};
@@ -100,7 +102,8 @@ function walkProjectFiles(root: string, visit: (absPath: string) => boolean): bo
 	const stack: string[] = [root];
 	let budget = MAX_PROJECT_SCAN_ENTRIES;
 	while (stack.length > 0) {
-		const dir = stack.pop() as string;
+		const dir = stack.pop();
+		if (dir === undefined) break;
 		for (const entry of readDirEntries(dir)) {
 			if (--budget <= 0) return false;
 			if (processDirEntry(entry, dir, stack, visit)) return true;
@@ -237,7 +240,9 @@ function readTsconfig(tsconfigDir: string): {
 } {
 	try {
 		const raw = readFileSync(resolve(tsconfigDir, "tsconfig.json"), "utf-8");
-		return { config: JSON.parse(raw), parseErrorIssue: null };
+		const config: unknown = JSON.parse(raw);
+		if (!isJsonObject(config)) throw new Error("Expected a tsconfig object");
+		return { config, parseErrorIssue: null };
 	} catch {
 		return {
 			config: null,
@@ -304,8 +309,8 @@ function checkNodeImportIssues(
 		});
 	}
 
-	const typesForNode = compilerOptions.types as string[] | undefined;
-	if (typesForNode && !typesForNode.includes("node")) {
+	const typesForNode = compilerOptions.types;
+	if (Array.isArray(typesForNode) && !typesForNode.includes("node")) {
 		issues.push({
 			check: "project_setup",
 			file: "tsconfig.json",
@@ -325,10 +330,11 @@ function checkModuleResolutionIssue(
 	compilerOptions: JsonObject,
 	hasNodeProtocolImports: boolean,
 ): ProjectSetupIssue | null {
-	const moduleResolution = compilerOptions.moduleResolution as string | undefined;
+	const moduleResolution = compilerOptions.moduleResolution;
 	if (
 		hasNodeProtocolImports &&
-		moduleResolution &&
+		typeof moduleResolution === "string" &&
+		moduleResolution.length > 0 &&
 		!["node16", "nodenext", "bundler"].includes(moduleResolution.toLowerCase())
 	) {
 		return {
@@ -392,9 +398,8 @@ export function checkProjectSetup(cwd: string): ProjectSetupIssue[] {
 		issues.push(parseErrorIssue);
 		return issues;
 	}
-	const tsconfig: JsonObject = config as JsonObject;
-
-	const compilerOptions = (tsconfig.compilerOptions || {}) as JsonObject;
+	if (!config) return issues;
+	const compilerOptions = isJsonObject(config.compilerOptions) ? config.compilerOptions : {};
 
 	// Check for node:* protocol imports in FIRST-PARTY source files. The walk
 	// skips node_modules — otherwise a dependency's own `node:` imports made

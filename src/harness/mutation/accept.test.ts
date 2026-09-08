@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { acceptMutant, findMutantRecord, recordDisposition, refuseAcceptance } from "./accept.js";
+import { parseDisposition } from "./disposition.js";
 import type {
 	HumanApproval,
 	ProofCertificate,
@@ -107,7 +108,7 @@ describe("acceptMutant — positive (must accept)", () => {
 			mutantId: "m1",
 			disposition: proved(),
 		});
-		const stored = out?.files[FILE]?.sym1?.mutants.m1?.disposition;
+		const stored = parseDisposition(out?.files[FILE]?.sym1?.mutants.m1?.disposition);
 		expect(stored?.kind).toBe("proved_equivalent");
 		expect(stored?.kind === "proved_equivalent" && stored.method.kind).toBe("rewrite_lemma");
 	});
@@ -308,7 +309,7 @@ describe("recordDisposition — the honest home for non-equivalences", () => {
 		});
 		const stored = out?.files[FILE]?.sym1?.mutants.m1;
 		expect(stored?.status).toBe("survived");
-		expect(stored?.disposition?.kind).toBe("dead_code");
+		expect(parseDisposition(stored?.disposition)?.kind).toBe("dead_code");
 	});
 
 	it("P2: never writes accepted_reason, so dead code cannot read as accepted", () => {
@@ -337,7 +338,7 @@ describe("recordDisposition — the honest home for non-equivalences", () => {
 				},
 			},
 		});
-		const stored = out?.files[FILE]?.sym1?.mutants.m1?.disposition;
+		const stored = parseDisposition(out?.files[FILE]?.sym1?.mutants.m1?.disposition);
 		expect(stored?.kind === "unresolved" && stored.evidence?.runs).toBe(10_000);
 	});
 
@@ -349,7 +350,7 @@ describe("recordDisposition — the honest home for non-equivalences", () => {
 			disposition: { kind: "duplicate", representativeMutantId: "m2", certificate: certificate() },
 		});
 		expect(out?.files[FILE]?.sym1?.mutants.m1?.status).toBe("survived");
-		expect(out?.files[FILE]?.sym1?.mutants.m1?.disposition?.kind).toBe("duplicate");
+		expect(parseDisposition(out?.files[FILE]?.sym1?.mutants.m1?.disposition)?.kind).toBe("duplicate");
 	});
 
 	it("N1: refuses proved_equivalent — equivalence has exactly one door", () => {

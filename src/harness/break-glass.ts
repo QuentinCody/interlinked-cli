@@ -13,7 +13,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 import { harnessNow } from "./replay/harness-clock.js";
 
@@ -106,8 +106,8 @@ function tryParseEntry(line: string): BreakGlassEntry | null {
 	} catch {
 		return null;
 	}
-	if (parsed == null || typeof parsed !== "object") return null;
-	const obj = parsed as JsonObject;
+	if (!isJsonObject(parsed)) return null;
+	const obj = parsed;
 	if (typeof obj.ts !== "string") return null;
 	if (typeof obj.user !== "string") return null;
 	if (typeof obj.session_id !== "string") return null;

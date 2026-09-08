@@ -117,7 +117,7 @@ function parseGroupedReason(reason: string): Set<string> {
 /** Match set produced by native ripgrep over the whole tree. */
 function nativeSet(extraArgs: string[], pattern: string): Set<string> {
 	const res = spawnSync(
-		RG as string,
+		nonNull(RG),
 		[...extraArgs, "--no-heading", "--with-filename", "--line-number", "--color=never", "--", pattern, "."],
 		{ cwd: dir, encoding: "utf-8", maxBuffer: 8 * 1024 * 1024 },
 	);
@@ -128,19 +128,19 @@ describe.skipIf(!HAVE_RG)("grep accelerator — differential vs native rg", () =
 	it("Grep tool, selective literal: substituted match set == native", () => {
 		const result = checkGrepAcceleration(grepEvent(SELECTIVE), index, CFG);
 		expect(result?.decision).toBe("block");
-		expect(parseGroupedReason(result!.reason as string)).toEqual(nativeSet([], SELECTIVE));
+		expect(parseGroupedReason(nonNull(result!.reason))).toEqual(nativeSet([], SELECTIVE));
 	});
 
 	it("Bash rg, selective literal: substituted match set == native", () => {
 		const result = checkGrepAcceleration(bashEvent(`rg '${SELECTIVE}'`), index, CFG);
 		expect(result?.decision).toBe("block");
-		expect(parseGroupedReason(result!.reason as string)).toEqual(nativeSet([], SELECTIVE));
+		expect(parseGroupedReason(nonNull(result!.reason))).toEqual(nativeSet([], SELECTIVE));
 	});
 
 	it("Bash rg -F, literal with regex metachars: match set == native -F", () => {
 		const result = checkGrepAcceleration(bashEvent(`rg -F '${LITERAL_DOTS}'`), index, CFG);
 		expect(result?.decision).toBe("block");
-		expect(parseGroupedReason(result!.reason as string)).toEqual(
+		expect(parseGroupedReason(nonNull(result!.reason))).toEqual(
 			nativeSet(["--fixed-strings"], LITERAL_DOTS),
 		);
 	});
@@ -149,7 +149,7 @@ describe.skipIf(!HAVE_RG)("grep accelerator — differential vs native rg", () =
 		const result = checkGrepAcceleration(bashEvent(`rg '${SELECTIVE}\\s+marker'`), index, CFG);
 		// Either declines (broad/stop-gram) or, if it substitutes, matches native.
 		if (result?.decision === "block") {
-			expect(parseGroupedReason(result.reason as string)).toEqual(
+			expect(parseGroupedReason(nonNull(result.reason))).toEqual(
 				nativeSet([], `${SELECTIVE}\\s+marker`),
 			);
 		}

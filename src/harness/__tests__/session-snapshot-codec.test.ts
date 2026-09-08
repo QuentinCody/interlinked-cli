@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireRecord, wireUnknown } from "../../lib/value-validation.js";
 import { describe, expect, it } from "vitest";
 import {
 	readActiveSkills,
@@ -768,7 +769,7 @@ describe("serializeCapturedPlan / readCapturedPlan round-trip", () => {
 
 	it("serializes a step's missing tool_hint/target_hint as explicit null, not undefined", () => {
 		const json = serializeCapturedPlan({ ...plan, steps: [{ intent: "solo", status: "pending" }] });
-		const steps = json.steps as unknown as Array<Record<string, unknown>>;
+		const steps = parseWire(json.steps, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(steps[0]?.tool_hint).toBeNull();
 		expect(steps[0]?.target_hint).toBeNull();
 	});
@@ -781,7 +782,7 @@ describe("serializeCapturedPlan / readCapturedPlan round-trip", () => {
 	// "nope" above is still a string (just an invalid one); it never reaches
 	// the branch where `v.source` isn't a string at all (missing entirely).
 	it("defaults a missing (non-string) source to TaskCreate", () => {
-		const full = serializeCapturedPlan(plan) as Record<string, unknown>;
+		const full: Record<string, unknown> = serializeCapturedPlan(plan);
 		delete full.source;
 		expect(readCapturedPlan(full)?.source).toBe("TaskCreate");
 	});
@@ -801,7 +802,7 @@ describe("serializeCapturedPlan / readCapturedPlan round-trip", () => {
 	});
 
 	it("preserves the skipped step status (not just pending/executed)", () => {
-		const json = serializeCapturedPlan(plan) as { steps: Array<Record<string, unknown>> };
+		const json = parseWire(serializeCapturedPlan(plan), wireObject({ "steps": wireArray(wireRecord(wireUnknown)) }), "test JSON value");
 		json.steps = [{ ...json.steps[0], status: "skipped" }];
 		const back = readCapturedPlan(json);
 		expect(back?.steps[0]?.status).toBe("skipped");
@@ -812,14 +813,14 @@ describe("serializeCapturedPlan / readCapturedPlan round-trip", () => {
 	// unkillable via any non-matching status. An explicit empty string breaks
 	// the tie the same way the plan-level source "" test above does.
 	it("does not treat an empty-string step status as valid", () => {
-		const json = serializeCapturedPlan(plan) as { steps: Array<Record<string, unknown>> };
+		const json = parseWire(serializeCapturedPlan(plan), wireObject({ "steps": wireArray(wireRecord(wireUnknown)) }), "test JSON value");
 		json.steps = [{ ...json.steps[0], status: "" }];
 		const back = readCapturedPlan(json);
 		expect(back?.steps[0]?.status).toBe("pending");
 	});
 
 	it("defaults an unrecognized step status to pending", () => {
-		const json = serializeCapturedPlan(plan) as { steps: Array<Record<string, unknown>> };
+		const json = parseWire(serializeCapturedPlan(plan), wireObject({ "steps": wireArray(wireRecord(wireUnknown)) }), "test JSON value");
 		json.steps = [{ ...json.steps[0], status: "bogus-status" }];
 		const back = readCapturedPlan(json);
 		expect(back?.steps[0]?.status).toBe("pending");
@@ -830,7 +831,7 @@ describe("serializeCapturedPlan / readCapturedPlan round-trip", () => {
 		// branch and only falls through PLAN_STEP_STATUSES' own fallback. A
 		// non-string value (or a missing field) is the only way to exercise
 		// statusRaw's OWN fallback branch.
-		const json = serializeCapturedPlan(plan) as { steps: Array<Record<string, unknown>> };
+		const json = parseWire(serializeCapturedPlan(plan), wireObject({ "steps": wireArray(wireRecord(wireUnknown)) }), "test JSON value");
 		json.steps = [{ ...json.steps[0], status: 5 }];
 		const back = readCapturedPlan(json);
 		expect(back?.steps[0]?.status).toBe("pending");

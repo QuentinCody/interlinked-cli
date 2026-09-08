@@ -1,3 +1,4 @@
+import { parseWire, wireString } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type CheckOutputPlan,
@@ -34,7 +35,7 @@ describe("warnDroppedDiscoveryTools", () => {
 		// SAFETY: stderrSpy is mocked with a string-writing implementation above;
 		// the harness's own Bash.write overload accepts Buffer too, but this call
 		// site always passes a template-string literal.
-		const msg = stderrSpy.mock.calls[0]?.[0] as string;
+		const msg = parseWire(stderrSpy.mock.calls[0]?.[0], wireString, "test JSON value");
 		expect(msg).toContain("dep-audit, docs-check");
 		expect(msg).toContain("interlinked verify");
 	});
@@ -67,12 +68,23 @@ describe("printToolReportIfRequested", () => {
 		const result = printToolReportIfRequested(process.cwd(), true, "tsc", undefined);
 		expect(result).toBe(false);
 		expect(stderrSpy).toHaveBeenCalled();
+		// The write is `\n  ${engine.formatToolReport()}\n\n` regardless of
+		// tools/onlyCheck — pin the fixed wrapper literal (from the SUT
+		// template), distinguishing "wrote the report" from a no-op stub.
+		// SAFETY: stderrSpy is mocked with a string-writing implementation above.
+		const call = parseWire(stderrSpy.mock.calls[0]?.[0], wireString, "test JSON value");
+		expect(call.startsWith("\n  ")).toBe(true);
+		expect(call.endsWith("\n\n")).toBe(true);
 	});
 
 	it("N2: prints the report but returns false when onlyCheck is set", () => {
 		const result = printToolReportIfRequested(process.cwd(), true, undefined, "circular_imports");
 		expect(result).toBe(false);
 		expect(stderrSpy).toHaveBeenCalled();
+		// SAFETY: stderrSpy is mocked with a string-writing implementation above.
+		const call = parseWire(stderrSpy.mock.calls[0]?.[0], wireString, "test JSON value");
+		expect(call.startsWith("\n  ")).toBe(true);
+		expect(call.endsWith("\n\n")).toBe(true);
 	});
 });
 
@@ -89,7 +101,7 @@ describe("emitCheckOutput", () => {
 		expect(stdoutSpy).toHaveBeenCalledTimes(1);
 		// SAFETY: emitJsonOutput's only stdout call is `${JSON.stringify(...)}\n`,
 		// a template-string literal, never a Buffer.
-		const payload = JSON.parse(stdoutSpy.mock.calls[0]?.[0] as string);
+		const payload = JSON.parse(parseWire(stdoutSpy.mock.calls[0]?.[0], wireString, "test JSON value"));
 		expect(payload).toEqual({ cycles: { count: 1, files: ["b.ts"] } });
 		stdoutSpy.mockRestore();
 	});

@@ -4,7 +4,6 @@
 // Pure functions: raw tool output string → CheckResult[].
 // Extracted from verify.ts and evaluator.ts so both can reuse them.
 
-import { relative } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import type { AuditResult, CheckResult } from "./types.js";
@@ -93,58 +92,7 @@ export function parseEslintOutput(output: string): CheckResult[] {
 	return results;
 }
 
-// -------------------------------------------
-// Semgrep (semgrep scan --json)
-// -------------------------------------------
-// JSON format: { results: [{ path, start: { line, col }, check_id, extra: { message } }] }
-
-interface SemgrepFinding {
-	checkId: string | undefined;
-	path: string | undefined;
-	line: number | undefined;
-	col: number | undefined;
-	message: string | undefined;
-}
-
-function parseSemgrepFinding(value: unknown): SemgrepFinding | null {
-	if (!isJsonObject(value)) return null;
-	const start = isJsonObject(value.start) ? value.start : undefined;
-	const extra = isJsonObject(value.extra) ? value.extra : undefined;
-	return {
-		checkId: typeof value.check_id === "string" ? value.check_id : undefined,
-		path: typeof value.path === "string" ? value.path : undefined,
-		line: start && typeof start.line === "number" ? start.line : undefined,
-		col: start && typeof start.col === "number" ? start.col : undefined,
-		message: extra && typeof extra.message === "string" ? extra.message : undefined,
-	};
-}
-
-function pushSemgrepFinding(entry: unknown, projectRoot: string, results: CheckResult[]): void {
-	const finding = parseSemgrepFinding(entry);
-	if (!finding) return;
-	results.push({
-		tool: "semgrep",
-		severity: "warning",
-		file: relative(projectRoot, finding.path || ""),
-		line: finding.line || 0,
-		column: finding.col,
-		message: `${finding.checkId || "unknown"}: ${finding.message || ""}`.trim(),
-		ruleId: finding.checkId,
-	});
-}
-
-export function parseSemgrepJson(output: string, projectRoot: string): CheckResult[] {
-	try {
-		const parsed = JSON.parse(output);
-		if (!isJsonObject(parsed)) return [];
-		const rawResults = Array.isArray(parsed.results) ? parsed.results : [];
-		const results: CheckResult[] = [];
-		for (const entry of rawResults) pushSemgrepFinding(entry, projectRoot, results);
-		return results;
-	} catch {
-		return [];
-	}
-}
+export { parseSemgrepJson } from "./output-parsers-semgrep.js";
 
 // -------------------------------------------
 // Gitleaks (gitleaks detect --json)
@@ -426,21 +374,28 @@ export function parseActionlintOutput(output: string): CheckResult[] {
 // -------------------------------------------
 // JSON format: [{ line, code, message, level, file }]
 
+function hadolintFinding(finding: unknown): CheckResult | null {
+	if (!isJsonObject(finding)) return null;
+	if (finding.message !== undefined && typeof finding.message !== "string") return null;
+	const code = typeof finding.code === "string" ? finding.code : undefined;
+	return {
+		tool: "hadolint",
+		severity: finding.level === "error" ? "error" : "warning",
+		file: typeof finding.file === "string" ? finding.file : "",
+		line: typeof finding.line === "number" ? finding.line : 0,
+		message: `${code || ""}: ${finding.message ?? ""}`.trim(),
+		ruleId: code,
+	};
+}
+
 export function parseHadolintJson(output: string): CheckResult[] {
 	try {
-		const parsed = JSON.parse(output);
+		const parsed: unknown = JSON.parse(output);
 		if (!Array.isArray(parsed)) return [];
 		const results: CheckResult[] = [];
 		for (const finding of parsed) {
-			const level = finding.level as string;
-			results.push({
-				tool: "hadolint",
-				severity: level === "error" ? "error" : "warning",
-				file: finding.file || "",
-				line: finding.line || 0,
-				message: `${finding.code || ""}: ${finding.message || ""}`.trim(),
-				ruleId: finding.code,
-			});
+			const result = hadolintFinding(finding);
+			if (result) results.push(result);
 		}
 		return results;
 	} catch {

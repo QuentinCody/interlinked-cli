@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import type { GuardRulesConfig, QualityCheckConfig } from "../../types.js";
+import type { ContentScannerOverrides } from "../config-overrides.js";
 import { DEFAULT_CONFIG } from "../default-config.js";
 import { mergeLocalOverrides, mergeTeamRules, postureEnumViolationsIn } from "../merge.js";
 
 function mkBaseConfig() {
 	// Use the full default config (deep-cloned) as the starting shape so we
 	// satisfy all required fields without listing them inline in every test.
-	return JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as typeof DEFAULT_CONFIG;
+	return structuredClone(DEFAULT_CONFIG);
 }
 
 /**
@@ -24,6 +25,27 @@ function clearProp<T extends object>(obj: T, key: keyof T): void {
 }
 
 describe("mergeTeamRules", () => {
+	it("keeps invalid safe-field values out while applying a valid sibling toggle", () => {
+		const config = mkBaseConfig();
+		const before = structuredClone(nonNull(config.quality_checks.typescript));
+		mergeTeamRules(config, { quality_checks: { typescript: {
+			enabled: false, file_types: [".ts", 7], timeout_ms: "fast", severity: "block", description: 9,
+		} } });
+		expect(config.quality_checks.typescript).toEqual({ ...before, enabled: false });
+	});
+
+	for (const [name, merge] of [["team", mergeTeamRules], ["local", mergeLocalOverrides]] as const) {
+		it(`restores a complete missing section only when the ${name} override supplies it`, () => {
+			const config = mkBaseConfig();
+			clearProp(config, "per_edit_coverage");
+			merge(config, {});
+			expect(config.per_edit_coverage).toBeUndefined();
+			merge(config, { per_edit_coverage: { enabled: false } });
+			expect(config.per_edit_coverage).toEqual({ ...DEFAULT_CONFIG.per_edit_coverage, enabled: false });
+			expect(config.per_edit_coverage?.languages).not.toBe(DEFAULT_CONFIG.per_edit_coverage?.languages);
+		});
+	}
+
 	it("blocks team config from adding new quality-check command (safe-field enforcement)", () => {
 		const config = mkBaseConfig();
 		mergeTeamRules(config, {
@@ -114,15 +136,17 @@ describe("mergeTeamRules", () => {
 	it("replaces the entire rules array from team config", () => {
 		const config = mkBaseConfig();
 		const before = config.rules.length;
-		const teamRule = {
+		const teamRule: GuardRulesConfig["rules"][number] = {
 			id: "team-only",
-			name: "Team Only",
+			enabled: true,
+			trigger: "PreToolUse",
+			tool_match: ["Bash"],
 			category: "destructive",
-			patterns: ["danger"],
+			patterns: [{ field: "command", regex: "danger" }],
 			action: "block",
 			severity: "high",
-			message: "team rule fired",
-		} as unknown as GuardRulesConfig["rules"][number];
+			reason: "team rule fired",
+		};
 		mergeTeamRules(config, { rules: [teamRule] });
 		expect(config.rules).toHaveLength(1);
 		expect(config.rules).not.toHaveLength(before);
@@ -156,7 +180,7 @@ describe("mergeTeamRules", () => {
 		mergeTeamRules(config, {
 			curl_mcp_detection: {
 				escalate_after: 99,
-			} as unknown as GuardRulesConfig["curl_mcp_detection"],
+			},
 		});
 		expect(config.curl_mcp_detection.escalate_after).toBe(99);
 		// Object.assign leaves the unspecified `message` field intact.
@@ -171,7 +195,7 @@ describe("mergeTeamRules", () => {
 		const before = nonNull(config.quality_checks.typescript).enabled;
 		mergeTeamRules(config, {
 			quality_checks: {
-				typescript: null as unknown as QualityCheckConfig,
+				typescript: null,
 			},
 		});
 		expect(nonNull(config.quality_checks.typescript).enabled).toBe(before);
@@ -186,7 +210,7 @@ describe("mergeTeamRules", () => {
 			quality_checks: {
 				typescript: {
 					enabled: undefined,
-				} as unknown as QualityCheckConfig,
+				},
 			},
 		});
 		expect(nonNull(config.quality_checks.typescript).enabled).toBe(true);
@@ -195,7 +219,7 @@ describe("mergeTeamRules", () => {
 	it("merges team error_memory via Object.assign", () => {
 		const config = mkBaseConfig();
 		mergeTeamRules(config, {
-			error_memory: { max_records: 42 } as unknown as GuardRulesConfig["error_memory"],
+			error_memory: { max_records: 42 },
 		});
 		expect(config.error_memory.max_records).toBe(42);
 		// Untouched fields survive the assign.
@@ -213,7 +237,7 @@ describe("mergeTeamRules", () => {
 
 	it("applies team policy_classifier config", () => {
 		const config = mkBaseConfig();
-		const classifier = {
+		const classifier: NonNullable<GuardRulesConfig["policy_classifier"]> = {
 			enabled: true,
 			mode: "shadow",
 			provider: "groq",
@@ -221,7 +245,8 @@ describe("mergeTeamRules", () => {
 			api_key_env: "FAKE_KEY",
 			model: "vendor-model-v6",
 			timeout_ms: 3000,
-		} as unknown as NonNullable<GuardRulesConfig["policy_classifier"]>;
+			max_input_tokens: 800, confidence_threshold: 0.8, max_calls_per_session: 50,
+		};
 		mergeTeamRules(config, { policy_classifier: classifier });
 		expect(config.policy_classifier?.enabled).toBe(true);
 		expect(config.policy_classifier?.model).toBe("vendor-model-v6");
@@ -229,14 +254,15 @@ describe("mergeTeamRules", () => {
 
 	it("applies team auto_coordination config", () => {
 		const config = mkBaseConfig();
-		const ac = {
+		const ac: NonNullable<GuardRulesConfig["auto_coordination"]> = {
 			enabled: true,
 			check_interval: 7,
 			min_interval_ms: 1,
 			max_interval_ms: 2,
 			timeout_ms: 100,
 			skip_tools: ["Read"],
-		} as unknown as NonNullable<GuardRulesConfig["auto_coordination"]>;
+			urgent_importance: "high", max_misses_before_disable: 5,
+		};
 		mergeTeamRules(config, { auto_coordination: ac });
 		expect(config.auto_coordination?.enabled).toBe(true);
 		expect(config.auto_coordination?.check_interval).toBe(7);
@@ -250,7 +276,7 @@ describe("mergeTeamRules", () => {
 		mergeTeamRules(config, {
 			project_wide_checks: {
 				edit_interval: 13,
-			} as unknown as NonNullable<GuardRulesConfig["project_wide_checks"]>,
+			},
 		});
 		expect(config.project_wide_checks?.edit_interval).toBe(13);
 		// Object.assign preserves the rest of the block.
@@ -259,7 +285,7 @@ describe("mergeTeamRules", () => {
 		);
 	});
 
-	it("does NOT create project_wide_checks when the base config lacks it", () => {
+	it("restores project-wide defaults before applying a team override to a missing section", () => {
 		// Guard: `if (team.project_wide_checks && config.project_wide_checks)`.
 		// With the base block deleted, a team override must be dropped (no
 		// Object.assign onto undefined).
@@ -268,9 +294,9 @@ describe("mergeTeamRules", () => {
 		mergeTeamRules(config, {
 			project_wide_checks: {
 				edit_interval: 13,
-			} as unknown as NonNullable<GuardRulesConfig["project_wide_checks"]>,
+			},
 		});
-		expect(config.project_wide_checks).toBeUndefined();
+		expect(config.project_wide_checks).toEqual({ ...DEFAULT_CONFIG.project_wide_checks, edit_interval: 13 });
 	});
 
 	it("is a no-op when team config is empty", () => {
@@ -326,7 +352,7 @@ describe("mergeLocalOverrides", () => {
 				allowlist: [
 					{ kind: "exact", pattern: "noreply@my-company.com", label: "private_email" },
 				],
-			} as unknown as GuardRulesConfig["content_scanner"],
+			},
 		});
 		expect(config.content_scanner?.allowlist?.length).toBe(defaultLen + 1);
 		const last = config.content_scanner?.allowlist?.[defaultLen];
@@ -342,7 +368,7 @@ describe("mergeLocalOverrides", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				allowlist: [{ kind: "exact", pattern: "x", label: "private_email" }],
-			} as unknown as GuardRulesConfig["content_scanner"],
+			},
 		});
 		expect(config.content_scanner?.local.python_bin).toBe(defaultPythonBin);
 	});
@@ -356,7 +382,7 @@ describe("mergeLocalOverrides", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				disabled_labels: ["private_url"],
-			} as unknown as GuardRulesConfig["content_scanner"],
+			},
 		});
 		const merged = config.content_scanner?.disabled_labels ?? [];
 		expect(merged).toContain("private_url");
@@ -379,7 +405,7 @@ describe("mergeLocalOverrides", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				disabled_labels: ["private_url", "private_address"],
-			} as unknown as GuardRulesConfig["content_scanner"],
+			},
 		});
 		const merged = config.content_scanner?.disabled_labels ?? [];
 		expect(merged.sort()).toEqual(["private_address", "private_url"]);
@@ -423,7 +449,7 @@ describe("mergeLocalOverrides", () => {
 		const originalCommand = nonNull(config.quality_checks.typescript).command;
 		mergeLocalOverrides(config, {
 			quality_checks: {
-				typescript: { enabled: false } as unknown as QualityCheckConfig,
+				typescript: { enabled: false },
 			},
 		});
 		expect(nonNull(config.quality_checks.typescript).enabled).toBe(false);
@@ -454,21 +480,21 @@ describe("mergeLocalOverrides", () => {
 		mergeLocalOverrides(config, {
 			project_wide_checks: {
 				timeout_ms: 12345,
-			} as unknown as NonNullable<GuardRulesConfig["project_wide_checks"]>,
+			},
 		});
 		expect(config.project_wide_checks?.timeout_ms).toBe(12345);
 	});
 
-	it("local override drops project_wide_checks when the base config lacks it", () => {
+	it("restores project-wide defaults before applying a local override to a missing section", () => {
 		// Guard: `if (local.project_wide_checks && config.project_wide_checks)`.
 		const config = mkBaseConfig();
 		clearProp(config, "project_wide_checks");
 		mergeLocalOverrides(config, {
 			project_wide_checks: {
 				timeout_ms: 12345,
-			} as unknown as NonNullable<GuardRulesConfig["project_wide_checks"]>,
+			},
 		});
-		expect(config.project_wide_checks).toBeUndefined();
+		expect(config.project_wide_checks).toEqual({ ...DEFAULT_CONFIG.project_wide_checks, timeout_ms: 12345 });
 	});
 
 	it("local override deep-merges into an EXISTING content_scanner block", () => {
@@ -480,21 +506,21 @@ describe("mergeLocalOverrides", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				enabled: true,
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.enabled).toBe(true);
 	});
 
-	it("local override assigns content_scanner wholesale when the base lacks it", () => {
+	it("restores scanner defaults before applying a partial override to a missing section", () => {
 		// Branch: the `else` arm — `config.content_scanner = local.content_scanner`.
 		const config = mkBaseConfig();
 		clearProp(config, "content_scanner");
-		const fresh = {
+		const fresh: ContentScannerOverrides = {
 			enabled: true,
 			runtime: "huggingface",
-		} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>;
+		};
 		mergeLocalOverrides(config, { content_scanner: fresh });
-		expect(config.content_scanner).toBe(fresh);
+		expect(config.content_scanner).toEqual({ ...DEFAULT_CONFIG.content_scanner, ...fresh });
 		expect(config.content_scanner?.runtime).toBe("huggingface");
 	});
 
@@ -504,7 +530,7 @@ describe("mergeLocalOverrides", () => {
 		mergeLocalOverrides(config, {
 			structural_checks: {
 				enabled: false,
-			} as unknown as GuardRulesConfig["structural_checks"],
+			},
 		});
 		expect(config.structural_checks.enabled).toBe(false);
 		// Object.assign keeps sibling fields.
@@ -519,22 +545,20 @@ describe("mergeLocalOverrides", () => {
 		const config = mkBaseConfig();
 		config.plan_capture = { enabled: false, parse_userprompt: false };
 		mergeLocalOverrides(config, {
-			plan_capture: { enabled: true } as unknown as NonNullable<
-				GuardRulesConfig["plan_capture"]
-			>,
+			plan_capture: { enabled: true },
 		});
 		expect(config.plan_capture?.enabled).toBe(true);
 		// parse_userprompt survives the partial assign.
 		expect(config.plan_capture?.parse_userprompt).toBe(false);
 	});
 
-	it("local override assigns plan_capture wholesale when the base lacks it", () => {
+	it("creates plan_capture from a supplied override when the base lacks it", () => {
 		// Branch: the `else` arm. DEFAULT_CONFIG has no plan_capture by default.
 		const config = mkBaseConfig();
 		expect(config.plan_capture).toBeUndefined();
 		const pc = { enabled: true, parse_userprompt: true };
 		mergeLocalOverrides(config, { plan_capture: pc });
-		expect(config.plan_capture).toBe(pc);
+		expect(config.plan_capture).toEqual(pc);
 		expect(config.plan_capture?.enabled).toBe(true);
 	});
 
@@ -545,20 +569,20 @@ describe("mergeLocalOverrides", () => {
 		mergeLocalOverrides(config, {
 			git_session_scope_gate: {
 				enabled: true,
-			} as unknown as NonNullable<GuardRulesConfig["git_session_scope_gate"]>,
+			},
 		});
 		expect(config.git_session_scope_gate?.enabled).toBe(true);
 		// mode survives the partial assign.
 		expect(config.git_session_scope_gate?.mode).toBe("off");
 	});
 
-	it("local override assigns git_session_scope_gate wholesale when the base lacks it", () => {
+	it("creates git_session_scope_gate from a supplied override when the base lacks it", () => {
 		// Branch: the `else` arm. DEFAULT_CONFIG omits the gate by default.
 		const config = mkBaseConfig();
 		expect(config.git_session_scope_gate).toBeUndefined();
 		const gate = { enabled: true, mode: "ask" as const };
 		mergeLocalOverrides(config, { git_session_scope_gate: gate });
-		expect(config.git_session_scope_gate).toBe(gate);
+		expect(config.git_session_scope_gate).toEqual(gate);
 		expect(config.git_session_scope_gate?.mode).toBe("ask");
 	});
 
@@ -567,29 +591,25 @@ describe("mergeLocalOverrides", () => {
 		// guard-rules.local.json. Without the merge branch it was silently dropped and
 		// the default-on HARD GATES could not be disabled as advertised.
 		const config = mkBaseConfig();
-		config.per_edit_coverage = {
+		config.per_edit_coverage = { ...structuredClone(nonNull(DEFAULT_CONFIG.per_edit_coverage)),
 			enabled: true,
 			mode: "block",
 			budget_ms: 25_000,
 			languages: ["js", "ts"],
-		} as unknown as NonNullable<GuardRulesConfig["per_edit_coverage"]>;
+		};
 		mergeLocalOverrides(config, {
-			per_edit_coverage: { enabled: false } as unknown as NonNullable<
-				GuardRulesConfig["per_edit_coverage"]
-			>,
+			per_edit_coverage: { enabled: false },
 		});
 		expect(config.per_edit_coverage?.enabled).toBe(false); // opt-out honored
 		expect(config.per_edit_coverage?.mode).toBe("block"); // other knobs survive the partial
 	});
 
-	it("assigns per_edit_coverage wholesale when the base lacks it", () => {
+	it("restores coverage defaults while preserving an explicit opt-out on a missing section", () => {
 		const config = mkBaseConfig();
 		clearProp(config, "per_edit_coverage");
-		const pec = { enabled: false } as unknown as NonNullable<
-			GuardRulesConfig["per_edit_coverage"]
-		>;
+		const pec = { enabled: false };
 		mergeLocalOverrides(config, { per_edit_coverage: pec });
-		expect(config.per_edit_coverage).toBe(pec);
+		expect(config.per_edit_coverage).toEqual({ ...DEFAULT_CONFIG.per_edit_coverage, ...pec });
 	});
 
 	it("merges a partial per_edit_mutation override onto the default block (found live 2026-07-02)", () => {
@@ -598,29 +618,25 @@ describe("mergeLocalOverrides", () => {
 		// guard-rules.local.json left the daemon on pure defaults until the merge
 		// branch existed.
 		const config = mkBaseConfig();
-		config.per_edit_mutation = {
+		config.per_edit_mutation = { ...structuredClone(nonNull(DEFAULT_CONFIG.per_edit_mutation)),
 			enabled: false,
 			mode: "block",
 			unavailable_behavior: "allow_unmeasured",
-		} as unknown as NonNullable<GuardRulesConfig["per_edit_mutation"]>;
+		};
 		mergeLocalOverrides(config, {
-			per_edit_mutation: { enabled: true, runner_url: "https://runner.example" } as unknown as NonNullable<
-				GuardRulesConfig["per_edit_mutation"]
-			>,
+			per_edit_mutation: { enabled: true, runner_url: "https://runner.example" },
 		});
 		expect(config.per_edit_mutation?.enabled).toBe(true); // flip honored
 		expect(config.per_edit_mutation?.runner_url).toBe("https://runner.example");
 		expect(config.per_edit_mutation?.mode).toBe("block"); // other knobs survive the partial
 	});
 
-	it("assigns per_edit_mutation wholesale when the base lacks it", () => {
+	it("restores mutation defaults before applying an opt-in to a missing section", () => {
 		const config = mkBaseConfig();
 		clearProp(config, "per_edit_mutation");
-		const pem = { enabled: true } as unknown as NonNullable<
-			GuardRulesConfig["per_edit_mutation"]
-		>;
+		const pem = { enabled: true };
 		mergeLocalOverrides(config, { per_edit_mutation: pem });
-		expect(config.per_edit_mutation).toBe(pem);
+		expect(config.per_edit_mutation).toEqual({ ...DEFAULT_CONFIG.per_edit_mutation, ...pem });
 	});
 
 	it("is a no-op when local config is empty", () => {
@@ -641,7 +657,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 				runtime: "custom_http",
 				min_score: 0.75,
 				max_scan_bytes: 9999,
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		const cs = config.content_scanner;
 		expect(cs?.enabled).toBe(true);
@@ -656,9 +672,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 		assert(config.content_scanner, "fixture must ship content_scanner");
 		config.content_scanner.min_score = 5;
 		mergeLocalOverrides(config, {
-			content_scanner: { min_score: 0 } as unknown as NonNullable<
-				GuardRulesConfig["content_scanner"]
-			>,
+			content_scanner: { min_score: 0 },
 		});
 		expect(config.content_scanner?.min_score).toBe(0);
 	});
@@ -670,7 +684,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				local: { pool_size: 1 },
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.local.pool_size).toBe(1);
 		// Object.assign keeps the rest of the local block intact.
@@ -684,7 +698,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				huggingface: { model: "vendor-model-v6" },
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.huggingface.model).toBe("vendor-model-v6");
 		expect(config.content_scanner?.huggingface.api_key_env).toBe(defaultEnv);
@@ -696,7 +710,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				custom_http: { endpoint: "https://scanner.example.com/v1" },
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.custom_http.endpoint).toBe(
 			"https://scanner.example.com/v1",
@@ -713,7 +727,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				scan_points: { bash_command: false },
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.scan_points.bash_command).toBe(false);
 		// The other scan points keep their defaults.
@@ -729,7 +743,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				allowlist: [],
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.allowlist?.length).toBe(before);
 	});
@@ -743,7 +757,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				allowlist: [{ kind: "exact", pattern: "x", label: "private_email" }],
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.allowlist?.length).toBe(1);
 		expect(config.content_scanner?.allowlist?.[0]?.kind).toBe("exact");
@@ -756,7 +770,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				disabled_labels: [],
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.disabled_labels).toEqual(["private_url"]);
 	});
@@ -768,7 +782,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				disabled_labels: ["private_url"],
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.disabled_labels).toEqual(["private_url"]);
 	});
@@ -780,7 +794,7 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 		assert(config.content_scanner, "fixture must ship content_scanner");
 		const snapshot = JSON.stringify(config.content_scanner);
 		mergeLocalOverrides(config, {
-			content_scanner: {} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			content_scanner: {},
 		});
 		expect(JSON.stringify(config.content_scanner)).toBe(snapshot);
 	});

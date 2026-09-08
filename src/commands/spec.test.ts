@@ -10,7 +10,8 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		readFileSync: (p: unknown, ...rest: unknown[]) => {
+		readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+			const [p] = args;
 			if (typeof p === "string" && p === failOnSecondReadPath) {
 				const n = (readAttempts.get(p) ?? 0) + 1;
 				readAttempts.set(p, n);
@@ -18,7 +19,7 @@ vi.mock("node:fs", async (importOriginal) => {
 					throw new Error("EACCES: simulated unreadable-on-second-pass for coverage");
 				}
 			}
-			return (actual.readFileSync as (...a: unknown[]) => unknown)(p, ...rest);
+			return actual.readFileSync(...args);
 		},
 	};
 });

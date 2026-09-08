@@ -423,7 +423,7 @@ describe("isMetaTestWrapper", () => {
 		expect(isMetaTestWrapper(makeEvent({ tool_input: undefined }))).toBe(false);
 		// Non-string command value exercises the `typeof command === "string"` arm.
 		expect(
-			isMetaTestWrapper(makeEvent({ tool_input: { command: 123 as unknown as string } })),
+			isMetaTestWrapper(makeEvent({ tool_input: { command: 123 } })),
 		).toBe(false);
 	});
 });

@@ -18,6 +18,7 @@
 // new-file gate honors (read from the ON-DISK file head — the exemption is a
 // property of the file, not of one edit), and lenient/off mode.
 
+import { readToolString } from "./tool-input-values.js";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { loadUntestedFilesBaseline } from "../tested-file-policy.js";
@@ -159,9 +160,8 @@ export function evaluateCharacterizeForEvent(
 	session: SessionTrajectory | undefined,
 ): HarnessDecision | null {
 	const toolInput = event.tool_input ?? {};
-	// SAFETY: hook payloads type tool_input values as unknown; both path keys
-	// are strings when present, and non-strings fall through to "" (no gate).
-	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+
+	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 	const mode = rules.structural_checks.characterize_mode ?? "warn";
 	const cwd = event.cwd || process.cwd();
 	const untested = evaluateCharacterizeBeforeTouch({ filePath, cwd, session, mode });

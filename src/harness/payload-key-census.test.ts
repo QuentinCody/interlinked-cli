@@ -1,3 +1,4 @@
+import { parseWire, wireAbsentOptional, wireArray, wireLiteral, wireObject, wireRecord, wireString } from "../lib/value-validation.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +29,7 @@ afterEach(() => {
 
 function read(): PayloadKeyCensus {
 	// SAFETY: written by recordPayloadKeys in this test; shape is ours.
-	return JSON.parse(readFileSync(censusPath(dir), "utf-8")) as PayloadKeyCensus;
+	return parseWire(JSON.parse(readFileSync(censusPath(dir), "utf-8")), wireObject({ "schema": wireLiteral("payload-keys.v1"), "entries": wireRecord(wireObject({ "unconsumed": wireArray(wireString), "shapes": wireAbsentOptional(wireRecord(wireString)), "first_seen": wireString, "last_seen": wireString })) }), "test JSON value");
 }
 
 describe("unconsumedKeys — positive (must report)", () => {

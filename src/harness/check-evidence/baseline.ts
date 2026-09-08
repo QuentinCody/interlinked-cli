@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../lib/json-types.js";
 // Check Evidence Contract — the committed grandfather baseline.
 //
 // Spec: docs/design/verification-density-program.md (Phase 1).
@@ -32,11 +33,11 @@ function parseEnforced(raw: unknown): EvidenceDimension[] | null {
 
 /** Narrow unknown JSON to the baseline shape, discarding anything malformed. */
 export function parseBaseline(raw: unknown): CheckEvidenceBaseline {
-	if (!raw || typeof raw !== "object") return EMPTY_BASELINE;
-	const exempt = (raw as { exempt?: unknown }).exempt;
+	if (!isJsonObject(raw)) return EMPTY_BASELINE;
+	const exempt = raw.exempt;
 	if (!Array.isArray(exempt)) return EMPTY_BASELINE;
-	const note = (raw as { note?: unknown }).note;
-	const enforced = parseEnforced((raw as { enforced?: unknown }).enforced);
+	const note = raw.note;
+	const enforced = parseEnforced(raw.enforced);
 	return {
 		exempt: exempt.filter((e): e is string => typeof e === "string"),
 		...(enforced ? { enforced } : {}),

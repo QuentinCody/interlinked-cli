@@ -15,11 +15,12 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		mkdirSync: (p: unknown, ...rest: unknown[]) => {
+		mkdirSync: (...args: Parameters<typeof actual.mkdirSync>) => {
+			const [p] = args;
 			if (typeof p === "string" && p === failMkdirPath) {
 				throw new Error("EACCES: simulated mkdir failure for coverage");
 			}
-			return (actual.mkdirSync as (...a: unknown[]) => unknown)(p, ...rest);
+			return actual.mkdirSync(...args);
 		},
 	};
 });

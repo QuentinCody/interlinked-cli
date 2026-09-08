@@ -90,7 +90,7 @@ describe("quality-checks submodules (smoke)", () => {
 
 	it("project-wide sweep state increments and resets", () => {
 		const st = new ProjectWideSweepState();
-		st.recordEdit({ edit_interval: 2 } as never);
+		st.recordEdit({ edit_interval: 2 });
 		expect(st.editsSinceLastSweep).toBe(1);
 		st.resetCounter();
 		expect(st.editsSinceLastSweep).toBe(0);

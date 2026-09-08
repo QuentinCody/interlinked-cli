@@ -15,6 +15,7 @@ import { scrubEgressPayload } from "../lib/secrets.js";
 import type { CoordinationResponse } from "./auto-coordinate.js";
 import type { ServerApiClient, ServerReservation } from "./reservations.js";
 import type { SessionTrajectory } from "./types.js";
+import { parseBridgeCallResponse, parseBridgeCoordination, parseBridgeReservations } from "./server-bridge-responses.js";
 
 // ===========================================
 // Types
@@ -188,16 +189,7 @@ export class ServerBridge implements ServerApiClient {
 				workspace_key: this.config.workspaceKey || "main",
 				project_key: this.config.projectKey || "main",
 			});
-			const reservations = result.reservations;
-			if (!Array.isArray(reservations)) return [];
-			return reservations.map((r: JsonObject) => {
-				const expires_at = r.expires_at as string | undefined;
-				return {
-					agent_name: r.agent_name as string,
-					path_pattern: r.path_pattern as string,
-					...(expires_at !== undefined ? { expires_at } : {}),
-				};
-			});
+			return parseBridgeReservations(result.reservations);
 		} catch {
 			return [];
 		}
@@ -298,11 +290,7 @@ export class ServerBridge implements ServerApiClient {
 			throw new Error(`Server API error: ${res.status}`);
 		}
 
-		const data = (await res.json()) as JsonObject;
-		// Handle JSON-RPC response format
-		if (data.result) return data.result as JsonObject;
-		if (data.error) throw new Error(String((data.error as JsonObject).message || data.error));
-		return data;
+		return parseBridgeCallResponse(await res.json());
 	}
 
 	// ===========================================
@@ -343,7 +331,7 @@ export class ServerBridge implements ServerApiClient {
 			);
 
 			if (!response.ok) return null;
-			return (await response.json()) as CoordinationResponse;
+			return parseBridgeCoordination(await response.json());
 		} catch {
 			return null; // Fail open — always
 		}

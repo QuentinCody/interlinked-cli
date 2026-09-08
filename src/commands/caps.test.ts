@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireRecord, wireString } from "../lib/value-validation.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,7 +48,7 @@ describe("capsShowAction", () => {
 
 	it("emits machine-readable JSON with --json", async () => {
 		await capsShowAction({ json: true }, { cwd });
-		const parsed = JSON.parse(out()) as Record<string, { value: number; source: string }>;
+		const parsed = parseWire(JSON.parse(out()), wireRecord(wireObject({ "value": wireNumber, "source": wireString })), "test JSON value");
 		expect(nonNull(parsed.cyclomatic).value).toBe(25);
 		expect(nonNull(parsed.lines).value).toBe(500);
 		expect(nonNull(parsed["function-tokens"]).value).toBe(500);
@@ -177,7 +178,7 @@ describe("capsExplainAction", () => {
 
 	it("--json returns the glossary entries", async () => {
 		await capsExplainAction(undefined, { json: true }, { cwd });
-		const parsed = JSON.parse(out()) as Array<{ key: string }>;
+		const parsed = parseWire(JSON.parse(out()), wireArray(wireObject({ "key": wireString })), "test JSON value");
 		expect(parsed.map((d) => d.key)).toEqual([
 			"lines",
 			"function-tokens",

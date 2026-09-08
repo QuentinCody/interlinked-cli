@@ -1,3 +1,4 @@
+import { isJsonObject } from "../lib/json-types.js";
 // ===========================================
 // Baseline auto-fold — the three individual folds
 // ===========================================
@@ -184,12 +185,9 @@ export function foldCoverage(opts: {
 
 function editBaselineFraction(value: unknown): number | null {
 	if (typeof value === "number" && Number.isFinite(value)) return value;
-	if (
-		typeof value === "object" &&
-		value !== null &&
-		typeof (value as { f?: unknown }).f === "number"
-	)
-		return (value as { f: number }).f;
+	if (isJsonObject(value) && typeof value.f === "number" && Number.isFinite(value.f)) {
+		return value.f;
+	}
 	return null;
 }
 
@@ -203,8 +201,8 @@ function parseEditBaselineFile(editPath: string): Record<string, unknown> {
 	try {
 		if (!existsSync(editPath)) return {};
 		const parsed: unknown = JSON.parse(readFileSync(editPath, "utf-8"));
-		if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-			return parsed as Record<string, unknown>;
+		if (isJsonObject(parsed)) {
+			return parsed;
 		}
 		return {};
 	} catch (err) {

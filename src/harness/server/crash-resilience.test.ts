@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installCrashResilience, logFatalButSurvive } from "./crash-resilience.js";
 
@@ -13,10 +14,10 @@ beforeEach(() => {
 
 afterEach(() => {
 	for (const l of process.listeners("uncaughtException")) {
-		if (!baseUncaught.includes(l)) process.removeListener("uncaughtException", l as () => void);
+		if (!baseUncaught.includes(l)) process.removeListener("uncaughtException", l);
 	}
 	for (const l of process.listeners("unhandledRejection")) {
-		if (!baseRejection.includes(l)) process.removeListener("unhandledRejection", l as () => void);
+		if (!baseRejection.includes(l)) process.removeListener("unhandledRejection", l);
 	}
 	vi.restoreAllMocks();
 });
@@ -60,8 +61,8 @@ describe("installCrashResilience", () => {
 	it("the registered handler logs and does NOT re-throw (daemon stays alive)", () => {
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 		installCrashResilience();
-		const handler = process.listeners("uncaughtException").at(-1) as (e: unknown) => void;
-		expect(() => handler(new Error("async-throw"))).not.toThrow();
+		const handler = nonNull(process.listeners("uncaughtException").at(-1));
+		expect(() => handler(new Error("async-throw"), "uncaughtException")).not.toThrow();
 		expect(String(spy.mock.calls[0]?.[0])).toContain("async-throw");
 	});
 });
@@ -72,20 +73,12 @@ describe("installCrashResilience", () => {
 // that answers nothing.
 // ---------------------------------------------------------------------------
 describe("installCrashResilience — startup-phase routing", () => {
-	function lastHandlerFor(event: "uncaughtException" | "unhandledRejection"): (e: unknown) => void {
-		const listeners =
-			event === "uncaughtException"
-				? process.listeners("uncaughtException")
-				: process.listeners("unhandledRejection");
-		return listeners.at(-1) as (e: unknown) => void;
-	}
-
 	// P1: an error BEFORE startup completes goes to the terminal handler.
 	it("routes a pre-listen uncaughtException to onStartupFailure instead of surviving", () => {
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 		const onStartupFailure = vi.fn();
 		installCrashResilience({ isStartupComplete: () => false, onStartupFailure });
-		lastHandlerFor("uncaughtException")(new Error("bind blew up"));
+		nonNull(process.listeners("uncaughtException").at(-1))(new Error("bind blew up"), "uncaughtException");
 		expect(onStartupFailure).toHaveBeenCalledWith("uncaughtException", expect.any(Error));
 		// The survive path must NOT also run — it is what kept the zombie alive.
 		expect(spy).not.toHaveBeenCalled();
@@ -97,7 +90,7 @@ describe("installCrashResilience — startup-phase routing", () => {
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		const onStartupFailure = vi.fn();
 		installCrashResilience({ isStartupComplete: () => false, onStartupFailure });
-		lastHandlerFor("unhandledRejection")("rejected");
+		nonNull(process.listeners("unhandledRejection").at(-1))("rejected", Promise.resolve());
 		expect(onStartupFailure).toHaveBeenCalledWith("unhandledRejection", "rejected");
 	});
 
@@ -106,7 +99,7 @@ describe("installCrashResilience — startup-phase routing", () => {
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 		const onStartupFailure = vi.fn();
 		installCrashResilience({ isStartupComplete: () => true, onStartupFailure });
-		expect(() => lastHandlerFor("uncaughtException")(new Error("late boom"))).not.toThrow();
+		expect(() => nonNull(process.listeners("uncaughtException").at(-1))(new Error("late boom"), "uncaughtException")).not.toThrow();
 		expect(onStartupFailure).not.toHaveBeenCalled();
 		expect(String(spy.mock.calls[0]?.[0])).toContain("kept the daemon alive");
 	});
@@ -116,10 +109,10 @@ describe("installCrashResilience — startup-phase routing", () => {
 	it("survives when only one of the two options is supplied", () => {
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 		installCrashResilience({ isStartupComplete: () => false });
-		expect(() => lastHandlerFor("uncaughtException")(new Error("no handler"))).not.toThrow();
+		expect(() => nonNull(process.listeners("uncaughtException").at(-1))(new Error("no handler"), "uncaughtException")).not.toThrow();
 		const onStartupFailure = vi.fn();
 		installCrashResilience({ onStartupFailure });
-		lastHandlerFor("uncaughtException")(new Error("no predicate"));
+		nonNull(process.listeners("uncaughtException").at(-1))(new Error("no predicate"), "uncaughtException");
 		expect(onStartupFailure).not.toHaveBeenCalled();
 		expect(spy).toHaveBeenCalledTimes(2);
 		expect(spy).toHaveBeenNthCalledWith(1, expect.stringContaining("no handler"));

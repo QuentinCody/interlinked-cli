@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import { applyAllowlist, compileAllowlist } from "../allowlist.js";
-import type { AllowlistEntry, ScanFinding } from "../types.js";
+import type { ScanFinding } from "../types.js";
 
 function finding(args: { label: string; text: string; start?: number }): ScanFinding {
 	const start = args.start ?? 0;
@@ -34,9 +34,20 @@ describe("compileAllowlist — graceful degradation", () => {
 			{ kind: "exact", pattern: "noreply@anthropic.com", label: "private_email" },
 			{ kind: "future_kind_we_dont_have_yet", pattern: "x", label: "private_person" },
 			{ kind: "snake_case_identifier", label: "private_person" },
-		] as unknown as AllowlistEntry[];
+		];
 		const compiled = compileAllowlist(entries);
 		expect(compiled).toHaveLength(2);
+	});
+
+	it.each([null, { kind: "prefix" }, { kind: "contains", pattern: 1 }, { kind: "exact", pattern: "secret", label: 7 }, { kind: "uuid", reason: false }])("skips malformed entries without suppressing a valid neighboring finding: %j", (malformed) => {
+		const compiled = compileAllowlist([malformed, { kind: "exact", pattern: "allowed" }]);
+		const secret = finding({ label: "secret", text: "secret" });
+		expect(compiled).toHaveLength(1);
+		expect(applyAllowlist([secret], compiled).kept).toEqual([secret]);
+	});
+
+	it("ignores a malformed non-array allowlist", () => {
+		expect(compileAllowlist({ kind: "exact", pattern: "secret" })).toEqual([]);
 	});
 });
 

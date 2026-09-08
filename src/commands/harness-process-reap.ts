@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 // interlinked-tdd: exempt
 // ===========================================
 // interlinked harness — orphan-reap selection + termination helpers
@@ -38,9 +39,9 @@ export interface OrphanCandidate {
 function parsePsRow(line: string): OrphanCandidate | null {
 	const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
 	if (!m) return null;
-	const pid = Number.parseInt(m[1] as string, 10);
-	const ppid = Number.parseInt(m[2] as string, 10);
-	const command = m[3] as string;
+	const pid = Number.parseInt(nonNull(m[1]), 10);
+	const ppid = Number.parseInt(nonNull(m[2]), 10);
+	const command = nonNull(m[3]);
 	if (Number.isNaN(pid)) return null;
 	return { pid, ppid, command };
 }
@@ -236,7 +237,7 @@ function isNoSuchProcessError(err: unknown): boolean {
 		typeof err === "object" &&
 		err !== null &&
 		"code" in err &&
-		(err as NodeJS.ErrnoException).code === "ESRCH"
+		err.code === "ESRCH"
 	);
 }
 

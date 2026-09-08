@@ -263,7 +263,7 @@ interface MaybeGraphPredictionRow {
 
 function isGraphPredictionRow(value: unknown): value is GraphPredictionRow {
 	if (typeof value !== "object" || value === null) return false;
-	const v = value as MaybeGraphPredictionRow;
+	const v: MaybeGraphPredictionRow = value;
 	return (
 		typeof v.session_id === "string" &&
 		typeof v.file_path === "string" &&

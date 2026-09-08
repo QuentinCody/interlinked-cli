@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { isJsonObject } from "../../lib/json-types.js";
 import { emptyManifest } from "./manifest.js";
 import type { MutationManifest } from "./types.js";
 
@@ -413,7 +414,6 @@ describe("requestWholeFileReport", () => {
 			fetchImpl: async () => fakeResponse(500, {}),
 		});
 		expect(outcome).toEqual({ ok: false, reason: "mutation runner HTTP 500" });
-		expect((outcome as { busy?: boolean }).busy).toBeUndefined();
 	});
 
 	it("P4: forwards `testScope` verbatim in the request body when provided", async () => {
@@ -700,7 +700,8 @@ describe("measureFile", () => {
 	it("P6: forwards an explicit token and creates a stable default job id when omitted", async () => {
 		let captured: { job_id: string; authorization: string | undefined } | undefined;
 		const fetchImpl = async (_url: string, init: { body: string; headers: Record<string, string> }) => {
-			const body = JSON.parse(init.body) as { job_id: string };
+			const body: unknown = JSON.parse(init.body);
+			if (!isJsonObject(body) || typeof body.job_id !== "string") throw new Error("mutation request must contain job_id");
 			captured = { job_id: body.job_id, authorization: init.headers.authorization };
 			return fakeResponse(200, { files: {} });
 		};

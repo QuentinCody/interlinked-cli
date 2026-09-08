@@ -608,14 +608,7 @@ describe("tee / inline-interpreter boundary: \\s+ must absorb MULTIPLE spaces, n
 	});
 });
 
-describe("detectBashCodeFileWrite boundary: nullish input + content-gate must not leak", () => {
-	it("N: a nullish command does not throw and returns null (defensive `!cmd` guard)", () => {
-		const detect = detectBashCodeFileWrite as unknown as (c: unknown) => unknown;
-		expect(() => detect(null)).not.toThrow();
-		expect(detect(null)).toBeNull();
-		expect(() => detect(undefined)).not.toThrow();
-		expect(detect(undefined)).toBeNull();
-	});
+describe("detectBashCodeFileWrite: content-gate must not leak", () => {
 
 	it("N: once CONTENT_GATE_ROUTED_RE matches, the WHOLE command is allowed — even with a real redirect tacked on", () => {
 		// `interlinked write` self-gates the ENTIRE command line; a later

@@ -189,8 +189,8 @@ describe("guard corpus — meta", () => {
 
 	it("covers all five buckets", () => {
 		const buckets = new Set(CORPUS.map((c) => c.bucket));
-		for (const b of ["true_positive", "false_positive", "bypass_attempt", "edge_case", "known_gap"]) {
-			expect(buckets.has(b as Bucket)).toBe(true);
+		for (const b of ["true_positive", "false_positive", "bypass_attempt", "edge_case", "known_gap"] as const) {
+			expect(buckets.has(b)).toBe(true);
 		}
 	});
 });

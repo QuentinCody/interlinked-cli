@@ -31,8 +31,10 @@ function writeManifestRaw(value: unknown): void {
 	writeFileSync(join(storeDir, "manifest.json"), JSON.stringify(value), "utf-8");
 }
 
-function baseManifest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-	return {
+function baseManifest(): CoverageIndexManifest;
+function baseManifest(overrides: Record<string, unknown>): Record<string, unknown>;
+function baseManifest(overrides: Record<string, unknown> = {}): CoverageIndexManifest | Record<string, unknown> {
+	const base: CoverageIndexManifest = {
 		version: 1,
 		generation: 1,
 		authoritativeAt: "2026-06-11T00:00:00.000Z",
@@ -45,14 +47,10 @@ function baseManifest(overrides: Record<string, unknown> = {}): Record<string, u
 		environmentHash: "env-hash",
 		shardBoundary: "file",
 		shards: {},
-		...overrides,
 	};
+	return { ...base, ...overrides };
 }
 
-// SAFETY: literal is a valid ShardManifestEntry shape (mirrors the companion
-// suite's `okEntry` fixture); `passed: null` is one of the field's two legal
-// states and the narrow annotation only keeps the object-spread overrides
-// below type-checking against both.
 const okShardEntry: Record<string, unknown> = {
 	shardId: "s",
 	testPaths: ["t"],
@@ -61,7 +59,7 @@ const okShardEntry: Record<string, unknown> = {
 	lastDurationMs: 0,
 	contributionPath: "p",
 	contributionChecksum: "c",
-	passed: null as boolean | null,
+	passed: null,
 	instability: { events: [], consecutiveStableRuns: 0, quarantined: false },
 };
 
@@ -365,11 +363,8 @@ describe("fixture sanity", () => {
 	// negative cases above mutate must still promote and read back cleanly,
 	// so a typo here can't masquerade as a detector gap.
 	it("promotes and reads back a fully well-formed manifest built from baseManifest()", () => {
-		// SAFETY: baseManifest() returns exactly CoverageIndexManifest's shape
-		// (mirrors sampleManifest() in the companion suite); the double cast is
-		// only needed because the helper's return type is loosened to
-		// Record<string, unknown> for the override spread above.
-		const ok = promoteManifest(storeDir, baseManifest() as unknown as CoverageIndexManifest, null);
+
+		const ok = promoteManifest(storeDir, baseManifest(), null);
 		expect(ok).toBe(true);
 		expect(readAcceptedManifest(storeDir)?.generation).toBe(1);
 	});

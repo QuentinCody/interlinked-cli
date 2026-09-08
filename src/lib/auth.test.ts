@@ -9,6 +9,7 @@
 //   - global.fetch  → fake /register, /token, refresh responses
 // No real HTTP/OAuth/disk/time.
 
+import type { SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -58,7 +59,7 @@ vi.mock("node:http", () => ({
 }));
 
 // node:child_process — openBrowser does `await import("node:child_process")`.
-const spawnMock = vi.fn(() => ({ unref: vi.fn() }));
+const spawnMock = vi.fn((_command: string, _args: string[], _options: SpawnOptions) => ({ unref: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: spawnMock }));
 
 // ---- imports (after mocks) ------------------------------------------------
@@ -109,18 +110,15 @@ class FakeServer extends EventEmitter {
 	errored = false;
 	private addr: { port: number } | string | null = { port: 54321 };
 
-	listen(...args: unknown[]): this {
-		this.listenArgs = args;
-		const cb = args.find((a) => typeof a === "function") as
-			| (() => void)
-			| undefined;
+	listen(port: number, host: string, cb: () => void): this {
+		this.listenArgs = [port, host, cb];
 		// Synchronous per-test hook: edge tests mutate address / emit 'error'
 		// BEFORE the success callback observes server state, so the reject path
 		// is taken deterministically (no race with the subsequent fetch).
 		httpState.beforeListen?.(this);
 		// Defer so the in-flight Promise executor finishes wiring first. Skip the
 		// success callback if an 'error' has already rejected the outer promise.
-		if (cb && !this.errored) queueMicrotask(cb);
+		if (!this.errored) queueMicrotask(cb);
 		return this;
 	}
 
@@ -160,20 +158,27 @@ function pastIso(msAgo = 60_000): string {
 }
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
-	return {
-		ok,
-		status,
-		json: async () => body,
-		text: async () => JSON.stringify(body),
-	} as unknown as Response;
+	const response = new Response(JSON.stringify(body), { status });
+	Object.defineProperty(response, "ok", { value: ok });
+	return response;
 }
 function errorResponse(status: number, text: string): Response {
-	return {
-		ok: false,
-		status,
-		json: async () => ({}),
-		text: async () => text,
-	} as unknown as Response;
+	return new Response(text, { status });
+}
+
+function recordedFetch(call: Parameters<typeof fetch> | undefined): [RequestInfo | URL, RequestInit] {
+	const [url, init] = nonNull(call);
+	return [url, nonNull(init)];
+}
+
+function encodedBody(body: BodyInit | null | undefined): string {
+	if (!(body instanceof URLSearchParams)) throw new Error("Expected form-encoded request body");
+	return body.toString();
+}
+
+function jsonBody(body: BodyInit | null | undefined): unknown {
+	if (typeof body !== "string") throw new Error("Expected JSON request body");
+	return JSON.parse(body);
 }
 
 beforeEach(() => {
@@ -527,6 +532,12 @@ describe("credential path home-dir resolution", () => {
 // ===========================================================================
 
 describe("resolveAuthTokenWithRefresh", () => {
+	it.each([{ access_token: 7 }, { access_token: "" }, { access_token: "valid", refresh_token: 7 }, { access_token: "valid", expires_in: "3600" }])("does not persist malformed refresh responses (%j)", async (body) => {
+		resolveConfigMock.mockReturnValue(cfg({ access_token: "old", token_expires_at: pastIso(), refresh_token: "rt" }));
+		vi.stubGlobal("fetch", vi.fn<typeof fetch>(async () => jsonResponse(body)));
+		await expect(resolveAuthTokenWithRefresh()).resolves.toBeNull();
+		expect(updateLocalConfigMock).not.toHaveBeenCalled();
+	});
 	it("returns the CLI token immediately when not expired", async () => {
 		resolveConfigMock.mockReturnValue(
 			cfg({ access_token: "fresh", token_expires_at: futureIso() }),
@@ -569,7 +580,7 @@ describe("resolveAuthTokenWithRefresh", () => {
 				oauth_client_id: "cid",
 			}),
 		);
-		const fetchMock = vi.fn(async () =>
+		const fetchMock = vi.fn<typeof fetch>(async () =>
 			jsonResponse({
 				access_token: "new-tok",
 				refresh_token: "new-rt",
@@ -584,20 +595,20 @@ describe("resolveAuthTokenWithRefresh", () => {
 
 		// POST to the OVERRIDE server's /token with client_id set.
 		expect(fetchMock).toHaveBeenCalledTimes(1);
-		const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+		const [url, init] = recordedFetch(fetchMock.mock.calls[0]);
 		expect(url).toBe("https://override/token");
 		expect(init.method).toBe("POST");
 		expect(init.headers).toEqual({
 			"Content-Type": "application/x-www-form-urlencoded",
 		});
-		const body = (init.body as URLSearchParams).toString();
+		const body = encodedBody(init.body);
 		expect(body).toContain("grant_type=refresh_token");
 		expect(body).toContain("refresh_token=rt");
 		expect(body).toContain("client_id=cid");
 
 		// saveLoginTokens persisted the refreshed token.
 		expect(updateLocalConfigMock).toHaveBeenCalledTimes(1);
-		const updates = nonNull(updateLocalConfigMock.mock.calls[0])[0] as Record<string, unknown>;
+		const updates = nonNull(updateLocalConfigMock.mock.calls[0])[0];
 		expect(updates.access_token).toBe("new-tok");
 		expect(updates.refresh_token).toBe("new-rt");
 	});
@@ -611,19 +622,19 @@ describe("resolveAuthTokenWithRefresh", () => {
 				refresh_token: "rt",
 			}),
 		);
-		const fetchMock = vi.fn(async () =>
+		const fetchMock = vi.fn<typeof fetch>(async () =>
 			jsonResponse({ access_token: "n2" }), // no refresh_token / expires_in
 		);
 		vi.stubGlobal("fetch", fetchMock);
 
 		await expect(resolveAuthTokenWithRefresh()).resolves.toBe("n2");
-		const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+		const [url, init] = recordedFetch(fetchMock.mock.calls[0]);
 		expect(url).toBe("https://from-config/token");
-		const body = (init.body as URLSearchParams).toString();
+		const body = encodedBody(init.body);
 		expect(body).not.toContain("client_id");
 
 		// expires_in absent → token_expires_at cleared to undefined.
-		const updates = nonNull(updateLocalConfigMock.mock.calls[0])[0] as Record<string, unknown>;
+		const updates = nonNull(updateLocalConfigMock.mock.calls[0])[0];
 		expect(updates.token_expires_at).toBeUndefined();
 		// refresh_token falls back to the original when server omits it.
 		expect(updates.refresh_token).toBe("rt");
@@ -672,10 +683,10 @@ describe("resolveAuthTokenWithRefresh", () => {
 		resolveConfigMock.mockReturnValue(
 			cfg({ access_token: "old", token_expires_at: pastIso() }),
 		);
-		const fetchMock = vi.fn(async () => {
+		const fetchMock = vi.fn<typeof fetch>(async () => {
 			throw new Error("fetch must not be called when refresh_token is absent");
 		});
-		vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+		vi.stubGlobal("fetch", fetchMock);
 		await expect(resolveAuthTokenWithRefresh()).resolves.toBeNull();
 		expect(fetchMock).not.toHaveBeenCalled();
 	});
@@ -719,7 +730,7 @@ describe("saveLoginTokens", () => {
 
 	it("omits optional fields and clears expiry when only access_token is given", () => {
 		saveLoginTokens({ access_token: "only" });
-		const updates = nonNull(updateLocalConfigMock.mock.calls[0])[0] as Record<string, unknown>;
+		const updates = nonNull(updateLocalConfigMock.mock.calls[0])[0];
 		expect(updates).toHaveProperty("access_token", "only");
 		expect(updates).toHaveProperty("token_expires_at", undefined);
 		expect(updates).not.toHaveProperty("oauth_client_id");
@@ -750,8 +761,9 @@ describe("performLogin", () => {
 	function stubRegisterAndToken(opts?: {
 		tokenResponse?: Response;
 		registerResponse?: Response;
-	}): ReturnType<typeof vi.fn> {
-		const fetchMock = vi.fn(async (url: string) => {
+	}) {
+		const fetchMock = vi.fn<typeof fetch>(async (input) => {
+			const url = String(input);
 			if (url.endsWith("/register")) {
 				return (
 					opts?.registerResponse ?? jsonResponse({ client_id: "dyn-client" })
@@ -769,7 +781,7 @@ describe("performLogin", () => {
 			}
 			throw new Error(`unexpected fetch ${url}`);
 		});
-		vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+		vi.stubGlobal("fetch", fetchMock);
 		return fetchMock;
 	}
 
@@ -801,7 +813,7 @@ describe("performLogin", () => {
 		expect(createHash).toHaveBeenCalledWith("sha256");
 		expect(randomBytes).toHaveBeenNthCalledWith(1, 32);
 		expect(randomBytes).toHaveBeenNthCalledWith(2, 16);
-		const browserCall = nonNull(spawnMock.mock.calls[0]) as unknown as [string, string[], unknown];
+		const browserCall = nonNull(spawnMock.mock.calls[0]);
 		const browserUrl = String(nonNull(browserCall[1])[0]);
 		const authorize = new URL(browserUrl);
 		expect(authorize.searchParams.get("response_type")).toBe("code");
@@ -831,10 +843,10 @@ describe("performLogin", () => {
 
 		// register POST shape.
 		const registerCall = fetchMock.mock.calls.find((c) =>
-			(c[0] as string).endsWith("/register"),
+			String(c[0]).endsWith("/register"),
 		);
 		expect(registerCall).toBeDefined();
-		const regBody = JSON.parse((registerCall![1] as RequestInit).body as string);
+		const regBody = jsonBody(recordedFetch(registerCall)[1].body);
 		expect(regBody).toMatchObject({
 			client_name: "Interlinked CLI",
 			token_endpoint_auth_method: "none",
@@ -845,13 +857,13 @@ describe("performLogin", () => {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 		});
-		expect(regBody.redirect_uris[0]).toMatch(/^http:\/\/localhost:\d+\/callback$/);
+		expect(regBody).toHaveProperty("redirect_uris", [expect.stringMatching(/^http:\/\/localhost:\d+\/callback$/)]);
 
 		// token exchange POST shape — PKCE verifier + dynamic client_id.
 		const tokenCall = fetchMock.mock.calls.find((c) =>
-			(c[0] as string).endsWith("/token"),
+			String(c[0]).endsWith("/token"),
 		);
-		const tokBody = ((tokenCall![1] as RequestInit).body as URLSearchParams).toString();
+		const tokBody = encodedBody(recordedFetch(tokenCall)[1].body);
 		expect(tokBody).toContain("grant_type=authorization_code");
 		expect(tokBody).toContain("code=THECODE");
 		expect(tokBody).toContain("client_id=dyn-client");
@@ -992,7 +1004,7 @@ describe("startCallbackServer edges (via performLogin)", () => {
 		// Null the address synchronously before listen's success callback runs.
 		httpState.beforeListen = (s) => s.setAddress(null);
 		// fetch is never reached on this path, but stub so a stray call is inert.
-		vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({})) as unknown as typeof fetch);
+		vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({})));
 		await expect(performLogin("https://oauth.example")).rejects.toThrow(
 			"Failed to start callback server",
 		);
@@ -1001,7 +1013,7 @@ describe("startCallbackServer edges (via performLogin)", () => {
 	it("rejects when server.address() returns a string", async () => {
 		vi.spyOn(console, "log").mockImplementation(() => {});
 		httpState.beforeListen = (s) => s.setAddress("/unix/socket");
-		vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({})) as unknown as typeof fetch);
+		vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({})));
 		await expect(performLogin("https://oauth.example")).rejects.toThrow(
 			"Failed to start callback server",
 		);
@@ -1012,7 +1024,7 @@ describe("startCallbackServer edges (via performLogin)", () => {
 		// Emit 'error' synchronously inside listen; the success callback is then
 		// skipped (errored flag) so the only settle is the reject.
 		httpState.beforeListen = (s) => s.emit("error", new Error("EADDRINUSE"));
-		vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({})) as unknown as typeof fetch);
+		vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({})));
 		await expect(performLogin("https://oauth.example")).rejects.toThrow(
 			"EADDRINUSE",
 		);
@@ -1052,11 +1064,12 @@ describe("openBrowser platform branches", () => {
 	});
 
 	async function runLoginAndComplete(): Promise<void> {
-		const fetchMock = vi.fn(async (url: string) => {
+		const fetchMock = vi.fn<typeof fetch>(async (input) => {
+			const url = String(input);
 			if (url.endsWith("/register")) return jsonResponse({ client_id: "c" });
 			return jsonResponse({ access_token: "AT" });
 		});
-		vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+		vi.stubGlobal("fetch", fetchMock);
 		vi.spyOn(console, "log").mockImplementation(() => {});
 		const promise = performLogin("https://oauth.example");
 		while (!httpState.requestHandler) {

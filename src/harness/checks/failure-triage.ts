@@ -261,8 +261,8 @@ function buildHaystack(event: ToolFailureEvent): string {
 		parts.push(event.stdout);
 	}
 	const cmd =
-		event.tool_input && typeof (event.tool_input as { command?: unknown }).command === "string"
-			? ((event.tool_input as { command?: string }).command ?? "")
+		event.tool_input && typeof event.tool_input.command === "string"
+			? event.tool_input.command
 			: "";
 	if (cmd) parts.push(cmd);
 	return parts.join("\n");

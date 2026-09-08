@@ -74,13 +74,13 @@ let implicitConfig: StructureConfig;
 let artifactData: Partial<Record<string, Record<string, unknown> | null>>;
 const loadStructureConfig = vi.fn((_repoRoot: string) => ({
 	config: loadedConfig,
-	errors: [] as string[],
+	errors: [],
 	implicit: loadedConfig === null,
 }));
 const getImplicitConfig = vi.fn((): StructureConfig => implicitConfig);
 const loadArtifactFile = vi.fn((_repoRoot: string, key: string, _relPath: string) => ({
 	data: key in artifactData ? artifactData[key] : null,
-	errors: [] as string[],
+	errors: [],
 }));
 vi.mock("./structure-loader.js", () => ({
 	loadStructureConfig: (rr: string) => loadStructureConfig(rr),

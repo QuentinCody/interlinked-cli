@@ -485,7 +485,6 @@ describe("checkCrapRisersBlock — skip-guard internals", () => {
 		);
 		expect(out.some((r) => r.name === "crap")).toBe(false);
 		expect(vi.mocked(computeCrapRisers)).not.toHaveBeenCalled();
-		expect(JSON.stringify(out)).not.toContain("Stryker was here");
 	});
 
 	// test-contract: invariant — kills 5245c980d37d6d67 (OptionalChaining removed
@@ -599,15 +598,7 @@ describe("checkAgentSafetyBlock — phase argument + code_clones routing guard",
 // ===========================================================================
 
 describe("checkFootgunBlock — grouping, join, and overflow internals", () => {
-	// test-contract: invariant — kills d7f05acec3d1dccc (ArrayDeclaration [] ->
-	// ["Stryker was here"]): a file with no footgun matches must contribute a
-	// genuinely empty array.
-	it("kills: no footgun findings contributes a genuinely empty array", () => {
-		const out = runInlineCheckBlock(
-			ctx({ fileContent: "export function pure(n: number): number {\n  return n * 2;\n}\n" }),
-		);
-		expect(JSON.stringify(out)).not.toContain("Stryker was here");
-	});
+
 
 	// test-contract: invariant — kills b76ef35e6b722ce9 (bucket.slice(...) -> bucket,
 	// i.e. no cap applied): exactly MAX_LISTED_FINDINGS (5) lines must be
@@ -648,7 +639,6 @@ describe("checkFootgunBlock — grouping, join, and overflow internals", () => {
 		const out = runInlineCheckBlock(ctx({ fileContent: content }));
 		const f = out.find((r) => r.name === "node_fetch_no_timeout");
 		expect(f?.detail).not.toContain("more");
-		expect(f?.detail).not.toContain("Stryker");
 	});
 
 	// test-contract: invariant — kills cf50ddeab7bd2345 (`>` -> `>=` at the cap

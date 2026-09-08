@@ -1,3 +1,4 @@
+import { parseWire, wireString } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ===========================================
@@ -19,6 +20,9 @@ vi.mock("./doctor-install-drift.js", async (importOriginal) => ({
 }));
 vi.mock("./doctor-posture.js", () => ({
 	postureEnumChecks: () => [],
+}));
+vi.mock("./doctor-lint.js", () => ({
+	lintAdoptionChecks: () => [],
 }));
 
 const resolveAuthTokenMock = vi.fn();
@@ -148,12 +152,12 @@ afterEach(() => {
 
 function lastJsonPayload(): any {
 	const call = logSpy.mock.calls[logSpy.mock.calls.length - 1];
-	return JSON.parse(call?.[0] as string);
+	return JSON.parse(parseWire(call?.[0], wireString, "test JSON value"));
 }
 
 function lastNormalText(): string {
 	const call = logSpy.mock.calls[logSpy.mock.calls.length - 1];
-	return call?.[0] as string;
+	return parseWire(call?.[0], wireString, "test JSON value");
 }
 
 // ===========================================

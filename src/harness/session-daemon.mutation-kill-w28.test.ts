@@ -51,7 +51,6 @@ let daemon: SessionDaemonHandle | null = null;
  *  (whichever overload it resolves first), which then makes comparisons
  *  against any OTHER event name a compile error. We only need the raw
  *  (name, handler, thisArg) triples here, so drop to unknown deliberately. */
-type RawOnCall = [event: string | symbol, handler: (...args: unknown[]) => void];
 
 beforeEach(() => {
 	tmp = mkdtempSync(join(tmpdir(), "interlinked-sd-w28-"));
@@ -85,12 +84,7 @@ function makeTsgo(): TsgoRunner {
 }
 
 function makeEvaluatorContext(): EvaluateUnifiedContext {
-	return {
-		rules: { version: 1, enabled: false } as unknown as EvaluateUnifiedContext["rules"],
-		session: undefined,
-		reservations: {} as EvaluateUnifiedContext["reservations"],
-		cohort: {} as EvaluateUnifiedContext["cohort"],
-	};
+	throw new Error("these lifecycle tests do not invoke the hook evaluator");
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +146,7 @@ describe("claimSessionPid — mutation kills", () => {
 		const writeSpy = vi.mocked(fsMod.writeFileSync);
 		writeSpy.mockClear();
 		writeSpy.mockImplementationOnce(() => {
-			const err = new Error("EEXIST: file already exists") as NodeJS.ErrnoException;
+			const err: NodeJS.ErrnoException = new Error("EEXIST: file already exists");
 			err.code = "EEXIST";
 			throw err;
 		});
@@ -399,11 +393,15 @@ describe("startSessionDaemon — mutation kills", () => {
 		const client = createConnection(paths.socket);
 		await new Promise<void>((resolve) => client.on("connect", resolve));
 		await new Promise((resolve) => setTimeout(resolve, 50));
-		const calls = onSpy.mock.calls as unknown as RawOnCall[];
-		const contexts = onSpy.mock.contexts as unknown[];
-		const index = calls.findIndex(([event], i) => event === "error" && contexts[i] !== client);
+		const calls = onSpy.mock.calls;
+		const contexts = onSpy.mock.contexts;
+		// Vitest exposes only the final overload of Socket.on in mock.calls;
+		// the observed event names can come from any overload, including error.
+		const events = calls.map(([event]): string => event);
+		const index = events.findIndex((event, i) => event === "error" && contexts[i] !== client);
 		expect(index).toBeGreaterThanOrEqual(0);
-		const acceptedSocket = contexts[index] as Socket;
+		const acceptedSocket = contexts[index];
+		if (!(acceptedSocket instanceof Socket)) throw new Error("accepted socket missing");
 		const handler = calls[index]?.[1];
 		const destroySpy = vi.spyOn(acceptedSocket, "destroy");
 		handler?.();
@@ -440,11 +438,13 @@ describe("startSessionDaemon — mutation kills", () => {
 		const client = createConnection(paths.socket);
 		await new Promise<void>((resolve) => client.on("connect", resolve));
 		await new Promise((resolve) => setTimeout(resolve, 50));
-		const calls = onSpy.mock.calls as unknown as RawOnCall[];
-		const contexts = onSpy.mock.contexts as unknown[];
-		const index = calls.findIndex(([event], i) => event === "close" && contexts[i] !== client);
+		const calls = onSpy.mock.calls;
+		const contexts = onSpy.mock.contexts;
+		const events = calls.map(([event]): string => event);
+		const index = events.findIndex((event, i) => event === "close" && contexts[i] !== client);
 		expect(index).toBeGreaterThanOrEqual(0);
-		const acceptedSocket = contexts[index] as Socket;
+		const acceptedSocket = contexts[index];
+		if (!(acceptedSocket instanceof Socket)) throw new Error("accepted socket missing");
 		const handler = calls[index]?.[1];
 		const destroySpy = vi.spyOn(acceptedSocket, "destroy");
 		handler?.();

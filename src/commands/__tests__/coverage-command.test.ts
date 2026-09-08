@@ -1,3 +1,4 @@
+import { parseWire, wireString } from "../../lib/value-validation.js";
 // ===========================================
 // coverage check/baseline commands — exact-output survivor kills
 // ===========================================
@@ -59,7 +60,7 @@ describe("coverageCheckCommand — no report found (exact message)", () => {
 
 		expect(errSpy).toHaveBeenCalledTimes(1);
 		// SAFETY: console.error is mocked above; its sole call is a string message.
-		expect(errSpy.mock.calls[0]?.[0] as string).toBe(expected);
+		expect(errSpy.mock.calls[0]?.[0]).toBe(expected);
 		expect(process.exitCode).toBe(1);
 	});
 });
@@ -82,7 +83,7 @@ describe("coverageCheckCommand — first run, no baseline (exact normal output)"
 		// "NOT updated" banner should print at all.
 		expect(writeSpy).not.toHaveBeenCalled();
 		// SAFETY: console.log is mocked above; its sole call is the rendered string.
-		const printed = logSpy.mock.calls[0]?.[0] as string;
+		const printed = parseWire(logSpy.mock.calls[0]?.[0], wireString, "test JSON value");
 
 		const reportPath = [join(cwd, "coverage/lcov.info"), join(cwd, "coverage/lcov-python.info")].join(
 			" + ",
@@ -116,7 +117,7 @@ describe("coverageCheckCommand — report-path display order survives internal m
 		await coverageCheckCommand({ cwd });
 
 		// SAFETY: console.log is mocked above; its sole call is the rendered string.
-		const printed = logSpy.mock.calls[0]?.[0] as string;
+		const printed = parseWire(logSpy.mock.calls[0]?.[0], wireString, "test JSON value");
 		const expectedReportPath = [canonical, perLang].join(" + ");
 		expect(printed).toContain(kvLine("Report", expectedReportPath));
 	});
@@ -157,7 +158,7 @@ describe("coverageCheckCommand — regression findings (exact multi-line block)"
 		await coverageCheckCommand({ cwd, strict: true });
 
 		// SAFETY: console.log is mocked above; its sole call is the rendered string.
-		const printed = logSpy.mock.calls[0]?.[0] as string;
+		const printed = parseWire(logSpy.mock.calls[0]?.[0], wireString, "test JSON value");
 		const reportPath = join(cwd, "coverage/lcov.info");
 		const expected = [
 			header("Coverage Ratchet"),
@@ -212,7 +213,7 @@ describe("coverageCheckCommand — partial report + --update-baseline + json mod
 
 		expect(logSpy).toHaveBeenCalledTimes(1);
 		// SAFETY: console.log is mocked above; its sole call is the JSON payload.
-		const printed = JSON.parse(logSpy.mock.calls[0]?.[0] as string);
+		const printed = JSON.parse(parseWire(logSpy.mock.calls[0]?.[0], wireString, "test JSON value"));
 		expect(printed.partialReport.partial).toBe(true);
 		// Neither banner may print in json mode, regardless of --update-baseline
 		// or which branch (updated / not-updated) would otherwise fire.
@@ -251,7 +252,7 @@ describe("coverageCheckCommand — partial report, normal mode (exact notice tex
 		await coverageCheckCommand({ cwd });
 
 		// SAFETY: console.log is mocked above; its sole call is the rendered string.
-		const printed = logSpy.mock.calls[0]?.[0] as string;
+		const printed = parseWire(logSpy.mock.calls[0]?.[0], wireString, "test JSON value");
 		const reportPath = join(cwd, "coverage/lcov.info");
 		const expected = [
 			header("Coverage Ratchet"),
@@ -292,7 +293,7 @@ describe("coverageCheckCommand — changedFiles filter (split + trim + Boolean)"
 		await coverageCheckCommand({ cwd, changedFiles: " src/bar.ts , " });
 
 		// SAFETY: console.log is mocked above; its sole call is the rendered string.
-		const printed = logSpy.mock.calls[0]?.[0] as string;
+		const printed = parseWire(logSpy.mock.calls[0]?.[0], wireString, "test JSON value");
 		expect(printed).toBe(
 			[
 				header("Coverage Ratchet"),
@@ -312,7 +313,7 @@ describe("coverageBaselineCommand — exact output", () => {
 		coverageBaselineCommand({ cwd });
 
 		// SAFETY: console.log is mocked above; its sole call is the rendered string.
-		const printed = logSpy.mock.calls[0]?.[0] as string;
+		const printed = parseWire(logSpy.mock.calls[0]?.[0], wireString, "test JSON value");
 		const expected = [
 			header("Coverage Baseline"),
 			kvLine("Updated", new Date(0).toISOString()),
@@ -340,7 +341,7 @@ describe("coverageBaselineCommand — exact output", () => {
 		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 		coverageBaselineCommand({ cwd });
 		// SAFETY: console.log is mocked above; its sole call is the rendered string.
-		const printed = logSpy.mock.calls[0]?.[0] as string;
+		const printed = parseWire(logSpy.mock.calls[0]?.[0], wireString, "test JSON value");
 
 		const sortedNames = Object.keys(files)
 			.sort((a, b) => a.localeCompare(b))
@@ -351,7 +352,7 @@ describe("coverageBaselineCommand — exact output", () => {
 			kvLine("Files", "27"),
 			"",
 			...sortedNames.map((file) => {
-				const m = files[file] as { lines_pct: number; branches_pct: number };
+				const m = nonNull(files[file]);
 				return `  ${file} ${c.dim(`lines=${m.lines_pct.toFixed(1)}% branches=${m.branches_pct.toFixed(1)}%`)}`;
 			}),
 			c.dim("  … and 2 more"),
@@ -468,7 +469,7 @@ function writeHalfCoveredLcov(file = "src/foo.ts"): void {
 function firstLogArg(logSpy: { mock: { calls: unknown[][] } }): string {
 	// SAFETY: console.log is mocked in every case below; `output()` makes
 	// exactly one call and its sole argument is the rendered report string.
-	return logSpy.mock.calls[0]?.[0] as string;
+	return parseWire(logSpy.mock.calls[0]?.[0], wireString, "test JSON value");
 }
 
 /** The real CLI program: registrar-registered `coverage` command tree wired to

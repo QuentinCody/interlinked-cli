@@ -7,6 +7,8 @@
 // orchestration types so it never cycles back into its caller (the same
 // discipline gate-decision.ts follows).
 
+import { isJsonObject } from "../../lib/json-types.js";
+
 /** The minimum a caller needs to come back for an unfinished run. */
 export interface PendingHandle {
 	jobId: string;
@@ -24,13 +26,7 @@ export interface PendingHandle {
  */
 export function pendingHandlesFrom(err: unknown): PendingHandle[] {
 	const isHandle = (v: unknown): v is PendingHandle =>
-		typeof v === "object" &&
-		v !== null &&
-		// SAFETY: object-ness is established above; these two reads are the
-		// predicate's actual test, and `typeof` on a missing key is "undefined",
-		// so a non-handle fails rather than throwing.
-		typeof (v as PendingHandle).jobId === "string" &&
-		typeof (v as PendingHandle).runnerUrl === "string";
+		isJsonObject(v) && typeof v.jobId === "string" && typeof v.runnerUrl === "string";
 
 	if (isHandle(err)) return [err];
 	const nested = errRecord(err)?.pending;
@@ -46,7 +42,7 @@ export function pendingHandlesFrom(err: unknown): PendingHandle[] {
  * the type checker can't actually verify.
  */
 function errRecord(err: unknown): Record<string, unknown> | undefined {
-	return typeof err === "object" && err !== null ? (err as Record<string, unknown>) : undefined;
+	return isJsonObject(err) ? err : undefined;
 }
 
 /**

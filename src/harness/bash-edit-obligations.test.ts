@@ -32,7 +32,7 @@ function editEvent(toolName: string, filePath?: string): HarnessEvent {
 		tool_input: filePath ? { file_path: filePath } : {},
 		timestamp: "2026-08-25T00:00:00.000Z",
 		cwd,
-	} as HarnessEvent;
+	};
 }
 
 beforeEach(() => {
@@ -96,7 +96,7 @@ describe("recordBashEditObligations — negative (must stay silent)", () => {
 		const abs = writeSrc("src/a.ts", BAD_LINE);
 		recordBashEditObligations({ cwd, sessionId: "s1", filePath: abs, dryRun: false });
 		writeFileSync(abs, CLEAN); // finding fixed on disk
-		const dryEvent = { ...editEvent("Write", join(cwd, "src/other.ts")), dry_run: true } as HarnessEvent;
+		const dryEvent: HarnessEvent = { ...editEvent("Write", join(cwd, "src/other.ts")), dry_run: true };
 		// A dry run must decide from disk truth (fixed ⇒ allow) ...
 		expect(evaluateBashEditObligationGate(dryEvent, "Write", [])).toBeNull();
 		// ... but must NOT have consumed the row: the store still carries it,

@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireBoolean, wireObject, wireOptional, wireString } from "../lib/value-validation.js";
 // ===========================================
 // interlinked send — behavioral coverage (companion to send.ts)
 // ===========================================
@@ -116,7 +117,12 @@ describe("sendCommand — authentication gate", () => {
 
 		await sendCommand("agent-1", "hi");
 
-		expect(mockCallTool).toHaveBeenCalledOnce();
+		expect(mockCallTool).toHaveBeenCalledWith("send_message", {
+			sender_name: "agent-default",
+			to: ["agent-1"],
+			body_md: "hi",
+			importance: "normal",
+		});
 	});
 
 	it("proceeds when authenticated against a remote server", async () => {
@@ -126,7 +132,12 @@ describe("sendCommand — authentication gate", () => {
 
 		await sendCommand("agent-1", "hi");
 
-		expect(mockCallTool).toHaveBeenCalledOnce();
+		expect(mockCallTool).toHaveBeenCalledWith("send_message", {
+			sender_name: "agent-default",
+			to: ["agent-1"],
+			body_md: "hi",
+			importance: "normal",
+		});
 	});
 });
 
@@ -292,7 +303,7 @@ describe("sendCommand — success rendering", () => {
 		await sendCommand("agent-99", "done", { json: true });
 
 		const logged = allLog();
-		const parsed = JSON.parse(logged) as { message_id?: string; delivered?: boolean };
+		const parsed = parseWire(JSON.parse(logged), wireObject({ "message_id": wireAbsentOptional(wireOptional(wireString)), "delivered": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value");
 		expect(parsed.message_id).toBe("m-123");
 		expect(parsed.delivered).toBe(true);
 		// JSON success mode must not print the human confirmation line.
@@ -317,10 +328,7 @@ describe("sendCommand — server error handling", () => {
 
 		// In json mode outputError serializes { error, details } — the hint
 		// object passed by sendCommand surfaces in the structured payload.
-		const parsed = JSON.parse(allErr()) as {
-			error?: string;
-			details?: { hint?: string };
-		};
+		const parsed = parseWire(JSON.parse(allErr()), wireObject({ "error": wireAbsentOptional(wireOptional(wireString)), "details": wireAbsentOptional(wireOptional(wireObject({ "hint": wireAbsentOptional(wireOptional(wireString)) }))) }), "test JSON value");
 		expect(parsed.error).toContain("Server error: connection refused");
 		expect(parsed.details?.hint).toBe("Is the Server reachable?");
 		expect(process.exitCode).toBe(1);

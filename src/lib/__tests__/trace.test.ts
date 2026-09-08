@@ -151,14 +151,14 @@ describe("exportTrace", () => {
 				hook: null,
 			},
 			{
-				ts: undefined,
+				ts: "",
 				agent: "agent-1",
 				type: "session_end",
 				tool: null,
 				summary: null,
 				session: null,
 				hook: null,
-			} as any,
+			},
 		]);
 
 		const doc = JSON.parse(exportTrace({ format: "json" }));

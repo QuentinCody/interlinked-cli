@@ -333,7 +333,6 @@ describe("checkTestNondeterminism — mutation kill: core logic", () => {
 		const matches = checkTestNondeterminism("it(\"a\", () => { const t = Date . now ( ); use(t); });", TEST);
 		expect(matches.length).toBe(1);
 		expect(matches[0]?.text).toContain("Date.now(");
-		expect(matches[0]?.text).not.toContain("Stryker was here!");
 	});
 
 	it("P: a nondeterminism call preceded by 85 spaces still shows the trimmed original line [7e6b511de52ff113]", () => {

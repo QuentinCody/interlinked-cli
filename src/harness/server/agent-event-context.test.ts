@@ -16,11 +16,10 @@ function event(over: Partial<HarnessEvent> = {}): HarnessEvent {
 		hook_event: "SubagentStop",
 		session_id: "s1",
 		agent_source: "claude",
-		tool_name: null,
 		tool_input: {},
 		timestamp: "2026-08-07T22:00:00.000Z",
 		...over,
-	} as HarnessEvent;
+	};
 }
 
 describe("resolveAgentType — positive (must resolve)", () => {

@@ -33,6 +33,6 @@ export function makeShrinkIdleMemory(getTrigramIndex: () => TrigramIndex | null)
 		clearCheckEngineDiagnosticCache();
 		clearTscOverlayCache();
 		getTrigramIndex()?.clearDirty();
-		(globalThis as { gc?: () => void }).gc?.(); // SAFETY: gc exists only under --expose-gc (every spawn path passes it).
+		globalThis.gc?.();
 	};
 }

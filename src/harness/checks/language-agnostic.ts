@@ -2,6 +2,7 @@
 // Extracted from generic-checks.ts. (The per-file line cap moved to
 // harness/large-file-policy.ts — the single source of truth for file size.)
 
+import { isJsonObject } from "../../lib/json-types.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
@@ -255,8 +256,8 @@ function binTargets(bin: unknown): string[] {
 function packageBinIncludes(pkgPath: string, pkgDir: string, absFile: string): boolean {
 	try {
 		const raw: unknown = JSON.parse(readFileSync(pkgPath, "utf-8"));
-		if (typeof raw !== "object" || raw === null) return false;
-		const bin = (raw as { bin?: unknown }).bin;
+		if (!isJsonObject(raw)) return false;
+		const bin = raw.bin;
 		return binTargets(bin).some((t) => resolve(pkgDir, t) === resolve(absFile));
 	} catch {
 		return false; // unreadable/malformed package.json — no exemption
@@ -295,7 +296,7 @@ function nearestPackageDeclaresBin(filePath: string, cwd?: string): boolean {
 function packageDeclaresBin(pkgPath: string): boolean {
 	try {
 		const raw: unknown = JSON.parse(readFileSync(pkgPath, "utf-8"));
-		return typeof raw === "object" && raw !== null && (raw as { bin?: unknown }).bin != null;
+		return isJsonObject(raw) && raw.bin != null;
 	} catch {
 		return false;
 	}

@@ -137,10 +137,8 @@ describe("generated hook terminal fallback", () => {
 			faultAfterStagedDecision,
 		);
 		expect(result.status).toBe(0);
-		const parsed = JSON.parse(result.stdout) as {
-			hookSpecificOutput?: { permissionDecisionReason?: string };
-		};
-		expect(parsed.hookSpecificOutput?.permissionDecisionReason).toBe(TERMINAL_REASON);
+		const parsed: unknown = JSON.parse(result.stdout);
+		expect(parsed).toHaveProperty("hookSpecificOutput.permissionDecisionReason", TERMINAL_REASON);
 		expect(result.stdout).not.toMatch(/recursive|rm -rf|BLOCKED/i);
 		expect(result.stdout.match(/hookSpecificOutput/g)).toHaveLength(1);
 	});

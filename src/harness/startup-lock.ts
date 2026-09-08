@@ -1,3 +1,4 @@
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 // ===========================================
 // Daemon startup mutex — N concurrent starts collapse to ONE binder
 // ===========================================
@@ -77,7 +78,7 @@ function isProcessAlive(pid: number): boolean {
 		process.kill(pid, 0);
 		return true;
 	} catch (err) {
-		return (err as NodeJS.ErrnoException).code === "EPERM";
+		return hasErrorCode(err, "EPERM");
 	}
 }
 
@@ -88,7 +89,7 @@ export function readStartupLockHolder(repoRoot: string): StartupLockHolder | nul
 		if (typeof raw !== "object" || raw === null) return null;
 		// SAFETY: object-ness checked above; both fields are type-tested below
 		// before the holder is trusted by any caller.
-		const holder = raw as Partial<StartupLockHolder>;
+		const holder: Partial<StartupLockHolder> = raw;
 		if (typeof holder.pid !== "number" || typeof holder.at !== "number") return null;
 		return { pid: holder.pid, at: holder.at };
 	} catch {
@@ -111,7 +112,7 @@ function writeLockFile(path: string, pid: number, nowMs: number): boolean {
 		writeSync(fd, JSON.stringify({ pid, at: nowMs }));
 		return true;
 	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "EEXIST") return false;
+		if (hasErrorCode(err, "EEXIST")) return false;
 		// Any OTHER fs failure (read-only mount, permissions) must not stop the
 		// daemon from starting: an un-mutexed start is degraded, a start that
 		// never happens is an outage. Report success with a no-op release.

@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 import { describe, expect, it } from "vitest";
 import {
 	checkAesEcbMode,
@@ -406,7 +407,7 @@ describe("checkRecursiveWalkerLstat", () => {
 			"  }",
 			"}",
 		];
-		const matchLine = src[4] as string;
+		const matchLine = nonNull(src[4]);
 		const out = checkRecursiveWalkerLstat(src.join("\n"), "src/walker.ts");
 		expect(out).toHaveLength(1);
 		expect(out[0]?.line).toBe(5);

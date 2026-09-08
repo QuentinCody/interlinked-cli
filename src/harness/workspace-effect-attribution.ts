@@ -1,3 +1,4 @@
+import { isJsonObject } from "../lib/json-types.js";
 // ===========================================
 // Cross-session attribution for workspace effects
 // ===========================================
@@ -65,17 +66,17 @@ export function initEffectAttributionStore(root: string): void {
 function parseAttributionStoreFile(file: string): Record<string, unknown> | null {
 	if (!existsSync(file)) return null;
 	const parsed: unknown = JSON.parse(readFileSync(file, "utf-8"));
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
-	return parsed as Record<string, unknown>;
+	if (!isJsonObject(parsed)) return null;
+	return parsed;
 }
 
 /** Normalize one raw disk entry into a `ReconciledEffectRecord`, or null when
  *  the entry's shape can't be trusted. */
 function normalizeLoadedRecord(rec: unknown): ReconciledEffectRecord | null {
-	if (typeof rec !== "object" || rec === null) return null;
-	const sessionId = (rec as { sessionId?: unknown }).sessionId;
-	const subagentId = (rec as { subagentId?: unknown }).subagentId;
-	const sha256 = (rec as { sha256?: unknown }).sha256;
+	if (!isJsonObject(rec)) return null;
+	const sessionId = rec.sessionId;
+	const subagentId = rec.subagentId;
+	const sha256 = rec.sha256;
 	if (typeof sessionId !== "string") return null;
 	const record: ReconciledEffectRecord = {
 		sessionId,

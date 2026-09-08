@@ -19,6 +19,7 @@
 
 import { isAbsolute, relative } from "node:path";
 import type { JsonObject } from "../lib/json-types.js";
+import { wireAbsentOptional, wireBoolean, wireObject, wireString } from "../lib/value-validation.js";
 import {
 	_resetRgPathCache,
 	compressGrepOutput,
@@ -369,26 +370,39 @@ interface SearchParams {
 	pattern: string;
 	isRegex: boolean;
 	caseInsensitive: boolean;
+	path?: string | undefined;
+	glob?: string | undefined;
+	outputMode?: string | undefined;
+}
+
+const isGrepInput = wireObject<{
+	pattern: string;
+	"-i"?: boolean;
 	path?: string;
 	glob?: string;
-	outputMode?: string;
-}
+	output_mode?: string;
+}>({
+	pattern: wireString,
+	"-i": wireAbsentOptional(wireBoolean),
+	path: wireAbsentOptional(wireString),
+	glob: wireAbsentOptional(wireString),
+	output_mode: wireAbsentOptional(wireString),
+});
 
 function extractSearchParams(toolName: string, toolInput: JsonObject): SearchParams | null {
 	// Claude Code's Grep tool
 	if (toolName === "Grep") {
-		const pattern = toolInput.pattern as string;
-		if (!pattern) return null;
+		if (!isGrepInput(toolInput) || !toolInput.pattern) return null;
 		// glob / output_mode are read so isAccelerationEligible can decline on
 		// them (output shape it can't reproduce). They are intentionally never
 		// threaded past that gate.
 		return {
-			pattern,
+			pattern: toolInput.pattern,
 			isRegex: true, // Claude Code's Grep uses regex
-			caseInsensitive: (toolInput["-i"] as boolean) || false,
-			path: toolInput.path as string,
-			glob: toolInput.glob as string,
-			outputMode: toolInput.output_mode as string,
+			caseInsensitive: toolInput["-i"] ?? false,
+			path: toolInput.path,
+			glob: toolInput.glob,
+			outputMode: toolInput.output_mode,
 		};
 	}
 
@@ -399,7 +413,7 @@ function extractSearchParams(toolName: string, toolInput: JsonObject): SearchPar
 		toolName === "shell" ||
 		toolName === "run_command"
 	) {
-		const command = (toolInput.command as string) || "";
+		const command = typeof toolInput.command === "string" ? toolInput.command : "";
 		return parseGrepCommand(command);
 	}
 

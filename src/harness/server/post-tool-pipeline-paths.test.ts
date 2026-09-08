@@ -1,3 +1,4 @@
+import { makeEvent as makeEventFixture } from "../__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import type { HarnessEvent } from "../types.js";
 import { resolveEditedPaths } from "./post-tool-pipeline-paths.js";
@@ -12,14 +13,11 @@ import { resolveEditedPaths } from "./post-tool-pipeline-paths.js";
  * going down".
  */
 function bash(command: string): HarnessEvent {
-	// SAFETY: only the fields resolveEditedPaths reads; the full event shape is
-	// irrelevant to path resolution.
-	return { tool_name: "Bash", tool_input: { command } } as unknown as HarnessEvent;
+	return { ...makeEventFixture({ tool_name: undefined, tool_input: undefined }), tool_name: "Bash", tool_input: { command } };
 }
 
 function edit(file_path: string): HarnessEvent {
-	// SAFETY: as above — tool_name + file_path are the read surface.
-	return { tool_name: "Edit", tool_input: { file_path } } as unknown as HarnessEvent;
+	return { ...makeEventFixture({ tool_name: undefined, tool_input: undefined }), tool_name: "Edit", tool_input: { file_path } };
 }
 
 describe("resolveEditedPaths — positive (must still resolve)", () => {
@@ -122,8 +120,7 @@ describe("resolveEditedPaths — negative (generated output must not be analyzed
  * reporting a test failure it did not cause.
  */
 function readOnly(tool_name: string, paths: string[]): HarnessEvent {
-	// SAFETY: resolveEditedPaths reads only tool_name / tool_input / change_set.
-	return {
+	return { ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 		tool_name,
 		tool_input: { pattern: "USER_PROMPT" },
 		change_set: {
@@ -138,8 +135,7 @@ function readOnly(tool_name: string, paths: string[]): HarnessEvent {
 				after_sha256: "b",
 			})),
 		},
-		// SAFETY: resolveEditedPaths reads only these three fields.
-	} as unknown as HarnessEvent;
+	};
 }
 
 describe("resolveEditedPaths — read-only calls must not be charged with observed paths", () => {
@@ -206,11 +202,10 @@ describe("resolveEditedPaths — read-only calls must not be charged with observ
  * Both lists now derive from `lib/write-tool-registry.ts`, so they cannot drift.
  */
 function directEdit(tool_name: string, file_path: string): HarnessEvent {
-	return {
+	return { ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 		tool_name,
 		tool_input: { file_path, edits: [{ old_string: "a", new_string: "b" }] },
-		// SAFETY: resolveEditedPaths reads only tool_name + tool_input.
-	} as unknown as HarnessEvent;
+	};
 }
 
 describe("resolveEditedPaths — direct-edit channel coverage", () => {

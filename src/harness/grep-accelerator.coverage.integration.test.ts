@@ -38,7 +38,7 @@ import {
 	safeRegExp,
 } from "./grep-accelerator.js";
 import { extractTrigrams, type PostingList, TrigramIndex } from "./trigram-index.js";
-import type { HarnessDecision, HarnessEvent } from "./types.js";
+import type { HarnessEvent } from "./types.js";
 
 const FIXED_TIMESTAMP = "2024-01-01T00:00:00.000Z";
 
@@ -272,12 +272,12 @@ describe("checkGrepAcceleration entry guards", () => {
 		const { index } = fixture({ "a.ts": "content here" });
 		// Omit tool_name and tool_input entirely: the `|| ""` / `|| {}` defaults
 		// run, extractSearchParams sees an empty tool name, and returns null.
-		const ev = {
+		const ev: HarnessEvent = {
 			hook_event: "PreToolUse",
 			session_id: "test",
 			agent_source: "claude",
 			timestamp: FIXED_TIMESTAMP,
-		} as unknown as HarnessEvent;
+		};
 		expect(checkGrepAcceleration(ev, index, ACCEL)).toBeNull();
 	});
 
@@ -291,7 +291,7 @@ describe("checkGrepAcceleration entry guards", () => {
 			tool_input: { command: "rg -F 'shellToolNeedle'" },
 			timestamp: FIXED_TIMESTAMP,
 		};
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		expect(result.decision).toBe("block");
 		expect(result.reason).toContain("shellToolNeedle");
 	});
@@ -306,7 +306,7 @@ describe("checkGrepAcceleration entry guards", () => {
 			tool_input: { command: "rg -F 'lowerShellNeedle'" },
 			timestamp: FIXED_TIMESTAMP,
 		};
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		expect(result.decision).toBe("block");
 		expect(result.reason).toContain("lowerShellNeedle");
 	});
@@ -321,7 +321,7 @@ describe("checkGrepAcceleration entry guards", () => {
 			tool_input: { command: "rg -F 'runCommandNeedle'" },
 			timestamp: FIXED_TIMESTAMP,
 		};
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		expect(result.decision).toBe("block");
 		expect(result.reason).toContain("runCommandNeedle");
 	});
@@ -418,7 +418,7 @@ describe("candidate filtering", () => {
 		const ev = bashEvent("rg -F 'uniquePathToken' src");
 		const result = checkGrepAcceleration(ev, index, ACCEL);
 		expect(result).not.toBeNull();
-		const decision = result as HarnessDecision;
+		const decision = nonNull(result);
 		expect(decision.decision).toBe("block");
 		expect(decision.reason).toContain("src/auth.ts");
 		expect(decision.reason).not.toContain("lib/auth.ts");
@@ -433,7 +433,7 @@ describe("candidate filtering", () => {
 		const ev = bashEvent(`rg -F 'absolutePathToken' ${join(dir, "src")}`);
 		const result = checkGrepAcceleration(ev, index, ACCEL);
 		expect(result).not.toBeNull();
-		const decision = result as HarnessDecision;
+		const decision = nonNull(result);
 		expect(decision.decision).toBe("block");
 		expect(decision.reason).toContain("src/deep.ts");
 		expect(decision.reason).not.toContain("other.ts");
@@ -445,7 +445,7 @@ describe("candidate filtering", () => {
 			"top.ts": "const trailingSlashToken = 1;",
 		});
 		const ev = bashEvent("rg -F 'trailingSlashToken' pkg/");
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		expect(result.decision).toBe("block");
 		expect(result.reason).toContain("pkg/mod.ts");
 	});
@@ -471,7 +471,7 @@ describe("candidate filtering", () => {
 				"lib/auth.ts": "function hermeticPathToken() {}",
 			});
 			const ev = bashEvent("rg -F 'hermeticPathToken' src");
-			const result = mod.checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+			const result = nonNull(mod.checkGrepAcceleration(ev, index, ACCEL));
 			expect(result.decision).toBe("block");
 			expect(result.reason).toContain("src/auth.ts");
 			expect(result.reason).not.toContain("lib/auth.ts");
@@ -512,7 +512,7 @@ describe("in-process matching (fixed-string)", () => {
 		});
 		// rg -F → isRegex:false → in-process matcher (candidates <= threshold).
 		const ev = bashEvent("rg -F 'literalNeedle'");
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		expect(result.decision).toBe("block");
 		// Compressed grouped format: file header then `lineNum:content` rows.
 		expect(result.reason).toContain("a.ts");
@@ -524,7 +524,7 @@ describe("in-process matching (fixed-string)", () => {
 	it("matches case-insensitively in-process via rg -i -F", () => {
 		const { index } = fixture({ "a.ts": "const CamelNeedle = 1;" });
 		const ev = bashEvent("rg -i -F 'camelneedle'");
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		expect(result.decision).toBe("block");
 		expect(result.reason).toContain("1:const CamelNeedle = 1;");
 	});
@@ -569,7 +569,7 @@ describe("in-process matching (fixed-string)", () => {
 		}
 		const index = new TrigramIndex(phantomFiles, postings, new Set(), "abc", f.dir);
 		const ev = bashEvent("rg -F 'ghostReadToken'");
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		// real.ts matched; phantom.ts was skipped (read failed) without crashing.
 		expect(result.decision).toBe("block");
 		expect(result.reason).toContain("real.ts");
@@ -597,10 +597,10 @@ describe("in-process matching (fixed-string)", () => {
 		const longLiteral = "z".repeat(1001);
 		const { index } = fixture({ "long.ts": `prefix ${longLiteral} suffix` });
 		const ev = bashEvent(`rg -F '${longLiteral}'`);
-		const result = checkGrepAcceleration(ev, index, {
+		const result = nonNull(checkGrepAcceleration(ev, index, {
 			...ACCEL,
 			inProcessThreshold: 50,
-		}) as HarnessDecision;
+		}));
 		expect(result.decision).toBe("block");
 		expect(result.reason).toContain("long.ts");
 	});
@@ -623,7 +623,7 @@ describe.skipIf(!RG_AVAILABLE)("ripgrep execution", () => {
 		});
 		// Grep tool → isRegex:true → always rg.
 		const ev = grepEvent("rgRegexToken");
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		expect(result.decision).toBe("block");
 		expect(result.reason).toContain("src/a.ts");
 		expect(result.reason).toContain("src/b.ts");
@@ -635,10 +635,10 @@ describe.skipIf(!RG_AVAILABLE)("ripgrep execution", () => {
 		const { index } = fixture({ "a.ts": "forcedRgNeedle on a line" });
 		// inProcessThreshold:0 → candidates.length (>=1) > 0 forces the rg branch.
 		const ev = bashEvent("rg -F 'forcedRgNeedle'");
-		const result = checkGrepAcceleration(ev, index, {
+		const result = nonNull(checkGrepAcceleration(ev, index, {
 			...ACCEL,
 			inProcessThreshold: 0,
-		}) as HarnessDecision;
+		}));
 		expect(result.decision).toBe("block");
 		expect(result.reason).toContain("forcedRgNeedle");
 	});
@@ -657,7 +657,7 @@ describe.skipIf(!RG_AVAILABLE)("ripgrep execution", () => {
 		// Grep tool with -i + regex → rg branch with --ignore-case (line 507).
 		const { index } = fixture({ "a.ts": "const RgCaseToken = compute();" });
 		const ev = grepEvent("rgcasetoken", { caseInsensitive: true });
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		expect(result.decision).toBe("block");
 		expect(result.reason).toContain("RgCaseToken");
 	});
@@ -684,7 +684,7 @@ describe.skipIf(!RG_AVAILABLE)("ripgrep execution", () => {
 	it("emits complete grep_stats on a single-file rg block", () => {
 		const { index } = fixture({ "solo.ts": "soloStatToken on one line" });
 		const ev = grepEvent("soloStatToken");
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		expect(result.decision).toBe("block");
 		// Single candidate, single match → stats fully populated, selectivity 100%.
 		expect(result.grep_stats).toBeDefined();
@@ -709,10 +709,10 @@ describe("broad-pattern handling", () => {
 		const { index } = fixture(files);
 		// "sharedTokenHere" is in every file → ratio 1.0 > 0.3.
 		const ev = grepEvent("sharedTokenHere");
-		const result = checkGrepAcceleration(ev, index, {
+		const result = nonNull(checkGrepAcceleration(ev, index, {
 			...ACCEL,
 			maxCandidateRatio: 0.3,
-		}) as HarnessDecision;
+		}));
 		expect(result.decision).toBe("allow");
 		expect(result.warnings?.some((w) => w.includes("broad pattern"))).toBe(true);
 		expect(result.grep_stats?.accelerated).toBe(false);
@@ -726,11 +726,11 @@ describe("broad-pattern handling", () => {
 		const { index } = fixture(files);
 		// maxCandidates:2 with 6 matching files → count cap trips first.
 		const ev = grepEvent("countTokenHere");
-		const result = checkGrepAcceleration(ev, index, {
+		const result = nonNull(checkGrepAcceleration(ev, index, {
 			...ACCEL,
 			maxCandidates: 2,
 			maxCandidateRatio: 0.99,
-		}) as HarnessDecision;
+		}));
 		expect(result.decision).toBe("allow");
 		expect(result.warnings?.[0]).toContain("broad pattern");
 	});
@@ -747,7 +747,7 @@ describe("output compression", () => {
 			"bar.ts": "compressGroupTok c",
 		});
 		const ev = bashEvent("rg -F 'compressGroupTok'");
-		const result = checkGrepAcceleration(ev, index, ACCEL) as HarnessDecision;
+		const result = nonNull(checkGrepAcceleration(ev, index, ACCEL));
 		expect(result.decision).toBe("block");
 		const reason = result.reason ?? "";
 		// Both file headers present, with a blank line separating groups.

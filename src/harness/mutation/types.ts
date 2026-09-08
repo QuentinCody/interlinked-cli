@@ -9,8 +9,6 @@
 // immutable-snapshot-with-`generation`, and the same instability/quarantine
 // model. No executable surface — see identity.ts for the derivation.
 
-import type { SurvivorDisposition } from "./disposition.js";
-
 /** A 16-hex-char sha-256 prefix used as a stable, content-addressed id. */
 export type StableId = string;
 
@@ -82,7 +80,8 @@ export interface MutantRecord {
 	 *  `status: "equivalent"`; `dead_code` / `unresolved` attach here WITHOUT
 	 *  touching status, so a defect can never be laundered into the accepted
 	 *  floor. Absent on records written before typed dispositions. */
-	disposition?: SurvivorDisposition;
+	/** Persisted data may carry partial or newer judgments. Parse with dispositionOf. */
+	disposition?: unknown;
 }
 
 /** Mirror of coverage-index `ShardInstability`: quarantine on identity churn. */

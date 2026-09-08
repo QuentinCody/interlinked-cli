@@ -633,14 +633,15 @@ describe("fetchUpstream — connect timeout", () => {
 		let connectAbort: (() => void) | undefined;
 		const setTimeoutSpy = vi
 			.spyOn(globalThis, "setTimeout")
-			.mockImplementation(((...callArgs: unknown[]) => {
-				const [fn, ms] = callArgs as [() => void, number | undefined];
+			.mockImplementation((fn, ms, ...args) => {
 				if (ms === 30_000) {
-					connectAbort = fn;
-					return 0 as unknown as NodeJS.Timeout;
+					connectAbort = () => fn(...args);
+					const cancelled = realSetTimeout(() => {}, 0);
+					clearTimeout(cancelled);
+					return cancelled;
 				}
-				return (realSetTimeout as (...a: unknown[]) => NodeJS.Timeout)(...callArgs);
-			}) as unknown as typeof setTimeout);
+				return realSetTimeout(fn, ms, ...args);
+			});
 
 		const originalFetch = globalThis.fetch;
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {

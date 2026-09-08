@@ -171,6 +171,10 @@ function matchingZombieIdentity(
 	return identify(cwd, pid) === expected ? expected : null;
 }
 
+function errorCode(error: unknown): unknown {
+	return typeof error === "object" && error !== null && "code" in error ? error.code : undefined;
+}
+
 function signalZombie(
 	pid: number,
 	signal: "SIGTERM" | "SIGKILL",
@@ -181,9 +185,7 @@ function signalZombie(
 		kill(pid, signal);
 		return "signaled";
 	} catch (err) {
-		// SAFETY: Node's process.kill failures use the documented ErrnoException
-		// shape; non-Error throws simply have an undefined code and take failure.
-		const code = (err as NodeJS.ErrnoException).code;
+		const code = errorCode(err);
 		if (code === "ESRCH") return "gone";
 		logAlways(`[interlinked] Could not signal zombie incumbent PID ${pid}: ${String(err)}`);
 		return "failed";
@@ -195,7 +197,7 @@ function processIsAlive(pid: number): boolean {
 		process.kill(pid, 0);
 		return true;
 	} catch (err) {
-		return (err as NodeJS.ErrnoException).code === "EPERM";
+		return errorCode(err) === "EPERM";
 	}
 }
 

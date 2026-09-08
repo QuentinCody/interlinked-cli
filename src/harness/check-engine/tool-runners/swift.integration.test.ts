@@ -1,3 +1,5 @@
+import { nonNull } from "../../../lib/non-null.js";
+import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // Behavioral unit tests for the Swift tool runners (swiftlint sync + async,
 // swift build).
 //
@@ -14,15 +16,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunProcessResult } from "../spawn-async.js";
 import type { CheckScope, ToolRunnerInput } from "../types.js";
 
-const spawnSyncMock = vi.fn();
-const runProcessAsyncMock = vi.fn();
+const spawnSyncMock = vi.fn<SpawnSyncStub>();
+const runProcessAsyncMock = vi.fn<typeof import("../spawn-async.js").runProcessAsync>();
 
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
 }));
 
 vi.mock("../spawn-async.js", () => ({
-	runProcessAsync: (...args: unknown[]) => runProcessAsyncMock(...args),
+	runProcessAsync: (...args: Parameters<typeof runProcessAsyncMock>) => runProcessAsyncMock(...args),
 }));
 
 // Imported after the mocks are registered.
@@ -95,6 +97,7 @@ function spawnResult(
 		stderr?: string | undefined;
 	},
 ): SpawnSyncReturns<string> {
+	// SAFETY: this fixture deliberately allows absent stdout/stderr to exercise the runner's fallback for incomplete process results.
 	return {
 		pid: 123,
 		output: [],
@@ -133,11 +136,7 @@ describe("runSwiftLint (sync)", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ stdout: "" }));
 		runSwiftLint(input(fileScope(), 9_999));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("swiftlint");
 		expect(args).toEqual(["lint", "--quiet", "--reporter", "json", "--path", TARGET]);
 		expect(opts).toMatchObject({
@@ -151,7 +150,7 @@ describe("runSwiftLint (sync)", () => {
 	it("omits --path in project mode", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ stdout: "" }));
 		runSwiftLint(input(fileScope({ mode: "project" })));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["lint", "--quiet", "--reporter", "json"]);
 		expect(args).not.toContain("--path");
 	});
@@ -159,9 +158,9 @@ describe("runSwiftLint (sync)", () => {
 	it("omits --path when file mode but targetFile is missing", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ stdout: "" }));
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		runSwiftLint(input(scope));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args).not.toContain("--path");
 	});
 
@@ -318,11 +317,7 @@ describe("runSwiftLintAsync", () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: "" }));
 		await runSwiftLintAsync(input(fileScope(), 4_321));
 		expect(runProcessAsyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("swiftlint");
 		expect(args).toEqual(["lint", "--quiet", "--reporter", "json", "--path", TARGET]);
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 4_321 });
@@ -331,7 +326,7 @@ describe("runSwiftLintAsync", () => {
 	it("omits --path in project mode", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0, stdout: "" }));
 		await runSwiftLintAsync(input(fileScope({ mode: "project" })));
-		const args = runProcessAsyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["lint", "--quiet", "--reporter", "json"]);
 	});
 
@@ -376,11 +371,7 @@ describe("runSwiftBuild", () => {
 	it("invokes `swift build --skip-update` with cwd/timeout/pipes", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runSwiftBuild(input(fileScope({ projectRoot: "/my/root" }), 8_888));
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("swift");
 		expect(args).toEqual(["build", "--skip-update"]);
 		expect(opts).toMatchObject({

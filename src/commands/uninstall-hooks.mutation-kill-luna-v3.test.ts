@@ -50,19 +50,21 @@ describe("uninstall-hooks mutation contracts", () => {
         output.mockRestore();
     });
 
-    // test-contract: valid names are selected while invalid names do not broaden the selection.
-    it("ignores invalid names in a runner list", async () => {
+    it("rejects an invalid runner before removing any hooks", async () => {
         const output = vi.spyOn(process.stdout, "write").mockReturnValue(true);
         await installHooksCommand({
             runner: "claude-code,copilot-cli",
             binary: "/usr/bin/mutation-filter",
         });
 
-        await uninstallHooksCommand({ runner: "claude-code,not-a-runner" });
+        output.mockClear();
+        await expect(uninstallHooksCommand({ runner: "claude-code,not-a-runner" })).rejects.toThrow(
+            "Unknown runner: not-a-runner; no hooks were removed",
+        );
 
-        expect(readFileSync(join(tmp, ".claude", "settings.json"), "utf-8")).not.toContain("mutation-filter");
+        expect(readFileSync(join(tmp, ".claude", "settings.json"), "utf-8")).toContain("mutation-filter");
         expect(readFileSync(join(tmp, ".github", "hooks", "hooks.json"), "utf-8")).toContain("mutation-filter");
-        expect(output).toHaveBeenCalledWith("[interlinked] removed 1 hook registration(s)\n");
+        expect(output).not.toHaveBeenCalled();
         output.mockRestore();
     });
 

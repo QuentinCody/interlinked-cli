@@ -1,3 +1,4 @@
+import { isJsonObject } from "../lib/json-types.js";
 /**
  * Repo-profile detection — drives conditional enforcement for the TDD/coverage
  * gate family. The gates were written against this repo's colocated-vitest
@@ -193,8 +194,8 @@ function packageJsonDeclaresJsRunner(projectRoot: string): boolean {
 		// enforcement — assume a JS runner rather than silently disabling gates.
 		return true;
 	}
-	if (typeof parsed !== "object" || parsed === null) return false;
-	const pkg = parsed as Record<string, unknown>;
+	if (!isJsonObject(parsed)) return false;
+	const pkg = parsed;
 	const names = [
 		...readDependencyNames(pkg, "dependencies"),
 		...readDependencyNames(pkg, "devDependencies"),

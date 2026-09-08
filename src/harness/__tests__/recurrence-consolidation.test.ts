@@ -312,13 +312,13 @@ describe("PostToolUse recurrence consolidation — behavioral round-trip", () =>
 					determinism: "fully_deterministic",
 				},
 				{
-					source: "behavioral" as CheckResultEntry["source"], // tolerate any discriminator
+					source: "suggestion",
 					name: "no_file",
 					severity: "warning",
 					message: "y",
 					determinism: "heuristic",
 				},
-			] as CheckResultEntry[],
+			],
 			sessionId: "sess-files",
 			agentSource: "claude",
 			editedFilePath,

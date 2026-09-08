@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 import {
 	closeSync,
 	ftruncateSync,
@@ -61,7 +62,7 @@ describe("clean — sparse large activity log", () => {
 			reason: "activity_log_truncated",
 		});
 		// SAFETY: JSON mode emitted exactly one console line above.
-		expect(JSON.parse(output.at(-1) as string)).toMatchObject({ total_removed: 2 });
+		expect(JSON.parse(nonNull(output.at(-1)))).toMatchObject({ total_removed: 2 });
 	});
 
 	it("refuses a whole-file cleanup while crash recovery owns the activity path", async () => {
@@ -85,7 +86,7 @@ describe("clean — sparse large activity log", () => {
 		await cleanCommand({ force: true, json: true });
 		expect(statSync(activityPath).size).toBe(originalSize);
 		// SAFETY: JSON mode emitted exactly one console line above.
-		expect(JSON.parse(output.at(-1) as string)).toMatchObject({
+		expect(JSON.parse(nonNull(output.at(-1)))).toMatchObject({
 			total_removed: 0,
 			stale_items: [{ cleanup_outcome: "refused" }],
 		});
@@ -99,7 +100,7 @@ describe("clean — sparse large activity log", () => {
 		await cleanCommand({ force: true, json: true });
 		expect(statSync(activityPath).size).toBe(originalSize);
 		// SAFETY: JSON mode emitted exactly one console line above.
-		expect(JSON.parse(output.at(-1) as string)).toMatchObject({
+		expect(JSON.parse(nonNull(output.at(-1)))).toMatchObject({
 			total_removed: 0,
 			stale_items: [{ cleanup_outcome: "refused" }],
 		});
@@ -109,6 +110,6 @@ describe("clean — sparse large activity log", () => {
 		await cleanCommand({ force: true, json: true });
 		expect(statSync(activityPath).size).toBeLessThan(originalSize);
 		// SAFETY: JSON mode emitted exactly one console line above.
-		expect(JSON.parse(output.at(-1) as string)).toMatchObject({ total_removed: 2 });
+		expect(JSON.parse(nonNull(output.at(-1)))).toMatchObject({ total_removed: 2 });
 	});
 });

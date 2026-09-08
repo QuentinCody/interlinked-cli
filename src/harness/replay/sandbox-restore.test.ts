@@ -83,7 +83,7 @@ describe("restoreSessionStep", () => {
 });
 
 describe("rebuildReservationCacheAt", () => {
-	function writeLog(dir: string, rows: object[]): void {
+	function writeLog(dir: string, rows: unknown[]): void {
 		const path = join(dir, ".interlinked", "reservation-events.jsonl");
 		mkdirSync(dirname(path), { recursive: true });
 		appendFileSync(path, `${rows.map((r) => JSON.stringify(r)).join("\n")}\n`);
@@ -126,7 +126,7 @@ describe("rebuildReservationCacheAt", () => {
 
 	it("N2: a bare-string JSON line is skipped, not thrown", () => {
 		const dir = fixture();
-		writeLog(dir, ["just-a-string" as unknown as object]);
+		writeLog(dir, ["just-a-string"]);
 		expect(() => rebuildReservationCacheAt(dir, "2026-07-24T23:59:59Z")).not.toThrow();
 		expect(rebuildReservationCacheAt(dir, "2026-07-24T23:59:59Z").size).toBe(0);
 	});

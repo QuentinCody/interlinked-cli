@@ -1,3 +1,4 @@
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 // ===========================================
 // Cross-process project compiler lease
 // ===========================================
@@ -153,7 +154,7 @@ function processIsAlive(pid: number): boolean {
 		process.kill(pid, 0);
 		return true;
 	} catch (error) {
-		return (error as NodeJS.ErrnoException).code === "EPERM";
+		return hasErrorCode(error, "EPERM");
 	}
 }
 
@@ -303,7 +304,7 @@ export function tryAcquireCrossProcessCompilerLease(
 					try {
 						return createLease(projectKey, path, options);
 					} catch (error) {
-						if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+						if (!hasErrorCode(error, "EEXIST")) throw error;
 						if (!reclaimStaleLock(path, options)) return null;
 						options.afterReclaim?.();
 					}

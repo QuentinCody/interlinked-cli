@@ -231,8 +231,8 @@ function buildContext(event: ToolFailureEvent, suggestion?: RecoverySuggestion):
 		error: errorText,
 	};
 	const filePath =
-		event.tool_input && typeof (event.tool_input as { file_path?: unknown }).file_path === "string"
-			? ((event.tool_input as { file_path?: string }).file_path ?? "")
+		event.tool_input && typeof event.tool_input.file_path === "string"
+			? event.tool_input.file_path
 			: "";
 	if (filePath) ctx.file = filePath;
 	applySuggestionExtract(ctx, suggestion, errorText);

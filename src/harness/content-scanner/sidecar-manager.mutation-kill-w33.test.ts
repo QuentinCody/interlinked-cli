@@ -1,6 +1,4 @@
-import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
-import type { ChildProcess } from "node:child_process";
+import { makeSidecarChild } from "./test-sidecar-child.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SidecarManager, type SidecarManagerOptions } from "./sidecar-manager.js";
 
@@ -13,52 +11,7 @@ function must<T>(v: T | undefined): T {
 	return v;
 }
 
-interface FakeChild extends EventEmitter {
-	stdin: PassThrough;
-	stdout: PassThrough;
-	stderr: PassThrough;
-	killed: boolean;
-	pid: number;
-	kill(signal?: string): boolean;
-	respond(obj: Record<string, unknown>): void;
-	exit(code: number | null): void;
-	readonly stdinLines: string[];
-}
-
-function makeFakeChild(pid = 1234): FakeChild {
-	const emitter = new EventEmitter() as FakeChild;
-	emitter.stdin = new PassThrough();
-	emitter.stdout = new PassThrough();
-	emitter.stderr = new PassThrough();
-	emitter.killed = false;
-	emitter.pid = pid;
-
-	const lines: string[] = [];
-	emitter.stdin.on("data", (chunk: Buffer) => {
-		for (const line of chunk.toString().split("\n")) {
-			if (line.length > 0) lines.push(line);
-		}
-	});
-	Object.defineProperty(emitter, "stdinLines", { get: () => lines });
-
-	emitter.respond = (obj) => {
-		emitter.stdout.write(`${JSON.stringify(obj)}\n`);
-	};
-	emitter.exit = (code) => {
-		emitter.killed = true;
-		emitter.emit("exit", code);
-	};
-	emitter.kill = (signal?: string) => {
-		if (!emitter.killed) {
-			emitter.killed = true;
-			queueMicrotask(() => emitter.emit("exit", null));
-		}
-		void signal;
-		return true;
-	};
-
-	return emitter;
-}
+function makeFakeChild(pid = 1234) { return makeSidecarChild(pid); }
 
 function makeOpts(overrides: Partial<SidecarManagerOptions> = {}): SidecarManagerOptions {
 	return {
@@ -89,7 +42,7 @@ describe("SidecarManager — fresh-instance initial field values", () => {
 	// test-contract: invariant — lineBuffer must start empty; a garbage prefix would corrupt the first parsed line.
 	it("delivers the very first response correctly (lineBuffer starts empty)", async () => {
 		const child = makeFakeChild();
-		const spawn = vi.fn(() => child as unknown as ChildProcess);
+		const spawn = vi.fn(() => child);
 		const mgr = new SidecarManager(makeOpts({ spawn }));
 		const p = mgr.send({ op: "ping" });
 		await Promise.resolve();
@@ -103,7 +56,7 @@ describe("SidecarManager — fresh-instance initial field values", () => {
 	// "ready" once the first response actually arrives.
 	it("is not pre-booted: uses startup_timeout_ms and stays pending past scan_timeout_ms on the first call", async () => {
 		const child = makeFakeChild();
-		const spawn = vi.fn(() => child as unknown as ChildProcess);
+		const spawn = vi.fn(() => child);
 		const mgr = new SidecarManager(makeOpts({ spawn, startup_timeout_ms: 500, scan_timeout_ms: 50 }));
 		const p = mgr.send({ op: "ping" });
 		await Promise.resolve();
@@ -129,7 +82,7 @@ describe("SidecarManager — fresh-instance initial field values", () => {
 	// "re-spawning after dormant".
 	it("reports 'starting' (never 'dormant') detail on the very first spawn", async () => {
 		const child = makeFakeChild();
-		const spawn = vi.fn(() => child as unknown as ChildProcess);
+		const spawn = vi.fn(() => child);
 		const mgr = new SidecarManager(makeOpts({ spawn }));
 		void mgr.send({ op: "ping" });
 		await Promise.resolve();
@@ -147,7 +100,7 @@ describe("SidecarManager — dormant flag drives the respawn detail string", () 
 		const spawn = vi.fn(() => {
 			const c = children.shift();
 			if (!c) throw new Error("no more fake children");
-			return c as unknown as ChildProcess;
+			return c;
 		});
 		const mgr = new SidecarManager(makeOpts({ spawn }));
 
@@ -176,7 +129,7 @@ describe("SidecarManager — dormant flag drives the respawn detail string", () 
 		const spawn = vi.fn(() => {
 			const c = children.shift();
 			if (!c) throw new Error("no more fake children");
-			return c as unknown as ChildProcess;
+			return c;
 		});
 		const mgr = new SidecarManager(makeOpts({ spawn }));
 
@@ -202,7 +155,7 @@ describe("SidecarManager — exit code formatting in the dormant detail", () => 
 	// verbatim in the dormant status detail, not coerced to the literal "null".
 	it("reports the real exit code in the dormant detail for a nonzero code", async () => {
 		const child = makeFakeChild();
-		const spawn = vi.fn(() => child as unknown as ChildProcess);
+		const spawn = vi.fn(() => child);
 		const mgr = new SidecarManager(makeOpts({ spawn }));
 		void mgr.send({ op: "ping" });
 		await Promise.resolve();
@@ -220,7 +173,7 @@ describe("SidecarManager — idle timer bookkeeping", () => {
 	// timer, so the net pending-timer count does not grow.
 	it("clears the pending idle timer during shutdown (no leaked timer)", async () => {
 		const child = makeFakeChild();
-		const spawn = vi.fn(() => child as unknown as ChildProcess);
+		const spawn = vi.fn(() => child);
 		const mgr = new SidecarManager(makeOpts({ spawn, idle_shutdown_ms: 5000 }));
 
 		const p = mgr.send({ op: "ping" });
@@ -244,7 +197,7 @@ describe("SidecarManager — idle timer bookkeeping", () => {
 	// otherwise repeated sends leak one idle timer per call.
 	it("clears the previous idle timer before arming a new one on repeated sends", async () => {
 		const child = makeFakeChild();
-		const spawn = vi.fn(() => child as unknown as ChildProcess);
+		const spawn = vi.fn(() => child);
 		const mgr = new SidecarManager(makeOpts({ spawn, idle_shutdown_ms: 5000 }));
 
 		const p1 = mgr.send({ op: "ping" });
@@ -275,8 +228,8 @@ describe("SidecarManager — shutdown reason for a request that outlives gracefu
 		// Simulate an unresponsive child: kill() never causes an "exit" event, so the
 		// exit-handler's own rejectAllPending never runs — only shutdown()'s own
 		// end-of-function rejectAllPending("sidecar shut down") can settle the pending request.
-		child.kill = vi.fn(() => true) as unknown as FakeChild["kill"];
-		const spawn = vi.fn(() => child as unknown as ChildProcess);
+		child.kill = vi.fn(() => true);
+		const spawn = vi.fn(() => child);
 		// startup_timeout_ms must exceed the 1s force-kill window — otherwise the
 		// per-request timer (not shutdown()'s rejectAllPending) settles the promise
 		// first, which is what this test is trying to rule out.

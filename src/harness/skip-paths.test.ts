@@ -8,7 +8,7 @@ function withSkipPaths(skipPaths: string[] | undefined): GuardRulesConfig {
 	// Clone the shipped default and override only the skip_paths slot. Avoids
 	// rebuilding every inner config shape (taint, structural, output_scanning,
 	// ...) and keeps the test honest against the real config surface.
-	const cfg: GuardRulesConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+	const cfg = structuredClone(DEFAULT_CONFIG);
 	if (skipPaths === undefined) {
 		delete cfg.skip_paths;
 	} else {
@@ -65,7 +65,7 @@ describe("shouldSkipPath", () => {
 	it("matches a path against the shipped DEFAULT_CONFIG.skip_paths", () => {
 		_resetGlobCache();
 		// Use the actual shipped defaults (no override) and verify dist/** hits.
-		const cfg: GuardRulesConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+		const cfg = structuredClone(DEFAULT_CONFIG);
 		expect(shouldSkipPath("dist/index.js", cfg)).toBe(true);
 		expect(shouldSkipPath("src/lib/foo.ts", cfg)).toBe(false);
 	});

@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Coverage for the production DEFAULT_DEPS wiring in commit-gate.ts (the
 // `deps` parameter's default value) — `defaultCyclomaticFor`, its
 // `runnerFor`/`readFile` closures, none of which any other commit-gate test
@@ -49,8 +50,8 @@ function git(cwd: string, args: string[]): void {
 }
 
 function rules(overrides?: Partial<NonNullable<GuardRulesConfig["per_edit_coverage"]>>): GuardRulesConfig {
-	return {
-		per_edit_coverage: {
+	return ({ ...makeGuardRules(),
+		per_edit_coverage: { ...({ enabled: false, mode: "block", budget_ms: 25_000, languages: [] } satisfies NonNullable<GuardRulesConfig["per_edit_coverage"]>),
 			enabled: true,
 			mode: "block",
 			budget_ms: 25_000,
@@ -59,7 +60,7 @@ function rules(overrides?: Partial<NonNullable<GuardRulesConfig["per_edit_covera
 			block_on_crap: true,
 			...overrides,
 		},
-	} as unknown as GuardRulesConfig;
+	} satisfies GuardRulesConfig);
 }
 
 function commitEvent(cwd: string, command = 'git commit -m "test commit"'): HarnessEvent {

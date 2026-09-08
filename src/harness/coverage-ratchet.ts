@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
 import type { CoverageRatchetConfig } from "./check-policy.js";
+import { isFileCoverageEntry } from "./coverage-report-values.js";
 import { detectPartialReport, type PartialReportVerdict } from "./coverage-partial-report.js";
 
 export type { PartialReportVerdict } from "./coverage-partial-report.js";
@@ -43,9 +44,7 @@ export interface CoverageSummary {
 }
 
 export interface FileCoverageEntry {
-	// `lines`/`branches` come off a JSON coverage-summary report read from disk
-	// (`loadCoverageSummary` casts the parsed JSON with `as CoverageSummary`),
-	// so a partial/hand-authored report can omit either key at runtime.
+	// Partial reports can omit individual metrics; present metrics are validated on load.
 	lines?: CoverageMetric;
 	statements?: CoverageMetric;
 	functions?: CoverageMetric;
@@ -161,9 +160,13 @@ export function saveBaseline(interlinkedDir: string, baseline: CoverageBaseline)
 export function loadCoverageSummary(summaryPath: string): CoverageSummary | null {
 	if (!existsSync(summaryPath)) return null;
 	try {
-		const raw = JSON.parse(readFileSync(summaryPath, "utf-8"));
-		if (!raw || typeof raw !== "object") return null;
-		return raw as CoverageSummary;
+		const raw: unknown = JSON.parse(readFileSync(summaryPath, "utf-8"));
+		if (!isJsonObject(raw)) return null;
+		const summary: CoverageSummary = {};
+		for (const [file, value] of Object.entries(raw)) {
+			if (isFileCoverageEntry(value)) summary[file] = value;
+		}
+		return summary;
 	} catch {
 		return null;
 	}

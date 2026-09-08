@@ -42,10 +42,10 @@ describe("installHooks", () => {
 		expect(nonNull(result.entries[0]).runner).toBe("claude-code");
 		expect(result.manifest_path).toBe(manifestPath(tmp));
 
-		const claudeSettings = JSON.parse(
+		const claudeSettings: unknown = JSON.parse(
 			readFileSync(join(tmp, ".claude", "settings.json"), "utf-8"),
-		) as { hooks: Record<string, unknown[]> };
-		expect(Array.isArray(claudeSettings.hooks.PreToolUse)).toBe(true);
+		);
+		expect(claudeSettings).toHaveProperty(["hooks", "PreToolUse"], expect.any(Array));
 
 		const manifest = readManifest(manifestPath(tmp));
 		expect(manifest.length).toBe(1);

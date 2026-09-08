@@ -7,6 +7,7 @@
 // dependencies.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseWire, wireString } from "../lib/value-validation.js";
 
 const mocks = vi.hoisted(() => ({
 	existsSync: vi.fn(),
@@ -96,7 +97,7 @@ describe("harnessStopCommand", () => {
 	it("emits the JSON shape under --json", async () => {
 		mocks.stopAllDaemons.mockResolvedValue({ stopped: [123], survived: [] });
 		await harnessStopCommand({ json: true });
-		const printed = JSON.parse((logSpy.mock.calls[0] as [string])[0]);
+		const printed = JSON.parse(parseWire(logSpy.mock.calls[0]?.[0], wireString, "stop command output"));
 		expect(printed).toEqual({ status: "stopped", pids: [123], survived: [] });
 	});
 
@@ -157,7 +158,7 @@ describe("harnessTestCommand", () => {
 			warnings: ["json warning"],
 		});
 		await harnessTestCommand("ls", { json: true });
-		const printed = JSON.parse((logSpy.mock.calls[0] as [string])[0]);
+		const printed = JSON.parse(parseWire(logSpy.mock.calls[0]?.[0], wireString, "stop command output"));
 		expect(printed).toEqual({
 			decision: "block",
 			reason: "json reason",

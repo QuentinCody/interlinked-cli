@@ -211,9 +211,9 @@ function filterComplexFnsToEdit(
 	let filtered = false;
 	let result = complexFns;
 	// Strategy 1: Edit-region intersection (Edit tool with old_string/new_string)
-	if (event.tool_input?.old_string) {
-		const newStr = (event.tool_input.new_string as string) || "";
-		const oldStr = event.tool_input.old_string as string;
+	if (typeof event.tool_input?.old_string === "string" && event.tool_input.old_string.length > 0) {
+		const newStr = (typeof event.tool_input.new_string === "string" ? event.tool_input.new_string : "");
+		const oldStr = event.tool_input.old_string;
 		// Post-edit file has new_string, not old_string — use new_string for lookup
 		const lookupStr = newStr || oldStr;
 		const idx = fileContent.indexOf(lookupStr);

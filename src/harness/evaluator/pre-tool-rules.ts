@@ -8,6 +8,7 @@
 // `HarnessDecision` to short-circuit (the orchestrator returns it immediately)
 // or `null` to continue. Control-flow order is preserved exactly.
 
+import { readToolString } from "./tool-input-values.js";
 import type { JsonObject } from "../../lib/json-types.js";
 import {
 	applyRewrite,
@@ -359,7 +360,7 @@ export function evaluateDestructiveRules(
 ): HarnessDecision | null {
 	const toolName = event.tool_name || "";
 	const toolInput = event.tool_input || {};
-	const cmd = (toolInput.command as string) || "";
+	const cmd = readToolString(toolInput.command);
 	// Plan 01 §1.3 keyword-quick-reject — pre-filter rules against the
 	// command's tokenized words so platform-specific rules (`kubectl`,
 	// `terraform`, etc.) don't run their regex on every Bash call. Rules

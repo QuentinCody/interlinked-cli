@@ -6,7 +6,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import {
 	resolveStructureConfig,
 	validateArtifactFile,
@@ -54,13 +54,13 @@ export function loadStructureConfig(repoRoot: string): LoadStructureResult {
 
 	// Validate structure
 	const validation = validateStructureJson(data);
-	if (!validation.valid) {
+	if (!validation.valid || !isJsonObject(data)) {
 		const errors = validation.errors.map((e) => `${e.path}: ${e.message}`);
 		return { config: null, errors, implicit: false };
 	}
 
 	// Resolve with mode defaults
-	const config = resolveStructureConfig(data as JsonObject);
+	const config = resolveStructureConfig(data);
 
 	// Check declared file paths exist
 	const pathErrors = validateDeclaredPaths(config, repoRoot);
@@ -105,12 +105,12 @@ export function loadArtifactFile(
 	}
 
 	const validation = validateArtifactFile(key, parsed);
-	if (!validation.valid) {
+	if (!validation.valid || !isJsonObject(parsed)) {
 		const errors = validation.errors.map((e) => `${e.path}: ${e.message}`);
 		return { data: null, errors };
 	}
 
-	return { data: parsed as JsonObject, errors: [] };
+	return { data: parsed, errors: [] };
 }
 
 // -------------------------------------------

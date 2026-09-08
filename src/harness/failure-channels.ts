@@ -246,9 +246,9 @@ function formatTriageLine(triage: TriageResult): string | null {
 }
 
 function extractFilePath(event: HarnessEvent): string | null {
-	const fp = event.tool_input?.file_path as string | undefined;
+	const fp = event.tool_input?.file_path;
 	if (typeof fp === "string" && fp) return fp;
-	const path = event.tool_input?.path as string | undefined;
+	const path = event.tool_input?.path;
 	if (typeof path === "string" && path) return path;
 	return null;
 }

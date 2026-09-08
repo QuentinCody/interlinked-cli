@@ -13,7 +13,7 @@
 // missing); callers fail-open in that case so the gate doesn't suppress
 // real persistence nags when line data is unavailable.
 
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 
 const TOOL_WRITE = "Write" as const;
 const TOOL_EDIT = "Edit" as const;
@@ -58,12 +58,12 @@ export function deriveEditedLineNumbers(
  * array or no edit was located.
  */
 function editedLinesForMultiEdit(toolInput: JsonObject, postEditContent: string): Set<number> | undefined {
-	const editsRaw = (toolInput as { edits?: unknown }).edits;
+	const editsRaw = toolInput.edits;
 	if (!Array.isArray(editsRaw)) return undefined;
 	const all = new Set<number>();
 	for (const edit of editsRaw) {
-		if (typeof edit !== "object" || edit === null) continue;
-		const newString = readString(edit as JsonObject, "new_string");
+		if (!isJsonObject(edit)) continue;
+		const newString = readString(edit, "new_string");
 		if (newString === undefined) continue;
 		for (const line of linesContainingNeedle(postEditContent, newString)) {
 			all.add(line);

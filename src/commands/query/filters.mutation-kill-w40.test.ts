@@ -128,6 +128,10 @@ describe("recordTimestampMs — string-only guard", () => {
 	it("rejects a non-string ts field even when it would stringify to a parseable date", () => {
 		const d = new Date("2026-07-24T00:00:00Z");
 		// SAFETY: deliberately passing a non-string ts to exercise the runtime typeof guard.
-		expect(recordTimestampMs({ ts: d } as unknown as Record<string, unknown>)).toBeUndefined();
+		expect(recordTimestampMs({ ts: d })).toBeUndefined();
+		// Pin the non-default outcome in the same block: a string ts with the SAME
+		// wall-clock instant must resolve, ruling out a stub that always returns
+		// undefined regardless of the value's type.
+		expect(recordTimestampMs({ ts: d.toISOString() })).toBe(Date.parse("2026-07-24T00:00:00Z"));
 	});
 });

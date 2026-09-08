@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Tests for delta-based assertion-density detection: `countAssertions`
 // (block/assertion counting incl. named node:assert import credit) and
 // `checkAssertionDensity` (the session-delta behavioral check built on it).
@@ -14,9 +15,9 @@ import type { AssertionCounts, SessionTrajectory } from "./types.js";
 function session(seed: Array<[string, AssertionCounts]> = []): SessionTrajectory {
 	// SAFETY: checkAssertionDensity reads/writes only `assertion_counts`;
 	// a full SessionTrajectory would add ~40 irrelevant fields.
-	return {
+	return ({ ...completeSessionFixture(), ...{
 		assertion_counts: new Map(seed),
-	} as unknown as SessionTrajectory;
+	} });
 }
 
 describe("countAssertions", () => {

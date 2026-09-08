@@ -3,6 +3,7 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
+import { hasErrorCode } from "../tool-errors.js";
 import { relative, resolve } from "node:path";
 import {
 	filterResultsToFile,
@@ -35,7 +36,7 @@ export function runMypy(input: ToolRunnerInput): CheckResult[] {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		// Exit 0 = success, exit 1 = type errors found
@@ -136,7 +137,7 @@ export function runRuff(input: ToolRunnerInput): CheckResult[] {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		// Exit 0 = clean, exit 1 = violations found, exit >= 2 = ruff itself errored.
@@ -203,7 +204,7 @@ export function runRuffFormat(input: ToolRunnerInput): CheckResult[] {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		// Exit 0 = already formatted, exit 1 = would reformat, exit >= 2 = error.

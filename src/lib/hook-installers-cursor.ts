@@ -14,10 +14,10 @@
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { buildHookCommand, isPlainObject } from "./hook-installers-shared.js";
+import { buildHookCommand, hookEventEntries, isPlainObject } from "./hook-installers-shared.js";
 import { isInterlinkedHookEntry } from "./hook-ownership.js";
 import { CLIENT_CURSOR, INTERLINKED_MARKER } from "./hook-types.js";
-import { nonNull } from "./non-null.js";
+import type { JsonObject } from "./json-types.js";
 
 // Cursor IDE hook events. Cursor exposes the richest hook surface of the
 // supported clients (per https://cursor.com/docs/hooks): per-tool gates
@@ -94,7 +94,7 @@ interface CursorHookEntry {
 
 interface CursorConfig {
 	version: number;
-	hooks: Record<string, CursorHookEntry[]>;
+	hooks: JsonObject;
 }
 
 // `.cursor/hooks.json` is user/editor-authored disk state, not something we
@@ -119,14 +119,14 @@ function parseCursorHookEntry(raw: unknown): CursorHookEntry | null {
 function parseCursorConfigShape(raw: unknown): CursorConfig | null {
 	if (!isPlainObject(raw)) return null;
 	const rawHooks = isPlainObject(raw.hooks) ? raw.hooks : {};
-	const hooks: Record<string, CursorHookEntry[]> = {};
+	const hooks: JsonObject = {};
 	for (const [eventName, entries] of Object.entries(rawHooks)) {
 		if (!Array.isArray(entries)) {
 			// A non-array value under a hook event key is malformed input we
 			// don't own the shape of — preserve it untouched rather than
 			// dropping it. Both call sites already guard with
 			// `Array.isArray(entries)` before treating this as hook entries.
-			(hooks as Record<string, unknown>)[eventName] = entries;
+			hooks[eventName] = entries;
 			continue;
 		}
 		hooks[eventName] = entries
@@ -152,12 +152,13 @@ function safeReadCursorConfig(path: string): CursorConfig | null {
 // fail-closed posture: refresh our existing entry if there is one, otherwise
 // append a fresh entry.
 function upsertCursorHookEntry(
-	entries: CursorHookEntry[],
+	entries: unknown[],
 	eventName: string,
 	hookCommand: string,
 ): void {
 	const expectedFailClosed = CURSOR_FAIL_CLOSED_EVENTS.has(eventName);
-	const existing = entries.find((e) => e.command.includes(INTERLINKED_MARKER));
+	const existing = entries.filter(isPlainObject).find((entry) =>
+		typeof entry.command === "string" && entry.command.includes(INTERLINKED_MARKER));
 	if (!existing) {
 		const entry: CursorHookEntry = { command: hookCommand, type: "command" };
 		if (expectedFailClosed) {
@@ -197,8 +198,7 @@ export function installCursorHooks(cwd: string, hookScriptPath: string): void {
 	const config = safeReadCursorConfig(hooksPath) || { version: 1, hooks: {} };
 
 	for (const eventName of CURSOR_HOOK_EVENTS) {
-		if (!config.hooks[eventName]) config.hooks[eventName] = [];
-		upsertCursorHookEntry(config.hooks[eventName], eventName, hookCommand);
+		upsertCursorHookEntry(hookEventEntries(config.hooks, eventName), eventName, hookCommand);
 	}
 
 	config.version = 1;
@@ -217,7 +217,8 @@ function pruneAndPersistCursorConfig(hooksPath: string, config: CursorConfig): v
 	}
 	// Drop empty arrays so the file is minimal post-uninstall.
 	for (const k of Object.keys(config.hooks)) {
-		if (nonNull(config.hooks[k]).length === 0) delete config.hooks[k];
+		const entries = config.hooks[k];
+		if (Array.isArray(entries) && entries.length === 0) delete config.hooks[k];
 	}
 	writeFileSync(hooksPath, `${JSON.stringify(config, null, 2)}\n`);
 }

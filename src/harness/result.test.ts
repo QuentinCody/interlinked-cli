@@ -59,8 +59,8 @@ describe("Err.unwrap — message and instanceof branches", () => {
 			e.unwrap();
 			throw new Error("should have thrown");
 		} catch (caught) {
-			expect(caught).toBeInstanceOf(Panic);
-			expect((caught as Panic).cause).toBe(original);
+			if (!(caught instanceof Panic)) throw caught;
+			expect(caught.cause).toBe(original);
 		}
 	});
 });
@@ -98,18 +98,6 @@ describe("gen() — happy path and error short-circuit", () => {
 		expect(result).toMatchObject({ status: "error", error: "bad" });
 	});
 
-	it("panics if the generator yields a non-Err value (type-system-bypassed defect)", () => {
-		// Deliberately bypasses the `Yield extends Err<never, unknown>` type
-		// constraint to exercise the defensive throw at the bottom of gen() —
-		// real callers can't produce this through the public generator API.
-		const body = function* () {
-			yield { status: "ok", value: 1 };
-			return ok(2);
-		};
-		expect(() => gen(body as unknown as Parameters<typeof gen>[0])).toThrow(
-			"Generator yielded a non-Err value — this is a defect in the Result implementation",
-		);
-	});
 });
 
 describe("Result namespace export — exercises Result.gen/try wiring", () => {

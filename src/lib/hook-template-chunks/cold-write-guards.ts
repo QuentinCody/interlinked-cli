@@ -98,13 +98,9 @@ function cwgIsWriteTool(toolName: string): boolean {
 function cwgDirectPaths(toolInput: ColdWriteToolInput | null | undefined): string[] {
 	const paths: string[] = [];
 	if (!toolInput) return paths;
-	const keys = ["file_path", "filePath", "path", "target_file"];
-	// SAFETY: every key read here is declared optional-unknown on
-	// ColdWriteToolInput; the index widening only drops the key-name literal
-	// union, and the value is type-narrowed by the typeof check below.
-	const bag = toolInput as Record<string, unknown>;
+	const keys = ["file_path", "filePath", "path", "target_file"] as const;
 	for (const key of keys) {
-		const v = bag[key];
+		const v = toolInput[key];
 		if (typeof v === "string" && v.trim() !== "") paths.push(v.trim());
 	}
 	return paths;
@@ -160,12 +156,8 @@ function cwgWriteContent(toolInput: ColdWriteToolInput | null | undefined): stri
 function cwgEditsContent(edits: unknown[]): string {
 	const parts: string[] = [];
 	for (const e of edits) {
-		if (!e || typeof e !== "object") continue;
-		// SAFETY: the entry is a runtime-checked non-null object of unknown
-		// shape; the index read is guarded by the typeof check on the value.
-		// No backticks in any comment inside a serialized body — the source is
-		// spliced into a backtick template literal.
-		const ns = (e as Record<string, unknown>).new_string;
+		if (!e || typeof e !== "object" || !("new_string" in e)) continue;
+		const ns = e.new_string;
 		if (typeof ns === "string") parts.push(ns);
 	}
 	return parts.join("\n");

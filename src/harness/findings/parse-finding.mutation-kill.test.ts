@@ -48,7 +48,7 @@ const row: Finding = {
  *  the `!== undefined` ternary-inclusion mutants in provenanceExtras. */
 const fullProv = {
 	...prov,
-	lines: [10, 20] as [number, number],
+	lines: [10, 20],
 	is_outdated: true,
 	is_resolved: false,
 	enriched_fields: ["migrated"],

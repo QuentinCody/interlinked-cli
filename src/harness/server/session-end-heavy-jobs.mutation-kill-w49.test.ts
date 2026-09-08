@@ -1,3 +1,7 @@
+import { makeEvent as makeEventFixture } from "../__tests__/fixtures/evaluator.js";
+import { nonNull } from "../../lib/non-null.js";
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import type { SpawnOptions } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import { dirname, join } from "node:path";
@@ -24,16 +28,16 @@ function makePlan(overrides: Partial<ResourcePlan> = {}): ResourcePlan {
 }
 
 function makeCtx(cwd: string, logs: string[]): ServerRuntime {
-	return {
+	return makeServerRuntime({
 		cwd,
 		log: (msg: string) => {
 			logs.push(msg);
 		},
-	} as unknown as ServerRuntime;
+	});
 }
 
 function makeEvent(sessionId: string): HarnessEvent {
-	return { session_id: sessionId } as unknown as HarnessEvent;
+	return makeEventFixture({ session_id: sessionId });
 }
 
 describe("heavyJobReportPath — positive (must fire)", () => {
@@ -72,7 +76,7 @@ describe("heavyJobReportPath — positive (must fire)", () => {
 describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 	let tmpCwd: string;
 	let logs: string[];
-	let spawnCalls: Array<{ file: string; args: string[]; options: Record<string, unknown> }>;
+	let spawnCalls: Array<{ file: string; args: string[]; options: SpawnOptions }>;
 	let fakeChildren: Array<{ on: ReturnType<typeof vi.fn>; unref: ReturnType<typeof vi.fn> }>;
 
 	beforeEach(() => {
@@ -90,18 +94,18 @@ describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 		return require("node:fs").mkdtempSync(join(os.tmpdir(), "heavy-jobs-w49-"));
 	}
 
-	function fakeSpawn(file: string, args: string[], options: Record<string, unknown>) {
+	function fakeSpawn(file: string, args: string[], options: SpawnOptions) {
 		spawnCalls.push({ file, args, options });
 		const child = { on: vi.fn(), unref: vi.fn() };
 		fakeChildren.push(child);
-		return child as unknown as ReturnType<typeof import("node:child_process").spawn>;
+		return child;
 	}
 
 	it("P1: spawns the fuzz-smoke job with the exact npx vitest args and 500 numRuns env", () => {
 		const plan = makePlan();
 		const event = makeEvent("sess-1");
 		runSessionEndHeavyJobs(makeCtx(tmpCwd, logs), event, plan, {
-			spawn: fakeSpawn as unknown as typeof import("node:child_process").spawn,
+			spawn: fakeSpawn,
 		});
 
 		const reportPath = heavyJobReportPath(tmpCwd, "fuzz", "sess-1");
@@ -115,17 +119,17 @@ describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 			"--reporter=json",
 			`--outputFile=${reportPath}`,
 		]);
-		expect((fuzzCall?.options.env as Record<string, string>).INTERLINKED_PROPERTY_NUMRUNS).toBe("500");
+		expect(fuzzCall?.options).toHaveProperty(["env","INTERLINKED_PROPERTY_NUMRUNS"], "500");
 	});
 
 	it("P2: merges process.env into the fuzz-smoke child env (inherits PATH), not replacing it", () => {
 		process.env.HEAVY_JOBS_TEST_MARKER = "marker-value";
 		const plan = makePlan();
 		runSessionEndHeavyJobs(makeCtx(tmpCwd, logs), makeEvent("sess-2"), plan, {
-			spawn: fakeSpawn as unknown as typeof import("node:child_process").spawn,
+			spawn: fakeSpawn,
 		});
 		const fuzzCall = spawnCalls.find((c) => c.args.includes("run"));
-		const env = fuzzCall?.options.env as Record<string, string>;
+		const env = nonNull(fuzzCall?.options.env);
 		expect(env.HEAVY_JOBS_TEST_MARKER).toBe("marker-value");
 		delete process.env.HEAVY_JOBS_TEST_MARKER;
 	});
@@ -133,7 +137,7 @@ describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 	it("P3: spawns with detached true, stdio ignore, and cwd set to ctx.cwd", () => {
 		const plan = makePlan();
 		runSessionEndHeavyJobs(makeCtx(tmpCwd, logs), makeEvent("sess-3"), plan, {
-			spawn: fakeSpawn as unknown as typeof import("node:child_process").spawn,
+			spawn: fakeSpawn,
 		});
 		const fuzzCall = spawnCalls.find((c) => c.args.includes("run"));
 		expect(fuzzCall?.options.cwd).toBe(tmpCwd);
@@ -146,7 +150,7 @@ describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 		const reportPath = heavyJobReportPath(tmpCwd, "fuzz", "sess-4");
 		expect(existsSync(dirname(reportPath))).toBe(false);
 		runSessionEndHeavyJobs(makeCtx(tmpCwd, logs), makeEvent("sess-4"), plan, {
-			spawn: fakeSpawn as unknown as typeof import("node:child_process").spawn,
+			spawn: fakeSpawn,
 		});
 		expect(existsSync(dirname(reportPath))).toBe(true);
 	});
@@ -154,7 +158,7 @@ describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 	it("P5: registers an 'error' listener on the spawned child (not some other event name)", () => {
 		const plan = makePlan();
 		runSessionEndHeavyJobs(makeCtx(tmpCwd, logs), makeEvent("sess-5"), plan, {
-			spawn: fakeSpawn as unknown as typeof import("node:child_process").spawn,
+			spawn: fakeSpawn,
 		});
 		const child = fakeChildren[0];
 		expect(child).toBeDefined();
@@ -164,7 +168,7 @@ describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 	it("P6: logs the job name and background flag on successful spawn", () => {
 		const plan = makePlan({ background: true });
 		runSessionEndHeavyJobs(makeCtx(tmpCwd, logs), makeEvent("sess-6"), plan, {
-			spawn: fakeSpawn as unknown as typeof import("node:child_process").spawn,
+			spawn: fakeSpawn,
 		});
 		expect(logs.some((l) => l.includes("fuzz-smoke") && l.includes("spawned") && l.includes("bg=true"))).toBe(
 			true,
@@ -175,7 +179,7 @@ describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 		mkdirSync(join(tmpCwd, "bench"), { recursive: true });
 		const plan = makePlan();
 		runSessionEndHeavyJobs(makeCtx(tmpCwd, logs), makeEvent("sess-7"), plan, {
-			spawn: fakeSpawn as unknown as typeof import("node:child_process").spawn,
+			spawn: fakeSpawn,
 		});
 		const benchReportPath = heavyJobReportPath(tmpCwd, "bench", "sess-7");
 		const benchCall = spawnCalls.find((c) => c.args.includes("bench"));
@@ -189,7 +193,7 @@ describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 		mkdirSync(join(tmpCwd, "bench"), { recursive: true });
 		const plan = makePlan();
 		runSessionEndHeavyJobs(makeCtx(tmpCwd, logs), makeEvent("sess-8"), plan, {
-			spawn: fakeSpawn as unknown as typeof import("node:child_process").spawn,
+			spawn: fakeSpawn,
 		});
 		const benchCall = spawnCalls.find((c) => c.args.includes("bench"));
 		expect(benchCall?.options.env).toBeUndefined();
@@ -202,7 +206,7 @@ describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 		};
 		expect(() =>
 			runSessionEndHeavyJobs(makeCtx(tmpCwd, logs), makeEvent("sess-9"), plan, {
-				spawn: throwingSpawn as unknown as typeof import("node:child_process").spawn,
+				spawn: throwingSpawn,
 			}),
 		).not.toThrow();
 	});

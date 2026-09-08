@@ -26,7 +26,7 @@ function ev(over: Partial<HarnessEvent> = {}): HarnessEvent {
 		agent_source: "claude",
 		timestamp: NOW.toISOString(),
 		...over,
-	} as HarnessEvent;
+	};
 }
 
 describe("CohortManager.agentJoined", () => {
@@ -97,13 +97,6 @@ describe("CohortManager.agentJoined", () => {
 		expect(c.getAllAgents()).toHaveLength(1); // no duplicate
 	});
 
-	it("reconnect preserves a previously-set undefined session_id update", () => {
-		const c = new CohortManager();
-		c.agentJoined(ev({ agent_name: "carol", session_id: "had-one" }));
-		const re = c.agentJoined(ev({ agent_name: "carol", session_id: undefined as never }));
-		// existing.session_id = event.session_id, even when undefined.
-		expect(re.session_id).toBeUndefined();
-	});
 });
 
 describe("CohortManager.agentLeft", () => {

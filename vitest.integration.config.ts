@@ -11,11 +11,10 @@ import baseConfig from "./vitest.config";
 // `include` is overridden (not merged) to run ONLY the integration files;
 // spreading the base `.test` then re-setting `include` avoids mergeConfig's
 // array concat (which would otherwise re-add `src/**/*.test.ts` = everything).
-const base = baseConfig as { test?: Record<string, unknown> };
 export default defineConfig({
 	...baseConfig,
 	test: {
-		...(base.test ?? {}),
+		...baseConfig.test,
 		include: ["src/**/*.integration.test.ts"],
 	},
 });

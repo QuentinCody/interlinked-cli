@@ -48,10 +48,10 @@ describe("MCP recorder writer", () => {
 
         const path = getMcpEventsPath(tmp);
         const line = readFileSync(path, "utf-8").trim();
-        const parsed = JSON.parse(line) as McpEventRecord;
-        expect(parsed.schema).toBe("mcp-events.v1");
-        expect(parsed.method).toBe("tools/list");
-        expect(parsed.payload).toEqual({ ok: true });
+        const parsed: unknown = JSON.parse(line);
+        expect(parsed).toHaveProperty("schema", "mcp-events.v1");
+        expect(parsed).toHaveProperty("method", "tools/list");
+        expect(parsed).toHaveProperty("payload", { ok: true });
     });
 
     it("stores large payloads as SHA-256 blobs while preserving a complete reference", () => {
@@ -70,4 +70,3 @@ describe("MCP recorder writer", () => {
         expect(readFileSync(blobPath, "utf-8")).toContain("x".repeat(50));
     });
 });
-

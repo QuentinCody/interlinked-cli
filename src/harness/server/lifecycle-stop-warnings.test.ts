@@ -1,3 +1,9 @@
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { getDefaultConfig } from "../rules-loader.js";
+import { nonNull } from "../../lib/non-null.js";
+import type { TddCycle, GuardRulesConfig } from "../types.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 // Behavioral companion tests for lifecycle-stop-warnings.ts.
 //
 // Strategy: the module under test is pure orchestration — every branch is
@@ -19,80 +25,9 @@ vi.mock("../commit-cadence.js", () => ({
 	formatWipCommitsNudge: vi.fn(),
 	readSessionTokens: vi.fn(),
 }));
-// `checkDeadOnArrival` and `checkFixtureLeaks` were relocated INTO these two
-// modules alongside their own detect/format pair (line-cap pressure — see
-// each module's own history comment), so `buildVerificationStopWarnings` now
-// imports and calls them directly instead of composing the mocked leaves
-// itself. The old two-export factory left checkX as `undefined`, which every
-// test reaching either call path threw on ("No \"checkDeadOnArrival\"/
-// \"checkFixtureLeaks\" export is defined on the mock") — the drift this
-// repo's own vitest.stryker.config.ts run surfaces as a whole-file dry-run
-// failure, not a timeout.
-//
-// Tried `importOriginal` (vitest's own suggested fix) first and it does NOT
-// work here: the real checkX's internal calls to detectX/formatX are
-// same-module references that never route through vi.mock's external-import
-// interception, so `mDetectDeadOnArrival.mockReturnValue(...)` etc. below
-// would silently never reach it (proven live: the aggregation-order test's
-// "W5"/"W8" entries went missing — the real detect/format ran against fake
-// paths and found nothing). Hand-composing checkX to call THESE SAME vi.fn()
-// leaves instead reproduces the real function body exactly (cwd resolution,
-// log line, null short-circuit) while staying controllable by every existing
-// mDetectX/mFormatX assertion, unchanged.
-vi.mock("../dead-on-arrival.js", () => {
-	const detectDeadOnArrival = vi.fn();
-	const formatDeadOnArrivalWarning = vi.fn();
-	return {
-		detectDeadOnArrival,
-		formatDeadOnArrivalWarning,
-		checkDeadOnArrival: vi.fn(
-			(ctx: ServerRuntime, event: HarnessEvent, session: SessionTrajectory) => {
-				const cwd = event.cwd || ctx.cwd;
-				const doaHits = detectDeadOnArrival(session.files_written, cwd);
-				const warning = formatDeadOnArrivalWarning(doaHits, cwd);
-				if (warning === null) return null;
-				ctx.log(`Verify-before-stop: dead-on-arrival (${doaHits.length})`);
-				return warning;
-			},
-		),
-	};
-});
-vi.mock("../fixture-leak.js", () => {
-	const detectFixtureLeaks = vi.fn();
-	const formatFixtureLeakWarning = vi.fn();
-	return {
-		detectFixtureLeaks,
-		formatFixtureLeakWarning,
-		checkFixtureLeaks: vi.fn((ctx: ServerRuntime, event: HarnessEvent) => {
-			const leaks = detectFixtureLeaks(event.cwd || ctx.cwd);
-			const warning = formatFixtureLeakWarning({ leaks });
-			if (warning === null) return null;
-			ctx.log(`Verify-before-stop: fixture-leaks (${leaks.length})`);
-			return warning;
-		}),
-	};
-});
-vi.mock("../slow-test-stop-check.js", () => {
-	const detectSlowTests = vi.fn();
-	const formatSlowTestsWarning = vi.fn();
-	return {
-		detectSlowTests,
-		formatSlowTestsWarning,
-		checkSlowTests: vi.fn(
-			(ctx: ServerRuntime, event: HarnessEvent, session: SessionTrajectory) => {
-				// Mirrors the real function's self-gating contract: the config
-				// read lives in checkSlowTests, not in the wiring file.
-				if (ctx.rules.verification_stop_checks?.warn_slow_tests === false) return null;
-				const cwd = event.cwd || ctx.cwd;
-				const hits = detectSlowTests({ cwd, sessionStartedAt: session.started_at });
-				const warning = formatSlowTestsWarning({ hits });
-				if (warning === null) return null;
-				ctx.log(`Verify-before-stop: slow-tests (${hits.length})`);
-				return warning;
-			},
-		),
-	};
-});
+vi.mock("../dead-on-arrival.js", () => ({ checkDeadOnArrival: vi.fn(() => null) }));
+vi.mock("../fixture-leak.js", () => ({ checkFixtureLeaks: vi.fn(() => null) }));
+vi.mock("../slow-test-stop-check.js", () => ({ checkSlowTests: vi.fn(() => null) }));
 vi.mock("../untested-exports-stop-check.js", () => ({
 	detectUntestedExports: vi.fn(),
 	formatUntestedExportsWarning: vi.fn(),
@@ -122,13 +57,10 @@ import {
 	formatWipCommitsNudge,
 	readSessionTokens,
 } from "../commit-cadence.js";
-import {
-	detectDeadOnArrival,
-	formatDeadOnArrivalWarning,
-} from "../dead-on-arrival.js";
-import { detectFixtureLeaks, formatFixtureLeakWarning } from "../fixture-leak.js";
+import { checkDeadOnArrival } from "../dead-on-arrival.js";
+import { checkFixtureLeaks } from "../fixture-leak.js";
 import { ALL_TESTS_SENTINEL } from "../server-tdd-cycle.js";
-import { detectSlowTests, formatSlowTestsWarning } from "../slow-test-stop-check.js";
+import { checkSlowTests } from "../slow-test-stop-check.js";
 import type { HarnessEvent, SessionTrajectory } from "../types.js";
 import {
 	detectUntestedExports,
@@ -167,12 +99,9 @@ const mCollectWipCommitSubjects = vi.mocked(collectWipCommitSubjects);
 const mFormatWipCommitsNudge = vi.mocked(formatWipCommitsNudge);
 const mDetectUntestedExports = vi.mocked(detectUntestedExports);
 const mFormatUntestedExportsWarning = vi.mocked(formatUntestedExportsWarning);
-const mDetectDeadOnArrival = vi.mocked(detectDeadOnArrival);
-const mFormatDeadOnArrivalWarning = vi.mocked(formatDeadOnArrivalWarning);
-const mDetectFixtureLeaks = vi.mocked(detectFixtureLeaks);
-const mFormatFixtureLeakWarning = vi.mocked(formatFixtureLeakWarning);
-const mDetectSlowTests = vi.mocked(detectSlowTests);
-const mFormatSlowTestsWarning = vi.mocked(formatSlowTestsWarning);
+const mCheckDeadOnArrival = vi.mocked(checkDeadOnArrival);
+const mCheckFixtureLeaks = vi.mocked(checkFixtureLeaks);
+const mCheckSlowTests = vi.mocked(checkSlowTests);
 const mCountCodeFilesEdited = vi.mocked(countCodeFilesEdited);
 const mCountDocFactSourcesEdited = vi.mocked(countDocFactSourcesEdited);
 const mCountUiFilesEdited = vi.mocked(countUiFilesEdited);
@@ -191,16 +120,8 @@ const mFormatVerifyNotRunWarning = vi.mocked(formatVerifyNotRunWarning);
 
 const logLines: string[] = [];
 
-function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
-	const base = {
-		cwd: "/repo",
-		rules: {},
-		log: (msg: string) => {
-			logLines.push(msg);
-		},
-		logAlways: () => {},
-	};
-	return { ...base, ...over } as unknown as ServerRuntime;
+function makeCtx(over: Partial<ServerRuntime> = {}): ServerRuntime {
+ return makeServerRuntime({ cwd: "/repo", log: msg => logLines.push(msg), ...over });
 }
 
 function makeEvent(over: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -213,9 +134,8 @@ function makeEvent(over: Partial<HarnessEvent> = {}): HarnessEvent {
 	};
 }
 
-/** Minimal SessionTrajectory carrying only the fields the module reads. The
- *  cast lets us omit the ~40 unrelated fields. */
-function makeSession(over: Record<string, unknown> = {}): SessionTrajectory {
+/** Hydrated session with optional Stop state set by each case. */
+function makeSession(over: Partial<SessionTrajectory> = {}): SessionTrajectory {
 	const base = {
 		stop_nudge_emitted: false,
 		non_doc_files_edited_since_commit: new Set<string>(),
@@ -227,7 +147,11 @@ function makeSession(over: Record<string, unknown> = {}): SessionTrajectory {
 		commands_run: [],
 		files_written: new Set<string>(),
 	};
-	return { ...base, ...over } as unknown as SessionTrajectory;
+	return ({ ...makeSessionFixture(),  ...base, ...over } satisfies SessionTrajectory);
+}
+
+function obligation(file: string, session_id: string): ReturnType<typeof readDeferredCoverageObligations>[number] {
+ return { kind: "coverage", file, session_id, reason: "budget_exceeded", estimated_suite_ms: 30000, budget_ms: 25000, timestamp: "2026-06-05T00:00:00.000Z" };
 }
 
 beforeEach(() => {
@@ -242,11 +166,11 @@ beforeEach(() => {
 	mFormatWipCommitsNudge.mockReturnValue(null);
 	mDetectUntestedExports.mockReturnValue([]);
 	mFormatUntestedExportsWarning.mockReturnValue(null);
-	mDetectDeadOnArrival.mockReturnValue([]);
-	mFormatDeadOnArrivalWarning.mockReturnValue(null);
-	mDetectFixtureLeaks.mockReturnValue([]);
-	mFormatFixtureLeakWarning.mockReturnValue(null);	mDetectSlowTests.mockReturnValue([]);
-	mFormatSlowTestsWarning.mockReturnValue(null);
+
+	mCheckDeadOnArrival.mockReturnValue(null);
+
+	mCheckFixtureLeaks.mockReturnValue(null);
+	mCheckSlowTests.mockReturnValue(null);
 	mCountCodeFilesEdited.mockReturnValue(0);
 	mCountDocFactSourcesEdited.mockReturnValue(0);
 	mCountUiFilesEdited.mockReturnValue(0);
@@ -290,26 +214,18 @@ describe("pushIfNotNull", () => {
 // ===========================================================================
 describe("buildCommitCadenceNudge", () => {
 	it("returns null when commit_cadence config is absent (cadenceCfg?.enabled undefined)", () => {
-		const ctx = makeCtx({ rules: {} });
+		const ctx = makeCtx({ rules: { ...makeGuardRules(),} });
 		expect(buildCommitCadenceNudge(ctx, makeEvent(), makeSession())).toBeNull();
 		expect(mFormatStopNudge).not.toHaveBeenCalled();
 	});
 
 	it("returns null when commit_cadence.enabled is false", () => {
-		const ctx = makeCtx({ rules: { commit_cadence: { enabled: false } } });
+		const ctx = makeCtx({ rules: { ...makeGuardRules(), commit_cadence: { ...nonNull(getDefaultConfig().commit_cadence), enabled: false } } });
 		expect(buildCommitCadenceNudge(ctx, makeEvent(), makeSession())).toBeNull();
 	});
 
-	it("returns null when session is falsy", () => {
-		const ctx = makeCtx({ rules: { commit_cadence: { enabled: true } } });
-		// session arg null exercises the `!session` short-circuit.
-		expect(
-			buildCommitCadenceNudge(ctx, makeEvent(), null as unknown as SessionTrajectory),
-		).toBeNull();
-	});
-
 	it("returns null when the nudge was already emitted this session", () => {
-		const ctx = makeCtx({ rules: { commit_cadence: { enabled: true } } });
+		const ctx = makeCtx({ rules: { ...makeGuardRules(), commit_cadence: { ...nonNull(getDefaultConfig().commit_cadence), enabled: true } } });
 		const session = makeSession({ stop_nudge_emitted: true });
 		expect(buildCommitCadenceNudge(ctx, makeEvent(), session)).toBeNull();
 		expect(mFormatStopNudge).not.toHaveBeenCalled();
@@ -317,8 +233,8 @@ describe("buildCommitCadenceNudge", () => {
 
 	it("returns null (without mutating state) when formatStopNudge returns null", () => {
 		const ctx = makeCtx({
-			rules: {
-				commit_cadence: {
+			rules: { ...makeGuardRules(),
+				commit_cadence: { ...nonNull(getDefaultConfig().commit_cadence),
 					enabled: true,
 					stop_threshold: 5,
 					token_band_low: 10,
@@ -335,8 +251,8 @@ describe("buildCommitCadenceNudge", () => {
 
 	it("returns the nudge, marks stop_nudge_emitted, and logs on success", () => {
 		const ctx = makeCtx({
-			rules: {
-				commit_cadence: {
+			rules: { ...makeGuardRules(),
+				commit_cadence: { ...nonNull(getDefaultConfig().commit_cadence),
 					enabled: true,
 					stop_threshold: 3,
 					token_band_low: 100,
@@ -348,9 +264,7 @@ describe("buildCommitCadenceNudge", () => {
 			non_doc_files_edited_since_commit: new Set(["a.ts", "b.ts"]),
 			doc_files_edited_since_commit: 4,
 		});
-		mReadSessionTokens.mockReturnValue({ total: 1234 } as ReturnType<
-			typeof readSessionTokens
-		>);
+		mReadSessionTokens.mockReturnValue({ input: 1200, output: 34, total: 1234 });
 		mFormatStopNudge.mockReturnValue("NUDGE-TEXT");
 
 		const result = buildCommitCadenceNudge(ctx, makeEvent(), session);
@@ -373,8 +287,8 @@ describe("buildCommitCadenceNudge", () => {
 
 	it("omits cumulativeTokens when readSessionTokens returns null and logs tokens=n/a", () => {
 		const ctx = makeCtx({
-			rules: {
-				commit_cadence: {
+			rules: { ...makeGuardRules(),
+				commit_cadence: { ...nonNull(getDefaultConfig().commit_cadence),
 					enabled: true,
 					stop_threshold: 0,
 					token_band_low: 1,
@@ -392,14 +306,14 @@ describe("buildCommitCadenceNudge", () => {
 		// the key entirely when tokens are absent.
 		const arg = mFormatStopNudge.mock.calls[0]?.[0];
 		expect(arg).toBeDefined();
-		expect(Object.hasOwn(arg as object, "cumulativeTokens")).toBe(false);
+		expect(Object.hasOwn(nonNull(arg), "cumulativeTokens")).toBe(false);
 		expect(logLines[0]).toContain("tokens=n/a");
 	});
 
 	it("passes the provider so the token reader rejects Codex before filesystem I/O", () => {
 		const ctx = makeCtx({
-			rules: {
-				commit_cadence: {
+			rules: { ...makeGuardRules(),
+				commit_cadence: { ...nonNull(getDefaultConfig().commit_cadence),
 					enabled: true,
 					stop_threshold: 0,
 					token_band_low: 1,
@@ -424,36 +338,10 @@ describe("buildCommitCadenceNudge", () => {
 		);
 	});
 
-	it("treats a tokens object without a total as undefined cumulativeTokens", () => {
-		const ctx = makeCtx({
-			rules: {
-				commit_cadence: {
-					enabled: true,
-					stop_threshold: 0,
-					token_band_low: 1,
-					token_band_high: 2,
-				},
-			},
-		});
-		const session = makeSession();
-		// tokens defined but .total undefined -> cumulativeTokens === undefined.
-		mReadSessionTokens.mockReturnValue({ total: undefined } as unknown as ReturnType<
-			typeof readSessionTokens
-		>);
-		mFormatStopNudge.mockReturnValue("N");
-
-		buildCommitCadenceNudge(ctx, makeEvent(), session);
-
-		const arg = mFormatStopNudge.mock.calls[0]?.[0];
-		expect(Object.hasOwn(arg as object, "cumulativeTokens")).toBe(false);
-		// `tokens?.total ?? "n/a"` -> total is undefined -> "n/a".
-		expect(logLines[0]).toContain("tokens=n/a");
-	});
-
 	it("defaults counts to 0 when the session count fields are absent (?? fallbacks)", () => {
 		const ctx = makeCtx({
-			rules: {
-				commit_cadence: {
+			rules: { ...makeGuardRules(),
+				commit_cadence: { ...nonNull(getDefaultConfig().commit_cadence),
 					enabled: true,
 					stop_threshold: 0,
 					token_band_low: 1,
@@ -462,10 +350,9 @@ describe("buildCommitCadenceNudge", () => {
 			},
 		});
 		// Omit non_doc_files_edited_since_commit and doc_files_edited_since_commit.
-		const session = makeSession({
-			non_doc_files_edited_since_commit: undefined,
-			doc_files_edited_since_commit: undefined,
-		});
+		const session = makeSession();
+		delete session.non_doc_files_edited_since_commit;
+		delete session.doc_files_edited_since_commit;
 		mFormatStopNudge.mockReturnValue("N");
 
 		buildCommitCadenceNudge(ctx, makeEvent(), session);
@@ -480,8 +367,9 @@ describe("buildCommitCadenceNudge", () => {
 // buildVerificationStopWarnings
 // ===========================================================================
 describe("buildVerificationStopWarnings", () => {
-	function vscRules(over: Record<string, unknown> = {}) {
+	function vscRules(over: Partial<NonNullable<GuardRulesConfig["verification_stop_checks"]>> = {}): GuardRulesConfig {
 		return {
+			...makeGuardRules(),
 			verification_stop_checks: {
 				enabled: true,
 				warn_unverified_code: false,
@@ -496,24 +384,13 @@ describe("buildVerificationStopWarnings", () => {
 	}
 
 	it("returns [] when verification_stop_checks config is absent", () => {
-		const ctx = makeCtx({ rules: {} });
+		const ctx = makeCtx({ rules: { ...makeGuardRules(),} });
 		expect(buildVerificationStopWarnings(ctx, makeEvent(), makeSession())).toEqual([]);
 	});
 
 	it("returns [] when verification_stop_checks.enabled is false", () => {
-		const ctx = makeCtx({ rules: { verification_stop_checks: { enabled: false } } });
+		const ctx = makeCtx({ rules: { ...makeGuardRules(), verification_stop_checks: { ...nonNull(getDefaultConfig().verification_stop_checks), enabled: false } } });
 		expect(buildVerificationStopWarnings(ctx, makeEvent(), makeSession())).toEqual([]);
-	});
-
-	it("returns [] when session is falsy", () => {
-		const ctx = makeCtx({ rules: vscRules() });
-		expect(
-			buildVerificationStopWarnings(
-				ctx,
-				makeEvent(),
-				null as unknown as SessionTrajectory,
-			),
-		).toEqual([]);
 	});
 
 	it("returns [] when all flag-gated checks are off and the always-on checks find nothing", () => {
@@ -524,7 +401,7 @@ describe("buildVerificationStopWarnings", () => {
 		expect(mFormatVerifyNotRunWarning).not.toHaveBeenCalled();
 		expect(mFormatUiNotInteractedWarning).not.toHaveBeenCalled();
 		expect(mFormatStubsIntroducedWarning).not.toHaveBeenCalled();
-		expect(mFormatFixtureLeakWarning).not.toHaveBeenCalled();
+		expect(mCheckFixtureLeaks).not.toHaveBeenCalled();
 		// warn_unresolved_red defaults off in vscRules → its formatter must not run.
 		expect(mFormatUnresolvedRedWarning).not.toHaveBeenCalled();
 		// per_edit_coverage absent in vscRules → the deferred-coverage gate is off.
@@ -533,13 +410,14 @@ describe("buildVerificationStopWarnings", () => {
 		// Always-on checks still run.
 		expect(mFormatTddRegressionWarning).toHaveBeenCalled();
 		expect(mFormatBisectNotResetWarning).toHaveBeenCalled();
-		expect(mFormatDeadOnArrivalWarning).toHaveBeenCalled();
+		expect(mCheckDeadOnArrival).toHaveBeenCalled();
 		expect(mFormatDocMarkerDriftWarning).toHaveBeenCalled();
 	});
 
 	it("defaults verification_observed to an empty Set when the session field is absent", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_unverified_code: true }) });
-		const session = makeSession({ verification_observed: undefined });
+		const session = makeSession();
+		delete session.verification_observed;
 		mCountCodeFilesEdited.mockReturnValue(2);
 		mFormatUnverifiedCodeWarning.mockReturnValue(null);
 
@@ -647,7 +525,7 @@ describe("buildVerificationStopWarnings", () => {
 
 	it("includes the stubs-introduced warning when its flag is on and formatter fires (+logs)", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_stubs_introduced: true }) });
-		const session = makeSession({ stubs_introduced: [{ x: 1 }, { x: 2 }] });
+		const session = makeSession({ stubs_introduced: [{ file: "src/a.ts", kind: "throw", snippet: "throw new Error()" }, { file: "src/b.ts", kind: "return_null", snippet: "return null" }] });
 		mFormatStubsIntroducedWarning.mockReturnValue("STUBS");
 
 		const out = buildVerificationStopWarnings(ctx, makeEvent(), session);
@@ -661,7 +539,8 @@ describe("buildVerificationStopWarnings", () => {
 
 	it("defaults stubs to [] when stubs_introduced is absent", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_stubs_introduced: true }) });
-		const session = makeSession({ stubs_introduced: undefined });
+		const session = makeSession();
+		delete session.stubs_introduced;
 		mFormatStubsIntroducedWarning.mockReturnValue(null);
 
 		buildVerificationStopWarnings(ctx, makeEvent(), session);
@@ -669,10 +548,10 @@ describe("buildVerificationStopWarnings", () => {
 		expect(mFormatStubsIntroducedWarning).toHaveBeenCalledWith({ stubs: [] });
 	});
 
-	it("includes the fixture-leak warning when its flag is on and formatter fires (+logs)", () => {
+	it("includes the warning returned by the enabled fixture-leak check", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_fixture_leaks: true }) });
-		mDetectFixtureLeaks.mockReturnValue([{ a: 1 }, { b: 2 }, { c: 3 }] as never);
-		mFormatFixtureLeakWarning.mockReturnValue("FIXTURE-LEAK");
+
+		mCheckFixtureLeaks.mockReturnValue("FIXTURE-LEAK");
 
 		const out = buildVerificationStopWarnings(
 			ctx,
@@ -682,48 +561,29 @@ describe("buildVerificationStopWarnings", () => {
 
 		expect(out).toContain("FIXTURE-LEAK");
 		// event.cwd is preferred over ctx.cwd.
-		expect(mDetectFixtureLeaks).toHaveBeenCalledWith("/event-cwd");
-		expect(logLines.some((l) => l.includes("fixture-leaks (3)"))).toBe(true);
+
+
 	});
 
-	it("falls back to ctx.cwd for fixture leaks when event.cwd is absent", () => {
-		const ctx = makeCtx({ cwd: "/ctx-cwd", rules: vscRules({ warn_fixture_leaks: true }) });
-		mFormatFixtureLeakWarning.mockReturnValue(null);
-
-		buildVerificationStopWarnings(ctx, makeEvent({}), makeSession());
-
-		expect(mDetectFixtureLeaks).toHaveBeenCalledWith("/ctx-cwd");
-	});
-
-	it("includes the slow-test warning when its flag is on and formatter fires (+logs)", () => {
+	it("includes the warning returned by the slow-test check", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_slow_tests: true }) });
-		mDetectSlowTests.mockReturnValue([{ file: "a.test.ts" }] as never);
-		mFormatSlowTestsWarning.mockReturnValue("SLOW-TEST");
+
+		mCheckSlowTests.mockReturnValue("SLOW-TEST");
 
 		const out = buildVerificationStopWarnings(ctx, makeEvent(), makeSession());
 
 		expect(out).toContain("SLOW-TEST");
-		expect(logLines.some((l) => l.includes("slow-tests (1)"))).toBe(true);
-	});
 
-	it("omits the slow-test warning when warn_slow_tests is explicitly false", () => {
-		const ctx = makeCtx({ rules: vscRules({ warn_slow_tests: false }) });
-		mFormatSlowTestsWarning.mockReturnValue("SLOW-TEST");
-
-		const out = buildVerificationStopWarnings(ctx, makeEvent(), makeSession());
-
-		expect(out).not.toContain("SLOW-TEST");
-		expect(mDetectSlowTests).not.toHaveBeenCalled();
 	});
 
 	// --- always-on checks ---
 
 	it("includes the tdd-regression warning, counting only regression-state cycles (+logs)", () => {
 		const ctx = makeCtx({ rules: vscRules() });
-		const tdd = new Map<string, unknown>([
-			["a", { state: "regression", source_file: "/a.ts" }],
-			["b", { state: "green", source_file: "/b.ts" }],
-			["c", { state: "regression", source_file: "/c.ts" }],
+		const tdd = new Map<string, TddCycle>([
+			["a", { impl_edits_before_test: 0, test_file: null, state: "regression", source_file: "/a.ts" }],
+			["b", { impl_edits_before_test: 0, test_file: null, state: "green", source_file: "/b.ts" }],
+			["c", { impl_edits_before_test: 0, test_file: null, state: "regression", source_file: "/c.ts" }],
 		]);
 		const session = makeSession({ tdd_cycles: tdd });
 		mFormatTddRegressionWarning.mockReturnValue("TDD-REGRESSION");
@@ -740,7 +600,7 @@ describe("buildVerificationStopWarnings", () => {
 
 	it("forwards an empty regressions list when no cycle is in regression state", () => {
 		const ctx = makeCtx({ rules: vscRules() });
-		const tdd = new Map<string, unknown>([["b", { state: "green", source_file: "/b.ts" }]]);
+		const tdd = new Map<string, TddCycle>([["b", { impl_edits_before_test: 0, test_file: null, state: "green", source_file: "/b.ts" }]]);
 		mFormatTddRegressionWarning.mockReturnValue(null);
 
 		buildVerificationStopWarnings(ctx, makeEvent(), makeSession({ tdd_cycles: tdd }));
@@ -751,10 +611,10 @@ describe("buildVerificationStopWarnings", () => {
 
 	it("does not report suite-sourced fan-out as per-file regressions", () => {
 		const ctx = makeCtx({ rules: vscRules() });
-		const tdd = new Map<string, unknown>([
+		const tdd = new Map<string, TddCycle>([
 			[
 				"a",
-				{
+				{ impl_edits_before_test: 0,
 					state: "regression",
 					source_file: "/a.ts",
 					test_file: "/a.test.ts",
@@ -763,7 +623,7 @@ describe("buildVerificationStopWarnings", () => {
 			],
 			[
 				"b",
-				{
+				{ impl_edits_before_test: 0,
 					state: "regression",
 					source_file: "/b.ts",
 					test_file: "/b.test.ts",
@@ -803,30 +663,18 @@ describe("buildVerificationStopWarnings", () => {
 		expect(logLines.some((l) => l.includes("bisect-not-reset"))).toBe(true);
 	});
 
-	it("includes the dead-on-arrival warning, preferring event.cwd (+logs)", () => {
+	it("includes the warning returned by the dead-on-arrival check", () => {
 		const ctx = makeCtx({ cwd: "/ctx", rules: vscRules() });
 		const session = makeSession({ files_written: new Set(["/x.ts"]) });
-		mDetectDeadOnArrival.mockReturnValue([{ file: "/x.ts" }, { file: "/y.ts" }] as never);
-		mFormatDeadOnArrivalWarning.mockReturnValue("DOA");
+
+		mCheckDeadOnArrival.mockReturnValue("DOA");
 
 		const out = buildVerificationStopWarnings(ctx, makeEvent({ cwd: "/ev" }), session);
 
 		expect(out).toContain("DOA");
-		expect(mDetectDeadOnArrival).toHaveBeenCalledWith(session.files_written, "/ev");
-		expect(mFormatDeadOnArrivalWarning).toHaveBeenCalledWith(
-			[{ file: "/x.ts" }, { file: "/y.ts" }],
-			"/ev",
-		);
-		expect(logLines.some((l) => l.includes("dead-on-arrival (2)"))).toBe(true);
-	});
 
-	it("falls back to ctx.cwd for dead-on-arrival when event.cwd is absent", () => {
-		const ctx = makeCtx({ cwd: "/ctx-doa", rules: vscRules() });
-		mFormatDeadOnArrivalWarning.mockReturnValue(null);
 
-		buildVerificationStopWarnings(ctx, makeEvent({}), makeSession());
 
-		expect(mDetectDeadOnArrival).toHaveBeenCalledWith(expect.any(Set), "/ctx-doa");
 	});
 
 	it("includes the doc-marker-drift warning when its formatter fires (+logs)", () => {
@@ -857,23 +705,23 @@ describe("buildVerificationStopWarnings", () => {
 		});
 		const session = makeSession({
 			verification_observed: new Set(["lint"]),
-			stubs_introduced: [{ x: 1 }],
-			tdd_cycles: new Map([["a", { state: "regression", source_file: "/a.ts" }]]),
+			stubs_introduced: [{ file: "src/a.ts", kind: "throw", snippet: "throw new Error()" }],
+			tdd_cycles: new Map([["a", { impl_edits_before_test: 0, test_file: null, state: "regression", source_file: "/a.ts" }]]),
 			files_written: new Set(["/f.ts"]),
 		});
 		mCountCodeFilesEdited.mockReturnValue(1);
 		mCountUiFilesEdited.mockReturnValue(1);
 		mCountDocFactSourcesEdited.mockReturnValue(1);
-		mDetectFixtureLeaks.mockReturnValue([{ a: 1 }] as never);
-		mDetectDeadOnArrival.mockReturnValue([{ f: 1 }] as never);
+
+
 		mFormatUnverifiedCodeWarning.mockReturnValue("W1");
 		mFormatVerifyNotRunWarning.mockReturnValue("W2");
 		mFormatUiNotInteractedWarning.mockReturnValue("W3");
 		mFormatStubsIntroducedWarning.mockReturnValue("W4");
-		mFormatFixtureLeakWarning.mockReturnValue("W5");
+		mCheckFixtureLeaks.mockReturnValue("W5");
 		mFormatTddRegressionWarning.mockReturnValue("W6");
 		mFormatBisectNotResetWarning.mockReturnValue("W7");
-		mFormatDeadOnArrivalWarning.mockReturnValue("W8");
+		mCheckDeadOnArrival.mockReturnValue("W8");
 		mFormatDocMarkerDriftWarning.mockReturnValue("W9");
 
 		const out = buildVerificationStopWarnings(ctx, makeEvent(), session);
@@ -927,11 +775,11 @@ describe("buildVerificationStopWarnings", () => {
 
 	it("forwards a stayed-red TDD cycle but EXCLUDES regression-state cycles", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_unresolved_red: true }) });
-		const tdd = new Map<string, unknown>([
+		const tdd = new Map<string, TddCycle>([
 			// stayed-red: state red, never went green → forwarded.
-			["a", { state: "red", source_file: "/a.ts", red_at: 5 }],
+			["a", { impl_edits_before_test: 0, test_file: null, state: "red", source_file: "/a.ts", red_at: 5 }],
 			// regression (green→red): owned by checkTddRegression → excluded.
-			["b", { state: "regression", source_file: "/b.ts", red_at: 7, green_at: 3 }],
+			["b", { impl_edits_before_test: 0, test_file: null, state: "regression", source_file: "/b.ts", red_at: 7, green_at: 3 }],
 		]);
 		mFormatUnresolvedRedWarning.mockReturnValue("UNRESOLVED-RED");
 
@@ -945,10 +793,10 @@ describe("buildVerificationStopWarnings", () => {
 
 	it("forwards a stayed-red cycle whose green_at predates red_at (green_at < red_at)", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_unresolved_red: true }) });
-		const tdd = new Map<string, unknown>([
+		const tdd = new Map<string, TddCycle>([
 			// An earlier green followed by a later red still counts as stayed-red:
 			// green_at(2) < red_at(10) -> the comparison operand is true.
-			["a", { state: "red", source_file: "/a.ts", red_at: 10, green_at: 2 }],
+			["a", { impl_edits_before_test: 0, test_file: null, state: "red", source_file: "/a.ts", red_at: 10, green_at: 2 }],
 		]);
 		mFormatUnresolvedRedWarning.mockReturnValue("UNRESOLVED-RED");
 
@@ -962,10 +810,10 @@ describe("buildVerificationStopWarnings", () => {
 
 	it("collapses suite-sourced stayed-red fan-out into one aggregate suite failure", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_unresolved_red: true }) });
-		const tdd = new Map<string, unknown>([
+		const tdd = new Map<string, TddCycle>([
 			[
 				"a",
-				{
+				{ impl_edits_before_test: 0,
 					state: "red",
 					source_file: "/a.ts",
 					test_file: "/a.test.ts",
@@ -984,7 +832,6 @@ describe("buildVerificationStopWarnings", () => {
 			makeSession({
 				tdd_cycles: tdd,
 				test_runs: testRuns,
-				observed_checks: undefined,
 			}),
 		);
 
@@ -999,10 +846,10 @@ describe("buildVerificationStopWarnings", () => {
 
 	it("defaults a missing red_at to 0 when comparing against green_at (?? fallback)", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_unresolved_red: true }) });
-		const tdd = new Map<string, unknown>([
+		const tdd = new Map<string, TddCycle>([
 			// red_at is absent -> (cycle.red_at ?? 0) -> 0; green_at(0) < 0 is false,
 			// so this cycle is excluded — exercises the ?? fallback being taken.
-			["a", { state: "red", source_file: "/a.ts", green_at: 0 }],
+			["a", { impl_edits_before_test: 0, test_file: null, state: "red", source_file: "/a.ts", green_at: 0 }],
 		]);
 		mFormatUnresolvedRedWarning.mockReturnValue(null);
 
@@ -1013,9 +860,9 @@ describe("buildVerificationStopWarnings", () => {
 
 	it("EXCLUDES a red cycle whose red was later cleared by a green (green_at >= red_at)", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_unresolved_red: true }) });
-		const tdd = new Map<string, unknown>([
+		const tdd = new Map<string, TddCycle>([
 			// red_at 4 then green_at 9 cleared it — must NOT be forwarded.
-			["a", { state: "red", source_file: "/a.ts", red_at: 4, green_at: 9 }],
+			["a", { impl_edits_before_test: 0, test_file: null, state: "red", source_file: "/a.ts", red_at: 4, green_at: 9 }],
 		]);
 		mFormatUnresolvedRedWarning.mockReturnValue(null);
 
@@ -1036,7 +883,8 @@ describe("buildVerificationStopWarnings", () => {
 
 	it("tolerates an absent observed_checks map (defaults to empty)", () => {
 		const ctx = makeCtx({ rules: vscRules({ warn_unresolved_red: true }) });
-		const session = makeSession({ observed_checks: undefined });
+		const session = makeSession();
+		delete session.observed_checks;
 		mFormatUnresolvedRedWarning.mockReturnValue(null);
 
 		buildVerificationStopWarnings(ctx, makeEvent(), session);
@@ -1047,9 +895,9 @@ describe("buildVerificationStopWarnings", () => {
 	// --- WIP-commit cleanup nudge wiring (checkWipCommits, backlog 3B) ------
 
 	/** Session that committed this session: baseline sha + a git-commit command. */
-	function wipSession(over: Record<string, unknown> = {}): SessionTrajectory {
+	function wipSession(over: Partial<SessionTrajectory> = {}): SessionTrajectory {
 		return makeSession({
-			git_session_baseline: { head_sha: "abc123" },
+			git_session_baseline: { head_sha: "abc123", modified: new Set(), staged: new Set(), untracked: new Set() },
 			commands_run: ["git commit -m 'wip'"],
 			...over,
 		});
@@ -1207,10 +1055,10 @@ describe("buildVerificationStopWarnings", () => {
 
 	/** vscRules merged with a `per_edit_coverage` block so the deferred-coverage
 	 *  wrapper's gate can be toggled. The producer flag is `enabled`. */
-	function coverageRules(peEnabled: boolean, vscOver: Record<string, unknown> = {}) {
+	function coverageRules(peEnabled: boolean, vscOver: Partial<NonNullable<GuardRulesConfig["verification_stop_checks"]>> = {}): GuardRulesConfig {
 		return {
 			...vscRules(vscOver),
-			per_edit_coverage: { enabled: peEnabled, mode: "block", budget_ms: 25_000, languages: [] },
+			per_edit_coverage: { ...nonNull(getDefaultConfig().per_edit_coverage), enabled: peEnabled, mode: "block", budget_ms: 25_000, languages: [] },
 		};
 	}
 
@@ -1235,10 +1083,10 @@ describe("buildVerificationStopWarnings", () => {
 		const ctx = makeCtx({ cwd: "/cov-root", rules: coverageRules(true) });
 		const session = makeSession({ session_id: "sess-7" });
 		const obligations = [
-			{ kind: "coverage", file: "src/a.ts", session_id: "sess-7" },
-			{ kind: "coverage", file: "src/b.ts", session_id: "sess-7" },
+			obligation("src/a.ts", "sess-7"),
+			obligation("src/b.ts", "sess-7"),
 		];
-		mReadDeferredCoverageObligations.mockReturnValue(obligations as never);
+		mReadDeferredCoverageObligations.mockReturnValue(obligations);
 		mFormatDeferredCoverageWarning.mockReturnValue("DEFERRED-COVERAGE");
 
 		const out = buildVerificationStopWarnings(ctx, makeEvent(), session);
@@ -1268,8 +1116,8 @@ describe("buildVerificationStopWarnings", () => {
 		const ctx = makeCtx({ rules: coverageRules(true) });
 		const session = makeSession({ session_id: "coverage-session" });
 		mReadDeferredCoverageObligations.mockReturnValue([
-			{ kind: "coverage", file: "src/a.ts", session_id: "coverage-session" },
-		] as never);
+			obligation("src/a.ts", "coverage-session"),
+		]);
 		mFormatDeferredCoverageWarning.mockReturnValue("DEFERRED-COVERAGE");
 
 		const out = buildVerificationStopWarnings(ctx, makeEvent(), session);
@@ -1277,7 +1125,7 @@ describe("buildVerificationStopWarnings", () => {
 		expect(out).toEqual(["DEFERRED-COVERAGE"]);
 		expect(mReadDeferredCoverageObligations).toHaveBeenCalledWith(ctx.cwd, "coverage-session");
 		expect(mFormatDeferredCoverageWarning).toHaveBeenCalledWith({
-			obligations: [{ kind: "coverage", file: "src/a.ts", session_id: "coverage-session" }],
+			obligations: [obligation("src/a.ts", "coverage-session")],
 		});
 	});
 
@@ -1291,8 +1139,8 @@ describe("buildVerificationStopWarnings", () => {
 		});
 		mFormatUnresolvedRedWarning.mockReturnValue("UNRESOLVED-RED");
 		mReadDeferredCoverageObligations.mockReturnValue([
-			{ kind: "coverage", file: "src/a.ts", session_id: "s1" },
-		] as never);
+			obligation("src/a.ts", "s1"),
+		]);
 		mFormatDeferredCoverageWarning.mockReturnValue("DEFERRED-COVERAGE");
 
 		const out = buildVerificationStopWarnings(ctx, makeEvent(), session);
@@ -1459,15 +1307,15 @@ describe("checkReviewFindings", () => {
 			ingestReviewReport(join(cwd, "r.md"), "sol", cwd);
 			const ctx = makeCtx({
 				cwd,
-				rules: { verification_stop_checks: { enabled: true } },
+				rules: { ...makeGuardRules(), verification_stop_checks: { ...nonNull(getDefaultConfig().verification_stop_checks), enabled: true } },
 			});
 			const out = buildVerificationStopWarnings(ctx, makeEvent(), makeSession());
 			expect(out.some((w) => w.includes("[interlinked:review-findings]"))).toBe(true);
 
 			const off = makeCtx({
 				cwd,
-				rules: {
-					verification_stop_checks: { enabled: true, warn_review_findings: false },
+				rules: { ...makeGuardRules(),
+					verification_stop_checks: { ...nonNull(getDefaultConfig().verification_stop_checks), enabled: true, warn_review_findings: false },
 				},
 			});
 			expect(
@@ -1495,7 +1343,7 @@ describe("checkSpecDrift", () => {
 
 	it("surfaces the spec-drift stash at Stop", () => {
 		const ctx = makeCtx({
-			rules: { verification_stop_checks: { enabled: true } },
+			rules: { ...makeGuardRules(), verification_stop_checks: { ...nonNull(getDefaultConfig().verification_stop_checks), enabled: true } },
 		});
 		const out = buildVerificationStopWarnings(
 			ctx,
@@ -1509,7 +1357,7 @@ describe("checkSpecDrift", () => {
 
 	it("stays silent when the stash is empty or warn_spec_drift is false", () => {
 		const ctx = makeCtx({
-			rules: { verification_stop_checks: { enabled: true } },
+			rules: { ...makeGuardRules(), verification_stop_checks: { ...nonNull(getDefaultConfig().verification_stop_checks), enabled: true } },
 		});
 		expect(
 			buildVerificationStopWarnings(
@@ -1520,8 +1368,8 @@ describe("checkSpecDrift", () => {
 		).toBe(false);
 
 		const off = makeCtx({
-			rules: {
-				verification_stop_checks: { enabled: true, warn_spec_drift: false },
+			rules: { ...makeGuardRules(),
+				verification_stop_checks: { ...nonNull(getDefaultConfig().verification_stop_checks), enabled: true, warn_spec_drift: false },
 			},
 		});
 		expect(

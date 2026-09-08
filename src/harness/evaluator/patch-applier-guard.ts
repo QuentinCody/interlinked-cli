@@ -38,7 +38,22 @@ const SCRIPT_EXT_RE = /\.(?:mjs|cjs|js|mts|cts|ts|py|sh|bash|zsh|rb)$/i;
  *  Shell redirection is covered by the sibling bash-write detector, so this set
  *  is deliberately about in-script APIs. */
 const WRITE_CALL_RE =
-	/\b(?:writeFileSync|appendFileSync|createWriteStream|copyFileSync|renameSync|fs\.promises\.writeFile|fs\.writeFile|write_text|os\.replace|shutil\.(?:copy|move)|File\.write)\s*\(|\bopen\s*\([^)]*['"][wa]\+?['"]/;
+	/\b(?:writeFileSync|appendFileSync|createWriteStream|copyFileSync|renameSync|fs\.promises\.writeFile|fs\.writeFile|write_text|os\.replace|shutil\.(?:copy|move)|File\.write)\s*\(/;
+
+// Restrict Python mode detection to the second argument (positional or named),
+// after a literal/simple-variable path. Quoted payloads remain inert because
+// the open token must also survive the position-preserving string stripper.
+const PYTHON_OPEN_WRITE_RE = /\bopen\s*\(\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[A-Za-z_]\w*)\s*,\s*(?:mode\s*=\s*)?(['"])[wa]\+?\1/g;
+
+function filesystemWriteCall(content: string): string | null {
+	const executable = stripCommentsAndStrings(content);
+	const write = WRITE_CALL_RE.exec(executable);
+	if (write) return write[0].trim();
+	for (const match of content.matchAll(PYTHON_OPEN_WRITE_RE)) {
+		if (/^open\s*\(/.test(executable.slice(match.index))) return match[0].trim();
+	}
+	return null;
+}
 
 /** Evidence that the write escapes the script's own sandbox and lands in the
  *  guarded project. A quoted repo-relative source path is the dominant form
@@ -97,11 +112,11 @@ export function detectPatchApplier(
 	// any review tool or security fixture that quotes offending code hits the
 	// same wire. The repo TARGET still matches raw content: a real applier's
 	// destination is normally a string literal, which stripping would erase.
-	const write = WRITE_CALL_RE.exec(stripCommentsAndStrings(content));
+	const write = filesystemWriteCall(content);
 	if (!write) return null;
 	const target = REPO_TARGET_RE.exec(stripModuleSpecifiers(content));
 	if (!target) return null;
-	return { writeCall: write[0].trim(), repoTarget: target[0].trim() };
+	return { writeCall: write, repoTarget: target[0].trim() };
 }
 
 /** Interpreters that can execute a script file passed as an argument. */

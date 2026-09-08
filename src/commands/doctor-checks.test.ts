@@ -137,8 +137,11 @@ describe("collectionLivenessCheck", () => {
 		});
 	});
 
-	it("returns a warn row for an unrecognized/default status", () => {
-		const live = { status: "corrupt", reason: "bad json" } as unknown as CollectionLiveness;
+	it("returns a warn row for an unreadable collection", () => {
+		const live: CollectionLiveness = {
+			status: "unreadable", reason: "bad json", path: "/tmp/collection.jsonl", exists: true,
+			sizeBytes: 1024, mtimeMs: null, lastRecordTs: null, lastRecordAgeMs: null,
+		};
 		expect(collectionLivenessCheck(live)).toEqual({
 			status: "warn",
 			message: "collection.jsonl unreadable -- bad json",

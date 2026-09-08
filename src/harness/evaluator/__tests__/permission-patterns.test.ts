@@ -186,7 +186,7 @@ describe("addPermissionToSettings", () => {
 	it("creates .claude/settings.json and persists a new pattern", () => {
 		expect(addPermissionToSettings("Bash(ls *)")).toBe(true);
 		const raw = readFileSync(join(tmpDir, ".claude", "settings.json"), "utf-8");
-		const parsed = JSON.parse(raw) as { permissions: { allow: string[] } };
+		const parsed: unknown = JSON.parse(raw);
 		expect(parsed).toEqual({ permissions: { allow: ["Bash(ls *)"] } });
 	});
 
@@ -219,8 +219,8 @@ describe("addPermissionToSettings", () => {
 		expect(addPermissionToSettings("Bash(ls *)")).toBe(true);
 		expect(addPermissionToSettings("Bash(ls *)")).toBe(false);
 		const raw = readFileSync(join(tmpDir, ".claude", "settings.json"), "utf-8");
-		const parsed = JSON.parse(raw) as { permissions: { allow: string[] } };
-		expect(parsed.permissions.allow.filter((p) => p === "Bash(ls *)")).toHaveLength(1);
+		const parsed: unknown = JSON.parse(raw);
+		expect(parsed).toEqual({ permissions: { allow: ["Bash(ls *)"] } });
 	});
 
 	it("returns false when settings cannot be written", () => {

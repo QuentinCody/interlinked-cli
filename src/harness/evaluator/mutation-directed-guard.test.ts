@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,11 +15,11 @@ import { evaluateMutationDirectedProfile } from "./mutation-directed-guard.js";
 // rules.mutation_directed_strict_profile?.enabled off this object; every
 // other GuardRulesConfig field is unused by the code under test, so the
 // empty-object cast never observes a missing field.
-const BASE_RULES = {} as GuardRulesConfig;
+const BASE_RULES = ({ ...makeGuardRules(), } satisfies GuardRulesConfig);
 // SAFETY: same rationale as BASE_RULES — only mutation_directed_strict_profile
 // is read; the `as never` step exists solely to bypass the (unused-here)
 // structural excess-property check on the literal.
-const STRICT_ON = { mutation_directed_strict_profile: { enabled: true } } as never as GuardRulesConfig;
+const STRICT_ON = ({ ...makeGuardRules(),  mutation_directed_strict_profile: { enabled: true } } satisfies GuardRulesConfig);
 
 let dir: string;
 

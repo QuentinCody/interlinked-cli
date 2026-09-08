@@ -1,3 +1,4 @@
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 // ===========================================
 // Overlay command runner — generic argv over a proposed-edit overlay
 // ===========================================
@@ -153,8 +154,7 @@ export async function runArgvInOverlay(
 	});
 	const durationMs = Date.now() - start;
 	if (outcome.error) {
-		const code = (outcome.error as NodeJS.ErrnoException).code;
-		const timedOut = code === "ETIMEDOUT";
+		const timedOut = hasErrorCode(outcome.error, "ETIMEDOUT");
 		const reason = timedOut ? outcome.error.message : `'${bin}' failed to launch: ${outcome.error.message}`;
 		return { exitCode: null, stdout: outcome.stdout, stderr: outcome.stderr, timedOut, durationMs, error: reason };
 	}

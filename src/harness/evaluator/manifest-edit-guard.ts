@@ -6,7 +6,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import { isLicenseAllowed } from "../license-policy.js";
 import {
@@ -180,9 +180,9 @@ function diffPackageJson(before: string, after: string): DepDelta[] {
 }
 
 function recordOf(obj: unknown, key: string): JsonObject {
-	if (!obj || typeof obj !== "object") return {};
-	const v = (obj as JsonObject)[key];
-	return v && typeof v === "object" ? (v as JsonObject) : {};
+	if (!isJsonObject(obj)) return {};
+	const v = obj[key];
+	return isJsonObject(v) ? v : {};
 }
 
 function parseJsonSafe(s: string): unknown {

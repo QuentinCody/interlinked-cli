@@ -20,8 +20,7 @@ describe("validateLayerRuleEntry", () => {
 	it("flags an unknown key", () => {
 		const errors: ValidationError[] = [];
 		validateLayerRuleEntry(
-			// SAFETY: intentionally malformed input to exercise the unknown-key check
-			{ from: "ui", cannot_import: [], reason: "x", extra: true } as never,
+			{ from: "ui", cannot_import: [], reason: "x", extra: true },
 			"$.rules[0]",
 			new Set(["ui"]),
 			errors,
@@ -32,8 +31,7 @@ describe("validateLayerRuleEntry", () => {
 	it("flags non-string `from`", () => {
 		const errors: ValidationError[] = [];
 		validateLayerRuleEntry(
-			// SAFETY: intentionally malformed input to exercise the type check
-			{ from: 5, cannot_import: [], reason: "x" } as never,
+			{ from: 5, cannot_import: [], reason: "x" },
 			"$.rules[0]",
 			new Set(),
 			errors,
@@ -69,8 +67,7 @@ describe("validateLayerRuleEntry", () => {
 	it("flags non-array cannot_import", () => {
 		const errors: ValidationError[] = [];
 		validateLayerRuleEntry(
-			// SAFETY: intentionally malformed input to exercise the type check
-			{ from: "ui", cannot_import: "db", reason: "x" } as never,
+			{ from: "ui", cannot_import: "db", reason: "x" },
 			"$.rules[0]",
 			new Set(["ui"]),
 			errors,

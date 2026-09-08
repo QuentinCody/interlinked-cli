@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireLiteral, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	canonicalizeFindings,
@@ -25,7 +26,7 @@ describe("strcmp / compareFindings ordering (mutant 1e75f8cfaa64ee32: a > b -> f
 		const raw = canonicalizeFindings(findings);
 		// SAFETY: raw is the JSON.stringify of a ConformanceFinding[] produced
 		// two lines above by this same test — the shape is known, not external input.
-		const out = JSON.parse(raw) as ConformanceFinding[];
+		const out = parseWire(JSON.parse(raw), wireArray(wireObject({ "check_id": wireString, "severity": wireLiteral("error", "warning"), "line": wireNumber, "text": wireString })), "test JSON value");
 		expect(out[0]?.check_id).toBe("alpha");
 		expect(out[1]?.check_id).toBe("zeta");
 	});

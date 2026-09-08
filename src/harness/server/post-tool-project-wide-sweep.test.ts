@@ -1,3 +1,4 @@
+import { makeServerRuntime, makeServerRules } from "./__tests__/fixtures.js";
 // ===========================================
 // Tests — project-wide sweep phase: transient-debt retirement
 // ===========================================
@@ -18,10 +19,10 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendDebtTxn, readOpenTransientDebts } from "../obligation-ledger-io.js";
 import { runProjectWideChecksAsync } from "../quality-checks.js";
-import type { GuardRulesConfig, HarnessDecision } from "../types.js";
+import type { HarnessDecision } from "../types.js";
 import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import { runProjectWideSweepPhase } from "./post-tool-project-wide-sweep.js";
 import type { ServerRuntime } from "./runtime-context.js";
@@ -31,9 +32,7 @@ vi.mock("../quality-checks.js", async (importOriginal) => {
 	return { ...actual, runProjectWideChecksAsync: vi.fn() };
 });
 
-// SAFETY: the vi.mock factory above replaced this export with vi.fn(), so the
-// live binding really is a Mock; the declared type is the un-mocked signature.
-const mRunProjectWide = runProjectWideChecksAsync as unknown as Mock;
+const mRunProjectWide = vi.mocked(runProjectWideChecksAsync);
 
 let root = "";
 let logs: string[] = [];
@@ -46,28 +45,21 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-/** Minimal runtime — the phase reads only these five fields.
- *  SAFETY: the full ServerRuntime declares ~30 daemon-scoped managers this
- *  code path never touches; the cast is confined to this fixture. */
+
 function makeCtx(): ServerRuntime {
-	return {
+	return makeServerRuntime({
 		cwd: root,
 		interlinkedDir: join(root, ".interlinked"),
-		// SAFETY: the phase reads only `rules.project_wide_checks`; the rest of
-		// GuardRulesConfig is unreachable from this code path.
-		rules: { project_wide_checks: { enabled: true } } as unknown as GuardRulesConfig,
+		rules: makeServerRules({ project_wide_checks: { enabled: true } }),
 		projectWideSweepState: {
 			recordFileChecked: vi.fn(),
 			recordEdit: vi.fn(() => true),
 		},
 		log: (msg: string) => void logs.push(msg),
-		// SAFETY: see the field list above — every other ServerRuntime member is
-		// unreachable from `runProjectWideSweepPhase`.
-	} as unknown as ServerRuntime;
+	});
 }
 
-/** SAFETY: the phase reads `allCheckResults`, `projectWideSweepFired` and
- *  `markPhase` only; the other accumulator fields are inert here. */
+
 function makeAcc(): PerFileCheckCtx {
 	return {
 		postStartMs: 0,
@@ -77,9 +69,7 @@ function makeAcc(): PerFileCheckCtx {
 		markPhase: vi.fn(),
 		projectWideSweepFired: false,
 		recurrenceCursor: 0,
-		// SAFETY: the accumulator's remaining fields are written by sibling
-		// phases this test never runs.
-	} as unknown as PerFileCheckCtx;
+	};
 }
 
 function openTransientDebt(file: string, detector?: string): void {

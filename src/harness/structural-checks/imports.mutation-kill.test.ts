@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProjectGraph } from "../project-graph.js";
+import type { ImportGraph } from "./imports.js";
 import type { ImportEdge } from "../types/graph.js";
 import { checkCrossPackageImports, checkDeadImports, checkHallucinatedImports } from "./imports.js";
 
@@ -35,13 +35,13 @@ function makeGraph(
 	opts: {
 		dependencies?: ImportEdge[];
 	} = {},
-): ProjectGraph {
+): ImportGraph {
 	return {
 		getDependencies: vi.fn().mockReturnValue(opts.dependencies ?? []),
 		getExports: vi.fn().mockReturnValue([]),
 		findDuplicateExports: vi.fn().mockReturnValue([]),
 		toRelative: vi.fn((p: string) => p.replace(/^\/proj\//, "")),
-	} as unknown as ProjectGraph;
+	};
 }
 
 const FILE = "/proj/src/a.ts";
@@ -60,7 +60,7 @@ describe("checkCrossPackageImports mutant-kill", () => {
 		mockFs.existsSync.mockImplementation((p) => p === "/proj/package.json");
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ name: "lib" }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "../../lib/x", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "../../lib/x", toFile: "" })],
 		});
 		expect(checkCrossPackageImports(FILE, REL, graph)).toEqual([]);
 	});
@@ -104,7 +104,7 @@ describe("checkHallucinatedImports mutant-kill", () => {
 		mockFs.existsSync.mockImplementation((p) => p === "/proj/src/package.json");
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: {} }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "totally-made-up", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "totally-made-up", toFile: "" })],
 		});
 		const res = checkHallucinatedImports("/proj/src/deep/file.ts", "src/deep/file.ts", graph);
 		expect(res).toHaveLength(1);

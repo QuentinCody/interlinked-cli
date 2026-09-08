@@ -1,3 +1,4 @@
+import { makeMinimalEvent as completeEventFixture } from "./__tests__/fixtures/evaluator.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,12 +35,12 @@ function makeCaseResult(overrides: Partial<CaseResult> = {}): CaseResult {
 }
 
 function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
-	return {
+	return ({ ...completeEventFixture(), ...{
 		hook_event: "PreToolUse",
 		session_id: "sess-1",
 		agent_source: "claude",
 		...overrides,
-	} as HarnessEvent;
+	} });
 }
 
 let tmpCwd: string;
@@ -210,7 +211,7 @@ describe("recordShardRead — guards", () => {
 			tool_name: "Read",
 			tool_input: { file_path: "/proj/src/foo.graph.json" },
 			timestamp: "2026-01-02T00:00:00.000Z",
-		} as Partial<HarnessEvent>);
+		});
 		const result = recordShardRead(event, tmpCwd);
 		expect(result?.decision).toBe("allow");
 		expect(result?.additional_context).toContain("src/foo.ts");

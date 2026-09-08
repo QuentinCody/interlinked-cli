@@ -1,3 +1,4 @@
+import { readOptionalToolString, readToolString } from "../evaluator/tool-input-values.js";
 // interlinked-tdd: exempt
 // ===========================================
 // PreToolUse search / grep-acceleration / tsgo phase helpers
@@ -32,11 +33,11 @@ export function classifySearchTool(event: HarnessEvent, rules: ServerRuntime["ru
 	const isSearchTool =
 		event.tool_name === "Grep" ||
 		(event.tool_name === "Bash" &&
-			/\b(rg|ripgrep|grep|egrep)\s/.test((event.tool_input?.command as string) || ""));
+			/\b(rg|ripgrep|grep|egrep)\s/.test(readToolString(event.tool_input?.command)));
 	const ugrepAwareSearch =
 		isSearchTool ||
 		(event.tool_name === "Bash" &&
-			/\b(ugrep|ug|fgrep)\s/.test((event.tool_input?.command as string) || ""));
+			/\b(ugrep|ug|fgrep)\s/.test(readToolString(event.tool_input?.command)));
 	const grepSubstitutionEnabled =
 		process.env.INTERLINKED_GREP_ACCELERATOR === "1" ||
 		(process.env.INTERLINKED_GREP_ACCELERATOR !== "0" &&
@@ -133,11 +134,11 @@ function isIndexApplicableSearch(ctx: ServerRuntime, event: HarnessEvent): boole
 			Boolean(input.pattern) &&
 			!input.glob &&
 			!input.output_mode &&
-			isIndexedPath(ctx.cwd, input.path as string | undefined)
+			isIndexedPath(ctx.cwd, readOptionalToolString(input.path))
 		);
 	}
 	if (event.tool_name === "Bash") {
-		const parsed = parseGrepCommand((event.tool_input?.command as string) || "");
+		const parsed = parseGrepCommand(readToolString(event.tool_input?.command));
 		return Boolean(parsed && isIndexedPath(ctx.cwd, parsed.path));
 	}
 	return false;

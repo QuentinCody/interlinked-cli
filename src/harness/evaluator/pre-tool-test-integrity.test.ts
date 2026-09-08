@@ -1,3 +1,4 @@
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,7 +15,7 @@ afterEach(() => {
 });
 
 function session(written: string[] = []): SessionTrajectory {
-	return { files_written: new Set(written) } as unknown as SessionTrajectory;
+	return ({ ...makeSessionFixture(), files_written: new Set(written) } satisfies SessionTrajectory);
 }
 
 function write(relFile: string, content: string): { file_path: string; content: string } {

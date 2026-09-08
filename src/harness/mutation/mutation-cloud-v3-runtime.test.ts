@@ -546,14 +546,12 @@ describe("MutationCloudV3Runtime", () => {
 	it("closes only an owned journal when constructor-time manifest seeding fails, but always rethrows", () => {
 		const view = fixture();
 		const close = vi.fn();
+		// SAFETY: getManifestHead throws before any journal method except close can run; this fixture isolates ownership cleanup on that path.
 		const fakeJournal = {
 			getManifestHead: () => {
 				throw new Error("injected manifest head lookup failure");
 			},
 			close,
-			// SAFETY: on this failure path the constructor calls only
-			// getManifestHead before rethrowing; every other MutationJournal
-			// member is unreachable, so the fake only needs these two.
 		} as unknown as MutationJournal;
 		expect(() => new MutationCloudV3Runtime("unused-runtime-root", config(view), { journal: fakeJournal }))
 			.toThrow("injected manifest head lookup failure");

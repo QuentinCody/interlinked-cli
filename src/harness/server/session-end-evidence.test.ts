@@ -36,7 +36,7 @@ describe("buildSessionEvidence", () => {
 		s.test_runs.set("a.test.ts", { status: "pass", at_step: 1 });
 		s.test_runs.set("b.test.ts", { status: "fail", at_step: 2 });
 		s.files_written.add("/repo/src/a.ts");
-		s.warnings_issued.set("a.ts::x", {} as never);
+		s.warnings_issued.set("a.ts::x", { check_name: "x", issue_count: 1, first_issued_at: 0, last_issued_at: 0, resolved: false });
 		s.verification_observed = new Set(["typecheck", "test"]);
 
 		const e = buildSessionEvidence(s);

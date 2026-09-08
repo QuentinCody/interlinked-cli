@@ -6,10 +6,11 @@
 // can confirm. These config tightenings rarely come back once relaxed,
 // and asymmetric review value justifies the friction.
 
+import { readOptionalToolString, readToolString } from "./tool-input-values.js";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 import {
 	evaluateVitestCoverageWaterLine,
@@ -52,8 +53,8 @@ export function safeJsonParse(text: string): unknown {
 function get(obj: unknown, ...path: string[]): unknown {
 	let node: unknown = obj;
 	for (const segment of path) {
-		if (!node || typeof node !== "object") return undefined;
-		node = (node as JsonObject)[segment];
+		if (!isJsonObject(node)) return undefined;
+		node = node[segment];
 	}
 	return node;
 }
@@ -365,8 +366,8 @@ function reconstructProposedFromOldNew(
 	cwd: string | undefined,
 	toolInput: JsonObject,
 ): string | null {
-	const oldString = toolInput.old_string as string | undefined;
-	const newString = toolInput.new_string as string | undefined;
+	const oldString = readOptionalToolString(toolInput.old_string);
+	const newString = readOptionalToolString(toolInput.new_string);
 	if (typeof oldString !== "string" || typeof newString !== "string") return null;
 	const disk = readDiskContent(filePath, cwd);
 	if (disk === null) return null;
@@ -378,10 +379,10 @@ export function evaluateConfigLooseningForEvent(
 	warnings?: string[],
 ): HarnessDecision | null {
 	const toolInput = event.tool_input || {};
-	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 	if (!filePath || !isConfigFile(filePath)) return null;
 
-	const content = toolInput.content as string | undefined;
+	const content = readOptionalToolString(toolInput.content);
 	const proposed =
 		typeof content === "string" ? content : reconstructProposedFromOldNew(filePath, event.cwd, toolInput);
 	if (proposed === null) return null;

@@ -170,6 +170,22 @@ describe("schema differential — negative (the schema alone must not be trusted
 });
 
 describe("schema differential — positive (schema-valid is a floor accepted values clear)", () => {
+	it("accepts nonempty binding mismatches and rejects empty or malformed tuple entries", () => {
+		const row = malformed.find((candidate) => candidate.id === "outcome-binding-mismatch-empty-list");
+		if (!row) throw new Error("Missing binding mismatch corpus row");
+		const base = objectAt(row.value, row.id);
+		const mismatch = {
+			field: "post_tree_hash", comparison: "claim_vs_measurement",
+			expected: JSON.stringify("a".repeat(64)), measured: JSON.stringify("c".repeat(64)),
+		};
+		const valid = { ...base, mismatches: [mismatch] };
+		expect(parserAccepts("outcome", valid)).toBe(true);
+		expect(schemaAccepts("outcome", valid)).toBe(true);
+		expect(schemaAccepts("outcome", { ...base, mismatches: [mismatch, mismatch] })).toBe(true);
+		expect(schemaAccepts("outcome", base)).toBe(false);
+		expect(schemaAccepts("outcome", { ...base, mismatches: [mismatch, {}] })).toBe(false);
+	});
+
 	it("P1: a value the schema rejects is never one the parser accepts (over-constraint is a bug)", () => {
 		const bugs: string[] = [];
 		for (const row of malformed) {

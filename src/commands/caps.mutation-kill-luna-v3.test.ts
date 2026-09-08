@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireRecord, wireUnknown } from "../lib/value-validation.js";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +30,7 @@ describe("caps commands", () => {
         const result = await capsShowAction({ json: true }, { cwd });
 
         expect(result).toBe(0);
-        const output = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Record<string, unknown>;
+        const output = parseWire(JSON.parse(String(logSpy.mock.calls[0]?.[0])), wireRecord(wireUnknown), "test JSON value");
         expect(output).toMatchObject({
             lines: { value: 500, source: "default", default: 500 },
             "function-tokens": { value: 500, source: "default", default: 500 },
@@ -97,7 +98,7 @@ describe("caps commands", () => {
         captureOutput();
 
         expect(await capsExplainAction("coverage", { json: true })).toBe(0);
-        const explanation = JSON.parse(String(logSpy.mock.calls[0]?.[0])) as Array<Record<string, unknown>>;
+        const explanation = parseWire(JSON.parse(String(logSpy.mock.calls[0]?.[0])), wireArray(wireRecord(wireUnknown)), "test JSON value");
         expect(explanation).toHaveLength(1);
         expect(explanation[0]).toMatchObject({
             key: "coverage",

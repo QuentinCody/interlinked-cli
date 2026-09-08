@@ -1,3 +1,6 @@
+import { makeEventLoopDeps, makeServerRuntime } from "./server/__tests__/fixtures.js";
+import { readJsonRecord } from "./server/__tests__/json.js";
+import { makeSession, makeEvent } from "./__tests__/fixtures/evaluator.js";
 // Behavioral tests for the harness server event loop (`createEventLoop`).
 //
 // The factory closes over a bag of sibling-module functions and `deps`
@@ -36,7 +39,7 @@ import { readLocalActivity } from "../lib/local-activity.js";
 import { nonNull } from "../lib/non-null.js";
 import { createCodexAdapter } from "./adapters/codex.js";
 import { writeLifecycleActivityRecord } from "./server/activity-writer.js";
-import type { HarnessDecision, HarnessEvent } from "./types.js";
+import type { HarnessDecision, HarnessEvent, SessionTrajectory } from "./types.js";
 
 // ---- mock every sibling module the loop imports ---------------------------
 
@@ -93,7 +96,7 @@ import {
 	recordProtocolEvent as bumpProtocolEvent,
 	writeProtocolStatus as persistProtocolStatus,
 } from "./server/protocol-status.js";
-import { createEventLoop, type EventLoopDeps } from "./server-event-loop.js";
+import { createEventLoop } from "./server-event-loop.js";
 
 const mForward = vi.mocked(forwardCloudPreToolUse);
 const mAppendLatency = vi.mocked(appendLatencyLog);
@@ -108,53 +111,18 @@ const mBump = vi.mocked(bumpProtocolEvent);
 const mPersist = vi.mocked(persistProtocolStatus);
 
 const ALLOW: HarnessDecision = { decision: "allow" };
+const { buildLatencyRecord: actualBuildLatency } = await vi.importActual<typeof import("./server/latency-record.js")>("./server/latency-record.js");
+const { toLegacyHarnessEvent: actualToLegacy } = await vi.importActual<typeof import("./legacy-client.js")>("./legacy-client.js");
 
 // ---- fakes for ctx + deps -------------------------------------------------
 
-interface FakeSession {
-	tool_call_count: number;
-	files_written: Set<string>;
-}
-
 function makeHarness(cwd = "/repo") {
-	const log = vi.fn();
-	const sessionMap = new Map<string, FakeSession>();
-
-	const sessions = {
-		get: vi.fn((id: string) => sessionMap.get(id)),
-		hydrate: vi.fn((_snap: JsonObject) => null as FakeSession | null),
-		recordEvent: vi.fn((_e: HarnessEvent) => ({ tag: "session" })),
-		// G3: the loop mints a per-session ordinal on every observed event.
-		nextSeq: vi.fn((_id: string) => 1),
-		serialize: vi.fn((_id: string): JsonObject | null => ({ snap: true })),
-	};
-
-	const ctx = {
-		cwd,
-		interlinkedDir: `${cwd}/.interlinked`,
-		log,
-		sessions,
-	} as unknown as EventLoopDeps["ctx"];
-
-	const protocolStatus = {
-		raw_event_count: 0,
-		framed_event_count: 0,
-		framed_error_count: 0,
-		framed_timeout_count: 0,
-	} as unknown as EventLoopDeps["protocolStatus"];
-
-	const deps: EventLoopDeps = {
-		ctx,
-		protocolStatus,
-		protocolStatusPath: "/repo/.interlinked/harness-protocol.json",
-		resetIdleTimer: vi.fn(),
-		syncRuntimeIn: vi.fn(),
-		syncRuntimeOut: vi.fn(),
-		writeCollectionRecord: vi.fn(),
-		writeLifecycleActivityRecord: vi.fn(),
-	};
-
-	return { deps, ctx, sessions, sessionMap, log, protocolStatus };
+ const log = vi.fn();
+ const sessionMap = new Map<string, SessionTrajectory>();
+ const sessions = { get: vi.fn((id: string) => sessionMap.get(id)), hydrate: vi.fn((_snap: JsonObject): SessionTrajectory | null => null), recordEvent: vi.fn((event: HarnessEvent) => ({ ...makeSession(), session_id: event.session_id })), nextSeq: vi.fn((_id: string) => 1), serialize: vi.fn((_id: string): JsonObject | null => ({ snap: true })) };
+ const ctx = makeServerRuntime({ cwd, interlinkedDir: cwd + "/.interlinked", log, sessions });
+ const deps = makeEventLoopDeps({ ctx });
+ return { deps, ctx, sessions, sessionMap, log, protocolStatus: deps.protocolStatus };
 }
 
 function preEvent(extra: Partial<HarnessEvent> = {}): string {
@@ -177,8 +145,8 @@ beforeEach(() => {
 	mForward.mockImplementation(async (_e, local) => local);
 	mWriteSnap.mockReturnValue({ ok: true });
 	mReadSnap.mockReturnValue(null);
-	mBuildLatency.mockReturnValue({ decision: "allow" } as ReturnType<typeof buildLatencyRecord>);
-	mToLegacy.mockImplementation((e) => e as unknown as HarnessEvent);
+	mBuildLatency.mockImplementation(actualBuildLatency);
+	mToLegacy.mockImplementation(actualToLegacy);
 });
 
 // ---- ambient replay-env neutralization ------------------------------------
@@ -395,7 +363,7 @@ describe("processEvent — lazy hydrate branch", () => {
 	it("hydrates from a live snapshot and logs when restore succeeds", async () => {
 		const h = makeHarness();
 		mReadSnap.mockReturnValueOnce({ restored: true });
-		h.sessions.hydrate.mockReturnValueOnce({
+		h.sessions.hydrate.mockReturnValueOnce({ ...makeSession(),
 			tool_call_count: 4,
 			files_written: new Set(["a.ts", "b.ts"]),
 		});
@@ -435,7 +403,7 @@ describe("processEvent — lazy hydrate branch", () => {
 
 	it("skips the hydrate lookup when the session is already tracked", async () => {
 		const h = makeHarness();
-		h.sessionMap.set("s1", { tool_call_count: 0, files_written: new Set() });
+		h.sessionMap.set("s1", makeSession());
 		const loop = createEventLoop(h.deps);
 
 		await loop.evaluateEventLine(preEvent(), "raw");
@@ -457,9 +425,7 @@ describe("processEvent — lazy hydrate branch", () => {
 describe("evaluateEventLine — protocol counter + latency + snapshot durability", () => {
 	it("records a framed protocol event and appends the latency record", async () => {
 		const h = makeHarness();
-		const latency = { decision: "allow", tool_name: "Bash" } as ReturnType<
-			typeof buildLatencyRecord
-		>;
+		const latency = actualBuildLatency(preEvent(), ALLOW);
 		mBuildLatency.mockReturnValueOnce(latency);
 		const loop = createEventLoop(h.deps);
 
@@ -603,13 +569,14 @@ describe("evaluateEventLine — protocol counter + latency + snapshot durability
 describe("evaluateUnifiedViaRuntime", () => {
 	it("translates a unified event to legacy and evaluates it as framed", async () => {
 		const h = makeHarness();
-		const legacy = JSON.parse(preEvent()) as HarnessEvent;
+		const legacy = makeEvent({ hook_event: "PreToolUse", session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } });
 		mToLegacy.mockReturnValueOnce(legacy);
 		const loop = createEventLoop(h.deps);
 
-		const decision = await loop.evaluateUnifiedViaRuntime({ any: "unified" } as never);
+		const unified = createCodexAdapter().parseHookInput({ session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } }, "PreToolUse");
+		const decision = await loop.evaluateUnifiedViaRuntime(unified);
 
-		expect(mToLegacy).toHaveBeenCalledWith({ any: "unified" });
+		expect(mToLegacy).toHaveBeenCalledWith(unified);
 		expect(decision).toEqual(ALLOW);
 		// Routed through the framed protocol counter.
 		expect(mBump).toHaveBeenCalledWith(h.protocolStatus, "framed");
@@ -623,7 +590,7 @@ describe("evaluateUnifiedViaRuntime", () => {
 		});
 		const loop = createEventLoop(h.deps);
 
-		await expect(loop.evaluateUnifiedViaRuntime({ x: 1 } as never)).rejects.toBe(err);
+		await expect(loop.evaluateUnifiedViaRuntime(createCodexAdapter().parseHookInput({ session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } }, "PreToolUse"))).rejects.toBe(err);
 		expect(h.protocolStatus.framed_error_count).toBe(1);
 		expect(mPersist).toHaveBeenCalledWith(h.deps.protocolStatusPath, h.protocolStatus);
 		// The error path short-circuits before any event processing.
@@ -632,13 +599,13 @@ describe("evaluateUnifiedViaRuntime", () => {
 
 	it("propagates an error thrown by the inner evaluateEventLine and counts it", async () => {
 		const h = makeHarness();
-		mToLegacy.mockReturnValueOnce(JSON.parse(preEvent()) as HarnessEvent);
+		mToLegacy.mockReturnValueOnce(makeEvent({ hook_event: "PreToolUse", session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } }));
 		// Make the inner pipeline throw so evaluateEventLine rejects after
 		// translation succeeded — exercises the catch wrapping the await.
 		mPrePipeline.mockRejectedValueOnce(new Error("inner reject"));
 		const loop = createEventLoop(h.deps);
 
-		await expect(loop.evaluateUnifiedViaRuntime({ x: 1 } as never)).rejects.toThrow(
+		await expect(loop.evaluateUnifiedViaRuntime(createCodexAdapter().parseHookInput({ session_id: "s1", tool_name: "Bash", tool_input: { command: "ls" } }, "PreToolUse"))).rejects.toThrow(
 			"inner reject",
 		);
 		expect(h.protocolStatus.framed_error_count).toBe(1);
@@ -930,13 +897,6 @@ describe("replayClockFor — G4 frozen evaluation clock", () => {
 // `.interlinked/replay/snapshots/index.jsonl`, so the wiring is checked
 // against real rows on disk rather than a mock's argument list.
 
-interface SnapshotRow {
-	session_id: string;
-	seq: number | null;
-	tool_use_id: string | null;
-	phase: "pre" | "post";
-}
-
 const replayFixtures: string[] = [];
 afterEach(() => {
 	for (const dir of replayFixtures.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -1001,14 +961,13 @@ function makeRepoFixture(): string {
 	return dir;
 }
 
-function snapshotRows(dir: string): SnapshotRow[] {
+function snapshotRows(dir: string): JsonObject[] {
 	const path = join(dir, ".interlinked", "replay", "snapshots", "index.jsonl");
 	if (!existsSync(path)) return [];
 	return readFileSync(path, "utf-8")
 		.split("\n")
 		.filter((l) => l.trim().length > 0)
-		// SAFETY: rows are written by recordTreeSnapshot in this same test run.
-		.map((l) => JSON.parse(l) as SnapshotRow);
+		.map((l) => readJsonRecord(l));
 }
 
 describe("evaluateEventLine — G2 replay snapshot wiring", () => {

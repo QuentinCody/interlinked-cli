@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked sync — behavioral coverage
 // ===========================================
@@ -113,23 +114,23 @@ function plain(s: string): string {
 	return s.replace(/\x1b\[[0-9;]*m/g, "");
 }
 function stdout(): string {
-	return plain((logSpy.mock.calls as unknown[][]).map((a) => String(a[0])).join("\n"));
+	return plain((logSpy.mock.calls).map((a: unknown[]) => String(a[0])).join("\n"));
 }
 function stderrConsole(): string {
-	return plain((errSpy.mock.calls as unknown[][]).map((a) => String(a[0])).join("\n"));
+	return plain((errSpy.mock.calls).map((a: unknown[]) => String(a[0])).join("\n"));
 }
 function processStderr(): string {
-	return plain((stderrSpy.mock.calls as unknown[][]).map((a) => String(a[0])).join(""));
+	return plain((stderrSpy.mock.calls).map((a: unknown[]) => String(a[0])).join(""));
 }
 /** Parse the single JSON blob console.log emitted in --json mode. */
 function jsonOut(): Record<string, unknown> {
-	const raw = (logSpy.mock.calls as unknown[][]).map((a) => String(a[0])).join("\n");
-	return JSON.parse(raw) as Record<string, unknown>;
+	const raw = (logSpy.mock.calls).map((a: unknown[]) => String(a[0])).join("\n");
+	return parseWire(JSON.parse(raw), wireRecord(wireUnknown), "test JSON value");
 }
 /** The init object handed to the Nth fetch call. */
 function fetchInit(n = 0): RequestInit {
-	const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
-	return (fetchFn.mock.calls[n] as [string, RequestInit])[1];
+	const fetchFn = vi.mocked(fetch);
+	return nonNull(nonNull(fetchFn.mock.calls[n])[1]);
 }
 
 /** Build a LocalActivityEvent with sensible defaults; override per test. */
@@ -447,7 +448,7 @@ describe("syncCommand — local-dev workspace guard", () => {
 			sync_mode: "realtime",
 		});
 		await syncCommand({ json: true });
-		const j = JSON.parse(stderrConsole()) as { error: string };
+		const j = parseWire(JSON.parse(stderrConsole()), wireObject({ "error": wireString }), "test JSON value");
 		expect(j.error).toContain("workspace_id required");
 		expect(fetch).not.toHaveBeenCalled();
 	});
@@ -462,7 +463,7 @@ describe("syncCommand — local-dev workspace guard", () => {
 		});
 		await syncCommand({});
 		expect(fetch).toHaveBeenCalledTimes(1);
-		const headers = fetchInit(0).headers as Record<string, string>;
+		const headers = parseWire(fetchInit(0).headers, wireRecord(wireString), "test JSON value");
 		expect(headers.Authorization).toBeUndefined();
 		expect(headers["Content-Type"]).toBe("application/json");
 	});
@@ -471,7 +472,12 @@ describe("syncCommand — local-dev workspace guard", () => {
 		mockResolveAuthToken.mockReturnValue(null);
 		await syncCommand({});
 		expect(fetch).toHaveBeenCalledTimes(1);
-		const headers = fetchInit(0).headers as Record<string, string>;
+		const fetchFn = vi.mocked(fetch);
+		const [url] = nonNull(fetchFn.mock.calls[0]);
+		expect(url).toBe("https://api.example.com/api/hooks/activity/batch");
+		const init = fetchInit(0);
+		expect(init.method).toBe("POST");
+		const headers = parseWire(init.headers, wireRecord(wireString), "test JSON value");
 		expect(headers.Authorization).toBeUndefined();
 	});
 });
@@ -498,14 +504,14 @@ describe("syncCommand — successful sync", () => {
 	it("sends Bearer auth + workspace_uuid to prod and advances the cursor", async () => {
 		await syncCommand({});
 		expect(fetch).toHaveBeenCalledTimes(1);
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
-		const url = (fetchFn.mock.calls[0] as [string, RequestInit])[0];
+		const fetchFn = vi.mocked(fetch);
+		const url = (nonNull(fetchFn.mock.calls[0]))[0];
 		const init = fetchInit(0);
 		expect(url).toBe("https://api.example.com/api/hooks/activity/batch");
 		expect(init.method).toBe("POST");
-		const headers = init.headers as Record<string, string>;
+		const headers = parseWire(init.headers, wireRecord(wireString), "test JSON value");
 		expect(headers.Authorization).toBe("Bearer tok-abc");
-		const body = JSON.parse(init.body as string) as Record<string, unknown>;
+		const body = parseWire(JSON.parse(parseWire(init.body, wireString, "fetch request body")), wireRecord(wireUnknown), "test JSON value");
 		expect(body.workspace_key).toBe("wkey");
 		expect(body.project_key).toBe("proj");
 		expect(body.workspace_uuid).toBe("ws-123");
@@ -523,7 +529,7 @@ describe("syncCommand — successful sync", () => {
 			sync_mode: "realtime",
 		});
 		await syncCommand({});
-		const body = JSON.parse(fetchInit(0).body as string) as Record<string, unknown>;
+		const body = parseWire(JSON.parse(parseWire(fetchInit(0).body, wireString, "fetch request body")), wireRecord(wireUnknown), "test JSON value");
 		expect(body).not.toHaveProperty("workspace_uuid");
 		// workspace_id is null in the summary path
 		expect(mockUpdateSyncState).toHaveBeenCalledWith(
@@ -543,7 +549,7 @@ describe("syncCommand — successful sync", () => {
 		];
 		mockGetLocalStats.mockReturnValue({ pending_sync: events.length });
 		mockGetUnsyncedEvents.mockReturnValue({ events, newOffset: 5000 });
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 5, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({});
@@ -587,7 +593,7 @@ describe("syncCommand — successful sync", () => {
 		});
 		mockGetLocalStats.mockReturnValue({ pending_sync: events.length });
 		mockGetUnsyncedEvents.mockReturnValue({ events, newOffset: 7000 });
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: events.length, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({});
@@ -611,7 +617,7 @@ describe("syncCommand — successful sync", () => {
 	});
 
 	it("JSON success envelope carries totals, breakdown, new_offset === newOffset", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 1, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({ json: true });
@@ -624,7 +630,7 @@ describe("syncCommand — successful sync", () => {
 		expect(j.batches_sent).toBe(1);
 		expect(j.retries).toBe(0);
 		expect(j.new_offset).toBe(4096);
-		const breakdown = j.breakdown as Record<string, unknown>;
+		const breakdown = parseWire(j.breakdown, wireRecord(wireUnknown), "test JSON value");
 		expect(breakdown.sessions).toBe(1);
 	});
 
@@ -635,7 +641,7 @@ describe("syncCommand — successful sync", () => {
 			.mockReturnValueOnce({ events: events.slice(0, 100), newOffset: 5000 })
 			.mockReturnValueOnce({ events: events.slice(100), newOffset: 8000 })
 			.mockReturnValue({ events: [], newOffset: 8000 });
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockResolvedValueOnce(okRes({ accepted: 100, skipped: 0, errors: 0 }))
 			.mockResolvedValueOnce(okRes({ accepted: 40, skipped: 10, errors: 0 }));
@@ -650,7 +656,7 @@ describe("syncCommand — successful sync", () => {
 	});
 
 	it("an empty success receipt fails closed without advancing the cursor", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(okRes({}));
+		(vi.mocked(fetch)).mockResolvedValue(okRes({}));
 		await syncCommand({ json: true });
 		const j = jsonOut();
 		expect(j.accepted).toBe(0);
@@ -670,7 +676,7 @@ describe("syncCommand — successful sync", () => {
 			default_project: "proj",
 			sync_mode: "realtime",
 		});
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 1, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({ json: true });
@@ -685,9 +691,7 @@ describe("syncCommand — successful sync", () => {
 
 describe("syncCommand — payload field mapping", () => {
 	function sentEvent(): Record<string, unknown> {
-		const body = JSON.parse(fetchInit(0).body as string) as {
-			events: Record<string, unknown>[];
-		};
+		const body = parseWire(JSON.parse(parseWire(fetchInit(0).body, wireString, "fetch request body")), wireObject({ "events": wireArray(wireRecord(wireUnknown)) }), "test JSON value");
 		return nonNull(body.events[0]);
 	}
 
@@ -933,7 +937,7 @@ describe("syncCommand — bounded response bodies", () => {
 	it("accepts an exact-limit success receipt", async () => {
 		const receipt = JSON.stringify({ accepted: 1, skipped: 0, errors: 0 });
 		const exactLimitBody = receipt + " ".repeat(SYNC_RESPONSE_BODY_LIMIT - receipt.length);
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			new Response(exactLimitBody, { status: 200 }),
 		);
 
@@ -956,7 +960,7 @@ describe("syncCommand — bounded response bodies", () => {
 				cancelled = true;
 			},
 		});
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			new Response(body, { status: 200 }),
 		);
 
@@ -975,7 +979,7 @@ describe("syncCommand — bounded response bodies", () => {
 	});
 
 	it("rejects an oversized error body from Content-Length without buffering it", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			new Response("server-controlled detail", {
 				status: 400,
 				headers: { "content-length": String(SYNC_RESPONSE_BODY_LIMIT + 1) },
@@ -1020,11 +1024,11 @@ describe("syncCommand — bounded cumulative summary", () => {
 			return { events, newOffset: start + count };
 		});
 		// SAFETY: beforeEach installs fetch as a Vitest mock for every test.
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn.mockImplementation(
 			async (_input: RequestInfo | URL, init?: RequestInit) => {
 				// SAFETY: sync serializes this request body from buildBatchBody immediately before fetch.
-				const sent = JSON.parse(String(init?.body)) as { events: unknown[] };
+				const sent = parseWire(JSON.parse(String(init?.body)), wireObject({ "events": wireArray(wireUnknown) }), "test JSON value");
 				return okRes({ accepted: sent.events.length, skipped: 0, errors: 0 });
 			},
 		);
@@ -1045,9 +1049,9 @@ describe("syncCommand — bounded cumulative summary", () => {
 
 		const result = jsonOut();
 		// SAFETY: the sync JSON contract always emits breakdown as an object.
-		const breakdown = result.breakdown as Record<string, unknown>;
+		const breakdown = parseWire(result.breakdown, wireRecord(wireUnknown), "test JSON value");
 		// SAFETY: breakdown.by_type is the serialized bounded count dictionary.
-		const byType = breakdown.by_type as Record<string, number>;
+		const byType = parseWire(breakdown.by_type, wireRecord(wireNumber), "test JSON value");
 		expect(fetch).toHaveBeenCalledTimes(3);
 		expect(result.accepted).toBe(uniqueEvents);
 		expect(Object.keys(byType)).toHaveLength(256);
@@ -1093,7 +1097,7 @@ describe("syncCommand — bounded cumulative summary", () => {
 
 		const result = jsonOut();
 		// SAFETY: the sync JSON contract always emits breakdown as an object.
-		const breakdown = result.breakdown as Record<string, unknown>;
+		const breakdown = parseWire(result.breakdown, wireRecord(wireUnknown), "test JSON value");
 		expect(breakdown).toMatchObject({ by_type: {}, by_agent: {}, top_tools: [], sessions: 0 });
 		expect(result.summary_truncated).toMatchObject({
 			omitted_occurrences: { by_type: 1, by_agent: 1, by_tool: 1, sessions: 1 },
@@ -1107,7 +1111,7 @@ describe("syncCommand — bounded cumulative summary", () => {
 
 describe("syncCommand — 401 auth failure", () => {
 	it("logs a sync error, prints re-auth guidance, and aborts (normal)", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(failRes(401, "nope"));
+		(vi.mocked(fetch)).mockResolvedValue(failRes(401, "nope"));
 		await syncCommand({});
 		expect(mockAppendSyncError).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -1125,16 +1129,16 @@ describe("syncCommand — 401 auth failure", () => {
 	});
 
 	it("401 in JSON mode emits a structured error envelope", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(failRes(401));
+		(vi.mocked(fetch)).mockResolvedValue(failRes(401));
 		await syncCommand({ json: true });
-		const j = JSON.parse(stderrConsole()) as { error: string };
+		const j = parseWire(JSON.parse(stderrConsole()), wireObject({ "error": wireString }), "test JSON value");
 		expect(j.error).toContain("Authentication failed");
 	});
 });
 
 describe("syncCommand — fatal (non-transient) HTTP error", () => {
 	it("400 is logged once, counts batch.length as errors, no cursor advance (json)", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(failRes(400, "bad payload"));
+		(vi.mocked(fetch)).mockResolvedValue(failRes(400, "bad payload"));
 		mockGetUnsyncedEvents.mockReturnValue({
 			events: [ev(), ev({ session: "s2" })],
 			newOffset: 100,
@@ -1158,7 +1162,7 @@ describe("syncCommand — fatal (non-transient) HTTP error", () => {
 	});
 
 	it("400 in normal mode writes the dim per-batch failure line to process.stderr", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(failRes(400, "bad payload"));
+		(vi.mocked(fetch)).mockResolvedValue(failRes(400, "bad payload"));
 		await syncCommand({});
 		expect(processStderr()).toContain("Batch 1 failed (400)");
 		expect(processStderr()).toContain("bad payload");
@@ -1170,14 +1174,14 @@ describe("syncCommand — fatal (non-transient) HTTP error", () => {
 
 	it("truncates a long error body to 100 chars in the process.stderr failure line", async () => {
 		const longBody = "y".repeat(300);
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(failRes(400, longBody));
+		(vi.mocked(fetch)).mockResolvedValue(failRes(400, longBody));
 		await syncCommand({});
 		expect(processStderr()).toContain(`Batch 1 failed (400): ${"y".repeat(100)}\n`);
 		expect(processStderr()).not.toContain("y".repeat(101));
 	});
 
 	it("reports a bounded read failure when a non-success body stream rejects", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(failResTextThrows(400));
+		(vi.mocked(fetch)).mockResolvedValue(failResTextThrows(400));
 		await syncCommand({});
 		expect(processStderr()).toContain(
 			"Batch 1 failed (400): [response body could not be read: body read failed]",
@@ -1194,7 +1198,7 @@ describe("syncCommand — fatal (non-transient) HTTP error", () => {
 
 	it("truncates a long error body to 200 chars in the appendSyncError message", async () => {
 		const longBody = "x".repeat(300);
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(failRes(400, longBody));
+		(vi.mocked(fetch)).mockResolvedValue(failRes(400, longBody));
 		await syncCommand({});
 		expect(mockAppendSyncError).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -1209,7 +1213,7 @@ describe("syncCommand — fatal (non-transient) HTTP error", () => {
 describe("syncCommand — transient HTTP error then retry", () => {
 	it("503 retries with backoff then succeeds; retries counted", async () => {
 		vi.useFakeTimers();
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockResolvedValueOnce(failRes(503, "unavailable"))
 			.mockResolvedValueOnce(okRes({ accepted: 1, skipped: 0, errors: 0 }));
@@ -1224,14 +1228,14 @@ describe("syncCommand — transient HTTP error then retry", () => {
 		expect(j.accepted).toBe(1);
 		expect(j.batches_sent).toBe(1);
 		// one transient retry (retriesUsed++ on continue) + attempt>1 success bump
-		expect(j.retries as number).toBeGreaterThanOrEqual(1);
+		expect(j.retries).toBeGreaterThanOrEqual(1);
 		expect(j.errors).toBe(0);
 		expect(mockUpdateSyncState).toHaveBeenCalled();
 	});
 
 	it("actually waits for the backoff timer before retrying (sleep() is not a no-op)", async () => {
 		vi.useFakeTimers();
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockResolvedValueOnce(failRes(503, "unavailable"))
 			.mockResolvedValueOnce(okRes({ accepted: 1, skipped: 0, errors: 0 }));
@@ -1245,11 +1249,13 @@ describe("syncCommand — transient HTTP error then retry", () => {
 		await vi.advanceTimersByTimeAsync(1000);
 		await p;
 		expect(fetchFn).toHaveBeenCalledTimes(2);
+		const [retryUrl] = nonNull(fetchFn.mock.calls[1]);
+		expect(retryUrl).toBe("https://api.example.com/api/hooks/activity/batch");
 	});
 
 	it("uses RETRY_BACKOFF_MS[attempt-1] exactly: 250ms before retry 1, 750ms before retry 2", async () => {
 		vi.useFakeTimers();
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockResolvedValueOnce(failRes(503, "unavailable")) // attempt 1 -> retry after 250ms
 			.mockResolvedValueOnce(failRes(503, "unavailable")) // attempt 2 -> retry after 750ms
@@ -1270,11 +1276,13 @@ describe("syncCommand — transient HTTP error then retry", () => {
 		await vi.advanceTimersByTimeAsync(1);
 		await p;
 		expect(fetchFn).toHaveBeenCalledTimes(3);
+		const [finalUrl] = nonNull(fetchFn.mock.calls[2]);
+		expect(finalUrl).toBe("https://api.example.com/api/hooks/activity/batch");
 	});
 
 	it("429 exhausts all retries then counts the batch as failed", async () => {
 		vi.useFakeTimers();
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(failRes(429, "slow down"));
+		(vi.mocked(fetch)).mockResolvedValue(failRes(429, "slow down"));
 		const p = syncCommand({ json: true });
 		await vi.runAllTimersAsync();
 		await p;
@@ -1293,7 +1301,7 @@ describe("syncCommand — transient HTTP error then retry", () => {
 describe("syncCommand — network throw / timeout", () => {
 	it("network-error retries use RETRY_BACKOFF_MS[attempt-1] exactly: 250ms then 750ms", async () => {
 		vi.useFakeTimers();
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockRejectedValueOnce(new Error("ECONNRESET")) // attempt 1 -> retry after 250ms
 			.mockRejectedValueOnce(new Error("ECONNRESET")) // attempt 2 -> retry after 750ms
@@ -1310,11 +1318,13 @@ describe("syncCommand — network throw / timeout", () => {
 		await vi.advanceTimersByTimeAsync(1);
 		await p;
 		expect(fetchFn).toHaveBeenCalledTimes(3);
+		const [finalUrl] = nonNull(fetchFn.mock.calls[2]);
+		expect(finalUrl).toBe("https://api.example.com/api/hooks/activity/batch");
 	});
 
 	it("retries on a network error then exhausts and counts the batch failed", async () => {
 		vi.useFakeTimers();
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("ECONNRESET"));
+		(vi.mocked(fetch)).mockRejectedValue(new Error("ECONNRESET"));
 		const p = syncCommand({ json: true });
 		await vi.runAllTimersAsync();
 		await p;
@@ -1333,7 +1343,7 @@ describe("syncCommand — network throw / timeout", () => {
 
 	it("counts exactly 2 retries (retriesUsed++, not --) across two network errors then success", async () => {
 		vi.useFakeTimers();
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockRejectedValueOnce(new Error("ECONNRESET"))
 			.mockRejectedValueOnce(new Error("ECONNRESET"))
@@ -1352,7 +1362,7 @@ describe("syncCommand — network throw / timeout", () => {
 		vi.useFakeTimers();
 		const abortErr = new Error("aborted");
 		abortErr.name = "AbortError";
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(abortErr);
+		(vi.mocked(fetch)).mockRejectedValue(abortErr);
 		const p = syncCommand({});
 		await vi.runAllTimersAsync();
 		await p;
@@ -1364,7 +1374,7 @@ describe("syncCommand — network throw / timeout", () => {
 
 	it("non-timeout network error exhausted in normal mode does NOT write 'Batch timed out'", async () => {
 		vi.useFakeTimers();
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("ECONNRESET"));
+		(vi.mocked(fetch)).mockRejectedValue(new Error("ECONNRESET"));
 		const p = syncCommand({});
 		await vi.runAllTimersAsync();
 		await p;
@@ -1375,7 +1385,7 @@ describe("syncCommand — network throw / timeout", () => {
 		vi.useFakeTimers();
 		const abortErr = new Error("aborted");
 		abortErr.name = "AbortError";
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(abortErr);
+		(vi.mocked(fetch)).mockRejectedValue(abortErr);
 		const p = syncCommand({ json: true });
 		await vi.runAllTimersAsync();
 		await p;
@@ -1384,7 +1394,7 @@ describe("syncCommand — network throw / timeout", () => {
 
 	it("non-Error thrown value is stringified into the sync-error message", async () => {
 		vi.useFakeTimers();
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockRejectedValue("string-failure");
+		(vi.mocked(fetch)).mockRejectedValue("string-failure");
 		const p = syncCommand({ json: true });
 		await vi.runAllTimersAsync();
 		await p;
@@ -1412,7 +1422,7 @@ describe("syncCommand — batch loop boundary and slicing", () => {
 		const events = Array.from({ length: 100 }, (_, i) => ev({ session: `s${i}` }));
 		mockGetLocalStats.mockReturnValue({ pending_sync: 100 });
 		mockGetUnsyncedEvents.mockReturnValue({ events, newOffset: 5000 });
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 100, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({ json: true });
@@ -1428,13 +1438,13 @@ describe("syncCommand — batch loop boundary and slicing", () => {
 			.mockReturnValueOnce({ events: events.slice(0, 100), newOffset: 5000 })
 			.mockReturnValueOnce({ events: events.slice(100), newOffset: 8000 })
 			.mockReturnValue({ events: [], newOffset: 8000 });
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockResolvedValueOnce(okRes({ accepted: 100, skipped: 0, errors: 0 }))
 			.mockResolvedValueOnce(okRes({ accepted: 50, skipped: 0, errors: 0 }));
 		await syncCommand({ json: true });
-		const body0 = JSON.parse(fetchInit(0).body as string) as { events: unknown[] };
-		const body1 = JSON.parse(fetchInit(1).body as string) as { events: unknown[] };
+		const body0 = parseWire(JSON.parse(parseWire(fetchInit(0).body, wireString, "fetch request body")), wireObject({ "events": wireArray(wireUnknown) }), "test JSON value");
+		const body1 = parseWire(JSON.parse(parseWire(fetchInit(1).body, wireString, "fetch request body")), wireObject({ "events": wireArray(wireUnknown) }), "test JSON value");
 		expect(body0.events.length).toBe(100);
 		expect(body1.events.length).toBe(50);
 	});
@@ -1445,7 +1455,7 @@ describe("syncCommand — batch loop boundary and slicing", () => {
 		mockGetUnsyncedEvents
 			.mockReturnValueOnce({ events: events.slice(0, 100), newOffset: 5000 })
 			.mockReturnValueOnce({ events: events.slice(100), newOffset: 8000 });
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockResolvedValueOnce(okRes({ accepted: 100, skipped: 0, errors: 0 }))
 			.mockResolvedValueOnce(failRes(400, "bad"));
@@ -1507,7 +1517,7 @@ describe("syncCommand — success output exact rendering", () => {
 
 	it("shows the Retries row with the exact count when retriesUsed > 0 (normal mode)", async () => {
 		vi.useFakeTimers();
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockResolvedValueOnce(failRes(503, "unavailable"))
 			.mockResolvedValueOnce(okRes({ accepted: 1, skipped: 0, errors: 0 }));
@@ -1526,7 +1536,7 @@ describe("syncCommand — success output exact rendering", () => {
 		];
 		mockGetLocalStats.mockReturnValue({ pending_sync: 2 });
 		mockGetUnsyncedEvents.mockReturnValue({ events, newOffset: 5000 });
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 2, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({});
@@ -1551,7 +1561,7 @@ describe("syncCommand — time_range payload fidelity", () => {
 		];
 		mockGetLocalStats.mockReturnValue({ pending_sync: 2 });
 		mockGetUnsyncedEvents.mockReturnValue({ events, newOffset: 5000 });
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 2, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({});
@@ -1573,7 +1583,7 @@ describe("syncCommand — time_range payload fidelity", () => {
 		];
 		mockGetLocalStats.mockReturnValue({ pending_sync: 2 });
 		mockGetUnsyncedEvents.mockReturnValue({ events, newOffset: 5000 });
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 2, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({ json: true });
@@ -1596,7 +1606,7 @@ describe("syncCommand — time_range payload fidelity", () => {
 		];
 		mockGetLocalStats.mockReturnValue({ pending_sync: 2 });
 		mockGetUnsyncedEvents.mockReturnValue({ events, newOffset: 5000 });
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 2, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({});
@@ -1612,7 +1622,7 @@ describe("syncCommand — sort ordering (descending by count)", () => {
 		];
 		mockGetLocalStats.mockReturnValue({ pending_sync: events.length });
 		mockGetUnsyncedEvents.mockReturnValue({ events, newOffset: 6000 });
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: events.length, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({});
@@ -1638,7 +1648,7 @@ describe("syncCommand — sort ordering (descending by count)", () => {
 describe("syncCommand — status-code boundary and null response body", () => {
 	it("exactly status 500 is treated as transient (retried), not the >500-only boundary", async () => {
 		vi.useFakeTimers();
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockResolvedValueOnce(failRes(500, "server error"))
 			.mockResolvedValueOnce(okRes({ accepted: 1, skipped: 0, errors: 0 }));
@@ -1658,7 +1668,7 @@ describe("syncCommand — status-code boundary and null response body", () => {
 			status: 200,
 			headers: { "content-type": "application/json" },
 		});
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(nullBodyRes);
+		(vi.mocked(fetch)).mockResolvedValue(nullBodyRes);
 		await syncCommand({ json: true });
 		expect(fetch).toHaveBeenCalledTimes(1);
 		const j = jsonOut();
@@ -1673,7 +1683,7 @@ describe("syncCommand — status-code boundary and null response body", () => {
 	});
 
 	it("a malformed success receipt fails closed without advancing the cursor", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: "1", skipped: 0, errors: 0 }),
 		);
 		await syncCommand({ json: true });
@@ -1682,7 +1692,7 @@ describe("syncCommand — status-code boundary and null response body", () => {
 	});
 
 	it("an under-accounted success receipt fails closed", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 0, skipped: 0, errors: 0 }),
 		);
 		await syncCommand({ json: true });
@@ -1693,7 +1703,7 @@ describe("syncCommand — status-code boundary and null response body", () => {
 	it("an exact accepted-plus-skipped receipt permits the checkpoint", async () => {
 		mockGetLocalStats.mockReturnValue({ pending_sync: 2 });
 		mockGetUnsyncedEvents.mockReturnValue({ events: [ev(), ev()], newOffset: 200 });
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 1, skipped: 1, errors: 0 }),
 		);
 		await syncCommand({ json: true });
@@ -1704,7 +1714,7 @@ describe("syncCommand — status-code boundary and null response body", () => {
 
 describe("syncCommand — exact error/retry accounting", () => {
 	it("a success receipt reporting errors fails the whole submitted page", async () => {
-		(fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+		(vi.mocked(fetch)).mockResolvedValue(
 			okRes({ accepted: 1, skipped: 0, errors: 2 }),
 		);
 		await syncCommand({ json: true });
@@ -1716,7 +1726,7 @@ describe("syncCommand — exact error/retry accounting", () => {
 
 	it("retries counted exactly across a transient-then-success batch (503 -> ok)", async () => {
 		vi.useFakeTimers();
-		const fetchFn = fetch as unknown as ReturnType<typeof vi.fn>;
+		const fetchFn = vi.mocked(fetch);
 		fetchFn
 			.mockResolvedValueOnce(failRes(503, "unavailable"))
 			.mockResolvedValueOnce(okRes({ accepted: 1, skipped: 0, errors: 0 }));
@@ -1744,7 +1754,7 @@ describe("syncCommand — top-level error handling", () => {
 			throw "boom-string";
 		});
 		await syncCommand({ json: true });
-		const j = JSON.parse(stderrConsole()) as { error: string };
+		const j = parseWire(JSON.parse(stderrConsole()), wireObject({ "error": wireString }), "test JSON value");
 		expect(j.error).toBe("boom-string");
 		expect(process.exitCode).toBe(1);
 	});

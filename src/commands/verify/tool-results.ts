@@ -52,7 +52,7 @@ export function filterCodeQualityResults(
 	results: CodeQualityResults,
 	skipChecks: Set<string>,
 ): CodeQualityResults {
-	const filtered = {} as CodeQualityResults;
+	const filtered = emptyResults();
 	for (const key of CQ_RESULT_KEYS) {
 		filtered[key] = results[key].filter((issue) => !skipChecks.has(issue.check));
 	}

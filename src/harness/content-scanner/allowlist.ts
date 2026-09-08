@@ -24,6 +24,8 @@
 
 import type { AllowlistEntry, ScanFinding } from "./types.js";
 
+import { isJsonObject } from "../../lib/json-types.js";
+
 /** A pre-compiled allowlist entry. Building these once at config-load time
  *  avoids re-compiling the regex on every scan. Exported so callers that
  *  thread a compiled list through their own pipelines (the WebFetch proxy,
@@ -43,17 +45,40 @@ export interface AllowlistResult {
 }
 
 /**
- * Compile every allowlist entry once. Malformed regexes are logged to
- * stderr and skipped — a typo in one rule shouldn't take down the scanner.
+ * Compile validated allowlist entries once. Malformed entries and unknown
+ * kinds are logged and skipped without disabling valid neighboring entries.
  */
-export function compileAllowlist(allowlist: AllowlistEntry[] | undefined): CompiledEntry[] {
-	if (!allowlist || allowlist.length === 0) return [];
+export function compileAllowlist(allowlist: unknown): CompiledEntry[] {
+	if (!Array.isArray(allowlist)) return [];
 	const compiled: CompiledEntry[] = [];
 	for (const entry of allowlist) {
-		const matcher = compileEntry(entry);
-		if (matcher) compiled.push({ entry, matches: matcher });
+		if (!isAllowlistEntry(entry)) {
+			const kind = isJsonObject(entry) && typeof entry.kind === "string" ? entry.kind : "(missing)";
+			process.stderr.write(`[interlinked:scanner] allowlist entry skipped — invalid shape or unknown kind "${kind}"\n`);
+			continue;
+		}
+		compiled.push({ entry, matches: compileEntry(entry) });
 	}
 	return compiled;
+}
+
+function isAllowlistEntry(value: unknown): value is AllowlistEntry {
+	if (!isJsonObject(value)) return false;
+	if (value.label !== undefined && typeof value.label !== "string") return false;
+	if (value.reason !== undefined && typeof value.reason !== "string") return false;
+	switch (value.kind) {
+		case "exact":
+		case "prefix":
+		case "suffix":
+		case "contains":
+		case "email_domain":
+			return typeof value.pattern === "string";
+		case "snake_case_identifier":
+		case "uuid":
+			return true;
+		default:
+			return false;
+	}
 }
 
 // Hardcoded shape regexes — compiled once at module load. These are the ONLY
@@ -64,7 +89,7 @@ const SNAKE_CASE_IDENTIFIER = /^[a-z][a-z0-9_]*$/;
 const UUID_V1_TO_V5 =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function compileEntry(entry: AllowlistEntry): ((text: string) => boolean) | null {
+function compileEntry(entry: AllowlistEntry): (text: string) => boolean {
 	switch (entry.kind) {
 		case "exact": {
 			const literal = entry.pattern;
@@ -95,17 +120,6 @@ function compileEntry(entry: AllowlistEntry): ((text: string) => boolean) | null
 			return (text) => SNAKE_CASE_IDENTIFIER.test(text);
 		case "uuid":
 			return (text) => UUID_V1_TO_V5.test(text);
-		default: {
-			// Exhaustiveness guard — a never-typed assertion would be cleaner,
-			// but the switch ergonomics here are simpler with a runtime warning
-			// for forward-compat: a config file from a newer CLI version
-			// shouldn't crash an older harness; just log and skip.
-			const unknownKind = (entry as { kind?: string }).kind ?? "(missing)";
-			process.stderr.write(
-				`[interlinked:scanner] allowlist entry skipped — unknown kind "${unknownKind}"\n`,
-			);
-			return null;
-		}
 	}
 }
 

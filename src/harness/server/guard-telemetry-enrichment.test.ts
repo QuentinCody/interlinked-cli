@@ -29,11 +29,11 @@ function evt(over: Partial<HarnessEvent> = {}): HarnessEvent {
 		tool_input: { command: "rm -f scratch/probe.mts" },
 		timestamp: "2026-09-03T00:00:00.000Z",
 		...over,
-	} as HarnessEvent;
+	};
 }
 
 function block(over: Partial<HarnessDecision> = {}): HarnessDecision {
-	return { decision: "block", rule_id: "repo-scratch-is-write-only", reason: "no", ...over } as HarnessDecision;
+	return { decision: "block", rule_id: "repo-scratch-is-write-only", reason: "no", ...over };
 }
 
 afterEach(() => {
@@ -49,7 +49,7 @@ describe("actor model cache — positive (must remember)", () => {
 	});
 
 	it("P2: keys a subagent separately from its parent session, so per-model comparison works", () => {
-		expect(actorKeyFor(evt({ session_id: "s", subagent_id: "sub-9" } as Partial<HarnessEvent>))).toBe("sub-9");
+		expect(actorKeyFor(evt({ session_id: "s", subagent_id: "sub-9" }))).toBe("sub-9");
 		expect(actorKeyFor(evt({ session_id: "s" }))).toBe("s");
 	});
 

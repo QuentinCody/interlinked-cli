@@ -105,14 +105,7 @@ export function extractLiteralsFromMockArg(text: string): Set<string> {
 	return extractLiteralsFromText(body);
 }
 
-/** Test-file basename minus its `.test`/`.spec` suffix — the companion SUT
- *  module name (`foo.test.ts` → `foo`), or `""` when the path doesn't match
- *  that convention. */
-export function sutBaseFromPath(filePath: string): string {
-	const fileName = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
-	const base = fileName.replace(/\.(test|spec)\.(tsx?|jsx?|mjs|cjs|mts|cts)$/, "");
-	return base === fileName ? "" : base;
-}
+export { sutBaseFromPath } from "./shared-test-classification.js";
 
 /** A module specifier's basename, extension stripped (`"./calc.js"` → `"calc"`). */
 function importBasename(spec: string): string {

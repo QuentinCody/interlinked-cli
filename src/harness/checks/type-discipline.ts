@@ -65,6 +65,7 @@ function loadTs(): TsModule | null {
 		// The `/_` suffix is a non-existent sentinel path so createRequire uses
 		// CWD as the resolution base — same trick as type-smuggling.ts.
 		const req = createRequire(`${process.cwd()}/_`);
+		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
 		_ts = req("typescript") as TsModule;
 	} catch {
 		_ts = null;

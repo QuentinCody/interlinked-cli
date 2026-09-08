@@ -21,6 +21,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { TddCycle } from "../harness/types/tdd-cycle.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
+import { wireAbsentOptional, wireArray, wireLiteral, wireNullable, wireNumber, wireObject, wireOptional, wireRecord, wireString } from "../lib/value-validation.js";
 
 export interface TddCommandOpts {
 	cwd?: string;
@@ -41,10 +42,30 @@ export interface CycleRow {
 	age?: number | undefined;
 }
 
+type SnapshotCycle = Pick<TddCycle, "source_file" | "test_file" | "state" | "red_at" | "red_command">;
+
 interface SessionSnapshot {
 	tool_call_count?: number;
-	tdd_cycles?: Record<string, TddCycle> | [string, TddCycle][];
+	tdd_cycles?: Record<string, SnapshotCycle> | [string, SnapshotCycle][];
 }
+
+const isSnapshotCycle = wireObject<SnapshotCycle>({
+	source_file: wireString,
+	test_file: wireNullable(wireString),
+	state: wireLiteral("no_test", "red", "green", "regression"),
+	red_at: wireAbsentOptional(wireOptional(wireNumber)),
+	red_command: wireAbsentOptional(wireOptional(wireString)),
+});
+const isCycleEntry = (value: unknown): value is [string, SnapshotCycle] => Array.isArray(value)
+	&& value.length === 2 && wireString(value[0]) && isSnapshotCycle(value[1]);
+const isCycleRecord = wireRecord(isSnapshotCycle);
+const isCycleEntries = wireArray(isCycleEntry);
+const isCycles = (value: unknown): value is NonNullable<SessionSnapshot["tdd_cycles"]> =>
+	isCycleRecord(value) || isCycleEntries(value);
+const isSnapshot = wireObject<SessionSnapshot>({
+	tool_call_count: wireAbsentOptional(wireNumber),
+	tdd_cycles: wireAbsentOptional(isCycles),
+});
 
 function sessionsDir(cwd: string): string {
 	return join(cwd, ".interlinked", "sessions");
@@ -62,7 +83,7 @@ export function sessionSnapshotPaths(cwd: string): string[] {
 
 /** tdd_cycles serializes as either a plain object or Map entry-pairs
  *  depending on the codec path, so accept both rather than assume one. */
-function cyclesOf(snap: SessionSnapshot): TddCycle[] {
+function cyclesOf(snap: SessionSnapshot): SnapshotCycle[] {
 	const raw = snap.tdd_cycles;
 	if (!raw) return [];
 	if (Array.isArray(raw)) return raw.map(([, c]) => c).filter(Boolean);
@@ -71,10 +92,8 @@ function cyclesOf(snap: SessionSnapshot): TddCycle[] {
 
 function readSnapshot(path: string): SessionSnapshot | null {
 	try {
-		// SAFETY: the snapshot is this harness's own serialization. Every field
-		// read below is optional and re-checked at use, so a shape mismatch
-		// degrades to "no cycles" rather than throwing.
-		return JSON.parse(readFileSync(path, "utf-8")) as SessionSnapshot;
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		return isSnapshot(parsed) ? parsed : null;
 	} catch {
 		return null; // a half-written or corrupt snapshot must not break `status`
 	}
@@ -148,7 +167,7 @@ export function clearCycles(cwd: string, file?: string): number {
 	for (const path of sessionSnapshotPaths(cwd)) {
 		const snap = readSnapshot(path);
 		if (!snap?.tdd_cycles) continue;
-		const kept: [string, TddCycle][] = [];
+		const kept: [string, SnapshotCycle][] = [];
 		for (const cycle of cyclesOf(snap)) {
 			const match = !file || cycle.source_file === file || basename(cycle.source_file) === file;
 			if (match) removed += 1;

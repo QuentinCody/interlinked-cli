@@ -33,6 +33,16 @@ afterEach(() => {
 });
 
 describe("checkPackageJsonPublishInvariantsWithPublint — publint installed", () => {
+	it("retains real publint errors beside malformed optional-dependency output", async () => {
+		vi.doMock("publint", () => ({
+			publint: vi.fn(async () => ({ messages: [null, { type: "error", code: 42 }, { type: "error", code: "VALID_ERROR" }] })),
+		}));
+		const { checkPackageJsonPublishInvariantsWithPublint: fn } = await import("./package-json.js");
+		const findings = await fn(JSON.stringify(FULL_PKG), pkgPath);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.text).toContain("VALID_ERROR");
+	});
+
 	it("appends one finding per publint error message", async () => {
 		vi.doMock("publint", () => ({
 			publint: vi.fn(async () => ({

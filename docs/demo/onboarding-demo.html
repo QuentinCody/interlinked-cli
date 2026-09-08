@@ -217,7 +217,7 @@ var InterlinkedWizard = (() => {
       unit: "tokens",
       stricter: "lower",
       defaultValue: DEFAULT_MAX_FUNCTION_TOKENS,
-      definition: "The number of non-trivia lexical code tokens in one implementation under the stable interlinked-code-v1 contract. It is independent of any embedding model tokenizer: 500 passes, 501 is over the shipped absolute ceiling.",
+      definition: "The number of non-trivia lexical code tokens in one implementation under the interlinked-code-v2 contract (parser-resolved syntax tokens for JS/TS). It is independent of any embedding model tokenizer: 500 passes, 501 is over the shipped absolute ceiling.",
       howToConfigure: "`interlinked caps set function-tokens <n>` (or .interlinked/metric-caps.json \u2192 max_function_tokens)",
       fixHint: "Split the implementation into cohesive named helpers. Existing over-cap functions may hold or shrink, but may not grow; there is no inline suppression."
     },
@@ -345,6 +345,9 @@ var InterlinkedWizard = (() => {
 
   // src/commands/setup-wizard.ts
   var WIZARD_MODES = ["strict", "lenient", "balanced"];
+  function parseWizardMode(value) {
+    return WIZARD_MODES.find((mode) => mode === value);
+  }
   var DEFAULT_WIZARD_CHOICES = {
     runners: null,
     mode: "strict",
@@ -375,7 +378,7 @@ var InterlinkedWizard = (() => {
     return caps;
   }
   function choicesFromNonInteractive(raw) {
-    const mode = WIZARD_MODES.includes(raw.mode) ? raw.mode : DEFAULT_WIZARD_CHOICES.mode;
+    const mode = parseWizardMode(raw.mode) ?? DEFAULT_WIZARD_CHOICES.mode;
     const scope = raw.scope === "diff" || raw.scope === "whole-file" ? raw.scope : DEFAULT_WIZARD_CHOICES.scope;
     const adopt = raw.adopt === void 0 ? DEFAULT_WIZARD_CHOICES.adopt : !/^(false|no|0)$/i.test(raw.adopt);
     const runners = raw.runners ? raw.runners.split(",").map((r) => r.trim()).filter((r) => r.length > 0) : null;

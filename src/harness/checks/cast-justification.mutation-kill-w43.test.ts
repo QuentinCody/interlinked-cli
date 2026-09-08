@@ -34,7 +34,7 @@ describe("cast-justification — hasSafetyJustification lookback window (mutant 
 	// Kills e403d1f08757408c (startsWith("*") -> endsWith("*")): a JSDoc
 	// continuation line ("* SAFETY: ...") must count as a comment-block line.
 	it("recognizes a JSDoc-style '* SAFETY' continuation line", () => {
-		const content = ["  * SAFETY: reason", "const y = x as Foo;"].join("\n");
+		const content = ["/**", " * SAFETY: reason", " */", "const y = x as Foo;"].join("\n");
 		expect(findAll(content)).toHaveLength(0);
 	});
 
@@ -57,7 +57,7 @@ describe("cast-justification — isModuleAliasLine import/export detection (muta
 	// Kills 0be5a6057e30090d (import regex \s* -> \S*): an indented import
 	// line's leading whitespace must still be tolerated.
 	it("treats an indented import-rename line as a module alias, not a cast", () => {
-		const content = '  import Foo as Bar from "lib";';
+		const content = '  import { Foo as Bar } from "lib";';
 		expect(findAll(content)).toHaveLength(0);
 	});
 
@@ -112,7 +112,7 @@ describe("cast-justification — isModuleAliasLine import/export detection (muta
 	// 68caaaff53b7a76f (\s* -> \s before "export" in the from-clause's own
 	// export regex): a re-export-with-rename line, no leading whitespace.
 	it("treats a re-export-with-rename 'from' line as a module alias", () => {
-		const content = 'export Foo as Bar from "lib";';
+		const content = 'export { Foo as Bar } from "lib";';
 		expect(findAll(content)).toHaveLength(0);
 	});
 
@@ -122,7 +122,7 @@ describe("cast-justification — isModuleAliasLine import/export detection (muta
 	// starts with "export" and has no "from" and no "=" must NOT be treated
 	// as a module alias purely because it lacks an "=" sign.
 	it("does not treat an export line without 'from' as a module alias merely for lacking '='", () => {
-		const content = "export Foo as Bar;";
+		const content = "export default Foo as Bar;";
 		expect(findAll(content)).toHaveLength(1);
 	});
 
@@ -136,7 +136,7 @@ describe("cast-justification — isModuleAliasLine import/export detection (muta
 	// Kills 8aff0ba6fc16f316 (from-clause's export regex \s* -> \S* at start):
 	// genuine leading whitespace before "export" must still be tolerated.
 	it("treats an indented re-export-with-rename 'from' line as a module alias", () => {
-		const content = '  export Foo as Bar from "lib";';
+		const content = '  export { Foo as Bar } from "lib";';
 		expect(findAll(content)).toHaveLength(0);
 	});
 });

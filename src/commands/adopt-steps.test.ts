@@ -1,3 +1,4 @@
+import { parseWire, wireNumber, wireObject, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // adopt-steps — unit tests for the individual bootstrap steps
 // ===========================================
@@ -68,7 +69,7 @@ function scanWith(overrides: Partial<RepoScan> = {}): RepoScan {
 function readJson(rel: string): Record<string, unknown> {
 	// SAFETY: test-owned fixture files written by the steps under test; the
 	// asserted keys are validated by the expects below.
-	return JSON.parse(readFileSync(join(cwd, rel), "utf-8")) as Record<string, unknown>;
+	return parseWire(JSON.parse(readFileSync(join(cwd, rel), "utf-8")), wireRecord(wireUnknown), "test JSON value");
 }
 
 beforeEach(() => {
@@ -457,7 +458,7 @@ describe("coverageStep", () => {
 		// SAFETY: test-owned fixture written by coverageStep under test; shape
 		// matches CoverageBaseline.files (per-file lines_pct high-water).
 		expect(
-			(baseline.files as Record<string, { lines_pct: number }>)["src/a.ts"]?.lines_pct,
+			(parseWire(baseline.files, wireRecord(wireObject({ "lines_pct": wireNumber })), "test JSON value"))["src/a.ts"]?.lines_pct,
 		).toBe(80);
 	});
 
@@ -481,7 +482,7 @@ describe("coverageStep", () => {
 		// SAFETY: test-owned fixture written by coverageStep under test; shape
 		// matches CoverageBaseline.files (per-file lines_pct high-water).
 		expect(
-			(baseline.files as Record<string, { lines_pct: number }>)["src/a.ts"]?.lines_pct,
+			(parseWire(baseline.files, wireRecord(wireObject({ "lines_pct": wireNumber })), "test JSON value"))["src/a.ts"]?.lines_pct,
 		).toBe(90);
 	});
 });

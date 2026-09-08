@@ -6,10 +6,9 @@
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { assert, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { compileAllowlist } from "../allowlist.js";
 import {
 	cacheKey,
@@ -437,8 +436,9 @@ describe("fetchAndScan — decision file already on disk", () => {
 		fetcher: stubFetcher,
 		});
 		expect(result).toMatchObject({ kind: "decision_resolved", decision: "block" });
-		expect((result as { body: string }).body).toMatch(/withheld/i);
-		expect((result as { body: string }).body).not.toContain("secret body");
+		assert(result.kind === "decision_resolved");
+		expect(result.body).toMatch(/withheld/i);
+		expect(result.body).not.toContain("secret body");
 	});
 
 	it("lists detected categories (deduped, counted, sorted) in the block notice", async () => {
@@ -471,7 +471,8 @@ describe("fetchAndScan — decision file already on disk", () => {
 			toolName: "WebFetch",
 			fetcher: stubFetcher,
 		});
-		const text = (result as { body: string }).body;
+		assert(result.kind === "decision_resolved");
+		const text = result.body;
 		// Sorted alphabetically: private_email before private_phone; counts shown.
 		expect(text).toContain("private_email(2), private_phone(1)");
 	});
@@ -493,9 +494,9 @@ describe("fetchAndScan — decision file already on disk", () => {
 			toolName: "WebFetch",
 			fetcher: stubFetcher,
 		});
-		expect(result.kind).toBe("fail_open");
-		expect((result as { detail: string }).detail).toContain("review payload missing");
-		expect((result as { detail: string }).detail).toContain(key);
+		assert(result.kind === "fail_open");
+		expect(result.detail).toContain("review payload missing");
+		expect(result.detail).toContain(key);
 	});
 
 	it("consumes the decision so a second call does not re-apply it", async () => {
@@ -600,9 +601,9 @@ describe("assertSafeFetchTarget — SSRF guard", () => {
 	it("preserves the parse error as the SsrfBlockedError cause", async () => {
 		// invalid_url carries the underlying URL parse failure on `.cause`.
 		const err = await assertSafeFetchTarget("::::not a url::::").catch((e: unknown) => e);
-		expect(err).toBeInstanceOf(SsrfBlockedError);
-		expect((err as SsrfBlockedError).reason).toBe("invalid_url");
-		expect((err as SsrfBlockedError).cause).toBeInstanceOf(Error);
+		assert(err instanceof SsrfBlockedError);
+		expect(err.reason).toBe("invalid_url");
+		expect(err.cause).toBeInstanceOf(Error);
 	});
 
 	it("rejects IPv6 loopback / unique-local / link-local literals", async () => {
@@ -667,9 +668,9 @@ describe("assertSafeFetchTarget — SSRF guard", () => {
 			"https://flaky.example/",
 			failingResolver,
 		).catch((e: unknown) => e);
-		expect(err).toBeInstanceOf(SsrfBlockedError);
-		expect((err as SsrfBlockedError).message).toContain("EAI_AGAIN temporary failure");
-		expect((err as SsrfBlockedError).cause).toBeInstanceOf(Error);
+		assert(err instanceof SsrfBlockedError);
+		expect(err.message).toContain("EAI_AGAIN temporary failure");
+		expect(err.cause).toBeInstanceOf(Error);
 	});
 
 	it("stringifies a non-Error resolver rejection in the detail", async () => {
@@ -684,9 +685,9 @@ describe("assertSafeFetchTarget — SSRF guard", () => {
 			"https://weird.example/",
 			stringRejectingResolver,
 		).catch((e: unknown) => e);
-		expect(err).toBeInstanceOf(SsrfBlockedError);
-		expect((err as SsrfBlockedError).reason).toBe("hostname_resolution_failed");
-		expect((err as SsrfBlockedError).message).toContain("weird dns layer fault");
+		assert(err instanceof SsrfBlockedError);
+		expect(err.reason).toBe("hostname_resolution_failed");
+		expect(err.message).toContain("weird dns layer fault");
 	});
 
 	it("rejects when DNS resolution returns zero addresses", async () => {
@@ -696,9 +697,9 @@ describe("assertSafeFetchTarget — SSRF guard", () => {
 			"https://empty-records.example/",
 			emptyResolver,
 		).catch((e: unknown) => e);
-		expect(err).toBeInstanceOf(SsrfBlockedError);
-		expect((err as SsrfBlockedError).reason).toBe("hostname_resolution_failed");
-		expect((err as SsrfBlockedError).message).toContain("returned no addresses");
+		assert(err instanceof SsrfBlockedError);
+		expect(err.reason).toBe("hostname_resolution_failed");
+		expect(err.message).toContain("returned no addresses");
 	});
 
 	it("pins family 6 for a hostname whose first record is IPv6", async () => {
@@ -805,7 +806,7 @@ describe("fetchAndScan — SSRF integration", () => {
 				throw new Error("should never reach the fetcher");
 			},
 		});
-		expect(result.kind).toBe("fail_open");
+		assert(result.kind === "fail_open");
 		// Real fetchBody path NOT used here (we injected a fetcher), but
 		// the SSRF guard runs before the fetcher anyway because the
 		// production code calls assertSafeFetchTarget inside a wrapper.
@@ -826,8 +827,8 @@ describe("fetchAndScan — SSRF integration", () => {
 			config: baseConfig,
 			toolName: "WebFetch",
 		});
-		expect(result.kind).toBe("fail_open");
-		expect((result as { detail: string }).detail).toMatch(/SSRF guard/);
+		assert(result.kind === "fail_open");
+		expect(result.detail).toMatch(/SSRF guard/);
 	});
 
 	it("returns fail_open when the URL uses file://", async () => {
@@ -840,7 +841,7 @@ describe("fetchAndScan — SSRF integration", () => {
 			config: baseConfig,
 			toolName: "WebFetch",
 		});
-		expect(result.kind).toBe("fail_open");
+		assert(result.kind === "fail_open");
 	});
 });
 
@@ -917,8 +918,8 @@ describe("fetchAndScan — review file cannot be written", () => {
 			toolName: "WebFetch",
 			fetcher: stubFetcher,
 		});
-		expect(result.kind).toBe("review_pending");
-		const pending = result as { kind: "review_pending"; reviewPath: string; findingCount: number };
+		assert(result.kind === "review_pending");
+		const pending = result;
 		expect(pending.findingCount).toBe(1);
 		// Synthetic fallback: `<…review.json>` rather than a real on-disk path.
 		expect(pending.reviewPath).toMatch(/^<.*\.review\.json>$/);
@@ -943,7 +944,8 @@ describe("pinnedFetch — real loopback server", () => {
 			const srv = createServer(handler);
 			servers.push(srv);
 			srv.listen(0, "127.0.0.1", () => {
-				const addr = srv.address() as AddressInfo;
+				const addr = srv.address();
+				assert(addr !== null && typeof addr === "object");
 				resolve(addr.port);
 			});
 		});

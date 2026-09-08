@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Effect-based baseline integrity (red-team follow-up, 2026-08-10).
 //
 // The Bash arm of the baseline gate judges INTENT (parsed command text) and so
@@ -57,6 +58,7 @@ const BASELINE_RELS = [
 	".interlinked/skipped-tests-baseline.json",
 	".interlinked/check-evidence-baseline.json",
 	".interlinked/function-complexity-baseline.json",
+    ".interlinked/lint-baseline.json",
 ];
 const LEDGER_REL = ".interlinked/function-complexity-baseline.json";
 const LEDGER_TIGHT =
@@ -220,11 +222,21 @@ describe("undo — the change is reversible without the agent reconstructing it"
 		rmSync(join(root, ".interlinked"), { recursive: true, force: true });
 		const path = writeUndoRecord(root, "nested", found);
 		expect(path).not.toBeNull();
-		expect(existsSync(path as string)).toBe(true);
+		expect(existsSync(nonNull(path))).toBe(true);
 	});
 });
 
 describe("malformed and partial undo records", () => {
+	it.each([null, [], false, { file: 42, beforeText: "old" }, { file: ".interlinked/metric-caps.json", beforeText: null }])("rejects malformed undo entry %j before restoring any file", (entry) => {
+		const dir = join(root, ".interlinked", "baseline-undo");
+		mkdirSync(dir, { recursive: true });
+		writeCaps(LOOSE);
+		writeFileSync(join(dir, "malformed-entry.json"), JSON.stringify({ entries: [{ file: CAPS_REL, beforeText: TIGHT }, entry] }));
+		expect(restoreBaseline(root, "malformed-entry")).toBe(0);
+		expect(readFileSync(join(root, CAPS_REL), "utf8")).toBe(LOOSE);
+		expect(trustedBaselineValue(root, CAPS_REL)).toBeNull();
+	});
+
 	it("ignores malformed JSON instead of treating it as a pending record", () => {
 		const dir = join(root, ".interlinked", "baseline-undo");
 		mkdirSync(dir, { recursive: true });
@@ -247,7 +259,7 @@ describe("malformed and partial undo records", () => {
 		expect(rec).not.toBeNull();
 		expect(restoreBaseline(root, "partial")).toBe(1);
 		expect(readFileSync(join(root, CAPS_REL), "utf8")).toBe(TIGHT);
-		expect(existsSync(rec as string)).toBe(true);
+		expect(existsSync(nonNull(rec))).toBe(true);
 	});
 
 	it("reports a failed restore through stderr while continuing other entries", () => {
@@ -260,7 +272,7 @@ describe("malformed and partial undo records", () => {
 		// test-contract: public-api — an undo failure is surfaced with the affected baseline path
 		expect(restoreBaseline(root, "restore-error")).toBe(1);
 		expect(stderr).toHaveBeenCalledWith(expect.stringContaining("could not restore .interlinked"));
-		expect(existsSync(rec as string)).toBe(true);
+		expect(existsSync(nonNull(rec))).toBe(true);
 	});
 });
 
@@ -318,7 +330,8 @@ describe("trusted value — a loosening is INERT before anyone reverts it", () =
 		expect(trustedBaselineValue(root, CAPS_REL)).toBeNull();
 	});
 
-	it("uses filename order when the directory returns pending records in another order", () => {
+	it("uses filename order when the directory returns pending records in another order", async () => {
+		const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs");
 		const dir = join(root, ".interlinked", "baseline-undo");
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(
@@ -332,7 +345,7 @@ describe("trusted value — a loosening is INERT before anyone reverts it", () =
 
 		// test-contract: invariant — the earliest pending undo record wins regardless of filesystem enumeration order
 		vi.mocked(readdirSync).withImplementation(
-			() => ["z-last.json", "a-first.json"] as never,
+			(...args) => actualFs.readdirSync(...args).sort().reverse(),
 			() => expect(trustedBaselineValue(root, CAPS_REL)).toBe("early"),
 		);
 	});

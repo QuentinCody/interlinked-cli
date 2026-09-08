@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { GuardRulesConfig, QualityCheckConfig } from "../types.js";
+import { nonNull } from "../../lib/non-null.js";
+import type { GuardRulesConfig } from "../types.js";
+import type { GuardRulesOverrides } from "./config-overrides.js";
 import { DEFAULT_CONFIG } from "./default-config.js";
 import { mergeLocalOverrides, mergeTeamRules } from "./merge.js";
 
 function mkBaseConfig() {
-	return JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as typeof DEFAULT_CONFIG;
+	return structuredClone(DEFAULT_CONFIG);
 }
 
 describe("mergeTeamRules — mutation kills (w52)", () => {
@@ -20,7 +22,7 @@ describe("mergeTeamRules — mutation kills (w52)", () => {
 
 	it("does NOT wipe policy_classifier when team config omits it (kills 16da46afce780efe)", () => {
 		const config = mkBaseConfig();
-		const classifier = {
+		const classifier: NonNullable<GuardRulesConfig["policy_classifier"]> = {
 			enabled: true,
 			mode: "shadow",
 			provider: "groq",
@@ -28,7 +30,8 @@ describe("mergeTeamRules — mutation kills (w52)", () => {
 			api_key_env: "K",
 			model: "m",
 			timeout_ms: 100,
-		} as unknown as NonNullable<GuardRulesConfig["policy_classifier"]>;
+			max_input_tokens: 800, confidence_threshold: 0.8, max_calls_per_session: 50,
+		};
 		config.policy_classifier = classifier;
 		mergeTeamRules(config, {});
 		expect(config.policy_classifier).toBe(classifier);
@@ -36,14 +39,15 @@ describe("mergeTeamRules — mutation kills (w52)", () => {
 
 	it("does NOT wipe auto_coordination when team config omits it (kills 7ad9510e286b0c54)", () => {
 		const config = mkBaseConfig();
-		const ac = {
+		const ac: NonNullable<GuardRulesConfig["auto_coordination"]> = {
 			enabled: true,
 			check_interval: 5,
 			min_interval_ms: 1,
 			max_interval_ms: 2,
 			timeout_ms: 10,
 			skip_tools: [],
-		} as unknown as NonNullable<GuardRulesConfig["auto_coordination"]>;
+			urgent_importance: "high", max_misses_before_disable: 5,
+		};
 		config.auto_coordination = ac;
 		mergeTeamRules(config, {});
 		expect(config.auto_coordination).toBe(ac);
@@ -55,7 +59,7 @@ describe("mergeTeamRules — mutation kills (w52)", () => {
 			quality_checks: {
 				typescript: {
 					file_types: [".foo"],
-				} as unknown as QualityCheckConfig,
+				},
 			},
 		});
 		expect(config.quality_checks.typescript?.file_types).toEqual([".foo"]);
@@ -67,7 +71,7 @@ describe("mergeTeamRules — mutation kills (w52)", () => {
 			quality_checks: {
 				typescript: {
 					description: "custom desc",
-				} as unknown as QualityCheckConfig,
+				},
 			},
 		});
 		expect(config.quality_checks.typescript?.description).toBe("custom desc");
@@ -79,8 +83,7 @@ describe("mergeTeamRules — mutation kills (w52)", () => {
 		// function is truthy and even carries an own `enabled` property.
 		const config = mkBaseConfig();
 		const before = config.quality_checks.typescript?.enabled;
-		const fakeCheck = function fakeCheck() {} as unknown as QualityCheckConfig;
-		(fakeCheck as unknown as { enabled: boolean }).enabled = !before;
+		const fakeCheck = Object.assign(function fakeCheck() {}, { enabled: !before });
 		mergeTeamRules(config, {
 			quality_checks: {
 				typescript: fakeCheck,
@@ -105,29 +108,23 @@ describe("mergeLocalOverrides — mutation kills (w52)", () => {
 		expect(config.extra_exceptions).toEqual({ "some-rule": ["allow this"] });
 	});
 
-	const optionalSectionKeys: Array<{ key: keyof GuardRulesConfig; mutantId: string }> = [
-		{ key: "trajectory_shadow", mutantId: "45c8531b39eb6384" },
-		{ key: "scratchpad_guard", mutantId: "50a3a4679c0a768e" },
-		{ key: "spec_checks", mutantId: "b2f1d998a4042a5f" },
-		{ key: "baseline_autofold", mutantId: "e8f84f97023986cd" },
-		{ key: "edit_contract", mutantId: "ccb1bf44c55ac987" },
-		{ key: "scratchpad_archive", mutantId: "475453f918cc90ab" },
-		{ key: "verification_stop_checks", mutantId: "52a3633adb8e6af4" },
-		{ key: "mutation_directed_strict_profile", mutantId: "9e0b91315eb9449d" },
-	];
+	const optionalOverrides = {
+		trajectory_shadow: { enabled: false },
+		scratchpad_guard: { code_write_mode: "warn" },
+		spec_checks: { enabled: false },
+		baseline_autofold: { enabled: false },
+		edit_contract: { stale_read: "off" },
+		scratchpad_archive: { enabled: false },
+		verification_stop_checks: { enabled: false },
+		mutation_directed_strict_profile: { enabled: true },
+	} satisfies GuardRulesOverrides;
 
-	for (const { key, mutantId } of optionalSectionKeys) {
-		it(`installs a new ${String(key)} section from local override (kills ${mutantId})`, () => {
-			// If the string literal naming this section inside mergeOptionalSection
-			// were mutated to "", the read `local[""]` would find nothing and this
-			// section would never be installed even though we supplied it.
+	for (const [key, override] of Object.entries(optionalOverrides)) {
+		it(`creates a missing ${key} section with the explicit local settings`, () => {
 			const config = mkBaseConfig();
-			delete (config as unknown as Record<string, unknown>)[key as string];
-			const marker = { enabled: true, __marker: true };
-			mergeLocalOverrides(config, {
-				[key]: marker,
-			} as unknown as Partial<GuardRulesConfig>);
-			expect((config as unknown as Record<string, unknown>)[key as string]).toEqual(marker);
+			Reflect.deleteProperty(config, key);
+			mergeLocalOverrides(config, { [key]: override });
+			expect(Reflect.get(config, key)).toMatchObject(override);
 		});
 	}
 
@@ -136,35 +133,31 @@ describe("mergeLocalOverrides — mutation kills (w52)", () => {
 		// is falsy (null), assigning config.trajectory_shadow = null instead of
 		// leaving it undefined.
 		const config = mkBaseConfig();
-		delete (config as unknown as Record<string, unknown>).trajectory_shadow;
-		mergeLocalOverrides(config, {
-			trajectory_shadow: null,
-		} as unknown as Partial<GuardRulesConfig>);
+		Reflect.deleteProperty(config, "trajectory_shadow");
+		const local: GuardRulesOverrides = {};
+		Reflect.set(local, "trajectory_shadow", null);
+		mergeLocalOverrides(config, local);
 		expect(config.trajectory_shadow).toBeUndefined();
 	});
 
 	it("does not create an empty content_scanner.allowlist from an empty override array (kills 76e8358041f86893 / 4f466d1d93858db6)", () => {
 		const config = mkBaseConfig();
-		if (config.content_scanner) {
-			delete (config.content_scanner as unknown as Record<string, unknown>).allowlist;
-		}
+		delete nonNull(config.content_scanner).allowlist;
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				allowlist: [],
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.allowlist).toBeUndefined();
 	});
 
 	it("does not create an empty content_scanner.disabled_labels from an empty override array (kills f3eb03f2734994ef / 1e92a1f6210c7b6d)", () => {
 		const config = mkBaseConfig();
-		if (config.content_scanner) {
-			delete (config.content_scanner as unknown as Record<string, unknown>).disabled_labels;
-		}
+		delete nonNull(config.content_scanner).disabled_labels;
 		mergeLocalOverrides(config, {
 			content_scanner: {
 				disabled_labels: [],
-			} as unknown as NonNullable<GuardRulesConfig["content_scanner"]>,
+			},
 		});
 		expect(config.content_scanner?.disabled_labels).toBeUndefined();
 	});

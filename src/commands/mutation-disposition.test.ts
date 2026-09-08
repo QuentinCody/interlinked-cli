@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireNumber, wireObject, wireOptional, wireString, wireUnknown } from "../lib/value-validation.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +30,7 @@ describe("buildDisposition — pure CLI-string → typed-disposition parsing", (
 		it("N1: a missing --resolution is refused with a message naming both valid values", () => {
 			const result = buildDisposition({ kind: "dead_code" }, NOW);
 			expect("error" in result).toBe(true);
-			expect((result as { error: string }).error).toMatch(/--resolution delete\|implement/);
+			expect((parseWire(result, wireObject({ "error": wireString }), "test JSON value")).error).toMatch(/--resolution delete\|implement/);
 		});
 
 		it("N2: an unrecognized --resolution is refused, not silently coerced", () => {
@@ -75,13 +76,13 @@ describe("buildDisposition — pure CLI-string → typed-disposition parsing", (
 		it("N1: --strategy without --runs is refused — a search claim needs a case count", () => {
 			const result = buildDisposition({ kind: "unresolved", strategy: "fuzz" }, NOW);
 			expect("error" in result).toBe(true);
-			expect((result as { error: string }).error).toMatch(/--runs/);
+			expect((parseWire(result, wireObject({ "error": wireString }), "test JSON value")).error).toMatch(/--runs/);
 		});
 
 		it("N2: an unrecognized --strategy is refused and lists the valid ones", () => {
 			const result = buildDisposition({ kind: "unresolved", strategy: "vibes", runs: "5" }, NOW);
 			expect("error" in result).toBe(true);
-			expect((result as { error: string }).error).toContain("property, fuzz, differential, bounded_exhaustive, test_suite");
+			expect((parseWire(result, wireObject({ "error": wireString }), "test JSON value")).error).toContain("property, fuzz, differential, bounded_exhaustive, test_suite");
 		});
 
 		it("N3: --runs 0 is refused — zero cases is not a search that ran", () => {
@@ -94,7 +95,7 @@ describe("buildDisposition — pure CLI-string → typed-disposition parsing", (
 		it("N1: an unrecognized --kind steers toward `mutation accept` for equivalence claims", () => {
 			const result = buildDisposition({ kind: "proved_equivalent" }, NOW);
 			expect("error" in result).toBe(true);
-			expect((result as { error: string }).error).toMatch(/mutation accept/);
+			expect((parseWire(result, wireObject({ "error": wireString }), "test JSON value")).error).toMatch(/mutation accept/);
 		});
 
 		it("N2: no --kind at all is refused the same way", () => {
@@ -231,7 +232,7 @@ describe("mutationDispositionCommand", () => {
 			json: true,
 		});
 		expect(process.exitCode).toBe(0);
-		const payload = JSON.parse(logs.join("\n")) as { recorded: boolean; disposition: unknown; store: string };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "recorded": wireBoolean, "disposition": wireUnknown, "store": wireString }), "test JSON value");
 		expect(payload.recorded).toBe(true);
 		expect(payload.store).toBe("ledger");
 		expect(payload.disposition).toEqual({ kind: "dead_code", resolution: "delete", issueRef: "#42" });
@@ -274,10 +275,7 @@ describe("mutationDispositionCommand", () => {
 			json: true,
 		});
 		expect(process.exitCode).toBe(0);
-		const disposition = loadLedger(configDir).records[0]?.disposition as {
-			kind: string;
-			evidence?: { runs: number; strategy: string };
-		};
+		const disposition = parseWire(loadLedger(configDir).records[0]?.disposition, wireObject({ "kind": wireString, "evidence": wireAbsentOptional(wireOptional(wireObject({ "runs": wireNumber, "strategy": wireString }))) }), "test JSON value");
 		expect(disposition.kind).toBe("unresolved");
 		expect(disposition.evidence?.runs).toBe(5000);
 		expect(disposition.evidence?.strategy).toBe("fuzz");
@@ -295,7 +293,7 @@ describe("mutationDispositionCommand", () => {
 		await mutationDispositionCommand({ file: "src/a.ts", id: "m1", kind: "dead_code", resolution: "delete", cwd });
 		logs.length = 0;
 		await mutationDispositionCommand({ show: true, id: "m1", cwd, json: true });
-		const record = JSON.parse(logs.join("\n")) as { mutantId: string; disposition: { kind: string } };
+		const record = parseWire(JSON.parse(logs.join("\n")), wireObject({ "mutantId": wireString, "disposition": wireObject({ "kind": wireString }) }), "test JSON value");
 		expect(record.mutantId).toBe("m1");
 		expect(record.disposition.kind).toBe("dead_code");
 	});
@@ -341,7 +339,7 @@ describe("mutationDispositionCommand", () => {
 			json: true,
 		});
 		expect(process.exitCode).toBe(1);
-		const payload = JSON.parse(logs.join("\n")) as { error: string };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "error": wireString }), "test JSON value");
 		expect(payload.error).toContain("is CORRUPT");
 		expect(payload.error).toContain('not "missing"');
 		expect(payload.error).toContain("mutation-manifest.json");
@@ -363,7 +361,7 @@ describe("mutationDispositionCommand", () => {
 			json: true,
 		});
 		expect(process.exitCode).toBe(1);
-		const payload = JSON.parse(logs.join("\n")) as { error: string };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "error": wireString }), "test JSON value");
 		expect(payload.error).toBe('Mutant "m1" not found under "src/./a.ts".');
 		// Nothing was written — the store-level failure must not partially record.
 		expect(loadLedger(configDir).records).toHaveLength(0);
@@ -391,7 +389,7 @@ describe("mutationDispositionCommand", () => {
 			spy.mockRestore();
 		}
 		expect(process.exitCode).toBe(1);
-		const payload = JSON.parse(logs.join("\n")) as { error: string };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "error": wireString }), "test JSON value");
 		expect(payload.error).toBe('Refused: "dead_code" cannot be recorded against "m1".');
 		expect(loadLedger(configDir).records).toHaveLength(0);
 	});
@@ -402,7 +400,7 @@ describe("mutationDispositionCommand", () => {
 		logs.length = 0;
 		await mutationDispositionCommand({ list: true, json: true, cwd });
 		expect(process.exitCode).toBe(0);
-		const payload = JSON.parse(logs.join("\n")) as { count: number; records: Array<{ mutantId: string }> };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "count": wireNumber, "records": wireArray(wireObject({ "mutantId": wireString })) }), "test JSON value");
 		expect(payload.count).toBe(1);
 		expect(payload.records[0]?.mutantId).toBe("m1");
 	});
@@ -428,7 +426,7 @@ describe("mutationDispositionCommand", () => {
 		writeManifest();
 		await mutationDispositionCommand({ show: true, id: "does-not-exist", file: "src/a.ts", cwd, json: true });
 		expect(process.exitCode).toBe(1);
-		const payload = JSON.parse(logs.join("\n")) as { error: string };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "error": wireString }), "test JSON value");
 		expect(payload.error).toBe('No disposition recorded for "does-not-exist" under "src/a.ts".');
 	});
 
@@ -438,7 +436,7 @@ describe("mutationDispositionCommand", () => {
 		logs.length = 0;
 		await mutationDispositionCommand({ show: true, id: "m1", cwd });
 		expect(process.exitCode).toBe(0);
-		const record = JSON.parse(logs.join("\n")) as { mutantId: string; disposition: { kind: string } };
+		const record = parseWire(JSON.parse(logs.join("\n")), wireObject({ "mutantId": wireString, "disposition": wireObject({ "kind": wireString }) }), "test JSON value");
 		expect(record.mutantId).toBe("m1");
 		expect(record.disposition.kind).toBe("dead_code");
 	});

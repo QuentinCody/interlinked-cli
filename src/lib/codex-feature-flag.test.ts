@@ -720,7 +720,7 @@ describe("ensureCodexFeatureFlag — duplicate [features] tables are refused, ne
 			return true;
 			// SAFETY: the spy matches the single-argument overload the writer uses;
 			// the wider `write` signature is restored in afterEach.
-		}) as typeof process.stderr.write;
+		});
 		restoreStderr = () => {
 			process.stderr.write = original;
 		};

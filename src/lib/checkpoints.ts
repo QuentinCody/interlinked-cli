@@ -9,7 +9,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getDataDir } from "./config.js";
 import { gitShell } from "./git-shell.js";
-import type { JsonObject } from "./json-types.js";
+import { isJsonObject, type JsonObject } from "./json-types.js";
+import { wireAbsentOptional, wireArray, wireBoolean, wireLiteral, wireObject, wireOptional, wireString } from "./value-validation.js";
 
 // ===========================================
 // Types
@@ -37,6 +38,14 @@ interface CreateCheckpointOpts {
 	cwd?: string;
 	metadata?: JsonObject;
 }
+
+const isCheckpoint = wireObject<Checkpoint>({
+	id: wireString, session_id: wireString, agent: wireString, message: wireString,
+	timestamp: wireString, base_commit: wireString,
+	trigger: wireLiteral("manual", "session_start", "session_end", "task_complete", "periodic"),
+	files_changed: wireArray(wireString), stash_ref: wireAbsentOptional(wireOptional(wireString)),
+	restorable: wireBoolean, metadata: wireAbsentOptional(wireOptional(isJsonObject)),
+});
 
 interface RewindResult {
 	success: boolean;
@@ -85,7 +94,8 @@ function readCheckpointsFile(cwd: string): Checkpoint[] {
 	const path = getCheckpointsPath(cwd);
 	if (!existsSync(path)) return [];
 	try {
-		return JSON.parse(readFileSync(path, "utf-8")) as Checkpoint[];
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		return wireArray(isCheckpoint)(parsed) ? parsed : [];
 	} catch (_err) {
 		/* intentional: corrupt/missing checkpoints.json treated as empty list */
 		return [];

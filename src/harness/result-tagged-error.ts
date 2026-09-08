@@ -16,12 +16,40 @@ export type TaggedErrorInstance<Tag extends string, Props> = Error & {
 
 /** Class type produced by TaggedError factory */
 export interface TaggedErrorClass<Tag extends string, Props> {
-	// `args` accepts `null` honestly: this factory is a reusable primitive
-	// callers can invoke with data reconstructed from anywhere (deserialized
-	// errors, defensively-typed call sites), and the constructor itself never
-	// dereferences a nullish `args` — the type says so too.
-	new (args: Props | null): TaggedErrorInstance<Tag, Props>;
+	/** Null is allowed only when an empty object satisfies the declared properties. */
+	new (args: Props | ({} extends Props ? null : never)): TaggedErrorInstance<Tag, Props>;
 	is(value: unknown): value is TaggedErrorInstance<Tag, Props>;
+}
+
+const reservedTaggedFields = ["_tag", "name", "stack", "toJSON", "toString", "constructor", "__proto__"] as const;
+type ReservedTaggedField = typeof reservedTaggedFields[number];
+type UnsupportedTaggedKeys<Props> = {
+	[K in keyof Props]-?: {} extends Record<K, unknown> ? K : K extends ReservedTaggedField ? K : never;
+}[keyof Props];
+type TaggedPropsMemberSupported<Props> = [UnsupportedTaggedKeys<Props>] extends [never]
+	? "message" extends keyof Props ? Required<Props>["message"] extends string ? true : false : true
+	: false;
+type TaggedPropsSupported<Props> = false extends (Props extends unknown ? TaggedPropsMemberSupported<Props> : never) ? false : true;
+
+/** Structural types also admit inherited or hidden fields, which Object.assign cannot copy. */
+function assertCopyableTaggedArgs(args: JsonObject | null): void {
+	if (args === null) return;
+	if (typeof args !== "object") throw new TypeError("TaggedError arguments must be a plain object");
+	const prototype = Object.getPrototypeOf(args);
+	if (prototype !== Object.prototype && prototype !== null) {
+		throw new TypeError("TaggedError arguments must be a plain object");
+	}
+	for (const key of Reflect.ownKeys(args)) {
+		if (reservedTaggedFields.some((reserved) => key === reserved)) {
+			throw new TypeError(`TaggedError property ${String(key)} is reserved`);
+		}
+		if (!Object.getOwnPropertyDescriptor(args, key)?.enumerable) {
+			throw new TypeError(`TaggedError property ${String(key)} must be enumerable`);
+		}
+	}
+	if ("message" in args && typeof args.message !== "string") {
+		throw new TypeError("TaggedError message must be a string");
+	}
 }
 
 /** Build the inner class for a tagged error — extracted to reduce nesting */
@@ -36,14 +64,14 @@ function buildTaggedErrorClass<Tag extends string, Props extends JsonObject>(
 		}
 
 		constructor(args: Props | null) {
+			assertCopyableTaggedArgs(args);
 			const message =
 				args != null && "message" in args && typeof args.message === "string"
 					? args.message
 					: tag;
 			const cause = args != null && "cause" in args ? args.cause : undefined;
 			super(message, cause !== undefined ? { cause } : undefined);
-			// `Object.assign` treats a nullish source as a no-op, matching the
-			// widened `Props | null` param — nothing extra to guard here.
+			// Checked plain, enumerable properties cannot be lost during copying.
 			Object.assign(this, args);
 			Object.setPrototypeOf(this, new.target.prototype);
 			this.name = tag;
@@ -67,17 +95,14 @@ function buildTaggedErrorClass<Tag extends string, Props extends JsonObject>(
 			return json;
 		}
 	}
-	// `Object.assign(this, args)` adds the `Readonly<Props>` members at runtime
-	// that the static type of `TaggedBase` can't express, so a widening cast at
-	// this factory boundary is unavoidable. Route it through an `unknown`-typed
-	// binding (rather than an inline `as unknown as`) so the assertion is a
-	// single, documented widening rather than a type-system bypass.
-	const ctor: unknown = TaggedBase;
-	return ctor as TaggedErrorClass<Tag, Props>;
+	// SAFETY: the factory rejects indexed/reserved Props and non-string messages; the constructor rejects inherited/hidden fields before copying every own enumerable member. Null is exposed only for empty-compatible Props.
+	return TaggedBase as unknown as TaggedErrorClass<Tag, Props>;
 }
 
 /**
  * Factory for creating typed, discriminated error classes.
+ * Props must use named data fields; arguments must be plain objects with
+ * enumerable properties. Error identity/stack methods belong to the factory.
  *
  * @example
  * ```ts
@@ -89,11 +114,11 @@ function buildTaggedErrorClass<Tag extends string, Props extends JsonObject>(
  */
 export function TaggedError<Tag extends string>(
 	tag: Tag,
-): <Props extends JsonObject = Record<string, never>>() => TaggedErrorClass<Tag, Props> {
-	return <Props extends JsonObject = Record<string, never>>() =>
+): <Props extends JsonObject = {}>(...invalid: TaggedPropsSupported<Props> extends true ? [] : [never]) => TaggedErrorClass<Tag, Props> {
+	return <Props extends JsonObject = {}>(..._invalid: TaggedPropsSupported<Props> extends true ? [] : [never]) =>
 		buildTaggedErrorClass<Tag, Props>(tag);
 }
 
 /** Check if a value is any tagged error */
 TaggedError.is = (value: unknown): value is AnyTaggedError =>
-	value instanceof Error && "_tag" in value && typeof (value as AnyTaggedError)._tag === "string";
+	value instanceof Error && "_tag" in value && typeof value._tag === "string";

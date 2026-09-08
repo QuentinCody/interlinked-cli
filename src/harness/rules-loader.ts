@@ -63,13 +63,7 @@ export function getBuiltinRules(): GuardRule[] {
  * so callers can freely mutate it without affecting future calls.
  */
 export function getDefaultConfig(): GuardRulesConfig {
-	try {
-		return JSON.parse(JSON.stringify(DEFAULT_CONFIG));
-	} catch {
-		// DEFAULT_CONFIG is a static object so this should never fail,
-		// but guard against it to satisfy runtime safety checks
-		return { ...DEFAULT_CONFIG, rules: [...DEFAULT_CONFIG.rules] };
-	}
+	return structuredClone(DEFAULT_CONFIG);
 }
 
 /**

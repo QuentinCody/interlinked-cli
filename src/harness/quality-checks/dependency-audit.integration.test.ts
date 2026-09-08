@@ -10,6 +10,10 @@ import { _resetOsvScannerCache, resolveDependencyAuditCommand } from "./dependen
 
 const spawnMock = vi.mocked(spawnSync);
 
+function spawnResult(status: number): ReturnType<typeof spawnSync> {
+	return { status, signal: null, pid: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), output: [] };
+}
+
 beforeEach(() => {
 	_resetOsvScannerCache();
 	spawnMock.mockReset();
@@ -21,7 +25,7 @@ afterEach(() => {
 
 describe("resolveDependencyAuditCommand — osv-scanner preference", () => {
 	it("prefers osv-scanner for go.mod when installed", () => {
-		spawnMock.mockReturnValueOnce({ status: 0 } as never);
+		spawnMock.mockReturnValueOnce(spawnResult(0));
 		const r = resolveDependencyAuditCommand("go.mod");
 		expect(r?.parser).toBe("osv-scanner");
 		expect(r?.cmd).toEqual([
@@ -34,20 +38,20 @@ describe("resolveDependencyAuditCommand — osv-scanner preference", () => {
 	});
 
 	it("prefers osv-scanner for package.json when installed", () => {
-		spawnMock.mockReturnValueOnce({ status: 0 } as never);
+		spawnMock.mockReturnValueOnce(spawnResult(0));
 		const r = resolveDependencyAuditCommand("package.json");
 		expect(r?.parser).toBe("osv-scanner");
 		expect(r?.cmd.at(-1)).toBe("--lockfile=package.json");
 	});
 
 	it("appends --offline when offline:true", () => {
-		spawnMock.mockReturnValueOnce({ status: 0 } as never);
+		spawnMock.mockReturnValueOnce(spawnResult(0));
 		const r = resolveDependencyAuditCommand("go.mod", { offline: true });
 		expect(r?.cmd).toContain("--offline");
 	});
 
 	it("falls back to per-ecosystem when osv-scanner missing", () => {
-		spawnMock.mockReturnValueOnce({ status: 1 } as never); // --version fails
+		spawnMock.mockReturnValueOnce(spawnResult(1)); // --version fails
 		const r = resolveDependencyAuditCommand("go.mod");
 		expect(r?.parser).toBe("govulncheck");
 		expect(r?.cmd[0]).toBe("govulncheck");
@@ -67,7 +71,7 @@ describe("resolveDependencyAuditCommand — osv-scanner preference", () => {
 	});
 
 	it("memoizes the osv-scanner availability check", () => {
-		spawnMock.mockReturnValueOnce({ status: 0 } as never);
+		spawnMock.mockReturnValueOnce(spawnResult(0));
 		resolveDependencyAuditCommand("go.mod");
 		resolveDependencyAuditCommand("package.json");
 		resolveDependencyAuditCommand("Cargo.toml");

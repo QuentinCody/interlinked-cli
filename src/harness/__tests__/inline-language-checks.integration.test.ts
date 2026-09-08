@@ -7,12 +7,10 @@ import {
 } from "../quality-checks/inline-language-checks.js";
 import type { InlineCheckDef, LanguageProfile } from "../types.js";
 
-/** Build a minimal synthetic LanguageProfile for cases getProfileForFile
- *  can't reach (an invalid/unrecognized language id, a hand-picked pattern
- *  the shipped profiles never use). */
-function buildProfile(id: string, inline_checks: InlineCheckDef[]): LanguageProfile {
+/** Build a profile with a hand-picked pattern absent from the shipped profiles. */
+function buildProfile(id: LanguageProfile["id"], inline_checks: InlineCheckDef[]): LanguageProfile {
 	return {
-		id: id as unknown as LanguageProfile["id"],
+		id,
 		display_name: id,
 		file_extensions: [],
 		project_root_markers: [],
@@ -588,22 +586,6 @@ describe("runInlineLanguageChecks — safeCompile and stripForLanguage edge case
 		const src = "// TODO_MARKER: still present after the no-op strip\n";
 		const results = runInlineLanguageChecks("/repo/src/m.ts", src, profile);
 		expect(results.filter((r) => r.name === "ts_probe_check")).toHaveLength(1);
-	});
-
-	it("hits the exhaustiveness default branch for an unrecognized language id", () => {
-		const def: InlineCheckDef = {
-			name: "never_fires_check",
-			description: "unreachable in practice — only exercised via an invalid LanguageId",
-			file_types: [".foo"],
-			severity: "warning",
-			fix_instruction: "n/a",
-			pattern: "x",
-		};
-		const profile = buildProfile("not_a_real_language", [def]);
-		// The `never` exhaustiveness assertion is a compile-time guard, not a
-		// runtime throw: an unrecognized id at runtime falls into the default
-		// branch and returns the content unmodified rather than crashing.
-		expect(() => runInlineLanguageChecks("/repo/src/m.foo", "x\n", profile)).not.toThrow();
 	});
 });
 

@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked structure — behavioral coverage
 // ===========================================
@@ -20,9 +21,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-	AdoptionReport,
 	ArtifactNode,
-	BaselineFile,
 	CatalogMeta,
 	CategoryCatalog,
 	StructureConfig,
@@ -95,24 +94,24 @@ const readAdoptionReport = vi.fn();
 const isCacheStale = vi.fn();
 const computeManifestHash = vi.fn();
 const ensureCacheDir = vi.fn();
-const writeCatalogMeta = vi.fn();
-const writeCategoryCache = vi.fn();
-const writeAdoptionReport = vi.fn();
+const writeCatalogMeta = vi.fn<typeof import("../harness/structure/cache-manager.js").writeCatalogMeta>();
+const writeCategoryCache = vi.fn<typeof import("../harness/structure/cache-manager.js").writeCategoryCache>();
+const writeAdoptionReport = vi.fn<typeof import("../harness/structure/cache-manager.js").writeAdoptionReport>();
 const readCategoryCache = vi.fn();
 const readBaseline = vi.fn();
-const writeBaseline = vi.fn();
+const writeBaseline = vi.fn<typeof import("../harness/structure/cache-manager.js").writeBaseline>();
 vi.mock("../harness/structure/cache-manager.js", () => ({
 	readCatalogMeta: (...a: unknown[]) => readCatalogMeta(...a),
 	readAdoptionReport: (...a: unknown[]) => readAdoptionReport(...a),
 	isCacheStale: (...a: unknown[]) => isCacheStale(...a),
 	computeManifestHash: (...a: unknown[]) => computeManifestHash(...a),
 	ensureCacheDir: (...a: unknown[]) => ensureCacheDir(...a),
-	writeCatalogMeta: (...a: unknown[]) => writeCatalogMeta(...a),
-	writeCategoryCache: (...a: unknown[]) => writeCategoryCache(...a),
-	writeAdoptionReport: (...a: unknown[]) => writeAdoptionReport(...a),
+	writeCatalogMeta: (...a: Parameters<typeof writeCatalogMeta>) => writeCatalogMeta(...a),
+	writeCategoryCache: (...a: Parameters<typeof writeCategoryCache>) => writeCategoryCache(...a),
+	writeAdoptionReport: (...a: Parameters<typeof writeAdoptionReport>) => writeAdoptionReport(...a),
 	readCategoryCache: (...a: unknown[]) => readCategoryCache(...a),
 	readBaseline: (...a: unknown[]) => readBaseline(...a),
-	writeBaseline: (...a: unknown[]) => writeBaseline(...a),
+	writeBaseline: (...a: Parameters<typeof writeBaseline>) => writeBaseline(...a),
 }));
 
 // A tiny in-memory ArtifactGraph stand-in. The handlers only use addNode,
@@ -157,7 +156,8 @@ vi.mock("../harness/structure/structure-checks.js", () => ({
 }));
 
 const validateStructureJson = vi.fn();
-vi.mock("../harness/structure/schema-validator.js", () => ({
+vi.mock("../harness/structure/schema-validator.js", async (importOriginal) => ({
+	...await importOriginal<typeof import("../harness/structure/schema-validator.js")>(),
 	validateStructureJson: (...a: unknown[]) => validateStructureJson(...a),
 }));
 
@@ -369,7 +369,7 @@ describe("structureInitCommand", () => {
 		// structure.json carries mode + artifacts map; scaffold file written too
 		const cfgWrite = writeCalls.find((w) => w.path === `${CWD}/interlinked/structure.json`);
 		expect(cfgWrite).toBeDefined();
-		expect(JSON.parse((cfgWrite as { data: string }).data)).toEqual({
+		expect(JSON.parse((parseWire(cfgWrite, wireObject({ "data": wireString }), "test JSON value")).data)).toEqual({
 			version: 1,
 			mode: "strict",
 			artifacts: { public_api: "artifacts/public-api.json" },
@@ -382,7 +382,7 @@ describe("structureInitCommand", () => {
 	it("--write with no categories omits the artifacts key and the Artifacts line", async () => {
 		await structureInitCommand({ write: true });
 		const cfgWrite = writeCalls.find((w) => w.path === `${CWD}/interlinked/structure.json`);
-		expect(JSON.parse((cfgWrite as { data: string }).data)).toEqual({ version: 1, mode: "standard" });
+		expect(JSON.parse((parseWire(cfgWrite, wireObject({ "data": wireString }), "test JSON value")).data)).toEqual({ version: 1, mode: "standard" });
 		expect(stdout()).not.toContain("Artifacts:");
 	});
 
@@ -421,7 +421,7 @@ describe("structureInitCommand", () => {
 			get() {
 				throw new Error("disk full");
 			},
-		}) as unknown as string[];
+		});
 		await structureInitCommand({ write: true });
 		expect(stderr()).toContain("structure init failed: disk full");
 		expect(process.exitCode).toBe(1);
@@ -452,7 +452,7 @@ describe("structureScanCommand", () => {
 		expect(writeAdoptionReport).toHaveBeenCalledTimes(1);
 		expect(layerDeclaredArtifacts).toHaveBeenCalledTimes(1);
 		// git commit captured from execSync
-		const writtenMeta = (writeCatalogMeta.mock.calls[0] as unknown[])[1] as CatalogMeta;
+		const writtenMeta = (nonNull(writeCatalogMeta.mock.calls[0]))[1];
 		expect(writtenMeta.last_scanned_commit).toBe("deadbeef");
 	});
 
@@ -499,7 +499,7 @@ describe("structureScanCommand", () => {
 			throw new Error("not a git repo");
 		});
 		await structureScanCommand({});
-		const writtenMeta = (writeCatalogMeta.mock.calls[0] as unknown[])[1] as CatalogMeta;
+		const writtenMeta = (nonNull(writeCatalogMeta.mock.calls[0]))[1];
 		expect(writtenMeta.last_scanned_commit).toBe("");
 		expect(stdout()).toContain("Scan complete.");
 	});
@@ -526,7 +526,7 @@ describe("structureScanCommand", () => {
 		});
 		readCatalogMeta.mockReturnValue(null);
 		await structureScanCommand({});
-		const report = (writeAdoptionReport.mock.calls[0] as unknown[])[1] as AdoptionReport;
+		const report = (nonNull(writeAdoptionReport.mock.calls[0]))[1];
 		expect(report.categories.public_api).toBe(0.5);
 		// a category with no nodes is 0
 		expect(report.categories.docs).toBe(0);
@@ -541,9 +541,9 @@ describe("structureScanCommand", () => {
 		await structureScanCommand({});
 		// the artifact-nodes cache write carries local_id === full id (no prefix stripped)
 		const nodesWrite = writeCategoryCache.mock.calls.find(
-			(call) => (call as unknown[])[1] === "artifact-nodes",
+			(call) => (parseWire(call, wireArray(wireUnknown), "test JSON value"))[1] === "artifact-nodes",
 		);
-		const payload = (nodesWrite as unknown[])[2] as CategoryCatalog;
+		const payload = (nonNull(nodesWrite))[2];
 		expect(nonNull(payload.items[0]).local_id).toBe("noColon");
 		expect(nonNull(payload.items[0]).global_ref).toBe("noColon");
 	});
@@ -602,7 +602,7 @@ describe("structureStatusCommand", () => {
 		readAdoptionReport.mockReturnValue({
 			schema_version: 1,
 			categories: { public_api: 0.9, env: 0.6, docs: 0.1 },
-		} as unknown as AdoptionReport);
+		});
 		await structureStatusCommand({});
 		const o = stdout();
 		expect(o).toContain("Cache:    fresh");
@@ -661,7 +661,7 @@ describe("structureStatusCommand", () => {
 		readAdoptionReport.mockReturnValue({
 			schema_version: 1,
 			categories: { docs: 0.5 },
-		} as unknown as AdoptionReport);
+		});
 		await structureStatusCommand({ json: true });
 		const parsed = JSON.parse(stdout());
 		expect(parsed.config_mode).toBe("minimal");
@@ -726,7 +726,7 @@ describe("structureAcceptCommand", () => {
 		// public-api.json written with the new module/symbol
 		const w = writeCalls.find((x) => x.path.endsWith("artifacts/public-api.json"));
 		expect(w).toBeDefined();
-		const file = JSON.parse((w as { data: string }).data);
+		const file = JSON.parse((parseWire(w, wireObject({ "data": wireString }), "test JSON value")).data);
 		expect(file.modules[0].id).toBe("pkg-index");
 		expect(file.modules[0].symbols[0].name).toBe("createClient");
 	});
@@ -775,7 +775,7 @@ describe("structureAcceptCommand", () => {
 		);
 		await structureAcceptCommand({});
 		const w = writeCalls.find((x) => x.path.endsWith("artifacts/public-api.json"));
-		const file = JSON.parse((w as { data: string }).data);
+		const file = JSON.parse((parseWire(w, wireObject({ "data": wireString }), "test JSON value")).data);
 		expect(file.modules[0].id).toBe("bareName");
 		expect(file.modules[0].symbols[0].name).toBe("bareName");
 	});
@@ -812,7 +812,7 @@ describe("structureAcceptCommand", () => {
 		expect(o).toContain("accepted  env: 1 items");
 		expect(o).toContain("skip  env/OLD_KEY: already declared");
 		const w = writeCalls.find((x) => x.path === envPath);
-		const file = JSON.parse((w as { data: string }).data);
+		const file = JSON.parse((parseWire(w, wireObject({ "data": wireString }), "test JSON value")).data);
 		expect(file.keys.map((k: { name: string }) => k.name)).toEqual(["OLD_KEY", "NEW_KEY"]);
 	});
 
@@ -948,7 +948,7 @@ describe("structureAcceptCommand", () => {
 		);
 		await structureAcceptCommand({});
 		const w = writeCalls.find((x) => x.path === apiPath);
-		const file = JSON.parse((w as { data: string }).data);
+		const file = JSON.parse((parseWire(w, wireObject({ "data": wireString }), "test JSON value")).data);
 		// Still one module, now two symbols.
 		expect(file.modules).toHaveLength(1);
 		expect(file.modules[0].symbols.map((s: { name: string }) => s.name)).toEqual(["x", "y"]);
@@ -975,7 +975,7 @@ describe("structureAcceptCommand", () => {
 		await structureAcceptCommand({});
 		expect(stdout()).toContain("accepted  public_api: 1 items");
 		const w = writeCalls.find((x) => x.path === apiPath);
-		expect(JSON.parse((w as { data: string }).data).modules).toHaveLength(1);
+		expect(JSON.parse((parseWire(w, wireObject({ "data": wireString }), "test JSON value")).data).modules).toHaveLength(1);
 	});
 
 	it("catch path: cache read throwing sets exitCode 1", async () => {
@@ -1229,7 +1229,7 @@ describe("structureBaselineCommand", () => {
 		expect(o).toContain("Baseline saved.");
 		expect(o).toContain("2 findings baselined.");
 		expect(writeBaseline).toHaveBeenCalledTimes(1);
-		const bl = (writeBaseline.mock.calls[0] as unknown[])[1] as BaselineFile;
+		const bl = (nonNull(writeBaseline.mock.calls[0]))[1];
 		expect(bl.entries).toHaveLength(2);
 		expect(bl.entries[0]).toMatchObject({
 			finding_name: "public_symbol_companions",
@@ -1315,7 +1315,7 @@ describe("structureBaselineCommand", () => {
 				{ finding_name: "a", artifact_ref: "", source_file: "", determinism: "fully_deterministic", required_companion_files: [], context_hash: "" },
 				{ finding_name: "b", artifact_ref: "", source_file: "", determinism: "fully_deterministic", required_companion_files: [], context_hash: "" },
 			],
-		} as BaselineFile);
+		});
 		await structureBaselineCommand("status", {});
 		const o = stdout();
 		expect(o).toContain("Baseline: 3 entries");
@@ -1329,7 +1329,7 @@ describe("structureBaselineCommand", () => {
 			entries: [
 				{ finding_name: "x", artifact_ref: "", source_file: "", determinism: "fully_deterministic", required_companion_files: [], context_hash: "" },
 			],
-		} as BaselineFile);
+		});
 		await structureBaselineCommand("status", { json: true });
 		expect(JSON.parse(stdout())).toEqual({ exists: true, entry_count: 1, by_finding: { x: 1 } });
 	});
@@ -1410,7 +1410,7 @@ describe("structure.ts mutation survivors", () => {
 			cwd: CWD,
 			encoding: "utf-8",
 		});
-		const writtenMeta = (writeCatalogMeta.mock.calls[0] as unknown[])[1] as CatalogMeta;
+		const writtenMeta = (nonNull(writeCatalogMeta.mock.calls[0]))[1];
 		expect(writtenMeta).toMatchObject({
 			schema_version: 1,
 			cli_version: "0.0.0",
@@ -1481,11 +1481,11 @@ describe("structure.ts mutation survivors", () => {
 		readCatalogMeta.mockReturnValue(null);
 		await structureScanCommand({});
 		const nodesWrite = writeCategoryCache.mock.calls.find(
-			(call) => (call as unknown[])[1] === "artifact-nodes",
+			(call) => (parseWire(call, wireArray(wireUnknown), "test JSON value"))[1] === "artifact-nodes",
 		);
-		const payload = (nodesWrite as unknown[])[2] as CategoryCatalog;
+		const payload = (nonNull(nodesWrite))[2];
 		expect(payload.items.map((item) => item.local_id)).toEqual(["a#one", "a#two", "a#three"]);
-		const report = (writeAdoptionReport.mock.calls[0] as unknown[])[1] as AdoptionReport;
+		const report = (nonNull(writeAdoptionReport.mock.calls[0]))[1];
 		expect(report.categories.public_api).toBeCloseTo(2 / 3);
 	});
 
@@ -1505,7 +1505,7 @@ describe("structure.ts mutation survivors", () => {
 		readAdoptionReport.mockReturnValue({
 			schema_version: 1,
 			categories: { public_api: 0.9, env: 0.6, docs: 0.1 },
-		} as unknown as AdoptionReport);
+		});
 		await structureStatusCommand({});
 		expect(stdout()).toBe(
 			"Structure Status\n\n" +
@@ -1859,7 +1859,7 @@ describe("structure.ts mutation survivors — pass1_w12 (residue)", () => {
 			cwd: CWD,
 			encoding: "utf-8",
 		});
-		const writtenMeta = (writeCatalogMeta.mock.calls[0] as unknown[])[1] as CatalogMeta;
+		const writtenMeta = (nonNull(writeCatalogMeta.mock.calls[0]))[1];
 		expect(writtenMeta.cli_version).toBe("0.0.0");
 		expect(writtenMeta.last_scanned_commit).toBe("cafef00d");
 
@@ -1897,7 +1897,7 @@ describe("structure.ts mutation survivors — pass1_w12 (residue)", () => {
 			{ schema_version: 1, items: expectedItems },
 		]);
 
-		const report = (writeAdoptionReport.mock.calls[0] as unknown[])[1] as AdoptionReport;
+		const report = (nonNull(writeAdoptionReport.mock.calls[0]))[1];
 		expect(report.categories.public_api).toBeCloseTo(2 / 3);
 	});
 
@@ -1962,7 +1962,7 @@ describe("structure.ts mutation survivors — pass1_w12 (residue)", () => {
 		readAdoptionReport.mockReturnValue({
 			schema_version: 1,
 			categories: { public_api: 0.876 },
-		} as unknown as AdoptionReport);
+		});
 		await structureStatusCommand({});
 		expect(stdout()).toBe(
 			"Structure Status\n\n" +

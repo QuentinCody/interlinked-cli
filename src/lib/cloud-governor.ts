@@ -1,3 +1,4 @@
+import { isJsonObject } from "./json-types.js";
 import type { HarnessEvent } from "../harness/types.js";
 
 export interface CloudGovernorConfig {
@@ -51,19 +52,9 @@ export async function evaluateRemote(
 	}
 }
 
-// Mirror of CloudVerdict but with every field typed `unknown` — the value comes
-// from `response.json()` so nothing about its shape is trusted; the parser
-// narrows each field before promoting it into the typed CloudVerdict.
-interface RawVerdict {
-	decision?: unknown;
-	reason?: unknown;
-	warnings?: unknown;
-	rule_id?: unknown;
-}
-
 function parseVerdict(value: unknown): CloudVerdict | null {
-	if (!value || typeof value !== "object") return null;
-	const v = value as RawVerdict;
+	if (!isJsonObject(value)) return null;
+	const v = value;
 	if (v.decision !== "allow" && v.decision !== "block") return null;
 	const result: CloudVerdict = { decision: v.decision };
 	if (typeof v.reason === "string") result.reason = v.reason;

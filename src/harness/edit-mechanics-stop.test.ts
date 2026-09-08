@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Companion tests for edit-mechanics-stop.ts (LG-5 Stop reflection).
 
 import { describe, expect, it } from "vitest";
@@ -6,7 +7,7 @@ import type { EditMechanics, SessionTrajectory } from "./types.js";
 
 function sessionWith(mechanics: Partial<EditMechanics> | undefined): SessionTrajectory {
 	// SAFETY: the formatter reads only `edit_mechanics`; other keys are unused.
-	const session = {} as SessionTrajectory;
+	const session = ({ ...completeSessionFixture(), ...{} });
 	if (mechanics) {
 		session.edit_mechanics = {
 			doomed: 0,

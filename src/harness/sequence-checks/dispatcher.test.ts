@@ -1,82 +1,75 @@
-import { describe, expect, it } from "vitest";
-
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildTrajectoryFixture, makeCandidate } from "../__tests__/sequence-fixtures.js";
-import { noopSequenceDetector } from "./_placeholder.js";
+import type { SequenceDetector } from "./types.js";
 import {
-	defaultDetectorEnabledPredicate,
-	formatSequenceFinding,
-	runSequenceDetectorsForPhase,
+    defaultDetectorEnabledPredicate,
+    formatSequenceFinding,
+    runSequenceDetectorsForPhase,
 } from "./dispatcher.js";
 
+const { detectors } = vi.hoisted(() => {
+    const detectors: SequenceDetector[] = [];
+    return { detectors };
+});
+vi.mock("./registry.js", () => ({ ALL_SEQUENCE_DETECTORS: detectors }));
+afterEach(() => { detectors.length = 0; });
+
+function detector(overrides: Partial<SequenceDetector> = {}): SequenceDetector {
+    return {
+        id: "fixture", description: "dispatcher fixture", family: "quality",
+        phase: "stop", default_enabled: false, determinism: "fully_deterministic",
+        fn: () => [{ message: "matched" }], ...overrides,
+    };
+}
+
 describe("defaultDetectorEnabledPredicate", () => {
-	it("returns the detector's default_enabled flag", () => {
-		expect(defaultDetectorEnabledPredicate(noopSequenceDetector)).toBe(false);
-		expect(
-			defaultDetectorEnabledPredicate({ ...noopSequenceDetector, default_enabled: true }),
-		).toBe(true);
-	});
+    it("returns the detector's default_enabled flag", () => {
+        expect(defaultDetectorEnabledPredicate(detector())).toBe(false);
+        expect(defaultDetectorEnabledPredicate(detector({ default_enabled: true }))).toBe(true);
+    });
 });
 
 describe("runSequenceDetectorsForPhase", () => {
-	it("returns no findings when the noop sentinel is the only registered detector and runs by default", () => {
-		const { session, lastEvent } = buildTrajectoryFixture([
-			{ tool_name: "Read", tool_input: { file_path: "src/foo.ts" } },
-		]);
-		const findings = runSequenceDetectorsForPhase({
-			phase: "stop",
-			trajectory: session,
-			candidate: lastEvent,
-		});
-		expect(findings).toEqual([]);
-	});
+    it("does not invoke a disabled detector", () => {
+        const fn = vi.fn<SequenceDetector["fn"]>(() => [{ message: "matched" }]);
+        detectors.push(detector({ fn }));
+        const { session, lastEvent } = buildTrajectoryFixture([{ tool_name: "Read" }]);
+        expect(runSequenceDetectorsForPhase({ phase: "stop", trajectory: session, candidate: lastEvent })).toEqual([]);
+        expect(fn).not.toHaveBeenCalled();
+    });
 
-	it("filters by phase — a pre_block detector does not fire when phase=stop", () => {
-		const { session } = buildTrajectoryFixture([
-			{ tool_name: "Bash", tool_input: { command: "ls" } },
-		]);
-		const candidate = makeCandidate({ tool_name: "Bash" });
-		const findings = runSequenceDetectorsForPhase({
-			phase: "pre_block",
-			trajectory: session,
-			candidate,
-			isEnabled: () => true,
-		});
-		// noopSequenceDetector is phase=stop, so even with isEnabled=()=>true,
-		// pre_block dispatch returns no findings.
-		expect(findings).toEqual([]);
-	});
+    it("runs an enabled detector only for its configured phase", () => {
+        const fn = vi.fn<SequenceDetector["fn"]>(() => [{ message: "pre-tool match" }]);
+        detectors.push(detector({ phase: "pre_block", fn }));
+        const { session } = buildTrajectoryFixture([{ tool_name: "Bash" }]);
+        const candidate = makeCandidate({ tool_name: "Bash" });
+        const context = { trajectory: session, candidate, isEnabled: () => true };
+        expect(runSequenceDetectorsForPhase({ ...context, phase: "stop" })).toEqual([]);
+        expect(fn).not.toHaveBeenCalled();
+        expect(runSequenceDetectorsForPhase({ ...context, phase: "pre_block" })).toEqual([
+            { detector_id: "fixture", family: "quality", phase: "pre_block", match: { message: "pre-tool match" } },
+        ]);
+        expect(fn).toHaveBeenCalledExactlyOnceWith(session, candidate);
+    });
 
-	it("swallows detector exceptions and continues", () => {
-		const { session } = buildTrajectoryFixture([{ tool_name: "Bash" }]);
-		const candidate = makeCandidate({ tool_name: "Bash" });
-		// Use a fake registry-style entry — we override isEnabled to a throwing fn.
-		// The dispatcher iterates ALL_SEQUENCE_DETECTORS (which only contains
-		// noop); the isEnabled call is wrapped outside the try/catch so we
-		// instead verify exception-tolerance by running with a known-good
-		// trajectory + the noop detector and asserting no throw.
-		expect(() =>
-			runSequenceDetectorsForPhase({
-				phase: "stop",
-				trajectory: session,
-				candidate,
-				isEnabled: () => true,
-			}),
-		).not.toThrow();
-	});
+    it("continues to later detectors after a detector throws", () => {
+        const failed = vi.fn<SequenceDetector["fn"]>(() => { throw new Error("broken detector"); });
+        detectors.push(detector({ id: "broken", fn: failed, default_enabled: true }), detector({ id: "working", default_enabled: true }));
+        const { session, lastEvent } = buildTrajectoryFixture([{ tool_name: "Read" }]);
+        expect(runSequenceDetectorsForPhase({ phase: "stop", trajectory: session, candidate: lastEvent })).toEqual([
+            { detector_id: "working", family: "quality", phase: "stop", match: { message: "matched" } },
+        ]);
+        expect(failed).toHaveBeenCalledExactlyOnceWith(session, lastEvent);
+    });
 
-	it("returns one finding per match emitted by a firing detector", () => {
-		// Build a fake firing detector inline by constructing the finding by hand —
-		// the real registry contains only noop. We assert the dispatcher's shape
-		// matches when noop is overridden to fire.
-		const { session, lastEvent } = buildTrajectoryFixture([{ tool_name: "Read" }]);
-		const findings = runSequenceDetectorsForPhase({
-			phase: "stop",
-			trajectory: session,
-			candidate: lastEvent,
-			isEnabled: () => false,
-		});
-		expect(findings).toEqual([]);
-	});
+    it("returns one finding per match emitted by a firing detector", () => {
+        detectors.push(detector({ default_enabled: true, fn: () => [{ message: "first" }, { message: "second", evidence: ["source"] }] }));
+        const { session, lastEvent } = buildTrajectoryFixture([{ tool_name: "Read" }]);
+        expect(runSequenceDetectorsForPhase({ phase: "stop", trajectory: session, candidate: lastEvent })).toEqual([
+            { detector_id: "fixture", family: "quality", phase: "stop", match: { message: "first" } },
+            { detector_id: "fixture", family: "quality", phase: "stop", match: { message: "second", evidence: ["source"] } },
+        ]);
+    });
 });
 
 describe("formatSequenceFinding", () => {

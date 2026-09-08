@@ -1,4 +1,6 @@
+import { wireAbsentOptional, parseWire, wireNumber, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nonNull } from "../lib/non-null.js";
 import { c, header, kvLine } from "../lib/formatter.js";
 import {
 	guardCheckCommand,
@@ -75,12 +77,12 @@ vi.mock("../lib/glob-overlap.js", () => ({
 
 const mockExistsSync = vi.fn<(p: string) => boolean>(() => false);
 const mockReadFileSync = vi.fn<(p: string, enc?: string) => string>(() => "{}");
-const mockWriteFileSync = vi.fn();
+const mockWriteFileSync = vi.fn<typeof import("node:fs").writeFileSync>();
 const mockMkdirSync = vi.fn();
 vi.mock("node:fs", () => ({
 	existsSync: (p: string) => mockExistsSync(p),
 	readFileSync: (p: string, enc?: string) => mockReadFileSync(p, enc),
-	writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+	writeFileSync: (...args: Parameters<typeof mockWriteFileSync>) => mockWriteFileSync(...args),
 	mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
 }));
 
@@ -105,7 +107,7 @@ function errOutput(): string {
 function lastLogJson(): Record<string, unknown> {
 	const raw = vi.mocked(console.log).mock.calls.at(-1)?.[0];
 	if (typeof raw !== "string") throw new Error(`expected string log, got ${typeof raw}`);
-	return JSON.parse(raw) as Record<string, unknown>;
+	return parseWire(JSON.parse(raw), wireRecord(wireUnknown), "test JSON value");
 }
 
 beforeEach(() => {
@@ -230,7 +232,7 @@ describe("guardCheckCommand — optional-chaining + exact-render mutation kills"
 		const out = lastLogJson();
 		expect(out.clean).toBe(false);
 		expect(out.mode).toBe("off");
-		expect((out.conflicts as unknown[]).length).toBe(1);
+		expect(out).toHaveProperty(["conflicts","length"], 1);
 	});
 
 	function expectedCheckNormal(opts: {
@@ -541,7 +543,7 @@ describe("getReservations / writeGuardCache — private-helper mutation kills", 
 			nowSpy.mockRestore();
 		}
 		const out = lastLogJson();
-		const cache = out.cache as { age_seconds: number };
+		const cache = parseWire(out.cache, wireObject({ "age_seconds": wireNumber }), "test JSON value");
 		expect(cache.age_seconds).toBe(300);
 		expect(cache.age_seconds).not.toBe(300_000_000); // would be `*` mutant
 		expect(cache.age_seconds).not.toBeGreaterThan(1_000_000); // would be `+` mutant
@@ -557,10 +559,10 @@ describe("getReservations / writeGuardCache — private-helper mutation kills", 
 		});
 		await guardCheckCommand({ files: ["x/y.ts"], json: true });
 		expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
-		const call = mockWriteFileSync.mock.calls[0] as [string, string];
-		const written = JSON.parse(call[1]) as { reservations?: unknown; fetched_at?: unknown };
+		const call = nonNull(mockWriteFileSync.mock.calls[0]);
+		const written = parseWire(JSON.parse(parseWire(call[1], wireString, "guard cache write")), wireObject({ "reservations": wireAbsentOptional(wireOptional(wireUnknown)), "fetched_at": wireAbsentOptional(wireOptional(wireUnknown)) }), "test JSON value");
 		expect(written.reservations).toEqual([{ agent_name: "a", path_pattern: "x/**" }]);
 		expect(typeof written.fetched_at).toBe("string");
-		expect(Number.isNaN(new Date(written.fetched_at as string).getTime())).toBe(false);
+		expect(Number.isNaN(new Date(parseWire(written.fetched_at, wireString, "test JSON value")).getTime())).toBe(false);
 	});
 });

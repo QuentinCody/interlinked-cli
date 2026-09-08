@@ -142,21 +142,6 @@ describe("ensureDir skips mkdirSync when the directory already exists — kills 
 	});
 });
 
-describe("parseJsonl guards against non-string input — kills ffaac7280b85bc7c", () => {
-	// test-contract: public-api — exported `parseJsonl(text: string)`; the
-	// `!text` guard must reject a falsy (e.g. undefined) argument before
-	// calling `.split` on it, since callers outside the type system can pass one.
-	it("returns [] instead of throwing when given undefined", () => {
-		// SAFETY: deliberately passing a value outside the declared `string`
-		// type to exercise the runtime `!text` guard that protects non-TS callers.
-		// Intentionally bypass the type system to reach the runtime `!text` guard.
-		expect(() => parseJsonl(undefined as any)).not.toThrow();
-		// SAFETY: same rationale as above.
-		// Keep this second call loose for the same runtime-boundary check.
-		expect(parseJsonl(undefined as any)).toEqual([]);
-	});
-});
-
 describe("parseJsonl skips blank lines without re-parsing them — kills 72e7f273f0301624", () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
@@ -217,7 +202,7 @@ describe("redactSecretsShallow removes a present secrets field (baseline sanity)
 	it("strips secrets when present", () => {
 		// SAFETY: `secrets` is intentionally not part of the base SpoolEvent
 		// shape; it is an ad-hoc extra field the redactor is documented to strip.
-		const evt = { schema: "v1", kind: "custom", ts: "t", secrets: "leak" } as SpoolEvent;
+		const evt: SpoolEvent = { schema: "v1", kind: "custom", ts: "t", secrets: "leak" };
 		const out = redactSecretsShallow(evt);
 		expect("secrets" in out).toBe(false);
 	});

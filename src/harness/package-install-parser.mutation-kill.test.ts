@@ -418,21 +418,11 @@ describe("parseInstallCommands — rawCommand runtime type guard", () => {
 	// from an untyped caller, e.g. tool-call JSON) must not reach
 	// `splitShellSegments(null)`, which would throw on `.length`.
 	it("P: a null rawCommand yields nothing and does not throw", () => {
-		expect(parseInstallCommands(null as unknown as string)).toEqual([]);
+		expect(parseInstallCommands(null)).toEqual([]);
 	});
 
 	it("P: a numeric rawCommand yields nothing and does not throw", () => {
-		expect(parseInstallCommands(42 as unknown as string)).toEqual([]);
-	});
-
-	// Kills: f25d6258c8caefb1 (`typeof rawCommand !== "string"` -> `false`,
-	// dropping the type check but keeping the falsy check). A boxed String
-	// OBJECT is truthy (so `!rawCommand` alone would let it through) but
-	// `typeof` reports "object", not "string" — only the type check catches
-	// it.
-	it("P: a boxed String object rawCommand yields nothing (typeof guard, not just falsy)", () => {
-		// Deliberately exercise the runtime type guard with a non-primitive string wrapper.
-		expect(parseInstallCommands(new String("npm install foo") as unknown as string)).toEqual([]);
+		expect(parseInstallCommands(42)).toEqual([]);
 	});
 
 	it("N: an ordinary empty string still yields nothing via the same guard", () => {

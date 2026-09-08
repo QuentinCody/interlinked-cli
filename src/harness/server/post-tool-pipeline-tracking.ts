@@ -1,3 +1,4 @@
+import { readToolString } from "../evaluator/tool-input-values.js";
 // interlinked-tdd: exempt
 // ===========================================
 // PostToolUse pipeline — tracking & classification helpers
@@ -155,13 +156,7 @@ export function trackTestRun(
 	session: SessionTrajectory,
 	cwd: string,
 ): string | null {
-	// `session` is typed as required `SessionTrajectory`, but the
-	// "falsy-session guard" test (post-tool-pipeline.test.ts) proves a
-	// degraded caller can genuinely pass a null session. Read it through
-	// `unknown` so the guard stays real instead of being lint-dead.
-	const sessionPresent: unknown = session;
-	if (!sessionPresent) return null;
-	const cmd = (event.tool_input?.command as string) || "";
+	const cmd = readToolString(event.tool_input?.command);
 	const testRunFile = detectTestRunFile(cmd, cwd);
 	if (!testRunFile) return null;
 
@@ -288,11 +283,7 @@ function applyObservedOutcome(
  * unmarked commands with no failure signal) record nothing.
  */
 export function trackVerificationOutcome(event: HarnessEvent, session: SessionTrajectory): void {
-	// Same `session`-typed-non-null-but-genuinely-falsy case as `trackTestRun`
-	// above — see the "falsy-session guard" test.
-	const sessionPresent: unknown = session;
-	if (!sessionPresent) return;
-	const cmd = (event.tool_input?.command as string) || "";
+	const cmd = readToolString(event.tool_input?.command);
 	if (!cmd) return;
 	const kind = observedCheckKindFor(cmd);
 	if (!kind) return;
@@ -312,7 +303,7 @@ export function trackVerificationOutcome(event: HarnessEvent, session: SessionTr
  * fresh as the deferral). Total: a bookkeeping failure never aborts the pipeline.
  */
 export function dischargeCoverageOnGreenRun(event: HarnessEvent, cwd: string): void {
-	const cmd = (event.tool_input?.command as string) || "";
+	const cmd = readToolString(event.tool_input?.command);
 	if (!cmd || !isCoverageSuiteCommand(cmd)) return;
 	if (classifyObservedOutcome(event) !== "green") return;
 	dischargeObligationsAfterGreenRun(

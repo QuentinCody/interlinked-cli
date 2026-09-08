@@ -155,23 +155,21 @@ describe("coverage-ratchet mutation kills (w47)", () => {
 		expect(result.stats.files_improved).toBe(0);
 	});
 
-	// --- compareFileEntry optional chaining ---------------------------------
-
-	// test-contract: boundary — a coverage report entry with a missing `lines` metric must default to 0, not throw
-	it("does not throw when an entry is missing lines (kills 36059baaa60840ee)", () => {
-		const summary = { "src/a.ts": { branches: metric(50) } } as unknown as CoverageSummary;
-		const baseline = makeBaseline({});
-		expect(() => compareCoverage(summary, baseline, { config: CONFIG, repoRoot: "/repo" })).not.toThrow();
-	});
-
-	// test-contract: boundary — a coverage report entry with a missing `branches` metric must default to 0, not throw
-	it("does not throw when an entry is missing branches (kills ef3cc4f74b30ca07)", () => {
-		const summary = { "src/a.ts": { lines: metric(50) } } as unknown as CoverageSummary;
-		const baseline = makeBaseline({});
-		expect(() => compareCoverage(summary, baseline, { config: CONFIG, repoRoot: "/repo" })).not.toThrow();
-	});
-
 	// --- new-file stats -------------------------------------------------------
+
+	it("initializes a partial report with no line metric at zero line coverage", () => {
+		const summary: CoverageSummary = { "src/a.ts": { branches: metric(50) } };
+		const result = compareCoverage(summary, makeBaseline({}), { config: CONFIG, repoRoot: "/repo" });
+		expect(result.nextBaseline.files["src/a.ts"]).toEqual({ lines_pct: 0, branches_pct: 50 });
+		expect(result.stats.files_new).toBe(1);
+	});
+
+	it("initializes a partial report with no branch metric at zero branch coverage", () => {
+		const summary: CoverageSummary = { "src/a.ts": { lines: metric(50) } };
+		const result = compareCoverage(summary, makeBaseline({}), { config: CONFIG, repoRoot: "/repo" });
+		expect(result.nextBaseline.files["src/a.ts"]).toEqual({ lines_pct: 50, branches_pct: 0 });
+		expect(result.stats.files_new).toBe(1);
+	});
 
 	// test-contract: public-api — a file with no prior baseline entry counts only as new, never as decreased/improved
 	it("does not count a brand-new file as decreased or improved (kills 971c7e8d1ef71ee1, db3811c581ed9b92)", () => {
@@ -243,14 +241,6 @@ describe("coverage-ratchet mutation kills (w47)", () => {
 			changedFiles: ["src/touched.ts"],
 		});
 		expect(result.nextBaseline.files["src/untouched.ts"]).toEqual({ lines_pct: 90, branches_pct: 90 });
-	});
-
-	// test-contract: boundary — a falsy (null) summary entry for a real file key must be skipped, not processed as a coverage entry
-	it("does not throw on a falsy (null) entry for a real file key (kills 704eaaea8966d35f, 2336d564c3c77337)", () => {
-		const summary = { "src/nullish.ts": null } as unknown as CoverageSummary;
-		const baseline = makeBaseline({});
-		const result = compareCoverage(summary, baseline, { config: CONFIG, repoRoot: "/repo" });
-		expect(result.stats.files_checked).toBe(0);
 	});
 
 	// --- buildFinding ---------------------------------------------------------

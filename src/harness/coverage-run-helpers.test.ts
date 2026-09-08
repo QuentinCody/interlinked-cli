@@ -15,11 +15,11 @@ describe("failure", () => {
 
 describe("spawnText", () => {
 	it("concatenates stdout and stderr", () => {
-		const o = { stdout: "out", stderr: "err", status: 0 } as SpawnOutcome;
+		const o: SpawnOutcome = { stdout: "out", stderr: "err", status: 0 };
 		expect(spawnText(o)).toBe("out\nerr");
 	});
-	it("tolerates missing streams", () => {
-		expect(spawnText({ status: 0 } as SpawnOutcome)).toBe("\n");
+	it("joins empty output streams", () => {
+		expect(spawnText({ status: 0, stdout: "", stderr: "" })).toBe("\n");
 	});
 });
 

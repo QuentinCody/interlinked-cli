@@ -29,6 +29,7 @@
 
 import { createRequire } from "node:module";
 import type * as TS from "typescript";
+import { isJsonObject } from "../../lib/json-types.js";
 
 export type TsModule = typeof TS;
 
@@ -94,6 +95,7 @@ export function canResolve(specifier: string): boolean {
 export function loadTsModule(): TsModule | null {
 	if (tsCache !== undefined) return tsCache;
 	try {
+		// SAFETY: this resolves the installed TypeScript package described by its compiler API declarations.
 		tsCache = createRequire(import.meta.url)(FAST_CHECK_TS_SPECIFIER) as TsModule;
 	} catch {
 		tsCache = null;
@@ -108,8 +110,8 @@ const FAST_CHECK_TS_SPECIFIER = "typescript";
  *  untyped by construction (a non-literal specifier), so the surface is
  *  CHECKED rather than asserted. */
 function isFastCheckModule(mod: unknown): mod is FastCheckModule {
-	if (typeof mod !== "object" || mod === null) return false;
-	const candidate = mod as Record<string, unknown>;
+	if (!isJsonObject(mod)) return false;
+	const candidate = mod;
 	return (
 		typeof candidate.assert === "function" &&
 		typeof candidate.property === "function" &&

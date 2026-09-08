@@ -15,7 +15,6 @@ import {
 	writeJsonFile,
 } from "./hook-installers-shared.js";
 import { CLIENT_GEMINI } from "./hook-types.js";
-import type { JsonObject } from "./json-types.js";
 
 // Gemini CLI hook events (official hooks API, project/user settings.json).
 // Keep to the high-signal lifecycle + tool events that Interlinked currently
@@ -44,10 +43,8 @@ export function installGeminiHooks(cwd: string, hookScriptPath: string): void {
 	const settingsPath = getGeminiSettingsPath(cwd);
 	const settings = readJsonFile(settingsPath) || {};
 
-	if (!isPlainObject(settings.hooks)) {
-		settings.hooks = {};
-	}
-	const hooks = settings.hooks as JsonObject;
+	const hooks = isPlainObject(settings.hooks) ? settings.hooks : {};
+	settings.hooks = hooks;
 	const hookCommand = buildHookCommand(hookScriptPath, CLIENT_GEMINI);
 
 	for (const eventName of GEMINI_HOOK_EVENTS) {

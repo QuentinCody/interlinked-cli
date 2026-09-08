@@ -7,8 +7,8 @@
 // depend only on the JsonObject/PolicyClassification types and each other.
 
 import { isJsonObject } from "../lib/json-types.js";
-import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
+import { parseWire } from "../lib/value-validation.js";
 import type { PolicyClassification } from "./types.js";
 
 /**
@@ -40,14 +40,14 @@ export function parseClaudeCodeOutput(output: string): PolicyClassification {
 /**
  * Parse an OpenAI-compatible chat completions response.
  */
-export function parseOpenAIResponse(data: JsonObject): PolicyClassification {
+export function parseOpenAIResponse(data: unknown): PolicyClassification {
 	try {
-		const choices = data.choices as Array<JsonObject> | undefined;
-		if (!choices || choices.length === 0) {
+		const choices = isJsonObject(data) ? data.choices : undefined;
+		if (!Array.isArray(choices) || choices.length === 0) {
 			return { label: "allow", confidence: 0, reasoning: "No choices in response" };
 		}
-		const message = nonNull(choices[0]).message as JsonObject | undefined;
-		return parseClassificationJson(String(message?.content || ""));
+		const message = parseWire(choices[0], isJsonObject, "classifier choice").message;
+		return parseClassificationJson(readResponseText(message, "content"));
 	} catch {
 		return { label: "allow", confidence: 0, reasoning: "Failed to parse OpenAI response" };
 	}
@@ -56,13 +56,13 @@ export function parseOpenAIResponse(data: JsonObject): PolicyClassification {
 /**
  * Parse an Anthropic Messages API response.
  */
-export function parseAnthropicResponse(data: JsonObject): PolicyClassification {
+export function parseAnthropicResponse(data: unknown): PolicyClassification {
 	try {
-		const content = data.content as Array<JsonObject> | undefined;
-		if (!content || content.length === 0) {
+		const content = isJsonObject(data) ? data.content : undefined;
+		if (!Array.isArray(content) || content.length === 0) {
 			return { label: "allow", confidence: 0, reasoning: "No content in response" };
 		}
-		return parseClassificationJson(String(nonNull(content[0]).text || ""));
+		return parseClassificationJson(readResponseText(parseWire(content[0], isJsonObject, "classifier content"), "text"));
 	} catch {
 		return { label: "allow", confidence: 0, reasoning: "Failed to parse Anthropic response" };
 	}
@@ -71,6 +71,11 @@ export function parseAnthropicResponse(data: JsonObject): PolicyClassification {
 /**
  * Parse the JSON classification payload from model output text.
  */
+function readResponseText(value: unknown, field: string): string {
+	if (!isJsonObject(value)) return "";
+	return typeof value[field] === "string" ? value[field] : "";
+}
+
 function parseClassificationJson(text: string): PolicyClassification {
 	try {
 		// Strip markdown code fences (claude -p wraps output in ```json ... ```)

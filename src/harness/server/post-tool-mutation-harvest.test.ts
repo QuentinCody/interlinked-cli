@@ -1,3 +1,8 @@
+import { makeEvent as makeEventFixture } from "../__tests__/fixtures/evaluator.js";
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { getDefaultConfig } from "../rules-loader.js";
+import { nonNull } from "../../lib/non-null.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 // These tests run with the REAL repo cwd; without these mocks the durable
 // side effects (run ledger + pending-store JSON) write into the actual
@@ -13,7 +18,6 @@ import { overlayHash, pendingRegistry, resetPendingRegistry } from "../mutation/
 import { recordPending } from "../mutation/pending-runs.js";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 import { appendMutationHarvestWarning } from "./post-tool-mutation-harvest.js";
-import type { ServerRuntime } from "./runtime-context.js";
 
 const NOW = 1_800_000_000_000;
 const CONTENT = "export function f(x: number) { return x > 0; }\n";
@@ -35,19 +39,19 @@ const REPORT = {
 };
 
 function ctxWith(enabled: boolean, cwd: string) {
-	return {
+	return makeServerRuntime({
 		cwd,
-		rules: { per_edit_mutation: { enabled, runner_urls: ["http://runner/"] } },
-	} as unknown as ServerRuntime;
+		rules: { ...makeGuardRules(), per_edit_mutation: { ...nonNull(getDefaultConfig().per_edit_mutation), enabled, runner_urls: ["http://runner/"] } },
+	});
 }
 
 function writeEvent(path: string): HarnessEvent {
-	return {
+	return makeEventFixture({
 		hook_event: "PostToolUse",
 		session_id: "s",
 		tool_name: "Edit",
 		tool_input: { file_path: path },
-	} as unknown as HarnessEvent;
+	});
 }
 
 const okFetch = async () => ({ ok: true, status: 200, json: async () => REPORT });
@@ -69,12 +73,10 @@ describe("appendMutationHarvestWarning", () => {
 			runnerUrl: "http://runner/",
 			startedAt: NOW,
 		});
-		const ctx = {
+		const ctx = makeServerRuntime({
 			cwd,
-			rules: { per_edit_mutation: { enabled: true, mode: "off", runner_urls: ["http://runner/"] } },
-			// SAFETY: same structural stand-in shape as ctxWith — the function
-			// reads only cwd and rules.per_edit_mutation.
-		} as unknown as ServerRuntime;
+			rules: { ...makeGuardRules(), per_edit_mutation: { ...nonNull(getDefaultConfig().per_edit_mutation), enabled: true, mode: "off", runner_urls: ["http://runner/"] } },
+		});
 		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(ctx, writeEvent(`${cwd}/src/a.ts`), decision, {
 			readDisk: () => CONTENT,
@@ -339,12 +341,12 @@ describe("appendMutationHarvestWarning", () => {
 
 	it("ignores events that are not file writes", async () => {
 		const decision: HarnessDecision = { decision: "allow" };
-		const bashEvent = {
+		const bashEvent = makeEventFixture({
 			hook_event: "PostToolUse",
 			session_id: "s",
 			tool_name: "Bash",
 			tool_input: { command: "ls" },
-		} as unknown as HarnessEvent;
+		});
 		await appendMutationHarvestWarning(ctxWith(true, process.cwd()), bashEvent, decision, {
 			readDisk: () => CONTENT,
 			fetchImpl: okFetch,

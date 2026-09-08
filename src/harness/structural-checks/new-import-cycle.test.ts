@@ -54,17 +54,12 @@ interface GraphState {
  * edit landed" — mirrors the fakeGraph idiom used throughout
  * structural-checks/*.test.ts (e.g. cycles.test.ts).
  */
-function fakeGraph(state: GraphState): ProjectGraph {
-	// SAFETY: this test double implements only the 3 ProjectGraph members
-	// checkNewImportCycle reads (getDependencies, findCyclesThrough,
-	// toRelative); every other member is intentionally absent so a call to
-	// any of them fails loudly rather than silently returning graph-shaped
-	// production behavior.
+function fakeGraph(state: GraphState): Pick<ProjectGraph, "getDependencies" | "findCyclesThrough" | "toRelative"> {
 	return {
 		getDependencies: (f: string): ImportEdge[] => state.deps[f] ?? [],
 		findCyclesThrough: (f: string): string[][] => state.cycles[f] ?? [],
 		toRelative: (f: string): string => f.replace(/^\/repo\//, ""),
-	} as unknown as ProjectGraph;
+	};
 }
 
 beforeEach(() => {

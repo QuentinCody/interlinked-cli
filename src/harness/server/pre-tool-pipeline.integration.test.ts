@@ -1,3 +1,7 @@
+import type { CoordinationResponse } from "../auto-coordinate.js";
+import { nonNull } from "../../lib/non-null.js";
+import { makeServerRuntime, makeServerRules, makeTrigramIndex } from "./__tests__/fixtures.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 // Behavioral coverage for the PreToolUse pipeline orchestrator
 // (`runPreToolPipeline`). Cyclomatic ~108 — every imported sibling module is
 // mocked at the import boundary so each gate, early-return, ternary, &&/||/??,
@@ -12,7 +16,7 @@
 // interfaces — and without per-property `undefined`-widening casts that
 // exactOptionalPropertyTypes rejects.
 
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	ClassifierConfig,
 	EscalationRequest,
@@ -43,7 +47,7 @@ vi.mock("../auto-coordinate.js", () => ({
 }));
 
 vi.mock("../content-scanner/allowlist.js", () => ({
-	applyAllowlist: vi.fn((findings: unknown[]) => ({ kept: findings, suppressed: [] })),
+	applyAllowlist: vi.fn((findings) => ({ kept: findings, suppressed: [] })),
 }));
 
 vi.mock("../content-scanner/policy.js", () => ({
@@ -125,7 +129,7 @@ vi.mock("./runtime-context.js", async () => {
 		await vi.importActual<typeof import("./runtime-context.js")>("./runtime-context.js");
 	return {
 		summarizeToolInput: actual.summarizeToolInput,
-		getGraphForFile: vi.fn(() => ({}) as unknown),
+		getGraphForFile: vi.fn(() => ({})),
 		getAutoCoordState: vi.fn(() => ({
 			lastCoordAt: 0,
 			lastCoordTs: 0,
@@ -158,32 +162,32 @@ import {
 } from "./pre-tool-pipeline-stages.js";
 import { getAutoCoordState } from "./runtime-context.js";
 
-const mExecSync = execSync as unknown as Mock;
-const mShouldCoordinate = shouldCoordinate as unknown as Mock;
-const mInjectCoord = injectCoordinationWarnings as unknown as Mock;
-const mApplyAllowlist = applyAllowlist as unknown as Mock;
-const mDecideFromFindings = decideFromFindings as unknown as Mock;
-const mBuildAskReason = buildAskReason as unknown as Mock;
-const mWritePendingPrompt = writePendingPrompt as unknown as Mock;
-const mFetchAndScan = fetchAndScan as unknown as Mock;
-const mIsCoverageSuiteCommand = isCoverageSuiteCommand as unknown as Mock;
-const mNoteCoverageSuiteRunStart = noteCoverageSuiteRunStart as unknown as Mock;
-const mEvaluate = evaluatePreToolUse as unknown as Mock;
-const mCheckCoverage = checkCoverageWrite as unknown as Mock;
-const mRunCoverageGate = runCoverageWriteGate as unknown as Mock;
-const mRunCommitGate = runCommitGate as unknown as Mock;
-const mExtractPattern = extractPermissionPattern as unknown as Mock;
-const mCheckGrep = checkGrepAcceleration as unknown as Mock;
-const mFindRg = findRipgrep as unknown as Mock;
-const mAppendShadow = appendShadowLog as unknown as Mock;
-const mCallClassifier = callClassifier as unknown as Mock;
-const mIsBashTsc = isBashTsc as unknown as Mock;
-const mTryTsgo = tryTsgoRewrite as unknown as Mock;
-const mCaptureBaseline = captureDiffAwareBaseline as unknown as Mock;
-const mInjectStructure = injectStructureContext as unknown as Mock;
-const mProjectWide = runProjectWideGitGateAsync as unknown as Mock;
-const mTddGate = runTddCommitGate as unknown as Mock;
-const mGetAutoCoord = getAutoCoordState as unknown as Mock;
+const mExecSync = vi.mocked(execSync);
+const mShouldCoordinate = vi.mocked(shouldCoordinate);
+const mInjectCoord = vi.mocked(injectCoordinationWarnings);
+const mApplyAllowlist = vi.mocked(applyAllowlist);
+const mDecideFromFindings = vi.mocked(decideFromFindings);
+const mBuildAskReason = vi.mocked(buildAskReason);
+const mWritePendingPrompt = vi.mocked(writePendingPrompt);
+const mFetchAndScan = vi.mocked(fetchAndScan);
+const mIsCoverageSuiteCommand = vi.mocked(isCoverageSuiteCommand);
+const mNoteCoverageSuiteRunStart = vi.mocked(noteCoverageSuiteRunStart);
+const mEvaluate = vi.mocked(evaluatePreToolUse);
+const mCheckCoverage = vi.mocked(checkCoverageWrite);
+const mRunCoverageGate = vi.mocked(runCoverageWriteGate);
+const mRunCommitGate = vi.mocked(runCommitGate);
+const mExtractPattern = vi.mocked(extractPermissionPattern);
+const mCheckGrep = vi.mocked(checkGrepAcceleration);
+const mFindRg = vi.mocked(findRipgrep);
+const mAppendShadow = vi.mocked(appendShadowLog);
+const mCallClassifier = vi.mocked(callClassifier);
+const mIsBashTsc = vi.mocked(isBashTsc);
+const mTryTsgo = vi.mocked(tryTsgoRewrite);
+const mCaptureBaseline = vi.mocked(captureDiffAwareBaseline);
+const mInjectStructure = vi.mocked(injectStructureContext);
+const mProjectWide = vi.mocked(runProjectWideGitGateAsync);
+const mTddGate = vi.mocked(runTddCommitGate);
+const mGetAutoCoord = vi.mocked(getAutoCoordState);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -199,8 +203,8 @@ function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
 	};
 }
 
-function makeSession(partial: Record<string, unknown> = {}): SessionTrajectory {
-	return {
+function makeSession(partial: Partial<SessionTrajectory> = {}): SessionTrajectory {
+	return ({ ...makeSessionFixture(),
 		agent_name: "session-agent",
 		tool_call_count: 5,
 		tool_sequence: [],
@@ -208,28 +212,23 @@ function makeSession(partial: Record<string, unknown> = {}): SessionTrajectory {
 		pending_completions: new Map(),
 		acknowledged_checks: new Set(["shell-sandbox-evidence"]),
 		...partial,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
-function makeRules(partial: Record<string, unknown> = {}): GuardRulesConfig {
-	return {
-		rules: [],
-		...partial,
-	} as unknown as GuardRulesConfig;
-}
+function makeRules(partial: NonNullable<Parameters<typeof makeServerRules>[0]> = {}): GuardRulesConfig { return makeServerRules(partial); }
 
 /** Minimal AsyncFindingQueue stub: drain returns the configured list. */
 function asyncFindingsStub(drained: Array<{ message: string }> = []) {
-	return { drain: vi.fn(() => drained) };
+	return { drain: vi.fn(() => drained.map((finding, index) => ({ id: String(index), check: "fixture", computedAt: "2026-09-08T00:00:00Z", ...finding }))) };
 }
 
 /** Minimal AsyncAnalysisManager stub: consume returns the configured list. */
 function asyncAnalysisStub(consumed: Array<{ name: string; message: string }> = []) {
-	return { consume: vi.fn(() => consumed) };
+	return { consume: vi.fn((): ReturnType<ServerRuntime["asyncAnalysis"]["consume"]> => consumed.map((finding) => ({ source: "quality", severity: "warning", determinism: "heuristic", ...finding }))) };
 }
 
-function makeCtx(overrides: Record<string, unknown> = {}): ServerRuntime {
-	return {
+function makeCtx(overrides: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime {
+	return makeServerRuntime({
 		cwd: "/repo",
 		interlinkedDir: "/repo/.interlinked",
 		rules: makeRules(),
@@ -257,7 +256,7 @@ function makeCtx(overrides: Record<string, unknown> = {}): ServerRuntime {
 		// `contentScanner` deliberately omitted — it is optional and the default
 		// (absent) is what most tests want; scanner-path tests override it.
 		...overrides,
-	} as unknown as ServerRuntime;
+	});
 }
 
 function escalation(partial: Partial<EscalationRequest> = {}): EscalationRequest {
@@ -304,7 +303,7 @@ beforeEach(() => {
 	mRunCommitGate.mockResolvedValue(null);
 	mExtractPattern.mockReturnValue(null);
 	mShouldCoordinate.mockReturnValue(false);
-	mApplyAllowlist.mockImplementation((findings: unknown[]) => ({
+	mApplyAllowlist.mockImplementation((findings) => ({
 		kept: findings,
 		suppressed: [],
 	}));
@@ -463,7 +462,7 @@ describe("policy classifier escalation", () => {
 			calls_this_session: 7,
 			consecutive_failures: 0,
 		};
-		ctx.classifierSessions.set("s", seeded as unknown as ReturnType<typeof Map.prototype.get>);
+		ctx.classifierSessions.set("s", seeded);
 		await runPreToolPipeline(ctx, ev({ tool_name: "WebFetch" }), makeSession());
 		expect(mCallClassifier).toHaveBeenCalledOnce();
 		expect(mCallClassifier.mock.calls[0]?.[2]).toBe(seeded);
@@ -622,7 +621,7 @@ describe("policy classifier escalation", () => {
 describe("content scanner WebFetch proxy", () => {
 	function proxyCtx(): ServerRuntime {
 		return makeCtx({
-			contentScanner: {},
+			contentScanner: { name: "fixture", runtime: "http", ready: vi.fn(async () => true), scan: vi.fn(async () => []), shutdown: vi.fn(async () => {}) },
 			rules: makeRules({
 				content_scanner: { enabled: true, scan_points: { external_egress: true } },
 			}),
@@ -748,7 +747,7 @@ describe("content scanner WebFetch proxy", () => {
 
 	it("skips the proxy when external_egress scan point is off", async () => {
 		const ctx = makeCtx({
-			contentScanner: {},
+			contentScanner: { name: "fixture", runtime: "http", ready: vi.fn(async () => true), scan: vi.fn(async () => []), shutdown: vi.fn(async () => {}) },
 			rules: makeRules({
 				content_scanner: { enabled: true, scan_points: { external_egress: false } },
 			}),
@@ -784,10 +783,10 @@ describe("content scanner scan-request handling", () => {
 		],
 	};
 
-	function scanCtx(scannerOverrides: Record<string, unknown> = {}): ServerRuntime {
-		const scan = (scannerOverrides.scan as Mock | undefined) ?? vi.fn(async () => []);
+	function scanCtx(scannerOverrides: Partial<NonNullable<ServerRuntime["contentScanner"]>> = {}): ServerRuntime {
+		const scan = scannerOverrides.scan ?? vi.fn(async () => []);
 		return makeCtx({
-			contentScanner: { scan },
+			contentScanner: { name: "fixture", runtime: "http", ready: vi.fn(async () => true), shutdown: vi.fn(async () => {}), scan },
 			rules: makeRules({ content_scanner: { enabled: true } }),
 		});
 	}
@@ -887,7 +886,7 @@ describe("content scanner scan-request handling", () => {
 	it("uses the configured max_scan_bytes and scan_timeout_ms", async () => {
 		const scan = vi.fn(async () => []);
 		const ctx = makeCtx({
-			contentScanner: { scan },
+			contentScanner: { name: "fixture", runtime: "http", ready: vi.fn(async () => true), shutdown: vi.fn(async () => {}), scan },
 			rules: makeRules({
 				content_scanner: {
 					enabled: true,
@@ -908,7 +907,7 @@ describe("content scanner scan-request handling", () => {
 	it("falls back to default byte/timeout when config omits them (|| defaults)", async () => {
 		const scan = vi.fn(async () => []);
 		const ctx = makeCtx({
-			contentScanner: { scan },
+			contentScanner: { name: "fixture", runtime: "http", ready: vi.fn(async () => true), shutdown: vi.fn(async () => {}),  scan },
 			rules: makeRules({ content_scanner: { enabled: true } }),
 		});
 		await runPreToolPipeline(ctx, ev({ tool_name: "Write" }), makeSessionWithScan(scanReq));
@@ -966,9 +965,7 @@ describe("content scanner scan-request handling", () => {
 			ev({ tool_name: "Write" }),
 			makeSessionWithScan(scanReq),
 		);
-		const callArg = mWritePendingPrompt.mock.calls[0]?.[0] as {
-			findingsBySource: Map<string, unknown[]>;
-		};
+		const callArg = nonNull(mWritePendingPrompt.mock.calls[0])[0];
 		expect(callArg.findingsBySource.get("Write.content")?.length).toBe(2);
 	});
 });
@@ -1005,15 +1002,15 @@ describe("internal-field cleanup", () => {
 // ---------------------------------------------------------------------------
 
 describe("auto-coordination", () => {
-	function coordCtx(bridge: Record<string, unknown>): ServerRuntime {
-		return makeCtx({ serverBridge: bridge });
+	function coordCtx(bridge: Partial<NonNullable<ServerRuntime["serverBridge"]>>): ServerRuntime {
+		return makeCtx({ serverBridge: { reportGuardEvent: vi.fn(), fetchCoordinationState: vi.fn(async () => null), ...bridge } });
 	}
 
 	it("injects coordination warnings and resets misses on a successful check-in", async () => {
 		mShouldCoordinate.mockReturnValue(true);
-		const coordResponse = {
+		const coordResponse: CoordinationResponse = { heartbeat_recorded: true,
 			unread: { total: 3, urgent: [] },
-			task_changes: [{ id: 1 }, { id: 2 }],
+			task_changes: [1, 2].map((id) => ({ id, title: "Task", status: "blocked", change_type: "blocked" })),
 		};
 		const fetchCoordinationState = vi.fn(async () => coordResponse);
 		const coordState = {
@@ -1064,7 +1061,7 @@ describe("auto-coordination", () => {
 		};
 		mGetAutoCoord.mockReturnValue(coordState);
 		const ctx = makeCtx({
-			serverBridge: { fetchCoordinationState },
+			serverBridge: { reportGuardEvent: vi.fn(), fetchCoordinationState },
 			autoCoordConfig: { max_misses_before_disable: 5, timeout_ms: 2000 },
 		});
 		await runPreToolPipeline(ctx, ev({ tool_name: "Edit" }), makeSession());
@@ -1139,8 +1136,8 @@ describe("auto-coordination", () => {
 describe("background async-analysis findings", () => {
 	it("injects async findings as tagged warnings when filePath present", async () => {
 		const consume = vi.fn(() => [
-			{ name: "coverage_delta", message: "coverage dropped" },
-			{ name: "complexity", message: "too complex" },
+			{ name: "coverage_delta", message: "coverage dropped", source: "quality", severity: "warning", determinism: "heuristic" } satisfies import("../types.js").CheckResultEntry,
+			{ name: "complexity", message: "too complex", source: "quality", severity: "warning", determinism: "heuristic" } satisfies import("../types.js").CheckResultEntry,
 		]);
 		const ctx = makeCtx({ asyncAnalysis: { consume } });
 		const decision = await runPreToolPipeline(
@@ -1156,7 +1153,7 @@ describe("background async-analysis findings", () => {
 	it("merges async findings into an existing warnings array", async () => {
 		mEvaluate.mockReturnValue({ decision: "allow", warnings: ["PRE"] });
 		const ctx = makeCtx({
-			asyncAnalysis: { consume: vi.fn(() => [{ name: "c", message: "m" }]) },
+			asyncAnalysis: { consume: vi.fn(() => [{ name: "c", message: "m", source: "quality", severity: "warning", determinism: "heuristic" } satisfies import("../types.js").CheckResultEntry]) },
 		});
 		const decision = await runPreToolPipeline(
 			ctx,
@@ -1186,7 +1183,7 @@ describe("learned rules", () => {
 		mExtractPattern.mockReturnValue("Bash(npm test *)");
 		const learnedRules = {
 			has: vi.fn(() => false),
-			observe: vi.fn(() => ({ pattern: "Bash(npm test *)", observation_count: 5 })),
+			observe: vi.fn<ServerRuntime["learnedRules"]["observe"]>(() => ({ pattern: "Bash(npm test *)", observation_count: 5, decision: "allow", first_seen: "2026-09-08T00:00:00Z", learned_at: "2026-09-08T00:00:00Z", learned_in_session: "s" })),
 		};
 		const ctx = makeCtx({ learnedRules });
 		const decision = await runPreToolPipeline(
@@ -1206,7 +1203,7 @@ describe("learned rules", () => {
 		mExtractPattern.mockReturnValue("Bash(ls *)");
 		const learnedRules = {
 			has: vi.fn(() => false),
-			observe: vi.fn(() => ({ pattern: "Bash(ls *)", observation_count: 3 })),
+			observe: vi.fn<ServerRuntime["learnedRules"]["observe"]>(() => ({ pattern: "Bash(ls *)", observation_count: 3, decision: "allow", first_seen: "2026-09-08T00:00:00Z", learned_at: "2026-09-08T00:00:00Z", learned_in_session: "s" })),
 		};
 		const decision = await runPreToolPipeline(
 			makeCtx({ learnedRules }),
@@ -1283,7 +1280,7 @@ describe("guard-block reporting", () => {
 		mEvaluate.mockReturnValue({ decision: "block", reason: "BLOCKED: nope" });
 		const reportGuardEvent = vi.fn();
 		await runPreToolPipeline(
-			makeCtx({ serverBridge: { reportGuardEvent } }),
+			makeCtx({ serverBridge: { reportGuardEvent, fetchCoordinationState: vi.fn(async () => null) } }),
 			ev({ tool_name: "Bash", tool_input: { command: "rm -rf /tmp/data" }, agent_name: "a" }),
 			makeSession(),
 		);
@@ -1302,7 +1299,7 @@ describe("guard-block reporting", () => {
 		mEvaluate.mockReturnValue({ decision: "block" });
 		const reportGuardEvent = vi.fn();
 		await runPreToolPipeline(
-			makeCtx({ serverBridge: { reportGuardEvent } }),
+			makeCtx({ serverBridge: { reportGuardEvent, fetchCoordinationState: vi.fn(async () => null) } }),
 			ev({ tool_name: "Bash", tool_input: { command: "x" } }),
 			makeSession(),
 		);
@@ -1315,7 +1312,7 @@ describe("guard-block reporting", () => {
 		mEvaluate.mockReturnValue({ decision: "block", reason: "r" });
 		const reportGuardEvent = vi.fn();
 		await runPreToolPipeline(
-			makeCtx({ serverBridge: { reportGuardEvent } }),
+			makeCtx({ serverBridge: { reportGuardEvent, fetchCoordinationState: vi.fn(async () => null) } }),
 			ev({ tool_name: "Bash", tool_input: { command: "x" } }),
 			makeSession(),
 		);
@@ -1327,7 +1324,7 @@ describe("guard-block reporting", () => {
 	it("does not report when the decision is allow", async () => {
 		const reportGuardEvent = vi.fn();
 		await runPreToolPipeline(
-			makeCtx({ serverBridge: { reportGuardEvent } }),
+			makeCtx({ serverBridge: { reportGuardEvent, fetchCoordinationState: vi.fn(async () => null) } }),
 			ev({ tool_name: "Read" }),
 			makeSession(),
 		);
@@ -1352,7 +1349,7 @@ describe("guard-block reporting", () => {
 describe("grep acceleration substitution", () => {
 	function searchCtx(overrides: Record<string, unknown> = {}): ServerRuntime {
 		return makeCtx({
-			trigramIndex: { baseCommit: "abc1234def", isDirty: false },
+			trigramIndex: makeTrigramIndex("abc1234def", false),
 			rules: makeRules({ grep_acceleration: { substitution_enabled: true } }),
 			...overrides,
 		});
@@ -1407,7 +1404,7 @@ describe("grep acceleration substitution", () => {
 		mExecSync.mockReturnValueOnce("abc1234def\n").mockReturnValueOnce("");
 		mCheckGrep.mockReturnValue({ decision: "block", reason: "ENV-ON" });
 		const ctx = makeCtx({
-			trigramIndex: { baseCommit: "abc1234def", isDirty: false },
+			trigramIndex: makeTrigramIndex("abc1234def", false),
 			rules: makeRules({ grep_acceleration: { substitution_enabled: false } }),
 		});
 		const decision = await runPreToolPipeline(
@@ -1485,7 +1482,7 @@ describe("grep acceleration substitution", () => {
 		mExecSync.mockReturnValueOnce("abc1234def\n");
 		mCheckGrep.mockReturnValue(null);
 		const ctx = makeCtx({
-			trigramIndex: { baseCommit: "abc1234def", isDirty: true },
+			trigramIndex: makeTrigramIndex("abc1234def", true),
 			rules: makeRules({ grep_acceleration: { substitution_enabled: true } }),
 		});
 		await runPreToolPipeline(
@@ -1551,7 +1548,7 @@ describe("grep acceleration substitution", () => {
 describe("index-status warning", () => {
 	function loadedIndexCtx(overrides: Record<string, unknown> = {}): ServerRuntime {
 		return makeCtx({
-			trigramIndex: { baseCommit: "abc1234def", isDirty: false },
+			trigramIndex: makeTrigramIndex("abc1234def", false),
 			rules: makeRules({ grep_acceleration: { substitution_enabled: true } }),
 			...overrides,
 		});
@@ -1576,7 +1573,7 @@ describe("index-status warning", () => {
 	it("does not emit index status when substitution is disabled", async () => {
 		mFindRg.mockReturnValue(null);
 		const ctx = makeCtx({
-			trigramIndex: { baseCommit: "abc1234def", isDirty: false },
+			trigramIndex: makeTrigramIndex("abc1234def", false),
 		});
 		const decision = await runPreToolPipeline(
 			ctx,
@@ -1677,7 +1674,7 @@ describe("index-status warning", () => {
 		mFindRg.mockReturnValue("/usr/bin/rg");
 		mExecSync.mockReturnValueOnce("newhead0000\n");
 		const ctx = loadedIndexCtx({
-			trigramIndex: { baseCommit: "", isDirty: false },
+			trigramIndex: makeTrigramIndex("", false),
 		});
 		const decision = await runPreToolPipeline(
 			ctx,

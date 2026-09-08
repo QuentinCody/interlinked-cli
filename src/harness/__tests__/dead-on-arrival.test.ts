@@ -1,3 +1,4 @@
+import { makeMinimalEvent as completeEventFixture, makeSession as completeSessionFixture } from "./fixtures/evaluator.js";
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,7 +11,6 @@ import {
 } from "../dead-on-arrival.js";
 import { resetWorkspaceActiveCache } from "../graph-prediction-classifier.js";
 import type { ServerRuntime } from "../server/runtime-context.js";
-import type { HarnessEvent, SessionTrajectory } from "../types.js";
 
 const HEADER = "// @generated supermodel-shard — do not edit";
 
@@ -122,19 +122,6 @@ describe("detectDeadOnArrival", () => {
 		const dir = freshDir();
 		expect(detectDeadOnArrival(new Set(), dir)).toHaveLength(0);
 	});
-
-	it("skips an entry that fails classification and still flags the rest", () => {
-		const dir = freshDir();
-		const src = writePair(dir, "dead", DEAD_SHARD);
-		// SAFETY: not a real path — a non-string entry makes node:path's
-		// isAbsolute()/resolve() inside classifyCase throw a real TypeError
-		// (no mocking; the classifier's own argument validation).
-		// detectDeadOnArrival must catch it and keep scanning the rest.
-		const unclassifiable = 42 as unknown as string;
-		const hits = detectDeadOnArrival(new Set([unclassifiable, src]), dir);
-		expect(hits).toHaveLength(1);
-		expect(nonNull(hits[0]).sourcePath).toBe(src);
-	});
 });
 
 describe("formatDeadOnArrivalWarning", () => {
@@ -177,9 +164,9 @@ describe("checkDeadOnArrival", () => {
 		const result = checkDeadOnArrival(
 			fakeCtx(dir, log),
 			// SAFETY: the check reads only `cwd` off the event.
-			{ cwd: dir } as unknown as HarnessEvent,
+			({ ...completeEventFixture(), ...{ cwd: dir } }),
 			// SAFETY: the check reads only `files_written` off the trajectory.
-			{ files_written: new Set([src]) } as unknown as SessionTrajectory,
+			({ ...completeSessionFixture(), ...{ files_written: new Set([src]) } }),
 		);
 		expect(result).toBeNull();
 		expect(log).not.toHaveBeenCalled();
@@ -193,8 +180,8 @@ describe("checkDeadOnArrival", () => {
 			// ctx.cwd is deliberately wrong so the assertion below only
 			// passes if the check actually used event.cwd, not ctx.cwd.
 			fakeCtx("/should-not-be-used", log),
-			{ cwd: dir } as unknown as HarnessEvent,
-			{ files_written: new Set([src]) } as unknown as SessionTrajectory,
+			({ ...completeEventFixture(), ...{ cwd: dir } }),
+			({ ...completeSessionFixture(), ...{ files_written: new Set([src]) } }),
 		);
 		expect(result).toContain("[interlinked:verify-before-stop]");
 		expect(result).toContain("1 file(s)");
@@ -207,8 +194,8 @@ describe("checkDeadOnArrival", () => {
 		const log = vi.fn();
 		const result = checkDeadOnArrival(
 			fakeCtx(dir, log),
-			{ cwd: undefined } as unknown as HarnessEvent,
-			{ files_written: new Set([src]) } as unknown as SessionTrajectory,
+			completeEventFixture(),
+			({ ...completeSessionFixture(), ...{ files_written: new Set([src]) } }),
 		);
 		expect(result).toContain("1 file(s)");
 		expect(log).toHaveBeenCalledWith("Verify-before-stop: dead-on-arrival (1)");

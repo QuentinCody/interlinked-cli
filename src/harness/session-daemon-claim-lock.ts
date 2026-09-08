@@ -1,3 +1,4 @@
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 // ===========================================
 // Session daemon — claim-lock record
 // ===========================================
@@ -137,7 +138,7 @@ export function recoverStaleClaimLock(
 	try {
 		renameSync(lock.path, quarantinePath);
 	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "ENOENT") return { retry: true };
+		if (hasErrorCode(err, "ENOENT")) return { retry: true };
 		throw err;
 	}
 
@@ -145,7 +146,7 @@ export function recoverStaleClaimLock(
 	try {
 		writeFileSync(lock.path, lock.raw, { flag: "wx" });
 	} catch (err) {
-		if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+		if (hasErrorCode(err, "EEXIST")) {
 			// Another claimant filled the rename gap. The moved token is fenced:
 			// its holder verifies the canonical token before and after any PID
 			// mutation, so it cannot report ownership after losing this path.
@@ -166,6 +167,6 @@ export function isProcessAlive(pid: number): boolean {
 		process.kill(pid, 0);
 		return true;
 	} catch (err) {
-		return (err as NodeJS.ErrnoException).code === "EPERM";
+		return hasErrorCode(err, "EPERM");
 	}
 }

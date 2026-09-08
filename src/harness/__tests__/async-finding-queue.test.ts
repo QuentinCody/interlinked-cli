@@ -279,7 +279,8 @@ describe("AsyncFindingQueue — pending does not mutate or staleness-filter", ()
 		const q = new AsyncFindingQueue();
 		q.enqueue("s", mkFinding());
 
-		const peeked = q.pending("s") as DeferredFinding[];
+		const peeked = q.pending("s");
+		assert(Array.isArray(peeked));
 		peeked.pop();
 
 		// Defensive copy — the real queue is intact.
@@ -298,3 +299,4 @@ describe("AsyncFindingQueue — unknown session", () => {
 		expect(q.pending("never-enqueued")).toEqual([]);
 	});
 });
+import assert from "node:assert/strict";

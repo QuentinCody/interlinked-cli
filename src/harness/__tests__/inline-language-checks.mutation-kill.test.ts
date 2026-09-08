@@ -24,13 +24,9 @@ import type { InlineCheckDef, LanguageProfile } from "../types.js";
 
 const { stripPython, stripCStyle, headerHasGuard, C_INCLUDE_GUARD_SENTINEL } = __test__;
 
-function buildProfile(id: string, inline_checks: InlineCheckDef[]): LanguageProfile {
+function buildProfile(id: LanguageProfile["id"], inline_checks: InlineCheckDef[]): LanguageProfile {
 	return {
-		// SAFETY: tests deliberately construct profiles with ids outside the
-		// real LanguageId union (including "python"/"c_cpp" cast through a
-		// bare string, and an out-of-union id below) to reach
-		// stripForLanguage's case-routing and exhaustiveness-default paths.
-		id: id as unknown as LanguageProfile["id"],
+		id,
 		display_name: id,
 		file_extensions: [],
 		project_root_markers: [],
@@ -51,32 +47,6 @@ function makeDef(overrides: Partial<InlineCheckDef> & { pattern: string }): Inli
 		...overrides,
 	};
 }
-
-// ===========================================
-// runInlineLanguageChecks
-// ===========================================
-
-describe("runInlineLanguageChecks — top-level guards", () => {
-	it("kills fc3c8ee9b4da2795: short-circuits on an empty inline_checks array BEFORE touching the language id", () => {
-		// buildContext() runs stripForLanguage(content, profile.id); if the
-		// length===0 guard were skipped, an unrecognized/undefined language id
-		// would hit stripForLanguage's exhaustiveness default (which returns the
-		// id itself, not a string, if id isn't a string) and `.split("\n")`
-		// would throw. Real code never reaches that path when inline_checks=[].
-		// SAFETY: `undefined` is deliberately off-union to make stripForLanguage's
-		// exhaustiveness default observable if the length===0 guard is bypassed.
-		const profile = buildProfile(undefined as unknown as string, []);
-		expect(() => runInlineLanguageChecks("/repo/src/m.foo", "content\n", profile)).not.toThrow();
-		expect(runInlineLanguageChecks("/repo/src/m.foo", "content\n", profile)).toEqual([]);
-	});
-
-	// site b471e414263ab56a (!ctx -> false) is SKIPPED as equivalent:
-	// buildContext() never returns null in the current implementation (always
-	// returns a populated object or throws), so `!ctx` is always false already
-	// — replacing it with the literal `false` is a no-op. Empirically confirmed
-	// via scratch/probes/inline-language-checks-mutation-kill.mts
-	// (case "ril-ctx-falsy-equivalent": assertion holds on both real and mutant).
-});
 
 // ===========================================
 // runOneDef

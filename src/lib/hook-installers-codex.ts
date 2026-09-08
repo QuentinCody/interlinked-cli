@@ -17,12 +17,12 @@ import { ensureCodexFeatureFlag as ensureCodexFlag } from "./codex-feature-flag.
 import {
 	buildHookCommand,
 	cleanJsonHookFile,
+	hookSettingsObject,
 	installHookEntry,
 	readJsonFile,
 	writeJsonFile,
 } from "./hook-installers-shared.js";
 import { CLIENT_CODEX } from "./hook-types.js";
-import type { JsonObject } from "./json-types.js";
 
 // One provider capability catalog drives both the adapter installer and this
 // established `interlinked enable` path. Keeping a second handwritten event
@@ -47,8 +47,7 @@ export function installCodexHooks(cwd: string, hookScriptPath: string): void {
 	const settingsPath = getCodexHooksPath(cwd);
 	const settings = readJsonFile(settingsPath) || {};
 
-	if (!settings.hooks) settings.hooks = {};
-	const hooks = settings.hooks as JsonObject;
+	const hooks = hookSettingsObject(settings);
 	const hookCommand = buildHookCommand(hookScriptPath, CLIENT_CODEX);
 
 	for (const eventName of CODEX_HOOK_EVENTS) {

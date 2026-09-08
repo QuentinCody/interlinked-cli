@@ -7,6 +7,7 @@ import {
 	daemonRecoveryRootFresh,
 } from "./hook-entry-daemon-probe.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
+import { makeUnifiedEvent } from "./harness/__tests__/fixtures/unified-event.js";
 
 let root: string;
 
@@ -22,13 +23,11 @@ afterEach(() => {
 	rmSync(root, { recursive: true, force: true });
 });
 
-const EVENT: UnifiedHookEvent = {
-	phase: "pre-tool",
-	runner: "claude-code",
+const EVENT: UnifiedHookEvent = makeUnifiedEvent({
 	session_id: "s",
-	action: { kind: "file_write", path: "/x.ts", content: "" },
-	context: { cwd: undefined },
-} as unknown as UnifiedHookEvent;
+	action: { kind: "file_operation", operation: "write", path: "/x.ts", content: "", tool_class: "modify" },
+	context: { cwd: "" },
+});
 
 describe("coldDaemonUnreachableBlockReasonFresh — negative (must not block)", () => {
 	it("N1: a socket that ANSWERS on the fresh probe cancels the block", async () => {

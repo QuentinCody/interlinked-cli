@@ -7,7 +7,7 @@
 
 import { execFile } from "node:child_process";
 import type { SuiteRunner } from "../harness/mutation/baseline-suite.js";
-import type { FileSurvivorSummary, MeasureOutcome, SurvivorEntry } from "../harness/mutation/measure.js";
+import type { MeasureOutcome, SurvivorEntry } from "../harness/mutation/measure.js";
 import type { MutationTestScopeResult } from "../harness/mutation/test-scope.js";
 import type { MeasurementScope, MeasurementSurface } from "../harness/mutation/types.js";
 import { c, header, kvLine } from "../lib/formatter.js";
@@ -44,7 +44,7 @@ export const spawnVitestSuite: SuiteRunner = ({ tests, cwd }) =>
 				// A spawn-level failure (npx missing, timeout kill) has no exit code
 				// and must NOT be read as a red suite — reject so the probe reports
 				// `skipped`, which the caller treats as "unknown", never as "passed".
-				const code = (err as { code?: unknown } | null)?.code;
+				const code = err?.code;
 				if (err && typeof code !== "number") {
 					rejectPromise(err);
 					return;
@@ -197,11 +197,7 @@ export async function maybeRecordMeasurement(args: {
 	return {
 		recorded: rec.recorded,
 		...(rec.reason !== undefined ? { reason: rec.reason } : {}),
-		// SAFETY: RecordOutcome declares `before` as required, but callers
-		// (proven by the mutation-kill test covering this line) can supply a
-		// mocked/partial outcome that omits it — widened locally so the
-		// conditional spread reflects reality.
-		...((rec.before as FileSurvivorSummary | undefined) !== undefined ? { before: rec.before } : {}),
+		...(rec.before !== undefined ? { before: rec.before } : {}),
 		...(rec.after !== undefined ? { after: rec.after } : {}),
 	};
 }

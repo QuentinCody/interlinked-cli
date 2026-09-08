@@ -9,6 +9,11 @@ import type { DaemonPaths } from "./harness/session-paths.js";
 import type { TsgoRunner } from "./harness/tsgo-runner.js";
 import type { HarnessDecision, HarnessEvent } from "./harness/types.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
+import { makeUnifiedEvent } from "./harness/__tests__/fixtures/unified-event.js";
+import { makeGuardRules } from "./harness/evaluator/__tests__/fixtures.js";
+import { CohortManager } from "./harness/cohort.js";
+import { ReservationManager } from "./harness/reservations.js";
+import { parseWire, wireAbsentOptional, wireNumber, wireObject, wireOptional, wireString } from "./lib/value-validation.js";
 import { discoverSocket, isCodeEditEvent, recoveryAttemptNotice, runHookEntry } from "./hook-entry.js";
 
 let tmp = "";
@@ -51,17 +56,24 @@ function makeTsgo(): TsgoRunner {
 
 function makeEvaluatorContext(): EvaluateUnifiedContext {
 	return {
-		rules: { version: 1, enabled: false } as unknown as EvaluateUnifiedContext["rules"],
+		rules: { ...makeGuardRules(), enabled: false },
 		session: undefined,
-		reservations: {} as EvaluateUnifiedContext["reservations"],
-		cohort: {} as EvaluateUnifiedContext["cohort"],
+		reservations: new ReservationManager(),
+		cohort: new CohortManager(),
 	};
 }
+
+type ReceivedLegacyEvent = Pick<HarnessEvent, "post_delivery_token" | "post_delivery_pid"> & { hook_event: string };
+const isReceivedLegacyEvent = wireObject<ReceivedLegacyEvent>({
+	hook_event: wireString,
+	post_delivery_token: wireAbsentOptional(wireOptional(wireString)),
+	post_delivery_pid: wireAbsentOptional(wireOptional(wireNumber)),
+});
 
 function startLegacyHarnessServer(
 	socketPath: string,
 	decision: HarnessDecision,
-	received: HarnessEvent[],
+	received: ReceivedLegacyEvent[],
 ): Promise<void> {
 	return startLegacyHarnessHandler(socketPath, (event, reply) => {
 		received.push(event);
@@ -71,7 +83,7 @@ function startLegacyHarnessServer(
 
 function startLegacyHarnessHandler(
 	socketPath: string,
-	handle: (event: HarnessEvent, reply: (decision: HarnessDecision) => void) => void,
+	handle: (event: ReceivedLegacyEvent, reply: (decision: HarnessDecision) => void) => void,
 ): Promise<void> {
 	legacyServer = createServer((socket: Socket) => {
 		let buffer = "";
@@ -83,7 +95,7 @@ function startLegacyHarnessHandler(
 			buffer += chunk.toString("utf-8");
 			const idx = buffer.indexOf("\n");
 			if (idx === -1) return;
-			const event = JSON.parse(buffer.slice(0, idx)) as HarnessEvent;
+			const event = parseWire(JSON.parse(buffer.slice(0, idx)), isReceivedLegacyEvent, "legacy hook event");
 			handle(event, (decision) => {
 				if (!socket.destroyed) socket.end(`${JSON.stringify(decision)}\n`);
 			});
@@ -96,9 +108,10 @@ function startLegacyHarnessHandler(
 }
 
 describe("isCodeEditEvent (drives the extended coverage timeout)", () => {
-	function ev(kind: string, toolName?: string): UnifiedHookEvent {
-		const action = toolName ? { kind, tool_name: toolName } : { kind };
-		return { phase: "pre-tool", action } as unknown as UnifiedHookEvent;
+	function ev(kind: "tool_call" | "file_operation" | "shell_command", toolName = "edit"): UnifiedHookEvent {
+		if (kind === "file_operation") return makeUnifiedEvent({ action: { kind, operation: "edit", path: "/workspace/a.ts", tool_class: "modify" } });
+		if (kind === "shell_command") return makeUnifiedEvent({ action: { kind, command: "ls", tool_class: "read" } });
+		return makeUnifiedEvent({ action: { kind, tool_name: toolName, tool_class: "modify", tool_input: {}, tool_input_redacted: {} } });
 	}
 
 	it("is true for the normalized write-shaped tools and file operations", () => {
@@ -224,7 +237,7 @@ describe("runHookEntry — end-to-end with real daemon", () => {
 
 	it("uses raw JSON for legacy harness.sock and surfaces the real PreToolUse warning", async () => {
 		const socketPath = join(tmp, ".interlinked", "harness.sock");
-		const received: HarnessEvent[] = [];
+		const received: ReceivedLegacyEvent[] = [];
 		await startLegacyHarnessServer(
 			socketPath,
 			{ decision: "allow", warnings: ["[interlinked:test] visible warning"] },
@@ -484,7 +497,7 @@ describe("runHookEntry — end-to-end with real daemon", () => {
 
 	it("honors INTERLINKED_HOOK_PROTOCOL=raw for a harness-*.sock path", async () => {
 		const socketPath = join(tmp, ".interlinked", "harness-raw.sock");
-		const received: HarnessEvent[] = [];
+		const received: ReceivedLegacyEvent[] = [];
 		await startLegacyHarnessServer(
 			socketPath,
 			{ decision: "allow", warnings: ["forced raw"] },

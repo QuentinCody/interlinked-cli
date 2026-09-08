@@ -1,3 +1,5 @@
+import { isJsonObject } from "../json-types.js";
+import { parseWire } from "../value-validation.js";
 import { spawn } from "node:child_process";
 import {
 	existsSync,
@@ -65,7 +67,7 @@ async function listen(
 			received += chunk;
 			const newline = received.indexOf("\n");
 			if (newline < 0) return;
-			const request = JSON.parse(received.slice(0, newline)) as Record<string, unknown>;
+			const request = parseWire(JSON.parse(received.slice(0, newline)), isJsonObject, "hook request object");
 			handle(request, (value) => socket.end(`${JSON.stringify(value)}\n`));
 		});
 	});

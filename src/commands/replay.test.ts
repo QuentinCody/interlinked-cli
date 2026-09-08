@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireString } from "../lib/value-validation.js";
 // `interlinked replay` command — pins the status collector (envelope counts
 // the operator sees) and the capture-instructions payload (the exact env the
 // runner needs). Actions print; the logic lives in exported pure helpers.
@@ -31,6 +32,7 @@ import { TOOLCHAIN_TOOLS } from "../harness/replay/toolchain-manifest.js";
 import { perSessionEnvelopePath } from "../harness/replay/trace-assembler.js";
 import { recordTreeSnapshot } from "../harness/replay/tree-snapshot.js";
 import { stripAnsi } from "../lib/formatter.js";
+import { nonNull } from "../lib/non-null.js";
 import {
 	buildCaptureInstructions,
 	collectReplayStatus,
@@ -70,9 +72,8 @@ function git(cwd: string, ...args: string[]): string {
 	return execFileSync("git", args, { cwd, encoding: "utf-8" }).trim();
 }
 
-/** Minimal fetch Response stand-in — the ONLY methods `runCandidate` calls. */
-function textResponse(body: string, ok = true, status = 200): Response {
-	return { ok, status, text: async () => body } as unknown as Response;
+function textResponse(body: string, status = 200): Response {
+	return new Response(body, { status });
 }
 
 /** Stubs `global.fetch` for one test; ALWAYS intercepts (never dials out,
@@ -80,8 +81,8 @@ function textResponse(body: string, ok = true, status = 200): Response {
  *  inspection. */
 function stubFetch(
 	responder: (url: string, init: RequestInit) => Response,
-): ReturnType<typeof vi.fn> {
-	const fetchMock = vi.fn(async (url: string, init: RequestInit) => responder(url, init));
+) {
+	const fetchMock = vi.fn<typeof fetch>(async (url, init) => responder(String(url), nonNull(init)));
 	vi.stubGlobal("fetch", fetchMock);
 	return fetchMock;
 }
@@ -441,11 +442,12 @@ describe("replayEvalAction", () => {
 		});
 		expect(code).toBe(0);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
-		const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+		const [url, requestOptions] = nonNull(fetchMock.mock.calls[0]);
+		const init = nonNull(requestOptions);
 		expect(url).toBe("http://127.0.0.1:4010/v1/messages");
-		const headers = init.headers as Record<string, string>;
+		const headers = parseWire(init.headers, wireRecord(wireString), "test JSON value");
 		expect(headers["x-api-key"]).toBeUndefined();
-		const body = JSON.parse(init.body as string);
+		const body = JSON.parse(parseWire(init.body, wireString, "test JSON value"));
 		expect(body.model).toBe("cand-1");
 		const assistantMsg = body.messages[1];
 		expect(assistantMsg.content.some((b: { type: string }) => b.type === "thinking")).toBe(false);
@@ -509,8 +511,8 @@ describe("replayEvalAction", () => {
 			keepThinking: true,
 			json: true,
 		});
-		const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-		const body = JSON.parse(init.body as string);
+		const init = nonNull(nonNull(fetchMock.mock.calls[0])[1]);
+		const body = JSON.parse(parseWire(init.body, wireString, "test JSON value"));
 		const assistantMsg = body.messages[1];
 		expect(assistantMsg.content.some((b: { type: string }) => b.type === "thinking")).toBe(true);
 	});
@@ -529,8 +531,8 @@ describe("replayEvalAction", () => {
 			baseUrl: "http://127.0.0.1:4012",
 			json: true,
 		});
-		const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-		const headers = init.headers as Record<string, string>;
+		const init = nonNull(nonNull(fetchMock.mock.calls[0])[1]);
+		const headers = parseWire(init.headers, wireRecord(wireString), "test JSON value");
 		expect(headers["x-api-key"]).toBe("sk-real-ish-test-key");
 	});
 
@@ -559,7 +561,7 @@ describe("replayEvalAction", () => {
 		writeTrace(dir, [evalTraceStep()]);
 		writeJsonl(perSessionEnvelopePath(dir, SESSION), [evalEnvelope()]);
 		cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(dir);
-		stubFetch(() => textResponse("boom", false, 500));
+		stubFetch(() => textResponse("boom", 500));
 
 		const code = await replayEvalAction({
 			session: SESSION,
@@ -592,7 +594,7 @@ describe("replayEvalAction", () => {
 		let call = 0;
 		const fetchMock = stubFetch(() => {
 			call++;
-			return call === 1 ? textResponse(JSON.stringify({ content: [] })) : textResponse("boom", false, 500);
+			return call === 1 ? textResponse(JSON.stringify({ content: [] })) : textResponse("boom", 500);
 		});
 
 		const code = await replayEvalAction({

@@ -26,7 +26,7 @@
 // available through the cold path or `interlinked harness start`.
 
 import { randomUUID } from "node:crypto";
-import { type DaemonLedgerEvent, type HandoverOutcome, recordDaemonEvent } from "./daemon-ledger.js";
+import { type DaemonLedgerEvent, type DaemonLedgerRow, recordDaemonEvent } from "./daemon-ledger.js";
 
 /** Unresolved handovers inside the window before a caller backs off. */
 export const HANDOVER_CHURN_MAX_ATTEMPTS = 4;
@@ -132,7 +132,7 @@ const AUDIT_ONLY_REASONS = new Set([
 
 /** Outcomes that RESOLVE an attempt: nobody is coming, and the ledger says
  *  so — the attempt must stop counting exactly like a listening ack. */
-const TERMINAL_ATTEMPT_OUTCOMES: ReadonlySet<HandoverOutcome> = new Set([
+const TERMINAL_ATTEMPT_OUTCOMES: ReadonlySet<string> = new Set([
 	"refused",
 	"spawn_failed",
 	"no_artifact",
@@ -144,9 +144,9 @@ const TERMINAL_ATTEMPT_OUTCOMES: ReadonlySet<HandoverOutcome> = new Set([
  *  spawn, so they count; typed rows count ONLY at `daemon_spawned` — a
  *  launched restart CLI (`launcher_spawned`) is not yet a daemon attempt,
  *  and requested/terminal outcomes never had a successor to wait for. */
-function isCountingAttempt(e: DaemonLedgerEvent): boolean {
+function isCountingAttempt(e: DaemonLedgerRow): boolean {
 	if (e.event !== "handover" || AUDIT_ONLY_REASONS.has(e.reason ?? "")) return false;
-	// Widened deliberately: ledger rows come from disk and may carry the
+	// Ledger rows come from disk and may carry the
 	// short-lived legacy outcome "spawned" (written by 2026-08-29 pre-rename
 	// daemons during a rolling upgrade). It meant "successor launched" under
 	// the OLD one-process model, so it COUNTS like daemon_spawned; new code
@@ -158,14 +158,14 @@ function isCountingAttempt(e: DaemonLedgerEvent): boolean {
 /** In-flight for COALESCING: counting attempts plus `launcher_spawned` rows —
  *  a launched restart CLI is already working toward a daemon, so a second
  *  launch for the same artifact must wait for its resolution. */
-function isInFlightAttempt(e: DaemonLedgerEvent): boolean {
+function isInFlightAttempt(e: DaemonLedgerRow): boolean {
 	return isCountingAttempt(e) || (e.event === "handover" && e.outcome === "launcher_spawned");
 }
 
 /** Attempt ids RESOLVED anywhere in the given rows: a `listening` ack, a
  *  handover row with a terminal outcome, or an `exit` row carrying the id
  *  (the startup guard stamps it on a startup-failed exit). */
-function resolvedAttemptIds(rows: readonly DaemonLedgerEvent[]): Set<string> {
+function resolvedAttemptIds(rows: readonly DaemonLedgerRow[]): Set<string> {
 	const resolved = new Set<string>();
 	for (const e of rows) {
 		if (e.attempt_id === undefined) continue;
@@ -178,10 +178,10 @@ function resolvedAttemptIds(rows: readonly DaemonLedgerEvent[]): Set<string> {
 
 /** The rows inside `[nowMs - windowMs, nowMs]`, ledger order preserved. */
 function rowsInWindow(
-	events: readonly DaemonLedgerEvent[],
+	events: readonly DaemonLedgerRow[],
 	nowMs: number,
 	windowMs: number,
-): DaemonLedgerEvent[] {
+): DaemonLedgerRow[] {
 	const windowStart = nowMs - windowMs;
 	return events.filter((e) => e.at >= windowStart && e.at <= nowMs);
 }
@@ -189,7 +189,7 @@ function rowsInWindow(
 /** One counting attempt with an id: skip if acknowledged (order-independent)
  *  or already counted (a duplicated row must not double-count). */
 function countsAsPending(
-	e: DaemonLedgerEvent,
+	e: DaemonLedgerRow,
 	acknowledged: ReadonlySet<string>,
 	counted: Set<string>,
 ): boolean {
@@ -218,7 +218,7 @@ function countsAsPending(
  * unresolved attempt stops counting once it ages out.
  */
 export function netUnresolvedHandovers(
-	events: readonly DaemonLedgerEvent[],
+	events: readonly DaemonLedgerRow[],
 	nowMs: number,
 	windowMs: number = HANDOVER_CHURN_WINDOW_MS,
 ): number {
@@ -243,7 +243,7 @@ export function netUnresolvedHandovers(
  *  a second successor being spawned for the SAME rebuild while the first is
  *  mid-boot. */
 export function unresolvedAttemptExistsFor(
-	events: readonly DaemonLedgerEvent[],
+	events: readonly DaemonLedgerRow[],
 	nowMs: number,
 	detail: string,
 	windowMs: number = HANDOVER_CHURN_WINDOW_MS,
@@ -260,7 +260,7 @@ export function unresolvedAttemptExistsFor(
 
 /** True once the backstop should refuse another automatic handover attempt. */
 export function handoverChurnExceeded(
-	events: readonly DaemonLedgerEvent[],
+	events: readonly DaemonLedgerRow[],
 	nowMs: number,
 	maxAttempts: number = HANDOVER_CHURN_MAX_ATTEMPTS,
 	windowMs: number = HANDOVER_CHURN_WINDOW_MS,

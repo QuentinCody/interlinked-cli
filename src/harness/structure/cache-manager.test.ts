@@ -267,20 +267,18 @@ describe("CategoryCache", () => {
 		expect(readCategoryCache(TEST_CWD, "public_api")).toBeNull();
 	});
 
-	it.each(["extracted", "inferred"])("accepts provenance %s", (provenance) => {
+	it.each(["extracted", "inferred"] as const)("accepts provenance %s", (provenance) => {
 		const catalog = makeCategoryCatalog();
-		catalog.items[0]!.provenance = provenance as "extracted" | "inferred";
+		catalog.items[0]!.provenance = provenance;
 		writeCategoryCache(TEST_CWD, "public_api", catalog);
 		expect(readCategoryCache(TEST_CWD, "public_api")).toEqual(catalog);
 	});
 
-	it.each(["partially_deterministic", "heuristic"])(
+	it.each(["partially_deterministic", "heuristic"] as const)(
 		"accepts determinism ceiling %s",
 		(determinism_ceiling) => {
 			const catalog = makeCategoryCatalog();
-			catalog.items[0]!.determinism_ceiling = determinism_ceiling as
-				| "partially_deterministic"
-				| "heuristic";
+			catalog.items[0]!.determinism_ceiling = determinism_ceiling;
 			writeCategoryCache(TEST_CWD, "public_api", catalog);
 			expect(readCategoryCache(TEST_CWD, "public_api")).toEqual(catalog);
 		},

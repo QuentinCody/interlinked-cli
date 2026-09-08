@@ -14,7 +14,7 @@ import {
 const TAIL = " (further edits will not repeat this notice this session)";
 
 function mkEvent(filePath: string): HarnessEvent {
-	return {
+	return ({
 		hook_event: "PreToolUse",
 		session_id: "s1",
 		agent_source: "claude",
@@ -22,7 +22,7 @@ function mkEvent(filePath: string): HarnessEvent {
 		tool_input: { file_path: filePath },
 		// SAFETY: profileRunnerFastPath only reads tool_input off this event;
 		// the rest of HarnessEvent's fields are irrelevant to the code under test.
-	} as unknown as HarnessEvent;
+	} satisfies HarnessEvent);
 }
 
 function cfg(languages: string[]): NonNullable<GuardRulesConfig["per_edit_coverage"]> {

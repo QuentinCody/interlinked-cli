@@ -1,3 +1,4 @@
+import { parseWire, wireString } from "../lib/value-validation.js";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,18 +8,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const installHooksMock: any = vi.fn();
 const manifestPathMock: any = vi.fn(() => "/fake/manifest.json");
 vi.mock("../harness/installer.js", () => ({
-	installHooks: (...args: any[]) => (installHooksMock as any)(...args),
-	manifestPath: (...args: any[]) => (manifestPathMock as any)(...args),
+	installHooks: (...args: any[]) => (installHooksMock)(...args),
+	manifestPath: (...args: any[]) => (manifestPathMock)(...args),
 }));
 
 const resolveHookBinaryPathMock: any = vi.fn(() => "/fake/binary");
 vi.mock("../lib/hooks.js", () => ({
-	resolveHookBinaryPath: (...args: any[]) => (resolveHookBinaryPathMock as any)(...args),
+	resolveHookBinaryPath: (...args: any[]) => (resolveHookBinaryPathMock)(...args),
 }));
 
 const writeModeMock: any = vi.fn(() => true);
 vi.mock("./mode.js", () => ({
-	writeMode: (...args: any[]) => (writeModeMock as any)(...args),
+	writeMode: (...args: any[]) => (writeModeMock)(...args),
 }));
 
 const existsSyncMock: any = vi.fn(() => false);
@@ -32,10 +33,10 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		existsSync: (...args: any[]) => (existsSyncMock as any)(...args),
-		mkdirSync: (...args: any[]) => (mkdirSyncMock as any)(...args),
-		writeFileSync: (...args: any[]) => (writeFileSyncMock as any)(...args),
-		readSync: (...args: any[]) => (readSyncMock as any)(...args),
+		existsSync: (...args: any[]) => (existsSyncMock)(...args),
+		mkdirSync: (...args: any[]) => (mkdirSyncMock)(...args),
+		writeFileSync: (...args: any[]) => (writeFileSyncMock)(...args),
+		readSync: (...args: any[]) => (readSyncMock)(...args),
 	};
 });
 
@@ -281,7 +282,7 @@ describe("writeCloudConfig (mutant symbol 174bbee5c512ce9a)", () => {
 			dryRun: false,
 		});
 		expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
-		const written = writeFileSyncMock.mock.calls[0]?.[1] as string;
+		const written = parseWire(writeFileSyncMock.mock.calls[0]?.[1], wireString, "test JSON value");
 		const payload = JSON.parse(written);
 		expect(payload.redactors_before_send).toEqual(["secrets", "paths"]);
 	});

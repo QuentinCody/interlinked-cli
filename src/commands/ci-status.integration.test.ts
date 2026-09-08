@@ -14,6 +14,7 @@
 // branch), all three formatters in every mode, the not-available + clamp
 // paths in ciStatusCommand, and registerCiCommand action wiring.
 
+import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -251,7 +252,7 @@ describe("GhCliFetcher.listRuns", () => {
 		const out = new GhCliFetcher().listRuns({ limit: 30 });
 
 		expect(out).toEqual([valid]);
-		const firstCall = mocks.execFileSync.mock.calls[0] as [string, string[], unknown];
+		const firstCall = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(firstCall[0]).toBe("gh");
 		expect(firstCall[1]).toEqual([
 			"run",
@@ -268,7 +269,7 @@ describe("GhCliFetcher.listRuns", () => {
 	it("appends --branch <name> when a branch is provided", () => {
 		mocks.execFileSync.mockReturnValue("[]");
 		new GhCliFetcher().listRuns({ limit: 10, branch: "main" });
-		const args = (mocks.execFileSync.mock.calls[0] as [string, string[]])[1];
+		const args = nonNull(mocks.execFileSync.mock.calls[0])[1];
 		expect(args).toContain("--branch");
 		expect(args[args.indexOf("--branch") + 1]).toBe("main");
 	});
@@ -600,33 +601,11 @@ describe("ciStatusCommand — full mode", () => {
 
 describe("registerCiCommand", () => {
 	it("registers a 'ci-status' subcommand with the documented options", () => {
-		const calls: Record<string, unknown> = {};
-		const optionFlags: string[] = [];
-		// `program.command(name)` returns a chainable Command; the rest of the
-		// builder (.description/.option/.action) is invoked on that return value.
-		const subcommand = {
-			description(d: string) {
-				calls.description = d;
-				return this;
-			},
-			option(flags: string, _desc?: string, _parser?: unknown) {
-				optionFlags.push(flags);
-				return this;
-			},
-			action(fn: (opts: unknown) => unknown) {
-				calls.action = fn;
-				return this;
-			},
-		};
-		registerCiCommand({
-			command: (name: string) => {
-				calls.command = name;
-				return subcommand;
-			},
-		} as unknown as Parameters<typeof registerCiCommand>[0]);
-
-		expect(calls.command).toBe("ci-status");
-		expect(String(calls.description)).toContain("GitHub Actions");
+		const program = new Command();
+		registerCiCommand(program);
+		const subcommand = nonNull(program.commands.find((command) => command.name() === "ci-status"));
+		expect(subcommand.description()).toContain("GitHub Actions");
+		const optionFlags = subcommand.options.map((option) => option.flags);
 		expect(optionFlags).toEqual([
 			"--limit <n>",
 			"--branch <name>",
@@ -634,29 +613,14 @@ describe("registerCiCommand", () => {
 			"--short",
 			"--full",
 		]);
-		expect(typeof calls.action).toBe("function");
 	});
 
 	it("the --limit parser converts the raw string to an integer", () => {
-		let parser: ((v: string) => number) | undefined;
-		const subcommand = {
-			description() {
-				return this;
-			},
-			option(flags: string, _desc?: string, p?: (v: string) => number) {
-				if (flags === "--limit <n>") parser = p;
-				return this;
-			},
-			action() {
-				return this;
-			},
-		};
-		registerCiCommand({
-			command: () => subcommand,
-		} as unknown as Parameters<typeof registerCiCommand>[0]);
-
-		expect(parser).toBeTypeOf("function");
-		expect(parser?.("57")).toBe(57);
+		const program = new Command();
+		registerCiCommand(program);
+		const subcommand = nonNull(program.commands.find((command) => command.name() === "ci-status"));
+		subcommand.parseOptions(["--limit", "57"]);
+		expect(subcommand.opts().limit).toBe(57);
 	});
 
 	it("the registered action runs ciStatusCommand with the real (mocked) gh fetcher", async () => {
@@ -665,25 +629,9 @@ describe("registerCiCommand", () => {
 		mocks.execFileSync.mockImplementation(() => {
 			throw new Error("no gh");
 		});
-		let action: ((opts: unknown) => Promise<void>) | undefined;
-		const subcommand = {
-			description() {
-				return this;
-			},
-			option() {
-				return this;
-			},
-			action(fn: (opts: unknown) => Promise<void>) {
-				action = fn;
-				return this;
-			},
-		};
-		registerCiCommand({
-			command: () => subcommand,
-		} as unknown as Parameters<typeof registerCiCommand>[0]);
-
-		expect(action).toBeTypeOf("function");
-		await action?.({ json: true });
+		const program = new Command();
+		registerCiCommand(program);
+		await program.parseAsync(["ci-status", "--json"], { from: "user" });
 		expect(JSON.parse(captured())).toEqual({ error: "gh CLI not available" });
 		expect(process.exitCode).toBe(1);
 	});

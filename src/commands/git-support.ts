@@ -7,6 +7,7 @@ import { c, header, kvLine } from "../lib/formatter.js";
 import { getCommitMessage, getHeadSha, parseInterlinkedTrailers } from "../lib/git-utils.js";
 import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
+import { parseGitContext } from "./git-response.js";
 
 // ===========================================
 // Types
@@ -39,7 +40,7 @@ export interface ServerGitContext {
 		created_at?: string;
 	};
 	trailers?: string[];
-	commit_sha?: string;
+	commit_sha?: string | null;
 	message?: string;
 	// When commit_sha matches bridge events
 	bridge_events?: Array<{
@@ -56,20 +57,20 @@ export interface ServerGitContext {
 
 /** Server response from push_checkpoint_to_git */
 export interface ServerPushResult {
-	checkpoint_id: number;
-	trailers: string[];
-	trailers_text: string;
-	notes: JsonObject;
-	notes_json: string;
-	instructions: string;
+	checkpoint_id?: number;
+	trailers?: string[] | undefined;
+	trailers_text?: string;
+	notes?: JsonObject | undefined;
+	notes_json?: string | undefined;
+	instructions?: string;
 }
 
 export interface LinkCheckpointResult {
 	checkpoint_id?: number;
 	commit_sha?: string;
-	trailers?: string[];
-	notes?: JsonObject;
-	notes_json?: string;
+	trailers?: string[] | undefined;
+	notes?: JsonObject | undefined;
+	notes_json?: string | undefined;
 	applied?: boolean;
 	server_error?: string;
 }
@@ -175,9 +176,9 @@ export async function resolveServerContext(
 	try {
 		const { getClient } = await import("../lib/api-client.js");
 		const client = getClient();
-		const serverResult = await client.callTool<ServerGitContext | null>("get_git_context", {
+		const serverResult = await client.callTool("get_git_context", {
 			...(commit ? { commit_sha: commit } : {}),
-		});
+		}).then(parseGitContext);
 		if (!serverResult) return undefined;
 		return serverContextFrom(serverResult);
 	} catch (e) {
@@ -314,6 +315,7 @@ export function applyCheckpointToHead(
 	commitSha: string,
 	result: LinkCheckpointResult,
 ): void {
+	if (!serverResult.trailers) return;
 	try {
 		// Server returns trailers as string[] like ["Interlinked-Checkpoint: 42", "Interlinked-Agent: Worker"]
 		const currentMsg = getCommitMessage("HEAD", cwd) || "";

@@ -1,3 +1,5 @@
+import { wireAbsentOptional, parseWire, wireArray, wireNumber, wireObject, wireOptional, wireString } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // ===========================================
 // Verify orchestrator — behavioral unit tests
 // ===========================================
@@ -268,11 +270,11 @@ beforeEach(() => {
 	process.stderr.write = ((c: string) => {
 		stderr += c;
 		return true;
-	}) as typeof process.stderr.write;
+	});
 	process.stdout.write = ((c: string) => {
 		stdout += c;
 		return true;
-	}) as typeof process.stdout.write;
+	});
 });
 
 afterEach(() => {
@@ -398,10 +400,10 @@ describe("verifyCommand — applySuppressions", () => {
 
 	it("does not apply suppressions when the suppress array is empty", async () => {
 		const { verifyCommand } = await importVerify();
-		await verifyCommand({ suppress: [] });
+		await verifyCommand({ suppress: [], cwd: "/repo" });
 		expect(addSuppressionsMock).not.toHaveBeenCalled();
-		// empty suppress array is falsy-length → straight to runVerify
-		expect(discoverFilesMock).toHaveBeenCalledTimes(1);
+		// empty suppress array is falsy-length → straight to runVerify, scanning cwd
+		expect(discoverFilesMock).toHaveBeenCalledWith("/repo");
 	});
 });
 
@@ -432,7 +434,7 @@ describe("verifyCommand — dispatch", () => {
 		const { verifyCommand } = await importVerify();
 		isGitUrlMock.mockReturnValue(true);
 		await verifyCommand({ target: "https://github.com/o/r", json: true });
-		expect(cloneRepoMock).toHaveBeenCalledTimes(1);
+		expect(cloneRepoMock).toHaveBeenCalledWith("https://github.com/o/r", { branch: undefined });
 		// remote path scans the clone dir, not via the local stat() branch
 		expect(statSyncMock).not.toHaveBeenCalled();
 	});
@@ -602,7 +604,14 @@ describe("runVerify — streaming output path", () => {
 	it("always releases the project lane after a successful run", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo" });
-		expect(releaseHeavyProcessMock).toHaveBeenCalledTimes(1);
+		// test-contract: invariant — release() must run inside the finally AFTER the
+		// leased work (verify.ts runVerify), never before/instead of it; release()
+		// itself takes no args, so ordering is the only literal contract to pin.
+		const runOrder = runCodeQualityChecksProgressiveMock.mock.invocationCallOrder[0];
+		const releaseOrder = releaseHeavyProcessMock.mock.invocationCallOrder[0];
+		expect(runOrder).toBeDefined();
+		expect(releaseOrder).toBeDefined();
+		expect(nonNull(releaseOrder)).toBeGreaterThan(nonNull(runOrder));
 	});
 
 	it("releases the project lane when verification throws", async () => {
@@ -619,7 +628,9 @@ describe("runVerify — streaming output path", () => {
 
 		expect(runCodeQualityChecksProgressiveMock).not.toHaveBeenCalled();
 		expect(streamAllCqSectionsMock).not.toHaveBeenCalled();
-		expect(streamExternalToolsMock).toHaveBeenCalledTimes(1);
+		const callArg = parseWire(streamExternalToolsMock.mock.calls[0]?.[0], wireObject({ "cwd": wireString, "opts": wireObject({ "only": wireAbsentOptional(wireOptional(wireString)) }) }), "test JSON value");
+		expect(callArg.cwd).toBe("/repo");
+		expect(callArg.opts.only).toBe("tsc");
 	});
 
 	it("drives the full streaming pipeline and emits the run record (default mode)", async () => {
@@ -652,7 +663,7 @@ describe("runVerify — streaming output path", () => {
 		// tally line + run record, default mode
 		expect(stderr).toContain("0 / 2 files flagged");
 		expect(emitVerifyRunMock).toHaveBeenCalledTimes(1);
-		const runArg = emitVerifyRunMock.mock.calls[0]?.[1] as { mode: string; files_scanned: number };
+		const runArg = parseWire(emitVerifyRunMock.mock.calls[0]?.[1], wireObject({ "mode": wireString, "files_scanned": wireNumber }), "test JSON value");
 		expect(runArg.mode).toBe("default");
 		expect(runArg.files_scanned).toBe(2);
 
@@ -677,7 +688,7 @@ describe("runVerify — streaming output path", () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo", allChecks: true });
 		expect(getEffectiveSkipChecksMock).toHaveBeenCalledWith(undefined, true);
-		const runArg = emitVerifyRunMock.mock.calls[0]?.[1] as { mode: string };
+		const runArg = parseWire(emitVerifyRunMock.mock.calls[0]?.[1], wireObject({ "mode": wireString }), "test JSON value");
 		expect(runArg.mode).toBe("all-checks");
 	});
 
@@ -696,7 +707,7 @@ describe("runVerify — streaming output path", () => {
 	it("runs structure verification when --structure is set", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo", structure: true });
-		expect(runStructureVerifyMock).toHaveBeenCalledTimes(1);
+		expect(runStructureVerifyMock).toHaveBeenCalledWith("/repo", { cwd: "/repo", structure: true });
 	});
 });
 
@@ -728,7 +739,7 @@ describe("runVerify — tally line variants", () => {
 		const { verifyCommand } = await importVerify();
 		// streamExternalTools receives the summary array by reference and pushes onto it.
 		streamExternalToolsMock.mockImplementationOnce(async (args: unknown) => {
-			(args as { summary: Array<{ label: string; count: number; color: string }> }).summary.push({
+			(parseWire(args, wireObject({ "summary": wireArray(wireObject({ "label": wireString, "count": wireNumber, "color": wireString })) }), "test JSON value")).summary.push({
 				label: "tsc 2 errors",
 				count: 2,
 				color: "31",
@@ -736,9 +747,7 @@ describe("runVerify — tally line variants", () => {
 		});
 		await verifyCommand({ cwd: "/repo" });
 		expect(stderr).toContain("tsc 2 errors");
-		const runArg = emitVerifyRunMock.mock.calls[0]?.[1] as {
-			summary: Array<{ label: string }>;
-		};
+		const runArg = parseWire(emitVerifyRunMock.mock.calls[0]?.[1], wireObject({ "summary": wireArray(wireObject({ "label": wireString })) }), "test JSON value");
 		expect(runArg.summary).toEqual([{ label: "tsc 2 errors", count: 2, color: "31" }]);
 	});
 });
@@ -749,7 +758,7 @@ describe("runVerify — tally line variants", () => {
 
 describe("runVerifyBatchJson — json output path", () => {
 	function lastJsonArg(): Record<string, unknown> {
-		return outputJsonMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+		return nonNull(outputJsonMock.mock.calls.at(-1)?.[0]);
 	}
 
 	it("partitions engine results by tool and reports totals (no --only)", async () => {
@@ -765,7 +774,7 @@ describe("runVerifyBatchJson — json output path", () => {
 
 		// runChecks got the assembled skipTools list (empty here)
 		expect(runChecksMock).toHaveBeenCalledTimes(1);
-		const checkOpts = runChecksMock.mock.calls[0]?.[1] as { skipTools: string[]; timeoutMs: number };
+		const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ "skipTools": wireArray(wireString), "timeoutMs": wireNumber }), "test JSON value");
 		expect(checkOpts.skipTools).toEqual([]);
 		expect(checkOpts.timeoutMs).toBe(30_000);
 
@@ -822,7 +831,7 @@ describe("runVerifyBatchJson — json output path", () => {
 		getSkipToolsMock.mockReturnValue(["mypy"]);
 		await verifyCommand({ cwd: "/repo", json: true, only: "tsc" });
 		// onlySkipTools = TOOL_IDS minus "tsc" (and its dash-variant) → biome, dep-audit
-		const checkOpts = runChecksMock.mock.calls[0]?.[1] as { skipTools: string[] };
+		const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ "skipTools": wireArray(wireString) }), "test JSON value");
 		expect(checkOpts.skipTools).toEqual(expect.arrayContaining(["biome", "dep-audit", "mypy"]));
 		expect(checkOpts.skipTools).not.toContain("tsc");
 		// only set and != "sca" → audit skipped, auditResult null
@@ -838,7 +847,7 @@ describe("runVerifyBatchJson — json output path", () => {
 		const { verifyCommand } = await importVerify();
 		// "dep_audit" should keep "dep-audit" in the run set (only.replace("_","-") match)
 		await verifyCommand({ cwd: "/repo", json: true, only: "dep_audit" });
-		const checkOpts = runChecksMock.mock.calls[0]?.[1] as { skipTools: string[] };
+		const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ "skipTools": wireArray(wireString) }), "test JSON value");
 		expect(checkOpts.skipTools).not.toContain("dep-audit");
 		expect(checkOpts.skipTools).toEqual(expect.arrayContaining(["tsc", "biome"]));
 	});
@@ -877,9 +886,12 @@ describe("runVerifyBatchJson — json output path", () => {
 			throw new Error("parity boom");
 		});
 		await verifyCommand({ cwd: "/repo", json: true });
+		expect(runRegistryParityCheckMock).toHaveBeenCalledWith("/repo");
 		// caught → registryDrift stays the empty default, JSON still emitted
 		expect(lastJsonArg().registryDrift).toEqual([]);
-		expect(outputJsonMock).toHaveBeenCalledTimes(1);
+		// the rest of the payload was still fully built past the caught throw —
+		// a broken implementation that short-circuits after the catch would omit this
+		expect(lastJsonArg().decisionSurface).toEqual({ ds: true });
 	});
 
 	it("threads decision-surface + lockfile + ratchet detectors into the JSON payload", async () => {

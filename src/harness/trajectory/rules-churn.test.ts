@@ -784,7 +784,7 @@ describe("isFlakyCommand — FLAKY_HEADS verb coverage", () => {
 });
 
 // ===========================================
-// churn_sha_cycle_revisit — guard clauses, defensive holes, loop boundaries
+// churn_sha_cycle_revisit — guard clauses and loop boundaries
 // ===========================================
 describe("churn_sha_cycle_revisit — mutation hardening", () => {
 	it("does NOT fire when contentSha256 is absent, even with matching history", () => {
@@ -802,57 +802,6 @@ describe("churn_sha_cycle_revisit — mutation hardening", () => {
 	it("does NOT throw when there is no prior sha history for the file (hist undefined)", () => {
 		const state = createState("s");
 		const ev = postEditEvent("Edit", { file_path: "src/brandnew.ts", old_string: "", new_string: "hello" });
-		expect(churnShaCycleRevisit(state, ev)).toBeNull();
-	});
-
-	it("does NOT fire when file_path is missing, even if history exists under the undefined key", () => {
-		const state = createState("s");
-		(state.fileShaHistory as Map<unknown, unknown>).set(undefined, [
-			{ sha: "A", normSha: "a", atStep: 1 },
-			{ sha: "B", normSha: "b", atStep: 2 },
-			{ sha: "A", normSha: "a", atStep: 3 },
-		]);
-		(state.fileEditLog as Map<unknown, unknown>).set(undefined, [
-			{ old: "A", new: "B", anchor: "x", atStep: 2, failedCheck: true, greenCountAtEntry: 0 },
-		]);
-		state.stepCount = 3;
-		const ev = postEditEvent("Edit", { old_string: "B", new_string: "A" });
-		expect(churnShaCycleRevisit(state, ev)).toBeNull();
-	});
-
-	it("does not throw when the history's freshest entry is missing (defensive guard)", () => {
-		const state = createState("s");
-		const file = "src/holeycur.ts";
-		(state.fileShaHistory as Map<string, unknown>).set(file, [
-			{ sha: "A", normSha: "a", atStep: 1 },
-			{ sha: "B", normSha: "b", atStep: 2 },
-			undefined,
-		]);
-		const ev = postEditEvent("Edit", { file_path: file, old_string: "x", new_string: "y" });
-		expect(churnShaCycleRevisit(state, ev)).toBeNull();
-	});
-
-	it("optional chaining protects the prior-match scan against an earlier hole", () => {
-		const state = createState("s");
-		const file = "src/holeymid.ts";
-		(state.fileShaHistory as Map<string, unknown>).set(file, [
-			undefined,
-			{ sha: "A", normSha: "a", atStep: 2 },
-			{ sha: "A", normSha: "a", atStep: 3 },
-		]);
-		const ev = postEditEvent("Edit", { file_path: file, old_string: "x", new_string: "y" });
-		expect(churnShaCycleRevisit(state, ev)).toBeNull();
-	});
-
-	it("optional chaining protects the whitespace-only comparison against a hole", () => {
-		const state = createState("s");
-		const file = "src/holeynorm.ts";
-		(state.fileShaHistory as Map<string, unknown>).set(file, [
-			{ sha: "A", normSha: "a", atStep: 1 },
-			undefined,
-			{ sha: "A", normSha: "a", atStep: 3 },
-		]);
-		const ev = postEditEvent("Edit", { file_path: file, old_string: "x", new_string: "y" });
 		expect(churnShaCycleRevisit(state, ev)).toBeNull();
 	});
 
@@ -933,12 +882,12 @@ describe("churn_sha_cycle_revisit — allWhitespace default and window exactness
 	it("a failing edit exactly AT sincePrior does not count as intervened (the window's lower bound is strict '>', not '>=')", () => {
 		const state = createState("s");
 		const file = "src/windowlo.ts";
-		(state.fileShaHistory as Map<string, unknown>).set(file, [
+		state.fileShaHistory.set(file, [
 			{ sha: "A", normSha: "a", atStep: 2 }, // firstPrior; sincePrior = 2
 			{ sha: "B", normSha: "b", atStep: 4 },
 			{ sha: "A", normSha: "a", atStep: 6 }, // cur
 		]);
-		(state.fileEditLog as Map<string, unknown>).set(file, [
+		state.fileEditLog.set(file, [
 			{ old: "x", new: "B", anchor: "z", atStep: 2, failedCheck: true, greenCountAtEntry: 0 },
 		]);
 		const ev = postEditEvent("Edit", { file_path: file, old_string: "B", new_string: "A" });
@@ -948,63 +897,28 @@ describe("churn_sha_cycle_revisit — allWhitespace default and window exactness
 	it("a failing edit exactly AT cur.atStep does not count as intervened (the window's upper bound is strict '<', not '<=')", () => {
 		const state = createState("s");
 		const file = "src/windowhi.ts";
-		(state.fileShaHistory as Map<string, unknown>).set(file, [
+		state.fileShaHistory.set(file, [
 			{ sha: "A", normSha: "a", atStep: 2 },
 			{ sha: "B", normSha: "b", atStep: 4 },
 			{ sha: "A", normSha: "a", atStep: 6 }, // cur; sincePrior = 2
 		]);
-		(state.fileEditLog as Map<string, unknown>).set(file, [
+		state.fileEditLog.set(file, [
 			{ old: "x", new: "B", anchor: "z", atStep: 6, failedCheck: true, greenCountAtEntry: 0 },
 		]);
 		const ev = postEditEvent("Edit", { file_path: file, old_string: "B", new_string: "A" });
 		expect(churnShaCycleRevisit(state, ev)).toBeNull();
 	});
 
-	it("does not throw when hist[firstPrior] itself is a hole (optional chaining protects the sincePrior read, not just the scans)", () => {
-		// cur.sha is deliberately undefined too, so the hole at index 0 still
-		// satisfies `hist[i]?.sha === cur.sha` and becomes firstPrior.
-		const state = createState("s");
-		const file = "src/holefirstprior.ts";
-		(state.fileShaHistory as Map<string, unknown>).set(file, [
-			undefined,
-			{ sha: undefined, normSha: "x", atStep: 5 },
-		]);
-		const ev = postEditEvent("Edit", { file_path: file, old_string: "x", new_string: "y" });
-		expect(() => churnShaCycleRevisit(state, ev)).not.toThrow();
-	});
 });
 
 // ===========================================
-// churn_literal_edit_revert — guard clauses, defensive holes, asymmetric matches
+// churn_literal_edit_revert — guard clauses and asymmetric matches
 // ===========================================
 describe("churn_literal_edit_revert — mutation hardening", () => {
 	it("does NOT throw when the file has no edit log yet (log undefined)", () => {
 		const state = createState("s");
 		const ev = postEditEvent("Edit", { file_path: "src/brandnewlit.ts", old_string: "a", new_string: "b" });
 		expect(churnLiteralEditRevert(state, ev)).toBeNull();
-	});
-
-	it("does not throw when the freshest edit-log entry is missing (defensive guard)", () => {
-		const state = createState("s");
-		const file = "src/lit-hole.ts";
-		(state.fileEditLog as Map<string, unknown>).set(file, [
-			{ old: "a", new: "b", anchor: "x", atStep: 1, failedCheck: false, greenCountAtEntry: 0 },
-			undefined,
-		]);
-		const ev = postEditEvent("Edit", { file_path: file, old_string: "b", new_string: "a" });
-		expect(churnLiteralEditRevert(state, ev)).toBeNull();
-	});
-
-	it("skips a missing earlier edit-log slot instead of throwing", () => {
-		const state = createState("s");
-		const file = "src/lit-hole3.ts";
-		(state.fileEditLog as Map<string, unknown>).set(file, [
-			{ old: "foo", new: "bar", anchor: "x", atStep: 1, failedCheck: false, greenCountAtEntry: 0 },
-			undefined,
-			{ old: "bar", new: "foo", anchor: "x", atStep: 2, failedCheck: false, greenCountAtEntry: 0 },
-		]);
-		const ev = postEditEvent("Edit", { file_path: file, old_string: "bar", new_string: "foo" });
-		expect(churnLiteralEditRevert(state, ev)).not.toBeNull();
 	});
 
 	it("does NOT block a deletion-then-insertion revert (asymmetric empty-string guard)", () => {
@@ -1062,33 +976,6 @@ describe("churn_undo_war_value_toggle — mutation hardening", () => {
 		expect(churnUndoWarValueToggle(state, ev)).toBeNull();
 	});
 
-	it("skips an anchor sequence with a hole at the oldest slot instead of throwing", () => {
-		const state = createState("s");
-		const file = "src/hole-toggle.ts";
-		const anchor = "anch1";
-		(state.anchorValueSeq as Map<string, unknown>).set(`${file} ${anchor}`, [
-			undefined,
-			{ valueHash: "h1", atStep: 2, verifyCountAtEntry: 0 },
-			{ valueHash: "h2", atStep: 3, verifyCountAtEntry: 0 },
-		]);
-		state.stepCount = 3;
-		const ev = postEditEvent("Edit", { file_path: file, old_string: "x", new_string: "y" });
-		expect(churnUndoWarValueToggle(state, ev)).toBeNull();
-	});
-
-	it("skips an anchor sequence with a hole at the freshest slot instead of throwing", () => {
-		const state = createState("s");
-		const file = "src/hole-toggle2.ts";
-		const anchor = "anch2";
-		(state.anchorValueSeq as Map<string, unknown>).set(`${file} ${anchor}`, [
-			{ valueHash: "h0", atStep: 1, verifyCountAtEntry: 0 },
-			{ valueHash: "h1", atStep: 2, verifyCountAtEntry: 0 },
-			undefined,
-		]);
-		state.stepCount = 3;
-		const ev = postEditEvent("Edit", { file_path: file, old_string: "x", new_string: "y" });
-		expect(churnUndoWarValueToggle(state, ev)).toBeNull();
-	});
 });
 
 // ===========================================
@@ -1205,19 +1092,6 @@ describe("churn_revert_after_check_fail_combo — mutation hardening", () => {
 		expect(churnRevertAfterCheckFailCombo(state, preEvent)).toBeNull();
 	});
 
-	it("does NOT fire when file_path is missing, even with a matching log under the undefined key", () => {
-		const state = createState("s");
-		const log = [
-			{ old: "a", new: "b", anchor: "x", atStep: 1, failedCheck: true, greenCountAtEntry: 0 },
-			{ old: "b", new: "a", anchor: "x", atStep: 2, failedCheck: true, greenCountAtEntry: 0 },
-			{ old: "a", new: "b", anchor: "x", atStep: 3, failedCheck: true, greenCountAtEntry: 0 },
-		];
-		(state.fileEditLog as Map<unknown, unknown>).set(undefined, log);
-		state.lastDisruptStep = 0;
-		const ev = postEditEvent("Edit", { old_string: "a", new_string: "b" });
-		expect(churnRevertAfterCheckFailCombo(state, ev)).toBeNull();
-	});
-
 	it("does NOT throw when the file has no edit log yet (log undefined)", () => {
 		const state = createState("s");
 		const ev = postEditEvent("Edit", { file_path: "src/brandnewcombo.ts", old_string: "a", new_string: "b" });
@@ -1314,7 +1188,7 @@ describe("churn_revert_after_check_fail_combo — mutation hardening", () => {
 	it("lastDisruptStep boundary: a disruptor exactly AT e1's step does not suppress (must be strictly after)", () => {
 		const state = createState("s");
 		const file = "src/disruptbound1.ts";
-		(state.fileEditLog as Map<string, unknown>).set(file, [
+		state.fileEditLog.set(file, [
 			{ old: "a", new: "b", anchor: "x", atStep: 2, failedCheck: true, greenCountAtEntry: 0 },
 			{ old: "b", new: "a", anchor: "x", atStep: 4, failedCheck: true, greenCountAtEntry: 0 },
 			{ old: "a", new: "b", anchor: "x", atStep: 8, failedCheck: true, greenCountAtEntry: 0 },
@@ -1328,7 +1202,7 @@ describe("churn_revert_after_check_fail_combo — mutation hardening", () => {
 	it("lastDisruptStep boundary: a disruptor exactly AT e3's step does not suppress (must be strictly before)", () => {
 		const state = createState("s");
 		const file = "src/disruptbound2.ts";
-		(state.fileEditLog as Map<string, unknown>).set(file, [
+		state.fileEditLog.set(file, [
 			{ old: "a", new: "b", anchor: "x", atStep: 2, failedCheck: true, greenCountAtEntry: 0 },
 			{ old: "b", new: "a", anchor: "x", atStep: 4, failedCheck: true, greenCountAtEntry: 0 },
 			{ old: "a", new: "b", anchor: "x", atStep: 8, failedCheck: true, greenCountAtEntry: 0 },

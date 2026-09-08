@@ -306,10 +306,10 @@ describe("gen", () => {
 	it("works with tryFn inside", () => {
 		const r = gen(function* () {
 			const parsed = yield* tryFn({
-				try: () => JSON.parse('{"x":1}'),
+				try: () => ({ x: 1 }),
 				catch: (cause) => new JsonParseError({ message: "bad json", input: "", cause }),
 			});
-			return ok(parsed.x as number);
+			return ok(parsed.x);
 		});
 		expect(isOk(r) && r.value).toBe(1);
 	});
@@ -317,11 +317,11 @@ describe("gen", () => {
 	it("propagates typed error from tryFn", () => {
 		const r = gen(function* () {
 			const parsed = yield* tryFn({
-				try: () => JSON.parse("not json") as { x: number },
+				try: (): unknown => JSON.parse("not json"),
 				catch: (cause) =>
 					new JsonParseError({ message: "bad json", input: "not json", cause }),
 			});
-			return ok(parsed.x);
+			return ok(parsed);
 		});
 		expect(isErr(r)).toBe(true);
 		if (isErr(r)) {
@@ -413,6 +413,18 @@ describe("serialize / deserialize", () => {
 	it("returns ResultDeserializationError for null", () => {
 		const restored = deserialize(null);
 		expect(isErr(restored)).toBe(true);
+	});
+
+	it.each([{ status: "ok" }, { status: "error" }])("rejects an envelope without its payload: %j", (input) => {
+		const restored = deserialize(input);
+		expect(restored.status).toBe("error");
+		expect(isErr(restored) && restored.error).toBeInstanceOf(ResultDeserializationError);
+	});
+
+	it("preserves an explicitly undefined success payload", () => {
+		const restored = deserialize({ status: "ok", value: undefined });
+		expect(restored.status).toBe("ok");
+		expect(isOk(restored) && restored.value).toBeUndefined();
 	});
 });
 

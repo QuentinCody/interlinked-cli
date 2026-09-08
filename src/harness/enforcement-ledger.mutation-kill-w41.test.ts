@@ -197,7 +197,7 @@ describe("updateEnforcementLedger — persisted file formatting", () => {
 		updateEnforcementLedger(dir, AT);
 		// SAFETY: readFileSync is called with an explicit "utf8" encoding above,
 		// so its return type is a string, not a Buffer.
-		const raw = readFileSync(enforcementLedgerPath(dir), "utf8") as string;
+		const raw = readFileSync(enforcementLedgerPath(dir), "utf8");
 		expect(raw.includes("\t")).toBe(true);
 	});
 });

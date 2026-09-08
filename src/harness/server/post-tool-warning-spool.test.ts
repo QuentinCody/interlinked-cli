@@ -1,3 +1,4 @@
+import { readJsonRecord } from "./__tests__/json.js";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +30,8 @@ function event(token?: string, sessionId = "session-a"): HarnessEvent {
 }
 
 function readyWarnings(path: string): string[] {
-	const value = JSON.parse(readFileSync(path, "utf-8")) as { warnings: string[] };
+	const value = readJsonRecord(readFileSync(path, "utf-8"));
+	if (!Array.isArray(value.warnings) || !value.warnings.every((item): item is string => typeof item === "string")) throw new Error("Expected warning strings");
 	return value.warnings;
 }
 

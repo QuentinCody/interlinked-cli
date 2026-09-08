@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -83,12 +84,12 @@ function readAllowlistFile(): Record<string, unknown> | null {
 function capture(fn: () => void): string {
 	const orig = process.stdout.write;
 	let captured = "";
-	(process.stdout as { write: typeof process.stdout.write }).write = ((
+	process.stdout.write = ((
 		chunk: string | Uint8Array,
 	) => {
 		captured += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
 		return true;
-	}) as typeof process.stdout.write;
+	});
 	try {
 		fn();
 	} finally {
@@ -100,12 +101,12 @@ function capture(fn: () => void): string {
 async function captureAsync(fn: () => Promise<void>): Promise<string> {
 	const orig = process.stdout.write;
 	let captured = "";
-	(process.stdout as { write: typeof process.stdout.write }).write = ((
+	process.stdout.write = ((
 		chunk: string | Uint8Array,
 	) => {
 		captured += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
 		return true;
-	}) as typeof process.stdout.write;
+	});
 	try {
 		await fn();
 	} finally {
@@ -117,22 +118,20 @@ async function captureAsync(fn: () => Promise<void>): Promise<string> {
 describe("addAllowlistCommand", () => {
 	it("adds an entry to the per-ecosystem map and persists it", async () => {
 		await addAllowlistCommand("npm", "lodash", { reason: "util", by: "qcody", cwd: workspace });
-		const parsed = readAllowlistFile() as {
-			packages: { npm: Record<string, { approved_by: string; reason?: string }> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "npm": wireRecord(wireObject({ "approved_by": wireString, "reason": wireAbsentOptional(wireOptional(wireString)) })) }) }), "test JSON value");
 		expect(nonNull(parsed.packages.npm.lodash).approved_by).toBe("qcody");
 		expect(nonNull(parsed.packages.npm.lodash).reason).toBe("util");
 	});
 
 	it("rejects an unknown ecosystem", async () => {
 		await expect(
-			addAllowlistCommand("badeco" as "npm", "foo", { by: "x", cwd: workspace }),
+			addAllowlistCommand("badeco", "foo", { by: "x", cwd: workspace }),
 		).rejects.toThrow(/ecosystem/i);
 	});
 
 	it("prints the exact 'unknown ecosystem' message including the comma-joined valid list", async () => {
 		await expect(
-			addAllowlistCommand("badeco" as "npm", "foo", { by: "x", cwd: workspace }),
+			addAllowlistCommand("badeco", "foo", { by: "x", cwd: workspace }),
 		).rejects.toThrow(
 			'Unknown ecosystem "badeco". Valid: npm, pypi, cargo, rubygems, go, composer, maven, gradle, nuget',
 		);
@@ -146,9 +145,7 @@ describe("addAllowlistCommand", () => {
 
 	it("allows the typosquat name when --force is passed", async () => {
 		await addAllowlistCommand("npm", "chlk", { by: "x", cwd: workspace, force: true });
-		const parsed = readAllowlistFile() as {
-			packages: { npm: Record<string, unknown> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "npm": wireRecord(wireUnknown) }) }), "test JSON value");
 		expect(parsed.packages.npm.chlk).toBeDefined();
 	});
 
@@ -157,9 +154,7 @@ describe("addAllowlistCommand", () => {
 		// npm-popular rules. PyPI gets a pass — different popular set, different
 		// risk model; the npm typosquat list isn't relevant.
 		await addAllowlistCommand("pypi", "chlk", { by: "x", cwd: workspace });
-		const parsed = readAllowlistFile() as {
-			packages: { pypi: Record<string, unknown> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "pypi": wireRecord(wireUnknown) }) }), "test JSON value");
 		expect(parsed.packages.pypi.chlk).toBeDefined();
 	});
 });
@@ -167,9 +162,7 @@ describe("addAllowlistCommand", () => {
 describe("addAllowlistCommand — license screen", () => {
 	it("records the registry-declared license on the entry", async () => {
 		await addAllowlistCommand("npm", "lodash", { by: "qcody", cwd: workspace });
-		const parsed = readAllowlistFile() as {
-			packages: { npm: Record<string, { license?: string }> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "npm": wireRecord(wireObject({ "license": wireAbsentOptional(wireOptional(wireString)) })) }) }), "test JSON value");
 		expect(nonNull(parsed.packages.npm.lodash).license).toBe("MIT");
 	});
 
@@ -186,9 +179,7 @@ describe("addAllowlistCommand — license screen", () => {
 		const out = await captureAsync(() =>
 			addAllowlistCommand("npm", "copyleft-pkg", { by: "x", cwd: workspace, force: true }),
 		);
-		const parsed = readAllowlistFile() as {
-			packages: { npm: Record<string, { license?: string }> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "npm": wireRecord(wireObject({ "license": wireAbsentOptional(wireOptional(wireString)) })) }) }), "test JSON value");
 		expect(nonNull(parsed.packages.npm["copyleft-pkg"]).license).toBe("AGPL-3.0");
 		expect(out).toMatch(/--force/);
 	});
@@ -217,9 +208,7 @@ describe("addAllowlistCommand — license screen", () => {
 		);
 		fetchRegistryMetadataMock.mockResolvedValue({ latestVersion: "1.0.0", license: "AGPL-3.0" });
 		await addAllowlistCommand("npm", "agpl-ok-here", { by: "x", cwd: workspace });
-		const parsed = readAllowlistFile() as {
-			packages: { npm: Record<string, { license?: string }> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "npm": wireRecord(wireObject({ "license": wireAbsentOptional(wireOptional(wireString)) })) }) }), "test JSON value");
 		expect(nonNull(parsed.packages.npm["agpl-ok-here"]).license).toBe("AGPL-3.0");
 	});
 
@@ -243,9 +232,7 @@ describe("addAllowlistCommand — license screen", () => {
 			addAllowlistCommand("npm", "mystery-pkg", { by: "x", cwd: workspace }),
 		);
 		expect(out).toMatch(/license.*unknown/i);
-		const parsed = readAllowlistFile() as {
-			packages: { npm: Record<string, { license?: string }> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "npm": wireRecord(wireObject({ "license": wireAbsentOptional(wireOptional(wireString)) })) }) }), "test JSON value");
 		expect(nonNull(parsed.packages.npm["mystery-pkg"]).license).toBeUndefined();
 	});
 });
@@ -303,9 +290,7 @@ describe("addAllowlistCommand — advisory screen", () => {
 		expect(out).toMatch(/license screen skipped/i);
 		expect(out).toMatch(/advisory screen skipped/i);
 		expect(queryOsvAdvisoriesMock).not.toHaveBeenCalled(); // no version to screen
-		const parsed = readAllowlistFile() as {
-			packages: { go: Record<string, { license?: string }> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "go": wireRecord(wireObject({ "license": wireAbsentOptional(wireOptional(wireString)) })) }) }), "test JSON value");
 		expect(parsed.packages.go["github.com/pkg/errors"]).toBeDefined();
 		expect(nonNull(parsed.packages.go["github.com/pkg/errors"]).license).toBeUndefined();
 	});
@@ -389,17 +374,13 @@ describe("addAllowlistCommand — persisted output and fields", () => {
 
 	it("records the version_range field verbatim on the entry when --version-range is given", async () => {
 		await addAllowlistCommand("npm", "ranged-pkg", { by: "x", cwd: workspace, versionRange: "^2.0.0" });
-		const parsed = readAllowlistFile() as {
-			packages: { npm: Record<string, { version_range?: string }> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "npm": wireRecord(wireObject({ "version_range": wireAbsentOptional(wireOptional(wireString)) })) }) }), "test JSON value");
 		expect(nonNull(parsed.packages.npm["ranged-pkg"]).version_range).toBe("^2.0.0");
 	});
 
 	it("does not record a version_range field when --version-range is not given", async () => {
 		await addAllowlistCommand("npm", "unranged-pkg", { by: "x", cwd: workspace });
-		const parsed = readAllowlistFile() as {
-			packages: { npm: Record<string, { version_range?: string }> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "npm": wireRecord(wireObject({ "version_range": wireAbsentOptional(wireOptional(wireString)) })) }) }), "test JSON value");
 		expect(nonNull(parsed.packages.npm["unranged-pkg"]).version_range).toBeUndefined();
 	});
 
@@ -425,9 +406,7 @@ describe("removeAllowlistCommand", () => {
 	it("removes an existing entry", async () => {
 		await addAllowlistCommand("npm", "lodash", { by: "x", cwd: workspace });
 		removeAllowlistCommand("npm", "lodash", { cwd: workspace });
-		const parsed = readAllowlistFile() as {
-			packages: { npm: Record<string, unknown> };
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "packages": wireObject({ "npm": wireRecord(wireUnknown) }) }), "test JSON value");
 		expect(parsed.packages.npm.lodash).toBeUndefined();
 	});
 
@@ -438,7 +417,7 @@ describe("removeAllowlistCommand", () => {
 		const before = readAllowlistFile();
 		removeAllowlistCommand("npm", "nonexistent", { cwd: workspace });
 		const after = readAllowlistFile() ?? { packages: { npm: {} } };
-		const npmRecord = (after as { packages: { npm: Record<string, unknown> } })
+		const npmRecord = (parseWire(after, wireObject({ "packages": wireObject({ "npm": wireRecord(wireUnknown) }) }), "test JSON value"))
 			.packages.npm;
 		expect(npmRecord.nonexistent).toBeUndefined();
 		expect(before).toBeNull();
@@ -446,7 +425,7 @@ describe("removeAllowlistCommand", () => {
 
 	it("rejects an unknown ecosystem with the exact message", () => {
 		expect(() =>
-			removeAllowlistCommand("badeco" as "npm", "foo", { cwd: workspace }),
+			removeAllowlistCommand("badeco", "foo", { cwd: workspace }),
 		).toThrow(
 			'Unknown ecosystem "badeco". Valid: npm, pypi, cargo, rubygems, go, composer, maven, gradle, nuget',
 		);
@@ -524,9 +503,7 @@ describe("listAllowlistCommand", () => {
 	it("supports --json output", async () => {
 		await addAllowlistCommand("npm", "lodash", { by: "x", cwd: workspace });
 		const out = capture(() => listAllowlistCommand({ cwd: workspace, json: true }));
-		const parsed = JSON.parse(out) as {
-			packages: { npm: Record<string, unknown> };
-		};
+		const parsed = parseWire(JSON.parse(out), wireObject({ "packages": wireObject({ "npm": wireRecord(wireUnknown) }) }), "test JSON value");
 		expect(parsed.packages.npm.lodash).toBeDefined();
 	});
 
@@ -546,12 +523,7 @@ describe("snapshotAllowlistCommand", () => {
 		writeFileSync(join(workspace, "package.json"), '{"name":"x"}');
 		writeFileSync(join(workspace, "package-lock.json"), '{"lockfileVersion":3}');
 		snapshotAllowlistCommand({ cwd: workspace, by: "qcody", reason: "initial" });
-		const parsed = readAllowlistFile() as {
-			lockfile_snapshots: Record<
-				string,
-				{ sha256: string; approved_by: string }
-			>;
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "lockfile_snapshots": wireRecord(wireObject({ "sha256": wireString, "approved_by": wireString })) }), "test JSON value");
 		expect(parsed.lockfile_snapshots["package.json"]).toBeDefined();
 		expect(parsed.lockfile_snapshots["package-lock.json"]).toBeDefined();
 		expect(nonNull(parsed.lockfile_snapshots["package-lock.json"]).sha256).toMatch(
@@ -568,9 +540,7 @@ describe("snapshotAllowlistCommand", () => {
 			by: "qcody",
 			lockfile: "package-lock.json",
 		});
-		const parsed = readAllowlistFile() as {
-			lockfile_snapshots: Record<string, unknown>;
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "lockfile_snapshots": wireRecord(wireUnknown) }), "test JSON value");
 		expect(parsed.lockfile_snapshots["package-lock.json"]).toBeDefined();
 		expect(parsed.lockfile_snapshots["package.json"]).toBeUndefined();
 	});
@@ -584,9 +554,7 @@ describe("snapshotAllowlistCommand", () => {
 		mkdirSync(join(workspace, "yarn.lock"));
 		writeFileSync(join(workspace, "package.json"), '{"name":"x"}');
 		const out = capture(() => snapshotAllowlistCommand({ cwd: workspace, by: "x" }));
-		const parsed = readAllowlistFile() as {
-			lockfile_snapshots: Record<string, unknown>;
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "lockfile_snapshots": wireRecord(wireUnknown) }), "test JSON value");
 		expect(parsed.lockfile_snapshots["yarn.lock"]).toBeUndefined();
 		expect(parsed.lockfile_snapshots["package.json"]).toBeDefined();
 		expect(out).toBe("snapshotted 1 file(s):\n  package.json\n");
@@ -600,9 +568,7 @@ describe("snapshotAllowlistCommand", () => {
 
 		const out = capture(() => snapshotAllowlistCommand({ cwd: workspace, by: "x" }));
 
-		const parsed = readAllowlistFile() as {
-			lockfile_snapshots: Record<string, unknown>;
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "lockfile_snapshots": wireRecord(wireUnknown) }), "test JSON value");
 		expect(parsed.lockfile_snapshots["Cargo.toml"]).toBeUndefined();
 		expect(parsed.lockfile_snapshots["package.json"]).toBeDefined();
 		expect(out).toBe("snapshotted 1 file(s):\n  package.json\n");
@@ -631,9 +597,7 @@ describe("snapshotAllowlistCommand", () => {
 	it("records the reason field on a snapshot entry when --reason is given", () => {
 		writeFileSync(join(workspace, "package.json"), '{"name":"x"}');
 		snapshotAllowlistCommand({ cwd: workspace, by: "x", reason: "bootstrap" });
-		const parsed = readAllowlistFile() as {
-			lockfile_snapshots: Record<string, { reason?: string }>;
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "lockfile_snapshots": wireRecord(wireObject({ "reason": wireAbsentOptional(wireOptional(wireString)) })) }), "test JSON value");
 		expect(nonNull(parsed.lockfile_snapshots["package.json"]).reason).toBe("bootstrap");
 	});
 
@@ -641,9 +605,7 @@ describe("snapshotAllowlistCommand", () => {
 		writeFileSync(join(workspace, "App.csproj"), "<Project></Project>");
 		writeFileSync(join(workspace, "random-notes.txt"), "hello");
 		const out = capture(() => snapshotAllowlistCommand({ cwd: workspace, by: "x" }));
-		const parsed = readAllowlistFile() as {
-			lockfile_snapshots: Record<string, unknown>;
-		};
+		const parsed = parseWire(readAllowlistFile(), wireObject({ "lockfile_snapshots": wireRecord(wireUnknown) }), "test JSON value");
 		expect(parsed.lockfile_snapshots["App.csproj"]).toBeDefined();
 		expect(parsed.lockfile_snapshots["random-notes.txt"]).toBeUndefined();
 		expect(out).not.toMatch(/random-notes\.txt/);

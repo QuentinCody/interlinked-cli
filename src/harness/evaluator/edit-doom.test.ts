@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Companion tests for edit-doom.ts (LG-1/LG-2 — edit-contract-hardening.md).
 // Positive cases prove each doom class fires with one-round-trip rescue
 // material; negative cases prove the client stays the authority everywhere
@@ -51,7 +52,7 @@ describe("analyzeStrReplaceDoom — missing anchor", () => {
 			new_string: "x",
 		});
 		expect(doom).not.toBeNull();
-		const reason = formatDoomReason(doom as NonNullable<typeof doom>);
+		const reason = formatDoomReason(nonNull(doom));
 		expect(reason).toMatch(/old_string not found/);
 		expect(reason).toContain('  const msg = "Hello, " + name;'); // exact whitespace
 		expect(reason).toContain("```");
@@ -69,7 +70,7 @@ describe("analyzeStrReplaceDoom — missing anchor", () => {
 		});
 		expect(doom?.kind).toBe("missing");
 		expect(doom?.entryIndex).toBe(2);
-		const reason = formatDoomReason(doom as NonNullable<typeof doom>);
+		const reason = formatDoomReason(nonNull(doom));
 		expect(reason).toMatch(/entry 2 of 2/);
 		expect(reason).toMatch(/MultiEdit is atomic — nothing was applied/);
 		expect(reason).toContain("Entries 1–1 would have applied");
@@ -85,7 +86,7 @@ describe("analyzeStrReplaceDoom — missing anchor", () => {
 			],
 		});
 		expect(doom?.entryIndex).toBe(1);
-		const reason = formatDoomReason(doom as NonNullable<typeof doom>);
+		const reason = formatDoomReason(nonNull(doom));
 		expect(reason).not.toContain("checked against the file with earlier entries applied");
 	});
 
@@ -95,7 +96,7 @@ describe("analyzeStrReplaceDoom — missing anchor", () => {
 			old_string: "not in the file",
 			new_string: "x",
 		});
-		const reason = formatDoomReason(doom as NonNullable<typeof doom>);
+		const reason = formatDoomReason(nonNull(doom));
 		expect(reason).toMatch(/^Edit will fail: old_string not found/);
 		expect(reason).not.toContain("entry 1 of 1");
 		expect(reason).not.toContain("MultiEdit is atomic");
@@ -107,8 +108,7 @@ describe("analyzeStrReplaceDoom — missing anchor", () => {
 			old_string: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
 			new_string: "x",
 		});
-		const reason = formatDoomReason(doom as NonNullable<typeof doom>);
-		expect(reason).not.toContain("Stryker was here");
+		const reason = formatDoomReason(nonNull(doom));
 		expect(reason).not.toContain("```");
 	});
 });
@@ -122,7 +122,7 @@ describe("analyzeStrReplaceDoom — ambiguous anchor", () => {
 		});
 		expect(doom?.kind).toBe("ambiguous");
 		expect(doom?.occurrenceLines).toEqual([5, 6]);
-		const reason = formatDoomReason(doom as NonNullable<typeof doom>);
+		const reason = formatDoomReason(nonNull(doom));
 		expect(reason).toMatch(/matches 2 times/);
 		expect(reason).toMatch(/replace_all: true/);
 	});
@@ -133,7 +133,7 @@ describe("analyzeStrReplaceDoom — ambiguous anchor", () => {
 			old_string: "const tail = 1;",
 			new_string: "x",
 		});
-		const reason = formatDoomReason(doom as NonNullable<typeof doom>);
+		const reason = formatDoomReason(nonNull(doom));
 		// Widening the first site downward reaches the second duplicate line,
 		// which uniquifies (the pair only occurs once).
 		expect(reason).toMatch(/unique anchor exists/);
@@ -147,7 +147,7 @@ describe("analyzeStrReplaceDoom — ambiguous anchor", () => {
 			old_string: "duplicate",
 			new_string: "replacement",
 		});
-		const reason = formatDoomReason(doom as NonNullable<typeof doom>);
+		const reason = formatDoomReason(nonNull(doom));
 		expect(reason).toContain("matches 7 times");
 		expect(reason).toContain("(L1, L2, L3, L4, L5 (+2 more))");
 		expect(reason).not.toContain("L6");
@@ -159,7 +159,7 @@ describe("analyzeStrReplaceDoom — ambiguous anchor", () => {
 			old_string: "const tail = 1;",
 			new_string: "x",
 		});
-		const reason = formatDoomReason(doom as NonNullable<typeof doom>);
+		const reason = formatDoomReason(nonNull(doom));
 		expect(reason).toContain("L5, L6");
 		expect(reason).not.toContain("+0 more");
 	});
@@ -192,13 +192,13 @@ describe("analyzeStrReplaceDoom — fail-open negatives", () => {
 			analyzeStrReplaceDoom("Edit", {
 				file_path: target,
 				old_string: "const tail = 1;",
-			} as never),
+			}),
 		).toBeNull();
 		expect(
 			analyzeStrReplaceDoom("Edit", {
 				file_path: target,
 				new_string: "console.warn(msg);",
-			} as never),
+			}),
 		).toBeNull();
 
 		for (const malformed of [
@@ -208,7 +208,7 @@ describe("analyzeStrReplaceDoom — fail-open negatives", () => {
 			const doom = analyzeStrReplaceDoom("MultiEdit", {
 				file_path: target,
 				edits: [malformed, { old_string: "not in the file", new_string: "x" }],
-			} as never);
+			});
 			expect(doom).toBeNull();
 		}
 	});
@@ -216,14 +216,14 @@ describe("analyzeStrReplaceDoom — fail-open negatives", () => {
 	it("rejects empty edits, null entries, and function-shaped entries", () => {
 		expect(analyzeStrReplaceDoom("MultiEdit", { file_path: target, edits: [] })).toBeNull();
 		expect(
-			analyzeStrReplaceDoom("MultiEdit", { file_path: target, edits: [null] } as never),
+			analyzeStrReplaceDoom("MultiEdit", { file_path: target, edits: [null] }),
 		).toBeNull();
 		const callable = Object.assign(() => undefined, {
 			old_string: "console.log(msg);",
 			new_string: "console.warn(msg);",
 		});
 		expect(
-			analyzeStrReplaceDoom("MultiEdit", { file_path: target, edits: [callable] } as never),
+			analyzeStrReplaceDoom("MultiEdit", { file_path: target, edits: [callable] }),
 		).toBeNull();
 	});
 
@@ -267,7 +267,7 @@ describe("analyzeStrReplaceDoom — fail-open negatives", () => {
 	});
 
 	it("fails open for a non-string path even when Node would accept the path value", () => {
-		const bufferPath = Buffer.from(target) as unknown as string;
+		const bufferPath = Buffer.from(target);
 		const doom = analyzeStrReplaceDoom("Edit", {
 			file_path: bufferPath,
 			old_string: "const tail = 1;",

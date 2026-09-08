@@ -1,3 +1,4 @@
+import { isJsonObject } from "./json-types.js";
 // ===========================================
 // Permission-rule validator for Claude Code settings files
 // ===========================================
@@ -145,9 +146,9 @@ export function classifyRule(rule: string): MalformedRuleReason | null {
  *  shared with `validateSettingsFile` via `classifyRule`. */
 export function findMalformedRulesIn(parsedJson: unknown): MalformedRule[] {
 	const out: MalformedRule[] = [];
-	if (typeof parsedJson !== "object" || parsedJson === null) return out;
-	const perms = (parsedJson as { permissions?: Record<PermissionBucket, unknown> }).permissions;
-	if (!perms || typeof perms !== "object") return out;
+	if (!isJsonObject(parsedJson)) return out;
+	const perms = parsedJson.permissions;
+	if (!isJsonObject(perms)) return out;
 	for (const bucket of ["allow", "deny", "ask"] as const) {
 		const list = perms[bucket];
 		if (!Array.isArray(list)) continue;
@@ -244,9 +245,9 @@ export function validateSettingsFile(filePath: string): SettingsValidationResult
 	// contain a non-object JSON value (`null`, an array, a bare string/number),
 	// which a blind `as {...}` cast would let through and crash on the
 	// following property access. Guard the shape before trusting it.
-	if (typeof parsed !== "object" || parsed === null) return result;
-	const perms = (parsed as { permissions?: Record<PermissionBucket, unknown> }).permissions;
-	if (!perms || typeof perms !== "object") return result;
+	if (!isJsonObject(parsed)) return result;
+	const perms = parsed.permissions;
+	if (!isJsonObject(perms)) return result;
 
 	for (const bucket of ["allow", "deny", "ask"] as const) {
 		const list = perms[bucket];
@@ -334,10 +335,10 @@ export function stripMalformedRulesAudited(filePath: string): StripResult {
 	// Same JSON-boundary hazard as validateSettingsFile above: the file can
 	// legally hold a non-object JSON value, which a blind cast would let
 	// through and crash the following property access.
-	if (typeof parsedRaw !== "object" || parsedRaw === null) return result;
-	const parsed = parsedRaw as { permissions?: Record<PermissionBucket, unknown> };
+	if (!isJsonObject(parsedRaw)) return result;
+	const parsed = parsedRaw;
 	const perms = parsed.permissions;
-	if (!perms || typeof perms !== "object") return result;
+	if (!isJsonObject(perms)) return result;
 
 	const now = new Date().toISOString();
 	for (const bucket of ["allow", "deny", "ask"] as const) {

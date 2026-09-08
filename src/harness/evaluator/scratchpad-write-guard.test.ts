@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Tests for the scratchpad write policy guard: tmp-secrets block +
 // authored-code placement (block/warn/off) for the host session scratchpad.
 // The triad path shape mirrors filesystem-guards.test.ts.
@@ -37,14 +38,14 @@ const makeEvent = (overrides: Partial<HarnessEvent> = {}): HarnessEvent =>
 		cwd: ROOT,
 		...overrides,
 		// SAFETY: guard reads only the fields set above.
-	}) as HarnessEvent;
+	});
 
 // SAFETY: the guard touches only `scratchpad_guard`; an empty object IS the
 // "config absent" production shape the defaults must handle.
-const RULES = {} as GuardRulesConfig;
+const RULES = ({ ...makeGuardRules(), } satisfies GuardRulesConfig);
 const rulesWithMode = (mode: "block" | "warn" | "off"): GuardRulesConfig =>
 	// SAFETY: same single-field access pattern as RULES above.
-	({ scratchpad_guard: { code_write_mode: mode } }) as GuardRulesConfig;
+	({ ...makeGuardRules(),  scratchpad_guard: { code_write_mode: mode } } satisfies GuardRulesConfig);
 
 const run = (
 	filePath: string,

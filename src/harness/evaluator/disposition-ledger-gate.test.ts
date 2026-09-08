@@ -155,11 +155,11 @@ describe("detectDispositionLedger — monotonic in FEWER / WEAKER records", () =
 // ===========================================================================
 describe("evaluateBaselineIntegrityForEvent — the disposition ledger rides the existing rule", () => {
 	function writeEvent(_before: string, after: string): HarnessEvent {
-		return {
+		return ({ hook_event: "PreToolUse", session_id: "fixture", agent_source: "claude", timestamp: "2026-09-01T00:00:00Z",
 			tool_name: "Write",
 			tool_input: { file_path: LEDGER, content: after },
 			cwd: "/repo",
-		} as unknown as HarnessEvent;
+		} satisfies HarnessEvent);
 	}
 	const getDisk = (text: string) => ({ getDisk: () => text });
 

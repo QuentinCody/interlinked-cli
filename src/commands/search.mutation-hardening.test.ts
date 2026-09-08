@@ -1,3 +1,5 @@
+import { parseWire, wireArray, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // Mutation-hardening companion to `search.integration.test.ts`.
 //
 // Each `it()` below targets one or more specific mutants that survived a
@@ -118,7 +120,7 @@ function spawnResult(over: Partial<SpawnSyncReturns<Buffer>>): SpawnSyncReturns<
 		status: 0,
 		signal: null,
 		...over,
-	} as SpawnSyncReturns<Buffer>;
+	};
 }
 
 /** First spawnSync call is the `rg --version` probe; route by argv[0]. */
@@ -164,8 +166,8 @@ function rgSummary(searches: number): string {
 }
 
 function callsToString(spy: ReturnType<typeof vi.spyOn>): string {
-	const calls = spy.mock.calls as unknown[][];
-	return calls.map((call) => call.map((arg) => String(arg)).join(" ")).join("\n");
+	const calls = spy.mock.calls;
+	return calls.map((call: unknown[]) => call.map((arg: unknown) => String(arg)).join(" ")).join("\n");
 }
 
 function logged(): string {
@@ -173,23 +175,25 @@ function logged(): string {
 }
 
 function loggedJson(): Record<string, unknown> {
-	return JSON.parse(logged()) as Record<string, unknown>;
+	return parseWire(JSON.parse(logged()), wireRecord(wireUnknown), "test JSON value");
 }
 
 /** Find the rg *search* invocation (not the `--version` probe) among all spawnSync calls. */
 function findSearchCall(): [string, string[], unknown] | undefined {
 	const call = mockSpawnSync.mock.calls.find(
-		(cl) => (cl[1] as string[] | undefined)?.[0] === "--json",
+		(cl) => (parseWire(cl[1], wireOptional(wireArray(wireString)), "test JSON value"))?.[0] === "--json",
 	);
-	return call as [string, string[], unknown] | undefined;
+	if (!call) return undefined;
+	return [parseWire(call[0], wireString, "spawn binary"), parseWire(call[1], wireArray(wireString), "spawn arguments"), call[2]];
 }
 
 /** Find the rg `--version` probe call among all spawnSync calls. */
 function findVersionCall(): [string, string[], unknown] | undefined {
 	const call = mockSpawnSync.mock.calls.find(
-		(cl) => (cl[1] as string[] | undefined)?.[0] === "--version",
+		(cl) => (parseWire(cl[1], wireOptional(wireArray(wireString)), "test JSON value"))?.[0] === "--version",
 	);
-	return call as [string, string[], unknown] | undefined;
+	if (!call) return undefined;
+	return [parseWire(call[0], wireString, "spawn binary"), parseWire(call[1], wireArray(wireString), "spawn arguments"), call[2]];
 }
 
 /**
@@ -207,7 +211,7 @@ function withNativeTree(tree: Record<string, string[]>, files: Record<string, st
 		return {
 			isDirectory: () => isDir,
 			isFile: () => isFile,
-			size: isFile ? (files[p] as string).length : 0,
+			size: isFile ? (nonNull(files[p])).length : 0,
 		};
 	});
 	mockReadFileSync.mockImplementation((p: string) => {
@@ -271,7 +275,7 @@ describe("searchWithRipgrep — exact subprocess invocation", () => {
 	it("builds the exact argv shape: flags, dashes, query, dir", () => {
 		withRipgrep(`${rgMatch("/repo/a.ts", 1, "needle")}\n${rgSummary(1)}`);
 		searchCommand("needle", { json: true, limit: "5" });
-		const argv = findSearchCall()?.[1] as string[];
+		const argv = nonNull(findSearchCall()?.[1]);
 		// limit(5)*2 = "10"; default context = "2"; no --glob/--type since
 		// neither option was passed.
 		expect(argv).toEqual([
@@ -290,7 +294,7 @@ describe("searchWithRipgrep — exact subprocess invocation", () => {
 	it("omits --glob and --type entirely when neither option is passed", () => {
 		withRipgrep(`${rgMatch("/repo/a.ts", 1, "needle")}\n${rgSummary(1)}`);
 		searchCommand("needle", { json: true });
-		const argv = findSearchCall()?.[1] as string[];
+		const argv = nonNull(findSearchCall()?.[1]);
 		expect(argv).not.toContain("--glob");
 		expect(argv).not.toContain("--type");
 	});
@@ -317,7 +321,7 @@ describe("searchWithRipgrep — exact subprocess invocation", () => {
 		searchCommand("needle", { json: true, limit: "3" });
 		const out = loggedJson();
 		expect(out.truncated).toBe(false);
-		expect((out.matches as unknown[]).length).toBe(3);
+		expect(out).toHaveProperty(["matches","length"], 3);
 	});
 });
 
@@ -365,7 +369,7 @@ describe("rg --json boundary parsers — malformed shapes are skipped, not throw
 		});
 		withRipgrep(`${noSubmatches}\n${rgSummary(1)}`);
 		searchCommand("needle", { json: true });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches).toHaveLength(1);
 		expect(matches[0]?.column).toBeUndefined();
 	});
@@ -411,7 +415,7 @@ describe("rg --json boundary parsers — malformed shapes are skipped, not throw
 		searchCommand("needle", { json: true });
 		const out = loggedJson();
 		expect(out.total).toBe(1);
-		const matches = out.matches as Array<Record<string, unknown>>;
+		const matches = parseWire(out.matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches[0]?.context_after).toEqual([]);
 	});
 
@@ -444,7 +448,7 @@ describe("rg --json boundary parsers — malformed shapes are skipped, not throw
 		].join("\n");
 		withRipgrep(stdout);
 		searchCommand("needle", { json: true });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches).toHaveLength(2);
 		expect(matches[0]?.context_after).toEqual([]);
 		expect(matches[1]?.context_before).toBeUndefined();
@@ -474,7 +478,7 @@ describe("searchWithRipgrep — trailing-newline stripping is anchored", () => {
 		});
 		withRipgrep(`${embeddedMatch}\n${rgSummary(1)}`);
 		searchCommand("needle", { json: true });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches[0]?.text).toBe("foo\nbar");
 	});
 
@@ -489,7 +493,7 @@ describe("searchWithRipgrep — trailing-newline stripping is anchored", () => {
 		].join("\n");
 		withRipgrep(stdout);
 		searchCommand("needle", { json: true });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches[0]?.context_after).toEqual(["ctxfoo\nctxbar"]);
 	});
 });
@@ -502,7 +506,7 @@ describe("searchWithRipgrep — context attachment boundaries", () => {
 	it("omits context_before (not an empty array) when no leading context is pending", () => {
 		withRipgrep(`${rgMatch("/repo/a.ts", 1, "needle")}\n${rgSummary(1)}`);
 		searchCommand("needle", { json: true });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches[0]?.context_before).toBeUndefined();
 	});
 
@@ -514,7 +518,7 @@ describe("searchWithRipgrep — context attachment boundaries", () => {
 		].join("\n");
 		withRipgrep(stdout);
 		searchCommand("needle", { json: true });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches).toHaveLength(1);
 		expect(matches[0]?.context_after).toEqual([]);
 	});
@@ -527,7 +531,7 @@ describe("searchWithRipgrep — context attachment boundaries", () => {
 		].join("\n");
 		withRipgrep(stdout);
 		searchCommand("needle", { json: true });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches[0]?.context_after).toEqual([]);
 	});
 
@@ -539,7 +543,7 @@ describe("searchWithRipgrep — context attachment boundaries", () => {
 		].join("\n");
 		withRipgrep(stdout);
 		searchCommand("needle", { json: true, context: "2" });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches[0]?.context_after).toEqual(["right at the edge"]);
 	});
 
@@ -552,7 +556,7 @@ describe("searchWithRipgrep — context attachment boundaries", () => {
 		].join("\n");
 		withRipgrep(stdout);
 		searchCommand("needle", { json: true, context: "2" });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches[0]?.context_after).toEqual(["first after", "second after"]);
 	});
 });
@@ -609,7 +613,7 @@ describe("collectFiles — dot-entry and SKIP_DIRS boundaries", () => {
 		searchCommand("needle", { json: true });
 		const out = loggedJson();
 		expect(out.searched_files).toBe(1);
-		const matches = out.matches as Array<Record<string, unknown>>;
+		const matches = parseWire(out.matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches.every((m) => m.file !== "weird.ts")).toBe(true);
 	});
 
@@ -702,7 +706,7 @@ describe("searchWithNative — exact I/O and boundaries", () => {
 		expect(mockReadFileSync).toHaveBeenCalledWith("/repo/a.ts", "utf-8");
 		// Not just a call-shape check: confirm the encoded read actually
 		// produced a usable match, not an empty/garbled result.
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches).toHaveLength(1);
 		expect(matches[0]?.text).toBe("needle");
 	});
@@ -716,14 +720,14 @@ describe("searchWithNative — exact I/O and boundaries", () => {
 	it("omits context_before (not an empty array) for a match on the file's first line", () => {
 		withNativeTree({ "/repo": ["a.ts"] }, { "/repo/a.ts": "needle\nafter1\nafter2" });
 		searchCommand("needle", { json: true, context: "2" });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches[0]?.context_before).toBeUndefined();
 	});
 
 	it("omits context_after (not an empty array) for a match on the file's last line", () => {
 		withNativeTree({ "/repo": ["a.ts"] }, { "/repo/a.ts": "before1\nbefore2\nneedle" });
 		searchCommand("needle", { json: true, context: "2" });
-		const matches = loggedJson().matches as Array<Record<string, unknown>>;
+		const matches = parseWire(loggedJson().matches, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(matches[0]?.context_after).toBeUndefined();
 	});
 
@@ -755,6 +759,6 @@ describe("searchWithNative — exact I/O and boundaries", () => {
 		searchCommand("needle", { json: true, limit: "3" });
 		const out = loggedJson();
 		expect(out.truncated).toBe(false);
-		expect((out.matches as unknown[]).length).toBe(3);
+		expect(out).toHaveProperty(["matches","length"], 3);
 	});
 });

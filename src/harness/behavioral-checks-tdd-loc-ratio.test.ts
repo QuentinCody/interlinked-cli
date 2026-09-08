@@ -73,15 +73,11 @@ describe("gitNumstatDelta — inner catch (untracked listing fails after tracked
 		// listing succeeded — it must NOT show up in the result below.
 		writeFileSync(join(dir, "untracked.ts"), "x\n".repeat(40));
 
-		// SAFETY: this stub's signature matches `execSync`'s (string command +
-		// options) exactly; the cast only restates that shape for the mock
-		// setter, which erases the overload TypeScript would otherwise infer.
-		vi.mocked(execSync).mockImplementation(((cmd: string, opts?: unknown) => {
+		vi.mocked(execSync).mockImplementation((...args: Parameters<typeof execSync>) => {
+			const [cmd] = args;
 			if (cmd.includes("ls-files")) throw new Error("simulated git failure");
-			// `opts` here is always the ExecSyncOptions object this same module
-			// passed in — we only intercept the command string above.
-			return actualExecSync(cmd, opts as Parameters<typeof execSync>[1]);
-		}) as typeof execSync);
+			return actualExecSync(...args);
+		});
 
 		expect(gitNumstatDelta(dir)).toEqual({ prodLoc: 3, testLoc: 0 });
 	});

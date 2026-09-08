@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireNullable, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 // ===========================================
 // interlinked cloud — inspect the cloud governor
 // ===========================================
@@ -91,6 +92,17 @@ interface RecentResponse {
 	workspace_id?: string;
 }
 
+const isRecentEvent = wireObject<RecentEvent>({
+ id: wireAbsentOptional(wireNumber), session_id: wireAbsentOptional(wireString),
+ hook_event: wireAbsentOptional(wireString), tool_name: wireAbsentOptional(wireString),
+ decision: wireAbsentOptional(wireString), rule_id: wireAbsentOptional(wireNullable(wireString)),
+ created_at: wireAbsentOptional(wireNumber),
+});
+const isRecentResponse = wireObject<RecentResponse>({
+ events: wireAbsentOptional(wireArray(isRecentEvent)), count: wireAbsentOptional(wireNumber),
+ workspace_id: wireAbsentOptional(wireString),
+});
+
 const FETCH_TIMEOUT_MS = 10_000;
 const EXIT_MISCONFIGURED = 2;
 const EXIT_UNREACHABLE = 1;
@@ -154,5 +166,5 @@ async function fetchRecent(adminUrl: string, token: string): Promise<RecentRespo
 		process.stderr.write(`error: cloud governor returned ${res.status} ${res.statusText}${detail}\n`);
 		process.exit(EXIT_UNREACHABLE);
 	}
-	return (await res.json()) as RecentResponse;
+	return parseWire(await res.json(), isRecentResponse, "cloud recent response");
 }

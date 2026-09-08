@@ -53,8 +53,9 @@ describe("interlinkedSemgrepConfigPath", () => {
 	it("writes the pack and returns a path whose content round-trips", () => {
 		const p = interlinkedSemgrepConfigPath(dir);
 		expect(p).not.toBeNull();
-		expect(existsSync(p as string)).toBe(true);
-		expect(JSON.parse(readFileSync(p as string, "utf8"))).toEqual(INTERLINKED_SEMGREP_RULES);
+		if (p === null) throw new Error("Expected a generated Semgrep config path");
+		expect(existsSync(p)).toBe(true);
+		expect(JSON.parse(readFileSync(p, "utf8"))).toEqual(INTERLINKED_SEMGREP_RULES);
 	});
 
 	it("is idempotent — second call returns the same path without rewriting", () => {

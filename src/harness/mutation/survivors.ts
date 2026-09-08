@@ -156,17 +156,8 @@ function symbolRow(file: string, symbol: SymbolRecord, counts: Counts): Survivor
 		dispositioned: counts.dispositioned,
 		uncovered: counts.uncovered,
 		total: counts.total,
-		// `instability` is declared non-optional on `SymbolRecord`, but a
-		// manifest loaded from disk (fs boundary — see manifest.ts's JSON
-		// reader) can genuinely predate the field (added after symbols were
-		// first recorded). The declared type lies about that boundary; widen
-		// locally so the `?.` reflects the true on-disk shape instead of
-		// reading as an impossible branch. Load-bearing, not redundant — see
-		// survivors.mutation-kill-w27.test.ts's "quarantined flag survives a
-		// missing instability record".
-		quarantined:
-			(symbol as { instability?: SymbolRecord["instability"] }).instability?.quarantined ===
-			true,
+		// Legacy manifests may predate instability; optional chaining preserves that reader contract.
+		quarantined: symbol.instability?.quarantined === true,
 	};
 }
 

@@ -127,11 +127,7 @@ interface Candidate {
 }
 
 function hasExportModifier(ts: TsModule, node: TS.Node): boolean {
-	// SAFETY: getCombinedModifierFlags only reads `modifiers`, and tolerates a
-	// node that has none (it returns ModifierFlags.None), so widening a
-	// statement to Declaration here cannot read a field that is absent.
-	const flags = ts.getCombinedModifierFlags(node as TS.Declaration);
-	return (flags & ts.ModifierFlags.Export) !== 0;
+	return ts.canHaveModifiers(node) && (ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false);
 }
 
 /** Arrow / function-expression initializer with a block body, if present. */

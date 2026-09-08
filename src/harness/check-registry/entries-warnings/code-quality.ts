@@ -431,7 +431,7 @@ export const CODE_QUALITY_ENTRIES: CheckRegistration[] = [
 		phase: "post",
 		name: "Unjustified Cast",
 		description:
-			"Detects type-assertion casts (as X) that lack a // SAFETY: justification comment",
+			"Detects type assertions (as X and <X>value) lacking a nonempty SAFETY: justification comment",
 		tier: 2,
 		determinism: "heuristic",
 		severity: "warning",
@@ -440,7 +440,6 @@ export const CODE_QUALITY_ENTRIES: CheckRegistration[] = [
 			"Every non-(as const) type assertion must carry a // SAFETY: comment explaining why the cast is sound; the assertion silences the type checker, so the reviewer needs the invariant spelled out. Put it on the same line or the line(s) directly above.",
 		fn: findUnjustifiedCasts,
 		resultsPropName: "unjustifiedCasts",
-		content_keywords: [" as "],
 	},
 	{
 		id: "process_env_outside_config",

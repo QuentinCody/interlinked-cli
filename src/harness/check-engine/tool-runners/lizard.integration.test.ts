@@ -1,3 +1,5 @@
+import { nonNull } from "../../../lib/non-null.js";
+import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // Behavioral tests for the lizard polyglot-complexity tool-runner.
 //
 // `spawnSync` (sync path) and `runProcessAsync` (async path) are the only
@@ -15,14 +17,14 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_MAX_CYCLOMATIC, resetMetricCapsCache } from "../../metric-caps.js";
 import type { CheckScope, ToolRunnerInput } from "../types.js";
 
-const spawnSyncMock = vi.fn();
-const runProcessAsyncMock = vi.fn();
+const spawnSyncMock = vi.fn<SpawnSyncStub>();
+const runProcessAsyncMock = vi.fn<typeof import("../spawn-async.js").runProcessAsync>();
 
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
 }));
 vi.mock("../spawn-async.js", () => ({
-	runProcessAsync: (...args: unknown[]) => runProcessAsyncMock(...args),
+	runProcessAsync: (...args: Parameters<typeof runProcessAsyncMock>) => runProcessAsyncMock(...args),
 }));
 
 const { runLizard, runLizardAsync, parseLizardOutput } = await import("./lizard.js");
@@ -51,7 +53,7 @@ function spawnResult(over: Partial<SpawnSyncReturns<string>>): SpawnSyncReturns<
 		status: 0,
 		signal: null,
 		...over,
-	} as SpawnSyncReturns<string>;
+	};
 }
 
 describe("parseLizardOutput", () => {
@@ -126,7 +128,7 @@ describe("cyclomatic cap (-C) tracks the repo's configured value", () => {
 	// AST gate + radon on every repo that tuned the cap. The cap now flows from
 	// `maxCyclomaticFor(projectRoot)`; these pin both the default and the override.
 	function lastArgv(): string[] {
-		return spawnSyncMock.mock.calls.at(-1)?.[1] as string[];
+		return nonNull(spawnSyncMock.mock.calls.at(-1))[1];
 	}
 
 	it("uses DEFAULT_MAX_CYCLOMATIC when no metric-caps.json override is set", () => {
@@ -161,14 +163,14 @@ describe("cyclomatic cap (-C) tracks the repo's configured value", () => {
 
 describe("runLizardAsync", () => {
 	it("parses warnings and filters to the target file", async () => {
-		runProcessAsyncMock.mockResolvedValueOnce({ stdout: WARN, stderr: "", code: 1 });
+		runProcessAsyncMock.mockResolvedValueOnce({ stdout: WARN, stderr: "", code: 1, timedOut: false, killed: false });
 		const out = await runLizardAsync(input());
 		expect(out).toHaveLength(1);
 		expect(out[0]?.file).toBe("src/main.go");
 	});
 
 	it("returns [] when the binary is missing (code null, empty stdout)", async () => {
-		runProcessAsyncMock.mockResolvedValueOnce({ stdout: "", stderr: "", code: null });
+		runProcessAsyncMock.mockResolvedValueOnce({ stdout: "", stderr: "", code: null, timedOut: false, killed: false });
 		expect(await runLizardAsync(input())).toEqual([]);
 	});
 });

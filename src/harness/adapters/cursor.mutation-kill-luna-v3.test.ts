@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 import { describe, expect, it } from "vitest";
 import { createCursorAdapter } from "./cursor.js";
 
@@ -14,7 +15,7 @@ describe("Cursor mutation contracts", () => {
         const event = adapter.parseHookInput({}, "beforeShellExecution");
         const output = adapter.encodeDecision({ decision: "allow" }, event);
         expect(output.stderr).toBeUndefined();
-        expect(JSON.parse(output.stdout as string)).toEqual({ permission: "allow" });
+        expect(JSON.parse(nonNull(output.stdout))).toEqual({ permission: "allow" });
     });
 
     // test-contract: warnings remain observable on gated allow output.
@@ -22,14 +23,14 @@ describe("Cursor mutation contracts", () => {
         const event = adapter.parseHookInput({}, "beforeShellExecution");
         const output = adapter.encodeDecision({ decision: "allow", warnings: ["warning"] }, event);
         expect(output.stderr).toBe("warning");
-        expect(JSON.parse(output.stdout as string)).toEqual({ permission: "allow" });
+        expect(JSON.parse(nonNull(output.stdout))).toEqual({ permission: "allow" });
     });
 
     // test-contract: allow advisory text is exposed as agent_message on gated events.
     it("adds additional context to a gated allow", () => {
         const event = adapter.parseHookInput({}, "preToolUse");
         const output = adapter.encodeDecision({ decision: "allow", additional_context: "note" }, event);
-        expect(JSON.parse(output.stdout as string)).toEqual({
+        expect(JSON.parse(nonNull(output.stdout))).toEqual({
             permission: "allow",
             agent_message: "note",
         });
@@ -70,7 +71,7 @@ describe("Cursor mutation contracts", () => {
         const event = adapter.parseHookInput({}, "beforeShellExecution");
         const output = adapter.encodeDecision({ decision: "block", reason: "blocked" }, event);
         expect(output.stderr).toBeUndefined();
-        expect(JSON.parse(output.stdout as string)).toEqual({
+        expect(JSON.parse(nonNull(output.stdout))).toEqual({
             permission: "deny",
             agent_message: "blocked",
             user_message: "blocked",

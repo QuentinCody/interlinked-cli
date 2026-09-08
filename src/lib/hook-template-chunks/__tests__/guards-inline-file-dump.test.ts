@@ -30,6 +30,7 @@ type InlineFn = (
 ) => GuardDecision | null;
 
 function buildRuntimeInlineGuard(): InlineFn {
+	// SAFETY: argument names bind the exact fs imports referenced by GUARDS_INLINE_CHUNK, which declares the returned inlineGuardCheck; the suite exercises its verdicts.
 	const factory = new Function(
 		"existsSync",
 		"statSync",

@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Tests for the evidence sweep.
 
 import { describe, expect, it } from "vitest";
@@ -27,7 +28,7 @@ function check(over: Partial<CheckRegistration> = {}): CheckRegistration {
 		fn: detectExample,
 		resultsPropName: "exampleCheck",
 		...over,
-	} as CheckRegistration;
+	};
 }
 
 const WELL_TESTED = `
@@ -215,7 +216,7 @@ export function detectExample(content: string, filePath: string): number[] {
 			detectorSource: { "src/harness/checks/example.ts": DETECTOR_SRC },
 		});
 		expect(sweep.evidence[0]?.detector_cyclomatic).not.toBeNull();
-		expect(sweep.evidence[0]?.detector_cyclomatic as number).toBeGreaterThan(1);
+		expect(nonNull(sweep.evidence[0]?.detector_cyclomatic)).toBeGreaterThan(1);
 	});
 
 	it("P2: derives a case floor at least as strict as the tier floor", () => {

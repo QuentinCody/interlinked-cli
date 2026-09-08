@@ -1,3 +1,4 @@
+import { wireAbsentOptional, wireLiteral, wireObject, wireString, wireUnknown } from "../../lib/value-validation.js";
 // ===========================================
 // Experience builder — timeline/collection/activity → trajectory records
 // ===========================================
@@ -38,6 +39,15 @@ interface TimelineRow {
 	git_branch?: string;
 	agent_id?: string;
 }
+
+const isTimelineRow = wireObject<TimelineRow>({
+ ts: wireString, category: wireString, provider: wireAbsentOptional(wireString),
+ model: wireAbsentOptional(wireString), text: wireAbsentOptional(wireString),
+ tool_name: wireAbsentOptional(wireString), tool_input: wireAbsentOptional(wireUnknown),
+ tool_use_id: wireAbsentOptional(wireString), cwd: wireAbsentOptional(wireString),
+ git_branch: wireAbsentOptional(wireString), agent_id: wireAbsentOptional(wireString),
+});
+const isToolClass = wireLiteral("shell_exec", "file_read", "file_edit", "file_write", "file_delete", "search", "mcp_call", "fetch", "task", "notebook_edit", "other");
 
 /** Collection join payload for one tool_use_id (post phase). */
 interface CollectionJoin {
@@ -125,12 +135,12 @@ function buildSpineRecords(
 	const spine: (ExperienceSpineRecord | IxExperienceRecord)[] = [];
 	let episode = -1;
 	for (const row of rows) {
-		const record = spineFromTimeline(row, truncateChars, state);
+		const record: (ExperienceSpineRecord & { ix?: IxAnnotations }) | null = spineFromTimeline(row, truncateChars, state);
 		if (!record) continue;
 		if (row.category === "user_prompt") episode++;
 		if (wantIx) {
 			const ix = ixAnnotationsFor(row, collection, guards, Math.max(episode, 0));
-			if (Object.keys(ix).length > 0) (record as IxExperienceRecord & { ix?: IxAnnotations }).ix = ix;
+			if (Object.keys(ix).length > 0) record.ix = ix;
 		}
 		spine.push(record);
 	}
@@ -148,8 +158,8 @@ function loadTimeline(
 	const rows: TimelineRow[] = [];
 	const stats = scanJsonlTail(join(dir, ".interlinked", "timeline.jsonl"), budget, (rec) => {
 		if (rec.schema !== "timeline.v1" || rec.session !== sessionId) return true;
-		if (typeof rec.ts !== "string" || typeof rec.category !== "string") return true;
-		rows.push(rec as unknown as TimelineRow);
+		if (!isTimelineRow(rec)) return true;
+		rows.push(rec);
 		return true;
 	});
 	rows.reverse();
@@ -179,8 +189,7 @@ function loadCollectionJoin(
 function collectionJoinFrom(rec: JsonObject): CollectionJoin {
 	const join: CollectionJoin = {};
 	if (typeof rec.seq === "number") join.seq = rec.seq;
-	if (typeof rec.tool_class === "string")
-		join.tool_class = rec.tool_class as IxAnnotations["tool_class"];
+	if (isToolClass(rec.tool_class)) join.tool_class = rec.tool_class;
 	if (rec.outcome === "ok" || rec.outcome === "error") join.outcome = rec.outcome;
 	const action = isJsonObject(rec.action) ? rec.action : null;
 	if (action && typeof action.path === "string") join.file = action.path;
@@ -299,8 +308,8 @@ function annotateResult(ix: IxAnnotations, joined: CollectionJoin): void {
 }
 
 function commandFromInput(input: unknown): string | undefined {
-	if (typeof input !== "object" || input === null) return undefined;
-	const command = (input as Record<string, unknown>).command;
+	if (!isJsonObject(input)) return undefined;
+	const command = input.command;
 	return typeof command === "string" ? command : undefined;
 }
 

@@ -28,7 +28,7 @@ import {
 	serializeShadowContractDigest,
 	SHADOW_DIGEST_PATH,
 	toPosixLabel,
-} from "../../../../../scripts/gen-shadow-contract-digest.mjs";
+} from "../../generation/contract-digest.js";
 
 const PACKAGE_PREFIX = "src/harness/shadow/protocol/";
 const CANONICALIZER = "src/harness/mutation/protocol-v3/canonical.ts";

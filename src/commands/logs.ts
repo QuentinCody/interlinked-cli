@@ -47,7 +47,8 @@ interface LogEvent {
 	summary?: string | null;
 	session?: string | null;
 	hook?: string | null;
-	[key: string]: unknown;
+	tokens?: unknown;
+	duration_ms?: unknown;
 }
 
 /**
@@ -87,6 +88,14 @@ function matchesFilters(event: LogEvent, opts: LogsOptions): boolean {
 	return true;
 }
 
+function readTokens(value: unknown): { input?: number; output?: number } | undefined {
+ if (!isJsonObject(value)) return undefined;
+ const tokens: { input?: number; output?: number } = {};
+ if (typeof value.input === "number") tokens.input = value.input;
+ if (typeof value.output === "number") tokens.output = value.output;
+ return tokens;
+}
+
 function formatEvent(event: LogEvent, raw: boolean): string {
 	if (raw) return JSON.stringify(event);
 
@@ -95,7 +104,7 @@ function formatEvent(event: LogEvent, raw: boolean): string {
 	const type = eventTypeColor(event.type);
 	const tool = event.tool ? c.dim(event.tool) : "";
 
-	const tokens = event.tokens as { input?: number; output?: number } | undefined;
+	const tokens = readTokens(event.tokens);
 	const summary = formatActivitySummary({
 		agent_name: event.agent,
 		event_type: event.type,
@@ -281,7 +290,7 @@ export async function logsCommand(opts: LogsOptions): Promise<void> {
 			const raw = opts.raw || false;
 
 			for (const event of events) {
-				lines.push(formatEvent(event as LogEvent, raw));
+				lines.push(formatEvent(event, raw));
 			}
 
 			lines.push("");

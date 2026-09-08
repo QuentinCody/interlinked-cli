@@ -22,13 +22,8 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		watchFile: (path: string, _options: unknown, listener: () => void) => {
+		watchFile: (_path: string, _options: unknown, listener: () => void) => {
 			capturedWatchListeners.push(listener);
-			// SAFETY: the real return type is fs.StatWatcher; nothing in the
-			// module under test uses this watcher's own methods (it's only
-			// ever passed back into unwatchFile), so an untyped stand-in is
-			// sound for this mock.
-			return { path } as unknown;
 		},
 	};
 });

@@ -19,7 +19,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import type { InlineMatch } from "./shared.js";
 
@@ -59,7 +59,6 @@ const TREE_ROOT_MARKERS = [
  *  instead of magic strings. */
 const PACKAGE_JSON_BASENAME = "package.json";
 const PUBLINT_ERROR_SEVERITY = "error";
-const FUNCTION_TYPEOF = "function";
 
 /**
  * Return parsed JSON only when the parse succeeds and the result is a plain
@@ -74,9 +73,7 @@ function safeParse(raw: string): JsonObject | null {
 	} catch {
 		return null;
 	}
-	if (parsed instanceof Object && !Array.isArray(parsed)) {
-		return parsed as JsonObject;
-	}
+	if (isJsonObject(parsed)) return parsed;
 	return null;
 }
 
@@ -115,16 +112,23 @@ function isPresent(value: unknown): boolean {
 /** Extract scripts.<key> or return undefined. */
 function getScript(pkg: JsonObject, key: string): unknown {
 	const scripts = pkg.scripts;
-	if (!(scripts instanceof Object) || Array.isArray(scripts)) return undefined;
-	return (scripts as JsonObject)[key];
+	if (!isJsonObject(scripts)) return undefined;
+	return scripts[key];
 }
 
-interface PublintMessage {
-	code: string;
-	type: string;
-	args?: unknown[];
+function publintErrors(value: unknown): Array<{ code: string; message: string }> | null {
+	if (!isJsonObject(value) || !Array.isArray(value.messages)) return null;
+	const errors: Array<{ code: string; message: string }> = [];
+	for (const message of value.messages) {
+		if (!isJsonObject(message) || message.type !== PUBLINT_ERROR_SEVERITY) continue;
+		if (typeof message.code !== "string") continue;
+		errors.push({
+			code: message.code,
+			message: `publint [${message.code}] ${JSON.stringify(message.args ?? [])}`,
+		});
+	}
+	return errors;
 }
-type PublintFn = (opts: { pkgDir: string }) => Promise<{ messages: PublintMessage[] }>;
 
 /**
  * Dynamically invoke `publint`, returning its error-severity messages.
@@ -140,16 +144,10 @@ async function runPublint(
 		// `"publint"` module path when the package isn't installed.
 		const specifier = "publint";
 		const mod: unknown = await import(specifier);
-		if (!(mod instanceof Object)) return null;
-		const candidate = (mod as { publint?: unknown }).publint;
-		if (typeof candidate !== FUNCTION_TYPEOF) return null;
-		const publint = candidate as PublintFn;
-		const { messages } = await publint({ pkgDir });
-		const errors = messages.filter((m) => m.type === PUBLINT_ERROR_SEVERITY);
-		return errors.map((m) => ({
-			code: m.code,
-			message: `publint [${m.code}] ${JSON.stringify(m.args ?? [])}`,
-		}));
+		if (!isJsonObject(mod)) return null;
+		const candidate = mod.publint;
+		if (typeof candidate !== "function") return null;
+		return publintErrors(await candidate({ pkgDir }));
 	} catch {
 		return null;
 	}
@@ -388,14 +386,14 @@ export function checkPackageJsonScriptPaths(
 	if (!pkg) return [];
 
 	const scripts = pkg.scripts;
-	if (!(scripts instanceof Object) || Array.isArray(scripts)) return [];
+	if (!isJsonObject(scripts)) return [];
 
 	const dir = dirname(filePath);
 	const findings: InlineMatch[] = [];
 	const lines = content.split("\n");
 	const seen = new Set<string>();
 
-	for (const [scriptName, scriptVal] of Object.entries(scripts as JsonObject)) {
+	for (const [scriptName, scriptVal] of Object.entries(scripts)) {
 		if (typeof scriptVal !== "string") continue;
 		findings.push(...collectMissingScriptRefFindings(scriptName, scriptVal, dir, lines, seen));
 	}

@@ -87,7 +87,7 @@ describe("classifyEvidence — negative (must not overclaim)", () => {
 	it("N0: rejects a structural copy that lacks verifier runtime provenance", () => {
 		const genuine = bundleOf({ ...validMutationResult() });
 		// SAFETY: deliberate type forgery exercises the runtime trust boundary.
-		const forged = { ...genuine } as unknown as VerifiedEvidenceBundle;
+		const forged = { ...genuine };
 		expect(() => classifyEvidence(forged)).toThrow("not minted by the verifier");
 	});
 

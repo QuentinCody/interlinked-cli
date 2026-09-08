@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Behavioral tests for suggestion-scorer.ts — score/rank/filter heuristic
 // findings, format them as warning strings, and append telemetry JSONL.
 // All I/O is exercised against a real tmp dir (deterministic, self-cleaning).
@@ -33,7 +34,7 @@ function finding(over: Partial<Finding> = {}): Finding {
 
 /** Minimal session — scoreFindings only ever reads `files_written`. */
 function sessionWith(...written: string[]): SessionTrajectory {
-	return { files_written: new Set(written) } as unknown as SessionTrajectory;
+	return ({ ...completeSessionFixture(), ...{ files_written: new Set(written) } });
 }
 
 /** Base opts that satisfy the required suppression maps. */

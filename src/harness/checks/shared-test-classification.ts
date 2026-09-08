@@ -5,6 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isJsonObject } from "../../lib/json-types.js";
 
 /**
  * Resolve the interlinked-cli package root once, lazily, by walking up from
@@ -31,14 +32,8 @@ function resolveInterlinkedCliPackageRoot(): string | null {
 			const pkgPath = join(dir, "package.json");
 			if (existsSync(pkgPath)) {
 				try {
-					// `JSON.parse` returns `any` — a malformed package.json (an array,
-					// a bare string, or literal `null`) can genuinely produce a
-					// non-object here, so the cast stays nullable and the `pkg &&`
-					// guard below is load-bearing, not decorative.
-					const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
-						name?: unknown;
-					} | null;
-					if (pkg && pkg.name === "interlinked-cli") {
+					const pkg: unknown = JSON.parse(readFileSync(pkgPath, "utf-8"));
+					if (isJsonObject(pkg) && pkg.name === "interlinked-cli") {
 						_packageRootCache = dir;
 						return dir;
 					}
@@ -292,4 +287,11 @@ export function isPatternDataFile(filePath: string): boolean {
  */
 export function isTestFile(filePath: string): boolean {
 	return isPatternDataFile(filePath);
+}
+
+/** Companion SUT basename for a test path (`foo.test.ts` → `foo`); "" if none. */
+export function sutBaseFromPath(filePath: string): string {
+	const fileName = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
+	const base = fileName.replace(/\.(test|spec)\.(tsx?|jsx?|mjs|cjs|mts|cts)$/, "");
+	return base === fileName ? "" : base;
 }

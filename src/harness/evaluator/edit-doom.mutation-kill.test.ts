@@ -206,7 +206,7 @@ describe("replaceEntries — bare-Edit field validation (AND vs OR / per-operand
 		const doom = analyzeStrReplaceDoom("Edit", {
 			file_path: target,
 			old_string: "const tail = 1;",
-		} as never);
+		});
 		expect(doom).toBeNull();
 	});
 
@@ -217,7 +217,7 @@ describe("replaceEntries — bare-Edit field validation (AND vs OR / per-operand
 		const doom = analyzeStrReplaceDoom("Edit", {
 			file_path: target,
 			new_string: "y",
-		} as never);
+		});
 		expect(doom).toBeNull();
 	});
 });
@@ -241,10 +241,10 @@ describe("replaceEntries — MultiEdit array element/field validation", () => {
 	// `null.old_string` and throws instead of failing open with null.
 	it("rejects a null edits[] element before any property access", () => {
 		expect(() =>
-			analyzeStrReplaceDoom("MultiEdit", { file_path: target, edits: [null] } as never),
+			analyzeStrReplaceDoom("MultiEdit", { file_path: target, edits: [null] }),
 		).not.toThrow();
 		expect(
-			analyzeStrReplaceDoom("MultiEdit", { file_path: target, edits: [null] } as never),
+			analyzeStrReplaceDoom("MultiEdit", { file_path: target, edits: [null] }),
 		).toBeNull();
 	});
 
@@ -259,7 +259,7 @@ describe("replaceEntries — MultiEdit array element/field validation", () => {
 		const doom = analyzeStrReplaceDoom("MultiEdit", {
 			file_path: target,
 			edits: [callable],
-		} as never);
+		});
 		expect(doom).toBeNull();
 	});
 
@@ -274,7 +274,7 @@ describe("replaceEntries — MultiEdit array element/field validation", () => {
 				{ old_string: "console.log(msg);", new_string: 42 },
 				{ old_string: "not in the file", new_string: "x" },
 			],
-		} as never);
+		});
 		expect(doom).toBeNull();
 	});
 
@@ -286,7 +286,7 @@ describe("replaceEntries — MultiEdit array element/field validation", () => {
 				{ old_string: 42, new_string: "console.warn(msg);" },
 				{ old_string: "not in the file", new_string: "x" },
 			],
-		} as never);
+		});
 		expect(doom).toBeNull();
 	});
 });
@@ -333,7 +333,7 @@ describe("analyzeStrReplaceDoom — filePath guard (typeof/OR/length disjuncts)"
 	it("fails open for a Buffer filePath even though Node's fs would accept it and find a real file", () => {
 		const target = join(dir, "sample.js");
 		writeFileSync(target, ["const tail = 1;", "const tail = 1;", ""].join("\n"));
-		const bufferPath = Buffer.from(target) as unknown as string;
+		const bufferPath = Buffer.from(target);
 		const doom = analyzeStrReplaceDoom("Edit", {
 			file_path: bufferPath,
 			old_string: "const tail = 1;",

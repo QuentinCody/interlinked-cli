@@ -117,7 +117,7 @@ function claimDigestField(value: Record<string, unknown>): string | null {
 	return digest;
 }
 
-function hasValidClaimTimestamp(value: Record<string, unknown>): boolean {
+function hasValidClaimTimestamp(value: Record<string, unknown>): value is Record<string, unknown> & { created_at: string } {
 	return typeof value.created_at === "string" && value.created_at.length > 0;
 }
 
@@ -163,7 +163,7 @@ function parseRotationClaim(value: unknown, log: RotationClaim["log"]): Rotation
 		records: numerics.records,
 		gz_bytes: numerics.gz_bytes,
 		gzip_sha256: digest,
-		created_at: value.created_at as string,
+		created_at: value.created_at,
 		source: identities.source,
 		replacement: identities.replacement,
 		...(cursor === undefined ? {} : { synced_through_bytes: cursor }),

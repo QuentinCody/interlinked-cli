@@ -1,3 +1,4 @@
+import { makeMinimalEvent as completeEventFixture } from "./__tests__/fixtures/evaluator.js";
 // Companion tests for the two ranges the wider fixture-leak suites (the
 // integration test, the two mutation-kill waves) leave uncovered:
 //
@@ -49,7 +50,7 @@ function fakeCtx(log: (msg: string) => void): ServerRuntime {
 function fakeEvent(cwd: string): HarnessEvent {
 	// SAFETY: checkFixtureLeaks only reads event.cwd; other HarnessEvent
 	// fields are irrelevant to this fixture.
-	return { hook_event: "Stop", session_id: "s1", agent_source: "claude", cwd } as HarnessEvent;
+	return ({ ...completeEventFixture(), ...{ hook_event: "Stop", session_id: "s1", agent_source: "claude", cwd } });
 }
 
 // ─── loadTrackedTestContents's own catch (line 109) ─────────────────────────
@@ -124,7 +125,7 @@ describe("checkFixtureLeaks", () => {
 		const logLines: string[] = [];
 		// SAFETY: no cwd field at all, so checkFixtureLeaks must use `ctx.cwd`;
 		// other HarnessEvent fields are irrelevant to this fixture.
-		const event = { hook_event: "Stop", session_id: "s1", agent_source: "claude" } as HarnessEvent;
+		const event = ({ ...completeEventFixture(), ...{ hook_event: "Stop", session_id: "s1", agent_source: "claude" } });
 		// SAFETY: only cwd and log are read by checkFixtureLeaks.
 		const ctx = { cwd: dir, log: (m: string) => logLines.push(m) } as unknown as ServerRuntime;
 

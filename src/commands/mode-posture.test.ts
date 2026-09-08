@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireBoolean, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // Mode/wizard posture — composed writer → loader pins (review 2026-08-30 P0)
 // ===========================================
@@ -30,17 +31,14 @@ afterEach(() => {
 /** The four posture facts a loaded config exposes, as one comparable shape. */
 function loadedPosture(dir: string) {
 	const rules = loadRules(dir);
-	const structural = rules.structural_checks as unknown as {
-		test_first?: boolean;
-		test_first_mode?: string;
-	};
+	const structural = parseWire(rules.structural_checks, wireObject({ "test_first": wireAbsentOptional(wireOptional(wireBoolean)), "test_first_mode": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 	return {
 		test_first: structural.test_first,
 		test_first_mode: structural.test_first_mode,
 		coverage_enabled: rules.per_edit_coverage?.enabled,
 		coverage_debt: rules.per_edit_coverage?.debt_mode,
-		stop_checks: (rules.verification_stop_checks as unknown as { enabled?: boolean })?.enabled,
-		cadence: (rules.commit_cadence as unknown as { enabled?: boolean })?.enabled,
+		stop_checks: (parseWire(rules.verification_stop_checks, wireObject({ "enabled": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value"))?.enabled,
+		cadence: (parseWire(rules.commit_cadence, wireObject({ "enabled": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value"))?.enabled,
 	};
 }
 
@@ -121,11 +119,7 @@ describe("setup wizard writers → loadRules", () => {
 	// test-contract: bug — same class for the dead-code posture write.
 	it("P5: the wizard's dead-code posture loads", () => {
 		writeDeadCodeConfig(cwd, "flag");
-		const structural = loadRules(cwd).structural_checks as unknown as {
-			dead_imports?: boolean;
-			dead_exports?: boolean;
-			dead_code_action?: string;
-		};
+		const structural = parseWire(loadRules(cwd).structural_checks, wireObject({ "dead_imports": wireAbsentOptional(wireOptional(wireBoolean)), "dead_exports": wireAbsentOptional(wireOptional(wireBoolean)), "dead_code_action": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		expect(structural.dead_imports).toBe(true);
 		expect(structural.dead_exports).toBe(true);
 		expect(structural.dead_code_action).toBe("flag");
@@ -152,7 +146,7 @@ describe("unsafe posture fields never merge from the committed file", () => {
 	// timeout, a budget) is dropped; only booleans and the three enums pass.
 	it("N2: non-boolean, non-enum structural fields from team config are dropped", () => {
 		writeTeam({ structural_checks: { test_first: true, timeout_ms: 1, test_first_mode: "enforce" } });
-		const structural = loadRules(cwd).structural_checks as unknown as Record<string, unknown>;
+		const structural = parseWire(loadRules(cwd).structural_checks, wireRecord(wireUnknown), "test JSON value");
 		expect(structural.test_first).toBe(true);
 		expect(structural.test_first_mode).toBe("enforce");
 		expect(structural.timeout_ms).not.toBe(1);
@@ -170,7 +164,7 @@ describe("unsafe posture fields never merge from the committed file", () => {
 				dead_code_action: "typo",
 			},
 		});
-		const structural = loadRules(cwd).structural_checks as unknown as Record<string, unknown>;
+		const structural = parseWire(loadRules(cwd).structural_checks, wireRecord(wireUnknown), "test JSON value");
 		expect(structural.test_first).toBe(true);
 		expect(structural.test_first_mode).not.toBe("typo");
 		expect(structural.characterize_mode).not.toBe("typo");
@@ -193,7 +187,7 @@ describe("unsafe posture fields never merge from the committed file", () => {
 				},
 			}),
 		);
-		const structural = loadRules(cwd).structural_checks as unknown as Record<string, unknown>;
+		const structural = parseWire(loadRules(cwd).structural_checks, wireRecord(wireUnknown), "test JSON value");
 		expect(structural.test_first_mode).toBe("enforce");
 		expect(structural.characterize_mode).toBe("warn");
 		expect(structural.dead_code_action).toBe("flag");
@@ -240,7 +234,7 @@ describe("unsafe posture fields never merge from the committed file", () => {
 			join(cwd, ".interlinked", "guard-rules.local.json"),
 			JSON.stringify({ structural_checks: { dead_code_action: ["flag"], test_first_mode: {} } }),
 		);
-		const structural = loadRules(cwd).structural_checks as unknown as Record<string, unknown>;
+		const structural = parseWire(loadRules(cwd).structural_checks, wireRecord(wireUnknown), "test JSON value");
 		expect(structural.test_first_mode).toBe("enforce");
 		expect(structural.characterize_mode).toBe("warn");
 		expect(structural.dead_code_action).toBe("flag");

@@ -26,8 +26,10 @@ export function validateLayerRuleEntry(
 	if (!Array.isArray(r.cannot_import)) {
 		errors.push(err(`${rp}.cannot_import`, "Must be an array"));
 	} else {
-		for (const ci of r.cannot_import as string[]) {
-			if (layerIds.size > 0 && !layerIds.has(ci)) {
+		for (const [index, ci] of r.cannot_import.entries()) {
+			if (typeof ci !== "string") {
+				errors.push(err(`${rp}.cannot_import[${index}]`, "Must be a string"));
+			} else if (layerIds.size > 0 && !layerIds.has(ci)) {
 				errors.push(err(`${rp}.cannot_import`, `References undeclared layer "${ci}"`));
 			}
 		}

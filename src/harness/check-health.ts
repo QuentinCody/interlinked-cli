@@ -13,7 +13,22 @@
 // Callers stream the JSONL line-by-line through `foldRecurrenceLine` so the
 // 40k+-row production log is never materialized as one array.
 
+import { wireAbsentOptional, wireLiteral, wireObject, wireOptional, wireString } from "../lib/value-validation.js";
 import type { RecurrenceEvent } from "./recurrence.js";
+
+type CaughtHealthRow = Pick<RecurrenceEvent, "ts" | "file" | "message" | "session_id"> & {
+	kind: "harness_caught";
+	check_id: string;
+};
+
+const isCaughtHealthRow = wireObject<CaughtHealthRow>({
+	kind: wireLiteral("harness_caught"),
+	check_id: wireString,
+	ts: wireString,
+	file: wireAbsentOptional(wireOptional(wireString)),
+	message: wireAbsentOptional(wireOptional(wireString)),
+	session_id: wireAbsentOptional(wireOptional(wireString)),
+});
 
 export type CheckDeterminismTag = "proven" | "heuristic" | null;
 
@@ -105,7 +120,7 @@ export function foldCheckHealthEvent(acc: CheckHealthAccumulator, event: Recurre
 
 function foldCaughtRow(
 	acc: CheckHealthAccumulator,
-	event: RecurrenceEvent & { check_id: string },
+	event: CaughtHealthRow,
 ): void {
 	const bucket = acc.buckets.get(event.check_id) ?? {
 		events: 0,
@@ -202,15 +217,8 @@ export function describeCheckHealth(stats: {
 // Internals
 // ===========================================
 
-function isCaughtRow(value: unknown): value is RecurrenceEvent & { check_id: string } {
-	if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-	const row = value as Partial<RecurrenceEvent>;
-	return (
-		row.kind === "harness_caught" &&
-		typeof row.check_id === "string" &&
-		row.check_id.length > 0 &&
-		typeof row.ts === "string"
-	);
+function isCaughtRow(value: unknown): value is CaughtHealthRow {
+	return isCaughtHealthRow(value) && value.check_id.length > 0;
 }
 
 function tsMillis(ts: string): number {

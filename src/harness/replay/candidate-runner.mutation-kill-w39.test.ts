@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Mutation-kill suite (wave 39) for candidate-runner.ts.
 // Targets guard-class survivors (Conditional/Logical/Boolean/String mutants)
 // left un-killed by the companion candidate-runner.test.ts. Each test isolates
@@ -104,7 +105,7 @@ describe("stripPriorThinking — asObject boundary via non-object/array blocks",
 		expect(() => stripPriorThinking([msg])).not.toThrow();
 		const [result] = stripPriorThinking([msg]);
 		// SAFETY: result is one of the fixture messages we constructed above, which are JsonObject-shaped
-		expect((result as JsonObject).content).toEqual(["raw-non-object-element", { type: "text", text: "keep" }]);
+		expect((nonNull(result)).content).toEqual(["raw-non-object-element", { type: "text", text: "keep" }]);
 	});
 
 	// test-contract: invariant — "redacted_thinking" blocks are stripped, same
@@ -117,7 +118,7 @@ describe("stripPriorThinking — asObject boundary via non-object/array blocks",
 		} as unknown as JsonObject; // SAFETY: fixture-only shape; only role/content fields matter to stripPriorThinking
 		const [result] = stripPriorThinking([msg]);
 		// SAFETY: result is one of the fixture messages we constructed above, which are JsonObject-shaped
-		expect((result as JsonObject).content).toEqual([]);
+		expect((nonNull(result)).content).toEqual([]);
 	});
 });
 
@@ -196,7 +197,7 @@ describe("runCandidate — keepThinking default", () => {
 		const fn = mockFetchOnce(200, { content: [], stop_reason: null });
 		const env = baseEnvelope();
 		// SAFETY: overwriting messages on a loosely-typed fixture request object
-		(env.request as unknown as JsonObject).messages = [
+		(env.request).messages = [
 			{ role: "assistant", content: [{ type: "thinking", thinking: "secret", signature: "s" }] },
 		];
 		await runCandidate({ envelope: env, model: "candidate-y", baseUrl: "http://test", apiKey: undefined });

@@ -14,7 +14,7 @@ import { nonNull } from "../../lib/non-null.js";
 // The mocked "publint" module resolves to a bare number — not an object —
 // so `mod instanceof Object` is false and `runPublint` returns null before
 // ever reading `.publint` off it.
-vi.mock("publint", () => 42 as unknown as Record<string, unknown>);
+vi.mock("publint", () => 42);
 
 const FULL_PKG = { name: "my-pkg", version: "1.0.0", homepage: "https://example.com" };
 

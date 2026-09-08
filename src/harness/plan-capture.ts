@@ -34,7 +34,7 @@
 import { mkdirSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject } from "../lib/json-types.js";
 import { sanitizeSessionId } from "./session-paths.js";
 import type {
 	CapturedPlan,
@@ -135,8 +135,8 @@ export function parseTaskCreate(
 	const steps: PlanStep[] = [];
 	for (const raw of tasks) {
 		if (steps.length >= MAX_STEPS_PER_PLAN) break;
-		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
-		const rec = raw as JsonObject;
+		if (!isJsonObject(raw)) continue;
+		const rec = raw;
 		const content = typeof rec.content === "string" ? rec.content : null;
 		if (!content) continue;
 		const intent = content.trim().slice(0, MAX_INTENT_CHARS);

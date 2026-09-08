@@ -47,14 +47,14 @@ interface Call {
 }
 
 function makeFetchStub(wire: string, calls: Call[]): typeof fetch {
-	return (async (url: unknown, init?: { body?: unknown }) => {
+	return (async (url, init) => {
 		const u = String(url);
 		calls.push({ url: u, body: init?.body === undefined ? undefined : String(init.body) });
 		if (u.endsWith("/v1/feed")) {
-			return { ok: true, text: async () => wire } as Response;
+			return new Response(wire, { status: 200 });
 		}
-		return { ok: true, text: async () => "" } as Response;
-	}) as typeof fetch;
+		return new Response("", { status: 200 });
+	});
 }
 
 describe("readSponsorSettingsFromConfig", () => {
@@ -239,9 +239,9 @@ describe("startSponsorRuntime", () => {
 		await seed.tick();
 		seed.dispose();
 		// Fresh runtime, dead network.
-		const dead = (async () => {
+		const dead: typeof fetch = (async () => {
 			throw new Error("offline");
-		}) as unknown as typeof fetch;
+		});
 		const rt = startSponsorRuntime({
 			interlinkedDir: dir,
 			readSettings: () => settings(),
@@ -284,9 +284,9 @@ describe("startSponsorRuntime", () => {
 		// rejects it.
 		const { wire: badWire } = makeSignedWire(FEED);
 		writeFileSync(join(dir, FEED_CACHE_FILE), badWire);
-		const dead = (async () => {
+		const dead: typeof fetch = (async () => {
 			throw new Error("offline");
-		}) as unknown as typeof fetch;
+		});
 		const rt = startSponsorRuntime({
 			interlinkedDir: dir,
 			readSettings: () => settings(),
@@ -354,7 +354,7 @@ describe("startSponsorRuntime", () => {
 	});
 
 	it("uses the default fetch/now implementations when none are injected", async () => {
-		const fetchSpy = vi.fn(async () => ({ ok: false, text: async () => "" }) as Response);
+		const fetchSpy = vi.fn(async () => new Response("", { status: 503 }));
 		vi.stubGlobal("fetch", fetchSpy);
 		try {
 			const rt = startSponsorRuntime({
@@ -377,10 +377,10 @@ describe("startSponsorRuntime", () => {
 		const gate = new Promise<void>((resolve) => {
 			resolveFetch = resolve;
 		});
-		const slowFetch: typeof fetch = (async (url: unknown, init?: { body?: unknown }) => {
+		const slowFetch: typeof fetch = (async (url, init) => {
 			await gate;
-			return makeFetchStub(wire, calls)(url as never, init as never);
-		}) as typeof fetch;
+			return makeFetchStub(wire, calls)(url, init);
+		});
 		const rt = startSponsorRuntime({
 			interlinkedDir: dir,
 			readSettings: () => settings(),
@@ -435,12 +435,12 @@ describe("startSponsorRuntime", () => {
 		const calls: Call[] = [];
 		let now = T0;
 		let fail = false;
-		const flakyFetch: typeof fetch = (async (url: unknown, init?: { body?: unknown }) => {
+		const flakyFetch: typeof fetch = (async (url, init) => {
 			if (fail && String(url).endsWith("/v1/feed")) {
-				return { ok: false, text: async () => "" } as Response;
+				return new Response("", { status: 503 });
 			}
-			return makeFetchStub(wire, calls)(url as never, init as never);
-		}) as typeof fetch;
+			return makeFetchStub(wire, calls)(url, init);
+		});
 		const rt = startSponsorRuntime({
 			interlinkedDir: dir,
 			readSettings: () => settings(),

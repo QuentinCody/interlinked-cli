@@ -95,10 +95,7 @@ describe("strField — mutantId 4828f844c88bc4e7 (ConditionalExpression)", () =>
 			session_id: "s",
 			agent_source: "claude",
 			tool_name: "Edit",
-			// SAFETY: deliberately simulating a malformed hook payload where
-			// file_path arrives as a number instead of a string, to exercise
-			// strField's typeof guard. The cast only satisfies the TS field type.
-			tool_input: { file_path: 42 as unknown as string },
+			tool_input: { file_path: 42 },
 			cwd: root,
 			timestamp: "t",
 		};

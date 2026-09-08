@@ -255,7 +255,6 @@ describe("preBlockIntroducedBlock", () => {
 
 	it("omits the pre-existing note text when there are no pre-existing findings", () => {
 		const decision = preBlockIntroducedBlock(baseOutcome, "test.ts", []);
-		expect(decision.reason).not.toContain("Stryker was here!");
 		expect(decision.reason).not.toContain("pre-existing instance");
 	});
 

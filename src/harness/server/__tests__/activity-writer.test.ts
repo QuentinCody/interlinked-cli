@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../../lib/json-types.js";
 // Tests for the daemon's legacy-stream dual-write: HarnessEvent → v5
 // LocalActivityEvent → activity.jsonl, so the CLI reader commands keep working
 // after the collection.jsonl migration. The round-trip cases drive the actual
@@ -325,9 +326,8 @@ describe("writeActivityRecord — round-trips through readLocalActivity", () => 
 			}),
 			dir,
 		);
-		const rec = readLocalActivity({ cwd: dir }).find((e) => e.type === "tool_use_start") as
-			| Record<string, unknown>
-			| undefined;
+		const rec = readLocalActivity({ cwd: dir }).find((e) => e.type === "tool_use_start");
+		if (!isJsonObject(rec)) throw new Error("Expected an activity record");
 		const required = [
 			"schema_version",
 			"ts",

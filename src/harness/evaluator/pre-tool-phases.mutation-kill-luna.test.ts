@@ -1,3 +1,5 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../pre-checks.js", () => ({
@@ -50,20 +52,23 @@ beforeEach(() => {
 });
 
 function event(overrides: (Partial<Omit<HarnessEvent, "cwd">> & { cwd?: string | undefined }) = {}): HarnessEvent {
-	return {
+	const { cwd, ...rest } = overrides;
+	const result: HarnessEvent = {
 		hook_event: "PreToolUse",
 		session_id: "session-1",
 		agent_source: "claude",
 		tool_name: "Bash",
 		tool_input: {},
-		cwd: CWD,
 		timestamp: TS,
-		...overrides,
-	} as HarnessEvent;
+		...rest,
+	};
+	if (!("cwd" in overrides)) result.cwd = CWD;
+	else if (cwd !== undefined) result.cwd = cwd;
+	return result;
 }
 
 function session(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "session-1",
 		agent_name: "agent",
 		started_at: TS,
@@ -82,22 +87,22 @@ function session(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory 
 		file_write_times: new Map(),
 		step_limit: Number.POSITIVE_INFINITY,
 		...overrides,
-	} as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
-function rules(errorMemory?: GuardRulesConfig["error_memory"]): GuardRulesConfig {
-	return { error_memory: errorMemory } as GuardRulesConfig;
+function rules(errorMemory: GuardRulesConfig["error_memory"] = makeGuardRules().error_memory): GuardRulesConfig {
+	return ({ ...makeGuardRules(),  error_memory: errorMemory } satisfies GuardRulesConfig);
 }
 
-function history(): ErrorHistory {
-	return {
+function history(): Pick<ErrorHistory, "getFileHistoryWarning" | "getRecords"> {
+	return ({
 		getFileHistoryWarning: vi.fn(() => null),
 		getRecords: vi.fn(() => []),
-	} as unknown as ErrorHistory;
+	} satisfies Pick<ErrorHistory, "getFileHistoryWarning" | "getRecords">);
 }
 
-function graph(): ProjectGraph {
-	return { toRelative: vi.fn((path: string) => `relative/${path}`) } as unknown as ProjectGraph;
+function graph(): Pick<ProjectGraph, "toRelative"> {
+	return ({ toRelative: vi.fn((path: string) => `relative/${path}`) } satisfies Pick<ProjectGraph, "toRelative">);
 }
 
 describe("evaluatePreChecksSelfKillEnv mutation contracts", () => {
@@ -247,11 +252,12 @@ describe("evaluatePreChecksTail mutation contracts", () => {
 
 	// test-contract: security — concurrent-edit checking requires both a tracker and a non-empty file path.
 	it("forwards file-write concurrency checks only when sessions and path exist", () => {
-		const tracker = { getAll: vi.fn(() => ["session"]), } as never;
+		const otherSession = session({ session_id: "other" });
+		const tracker = { getAll: vi.fn(() => [otherSession]) };
 		vi.mocked(checkConcurrentEdit).mockReturnValueOnce({ warning: "concurrent" });
 		const warnings: string[] = [];
 		evaluatePreChecksTail(event(), undefined, tracker, "Write", { file_path: "src/a.ts" }, warnings);
-		expect(checkConcurrentEdit).toHaveBeenCalledWith("src/a.ts", "session-1", ["session"]);
+		expect(checkConcurrentEdit).toHaveBeenCalledWith("src/a.ts", "session-1", [otherSession]);
 		expect(warnings).toEqual(["concurrent"]);
 	});
 
@@ -271,8 +277,8 @@ describe("evaluatePreChecksTail mutation contracts", () => {
 });
 
 describe("evaluateErrorMemory mutation contracts", () => {
-	// test-contract: boundary — missing/disabled error-memory config is a no-op and must not dereference optional config.
-	it("does nothing when error-memory configuration is absent", () => {
+	// test-contract: behavior — disabled error memory produces no warning.
+	it("does nothing when error-memory configuration is disabled", () => {
 		const warnings: string[] = [];
 		evaluateErrorMemory(event(), rules(), session(), graph(), history(), "Read", { file_path: "a.ts" }, warnings);
 		expect(warnings).toEqual([]);
@@ -280,7 +286,7 @@ describe("evaluateErrorMemory mutation contracts", () => {
 
 	// test-contract: boundary — enabled memory still requires both a resolvable path and a project graph.
 	it("does nothing when the graph or file path is missing", () => {
-		const configured = rules({ enabled: true } as GuardRulesConfig["error_memory"]);
+		const configured = rules(({ ...makeGuardRules().error_memory,  enabled: true } satisfies GuardRulesConfig["error_memory"]));
 		const h = history();
 		evaluateErrorMemory(event(), configured, session(), undefined, h, "Read", { file_path: "a.ts" }, []);
 		evaluateErrorMemory(event(), configured, session(), graph(), h, "Read", {}, []);
@@ -292,7 +298,7 @@ describe("evaluateErrorMemory mutation contracts", () => {
 	it("limits enabled memory to read and write tools", () => {
 		const h = history();
 		const g = graph();
-		const configured = rules({ enabled: true } as GuardRulesConfig["error_memory"]);
+		const configured = rules(({ ...makeGuardRules().error_memory,  enabled: true } satisfies GuardRulesConfig["error_memory"]));
 		const activeSession = session();
 		evaluateErrorMemory(event(), configured, activeSession, g, h, "Read", { file_path: "a.ts" }, []);
 		evaluateErrorMemory(event(), configured, session(), g, h, "Bash", { file_path: "a.ts" }, []);
@@ -310,7 +316,7 @@ describe("evaluateErrorMemory mutation contracts", () => {
 		const warnings: string[] = [];
 		// estimateEditLine reads the real filesystem, so the target must exist and
 		// contain old_string — package.json (vitest runs from the repo root) does.
-		evaluateErrorMemory(event(), rules({ enabled: true } as GuardRulesConfig["error_memory"]), s, g, h, "Edit", { file_path: "package.json", old_string: '"name"' }, warnings);
+		evaluateErrorMemory(event(), rules(({ ...makeGuardRules().error_memory,  enabled: true } satisfies GuardRulesConfig["error_memory"])), s, g, h, "Edit", { file_path: "package.json", old_string: '"name"' }, warnings);
 		expect(getPatternWarnings).toHaveBeenCalledWith([], "relative/package.json", s, expect.any(Number));
 		expect(warnings).toEqual(["pattern warning"]);
 	});
@@ -319,7 +325,7 @@ describe("evaluateErrorMemory mutation contracts", () => {
 	it("does not estimate an edit line when the Edit conjunction is incomplete", () => {
 		const h = history();
 		const g = graph();
-		const configured = rules({ enabled: true } as GuardRulesConfig["error_memory"]);
+		const configured = rules(({ ...makeGuardRules().error_memory,  enabled: true } satisfies GuardRulesConfig["error_memory"]));
 		for (const [toolName, input] of [["Edit", { file_path: "a.ts" }], ["Write", { file_path: "a.ts", old_string: "old" }], ["Edit", {}]] as const) {
 			evaluateErrorMemory(event(), configured, session(), g, h, toolName, input, []);
 		}

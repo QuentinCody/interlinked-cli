@@ -73,7 +73,7 @@ function readBaseContent(filePath: string): string {
  *  isn't present, exactly as the orchestrator's inline loop body did. */
 function applyMultiEditEntry(current: string, e: unknown): string {
 	if (!e || typeof e !== "object") return current;
-	const entry = e as MultiEditEntry;
+	const entry: MultiEditEntry = e;
 	const oldStr = entry.old_string ?? "";
 	const newStr = entry.new_string ?? "";
 	if (oldStr && current.includes(oldStr)) {

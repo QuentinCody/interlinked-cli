@@ -195,11 +195,11 @@ function hashFileSafe(path: string): string {
  *  error message when the child produced no captured output. Keeps a failed
  *  `npm run build` from surfacing as an opaque Node stack. */
 function buildErrorText(err: unknown): string {
-	const e = err as { stdout?: unknown; stderr?: unknown; message?: string };
+	const e = isJsonObject(err) ? err : {};
 	const captured = [e.stdout, e.stderr]
 		.map((stream) => (stream == null ? "" : String(stream)).trim())
 		.filter((text) => text.length > 0);
-	return captured.length > 0 ? captured.join("\n") : (e.message ?? String(err));
+	return captured.length > 0 ? captured.join("\n") : (typeof e.message === "string" ? e.message : String(err));
 }
 
 export interface ReloadOptions {

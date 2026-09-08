@@ -8,25 +8,13 @@
 // generic `eslint` row and the typed inert-code row (`tseslint-types`) parse
 // through here. Split from output-parsers.ts for the file line cap.
 
+import { isJsonObject } from "../../lib/json-types.js";
 import type { CheckResult } from "./types.js";
-
-/** One eslint JSON-formatter message — only the fields we read. */
-interface EslintJsonMessage {
-	ruleId?: string | null;
-	severity?: number;
-	message?: string;
-	line?: number;
-	column?: number;
-}
-
-function isEslintJsonMessage(v: unknown): v is EslintJsonMessage {
-	return typeof v === "object" && v !== null && !Array.isArray(v);
-}
 
 /** One per-file result entry: `{ filePath, messages }`. */
 function fileEntry(v: unknown): { filePath: string; messages: unknown[] } | null {
-	if (typeof v !== "object" || v === null) return null;
-	const { filePath, messages } = v as { filePath?: unknown; messages?: unknown };
+	if (!isJsonObject(v)) return null;
+	const { filePath, messages } = v;
 	if (typeof filePath !== "string" || !Array.isArray(messages)) return null;
 	return { filePath, messages };
 }
@@ -35,15 +23,16 @@ function fileEntry(v: unknown): { filePath: string; messages: unknown[] } | null
 function collectEntryResults(entry: { filePath: string; messages: unknown[] }, tool: CheckResult["tool"]): CheckResult[] {
 	const out: CheckResult[] = [];
 	for (const m of entry.messages) {
-		if (!isEslintJsonMessage(m) || typeof m.message !== "string") continue;
+		if (!isJsonObject(m) || typeof m.message !== "string") continue;
+		const ruleId = typeof m.ruleId === "string" ? m.ruleId : undefined;
 		out.push({
 			tool,
 			severity: m.severity === 2 ? "error" : "warning",
 			file: entry.filePath,
 			line: typeof m.line === "number" ? m.line : 0,
 			column: typeof m.column === "number" ? m.column : 0,
-			message: m.ruleId ? `${m.message} [${m.ruleId}]` : m.message,
-			ruleId: m.ruleId ?? undefined,
+			message: ruleId ? `${m.message} [${ruleId}]` : m.message,
+			ruleId,
 		});
 	}
 	return out;

@@ -1,3 +1,5 @@
+import { parseWire, wireBoolean, wireObject, wireRecord, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -34,7 +36,7 @@ function file(name: string): string {
 
 function output(): Record<string, unknown> {
     const text = logSpy.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
-    return JSON.parse(text) as Record<string, unknown>;
+    return parseWire(JSON.parse(text), wireRecord(wireUnknown), "test JSON value");
 }
 
 function seedReview(url = "https://example.com/data"): string {
@@ -67,7 +69,7 @@ describe("scanner mutation contracts", () => {
         await scannerOnCommand({ json: true });
         expect(output()).toMatchObject({ enabled: true, changed: false, previous: true });
         const rows = readFileSync(file("content-scanner.audit.jsonl"), "utf-8").trim().split("\n");
-        expect(JSON.parse(rows.at(-1) as string)).toMatchObject({ action: "no_change", from: true, to: true });
+        expect(JSON.parse(nonNull(rows.at(-1)))).toMatchObject({ action: "no_change", from: true, to: true });
     });
 
     // test-contract: toggling an enabled scanner disables it and reports that the state changed.
@@ -76,7 +78,7 @@ describe("scanner mutation contracts", () => {
         logSpy.mockClear();
         await scannerToggleCommand({ json: true });
         expect(output()).toMatchObject({ enabled: false, changed: true, previous: true });
-        const rules = JSON.parse(readFileSync(file("guard-rules.local.json"), "utf-8")) as { content_scanner: { enabled: boolean } };
+        const rules = parseWire(JSON.parse(readFileSync(file("guard-rules.local.json"), "utf-8")), wireObject({ "content_scanner": wireObject({ "enabled": wireBoolean }) }), "test JSON value");
         expect(rules.content_scanner.enabled).toBe(false);
     });
 

@@ -272,9 +272,9 @@ describe("SQLite mutation journal — enqueue and leases", () => {
 		const migratedVersion = migrated.prepare("PRAGMA user_version").get() as { user_version: number };
 		const evidenceTable = migrated.prepare(
 			"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'mutation_evidence_bundles'",
-		).get() as { name: string } | undefined;
+		).get();
 		expect(migratedVersion.user_version).toBe(MUTATION_JOURNAL_SCHEMA_VERSION);
-		expect(evidenceTable?.name).toBe("mutation_evidence_bundles");
+		expect(evidenceTable).toMatchObject({ name: "mutation_evidence_bundles" });
 		migrated.exec(`
 			DROP TABLE mutation_manifest_heads_v3;
 			DROP TABLE mutation_evidence_bundles;

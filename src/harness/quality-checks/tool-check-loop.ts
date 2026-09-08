@@ -35,7 +35,6 @@ import { findAnyTypes } from "./strong-typing.js";
 import { isLikelyTestFile } from "./test-classifier.js";
 import {
 	TEST_DISPATCHERS,
-	type TestDispatcher,
 } from "./test-dispatchers.js";
 import {
 	runLockfileDriftCheck,
@@ -117,8 +116,8 @@ function runSecretsCheck(
 	if (isTestFile(ctx.absForTestCheck)) return null;
 	// Inline check — examine file content from the event
 	const content =
-		(ctx.event.tool_input?.content as string) ||
-		(ctx.event.tool_input?.new_string as string) ||
+		(typeof ctx.event.tool_input?.content === "string" ? ctx.event.tool_input?.content : "") ||
+		(typeof ctx.event.tool_input?.new_string === "string" ? ctx.event.tool_input?.new_string : "") ||
 		"";
 	if (content) {
 		const found = containsSecrets(content);
@@ -332,7 +331,7 @@ async function runAffectedTests(
 	// Keep the public registry as the lookup seam. Tests and downstream
 	// embedders replace registry entries to supply their own runner, while the
 	// widened view accounts for languages that deliberately have no dispatcher.
-	const dispatcher = (TEST_DISPATCHERS as Partial<Record<string, TestDispatcher>>)[profile.id];
+	const dispatcher = TEST_DISPATCHERS[profile.id];
 	if (!dispatcher) return null;
 
 	const checkCwd = findProjectRoot(ctx.filePath, ctx.cwd) || ctx.cwd;

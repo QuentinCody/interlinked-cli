@@ -23,12 +23,10 @@ const {
 	mockWizardNonInteractive,
 } = vi.hoisted(() => ({
 	mockIsConfigured: vi.fn<() => boolean>(),
-	mockResolveConfig: vi.fn(() => ({
+	mockResolveConfig: vi.fn((): { server_url: string; agent_name: string | undefined; sync_mode: string | undefined } => ({
 		server_url: "http://localhost:8787",
-		// SAFETY: widened literals — the config shape allows undefined and the
-		// quick-start branch reads both fields.
-		agent_name: "ConfiguredAgent" as string | undefined,
-		sync_mode: "local" as string | undefined,
+		agent_name: "ConfiguredAgent",
+		sync_mode: "local",
 	})),
 	mockResolveAuthToken: vi.fn<() => string | undefined>(() => undefined),
 	mockStatusCommand: vi.fn<(opts?: { short?: boolean }) => Promise<void>>(async () => {}),

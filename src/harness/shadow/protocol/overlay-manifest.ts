@@ -186,7 +186,7 @@ export function checkOverlayIncludeRules(
 	if (invalid !== null) return refusal("invalid_rule", invalid);
 	// SAFETY: every item passed `ruleReason`, which admits exactly the two
 	// OverlayIncludeRuleV1 shapes with no unknown keys.
-	const rules = value as readonly OverlayIncludeRuleV1[];
+	const rules: readonly OverlayIncludeRuleV1[] = value;
 	const duplicate = duplicateRuleKey(rules);
 	if (duplicate !== null) return refusal("duplicate_rule", `${where} contains duplicate include rule: ${duplicate}`);
 	if (mode === "any-order") return null;

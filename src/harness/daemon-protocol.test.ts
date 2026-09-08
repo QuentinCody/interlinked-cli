@@ -8,7 +8,6 @@ import {
 	methodForPhase,
 	PROTOCOL_VERSION,
 	type RpcError,
-	type RpcMessage,
 	type RpcRequest,
 	type RpcResponse,
 	splitFrames,
@@ -114,11 +113,9 @@ describe("makeError", () => {
 
 // isError regression (2026-08-09): the predicate tested only that `error` was a
 // non-null object, so every other required field of RpcError went unchecked.
-// `parseWireMessage` widens untrusted input into RpcMessage by assertion, which
-// makes this predicate the only gate standing between the wire and callers that
-// read `.id` and `.error.code` as strings.
+// Foreign messages remain unknown until all error fields have been checked.
 describe("isError — validates every required field of RpcError", () => {
-	const wire = (v: unknown): RpcMessage => v as RpcMessage;
+	const wire = (v: unknown): unknown => v;
 
 	it("accepts what makeError produces", () => {
 		expect(isError(makeError("r-1", "timeout", "took too long"))).toBe(true);

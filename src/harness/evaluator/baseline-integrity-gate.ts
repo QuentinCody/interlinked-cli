@@ -15,7 +15,9 @@
 // write lands, so disk still holds the pre-edit value. Reuses the disk-read /
 // Edit-reconstruction helpers from config-loosening-gate.ts.
 
+import { readToolString } from "./tool-input-values.js";
 import { existsSync } from "node:fs";
+import { isJsonObject } from "../../lib/json-types.js";
 import { resolve } from "node:path";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 import { reconstructProposedBaseline } from "./baseline-integrity-proposal.js";
@@ -37,7 +39,7 @@ function isNum(v: unknown): v is number {
 }
 
 function asObj(v: unknown): Record<string, unknown> {
-	return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+	return isJsonObject(v) ? v : {};
 }
 
 /** Default predicate: does the repo-relative `rel` source still exist on disk?
@@ -440,7 +442,7 @@ export function evaluateBaselineIntegrityForEvent(
 ): HarnessDecision | null {
 	if (process.env.INTERLINKED_DISABLE_BASELINE_GUARD === "1") return null;
 	const toolInput = event.tool_input || {};
-	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 	const kind = baselineKind(filePath);
 	if (!filePath || (!kind && !isSiblingBaselinePath(filePath))) return null;
 

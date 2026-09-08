@@ -1,3 +1,5 @@
+import { makeEvent as makeEventFixture } from "../__tests__/fixtures/evaluator.js";
+import { nonNull } from "../../lib/non-null.js";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,9 +77,7 @@ describe("review reconciliation hooks", () => {
 		expect(openReviewFindings(cwd)).toHaveLength(2); // warm the cache
 		// Simulate an external `interlinked findings ack` process: append a
 		// reconciliation txn directly, changing the sidecar's mtime.
-		const first = openReviewFindings(cwd)[0];
-		expect(first).toBeDefined();
-		if (!first) return;
+		const first = nonNull(openReviewFindings(cwd)[0]);
 		// Small delay so mtimeMs actually advances, then ack out-of-band.
 		const recon = join(cwd, ".interlinked", "findings", "reconciliation.jsonl");
 		writeFileSync(
@@ -179,21 +179,20 @@ describe("review reconciliation hooks", () => {
 		// carries no `cwd`, so the spy exercises the same path.
 		const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(cwd);
 		try {
-			// SAFETY: the scanner reads only tool_name/tool_input/session_id.
-			const warnings = scanDisputedGroundRead({
+			const warnings = scanDisputedGroundRead({ ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 				hook_event: "PostToolUse",
 				session_id: "s9",
 				tool_name: "Read",
 				tool_input: { file_path: join(cwd, "docs/plan.md") },
-			} as never);
+			});
 			expect(warnings[0]).toContain("reading from disputed ground");
 			expect(
-				scanDisputedGroundRead({
+				scanDisputedGroundRead({ ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 					hook_event: "PostToolUse",
 					session_id: "s9",
 					tool_name: "Bash",
 					tool_input: { command: "ls" },
-				} as never),
+				}),
 			).toEqual([]);
 		} finally {
 			cwdSpy.mockRestore();

@@ -20,7 +20,7 @@ function validMarker(overrides: Partial<Record<string, unknown>> = {}): Record<s
     };
 }
 
-function validScan(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
+function validScan(overrides: Partial<Record<string, unknown>> = {}) {
     return {
         schema_version: 1,
         source: "source-comments",
@@ -119,20 +119,20 @@ describe("parseDebtMarkerScanResult", () => {
     it("rejects a scan whose coverage doesn't account for every scanned marker (negative)", () => {
         expect(parseDebtMarkerScanResult(validScan({ coverage: undefined }))).toBeNull();
         const mismatched = validScan();
-        (mismatched as { coverage: { scanned_paths: string[] } }).coverage.scanned_paths = [];
+        mismatched.coverage.scanned_paths = [];
         expect(parseDebtMarkerScanResult(mismatched)).toBeNull();
         expect(parseDebtMarkerScanResult(null)).toBeNull();
     });
 
     it("rejects coverage.skipped when a required count field is negative", () => {
         const scan = validScan();
-        (scan as { coverage: { skipped: { binary: number } } }).coverage.skipped.binary = -1;
+        scan.coverage.skipped.binary = -1;
         expect(parseDebtMarkerScanResult(scan)).toBeNull();
     });
 
     it("rejects coverage whose roots is not a string array", () => {
-        const scan = validScan();
-        (scan as { coverage: { roots: unknown } }).coverage.roots = "src";
+        const base = validScan();
+        const scan = { ...base, coverage: { ...base.coverage, roots: "src" } };
         expect(parseDebtMarkerScanResult(scan)).toBeNull();
     });
 

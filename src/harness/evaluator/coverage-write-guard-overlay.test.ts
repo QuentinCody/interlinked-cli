@@ -47,11 +47,10 @@ function event(): HarnessEvent {
 function cov(): PerFileCoverage {
 	// SAFETY: fixture stub — the extracted helpers under test only forward `cov`
 	// verbatim into CrapInput, they never read its fields directly.
-	return {
+	return ({ filePath: "src/a.ts", mtime: 0, functions: [],
 		coveredLines: new Set([1]),
 		uncoveredLines: new Set(),
-		totalLines: 1,
-	} as unknown as PerFileCoverage;
+	} satisfies PerFileCoverage);
 }
 
 // SAFETY: every `as CoverageRunResult` cast below is a fixture stub carrying
@@ -87,20 +86,20 @@ describe("buildOverlayRunOpts", () => {
 describe("handleFailedOverlayRun", () => {
 	it("P1: defers for budget when the run was killed at the per-edit timeout", () => {
 		const ctx = baseCtx({ budgetMs: 1000 });
-		const result = { ok: false, suiteMs: 1000, perFile: new Map(), testsPassed: null } as CoverageRunResult;
+		const result = ({ ok: false, suiteMs: 1000, perFile: new Map(), testsPassed: null } satisfies CoverageRunResult);
 		const decision = handleFailedOverlayRun(ctx, event(), result);
 		expect(decision).toBeNull();
 	});
 
 	it("N1: reports loud-runner-unavailable for a fast failure under budget", () => {
 		const ctx = baseCtx({ budgetMs: 25_000 });
-		const result = {
+		const result = ({
 			ok: false,
 			suiteMs: 50,
 			perFile: new Map(),
 			testsPassed: null,
 			error: "spawn ENOENT",
-		} as CoverageRunResult;
+		} satisfies CoverageRunResult);
 		const decision = handleFailedOverlayRun(ctx, event(), result);
 		expect(decision?.decision).toBe("allow");
 		expect(decision?.warnings?.[0]).toContain("spawn ENOENT");
@@ -113,32 +112,32 @@ describe("handleFailedOverlayRun", () => {
 describe("checkRedBar", () => {
 	it("P1: blocks when block_on_test_failure is on and the suite came back red", () => {
 		const ctx = baseCtx({ blockOnTestFailure: true });
-		const result = {
+		const result = ({
 			ok: true,
 			suiteMs: 10,
 			perFile: new Map(),
 			testsPassed: false,
 			failingTests: ["a.test.ts > works"],
-		} as CoverageRunResult;
+		} satisfies CoverageRunResult);
 		const decision = checkRedBar(ctx, result);
 		expect(decision?.decision).toBe("block");
 	});
 
 	it("N1: falls through (null) when block_on_test_failure is off", () => {
 		const ctx = baseCtx({ blockOnTestFailure: false });
-		const result = { ok: true, suiteMs: 10, perFile: new Map(), testsPassed: false } as CoverageRunResult;
+		const result = ({ ok: true, suiteMs: 10, perFile: new Map(), testsPassed: false } satisfies CoverageRunResult);
 		expect(checkRedBar(ctx, result)).toBeNull();
 	});
 
 	it("N2: falls through (null) when testsPassed is true", () => {
 		const ctx = baseCtx({ blockOnTestFailure: true });
-		const result = { ok: true, suiteMs: 10, perFile: new Map(), testsPassed: true } as CoverageRunResult;
+		const result = ({ ok: true, suiteMs: 10, perFile: new Map(), testsPassed: true } satisfies CoverageRunResult);
 		expect(checkRedBar(ctx, result)).toBeNull();
 	});
 
 	it("N3: falls through (null) when testsPassed is null (undetermined, fail-open)", () => {
 		const ctx = baseCtx({ blockOnTestFailure: true });
-		const result = { ok: true, suiteMs: 10, perFile: new Map(), testsPassed: null } as CoverageRunResult;
+		const result = ({ ok: true, suiteMs: 10, perFile: new Map(), testsPassed: null } satisfies CoverageRunResult);
 		expect(checkRedBar(ctx, result)).toBeNull();
 	});
 });
@@ -162,9 +161,9 @@ describe("evaluateCrapGate", () => {
 	function deps(analyzer: CoverageWriteDeps["cyclomaticFor"]): CoverageWriteDeps {
 		return {
 			runnerFor: () => null,
-			createOverlay: (() => {
+			createOverlay: () => {
 				throw new Error("unused");
-			}) as unknown as CoverageWriteDeps["createOverlay"],
+			},
 			clock: () => 0,
 			cyclomaticFor: analyzer,
 		};
@@ -214,11 +213,10 @@ describe("evaluateCrapGate", () => {
 	function fullyUncoveredCov(): PerFileCoverage {
 		// SAFETY: same fixture-stub contract as `cov()` above — only the range
 		// fields crapViolationsPerLine reads are populated.
-		return {
+		return ({ filePath: "src/a.ts", mtime: 0, functions: [],
 			coveredLines: new Set<number>(),
 			uncoveredLines: new Set([1, 2, 3, 4, 5]),
-			totalLines: 5,
-		} as unknown as PerFileCoverage;
+		} satisfies PerFileCoverage);
 	}
 
 	function telemetryPath(): string {

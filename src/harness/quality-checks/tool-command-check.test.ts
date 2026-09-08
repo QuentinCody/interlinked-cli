@@ -22,7 +22,7 @@ vi.mock("../check-engine/index.js", async (importOriginal) => {
 	return { ...actual, getOrCreateEngine: vi.fn() };
 });
 
-import { getOrCreateEngine } from "../check-engine/index.js";
+import { CheckEngine, getOrCreateEngine } from "../check-engine/index.js";
 import { runCommandCheck } from "./tool-command-check.js";
 
 const mockGetOrCreateEngine = vi.mocked(getOrCreateEngine);
@@ -62,13 +62,9 @@ const CHECK: QualityCheckConfig = {
 describe("runCommandCheck typescript delta split — positive (must appear)", () => {
 	it("P1: reports an introduced finding for the edited file", async () => {
 		const editedFile = join(dir, "src/foo.ts");
-		mockGetOrCreateEngine.mockReturnValue({
-			runChecksAsync: vi.fn().mockResolvedValue(
-				mkReport([{ tool: "tsc", severity: "error", file: editedFile, line: 12, message: "TS2345: bad arg" }]),
-			),
-			// SAFETY: `runCommandCheck` only calls `runChecksAsync` on the
-			// engine it gets back; no other CheckEngine method is exercised.
-		} as unknown as ReturnType<typeof getOrCreateEngine>);
+		const engine = new CheckEngine(dir);
+		vi.spyOn(engine, "runChecksAsync").mockResolvedValue(mkReport([{ tool: "tsc", severity: "error", file: editedFile, line: 12, message: "TS2345: bad arg" }]),);
+		mockGetOrCreateEngine.mockReturnValue(engine);
 
 		const results = await runCommandCheck(
 			{ filePath: editedFile, cwd: dir, tscFilterFile: undefined, outToolMetrics: undefined },
@@ -83,12 +79,9 @@ describe("runCommandCheck typescript delta split — positive (must appear)", ()
 	it("P2: reports pre-existing findings from a different file as not-introduced", async () => {
 		const editedFile = join(dir, "src/foo.ts");
 		const otherFile = join(dir, "src/bar.ts");
-		mockGetOrCreateEngine.mockReturnValue({
-			runChecksAsync: vi.fn().mockResolvedValue(
-				mkReport([{ tool: "tsc", severity: "error", file: otherFile, line: 3, message: "TS2322: type mismatch" }]),
-			),
-			// SAFETY: see P1 — only `runChecksAsync` is called.
-		} as unknown as ReturnType<typeof getOrCreateEngine>);
+		const engine = new CheckEngine(dir);
+		vi.spyOn(engine, "runChecksAsync").mockResolvedValue(mkReport([{ tool: "tsc", severity: "error", file: otherFile, line: 3, message: "TS2322: type mismatch" }]),);
+		mockGetOrCreateEngine.mockReturnValue(engine);
 
 		const results = await runCommandCheck(
 			{ filePath: editedFile, cwd: dir, tscFilterFile: undefined, outToolMetrics: undefined },

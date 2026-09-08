@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Tests for the new-file TDD gate.
 //
 // Shape of each case: build a tmpdir, optionally pre-seed companion tests or
@@ -9,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { readOpenDebts } from "../obligation-ledger-io.js";
 import { resetRepoProfileCache } from "../repo-profile.js";
 import type { GuardRulesConfig, HarnessEvent, SessionTrajectory } from "../types.js";
@@ -22,28 +24,13 @@ import {
 let tmp: string;
 
 function makeSession(writtenAbs: string[] = []): SessionTrajectory {
-	// Minimal trajectory — the gate only touches `files_written`. Every other
-	// field is filled with a zero/empty value to satisfy the structural type.
 	return {
+		...makeSessionFixture(),
 		session_id: "t",
 		agent_name: "t",
-		agent_source: "claude",
 		started_at: "",
-		tool_call_count: 0,
-		first_write_at: null,
-		files_read: new Set(),
 		files_written: new Set(writtenAbs),
-		file_read_at: new Map(),
-		file_write_times: new Map(),
-		file_edit_counts: new Map(),
-		pending_completions: new Map(),
-		soft_blocks: new Set(),
-		acknowledged_checks: new Map(),
-		error_count: 0,
-		consecutive_tool_failures: new Map(),
-		tdd_cycles: new Map(),
-		recent_bash_commands: [],
-	} as unknown as SessionTrajectory;
+	};
 }
 
 beforeEach(() => {
@@ -456,10 +443,10 @@ function rulesFor(debtMode: boolean | undefined): GuardRulesConfig {
 	// SAFETY: the wrapper reads only `structural_checks.test_first_mode` and
 	// `per_edit_coverage.debt_mode`; every other GuardRulesConfig field is
 	// unused on this path, so a two-field stand-in is sufficient for the test.
-	return {
-		structural_checks: { test_first_mode: "enforce" },
-		per_edit_coverage: debtMode === undefined ? undefined : { debt_mode: debtMode },
-	} as unknown as GuardRulesConfig;
+	return ({ ...makeGuardRules(),
+		structural_checks: { ...makeGuardRules().structural_checks,  test_first_mode: "enforce" },
+		...(debtMode === undefined ? {} : { per_edit_coverage: { enabled: true, mode: "block", budget_ms: 25_000, languages: ["ts"], debt_mode: debtMode } }),
+	} satisfies GuardRulesConfig);
 }
 
 function writeEvent(absPath: string, content: string | undefined): HarnessEvent {

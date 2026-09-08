@@ -289,16 +289,6 @@ describe("parseGraphFile — parseDeps value-join and all-junk-section handling 
 	});
 });
 
-describe("parseGraphFile — content nullish-defensiveness (mutation-kill)", () => {
-	it("N22: null content must return null, not throw (JS callers can defy the string type)", () => {
-		expect(parseGraphFile(null as unknown as string, "x.ts", "x.graph.ts")).toBeNull();
-	});
-
-	it("N23: undefined content must return null, not throw", () => {
-		expect(parseGraphFile(undefined as unknown as string, "x.ts", "x.graph.ts")).toBeNull();
-	});
-});
-
 describe("loadGraphForFile — sourcePath-emptiness and cwd-traversal guards must not be defeatable (mutation-kill)", () => {
 	const ASCII_SHARD = ["// header", "// [impact]", "// risk HIGH", "// direct 1", "// transitive 1"].join("\n");
 

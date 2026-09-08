@@ -22,13 +22,15 @@
 process.env.NO_COLOR = "1";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nonNull } from "../lib/non-null.js";
+import { parseWire, wireString } from "../lib/value-validation.js";
 import { kvLine, stripAnsi } from "../lib/formatter.js";
 
 // --- mock surfaces (same pattern as git.integration.test.ts) --------------
 
-const mockExecSync = vi.fn();
+const mockExecSync = vi.fn<typeof import("node:child_process").execSync>();
 vi.mock("node:child_process", () => ({
-	execSync: (...args: unknown[]) => mockExecSync(...args),
+	execSync: (...args: Parameters<typeof mockExecSync>) => mockExecSync(...args),
 }));
 
 const mockIsGitRepo = vi.fn<(cwd: string) => boolean>();
@@ -262,7 +264,7 @@ describe("gitLinkCheckpointCommand — mutation-kill", () => {
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
 		expect(process.exitCode).toBe(0);
-		expect((lastJson() as { applied: boolean }).applied).toBe(false);
+		expect(lastJson()).toHaveProperty(["applied"], false);
 		expect(mockExecSync).not.toHaveBeenCalled();
 	});
 
@@ -301,22 +303,21 @@ describe("gitLinkCheckpointCommand — mutation-kill", () => {
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
 		expect(mockExecSync).toHaveBeenCalledTimes(2);
-		const [amendCmd, amendOpts] = mockExecSync.mock.calls[0] as [string, Record<string, unknown>];
+		const [amendCmd, amendOptions] = nonNull(mockExecSync.mock.calls[0]);
+		const amendOpts = nonNull(amendOptions);
 		expect(amendCmd).toBe("git commit --amend -F -");
 		expect(amendOpts).toMatchObject({ encoding: "utf-8", timeout: 10000, stdio: ["pipe", "pipe", "pipe"] });
 		expect(amendOpts.input).toBe(
 			"Subject\n\nInterlinked-Checkpoint: 42\n\nInterlinked-Agent: Worker-Alpha",
 		);
 
-		const [, notesOpts] = mockExecSync.mock.calls[1] as [string, Record<string, unknown>];
+		const notesOpts = nonNull(nonNull(mockExecSync.mock.calls[1])[1]);
 		expect(notesOpts).toMatchObject({ encoding: "utf-8", timeout: 10000, stdio: ["pipe", "pipe", "pipe"] });
 
 		for (const call of mockGetHeadSha.mock.calls) {
 			if (call[1] !== true) expect(call[1]).toBe(false);
 		}
-		expect((lastJson() as { commit_sha: string }).commit_sha).toBe(
-			"postamendsha11111111111111111111111111111",
-		);
+		expect(lastJson()).toHaveProperty(["commit_sha"], "postamendsha11111111111111111111111111111");
 	});
 
 	// test-contract: public-api — --apply trims only TRAILING whitespace off
@@ -333,8 +334,8 @@ describe("gitLinkCheckpointCommand — mutation-kill", () => {
 
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
-		const [, amendOpts] = mockExecSync.mock.calls[0] as [string, { input: string }];
-		expect(amendOpts.input.startsWith("  Subject")).toBe(true);
+		const amendOpts = nonNull(nonNull(mockExecSync.mock.calls[0])[1]);
+		expect(parseWire(amendOpts.input, wireString, "amend input").startsWith("  Subject")).toBe(true);
 	});
 
 	// test-contract: public-api — multiple new trailers are newline-joined,
@@ -350,7 +351,7 @@ describe("gitLinkCheckpointCommand — mutation-kill", () => {
 
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
-		const [, amendOpts] = mockExecSync.mock.calls[0] as [string, { input: string }];
+		const amendOpts = nonNull(nonNull(mockExecSync.mock.calls[0])[1]);
 		expect(amendOpts.input).toContain("Interlinked-Checkpoint: 42\nInterlinked-Agent: Worker-Alpha");
 	});
 
@@ -370,8 +371,8 @@ describe("gitLinkCheckpointCommand — mutation-kill", () => {
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
 		expect(mockGetCommitMessage).toHaveBeenCalledWith("HEAD", process.cwd());
-		const [, amendOpts] = mockExecSync.mock.calls[0] as [string, { input: string }];
-		expect(amendOpts.input.startsWith("\n\nInterlinked-Foo: bar-value")).toBe(true);
+		const amendOpts = nonNull(nonNull(mockExecSync.mock.calls[0])[1]);
+		expect(parseWire(amendOpts.input, wireString, "amend input").startsWith("\n\nInterlinked-Foo: bar-value")).toBe(true);
 	});
 
 	// test-contract: public-api — without --apply, the render shows the

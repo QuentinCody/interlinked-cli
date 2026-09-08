@@ -11,7 +11,7 @@ function assistantIx(
 		tool_calls: [{ id: "t1", name: "Bash", args: "{}" }],
 		timestamp: "2026-01-01T00:00:00.000Z",
 		...overrides,
-	} as IxExperienceRecord;
+	};
 }
 
 describe("analyzeExperience — positive (must fire)", () => {
@@ -26,7 +26,7 @@ describe("analyzeExperience — positive (must fire)", () => {
 				role: "assistant",
 				content: "hi",
 				timestamp: "2026-01-01T00:00:00.000Z",
-			} as ExperienceRecord,
+			},
 		]);
 		expect(withoutIx.episodes).toBe(0);
 	});
@@ -215,12 +215,12 @@ describe("analyzeExperience — negative (must not fire / structural)", () => {
 				role: "user",
 				content: "hi",
 				timestamp: "2026-01-01T00:00:00.000Z",
-			} as ExperienceRecord,
+			},
 			{
 				role: "user",
 				content: "bye",
 				timestamp: "2026-01-01T00:00:10.000Z",
-			} as ExperienceRecord,
+			},
 		]);
 		expect(result.span_ms).toBe(10000);
 	});
@@ -231,7 +231,7 @@ describe("analyzeExperience — negative (must not fire / structural)", () => {
 				role: "user",
 				content: "hi",
 				timestamp: "not-a-date",
-			} as ExperienceRecord,
+			},
 		]);
 		// Date.parse("not-a-date") - Date.parse("not-a-date") = NaN - NaN = NaN,
 		// so Number.isFinite(spanMs) must gate this to null.
@@ -250,7 +250,7 @@ describe("analyzeExperience — negative (must not fire / structural)", () => {
 		expect(notebookEdit.files.edit_events).toBe(1);
 
 		const other = analyzeExperience([
-			assistantIx({ ix: { tool_class: "bash" as never } }),
+			assistantIx({ ix: { tool_class: "shell_exec" } }),
 		]);
 		expect(other.files.edit_events).toBe(0);
 	});

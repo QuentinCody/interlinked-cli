@@ -1,3 +1,4 @@
+import { parseWire, wireObject, wireNumber, wireRecord, wireArray, wireAbsentOptional, wireBoolean, wireString } from "../value-validation.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,9 +22,14 @@ interface CursorFile {
 	hooks: Record<string, CursorEntry[]>;
 }
 
+const isCursorFile = wireObject<CursorFile>({
+	version: wireNumber,
+	hooks: wireRecord(wireArray(wireObject<CursorEntry>({ command: wireString, type: wireAbsentOptional(wireString), failClosed: wireAbsentOptional(wireBoolean) }))),
+});
+
 function readConfig(tmp: string): CursorFile {
 	const raw = readFileSync(join(tmp, ".cursor", "hooks.json"), "utf-8");
-	return JSON.parse(raw) as CursorFile;
+	return parseWire(JSON.parse(raw), isCursorFile, "installed Cursor hooks");
 }
 
 function cursorPath(tmp: string): string {
@@ -275,15 +281,13 @@ describe("installCursorHooks / uninstallCursorHooks", () => {
 
 		expect(uninstallCursorHooks(tmp)).toBe(true);
 		expect(existsSync(cursorPath(tmp))).toBe(true);
-		const after = readConfig(tmp) as unknown as {
-			hooks: Record<string, unknown>;
-		};
+		const after: unknown = JSON.parse(readFileSync(cursorPath(tmp), "utf-8"));
 		// The non-array value is preserved untouched (the loop `continue`d past it).
-		expect(after.hooks.weirdEvent).toBe("not-an-array");
+		expect(after).toHaveProperty("hooks.weirdEvent", "not-an-array");
 		// Our entry was removed; its now-empty array dropped.
-		expect("beforeShellExecution" in after.hooks).toBe(false);
+		expect(after).not.toHaveProperty("hooks.beforeShellExecution");
 		// The foreign array hook survived.
-		expect(after.hooks.afterFileEdit).toEqual([
+		expect(after).toHaveProperty("hooks.afterFileEdit", [
 			{ command: "echo foreign-observer", type: "command" },
 		]);
 	});

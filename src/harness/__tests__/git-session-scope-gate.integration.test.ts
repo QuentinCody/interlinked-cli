@@ -1,3 +1,4 @@
+import { makeGuardRules as completeGuardRulesConfigFixture } from "../evaluator/__tests__/fixtures.js";
 // Tests for the PreToolUse git-session-scope gate.
 //
 // Strategy: spin up real git repos in tmpdir(), stage/commit files, run the
@@ -332,44 +333,8 @@ describe("subagent rollup integration", () => {
 // Feature flag + degraded-mode integration via evaluatePreToolUse
 // ============================================================
 
-function makeRules(
-	overrides?: Partial<GuardRulesConfig>,
-): GuardRulesConfig {
-	return {
-		version: 1,
-		enabled: true,
-		rules: [],
-		protected_files: [],
-		file_reminders: [],
-		curl_mcp_detection: { enabled: false, localhost_ports: [], escalate_after: 5, message: "" },
-		quality_checks: {},
-		structural_checks: {
-			enabled: false,
-			export_surface: false,
-			import_resolution: false,
-			duplicate_symbols: false,
-			co_dependency_staleness: false,
-			import_cycles: false,
-			interface_change_impact: false,
-			test_proximity: false,
-			smart_tsc: false,
-			blast_radius: false,
-			stale_read_warning: false,
-			sibling_awareness: false,
-			staleness_window_s: 300,
-			blast_radius_threshold: 10,
-			recently_failed: false,
-			completion_tracking: false,
-			route_context: false,
-			redundant_reread: false,
-		} as GuardRulesConfig["structural_checks"],
-		error_memory: { enabled: false, expires_after_s: 0, scope: "file" },
-		taint_tracking: {
-			enabled: false,
-		} as GuardRulesConfig["taint_tracking"],
-		output_scanning: { enabled: false } as GuardRulesConfig["output_scanning"],
-		...overrides,
-	} as GuardRulesConfig;
+function makeRules(overrides: Partial<GuardRulesConfig> = {}): GuardRulesConfig {
+	return { ...completeGuardRulesConfigFixture(), ...overrides };
 }
 
 function buildBashEvent(command: string): HarnessEvent {

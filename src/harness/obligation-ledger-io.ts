@@ -13,7 +13,6 @@ import type { Obligation as OrphanCandidate } from "./obligations.js";
 import {
 	METRIC_DESCRIPTORS,
 	type Obligation,
-	type ObligationKind,
 	type ObligationTxn,
 	obligationId,
 	openObligations,
@@ -66,7 +65,7 @@ export function readDebtTxns(projectRoot: string): ObligationTxn[] {
  *  registered kind — derived via `obligationId`, never re-parsed by hand. */
 function txnTouchesFile(txn: ObligationTxn, file: string): boolean {
 	if (txn.op === "open") return txn.file === file;
-	for (const kind of Object.keys(METRIC_DESCRIPTORS) as ObligationKind[]) {
+	for (const { kind } of Object.values(METRIC_DESCRIPTORS)) {
 		const base = obligationId(kind, file);
 		if (txn.id === base || txn.id.startsWith(`${base}:`) || txn.id.startsWith(`${base}#`)) {
 			return true;

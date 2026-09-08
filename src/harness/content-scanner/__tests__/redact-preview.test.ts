@@ -225,7 +225,7 @@ describe("writePendingPrompt", () => {
 			],
 		]);
 		const relPath = writePendingPrompt({ cwd: tmp, request, findingsBySource, toolName: "Write" });
-		const raw = readFileSync(join(tmp, relPath as string), "utf-8");
+		const raw = readFileSync(join(tmp, nonNull(relPath)), "utf-8");
 		const parsed = JSON.parse(raw);
 		expect(parsed.parts[1].source).toBe("Write.otherField");
 		expect(parsed.parts[1].spans).toEqual([]);
@@ -877,7 +877,7 @@ describe("writePendingPrompt — pruneStale GC", () => {
 		const { request, findingsBySource } = simpleRequest("old-one@example.com");
 		const oldRel = writePendingPrompt({ cwd: tmp, request, findingsBySource, toolName: "Write" });
 		expect(oldRel).toBeDefined();
-		const oldAbs = join(tmp, oldRel as string);
+		const oldAbs = join(tmp, nonNull(oldRel));
 		const wayPast = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2h ago > 1h TTL
 		utimesSync(oldAbs, wayPast, wayPast);
 
@@ -892,7 +892,7 @@ describe("writePendingPrompt — pruneStale GC", () => {
 
 		const remaining = readdirSync(dir);
 		expect(remaining).not.toContain(oldRel?.split("/").pop());
-		expect(remaining).toContain((freshRel as string).split("/").pop());
+		expect(remaining).toContain((nonNull(freshRel)).split("/").pop());
 	});
 
 	it("retains a file that is only two minutes old", () => {
@@ -902,14 +902,14 @@ describe("writePendingPrompt — pruneStale GC", () => {
 		try {
 			const { request, findingsBySource } = simpleRequest("recent@example.com");
 			const recentRel = writePendingPrompt({ cwd: tmp, request, findingsBySource, toolName: "Write" });
-			const recentAbs = join(tmp, recentRel as string);
+			const recentAbs = join(tmp, nonNull(recentRel));
 			const twoMinutesAgo = new Date(fixedNow.getTime() - 2 * 60 * 1000);
 			utimesSync(recentAbs, twoMinutesAgo, twoMinutesAgo);
 
 			const { request: freshRequest, findingsBySource: freshFindings } = simpleRequest("fresh@example.com");
 			writePendingPrompt({ cwd: tmp, request: freshRequest, findingsBySource: freshFindings, toolName: "Write" });
 			expect(readdirSync(join(tmp, ".interlinked", "scanner", "pending"))).toContain(
-				(recentRel as string).split("/").pop(),
+				(nonNull(recentRel)).split("/").pop(),
 			);
 		} finally {
 			vi.useRealTimers();
@@ -923,14 +923,14 @@ describe("writePendingPrompt — pruneStale GC", () => {
 		try {
 			const { request, findingsBySource } = simpleRequest("boundary@example.com");
 			const boundaryRel = writePendingPrompt({ cwd: tmp, request, findingsBySource, toolName: "Write" });
-			const boundaryAbs = join(tmp, boundaryRel as string);
+			const boundaryAbs = join(tmp, nonNull(boundaryRel));
 			const exactlyAtCutoff = new Date(fixedNow.getTime() - 60 * 60 * 1000);
 			utimesSync(boundaryAbs, exactlyAtCutoff, exactlyAtCutoff);
 
 			const { request: freshRequest, findingsBySource: freshFindings } = simpleRequest("fresh@example.com");
 			writePendingPrompt({ cwd: tmp, request: freshRequest, findingsBySource: freshFindings, toolName: "Write" });
 			expect(readdirSync(join(tmp, ".interlinked", "scanner", "pending"))).toContain(
-				(boundaryRel as string).split("/").pop(),
+				(nonNull(boundaryRel)).split("/").pop(),
 			);
 		} finally {
 			vi.useRealTimers();

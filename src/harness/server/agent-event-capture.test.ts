@@ -1,3 +1,5 @@
+import { readJsonRecord } from "./__tests__/json.js";
+import type { JsonObject } from "../../lib/json-types.js";
 import {
 	appendFileSync,
 	existsSync,
@@ -10,7 +12,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentEventRecord } from "../../lib/collection/types.js";
 import { getCollectionPath } from "../../lib/collection/writer.js";
 import { timelinePath } from "../timeline-writer.js";
 import type { HarnessEvent } from "../types/events.js";
@@ -63,16 +64,14 @@ function stopEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 	};
 }
 
-function collectionRows(cwd: string): AgentEventRecord[] {
+function collectionRows(cwd: string): JsonObject[] {
 	const path = getCollectionPath(cwd);
 	if (!existsSync(path)) return [];
 	return readFileSync(path, "utf-8")
 		.trim()
 		.split("\n")
 		.filter((l) => l.trim())
-		// SAFETY: this fixture file only ever receives agent_event records
-		// written by the code under test; assertions verify the shape.
-		.map((l) => JSON.parse(l) as AgentEventRecord);
+		.map((l) => readJsonRecord(l));
 }
 
 describe("lastAssistantText", () => {
@@ -174,6 +173,10 @@ describe("resolveFinalMessage", () => {
 });
 
 describe("buildAgentEventRecord", () => {
+	it.each(["custom-client", "cli", "toString", "__proto__"])("preserves unknown source %s", (agentSource) => {
+		const record = buildAgentEventRecord(stopEvent({ agent_source: agentSource }), "subagent_stop", "/repo");
+		expect(record.provider).toBe(agentSource);
+	});
 	it.each(["opencode", "pi"] as const)("preserves the %s provider identity", (agentSource) => {
 		const rec = buildAgentEventRecord(
 			stopEvent({ agent_source: agentSource }),
@@ -278,7 +281,7 @@ describe("captureAgentEvent (end-to-end into collection + timeline)", () => {
 
 		const timeline = readFileSync(timelinePath(cwd), "utf-8").trim().split("\n");
 		const assistant = timeline
-			.map((l) => JSON.parse(l) as { agent_id?: string; text?: string })
+			.map((l) => readJsonRecord(l))
 			.find((r) => r.text === "There are 3 R's.");
 		expect(assistant?.agent_id).toBe("z1");
 	});

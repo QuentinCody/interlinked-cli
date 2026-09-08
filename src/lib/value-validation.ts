@@ -37,13 +37,20 @@ export function parseWire<T>(value: unknown, validate: WireValidator<T>, label: 
 export function wireArray<T>(validate: WireValidator<T>): WireValidator<T[]> {
 	return (value): value is T[] => {
 		if (!Array.isArray(value)) return false;
-		for (const item of value) if (!validate(item)) return false;
+		for (let index = 0; index < value.length; index++) if (!validate(value[index])) return false;
 		return true;
 	};
 }
 
 export function wireRecord<T>(validate: WireValidator<T>): WireValidator<Record<string, T>> {
-	return (value): value is Record<string, T> => isJsonObject(value) && Object.values(value).every(validate);
+	return (value): value is Record<string, T> => isJsonObject(value)
+		&& hasDictionaryPrototype(value)
+		&& Object.getOwnPropertyNames(value).every((key) => validate(value[key]));
+}
+
+function hasDictionaryPrototype(value: object): boolean {
+	const prototype = Object.getPrototypeOf(value);
+	return prototype === Object.prototype || prototype === null;
 }
 
 export type WireFields = Record<string, WireValidator<unknown> | AbsentWireValidator<unknown>>;
@@ -58,9 +65,22 @@ type NarrowIndexKeys<T> = {
 }[keyof T];
 /** Open extra keys are safe only when their values are unknown. Use wireRecord
  * to validate every value of a narrower index signature. */
-export type SupportedWireObject<T> = Extract<keyof T, symbol> extends never
-	? [NarrowIndexKeys<T>] extends [never] ? unknown : never
-	: never;
+type UnsupportedWireObjectMember<T> = Extract<keyof T, symbol> extends never
+	? [NarrowIndexKeys<T>] extends [never] ? never : T
+	: T;
+export type SupportedWireObject<T> = [T extends unknown ? UnsupportedWireObjectMember<T> : never] extends [never] ? unknown : never;
+
+/** Capture all own validators; inherited schema declarations are unsupported. */
+function schemaEntries(fields: WireFields): Array<[string, WireValidator<unknown> | AbsentWireValidator<unknown>]> {
+	if (!hasDictionaryPrototype(fields)) throw new TypeError("Wire schemas must use a plain or null-prototype object");
+	const entries: Array<[string, WireValidator<unknown> | AbsentWireValidator<unknown>]> = [];
+	for (const key of Object.getOwnPropertyNames(fields)) {
+		const validate = fields[key];
+		if (validate === undefined) throw new TypeError(`Wire schema field ${key} has no validator`);
+		entries.push([key, validate]);
+	}
+	return entries;
+}
 
 /** Require every declared field unless its schema explicitly permits absence.
  * Present inherited fields are validated just like own fields; extra fields remain allowed. */
@@ -69,7 +89,7 @@ export function wireObject<T extends object>(fields: {
 	[K in keyof T as {} extends Record<K, unknown> ? never : K]-?: {} extends Pick<T, K> ? AbsentWireValidator<Required<T>[K]> : WireValidator<T[K]>;
 } & SupportedWireObject<T>): WireValidator<T>;
 export function wireObject(fields: WireFields): WireValidator<object> {
-	const entries = Object.entries<WireValidator<unknown> | AbsentWireValidator<unknown>>(fields);
+	const entries = schemaEntries(fields);
 	return (value): value is object => isJsonObject(value) && entries.every(([key, validate]) =>
 		typeof validate === "function" ? key in value && validate(value[key]) : !(key in value) || validate.present(value[key]));
 }

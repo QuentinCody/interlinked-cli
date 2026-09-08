@@ -207,17 +207,13 @@ describe("ensureIndexBuilt", () => {
 
 describe("startHarnessIfNeeded", () => {
 	it("does nothing when the harness is already running", async () => {
-		vi.mocked(isHarnessRunning).mockReturnValue({ running: true } as ReturnType<
-			typeof isHarnessRunning
-		>);
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: true });
 		await startHarnessIfNeeded("/repo");
 		expect(harnessStartCommand).not.toHaveBeenCalled();
 	});
 
 	it("starts the harness as a daemon when not running", async () => {
-		vi.mocked(isHarnessRunning).mockReturnValue({ running: false } as ReturnType<
-			typeof isHarnessRunning
-		>);
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: false });
 		vi.mocked(harnessStartCommand).mockResolvedValue(undefined);
 		await startHarnessIfNeeded("/repo");
 		expect(harnessStartCommand).toHaveBeenCalledWith({ daemon: true });
@@ -225,9 +221,7 @@ describe("startHarnessIfNeeded", () => {
 	});
 
 	it("warns when the harness start fails", async () => {
-		vi.mocked(isHarnessRunning).mockReturnValue({ running: false } as ReturnType<
-			typeof isHarnessRunning
-		>);
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: false });
 		vi.mocked(harnessStartCommand).mockRejectedValue(new Error("boom"));
 		await startHarnessIfNeeded("/repo");
 		const lines = logLines();

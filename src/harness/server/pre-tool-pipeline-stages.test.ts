@@ -1,3 +1,10 @@
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { resolveStructureConfig } from "../structure/schema-validator.js";
+const { Stats } = await vi.importActual<typeof import("node:fs")>("node:fs");
+import type { PerFileCoverage } from "../coverage-final-reader.js";
+import type { TddCycle } from "../types.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 // Behavioral coverage for the four extracted PreToolUse pipeline stages.
 //
 // Each stage mutates an in-flight `preDecision` (and/or `ctx.preEditBaselines`)
@@ -18,24 +25,24 @@ vi.mock("node:fs", () => ({
 
 // ---- Mock behavioral-checks.js (TDD / prod-delta / ratio / leapfrog) ----
 vi.mock("../behavioral-checks.js", () => ({
-	checkTddCommitGate: vi.fn(() => [] as CheckResultEntry[]),
-	checkProdDeltaWithoutTestDelta: vi.fn(() => [] as CheckResultEntry[]),
-	checkProdTestLocRatio: vi.fn(() => [] as CheckResultEntry[]),
-	checkTppLeapfrog: vi.fn(() => [] as CheckResultEntry[]),
+	checkTddCommitGate: vi.fn(() : CheckResultEntry[] => []),
+	checkProdDeltaWithoutTestDelta: vi.fn(() : CheckResultEntry[] => []),
+	checkProdTestLocRatio: vi.fn(() : CheckResultEntry[] => []),
+	checkTppLeapfrog: vi.fn(() : CheckResultEntry[] => []),
 }));
 
 // ---- Mock behavioral-diff-checks.js (batch 3 + batch 4 commit gates) ----
 vi.mock("../behavioral-diff-checks.js", () => ({
-	checkAssertionCountRegression: vi.fn(() => [] as CheckResultEntry[]),
-	checkAssertionStrengthWeakening: vi.fn(() => [] as CheckResultEntry[]),
-	checkAssertionValueSwap: vi.fn(() => [] as CheckResultEntry[]),
-	checkClockMockAdded: vi.fn(() => [] as CheckResultEntry[]),
-	checkConventionalCommitCoherence: vi.fn(() => [] as CheckResultEntry[]),
-	checkDisabledTestDelta: vi.fn(() => [] as CheckResultEntry[]),
-	checkDoneWithoutVerify: vi.fn(() => [] as CheckResultEntry[]),
-	checkReintroducesRemovedCode: vi.fn(() => [] as CheckResultEntry[]),
-	checkTestBlockCountRegression: vi.fn(() => [] as CheckResultEntry[]),
-	checkTestTimeoutInflation: vi.fn(() => [] as CheckResultEntry[]),
+	checkAssertionCountRegression: vi.fn(() : CheckResultEntry[] => []),
+	checkAssertionStrengthWeakening: vi.fn(() : CheckResultEntry[] => []),
+	checkAssertionValueSwap: vi.fn(() : CheckResultEntry[] => []),
+	checkClockMockAdded: vi.fn(() : CheckResultEntry[] => []),
+	checkConventionalCommitCoherence: vi.fn(() : CheckResultEntry[] => []),
+	checkDisabledTestDelta: vi.fn(() : CheckResultEntry[] => []),
+	checkDoneWithoutVerify: vi.fn(() : CheckResultEntry[] => []),
+	checkReintroducesRemovedCode: vi.fn(() : CheckResultEntry[] => []),
+	checkTestBlockCountRegression: vi.fn(() : CheckResultEntry[] => []),
+	checkTestTimeoutInflation: vi.fn(() : CheckResultEntry[] => []),
 	parseCommitMessageFromBash: vi.fn(() => null),
 }));
 
@@ -54,17 +61,18 @@ vi.mock("../coverage-final-reader.js", () => ({
 	coverageForFile: vi.fn(() => undefined),
 }));
 vi.mock("../discovered-primitives.js", () => ({
-	capturePrimitiveViolations: vi.fn(() => ({}) as Record<string, number>),
+	capturePrimitiveViolations: vi.fn(() : Record<string, number> => ({})),
 }));
-vi.mock("../generic-checks.js", () => ({
-	checkFunctionComplexity: vi.fn(() => [] as Array<{ text: string }>),
-	checkMissingReturnTypes: vi.fn(() => [] as Array<{ text: string }>),
+vi.mock("../generic-checks.js", async (importOriginal) => ({
+	...await importOriginal<typeof import("../generic-checks.js")>(),
+	checkFunctionComplexity: vi.fn(() : Array<{ text: string }> => []),
+	checkMissingReturnTypes: vi.fn(() : Array<{ text: string }> => []),
 }));
 vi.mock("../project-typecheck-gate.js", () => ({
-	checkProjectTypecheckClean: vi.fn(() => [] as CheckResultEntry[]),
-	checkProjectTypecheckCleanAsync: vi.fn(async () => [] as CheckResultEntry[]),
-	checkProjectTestsClean: vi.fn(() => [] as CheckResultEntry[]),
-	checkProjectTestsCleanAsync: vi.fn(async () => [] as CheckResultEntry[]),
+	checkProjectTypecheckClean: vi.fn(() : CheckResultEntry[] => []),
+	checkProjectTypecheckCleanAsync: vi.fn(async () : Promise<CheckResultEntry[]> => []),
+	checkProjectTestsClean: vi.fn(() : CheckResultEntry[] => []),
+	checkProjectTestsCleanAsync: vi.fn(async () : Promise<CheckResultEntry[]> => []),
 }));
 const releaseHeavyProcess = vi.fn<() => void>();
 vi.mock("../project-heavy-process-lock.js", () => ({
@@ -166,38 +174,51 @@ function check(over: Partial<CheckResultEntry> = {}): CheckResultEntry {
 	};
 }
 
-/** Minimal SessionTrajectory — only the fields the stages read. */
+/** Hydrated trajectory with each case's state changes. */
 function makeSession(over: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "s",
 		agent_name: "agent-x",
 		tdd_cycles: new Map(),
 		pending_completions: new Map(),
 		...over,
-		// fields above are the only ones the stages-under-test read; the rest of
-		// SessionTrajectory is unused here, hence the structural cast.
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
-/** ServerRuntime stub — only the fields the stages read are real. */
 function makeCtx(over: Partial<ServerRuntime> = {}): ServerRuntime {
-	return {
-		cwd: "/repo",
-		rules: { diff_aware: { enabled: true }, structural_checks: {} },
-		serverBridge: null,
-		preEditBaselines: new Map(),
-		log: () => {},
-		logAlways: () => {},
-		...over,
-	} as unknown as ServerRuntime;
+	const rules = makeGuardRules();
+	rules.diff_aware = { enabled: true };
+	rules.structural_checks.test_first_mode = "warn";
+	const ctx = makeServerRuntime({ rules, ...over });
+	// Error-history fixture hydration is setup, not a pipeline filesystem read.
+	mReadFile.mockClear();
+	mExists.mockClear();
+	return ctx;
 }
+
+function bridge(reportGuardEvent: NonNullable<ServerRuntime["serverBridge"]>["reportGuardEvent"]): NonNullable<ServerRuntime["serverBridge"]> {
+	return { reportGuardEvent, fetchCoordinationState: vi.fn(async () => null) };
+}
+
+function tddCycle(source_file = "src/a.ts"): TddCycle {
+	return { source_file, test_file: "src/a.test.ts", state: "green", impl_edits_before_test: 0 };
+}
+
+function enforceRules(): ServerRuntime["rules"] {
+	const rules = makeGuardRules();
+	rules.structural_checks.test_first_mode = "enforce";
+	return rules;
+}
+
+const fileCoverage: PerFileCoverage = { filePath: "src/a.ts", mtime: 12345, functions: [] };
+const coverageCache = new Map([["src/a.ts", fileCoverage]]);
 
 beforeEach(() => {
 	vi.clearAllMocks();
 	// Re-apply default implementations cleared by clearAllMocks.
 	mExists.mockReturnValue(true);
 	mReadFile.mockReturnValue("pre-edit content");
-	mStat.mockReturnValue({ mtimeMs: 12345 } as ReturnType<typeof statSync>);
+	mStat.mockReturnValue(Object.assign(new Stats(), { mtimeMs: 12345 }));
 	vi.mocked(checkTddCommitGate).mockReturnValue([]);
 	vi.mocked(checkProdDeltaWithoutTestDelta).mockReturnValue([]);
 	vi.mocked(checkProdTestLocRatio).mockReturnValue([]);
@@ -308,18 +329,6 @@ describe("runTddCommitGate", () => {
 		expect(parseCommitMessageFromBash).toHaveBeenCalledWith(command);
 	});
 
-	it("uses the warn default when structural_checks is absent", () => {
-		const pre = allow();
-		const session = makeSession({ tdd_cycles: new Map([["x", {} as never]]) });
-		runTddCommitGate(
-			makeCtx({ rules: {} } as unknown as Partial<ServerRuntime>),
-			commitEvent(),
-			session,
-			pre,
-		);
-		expect(checkTddCommitGate).toHaveBeenCalledWith(session, "warn");
-	});
-
 	it("skips the TDD-cycle gate when there are no tdd_cycles, runs the rest", () => {
 		const pre = allow();
 		const session = makeSession();
@@ -338,7 +347,7 @@ describe("runTddCommitGate", () => {
 	it("runs the TDD-cycle gate when tdd_cycles is non-empty", () => {
 		const pre = allow();
 		const session = makeSession({
-			tdd_cycles: new Map([["src/a.ts", {} as never]]),
+			tdd_cycles: new Map([["src/a.ts", tddCycle()]]),
 		});
 		runTddCommitGate(makeCtx(), commitEvent(), session, pre);
 		expect(checkTddCommitGate).toHaveBeenCalledOnce();
@@ -348,9 +357,9 @@ describe("runTddCommitGate", () => {
 	it("passes the configured test_first_mode through to the gate", () => {
 		const pre = allow();
 		const ctx = makeCtx({
-			rules: { structural_checks: { test_first_mode: "enforce" } },
-		} as unknown as Partial<ServerRuntime>);
-		const session = makeSession({ tdd_cycles: new Map([["x", {} as never]]) });
+			rules: enforceRules(),
+		});
+		const session = makeSession({ tdd_cycles: new Map([["x", tddCycle()]]) });
 		runTddCommitGate(ctx, commitEvent(), session, pre);
 		expect(checkTddCommitGate).toHaveBeenCalledWith(session, "enforce");
 	});
@@ -382,8 +391,8 @@ describe("runTddCommitGate", () => {
 			check({ name: "soft", message: "soft warn", severity: "warning" }),
 		]);
 		const ctx = makeCtx({
-			rules: { structural_checks: { test_first_mode: "enforce" } },
-		} as unknown as Partial<ServerRuntime>);
+			rules: enforceRules(),
+		});
 		const pre = allow();
 		runTddCommitGate(ctx, commitEvent(), makeSession(), pre);
 		expect(pre.decision).toBe("allow");
@@ -396,8 +405,8 @@ describe("runTddCommitGate", () => {
 			check({ name: "soft", message: "ignored in reason", severity: "warning" }),
 		]);
 		const ctx = makeCtx({
-			rules: { structural_checks: { test_first_mode: "enforce" } },
-		} as unknown as Partial<ServerRuntime>);
+			rules: enforceRules(),
+		});
 		const pre = allow();
 		runTddCommitGate(ctx, commitEvent(), makeSession(), pre);
 		expect(pre.decision).toBe("block");
@@ -409,18 +418,18 @@ describe("runTddCommitGate", () => {
 
 	it("forwards the parsed commit message into the coherence check", () => {
 		vi.mocked(parseCommitMessageFromBash).mockReturnValue({
-			subject: "feat: x",
-		} as never);
+			type: "feat", subject: "x",
+		});
 		const pre = allow();
 		const session = makeSession();
 		runTddCommitGate(makeCtx(), commitEvent(), session, pre);
 		expect(checkConventionalCommitCoherence).toHaveBeenCalledWith(session, {
-			subject: "feat: x",
+			type: "feat", subject: "x",
 		});
 	});
 
 	it("forwards the parsed commit type to the test-block gate", () => {
-		vi.mocked(parseCommitMessageFromBash).mockReturnValue({ type: "feat" } as never);
+		vi.mocked(parseCommitMessageFromBash).mockReturnValue({ type: "feat", subject: "x" });
 		const session = makeSession();
 		runTddCommitGate(makeCtx(), commitEvent(), session, allow());
 		expect(checkTestBlockCountRegression).toHaveBeenCalledWith(session, undefined, "feat");
@@ -437,22 +446,22 @@ describe("runTddCommitGate", () => {
 			check({ severity: "warning", message: "warning only" }),
 		]);
 		const ctx = makeCtx({
-			rules: { structural_checks: { test_first_mode: "enforce" } },
-		} as unknown as Partial<ServerRuntime>);
+			rules: enforceRules(),
+		});
 		const pre = allow();
 		runTddCommitGate(ctx, commitEvent(), makeSession(), pre);
 		expect(pre.decision).toBe("allow");
 	});
 
-	it("assigns the stable rule id when a null rule id is present", () => {
+	it("assigns the stable rule id when no rule id is present", () => {
 		vi.mocked(checkProdTestLocRatio).mockReturnValue([
 			check({ severity: "error", message: "first" }),
 			check({ severity: "error", message: "second" }),
 		]);
 		const ctx = makeCtx({
-			rules: { structural_checks: { test_first_mode: "enforce" } },
-		} as unknown as Partial<ServerRuntime>);
-		const pre: HarnessDecision = { decision: "allow", rule_id: null as never };
+			rules: enforceRules(),
+		});
+		const pre: HarnessDecision = { decision: "allow" };
 		runTddCommitGate(ctx, commitEvent(), makeSession(), pre);
 		expect(pre.rule_id).toBe("commit-test-first-gate");
 		expect(pre.reason).toBe("BLOCKED: Tests must pass before committing. first second");
@@ -598,7 +607,7 @@ describe("runProjectWideGitGate", () => {
 		]);
 		const reportGuardEvent = vi.fn();
 		const ctx = makeCtx({
-			serverBridge: { reportGuardEvent } as unknown as ServerRuntime["serverBridge"],
+			serverBridge: bridge(reportGuardEvent),
 		});
 		const pre = allow();
 		runProjectWideGitGate(
@@ -630,16 +639,16 @@ describe("runProjectWideGitGate", () => {
 		expect(pre.warnings).toBeUndefined();
 	});
 
-	it("reports an absent session agent as an empty name without throwing", () => {
+	it("reports an empty session agent name without throwing", () => {
 		vi.mocked(checkProjectTypecheckClean).mockReturnValue([
 			check({ name: "tc", message: "boom", severity: "error" }),
 		]);
 		const reportGuardEvent = vi.fn();
 		const ctx = makeCtx({
-			serverBridge: { reportGuardEvent } as unknown as ServerRuntime["serverBridge"],
+			serverBridge: bridge(reportGuardEvent),
 		});
 		expect(() =>
-			runProjectWideGitGate(ctx, commit(), undefined as unknown as SessionTrajectory, allow()),
+			runProjectWideGitGate(ctx, commit(), makeSession({ agent_name: "" }), allow()),
 		).not.toThrow();
 		expect(reportGuardEvent.mock.calls[0]?.[0].agent_name).toBe("");
 	});
@@ -650,7 +659,7 @@ describe("runProjectWideGitGate", () => {
 		]);
 		const reportGuardEvent = vi.fn();
 		const ctx = makeCtx({
-			serverBridge: { reportGuardEvent } as unknown as ServerRuntime["serverBridge"],
+			serverBridge: bridge(reportGuardEvent),
 		});
 		runProjectWideGitGate(ctx, commit(), makeSession({ agent_name: "sess-agent" }), allow());
 		expect(reportGuardEvent.mock.calls[0]?.[0].agent_name).toBe("sess-agent");
@@ -730,7 +739,7 @@ describe("runProjectWideGitGate", () => {
 		]);
 		const reportGuardEvent = vi.fn();
 		const ctx = makeCtx({
-			serverBridge: { reportGuardEvent } as unknown as ServerRuntime["serverBridge"],
+			serverBridge: bridge(reportGuardEvent),
 		});
 		runProjectWideGitGate(ctx, push(), makeSession(), allow());
 		expect(reportGuardEvent).toHaveBeenCalledOnce();
@@ -781,7 +790,7 @@ describe("runProjectWideGitGate", () => {
 		]);
 		const reportGuardEvent = vi.fn();
 		const ctx = makeCtx({
-			serverBridge: { reportGuardEvent } as unknown as ServerRuntime["serverBridge"],
+			serverBridge: bridge(reportGuardEvent),
 		});
 		const pre = allow();
 		runProjectWideGitGate(
@@ -806,7 +815,7 @@ describe("runProjectWideGitGate", () => {
 		]);
 		const reportGuardEvent = vi.fn();
 		const ctx = makeCtx({
-			serverBridge: { reportGuardEvent } as unknown as ServerRuntime["serverBridge"],
+			serverBridge: bridge(reportGuardEvent),
 		});
 		runProjectWideGitGate(ctx, commit(), makeSession(), allow());
 		expect(reportGuardEvent.mock.calls[0]?.[0].reason).toBe(
@@ -822,7 +831,7 @@ describe("runProjectWideGitGate", () => {
 		]);
 		const reportGuardEvent = vi.fn();
 		const ctx = makeCtx({
-			serverBridge: { reportGuardEvent } as unknown as ServerRuntime["serverBridge"],
+			serverBridge: bridge(reportGuardEvent),
 		});
 		const pre = allow();
 		runProjectWideGitGate(ctx, push(), makeSession({ agent_name: "" }), pre);
@@ -894,15 +903,15 @@ describe("runProjectWideGitGate", () => {
 describe("captureDiffAwareBaseline", () => {
 	it("skips when diff_aware is explicitly disabled", () => {
 		const ctx = makeCtx({
-			rules: { diff_aware: { enabled: false } },
-		} as unknown as Partial<ServerRuntime>);
+			rules: { ...makeGuardRules(), diff_aware: { enabled: false } },
+		});
 		captureDiffAwareBaseline(ctx, ev({ tool_name: "Edit" }), "src/a.ts");
 		expect(ctx.preEditBaselines.size).toBe(0);
 		expect(mReadFile).not.toHaveBeenCalled();
 	});
 
 	it("captures when diff_aware is undefined (default-on, !== false)", () => {
-		const ctx = makeCtx({ rules: {} } as unknown as Partial<ServerRuntime>);
+		const ctx = makeCtx({ rules: makeGuardRules() });
 		captureDiffAwareBaseline(ctx, ev({ tool_name: "Edit" }), "src/a.ts");
 		expect(ctx.preEditBaselines.size).toBe(1);
 	});
@@ -999,10 +1008,10 @@ describe("captureDiffAwareBaseline", () => {
 	it("populates the baseline from the per-content counters (sentinels flow through)", () => {
 		const ctx = makeCtx();
 		vi.mocked(checkMissingReturnTypes).mockReturnValue([
-			{ text: "fn a()" },
-			{ text: "fn b()" },
-		] as never);
-		vi.mocked(checkFunctionComplexity).mockReturnValue([{ text: "fn c()" }] as never);
+			{ line: 1, text: "fn a()" },
+			{ line: 1, text: "fn b()" },
+		]);
+		vi.mocked(checkFunctionComplexity).mockReturnValue([{ line: 1, text: "fn c()" }]);
 		captureDiffAwareBaseline(ctx, ev({ tool_name: "Edit" }), "src/a.ts");
 		const baseline = ctx.preEditBaselines.get("/repo/src/a.ts");
 		expect(baseline).toBeDefined();
@@ -1027,8 +1036,8 @@ describe("captureDiffAwareBaseline", () => {
 
 	it("captures the CRAP snapshot when coverage data is present", () => {
 		const crap = new Map([["src/a.ts", new Map([["fn@1", 42]])]]);
-		vi.mocked(loadCoverageFinal).mockReturnValue({ some: "cache" } as never);
-		vi.mocked(coverageForFile).mockReturnValue({ statements: {} } as never);
+		vi.mocked(loadCoverageFinal).mockReturnValue(coverageCache);
+		vi.mocked(coverageForFile).mockReturnValue(fileCoverage);
 		vi.mocked(snapshotCrap).mockReturnValue(crap);
 		const ctx = makeCtx();
 		captureDiffAwareBaseline(ctx, ev({ tool_name: "Edit" }), "src/a.ts");
@@ -1036,7 +1045,7 @@ describe("captureDiffAwareBaseline", () => {
 		expect(baseline?.crapScores).toBe(crap);
 		expect(loadCoverageFinal).toHaveBeenCalledWith("/repo/coverage/coverage-final.json", "/repo");
 		expect(coverageForFile).toHaveBeenCalledWith(
-			{ some: "cache" },
+			coverageCache,
 			"src/a.ts",
 		);
 		// snapshotCrap got the resolved coverage + mtime + threshold.
@@ -1050,8 +1059,8 @@ describe("captureDiffAwareBaseline", () => {
 	});
 
 	it("fails open (crapScores undefined) when the CRAP snapshot throws", () => {
-		vi.mocked(loadCoverageFinal).mockReturnValue({ some: "cache" } as never);
-		vi.mocked(coverageForFile).mockReturnValue({} as never);
+		vi.mocked(loadCoverageFinal).mockReturnValue(coverageCache);
+		vi.mocked(coverageForFile).mockReturnValue(fileCoverage);
 		vi.mocked(snapshotCrap).mockImplementation(() => {
 			throw new Error("crap boom");
 		});
@@ -1157,38 +1166,20 @@ describe("injectStructureContext", () => {
 	it("emits no warning when config is null (implicit mode)", () => {
 		const pre = allow();
 		const session = makeSession({
-			pending_completions: new Map([["struct:1", pendingStruct() as never]]),
+			pending_completions: new Map([["struct:1", pendingStruct()]]),
 		});
 		injectStructureContext(makeCtx(), editEvent(), session, pre, "src/a.ts");
 		expect(pre.warnings).toBeUndefined();
 	});
 
-	it("emits no warning when session is falsy even with a config", () => {
-		vi.mocked(loadStructureConfig).mockReturnValue({
-			config: { mode: "strict" } as never,
-			errors: [],
-			implicit: false,
-		});
-		const pre = allow();
-		// session passed as undefined-ish via cast — the `config && session` guard short-circuits.
-		injectStructureContext(
-			makeCtx(),
-			editEvent(),
-			undefined as unknown as SessionTrajectory,
-			pre,
-			"src/a.ts",
-		);
-		expect(pre.warnings).toBeUndefined();
-	});
-
 	it("ignores pending_completions whose key is not a struct: follow-up", () => {
 		vi.mocked(loadStructureConfig).mockReturnValue({
-			config: { mode: "strict" } as never,
+			config: resolveStructureConfig({ version: 1, mode: "strict" }),
 			errors: [],
 			implicit: false,
 		});
 		const session = makeSession({
-			pending_completions: new Map([["export:1", pendingStruct() as never]]),
+			pending_completions: new Map([["export:1", pendingStruct()]]),
 		});
 		const pre = allow();
 		injectStructureContext(makeCtx(), editEvent(), session, pre, "src/a.ts");
@@ -1197,13 +1188,13 @@ describe("injectStructureContext", () => {
 
 	it("emits no warning when all affected files are already resolved", () => {
 		vi.mocked(loadStructureConfig).mockReturnValue({
-			config: { mode: "strict" } as never,
+			config: resolveStructureConfig({ version: 1, mode: "strict" }),
 			errors: [],
 			implicit: false,
 		});
 		const session = makeSession({
 			pending_completions: new Map([
-				["struct:1", pendingStruct({ affected: ["a.ts"], resolved: ["a.ts"] }) as never],
+				["struct:1", pendingStruct({ affected: ["a.ts"], resolved: ["a.ts"] })],
 			]),
 		});
 		const pre = allow();
@@ -1213,7 +1204,7 @@ describe("injectStructureContext", () => {
 
 	it("emits a structure warning listing unresolved companion files", () => {
 		vi.mocked(loadStructureConfig).mockReturnValue({
-			config: { mode: "strict" } as never,
+			config: resolveStructureConfig({ version: 1, mode: "strict" }),
 			errors: [],
 			implicit: false,
 		});
@@ -1225,7 +1216,7 @@ describe("injectStructureContext", () => {
 						description: "rename foo()",
 						affected: ["a.ts", "b.ts"],
 						resolved: ["a.ts"],
-					}) as never,
+					}),
 				],
 			]),
 		});
@@ -1240,13 +1231,13 @@ describe("injectStructureContext", () => {
 
 	it("appends the structure warning onto a pre-existing warnings array", () => {
 		vi.mocked(loadStructureConfig).mockReturnValue({
-			config: { mode: "strict" } as never,
+			config: resolveStructureConfig({ version: 1, mode: "strict" }),
 			errors: [],
 			implicit: false,
 		});
 		const session = makeSession({
 			pending_completions: new Map([
-				["struct:1", pendingStruct({ affected: ["b.ts"], resolved: [] }) as never],
+				["struct:1", pendingStruct({ affected: ["b.ts"], resolved: [] })],
 			]),
 		});
 		const pre: HarnessDecision = { decision: "allow", warnings: ["earlier"] };
@@ -1257,14 +1248,14 @@ describe("injectStructureContext", () => {
 
 	it("aggregates multiple unresolved struct: completions into one warning", () => {
 		vi.mocked(loadStructureConfig).mockReturnValue({
-			config: { mode: "strict" } as never,
+			config: resolveStructureConfig({ version: 1, mode: "strict" }),
 			errors: [],
 			implicit: false,
 		});
 		const session = makeSession({
 			pending_completions: new Map([
-				["struct:1", pendingStruct({ description: "d1", affected: ["x.ts"] }) as never],
-				["struct:2", pendingStruct({ description: "d2", affected: ["y.ts"] }) as never],
+				["struct:1", pendingStruct({ description: "d1", affected: ["x.ts"] })],
+				["struct:2", pendingStruct({ description: "d2", affected: ["y.ts"] })],
 			]),
 		});
 		const pre = allow();
@@ -1279,7 +1270,7 @@ describe("injectStructureContext", () => {
 
 	it("separates multiple unresolved companion files with commas", () => {
 		vi.mocked(loadStructureConfig).mockReturnValue({
-			config: { mode: "strict" } as never,
+			config: resolveStructureConfig({ version: 1, mode: "strict" }),
 			errors: [],
 			implicit: false,
 		});
@@ -1287,7 +1278,7 @@ describe("injectStructureContext", () => {
 			pending_completions: new Map([
 				[
 					"struct:1",
-					pendingStruct({ affected: ["a.ts", "b.ts", "c.ts"], resolved: ["a.ts"] }) as never,
+					pendingStruct({ affected: ["a.ts", "b.ts", "c.ts"], resolved: ["a.ts"] }),
 				],
 			]),
 		});

@@ -375,7 +375,7 @@ describe("checkProvenanceTaintToExternalAction — fires `ask`", () => {
 		for (const t of tools) {
 			const decision = checkProvenanceTaintToExternalAction(
 				t,
-				{ payload: "see leaked.txt" } as JsonObject,
+				{ payload: "see leaked.txt" },
 				session,
 			);
 			expect(decision?.decision, `tool: ${t}`).toBe("ask");
@@ -390,7 +390,7 @@ describe("checkProvenanceTaintToExternalAction — fires `ask`", () => {
 		});
 		const decision = checkProvenanceTaintToExternalAction(
 			"mcp__github__list_issues",
-			{ repo: "tainted.txt" } as JsonObject,
+			{ repo: "tainted.txt" },
 			session,
 		);
 		expect(decision).toBeNull();
@@ -432,10 +432,10 @@ describe("SessionTracker serialize/hydrate — provenance round-trip", () => {
 		expect(snap).not.toBeNull();
 
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as JsonObject);
+		const restored = reader.hydrate(nonNull(snap));
 		expect(restored).not.toBeNull();
 		expect(restored?.taint_sources).toHaveLength(5);
-		const provenances = (restored as SessionTrajectory).taint_sources.map((s) => s.provenance);
+		const provenances = (nonNull(restored)).taint_sources.map((s) => s.provenance);
 		expect(provenances).toEqual([
 			"document_content",
 			"fetched_external",
@@ -492,7 +492,7 @@ describe("SessionTracker serialize/hydrate — provenance round-trip", () => {
 		const restored = reader.hydrate(oldSnapshot);
 		expect(restored).not.toBeNull();
 		expect(restored?.taint_sources).toHaveLength(2);
-		const provenances = (restored as SessionTrajectory).taint_sources.map(
+		const provenances = (nonNull(restored)).taint_sources.map(
 			(s) => s.provenance,
 		);
 		// Backward compat: every entry without provenance defaults to local_read.

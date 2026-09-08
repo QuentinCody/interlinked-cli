@@ -228,7 +228,7 @@ describe("readCollectionActivity — tool_event projection", () => {
 	];
 
 	it.each(summaryCases)("summarizes the action — $name", ({ action, summary }) => {
-		const ev = projectOne(tmp, toolEvent({ action: action as CollectionRecord["action"] }));
+		const ev = projectOne(tmp, { ...toolEvent(), action });
 		expect(ev.summary).toBe(summary);
 	});
 });

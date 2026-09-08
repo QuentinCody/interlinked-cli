@@ -125,7 +125,8 @@ describe("symbolRow — quarantined flag survives a missing instability record",
 		// SAFETY: deliberately building a runtime shape the type forbids (a
 		// SymbolRecord missing `instability`) to exercise the manifest-loaded-
 		// from-disk path, where the field may genuinely be absent at runtime.
-		const { instability: _drop, ...rest } = bare as unknown as Record<string, unknown>;
+		const { instability: _drop, ...rest } = bare;
+		// SAFETY: this intentionally incomplete legacy record tests the reader's missing-instability compatibility path.
 		const withoutInstability = rest as unknown as SymbolRecord;
 		const m = manifestOf({});
 		m.files["src/a.ts"] = { [withoutInstability.symbolId]: withoutInstability };

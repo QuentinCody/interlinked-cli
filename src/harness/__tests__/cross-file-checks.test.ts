@@ -15,11 +15,7 @@ import type { ExportedSymbol } from "../types.js";
 function makeGraph(
 	files: string[],
 	exportsByFile: Record<string, ExportedSymbol[]> = {},
-): {
-	allFiles: () => string[];
-	toRelative: (p: string) => string;
-	getExports: (p: string) => ExportedSymbol[];
-} {
+): Pick<ProjectGraph, "allFiles" | "toRelative" | "getExports"> {
 	return {
 		allFiles: () => files,
 		toRelative: (p: string) => p.split("/").slice(-2).join("/"),
@@ -45,7 +41,7 @@ describe("checkCrossFileSwitchDiscriminant", () => {
 		const results = checkCrossFileSwitchDiscriminant(
 			a,
 			"a.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).check).toBe("cross_file_switch_discriminant");
@@ -58,7 +54,7 @@ describe("checkCrossFileSwitchDiscriminant", () => {
 		writeFileSync(b, "function g() { return 2; }");
 		const graph = makeGraph([a, b]);
 		expect(
-			checkCrossFileSwitchDiscriminant(a, "a.ts", graph as unknown as ProjectGraph),
+			checkCrossFileSwitchDiscriminant(a, "a.ts", graph),
 		).toEqual([]);
 	});
 
@@ -69,7 +65,7 @@ describe("checkCrossFileSwitchDiscriminant", () => {
 		writeFileSync(b, "switch (x.status) { case 2: break; }");
 		const graph = makeGraph([a, b]);
 		expect(
-			checkCrossFileSwitchDiscriminant(a, "a.ts", graph as unknown as ProjectGraph),
+			checkCrossFileSwitchDiscriminant(a, "a.ts", graph),
 		).toEqual([]);
 	});
 
@@ -77,7 +73,7 @@ describe("checkCrossFileSwitchDiscriminant", () => {
 		const missing = join(dir, "nope.ts");
 		const graph = makeGraph([missing]);
 		expect(
-			checkCrossFileSwitchDiscriminant(missing, "nope.ts", graph as unknown as ProjectGraph),
+			checkCrossFileSwitchDiscriminant(missing, "nope.ts", graph),
 		).toEqual([]);
 	});
 
@@ -87,7 +83,7 @@ describe("checkCrossFileSwitchDiscriminant", () => {
 		writeFileSync(a, "function f(x) { switch (x.kind) { case 'A': return 1; } }");
 		const graph = makeGraph([a, missingOther]);
 		expect(
-			checkCrossFileSwitchDiscriminant(a, "a.ts", graph as unknown as ProjectGraph),
+			checkCrossFileSwitchDiscriminant(a, "a.ts", graph),
 		).toEqual([]);
 	});
 
@@ -104,7 +100,7 @@ describe("checkCrossFileSwitchDiscriminant", () => {
 		const results = checkCrossFileSwitchDiscriminant(
 			a,
 			"a.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		expect(results.length).toBe(1);
 		const result = nonNull(results[0]);
@@ -151,7 +147,7 @@ describe("checkSingleImplementationInterface", () => {
 		const results = checkSingleImplementationInterface(
 			iface,
 			"shape.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).check).toBe("single_implementation_interface");
@@ -168,7 +164,7 @@ describe("checkSingleImplementationInterface", () => {
 			[iface]: [{ name: "Shape", kind: "interface", isTypeOnly: false, line: 1 }],
 		});
 		expect(
-			checkSingleImplementationInterface(iface, "shape.ts", graph as unknown as ProjectGraph),
+			checkSingleImplementationInterface(iface, "shape.ts", graph),
 		).toEqual([]);
 	});
 
@@ -179,7 +175,7 @@ describe("checkSingleImplementationInterface", () => {
 			[iface]: [{ name: "Shape", kind: "interface", isTypeOnly: false, line: 1 }],
 		});
 		expect(
-			checkSingleImplementationInterface(iface, "shape.ts", graph as unknown as ProjectGraph),
+			checkSingleImplementationInterface(iface, "shape.ts", graph),
 		).toEqual([]);
 	});
 
@@ -190,7 +186,7 @@ describe("checkSingleImplementationInterface", () => {
 			[mod]: [{ name: "helper", kind: "function", isTypeOnly: false, line: 1 }],
 		});
 		expect(
-			checkSingleImplementationInterface(mod, "util.ts", graph as unknown as ProjectGraph),
+			checkSingleImplementationInterface(mod, "util.ts", graph),
 		).toEqual([]);
 	});
 
@@ -213,7 +209,7 @@ describe("checkSingleImplementationInterface", () => {
 		const results = checkSingleImplementationInterface(
 			iface,
 			"shape.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).affectedFiles).toEqual([impl]);
@@ -234,7 +230,7 @@ describe("checkSingleImplementationInterface", () => {
 		const results = checkSingleImplementationInterface(
 			iface,
 			"shape.ts",
-			graph as unknown as ProjectGraph,
+			graph,
 		);
 		expect(results.length).toBe(1);
 		expect(nonNull(results[0]).affectedFiles).toEqual([impl]);

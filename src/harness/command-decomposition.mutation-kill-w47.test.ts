@@ -1,3 +1,4 @@
+import { makeMinimalEvent as completeEventFixture } from "./__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import {
 	applyRewrite,
@@ -24,12 +25,12 @@ function makeRule(overrides: Partial<GuardRule>): GuardRule {
 }
 
 function baseEvent(overrides: Partial<HarnessEvent>): HarnessEvent {
-	return {
+	return ({ ...completeEventFixture(), ...{
 		hook_event: "PreToolUse",
 		session_id: "s1",
 		agent_source: "claude",
 		...overrides,
-	} as HarnessEvent; // SAFETY: test fixture only sets the fields inferAgentRole reads; other required HarnessEvent fields are irrelevant to this pure function.
+	} }); // SAFETY: test fixture only sets the fields inferAgentRole reads; other required HarnessEvent fields are irrelevant to this pure function.
 }
 
 describe("decomposeCommand — heredocStartsAt uses .some (mutant cc308729)", () => {

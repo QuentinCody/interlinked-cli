@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireNullable, wireNumber, wireObject, wireOptional, wireString } from "../lib/value-validation.js";
 // ===========================================
 // interlinked harness — behavioral coverage
 // ===========================================
@@ -189,10 +190,7 @@ interface FakeChild extends EventEmitter {
 }
 
 function createFakeChild(pid = 4321): FakeChild {
-	const child = new EventEmitter() as FakeChild;
-	child.pid = pid;
-	child.unref = vi.fn();
-	return child;
+	return Object.assign(new EventEmitter(), { pid, unref: vi.fn() });
 }
 
 // ---- output capture ----------------------------------------------------
@@ -254,7 +252,7 @@ beforeEach(() => {
 	vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string | Uint8Array) => {
 		stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
 		return true;
-	}) as typeof process.stderr.write);
+	}));
 	vi.spyOn(process, "cwd").mockReturnValue("/repo");
 
 	// Sensible defaults the individual tests override as needed.
@@ -357,7 +355,7 @@ describe("harnessStartCommand", () => {
 		mocks.queryHarness.mockResolvedValue({ decision: "allow" });
 		mocks.isHarnessRunning.mockReturnValue({ running: true, pid: 42 });
 		await runWithTimers(harnessStartCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as { status: string; pid: number };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString, "pid": wireNumber }), "test JSON value");
 		expect(parsed.status).toBe("already_running");
 		expect(parsed.pid).toBe(42);
 	});
@@ -394,7 +392,7 @@ describe("harnessStartCommand", () => {
 		expect(mocks.ensureDistFresh).toHaveBeenCalledOnce();
 		expect(mocks.reapOrphanHarnesses).toHaveBeenCalledWith("/repo", { killAll: true });
 		expect(mocks.spawn).toHaveBeenCalledOnce();
-		const spawnArgs = mocks.spawn.mock.calls[0]?.[1] as string[];
+		const spawnArgs = parseWire(mocks.spawn.mock.calls[0]?.[1], wireArray(wireString), "test JSON value");
 		expect(spawnArgs).toEqual(expect.arrayContaining(["--protocol", "dual", "--session-id", "default", "--verbose"]));
 		expect(spawnArgs.some((a) => a.startsWith("--max-old-space-size="))).toBe(true);
 		expect(child.unref).toHaveBeenCalledOnce();
@@ -414,7 +412,7 @@ describe("harnessStartCommand", () => {
 			mocks.existsSync.mockImplementation((p: unknown) => String(p) === SERVER || String(p) === SOCK);
 			mocks.spawn.mockReturnValue(createFakeChild(1));
 			await runWithTimers(harnessStartCommand({ daemon: true }));
-			const spawnArgs = mocks.spawn.mock.calls[0]?.[1] as string[];
+			const spawnArgs = parseWire(mocks.spawn.mock.calls[0]?.[1], wireArray(wireString), "test JSON value");
 			expect(spawnArgs[0]).toBe("--max-old-space-size=2048");
 		} finally {
 			if (prev === undefined) delete process.env.INTERLINKED_HARNESS_HEAP_MB;
@@ -438,7 +436,7 @@ describe("harnessStartCommand", () => {
 				);
 				mocks.spawn.mockReturnValue(createFakeChild(1));
 				await runWithTimers(harnessStartCommand({ daemon: true }));
-				const spawnArgs = mocks.spawn.mock.calls[0]?.[1] as string[];
+				const spawnArgs = parseWire(mocks.spawn.mock.calls[0]?.[1], wireArray(wireString), "test JSON value");
 				expect(spawnArgs[0]).toBe("--max-old-space-size=1536");
 			} finally {
 				if (prev === undefined) delete process.env.INTERLINKED_HARNESS_HEAP_MB;
@@ -482,7 +480,7 @@ describe("harnessStartCommand", () => {
 		mocks.spawn.mockReturnValue(createFakeChild(7));
 		await runWithTimers(harnessStartCommand({ daemon: true, protocol: "framed" }));
 		expect(mocks.unlinkSync).not.toHaveBeenCalled();
-		const spawnArgs = mocks.spawn.mock.calls[0]?.[1] as string[];
+		const spawnArgs = parseWire(mocks.spawn.mock.calls[0]?.[1], wireArray(wireString), "test JSON value");
 		// framed is non-raw, so --session-id is appended
 		expect(spawnArgs).toEqual(expect.arrayContaining(["--protocol", "framed", "--session-id", "default"]));
 	});
@@ -494,7 +492,7 @@ describe("harnessStartCommand", () => {
 		mocks.existsSync.mockImplementation((p: unknown) => String(p) === SERVER || String(p) === SOCK);
 		mocks.spawn.mockReturnValue(createFakeChild(8));
 		await runWithTimers(harnessStartCommand({ daemon: true, protocol: "raw", sessionId: "ignored" }));
-		const spawnArgs = mocks.spawn.mock.calls[0]?.[1] as string[];
+		const spawnArgs = parseWire(mocks.spawn.mock.calls[0]?.[1], wireArray(wireString), "test JSON value");
 		expect(spawnArgs).not.toContain("--session-id");
 		expect(spawnArgs).toEqual(expect.arrayContaining(["--protocol", "raw"]));
 	});
@@ -535,7 +533,7 @@ describe("harnessStartCommand", () => {
 		mocks.existsSync.mockImplementation((p: unknown) => String(p) === SERVER);
 		mocks.spawn.mockReturnValue(createFakeChild());
 		await runWithTimers(harnessStartCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as { status: string; protocol: string };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString, "protocol": wireString }), "test JSON value");
 		expect(parsed.status).toBe("failed");
 		expect(parsed.protocol).toBe("dual");
 		// running-but-no-socket path emits the "foreground" hint
@@ -550,7 +548,7 @@ describe("harnessStartCommand", () => {
 		mocks.spawn.mockReturnValue(createFakeChild(77));
 		await runWithTimers(harnessStartCommand({ json: true }));
 		expect(mocks.ensureDistFresh).toHaveBeenCalledWith({ quiet: true });
-		const parsed = JSON.parse(logText()) as { status: string; pid: number; sockets: string[] };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString, "pid": wireNumber, "sockets": wireArray(wireString) }), "test JSON value");
 		expect(parsed.status).toBe("started");
 		expect(parsed.pid).toBe(77);
 		expect(parsed.sockets).toEqual([SOCK]);
@@ -562,7 +560,7 @@ describe("harnessStartCommand", () => {
 		mocks.existsSync.mockImplementation((p: unknown) => String(p) === SERVER || String(p) === SOCK);
 		mocks.spawn.mockReturnValue(createFakeChild(2468));
 		await runWithTimers(harnessStartCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as { status: string; pid: number };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString, "pid": wireNumber }), "test JSON value");
 		// socket appeared → ready:true; pid falls back to child.pid (2468)
 		expect(parsed.status).toBe("started");
 		expect(parsed.pid).toBe(2468);
@@ -587,7 +585,7 @@ describe("harnessStartCommand", () => {
 		mocks.spawn.mockReturnValue(child);
 		const exitSpy = vi
 			.spyOn(process, "exit")
-			.mockImplementation((() => undefined) as unknown as typeof process.exit);
+			.mockImplementation(() => { throw new Error("foreground exit"); });
 		await runWithTimers(harnessStartCommand({ daemon: false }));
 		expect(logText()).toContain("Starting harness in foreground");
 		expect(mocks.spawn).toHaveBeenCalledWith(
@@ -597,9 +595,9 @@ describe("harnessStartCommand", () => {
 		);
 		expect(mocks.transferStartupLock).toHaveBeenCalledWith("/repo", { childPid: 4321 });
 		// exit handler maps a numeric code through; null/0 → 0
-		child.emit("exit", 5);
+		expect(() => child.emit("exit", 5)).toThrow("foreground exit");
 		expect(exitSpy).toHaveBeenCalledWith(5);
-		child.emit("exit", null);
+		expect(() => child.emit("exit", null)).toThrow("foreground exit");
 		expect(exitSpy).toHaveBeenCalledWith(0);
 	});
 
@@ -607,9 +605,9 @@ describe("harnessStartCommand", () => {
 		mocks.isHarnessRunning.mockReturnValue({ running: false });
 		mocks.existsSync.mockImplementation((p: unknown) => String(p) === SERVER);
 		mocks.spawn.mockReturnValue(createFakeChild());
-		vi.spyOn(process, "exit").mockImplementation((() => undefined) as unknown as typeof process.exit);
+		vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("foreground exit"); });
 		await runWithTimers(harnessStartCommand({ daemon: false, json: true }));
-		const parsed = JSON.parse(logText()) as { status: string };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString }), "test JSON value");
 		expect(parsed.status).toBe("starting_foreground");
 	});
 
@@ -639,7 +637,7 @@ describe("harnessStartCommand", () => {
 	it("stringifies a non-Error thrown value in the catch path", async () => {
 		mocks.reapOrphanHarnessesVerified.mockRejectedValue("raw string failure");
 		await runWithTimers(harnessStartCommand({ json: true }));
-		const parsed = JSON.parse(errText()) as { error: string };
+		const parsed = parseWire(JSON.parse(errText()), wireObject({ "error": wireString }), "test JSON value");
 		expect(parsed.error).toBe("raw string failure");
 	});
 });
@@ -658,7 +656,7 @@ describe("harnessStopCommand", () => {
 	it("reports not-running in JSON when nothing was found to stop", async () => {
 		mocks.stopAllDaemons.mockResolvedValue({ stopped: [], survived: [] });
 		await runWithTimers(harnessStopCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as { status: string };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString }), "test JSON value");
 		expect(parsed.status).toBe("not_running");
 	});
 
@@ -683,7 +681,7 @@ describe("harnessStopCommand", () => {
 	it("emits the stopped JSON payload", async () => {
 		mocks.stopAllDaemons.mockResolvedValue({ stopped: [777], survived: [] });
 		await runWithTimers(harnessStopCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as { status: string; pids: number[] };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString, "pids": wireArray(wireNumber) }), "test JSON value");
 		expect(parsed.status).toBe("stopped");
 		expect(parsed.pids).toEqual([777]);
 	});
@@ -691,7 +689,7 @@ describe("harnessStopCommand", () => {
 	it("emits the still_running JSON payload", async () => {
 		mocks.stopAllDaemons.mockResolvedValue({ stopped: [], survived: [888] });
 		await runWithTimers(harnessStopCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as { status: string };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString }), "test JSON value");
 		expect(parsed.status).toBe("still_running");
 	});
 
@@ -727,7 +725,7 @@ describe("harnessStartCommand — startup mutex", () => {
 		mocks.acquireStartupLock.mockReturnValue({ acquired: false, holder: { pid: 4242, at: 1 } });
 		mocks.waitForDaemonSocket.mockResolvedValue(false);
 		await runWithTimers(harnessStartCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as { status: string; starter_pid: number };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString, "starter_pid": wireNumber }), "test JSON value");
 		expect(parsed.status).toBe("start_pending");
 		expect(parsed.starter_pid).toBe(4242);
 	});
@@ -735,7 +733,7 @@ describe("harnessStartCommand — startup mutex", () => {
 	it("N: the winner releases the lock when the command finishes", async () => {
 		mocks.isHarnessRunning.mockReturnValue({ running: true, pid: 42 });
 		await runWithTimers(harnessStartCommand({}));
-		expect(mocks.lockRelease).toHaveBeenCalled();
+		expect(mocks.lockRelease).toHaveBeenCalledWith();
 	});
 
 	it("N: the reaper the winner runs is the liveness-VERIFIED one", async () => {
@@ -984,20 +982,14 @@ describe("harnessRestartCommand", () => {
 		mocks.existsSync.mockImplementation((p: unknown) => String(p) === SERVER || String(p) === SOCK);
 		mocks.spawn.mockReturnValue(createFakeChild(901));
 		await runWithTimers(harnessRestartCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as {
-			status: string;
-			old_pid: number;
-			new_pid: number;
-			protocol: string;
-			sockets: string[];
-		};
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString, "old_pid": wireNumber, "new_pid": wireNumber, "protocol": wireString, "sockets": wireArray(wireString) }), "test JSON value");
 		expect(parsed.status).toBe("restarted");
 		expect(parsed.old_pid).toBe(900);
 		expect(parsed.new_pid).toBe(901);
 		expect(parsed.sockets).toEqual([SOCK]);
 		// JSON restart is also the automatic-handover launch path, so it must
 		// preserve the canonical heap ceiling and idle-GC capability.
-		const spawnArgs = mocks.spawn.mock.calls[0]?.[1] as string[];
+		const spawnArgs = parseWire(mocks.spawn.mock.calls[0]?.[1], wireArray(wireString), "test JSON value");
 		expect(spawnArgs.slice(0, 3)).toEqual([
 			"--max-old-space-size=1536",
 			"--expose-gc",
@@ -1010,7 +1002,7 @@ describe("harnessRestartCommand", () => {
 		mocks.getHarnessServerPath.mockReturnValue("");
 		mocks.existsSync.mockReturnValue(false);
 		await runWithTimers(harnessRestartCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as { status: string; message: string };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString, "message": wireString }), "test JSON value");
 		expect(parsed.status).toBe("error");
 		expect(parsed.message).toBe("Harness server not found");
 		expect(mocks.spawn).not.toHaveBeenCalled();
@@ -1022,7 +1014,7 @@ describe("harnessRestartCommand", () => {
 		mocks.existsSync.mockImplementation((p: unknown) => String(p) === SERVER);
 		mocks.spawn.mockReturnValue(createFakeChild());
 		await runWithTimers(harnessRestartCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as { status: string; old_pid?: number };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString, "old_pid": wireAbsentOptional(wireOptional(wireNumber)) }), "test JSON value");
 		expect(parsed.status).toBe("failed");
 		expect(parsed.old_pid).toBeUndefined();
 	});
@@ -1037,7 +1029,7 @@ describe("harnessRestartCommand", () => {
 		mocks.existsSync.mockImplementation((p: unknown) => String(p) === SERVER || String(p) === SOCK);
 		mocks.spawn.mockReturnValue(createFakeChild(1212));
 		await runWithTimers(harnessRestartCommand({ json: true, verbose: true, sessionId: "alpha", protocol: "framed" }));
-		const spawnArgs = mocks.spawn.mock.calls[0]?.[1] as string[];
+		const spawnArgs = parseWire(mocks.spawn.mock.calls[0]?.[1], wireArray(wireString), "test JSON value");
 		expect(spawnArgs).toEqual(expect.arrayContaining(["--protocol", "framed", "--session-id", "alpha", "--verbose"]));
 	});
 
@@ -1058,10 +1050,10 @@ describe("harnessRestartCommand", () => {
 		await runWithTimers(harnessRestartCommand({ json: true, protocol: "raw" }));
 		// No stderr nudges in JSON mode.
 		expect(stderrText()).toBe("");
-		const spawnArgs = mocks.spawn.mock.calls[0]?.[1] as string[];
+		const spawnArgs = parseWire(mocks.spawn.mock.calls[0]?.[1], wireArray(wireString), "test JSON value");
 		expect(spawnArgs).toContain("raw");
 		expect(spawnArgs).not.toContain("--session-id");
-		const parsed = JSON.parse(logText()) as { status: string; old_pid: number; new_pid: number };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "status": wireString, "old_pid": wireNumber, "new_pid": wireNumber }), "test JSON value");
 		expect(parsed.status).toBe("restarted");
 		expect(parsed.old_pid).toBe(800);
 		expect(parsed.new_pid).toBe(801);
@@ -1150,11 +1142,7 @@ describe("harnessStatusCommand", () => {
 		mocks.existsSync.mockReturnValue(true);
 		mocks.queryHarness.mockResolvedValue(null);
 		await runWithTimers(harnessStatusCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as {
-			running: boolean;
-			liveness: string;
-			socket_answered: boolean;
-		};
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "running": wireBoolean, "liveness": wireString, "socket_answered": wireBoolean }), "test JSON value");
 		expect(parsed.running).toBe(true);
 		expect(parsed.liveness).toBe("zombie");
 		expect(parsed.socket_answered).toBe(false);
@@ -1194,7 +1182,7 @@ describe("harnessStatusCommand", () => {
 				pid: 11,
 				alive: true,
 				socket_path: "/repo/.interlinked/harness-alpha.sock",
-				health: { status: "ok", protocol_version: "9" } as unknown as never,
+				health: { status: "ok", protocol_version: "9" },
 				health_error: null,
 			},
 		]);
@@ -1291,17 +1279,7 @@ describe("harnessStatusCommand", () => {
 			framed_timeout_count: 8,
 		});
 		await runWithTimers(harnessStatusCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as {
-			running: boolean;
-			pid: number;
-			socket: boolean;
-			raw_socket: { health: string };
-			protocol_version: string;
-			last_raw_event_at: string | null;
-			framed_error_count: number | null;
-			rss_mb: number | null;
-			build_stale: boolean;
-		};
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "running": wireBoolean, "pid": wireNumber, "socket": wireBoolean, "raw_socket": wireObject({ "health": wireString }), "protocol_version": wireString, "last_raw_event_at": wireNullable(wireString), "framed_error_count": wireNullable(wireNumber), "rss_mb": wireNullable(wireNumber), "build_stale": wireBoolean }), "test JSON value");
 		expect(parsed.running).toBe(true);
 		expect(parsed.pid).toBe(7);
 		expect(parsed.socket).toBe(true);
@@ -1317,12 +1295,7 @@ describe("harnessStatusCommand", () => {
 		mocks.isHarnessRunning.mockReturnValue({ running: false });
 		mocks.existsSync.mockReturnValue(false);
 		await runWithTimers(harnessStatusCommand({ json: true }));
-		const parsed = JSON.parse(logText()) as {
-			raw_socket: { health: string };
-			protocol_version: string | null;
-			framed_error_count: number | null;
-			rss_mb: number | null;
-		};
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "raw_socket": wireObject({ "health": wireString }), "protocol_version": wireNullable(wireString), "framed_error_count": wireNullable(wireNumber), "rss_mb": wireNullable(wireNumber) }), "test JSON value");
 		expect(parsed.raw_socket.health).toBe("missing");
 		expect(parsed.protocol_version).toBeNull();
 		expect(parsed.framed_error_count).toBeNull();
@@ -1334,7 +1307,7 @@ describe("harnessStatusCommand", () => {
 		mocks.existsSync.mockReturnValue(true);
 		await runWithTimers(harnessStatusCommand({ json: true }));
 		expect(mocks.readRssMb).not.toHaveBeenCalled();
-		const parsed = JSON.parse(logText()) as { rss_mb: number | null };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "rss_mb": wireNullable(wireNumber) }), "test JSON value");
 		expect(parsed.rss_mb).toBeNull();
 	});
 
@@ -1372,7 +1345,7 @@ describe("harnessTestCommand", () => {
 		mocks.existsSync.mockReturnValue(true); // socket exists
 		mocks.queryHarness.mockResolvedValue(null); // but no response
 		await runWithTimers(harnessTestCommand("ls", { json: true }));
-		const parsed = JSON.parse(logText()) as { error: string };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "error": wireString }), "test JSON value");
 		expect(parsed.error).toBe("Harness not running");
 	});
 
@@ -1386,7 +1359,7 @@ describe("harnessTestCommand", () => {
 		expect(out).toContain("ls -la");
 		expect(process.exitCode).toBe(0);
 		// default tool is Bash → tool_input carries `command`
-		const event = mocks.queryHarness.mock.calls[0]?.[1] as { tool_name: string; tool_input: { command?: string } };
+		const event = parseWire(mocks.queryHarness.mock.calls[0]?.[1], wireObject({ "tool_name": wireString, "tool_input": wireObject({ "command": wireAbsentOptional(wireOptional(wireString)) }) }), "test JSON value");
 		expect(event.tool_name).toBe("Bash");
 		expect(event.tool_input.command).toBe("ls -la");
 	});
@@ -1411,7 +1384,7 @@ describe("harnessTestCommand", () => {
 		mocks.existsSync.mockReturnValue(true);
 		mocks.queryHarness.mockResolvedValue({ decision: "allow" });
 		await runWithTimers(harnessTestCommand("/etc/passwd", { tool: "Read" }));
-		const event = mocks.queryHarness.mock.calls[0]?.[1] as { tool_name: string; tool_input: { file_path?: string } };
+		const event = parseWire(mocks.queryHarness.mock.calls[0]?.[1], wireObject({ "tool_name": wireString, "tool_input": wireObject({ "file_path": wireAbsentOptional(wireOptional(wireString)) }) }), "test JSON value");
 		expect(event.tool_name).toBe("Read");
 		expect(event.tool_input.file_path).toBe("/etc/passwd");
 	});
@@ -1420,7 +1393,7 @@ describe("harnessTestCommand", () => {
 		mocks.existsSync.mockReturnValue(true);
 		mocks.queryHarness.mockResolvedValue({ decision: "allow" });
 		await runWithTimers(harnessTestCommand("echo hi", { tool: "Shell" }));
-		const event = mocks.queryHarness.mock.calls[0]?.[1] as { tool_input: { command?: string } };
+		const event = parseWire(mocks.queryHarness.mock.calls[0]?.[1], wireObject({ "tool_input": wireObject({ "command": wireAbsentOptional(wireOptional(wireString)) }) }), "test JSON value");
 		expect(event.tool_input.command).toBe("echo hi");
 	});
 
@@ -1428,7 +1401,7 @@ describe("harnessTestCommand", () => {
 		mocks.existsSync.mockReturnValue(true);
 		mocks.queryHarness.mockResolvedValue({ decision: "block", reason: "nope" });
 		await runWithTimers(harnessTestCommand("danger", { json: true }));
-		const parsed = JSON.parse(logText()) as { decision: string; reason: string };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "decision": wireString, "reason": wireString }), "test JSON value");
 		expect(parsed.decision).toBe("block");
 		expect(parsed.reason).toBe("nope");
 		expect(process.exitCode).toBe(1);

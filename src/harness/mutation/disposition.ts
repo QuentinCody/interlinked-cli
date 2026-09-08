@@ -308,24 +308,24 @@ function parseApproval(v: unknown): HumanApproval | null {
 	return { approvedBy, approvedAt, artifactRef };
 }
 
-const SEARCH_STRATEGIES: ReadonlySet<string> = new Set([
+const SEARCH_STRATEGIES = [
 	"property",
 	"fuzz",
 	"differential",
 	"bounded_exhaustive",
 	"test_suite",
-]);
+] as const;
 
 function parseEvidence(v: unknown): CounterexampleSearchEvidence | null {
 	if (!isJsonObject(v)) return null;
 	const o = v;
 	const seed = str(o.seed);
 	const searchedAt = str(o.searchedAt);
-	const strategy = str(o.strategy);
-	if (!seed || !searchedAt || !strategy || !SEARCH_STRATEGIES.has(strategy)) return null;
+	const strategy = SEARCH_STRATEGIES.find((candidate) => candidate === o.strategy);
+	if (!seed || !searchedAt || !strategy) return null;
 	if (typeof o.runs !== "number" || typeof o.budgetMs !== "number") return null;
 	return {
-		strategy: strategy as CounterexampleSearchEvidence["strategy"],
+		strategy,
 		runs: o.runs,
 		seed,
 		budgetMs: o.budgetMs,
@@ -385,7 +385,7 @@ function parseUnresolved(o: JsonObject): SurvivorDisposition | null {
 
 type KindParser = (o: JsonObject) => SurvivorDisposition | null;
 
-const PARSERS: Record<SurvivorDispositionKind, KindParser> = {
+const PARSERS: Readonly<Record<string, KindParser>> = {
 	killed: () => ({ kind: "killed" }),
 	dead_code: parseDeadCode,
 	proved_equivalent: parseProvedEquivalent,
@@ -394,7 +394,7 @@ const PARSERS: Record<SurvivorDispositionKind, KindParser> = {
 	outside_contract: parseOutsideContract,
 	accepted_risk: parseAcceptedRisk,
 	unresolved: parseUnresolved,
-};
+} satisfies Record<SurvivorDispositionKind, KindParser>;
 
 /**
  * A well-formed disposition, or null for anything else — garbage, a partial
@@ -405,7 +405,7 @@ export function parseDisposition(value: unknown): SurvivorDisposition | null {
 	if (!isJsonObject(value)) return null;
 	const o = value;
 	if (typeof o.kind !== "string") return null;
-	const parser = PARSERS[o.kind as SurvivorDispositionKind] as KindParser | undefined;
+	const parser = Object.hasOwn(PARSERS, o.kind) ? PARSERS[o.kind] : undefined;
 	return parser ? parser(o) : null;
 }
 

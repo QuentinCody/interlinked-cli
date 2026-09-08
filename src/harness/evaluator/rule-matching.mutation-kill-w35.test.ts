@@ -14,7 +14,7 @@ function makeRule(overrides: Partial<GuardRule> = {}): GuardRule {
 		reason: "do not delete everything",
 		enabled: true,
 		...overrides,
-	} as GuardRule;
+	};
 }
 
 describe("getField — dot-path traversal (mutation-kill w35)", () => {

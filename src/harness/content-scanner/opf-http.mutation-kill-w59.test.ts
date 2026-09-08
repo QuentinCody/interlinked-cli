@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 import { describe, expect, it, vi } from "vitest";
 import { OpfHttpScanner } from "./opf-http.js";
 import type { ContentScannerConfig } from "./types.js";
@@ -36,11 +37,8 @@ function baseConfig(overrides: Partial<ContentScannerConfig> = {}): ContentScann
 	};
 }
 
-function jsonResponse(ok: boolean, body: unknown) {
-	return {
-		ok,
-		json: async () => body,
-	} as Response;
+function jsonResponse(ok: boolean, body: unknown): Response {
+	return new Response(JSON.stringify(body), { status: ok ? 200 : 500 });
 }
 
 function validEntity(overrides: Record<string, unknown> = {}) {
@@ -67,7 +65,7 @@ describe("OpfHttpScanner — name for huggingface runtime", () => {
 describe("OpfHttpScanner — ready() short-circuits on empty endpoint", () => {
 	it("P1: returns false and never calls fetch when the scanner is disabled (no endpoint)", async () => {
 		const fetchFn = vi.fn();
-		const scanner = new OpfHttpScanner(baseConfig({ runtime: "local" as ContentScannerConfig["runtime"] }), {
+		const scanner = new OpfHttpScanner(baseConfig({ runtime: "local" }), {
 			fetchFn,
 		});
 		expect(scanner.name).toBe("http:<disabled>");
@@ -111,7 +109,7 @@ describe("OpfHttpScanner — mergeSignals fallback listens for the abort event",
 			const callerController = new AbortController();
 			let observedSignal: AbortSignal | undefined;
 			const fetchFn = vi.fn().mockImplementation((_url: string, init: RequestInit) => {
-				observedSignal = init.signal as AbortSignal;
+				observedSignal = nonNull(init.signal);
 				return new Promise((_resolve, reject) => {
 					init.signal?.addEventListener("abort", () => {
 						reject(new DOMException("Aborted", "AbortError"));

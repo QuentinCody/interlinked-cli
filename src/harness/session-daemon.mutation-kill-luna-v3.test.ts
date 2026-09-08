@@ -37,15 +37,9 @@ function state() {
             invalidate: vi.fn(),
             stats: () => ({ cache_size: 0, available: true }),
         },
-        getEvaluatorContext: (): EvaluateUnifiedContext => ({
-            rules: {
-                version: 1,
-                enabled: false,
-            } as unknown as EvaluateUnifiedContext["rules"],
-            session: undefined,
-            reservations: {} as EvaluateUnifiedContext["reservations"],
-            cohort: {} as EvaluateUnifiedContext["cohort"],
-        }),
+        getEvaluatorContext: (): EvaluateUnifiedContext => {
+            throw new Error("these binding tests do not invoke the hook evaluator");
+        },
     };
 }
 

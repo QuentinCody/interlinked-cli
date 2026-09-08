@@ -71,7 +71,7 @@ import type { InstallCommand } from "./package-install-parser-shared.js";
 
 const NPM_LIKE = new Set(["npm", "pnpm", "yarn", "bun"]);
 
-export function parseInstallCommands(rawCommand: string): InstallCommand[] {
+export function parseInstallCommands(rawCommand: unknown): InstallCommand[] {
 	if (!rawCommand || typeof rawCommand !== "string") return [];
 	const segments = splitShellSegments(rawCommand);
 	const results: InstallCommand[] = [];

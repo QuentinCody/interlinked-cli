@@ -1,9 +1,12 @@
+import type { PreToolContext } from "./structural-checks-pre-context.js";
+import { makeProjectGraph as completeProjectGraphFixture } from "./__tests__/fixtures/managers.js";
+import { makeSessionTracker as completeSessionTrackerFixture } from "./__tests__/fixtures/managers.js";
+import { makeRouteMap as completeRouteMapFixture } from "./__tests__/fixtures/managers.js";
+import { makeMinimalEvent as completeEventFixture, makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 import { describe, expect, it, vi } from "vitest";
 import { join } from "node:path";
 import type { ProjectGraph } from "./project-graph.js";
-import type { RouteMap } from "./route-map.js";
-import type { SessionTracker } from "./session-state.js";
-import type { HarnessEvent, SessionTrajectory, StructuralChecksConfig } from "./types.js";
+import type { SessionTrajectory, StructuralChecksConfig } from "./types.js";
 import {
 	preCheckBlastRadius,
 	preCheckCompletionTracking,
@@ -50,25 +53,25 @@ function baseConfig(): StructuralChecksConfig {
 		impact_high_threshold: 4,
 		test_first: false,
 		test_first_mode: "nudge",
-	} as unknown as StructuralChecksConfig;
+	};
 }
 
-function graph(overrides: Record<string, unknown> = {}): ProjectGraph {
-	return {
+function graph(overrides: Partial<ProjectGraph> = {}): ProjectGraph {
+	return completeProjectGraphFixture({
 		getDependents: vi.fn().mockReturnValue([]),
 		classifyModule: vi.fn().mockReturnValue("leaf"),
 		getSiblingFiles: vi.fn().mockReturnValue([]),
 		toRelative: (p: string) => p.replace("/workspace/", ""),
 		...overrides,
-	} as unknown as ProjectGraph;
+	});
 }
 
-function ctx(overrides: Record<string, unknown> = {}) {
+function ctx(overrides: Partial<PreToolContext> = {}): PreToolContext {
 	return {
-		event: { cwd: "/workspace", agent_name: "me" } as HarnessEvent,
+		event: ({ ...completeEventFixture(), ...{ cwd: "/workspace", agent_name: "me" } }),
 		config: baseConfig(),
 		graph: graph(),
-		sessions: { getAll: vi.fn().mockReturnValue([]) } as unknown as SessionTracker,
+		sessions: completeSessionTrackerFixture({ getAll: vi.fn().mockReturnValue([]) }),
 		toolName: "Write",
 		filePath: file,
 		relPath: "src/feature.ts",
@@ -77,8 +80,8 @@ function ctx(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-function session(overrides: Record<string, unknown> = {}): SessionTrajectory {
-	return {
+function session(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
+	return ({ ...completeSessionFixture(), ...{
 		session_id: "s1",
 		agent_name: "me",
 		tool_call_count: 12,
@@ -90,14 +93,14 @@ function session(overrides: Record<string, unknown> = {}): SessionTrajectory {
 		failed_files: new Map(),
 		pending_completions: new Map(),
 		...overrides,
-	} as unknown as SessionTrajectory;
+	} });
 }
 
 describe("preCheckRecentlyFailed — mutation kills", () => {
 	// test-contract: boundary — a tool that is neither a read nor a write must never enter the body, even with a matching failed-file entry.
 	it("stays silent for a non read/write tool despite a matching failed-file entry", () => {
 		const c = { ...baseConfig(), recently_failed: true };
-		const s = session({ failed_files: new Map([[file, { failure_count: 1, checks: ["x"], tool_call_count: 5 }]]) });
+		const s = session({ failed_files: new Map([[file, { recorded_at: "2026-08-20T00:00:00.000Z", failure_count: 1, checks: ["x"], tool_call_count: 5 }]]) });
 		expect(preCheckRecentlyFailed(ctx({ config: c, toolName: "Bash" }), s)).toEqual([]);
 	});
 
@@ -113,7 +116,7 @@ describe("preCheckRecentlyFailed — mutation kills", () => {
 		const c = { ...baseConfig(), recently_failed: true };
 		const s = session({
 			tool_call_count: 20,
-			failed_files: new Map([[file, { failure_count: 3, checks: ["tsc"], tool_call_count: 6 }]]),
+			failed_files: new Map([[file, { recorded_at: "2026-08-20T00:00:00.000Z", failure_count: 3, checks: ["tsc"], tool_call_count: 6 }]]),
 		});
 		expect(preCheckRecentlyFailed(ctx({ config: c, toolName: "Write" }), s)).toEqual([
 			"[interlinked:recently-failed] src/feature.ts had 3 check failure(s) (tsc) 14 tool call(s) ago. They may still be unresolved.",
@@ -277,10 +280,10 @@ describe("preCheckStaleRead — mutation kills", () => {
 			agent_name: "",
 			file_write_times: new Map([[file, new Date(Date.now() - 1000).toISOString()]]),
 		});
-		const sessions = { getAll: vi.fn().mockReturnValue([other]) } as unknown as SessionTracker;
+		const sessions = completeSessionTrackerFixture({ getAll: vi.fn().mockReturnValue([other]) });
 		const c = { ...baseConfig(), stale_read_warning: true, staleness_window_s: 300 };
 		const out = preCheckStaleRead(
-			ctx({ config: c, toolName: "Read", sessions, event: { cwd: "/workspace" } as HarnessEvent }),
+			ctx({ config: c, toolName: "Read", sessions, event: { ...completeEventFixture(), cwd: "/workspace" } }),
 		);
 		expect(out).toEqual([]);
 	});
@@ -293,7 +296,7 @@ describe("preCheckStaleRead — mutation kills", () => {
 			agent_name: "alice",
 			file_write_times: new Map([[file, "2026-08-20T00:00:00.000Z"]]),
 		});
-		const sessions = { getAll: vi.fn().mockReturnValue([other]) } as unknown as SessionTracker;
+		const sessions = completeSessionTrackerFixture({ getAll: vi.fn().mockReturnValue([other]) });
 		const c = { ...baseConfig(), stale_read_warning: true, staleness_window_s: 300 };
 		const out = preCheckStaleRead(ctx({ config: c, toolName: "Read", sessions }));
 		expect(out).toEqual([
@@ -305,7 +308,7 @@ describe("preCheckStaleRead — mutation kills", () => {
 	// test-contract: public-api — no other session has written the file within the window, so the loop must fall through to the terminal empty array.
 	it("returns exactly [] when no other session's write time falls within the window", () => {
 		const other = session({ agent_name: "alice", file_write_times: new Map() });
-		const sessions = { getAll: vi.fn().mockReturnValue([other]) } as unknown as SessionTracker;
+		const sessions = completeSessionTrackerFixture({ getAll: vi.fn().mockReturnValue([other]) });
 		const c = { ...baseConfig(), stale_read_warning: true, staleness_window_s: 300 };
 		const out = preCheckStaleRead(ctx({ config: c, toolName: "Read", sessions }));
 		expect(out).toEqual([]);
@@ -320,14 +323,14 @@ describe("preCheckStaleRead — mutation kills", () => {
 			agent_name: "alice",
 			file_write_times: new Map([[file, "2026-08-20T00:00:00.000Z"]]),
 		});
-		const boundarySessions = { getAll: vi.fn().mockReturnValue([atBoundary]) } as unknown as SessionTracker;
+		const boundarySessions = completeSessionTrackerFixture({ getAll: vi.fn().mockReturnValue([atBoundary]) });
 		expect(preCheckStaleRead(ctx({ config: c, toolName: "Read", sessions: boundarySessions }))).toEqual([]);
 
 		const insideWindow = session({
 			agent_name: "alice",
 			file_write_times: new Map([[file, "2026-08-20T00:00:00.001Z"]]),
 		});
-		const insideSessions = { getAll: vi.fn().mockReturnValue([insideWindow]) } as unknown as SessionTracker;
+		const insideSessions = completeSessionTrackerFixture({ getAll: vi.fn().mockReturnValue([insideWindow]) });
 		expect(preCheckStaleRead(ctx({ config: c, toolName: "Read", sessions: insideSessions }))).toHaveLength(1);
 		vi.useRealTimers();
 	});
@@ -367,30 +370,30 @@ describe("preCheckRouteContext — mutation kills", () => {
 	// test-contract: boundary — a tool that is neither read nor write must never surface route context, even with matching endpoints.
 	it("returns [] for an unsupported tool despite matching endpoints", () => {
 		const c = { ...baseConfig(), route_context: true };
-		const routeMap = {
+		const routeMap = completeRouteMapFixture({
 			extractEndpointsForFile: vi.fn().mockReturnValue([{ method: "GET", path: "/x" }]),
-		} as unknown as RouteMap;
+		});
 		expect(preCheckRouteContext(ctx({ config: c, toolName: "Bash" }), routeMap)).toEqual([]);
 	});
 
 	// test-contract: invariant — zero matching endpoints must return exactly [], not a placeholder array.
 	it("returns exactly [] when no endpoints match the file", () => {
 		const c = { ...baseConfig(), route_context: true };
-		const routeMap = { extractEndpointsForFile: vi.fn().mockReturnValue([]) } as unknown as RouteMap;
+		const routeMap = completeRouteMapFixture({ extractEndpointsForFile: vi.fn().mockReturnValue([]) });
 		expect(preCheckRouteContext(ctx({ config: c, toolName: "Read" }), routeMap)).toEqual([]);
 	});
 
 	// test-contract: public-api — two distinct route descriptions must be joined with a comma-space separator.
 	it("joins two distinct descriptions with a comma separator", () => {
 		const c = { ...baseConfig(), route_context: true };
-		const routeMap = {
+		const routeMap = completeRouteMapFixture({
 			extractEndpointsForFile: vi
 				.fn()
 				.mockReturnValue([
 					{ method: "GET", path: "/a" },
 					{ method: "POST", path: "/b" },
 				]),
-		} as unknown as RouteMap;
+		});
 		expect(preCheckRouteContext(ctx({ config: c, toolName: "Read" }), routeMap)).toEqual([
 			"[interlinked:route-context] This file handles: GET /a, POST /b. Changes may affect API consumers.",
 		]);
@@ -445,6 +448,7 @@ describe("preCheckCompletionTracking — mutation kills", () => {
 	it("returns exactly [] when completion_tracking is disabled", () => {
 		const c = { ...baseConfig(), completion_tracking: false };
 		const completion = {
+			source_file: "src",
 			affected_files: [file],
 			resolved_files: new Set<string>(),
 			description: "x",
@@ -457,6 +461,7 @@ describe("preCheckCompletionTracking — mutation kills", () => {
 	// test-contract: boundary — exactly four remaining files at the truncation boundary must show no overflow suffix, and a sixth file must actually be truncated.
 	it("truncates remaining files at four and reports the overflow count for a sixth", () => {
 		const completion = {
+			source_file: "src",
 			affected_files: Array.from({ length: 6 }, (_, i) => `/workspace/src/r${i}.ts`),
 			resolved_files: new Set<string>(),
 			description: "sync exports",
@@ -472,6 +477,7 @@ describe("preCheckCompletionTracking — mutation kills", () => {
 	// test-contract: boundary — exactly four remaining files must show no overflow suffix at all.
 	it("shows no overflow suffix at exactly four remaining files", () => {
 		const completion = {
+			source_file: "src",
 			affected_files: Array.from({ length: 4 }, (_, i) => `/workspace/src/r${i}.ts`),
 			resolved_files: new Set<string>(),
 			description: "sync exports",

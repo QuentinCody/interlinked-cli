@@ -16,7 +16,8 @@
 // mode — even if the data is labelled Public, the agent should confirm
 // before acting on it externally.
 
-import type { JsonObject } from "../../lib/json-types.js";
+import { readToolString } from "./tool-input-values.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import {
 	actorStepCount,
 	classifyFileSensitivity,
@@ -137,8 +138,8 @@ function flattenToolInputToString(toolInput: JsonObject): string {
 			for (const e of v) walk(e);
 			return;
 		}
-		if (typeof v === "object") {
-			walkObjectValues(v as JsonObject, walk);
+		if (isJsonObject(v)) {
+			walkObjectValues(v, walk);
 		}
 	};
 	walk(toolInput);
@@ -196,7 +197,7 @@ function applySensitivityRatchet(
 	warnings: string[],
 ): void {
 	if (!isReadOperation(toolName)) return;
-	const filePath = (toolInput.file_path as string) || "";
+	const filePath = readToolString(toolInput.file_path);
 	if (!filePath) return;
 	const fileSensitivity = classifyFileSensitivity(filePath, taint);
 	if (SENSITIVITY_ORDER[fileSensitivity] <= SENSITIVITY_ORDER[session.sensitivity_level]) {
@@ -222,7 +223,7 @@ function checkTaintedNetworkBlock(
 	warnings: string[],
 ): TaintGuardsResult | null {
 	if (!isBash(toolName) || !shouldBlockNetwork(session, taint)) return null;
-	const cmd = (toolInput.command as string) || "";
+	const cmd = readToolString(toolInput.command);
 	if (!isNetworkCommand(cmd)) return null;
 	return {
 		kind: "block",
@@ -247,7 +248,7 @@ function buildTaintedNetworkInternalEscalation(
 ): EscalationRequest | null {
 	if (!isBash(toolName) || shouldBlockNetwork(session, taint)) return null;
 	if (SENSITIVITY_ORDER[session.sensitivity_level] < SENSITIVITY_ORDER.Internal) return null;
-	const cmd = (toolInput.command as string) || "";
+	const cmd = readToolString(toolInput.command);
 	if (!isNetworkCommand(cmd)) return null;
 	return {
 		trigger: "tainted_network_internal",
@@ -277,7 +278,7 @@ function buildHighStepBudgetEscalation(
 		steps > session.step_limit * HIGH_BUDGET_THRESHOLD;
 	if (!overThreshold) return null;
 	if (!isFileWrite(toolName) && !isBash(toolName)) return null;
-	const filePath = (toolInput.file_path as string) || "";
+	const filePath = readToolString(toolInput.file_path);
 	return {
 		trigger: "high_step_budget",
 		summary: `Agent at ${Math.round((steps / session.step_limit) * 100)}% of step budget (${steps}/${session.step_limit}) with state-changing tool`,

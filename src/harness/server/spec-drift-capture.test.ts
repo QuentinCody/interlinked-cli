@@ -1,3 +1,4 @@
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ function fixture() {
     const cwd = mkdtempSync(join(tmpdir(), "spec-drift-capture-"));
     roots.push(cwd);
     // SAFETY: capture only reads session_id and reads/replaces spec_drift_outstanding.
-    const session = { session_id: "test-session" } as SessionTrajectory;
+    const session = ({ ...makeSessionFixture(),  session_id: "test-session" } satisfies SessionTrajectory);
     return { cwd, session };
 }
 

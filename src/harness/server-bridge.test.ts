@@ -1,3 +1,5 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
+import { parseWire, wireArray, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // Behavioral coverage for the Server Bridge — reservation sync + guard
 // event reporting + auto-coordination + the createServerBridge factory.
 //
@@ -28,9 +30,9 @@ vi.mock("node:fs", () => fsMock);
 
 // --- secrets scrubber mock: assert it runs at the egress boundary ---
 const scrubMock = vi.hoisted(() => ({
-	scrubEgressPayload: vi.fn((_p: Record<string, unknown>) => ({
+	scrubEgressPayload: vi.fn((_p: Record<string, unknown>): { found: number; types: string[] } => ({
 		found: 0,
-		types: [] as string[],
+		types: [],
 	})),
 }));
 vi.mock("../lib/secrets.js", () => scrubMock);
@@ -52,7 +54,7 @@ function stubFetch(impl: FetchImpl): void {
 	fetchSpy = vi.fn(((input: string | URL | Request, init?: RequestInit) => {
 		const url = typeof input === "string" ? input : input.toString();
 		return Promise.resolve(impl(url, init));
-	}) as typeof fetch) as unknown as MockInstance;
+	}));
 	vi.stubGlobal("fetch", fetchSpy);
 }
 
@@ -90,10 +92,10 @@ async function connectedBridge(
 	return b;
 }
 
-const session: SessionTrajectory = {
+const session: SessionTrajectory = ({ ...completeSessionFixture(), ...{
 	tool_call_count: 7,
 	started_at: "2026-01-01T00:00:00Z",
-} as unknown as SessionTrajectory;
+} });
 
 beforeEach(() => {
 	fsMock.existsSync.mockReset();
@@ -507,7 +509,7 @@ describe("reportGuardEvent / flushGuardEvents", () => {
 			b.reportGuardEvent(makeEvent({ reason: longReason, event_type: "guard_warn" }));
 		}
 		await flush();
-		const ev = nonNull((captured?.events as Array<Record<string, unknown>>)[0]);
+		const ev = nonNull((parseWire(captured?.events, wireArray(wireRecord(wireUnknown)), "test JSON value"))[0]);
 		expect(ev).toMatchObject({
 			agent_name: "alice",
 			event_type: "guard_warn",
@@ -528,7 +530,7 @@ describe("reportGuardEvent / flushGuardEvents", () => {
 		stubFetch(
 			withHealthOk((url, init) => {
 				if (url.endsWith("/batch")) {
-					headers = init?.headers as Record<string, string>;
+					headers = parseWire(init?.headers, wireRecord(wireString), "test JSON value");
 				}
 				return json({ result: {} });
 			}),
@@ -549,7 +551,7 @@ describe("reportGuardEvent / flushGuardEvents", () => {
 		stubFetch(
 			withHealthOk((url, init) => {
 				if (url.endsWith("/batch")) {
-					headers = init?.headers as Record<string, string>;
+					headers = parseWire(init?.headers, wireRecord(wireString), "test JSON value");
 				}
 				return json({ result: {} });
 			}),
@@ -612,7 +614,7 @@ describe("reportGuardEvent / flushGuardEvents", () => {
 			withHealthOk((url, init) => {
 				if (url.endsWith("/batch")) {
 					attempt++;
-					resent = (JSON.parse(String(init?.body)).events as unknown[]).length;
+					resent = (parseWire(JSON.parse(String(init?.body)).events, wireArray(wireUnknown), "test JSON value")).length;
 				}
 				return json({ result: {} });
 			}),
@@ -636,7 +638,7 @@ describe("reportGuardEvent / flushGuardEvents", () => {
 				return new Response("", { status: healthOk ? 200 : 500 });
 			}
 			if (url.endsWith("/batch")) {
-				batchSizes.push((JSON.parse(String(init?.body)).events as unknown[]).length);
+				batchSizes.push((parseWire(JSON.parse(String(init?.body)).events, wireArray(wireUnknown), "test JSON value")).length);
 				throw new TypeError("flush failed");
 			}
 			return json({ result: {} });
@@ -742,7 +744,7 @@ describe("callTool response handling (via listReservations / reserveFile)", () =
 		stubFetch(
 			withHealthOk((url, init) => {
 				if (url.endsWith("/api/ui/call")) {
-					headers = init?.headers as Record<string, string>;
+					headers = parseWire(init?.headers, wireRecord(wireString), "test JSON value");
 				}
 				return json({ result: {} });
 			}),
@@ -831,7 +833,7 @@ describe("fetchCoordinationState", () => {
 					});
 				}
 				return Promise.resolve(new Response("{}", { status: 200 }));
-			}) as typeof fetch,
+			}),
 		);
 		const b = new ServerBridge(baseConfig);
 		await b.healthCheck();
@@ -860,7 +862,7 @@ describe("fetchCoordinationState", () => {
 		const b = await connectedBridge({ authToken: "co-tok" });
 		await b.fetchCoordinationState("alice", session, 1234);
 		expect(init?.signal).toBeInstanceOf(AbortSignal);
-		expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer co-tok");
+		expect(init?.headers).toHaveProperty(["Authorization"], "Bearer co-tok");
 		const body = JSON.parse(String(init?.body));
 		expect(body).toMatchObject({
 			agent_name: "alice",
@@ -891,7 +893,7 @@ describe("fetchCoordinationState", () => {
 		const r = await b.fetchCoordinationState("alice", session);
 		expect(r).toMatchObject({ heartbeat_recorded: false });
 		expect(init?.signal).toBeInstanceOf(AbortSignal);
-		expect(init?.headers && "Authorization" in (init.headers as object)).toBe(false);
+		expect(new Headers(init?.headers).has("Authorization")).toBe(false);
 		b.shutdown();
 	});
 });

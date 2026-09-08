@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
 	readLocalGuardRules,
 	readTeamGuardRules,
@@ -9,11 +9,25 @@ import {
 	writeTeamGuardRules,
 } from "../file-io.js";
 
+const tempDirs: string[] = [];
 function mkTmp(): string {
-	return mkdtempSync(join(tmpdir(), "interlinked-rules-io-"));
+	const dir = mkdtempSync(join(tmpdir(), "interlinked-rules-io-"));
+	tempDirs.push(dir);
+	return dir;
 }
+afterEach(() => {
+	for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
 
 describe("file-io (guard-rules read/write)", () => {
+	it.each(["[]", "null", "42", "true", '"text"'])("rejects a non-object JSON document: %s", (raw) => {
+		const dir = mkTmp();
+		writeLocalGuardRules({}, dir);
+		writeFileSync(join(dir, ".interlinked", "guard-rules.local.json"), raw);
+		writeFileSync(join(dir, ".interlinked", "guard-rules.json"), raw);
+		expect(readLocalGuardRules(dir)).toBeNull();
+		expect(readTeamGuardRules(dir)).toBeNull();
+	});
 	it("returns null when local file does not exist", () => {
 		const dir = mkTmp();
 		expect(readLocalGuardRules(dir)).toBeNull();

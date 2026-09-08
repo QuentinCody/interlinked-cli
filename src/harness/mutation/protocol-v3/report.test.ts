@@ -67,7 +67,7 @@ describe("verifyReportAgainstEnvelope — negative (must reject)", () => {
 			mutants: [
 				{ ...mr.mutants[0]!, status: "survived" },
 				{ ...mr.mutants[1]!, status: "killed" },
-			] as typeof mr.mutants,
+			],
 		});
 		expect(
 			verifyReportAgainstEnvelope(withReport(mr, wrongStatus), Buffer.from(wrongStatus, "utf8")),
@@ -187,6 +187,7 @@ describe("verifyReportAgainstEnvelope — negative (must reject)", () => {
 	// carry an executable status.
 	it("N10: a report that marks an envelope mutant as excluded rejects", () => {
 		const mr = validMutationResult();
+		// SAFETY: buildStructuralReport just constructed this report from mr; the test changes only row status/policy to exercise correspondence validation.
 		const parsedReport = JSON.parse(buildStructuralReport(mr)) as {
 			report_version: string;
 			files: Record<string, { mutants: Array<Record<string, unknown>> }>;
@@ -206,6 +207,7 @@ describe("verifyReportAgainstEnvelope — negative (must reject)", () => {
 	// even though every envelope entry finds its own matching row.
 	it("N11: an extra report row with no matching envelope entry rejects", () => {
 		const mr = validMutationResult();
+		// SAFETY: buildStructuralReport just constructed this report from mr; the test appends one foreign row and checks its rejection.
 		const parsedReport = JSON.parse(buildStructuralReport(mr)) as {
 			report_version: string;
 			files: Record<string, { mutants: Array<Record<string, unknown>> }>;

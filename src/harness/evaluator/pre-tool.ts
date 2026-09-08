@@ -39,7 +39,6 @@ import type {
 import { evaluateEditContractPhase } from "./edit-contract-phase.js";
 import { evaluateMutationDirectedProfile } from "./mutation-directed-guard.js";
 import {
-	drainPendingSessionWarnings,
 	evaluateCurlMcpPhase,
 	evaluateDiagnosticsPhase,
 	evaluateMarkdownFirstPhase,
@@ -283,11 +282,6 @@ export function evaluatePreToolUse(
 		// Spec pre-gates: markdown declared-marker "ask" + anchor-removal /
 		// introduced-drift warnings (was imported but never wired — sol-max #1).
 		() => evaluateSpecPreGates(event, toolName, rules, warnings),
-		// Drain pending session warnings (warning-only).
-		() => {
-			drainPendingSessionWarnings(session, warnings);
-			return null;
-		},
 		// Taint: sensitivity tracking, network blocking, step budget.
 		() => evaluateTaintPhase(rules, session, toolName, toolInput, warnings, ctx),
 		// Late side-effects (escalation / permission-pattern / error-memory /

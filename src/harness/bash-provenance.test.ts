@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import {
 	classifyBashCommandProvenance,
@@ -97,13 +98,13 @@ describe("classifyBashCommandProvenance", () => {
 
 describe("recordBashTaintSource", () => {
 	function makeSession(): SessionTrajectory {
-		return {
+		return ({ ...completeSessionFixture(), ...{
 			session_id: "s1",
 			agent_name: "tester",
 			tool_call_count: 3,
 			sensitivity_level: "Public",
 			taint_sources: [],
-		} as unknown as SessionTrajectory;
+		} });
 	}
 
 	it("appends a TaintSource with the given provenance", () => {

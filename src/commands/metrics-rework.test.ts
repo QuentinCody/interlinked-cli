@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // metrics-rework unit tests — pure core (diff hunks → blame ages → classify)
 // plus the live command against real throwaway git repos
@@ -249,7 +250,7 @@ async function runReworkJson(
 	opts: Parameters<typeof metricsReworkCommand>[0],
 ): Promise<Record<string, unknown>> {
 	const { out } = await runRework({ ...opts, json: true });
-	return JSON.parse(out) as Record<string, unknown>;
+	return parseWire(JSON.parse(out), wireRecord(wireUnknown), "test JSON value");
 }
 
 /**
@@ -400,11 +401,11 @@ describe("metricsReworkCommand — measured against a real repo", () => {
 	// test-contract: invariant — excludes generated paths and greenfield files from the denominator
 	it("excludes generated paths and greenfield files from the denominator", async () => {
 		const res = await runReworkJson({ cwd: repo });
-		const files = (res.top_files as Array<{ file: string }>).map((f) => f.file);
+		const files = (parseWire(res.top_files, wireArray(wireObject({ "file": wireString })), "test JSON value")).map((f) => f.file);
 		expect(files).not.toContain("docs/generated/api.md");
 		expect(files).not.toContain("src/fresh.ts");
 		// 5 = the four blameable old-side lines above; a greenfield file adds none.
-		expect((res.overall as { total: number }).total).toBe(5);
+		expect(res).toHaveProperty(["overall","total"], 5);
 	});
 
 	// test-contract: invariant — widening --window reclassifies older ancestors as rework
@@ -498,7 +499,7 @@ describe("metricsReworkCommand — non-ASCII paths", () => {
 		// literal `"src/\320\274\320\276\320\264\321\203\320\273\321\214.ts"` and
 		// answers `fatal: no such path`, which blameTimesFor swallows as a skip.
 		expect(res.skipped_blame_files).toBe(1);
-		const files = (res.top_files as Array<{ file: string }>).map((f) => f.file);
+		const files = (parseWire(res.top_files, wireArray(wireObject({ "file": wireString })), "test JSON value")).map((f) => f.file);
 		expect(files).not.toContain(CYRILLIC_FILE);
 		expect(files.some((f) => f.startsWith('"'))).toBe(false);
 	});
@@ -864,7 +865,7 @@ describe("metricsReworkCommand — synthetic git, full mock", () => {
 			(_sha, file) => makeBlame(file === "file2.ts" ? oldTime : recentTime),
 		);
 		const { out } = await runRework({ cwd: "/fake", json: true }, cmd);
-		const res = JSON.parse(out) as { top_files: Array<{ file: string }>; overall: { total: number } };
+		const res = parseWire(JSON.parse(out), wireObject({ "top_files": wireArray(wireObject({ "file": wireString })), "overall": wireObject({ "total": wireNumber }) }), "test JSON value");
 		expect(res.top_files.map((f) => f.file)).toEqual(["file0.ts", "file1.ts"]);
 		expect(res.overall.total).toBe(3);
 	});
@@ -878,7 +879,7 @@ describe("metricsReworkCommand — synthetic git, full mock", () => {
 		const diffBySha = Object.fromEntries(shas.map((s, i) => [s, makeDiff(`file${i}.ts`)]));
 		const cmd = await importMockedCommand(logText, diffBySha, () => makeBlame(recentTime));
 		const { out } = await runRework({ cwd: "/fake", json: true }, cmd);
-		const res = JSON.parse(out) as { top_files: unknown[]; overall: { total: number } };
+		const res = parseWire(JSON.parse(out), wireObject({ "top_files": wireArray(wireUnknown), "overall": wireObject({ "total": wireNumber }) }), "test JSON value");
 		expect(res.top_files).toHaveLength(10);
 		expect(res.overall.total).toBe(11);
 	});
@@ -893,7 +894,7 @@ describe("metricsReworkCommand — synthetic git, full mock", () => {
 			() => makeBlame(recentTime),
 		);
 		const { out } = await runRework({ cwd: "/fake", json: true }, cmd);
-		const res = JSON.parse(out) as { top_files: Array<{ file: string }>; overall: { total: number } };
+		const res = parseWire(JSON.parse(out), wireObject({ "top_files": wireArray(wireObject({ "file": wireString })), "overall": wireObject({ "total": wireNumber }) }), "test JSON value");
 		expect(res.top_files).toEqual([{ file: "srcdist/decoy.ts", rework: 1, total: 1 }]);
 		expect(res.overall.total).toBe(1);
 	});
@@ -908,7 +909,7 @@ describe("metricsReworkCommand — synthetic git, full mock", () => {
 			() => makeBlame(recentTime),
 		);
 		const { out } = await runRework({ cwd: "/fake", json: true }, cmd);
-		const res = JSON.parse(out) as { overall: { total: number } };
+		const res = parseWire(JSON.parse(out), wireObject({ "overall": wireObject({ "total": wireNumber }) }), "test JSON value");
 		expect(res.overall.total).toBe(1);
 	});
 
@@ -918,7 +919,7 @@ describe("metricsReworkCommand — synthetic git, full mock", () => {
 	it("drops a git-log line that has a sha but no parseable timestamp", async () => {
 		const cmd = await importMockedCommand("onlysha\n", {}, () => makeBlame(recentTime));
 		const { out } = await runRework({ cwd: "/fake", json: true }, cmd);
-		const res = JSON.parse(out) as { commits_scanned: number };
+		const res = parseWire(JSON.parse(out), wireObject({ "commits_scanned": wireNumber }), "test JSON value");
 		expect(res.commits_scanned).toBe(0);
 	});
 });

@@ -9,6 +9,7 @@
 
 import type { JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
+import { isJsonObject } from "../../lib/json-types.js";
 import type {
 	GuardRule,
 	HarnessEvent,
@@ -209,10 +210,6 @@ export function matchesRule(ctx: MatchRuleContext): boolean {
 	return true;
 }
 
-/** `typeof` keyword for non-primitive indexable containers; anything else (string,
- *  number, function, etc.) is a dead-end during dot-path traversal. */
-const TYPEOF_OBJECT = "object";
-
 /** Public API — consumed by evaluator sub-modules for dot-path field traversal
  *  (e.g., "tool_response.stdout") into a payload object. */
 export function getField(obj: Indexable, path: string): unknown {
@@ -221,9 +218,8 @@ export function getField(obj: Indexable, path: string): unknown {
 	let current: Indexable = obj;
 	for (let i = 0; i < parts.length - 1; i++) {
 		const value = current[nonNull(parts[i])];
-		if (value == null || typeof value !== TYPEOF_OBJECT || Array.isArray(value))
-			return undefined;
-		current = value as Indexable;
+		if (!isJsonObject(value)) return undefined;
+		current = value;
 	}
 	return current[nonNull(parts[parts.length - 1])];
 }

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createDaemonClient } from "./harness/daemon-client.js";
-import type { RpcMethod } from "./harness/daemon-protocol.js";
+import type { HookRpcMethod } from "./harness/daemon-protocol.js";
 import { callLegacyHarness, isLegacyHarnessSocket } from "./harness/legacy-client.js";
 import type { HarnessDecision } from "./harness/types.js";
 import type { UnifiedHookEvent } from "./harness/unified-event.js";
@@ -18,7 +18,7 @@ export type HookDaemonCallResult =
 
 interface HookDaemonCallArgs {
 	socketPath: string;
-	method: RpcMethod;
+	method: HookRpcMethod;
 	event: UnifiedHookEvent;
 	timeoutMs: number;
 	env: NodeJS.ProcessEnv;
@@ -40,10 +40,7 @@ async function safeCallDaemon(args: HookDaemonCallArgs): Promise<HookDaemonCallR
 		const value = await client.call(args.method, args.event, {
 			timeout_ms: args.timeoutMs,
 		});
-		// SAFETY: callHookDaemon receives only methodForPhase outputs, whose
-		// RpcResult entries are all HarnessDecision; RpcMethod is wider only
-		// because daemon-protocol.ts also serves health and compiler methods.
-		return { ok: true, decision: value as HarnessDecision };
+		return { ok: true, decision: value };
 	} catch (err) {
 		return { ok: false, reason: err instanceof Error ? err.message : String(err) };
 	}

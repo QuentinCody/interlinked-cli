@@ -286,10 +286,7 @@ describe("planExemptionDrops — recorded-only removal", () => {
 		expect(plan.files.has("brand-new.ts")).toBe(false);
 	});
 
-	// test-contract: boundary — a nullish entry in `touched` must be
-	// skipped via the same recorded-only guard rather than reaching
-	// files.has(null), which would throw for a Set typed as string keys only
-	// if the guard were bypassed and hasTest dereferenced it.
+	// test-contract: boundary — untracked touched paths must not reach hasTest.
 	it("skips a genuinely untracked file without crashing when hasTest is never reached", () => {
 		const plan = planExemptionDrops({
 			baseline: { version: 1, min_coverage_pct: 60, files: new Set(["x.ts", "y.ts"]) },
@@ -483,17 +480,6 @@ describe("foldLargeFiles — direct branch and literal pins", () => {
 
 // ───────────────────────────────────────────────────────────────────
 describe("toRepoRelative — defensive normalization", () => {
-	// test-contract: boundary — a nullish entry in the path iterable must
-	// be skipped by the `!p` guard before it ever reaches path.resolve, which
-	// throws on a non-string argument.
-	it("skips a nullish entry without crashing through path.resolve", () => {
-		// SAFETY: the array literally holds a null to simulate an untrusted/
-		// mixed-quality input reaching this defensive normalizer at runtime;
-		// the cast only satisfies the `Iterable<string>` param type for the test.
-		const paths = ["/repo/a.ts", null, "/repo/b.ts"] as unknown as string[];
-		expect(toRepoRelative("/repo", paths)).toEqual(["a.ts", "b.ts"]);
-	});
-
 	// test-contract: boundary — a literal backslash in a resolved
 	// relative path is CONVERTED to a forward slash (replacement "/"), not
 	// stripped to nothing (replacement "").

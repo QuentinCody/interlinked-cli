@@ -183,10 +183,8 @@ export class Err<T = never, E = unknown> {
 		// cycle — Maximum call stack size exceeded. Yielding `this` back makes
 		// the chain self-referential, which cycle-detecting deep-equal
 		// implementations correctly short-circuit.
-		// SAFETY: `Err<T, E>` stores only `error: E`; `T` is phantom, so no field
-		// of `this` depends on it. Narrowing `T` to `never` therefore removes a
-		// type parameter nothing reads — the runtime object is unchanged, and the
-		// double cast is only needed because TS cannot see that `T` is unused.
+		// SAFETY: Err stores only error:E; T is phantom. Preserve object identity
+		// while narrowing the unused success type so iteration remains cycle-safe.
 		const self = this as unknown as Err<never, E>;
 		return (function* (): Generator<Err<never, E>, never, undefined> {
 			yield self;
@@ -219,7 +217,7 @@ type AnyResult = Ok<unknown, unknown> | Err<unknown, unknown>;
 export function ok(): Ok<void, never>;
 export function ok<T, E = never>(value: T): Ok<T, E>;
 export function ok<T>(value?: T): Ok<T | void, never> {
-	return new Ok(value as T);
+	return new Ok(value);
 }
 
 export function err<T = never, E = unknown>(error: E): Err<T, E> {
@@ -253,7 +251,7 @@ function isSerializedResult(obj: unknown): obj is SerializedResult<unknown, unkn
 		typeof obj === "object" &&
 		obj !== null &&
 		"status" in obj &&
-		(obj.status === "ok" || obj.status === "error")
+		((obj.status === "ok" && "value" in obj) || (obj.status === "error" && "error" in obj))
 	);
 }
 
@@ -263,15 +261,13 @@ export function serialize<T, E>(result: Result<T, E>): SerializedResult<T, E> {
 		: { status: "error", error: result.error };
 }
 
-export function deserialize<T, E>(value: unknown): Result<T, E | ResultDeserializationError> {
+export function deserialize<T, E>(value: SerializedResult<T, E>): Result<T, E | ResultDeserializationError>;
+export function deserialize(value: unknown): Result<unknown, unknown>;
+export function deserialize(value: unknown): Result<unknown, unknown> {
 	if (isSerializedResult(value)) {
-		// `isSerializedResult` narrows to `SerializedResult<unknown, unknown>`, so
-		// the payloads are `unknown` at the deserialization boundary. Construct the
-		// typed variant directly — `Ok`/`Err` are `Result` members, so only the
-		// payloads (from `unknown`) carry an assertion.
 		return value.status === "ok"
-			? new Ok<T, E>(value.value as T)
-			: new Err<T, E>(value.error as E);
+			? new Ok(value.value)
+			: new Err(value.error);
 	}
 	return err(new ResultDeserializationError(value));
 }
@@ -349,6 +345,8 @@ export function gen<Yield extends Err<never, unknown>, R extends AnyResult>(
 	const state = iterator.next();
 
 	if (state.done) {
+		// SAFETY: R is an Ok/Err union; these conditional types recover its stored
+		// value and error types without changing the returned variant or object.
 		return state.value as Result<InferOk<R>, InferErr<R>>;
 	}
 
@@ -363,11 +361,11 @@ export function gen<Yield extends Err<never, unknown>, R extends AnyResult>(
 	// (unsound for this path) generic bound.
 	const yielded = state.value;
 	if (statusOf(yielded) === "error") {
-		// We only call `.return()` to run the generator's `finally` cleanup; the
-		// completion value is discarded, so a placeholder satisfies the `R`
-		// parameter. Widen through `unknown` to avoid a type-system bypass.
-		const placeholder: unknown = undefined;
-		iterator.return(placeholder as R);
+		// SAFETY: return runs finally cleanup after an Err. Its completion value
+		// is discarded; Generator requires an R even though this path consumes none.
+		iterator.return(undefined as unknown as R);
+		// SAFETY: Yield is an Err union and InferYieldErr extracts exactly its
+		// stored error type; the yielded object and error are returned unchanged.
 		return yielded as Err<never, InferYieldErr<Yield>>;
 	}
 
@@ -435,7 +433,10 @@ export function matchError<E extends AnyTaggedError, R>(
 	error: E,
 	handlers: MatchHandlers<E, R>,
 ): R {
-	const handler = handlers[error._tag as E["_tag"]];
+	const tag: E["_tag"] = error._tag;
+	const handler = handlers[tag];
+	// SAFETY: the mapped handler is selected by this error's own discriminant,
+	// so it receives the matching variant; TS loses that indexed correlation.
 	return handler(error as Extract<E, { _tag: (typeof error)["_tag"] }>);
 }
 

@@ -305,7 +305,7 @@ describe("type-discipline — optional 'typescript' dep unavailable", () => {
 
 	it("both detectors return [] when ts.createSourceFile throws (parse failure is swallowed)", async () => {
 		vi.resetModules();
-		const real = (await vi.importActual("typescript")) as Record<string, unknown>;
+		const real: Record<string, unknown> = (await vi.importActual("typescript"));
 		vi.doMock("node:module", () => ({
 			createRequire: () => () => ({
 				...real,

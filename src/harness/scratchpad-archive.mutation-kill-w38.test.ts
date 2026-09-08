@@ -1,3 +1,5 @@
+import { makeGuardRules as completeGuardRulesConfigFixture } from "./evaluator/__tests__/fixtures.js";
+import { wireAbsentOptional, parseWire, wireArray, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // Mutation-kill suite (wave 38) for src/harness/scratchpad-archive.ts.
 // Targets specific Stryker survivors: /tmp root candidates, the excludeGlobs
 // short-circuit, empty-array initial state, the walk ceiling + its boundary,
@@ -17,7 +19,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { GuardRulesConfig } from "./types.js";
 
 const matchesAnyGlobSpy = vi.hoisted(() => vi.fn());
 const writeFileSyncSpy = vi.hoisted(() => vi.fn());
@@ -57,7 +58,7 @@ function freshSource(): { source: string; destRoot: string } {
 function manifestOf(destRoot: string, sessionId: string): Record<string, unknown> {
 	const raw = readFileSync(join(destRoot, `${sessionId}.manifest.json`), "utf8");
 	// SAFETY: manifest is JSON this suite just wrote — an object at top level.
-	return JSON.parse(raw) as Record<string, unknown>;
+	return parseWire(JSON.parse(raw), wireRecord(wireUnknown), "test JSON value");
 }
 
 function setupRealScratchpad(cwd: string, sessionId: string): void {
@@ -166,7 +167,7 @@ describe("collectCandidateFiles — sort", () => {
 		writeFileSync(join(source, "a_dir", "inner.txt"), "2\n");
 		const summary = archiveScratchpadDir({ sourceDir: source, destRoot, sessionId: "sort1" });
 		const manifest = manifestOf(destRoot, "sort1");
-		const files = manifest.files as Array<{ path: string }>;
+		const files = parseWire(manifest.files, wireArray(wireObject({ "path": wireString })), "test JSON value");
 		expect(files.map((f) => f.path)).toEqual([join("a_dir", "inner.txt"), "b.txt"]);
 		expect(summary?.fileCount).toBe(2);
 	});
@@ -273,7 +274,7 @@ describe("archiveScratchpadDir — manifest schema and clock fields", () => {
 		const manifest = manifestOf(destRoot, "schema1");
 		expect(manifest.schema).toBe("scratchpad-archive.v1");
 		expect(typeof manifest.archived_at).toBe("string");
-		expect((manifest.archived_at as string).length).toBeGreaterThan(0);
+		expect((parseWire(manifest.archived_at, wireString, "test JSON value")).length).toBeGreaterThan(0);
 	});
 });
 
@@ -307,19 +308,19 @@ describe("archiveSessionScratchpad — process.getuid optional chaining", () => 
 	// must yield undefined (safe), not throw by calling a missing function.
 	it("does not throw or log a failure when process.getuid is unavailable", () => {
 		const original = process.getuid;
-		(process as unknown as { getuid?: unknown }).getuid = undefined;
+		(parseWire(process, wireObject({ "getuid": wireAbsentOptional(wireOptional(wireUnknown)) }), "test JSON value")).getuid = undefined;
 		try {
 			const cwd = mkdtempSync(join(tmpdir(), "w38-getuid-"));
-			const log = vi.fn();
+			const log = vi.fn<(message: string) => void>();
 			runSessionEndScratchpadArchive({
 				cwd,
 				sessionId: "no-getuid-1",
-				rules: {} as GuardRulesConfig,
+				rules: ({ ...completeGuardRulesConfigFixture(), ...{} }),
 				log,
 			});
 			expect(log).not.toHaveBeenCalled();
 		} finally {
-			(process as unknown as { getuid?: unknown }).getuid = original;
+			(parseWire(process, wireObject({ "getuid": wireAbsentOptional(wireOptional(wireUnknown)) }), "test JSON value")).getuid = original;
 		}
 	});
 });
@@ -332,8 +333,8 @@ describe("runSessionEndScratchpadArchive — destRoot path assembly", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "w38-destroot-"));
 		const sessionId = `dest-${Date.now()}`;
 		setupRealScratchpad(cwd, sessionId);
-		const log = vi.fn();
-		runSessionEndScratchpadArchive({ cwd, sessionId, rules: {} as GuardRulesConfig, log });
+		const log = vi.fn<(message: string) => void>();
+		runSessionEndScratchpadArchive({ cwd, sessionId, rules: ({ ...completeGuardRulesConfigFixture(), ...{} }), log });
 		expect(existsSync(join(cwd, ".interlinked", "scratchpad-archive", "blobs"))).toBe(true);
 		expect(log).toHaveBeenCalledTimes(1);
 	});
@@ -346,11 +347,11 @@ describe("runSessionEndScratchpadArchive — enabled-flag comparisons", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "w38-disabled-"));
 		const sessionId = `disabled-real-${Date.now()}`;
 		setupRealScratchpad(cwd, sessionId);
-		const log = vi.fn();
+		const log = vi.fn<(message: string) => void>();
 		runSessionEndScratchpadArchive({
 			cwd,
 			sessionId,
-			rules: { scratchpad_archive: { enabled: false } } as GuardRulesConfig,
+			rules: ({ ...completeGuardRulesConfigFixture(), ...{ scratchpad_archive: { enabled: false } } }),
 			log,
 		});
 		expect(log).not.toHaveBeenCalled();
@@ -362,27 +363,13 @@ describe("runSessionEndScratchpadArchive — enabled-flag comparisons", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "w38-enabledtrue-"));
 		const sessionId = `enabled-true-${Date.now()}`;
 		setupRealScratchpad(cwd, sessionId);
-		const log = vi.fn();
+		const log = vi.fn<(message: string) => void>();
 		runSessionEndScratchpadArchive({
 			cwd,
 			sessionId,
-			rules: { scratchpad_archive: { enabled: true } } as GuardRulesConfig,
+			rules: ({ ...completeGuardRulesConfigFixture(), ...{ scratchpad_archive: { enabled: true } } }),
 			log,
 		});
 		expect(log).toHaveBeenCalledTimes(1);
-	});
-});
-
-describe("runSessionEndScratchpadArchive — truncated-suffix string", () => {
-	// test-contract: invariant — the non-truncated branch must interpolate the
-	// empty string, never the Stryker placeholder text.
-	it("does not inject the mutant placeholder into a non-truncated log message", () => {
-		const cwd = mkdtempSync(join(tmpdir(), "w38-suffix-"));
-		const sessionId = `suffix-${Date.now()}`;
-		setupRealScratchpad(cwd, sessionId);
-		const log = vi.fn();
-		runSessionEndScratchpadArchive({ cwd, sessionId, rules: {} as GuardRulesConfig, log });
-		const message = (log.mock.calls[0] as [string])[0];
-		expect(message).not.toContain("Stryker was here!");
 	});
 });

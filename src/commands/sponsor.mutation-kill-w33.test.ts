@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import { sign as edSign, generateKeyPairSync } from "node:crypto";
 import {
 	existsSync,
@@ -84,9 +85,9 @@ describe("sponsor command — mutation-kill wave 33", () => {
 	});
 
 	function localConfig(): Record<string, unknown> {
-		return JSON.parse(
+		return parseWire(JSON.parse(
 			readFileSync(join(cwd, ".interlinked", "config.local.json"), "utf8"),
-		) as Record<string, unknown>;
+		), wireRecord(wireUnknown), "test JSON value");
 	}
 
 	function printedLog(): string {
@@ -110,7 +111,7 @@ describe("sponsor command — mutation-kill wave 33", () => {
 		mkdirSync(join(osState.fakeHome, ".claude"), { recursive: true });
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction({ spinner: true }, { cwd, fetchImpl });
 		const expectedPath = join(osState.fakeHome, ".claude", "settings.json");
 		expect(existsSync(expectedPath)).toBe(true);
@@ -135,10 +136,10 @@ describe("sponsor command — mutation-kill wave 33", () => {
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
 		let seenUrl: string | undefined;
-		const fetchImpl = (async (url: string) => {
-			seenUrl = url;
-			return { ok: true, text: async () => wire };
-		}) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async (url) => {
+			seenUrl = String(url);
+			return new Response(wire);
+		};
 		await sponsorEnableAction({ spinner: true }, { cwd, claudeSettingsPath: settingsPath, fetchImpl });
 		expect(seenUrl).toBe(DEFAULT_FEED_URL);
 	});
@@ -151,10 +152,10 @@ describe("sponsor command — mutation-kill wave 33", () => {
 		vi.mocked(addSponsorSpinnerVerb).mockReturnValueOnce({ ok: true, written: "" });
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction({ spinner: true }, { cwd, claudeSettingsPath: settingsPath, fetchImpl });
 		expect(printedErr()).toContain("Spinner surface skipped: unknown");
-		const sponsor = localConfig().sponsor as { spinner?: boolean };
+		const sponsor = parseWire(localConfig().sponsor, wireObject({ "spinner": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value");
 		expect(sponsor.spinner).not.toBe(true);
 	});
 
@@ -170,14 +171,14 @@ describe("sponsor command — mutation-kill wave 33", () => {
 			join(cwd, ".interlinked", "config.local.json"),
 			JSON.stringify({
 				...before,
-				sponsor: { ...(before.sponsor as object), spinner_verbs_written: ["Old verb"] },
+				sponsor: { ...(parseWire(before.sponsor, wireRecord(wireUnknown), "sponsor config")), spinner_verbs_written: ["Old verb"] },
 			}),
 		);
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction({ spinner: true }, { cwd, claudeSettingsPath: settingsPath, fetchImpl });
-		const sponsor = localConfig().sponsor as { spinner?: boolean; spinner_verbs_written?: string[] };
+		const sponsor = parseWire(localConfig().sponsor, wireObject({ "spinner": wireAbsentOptional(wireOptional(wireBoolean)), "spinner_verbs_written": wireAbsentOptional(wireOptional(wireArray(wireString))) }), "test JSON value");
 		expect(sponsor.spinner).toBe(true);
 		expect(sponsor.spinner_verbs_written).toEqual(
 			expect.arrayContaining(["Old verb", "Sponsored by Alpha — a friend project"]),
@@ -189,10 +190,10 @@ describe("sponsor command — mutation-kill wave 33", () => {
 	// spinner branch; mutant ceab4d4b8ddde8d3 replaces the condition with
 	// `true`, which would fetch the feed even when --spinner was not passed.
 	it("enable without --spinner never calls fetchImpl", async () => {
-		const fetchImpl = vi.fn(async () => ({ ok: true, text: async () => "" })) as unknown as typeof fetch;
+		const fetchImpl = vi.fn<typeof fetch>(async () => new Response(""));
 		await sponsorEnableAction({}, { cwd, claudeSettingsPath: settingsPath, fetchImpl });
 		expect(fetchImpl).not.toHaveBeenCalled();
-		const sponsor = localConfig().sponsor as { spinner?: boolean };
+		const sponsor = parseWire(localConfig().sponsor, wireObject({ "spinner": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value");
 		expect(sponsor.spinner).toBeUndefined();
 	});
 
@@ -204,9 +205,9 @@ describe("sponsor command — mutation-kill wave 33", () => {
 	it("enable --spinner (non-json) prints the full expected message set with a truncated install id", async () => {
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction({ spinner: true }, { cwd, claudeSettingsPath: settingsPath, fetchImpl });
-		const installId = localConfig().install_id as string;
+		const installId = parseWire(localConfig().install_id, wireString, "test JSON value");
 		const printed = printedLog();
 		expect(printed).toContain('Spinner verb installed: "Sponsored by Alpha — a friend project"');
 		expect(printed).toContain("Claude Code reads spinnerVerbs at boot — restart to see it.");
@@ -240,13 +241,13 @@ describe("sponsor command — mutation-kill wave 33", () => {
 	it("disable after a real spinner install succeeds silently, clears spinner, and prints the disable message", async () => {
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction({ spinner: true }, { cwd, claudeSettingsPath: settingsPath, fetchImpl });
 		vi.mocked(console.error).mockClear();
 		vi.mocked(console.log).mockClear();
 		await sponsorDisableAction({}, { cwd, claudeSettingsPath: settingsPath });
 		expect(printedErr()).not.toContain("Spinner verbs not removed");
-		const sponsor = localConfig().sponsor as { spinner?: boolean };
+		const sponsor = parseWire(localConfig().sponsor, wireObject({ "spinner": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value");
 		expect(sponsor.spinner).toBe(false);
 		expect(printedLog()).toContain(
 			"Sponsor slot disabled — row clears on the next statusline refresh.",
@@ -262,16 +263,16 @@ describe("sponsor command — mutation-kill wave 33", () => {
 		await sponsorEnableAction({}, { cwd, claudeSettingsPath: settingsPath });
 		vi.mocked(console.log).mockClear();
 		await sponsorStatusAction({ json: true }, { cwd, claudeSettingsPath: settingsPath });
-		let parsed = JSON.parse(printedLog()) as { spinner: boolean };
+		let parsed = parseWire(JSON.parse(printedLog()), wireObject({ "spinner": wireBoolean }), "test JSON value");
 		expect(parsed.spinner).toBe(false);
 
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const fetchImpl = (async () => ({ ok: true, text: async () => wire })) as unknown as typeof fetch;
+		const fetchImpl: typeof fetch = async () => new Response(wire);
 		await sponsorEnableAction({ spinner: true }, { cwd, claudeSettingsPath: settingsPath, fetchImpl });
 		vi.mocked(console.log).mockClear();
 		await sponsorStatusAction({ json: true }, { cwd, claudeSettingsPath: settingsPath });
-		parsed = JSON.parse(printedLog()) as { spinner: boolean };
+		parsed = parseWire(JSON.parse(printedLog()), wireObject({ "spinner": wireBoolean }), "test JSON value");
 		expect(parsed.spinner).toBe(true);
 	});
 
@@ -282,7 +283,7 @@ describe("sponsor command — mutation-kill wave 33", () => {
 		await sponsorEnableAction({}, { cwd, claudeSettingsPath: settingsPath });
 		vi.mocked(console.log).mockClear();
 		await sponsorStatusAction({ json: true }, { cwd, claudeSettingsPath: settingsPath });
-		const parsed = JSON.parse(printedLog()) as { feed_url: string };
+		const parsed = parseWire(JSON.parse(printedLog()), wireObject({ "feed_url": wireString }), "test JSON value");
 		expect(parsed.feed_url).toBe(DEFAULT_FEED_URL);
 	});
 
@@ -326,7 +327,7 @@ describe("sponsor command — mutation-kill wave 33", () => {
 		);
 		vi.mocked(console.log).mockClear();
 		await sponsorStatusAction({ json: true }, { cwd, claudeSettingsPath: settingsPath });
-		const parsed = JSON.parse(printedLog()) as { live: Record<string, string> };
+		const parsed = parseWire(JSON.parse(printedLog()), wireObject({ "live": wireRecord(wireString) }), "test JSON value");
 		expect(parsed.live).toEqual({ creative: "alpha" });
 	});
 });

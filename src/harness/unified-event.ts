@@ -1,4 +1,4 @@
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import type { HookCapabilityReceipt, HookOutcome } from "./adapters/hook-contract.js";
 import type { HookObservation } from "./adapters/hook-observation.js";
 // ===========================================
@@ -226,12 +226,12 @@ function validateUnifiedEventRunnerPhase(e: JsonObject, problems: string[]): voi
 /** Checks the `context` and `action` nested-object fields. Pushes any
  *  violations onto `problems`. */
 function validateUnifiedEventNested(e: JsonObject, problems: string[]): void {
-	const ctx = e.context as { cwd?: unknown } | undefined;
-	if (!ctx || typeof ctx !== "object" || typeof ctx.cwd !== "string") {
+	const ctx = e.context;
+	if (!isJsonObject(ctx) || typeof ctx.cwd !== "string") {
 		problems.push("context.cwd must be a string");
 	}
-	const action = e.action as { kind?: unknown } | undefined;
-	if (!action || typeof action !== "object" || typeof action.kind !== "string") {
+	const action = e.action;
+	if (!isJsonObject(action) || typeof action.kind !== "string") {
 		problems.push("action.kind must be a string");
 	}
 }
@@ -240,10 +240,10 @@ function validateUnifiedEventNested(e: JsonObject, problems: string[]): void {
  *  to the evaluator. Returns a list of violations; empty = valid.
  *  Intentionally permissive: unknown fields are allowed. */
 export function validateUnifiedEvent(event: unknown): string[] {
-	if (event == null || typeof event !== "object") {
+	if (!isJsonObject(event)) {
 		return ["event must be an object"];
 	}
-	const e = event as JsonObject;
+	const e = event;
 	const problems: string[] = [];
 	validateUnifiedEventIdentity(e, problems);
 	validateUnifiedEventRunnerPhase(e, problems);

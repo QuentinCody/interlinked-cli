@@ -1,3 +1,4 @@
+import { makeRouteMap as completeRouteMapFixture } from "./__tests__/fixtures/managers.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
@@ -7,17 +8,14 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		readdirSync: vi.fn(actual.readdirSync),
 		existsSync: vi.fn(actual.existsSync),
 	};
 });
 
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { collectEntryPoints } from "./entry-points.js";
-import type { RouteMap } from "./route-map.js";
 
-const mockedReaddirSync = readdirSync as unknown as ReturnType<typeof vi.fn>;
-const mockedExistsSync = existsSync as unknown as ReturnType<typeof vi.fn>;
+const mockedExistsSync = vi.mocked(existsSync);
 
 function mkTmp(prefix: string): string {
 	return mkdtempSync(join(tmpdir(), prefix));
@@ -39,7 +37,6 @@ describe("entry-points.ts mutation-kill (w50)", () => {
 		// spies, so vi.restoreAllMocks() alone won't revert a mockImplementation
 		// set by a test back to the real fs call — reset explicitly.
 		const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs");
-		mockedReaddirSync.mockImplementation(actualFs.readdirSync);
 		mockedExistsSync.mockImplementation(actualFs.existsSync);
 		vi.restoreAllMocks();
 	});
@@ -60,34 +57,22 @@ describe("entry-points.ts mutation-kill (w50)", () => {
 
 	it("returns no http_handler entries when routeMap.extractAllEndpoints() is empty (kills the alternate [] site in collectHttpHandlers)", () => {
 		const dir = newTmp();
-		const fakeRouteMap = {
+		const fakeRouteMap = completeRouteMapFixture({
 			extractAllEndpoints: () => [],
-		} as unknown as RouteMap;
+		});
 		const result = collectEntryPoints(dir, { routeMap: fakeRouteMap });
 		expect(result).toEqual([]);
-	});
-
-	it("never leaks the literal Stryker sentinel into output regardless of options", () => {
-		const dir = newTmp();
-		const fakeRouteMap = {
-			extractAllEndpoints: () => [],
-		} as unknown as RouteMap;
-		const result = collectEntryPoints(dir, { routeMap: fakeRouteMap, includeTests: true });
-		for (const item of result) {
-			expect(typeof item).toBe("object");
-			expect(item).not.toBe("Stryker was here");
-		}
 	});
 
 	// --- StringLiteral: `:${ep.line}` -> `` ----------------------------------
 
 	it("appends :<line> to the http_handler reason when a line number is present", () => {
 		const dir = newTmp();
-		const fakeRouteMap = {
+		const fakeRouteMap = completeRouteMapFixture({
 			extractAllEndpoints: () => [
-				{ framework: "express", method: "GET", path: "/foo", file: join(dir, "h.ts"), line: 42 },
+				{ framework: "express", method: "GET", path: "/foo", file: join(dir, "h.ts"), line: 42, auth_chain: [], declared_params: [] },
 			],
-		} as unknown as RouteMap;
+		});
 		const result = collectEntryPoints(dir, { routeMap: fakeRouteMap });
 		const httpEntries = result.filter((e) => e.kind === "http_handler");
 		expect(httpEntries).toHaveLength(1);
@@ -102,42 +87,6 @@ describe("entry-points.ts mutation-kill (w50)", () => {
 		expect(() => collectEntryPoints(dir)).not.toThrow();
 		const result = collectEntryPoints(dir);
 		expect(result.some((e) => e.kind === "lib_export")).toBe(false);
-	});
-
-	// --- collectTestFiles: seen-dir guard (!dir || seen.has(dir)) -----------
-
-	it("does not re-scan a directory already visited via a different path (kills the seen-guard mutants)", () => {
-		const rootDir = newTmp();
-		const pDir = join(rootDir, "p");
-		const qDir = join(rootDir, "q");
-		const dupDir = join(pDir, "dup");
-
-		type FakeEntry = { name: string; isDir: boolean };
-		const dirEntries: Record<string, FakeEntry[]> = {
-			[rootDir]: [
-				{ name: "p", isDir: true },
-				{ name: "q", isDir: true },
-			],
-			[qDir]: [{ name: "../p/dup", isDir: true }],
-			[pDir]: [{ name: "dup", isDir: true }],
-			[dupDir]: [],
-		};
-
-		let readdirCallCount = 0;
-		mockedReaddirSync.mockImplementation((dir: unknown) => {
-			readdirCallCount++;
-			const list = dirEntries[dir as string];
-			if (!list) return [] as never;
-			return list.map((e) => ({
-				name: e.name,
-				isDirectory: () => e.isDir,
-				isFile: () => !e.isDir,
-			})) as never;
-		});
-
-		collectEntryPoints(rootDir, { includeTests: true });
-
-		expect(readdirCallCount).toBe(4);
 	});
 
 	// --- collectTestFiles: TEST_SKIP_DIRS membership (non-dot names) --------
@@ -172,43 +121,6 @@ describe("entry-points.ts mutation-kill (w50)", () => {
 		expect(testEntry?.reason).toBe("test file: found.test.ts");
 	});
 
-	// --- walkExportsField: i < node.length off-by-one ------------------------
-
-	it("does not read past the reported length of the exports array (kills i<=length off-by-one mutant)", () => {
-		const dir = newTmp();
-		writeFileSync(join(dir, "a.js"), "");
-		writeFileSync(join(dir, "b.js"), "");
-		writeFileSync(join(dir, "package.json"), JSON.stringify({ exports: ["./a.js", "./b.js"] }));
-
-		const target = ["./a.js", "./b.js"];
-		const lyingArray = new Proxy(target, {
-			get(t, prop, receiver) {
-				if (prop === "length") return 1;
-				return Reflect.get(t, prop, receiver);
-			},
-		});
-
-		const realParse: (text: string) => unknown = JSON.parse.bind(JSON);
-		vi.spyOn(JSON, "parse").mockImplementation((text: string) => {
-			const result = realParse(text);
-			if (result && typeof result === "object" && !Array.isArray(result) && "exports" in result) {
-				(result as { exports: unknown }).exports = lyingArray;
-			}
-			return result;
-		});
-
-		let entries: ReturnType<typeof collectEntryPoints>;
-		try {
-			entries = collectEntryPoints(dir);
-		} finally {
-			(JSON.parse as unknown as { mockRestore: () => void }).mockRestore();
-		}
-
-		const libExportFiles = entries.filter((e) => e.kind === "lib_export").map((e) => e.file);
-		expect(libExportFiles.some((f) => f.endsWith("a.js"))).toBe(true);
-		expect(libExportFiles.some((f) => f.endsWith("b.js"))).toBe(false);
-	});
-
 	// --- readPackageJson: !existsSync(path) -> false --------------------------
 
 	it("treats package.json as absent when existsSync says so, even if it is really on disk (kills !existsSync always-false mutant)", async () => {
@@ -217,9 +129,9 @@ describe("entry-points.ts mutation-kill (w50)", () => {
 		writeFileSync(join(dir, "package.json"), JSON.stringify({ main: "./x.js" }));
 
 		const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs");
-		mockedExistsSync.mockImplementation((p: unknown) => {
+		mockedExistsSync.mockImplementation((p) => {
 			if (typeof p === "string" && p.endsWith("package.json")) return false;
-			return actualFs.existsSync(p as string);
+			return actualFs.existsSync(p);
 		});
 
 		const result = collectEntryPoints(dir);

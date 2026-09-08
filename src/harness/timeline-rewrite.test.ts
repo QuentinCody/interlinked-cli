@@ -1,3 +1,4 @@
+import { parseWire, wireObject, wireString } from "../lib/value-validation.js";
 // Companion tests for timeline-rewrite.ts — the bounded, concurrent-safe
 // whole-file timeline reconstruction used by the backfill/repair path
 // (timeline-writer.ts wraps writeTimeline for the append-only live path;
@@ -24,7 +25,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
@@ -78,7 +79,8 @@ beforeEach(async () => {
 	growEnabled = false;
 	growRemaining = 0;
 	growSeq = 0;
-	vi.mocked(statSync).mockImplementation(((path: Parameters<typeof statSync>[0], opts?: unknown) => {
+	vi.mocked(statSync).mockImplementation((...args: Parameters<typeof statSync>) => {
+		const [path] = args;
 		if (growEnabled && growRemaining > 0 && path === growTarget) {
 			growRemaining--;
 			growSeq++;
@@ -89,8 +91,8 @@ beforeEach(async () => {
 				)}\n`,
 			);
 		}
-		return (actualStatSync as (p: unknown, o?: unknown) => ReturnType<typeof statSync>)(path, opts);
-	}) as typeof statSync);
+		return actualStatSync(...args);
+	});
 });
 
 let cwd: string;
@@ -135,9 +137,10 @@ describe("assertTimelineMaterializationBounds", () => {
 		// comparison and reports a count BELOW the limit. Assert the count is
 		// actually over MAX_TIMELINE_REWRITE_BYTES, which is the observable
 		// the branch at line 165 exists to produce.
+		assert(thrown instanceof Error);
 		const match = new RegExp(
 			`^refusing (\\d+) serialized caught-up timeline bytes \\(limit ${MAX_TIMELINE_REWRITE_BYTES}\\)$`,
-		).exec((thrown as Error).message);
+		).exec(thrown.message);
 		expect(Number(match?.[1])).toBeGreaterThan(MAX_TIMELINE_REWRITE_BYTES);
 	});
 });
@@ -219,7 +222,7 @@ describe("writeTimeline — concurrent mutation between basis capture and replac
 		const rows = readFileSync(path, "utf8")
 			.trim()
 			.split("\n")
-			.map((line) => JSON.parse(line) as { uuid: string });
+			.map((line) => parseWire(JSON.parse(line), wireObject({ "uuid": wireString }), "test JSON value"));
 		expect(rows.map((row) => row.uuid)).toEqual(["grow-1", "mine"]);
 	});
 
@@ -237,8 +240,6 @@ describe("writeTimeline — concurrent mutation between basis capture and replac
 		expect(caught).toBeInstanceOf(TimelineRewriteConflictError);
 		// SAFETY: just asserted caught is a TimelineRewriteConflictError, which
 		// extends Error, so .message is a real string on the instance above.
-		expect((caught as TimelineRewriteConflictError).message).toBe(
-			`timeline stayed busy across ${MAX_TIMELINE_REWRITE_CATCHUPS} catch-ups`,
-		);
+		expect(caught).toHaveProperty(["message"], `timeline stayed busy across ${MAX_TIMELINE_REWRITE_CATCHUPS} catch-ups`);
 	});
 });

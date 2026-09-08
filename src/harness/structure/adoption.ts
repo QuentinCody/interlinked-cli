@@ -5,7 +5,7 @@
 // declared artifacts against extracted artifacts in the graph.
 
 import type { ArtifactGraph } from "./artifact-graph.js";
-import type { ArtifactKind, StructureConfig } from "./types.js";
+import type { ArtifactFileKey, ArtifactKind, StructureConfig } from "./types.js";
 
 // -------------------------------------------
 // Main adoption calculation
@@ -40,7 +40,7 @@ interface RatioContext {
 
 interface CategorySpec {
 	kind: ArtifactKind;
-	configKey: string;
+	configKey: ArtifactFileKey;
 }
 
 function categoryRatio(ctx: RatioContext, spec: CategorySpec): number {
@@ -55,7 +55,7 @@ function categoryRatio(ctx: RatioContext, spec: CategorySpec): number {
 	const declaredCount = allNodes.filter((n) => n.provenance === "declared").length;
 
 	// Also count nodes that have a config artifact file declared
-	const hasConfigFile = config?.artifacts[configKey as keyof typeof config.artifacts] != null;
+	const hasConfigFile = config?.artifacts[configKey] != null;
 	if (!hasConfigFile && declaredCount === 0) return 0.0;
 
 	return clamp(declaredCount / extractedCount);

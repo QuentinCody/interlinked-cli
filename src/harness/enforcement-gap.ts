@@ -25,7 +25,7 @@
 // `nowMs`, which is what makes this testable without fake timers (see
 // `timing_flake`).
 
-import type { DaemonLedgerEvent } from "./daemon-ledger.js";
+import type { DaemonLedgerRow } from "./daemon-ledger.js";
 
 /** A window during which no daemon was serving. */
 interface EnforcementGap {
@@ -50,7 +50,7 @@ const MIN_REPORTABLE_MS = 60_000;
 const THRASH_ATTEMPTS = 5;
 
 /** Count exit reasons within a window, most frequent first. */
-function rankReasons(events: DaemonLedgerEvent[]): string[] {
+function rankReasons(events: DaemonLedgerRow[]): string[] {
 	const counts = new Map<string, number>();
 	for (const e of events) {
 		if (e.event !== "exit") continue;
@@ -63,7 +63,7 @@ function rankReasons(events: DaemonLedgerEvent[]): string[] {
 /** An in-progress gap: when it opened and every event seen since. */
 interface OpenGap {
 	from: number;
-	window: DaemonLedgerEvent[];
+	window: DaemonLedgerRow[];
 }
 
 /** Close an open gap into a record, or null when it is too short to matter. */
@@ -89,7 +89,7 @@ function sealGap(open: OpenGap, to: number | null, nowMs: number): EnforcementGa
  * CLOSES at the next `listening`. Events must be in ascending `at` order, which
  * is how the ledger appends them.
  */
-export function detectEnforcementGaps(events: DaemonLedgerEvent[], nowMs: number): EnforcementGap[] {
+export function detectEnforcementGaps(events: DaemonLedgerRow[], nowMs: number): EnforcementGap[] {
 	// Service resumes when a daemon STARTS AND SURVIVES. `listening` is declared
 	// in DaemonEventKind but nothing emits it (measured: 2348 start / 2348 exit /
 	// 0 listening in this repo's ledger) — an earlier version of this function
@@ -98,7 +98,7 @@ export function detectEnforcementGaps(events: DaemonLedgerEvent[], nowMs: number
 	// module exists to surface, which is exactly why it must key on an event the
 	// ledger actually writes.
 	const exitedPids = new Set(events.filter((e) => e.event === "exit").map((e) => e.pid));
-	const survives = (e: DaemonLedgerEvent): boolean =>
+	const survives = (e: DaemonLedgerRow): boolean =>
 		(e.event === "start" || e.event === "listening") && !exitedPids.has(e.pid);
 
 	const gaps: EnforcementGap[] = [];

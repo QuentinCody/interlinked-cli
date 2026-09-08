@@ -1,3 +1,4 @@
+import { nestedHookSettings, outputObject } from "./test-output.js";
 import { describe, expect, it } from "vitest";
 import { isReadOnlyToolName } from "../../lib/hook-read-only-tools.js";
 import { nonNull } from "../../lib/non-null.js";
@@ -112,18 +113,18 @@ describe("Claude Code renderSettingsFragment", () => {
 	// install — so the adapter re-registered the event and every live settings
 	// file got "2 PostToolUse hooks ran" while the test stayed green.
 	it("N: does NOT register PostToolUseFailure (Claude counts it as a second PostToolUse)", () => {
-		const fragment = frag.fragment as { hooks: Record<string, unknown> };
+		const fragment = nestedHookSettings(frag.fragment);
 		expect(Object.keys(fragment.hooks)).not.toContain("PostToolUseFailure");
 	});
 
 	it("registers PermissionRequest now that its native response contract is implemented", () => {
-		const fragment = frag.fragment as { hooks: Record<string, unknown> };
+		const fragment = nestedHookSettings(frag.fragment);
 		expect(Object.keys(fragment.hooks)).toContain("PermissionRequest");
 		expect(adapter.nativeEventNames).toContain("PermissionRequest");
 	});
 
 	it("registers WorktreeCreate as a native hard-stop", () => {
-		const fragment = frag.fragment as { hooks: Record<string, unknown> };
+		const fragment = nestedHookSettings(frag.fragment);
 		expect(Object.keys(fragment.hooks)).toContain("WorktreeCreate");
 		expect(adapter.nativeEventNames).toContain("WorktreeCreate");
 		expect(CLAUDE_HOOK_EVENTS).toContain("WorktreeCreate");
@@ -182,9 +183,7 @@ describe("Claude Code renderSettingsFragment", () => {
 	// pass (including `affected_tests`, which shells out to vitest) over them.
 	// Codex is the deliberate exception and keeps matcher "" for `apply_patch`.
 	it("scopes PostToolUse to the mutating tools (NOT the all-tools matcher)", () => {
-		const fragment = frag.fragment as {
-			hooks: Record<string, Array<{ matcher: string; hooks: Array<{ command: string }> }>>;
-		};
+		const fragment = nestedHookSettings(frag.fragment);
 		const post = nonNull(nonNull(fragment.hooks.PostToolUse)[0]);
 		expect(post.matcher).toBe("Write|Edit|MultiEdit|NotebookEdit|Bash");
 		expect(post.matcher).toBe(CLAUDE_POST_TOOL_USE_MATCHER);
@@ -195,9 +194,7 @@ describe("Claude Code renderSettingsFragment", () => {
 	});
 
 	it("registers SessionEnd as a detached fire-and-forget command", () => {
-		const fragment = frag.fragment as {
-			hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
-		};
+		const fragment = nestedHookSettings(frag.fragment);
 		const sessionEnd = nonNull(nonNull(fragment.hooks.SessionEnd)[0]);
 		const command = nonNull(sessionEnd.hooks[0]).command;
 		// Backgrounded subshell + discarded output: `claude update` fires
@@ -210,9 +207,7 @@ describe("Claude Code renderSettingsFragment", () => {
 	});
 
 	it("keeps every other event foreground (their output is consumed)", () => {
-		const fragment = frag.fragment as {
-			hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
-		};
+		const fragment = nestedHookSettings(frag.fragment);
 		for (const [eventName, entries] of Object.entries(fragment.hooks)) {
 			if (eventName === "SessionEnd") continue;
 			expect(nonNull(nonNull(entries[0]).hooks[0]).command).not.toContain("& )");
@@ -220,16 +215,12 @@ describe("Claude Code renderSettingsFragment", () => {
 	});
 
 	it("uses empty matcher for PreToolUse as well", () => {
-		const fragment = frag.fragment as {
-			hooks: Record<string, Array<{ matcher: string }>>;
-		};
+		const fragment = nestedHookSettings(frag.fragment);
 		expect(nonNull(nonNull(fragment.hooks.PreToolUse)[0]).matcher).toBe("");
 	});
 
 	it("omits FileChanged's static matcher and scopes only PostToolUse", () => {
-		const fragment = frag.fragment as {
-			hooks: Record<string, Array<{ matcher: string }>>;
-		};
+		const fragment = nestedHookSettings(frag.fragment);
 		for (const eventName of Object.keys(fragment.hooks)) {
 			if (eventName === "PostToolUse") continue;
 			if (eventName === "FileChanged") {
@@ -354,7 +345,7 @@ describe("Claude Code encodeDecision", () => {
 			baseEvent,
 		);
 		expect(out.stdout).toBeDefined();
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: "fyi" },
 		});
 	});
@@ -363,7 +354,7 @@ describe("Claude Code encodeDecision", () => {
 		// input") and silently fails to block — deny must live in
 		// hookSpecificOutput.permissionDecision.
 		const out = adapter.encodeDecision({ decision: "block", reason: "no" }, baseEvent);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			hookSpecificOutput: {
 				hookEventName: "PreToolUse",
 				permissionDecision: "deny",
@@ -377,11 +368,11 @@ describe("Claude Code encodeDecision", () => {
 			"PostToolUse",
 		);
 		const out = adapter.encodeDecision({ decision: "block", reason: "no" }, postEvent);
-		expect(JSON.parse(out.stdout as string)).toEqual({ decision: "block", reason: "no" });
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({ decision: "block", reason: "no" });
 	});
 	it("PreToolUse ask — emits permissionDecision: ask in hookSpecificOutput", () => {
 		const out = adapter.encodeDecision({ decision: "ask", reason: "confirm?" }, baseEvent);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			hookSpecificOutput: {
 				hookEventName: "PreToolUse",
 				permissionDecision: "ask",
@@ -398,7 +389,7 @@ describe("Claude Code encodeDecision", () => {
 			{ decision: "block", reason: "policy denied" },
 			permissionEvent,
 		);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			hookSpecificOutput: {
 				hookEventName: "PermissionRequest",
 				decision: { behavior: "deny", message: "policy denied" },
@@ -414,9 +405,7 @@ describe("Claude Code encodeDecision", () => {
 			{ decision: "block", reason: "policy denied" },
 			permissionEvent,
 		);
-		const parsed = JSON.parse(out.stdout as string) as {
-			hookSpecificOutput: Record<string, unknown>;
-		};
+		const parsed = outputObject(JSON.parse(nonNull(out.stdout)));
 		expect(parsed.hookSpecificOutput).not.toHaveProperty("permissionDecision");
 		expect(parsed.hookSpecificOutput).not.toHaveProperty("permissionDecisionReason");
 	});
@@ -486,7 +475,7 @@ describe("Claude Code encodeDecision", () => {
 			baseEvent,
 		);
 		expect(out.stdout).toBeDefined();
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: "w1\nw2" },
 		});
 		expect(out.stderr).toBe("w1\nw2");
@@ -497,7 +486,7 @@ describe("Claude Code encodeDecision", () => {
 			{ decision: "allow", additional_context: "fyi", warnings: ["w1"] },
 			baseEvent,
 		);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: "fyi\nw1" },
 		});
 	});
@@ -518,7 +507,7 @@ describe("Claude Code encodeDecision", () => {
 			{ decision: "allow", warnings: ["w1"] },
 			postEvent,
 		);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: "w1" },
 		});
 		expect(out.stderr).toBe("w1");
@@ -539,10 +528,8 @@ describe("Claude Code encodeDecision", () => {
 
 	it("block with no reason falls back to the generic harness-bug message", () => {
 		const out = adapter.encodeDecision({ decision: "block" }, baseEvent);
-		const parsed = JSON.parse(out.stdout as string) as {
-			hookSpecificOutput: { permissionDecisionReason: string };
-		};
-		expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe(
+		const parsed = outputObject(JSON.parse(nonNull(out.stdout)));
+		expect(outputObject(parsed.hookSpecificOutput).permissionDecisionReason).toBe(
 			"Blocked by the interlinked harness, but no reason was attached — likely a harness " +
 				"bug; re-run, or run `interlinked harness restart`, then report it.",
 		);
@@ -557,22 +544,20 @@ describe("Claude Code encodeDecision", () => {
 			},
 			baseEvent,
 		);
-		const parsed = JSON.parse(out.stdout as string) as {
-			hookSpecificOutput: { permissionDecisionReason: string };
-		};
-		expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("Confirm push?");
-		expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("origin/main");
+		const parsed = outputObject(JSON.parse(nonNull(out.stdout)));
+		expect(outputObject(parsed.hookSpecificOutput).permissionDecisionReason).toContain("Confirm push?");
+		expect(outputObject(parsed.hookSpecificOutput).permissionDecisionReason).toContain("origin/main");
 	});
 
-	it("falls back to hookEventName by phase when no event is supplied (PostToolUse default)", () => {
-		const out = adapter.encodeDecision({ decision: "block", reason: "no" }, undefined as never);
-		expect(JSON.parse(out.stdout as string)).toEqual({ decision: "block", reason: "no" });
+	it("falls back to PostToolUse for a post-tool event with an empty native name", () => {
+		const out = adapter.encodeDecision({ decision: "block", reason: "no" }, { ...baseEvent, phase: "post-tool", runner_native_event: "" });
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({ decision: "block", reason: "no" });
 	});
 
 	it("falls back to hookEventName 'PreToolUse' when event.phase is pre-tool but native event name is absent", () => {
-		const fakeEvent = { ...baseEvent, runner_native_event: undefined };
-		const out = adapter.encodeDecision({ decision: "block", reason: "no" }, fakeEvent as never);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		const fakeEvent = { ...baseEvent, runner_native_event: "" };
+		const out = adapter.encodeDecision({ decision: "block", reason: "no" }, fakeEvent);
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			hookSpecificOutput: {
 				hookEventName: "PreToolUse",
 				permissionDecision: "deny",
@@ -708,10 +693,8 @@ describe("Claude Code encodeDecision — ask with no reason falls back to 'Confi
 			"PreToolUse",
 		);
 		const out = adapter.encodeDecision({ decision: "ask" }, preEvent);
-		const parsed = JSON.parse(out.stdout as string) as {
-			hookSpecificOutput: { permissionDecisionReason: string };
-		};
-		expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe("Confirmation required");
+		const parsed = outputObject(JSON.parse(nonNull(out.stdout)));
+		expect(outputObject(parsed.hookSpecificOutput).permissionDecisionReason).toBe("Confirmation required");
 	});
 });
 

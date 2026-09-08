@@ -1,3 +1,4 @@
+import { parseWire, wireBoolean, wireNullable, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 // ===========================================
 // interlinked harness — wave pass1_w42 survivor kills
 // ===========================================
@@ -414,7 +415,7 @@ describe("harnessRestartCommand — ledger event + default sessionId + survived 
 				reason: "explicit-restart",
 			}),
 		);
-		const call = mocks.recordDaemonEvent.mock.calls[0]?.[1] as { at: number };
+		const call = parseWire(mocks.recordDaemonEvent.mock.calls[0]?.[1], wireObject({ "at": wireNumber }), "test JSON value");
 		expect(typeof call.at).toBe("number");
 	});
 
@@ -475,10 +476,7 @@ describe("harnessStatusCommand — orphan dryRun + ?? null fields (mutantIds b61
 			framed_timeout_count: 5,
 		});
 		await harnessStatusCommand({ json: true });
-		const parsed = JSON.parse(logText()) as {
-			last_framed_event_at: string | null;
-			framed_timeout_count: number | null;
-		};
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "last_framed_event_at": wireNullable(wireString), "framed_timeout_count": wireNullable(wireNumber) }), "test JSON value");
 		expect(parsed.last_framed_event_at).toBe("2026-08-01T00:00:00Z");
 		expect(parsed.framed_timeout_count).toBe(5);
 	});
@@ -498,7 +496,7 @@ describe("harnessStatusCommand — orphan dryRun + ?? null fields (mutantIds b61
 			},
 		]);
 		await harnessStatusCommand({ json: true });
-		const parsed = JSON.parse(logText()) as { socket_answered: boolean; liveness: string };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "socket_answered": wireBoolean, "liveness": wireString }), "test JSON value");
 		expect(parsed.socket_answered).toBe(false);
 		expect(parsed.liveness).toBe("zombie");
 	});
@@ -591,7 +589,7 @@ describe("harnessTestCommand — harness-not-running data object (mutantIds 81a4
 		mocks.existsSync.mockReturnValue(false);
 		await harnessTestCommand("echo hi", { json: true });
 		expect(capturedData).toContainEqual({ error: "harness_not_running" });
-		const parsed = JSON.parse(logText()) as { error: string };
+		const parsed = parseWire(JSON.parse(logText()), wireObject({ "error": wireString }), "test JSON value");
 		expect(parsed.error).toBe("Harness not running");
 	});
 });

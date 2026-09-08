@@ -24,8 +24,10 @@
 
 import { existsSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { looksLikeReDoS } from "../redos-validation.js";
-import type { GuardRule, RulePattern } from "../types.js";
+import type { GuardRule } from "../types.js";
+import { parseRuleModifications, parseRuntimeRule, stringList, type RuleModification } from "./parsed-rule.js";
 
 /**
  * Distilled rule sidecar — the `enforce` skill emits these fields on every
@@ -33,27 +35,7 @@ import type { GuardRule, RulePattern } from "../types.js";
  * `distilled_action_reason` / `confidence` / `user_modified` at evaluation;
  * the CLI uses them.
  */
-interface DistilledRuleSource {
-	group_id: string;
-	group_label?: string;
-	file?: string;
-	lines?: [number, number];
-	quote?: string;
-	url?: string;
-	fetched_sha?: string;
-	lexical_marker?: string;
-	marker_class?: string;
-}
-
-interface DistilledRule extends GuardRule {
-	source?: DistilledRuleSource;
-	distilled_action_reason?: string;
-	/** Legacy alias for `distilled_action_reason`. Read for backwards compat
-	 *  with rule files written by older /enforce runs; not emitted on new ones. */
-	compiled_action_reason?: string;
-	confidence?: number;
-	user_modified?: boolean;
-}
+type DistilledRule = GuardRule & JsonObject;
 
 interface DistilledRulesFile {
 	version?: number;
@@ -65,24 +47,7 @@ interface DistilledRulesFile {
 	rules?: unknown[];
 }
 
-/**
- * Loose, pre-validation shape of one `rules[]` entry — everything
- * `DistilledRule` declares required except the two fields this loader
- * actually inspects before trusting the entry (`patterns`, `enabled`), which
- * genuinely can be absent or malformed in hand-edited/legacy JSON.
- */
-type RawDistilledRule = Omit<DistilledRule, "patterns" | "enabled"> & {
-	patterns?: unknown[];
-	enabled?: boolean;
-};
-
-interface RuleModification {
-	action?: GuardRule["action"];
-	severity?: GuardRule["severity"];
-	enabled?: boolean;
-	note?: string;
-}
-
+/** Validated lifecycle overrides; malformed raw fields are omitted while loading. */
 interface DistilledRulesOverrides {
 	version?: number;
 	removed_groups?: string[];
@@ -131,7 +96,7 @@ function readDistilledRulesFile(cwd: string): DistilledRulesFile | null {
 	if (!existsSync(path)) return null;
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
-		if (parsed && typeof parsed === "object") return parsed;
+		if (isJsonObject(parsed)) return { rules: Array.isArray(parsed.rules) ? parsed.rules : [] };
 		return null;
 	} catch {
 		// Malformed JSON — fall back to no distilled rules. The skill's self-checks
@@ -147,7 +112,12 @@ function readDistilledRulesOverrides(cwd: string): DistilledRulesOverrides {
 	if (!existsSync(path)) return {};
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
-		if (parsed && typeof parsed === "object") return parsed;
+		if (isJsonObject(parsed)) return {
+			removed_groups: stringList(parsed.removed_groups),
+			removed_rule_ids: stringList(parsed.removed_rule_ids),
+			disabled_rule_ids: stringList(parsed.disabled_rule_ids),
+			modifications: parseRuleModifications(parsed.modifications),
+		};
 		return {};
 	} catch {
 		return {};
@@ -178,12 +148,12 @@ function buildOverrideLookups(overrides: DistilledRulesOverrides): OverrideLooku
  * removed-ids list.
  */
 function isRuleRemoved(
-	raw: RawDistilledRule,
+	raw: DistilledRule,
 	removedGroups: Set<string>,
 	removedIds: Set<string>,
 ): boolean {
-	const groupId = raw.source?.group_id;
-	if (groupId && removedGroups.has(groupId)) return true;
+	const groupId = isJsonObject(raw.source) ? raw.source.group_id : undefined;
+	if (typeof groupId === "string" && removedGroups.has(groupId)) return true;
 	return removedIds.has(raw.id);
 }
 
@@ -195,8 +165,8 @@ function isRuleRemoved(
  * string `regex`.
  */
 function rawPatternRegex(entry: unknown): string | null {
-	if (!entry || typeof entry !== "object") return null;
-	const regex = (entry as { regex?: unknown }).regex;
+	if (!isJsonObject(entry)) return null;
+	const regex = entry.regex;
 	return typeof regex === "string" ? regex : null;
 }
 
@@ -207,7 +177,7 @@ function rawPatternRegex(entry: unknown): string | null {
  * (and logs one stderr line so the operator notices) when any of the rule's
  * patterns fails the shape check — the caller skips the whole rule.
  */
-function hasUnsafePattern(raw: RawDistilledRule): boolean {
+function hasUnsafePattern(raw: DistilledRule): boolean {
 	if (!Array.isArray(raw.patterns)) return false;
 	for (const entry of raw.patterns) {
 		const regex = rawPatternRegex(entry);
@@ -279,9 +249,8 @@ export function loadDistilledRules(cwd: string): GuardRule[] {
 
 	const out: GuardRule[] = [];
 	for (const entry of file.rules) {
-		if (!entry || typeof entry !== "object") continue;
-		const raw = entry as RawDistilledRule;
-		if (!raw.id) continue;
+		const raw = parseRuntimeRule(entry);
+		if (!raw) continue;
 
 		// Filter by group + rule-id removal lists. Removed rules don't reach
 		// the evaluator at all — they're not just disabled, they're absent.
@@ -296,7 +265,7 @@ export function loadDistilledRules(cwd: string): GuardRule[] {
 		// helpers above for why).
 		const rule: DistilledRule = {
 			...raw,
-			patterns: (raw.patterns ?? []) as RulePattern[],
+			patterns: raw.patterns,
 			enabled: resolveEnabledState(raw.id, raw.enabled, mod?.enabled, disabledIds),
 		};
 

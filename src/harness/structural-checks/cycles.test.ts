@@ -16,12 +16,12 @@ import { checkImportCycles } from "./cycles.js";
 function fakeGraph(opts: {
 	cycles: string[][];
 	toRelative?: (f: string) => string;
-}): ProjectGraph {
+}): Pick<ProjectGraph, "findCyclesThrough" | "toRelative"> {
 	const toRelative = opts.toRelative ?? ((f: string) => f.replace(/^\/repo\//, ""));
 	return {
 		findCyclesThrough: (_file: string): string[][] => opts.cycles,
 		toRelative,
-	} as unknown as ProjectGraph;
+	};
 }
 
 describe("checkImportCycles", () => {

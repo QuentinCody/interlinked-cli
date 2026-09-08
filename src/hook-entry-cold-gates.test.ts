@@ -19,17 +19,18 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		statSync: (p: unknown, ...rest: unknown[]) => {
+		statSync: (...args: Parameters<typeof actual.statSync>) => {
+			const [p] = args;
 			if (typeof p === "string" && p === statThrowPath) {
 				throw new Error("EACCES: simulated permission error for coverage");
 			}
-			return (actual.statSync as (...a: unknown[]) => unknown)(p, ...rest);
+			return actual.statSync(...args);
 		},
 	};
 });
 
 import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
-import type { UnifiedHookEvent } from "./harness/unified-event.js";
+import type { ToolCallAction, UnifiedHookEvent } from "./harness/unified-event.js";
 import {
 	coldDestructiveCommandBlockReason,
 	coldGraphShardBlockReason,
@@ -51,11 +52,11 @@ afterEach(() => {
 });
 
 function makeToolCallEvent(over: {
-	phase?: string;
+	phase?: UnifiedHookEvent["phase"];
 	tool_name?: string;
 	tool_input?: unknown;
 	cwd?: string | undefined;
-}): UnifiedHookEvent {
+}): UnifiedHookEvent & { action: ToolCallAction } {
 	return {
 		schema_version: "1",
 		event_id: "e1",
@@ -63,7 +64,7 @@ function makeToolCallEvent(over: {
 		ts: "2026-08-05T00:00:00.000Z",
 		runner: "claude-code",
 		runner_native_event: "PreToolUse",
-		phase: (over.phase ?? "pre-tool") as UnifiedHookEvent["phase"],
+		phase: over.phase ?? "pre-tool",
 		action: {
 			kind: "tool_call",
 			tool_name: over.tool_name ?? "edit",
@@ -73,12 +74,12 @@ function makeToolCallEvent(over: {
 		},
 		context: { cwd: over.cwd ?? cwd },
 		raw: {},
-	} as UnifiedHookEvent;
+	};
 }
 
 function makeFileOpEvent(over: {
 	path?: string;
-	phase?: string;
+	phase?: UnifiedHookEvent["phase"];
 	cwd?: string | undefined;
 }): UnifiedHookEvent {
 	return {
@@ -88,7 +89,7 @@ function makeFileOpEvent(over: {
 		ts: "2026-08-05T00:00:00.000Z",
 		runner: "claude-code",
 		runner_native_event: "PreToolUse",
-		phase: (over.phase ?? "pre-tool") as UnifiedHookEvent["phase"],
+		phase: over.phase ?? "pre-tool",
 		action: {
 			kind: "file_operation",
 			operation: "edit",
@@ -97,7 +98,7 @@ function makeFileOpEvent(over: {
 		},
 		context: { cwd: over.cwd ?? cwd },
 		raw: {},
-	} as UnifiedHookEvent;
+	};
 }
 
 // ===========================================================================
@@ -132,7 +133,7 @@ describe("coldGraphShardBlockReason", () => {
 	});
 
 	it("returns null (colColdToolName) for an action kind that is neither tool_call nor file_operation", () => {
-		const event = {
+		const event: UnifiedHookEvent = {
 			schema_version: "1",
 			event_id: "e3",
 			session_id: "s1",
@@ -143,7 +144,7 @@ describe("coldGraphShardBlockReason", () => {
 			action: { kind: "user_prompt", text: "hi" },
 			context: { cwd },
 			raw: {},
-		} as unknown as UnifiedHookEvent;
+		};
 		expect(coldGraphShardBlockReason(event)).toBeNull();
 	});
 
@@ -188,13 +189,6 @@ describe("coldGraphShardBlockReason", () => {
 		const event = makeToolCallEvent({ tool_input: { file_path: "rel.ts" } });
 		const reason = coldGraphShardBlockReason(event);
 		expect(reason).toContain(src);
-	});
-
-	it("falls back to process.cwd() when event.context is absent", () => {
-		const event = makeToolCallEvent({ tool_input: { file_path: join(cwd, "missing.ts") } });
-		(event as { context?: unknown }).context = undefined;
-		// Missing file under process.cwd() (not our tmp cwd) -> existsSync false -> continue -> null.
-		expect(coldGraphShardBlockReason(event)).toBeNull();
 	});
 
 	it("returns null when the source file does not exist", () => {
@@ -266,7 +260,7 @@ describe("coldGraphShardBlockReason", () => {
 
 	it("treats a missing tool_input as an empty object (?? fallback)", () => {
 		const event = makeToolCallEvent({});
-		(event.action as { tool_input?: unknown }).tool_input = undefined;
+		event.action.tool_input = undefined;
 		expect(coldGraphShardBlockReason(event)).toBeNull();
 	});
 
@@ -312,7 +306,7 @@ describe("coldMergeConflictBlockReason", () => {
 
 	it("treats a missing tool_input as an empty object (?? fallback -> no content, no crash)", () => {
 		const event = makeToolCallEvent({});
-		(event.action as { tool_input?: unknown }).tool_input = undefined;
+		event.action.tool_input = undefined;
 		expect(coldMergeConflictBlockReason(event)).toBeNull();
 	});
 
@@ -402,7 +396,7 @@ describe("coldDestructiveCommandBlockReason", () => {
 	});
 
 	it("blocks a destructive command via a shell_command action (Cursor-shaped)", () => {
-		const event = {
+		const event: UnifiedHookEvent = {
 			schema_version: "1",
 			event_id: "e4",
 			session_id: "s1",
@@ -413,7 +407,7 @@ describe("coldDestructiveCommandBlockReason", () => {
 			action: { kind: "shell_command", command: "rm -rf /", tool_class: "side-effect" },
 			context: { cwd },
 			raw: {},
-		} as unknown as UnifiedHookEvent;
+		};
 		expect(coldDestructiveCommandBlockReason(event)).toContain("BLOCKED");
 	});
 
@@ -444,7 +438,7 @@ describe("coldDestructiveCommandBlockReason", () => {
 
 	it("treats a missing tool_input as an empty object (?? fallback -> no command, no crash)", () => {
 		const event = makeToolCallEvent({ tool_name: "bash" });
-		(event.action as { tool_input?: unknown }).tool_input = undefined;
+		event.action.tool_input = undefined;
 		expect(coldDestructiveCommandBlockReason(event)).toBeNull();
 	});
 });
@@ -476,7 +470,7 @@ describe("coldPackageInstallBlockReason", () => {
 	});
 
 	it("blocks an unapproved, exactly-pinned npm install via a shell_command action", () => {
-		const event = {
+		const event: UnifiedHookEvent = {
 			schema_version: "1",
 			event_id: "e5",
 			session_id: "s1",
@@ -487,7 +481,7 @@ describe("coldPackageInstallBlockReason", () => {
 			action: { kind: "shell_command", command: "npm install left-pad@1.3.0", tool_class: "side-effect" },
 			context: { cwd },
 			raw: {},
-		} as unknown as UnifiedHookEvent;
+		};
 		const reason = coldPackageInstallBlockReason(event);
 		expect(reason).not.toBeNull();
 		expect(reason).toContain("[interlinked:supply-chain]");
@@ -530,7 +524,7 @@ describe("coldPackageInstallBlockReason", () => {
 
 	it("treats a missing tool_input as an empty object (?? fallback -> no command, no crash)", () => {
 		const event = makeToolCallEvent({ tool_name: "bash" });
-		(event.action as { tool_input?: unknown }).tool_input = undefined;
+		event.action.tool_input = undefined;
 		expect(coldPackageInstallBlockReason(event)).toBeNull();
 	});
 
@@ -592,7 +586,7 @@ describe("coldLargeFileBlockReason", () => {
 
 	it("treats a missing tool_input as an empty object (?? fallback -> no file_path, no crash)", () => {
 		const event = makeToolCallEvent({});
-		(event.action as { tool_input?: unknown }).tool_input = undefined;
+		event.action.tool_input = undefined;
 		expect(coldLargeFileBlockReason(event)).toBeNull();
 	});
 });

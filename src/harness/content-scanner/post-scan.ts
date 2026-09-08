@@ -98,13 +98,21 @@ export interface PostScanResult {
 	ratcheted_to?: SensitivityLevel | undefined;
 }
 
+/** Only the scanner policy sections are consumed; absent sections use the
+ * existing fallback or leave taint tracking disabled. */
+export interface PostScanRules {
+	content_scanner?: GuardRulesConfig["content_scanner"] | undefined;
+	output_scanning?: OutputScanningConfig | undefined;
+	taint_tracking?: TaintTrackingConfig | undefined;
+}
+
 /** Options bag for `runPostToolScan`. Bundled because there were already
  *  four positional arguments and adding `compiledAllowlist` pushed it past
  *  the readability threshold for positional calls. */
 export interface PostScanArgs {
 	event: HarnessEvent;
 	session: SessionTrajectory | undefined;
-	rules: GuardRulesConfig;
+	rules: PostScanRules;
 	scanner: ContentScanner | undefined;
 	/** Compiled allowlist applied between detection and policy. Closes the
 	 *  FP gap from 73e1c1f, where the suppression layer was wired into the
@@ -129,11 +137,7 @@ export async function runPostToolScan(args: PostScanArgs): Promise<PostScanResul
 	const text = resolveScanText(event, toolName);
 	if (!text) return empty;
 
-	// SAFETY: GuardRulesConfig declares `output_scanning` as required, but
-	// tests (and possibly other partial-config callers) construct `rules`
-	// objects that omit it — widened locally so the optional chain reflects
-	// what actually reaches this function at runtime.
-	const outputScanning = rules.output_scanning as OutputScanningConfig | undefined;
+	const outputScanning = rules.output_scanning;
 	const scanLimit = cfg.max_scan_bytes || outputScanning?.max_scan_bytes || DEFAULT_MAX_SCAN_BYTES;
 	const findings = await runScannerSafe(scanner, text, scanLimit, toolName, cfg);
 	if (!findings || findings.length === 0) return empty;
@@ -150,7 +154,7 @@ export async function runPostToolScan(args: PostScanArgs): Promise<PostScanResul
 
 	// Pick sensitivity level — `secret`/`account_number` → HighlyConfidential.
 	const ratchetLevel = computeRatchetLevel(keptFindings);
-	const filePath = (event.tool_input?.file_path as string) || `<${toolName}-response>`;
+	const filePath = (typeof event.tool_input?.file_path === "string" ? event.tool_input?.file_path : "") || `<${toolName}-response>`;
 	const ratcheted = applyTaintRatchetIfEnabled(session, rules, filePath, ratchetLevel);
 
 	const warning =
@@ -162,7 +166,7 @@ export async function runPostToolScan(args: PostScanArgs): Promise<PostScanResul
 
 /** Returns the active `content_scanner` config, or `undefined` when the
  *  scanner (or the read/grep scan point specifically) is disabled. */
-function resolveActiveScanConfig(rules: GuardRulesConfig) {
+function resolveActiveScanConfig(rules: PostScanRules) {
 	const cfg = rules.content_scanner;
 	if (!cfg?.enabled || !cfg.scan_points.read_grep_taint) return undefined;
 	return cfg;
@@ -225,15 +229,11 @@ function computeRatchetLevel(keptFindings: ScanFinding[]): SensitivityLevel {
  *  monotone sensitivity changes. Returns the new level only when it changed. */
 function applyTaintRatchetIfEnabled(
 	session: SessionTrajectory | undefined,
-	rules: GuardRulesConfig,
+	rules: PostScanRules,
 	filePath: string,
 	ratchetLevel: SensitivityLevel,
 ): SensitivityLevel | undefined {
-	// SAFETY: GuardRulesConfig declares `taint_tracking` as required, but
-	// tests (and possibly other partial-config callers) construct `rules`
-	// objects that omit it — widened locally so the guard below reflects
-	// what actually reaches this function at runtime.
-	const taintTracking = rules.taint_tracking as TaintTrackingConfig | undefined;
+	const taintTracking = rules.taint_tracking;
 	if (!session || !taintTracking?.enabled) return undefined;
 	const changed = ratchetSensitivity(session, filePath, ratchetLevel, taintTracking);
 	session.pii_detected_steps.push(session.tool_call_count);

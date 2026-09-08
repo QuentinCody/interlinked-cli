@@ -18,7 +18,7 @@ import type { StructuralCheckResult } from "../types.js";
 export function checkImportCycles(
 	filePath: string,
 	relPath: string,
-	graph: ProjectGraph,
+	graph: Pick<ProjectGraph, "findCyclesThrough" | "toRelative">,
 ): StructuralCheckResult[] {
 	const cycles = graph.findCyclesThrough(filePath);
 	if (cycles.length === 0) return [];

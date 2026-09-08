@@ -1,3 +1,5 @@
+import { parseWire, wireObject, wireString } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // Mutation-kill suite for wave pass1_w46 survivors in scanner-render.ts.
 // The formatter module is mocked with identity `c.*` + real header/kvLine
 // bodies so assertions match raw substrings regardless of TTY/NO_COLOR/CI
@@ -9,7 +11,7 @@ import type {
 	ReviewDecision,
 	ReviewPayload,
 } from "../harness/content-scanner/review-files.js";
-import type { AuditEntry, ScannerOptions, ScannerReviewOptions } from "./scanner.js";
+import type { AuditEntry, ScannerOptions } from "./scanner.js";
 
 vi.mock("../lib/formatter.js", () => {
 	const identity = (s: string) => s;
@@ -140,7 +142,7 @@ describe("renderStatus — positive (must fire)", () => {
 	const base = {
 		enabled: true,
 		runtime_status: null,
-		last_audit: [] as AuditEntry[],
+		last_audit: [],
 		local_rules_path: "/local/rules.json",
 		audit_path: "/audit.jsonl",
 	};
@@ -229,10 +231,10 @@ describe("pickFlagDecision — positive (must fire)", () => {
 	});
 
 	it("two conflicting flags returns an error mentioning both", () => {
-		const result = pickFlagDecision({ allow: true, block: true } as ScannerReviewOptions);
+		const result = pickFlagDecision({ allow: true, block: true });
 		expect(result).toEqual(expect.objectContaining({ error: expect.stringContaining("allow") }));
-		expect((result as { error: string }).error).toContain("block");
-		expect((result as { error: string }).error).toContain("conflicting flags");
+		expect((parseWire(result, wireObject({ "error": wireString }), "test JSON value")).error).toContain("block");
+		expect((parseWire(result, wireObject({ "error": wireString }), "test JSON value")).error).toContain("conflicting flags");
 	});
 });
 
@@ -294,8 +296,8 @@ describe("renderReview — positive (must fire)", () => {
 		);
 		const catLine = out.split("\n").find((l) => l.includes("("));
 		expect(catLine).toBeDefined();
-		const idxA = (catLine as string).indexOf("ALPHA");
-		const idxZ = (catLine as string).indexOf("ZEBRA");
+		const idxA = (nonNull(catLine)).indexOf("ALPHA");
+		const idxZ = (nonNull(catLine)).indexOf("ZEBRA");
 		expect(idxA).toBeGreaterThanOrEqual(0);
 		expect(idxZ).toBeGreaterThan(idxA);
 	});

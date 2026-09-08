@@ -99,8 +99,8 @@ describe("scrubSecrets — pattern matching", () => {
 	});
 
 	it("handles null/undefined gracefully", () => {
-		const result = scrubSecrets(undefined as unknown as string);
-		expect(result.found).toBe(0);
+		const result: unknown = Reflect.apply(scrubSecrets, undefined, [undefined]);
+		expect(result).toHaveProperty("found", 0);
 	});
 });
 
@@ -370,7 +370,7 @@ describe("scrubEgressPayload", () => {
 	it("leaves non-string and empty-string fields untouched", () => {
 		const payload = {
 			prompt: "",
-			thinking: 42 as unknown as string, // SAFETY: deliberately non-string to exercise the typeof guard
+			thinking: 42,
 			stdout: "AKIAIOSFODNN7EXAMPLE",
 		};
 		const stats = scrubEgressPayload(payload);

@@ -25,6 +25,7 @@ interface StrykerConfig {
 }
 
 function loadConfig(): StrykerConfig {
+	// SAFETY: this repository fixture is the Stryker config exercised below; its mutation lists and test-runner fields are asserted by this suite.
 	return JSON.parse(readFileSync(resolve(REPO_ROOT, "stryker.conf.json"), "utf8")) as StrykerConfig;
 }
 

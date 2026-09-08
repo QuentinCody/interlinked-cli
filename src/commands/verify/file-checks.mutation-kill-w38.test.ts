@@ -12,7 +12,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_MAX_LINES } from "../../harness/large-file-policy.js";
 import { resetUntestedFilesBaselineCache } from "../../harness/tested-file-policy.js";
 import { nonNull } from "../../lib/non-null.js";
-import type { MetricsCoverage } from "../metrics-coverage.js";
 import { resetUntestedCoverageCache, runPerFileChecks } from "./file-checks.js";
 import { type CodeQualityResults, emptyResults } from "./tool-results-types.js";
 
@@ -32,7 +31,7 @@ beforeEach(() => {
 	resetUntestedCoverageCache();
 	loadMetricsCoverageMock.mockReturnValue({
 		linePct: () => null,
-	} as unknown as MetricsCoverage);
+	});
 });
 
 function run(file: string, content: string, cwd = "/tmp"): CodeQualityResults {
@@ -60,7 +59,7 @@ describe("collectMockDriftFindings — !resolved guard (63968e95e863b886)", () =
 		// then to `relative(cwd, resolved)` with a null "to" argument, which
 		// node:path throws on — killing the mutant via an uncaught exception.
 		const cache = new Map<string, string[]>();
-		cache.set(null as unknown as string, ["something-else"]);
+		Reflect.apply(Map.prototype.set, cache, [null, ["something-else"]]);
 		const content = 'vi.mock("./absolutely-does-not-exist-w38.js", () => ({ ghost: vi.fn() }));\n';
 		const r = emptyResults();
 		expect(() =>

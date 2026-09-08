@@ -268,7 +268,7 @@ export function buildRevealText(reconciled: ReconciledTarget[]): string {
 	for (const r of reconciled) {
 		lines.push(`[interlinked:graph-pred] Comparison for ${r.classification.sourcePath}:`);
 		for (const [section, score] of Object.entries(r.severity.per_section_score)) {
-			lines.push(`  ${section}: ${(score as number).toFixed(2)}`);
+			if (typeof score === "number") lines.push(`  ${section}: ${score.toFixed(2)}`);
 		}
 		if (r.severity.triggers.length > 0) {
 			lines.push(`  triggers: ${r.severity.triggers.join(", ")}`);

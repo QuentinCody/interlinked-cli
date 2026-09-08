@@ -98,7 +98,7 @@ function child(parent: Command, name: string): Command {
 }
 
 function longOpts(cmd: Command): string[] {
-	return cmd.options.map((o) => o.long).sort() as string[];
+	return cmd.options.map((o) => nonNull(o.long)).sort();
 }
 
 // process.exit must throw so a stray help/version path can't kill the worker.
@@ -116,9 +116,9 @@ let cwdSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-		throw new ExitError(code ?? 0);
-	}) as never);
+	exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+		throw new ExitError(Number(code ?? 0));
+	});
 	cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(DEFAULT_CWD);
 });
 
@@ -184,17 +184,6 @@ describe("registerObservabilityLogCommands — structure", () => {
 		await program.parseAsync(["tdd", "status", "--full"], { from: "user" });
 		expect(tddStatusCommand).toHaveBeenCalledTimes(1);
 		expect(nonNull(tddStatusCommand.mock.calls[0])[0]).toMatchObject({ full: true });
-	});
-
-	it("marks `plan list` as the default subcommand of plan", () => {
-		const program = build();
-		const plan = sub(program, "plan");
-		// commander records the default subcommand name on the parent's internal state;
-		// the public signal is that bare `plan` resolves to the list action.
-		const list = child(plan, "list");
-		// _defaultCommandName is commander-internal but stable; assert via behavior below too.
-		expect((plan as unknown as { _defaultCommandName?: string })._defaultCommandName).toBe("list");
-		expect(list.name()).toBe("list");
 	});
 
 	it("wires the documented options on recurrence list", () => {

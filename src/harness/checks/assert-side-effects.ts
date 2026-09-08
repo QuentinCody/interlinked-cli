@@ -220,7 +220,6 @@ function buildParenMap(text: string): Map<number, number> {
 }
 
 const PY_TRIPLE_QUOTES = ['"""', "'''"];
-const JAVA_TRIPLE_QUOTES = ['"""'];
 
 /**
  * Blank multi-line triple-quoted blocks — Python docstrings spanning lines
@@ -430,6 +429,13 @@ const JAVA_ASSERT_STMT_SRC = String.raw`\bassert\s+([^;:]+)(:[^;]*)?;`;
 const JAVA_MESSAGE =
 	"ubs_java_assert_side_effect: side effect inside an assert — JVM assertions are DISABLED by default (no -ea), so the argument never runs in production; hoist the call out of the assert";
 
+/** Mask Java literals and comments together so closing text-block quotes do
+ * not consume live code that follows them on the same line. */
+function stripJavaLiteralsAndComments(content: string): string {
+	const tokens = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|"""(?:\\[\s\S]|(?!""")[^\\])*"""|"(?:\\[\s\S]|[^"\\\n])*"|'(?:\\[\s\S]|[^'\\\n])*'/g;
+	return content.replace(tokens, (token) => token.replace(/[^\n]/g, " "));
+}
+
 /** Detect side effects inside Java `assert` statements. */
 export function checkJavaAssertSideEffects(
 	content: string,
@@ -438,10 +444,7 @@ export function checkJavaAssertSideEffects(
 	if (getExtension(filePath) !== ".java") return [];
 	if (isExemptFile(content, filePath)) return [];
 
-	const stripped = blankTripleQuotedBlocks(
-		stripCommentsAndStrings(content),
-		JAVA_TRIPLE_QUOTES,
-	);
+	const stripped = stripJavaLiteralsAndComments(content);
 	const rawLines = content.split("\n");
 	const matches: InlineMatch[] = [];
 	const re = new RegExp(JAVA_ASSERT_STMT_SRC, "g");

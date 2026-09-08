@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 // Mutation-kill tests for wave pass1_w50 survivors in grep-accelerator-exec.ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fsMod from "node:fs";
@@ -24,9 +25,9 @@ import {
 	safeRegExp,
 } from "./grep-accelerator-exec.js";
 
-const mockedExistsSync = fsMod.existsSync as unknown as ReturnType<typeof vi.fn>;
-const mockedSpawnSync = cpMod.spawnSync as unknown as ReturnType<typeof vi.fn>;
-const mockedExecSync = cpMod.execSync as unknown as ReturnType<typeof vi.fn>;
+const mockedExistsSync = vi.mocked(fsMod.existsSync);
+const mockedSpawnSync = vi.mocked(cpMod.spawnSync);
+const mockedExecSync = vi.mocked(cpMod.execSync);
 
 describe("safeRegExp — MAX_PATTERN_LENGTH boundary (fd331d464b1d3b99)", () => {
 	it("compiles a pattern whose length is exactly MAX_PATTERN_LENGTH (1000)", () => {
@@ -205,7 +206,10 @@ describe("runRipgrepOnCandidates — exact argv/options construction", () => {
 		mockedSpawnSync.mockReturnValue({
 			status: 0,
 			stdout: "src/a.ts:1:hello\n",
-			error: undefined,
+			pid: 42,
+			output: [null, "src/a.ts:1:hello\n", ""],
+			stderr: "",
+			signal: null,
 		});
 
 		const cfg = {
@@ -228,11 +232,7 @@ describe("runRipgrepOnCandidates — exact argv/options construction", () => {
 		);
 
 		expect(mockedSpawnSync).toHaveBeenCalledTimes(1);
-		const call = mockedSpawnSync.mock.calls[0] as unknown as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const call = nonNull(mockedSpawnSync.mock.calls[0]);
 		const [rgPath, args, options] = call;
 		expect(rgPath).toBe("/usr/bin/rg");
 		expect(args).toEqual([
@@ -258,7 +258,10 @@ describe("runRipgrepOnCandidates — exact argv/options construction", () => {
 	});
 
 	it("passes maxBuffer computed as 1024*1024 (not 1024/1024) (0dc20de7cf9e4e0b)", () => {
-		mockedSpawnSync.mockReturnValue({ status: 1, stdout: "", error: undefined });
+		mockedSpawnSync.mockReturnValue({
+			status: 1, stdout: "",
+			pid: 42, output: [null, "", ""], stderr: "", signal: null,
+		});
 		const cfg = {
 			maxCandidates: 500,
 			maxCandidateRatio: 0.3,
@@ -269,12 +272,8 @@ describe("runRipgrepOnCandidates — exact argv/options construction", () => {
 			minFilesForAccel: 25_000,
 		};
 		runRipgrepOnCandidates("x", ["f.ts"], "/repo", false, false, cfg);
-		const call = mockedSpawnSync.mock.calls[0] as unknown as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
-		const options = call[2];
+		const call = nonNull(mockedSpawnSync.mock.calls[0]);
+		const options = nonNull(call[2]);
 		expect(options.maxBuffer).toBe(1024 * 1024);
 		expect(options.maxBuffer).not.toBe(1024 / 1024);
 	});

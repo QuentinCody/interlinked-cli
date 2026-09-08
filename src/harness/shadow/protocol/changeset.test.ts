@@ -189,9 +189,8 @@ describe("computeChangeSet — negative (must reject)", () => {
 	});
 
 	it("N3: a pre_tree_hash that is not a lowercase hex sha-256 is a reject", () => {
-		// SAFETY: the brand is deliberately forged here to prove the runtime
-		// check exists — a caller that skips the tree grammar cannot mint an
-		// identity against a hash the protocol never produced.
+		// SAFETY: the grammar validates pre_tree_hash at this public identity
+		// boundary; the malformed brand exercises that rejection.
 		const forged = "not-a-digest" as PreTreeHash;
 		expect(rejectionOf(forged, [writeEntry("src/a.ts")])).toEqual({
 			reason: "invalid_tree",

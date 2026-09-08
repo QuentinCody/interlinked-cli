@@ -178,7 +178,7 @@ describe("istanbulToElementSets", () => {
 
 	it("unwraps {data: …} FileCoverage envelopes and skips files outside the root", () => {
 		const wrapped = {
-			[FILE]: { data: (istanbulFixture() as Record<string, unknown>)[FILE] },
+			[FILE]: { data: (istanbulFixture())[FILE] },
 			"/elsewhere/x.ts": {
 				path: "/elsewhere/x.ts",
 				statementMap: { "0": { start: { line: 1 }, end: { line: 1 } } },

@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -419,10 +420,7 @@ describe("simplifyCommand", () => {
 		await simplifyCommand("review", { cwd: fixture, staged: true, record: true });
 		output.length = 0;
 		const code = simplifyStatusCommand({ cwd: fixture, json: true });
-		const status = JSON.parse(output.join("\n")) as {
-			run_count: number;
-			runs: Array<{ report: { command: string } }>;
-		};
+		const status = parseWire(JSON.parse(output.join("\n")), wireObject({ "run_count": wireNumber, "runs": wireArray(wireObject({ "report": wireObject({ "command": wireString }) })) }), "test JSON value");
 		expect(code).toBe(0);
 		expect(status.run_count).toBe(1);
 		expect(status.runs[0]?.report.command).toBe("review");
@@ -441,7 +439,7 @@ describe("simplifyCommand", () => {
 			changed: true,
 			range: "HEAD~1..HEAD",
 		});
-		const parsed = JSON.parse(output.join("\n")) as { schema_version: number; error: string };
+		const parsed = parseWire(JSON.parse(output.join("\n")), wireObject({ "schema_version": wireNumber, "error": wireString }), "test JSON value");
 		expect(code).toBe(1);
 		expect(parsed.schema_version).toBe(SIMPLIFICATION_REPORT_SCHEMA_VERSION);
 		expect(parsed.error).toBe("choose exactly one review scope: --changed, --staged, or --range");
@@ -566,11 +564,7 @@ describe("simplify status rendering", () => {
 			output.push(String(value));
 		});
 		const code = simplifyStatusCommand({ cwd: fixture, json: true });
-		const parsed = JSON.parse(output.join("\n")) as {
-			schema_version: number;
-			kind: string;
-			error: string;
-		};
+		const parsed = parseWire(JSON.parse(output.join("\n")), wireObject({ "schema_version": wireNumber, "kind": wireString, "error": wireString }), "test JSON value");
 		expect(code).toBe(1);
 		expect(parsed.schema_version).toBe(1);
 		expect(parsed.kind).toBe("simplification_recorded_status");

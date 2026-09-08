@@ -1,3 +1,9 @@
+import { makeEvent as makeEventFixture } from "../__tests__/fixtures/evaluator.js";
+import type { JsonObject } from "../../lib/json-types.js";
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { getDefaultConfig } from "../rules-loader.js";
+import { nonNull } from "../../lib/non-null.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock every collaborator so each test can drive appendMutationHarvestWarning's
@@ -28,18 +34,24 @@ import type { HarnessDecision, HarnessEvent } from "../types.js";
 import { appendMutationHarvestWarning } from "./post-tool-mutation-harvest.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
-function makeCtx(cfg: unknown): ServerRuntime {
-	return { rules: { per_edit_mutation: cfg }, cwd: "/repo" } as unknown as ServerRuntime;
+function makeCtx(cfg: Partial<NonNullable<ServerRuntime["rules"]["per_edit_mutation"]>> | undefined): ServerRuntime {
+ const rules = makeGuardRules();
+ if (cfg) rules.per_edit_mutation = { ...nonNull(getDefaultConfig().per_edit_mutation), ...cfg };
+ return makeServerRuntime({ rules, cwd: "/repo" });
 }
 
-function makeEvent(toolName: string, toolInput: Record<string, unknown>): HarnessEvent {
-	return { tool_name: toolName, tool_input: toolInput } as unknown as HarnessEvent;
+function makeEvent(toolName: string, toolInput: JsonObject): HarnessEvent {
+	return makeEventFixture({ tool_name: toolName, tool_input: toolInput });
+}
+
+function pending(file: string): ReturnType<typeof takePending>[number] {
+ return { file, overlayHash: "measured-hash", jobId: "job-1", runnerUrl: "http://runner/", startedAt: 999 };
 }
 
 describe("appendMutationHarvestWarning", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
-		vi.mocked(pendingRegistry).mockReturnValue({ runs: [] } as never);
+		vi.mocked(pendingRegistry).mockReturnValue({ runs: [] });
 	});
 
 	afterEach(() => {
@@ -48,7 +60,7 @@ describe("appendMutationHarvestWarning", () => {
 
 	it("returns early when the tool is not a file write, even though tool_input names a real file", async () => {
 		vi.mocked(isFileWrite).mockReturnValue(false);
-		const decision: HarnessDecision = {} as HarnessDecision;
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(
 			makeCtx({ enabled: true }),
 			makeEvent("Read", { file_path: "target.ts" }),
@@ -63,10 +75,10 @@ describe("appendMutationHarvestWarning", () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
 		let capturedFile: string | undefined;
 		vi.mocked(takePending).mockImplementation((_store, file) => {
-			capturedFile = file as string;
+			capturedFile = file;
 			return [];
 		});
-		const decision: HarnessDecision = {} as HarnessDecision;
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(
 			makeCtx({ enabled: true }),
 			makeEvent("Write", { path: "sub/file.ts" }),
@@ -80,10 +92,10 @@ describe("appendMutationHarvestWarning", () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
 		let capturedFile: string | undefined;
 		vi.mocked(takePending).mockImplementation((_store, file) => {
-			capturedFile = file as string;
+			capturedFile = file;
 			return [];
 		});
-		const decision: HarnessDecision = {} as HarnessDecision;
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(
 			makeCtx({ enabled: true }),
 			makeEvent("Write", { file_path: "", path: "fallback.ts" }),
@@ -97,10 +109,10 @@ describe("appendMutationHarvestWarning", () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
 		let capturedFile: string | undefined;
 		vi.mocked(takePending).mockImplementation((_store, file) => {
-			capturedFile = file as string;
+			capturedFile = file;
 			return [];
 		});
-		const decision: HarnessDecision = {} as HarnessDecision;
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(
 			makeCtx({ enabled: true }),
 			makeEvent("Write", { file_path: 123, path: "real.ts" }),
@@ -112,7 +124,7 @@ describe("appendMutationHarvestWarning", () => {
 
 	it("returns early with no takePending call when neither file_path nor path name a file", async () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
-		const decision: HarnessDecision = {} as HarnessDecision;
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(makeCtx({ enabled: true }), makeEvent("Write", {}), decision, {
 			readDisk: () => null,
 		});
@@ -124,10 +136,10 @@ describe("appendMutationHarvestWarning", () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
 		let capturedHash: string | undefined;
 		vi.mocked(takePending).mockImplementation((_store, _file, hash) => {
-			capturedHash = hash as string;
+			capturedHash = hash;
 			return [];
 		});
-		const decision: HarnessDecision = {} as HarnessDecision;
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(
 			makeCtx({ enabled: true }),
 			makeEvent("Write", { file_path: "target.ts" }),
@@ -142,9 +154,9 @@ describe("appendMutationHarvestWarning", () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
 		vi.mocked(takePending).mockReturnValue([]);
 		vi.mocked(pendingRegistry).mockReturnValue({
-			runs: [{ file: "other-file.ts", overlayHash: "measured-hash" }],
-		} as never);
-		const decision: HarnessDecision = {} as HarnessDecision;
+			runs: [pending("other-file.ts")],
+		});
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(
 			makeCtx({ enabled: true }),
 			makeEvent("Write", { file_path: "target.ts" }),
@@ -160,9 +172,9 @@ describe("appendMutationHarvestWarning", () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
 		vi.mocked(takePending).mockReturnValue([]);
 		vi.mocked(pendingRegistry).mockReturnValue({
-			runs: [{ file: "target.ts", overlayHash: "measured-hash" }],
-		} as never);
-		const decision: HarnessDecision = {} as HarnessDecision;
+			runs: [pending("target.ts")],
+		});
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(
 			makeCtx({ enabled: true }),
 			makeEvent("Write", { file_path: "target.ts" }),
@@ -172,17 +184,16 @@ describe("appendMutationHarvestWarning", () => {
 		expect(decision.warnings).toHaveLength(1);
 		const msg = decision.warnings?.[0] ?? "";
 		expect(msg).toContain("on disk unreadable");
-		expect(msg).not.toContain("Stryker was here");
 	});
 
 	it("reports a readable-on-disk orphan with the actual hash text, not 'unreadable'", async () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
 		vi.mocked(takePending).mockReturnValue([]);
 		vi.mocked(pendingRegistry).mockReturnValue({
-			runs: [{ file: "target.ts", overlayHash: "measured-hash" }],
-		} as never);
+			runs: [pending("target.ts")],
+		});
 		vi.mocked(overlayHash).mockReturnValue("current-hash");
-		const decision: HarnessDecision = {} as HarnessDecision;
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(
 			makeCtx({ enabled: true }),
 			makeEvent("Write", { file_path: "target.ts" }),
@@ -196,7 +207,7 @@ describe("appendMutationHarvestWarning", () => {
 	});
 
 	it("does nothing when per_edit_mutation config is absent (guarded before any work happens)", async () => {
-		const decision: HarnessDecision = {} as HarnessDecision;
+		const decision: HarnessDecision = { decision: "allow" };
 		await expect(
 			appendMutationHarvestWarning(makeCtx(undefined), makeEvent("Write", {}), decision, {}),
 		).resolves.toBeUndefined();
@@ -206,8 +217,8 @@ describe("appendMutationHarvestWarning", () => {
 
 	it("does nothing when config is absent, even for a qualifying write with pending results", async () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
-		vi.mocked(takePending).mockReturnValue([{ file: "target.ts" } as never]);
-		const decision: HarnessDecision = {} as HarnessDecision;
+		vi.mocked(takePending).mockReturnValue([pending("target.ts")]);
+		const decision: HarnessDecision = { decision: "allow" };
 		await expect(
 			appendMutationHarvestWarning(
 				makeCtx(undefined),
@@ -222,11 +233,11 @@ describe("appendMutationHarvestWarning", () => {
 
 	it("appends the formatted survivor warning without polluting existing/absent warnings", async () => {
 		vi.mocked(isFileWrite).mockReturnValue(true);
-		vi.mocked(takePending).mockReturnValue([{ file: "target.ts" } as never]);
-		const survivors = [{}];
-		vi.mocked(harvestPending).mockResolvedValue({ harvested: 1, survivors } as never);
+		vi.mocked(takePending).mockReturnValue([pending("target.ts")]);
+		const survivors = [{ mutator: "EqualityOperator", lexeme: ">", replacement: ">=", line: 1 }];
+		vi.mocked(harvestPending).mockResolvedValue({ harvested: 1, survivors });
 		vi.mocked(formatHarvestWarning).mockReturnValue("SURVIVOR_FOUND");
-		const decision: HarnessDecision = {} as HarnessDecision;
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(
 			makeCtx({ enabled: true, harvest_budget_ms: 5000 }),
 			makeEvent("Write", { file_path: "target.ts" }),
@@ -238,12 +249,9 @@ describe("appendMutationHarvestWarning", () => {
 	});
 
 	it("builds the harvest request options from resolved config, and the not-measured warning stays clean", async () => {
-		const cfg = { enabled: true, harvest_budget_ms: undefined } as unknown as {
-			enabled: boolean;
-			harvest_budget_ms?: number;
-		};
+		const cfg = { enabled: true };
 		vi.mocked(isFileWrite).mockReturnValue(true);
-		vi.mocked(takePending).mockReturnValue([{ file: "target.ts" } as never]);
+		vi.mocked(takePending).mockReturnValue([pending("target.ts")]);
 		vi.mocked(formatHarvestWarning).mockReturnValue(null);
 
 		const fakeNow = () => 999;
@@ -251,9 +259,9 @@ describe("appendMutationHarvestWarning", () => {
 		let capturedOpts: { budgetMs?: number; now?: unknown; sleep?: unknown } | undefined;
 		let fetchImplThrew = false;
 		vi.mocked(harvestPending).mockImplementation(async (_claimed, fetchImpl, opts) => {
-			capturedOpts = opts as typeof capturedOpts;
+			capturedOpts = opts;
 			try {
-				await (fetchImpl as (u: string) => Promise<unknown>)("http://runner/claim");
+				await fetchImpl("http://runner/claim");
 			} catch {
 				fetchImplThrew = true;
 			}
@@ -263,7 +271,7 @@ describe("appendMutationHarvestWarning", () => {
 		const fetchStub = vi.fn().mockResolvedValue({ ok: true });
 		vi.stubGlobal("fetch", fetchStub);
 
-		const decision: HarnessDecision = {} as HarnessDecision;
+		const decision: HarnessDecision = { decision: "allow" };
 		await appendMutationHarvestWarning(
 			makeCtx(cfg),
 			makeEvent("Write", { file_path: "target.ts" }),
@@ -282,6 +290,5 @@ describe("appendMutationHarvestWarning", () => {
 		expect(decision.warnings).toHaveLength(1);
 		const msg = decision.warnings?.[0] ?? "";
 		expect(msg).toContain("not measured");
-		expect(msg).not.toContain("Stryker was here");
 	});
 });

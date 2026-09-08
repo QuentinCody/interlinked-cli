@@ -1,3 +1,4 @@
+import { makeMinimalEvent as completeEventFixture, makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Tests for the mutation-kill-evidence Stop nudge
 // (docs/design/luna-gate-audit-2026-08-14.md §3(b)). The detector is pure
 // given its injected git-show / file-read / manifest-load functions; the
@@ -16,7 +17,6 @@ import {
 import { writeSurvivorsIndex } from "./mutation/survivors-index.js";
 import type { ServerRuntime } from "./server/runtime-context.js";
 import { recordStopDigestState } from "./stop-digest-state.js";
-import type { HarnessEvent, SessionTrajectory } from "./types.js";
 
 const CWD = "/repo";
 const SHA = "deadbeef";
@@ -324,14 +324,14 @@ describe("detectMutationKillEvidenceGaps — sidecar-backed default reader", () 
 			// SAFETY: the check reads only `cwd` and `log` off the runtime.
 			{ cwd, log: () => {} } as unknown as ServerRuntime,
 			// SAFETY: the check reads only `cwd` and `session_id` off the event.
-			{ cwd, session_id: "S" } as unknown as HarnessEvent,
+			({ ...completeEventFixture(), ...{ cwd, session_id: "S" } }),
 			// SAFETY: the check reads only these four trajectory fields.
-			{
+			({ ...completeSessionFixture(), ...{
 				session_id: "S",
 				files_written: new Set([abs]),
 				file_write_times: new Map([[abs, "2026-08-16T10:00:00.000Z"]]),
-				git_session_baseline: { head_sha: SHA },
-			} as unknown as SessionTrajectory,
+				git_session_baseline: { head_sha: SHA, modified: new Set(), staged: new Set(), untracked: new Set() },
+			} }),
 		);
 	}
 

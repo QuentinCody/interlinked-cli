@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { netUnresolvedHandovers } from "./handover-churn.js";
 import {
 	classifyExitReason,
 	describeLastExit,
@@ -101,6 +102,28 @@ describe("recordDaemonEvent / readRecentDaemonEvents", () => {
 		writeFileSync(join(dir, ".interlinked", "daemon-events.jsonl"), "{not json\n", { flag: "a" });
 		recordDaemonEvent(dir, { at: NOW + 2, pid: 1, event: "exit", reason: "signal" });
 		expect(readRecentDaemonEvents(dir)).toHaveLength(2);
+	});
+
+	it.each([{ reason: 42 }, { rss_mb: "large" }, { attempt_id: [] }, { outcome: {} }])(
+		"skips a ledger row with malformed optional fields: %j",
+		(fields) => {
+			recordDaemonEvent(dir, { at: NOW, pid: 1, event: "start" });
+			writeFileSync(join(dir, ".interlinked", "daemon-events.jsonl"), `${JSON.stringify({ at: NOW + 1, pid: 1, event: "exit", ...fields })}\n`, { flag: "a" });
+			expect(readRecentDaemonEvents(dir)).toEqual([{ at: NOW, pid: 1, event: "start" }]);
+		},
+	);
+
+	it("preserves newer event labels and counts legacy spawned handovers", () => {
+		recordDaemonEvent(dir, { at: NOW, pid: 1, event: "start" });
+		const rows = [
+			{ at: NOW + 1, pid: 1, event: "handover", outcome: "spawned", attempt_id: "legacy" },
+			{ at: NOW + 2, pid: 1, event: "future-event", detail: "retained" },
+		];
+		writeFileSync(join(dir, ".interlinked", "daemon-events.jsonl"), rows.map((row) => JSON.stringify(row)).join("\n") + "\n", { flag: "a" });
+		const read = readRecentDaemonEvents(dir);
+		expect(read.slice(1)).toEqual(rows);
+		expect(netUnresolvedHandovers(read, NOW + 3)).toBe(1);
+		expect(describeLastLedgerEvent(read, NOW + 3)).toContain("future-event");
 	});
 
 	it("bounds the read to a tail — a long-lived ledger must not be slurped whole", () => {

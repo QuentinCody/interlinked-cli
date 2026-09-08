@@ -198,8 +198,9 @@ function parseRunners(raw: string | undefined): RunnerSelection {
 	const out: RunnerId[] = [];
 	const unknown: string[] = [];
 	for (const part of parts) {
-		if (VALID_RUNNERS.has(part as RunnerId)) {
-			out.push(part as RunnerId);
+		const runner = [...VALID_RUNNERS].find((id) => id === part);
+		if (runner !== undefined) {
+			out.push(runner);
 		} else {
 			unknown.push(part);
 		}

@@ -9,7 +9,7 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { matchCredByPrefix, matchCredByServerName } from "./auth-cred-match.js";
 import { resolveConfig, updateLocalConfig } from "./config.js";
-import type { JsonObject } from "./json-types.js";
+import { isJsonObject, type JsonObject } from "./json-types.js";
 
 /**
  * Timeout for OAuth control-plane HTTP calls (token refresh, code exchange,
@@ -116,11 +116,7 @@ async function refreshAccessToken(options: {
 		throw new Error(`Token refresh failed (${response.status}): ${errorText}`);
 	}
 
-	const refreshed = (await response.json()) as {
-		access_token: string;
-		refresh_token?: string;
-		expires_in?: number;
-	};
+	const refreshed = parseTokenResponse(await response.json());
 
 	return {
 		access_token: refreshed.access_token,
@@ -234,11 +230,7 @@ export async function performLogin(serverUrl: string): Promise<LoginResult> {
 		throw new Error(`Token exchange failed (${tokenRes.status}): ${errText}`);
 	}
 
-	const tokens = (await tokenRes.json()) as {
-		access_token: string;
-		refresh_token?: string;
-		expires_in?: number;
-	};
+	const tokens = parseTokenResponse(await tokenRes.json());
 
 	return {
 		...tokens,
@@ -296,7 +288,27 @@ async function registerClient(
 		throw new Error(`Client registration failed (${res.status}): ${await res.text()}`);
 	}
 
-	return (await res.json()) as { client_id: string };
+	return parseClientRegistration(await res.json());
+}
+
+function parseClientRegistration(result: unknown): { client_id: string } {
+	if (!isJsonObject(result) || typeof result.client_id !== "string" || !result.client_id) {
+		throw new Error("Client registration returned an invalid client_id");
+	}
+	return { client_id: result.client_id };
+}
+
+function parseTokenResponse(value: unknown): LoginResult {
+	if (!isJsonObject(value) || typeof value.access_token !== "string" || !value.access_token) {
+		throw new Error("Token response must contain a non-empty access_token");
+	}
+	if (value.refresh_token !== undefined && typeof value.refresh_token !== "string") {
+		throw new Error("Token response has an invalid refresh_token");
+	}
+	if (value.expires_in !== undefined && (typeof value.expires_in !== "number" || !Number.isFinite(value.expires_in))) {
+		throw new Error("Token response has an invalid expires_in");
+	}
+	return { access_token: value.access_token, refresh_token: value.refresh_token, expires_in: value.expires_in };
 }
 
 /**

@@ -122,7 +122,7 @@ function applyParsedPackages(base: Allowlist, packagesValue: Record<string, unkn
 		"maven",
 		"gradle",
 		"nuget",
-	] as Ecosystem[]) {
+	] satisfies Ecosystem[]) {
 		const ecoEntry = packagesValue[eco];
 		if (!isJsonObject(ecoEntry)) continue;
 		const entries: Record<string, AllowlistEntry> = {};

@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // metrics-coupling unit tests — pure core (parse → pairs → annotate)
 // ===========================================
@@ -441,19 +442,7 @@ describe("metricsCouplingCommand — JSON output", () => {
 		await metricsCouplingCommand({ cwd: repo, json: true });
 		expect(process.exitCode).toBeUndefined();
 		expect(logged).toHaveLength(1);
-		const payload = JSON.parse(logged[0] ?? "") as {
-			since: string;
-			commits_scanned: number;
-			pairs: Array<{
-				a: string;
-				b: string;
-				support: number;
-				revA: number;
-				revB: number;
-				strength: number;
-				relation: string;
-			}>;
-		};
+		const payload = parseWire(JSON.parse(logged[0] ?? ""), wireObject({ "since": wireString, "commits_scanned": wireNumber, "pairs": wireArray(wireObject({ "a": wireString, "b": wireString, "support": wireNumber, "revA": wireNumber, "revB": wireNumber, "strength": wireNumber, "relation": wireString })) }), "test JSON value");
 		expect(payload.since).toBe("90 days ago");
 		expect(payload.commits_scanned).toBe(TOTAL_COMMITS);
 		// Every group but the last co-changes on all 5 of its own commits and nowhere
@@ -522,7 +511,7 @@ describe("metricsCouplingCommand — JSON output", () => {
 	it("drops excluded paths before pairing, so dist/ never reaches the report", async () => {
 		captureOutput();
 		await metricsCouplingCommand({ cwd: repo, json: true, minSupport: "1", minStrength: "1" });
-		const payload = JSON.parse(logged[0] ?? "") as { pairs: Array<{ a: string; b: string }> };
+		const payload = parseWire(JSON.parse(logged[0] ?? ""), wireObject({ "pairs": wireArray(wireObject({ "a": wireString, "b": wireString })) }), "test JSON value");
 		const paths = payload.pairs.flatMap((p) => [p.a, p.b]);
 		expect(paths).not.toContain("dist/bundle.js");
 		// src/omega.ts co-changed only with the excluded file, so it is left unpaired
@@ -533,7 +522,7 @@ describe("metricsCouplingCommand — JSON output", () => {
 	it("honours an explicit --since by passing it to git and echoing it back", async () => {
 		captureOutput();
 		await metricsCouplingCommand({ cwd: repo, json: true, since: "1970-01-01" });
-		const payload = JSON.parse(logged[0] ?? "") as { since: string; commits_scanned: number };
+		const payload = parseWire(JSON.parse(logged[0] ?? ""), wireObject({ "since": wireString, "commits_scanned": wireNumber }), "test JSON value");
 		expect(payload.since).toBe("1970-01-01");
 		expect(payload.commits_scanned).toBe(TOTAL_COMMITS);
 	}, 60_000);
@@ -615,7 +604,7 @@ describe("metricsCouplingCommand — thresholds and limits", () => {
 		it(name, async () => {
 			captureOutput();
 			await metricsCouplingCommand({ cwd: repo, json: true, ...opts });
-			const payload = JSON.parse(logged[0] ?? "") as { pairs: unknown[] };
+			const payload = parseWire(JSON.parse(logged[0] ?? ""), wireObject({ "pairs": wireArray(wireUnknown) }), "test JSON value");
 			expect(payload.pairs).toHaveLength(expectPairs);
 		}, 60_000);
 	}
@@ -623,14 +612,14 @@ describe("metricsCouplingCommand — thresholds and limits", () => {
 	it("--limit keeps the highest-ranked pairs, not an arbitrary slice", async () => {
 		captureOutput();
 		await metricsCouplingCommand({ cwd: repo, json: true, limit: "2" });
-		const payload = JSON.parse(logged[0] ?? "") as { pairs: Array<{ a: string }> };
+		const payload = parseWire(JSON.parse(logged[0] ?? ""), wireObject({ "pairs": wireArray(wireObject({ "a": wireString })) }), "test JSON value");
 		expect(payload.pairs.map((p) => p.a)).toEqual(["docs/notes.md", "src/alpha.ts"]);
 	}, 60_000);
 
 	it("--min-support 5 with a 4-commit floor keeps only groups meeting the floor", async () => {
 		captureOutput();
 		await metricsCouplingCommand({ cwd: repo, json: true, minSupport: "5" });
-		const payload = JSON.parse(logged[0] ?? "") as { pairs: Array<{ support: number }> };
+		const payload = parseWire(JSON.parse(logged[0] ?? ""), wireObject({ "pairs": wireArray(wireObject({ "support": wireNumber })) }), "test JSON value");
 		expect(payload.pairs).toHaveLength(6);
 		for (const p of payload.pairs) expect(p.support).toBeGreaterThanOrEqual(5);
 	}, 60_000);
@@ -682,11 +671,7 @@ describe("metricsCouplingCommand — human-readable rendering", () => {
 		// The full JSON payload, not merely "it parsed": a mode mix-up that emitted a
 		// different-but-valid JSON document would survive a parse-only assertion.
 		expect(logged).toHaveLength(1);
-		const payload = JSON.parse(logged[0] ?? "") as {
-			since: string;
-			commits_scanned: number;
-			pairs: Array<{ a: string; b: string; strength: number; relation: string }>;
-		};
+		const payload = parseWire(JSON.parse(logged[0] ?? ""), wireObject({ "since": wireString, "commits_scanned": wireNumber, "pairs": wireArray(wireObject({ "a": wireString, "b": wireString, "strength": wireNumber, "relation": wireString })) }), "test JSON value");
 		expect(payload.since).toBe("90 days ago");
 		expect(payload.commits_scanned).toBe(TOTAL_COMMITS);
 		expect(payload.pairs.map((p) => `${p.a} ${p.b} ${p.strength} ${p.relation}`)).toEqual([
@@ -738,7 +723,7 @@ describe("metricsCouplingCommand — defaults and failure", () => {
 		const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(repo);
 		await metricsCouplingCommand({ json: true });
 		cwdSpy.mockRestore();
-		const payload = JSON.parse(logged[0] ?? "") as { commits_scanned: number; pairs: unknown[] };
+		const payload = parseWire(JSON.parse(logged[0] ?? ""), wireObject({ "commits_scanned": wireNumber, "pairs": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.commits_scanned).toBe(TOTAL_COMMITS);
 		expect(payload.pairs).toHaveLength(6);
 	}, 60_000);
@@ -750,7 +735,7 @@ describe("metricsCouplingCommand — defaults and failure", () => {
 		captureOutput();
 		await metricsCouplingCommand({ cwd: repo, json: true });
 		expect(process.exitCode).toBeUndefined();
-		const payload = JSON.parse(logged[0] ?? "") as { commits_scanned: number; pairs: unknown[] };
+		const payload = parseWire(JSON.parse(logged[0] ?? ""), wireObject({ "commits_scanned": wireNumber, "pairs": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.commits_scanned).toBe(TOTAL_COMMITS);
 		expect(payload.pairs).toHaveLength(6);
 	}, 60_000);

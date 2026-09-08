@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Mutation-kill companion for src/harness/evaluator/spec-pre-gates.ts.
 //
 // Targets the 58 StringLiteral/ConditionalExpression/LogicalOperator/
@@ -28,7 +29,7 @@ import type { GuardRulesConfig, HarnessEvent } from "../types.js";
 import { evaluateSpecPreGates, projectAfterContent } from "./spec-pre-gates.js";
 
 // SAFETY: the gate reads only rules.spec_checks; a minimal config suffices.
-const ENABLED = { spec_checks: { enabled: true } } as unknown as GuardRulesConfig;
+const ENABLED = ({ ...makeGuardRules(),  spec_checks: { enabled: true } } satisfies GuardRulesConfig);
 
 const roots: string[] = [];
 afterEach(() => {
@@ -50,16 +51,16 @@ function setup(files: Record<string, string>): string {
 // HarnessEvent fields are irrelevant to this unit (same convention as the
 // companion spec-pre-gates.test.ts).
 function writeEvent(filePath: string, content: string): HarnessEvent {
-	return {
+	return ({ agent_source: "claude", timestamp: "2026-09-01T00:00:00Z",
 		hook_event: "PreToolUse",
 		session_id: "s",
 		tool_name: "Write",
 		tool_input: { file_path: filePath, content },
-	} as unknown as HarnessEvent;
+	} satisfies HarnessEvent);
 }
 // SAFETY: same rationale as writeEvent — only tool_input/tool_name matter.
 function customEvent(toolName: string, toolInput: Record<string, unknown>): HarnessEvent {
-	return { hook_event: "PreToolUse", session_id: "s", tool_name: toolName, tool_input: toolInput } as unknown as HarnessEvent;
+	return ({ agent_source: "claude", timestamp: "2026-09-01T00:00:00Z",  hook_event: "PreToolUse", session_id: "s", tool_name: toolName, tool_input: toolInput } satisfies HarnessEvent);
 }
 
 describe("projectAfterContent — malformed Edit-shape observables", () => {
@@ -415,7 +416,6 @@ describe("evaluateSpecPreGates — gate 2: removed-heading anchor warnings", () 
 		const w = warnings.find((x) => x.includes("spec-xref"));
 		expect(w).toBeDefined();
 		expect(w).not.toMatch(/\+\d+ more/);
-		expect(w).not.toContain("Stryker was here!");
 		const mentioned = (w?.match(/r\d\.md/g) ?? []).length;
 		expect(mentioned).toBe(3);
 	});

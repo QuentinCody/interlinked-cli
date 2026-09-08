@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 // ===========================================
 // Daemon control — reaping and stopping
 // ===========================================
@@ -412,7 +413,7 @@ async function spawnDecoyDaemon(workspace: string): Promise<DecoyDaemon> {
 	return {
 		// SAFETY: `pid` is only undefined when the spawn failed, which the
 		// awaited "spawn"/"error" race above has already turned into a throw.
-		pid: child.pid as number,
+		pid: nonNull(child.pid),
 		exitSignal,
 		dispose: () => {
 			child.kill("SIGKILL");

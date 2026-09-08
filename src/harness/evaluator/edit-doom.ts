@@ -19,6 +19,7 @@
 // we cannot decide with certainty.
 
 import { existsSync, readFileSync } from "node:fs";
+import { isJsonObject } from "../../lib/json-types.js";
 import { isAbsolute, resolve } from "node:path";
 import {
 	type ApplyPatchSection,
@@ -76,8 +77,8 @@ function replaceEntries(toolInput: ToolInput): ReplaceEntry[] | null {
 	const rawEdits: unknown[] = toolInput.edits;
 	const entries: ReplaceEntry[] = [];
 	for (const edit of rawEdits) {
-		if (!edit || typeof edit !== "object") return null;
-		const bag = edit as Record<string, unknown>;
+		if (!isJsonObject(edit)) return null;
+		const bag = edit;
 		if (typeof bag.old_string !== "string" || typeof bag.new_string !== "string") return null;
 		entries.push({
 			oldString: bag.old_string,

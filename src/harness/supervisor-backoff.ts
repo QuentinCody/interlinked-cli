@@ -60,7 +60,7 @@ export function readSupervisorBackoff(repoRoot: string): SupervisorBackoffState 
 		if (typeof raw !== "object" || raw === null) return null;
 		// SAFETY: object-ness is checked above and both fields are type- and
 		// finiteness-tested below, so no caller sees an unvalidated field.
-		const state = raw as Partial<SupervisorBackoffState>;
+		const state: Partial<SupervisorBackoffState> = raw;
 		if (typeof state.attempts !== "number" || typeof state.last_spawn_at !== "number") return null;
 		if (!Number.isFinite(state.attempts) || !Number.isFinite(state.last_spawn_at)) return null;
 		return { attempts: state.attempts, last_spawn_at: state.last_spawn_at };

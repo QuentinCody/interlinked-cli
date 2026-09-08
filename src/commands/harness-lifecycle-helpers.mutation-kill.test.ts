@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireObject, wireOptional, wireString } from "../lib/value-validation.js";
 // Mutation-kill wave targeting 47 survived mutants in harness-lifecycle-helpers.ts
 // (manifest .interlinked/mutation-manifest.json, generation 2026-08-17). Each test
 // carries a `// test-contract:` line naming the mutant class it targets.
@@ -442,9 +443,9 @@ describe("inlineJsonRestartStart — server resolution, argv, and poll convergen
 		mocks.isDaemonSocketReady.mockResolvedValue(false);
 		mocks.spawn.mockReturnValue(child(303));
 		mocks.isHarnessRunning.mockReturnValue({ running: true, pid: 303 });
-		let jsonData: { status?: string } = {};
+		let jsonData: { status?: string | undefined } = {};
 		mocks.output.mockImplementation((_mode, _data, renderers) => {
-			jsonData = renderers.json() as { status?: string };
+			jsonData = parseWire(renderers.json(), wireObject({ "status": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		});
 		process.exitCode = 0;
 		const run = inlineJsonRestartStart("/repo", {}, "raw", "s", 1, "json");

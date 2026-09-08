@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireBoolean, wireNullable, wireObject, wireString } from "../lib/value-validation.js";
 // ===========================================
 // Behavioral tests for `interlinked env`
 // ===========================================
@@ -62,7 +63,7 @@ afterEach(() => {
 });
 
 function lastLog(): string {
-	return logSpy.mock.calls.at(-1)?.[0] as string;
+	return parseWire(logSpy.mock.calls.at(-1)?.[0], wireString, "test JSON value");
 }
 
 describe("envCommand — JSON mode", () => {
@@ -73,13 +74,7 @@ describe("envCommand — JSON mode", () => {
 		await envCommand({ json: true });
 
 		expect(logSpy).toHaveBeenCalledTimes(1);
-		const parsed = JSON.parse(lastLog()) as Array<{
-			name: string;
-			description: string;
-			example: string;
-			is_set: boolean;
-			value: string | null;
-		}>;
+		const parsed = parseWire(JSON.parse(lastLog()), wireArray(wireObject({ "name": wireString, "description": wireString, "example": wireString, "is_set": wireBoolean, "value": wireNullable(wireString) })), "test JSON value");
 
 		// All 11 documented vars present, descriptions + examples carried through.
 		expect(parsed).toHaveLength(ENV_KEYS.length);
@@ -104,7 +99,7 @@ describe("envCommand — JSON mode", () => {
 
 	it("reports every var unset as is_set:false / value:null when env is empty", async () => {
 		await envCommand({ json: true });
-		const parsed = JSON.parse(lastLog()) as Array<{ is_set: boolean; value: null }>;
+		const parsed = parseWire(JSON.parse(lastLog()), wireArray(wireObject({ is_set: wireBoolean, value: wireNullable(wireString) })), "environment report");
 		expect(parsed.every((e) => e.is_set === false && e.value === null)).toBe(true);
 	});
 });

@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireNumber, wireObject, wireOptional, wireString, wireUnknown } from "../lib/value-validation.js";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -206,11 +207,7 @@ describe("queryCommand", () => {
 
 	it("emits a JSON envelope with rows and scan stats", async () => {
 		await queryCommand("blocks", { cwd: dir, json: true });
-		const payload = JSON.parse(logs.join("\n")) as {
-			source: string;
-			rows: Array<{ guard_rule_id: string }>;
-			stats: { recordsParsed: number };
-		};
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "source": wireString, "rows": wireArray(wireObject({ "guard_rule_id": wireString })), "stats": wireObject({ "recordsParsed": wireNumber }) }), "test JSON value");
 		expect(payload.source).toBe("blocks");
 		expect(payload.rows).toHaveLength(2);
 		expect(payload.stats.recordsParsed).toBe(4);
@@ -218,11 +215,7 @@ describe("queryCommand", () => {
 
 	it("emits an aggregate envelope under --by", async () => {
 		await queryCommand("costs", { cwd: dir, json: true, by: "session_id", sum: "output_tokens" });
-		const payload = JSON.parse(logs.join("\n")) as {
-			by: string;
-			sum: string;
-			aggregate: Array<{ key: string; sum: number }>;
-		};
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "by": wireString, "sum": wireString, "aggregate": wireArray(wireObject({ "key": wireString, "sum": wireNumber })) }), "test JSON value");
 		expect(payload.by).toBe("session_id");
 		expect(payload.sum).toBe("output_tokens");
 		expect(payload.aggregate[0]).toEqual({ key: "s2", count: 1, sum: 900 });
@@ -237,13 +230,13 @@ describe("queryCommand", () => {
 
 	it("applies user --where on top of the source identity filter", async () => {
 		await queryCommand("blocks", { cwd: dir, json: true, where: ["tool=Write"] });
-		const payload = JSON.parse(logs.join("\n")) as { rows: Array<{ guard_rule_id: string }> };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "rows": wireArray(wireObject({ "guard_rule_id": wireString })) }), "test JSON value");
 		expect(payload.rows.map((r) => r.guard_rule_id)).toEqual(["builtin-protected"]);
 	});
 
 	it("queries an explicit .jsonl path with inferred fields", async () => {
 		await queryCommand(join(dir, ".interlinked", "costs.jsonl"), { cwd: dir, json: true });
-		const payload = JSON.parse(logs.join("\n")) as { rows: unknown[] };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "rows": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.rows).toHaveLength(3);
 	});
 
@@ -267,19 +260,14 @@ describe("queryCommand", () => {
 
 	it("threads --last into the record scan budget", async () => {
 		await queryCommand("blocks", { cwd: dir, json: true, last: "1" });
-		const payload = JSON.parse(logs.join("\n")) as {
-			stats: { recordsParsed: number; truncated: boolean };
-		};
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "stats": wireObject({ "recordsParsed": wireNumber, "truncated": wireBoolean }) }), "test JSON value");
 		expect(payload.stats.recordsParsed).toBe(1);
 		expect(payload.stats.truncated).toBe(true);
 	});
 
 	it("threads --max-mb into the byte scan budget", async () => {
 		await queryCommand("blocks", { cwd: dir, json: true, maxMb: "0.0001" });
-		const payload = JSON.parse(logs.join("\n")) as {
-			rows: unknown[];
-			stats: { truncated: boolean };
-		};
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "rows": wireArray(wireUnknown), "stats": wireObject({ "truncated": wireBoolean }) }), "test JSON value");
 		// 0.0001 MB * (1024*1024) rounds to 105 bytes — nonzero, so the tiny
 		// fixture file (a few hundred bytes) still reads through in one shot
 		// and is not truncated. An incorrect MB→byte multiplier (e.g. 1 instead
@@ -291,7 +279,7 @@ describe("queryCommand", () => {
 
 	it("accepts a valid numeric --limit", async () => {
 		await queryCommand("blocks", { cwd: dir, json: true, limit: "1" });
-		const payload = JSON.parse(logs.join("\n")) as { rows: unknown[] };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "rows": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.rows).toHaveLength(1);
 	});
 
@@ -356,17 +344,13 @@ describe("queryCommand", () => {
 			json: true,
 			since: "2026-07-24T10:02:30Z",
 		});
-		const payload = JSON.parse(logs.join("\n")) as { rows: Array<{ ts: string }> };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "rows": wireArray(wireObject({ "ts": wireString })) }), "test JSON value");
 		expect(payload.rows.map((r) => r.ts)).toEqual(["2026-07-24T10:03:00Z"]);
 	});
 
 	it("emits an aggregate envelope with --by and no --sum (no sum key)", async () => {
 		await queryCommand("costs", { cwd: dir, json: true, by: "session_id" });
-		const payload = JSON.parse(logs.join("\n")) as {
-			by: string;
-			sum?: string;
-			aggregate: Array<{ key: string; count: number }>;
-		};
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "by": wireString, "sum": wireAbsentOptional(wireOptional(wireString)), "aggregate": wireArray(wireObject({ "key": wireString, "count": wireNumber })) }), "test JSON value");
 		expect(payload.by).toBe("session_id");
 		expect(payload.sum).toBeUndefined();
 		expect(payload.aggregate).toEqual([
@@ -427,7 +411,7 @@ describe("queryCommand", () => {
 
 	it("prints the catalog as JSON when --json is passed with no target", async () => {
 		await queryCommand(undefined, { cwd: dir, json: true });
-		const payload = JSON.parse(logs.join("\n")) as { sources: Array<{ name: string }> };
+		const payload = parseWire(JSON.parse(logs.join("\n")), wireObject({ "sources": wireArray(wireObject({ "name": wireString })) }), "test JSON value");
 		expect(payload.sources.map((s) => s.name)).toContain("blocks");
 	});
 

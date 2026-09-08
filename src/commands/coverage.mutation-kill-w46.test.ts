@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireString, wireUnknown } from "../lib/value-validation.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -241,10 +242,20 @@ describe("coverageCheckCommand — full run against a report", () => {
 		// contract consumed by scripting callers.
 		writeIstanbulSummary(dir, { "src/a.ts": { lines: 90, branches: 80 } });
 		await coverageCheckCommand({ cwd: dir, json: true });
-		const parsed = JSON.parse(logs.join(""));
+		const parsed = parseWire(JSON.parse(logs.join("")), wireObject({ "report": wireString, "findings": wireArray(wireUnknown), "stats": wireObject({ "files_checked": wireNumber, "files_new": wireNumber, "files_decreased": wireNumber, "files_improved": wireNumber }) }), "test JSON value");
 		expect(parsed).toHaveProperty("report");
 		expect(parsed).toHaveProperty("findings");
 		expect(parsed).toHaveProperty("stats");
+		// A fresh baseline with one never-before-seen file: no findings, and
+		// stats pins the exact counters, not just their presence.
+		expect(parsed.report).toBe(join(dir, "coverage", "coverage-summary.json"));
+		expect(parsed.findings).toEqual([]);
+		expect(parsed.stats).toEqual({
+			files_checked: 1,
+			files_new: 1,
+			files_decreased: 0,
+			files_improved: 0,
+		});
 	});
 });
 

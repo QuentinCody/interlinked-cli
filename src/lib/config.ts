@@ -86,17 +86,18 @@ export interface SharedConfig {
 }
 
 /**
- * Recursive feature-flag node — any nested object whose leaves are booleans.
+ * Recursive feature configuration; boolean leaves enable features, while string
+ * leaves carry metadata such as the graph-prediction enforcement mode.
  * `null` is included because this shape is read straight off disk via
  * `JSON.parse`; a hand-edited or partially-written config.json can legally
  * carry `null` at any branch, and the declared type must say so rather than
  * lying about a boundary the reader has to guard anyway.
  */
-export type FeatureNode = { [key: string]: boolean | FeatureNode | null };
+export type FeatureNode = { [key: string]: boolean | string | FeatureNode | null };
 
 /** A branch node of the feature tree: an object, not a leaf boolean and not
  *  the on-disk `null` a hand-edited config can carry at any depth. */
-function isFeatureNode(value: boolean | FeatureNode | null | undefined): value is FeatureNode {
+function isFeatureNode(value: boolean | string | FeatureNode | null | undefined): value is FeatureNode {
 	return typeof value === "object" && value !== null;
 }
 
@@ -215,7 +216,7 @@ export function readLocalConfig(cwd?: string): LocalConfig | null {
 	return readJsonFile<LocalConfig>(getLocalConfigPath(cwd));
 }
 
-export function writeSharedConfig(config: SharedConfig, cwd?: string): void {
+export function writeSharedConfig(config: SharedConfig | JsonObject, cwd?: string): void {
 	writeJson(getSharedConfigPath(cwd), config);
 }
 
@@ -297,12 +298,12 @@ function readHarnessOverride(
 	const segments = path.split(".");
 	// Path always starts with "harness."; skip the first segment.
 	if (segments[0] !== "harness") return undefined;
-	let cursor: boolean | FeatureNode | null | undefined = harness;
-	for (let i = 1; i < segments.length; i++) {
+	let cursor: boolean | string | FeatureNode | null | undefined = harness;
+	for (const segment of segments.slice(1)) {
 		// `null` is a legal on-disk branch value; the predicate folds the
 		// typeof + null checks so the walk reads as "still a branch?".
 		if (!isFeatureNode(cursor)) return undefined;
-		cursor = cursor[segments[i] as string];
+		cursor = cursor[segment];
 		if (cursor === undefined || cursor === null) break;
 	}
 	return typeof cursor === "boolean" ? cursor : undefined;
@@ -485,3 +486,4 @@ export function initConfig(
 		writeLocalConfig(local, cwd);
 	}
 }
+import type { JsonObject } from "./json-types.js";

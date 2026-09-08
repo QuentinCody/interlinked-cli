@@ -12,7 +12,7 @@
 //      other body parameter is preserved under `params` so nothing is lost.
 
 import { createHash } from "node:crypto";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import type { InferenceEnvelope } from "./inference-store.js";
 
 /** The only request headers that persist into envelopes. Everything else is
@@ -74,12 +74,11 @@ export function extractToolUseIds(response: JsonObject): string[] {
 	const ids: string[] = [];
 	for (const block of content) {
 		if (
-			block !== null &&
-			typeof block === "object" &&
-			(block as JsonObject).type === "tool_use" &&
-			typeof (block as JsonObject).id === "string"
+			isJsonObject(block) &&
+			block.type === "tool_use" &&
+			typeof block.id === "string"
 		) {
-			ids.push((block as JsonObject).id as string);
+			ids.push(block.id);
 		}
 	}
 	return ids;

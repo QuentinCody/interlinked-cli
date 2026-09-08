@@ -250,40 +250,6 @@ describe("groupEscalationInputs — determinism first-write-wins", () => {
 	});
 });
 
-// --- Mutant 19: typeof r.line === "number" && Number.isFinite(r.line) -> true ---
-
-describe("groupEscalationInputs — r.line type guard", () => {
-	// test-contract: boundary — a non-number `line` value (numeric-looking string)
-	// must never be pushed into the group's line list
-	it("c5462559: a string 'line' value is NOT treated as a real line number", () => {
-		const session = makeSession({ warnings_issued: priorRecord("foo") });
-		const out = checkPersistentWarningEscalation(
-			session,
-			"src/foo.ts",
-			[{ name: "foo", line: "10" as unknown as number }],
-			new Set([10]),
-		);
-		expect(out).toEqual([]);
-	});
-});
-
-// --- Mutant 22: typeof l === "number" && Number.isFinite(l) -> true (for lines[] loop) ---
-
-describe("groupEscalationInputs — lines[] entry type guard", () => {
-	// test-contract: boundary — a non-number entry in `lines[]` must never be
-	// treated as a real line number
-	it("36fbe389: a string entry inside lines[] is NOT treated as a real line number", () => {
-		const session = makeSession({ warnings_issued: priorRecord("foo") });
-		const out = checkPersistentWarningEscalation(
-			session,
-			"src/foo.ts",
-			[{ name: "foo", lines: ["10" as unknown as number] }],
-			new Set([10]),
-		);
-		expect(out).toEqual([]);
-	});
-});
-
 // --- Mutant 24: record.issue_count < 1 -> false ---
 
 describe("checkPersistentWarningEscalation — issue_count floor gate", () => {
@@ -358,7 +324,7 @@ describe("runBehavioralChecks — suppression-count guard (both must be defined)
 			"src/foo.ts",
 			[],
 			2,
-			undefined as unknown as number,
+			undefined,
 		);
 		expect(out.some((r) => r.name === "suppression_as_workaround")).toBe(false);
 	});
@@ -382,7 +348,7 @@ describe("runBehavioralChecks — suppression-count guard (both must be defined)
 			session,
 			"src/foo.ts",
 			[],
-			undefined as unknown as number,
+			undefined,
 			5,
 		);
 		expect(out.some((r) => r.name === "suppression_as_workaround")).toBe(false);

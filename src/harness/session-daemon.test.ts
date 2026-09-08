@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileMutationProcessIdentity } from "../lib/file-mutation-lock-identity.js";
 import { nonNull } from "../lib/non-null.js";
-import { encodeFrame, type RpcMessage, splitFrames } from "./daemon-protocol.js";
+import { decodeFrame, encodeFrame, type RpcEnvelope, type RpcWireRequest, splitFrames } from "./daemon-protocol.js";
 import type { EvaluateUnifiedContext } from "./evaluator-unified.js";
 import {
 	claimSessionPid,
@@ -26,7 +26,6 @@ import { BIND_ATTEMPTS, BIND_BACKOFF_MS, bindSessionSocket } from "./session-dae
 import type { DaemonPaths } from "./session-paths.js";
 import type { TsgoRunner } from "./tsgo-runner.js";
 import type { HarnessDecision } from "./types.js";
-import type { UnifiedHookEvent } from "./unified-event.js";
 
 // Partial mock: keep every real helper (daemonPathsFor, sanitizeSessionId, ...)
 // except `classifyDaemonSocket`, which the anti-stomp zombie-reap tests below
@@ -75,20 +74,14 @@ function makeTsgo(): TsgoRunner {
 }
 
 function makeEvaluatorContext(): EvaluateUnifiedContext {
-	// Minimal stub — only used when hook.* RPCs are sent; most tests avoid those.
-	return {
-		rules: { version: 1, enabled: false } as unknown as EvaluateUnifiedContext["rules"],
-		session: undefined,
-		reservations: {} as EvaluateUnifiedContext["reservations"],
-		cohort: {} as EvaluateUnifiedContext["cohort"],
-	};
+	throw new Error("these socket tests supply their own hook evaluator when needed");
 }
 
 async function roundTrip(
 	paths: DaemonPaths,
-	request: RpcMessage,
+	request: RpcWireRequest,
 	timeoutMs = 1500,
-): Promise<RpcMessage> {
+): Promise<RpcEnvelope> {
 	return new Promise((resolve, reject) => {
 		const socket = createConnection(paths.socket);
 		let pending = "";
@@ -97,7 +90,7 @@ async function roundTrip(
 			reject(new Error("timeout"));
 		}, timeoutMs);
 		socket.on("connect", () => {
-			socket.write(encodeFrame(request));
+			socket.write(`${JSON.stringify(request)}\n`);
 		});
 		socket.on("data", (b: Buffer) => {
 			const { frames, remainder } = splitFrames(b.toString("utf-8"), pending);
@@ -106,7 +99,7 @@ async function roundTrip(
 				clearTimeout(timer);
 				socket.destroy();
 				try {
-					resolve(JSON.parse(nonNull(frames[0])));
+					resolve(decodeFrame(nonNull(frames[0])));
 				} catch (err) {
 					reject(err);
 				}
@@ -275,9 +268,8 @@ describe("startSessionDaemon", () => {
 			id: "h-1",
 			method: "daemon.health",
 			params: {},
-		} as RpcMessage);
-		const result = (response as { result: { status: string } }).result;
-		expect(result.status).toBe("ready");
+		});
+		expect(response).toMatchObject({ result: { status: "ready" } });
 	});
 
 	it("handles multiple framed requests on one connection", async () => {
@@ -287,10 +279,10 @@ describe("startSessionDaemon", () => {
 			session_id: "t2b",
 			state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
 		});
-		const responses = await new Promise<RpcMessage[]>((resolve, reject) => {
+		const responses = await new Promise<RpcEnvelope[]>((resolve, reject) => {
 			const socket = createConnection(paths.socket);
 			let pending = "";
-			const out: RpcMessage[] = [];
+			const out: RpcEnvelope[] = [];
 			const timer = setTimeout(() => {
 				socket.destroy();
 				reject(new Error("timeout"));
@@ -302,7 +294,7 @@ describe("startSessionDaemon", () => {
 						id: "multi-1",
 						method: "daemon.health",
 						params: {},
-					} as RpcMessage),
+					}),
 				);
 				socket.write(
 					encodeFrame({
@@ -310,13 +302,13 @@ describe("startSessionDaemon", () => {
 						id: "multi-2",
 						method: "daemon.invalidate",
 						params: { path: "/a.ts" },
-					} as RpcMessage),
+					}),
 				);
 			});
 			socket.on("data", (b: Buffer) => {
 				const { frames, remainder } = splitFrames(b.toString("utf-8"), pending);
 				pending = remainder;
-				for (const frame of frames) out.push(JSON.parse(frame) as RpcMessage);
+				for (const frame of frames) out.push(decodeFrame(frame));
 				if (out.length === 2) {
 					clearTimeout(timer);
 					socket.destroy();
@@ -344,8 +336,8 @@ describe("startSessionDaemon", () => {
 			id: "inv-1",
 			method: "daemon.invalidate",
 			params: { path: "/x/y.ts" },
-		} as RpcMessage);
-		expect(nonNull((tsgo.invalidate as ReturnType<typeof vi.fn>).mock.calls[0])[0]).toBe("/x/y.ts");
+		});
+		expect(nonNull(vi.mocked(tsgo.invalidate).mock.calls[0])[0]).toBe("/x/y.ts");
 	});
 
 	it("responds with bad_request for malformed frames", async () => {
@@ -355,7 +347,7 @@ describe("startSessionDaemon", () => {
 			session_id: "t4",
 			state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
 		});
-		const response = await new Promise<RpcMessage>((resolve, reject) => {
+		const response = await new Promise<RpcEnvelope>((resolve, reject) => {
 			const socket = createConnection(paths.socket);
 			let pending = "";
 			const timer = setTimeout(() => {
@@ -371,7 +363,7 @@ describe("startSessionDaemon", () => {
 				if (frames.length > 0) {
 					clearTimeout(timer);
 					socket.destroy();
-					resolve(JSON.parse(nonNull(frames[0])));
+					resolve(decodeFrame(nonNull(frames[0])));
 				}
 			});
 			socket.on("error", (err) => {
@@ -379,8 +371,7 @@ describe("startSessionDaemon", () => {
 				reject(err);
 			});
 		});
-		const asError = response as { error?: { code: string } };
-		expect(asError.error?.code).toBe("bad_request");
+		expect(response).toMatchObject({ error: { code: "bad_request" } });
 		expect(response.id).toBe("unknown");
 	});
 
@@ -415,9 +406,7 @@ describe("startSessionDaemon", () => {
 		// Typed so server.ts can route it through the anti-stomp loser
 		// contract instead of the generic survive-on-error crash handler.
 		expect(caught).toBeInstanceOf(DaemonOwnershipConflictError);
-		expect((caught as DaemonOwnershipConflictError).ownerPid).toBe(1);
-		expect((caught as DaemonOwnershipConflictError).name).toBe("DaemonOwnershipConflictError");
-		expect((caught as Error).message).toContain("already running");
+		expect(caught).toMatchObject({ ownerPid: 1, name: "DaemonOwnershipConflictError", message: expect.stringContaining("already running") });
 		// A losing claim must never touch the socket or pid path — the
 		// pre-seeded placeholder content proves nothing rebound over them.
 		expect(readFileSync(paths.socket, "utf-8")).toBe("");
@@ -470,7 +459,7 @@ describe("startSessionDaemon", () => {
 		const killSpy = vi.spyOn(process, "kill").mockImplementation((_pid, signal) => {
 			if (signal === "SIGTERM") alive = false;
 			if (signal === 0 && !alive) {
-				const error = new Error("gone") as NodeJS.ErrnoException;
+				const error: NodeJS.ErrnoException = new Error("gone");
 				error.code = "ESRCH";
 				throw error;
 			}
@@ -499,7 +488,7 @@ describe("startSessionDaemon", () => {
 			.mockResolvedValueOnce("occupied_unready")
 			.mockResolvedValueOnce("occupied_unready");
 		const killSpy = vi.spyOn(process, "kill").mockImplementation(() => {
-			const error = new Error("operation not permitted") as NodeJS.ErrnoException;
+			const error: NodeJS.ErrnoException = new Error("operation not permitted");
 			error.code = "EPERM";
 			throw error;
 		});
@@ -541,7 +530,7 @@ describe("startSessionDaemon", () => {
 				return true;
 			}
 			if (pid === INCUMBENT_PID && !incumbentAlive) {
-				const error = new Error("gone") as NodeJS.ErrnoException;
+				const error: NodeJS.ErrnoException = new Error("gone");
 				error.code = "ESRCH";
 				throw error;
 			}
@@ -618,7 +607,7 @@ describe("startSessionDaemon", () => {
 			caught = err;
 		}
 		expect(caught).toBeInstanceOf(Error);
-		expect((caught as Error).message).toContain("Could not determine");
+		expect(caught).toMatchObject({ message: expect.stringContaining("Could not determine") });
 		// Never stomped the placeholder socket while deferring.
 		expect(readFileSync(paths.socket, "utf-8")).toBe("");
 	});
@@ -841,7 +830,7 @@ describe("startSessionDaemon", () => {
 						id: "shut-1",
 						method: "daemon.shutdown",
 						params: { reason: "test" },
-					} as RpcMessage),
+					}),
 				);
 			});
 			socket.on("close", () => {
@@ -866,10 +855,10 @@ describe("startSessionDaemon", () => {
 			session_id: "t7",
 			state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
 		});
-		const responses = await new Promise<RpcMessage[]>((resolve, reject) => {
+		const responses = await new Promise<RpcEnvelope[]>((resolve, reject) => {
 			const socket = createConnection(paths.socket);
 			let pending = "";
-			const out: RpcMessage[] = [];
+			const out: RpcEnvelope[] = [];
 			const timer = setTimeout(() => {
 				socket.destroy();
 				reject(new Error("timeout"));
@@ -885,13 +874,13 @@ describe("startSessionDaemon", () => {
 						id: "real-1",
 						method: "daemon.health",
 						params: {},
-					} as RpcMessage),
+					}),
 				);
 			});
 			socket.on("data", (b: Buffer) => {
 				const { frames, remainder } = splitFrames(b.toString("utf-8"), pending);
 				pending = remainder;
-				for (const frame of frames) out.push(JSON.parse(frame) as RpcMessage);
+				for (const frame of frames) out.push(decodeFrame(frame));
 			});
 			socket.on("error", (err) => {
 				clearTimeout(timer);
@@ -928,16 +917,15 @@ describe("startSessionDaemon", () => {
 				event_id: "e1",
 				session_id: "t8",
 				ts: "2026-08-05T00:00:00.000Z",
-				runner: "claude",
+				runner: "claude-code",
 				runner_native_event: "PreToolUse",
 				phase: "pre-tool",
 				context: { cwd: "/repo" },
-				action: { kind: "tool_call", tool_name: "Bash", tool_input: {} },
+				action: { kind: "tool_call", tool_name: "Bash", tool_class: "side-effect", tool_input: {}, tool_input_redacted: {} },
+				raw: {},
 			},
-		} as unknown as RpcMessage);
-		const asError = response as { error?: { code: string; message: string } };
-		expect(asError.error?.code).toBe("internal");
-		expect(asError.error?.message).toBe("boom");
+		});
+		expect(response).toMatchObject({ error: { code: "internal", message: "boom" } });
 	});
 
 	it("the idle-shutdown poller stops the daemon after true inactivity (lines 202-204)", async () => {
@@ -965,7 +953,6 @@ describe("startSessionDaemon", () => {
 				session_id: "idle-boundary",
 				idle_shutdown_ms: 100,
 				state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
-
 			});
 
 			await vi.advanceTimersByTimeAsync(99);
@@ -1039,7 +1026,7 @@ describe("startSessionDaemon", () => {
 			id: "keepalive-1",
 			method: "daemon.health",
 			params: {},
-		} as RpcMessage);
+		});
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(existsSync(paths.pid)).toBe(true);
 		expect(existsSync(paths.socket)).toBe(true);
@@ -1139,7 +1126,7 @@ describe("startSessionDaemon", () => {
 		let resolveHook: (() => void) | undefined;
 		const slowEvaluateHook = vi.fn(
 			() =>
-				new Promise((resolve) => {
+				new Promise<HarnessDecision>((resolve) => {
 					resolveHook = () => resolve({ decision: "allow" });
 				}),
 		);
@@ -1150,9 +1137,7 @@ describe("startSessionDaemon", () => {
 			state: {
 				tsgo: makeTsgo(),
 				getEvaluatorContext: makeEvaluatorContext,
-				evaluateHook: slowEvaluateHook as unknown as (
-					event: UnifiedHookEvent,
-				) => Promise<HarnessDecision>,
+				evaluateHook: slowEvaluateHook,
 			},
 		});
 		// Fire the slow hook RPC without awaiting it — it stays in flight.
@@ -1165,13 +1150,14 @@ describe("startSessionDaemon", () => {
 				event_id: "e-slow",
 				session_id: "slow-inflight",
 				ts: "2026-08-05T00:00:00.000Z",
-				runner: "claude",
+				runner: "claude-code",
 				runner_native_event: "PreToolUse",
 				phase: "pre-tool",
 				context: { cwd: "/repo" },
-				action: { kind: "tool_call", tool_name: "Bash", tool_input: {} },
+				action: { kind: "tool_call", tool_name: "Bash", tool_class: "side-effect", tool_input: {}, tool_input_redacted: {} },
+				raw: {},
 			},
-		} as unknown as RpcMessage);
+		});
 		// Let at least two idle-poller ticks (50ms each) pass while inflight>0.
 		await new Promise((resolve) => setTimeout(resolve, 130));
 		expect(existsSync(paths.pid)).toBe(true);
@@ -1200,7 +1186,7 @@ describe("startSessionDaemon", () => {
 			id: "keepalive-2",
 			method: "daemon.health",
 			params: {},
-		} as RpcMessage);
+		});
 		// Land the check comfortably after the first tick (~200ms) but well
 		// before the second (~400ms).
 		await new Promise((resolve) => setTimeout(resolve, 150));

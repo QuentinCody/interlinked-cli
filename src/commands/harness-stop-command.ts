@@ -135,7 +135,7 @@ export async function harnessTestCommand(
 					lines.push(`  ${resolvedDecision.reason}`);
 				}
 				if (resolvedDecision.warnings && Array.isArray(resolvedDecision.warnings)) {
-					for (const w of resolvedDecision.warnings as string[]) {
+					for (const w of resolvedDecision.warnings) {
 						lines.push(`  ${c.yellow(w)}`);
 					}
 				}

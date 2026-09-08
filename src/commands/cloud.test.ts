@@ -46,7 +46,6 @@ import {
 	formatRecentEvents,
 	loadCloudUrl,
 	parseCloudGovernorUrl,
-	type RecentEvent,
 } from "./cloud.js";
 
 // --- process.exit + stream capture -------------------------------------
@@ -62,10 +61,10 @@ let outSpy: ReturnType<typeof vi.spyOn>;
 let errSpy: ReturnType<typeof vi.spyOn>;
 
 function stdout(): string {
-	return (outSpy.mock.calls as unknown[][]).map((a) => String(a[0])).join("");
+	return (outSpy.mock.calls).map((a: unknown[]) => String(a[0])).join("");
 }
 function stderr(): string {
-	return (errSpy.mock.calls as unknown[][]).map((a) => String(a[0])).join("");
+	return (errSpy.mock.calls).map((a: unknown[]) => String(a[0])).join("");
 }
 
 const CWD = "/proj";
@@ -81,16 +80,10 @@ function opts(over: Partial<CloudRecentOpts> = {}): CloudRecentOpts {
 	return { cwd: CWD, limit: 20, ...over };
 }
 
-/** A minimal fetch Response stub. */
-function res(over: Partial<Response> & { jsonValue?: unknown }): Response {
-	const { jsonValue, ...rest } = over;
-	return {
-		ok: true,
-		status: 200,
-		statusText: "OK",
-		json: async () => jsonValue,
-		...rest,
-	} as Response;
+function res(over: { status?: number; statusText?: string; jsonValue?: unknown }): Response {
+	return new Response(JSON.stringify(over.jsonValue) ?? null, {
+		status: over.status ?? 200, statusText: over.statusText ?? "OK",
+	});
 }
 
 beforeEach(() => {
@@ -99,11 +92,11 @@ beforeEach(() => {
 	fsFiles = {};
 	fsReadThrows = new Set();
 	mockResolveAuthToken.mockReturnValue("tok-123");
-	exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-		throw new ProcessExit(code);
-	}) as never);
-	outSpy = vi.spyOn(process.stdout, "write").mockImplementation((() => true) as never);
-	errSpy = vi.spyOn(process.stderr, "write").mockImplementation((() => true) as never);
+	exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+		throw new ProcessExit(code === undefined ? undefined : Number(code));
+	});
+	outSpy = vi.spyOn(process.stdout, "write").mockImplementation((() => true));
+	errSpy = vi.spyOn(process.stderr, "write").mockImplementation((() => true));
 });
 
 afterEach(() => {
@@ -281,7 +274,7 @@ describe("formatRecentEvents", () => {
 	});
 
 	it("renders ? fallbacks for missing id/session/tool/decision and missing created_at", () => {
-		const out = formatRecentEvents([{} as RecentEvent]);
+		const out = formatRecentEvents([{}]);
 		// id?->?, session undefined->?, tool undefined->?, created_at undefined->?
 		expect(out).toContain("?");
 	});
@@ -333,7 +326,7 @@ describe("cloudRecentCommand", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		const [calledUrl, init] = nonNull(fetchMock.mock.calls[0]);
 		expect(calledUrl).toBe("https://cg.example/admin/recent?limit=7");
-		expect((init.headers as Record<string, string>).authorization).toBe("Bearer tok-123");
+		expect(init).toHaveProperty(["headers","authorization"], "Bearer tok-123");
 		expect(init.signal).toBeInstanceOf(AbortSignal);
 
 		const out = stdout();
@@ -404,7 +397,7 @@ describe("cloudRecentCommand", () => {
 		withCloudUrl("https://cg.example/governor/evaluate");
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () => res({ ok: false, status: 401, statusText: "Unauthorized" })),
+			vi.fn(async () => res({ status: 401, statusText: "Unauthorized" })),
 		);
 
 		await expect(cloudRecentCommand(opts())).rejects.toBeInstanceOf(ProcessExit);
@@ -419,7 +412,7 @@ describe("cloudRecentCommand", () => {
 		withCloudUrl("https://cg.example/governor/evaluate");
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () => res({ ok: false, status: 500, statusText: "Internal Server Error" })),
+			vi.fn(async () => res({ status: 500, statusText: "Internal Server Error" })),
 		);
 
 		await expect(cloudRecentCommand(opts())).rejects.toBeInstanceOf(ProcessExit);

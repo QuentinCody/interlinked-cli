@@ -51,7 +51,7 @@ describe("discoverSingleTool", () => {
 	});
 
 	it("returns undefined for an unknown id", () => {
-		// Cast because we're intentionally passing an invalid id.
+		// SAFETY: the invalid tool ID deliberately exercises the runtime unknown-tool fallback outside the declared ID union.
 		const r = discoverSingleTool("not-a-tool" as never, tmp);
 		expect(r).toBeUndefined();
 	});

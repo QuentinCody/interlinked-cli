@@ -105,8 +105,8 @@ function extractRunAt(
 	const line = lines[i];
 	const m = nonNull(line).match(/^(\s*)(?:-\s+)?run:\s?(.*)$/);
 	if (!m) return null;
-	const keyIndent = (m[1] as string).length;
-	const value = (m[2] as string).trim();
+	const keyIndent = nonNull(m[1]).length;
+	const value = nonNull(m[2]).trim();
 	const startLine = i + 1;
 
 	if (/^[|>][+-]?\s*$/.test(value)) {
@@ -173,7 +173,7 @@ export function extractDockerfileCommands(content: string): ExtractedCommand[] {
 		const m = nonNull(lines[i]).match(/^\s*RUN\s+(.*)$/i);
 		if (!m) continue;
 		const startLine = i + 1;
-		let rest = m[1] as string;
+		let rest = nonNull(m[1]);
 		// Join backslash continuations.
 		while (rest.endsWith("\\") && i + 1 < lines.length) {
 			rest = `${rest.slice(0, -1).trimEnd()} ${nonNull(lines[i + 1]).trim()}`;

@@ -22,6 +22,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isJsonObject } from "../lib/json-types.js";
 
 /** Per-detector config sub-shapes. Each is a plain record so the file
  * round-trips through JSON.parse / JSON.stringify with no surprises. */
@@ -95,7 +96,7 @@ export function defaultConfig(): SecurityConfig {
 export function validate(raw: unknown): SecurityConfig {
 	const out = defaultConfig();
 	if (!raw || typeof raw !== "object") return out;
-	const r = raw as RawConfig;
+	const r: RawConfig = raw;
 
 	const exemptAuth = readStringArray(r.endpoint_auth_missing, "exempt_paths");
 	if (exemptAuth !== null) out.endpoint_auth_missing.exempt_paths = exemptAuth;
@@ -133,17 +134,11 @@ interface RawConfig {
  * preserves the default in that case. Non-string entries within an array
  * are silently dropped (matches sanitizer-registry's `validateEntry`
  * "drop the bad, keep the good" posture).
- *
- * Indexing through `RawSection` (a typed map from string → unknown) keeps
- * the field unconstrained without falling into the bare-`Record<K, unknown>`
- * shape that the broad-object-types check flags. The actual narrowing
- * happens via the `Array.isArray` + per-element `typeof` predicate. */
-type RawSection = { readonly [field: string]: unknown };
+ */
 
 function readStringArray(rawSection: unknown, key: string): string[] | null {
-	if (!rawSection || typeof rawSection !== "object") return null;
-	const section = rawSection as RawSection;
-	const arr = section[key];
+	if (!isJsonObject(rawSection)) return null;
+	const arr = rawSection[key];
 	if (!Array.isArray(arr)) return null;
 	return arr.filter((x): x is string => typeof x === "string");
 }

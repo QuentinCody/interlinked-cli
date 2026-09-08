@@ -26,6 +26,8 @@
 //     even `echo "bash -c 'rm -rf /'"` classify as inline code (scanned)
 //     because missing a real payload is worse than scanning prose.
 
+import { nonNull } from "../../lib/non-null.js";
+
 type SpanKind = "executed" | "inline_code" | "quoted" | "comment" | "heredoc";
 
 export interface Span {
@@ -130,7 +132,7 @@ type CommandWordStep = { nextIdx: number; result?: string };
  *  `timeout`|`nice` / flag-like tokens are skipped (advancing `idx` past
  *  any of their own consumed arguments); anything else is the answer. */
 function stepCommandWordToken(tokens: string[], idx: number): CommandWordStep {
-	const tok = tokens[idx] as string;
+	const tok = nonNull(tokens[idx]);
 	if (ENV_ASSIGN_RE.test(tok)) return { nextIdx: idx + 1 };
 	const base = basenameLower(tok);
 	if (WRAPPER_TOKENS.has(base)) return { nextIdx: idx + 1 };
@@ -138,7 +140,7 @@ function stepCommandWordToken(tokens: string[], idx: number): CommandWordStep {
 		let next = idx + 1;
 		while (
 			next < tokens.length &&
-			(ENV_ASSIGN_RE.test(tokens[next] as string) || (tokens[next] as string).startsWith("-"))
+			(ENV_ASSIGN_RE.test(nonNull(tokens[next])) || nonNull(tokens[next]).startsWith("-"))
 		)
 			next++;
 		return { nextIdx: next };
@@ -147,7 +149,7 @@ function stepCommandWordToken(tokens: string[], idx: number): CommandWordStep {
 		let next = idx + 1;
 		while (
 			next < tokens.length &&
-			((tokens[next] as string).startsWith("-") || /^\d/.test(tokens[next] as string))
+			(nonNull(tokens[next]).startsWith("-") || /^\d/.test(nonNull(tokens[next])))
 		)
 			next++;
 		return { nextIdx: next };
@@ -288,7 +290,7 @@ function scanHeredoc(cmd: string, i: number, flush: FlushFn): number | null {
 	const m = cmd.slice(i).match(/^<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\2/);
 	if (!m) return null;
 	const dashed = m[1] === "-";
-	const tag = m[3] as string;
+	const tag = nonNull(m[3]);
 	const headerEnd = i + m[0].length;
 
 	// Body begins after the header line's newline — `cat <<EOF > out.txt`
@@ -325,7 +327,7 @@ function scanHeredoc(cmd: string, i: number, flush: FlushFn): number | null {
 /** `#` comment — only at a word boundary — runs to end of line. */
 function scanComment(cmd: string, i: number, flush: FlushFn): number | null {
 	if (cmd[i] !== COMMENT_CHAR) return null;
-	const prev = i > 0 ? (cmd[i - 1] as string) : "";
+	const prev = cmd.charAt(i - 1);
 	const isWordBoundary = prev === "" || /\s/.test(prev);
 	if (!isWordBoundary) return null;
 	flush(i, "comment", i);

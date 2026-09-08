@@ -54,7 +54,7 @@ describe("loadTsModule — caching", () => {
 		});
 		const { loadTsModule } = await freshDeps();
 		const nodeModule = await import("node:module");
-		const spy = nodeModule.createRequire as unknown as ReturnType<typeof vi.fn>;
+		const spy = vi.mocked(nodeModule.createRequire);
 
 		const first = loadTsModule();
 		const second = loadTsModule();
@@ -76,7 +76,7 @@ describe("loadTsModule — caching", () => {
 		});
 		const { loadTsModule, __resetDifferentialFuzzDepsCacheForTests } = await freshDeps();
 		const nodeModule = await import("node:module");
-		const spy = nodeModule.createRequire as unknown as ReturnType<typeof vi.fn>;
+		const spy = vi.mocked(nodeModule.createRequire);
 
 		loadTsModule();
 		expect(spy).toHaveBeenCalledTimes(1);
@@ -95,11 +95,10 @@ describe("loadTsModule — caching", () => {
 				...actual,
 				createRequire: (url: string | URL) => {
 					const req = actual.createRequire(url);
-					const wrapped = ((id: string) => {
+					const wrapped = Object.assign((id: string) => {
 						if (id === "typescript") throw new Error("blocked for test");
 						return req(id);
-					}) as NodeJS.Require;
-					wrapped.resolve = req.resolve;
+					}, req);
 					return wrapped;
 				},
 			};
@@ -228,11 +227,10 @@ describe("transpileMutantModule", () => {
 				...actual,
 				createRequire: (url: string | URL) => {
 					const req = actual.createRequire(url);
-					const wrapped = ((id: string) => {
+					const wrapped = Object.assign((id: string) => {
 						if (id === "typescript") throw new Error("blocked for test");
 						return req(id);
-					}) as NodeJS.Require;
-					wrapped.resolve = req.resolve;
+					}, req);
 					return wrapped;
 				},
 			};

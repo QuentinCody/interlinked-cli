@@ -26,19 +26,15 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		realpathSync: ((p: unknown, opts?: unknown) => {
-			// SAFETY: this call-through spy only ever forwards the exact (path, options)
-			// pair the mocked signature already accepts; the cast reassigns the widened
-			// `unknown` parameters back to `realpathSync`'s own real overload shape.
-			const real = (actual.realpathSync as (pp: unknown, oo?: unknown) => string)(p, opts);
-			if (realpathControl.poisonPath !== null && String(p) === realpathControl.poisonPath) {
-				return `${real}-tampered`;
-			}
-			return real;
-			// SAFETY: the wrapper reproduces `realpathSync`'s exact call signature (both
-			// overloads collapse to `(path, options?) => string` for our string-only usage),
-			// so the module mock can stand in for the real export without a structural gap.
-		}) as typeof actual.realpathSync,
+		realpathSync: new Proxy(actual.realpathSync, {
+			apply(target, receiver, args) {
+				const real = Reflect.apply(target, receiver, args);
+				if (realpathControl.poisonPath !== null && String(args[0]) === realpathControl.poisonPath) {
+					return `${real}-tampered`;
+				}
+				return real;
+			},
+		}),
 	};
 });
 

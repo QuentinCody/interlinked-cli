@@ -124,7 +124,10 @@ program
 		console.log(`Interlinked CLI v${CLI_VERSION}`);
 		try {
 			const client = getClient();
-			const result = await client.callTool<{ status?: string }>("health_check");
+			const result = await client.callTool("health_check");
+			if (!isJsonObject(result) || (result.status !== undefined && typeof result.status !== "string")) {
+				throw new Error("Invalid health_check response");
+			}
 			console.log(
 				`Server: ${client.getConfig().server_url} (${result.status || "ok"})`,
 			);
@@ -140,10 +143,7 @@ program
 // ===========================================
 
 // Sort top-level commands alphabetically in help output.
-// Commander renders commands in registration order, so we sort the
-// internal array just before parsing. This keeps help tidy even as
-// new commands are added anywhere in this file.
-(program.commands as Command[]).sort((a: Command, b: Command) => a.name().localeCompare(b.name()));
+program.configureHelp({ sortSubcommands: true });
 
 if (!(await handleImplicitEntry())) {
 	await program.parseAsync(process.argv);

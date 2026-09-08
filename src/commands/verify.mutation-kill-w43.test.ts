@@ -1,3 +1,5 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // ===========================================
 // Mutation-kill suite — wave pass1_w43 (src/commands/verify.ts)
 // ===========================================
@@ -257,7 +259,7 @@ beforeEach(() => {
 	process.stderr.write = ((c: string) => {
 		stderr += c;
 		return true;
-	}) as typeof process.stderr.write;
+	});
 });
 
 afterEach(() => {
@@ -355,6 +357,11 @@ describe("runVerify streaming literals", () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo", allChecks: true });
 		expect(streamCaseDivergenceMock).toHaveBeenCalledTimes(1);
+		expect(streamCaseDivergenceMock).toHaveBeenCalledWith(
+			"/repo",
+			["/p/a.ts", "/p/b.ts"],
+			new Set(),
+		);
 	});
 
 	it("does not call streamCaseDivergence when --all-checks is not set (false branch)", async () => {
@@ -398,7 +405,7 @@ describe("runVerify streaming literals", () => {
 		// cqStart = call#1 (V), inline elapsed uses call#2 (V+100) => (100)/1000 = "0.1"
 		expect(stderr).toContain("code quality checks completed in 0.1s");
 		// duration_ms uses call#3 (V+200) - cqStart(V) = 200, not V+200+V (mutant `+`)
-		const runArg = emitVerifyRunMock.mock.calls[0]?.[1] as { duration_ms: number };
+		const runArg = parseWire(emitVerifyRunMock.mock.calls[0]?.[1], wireObject({ "duration_ms": wireNumber }), "test JSON value");
 		expect(runArg.duration_ms).toBe(200);
 	});
 
@@ -413,7 +420,7 @@ describe("runVerify streaming literals", () => {
 		const { verifyCommand } = await importVerify();
 		summarizeFlaggedFilesMock.mockReturnValue({ flaggedFiles: 0, totalFiles: 2, projectFindings: 0 });
 		streamExternalToolsMock.mockImplementationOnce(async (args: unknown) => {
-			(args as { summary: Array<{ label: string; count: number; color: string }> }).summary.push(
+			(parseWire(args, wireObject({ "summary": wireArray(wireObject({ "label": wireString, "count": wireNumber, "color": wireString })) }), "test JSON value")).summary.push(
 				{ label: "E1", count: 1, color: "31" },
 				{ label: "E2", count: 1, color: "32" },
 			);
@@ -445,7 +452,7 @@ describe("runVerify scope object", () => {
 
 describe("runVerifyBatchJson literals", () => {
 	function lastJsonArg(): Record<string, unknown> {
-		return outputJsonMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+		return nonNull(outputJsonMock.mock.calls.at(-1)?.[0]);
 	}
 
 	it("resolves the interlinked dir as cwd/.interlinked when checking file suppressions", async () => {
@@ -474,7 +481,7 @@ describe("runVerifyBatchJson literals", () => {
 	it("still assigns registryDrift from the try body when runRegistryParityCheck succeeds", async () => {
 		const { verifyCommand } = await importVerify();
 		runRegistryParityCheckMock.mockReturnValueOnce([
-			{ id: "drift-1" } as unknown as { id: string },
+			{ id: "drift-1" },
 		]);
 		await verifyCommand({ cwd: "/repo", json: true });
 		expect(lastJsonArg().registryDrift).toEqual([{ id: "drift-1" }]);
@@ -483,7 +490,7 @@ describe("runVerifyBatchJson literals", () => {
 	it("excludes an --only id that matches exactly, even though TOOL_IDS has an underscore form", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ cwd: "/repo", json: true, only: "alpha_beta" });
-		const checkOpts = runChecksMock.mock.calls[0]?.[1] as { skipTools: string[] };
+		const checkOpts = parseWire(runChecksMock.mock.calls[0]?.[1], wireObject({ "skipTools": wireArray(wireString) }), "test JSON value");
 		expect(checkOpts.skipTools).not.toContain("alpha_beta");
 		expect(checkOpts.skipTools).toContain("gamma");
 	});

@@ -3752,198 +3752,266 @@
 					"type": "object"
 				},
 				"mismatches": {
-					"additionalProperties": false,
-					"properties": {
-						"0": {},
-						"__@iterator@434": {
-							"type": "object"
-						},
-						"__@unscopables@436": {
-							"additionalProperties": false,
-							"properties": {
-								"__@iterator@434": {
-									"type": "boolean"
+					"items": {
+						"anyOf": [
+							{
+								"additionalProperties": false,
+								"properties": {
+									"comparison": {
+										"enum": [
+											"claim_vs_measurement",
+											"policy_vs_measurement",
+											"authority_vs_measurement",
+											"cache_vs_measurement"
+										],
+										"type": "string"
+									},
+									"expected": {
+										"type": "string",
+										"x-brand": {
+											"__brand": "canonical-json"
+										}
+									},
+									"field": {
+										"enum": [
+											"base_ref",
+											"tree_algo",
+											"post_image_algo",
+											"overlay_algo",
+											"overlay_manifest_hash",
+											"overlay_bytes_hash",
+											"pre_tree_hash",
+											"post_image_set_hash",
+											"post_tree_hash",
+											"env_digest",
+											"exec_config_hash",
+											"mirror.key.repository_id",
+											"mirror.key.session_id",
+											"mirror.key.kind",
+											"mirror.version",
+											"dependencies.mode",
+											"dependencies.tree_algo",
+											"dependencies.source",
+											"dependencies.input_hash",
+											"dependencies.tree_hash",
+											"dependencies.cache_record_hash"
+										],
+										"type": "string"
+									},
+									"measured": {
+										"type": "string",
+										"x-brand": {
+											"__brand": "canonical-json"
+										}
+									}
 								},
-								"__@unscopables@436": {
-									"type": "boolean"
-								},
-								"at": {
-									"type": "boolean"
-								},
-								"concat": {
-									"type": "boolean"
-								},
-								"entries": {
-									"type": "boolean"
-								},
-								"every": {
-									"type": "boolean"
-								},
-								"filter": {
-									"type": "boolean"
-								},
-								"find": {
-									"type": "boolean"
-								},
-								"findIndex": {
-									"type": "boolean"
-								},
-								"flat": {
-									"type": "boolean"
-								},
-								"flatMap": {
-									"type": "boolean"
-								},
-								"forEach": {
-									"type": "boolean"
-								},
-								"includes": {
-									"type": "boolean"
-								},
-								"indexOf": {
-									"type": "boolean"
-								},
-								"join": {
-									"type": "boolean"
-								},
-								"keys": {
-									"type": "boolean"
-								},
-								"lastIndexOf": {
-									"type": "boolean"
-								},
-								"length": {
-									"type": "boolean"
-								},
-								"map": {
-									"type": "boolean"
-								},
-								"reduce": {
-									"type": "boolean"
-								},
-								"reduceRight": {
-									"type": "boolean"
-								},
-								"slice": {
-									"type": "boolean"
-								},
-								"some": {
-									"type": "boolean"
-								},
-								"toLocaleString": {
-									"type": "boolean"
-								},
-								"toString": {
-									"type": "boolean"
-								},
-								"values": {
-									"type": "boolean"
-								}
+								"required": [
+									"comparison",
+									"expected",
+									"field",
+									"measured"
+								],
+								"type": "object"
 							},
-							"required": [],
-							"type": "object"
-						},
-						"at": {
-							"type": "object"
-						},
-						"concat": {
-							"type": "object"
-						},
-						"entries": {
-							"type": "object"
-						},
-						"every": {
-							"type": "object"
-						},
-						"filter": {
-							"type": "object"
-						},
-						"find": {
-							"type": "object"
-						},
-						"findIndex": {
-							"type": "object"
-						},
-						"flat": {
-							"type": "object"
-						},
-						"flatMap": {
-							"type": "object"
-						},
-						"forEach": {
-							"type": "object"
-						},
-						"includes": {
-							"type": "object"
-						},
-						"indexOf": {
-							"type": "object"
-						},
-						"join": {
-							"type": "object"
-						},
-						"keys": {
-							"type": "object"
-						},
-						"lastIndexOf": {
-							"type": "object"
-						},
-						"length": {},
-						"map": {
-							"type": "object"
-						},
-						"reduce": {
-							"type": "object"
-						},
-						"reduceRight": {
-							"type": "object"
-						},
-						"slice": {
-							"type": "object"
-						},
-						"some": {
-							"type": "object"
-						},
-						"toLocaleString": {
-							"type": "object"
-						},
-						"toString": {
-							"type": "object"
-						},
-						"values": {
-							"type": "object"
-						}
+							{
+								"additionalProperties": false,
+								"properties": {
+									"comparison": {
+										"enum": [
+											"claim_vs_measurement",
+											"policy_vs_measurement",
+											"authority_vs_measurement",
+											"cache_vs_measurement"
+										],
+										"type": "string"
+									},
+									"expected": {
+										"type": "string",
+										"x-brand": {
+											"__brand": "canonical-json"
+										}
+									},
+									"field": {
+										"enum": [
+											"base_ref",
+											"tree_algo",
+											"post_image_algo",
+											"overlay_algo",
+											"overlay_manifest_hash",
+											"overlay_bytes_hash",
+											"pre_tree_hash",
+											"post_image_set_hash",
+											"post_tree_hash",
+											"env_digest",
+											"exec_config_hash",
+											"mirror.key.repository_id",
+											"mirror.key.session_id",
+											"mirror.key.kind",
+											"mirror.version",
+											"dependencies.mode",
+											"dependencies.tree_algo",
+											"dependencies.source",
+											"dependencies.input_hash",
+											"dependencies.tree_hash",
+											"dependencies.cache_record_hash"
+										],
+										"type": "string"
+									},
+									"measured": {
+										"not": {},
+										"x-never": true
+									},
+									"unavailable_reason": {
+										"enum": [
+											"not_reached",
+											"not_provisioned",
+											"not_applicable"
+										],
+										"type": "string"
+									}
+								},
+								"required": [
+									"comparison",
+									"expected",
+									"field",
+									"unavailable_reason"
+								],
+								"type": "object"
+							}
+						]
 					},
-					"required": [
-						"0",
-						"__@iterator@434",
-						"__@unscopables@436",
-						"at",
-						"concat",
-						"entries",
-						"every",
-						"filter",
-						"find",
-						"findIndex",
-						"flat",
-						"flatMap",
-						"forEach",
-						"includes",
-						"indexOf",
-						"join",
-						"keys",
-						"lastIndexOf",
-						"length",
-						"map",
-						"reduce",
-						"reduceRight",
-						"slice",
-						"some",
-						"toLocaleString",
-						"toString",
-						"values"
+					"minItems": 1,
+					"prefixItems": [
+						{
+							"anyOf": [
+								{
+									"additionalProperties": false,
+									"properties": {
+										"comparison": {
+											"enum": [
+												"claim_vs_measurement",
+												"policy_vs_measurement",
+												"authority_vs_measurement",
+												"cache_vs_measurement"
+											],
+											"type": "string"
+										},
+										"expected": {
+											"type": "string",
+											"x-brand": {
+												"__brand": "canonical-json"
+											}
+										},
+										"field": {
+											"enum": [
+												"base_ref",
+												"tree_algo",
+												"post_image_algo",
+												"overlay_algo",
+												"overlay_manifest_hash",
+												"overlay_bytes_hash",
+												"pre_tree_hash",
+												"post_image_set_hash",
+												"post_tree_hash",
+												"env_digest",
+												"exec_config_hash",
+												"mirror.key.repository_id",
+												"mirror.key.session_id",
+												"mirror.key.kind",
+												"mirror.version",
+												"dependencies.mode",
+												"dependencies.tree_algo",
+												"dependencies.source",
+												"dependencies.input_hash",
+												"dependencies.tree_hash",
+												"dependencies.cache_record_hash"
+											],
+											"type": "string"
+										},
+										"measured": {
+											"type": "string",
+											"x-brand": {
+												"__brand": "canonical-json"
+											}
+										}
+									},
+									"required": [
+										"comparison",
+										"expected",
+										"field",
+										"measured"
+									],
+									"type": "object"
+								},
+								{
+									"additionalProperties": false,
+									"properties": {
+										"comparison": {
+											"enum": [
+												"claim_vs_measurement",
+												"policy_vs_measurement",
+												"authority_vs_measurement",
+												"cache_vs_measurement"
+											],
+											"type": "string"
+										},
+										"expected": {
+											"type": "string",
+											"x-brand": {
+												"__brand": "canonical-json"
+											}
+										},
+										"field": {
+											"enum": [
+												"base_ref",
+												"tree_algo",
+												"post_image_algo",
+												"overlay_algo",
+												"overlay_manifest_hash",
+												"overlay_bytes_hash",
+												"pre_tree_hash",
+												"post_image_set_hash",
+												"post_tree_hash",
+												"env_digest",
+												"exec_config_hash",
+												"mirror.key.repository_id",
+												"mirror.key.session_id",
+												"mirror.key.kind",
+												"mirror.version",
+												"dependencies.mode",
+												"dependencies.tree_algo",
+												"dependencies.source",
+												"dependencies.input_hash",
+												"dependencies.tree_hash",
+												"dependencies.cache_record_hash"
+											],
+											"type": "string"
+										},
+										"measured": {
+											"not": {},
+											"x-never": true
+										},
+										"unavailable_reason": {
+											"enum": [
+												"not_reached",
+												"not_provisioned",
+												"not_applicable"
+											],
+											"type": "string"
+										}
+									},
+									"required": [
+										"comparison",
+										"expected",
+										"field",
+										"unavailable_reason"
+									],
+									"type": "object"
+								}
+							]
+						}
 					],
-					"type": "object"
+					"type": "array"
 				},
 				"phase": {
 					"enum": [

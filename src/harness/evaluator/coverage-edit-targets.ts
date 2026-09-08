@@ -16,6 +16,7 @@
 //   - every other write (Write/Edit/MultiEdit/str_replace/create): the single
 //     file named in `file_path` / `path`.
 
+import { readToolString } from "./tool-input-values.js";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
@@ -68,7 +69,7 @@ function toProjectRel(raw: string, projectRoot: string): string | null {
 /** Resolve the edited file path from the tool input (absolute or cwd-relative). */
 function editedRelPath(event: HarnessEvent, projectRoot: string): string | null {
 	const input = event.tool_input ?? {};
-	const raw = (input.file_path as string) || (input.path as string) || "";
+	const raw = readToolString(input.file_path) || readToolString(input.path);
 	return toProjectRel(raw, projectRoot);
 }
 

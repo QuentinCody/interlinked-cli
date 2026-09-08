@@ -277,7 +277,7 @@ function baseOf(): MutationManifest {
 
 /** A copy of `manifest` with every FILE survivor flipped to a reviewed equivalent. */
 function reviewed(manifest: MutationManifest): MutationManifest {
-	const copy: MutationManifest = JSON.parse(JSON.stringify(manifest));
+	const copy = structuredClone(manifest);
 	for (const symbol of Object.values(copy.files[FILE] ?? {})) {
 		for (const m of Object.values(symbol.mutants)) {
 			if (m.status === "survived") Object.assign(m, { status: "equivalent", accepted_reason: "patched + suite green" });

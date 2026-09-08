@@ -9,7 +9,7 @@
 // counts) to compare effective code lines via `countCodeLines`.
 
 import { existsSync, readFileSync } from "node:fs";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { countLines } from "./large-file-policy.js";
 
 interface LineCountProjection {
@@ -116,8 +116,8 @@ function applyMultiEditStep(
 	originalText: string,
 	afterText: string,
 ): MultiEditStepResult | null {
-	if (typeof raw !== "object" || raw === null) return null;
-	const edit = raw as JsonObject;
+	if (!isJsonObject(raw)) return null;
+	const edit = raw;
 	if (typeof edit.old_string !== "string" || typeof edit.new_string !== "string") {
 		return null;
 	}

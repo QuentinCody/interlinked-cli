@@ -42,7 +42,7 @@ beforeEach(() => {
 	process.stderr.write = ((chunk: string) => {
 		stderrChunks.push(chunk);
 		return true;
-	}) as typeof process.stderr.write;
+	});
 });
 
 afterEach(() => {
@@ -423,11 +423,9 @@ function makeStream(): FakeStream {
 
 /** Build an EventEmitter-backed stand-in for a ChildProcess. */
 function makeChild(): FakeChild {
-	const child = new EventEmitter() as FakeChild;
-	child.stdout = makeStream();
-	child.stderr = makeStream();
-	child.kill = vi.fn();
-	return child;
+	return Object.assign(new EventEmitter(), {
+		stdout: makeStream(), stderr: makeStream(), kill: vi.fn(),
+	});
 }
 
 describe("runToolWithSpinner", () => {
@@ -529,7 +527,7 @@ describe("runToolWithSpinner", () => {
 			cmd: [],
 			cwd: ".",
 			timeoutMs: 1000,
-			parseOutput: () => [{ should: "not" } as unknown as never],
+			parseOutput: () => [{ should: "not" }],
 		});
 		const result = await promise;
 		expect(spawnMock).not.toHaveBeenCalled();
@@ -562,7 +560,7 @@ describe("runToolWithSpinner", () => {
 	it("resolves empty and clears the line on spawn 'error'", async () => {
 		const child = makeChild();
 		spawnMock.mockReturnValue(child);
-		const parseOutput = vi.fn(() => [{ x: 1 } as unknown as never]);
+		const parseOutput = vi.fn(() => [{ x: 1 }]);
 		const promise = runToolWithSpinner({
 			label: "enoent",
 			cmd: ["nope"],
@@ -656,7 +654,7 @@ describe("runToolSilent", () => {
 			cmd: [],
 			cwd: ".",
 			timeoutMs: 1000,
-			parseOutput: () => [{ nope: true } as unknown as never],
+			parseOutput: () => [{ nope: true }],
 		});
 		const result = await promise;
 		expect(spawnMock).not.toHaveBeenCalled();
@@ -682,7 +680,7 @@ describe("runToolSilent", () => {
 	it("resolves empty on spawn 'error' without calling parseOutput, and clears the kill timer", async () => {
 		const child = makeChild();
 		spawnMock.mockReturnValue(child);
-		const parseOutput = vi.fn(() => [1 as unknown as never]);
+		const parseOutput = vi.fn(() => [1]);
 		const promise = runToolSilent({
 			cmd: ["nope"],
 			cwd: ".",

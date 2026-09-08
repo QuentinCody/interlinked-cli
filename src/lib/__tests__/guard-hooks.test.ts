@@ -78,7 +78,7 @@ describe("installGuardHook", () => {
 			"/test/repo/.git/hooks/pre-commit.interlinked-orig",
 		);
 		// Wrapper should contain interlinked-guard marker
-		const writtenContent = mockWriteFileSync.mock.calls[0][1] as string;
+		const writtenContent = mockWriteFileSync.mock.calls[0]?.[1];
 		expect(writtenContent).toContain("# interlinked-guard");
 	});
 

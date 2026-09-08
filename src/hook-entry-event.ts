@@ -3,13 +3,13 @@ import { buildAllAdapters, detectAdapter, getAdapter } from "./harness/adapters/
 import type { RunnerAdapter } from "./harness/adapters/types.js";
 import { describeHookCapability } from "./harness/adapters/hook-contract.js";
 import { recordPayloadKeys } from "./harness/payload-key-census.js";
-import type { RunnerId, UnifiedHookEvent } from "./harness/unified-event.js";
+import type { UnifiedHookEvent } from "./harness/unified-event.js";
 import { findRepoRoot } from "./hook-entry-project.js";
 import { recordHookRuntime } from "./lib/hook-runtime-receipt.js";
 
 interface AdapterResolutionInput {
 	env: NodeJS.ProcessEnv;
-	runner?: RunnerId | undefined;
+	runner?: string | undefined;
 }
 
 export function resolveHookAdapter(input: AdapterResolutionInput): RunnerAdapter | null {

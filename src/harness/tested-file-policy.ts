@@ -129,7 +129,7 @@ interface RawBaseline {
 /** Validate + normalize a parsed baseline; returns null when unusable. */
 function normalizeBaseline(raw: unknown): UntestedFilesBaseline | null {
 	if (typeof raw !== "object" || raw === null) return null;
-	const obj = raw as RawBaseline;
+	const obj: RawBaseline = raw;
 	if (typeof obj.min_coverage_pct !== "number" || obj.min_coverage_pct < 0) return null;
 	const files = new Set<string>();
 	if (Array.isArray(obj.files)) {

@@ -8,16 +8,14 @@
 
 import { createConnection, type Socket } from "node:net";
 import {
-	decodeFrame,
 	encodeFrame,
-	type RpcError,
 	type RpcMethod,
 	type RpcParams,
 	type RpcRequest,
-	type RpcResponse,
 	type RpcResult,
 	splitFrames,
 } from "./daemon-protocol.js";
+import { parseResponseFrame } from "./daemon-response-parser.js";
 
 interface RpcCallOptions {
 	/** Hard deadline in milliseconds. If no response arrives the promise
@@ -94,15 +92,14 @@ function callOverSocket<M extends RpcMethod>(
 			}
 			signal.addEventListener("abort", onAbort, { once: true });
 		}
-		socket = createConnection(socketPath, () => {
-			(socket as Socket).write(encodeFrame(request));
-		});
+		const connection = createConnection(socketPath, () => connection.write(encodeFrame(request)));
+		socket = connection;
 		let pending = "";
 		socket.on("data", (b: Buffer) => {
 			const { frames, remainder } = splitFrames(b.toString("utf-8"), pending);
 			pending = remainder;
 			for (const frame of frames) {
-				const message = parseResponseFrame(frame);
+				const message = parseResponseFrame(frame, request.method);
 				if (message == null) continue;
 				if (message.id !== request.id) continue;
 				clearTimeout(timer);
@@ -117,7 +114,7 @@ function callOverSocket<M extends RpcMethod>(
 					);
 					return;
 				}
-				finish(() => resolve(message.result as RpcResult[M]));
+				finish(() => resolve(message.result));
 				return;
 			}
 		});
@@ -130,16 +127,6 @@ function callOverSocket<M extends RpcMethod>(
 			if (!settled) finish(() => reject(new Error("socket closed")));
 		});
 	});
-}
-
-function parseResponseFrame<M extends RpcMethod>(frame: string): RpcResponse<M> | RpcError | null {
-	let parsed: unknown;
-	try {
-		parsed = decodeFrame(frame);
-	} catch {
-		return null;
-	}
-	return parsed as RpcResponse<M> | RpcError;
 }
 
 function makeId(): string {

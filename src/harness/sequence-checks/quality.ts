@@ -178,7 +178,7 @@ export const staleDocSibling: SequenceDetector = {
 		if (!EDIT_TOOL_NAMES.has(toolName)) {
 			return [];
 		}
-		const filePath = (candidate.tool_input?.file_path as string) || "";
+		const filePath = (typeof candidate.tool_input?.file_path === "string" ? candidate.tool_input?.file_path : "") || "";
 		if (!filePath || !isSourceFile(filePath)) return [];
 		const cwd = candidate.cwd || process.cwd();
 		const abs = isAbsolute(filePath) ? filePath : resolve(cwd, filePath);

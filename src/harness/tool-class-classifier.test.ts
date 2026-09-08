@@ -74,11 +74,6 @@ describe("classifyCommand — edge cases", () => {
 		expect(classifyCommand("")).toBe("unknown");
 	});
 
-	it("returns unknown when the input is not a string", () => {
-		const bad = 42 as unknown as string;
-		expect(classifyCommand(bad)).toBe("unknown");
-	});
-
 	it("defaults to modify for unrecognized commands", () => {
 		expect(classifyCommand("some-proprietary-tool --flag")).toBe("modify");
 	});

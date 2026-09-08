@@ -109,7 +109,7 @@ describe("treeStamp execSync command + options", () => {
 			throw new Error(`unexpected execSync call: ${cmd} ${JSON.stringify(opts)}`);
 		};
 		// The cast mirrors node:child_process's overloaded execSync test-double boundary.
-		mockExecSync.mockImplementation(impl as any);
+		mockExecSync.mockImplementation(impl);
 	});
 
 	// test-contract: boundary — treeStamp must call execSync with the exact command and stdio config (kills bc7a3383d77d6334, 5177a2837e3b3329, 481c079792583588, 4c2fc719b8768741, 8e1bb1f34c5072e3, 65a393cedbb3b29c, 62a2d9204e7d3355, de21421a861bf874)

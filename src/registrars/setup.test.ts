@@ -412,7 +412,7 @@ describe("setup action — branches", () => {
 		// "Skipping login" line + "Remote agent linked" line.
 		expect(logSpy).toHaveBeenCalledTimes(2);
 		expect(logSpy.mock.calls[0][0]).toContain("Auth token already present. Skipping login.");
-		const linkedLine = logSpy.mock.calls[1][0] as string;
+		const linkedLine = logSpy.mock.calls[1][0];
 		expect(linkedLine).toContain("Robo");
 		expect(linkedLine).toContain("@robo");
 	});
@@ -423,7 +423,7 @@ describe("setup action — branches", () => {
 		const program = build();
 		await program.parseAsync(["setup"], { from: "user" });
 		expect(loginCommand).not.toHaveBeenCalled();
-		const linkedLine = logSpy.mock.calls[1][0] as string;
+		const linkedLine = logSpy.mock.calls[1][0];
 		expect(linkedLine).toContain("Remote agent linked: agent");
 		expect(linkedLine).not.toContain("(");
 		expect(linkedLine).not.toContain("Stryker was here!");

@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // Mock ../harness/project-graph.js so extractEdges() (exercised only through
 // metricsArchCommand) can be driven with a controlled, in-memory file graph.
 // ---------------------------------------------------------------------------
-const graphState = vi.hoisted(() => ({
-	files: [] as string[],
-	deps: {} as Record<string, string[]>,
+const graphState = vi.hoisted((): { files: string[]; deps: Record<string, string[]> } => ({
+	files: [],
+	deps: {},
 }));
 
 vi.mock("../harness/project-graph.js", () => {

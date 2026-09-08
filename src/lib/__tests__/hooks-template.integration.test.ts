@@ -1,3 +1,5 @@
+import { isJsonObject } from "../json-types.js";
+import { parseWire } from "../value-validation.js";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
@@ -87,7 +89,7 @@ describe("buildHookScript", () => {
 				received += chunk;
 				const newline = received.indexOf("\n");
 				if (newline < 0) return;
-				requests.push(JSON.parse(received.slice(0, newline)) as Record<string, unknown>);
+				requests.push(parseWire(JSON.parse(received.slice(0, newline)), isJsonObject, "hook request object"));
 				socket.end(JSON.stringify({ summary: "daemon observed", warnings: [] }) + "\n");
 			});
 		});
@@ -465,7 +467,7 @@ describe("buildHookScript", () => {
 					received += chunk;
 					const newline = received.indexOf("\n");
 					if (newline < 0) return;
-					requests.push(JSON.parse(received.slice(0, newline)) as Record<string, unknown>);
+					requests.push(parseWire(JSON.parse(received.slice(0, newline)), isJsonObject, "hook request object"));
 					socket.end(`${JSON.stringify(reply)}\n`);
 				});
 			});

@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireNumber, wireObject, wireOptional, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked activity — behavioral tests
 // ===========================================
@@ -252,7 +253,7 @@ describe("activityCommand — --since duration filter", () => {
 		await activityCommand({ json: true, since: "1h", limit: "10" });
 
 		// readLocalActivity received a numeric `since` cutoff.
-		const callArg = nonNull(mockReadLocalActivity.mock.calls[0])[0] as { since?: number; limit: number };
+		const callArg = parseWire(nonNull(mockReadLocalActivity.mock.calls[0])[0], wireObject({ "since": wireAbsentOptional(wireOptional(wireNumber)), "limit": wireNumber }), "test JSON value");
 		expect(callArg.since).toBe(Date.parse("2026-06-06T11:00:00.000Z"));
 		expect(callArg.limit).toBe(20); // limit * 2
 
@@ -282,7 +283,7 @@ describe("activityCommand — --since duration filter", () => {
 		mockReadLocalActivity.mockReturnValue([]);
 		mockCallTool.mockResolvedValue({ events: [] });
 		await activityCommand({ json: true, limit: "10" });
-		const callArg = nonNull(mockReadLocalActivity.mock.calls[0])[0] as Record<string, unknown>;
+		const callArg = parseWire(nonNull(mockReadLocalActivity.mock.calls[0])[0], wireRecord(wireUnknown), "test JSON value");
 		expect(callArg).not.toHaveProperty("since");
 	});
 });
@@ -491,7 +492,7 @@ describe("activityCommand — localToActivity normalization", () => {
 			files_modified: ["src/app.ts"],
 			_source: "local",
 		});
-		expect((nonNull(ev).tokens as Record<string, number>).input).toBe(10);
+		expect(nonNull(ev)).toHaveProperty(["tokens","input"], 10);
 	});
 
 	it("coalesces null tool/summary to null and drops absent optional fields", async () => {

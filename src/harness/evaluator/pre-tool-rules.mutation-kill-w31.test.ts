@@ -3,6 +3,7 @@
 // symbol -> mutants -> status "survived"). Placement follows the
 // companion file's conventions (baseRule/withCustomRule/bashEvent style).
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import { getDefaultConfig } from "../rules-loader.js";
 import type { GuardRule, GuardRulesConfig, HarnessEvent, SessionTrajectory } from "../types.js";
@@ -42,21 +43,21 @@ function bashEvent(command: string): HarnessEvent {
 		tool_name: "Bash",
 		tool_input: { command },
 		timestamp: "2026-06-15T00:00:00Z",
-	} as HarnessEvent;
+	};
 }
 
 // SAFETY: mirrors the companion test file's session fixture; only
 // `soft_blocks` and `session_id` are read on this evaluator path.
 function emptySession(): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "w31-soft-block-session",
 		tool_sequence: [],
 		commands_run: [],
-		files_read: [],
-		files_written: [],
-		verification_observed: [],
+		files_read: new Set(),
+		files_written: new Set(),
+		verification_observed: new Set(),
 		soft_blocks: new Set<string>(),
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 describe("applyRuleAction — block/ask actions actually decide (5a46e99f, ff014c81, 9a261090, 1ad9c43f)", () => {
@@ -255,7 +256,7 @@ describe("steerOutOfRepoCodeWrite — mode gate (33bd8d88)", () => {
 
 	// SAFETY: adds only `cwd`, a field this evaluator path reads directly.
 	function bashEventWithCwd(command: string): HarnessEvent {
-		return { ...bashEvent(command), cwd: "/Users/dev/project" } as HarnessEvent;
+		return { ...bashEvent(command), cwd: "/Users/dev/project" };
 	}
 
 	// test-contract: public-api — `mode === "block"` must gate the
@@ -338,11 +339,11 @@ describe("evaluateBashRoutedWrite — gated on isBash(toolName) && cmd, never on
 	it("does not treat a non-Bash tool call as a bash-routed write, even with a command-shaped field", () => {
 		// SAFETY: overrides only tool_name/cwd, both read directly by this
 		// evaluator path.
-		const event = {
+		const event = ({
 			...bashEvent("echo x > src/foo.ts"),
 			tool_name: "McpOtherTool",
 			cwd: "/Users/dev/project",
-		} as HarnessEvent;
+		} satisfies HarnessEvent);
 		const decision = evaluateDestructiveRules(event, getDefaultConfig(), undefined, []);
 		expect(decision).toBeNull();
 	});
@@ -425,10 +426,10 @@ describe("evaluateCompoundDecomposition — gated on isBash(toolName) && separat
 		});
 		// SAFETY: overrides only tool_name, read directly by this
 		// evaluator path.
-		const event = {
+		const event = ({
 			...bashEvent("echo hi && rm -rf /tmp/x"),
 			tool_name: "McpOtherTool",
-		} as HarnessEvent;
+		} satisfies HarnessEvent);
 		const decision = evaluateDestructiveRules(event, withCustomRule(rule), undefined, []);
 		expect(decision).toBeNull();
 	});
@@ -485,14 +486,14 @@ describe("evaluateDestructiveRules — toolName/cmd defaults are '', not a senti
 	it("does not fire a tool_name-field rule against a fallback-to-command value when tool_name is missing", () => {
 		// SAFETY: constructs a minimal event with tool_name deliberately
 		// absent to exercise the `|| ""` default.
-		const event = {
+		const event = ({
 			hook_event: "PreToolUse",
 			session_id: "w31-defaults-test",
 			agent_source: "claude",
 			tool_name: undefined,
 			tool_input: { command: "just a normal command" },
 			timestamp: "2026-06-15T00:00:00Z",
-		} as unknown as HarnessEvent;
+		} satisfies HarnessEvent);
 		const rule = baseRule({
 			id: "custom-toolname-default-block",
 			action: "block",
@@ -510,14 +511,14 @@ describe("evaluateDestructiveRules — toolName/cmd defaults are '', not a senti
 	it("does not fire a command-field rule against a sentinel fallback when tool_input.command is absent", () => {
 		// SAFETY: constructs a minimal event with tool_input.command
 		// deliberately absent to exercise the `|| ""` default.
-		const event = {
+		const event = ({
 			hook_event: "PreToolUse",
 			session_id: "w31-defaults-test-2",
 			agent_source: "claude",
 			tool_name: "Bash",
 			tool_input: {},
 			timestamp: "2026-06-15T00:00:00Z",
-		} as unknown as HarnessEvent;
+		} satisfies HarnessEvent);
 		const rule = baseRule({
 			id: "custom-cmd-default-block",
 			action: "block",

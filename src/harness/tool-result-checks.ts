@@ -1,4 +1,4 @@
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 
 // ===========================================
 // Tool Result Checks — PostToolUse feedback on tool responses
@@ -45,11 +45,10 @@ function extractJsonCandidates(toolResponse: unknown): JsonObject[] {
 		const parsed = parseJsonObject(toolResponse);
 		return parsed ? [parsed] : [];
 	}
-	if (!toolResponse || typeof toolResponse !== "object") return [];
-	if (Array.isArray(toolResponse)) return [];
+	if (!isJsonObject(toolResponse)) return [];
 
-	const out: JsonObject[] = [toolResponse as JsonObject];
-	for (const text of mcpTextBlockTexts(toolResponse as JsonObject)) {
+	const out: JsonObject[] = [toolResponse];
+	for (const text of mcpTextBlockTexts(toolResponse)) {
 		const parsed = parseJsonObject(text);
 		if (parsed) out.push(parsed);
 	}
@@ -61,9 +60,9 @@ function parseJsonObject(s: string): JsonObject | null {
 	const trimmed = s.trim();
 	if (!trimmed.startsWith("{")) return null;
 	try {
-		const parsed = JSON.parse(trimmed);
-		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-			return parsed as JsonObject;
+		const parsed: unknown = JSON.parse(trimmed);
+		if (isJsonObject(parsed)) {
+			return parsed;
 		}
 	} catch (e) {
 		void e;
@@ -77,8 +76,8 @@ function mcpTextBlockTexts(obj: JsonObject): string[] {
 	if (!Array.isArray(content)) return [];
 	const texts: string[] = [];
 	for (const block of content) {
-		if (!block || typeof block !== "object") continue;
-		const text = (block as JsonObject).text;
+		if (!isJsonObject(block)) continue;
+		const text = block.text;
 		if (typeof text === "string") texts.push(text);
 	}
 	return texts;
@@ -116,8 +115,8 @@ function inspectObject(obj: JsonObject): SilentFailureHit | null {
 	if (typeof obj.error === "string" && obj.error.length > 0) {
 		return { pattern: "error: <string>", detail: obj.error.slice(0, 200) };
 	}
-	if (obj.error && typeof obj.error === "object" && !Array.isArray(obj.error)) {
-		const inner = obj.error as JsonObject;
+	if (isJsonObject(obj.error)) {
+		const inner = obj.error;
 		if (Object.keys(inner).length > 0) {
 			return { pattern: "error: <object>", detail: stringifyShort(inner) };
 		}

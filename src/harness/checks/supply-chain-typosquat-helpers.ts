@@ -3,7 +3,8 @@
 // logic changes.
 
 import { existsSync, readFileSync } from "node:fs";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject } from "../../lib/json-types.js";
+import { stringDependencies } from "./package-dependencies.js";
 import type { InlineMatch } from "./shared.js";
 
 /**
@@ -17,13 +18,11 @@ export function parsePackageJsonDeps(
 	if (!existsSync(pkgJsonPath)) return null;
 	try {
 		const content = readFileSync(pkgJsonPath, "utf-8");
-		const pkg: JsonObject = JSON.parse(content);
+		const pkg: unknown = JSON.parse(content);
+		if (!isJsonObject(pkg)) return null;
 		const allDeps: Record<string, string> = {
-			// SAFETY: package.json fields are read as loosely-typed JSON; the
-			// spread below only cares about string values and a non-object
-			// shape here degrades to an empty dep map, never a crash.
-			...((pkg.dependencies as Record<string, string> | undefined) || {}),
-			...((pkg.devDependencies as Record<string, string> | undefined) || {}),
+			...stringDependencies(pkg.dependencies),
+			...stringDependencies(pkg.devDependencies),
 		};
 		return { content, allDeps };
 	} catch {

@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ArtifactGraph } from "../artifact-graph.js";
+import { isStringArray } from "../schema-validator-helpers.js";
 import type { ArtifactNode, StructureFinding } from "../types.js";
 
 // -------------------------------------------
@@ -17,11 +18,11 @@ function buildDeprecatedMap(graph: ArtifactGraph): Map<string, ArtifactNode> {
 	const map = new Map<string, ArtifactNode>();
 
 	for (const term of declaredTerms) {
-		const meta = term.metadata as { deprecated?: string[] } | undefined;
-		if (!meta?.deprecated) {
+		const deprecated = term.metadata?.deprecated;
+		if (!isStringArray(deprecated)) {
 			continue;
 		}
-		for (const dep of meta.deprecated) {
+		for (const dep of deprecated) {
 			map.set(dep.toLowerCase(), term);
 		}
 	}

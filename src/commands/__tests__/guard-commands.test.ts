@@ -56,7 +56,7 @@ vi.mock("../../lib/config.js", () => ({
 }));
 
 const mockIsGitRepo = vi.fn(() => true);
-const mockGetStagedFiles = vi.fn(() => [] as string[]);
+const mockGetStagedFiles = vi.fn(() : string[] => []);
 const mockGetGitToplevel = vi.fn(() => "/test/repo");
 
 vi.mock("../../lib/git-utils.js", () => ({

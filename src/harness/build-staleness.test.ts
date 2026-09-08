@@ -18,24 +18,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { statSyncControl } = vi.hoisted(() => ({
-	statSyncControl: { poisonPath: null as string | null },
-}));
+const { statSyncControl } = vi.hoisted(() => {
+	const statSyncControl: { poisonPath: string | null } = { poisonPath: null };
+	return { statSyncControl };
+});
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		statSync: ((path: unknown, opts?: unknown) => {
+		statSync: (...args: Parameters<typeof actual.statSync>) => {
+			const [path] = args;
 			if (statSyncControl.poisonPath !== null && String(path) === statSyncControl.poisonPath) {
 				throw new Error(`ENOENT: no such file or directory, stat '${String(path)}'`);
 			}
-			// SAFETY: build-staleness.ts only ever calls statSync(path) with no
-			// second argument; the wider node:fs overload is passed through
-			// untouched for every non-poisoned call (including this test's own
-			// fixture writes, which go through the real un-wrapped fns above).
-			return (actual.statSync as (p: unknown, o?: unknown) => unknown)(path, opts);
-		}) as typeof actual.statSync,
+			return actual.statSync(...args);
+		},
 	};
 });
 

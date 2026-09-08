@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import type { GuardRule, SessionTrajectory } from "../types.js";
 import { passesExtraExceptions, passesTemporalGating } from "./rule-matching-guards.js";
 
@@ -14,19 +15,19 @@ function makeRule(overrides: Partial<GuardRule> = {}): GuardRule {
 		reason: "do not delete everything",
 		enabled: true,
 		...overrides,
-	} as GuardRule;
+	};
 }
 
 function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
 	return {
+		...makeSessionFixture(),
 		session_id: "test-session",
 		agent_name: "test-agent",
 		started_at: "2026-07-31T00:00:00.000Z",
 		tool_call_count: 0,
 		tool_sequence: [],
-		files_touched: [],
 		...overrides,
-	} as unknown as SessionTrajectory;
+	};
 }
 
 describe("passesExtraExceptions — positive (must return true)", () => {

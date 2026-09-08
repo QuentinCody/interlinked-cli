@@ -146,6 +146,9 @@ describe("parseDisposition — positive (must parse)", () => {
 });
 
 describe("parseDisposition — negative (must not parse)", () => {
+	it.each(["__proto__", "constructor", "toString"])("rejects inherited object key %s as a disposition kind", (kind) => {
+		expect(parseDisposition({ kind })).toBeNull();
+	});
 	it("N1: non-objects and unknown kinds are null, never a throw", () => {
 		expect(parseDisposition(undefined)).toBeNull();
 		expect(parseDisposition(null)).toBeNull();

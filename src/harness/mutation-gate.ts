@@ -19,6 +19,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
+import { wireAbsentOptional, wireArray, wireNumber, wireObject, wireUnknown } from "../lib/value-validation.js";
 import type { MutationGateConfig } from "./check-policy.js";
 
 // ===========================================
@@ -140,12 +141,8 @@ export function loadMutationReport(reportPath: string): MutationReport | null {
 // Normalization — convert various Stryker-style shapes to our shape
 // ===========================================
 
-interface StrykerMutant {
-	status?: string;
-}
-
 interface StrykerFileEntry {
-	mutants?: StrykerMutant[];
+	mutants?: unknown[];
 	killed?: number;
 	survived?: number;
 	timeout?: number;
@@ -157,17 +154,25 @@ interface StrykerFileEntry {
 	runtime_error?: number;
 }
 
+const isStrykerFileEntry = wireObject<StrykerFileEntry>({
+	mutants: wireAbsentOptional(wireArray(wireUnknown)),
+	killed: wireAbsentOptional(wireNumber),
+	survived: wireAbsentOptional(wireNumber),
+	timeout: wireAbsentOptional(wireNumber),
+	noCoverage: wireAbsentOptional(wireNumber),
+	no_coverage: wireAbsentOptional(wireNumber),
+	compileError: wireAbsentOptional(wireNumber),
+	compile_error: wireAbsentOptional(wireNumber),
+	runtimeError: wireAbsentOptional(wireNumber),
+	runtime_error: wireAbsentOptional(wireNumber),
+});
+
 function normalizeMutationReport(raw: unknown): MutationReport {
 	const report: MutationReport = { files: {} };
-	if (!raw || typeof raw !== "object" || !("files" in raw)) return report;
-	// After the `"files" in raw` guard, `raw.files` is typed `unknown` — the
-	// Stryker report shape is a deserialization boundary, so the assertion is
-	// from `unknown` (an explicit widening), not a structural smuggle.
-	const files = raw.files as Record<string, StrykerFileEntry | undefined> | undefined;
-	if (!files || typeof files !== "object") return report;
+	if (!isJsonObject(raw) || !isJsonObject(raw.files)) return report;
 
-	for (const [path, entry] of Object.entries(files)) {
-		if (!entry) continue;
+	for (const [path, entry] of Object.entries(raw.files)) {
+		if (!isStrykerFileEntry(entry)) continue;
 		if (Array.isArray(entry.mutants)) {
 			report.files[path] = aggregateMutants(entry.mutants);
 		} else {
@@ -184,8 +189,8 @@ function normalizeMutationReport(raw: unknown): MutationReport {
 	return report;
 }
 
-function aggregateMutants(mutants: StrykerMutant[]): FileMutationStats {
-	const stats: FileMutationStats = {
+function aggregateMutants(mutants: unknown[]): FileMutationStats {
+	const stats = {
 		killed: 0,
 		survived: 0,
 		timeout: 0,
@@ -194,7 +199,8 @@ function aggregateMutants(mutants: StrykerMutant[]): FileMutationStats {
 		runtime_error: 0,
 	};
 	for (const m of mutants) {
-		switch ((m.status || "").toLowerCase()) {
+		if (!isJsonObject(m) || typeof m.status !== "string") continue;
+		switch (m.status.toLowerCase()) {
 			case "killed":
 				stats.killed++;
 				break;
@@ -202,19 +208,19 @@ function aggregateMutants(mutants: StrykerMutant[]): FileMutationStats {
 				stats.survived++;
 				break;
 			case "timeout":
-				stats.timeout = (stats.timeout ?? 0) + 1;
+				stats.timeout++;
 				break;
 			case "nocoverage":
 			case "no_coverage":
-				stats.no_coverage = (stats.no_coverage ?? 0) + 1;
+				stats.no_coverage++;
 				break;
 			case "compileerror":
 			case "compile_error":
-				stats.compile_error = (stats.compile_error ?? 0) + 1;
+				stats.compile_error++;
 				break;
 			case "runtimeerror":
 			case "runtime_error":
-				stats.runtime_error = (stats.runtime_error ?? 0) + 1;
+				stats.runtime_error++;
 				break;
 		}
 	}

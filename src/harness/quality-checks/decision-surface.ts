@@ -24,10 +24,10 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import {
 	CONFIG_FILE_ENTRIES,
-	DECISION_SURFACE_CATEGORIES,
+	decisionCategoryRecord,
 	type DecisionSurfaceCategory,
 	LOCKFILE_TO_PACKAGE_MANAGER,
 	PACKAGE_ENTRIES,
@@ -78,9 +78,7 @@ export function detectDecisionSurface(
 	addLockfileSignals(projectRoot, exists, buckets);
 	addConfigFileSignals(projectRoot, readdir, buckets);
 
-	const byCategory = Object.fromEntries(
-		DECISION_SURFACE_CATEGORIES.map((c) => [c, [...buckets[c]].sort()]),
-	) as Record<DecisionSurfaceCategory, string[]>;
+	const byCategory = decisionCategoryRecord((category) => [...buckets[category]].sort());
 
 	const totalSurface = Object.values(byCategory).reduce(
 		(sum, arr) => sum + arr.length,
@@ -97,8 +95,8 @@ export function detectDecisionSurface(
 function parsePackageJsonObject(content: string): JsonObject | null {
 	try {
 		const raw: unknown = JSON.parse(content);
-		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
-		return raw as JsonObject;
+		if (!isJsonObject(raw)) return null;
+		return raw;
 	} catch {
 		return null; // Malformed package.json — silently drop this source
 	}
@@ -130,8 +128,8 @@ function addPackageJsonSignals(
 
 	for (const section of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
 		const deps = parsed[section];
-		if (deps === null || typeof deps !== "object" || Array.isArray(deps)) continue;
-		addDependencyNameSignals(deps as JsonObject, buckets);
+		if (!isJsonObject(deps)) continue;
+		addDependencyNameSignals(deps, buckets);
 	}
 }
 
@@ -221,9 +219,7 @@ export function detectLockfileMultiplicity(
 // ===========================================
 
 function makeEmptyBuckets(): Record<DecisionSurfaceCategory, Set<string>> {
-	return Object.fromEntries(
-		DECISION_SURFACE_CATEGORIES.map((c) => [c, new Set<string>()]),
-	) as Record<DecisionSurfaceCategory, Set<string>>;
+	return decisionCategoryRecord(() => new Set<string>());
 }
 
 function defaultReadFile(path: string): string | null {

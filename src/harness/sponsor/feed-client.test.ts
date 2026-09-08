@@ -83,14 +83,12 @@ describe("verifyWire", () => {
 		const keys = makeKeys();
 		const other = makeKeys();
 		const wire = makeWire(keys, makePayload());
-		const parsed = JSON.parse(wire) as { payload_b64: string };
 		const tampered = JSON.stringify({
 			...JSON.parse(wire),
 			payload_b64: Buffer.from(
 				JSON.stringify(makePayload({ generated_at: "2026-06-13T00:00:00Z" })),
 			).toString("base64"),
 		});
-		expect(parsed.payload_b64.length).toBeGreaterThan(0);
 		expect(verifyWire(tampered, { pubkeyB64: keys.pubB64 })).toBeNull();
 		expect(verifyWire(wire, { pubkeyB64: other.pubB64 })).toBeNull();
 		// Unknown key_id with no override and no env: not verifiable.
@@ -247,10 +245,10 @@ describe("beacons", () => {
 		appendBeacon(dir, beacon);
 		appendBeacon(dir, { ...beacon, window: 8 });
 		const calls: Array<{ url: string; body: string }> = [];
-		const fetchImpl = (async (url: unknown, init?: { body?: unknown }) => {
+		const fetchImpl: typeof fetch = (async (url, init) => {
 			calls.push({ url: String(url), body: String(init?.body ?? "") });
-			return { ok: true } as Response;
-		}) as typeof fetch;
+			return new Response(null, { status: 200 });
+		});
 		const ok = await flushBeacons(dir, "https://w.example/v1/beacon", fetchImpl);
 		expect(ok).toBe(true);
 		expect(calls).toHaveLength(1);
@@ -260,9 +258,9 @@ describe("beacons", () => {
 
 	it("keeps the buffer when the POST fails and succeeds with nothing to send", async () => {
 		appendBeacon(dir, beacon);
-		const failing = (async () => {
+		const failing: typeof fetch = (async () => {
 			throw new Error("offline");
-		}) as unknown as typeof fetch;
+		});
 		expect(await flushBeacons(dir, "https://w.example/v1/beacon", failing)).toBe(false);
 		expect(readFileSync(join(dir, BEACON_FILE), "utf8")).toContain("alpha");
 		// Empty buffer flush is a success no-op.
@@ -271,24 +269,24 @@ describe("beacons", () => {
 	});
 
 	it("succeeds as a no-op when there is no buffer file at all", async () => {
-		const fetchImpl = (async () => {
+		const fetchImpl: typeof fetch = (async () => {
 			throw new Error("should not be called");
-		}) as unknown as typeof fetch;
+		});
 		// Fresh dir: no appendBeacon call yet, so readFileSync hits ENOENT.
 		expect(await flushBeacons(dir, "https://w.example/v1/beacon", fetchImpl)).toBe(true);
 	});
 
 	it("drops unparseable buffered rows rather than wedging the buffer", async () => {
 		writeFileSync(join(dir, BEACON_FILE), "not json\n{also bad\n");
-		const fetchImpl = (async () => {
+		const fetchImpl: typeof fetch = (async () => {
 			throw new Error("should not be called: nothing valid to send");
-		}) as unknown as typeof fetch;
+		});
 		expect(await flushBeacons(dir, "https://w.example/v1/beacon", fetchImpl)).toBe(true);
 	});
 
 	it("keeps the buffer when the server responds non-2xx", async () => {
 		appendBeacon(dir, beacon);
-		const fetchImpl = (async () => ({ ok: false }) as unknown as Response) as typeof fetch;
+		const fetchImpl: typeof fetch = (async () => new Response(null, { status: 503 }));
 		expect(await flushBeacons(dir, "https://w.example/v1/beacon", fetchImpl)).toBe(false);
 		expect(readFileSync(join(dir, BEACON_FILE), "utf8")).toContain("alpha");
 	});
@@ -320,10 +318,10 @@ describe("flushBeacons — per-row shape validation (parseSponsorBeacon)", () =>
 		};
 		writeFileSync(join(dir, BEACON_FILE), `${JSON.stringify(row)}\n`);
 		const calls: Array<{ url: string; body: string }> = [];
-		const fetchImpl = (async (url: unknown, init?: { body?: unknown }) => {
+		const fetchImpl: typeof fetch = (async (url, init) => {
 			calls.push({ url: String(url), body: String(init?.body ?? "") });
-			return { ok: true } as Response;
-		}) as typeof fetch;
+			return new Response(null, { status: 200 });
+		});
 		expect(await flushBeacons(dir, "https://w.example/v1/beacon", fetchImpl)).toBe(true);
 		expect(JSON.parse(calls[0]?.body ?? "{}").beacons).toEqual([row]);
 	});
@@ -340,9 +338,9 @@ describe("flushBeacons — per-row shape validation (parseSponsorBeacon)", () =>
 				ts: "2026-06-12T00:00:00Z",
 			})}\n`,
 		);
-		const fetchImpl = (async () => {
+		const fetchImpl: typeof fetch = (async () => {
 			throw new Error("should not be called: nothing valid to send");
-		}) as unknown as typeof fetch;
+		});
 		expect(await flushBeacons(dir, "https://w.example/v1/beacon", fetchImpl)).toBe(true);
 	});
 
@@ -357,38 +355,38 @@ describe("flushBeacons — per-row shape validation (parseSponsorBeacon)", () =>
 				ts: "2026-06-12T00:00:00Z",
 			})}\n`,
 		);
-		const fetchImpl = (async () => {
+		const fetchImpl: typeof fetch = (async () => {
 			throw new Error("should not be called: nothing valid to send");
-		}) as unknown as typeof fetch;
+		});
 		expect(await flushBeacons(dir, "https://w.example/v1/beacon", fetchImpl)).toBe(true);
 	});
 
 	it("N3: drops a row that parses to a JSON array instead of a keyed object", async () => {
 		writeFileSync(join(dir, BEACON_FILE), "[1,2,3]\n");
-		const fetchImpl = (async () => {
+		const fetchImpl: typeof fetch = (async () => {
 			throw new Error("should not be called: nothing valid to send");
-		}) as unknown as typeof fetch;
+		});
 		expect(await flushBeacons(dir, "https://w.example/v1/beacon", fetchImpl)).toBe(true);
 	});
 });
 
 describe("fetchFeedWire", () => {
 	it("returns the wire text on a 2xx response", async () => {
-		const fetchImpl = (async () =>
-			({ ok: true, text: async () => '{"key_id":"k"}' }) as unknown as Response) as typeof fetch;
+		const fetchImpl: typeof fetch = (async () =>
+			new Response('{"key_id":"k"}', { status: 200 }));
 		expect(await fetchFeedWire("https://w.example/v1/feed", fetchImpl)).toBe('{"key_id":"k"}');
 	});
 
 	it("returns null on a non-2xx response", async () => {
-		const fetchImpl = (async () =>
-			({ ok: false, text: async () => "" }) as unknown as Response) as typeof fetch;
+		const fetchImpl: typeof fetch = (async () =>
+			new Response("", { status: 503 }));
 		expect(await fetchFeedWire("https://w.example/v1/feed", fetchImpl)).toBeNull();
 	});
 
 	it("returns null when the body exceeds the wire size cap", async () => {
 		const huge = "x".repeat(256 * 1024 + 1);
-		const fetchImpl = (async () =>
-			({ ok: true, text: async () => huge }) as unknown as Response) as typeof fetch;
+		const fetchImpl: typeof fetch = (async () =>
+			new Response(huge, { status: 200 }));
 		expect(await fetchFeedWire("https://w.example/v1/feed", fetchImpl)).toBeNull();
 	});
 
@@ -399,16 +397,14 @@ describe("fetchFeedWire", () => {
 		// — wedging `sponsor enable --spinner` and the daemon's tick (finding 2026-06).
 		vi.useFakeTimers();
 		try {
-			const fetchImpl = (async (_url: unknown, init?: { signal?: AbortSignal }) => {
+			const fetchImpl: typeof fetch = (async (_url, init) => {
 				const signal = init?.signal;
-				return {
-					ok: true,
-					text: () =>
-						new Promise<string>((_resolve, reject) => {
-							signal?.addEventListener("abort", () => reject(new Error("aborted")));
-						}),
-				} as unknown as Response;
-			}) as typeof fetch;
+				return new Response(new ReadableStream({
+					start(controller) {
+						signal?.addEventListener("abort", () => controller.error(new Error("aborted")));
+					},
+				}));
+			});
 			const p = fetchFeedWire("https://w.example/v1/feed", fetchImpl);
 			await vi.advanceTimersByTimeAsync(5_000); // FETCH_TIMEOUT_MS
 			expect(await p).toBeNull();

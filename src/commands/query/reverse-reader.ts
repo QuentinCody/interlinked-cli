@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../lib/json-types.js";
 // ===========================================
 // Bounded backward JSONL scan for `interlinked query`
 // ===========================================
@@ -165,12 +166,12 @@ function deliverLine(line: string, state: ScanState, onRecord: TailRecordHandler
 		state.stats.malformedLines++;
 		return;
 	}
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+	if (!isJsonObject(parsed)) {
 		state.stats.malformedLines++;
 		return;
 	}
 	state.stats.recordsParsed++;
-	if (onRecord(parsed as Record<string, unknown>) === false) {
+	if (onRecord(parsed) === false) {
 		state.stats.stopReason = "caller";
 		state.stopped = true;
 	}

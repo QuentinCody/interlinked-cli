@@ -25,15 +25,12 @@ vi.mock("node:child_process", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:child_process")>();
 	return {
 		...actual,
-		execFileSync: vi.fn((file: string, args?: readonly string[], opts?: unknown) => {
+		execFileSync: vi.fn((...callArgs: Parameters<typeof actual.execFileSync>) => {
+			const [file, args] = callArgs;
 			if (file === "git" && Array.isArray(args) && args[0] === "diff" && args[1] !== "--name-only") {
 				throw new Error("simulated git failure");
 			}
-			// SAFETY: forwarding the mock's own parameter types to the real
-			// implementation's overloaded signature — the shapes are identical,
-			// this only narrows past the mock wrapper's widened `unknown`/optional
-			// typing back to what `execFileSync` actually declares.
-			return actual.execFileSync(file, args as string[], opts as never);
+			return actual.execFileSync(...callArgs);
 		}),
 	};
 });

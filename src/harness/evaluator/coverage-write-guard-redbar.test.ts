@@ -36,13 +36,13 @@ afterEach(() => {
 function cfg(
 	overrides?: Partial<NonNullable<GuardRulesConfig["per_edit_coverage"]>>,
 ): NonNullable<GuardRulesConfig["per_edit_coverage"]> {
-	return {
+	return ({
 		enabled: true,
 		mode: "block",
 		budget_ms: 25_000,
 		languages: ["js", "ts"],
 		...overrides,
-	} as unknown as NonNullable<GuardRulesConfig["per_edit_coverage"]>;
+	} satisfies NonNullable<GuardRulesConfig["per_edit_coverage"]>);
 }
 
 function event(): HarnessEvent {

@@ -6,8 +6,8 @@
 import type { ExportedSymbol, HarnessEvent } from "../types.js";
 
 /** Public API — consumed by structural-checks submodules. */
-export function extractFilePath(event: HarnessEvent): string | null {
-	const path = (event.tool_input?.file_path as string) || (event.tool_input?.path as string);
+export function extractFilePath(event: Pick<HarnessEvent, "tool_input">): string | null {
+	const path = (typeof event.tool_input?.file_path === "string" ? event.tool_input?.file_path : "") || (typeof event.tool_input?.path === "string" ? event.tool_input?.path : "");
 	return path || null;
 }
 

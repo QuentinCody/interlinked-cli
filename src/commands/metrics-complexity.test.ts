@@ -1,3 +1,4 @@
+import { parseWire, wireNumber, wireObject } from "../lib/value-validation.js";
 // ===========================================
 // metrics-complexity tests — report assembly, rendering, and the two commands
 // ===========================================
@@ -239,7 +240,7 @@ describe("metricsComplexityCommand", () => {
 			{ cwd: root, json: true },
 			{ listFiles: () => ["src/simple.ts", "src/does-not-exist-any-more.ts"] },
 		);
-		const parsed = JSON.parse(logged()) as { files: number; functions: number };
+		const parsed = parseWire(JSON.parse(logged()), wireObject({ "files": wireNumber, "functions": wireNumber }), "test JSON value");
 		expect(parsed.files).toBe(1);
 		expect(parsed.functions).toBe(1);
 		expect(process.exitCode).toBeUndefined();

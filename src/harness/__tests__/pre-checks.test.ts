@@ -51,7 +51,7 @@ function makeSession(over: {
 		files_written: new Set<string>(over.written ?? []),
 		file_write_times: new Map<string, string>(over.writeTimes ?? []),
 	};
-	return base as unknown as SessionTrajectory;
+	return { ...completeSessionFixture(), ...base };
 }
 
 describe("checkLargeFileLineCountWrite", () => {
@@ -1416,3 +1416,4 @@ describe("checkConcurrentEdit", () => {
 		expect(checkConcurrentEdit(rel, "me", sessions)?.warning).toContain('"Peer"');
 	});
 });
+import { makeSession as completeSessionFixture } from "./fixtures/evaluator.js";

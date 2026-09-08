@@ -99,7 +99,7 @@ function compileCustomPiiPatterns(customPatterns: NonNullable<PiiScanOpts["custo
 			compiled.push({
 				name: cp.name,
 				pattern,
-				severity: (cp.severity as PiiPattern["severity"]) || "medium",
+				severity: (["low", "medium", "high", "critical"] as const).find((severity) => severity === cp.severity) ?? "medium",
 			});
 		} catch {
 			// intentional: drop user-supplied patterns that fail to

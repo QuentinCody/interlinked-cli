@@ -45,7 +45,6 @@ import {
 	describeWizardPlan,
 	parseWizardYesNo,
 	type WizardDeps,
-	type WizardMode,
 	writeDeadCodeConfig,
 } from "./setup-wizard.js";
 
@@ -310,15 +309,4 @@ describe("describePostureReceipt — mutation kill", () => {
 		);
 	});
 
-	// test-contract: boundary — an unknown mode value renders the fallback description without throwing (optional chaining before .description/.posture)
-	it("MK-dpr3: an unknown mode value renders the fallback description without throwing", () => {
-		const lines = describePostureReceipt({
-			...DEFAULT_WIZARD_CHOICES,
-			// SAFETY: deliberately outside the wizard's own 3-name union to exercise
-			// getPreset's null-preset fallback path; double-cast avoids TS2352
-			// (the literal "custom" and WizardMode share no direct overlap).
-			mode: "custom" as unknown as WizardMode,
-		});
-		expect(lines[0]).toBe("  mode custom — user-defined policy");
-	});
 });

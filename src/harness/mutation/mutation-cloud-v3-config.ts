@@ -4,12 +4,13 @@
 
 import { resolve } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
+import { wireAbsentOptional, wireArray, wireLiteral, wireObject, wireRecord, wireString } from "../../lib/value-validation.js";
 import { readConfinedFileText } from "./mutation-cloud-v3-local-read.js";
 import type { MutationCloudV3RuntimeConfig } from "./mutation-cloud-v3-runtime.js";
 import {
 	keyRegistryFailure,
 	registryRoleConflictFailure,
-	type V3KeyRegistry,
+	type V3KeyRecord,
 } from "./protocol-v3/canonical.js";
 import { PROTOCOL_V3_CONTRACT_DIGEST } from "./protocol-v3/contract-identity.js";
 
@@ -36,6 +37,12 @@ const CONFIG_KEYS = [
 ] as const;
 
 const MAX_RUNTIME_OWNER_LENGTH = 128;
+const isKeyRegistry = wireRecord(wireObject<V3KeyRecord>({
+	public_key_pem: wireString,
+	purposes: wireArray(wireLiteral("acceptance", "execution", "terminalization", "result")),
+	not_before: wireAbsentOptional(wireString),
+	revoked_at: wireAbsentOptional(wireString),
+}));
 const SAFE_RUNTIME_OWNER_CHARS = /^[A-Za-z0-9._:-]+$/;
 
 interface MutationCloudV3LocalConfig extends MutationCloudV3RuntimeConfig {
@@ -197,9 +204,8 @@ function preflightConfigFailure(value: Record<string, unknown>): string | null {
 function resolvedKeyRegistryFailure(value: Record<string, unknown>): string | null {
 	const registry = keyRegistryFailure(value.key_registry);
 	if (registry !== null) return `mutation cloud config ${registry}`;
-	// SAFETY: keyRegistryFailure constructed every record and validated key
-	// purpose/window/public-key fields; this only names that proven shape.
-	const keyRegistry = value.key_registry as V3KeyRegistry;
+	const keyRegistry = value.key_registry;
+	if (!isKeyRegistry(keyRegistry)) return "mutation cloud config key registry has invalid field types";
 	const roleConflict = registryRoleConflictFailure(keyRegistry);
 	return roleConflict !== null ? `mutation cloud config ${roleConflict}` : null;
 }
@@ -216,10 +222,8 @@ export function buildMutationCloudV3Config(
 	if (!isJsonObject(value.server_authority)) {
 		throw new Error("internal mutation cloud config parser lost checked server_authority");
 	}
-	// SAFETY: parseMutationCloudV3Config already ran resolvedKeyRegistryFailure
-	// (keyRegistryFailure + registryRoleConflictFailure) before calling this
-	// builder, so key_registry is a proven V3KeyRegistry here.
-	const keyRegistry = value.key_registry as V3KeyRegistry;
+	const keyRegistry = value.key_registry;
+	if (!isKeyRegistry(keyRegistry)) throw new Error("mutation cloud config key registry has invalid field types");
 	const serverAuthority = {
 		tenant: checkedString(value.server_authority.tenant, "server_authority.tenant"),
 		project: checkedString(value.server_authority.project, "server_authority.project"),

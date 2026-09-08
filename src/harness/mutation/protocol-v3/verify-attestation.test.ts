@@ -12,7 +12,6 @@
 import { describe, expect, it } from "vitest";
 import type { V3KeyRegistry } from "./canonical.js";
 import { validMutationResult } from "./test-envelopes.js";
-import type { V3Envelope } from "./types.js";
 import { signatureFailure } from "./verify-attestation.js";
 
 describe("signatureFailure — malformed key material", () => {
@@ -21,10 +20,7 @@ describe("signatureFailure — malformed key material", () => {
 	// report a bare "signature verification failed" that hides the real
 	// cause from an operator diagnosing a bad key registration.
 	it("N1: a registered key with unparsable PEM fails closed with the malformed-key reason", () => {
-		// SAFETY: validMutationResult() already returns a V3MutationResult,
-		// which is one arm of the V3Envelope union; signatureFailure only
-		// reads the shared signature/occurred_at fields common to every arm.
-		const envelope = validMutationResult() as unknown as V3Envelope;
+		const envelope = validMutationResult();
 		const registry: V3KeyRegistry = {
 			[envelope.signature.key_id]: {
 				public_key_pem: "not-a-valid-pem",

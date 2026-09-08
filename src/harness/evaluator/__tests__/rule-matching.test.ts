@@ -24,7 +24,7 @@ function makeRule(overrides: Partial<GuardRule> = {}): GuardRule {
 		reason: "do not delete everything",
 		enabled: true,
 		...overrides,
-	} as GuardRule;
+	};
 }
 
 /** Minimal-but-complete SessionTrajectory fixture, following the convention

@@ -1,3 +1,4 @@
+import { parseWire, wireBoolean, wireObject, wireRecord, wireString } from "../lib/value-validation.js";
 // ===========================================
 // interlinked attach — behavioral coverage (companion to attach.ts)
 // ===========================================
@@ -238,10 +239,7 @@ describe("attachCommand --server and --workspace", () => {
 		await attachCommand({ workspace: "ws_new123", json: true });
 
 		expect(mockUpdateLocalConfig).toHaveBeenCalledTimes(1);
-		const arg = nonNull(mockUpdateLocalConfig.mock.calls[0])[0] as {
-			workspace_id: string;
-			servers: Record<string, { server_url: string; workspace_id: string }>;
-		};
+		const arg = parseWire(nonNull(mockUpdateLocalConfig.mock.calls[0])[0], wireObject({ "workspace_id": wireString, "servers": wireRecord(wireObject({ "server_url": wireString, "workspace_id": wireString })) }), "test JSON value");
 		expect(arg.workspace_id).toBe("ws_new123");
 		expect(arg.servers.production).toEqual({ server_url: "https://prod", workspace_id: "ws_new123" });
 		// Sibling entry preserved by the spread.
@@ -255,9 +253,7 @@ describe("attachCommand --server and --workspace", () => {
 
 		await attachCommand({ workspace: "ws_new123", json: true });
 
-		const arg = nonNull(mockUpdateLocalConfig.mock.calls[0])[0] as {
-			servers: Record<string, { workspace_id: string }>;
-		};
+		const arg = parseWire(nonNull(mockUpdateLocalConfig.mock.calls[0])[0], wireObject({ "servers": wireRecord(wireObject({ "workspace_id": wireString })) }), "test JSON value");
 		expect(nonNull(arg.servers.production).workspace_id).toBe("ws_new123");
 	});
 
@@ -285,7 +281,7 @@ describe("attachCommand --server and --workspace", () => {
 
 		expect(mockUpdateLocalConfig).not.toHaveBeenCalled();
 		expect(mockEnsureRemoteOnboarding).not.toHaveBeenCalled();
-		const payload = JSON.parse(lastErr()) as { error: string };
+		const payload = parseWire(JSON.parse(lastErr()), wireObject({ "error": wireString }), "test JSON value");
 		expect(payload.error).toBe("Invalid workspace ID 'not-a-ws'. Expected format: ws_<alphanumeric>.");
 		expect(process.exitCode).toBe(1);
 	});
@@ -391,21 +387,7 @@ describe("attachCommand JSON output", () => {
 
 		await attachCommand({ json: true });
 
-		const payload = JSON.parse(lastLog()) as {
-			server_url: string;
-			workspace_id: string;
-			default_workspace_key: string;
-			default_project: string;
-			agent_name: string;
-			remote: {
-				status: string;
-				agent_name: string;
-				agent_handle: string;
-				workspace_name: string;
-				is_new_agent: boolean;
-				reclaimed_agent: boolean;
-			};
-		};
+		const payload = parseWire(JSON.parse(lastLog()), wireObject({ "server_url": wireString, "workspace_id": wireString, "default_workspace_key": wireString, "default_project": wireString, "agent_name": wireString, "remote": wireObject({ "status": wireString, "agent_name": wireString, "agent_handle": wireString, "workspace_name": wireString, "is_new_agent": wireBoolean, "reclaimed_agent": wireBoolean }) }), "test JSON value");
 		expect(payload).toMatchObject({
 			server_url: "https://j.example.com",
 			workspace_id: "ws_json",
@@ -460,12 +442,12 @@ describe("attachCommand normal renderer", () => {
 	});
 
 	it("short mode falls through to the normal renderer", async () => {
-		await attachCommand({ short: true } as unknown as Parameters<typeof attachCommand>[0]);
+		await attachCommand({ short: true });
 		expect(allLog()).toContain("== Attach ==");
 	});
 
 	it("full mode falls through to the normal renderer", async () => {
-		await attachCommand({ full: true } as unknown as Parameters<typeof attachCommand>[0]);
+		await attachCommand({ full: true });
 		expect(allLog()).toContain("== Attach ==");
 	});
 
@@ -623,7 +605,7 @@ describe("attachCommand error handling", () => {
 
 		await attachCommand({ json: true });
 
-		const payload = JSON.parse(lastErr()) as { error: string };
+		const payload = parseWire(JSON.parse(lastErr()), wireObject({ "error": wireString }), "test JSON value");
 		expect(payload.error).toBe("plain string failure");
 		expect(process.exitCode).toBe(1);
 	});
@@ -631,5 +613,6 @@ describe("attachCommand error handling", () => {
 	it("uses process.cwd() under --auto", async () => {
 		await attachCommand({ auto: true });
 		expect(cwdSpy).toHaveBeenCalled();
+		expect(mockIsGitRepo).toHaveBeenCalledWith("/repo");
 	});
 });

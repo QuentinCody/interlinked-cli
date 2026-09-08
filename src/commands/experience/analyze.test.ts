@@ -26,7 +26,7 @@ function ixCall(over: {
 		tool_calls: [{ id: "t", name: "X", args: "{}" }],
 		timestamp: over.ts,
 		ix,
-	} as IxExperienceRecord;
+	};
 }
 
 function fixture(): IxExperienceRecord[] {
@@ -48,7 +48,7 @@ function fixture(): IxExperienceRecord[] {
 				guard_blocks: 1,
 				truncate_chars: 4000,
 			},
-		} as IxExperienceRecord,
+		},
 		{ role: "user", content: "Fix it.", timestamp: T0 },
 		{ role: "reasoning", content: "abcdefghij", timestamp: T0 },
 		ixCall({ ts: T0, tool_class: "file_edit", file: "src/a.ts" }),
@@ -65,7 +65,7 @@ function fixture(): IxExperienceRecord[] {
 			content: "out",
 			timestamp: T0,
 			ix: { outcome: "error", episode: 0 },
-		} as IxExperienceRecord,
+		},
 		{ role: "assistant", content: "done!", timestamp: T9 },
 	];
 }

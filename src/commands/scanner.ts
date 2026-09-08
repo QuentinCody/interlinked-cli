@@ -188,9 +188,8 @@ function readCurrentEnabled(cwd: string): boolean {
 	const path = getLocalRulesPath(cwd);
 	if (!existsSync(path)) return false;
 	try {
-		const raw = JSON.parse(readFileSync(path, "utf-8")) as JsonObject;
-		const block = raw.content_scanner as JsonObject | undefined;
-		return block?.enabled === true;
+		const raw: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		return isPlainObject(raw) && isPlainObject(raw.content_scanner) && raw.content_scanner.enabled === true;
 	} catch (_) {
 		return false;
 	}
@@ -288,7 +287,7 @@ const AUDIT_ACTIONS = new Set<AuditAction>([
 ]);
 
 function isAuditAction(v: unknown): v is AuditAction {
-	return typeof v === "string" && AUDIT_ACTIONS.has(v as AuditAction);
+	return typeof v === "string" && [...AUDIT_ACTIONS].some((action) => action === v);
 }
 
 function parseAuditActor(value: unknown): AuditEntry["actor"] | null {

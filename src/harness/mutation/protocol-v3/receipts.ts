@@ -275,8 +275,14 @@ const PAYLOAD_CHECKS: Record<ReceiptKind, (o: Record<string, unknown>) => Reason
 };
 
 /** The signed timestamp anchoring each receipt's key-window check. */
-function signedAtOf(kind: ReceiptKind, payload: Record<string, unknown>): string {
-	return (kind === "terminalization" ? payload.occurred_at : payload.issued_at) as string;
+function signedAtOf(kind: ReceiptKind, payload: Record<string, unknown>): string | undefined {
+	const timestamp = kind === "terminalization" ? payload.occurred_at : payload.issued_at;
+	return typeof timestamp === "string" ? timestamp : undefined;
+}
+
+function signatureFields(signature: Record<string, unknown>): { keyId: string; value: string } | null {
+	if (typeof signature.key_id !== "string" || typeof signature.value !== "string") return null;
+	return { keyId: signature.key_id, value: signature.value };
 }
 
 function receiptKeyFailure(
@@ -291,13 +297,17 @@ function receiptKeyFailure(
 		checkBoundedString(signature.value, "receipt.signature.value"),
 	]);
 	if (bad !== null) return bad;
-	const keyId = signature.key_id as string; // SAFETY: validated string above.
+	const fields = signatureFields(signature);
+	if (fields === null) return "receipt.signature fields must be strings";
+	const keyId = fields.keyId;
+	const signedAt = signedAtOf(kind, payload);
+	if (signedAt === undefined) return "receipt signed timestamp must be a string";
 	const record = registry[keyId];
 	if (record === undefined) return `receipt signed by unknown key "${keyId}"`;
 	return (
 		keyPurposeFailure(keyId, record, kind) ??
-		keyWindowFailure(keyId, record, Date.parse(signedAtOf(kind, payload))) ??
-		receiptSignatureFailure(payload, keyId, record.public_key_pem, signature.value as string)
+		keyWindowFailure(keyId, record, Date.parse(signedAt)) ??
+		receiptSignatureFailure(payload, keyId, record.public_key_pem, fields.value)
 	);
 }
 

@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Tests for the campaign-target half of the characterize-before-touch gate:
 // editing a function the function-complexity ledger lists, with no test
 // signal for its file in the session trajectory, blocks in block mode.
@@ -5,6 +6,7 @@
 // No mocks — the gate reads the ledger, the on-disk file, and the session's
 // written-file / test-run / command trajectory.
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -17,20 +19,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // real filesystem. Covers `isDirContaining`'s catch branch: a directory
 // candidate that exists but whose `statSync` throws mid-check (permissions,
 // a race with rotation) must not read as evidence of a directory-scoped run.
-const { statSyncControl } = vi.hoisted(() => ({
-	statSyncControl: { poisonPath: null as string | null },
+const { statSyncControl } = vi.hoisted((): { statSyncControl: { poisonPath: string | null } } => ({
+	statSyncControl: { poisonPath: null },
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		statSync: ((path: unknown, opts?: unknown) => {
+		statSync: (...args: Parameters<typeof actual.statSync>) => {
+			const [path] = args;
 			if (statSyncControl.poisonPath !== null && String(path) === statSyncControl.poisonPath) {
 				throw new Error(`EACCES: permission denied, stat '${String(path)}'`);
 			}
-			return (actual.statSync as (p: unknown, o?: unknown) => unknown)(path, opts);
-		}) as typeof actual.statSync,
+			return actual.statSync(...args);
+		},
 	};
 });
 
@@ -77,11 +80,11 @@ function makeSession(seed: SessionSeed = {}): SessionTrajectory {
 		const [f, status] = typeof r === "string" ? [r, "pass" as const] : r;
 		test_runs.set(f, { status, at_step: 1 });
 	}
-	return {
+	return ({ ...makeSessionFixture(),
 		files_written: new Set(seed.files_written ?? []),
 		test_runs,
 		commands_run: seed.commands_run ?? [],
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 let tmp: string;
@@ -156,8 +159,8 @@ describe("characterize-campaign-target — positive (must fire)", () => {
 	it("P5: the event wrapper reaches the campaign gate in block mode (wiring pin)", () => {
 		ledger([BIG_ENTRY]);
 		// SAFETY: the wrapper reads only structural_checks.characterize_mode.
-		const rules = { structural_checks: { characterize_mode: "block" } } as unknown as GuardRulesConfig;
-		const event = {
+		const rules = ({ ...makeGuardRules(),  structural_checks: { ...makeGuardRules().structural_checks,  characterize_mode: "block" } } satisfies GuardRulesConfig);
+		const event = ({ agent_source: "claude",
 			hook_event: "PreToolUse",
 			session_id: "s",
 			tool_name: "Write",
@@ -165,7 +168,7 @@ describe("characterize-campaign-target — positive (must fire)", () => {
 			cwd: tmp,
 			dry_run: true,
 			timestamp: "2026-09-01T00:00:00Z",
-		} as unknown as HarnessEvent; // SAFETY: minimal event — the wrapper reads tool_input, cwd, dry_run only.
+		} satisfies HarnessEvent); // SAFETY: minimal event — the wrapper reads tool_input, cwd, dry_run only.
 		const d = evaluateCharacterizeForEvent(event, rules, makeSession());
 		expect(d?.decision).toBe("block");
 		expect(d?.reason).toContain("campaign target");
@@ -316,28 +319,28 @@ describe("characterize-campaign-target — negative (must not fire)", () => {
 
 	it("N16: a characterization run survives 150 unrelated commands aging it out of commands_run's ring", () => {
 		ledger([BIG_ENTRY]);
-		const event = { hook_event: "PostToolUse", session_id: "s", timestamp: "2026-09-01T00:00:00Z" } as unknown as HarnessEvent; // SAFETY: createFreshSession reads only these fields.
+		const event = ({ agent_source: "claude",  hook_event: "PostToolUse", session_id: "s", timestamp: "2026-09-01T00:00:00Z" } satisfies HarnessEvent); // SAFETY: createFreshSession reads only these fields.
 		const session = createFreshSession(event, "s");
 		trackCommand(
 			session,
-			{
+			({ agent_source: "claude",
 				hook_event: "PostToolUse",
 				session_id: "s",
 				tool_name: "Bash",
 				tool_input: { command: "npx vitest related src/a.ts --run" },
 				timestamp: "2026-09-01T00:00:01Z",
-			} as unknown as HarnessEvent, // SAFETY: trackCommand reads tool_name/tool_input.command only.
+			} satisfies HarnessEvent), // SAFETY: trackCommand reads tool_name/tool_input.command only.
 		);
 		for (let i = 0; i < 150; i++) {
 			trackCommand(
 				session,
-				{
+				({ agent_source: "claude",
 					hook_event: "PostToolUse",
 					session_id: "s",
 					tool_name: "Bash",
 					tool_input: { command: `echo ${i}` },
 					timestamp: "2026-09-01T00:00:02Z",
-				} as unknown as HarnessEvent, // SAFETY: trackCommand reads tool_name/tool_input.command only.
+				} satisfies HarnessEvent), // SAFETY: trackCommand reads tool_name/tool_input.command only.
 			);
 		}
 		// The ring buffer has aged the characterization command out.
@@ -349,15 +352,15 @@ describe("characterize-campaign-target — negative (must not fire)", () => {
 	it("N9: the event wrapper in warn mode stays silent for a campaign target", () => {
 		ledger([BIG_ENTRY]);
 		// SAFETY: the wrapper reads only structural_checks.characterize_mode.
-		const rules = { structural_checks: { characterize_mode: "warn" } } as unknown as GuardRulesConfig;
-		const event = {
+		const rules = ({ ...makeGuardRules(),  structural_checks: { ...makeGuardRules().structural_checks,  characterize_mode: "warn" } } satisfies GuardRulesConfig);
+		const event = ({ agent_source: "claude",
 			hook_event: "PreToolUse",
 			session_id: "s",
 			tool_name: "Write",
 			tool_input: TOUCH(),
 			cwd: tmp,
 			timestamp: "2026-09-01T00:00:00Z",
-		} as unknown as HarnessEvent; // SAFETY: minimal event — the wrapper reads tool_input, cwd, dry_run only.
+		} satisfies HarnessEvent); // SAFETY: minimal event — the wrapper reads tool_input, cwd, dry_run only.
 		expect(evaluateCharacterizeForEvent(event, rules, makeSession())).toBeNull();
 	});
 });

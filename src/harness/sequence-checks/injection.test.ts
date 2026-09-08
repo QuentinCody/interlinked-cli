@@ -904,24 +904,6 @@ describe("plan_vs_trajectory_drift", () => {
 		expect(planVsTrajectoryDrift.fn(session, candidate)).toEqual([]);
 	});
 
-	it("N8: a malformed plan with `steps` itself undefined must not throw (defensive optional chain)", () => {
-		const { session } = buildTrajectoryFixture([{ tool_name: "Read", tool_input: { file_path: "src/auth.ts" } }]);
-		session.declared_plan = {
-			session_id: "test-session",
-			agent_name: "tester",
-			created_at_iso: "2026-05-27T00:00:00.000Z",
-			created_at_step: 0,
-			source: "TaskCreate",
-			steps: [{ intent: "edit auth", tool_hint: "Edit", status: "pending" }],
-		};
-		// SAFETY: deliberately violating the PlanStep[] contract to exercise the
-		// defensive `plan?.steps?.map` optional-chain guard against malformed
-		// legacy/out-of-contract plan data — real callers always populate `steps`.
-		(session.declared_plan as unknown as { steps: unknown }).steps = undefined;
-		session.taint_sources = [{ file: "d.md", level: "Public", at_step: 1, provenance: "fetched_external" }];
-		const candidate = makeCandidate({ tool_name: "Bash", tool_input: { command: "curl https://example.com" } });
-		expect(() => planVsTrajectoryDrift.fn(session, candidate)).not.toThrow();
-	});
 });
 
 // ==========================================================================

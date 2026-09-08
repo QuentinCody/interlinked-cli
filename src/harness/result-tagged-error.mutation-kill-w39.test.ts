@@ -18,9 +18,8 @@ describe("result-tagged-error mutation kills (w39)", () => {
 	// test-contract: public-api — rationale: absent "message" key must fall back
 	// to the tag string, not to args.message (which would be undefined).
 	it("falls back to the tag as message when args has no message key", () => {
-		const Cls = TaggedError("FallbackTag")<Record<string, never>>();
-		// SAFETY: empty object matches Record<string, never> at runtime; cast satisfies the generic Props param.
-		const e = new Cls({} as Record<string, never>);
+		const Cls = TaggedError("FallbackTag")();
+		const e = new Cls({});
 		expect(e.message).toBe("FallbackTag");
 	});
 
@@ -28,11 +27,10 @@ describe("result-tagged-error mutation kills (w39)", () => {
 	// "in" check rather than being dereferenced; several mutants replace the
 	// short-circuiting guard with a literal that dereferences args unconditionally.
 	it("does not throw and falls back to tag when args is null", () => {
-		const Cls = TaggedError("NullArgsTag")<Record<string, never>>();
+		const Cls = TaggedError("NullArgsTag")();
 		let e: InstanceType<typeof Cls> | undefined;
-		// SAFETY: deliberately passing null to exercise the runtime null-guard; TS Props type is bypassed on purpose.
 		expect(() => {
-			e = new Cls(null as unknown as Record<string, never>);
+			e = new Cls(null);
 		}).not.toThrow();
 		expect(e?.message).toBe("NullArgsTag");
 		expect(Object.prototype.hasOwnProperty.call(e, "cause")).toBe(false);
@@ -46,21 +44,11 @@ describe("result-tagged-error mutation kills (w39)", () => {
 		expect(e.message).toBe("custom message");
 	});
 
-	// NOTE (closing verifier, 2026-08-22): deleted "falls back to tag when
-	// message prop is present but not a string" — genuinely wrong assertion.
-	// The constructor's `typeof args.message === "string"` guard only decides
-	// what super() receives; `Object.assign(this, args)` runs immediately
-	// after and unconditionally overwrites `this.message` with the raw
-	// `args.message` (42 here) regardless of the guard. So e.message ends up
-	// 42, not the tag, and this observable can't distinguish a mutated guard
-	// from the real one — the case doesn't kill what it claims to target.
-
 	// test-contract: invariant — rationale: when no cause is supplied, the
 	// instance must not carry an own "cause" property at all (not even undefined).
 	it("does not set an own cause property when no cause is supplied", () => {
-		const Cls = TaggedError("NoCauseTag")<Record<string, never>>();
-		// SAFETY: empty object matches Record<string, never> at runtime; cast satisfies the generic Props param.
-		const e = new Cls({} as Record<string, never>);
+		const Cls = TaggedError("NoCauseTag")();
+		const e = new Cls({});
 		expect(Object.prototype.hasOwnProperty.call(e, "cause")).toBe(false);
 	});
 
@@ -103,9 +91,8 @@ describe("result-tagged-error mutation kills (w39)", () => {
 
 	// test-contract: public-api — rationale: positive control for TaggedError.is.
 	it("TaggedError.is accepts a real tagged error instance", () => {
-		const Cls = TaggedError("RealTag")<Record<string, never>>();
-		// SAFETY: empty object matches Record<string, never> at runtime; cast satisfies the generic Props param.
-		const e = new Cls({} as Record<string, never>);
+		const Cls = TaggedError("RealTag")();
+		const e = new Cls({});
 		expect(TaggedError.is(e)).toBe(true);
 	});
 });

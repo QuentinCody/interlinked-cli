@@ -11,7 +11,7 @@ vi.mock("node:child_process", async (importOriginal) => {
 import { execSync } from "node:child_process";
 import { detectFixtureLeaks, formatFixtureLeakWarning } from "./fixture-leak.js";
 
-const mockedExecSync = execSync as unknown as ReturnType<typeof vi.fn>;
+const mockedExecSync = vi.mocked(execSync);
 
 const tmpDirs: string[] = [];
 
@@ -169,7 +169,7 @@ describe("detectFixtureLeaks — git invocation shape", () => {
 		mockedExecSync.mockClear();
 		detectFixtureLeaks(dir);
 
-		const calls = mockedExecSync.mock.calls as unknown as [string, Record<string, unknown>][];
+		const calls = mockedExecSync.mock.calls;
 		const untrackedCall = calls.find(([cmd]) =>
 			cmd.includes("--others"),
 		);

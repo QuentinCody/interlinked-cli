@@ -1,91 +1,93 @@
-// Unjustified type-assertion detector.
-//
-// The TS coding standard requires every non-`as const` cast to carry a
-// `// SAFETY:` comment explaining why the assertion is sound (the assertion
-// silences the checker, so the reviewer needs the invariant spelled out).
-// This mirrors the harness's existing `suppressions` / `suppressions-unjustified`
-// split: a cast WITH a nearby justification is soft/silent; a cast WITHOUT one
-// is loud and line-numbered.
-//
-// It ships as a ratchet metric (`countUnjustifiedCasts`) alongside the `as any`
-// and non-null-assertion ratchets — bare `as` is common, so only a *net new*
-// unjustified cast is flagged per edit; the escape is one `// SAFETY:` line.
-//
-// Heuristic (regex over comment/string-stripped content), so findings are
-// tagged `[heuristic]`. Angle-bracket casts (`<T>x`) are deliberately NOT
-// detected — they are indistinguishable from generics/JSX without full parsing.
+// Syntax-only assertion detection. The ratchet remains a count of lines carrying
+// unjustified casts, including when several assertions share the same line.
+// Comment presence is advisory evidence, not a proof that an assertion is sound.
+import type * as TS from "typescript";
+import { safetyCommentLines, type CastCommentRange } from "./cast-justification-comments.js";
+import { hasParseErrors, parseTsSource, type ParsedTsSource } from "./cyclomatic-ast.js";
+import { getExtension, JS_TS_EXTS, type InlineMatch, stripCommentsAndStrings, stripStrings } from "./shared.js";
 
-import type { InlineMatch } from "./shared.js";
-import { getExtension, JS_TS_EXTS, stripCommentsAndStrings } from "./shared.js";
-
-/** `as <Type>` assertion, excluding the always-safe `as const`. */
-const CAST_RE = /\bas\s+(?!const\b)[A-Za-z_$][\w$]*/;
-
-/** True iff a `// SAFETY:` (or `/* SAFETY`) justification sits on line `idx`
- *  or up to two lines above it. */
-function hasSafetyJustification(rawLines: readonly string[], idx: number): boolean {
-	// A same-line trailing `// SAFETY:` justifies this cast only.
-	if (/\bSAFETY\b/.test(rawLines[idx] ?? "")) return true;
-	// Otherwise a SAFETY note in the contiguous comment block directly above the
-	// cast counts; a code line (e.g. a prior cast with its own trailing note)
-	// breaks the block so it can't bleed down onto the next statement.
-	for (let j = idx - 1; j >= Math.max(0, idx - 2); j--) {
-		const line = (rawLines[j] ?? "").trim();
-		if (!(line.startsWith("//") || line.startsWith("*") || line.startsWith("/*"))) break;
-		if (/\bSAFETY\b/.test(line)) return true;
-	}
-	return false;
-}
-
-/** True for `import`/`export {…}`/re-export-`from` lines, whose `as` is a
- *  module-rename, not a type assertion. */
-function isModuleAliasLine(raw: string): boolean {
-	if (/^\s*import\b/.test(raw)) return true;
-	if (/^\s*export\s*(?:type\s+)?\{/.test(raw)) return true;
-	if (/^\s*export\b/.test(raw) && /\bfrom\s*['"]/.test(raw) && !raw.includes("=")) return true;
-	return false;
-}
-
-/**
- * Find type-assertion casts that lack a `// SAFETY:` justification.
- *
- * Gated to JS/TS source files — `as`-casts are a TypeScript construct, and
- * running the regex over prose (markdown design docs quoting `as any`,
- * fenced code blocks) produced recurring false positives (recurrence log:
- * 19 hits on a single .md file). The counter below is exempt from the gate
- * because its callers only capture baselines for code files.
- *
- * @param content - The source text to scan.
- * @param filePath - The file path; non-JS/TS extensions are skipped.
- * @returns One match per line carrying an unjustified cast.
- */
+/** Find one match per assertion-token line lacking a nonempty SAFETY: comment. */
 export function findUnjustifiedCasts(content: string, filePath: string): InlineMatch[] {
-	if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
-	return scanUnjustifiedCasts(content);
+    if (!JS_TS_EXTS.has(getExtension(filePath))) return [];
+    return scanUnjustifiedCasts(content, filePath);
 }
 
-/** Extension-agnostic scan shared by the check and the ratchet counter. */
-function scanUnjustifiedCasts(content: string): InlineMatch[] {
-	const rawLines = content.split("\n");
-	const strippedLines = stripCommentsAndStrings(content).split("\n");
-	const out: InlineMatch[] = [];
-	for (let i = 0; i < strippedLines.length; i++) {
-		const stripped = strippedLines[i] ?? "";
-		const raw = rawLines[i] ?? "";
-		if (isModuleAliasLine(raw)) continue;
-		if (!CAST_RE.test(stripped)) continue;
-		if (hasSafetyJustification(rawLines, i)) continue;
-		out.push({ line: i + 1, text: raw.trim().slice(0, 150) });
-	}
-	return out;
+/** Count lines, preserving the existing metric unit; pass the path for TSX. */
+export function countUnjustifiedCasts(content: string, filePath = "source.ts"): number {
+    return scanUnjustifiedCasts(content, filePath).length;
 }
 
-/**
- * Count lines carrying an unjustified cast — the ratchet metric.
- *
- * @param content - The source text to scan.
- * @returns The number of lines with at least one unjustified cast.
- */
-export function countUnjustifiedCasts(content: string): number {
-	return scanUnjustifiedCasts(content).length;
+function scanUnjustifiedCasts(content: string, filePath: string): InlineMatch[] {
+    try {
+        const parsed = parseTsSource(content, filePath);
+        if (parsed) {
+            const matches = scanAssertions(parsed);
+            if (!hasParseErrors(parsed.sf)) return matches;
+            // Recovery still identifies completed assertions elsewhere in an
+            // unfinished edit; retain those alongside the lexical measurement.
+            const lines = new Set([...matches, ...scanLexically(content)].map((match) => match.line - 1));
+            return lineMatches(content, lines);
+        }
+    } catch {
+        // Preserve the previous lexical measurement if parsing is unavailable.
+        return scanLexically(content);
+    }
+    return scanLexically(content);
+}
+
+function scanAssertions({ ts, sf }: ParsedTsSource): InlineMatch[] {
+    const assertions: (TS.AsExpression | TS.TypeAssertion)[] = [];
+    const comments = new Map<number, CastCommentRange>();
+    const visit = (node: TS.Node): void => {
+        for (const range of ts.getLeadingCommentRanges(sf.text, node.pos) ?? []) comments.set(range.pos, range);
+        for (const range of ts.getTrailingCommentRanges(sf.text, node.end) ?? []) comments.set(range.pos, range);
+        if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) assertions.push(node);
+        ts.forEachChild(node, visit);
+    };
+    visit(sf);
+    const justified = safetyCommentLines(sf.text, [...comments.values()]);
+    const matches = new Set<number>();
+    for (const assertion of assertions) {
+        if (ts.isTypeReferenceNode(assertion.type) && assertion.type.typeName.getText(sf) === "const") continue;
+        const token = assertion.getChildren(sf).find((child) => child.kind === ts.SyntaxKind.AsKeyword);
+        const position = token?.getStart(sf) ?? assertion.getStart(sf);
+        const line = sf.getLineAndCharacterOfPosition(position).line;
+        if (justified(line) || justified(sf.getLineAndCharacterOfPosition(assertion.getStart(sf)).line)) continue;
+        if (justified(ownerLine(assertion, { ts, sf }))) continue;
+        matches.add(line);
+    }
+    return lineMatches(sf.text, matches);
+}
+
+function ownerLine(assertion: TS.Node, { ts, sf }: ParsedTsSource): number {
+    let node = assertion;
+    while (node.parent) {
+        if (ts.isStatement(node) || ts.isPropertyDeclaration(node)) break;
+        node = node.parent;
+    }
+    return sf.getLineAndCharacterOfPosition(node.getStart(sf)).line;
+}
+
+/** Retain the old detection breadth when optional TypeScript is absent or syntax is incomplete. */
+function scanLexically(content: string): InlineMatch[] {
+    const ranges: CastCommentRange[] = [];
+    for (const match of stripStrings(content).matchAll(/\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g)) {
+        ranges.push({ pos: match.index, end: match.index + match[0].length });
+    }
+    const justified = safetyCommentLines(content, ranges);
+    const matches = new Set<number>();
+    const lines = stripCommentsAndStrings(content).split("\n");
+    const rawLines = content.split("\n");
+    for (let line = 0; line < lines.length; line++) {
+        const raw = rawLines[line] ?? "";
+        if (/^\s*import\b/.test(raw) || /^\s*export\s*(?:type\s+)?\{/.test(raw)) continue;
+        if (/^\s*export\b/.test(raw) && /\bfrom\s*['"]/.test(raw) && !raw.includes("=")) continue;
+        if (/\bas\s+(?!const\b)[A-Za-z_$][\w$]*/.test(lines[line] ?? "") && !justified(line)) matches.add(line);
+    }
+    return lineMatches(content, matches);
+}
+
+function lineMatches(content: string, matches: ReadonlySet<number>): InlineMatch[] {
+    const lines = content.split("\n");
+    return [...matches].sort((a, b) => a - b).map((line) => ({ line: line + 1, text: (lines[line] ?? "").trim().slice(0, 150) }));
 }

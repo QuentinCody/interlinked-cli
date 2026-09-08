@@ -20,7 +20,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { CheckAction, CheckPolicy, CheckPolicyFile } from "../harness/check-policy.js";
+import type { CheckAction, CheckPolicy } from "../harness/check-policy.js";
 import { loadCheckPolicy } from "../harness/check-policy.js";
 import { CHECK_REGISTRY } from "../harness/check-registry/registry.js";
 import type { CheckRegistration } from "../harness/check-registry/types.js";
@@ -32,7 +32,7 @@ import {
 	type ModePreset,
 } from "../harness/modes.js";
 import { mergeIntoGuardRules } from "../harness/rules/guard-rules-write.js";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 
 export interface ModeCommandOptions {
 	diff?: boolean;
@@ -172,8 +172,8 @@ function renderEffectiveActions(policy: CheckPolicy): void {
 		counts[action]++;
 	}
 	process.stdout.write("\nEffective per-check action counts:\n");
-	for (const key of Object.keys(counts) as CheckAction[]) {
-		if (counts[key] > 0) process.stdout.write(`  ${key.padEnd(14)} ${counts[key]}\n`);
+	for (const [key, count] of Object.entries(counts)) {
+		if (count > 0) process.stdout.write(`  ${key.padEnd(14)} ${count}\n`);
 	}
 }
 
@@ -272,10 +272,11 @@ function writeCheckPolicyFile(cwd: string, mode: ModeName, local: boolean): void
 	const dir = join(cwd, ".interlinked");
 	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-	let existing: CheckPolicyFile = { version: 1 };
+	let existing: JsonObject = { version: 1 };
 	if (existsSync(path)) {
 		try {
-			existing = JSON.parse(readFileSync(path, "utf-8")) as CheckPolicyFile;
+			const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+			if (isJsonObject(parsed)) existing = parsed;
 		} catch {
 			existing = { version: 1 };
 		}
@@ -330,9 +331,7 @@ function applyModeGuardOverrides(cwd: string, mode: ModeName, local: boolean): b
 	const preset = getPreset(mode);
 	const overrides = preset?.guard_overrides;
 	if (!overrides) return true;
-	// SAFETY: ModeGuardOverrides is a plain nested record of booleans/strings —
-	// structurally a JsonObject; TS can't see that through the interface name.
-	const r = mergeIntoGuardRules(cwd, overrides as JsonObject, local ? "local" : "team");
+	const r = mergeIntoGuardRules(cwd, { ...overrides }, local ? "local" : "team");
 	if (!r.ok) {
 		process.stderr.write(
 			`[interlinked] mode ${mode}: NOT applied (${r.error}) — fix ${r.path} and re-run interlinked mode ${mode}. Neither file was changed.\n`,

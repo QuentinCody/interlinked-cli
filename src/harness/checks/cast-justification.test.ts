@@ -14,6 +14,50 @@ describe("findUnjustifiedCasts", () => {
 	it("flags a cast embedded in an expression", () => {
 		expect(n("const total = (val as number) + 1;")).toBeGreaterThanOrEqual(1);
 	});
+	it.each([
+		"const value = input as { id: string };",
+		"const value = input as [string, number];",
+		"const value = input as 'ready';",
+		"const value = input as (A | B);",
+		"const value = <User>input;",
+		"const value = input as/* shape */User;",
+	])("detects assertion syntax beyond named as targets: %s", (content) => {
+		expect(n(content)).toBe(1);
+	});
+	it.each([
+		"// SAFETY:",
+		"/* SAFETY: */",
+		"// SAFETY: ...",
+		"// SAFETY is important",
+	])("requires a nonempty explanation after the marker: %s", (comment) => {
+		expect(n(`${comment}\nconst value = input as User;`)).toBe(1);
+	});
+	it("does not accept safety text inside a string or regex", () => {
+		expect(n('const value = "SAFETY: trusted" as User;')).toBe(1);
+		expect(n('const value = /SAFETY: trusted/ as User;')).toBe(1);
+	});
+	it("recognizes assertions in template substitutions, ignoring literal examples", () => {
+		expect(n('const value = `input as User ${input as string}`;')).toBe(1);
+		expect(n('const example = `input as User`;')).toBe(0);
+	});
+	it("does not propagate a trailing explanation to the next statement", () => {
+		const content = "const a = input as User; // SAFETY: validated above\nconst b = input as Admin;";
+		expect(findUnjustifiedCasts(content, "src/foo.ts")).toEqual([
+			{ line: 2, text: "const b = input as Admin;" },
+		]);
+	});
+	it("accepts a comment attached to the start of a multiline assertion statement", () => {
+		const content = "// SAFETY: the callback returns the validated user\nconst user = select(\n    value,\n    key,\n) as User;";
+		expect(n(content)).toBe(0);
+	});
+	it("accepts a validated object construction's statement-level explanation", () => {
+		const content = "function parse(input: unknown) {\n// SAFETY: both fields were validated before constructing this result\nreturn {\n a: input as A,\n b: input as B,\n};\n}";
+		expect(n(content)).toBe(0);
+	});
+	it("does not treat JSX elements or generic declarations as angle assertions", () => {
+		expect(findUnjustifiedCasts('const el = <User name="A" />;', "src/App.tsx")).toEqual([]);
+		expect(n("const identity = <T>(input: T): T => input;")).toBe(0);
+	});
 
 	// ── negatives: legitimate patterns that must NOT fire ────────────────────
 	it("does not flag `as const`", () => {
@@ -63,5 +107,22 @@ describe("countUnjustifiedCasts", () => {
 		const src = ["const a = x as A;", "const b = y as B; // SAFETY: ok", "const c = z as C;"].join("\n");
 		// lines 1 and 3 are unjustified; line 2 is justified.
 		expect(countUnjustifiedCasts(src)).toBe(2);
+	});
+	it("keeps the line unit when nested or separate assertions share a line", () => {
+		expect(countUnjustifiedCasts("const a = x as unknown as A; const b = y as B;")).toBe(1);
+	});
+	it("attributes multiline assertions to their assertion-token lines", () => {
+		const content = "const a = (\n    value\n) as User;\nconst b = <User>value;";
+		expect(findUnjustifiedCasts(content, "source.ts").map((match) => match.line)).toEqual([3, 4]);
+	});
+	it("uses the supplied TSX path for the ratchet", () => {
+		const content = "const ui = <User>{input as string}</User>;";
+		expect(countUnjustifiedCasts(content, "source.tsx")).toBe(1);
+	});
+	it("retains lexical measurement while an edit contains incomplete syntax", () => {
+		expect(countUnjustifiedCasts("const a = x as User;\nfunction unfinished(")).toBe(1);
+	});
+	it("retains completed angle assertions while the parser recovers from another incomplete statement", () => {
+		expect(countUnjustifiedCasts("const a = <User>x;\nfunction unfinished(")).toBe(1);
 	});
 });

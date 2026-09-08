@@ -103,7 +103,8 @@ describe("skill install templates", () => {
     });
 
     it("returns [] targets and unmodified spec content for a client outside the known set (defensive default)", () => {
-        const unknownClient = "windsurf" as unknown as ClientName;
+        // SAFETY: deliberately supplies an unsupported client to verify the renderer's foreign-client fallback.
+        const unknownClient = "windsurf" as ClientName;
         expect(runnerTargets(unknownClient, "interlinked", {})).toEqual([]);
         const config = buildSkillConfig("enforce");
         const target = { kind: "spec" as const, relPath: "whatever/SKILL.md" };

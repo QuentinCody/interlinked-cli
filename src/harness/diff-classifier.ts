@@ -128,7 +128,7 @@ function collapseWhitespace(s: string): string {
 function countNonWhitespace(s: string): number {
 	let n = 0;
 	for (let i = 0; i < s.length; i++) {
-		if (!/\s/.test(s[i] as string)) n++;
+		if (!/\s/.test(s.charAt(i))) n++;
 	}
 	return n;
 }

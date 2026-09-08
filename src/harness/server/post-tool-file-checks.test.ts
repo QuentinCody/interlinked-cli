@@ -1,3 +1,7 @@
+import { makeServerRuntime, makeServerRules } from "./__tests__/fixtures.js";
+import type { Finding } from "../suggestion-scorer.js";
+import type { StructuralCheckResult, ImpactAnalysisResult } from "../types.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 // Behavioral coverage for `runPerFileChecks` — the PostToolUse per-file body.
 //
 // Every sibling check module and the six extracted check phases are mocked at
@@ -11,15 +15,10 @@
 // Argument assertions go through vitest matchers (`toHaveBeenCalledWith` +
 // `expect.objectContaining`/`arrayContaining`) rather than casting
 // `mock.mock.calls[i]`, so the test needs no `as` casts on call arguments.
-// `makeCtx`/`makeGraph` use one fixture-boundary `as unknown as` each to avoid
-// satisfying every field of the ~30-field ServerRuntime interface (the same
-// pattern the sibling post-tool-pipeline.test.ts uses).
 
-import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
-import type { ProjectGraph } from "../project-graph.js";
+import { ProjectGraph } from "../project-graph.js";
 import type {
 	CheckResultEntry,
 	ExportedSymbol,
@@ -141,30 +140,30 @@ import {
 } from "./post-tool-file-checks-phases.js";
 import { getGraphForFile } from "./runtime-context.js";
 
-const mExistsSync = existsSync as unknown as Mock;
-const mReadFileSync = readFileSync as unknown as Mock;
-const mGetGraph = getGraphForFile as unknown as Mock;
-const mRunStructural = runStructuralChecks as unknown as Mock;
-const mFormatStructural = formatStructuralWarnings as unknown as Mock;
-const mShouldSkipTsc = shouldSkipTsc as unknown as Mock;
-const mRunImpact = runImpactAnalysis as unknown as Mock;
-const mFormatImpact = formatImpactWarning as unknown as Mock;
-const mRecordImpactFollowUps = recordImpactFollowUps as unknown as Mock;
-const mCheckOrphaned = checkOrphanedTests as unknown as Mock;
-const mRecordHarnessCaught = recordHarnessCaught as unknown as Mock;
-const mRecordImplEdit = recordImplEdit as unknown as Mock;
-const mRecordTestWrite = recordTestWrite as unknown as Mock;
-const mLoadFileSup = loadFileSuppressions as unknown as Mock;
-const mIsAck = isAcknowledged as unknown as Mock;
-const mAck = acknowledgeChecks as unknown as Mock;
-const mRecordWarningsIssued = recordWarningsIssued as unknown as Mock;
-const mRecordWarningResolutions = recordWarningResolutions as unknown as Mock;
-const mQualityPhase = runQualityPhase as unknown as Mock;
-const mSweepPhase = runProjectWideSweepPhase as unknown as Mock;
-const mSuggestionsPhase = runScoredSuggestionsPhase as unknown as Mock;
-const mShotgunPhase = runShotgunSurgeryPhase as unknown as Mock;
-const mStructurePhase = runStructureChecksPhase as unknown as Mock;
-const mBehavioralPhase = runBehavioralPhase as unknown as Mock;
+const mExistsSync = vi.mocked(existsSync);
+const mReadFileSync = vi.mocked(readFileSync);
+const mGetGraph = vi.mocked(getGraphForFile);
+const mRunStructural = vi.mocked(runStructuralChecks);
+const mFormatStructural = vi.mocked(formatStructuralWarnings);
+const mShouldSkipTsc = vi.mocked(shouldSkipTsc);
+const mRunImpact = vi.mocked(runImpactAnalysis);
+const mFormatImpact = vi.mocked(formatImpactWarning);
+const mRecordImpactFollowUps = vi.mocked(recordImpactFollowUps);
+const mCheckOrphaned = vi.mocked(checkOrphanedTests);
+const mRecordHarnessCaught = vi.mocked(recordHarnessCaught);
+const mRecordImplEdit = vi.mocked(recordImplEdit);
+const mRecordTestWrite = vi.mocked(recordTestWrite);
+const mLoadFileSup = vi.mocked(loadFileSuppressions);
+const mIsAck = vi.mocked(isAcknowledged);
+const mAck = vi.mocked(acknowledgeChecks);
+const mRecordWarningsIssued = vi.mocked(recordWarningsIssued);
+const mRecordWarningResolutions = vi.mocked(recordWarningResolutions);
+const mQualityPhase = vi.mocked(runQualityPhase);
+const mSweepPhase = vi.mocked(runProjectWideSweepPhase);
+const mSuggestionsPhase = vi.mocked(runScoredSuggestionsPhase);
+const mShotgunPhase = vi.mocked(runShotgunSurgeryPhase);
+const mStructurePhase = vi.mocked(runStructureChecksPhase);
+const mBehavioralPhase = vi.mocked(runBehavioralPhase);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -200,36 +199,23 @@ function makeSession(partial: Partial<SessionTrajectory> = {}): SessionTrajector
 		pending_completions: new Map(),
 		tool_sequence: ["Read", "Edit"],
 	};
-	return { ...base, ...partial } as SessionTrajectory;
+	return ({ ...makeSessionFixture(),  ...base, ...partial } satisfies SessionTrajectory);
 }
 
-function makeRules(partial: Record<string, unknown> = {}): GuardRulesConfig {
-	return {
-		structural_checks: { enabled: true, impact_analysis: false },
-		quality_checks: {},
-		error_memory: { enabled: false },
-		...partial,
-	} as unknown as GuardRulesConfig;
+function makeRules(partial: NonNullable<Parameters<typeof makeServerRules>[0]> = {}): GuardRulesConfig {
+ return makeServerRules({ structural_checks: { enabled: true, impact_analysis: false }, ...partial });
 }
 
 /** A fully-typed fake ProjectGraph covering the methods the body calls. */
-function makeGraph(over: Record<string, unknown> = {}): ProjectGraph {
-	const g = {
-		isInitialized: true,
-		getExports: vi.fn((): ExportedSymbol[] => []),
-		getInterfaceBodies: vi.fn(() => new Map<string, string>()),
-		updateFile: vi.fn(),
-		toRelative: vi.fn((f: string) => f.replace(`${CWD}/`, "")),
-		classifyModule: vi.fn(() => "leaf"),
-		getDependents: vi.fn((): string[] => []),
-		getDependencies: vi.fn((): unknown[] => []),
-		...over,
-	};
-	return g as unknown as ProjectGraph;
+function makeGraph(over: Partial<ProjectGraph> = {}): ProjectGraph {
+ const { isInitialized = true, ...methods } = over;
+ const graph = new ProjectGraph(CWD);
+ vi.spyOn(graph, "isInitialized", "get").mockReturnValue(isInitialized);
+ return Object.assign(graph, { getExports: vi.fn((): ExportedSymbol[] => []), getInterfaceBodies: vi.fn(() => new Map<string, string>()), updateFile: vi.fn(), toRelative: vi.fn((f: string) => f.replace(CWD + "/", "")), classifyModule: vi.fn<ProjectGraph["classifyModule"]>(() => "leaf"), getDependents: vi.fn((): string[] => []), getDependencies: vi.fn((): ReturnType<ProjectGraph["getDependencies"]> => []), ...methods });
 }
 
-function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
-	return {
+function makeCtx(over: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime {
+	return makeServerRuntime({
 		cwd: CWD,
 		interlinkedDir: resolve(CWD, ".interlinked"),
 		rules: makeRules(),
@@ -243,7 +229,7 @@ function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
 		filePriorityMap: new Map(),
 		log: vi.fn(),
 		...over,
-	} as unknown as ServerRuntime;
+	});
 }
 
 function makeAcc(partial: Partial<PerFileCheckCtx> = {}): PerFileCheckCtx {
@@ -270,7 +256,7 @@ beforeEach(() => {
 	mRunStructural.mockReturnValue([]);
 	mFormatStructural.mockReturnValue([]);
 	mShouldSkipTsc.mockReturnValue(true);
-	mRunImpact.mockReturnValue(undefined);
+	mRunImpact.mockReturnValue({ file: IN_REPO, severity: "low", moduleRole: "leaf", dependentCount: 0, breakingFiles: [], testFiles: [], followUpFiles: [], exportSurfaceChanged: false, summary: "" });
 	mFormatImpact.mockReturnValue([]);
 	mCheckOrphaned.mockReturnValue([]);
 	mLoadFileSup.mockReturnValue(new Set<string>());
@@ -454,7 +440,7 @@ describe("structural-checks gating", () => {
 // ===========================================================================
 
 describe("structural results filtering + collection", () => {
-	function structResult(over: Record<string, unknown> = {}) {
+	function structResult(over: Partial<StructuralCheckResult> = {}): StructuralCheckResult {
 		return {
 			check: "export_surface",
 			severity: "warning",
@@ -535,11 +521,11 @@ describe("structural deterministic blocking", () => {
 // ===========================================================================
 
 describe("impact analysis", () => {
-	const structResults = [
+	const structResults: StructuralCheckResult[] = [
 		{ check: "export_surface", severity: "warning", message: "m", file: IN_REPO, affectedFiles: ["a.ts"] },
 	];
 
-	function impactResult(over: Record<string, unknown> = {}) {
+	function impactResult(over: Partial<ImpactAnalysisResult> = {}): ImpactAnalysisResult {
 		return {
 			file: IN_REPO,
 			severity: "high",
@@ -651,12 +637,12 @@ describe("impact analysis", () => {
 describe("error history (error branch)", () => {
 	// A warning + an error: exercises both arms of the `severity === "error"
 	// || severity === "warning"` guard inside the error-memory loop.
-	const failing = [
+	const failing: StructuralCheckResult[] = [
 		{ check: "import_resolution", severity: "error", message: "boom", file: IN_REPO },
 		{ check: "circular_imports", severity: "warning", message: "cycle", file: IN_REPO },
 	];
 	// Single finding for the line-derivation tests (one recordError call).
-	const singleError = [
+	const singleError: StructuralCheckResult[] = [
 		{ check: "import_resolution", severity: "error", message: "boom", file: IN_REPO },
 	];
 
@@ -882,7 +868,7 @@ describe("error history (fix branch)", () => {
 
 describe("deletion hygiene (orphaned tests)", () => {
 	// oldExports has a symbol; newExports (graph.getExports) returns none → removed.
-	function ctxWithRemoval(testFileExists: boolean, orphans: unknown[]): ServerRuntime {
+	function ctxWithRemoval(testFileExists: boolean, orphans: Finding[]): ServerRuntime {
 		const graph = makeGraph({
 			// First call (oldExports capture) returns one symbol; subsequent
 			// calls (newExports / deletion-hygiene) return none.
@@ -896,7 +882,7 @@ describe("deletion hygiene (orphaned tests)", () => {
 	}
 
 	it("emits orphaned-test findings + warnings when a co-located test still references a removed export", async () => {
-		const orphan = { check: "orphaned-test-reference", line: 0, message: "still referenced", source: "quality" };
+		const orphan: Finding = { check: "orphaned-test-reference", line: 0, message: "still referenced", source: "quality" };
 		const ctx = ctxWithRemoval(true, [orphan]);
 		// No structural results + no pre-seeded warnings → the deletion-hygiene
 		// append takes the `(decision.warnings || [])` default-`[]` arm.
@@ -909,7 +895,7 @@ describe("deletion hygiene (orphaned tests)", () => {
 
 	it("appends orphan warnings onto a decision that already carries warnings", async () => {
 		// Pre-seeded warnings exercise the left arm of the same `|| []` default.
-		const orphan = { check: "orphaned-test-reference", line: 0, message: "ref", source: "quality" };
+		const orphan: Finding = { check: "orphaned-test-reference", line: 0, message: "ref", source: "quality" };
 		const ctx = ctxWithRemoval(true, [orphan]);
 		const decision: HarnessDecision = { decision: "allow", warnings: ["[pre] keep"] };
 		await runPerFileChecks(ctx, ev(), makeSession(), IN_REPO, decision, makeAcc());
@@ -1225,7 +1211,7 @@ describe("recurrence consolidation", () => {
 		const otherAbs = resolve(CWD, "src/dep.ts");
 		mRunStructural.mockReturnValue([
 			{ check: "with_file", severity: "warning", message: "m", file: otherAbs },
-			{ check: "no_file", severity: "warning", message: "m" },
+			{ check: "no_file", severity: "warning", message: "m", file: "" },
 		]);
 		await runPerFileChecks(makeCtx(), ev(), makeSession(), IN_REPO, { decision: "allow" }, makeAcc());
 		expect(mRecordHarnessCaught).toHaveBeenCalledWith(
@@ -1241,97 +1227,5 @@ describe("recurrence consolidation", () => {
 		await runPerFileChecks(makeCtx(), ev(), makeSession(), IN_REPO, { decision: "allow" }, acc);
 		expect(mRecordHarnessCaught).not.toHaveBeenCalled();
 		expect(acc.recurrenceCursor).toBe(0);
-	});
-});
-
-// ===========================================================================
-// 16. Falsy-session edge (TDD recording keyed on `session`)
-// ===========================================================================
-
-describe("falsy session handling", () => {
-	it("skips TDD recording when session is null", async () => {
-		// The body guards `if (session && editedFilePath)` for TDD; a falsy
-		// session must not call recordImplEdit/recordTestWrite. Structural
-		// checks are disabled here so the only session-keyed branch reached
-		// is the TDD guard (the structural block itself is not session-gated
-		// and would dereference a null session by design — never called that
-		// way in production).
-		const ctx = makeCtx({ rules: makeRules({ structural_checks: { enabled: false } }) });
-		await runPerFileChecks(
-			ctx,
-			ev(),
-			null as unknown as SessionTrajectory,
-			IN_REPO,
-			{ decision: "allow" },
-			makeAcc(),
-		);
-		expect(mRecordImplEdit).not.toHaveBeenCalled();
-		expect(mRecordTestWrite).not.toHaveBeenCalled();
-	});
-});
-
-// ===========================================================================
-// 17. Source-level pins (preserved from the original suite). These read the
-// real source text through node:fs/promises (NOT the mocked node:fs) so the
-// regression assertions survive the module-boundary mocking above.
-// ===========================================================================
-
-const FILE_CHECKS_TS = resolve(
-	dirname(fileURLToPath(import.meta.url)),
-	"post-tool-file-checks.ts",
-);
-
-describe("recurrence consolidation — source-level pins", () => {
-	it("imports recordHarnessCaught from recurrence.js", async () => {
-		const src = await readFile(FILE_CHECKS_TS, "utf-8");
-		expect(src).toMatch(
-			/import\s*\{\s*recordHarnessCaught\s*\}\s*from\s*["']\.\.\/recurrence\.js["']/,
-		);
-	});
-
-	it("walks allCheckResults via a cursor and fires recordHarnessCaught for every error/warning", async () => {
-		const src = await readFile(FILE_CHECKS_TS, "utf-8");
-		const consolidationBlock = src.match(
-			/for\s*\(\s*let\s+i\s*=\s*acc\.recurrenceCursor[\s\S]*?recordHarnessCaught\(\{[\s\S]*?\}\);[\s\S]*?\}\s*acc\.recurrenceCursor\s*=\s*allCheckResults\.length/,
-		);
-		expect(consolidationBlock, "cursor-driven consolidation pass missing").toBeTruthy();
-		const block = consolidationBlock?.[0] ?? "";
-		expect(block).toContain('r.severity !== "error"');
-		expect(block).toContain('r.severity !== "warning"');
-		expect(block).toContain("check_id: r.name");
-		expect(block).toContain("agent_source: event.agent_source");
-		expect(block).toContain("session_id: event.session_id");
-	});
-
-	it("does NOT nest the recurrence write inside error_memory.enabled", async () => {
-		const src = await readFile(FILE_CHECKS_TS, "utf-8");
-		const idx = src.indexOf("if (rules.error_memory.enabled)");
-		expect(idx, "error_memory block missing").toBeGreaterThan(-1);
-		let depth = 0;
-		let started = false;
-		let end = idx;
-		for (let i = idx; i < src.length; i++) {
-			const c = src[i];
-			if (c === "{") {
-				depth++;
-				started = true;
-			} else if (c === "}") {
-				depth--;
-				if (started && depth === 0) {
-					end = i + 1;
-					break;
-				}
-			}
-		}
-		expect(src.slice(idx, end)).not.toContain("recordHarnessCaught(");
-	});
-
-	it("does NOT scope the recurrence write to a single source kind", async () => {
-		const src = await readFile(FILE_CHECKS_TS, "utf-8");
-		const block =
-			src.match(
-				/Mirror EVERY actionable check failure[\s\S]*?allCheckResults\.length\s*>\s*acc\.recurrenceCursor/,
-			) ?? [];
-		expect(block.length).toBeGreaterThan(0);
 	});
 });

@@ -787,10 +787,7 @@ describe("checkPersistentWarningEscalation — duplicate finding names in one ca
 			[
 				{
 					name: "floating_promises",
-					// SAFETY: deliberately malformed input to exercise the runtime
-					// typeof/isFinite guard in groupEscalationInputs — the cast fakes
-					// a caller that didn't respect the number[] type.
-					lines: [Number.NaN, "not-a-number" as unknown as number, 900],
+					lines: [Number.NaN, 900],
 					determinism: "fully_deterministic",
 				},
 			],

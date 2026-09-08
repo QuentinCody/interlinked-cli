@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import {
 	buildEnvelope,
 	extractToolUseIds,
 	persistableHeaders,
 	splitRequestBody,
 } from "./inference-envelope.js";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 
 describe("persistableHeaders — positive (must fire)", () => {
 	it("joins an array header value into a comma-separated string", () => {
@@ -20,7 +20,7 @@ describe("persistableHeaders — positive (must fire)", () => {
 	it("drops a persisted header whose value is neither string nor array", () => {
 		// kills 370da12d0811785d (str !== null -> true): a mutant that always
 		// assigns str would set the key to null instead of omitting it.
-		const out = persistableHeaders({ "anthropic-version": 12345 as unknown as string });
+		const out = persistableHeaders({ "anthropic-version": 12345 });
 		expect(Object.prototype.hasOwnProperty.call(out, "anthropic-version")).toBe(false);
 		expect(out).toEqual({});
 	});
@@ -38,7 +38,7 @@ describe("extractToolUseIds — positive and negative (must fire / must not fire
 		// null and throw.
 		const response: JsonObject = {
 			content: [null, { type: "tool_use", id: "abc" }],
-		} as unknown as JsonObject;
+		};
 		expect(() => extractToolUseIds(response)).not.toThrow();
 		expect(extractToolUseIds(response)).toEqual(["abc"]);
 	});
@@ -49,12 +49,8 @@ describe("extractToolUseIds — positive and negative (must fire / must not fire
 		// not null and not typeof "object", but can still carry own properties
 		// named type/id, so any mutant that skips or weakens the
 		// null/typeof-object guard will incorrectly include it.
-		const fakeBlock = function fakeBlock() {
-			/* noop */
-		} as unknown as JsonObject;
-		(fakeBlock as unknown as { type: string }).type = "tool_use";
-		(fakeBlock as unknown as { id: string }).id = "fn-id-1";
-		const response: JsonObject = { content: [fakeBlock] } as unknown as JsonObject;
+		const fakeBlock = Object.assign(function fakeBlock() {}, { type: "tool_use", id: "fn-id-1" });
+		const response: JsonObject = { content: [fakeBlock] };
 		expect(extractToolUseIds(response)).toEqual([]);
 	});
 
@@ -62,7 +58,7 @@ describe("extractToolUseIds — positive and negative (must fire / must not fire
 		// kills f2364c84b20d7b24 (type === "tool_use" -> true)
 		const response: JsonObject = {
 			content: [{ type: "text", id: "should-not-be-collected" }],
-		} as unknown as JsonObject;
+		};
 		expect(extractToolUseIds(response)).toEqual([]);
 	});
 
@@ -70,7 +66,7 @@ describe("extractToolUseIds — positive and negative (must fire / must not fire
 		// kills 03ff352edff85a75 (typeof id === "string" -> true)
 		const response: JsonObject = {
 			content: [{ type: "tool_use", id: 42 }],
-		} as unknown as JsonObject;
+		};
 		expect(extractToolUseIds(response)).toEqual([]);
 	});
 
@@ -81,7 +77,7 @@ describe("extractToolUseIds — positive and negative (must fire / must not fire
 				{ type: "tool_use", id: "id-1" },
 				{ type: "tool_use", id: "id-2" },
 			],
-		} as unknown as JsonObject;
+		};
 		expect(extractToolUseIds(response)).toEqual(["id-1", "id-2"]);
 	});
 });
@@ -99,8 +95,8 @@ describe("buildEnvelope — request field presence (must fire / must not fire)",
 			tsRequest: "2026-01-01T00:00:00.000Z",
 			tsResponse: "2026-01-01T00:00:01.000Z",
 			requestHeaders: {},
-			requestBody: {} as JsonObject,
-			response: {} as JsonObject,
+			requestBody: {},
+			response: {},
 		});
 		const requestKeys = Object.keys(env.request).sort();
 		expect(requestKeys).toEqual(["params"]);
@@ -125,20 +121,21 @@ describe("buildEnvelope — request field presence (must fire / must not fire)",
 			tools: [{ name: "t1" }],
 			messages: [{ role: "user", content: "hi" }],
 			extra_param: 7,
-		} as unknown as JsonObject;
+		};
 		const env = buildEnvelope({
 			requestIndex: 1,
 			tsRequest: "2026-01-01T00:00:00.000Z",
 			tsResponse: "2026-01-01T00:00:01.000Z",
 			requestHeaders: {},
 			requestBody: body,
-			response: {} as JsonObject,
+			response: {},
 		});
 		expect(env.request.model).toBe("claude-x");
 		expect(env.request.system).toBe("be nice");
 		expect(env.request.tools).toEqual([{ name: "t1" }]);
 		expect(env.request.messages).toEqual([{ role: "user", content: "hi" }]);
-		expect((env.request.params as JsonObject).extra_param).toBe(7);
+		assert(isJsonObject(env.request.params));
+		expect(env.request.params.extra_param).toBe(7);
 	});
 
 	it("stamps provider as the literal string \"anthropic\"", () => {
@@ -148,8 +145,8 @@ describe("buildEnvelope — request field presence (must fire / must not fire)",
 			tsRequest: "2026-01-01T00:00:00.000Z",
 			tsResponse: "2026-01-01T00:00:01.000Z",
 			requestHeaders: {},
-			requestBody: {} as JsonObject,
-			response: {} as JsonObject,
+			requestBody: {},
+			response: {},
 		});
 		expect(env.provider).toBe("anthropic");
 		expect(env.provider.length).toBeGreaterThan(0);
@@ -158,7 +155,7 @@ describe("buildEnvelope — request field presence (must fire / must not fire)",
 
 describe("splitRequestBody sanity", () => {
 	it("splits load-bearing fields from params losslessly", () => {
-		const body = { model: "m", system: "s", tools: [], messages: [], extra: 1 } as unknown as JsonObject;
+		const body = { model: "m", system: "s", tools: [], messages: [], extra: 1 };
 		const split = splitRequestBody(body);
 		expect(split.model).toBe("m");
 		expect(split.system).toBe("s");

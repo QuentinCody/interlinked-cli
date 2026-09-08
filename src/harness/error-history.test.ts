@@ -45,7 +45,7 @@ beforeEach(() => {
 	mockFs.readFileSync.mockReturnValue("");
 	mockFs.appendFileSync.mockReturnValue(undefined);
 	mockFs.writeFileSync.mockReturnValue(undefined);
-	mockFs.mkdirSync.mockReturnValue(undefined as unknown as string);
+	mockFs.mkdirSync.mockReturnValue(undefined);
 });
 
 // vitest 4: resetAllMocks keeps the automock in place (restoreAllMocks would
@@ -70,8 +70,9 @@ function result(over: Partial<StructuralCheckResult> = {}): StructuralCheckResul
 		check: "no-cycles",
 		severity: "error",
 		message: "circular dependency",
+		file: "src/foo.ts",
 		...over,
-	} as StructuralCheckResult;
+	};
 }
 
 // A real ModuleRole value (not "core" — that was never a valid member of the
@@ -491,7 +492,7 @@ describe("getFileHistoryWarning", () => {
 		expect(msg).toContain("c1 (2x)"); // most frequent first
 		expect(msg).toContain("may still be unresolved");
 		// top-3 only: the 4th distinct check by frequency is dropped from the summary
-		expect((msg as string).split(", ").length).toBeLessThanOrEqual(4);
+		expect((nonNull(msg)).split(", ").length).toBeLessThanOrEqual(4);
 	});
 
 	it("reports the all-resolved variant when every record is fixed (unfixed === 0)", async () => {

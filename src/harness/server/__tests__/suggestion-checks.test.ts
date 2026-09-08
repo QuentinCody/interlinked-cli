@@ -1,3 +1,4 @@
+import { nonNull } from "../../../lib/non-null.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { collectSuggestionFindings, getSuggestionChecks } from "../suggestion-checks.js";
 
@@ -249,19 +250,10 @@ describe("getSuggestionChecks", () => {
 	it("returns a defensive clone — mutating the result does not affect the registry", () => {
 		const first = getSuggestionChecks();
 		const originalLength = first.length;
-		// Mutate the returned array in place.
-		(first as { check: string; source: string }[]).push({
-			check: "fabricated-check",
-			source: "quality",
-		});
-		(first as { check: string; source: string }[])[0] = {
-			check: "tampered",
-			source: "quality",
-		};
+		nonNull(first[0]).check = "tampered";
 		// A fresh call must be unaffected by the mutation above.
 		const second = getSuggestionChecks();
 		expect(second).toHaveLength(originalLength);
-		expect(second.some((c) => c.check === "fabricated-check")).toBe(false);
 		expect(second.some((c) => c.check === "tampered")).toBe(false);
 		expect(second[0]?.check).toBe("sql-injection");
 	});

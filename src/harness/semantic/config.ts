@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../lib/json-types.js";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -41,26 +42,26 @@ function defaultSemanticLocalConfig(): SemanticLocalConfig {
 function readObject(path: string): Record<string, unknown> | undefined {
     if (!existsSync(path)) return undefined;
     const value: unknown = JSON.parse(readFileSync(path, "utf8"));
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    if (!isJsonObject(value)) {
         throw new Error(`${path} must contain a JSON object`);
     }
-    return value as Record<string, unknown>;
+    return value;
 }
 
 function stringArray(value: unknown, fallback: string[], label: string): string[] {
     if (value === undefined) return fallback;
-    if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    if (!Array.isArray(value) || !value.every((item): item is string => typeof item === "string")) {
         throw new Error(`${label} must be an array of strings`);
     }
-    return value as string[];
+    return value;
 }
 
 function nonNegativeInteger(value: unknown, fallback: number, label: string): number {
     if (value === undefined) return fallback;
-    if (!Number.isInteger(value) || (value as number) < 0) {
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
         throw new Error(`${label} must be a non-negative integer`);
     }
-    return value as number;
+    return value;
 }
 
 function rejectUnknownKeys(raw: Record<string, unknown>, allowed: ReadonlySet<string>, label: string): void {

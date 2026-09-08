@@ -33,7 +33,7 @@ import { isJsonObject } from "../../lib/json-types.js";
 import type { JsonObject } from "../../lib/json-types.js";
 import { redactPii, scrubSecrets } from "../../lib/secrets.js";
 import { captureAgentTranscript } from "../timeline-capture.js";
-import type { AgentSource, HarnessEvent } from "../types.js";
+import type { HarnessEvent } from "../types.js";
 import {
 	readAgentMetrics,
 	rememberAgentType,
@@ -66,7 +66,7 @@ export const AGENT_TRANSCRIPT_REDRAIN_MS = 750;
 
 /** Provider label per agent source — same vocabulary the tool_event records
  *  use (`detectProvider` in lib/collection/builder.ts). */
-const PROVIDER_BY_SOURCE: Record<AgentSource, string> = {
+const PROVIDER_BY_SOURCE: Partial<Record<string, string>> = {
 	claude: "claude-code",
 	gemini: "gemini-cli",
 	copilot: "copilot",
@@ -101,14 +101,13 @@ function readTranscriptTail(path: string, tailBytes: number): string | null {
 /** The text of the LAST text block of one assistant transcript entry, or null. */
 function assistantEntryText(entry: JsonObject): string | null {
 	if (entry.type !== "assistant") return null;
-	// SAFETY: transcript lines are untyped JSON; every field read is guarded.
-	const message = entry.message as JsonObject | undefined;
-	const content = message?.content;
+	const message = entry.message;
+	if (!isJsonObject(message)) return null;
+	const content = message.content;
 	if (!Array.isArray(content)) return null;
 	for (let i = content.length - 1; i >= 0; i--) {
-		// SAFETY: untyped content block; type/text are guarded before use.
-		const block = content[i] as JsonObject | undefined;
-		if (block?.type === "text" && typeof block.text === "string" && block.text.trim()) {
+		const block: unknown = content[i];
+		if (isJsonObject(block) && block.type === "text" && typeof block.text === "string" && block.text.trim()) {
 			return block.text;
 		}
 	}
@@ -164,9 +163,7 @@ export function resolveFinalMessage(
 function eventField(event: HarnessEvent, key: string): string | null {
 	const fromInput = event.tool_input?.[key];
 	if (typeof fromInput === "string" && fromInput) return fromInput;
-	// SAFETY: raw-socket events carry extra top-level fields the interface
-	// doesn't declare; read-only string probe, type-guarded below.
-	const fromRoot = (event as unknown as JsonObject)[key];
+	const fromRoot = isJsonObject(event) ? event[key] : undefined;
 	return typeof fromRoot === "string" && fromRoot ? fromRoot : null;
 }
 
@@ -209,13 +206,14 @@ export function buildAgentEventRecord(
 ): AgentEventRecord {
 	const resolved = extras.resolved ?? null;
 	const label = extras.agentType ?? payloadLabel(event);
+	const provider = PROVIDER_BY_SOURCE[event.agent_source];
 	return {
 		schema: "collection.v1",
 		kind: "agent_event",
 		ts: event.timestamp,
 		session_id: event.session_id || null,
 		agent_name: event.agent_name ?? null,
-		provider: PROVIDER_BY_SOURCE[event.agent_source],
+		provider: typeof provider === "string" ? provider : event.agent_source,
 		event: name,
 		subagent_id: event.subagent_id ?? eventField(event, "agent_id"),
 		agent_type: label.type,

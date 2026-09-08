@@ -78,7 +78,7 @@ describe("buildFeeds", () => {
 		appendTestEvent(paths.testEvents, { ...base, name: "first" });
 		appendTestEvent(paths.testEvents, { ...base, name: "second" });
 		const tests = buildFeeds(paths, 1000).find((f) => f.route === "/api/tests");
-		expect(tests?.seed().map((e) => (e as TestEvent).name)).toEqual(["first", "second"]);
+		expect(tests?.seed()).toMatchObject([{ name: "first" }, { name: "second" }]);
 	});
 
 	it("folds the activity backlog into one presence per agent", () => {

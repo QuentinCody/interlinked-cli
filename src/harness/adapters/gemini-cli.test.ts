@@ -1,3 +1,5 @@
+import { outputObject, nestedHookSettings } from "./test-output.js";
+import { nonNull } from "../../lib/non-null.js";
 import { describe, expect, it } from "vitest";
 import { createGeminiCliAdapter } from "./gemini-cli.js";
 
@@ -58,29 +60,29 @@ describe("Gemini CLI encodeDecision", () => {
 	);
 	it("allow emits the native JSON no-op", () => {
 		const out = adapter.encodeDecision({ decision: "allow" }, event);
-		expect(JSON.parse(out.stdout as string)).toEqual({});
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({});
 	});
 	it("block emits decision deny through the exit-zero JSON channel", () => {
 		const out = adapter.encodeDecision({ decision: "block", reason: "bad" }, event);
 		expect(out.exit_code).toBe(0);
-		expect(JSON.parse(out.stdout as string)).toEqual({ decision: "deny", reason: "bad" });
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({ decision: "deny", reason: "bad" });
 	});
 	it("block with no reason falls back to the default harness-bug message", () => {
 		const out = adapter.encodeDecision({ decision: "block" }, event);
 		expect(out.exit_code).toBe(0);
-		const parsed = JSON.parse(out.stdout as string) as { decision: string; reason: string };
+		const parsed = outputObject(JSON.parse(nonNull(out.stdout)));
 		expect(parsed.decision).toBe("deny");
 		expect(parsed.reason).toMatch(/harness bug/);
 	});
 	it("an unsupported ask emits deny with the given reason", () => {
 		const out = adapter.encodeDecision({ decision: "ask", reason: "please confirm" }, event);
 		expect(out.exit_code).toBe(0);
-		expect(JSON.parse(out.stdout as string)).toEqual({ decision: "deny", reason: "please confirm" });
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({ decision: "deny", reason: "please confirm" });
 		expect(out.translation?.status).toBe("degraded");
 	});
 	it("ask with no reason falls back to the default confirmation message", () => {
 		const out = adapter.encodeDecision({ decision: "ask" }, event);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			decision: "deny",
 			reason: "Confirmation required",
 		});
@@ -137,7 +139,7 @@ describe("Gemini CLI renderSettingsFragment", () => {
 		const frag = adapter.renderSettingsFragment("/usr/local/bin/interlinked", "user");
 		expect(frag.path).toBe("~/.gemini/settings.json");
 		expect(frag.mergeStrategy).toBe("array-append");
-		const hooks = (frag.fragment as { hooks: Record<string, unknown[]> }).hooks;
+		const hooks = (nestedHookSettings(frag.fragment)).hooks;
 		expect(Object.keys(hooks).sort()).toEqual(
 			[
 				"SessionStart",

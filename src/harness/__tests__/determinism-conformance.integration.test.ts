@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireString } from "../../lib/value-validation.js";
 import { execFileSync } from "node:child_process";
 import { type Dirent, readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -228,7 +229,7 @@ describe("fresh-process replay (proof-of-enforcement §15 step 0)", () => {
 			env: { ...process.env, TZ: "Asia/Kolkata", LANG: "de_DE.UTF-8", LC_ALL: "de_DE.UTF-8" },
 			maxBuffer: 64 * 1024 * 1024,
 		});
-		const child = JSON.parse(childOut) as string[];
+		const child = parseWire(JSON.parse(childOut), wireArray(wireString), "test JSON value");
 
 		expect(child.length).toBe(inProcess.length);
 		const diverged = corpus

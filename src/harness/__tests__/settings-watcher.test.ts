@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireString } from "../../lib/value-validation.js";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,9 +50,7 @@ describe("createStripDebouncer — fake-timer unit tests", () => {
 		expect(calls[0]?.totalStripped).toBe(1);
 		expect(calls[0]?.entries[0]?.rule).toBe("Bash(PID=$(cat *)");
 
-		const after = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			permissions: { allow: string[] };
-		};
+		const after = parseWire(JSON.parse(readFileSync(settingsPath, "utf-8")), wireObject({ "permissions": wireObject({ "allow": wireArray(wireString) }) }), "test JSON value");
 		expect(after.permissions.allow).toEqual(["Bash(ls *)"]);
 	});
 
@@ -138,9 +137,7 @@ describe("createStripDebouncer — fake-timer unit tests", () => {
 
 		expect(calls).toHaveLength(0);
 		// File still has the malformed rule — strip never ran.
-		const after = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			permissions: { allow: string[] };
-		};
+		const after = parseWire(JSON.parse(readFileSync(settingsPath, "utf-8")), wireObject({ "permissions": wireObject({ "allow": wireArray(wireString) }) }), "test JSON value");
 		expect(after.permissions.allow).toEqual(["Bash(X=$(y *)"]);
 	});
 
@@ -236,9 +233,7 @@ describe("watchSettingsFiles — file-watching integration", () => {
 		expect(stripped[0]?.entries[0]?.rule).toBe("Bash(PID=$(cat *)");
 		expect(stripped[0]?.entries[0]?.reason).toBe("paren_imbalance");
 
-		const after = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			permissions: { allow: string[] };
-		};
+		const after = parseWire(JSON.parse(readFileSync(settingsPath, "utf-8")), wireObject({ "permissions": wireObject({ "allow": wireArray(wireString) }) }), "test JSON value");
 		expect(after.permissions.allow).toEqual(["Bash(ls *)"]);
 	});
 });

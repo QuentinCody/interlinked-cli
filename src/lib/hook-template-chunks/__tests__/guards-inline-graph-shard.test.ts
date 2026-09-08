@@ -33,6 +33,7 @@ function buildRuntimeInlineGuard(): InlineFn {
 	// `import { ... } from "node:fs"`. When we eval the chunk inside a
 	// `new Function`, those references are unbound — so we inject them as
 	// closures the runtime can resolve via `arguments` or a wrapping IIFE.
+	// SAFETY: the two named arguments bind the fs functions used by the trusted chunk, whose returned inlineGuardCheck is exercised on fresh, stale, and absent shards below.
 	const factory = new Function(
 		"existsSync",
 		"statSync",

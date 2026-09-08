@@ -1,13 +1,16 @@
+import { makeSession as completeSessionFixture, makeMinimalEvent as completeEventFixture } from "./__tests__/fixtures/evaluator.js";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeGuardRules } from "./evaluator/__tests__/fixtures.js";
+import type { FoldKind, FoldOutcome } from "./baseline-autofold-folds.js";
 
 const mocks = vi.hoisted(() => ({
-	foldCoverage: vi.fn(),
-	foldUntestedFiles: vi.fn(),
-	foldLargeFiles: vi.fn(),
-	toRepoRelative: vi.fn(),
+	foldCoverage: vi.fn<typeof import("./baseline-autofold-folds.js").foldCoverage>(),
+	foldUntestedFiles: vi.fn<typeof import("./baseline-autofold-folds.js").foldUntestedFiles>(),
+	foldLargeFiles: vi.fn<typeof import("./baseline-autofold-folds.js").foldLargeFiles>(),
+	toRepoRelative: vi.fn<typeof import("./baseline-autofold-folds.js").toRepoRelative>(),
 }));
 
 vi.mock("./baseline-autofold-folds.js", () => ({
@@ -23,17 +26,16 @@ import {
 	runSessionEndBaselineAutoFold,
 	sessionStartMs,
 } from "./baseline-autofold.js";
-import type { GuardRulesConfig, HarnessEvent, SessionTrajectory } from "./types.js";
+import type { HarnessEvent, SessionTrajectory } from "./types.js";
 
-// The loose return type mirrors FoldOutcome variants used by the mock call sites.
-function noChangeOutcome(kind: string): any {
+function noChangeOutcome(kind: FoldKind): FoldOutcome {
 	return { kind, changed: 0, refused: 0, skipped: "no-change", details: [], dryRun: false };
 }
 
 describe("sessionStartMs", () => {
 	it("parses a defined started_at instead of collapsing it to '' (?? -> && mutant)", () => {
 		const iso = "2026-01-01T00:00:00.000Z";
-		const session = { started_at: iso } as unknown as SessionTrajectory;
+		const session = ({ ...completeSessionFixture(), ...{ started_at: iso } });
 		expect(sessionStartMs(session)).toBe(Date.parse(iso));
 		expect(sessionStartMs(session)).not.toBe(0);
 	});
@@ -53,7 +55,7 @@ describe("runBaselineAutoFold", () => {
 		mocks.foldUntestedFiles.mockReset();
 		mocks.foldLargeFiles.mockReset();
 		mocks.toRepoRelative.mockReset();
-		mocks.toRepoRelative.mockImplementation((_cwd: string, files: string[]) => files);
+		mocks.toRepoRelative.mockImplementation((_cwd, files) => [...files]);
 	});
 
 	afterEach(() => {
@@ -191,7 +193,7 @@ describe("runSessionEndBaselineAutoFold", () => {
 		mocks.foldUntestedFiles.mockReset();
 		mocks.foldLargeFiles.mockReset();
 		mocks.toRepoRelative.mockReset();
-		mocks.toRepoRelative.mockImplementation((_cwd: string, files: string[]) => files);
+		mocks.toRepoRelative.mockImplementation((_cwd, files) => [...files]);
 	});
 
 	afterEach(() => {
@@ -206,9 +208,9 @@ describe("runSessionEndBaselineAutoFold", () => {
 	) {
 		return {
 			cwd,
-			rules: {} as unknown as GuardRulesConfig,
+			rules: makeGuardRules(),
 			log: (msg: string) => logs.push(msg),
-			event: overrides.event ?? ({ session_id: "s1", dry_run: false } as unknown as HarnessEvent),
+			event: overrides.event ?? (({ ...completeEventFixture(), ...{ session_id: "s1", dry_run: false } })),
 			session: overrides.session,
 		};
 	}
@@ -224,15 +226,12 @@ describe("runSessionEndBaselineAutoFold", () => {
 		expect(logs.some((l) => l.includes("failed"))).toBe(false);
 	});
 
-	it("defaults files_written to an empty array, not a sentinel one", () => {
+	it("folds an empty file list when there is no session", () => {
 		mocks.foldCoverage.mockReturnValue(noChangeOutcome("coverage"));
 		mocks.foldUntestedFiles.mockReturnValue(noChangeOutcome("untested_files"));
 		mocks.foldLargeFiles.mockReturnValue(noChangeOutcome("large_files"));
 
-		const session = {
-			started_at: "2026-01-01T00:00:00.000Z",
-		} as unknown as SessionTrajectory;
-		runSessionEndBaselineAutoFold(baseOpts({ session }));
+		runSessionEndBaselineAutoFold(baseOpts());
 
 		expect(mocks.toRepoRelative).toHaveBeenCalledTimes(1);
 		expect(mocks.toRepoRelative).toHaveBeenCalledWith(cwd, []);
@@ -243,7 +242,7 @@ describe("runSessionEndBaselineAutoFold", () => {
 			kind: "coverage",
 			changed: 1,
 			refused: 0,
-			skipped: undefined,
+			skipped: null,
 			details: ["x"],
 			dryRun: false,
 		});
@@ -251,7 +250,7 @@ describe("runSessionEndBaselineAutoFold", () => {
 		mocks.foldLargeFiles.mockReturnValue(noChangeOutcome("large_files"));
 
 		runSessionEndBaselineAutoFold(
-			baseOpts({ event: { session_id: "", dry_run: false } as unknown as HarnessEvent }),
+			baseOpts({ event: ({ ...completeEventFixture(), ...{ session_id: "", dry_run: false } }) }),
 		);
 
 		const logPath = join(cwd, BASELINE_FOLD_LOG_REL);

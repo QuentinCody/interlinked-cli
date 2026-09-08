@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireString } from "../lib/value-validation.js";
 // ===========================================
 // interlinked debt — CLI subcommand behavioral tests
 // ===========================================
@@ -104,7 +105,7 @@ describe("interlinked debt list", () => {
 		seedOpen("src/foo.ts", "red_suite");
 		await debtListCommand({ cwd: root, json: true });
 		// SAFETY: shape pinned by the command's --json contract, asserted below.
-		const rows = JSON.parse(out()) as Array<{ kind: string; file: string }>;
+		const rows = parseWire(JSON.parse(out()), wireArray(wireObject({ "kind": wireString, "file": wireString })), "test JSON value");
 		expect(rows).toHaveLength(1);
 		expect(rows[0]).toMatchObject({ kind: "red_suite", file: "src/foo.ts" });
 	});
@@ -151,7 +152,7 @@ describe("interlinked debt — defaults cwd to process.cwd()", () => {
 		seedOpen("src/foo.ts");
 		await debtListCommand({ json: true });
 		// SAFETY: shape pinned by the command's --json contract, asserted below.
-		const rows = JSON.parse(out()) as Array<{ file: string }>;
+		const rows = parseWire(JSON.parse(out()), wireArray(wireObject({ "file": wireString })), "test JSON value");
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.file).toBe("src/foo.ts");
 	});
@@ -179,7 +180,7 @@ describe("interlinked debt show", () => {
 	it("reports no-history as structured JSON on --json", async () => {
 		await debtShowCommand("src/never-debted.ts", { cwd: root, json: true });
 		// SAFETY: outputError's --json contract ({error, details}), asserted below.
-		const parsed = JSON.parse(err()) as { error: string };
+		const parsed = parseWire(JSON.parse(err()), wireObject({ "error": wireString }), "test JSON value");
 		expect(parsed.error).toContain("src/never-debted.ts");
 		expect(process.exitCode).toBe(1);
 	});
@@ -231,11 +232,7 @@ describe("interlinked debt show", () => {
 		seedOpen("src/foo.ts", "red_suite");
 		await debtShowCommand("src/foo.ts", { cwd: root, json: true });
 		// SAFETY: shape pinned by the command's --json contract, asserted below.
-		const parsed = JSON.parse(out()) as {
-			file: string;
-			open: Array<{ kind: string }>;
-			txns: Array<{ op: string }>;
-		};
+		const parsed = parseWire(JSON.parse(out()), wireObject({ "file": wireString, "open": wireArray(wireObject({ "kind": wireString })), "txns": wireArray(wireObject({ "op": wireString })) }), "test JSON value");
 		expect(parsed.file).toBe("src/foo.ts");
 		expect(parsed.open).toHaveLength(1);
 		expect(parsed.txns.map((t) => t.op)).toEqual(["open"]);
@@ -280,10 +277,7 @@ describe("interlinked debt resolve", () => {
 		seedOpen("src/foo.ts", "coverage");
 		await debtResolveCommand("src/foo.ts", { cwd: root, json: true });
 		// SAFETY: shape pinned by the command's --json contract, asserted below.
-		const parsed = JSON.parse(out()) as {
-			file: string;
-			resolved: Array<{ id: string; kind: string }>;
-		};
+		const parsed = parseWire(JSON.parse(out()), wireObject({ "file": wireString, "resolved": wireArray(wireObject({ "id": wireString, "kind": wireString })) }), "test JSON value");
 		expect(parsed.file).toBe("src/foo.ts");
 		expect(parsed.resolved).toEqual([
 			{ id: obligationId("coverage", "src/foo.ts"), kind: "coverage" },

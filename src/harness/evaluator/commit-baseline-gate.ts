@@ -16,6 +16,7 @@
 // edit-time gate — only the INTERLINKED_DISABLE_BASELINE_GUARD=1 env bypass). Cheap
 // (two `git show` reads per baseline, no suite). FAIL-OPEN on every uncertainty.
 
+import { readToolString } from "./tool-input-values.js";
 import { resolve } from "node:path";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 import { detectBaselineGaming } from "./baseline-integrity-gate.js";
@@ -46,7 +47,7 @@ const TRACKED_BASELINES = [
 export function checkCommitBaselineGate(event: HarnessEvent): HarnessDecision | null {
 	if (process.env.INTERLINKED_DISABLE_BASELINE_GUARD === "1") return null;
 
-	const command = (event.tool_input?.command as string) || "";
+	const command = readToolString(event.tool_input?.command);
 	const parse = parseGitCommit(command);
 	if (!parse?.isCommit) return null;
 

@@ -93,11 +93,10 @@ export function contractsFor(leaf: ProvenanceLeaf, source: "fresh" | "cache"): F
 // Exemplars, not a hand-written list: the census is WALKED from values whose
 // types are the bindings themselves, so a field added to a binding shows up
 // here without anyone remembering to add it.
-/** SAFETY: the ONE cast in this module. The census only ever WALKS these
- *  values for their key structure; no exemplar is hashed, compared, or sent.
- *  Typing them as the real bindings is what makes a newly added field appear
- *  in the census automatically — and makes a removed one fail the build. */
+/** Typed exemplars make binding-field additions visible to the key census. */
 function placeholder<T extends string>(): T {
+	// SAFETY: the census only walks exemplar keys; these string values are
+	// never hashed, compared, or sent as real binding values.
 	return "exemplar" as T;
 }
 

@@ -637,7 +637,7 @@ describe("readCommand", () => {
 				ev({
 					ts_ms: T0 + i * 100,
 					hook_event: "PostToolUseFailure",
-					tool_input: { command: 42 as unknown as string },
+					tool_input: { command: 42 },
 					succeeded: false,
 				}),
 			),

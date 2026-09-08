@@ -18,6 +18,7 @@
 // evaluation so dormant rules short-circuit without spending regex cycles.
 // See docs/design/harness-active-when-scoping.md.
 
+import { readOptionalToolString } from "./tool-input-values.js";
 import { getActiveCohort } from "../cohort.js";
 import { harnessNow } from "../replay/harness-clock.js";
 import type {
@@ -164,8 +165,8 @@ function evaluateAfterCommandAxis(
 
 function evaluateFileScopeAxis(pattern: string, event: HarnessEvent): boolean {
 	const filePath =
-		(event.tool_input?.file_path as string | undefined) ||
-		(event.tool_input?.path as string | undefined) ||
+		(readOptionalToolString(event.tool_input?.file_path)) ||
+		(readOptionalToolString(event.tool_input?.path)) ||
 		"";
 	if (!filePath) return false;
 	return getCachedRegex(pattern).test(filePath);

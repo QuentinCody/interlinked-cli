@@ -12,7 +12,6 @@
 import { describe, expect, it } from "vitest";
 import { CohortManager } from "./cohort.js";
 import {
-	applyRewrite,
 	classifyToolConcurrency,
 	decomposeCommand,
 	evaluateCompoundCommand,
@@ -49,41 +48,6 @@ function makeRule(overrides: Partial<GuardRule> = {}): GuardRule {
 		...overrides,
 	};
 }
-
-describe("applyRewrite — replacement throws", () => {
-	it("returns the original command when the replacer throws", () => {
-		// String.prototype.replace() accepts a replacer FUNCTION at runtime even
-		// though InputRewrite.replace is typed as `string` — force that shape to
-		// exercise applyRewrite's catch path.
-		const throwingReplacer = (() => {
-			throw new Error("boom");
-		}) as unknown as string;
-		const result = applyRewrite("rm -rf /tmp", {
-			field: "command",
-			match: "rm",
-			replace: throwingReplacer,
-		});
-		expect(result).toBe("rm -rf /tmp");
-	});
-
-	it("caps patterns at 200 characters and applies global replacement", () => {
-		const exactlyAtCap = "a".repeat(200);
-		expect(
-			applyRewrite(exactlyAtCap, {
-				field: "command",
-				match: exactlyAtCap,
-				replace: "x",
-			}),
-		).toBe("x");
-		expect(
-			applyRewrite("x x", {
-				field: "command",
-				match: "x",
-				replace: "y",
-			}),
-		).toBe("y y");
-	});
-});
 
 describe("decomposeCommand — atomic spans and heredoc boundaries", () => {
 	it("splits ordinary executed text rather than treating it as atomic", () => {

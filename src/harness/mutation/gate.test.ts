@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import { MutationNotMeasurableError } from "./cloud-runner.js";
 import {
 	type FileOverlay,
@@ -528,9 +528,11 @@ describe("runPerEditMutationGate — local-dependency overlay walk (spec §7)", 
 				return Promise.resolve({ mutants: [survivor("killed")] });
 			},
 		};
+		const source = files[TARGET];
+		assert.isDefined(source);
 		await runPerEditMutationGate(
 			ctx({
-				toolInput: { file_path: TARGET, content: files[TARGET] as string },
+				toolInput: { file_path: TARGET, content: source },
 				runner: capturing,
 				readDisk,
 			}),

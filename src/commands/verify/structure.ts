@@ -1,3 +1,4 @@
+import { errorMessage } from "../../lib/error-message.js";
 // ===========================================
 // Structure verification helpers
 // ===========================================
@@ -222,7 +223,7 @@ export async function runStructureVerify(
 		applyAdoptionGate(opts, resolvedConfig, adoption);
 	} catch (e) {
 		process.stderr.write(
-			`  \x1b[31mStructure verification failed:\x1b[0m ${(e as Error).message}\n`,
+			`  \x1b[31mStructure verification failed:\x1b[0m ${errorMessage(e)}\n`,
 		);
 		process.exitCode = EXIT_STRUCTURE_ERROR;
 	}

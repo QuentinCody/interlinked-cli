@@ -32,8 +32,11 @@ type ShardFn = (
 /** Rebuild the guards from their serialized source exactly the way
  *  `guards-inline.ts` splices them into the .mjs: a bare run of function
  *  declarations, then the entry point returned by name. */
-function rebuild<T>(name: string): T {
-	return new Function(`"use strict"; ${COLD_WRITE_GUARDS_SOURCE}; return ${name};`)() as T;
+function rebuild(name: "checkGraphShardWrite"): ShardFn;
+function rebuild(name: "checkMergeConflictWrite"): MergeFn;
+function rebuild(name: "checkGraphShardWrite" | "checkMergeConflictWrite"): ShardFn | MergeFn {
+	// SAFETY: the two overloads name the exact imported guard declarations serialized into COLD_WRITE_GUARDS_SOURCE; parity tests exercise both signatures below.
+	return new Function(`"use strict"; ${COLD_WRITE_GUARDS_SOURCE}; return ${name};`)() as ShardFn | MergeFn;
 }
 
 const CONFLICT = "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch";
@@ -195,7 +198,7 @@ describe("checkGraphShardWrite — negative (must not fire)", () => {
 
 describe("COLD_WRITE_GUARDS_SOURCE — embeddable into the .mjs", () => {
 	it("reconstructs checkGraphShardWrite and agrees with the imported function", () => {
-		const rebuilt = rebuild<ShardFn>("checkGraphShardWrite");
+		const rebuilt = rebuild("checkGraphShardWrite");
 		const blocked = makeShardedFile("agree.ts", "agree.graph.ts");
 		const clean = join(dir, "src", "agree-clean.ts");
 		writeFileSync(clean, "export {}");
@@ -207,7 +210,7 @@ describe("COLD_WRITE_GUARDS_SOURCE — embeddable into the .mjs", () => {
 	});
 
 	it("reconstructs checkMergeConflictWrite and agrees with the imported function", () => {
-		const rebuilt = rebuild<MergeFn>("checkMergeConflictWrite");
+		const rebuilt = rebuild("checkMergeConflictWrite");
 		const corpus: Array<[string, Record<string, unknown>]> = [
 			["Write", { content: CONFLICT, file_path: "/repo/a.ts" }],
 			["edit", { new_string: CONFLICT }],

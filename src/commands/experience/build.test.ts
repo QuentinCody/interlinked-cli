@@ -6,15 +6,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildExperience } from "./build.js";
-import type {
-	ExperienceAssistantRecord,
-	ExperienceMetaRecord,
-	ExperienceReasoningRecord,
-	ExperienceToolResultRecord,
-	ExperienceUserRecord,
-	IxExperienceRecord,
-	IxMetaExtras,
-} from "./types.js";
+import type { BuiltExperience, IxAnnotations } from "./types.js";
+import { nonNull } from "../../lib/non-null.js";
+
+type BuiltRecord = BuiltExperience["records"][number];
+
+function recordWithRole<R extends BuiltRecord["role"]>(record: BuiltRecord | undefined, role: R) {
+    const matches = (value: BuiltRecord | undefined): value is Extract<BuiltRecord, { role: R }> => value?.role === role;
+    if (!matches(record)) throw new Error(`Expected ${role} record`);
+    return record;
+}
+
+function annotations(value: BuiltRecord | undefined): IxAnnotations | undefined {
+    const record = nonNull(value);
+    return "ix" in record ? record.ix : undefined;
+}
+
+function ixMetaRecord(value: BuiltRecord | undefined) {
+    const record = recordWithRole(value, "meta");
+    if (!("ix_meta" in record)) throw new Error("Expected annotated meta record");
+    return record;
+}
 
 const SESSION = "sess-a";
 
@@ -103,8 +115,8 @@ describe("buildExperience — letta format", () => {
 	it("derives the meta record from the earliest rows carrying each field", () => {
 		writeBasicTimeline();
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
-		// SAFETY: record 0 is the meta record by construction (previous test).
-		const meta = built.records[0] as ExperienceMetaRecord;
+
+		const meta = recordWithRole(built.records[0], "meta");
 		expect(meta).toEqual({
 			role: "meta",
 			source: "claude-code",
@@ -117,8 +129,8 @@ describe("buildExperience — letta format", () => {
 	it("carries user content and timestamps through verbatim", () => {
 		writeBasicTimeline();
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
-		// SAFETY: record 1's role is pinned to "user" by the spine-order test.
-		const user = built.records[1] as ExperienceUserRecord;
+
+		const user = recordWithRole(built.records[1], "user");
 		expect(user.content).toBe("Fix the bug.");
 		expect(user.timestamp).toBe("2026-07-27T10:00:00.000Z");
 	});
@@ -126,8 +138,8 @@ describe("buildExperience — letta format", () => {
 	it("maps tool_use to assistant tool_calls with JSON-encoded args", () => {
 		writeBasicTimeline();
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
-		// SAFETY: record 3's role is pinned to "assistant" by the spine-order test.
-		const call = built.records[3] as ExperienceAssistantRecord;
+
+		const call = recordWithRole(built.records[3], "assistant");
 		expect(call.content).toBeNull();
 		expect(call.tool_calls).toEqual([
 			{
@@ -141,8 +153,8 @@ describe("buildExperience — letta format", () => {
 	it("maps tool_result to a tool record linked by tool_call_id", () => {
 		writeBasicTimeline();
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
-		// SAFETY: record 4's role is pinned to "tool" by the spine-order test.
-		const result = built.records[4] as ExperienceToolResultRecord;
+
+		const result = recordWithRole(built.records[4], "tool");
 		expect(result.tool_call_id).toBe("toolu_1");
 		expect(result.content).toBe("1 passed");
 	});
@@ -176,8 +188,8 @@ describe("buildExperience — letta format", () => {
 			format: "letta",
 			truncateChars: 100,
 		});
-		// SAFETY: the only spine row is a tool_result, so record 1 is the tool record.
-		const result = built.records[1] as ExperienceToolResultRecord;
+
+		const result = recordWithRole(built.records[1], "tool");
 		expect(result.content.startsWith("x".repeat(100))).toBe(true);
 		expect(result.content).toContain("[interlinked: truncated 5000 chars total]");
 		expect(built.diagnostics.truncated_records).toBe(1);
@@ -217,8 +229,7 @@ describe("buildExperience — ix format", () => {
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
 
-		// SAFETY: spine order pins record 3 to the tool_use (assistant) record.
-		const call = built.records[3] as IxExperienceRecord & { ix?: Record<string, unknown> };
+		const call = ({ ix: annotations(built.records[3]) });
 		expect(call.ix).toMatchObject({
 			seq: 7,
 			tool_class: "shell_exec",
@@ -227,8 +238,7 @@ describe("buildExperience — ix format", () => {
 			guard: { decision: "warn", rule_id: "builtin-example", reason: "careful" },
 		});
 
-		// SAFETY: spine order pins record 4 to the tool_result record.
-		const result = built.records[4] as IxExperienceRecord & { ix?: Record<string, unknown> };
+		const result = ({ ix: annotations(built.records[4]) });
 		expect(result.ix).toMatchObject({ outcome: "error", duration_ms: 1234 });
 
 		expect(built.diagnostics.collection_joined).toBe(1);
@@ -256,19 +266,15 @@ describe("buildExperience — ix format", () => {
 			}),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		// SAFETY: ix builds always emit the annotated meta record first.
-		const meta = built.records[0] as ExperienceMetaRecord & {
-			schema: string;
-			ix_meta: IxMetaExtras;
-		};
+
+		const meta = ixMetaRecord(built.records[0]);
 		expect(meta.schema).toBe("trajectory-ix.v1");
 		expect(meta.ix_meta.session_id).toBe(SESSION);
 		expect(meta.ix_meta.records).toBe(3);
 		expect(meta.ix_meta.episodes).toBe(2);
 		expect(meta.ix_meta.guard_blocks).toBe(0);
 
-		// SAFETY: fixture order — meta, user, assistant, second user prompt.
-		const second = built.records[3] as IxExperienceRecord & { ix?: { episode?: number } };
+		const second = ({ ix: annotations(built.records[3]) });
 		expect(second.ix?.episode).toBe(1);
 	});
 
@@ -295,17 +301,15 @@ describe("buildExperience — ix format", () => {
 			},
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		// SAFETY: the only spine row is the blocked tool_use (assistant) record.
-		const call = built.records[1] as IxExperienceRecord & {
-			ix?: { guard?: { decision: string; rule_id: string | null } };
-		};
+
+		const call = ({ ix: annotations(built.records[1]) });
 		expect(call.ix?.guard).toEqual({
 			decision: "block",
 			rule_id: "builtin-rm-rf",
 			reason: "BLOCKED: recursive deletion",
 		});
-		// SAFETY: ix builds always emit the annotated meta record first.
-		const meta = built.records[0] as ExperienceMetaRecord & { ix_meta: IxMetaExtras };
+
+		const meta = ixMetaRecord(built.records[0]);
 		expect(meta.ix_meta.guard_blocks).toBe(1);
 	});
 });
@@ -316,7 +320,7 @@ describe("buildExperience — ix format", () => {
 function buildSingleToolUseIx(opts: {
 	toolInput?: unknown;
 	collection?: Record<string, unknown>;
-}): Record<string, unknown> | undefined {
+}): IxAnnotations | undefined {
 	writeJsonl(".interlinked/timeline.jsonl", [
 		timelineRow({
 			ts: "2026-07-27T10:00:00.000Z",
@@ -340,12 +344,12 @@ function buildSingleToolUseIx(opts: {
 		]);
 	}
 	const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-	const call = built.records[1] as IxExperienceRecord & { ix?: Record<string, unknown> };
+	const call = ({ ix: annotations(built.records[1]) });
 	return call.ix;
 }
 
 /** One tool_result row joined to a collection.jsonl record; returns the result's ix block. */
-function buildSingleToolResultIx(collection: Record<string, unknown>): Record<string, unknown> | undefined {
+function buildSingleToolResultIx(collection: Record<string, unknown>): IxAnnotations | undefined {
 	writeJsonl(".interlinked/timeline.jsonl", [
 		timelineRow({
 			ts: "2026-07-27T10:00:00.000Z",
@@ -367,14 +371,14 @@ function buildSingleToolResultIx(collection: Record<string, unknown>): Record<st
 		},
 	]);
 	const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-	const result = built.records[1] as IxExperienceRecord & { ix?: Record<string, unknown> };
+	const result = ({ ix: annotations(built.records[1]) });
 	return result.ix;
 }
 
 /** One tool_use row + arbitrary activity.jsonl rows; returns the call's ix block. */
 function buildSingleToolUseIxWithGuard(
 	guardRecs: Record<string, unknown>[],
-): Record<string, unknown> | undefined {
+): IxAnnotations | undefined {
 	writeJsonl(".interlinked/timeline.jsonl", [
 		timelineRow({
 			ts: "2026-07-27T10:00:00.000Z",
@@ -386,7 +390,7 @@ function buildSingleToolUseIxWithGuard(
 	]);
 	writeJsonl(".interlinked/activity.jsonl", guardRecs);
 	const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-	const call = built.records[1] as IxExperienceRecord & { ix?: Record<string, unknown> };
+	const call = ({ ix: annotations(built.records[1]) });
 	return call.ix;
 }
 
@@ -401,7 +405,7 @@ describe("buildExperience — truncateChars resolution and boundary", () => {
 			}),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta", truncateChars: null });
-		const result = built.records[1] as ExperienceToolResultRecord;
+		const result = recordWithRole(built.records[1], "tool");
 		expect(result.content).toBe("x".repeat(5000));
 		expect(built.diagnostics.truncated_records).toBe(0);
 	});
@@ -421,7 +425,7 @@ describe("buildExperience — truncateChars resolution and boundary", () => {
 			format: "letta",
 			truncateChars: 100,
 		});
-		const result = built.records[1] as ExperienceToolResultRecord;
+		const result = recordWithRole(built.records[1], "tool");
 		expect(result.content).toBe(`${"x".repeat(100)}\n[interlinked: truncated 5000 chars total]`);
 	});
 
@@ -440,7 +444,7 @@ describe("buildExperience — truncateChars resolution and boundary", () => {
 			format: "letta",
 			truncateChars: 50,
 		});
-		const result = built.records[1] as ExperienceToolResultRecord;
+		const result = recordWithRole(built.records[1], "tool");
 		expect(result.content).toBe("y".repeat(50));
 		expect(built.diagnostics.truncated_records).toBe(0);
 	});
@@ -487,7 +491,7 @@ describe("buildExperience — ix always attached under ix format (minimal case)"
 			}),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		const record = built.records[1] as IxExperienceRecord & { ix?: Record<string, unknown> };
+		const record = ({ ix: annotations(built.records[1]) });
 		expect(record.ix).toStrictEqual({ episode: 0 });
 	});
 });
@@ -500,7 +504,7 @@ describe("loadTimeline — row filters", () => {
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
 		expect(built.diagnostics.timeline_records).toBe(1);
-		const only = built.records[1] as ExperienceAssistantRecord;
+		const only = recordWithRole(built.records[1], "assistant");
 		expect(only.content).toBe("good");
 	});
 
@@ -559,7 +563,7 @@ describe("loadTimeline — chronological ordering", () => {
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
 		const order = built.records
 			.slice(1)
-			.map((r) => (r as ExperienceAssistantRecord).content);
+			.map((r) => (recordWithRole(r, "assistant")).content);
 		expect(order).toEqual(["T1", "T2", "T3"]);
 	});
 
@@ -573,7 +577,7 @@ describe("loadTimeline — chronological ordering", () => {
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
 		const order = built.records
 			.slice(1)
-			.map((r) => (r as ExperienceAssistantRecord).content);
+			.map((r) => (recordWithRole(r, "assistant")).content);
 		expect(order).toEqual(["A", "B", "C"]);
 	});
 });
@@ -588,7 +592,7 @@ describe("spineFromTimeline — content mapping and toolCalls counter", () => {
 			}),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
-		const row = built.records[1] as ExperienceReasoningRecord;
+		const row = recordWithRole(built.records[1], "reasoning");
 		expect(row.content).toBe("step-by-step plan");
 	});
 
@@ -601,7 +605,7 @@ describe("spineFromTimeline — content mapping and toolCalls counter", () => {
 			}),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
-		const row = built.records[1] as ExperienceAssistantRecord;
+		const row = recordWithRole(built.records[1], "assistant");
 		expect(row.content).toBe("final answer");
 	});
 
@@ -621,7 +625,7 @@ describe("spineFromTimeline — content mapping and toolCalls counter", () => {
 			}),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		const meta = built.records[0] as ExperienceMetaRecord & { ix_meta: IxMetaExtras };
+		const meta = ixMetaRecord(built.records[0]);
 		expect(meta.ix_meta.tool_calls).toBe(2);
 	});
 });
@@ -722,7 +726,7 @@ describe("loadCollectionJoin — filters and dedupe", () => {
 			},
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		const call = built.records[1] as IxExperienceRecord & { ix?: { seq?: number } };
+		const call = ({ ix: annotations(built.records[1]) });
 		expect(call.ix?.seq).toBe(200);
 	});
 
@@ -921,12 +925,12 @@ describe("annotateCall — command source precedence and pattern gating", () => 
 			},
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		const result = built.records[4] as IxExperienceRecord & { ix?: Record<string, unknown> };
+		const result = ({ ix: annotations(built.records[4]) });
 		expect(result.ix).not.toHaveProperty("seq");
 		expect(result.ix).not.toHaveProperty("file");
 		expect(result.ix).not.toHaveProperty("is_verification");
 		expect(result.ix).not.toHaveProperty("guard");
-		const call = built.records[3] as IxExperienceRecord & { ix?: Record<string, unknown> };
+		const call = ({ ix: annotations(built.records[3]) });
 		expect(call.ix).not.toHaveProperty("outcome");
 		expect(call.ix).not.toHaveProperty("duration_ms");
 	});
@@ -943,7 +947,7 @@ describe("ixAnnotationsFor — agent_id and missing tool_use_id", () => {
 			}),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		const row = built.records[1] as IxExperienceRecord & { ix?: Record<string, unknown> };
+		const row = ({ ix: annotations(built.records[1]) });
 		expect(row.ix).toStrictEqual({ episode: 0, agent_id: "sub-agent-1" });
 	});
 
@@ -952,7 +956,7 @@ describe("ixAnnotationsFor — agent_id and missing tool_use_id", () => {
 			timelineRow({ ts: "2026-07-27T10:00:00.000Z", category: "agent_message", text: "hi" }),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		const row = built.records[1] as IxExperienceRecord & { ix?: Record<string, unknown> };
+		const row = ({ ix: annotations(built.records[1]) });
 		expect(row.ix).not.toHaveProperty("agent_id");
 	});
 
@@ -965,7 +969,7 @@ describe("ixAnnotationsFor — agent_id and missing tool_use_id", () => {
 			}),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		const row = built.records[1] as IxExperienceRecord & { ix?: Record<string, unknown> };
+		const row = ({ ix: annotations(built.records[1]) });
 		expect(row.ix).toStrictEqual({ episode: 0 });
 	});
 });
@@ -1119,7 +1123,7 @@ describe("loadGuardJoin — filters, dedupe, and null-fallback fields", () => {
 			},
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		const meta = built.records[0] as ExperienceMetaRecord & { ix_meta: IxMetaExtras };
+		const meta = ixMetaRecord(built.records[0]);
 		expect(meta.ix_meta.guard_blocks).toBe(1);
 	});
 });
@@ -1152,7 +1156,7 @@ describe("buildMeta / firstDefined", () => {
 			}),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
-		const meta = built.records[0] as ExperienceMetaRecord;
+		const meta = recordWithRole(built.records[0], "meta");
 		expect(meta.source).toBe("codex-cli");
 	});
 
@@ -1161,7 +1165,7 @@ describe("buildMeta / firstDefined", () => {
 			{ ...timelineRow({ ts: "2026-07-27T10:00:00.000Z", category: "agent_message", text: "hi" }), provider: undefined },
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
-		const meta = built.records[0] as ExperienceMetaRecord;
+		const meta = recordWithRole(built.records[0], "meta");
 		expect(meta.source).toBe("claude-code");
 	});
 
@@ -1171,7 +1175,7 @@ describe("buildMeta / firstDefined", () => {
 			timelineRow({ ts: "2026-07-27T10:00:01.000Z", category: "agent_message", cwd: "/repo2", text: "b" }),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
-		const meta = built.records[0] as ExperienceMetaRecord;
+		const meta = recordWithRole(built.records[0], "meta");
 		expect(meta.cwd).toBe("/repo2");
 	});
 
@@ -1195,7 +1199,7 @@ describe("buildMeta / firstDefined", () => {
 			},
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "ix" });
-		const meta = built.records[0] as ExperienceMetaRecord & { ix_meta: IxMetaExtras };
+		const meta = ixMetaRecord(built.records[0]);
 		expect(meta.ix_meta.guard_blocks).toBe(0);
 	});
 });
@@ -1281,7 +1285,7 @@ describe("spineFromTimeline — tool_calls id/name fall back to empty string, no
 			timelineRow({ ts: "2026-07-27T10:00:00.000Z", category: "tool_use", tool_input: {} }),
 		]);
 		const built = buildExperience({ dir, sessionId: SESSION, format: "letta" });
-		const call = built.records[1] as ExperienceAssistantRecord;
+		const call = recordWithRole(built.records[1], "assistant");
 		expect(call.tool_calls).toEqual([{ id: "", name: "", args: "{}" }]);
 	});
 });

@@ -17,7 +17,7 @@ import { tryAcquireProjectCompilerLease } from "../project-compiler-gate.js";
 import { sweepStaleFixtureDirs } from "./fixture-hygiene.js";
 
 type Diag = Parameters<typeof _isRelativeModuleNotFound>[0];
-const diag = (message: string): Diag => ({ message }) as Diag;
+const diag = (message: string): Diag => ({ message });
 
 describe("_isRelativeModuleNotFound — TDD red-step detection", () => {
 	it("matches a relative sibling module-not-found", () => {
@@ -36,8 +36,8 @@ describe("_isRelativeModuleNotFound — TDD red-step detection", () => {
 			false,
 		);
 	});
-	it("handles a missing message field", () => {
-		expect(_isRelativeModuleNotFound({} as Diag)).toBe(false);
+	it("handles an empty diagnostic message", () => {
+		expect(_isRelativeModuleNotFound(diag(""))).toBe(false);
 	});
 });
 

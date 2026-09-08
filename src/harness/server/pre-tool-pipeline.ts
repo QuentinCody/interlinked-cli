@@ -1,3 +1,4 @@
+import { readToolString } from "../evaluator/tool-input-values.js";
 // ===========================================
 // PreToolUse evaluation pipeline
 // ===========================================
@@ -74,7 +75,7 @@ import { appendShellSandboxAdvisory } from "./shell-sandbox-policy.js";
  * Edit / Read) and `path` (alternate tools), falling back to "".
  */
 function resolveEventFilePath(event: HarnessEvent): string {
-	return (event.tool_input?.file_path as string) || (event.tool_input?.path as string) || "";
+	return readToolString(event.tool_input?.file_path) || readToolString(event.tool_input?.path);
 }
 
 /**

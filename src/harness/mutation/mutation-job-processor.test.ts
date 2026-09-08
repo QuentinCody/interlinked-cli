@@ -174,13 +174,13 @@ function withJournalOverrides(
 			// SAFETY: `overrides` is keyed by MutationJournal member names only
 			// (Partial<MutationJournal>), so a `prop in overrides` hit is always
 			// a value of that member's own type.
-			if (prop in overrides) return (overrides as Record<PropertyKey, unknown>)[prop as string];
+			if (prop in overrides) return Reflect.get(overrides, prop);
 			const value = Reflect.get(target, prop);
 			return typeof value === "function" ? value.bind(target) : value;
 		},
 		// SAFETY: every trapped `get` either forwards to the real MutationJournal
 		// or returns a same-shaped override, so the Proxy satisfies the interface.
-	}) as MutationJournal;
+	});
 }
 
 let root = "";

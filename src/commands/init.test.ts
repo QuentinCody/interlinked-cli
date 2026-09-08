@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked init — behavioral coverage
 // ===========================================
@@ -40,7 +41,7 @@ vi.mock("node:readline/promises", () => ({
 	createInterface: () => ({
 		question: (prompt: string) => {
 			rlQuestions.push(prompt);
-			return Promise.resolve(rlAnswers.length ? (rlAnswers.shift() as string) : "");
+			return Promise.resolve(rlAnswers.length ? (nonNull(rlAnswers.shift())) : "");
 		},
 		close: () => {},
 	}),
@@ -143,10 +144,10 @@ function logged(): string {
 // In json mode every human banner / step line is guarded by `!isJson`, so
 // the only thing logged is the single JSON payload — parse that last line.
 function loggedJson(): Record<string, unknown> {
-	const calls = logSpy.mock.calls as unknown[][];
+	const calls = logSpy.mock.calls;
 	const last = calls.at(-1);
 	if (!last) throw new Error("nothing logged");
-	return JSON.parse(String(last[0])) as Record<string, unknown>;
+	return parseWire(JSON.parse(String(last[0])), wireRecord(wireUnknown), "test JSON value");
 }
 
 function setTty(on: boolean): void {
@@ -167,7 +168,7 @@ beforeEach(() => {
 	logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
 	// fetch is only used by the reachability probe (no --server / env).
-	fetchSpy = vi.fn(async () => ({ ok: false }) as Response);
+	fetchSpy = vi.fn<typeof fetch>(async () => new Response(null, { status: 503 }));
 	vi.stubGlobal("fetch", fetchSpy);
 
 	// Default deterministic environment: non-TTY (autoConfirm true), no env
@@ -235,8 +236,8 @@ describe("initCommand --dry-run", () => {
 
 	it("json dry-run emits a single dry_run payload with resolved fields", async () => {
 		mocks.detectClients.mockReturnValue([
-			{ name: "claude", exists: true } as never,
-			{ name: "gemini", exists: false } as never,
+			{ name: "claude", exists: true, settingsPath: "/repo/.claude/settings.json" },
+			{ name: "gemini", exists: false, settingsPath: "/repo/.gemini/settings.json" },
 		]);
 		mocks.findProjectRoot.mockReturnValue("/repo");
 		// git config present → project derived from remote url
@@ -285,7 +286,7 @@ describe("server resolution", () => {
 	});
 
 	it("probes localhost and selects it as local dev server when reachable", async () => {
-		fetchSpy.mockResolvedValue({ ok: true } as Response);
+		fetchSpy.mockResolvedValue(new Response(null));
 		await initCommand({ "dry-run": true });
 		expect(fetchSpy).toHaveBeenCalledWith(
 			"http://localhost:8787/health",
@@ -305,7 +306,7 @@ describe("server resolution", () => {
 	});
 
 	it("treats a non-ok health response as unreachable in the probe", async () => {
-		fetchSpy.mockResolvedValue({ ok: false } as Response);
+		fetchSpy.mockResolvedValue(new Response(null, { status: 503 }));
 		await initCommand({ "dry-run": true });
 		// res.ok false → reachable false → still falls back to localhost default
 		expect(logged()).toContain("Server: http://localhost:8787");
@@ -342,9 +343,9 @@ describe("server resolution", () => {
 describe("client detection + project context", () => {
 	it("lists detected clients and the derived git project + root", async () => {
 		mocks.detectClients.mockReturnValue([
-			{ name: "claude", exists: true } as never,
-			{ name: "codex", exists: true } as never,
-			{ name: "cursor", exists: false } as never,
+			{ name: "claude", exists: true, settingsPath: "/repo/.claude/settings.json" },
+			{ name: "codex", exists: true, settingsPath: "/repo/.codex/settings.json" },
+			{ name: "cursor", exists: false, settingsPath: "/repo/.cursor/settings.json" },
 		]);
 		mocks.findProjectRoot.mockReturnValue("/repo");
 		fsExists.add("/repo/.git/config");
@@ -455,7 +456,7 @@ describe("agent name resolution", () => {
 	});
 
 	it("derives USER-<firstClient> when no flag/env and a client is detected", async () => {
-		mocks.detectClients.mockReturnValue([{ name: "gemini", exists: true } as never]);
+		mocks.detectClients.mockReturnValue([{ name: "gemini", exists: true, settingsPath: "/repo/.gemini/settings.json" }]);
 		await initCommand({ "dry-run": true, json: true, server: "https://s" });
 		expect(loggedJson().agent_name).toBe("alice-gemini");
 	});
@@ -495,7 +496,7 @@ describe("agent name resolution", () => {
 		setTty(true);
 		rlAnswers = ["   "]; // whitespace → falsy after trim → keep suggestion
 		mocks.isHarnessRunning.mockReturnValue({ running: true, pid: 7 });
-		mocks.detectClients.mockReturnValue([{ name: "claude", exists: true } as never]);
+		mocks.detectClients.mockReturnValue([{ name: "claude", exists: true, settingsPath: "/repo/.claude/settings.json" }]);
 		await initCommand({ server: "http://localhost:8787", json: true });
 		expect(loggedJson().agent_name).toBe("alice-claude");
 	});
@@ -511,7 +512,7 @@ describe("agent name resolution", () => {
 	it("does not prompt for agent name when --yes is passed on a TTY", async () => {
 		setTty(true);
 		mocks.isHarnessRunning.mockReturnValue({ running: true, pid: 2 });
-		mocks.detectClients.mockReturnValue([{ name: "codex", exists: true } as never]);
+		mocks.detectClients.mockReturnValue([{ name: "codex", exists: true, settingsPath: "/repo/.codex/settings.json" }]);
 		await initCommand({ server: "http://localhost:8787", json: true, yes: true });
 		expect(rlQuestions.some((q) => q.includes("Agent name"))).toBe(false);
 		expect(loggedJson().agent_name).toBe("alice-codex");
@@ -528,6 +529,12 @@ describe("agent name resolution", () => {
 // Sync mode
 // =======================================================================
 describe("sync mode", () => {
+	it("rejects an invalid sync mode before writing configuration", async () => {
+		await expect(initCommand({ server: "https://s", agent: "a", yes: true, "sync-mode": "bogus" })).rejects.toThrow("Invalid --sync-mode: bogus");
+		expect(mocks.initConfig).not.toHaveBeenCalled();
+		expect(mocks.updateLocalConfig).not.toHaveBeenCalled();
+	});
+
 	it("defaults to realtime", async () => {
 		await initCommand({ "dry-run": true, json: true, server: "https://s", agent: "a" });
 		expect(loggedJson().sync_mode).toBe("realtime");
@@ -551,8 +558,8 @@ describe("sync mode", () => {
 describe("install: config + hooks", () => {
 	it("writes config + hook script and reports per-client install results", async () => {
 		mocks.detectClients.mockReturnValue([
-			{ name: "claude", exists: true } as never,
-			{ name: "gemini", exists: true } as never,
+			{ name: "claude", exists: true, settingsPath: "/repo/.claude/settings.json" },
+			{ name: "gemini", exists: true, settingsPath: "/repo/.gemini/settings.json" },
 		]);
 		mocks.installAllHooks.mockReturnValue([
 			{ client: "claude", installed: true, events: ["PreToolUse", "PostToolUse"] },
@@ -580,13 +587,16 @@ describe("install: config + hooks", () => {
 		mocks.detectClients.mockReturnValue([]);
 		await initCommand({ server: "https://s", agent: "bot" });
 		expect(mocks.installAllHooks).not.toHaveBeenCalled();
-		// config + hook script still written
-		expect(mocks.initConfig).toHaveBeenCalledTimes(1);
-		expect(mocks.writeHookScript).toHaveBeenCalledTimes(1);
+		// config + hook script still written, with the resolved server/agent/cwd
+		expect(mocks.initConfig).toHaveBeenCalledWith(
+			{ serverUrl: "https://s", agentName: "bot" },
+			FIXED_CWD,
+		);
+		expect(mocks.writeHookScript).toHaveBeenCalledWith(FIXED_CWD);
 	});
 
 	it("suppresses per-client install lines in json mode", async () => {
-		mocks.detectClients.mockReturnValue([{ name: "claude", exists: true } as never]);
+		mocks.detectClients.mockReturnValue([{ name: "claude", exists: true, settingsPath: "/repo/.claude/settings.json" }]);
 		mocks.installAllHooks.mockReturnValue([
 			{ client: "claude", installed: true, events: ["PreToolUse"] },
 		]);
@@ -904,7 +914,8 @@ describe("harness setup", () => {
 			.mockReturnValueOnce({ running: false })
 			.mockReturnValue({ running: true, pid: 88 });
 		await initCommand({ server: "http://localhost:8787", agent: "bot" });
-		expect(mocks.harnessStartCommand).toHaveBeenCalledTimes(1);
+		expect(mocks.harnessStartCommand).toHaveBeenCalledWith({ daemon: true, json: true });
+		expect(logged()).toContain("Harness started (PID 88)");
 	});
 
 	it("declines to start the harness when the interactive prompt answers 'n'", async () => {
@@ -946,7 +957,7 @@ describe("harness setup", () => {
 // =======================================================================
 describe("json completion payload", () => {
 	it("emits the full completion object with reachability + onboarding status", async () => {
-		mocks.detectClients.mockReturnValue([{ name: "claude", exists: true } as never]);
+		mocks.detectClients.mockReturnValue([{ name: "claude", exists: true, settingsPath: "/repo/.claude/settings.json" }]);
 		mocks.findProjectRoot.mockReturnValue("/repo");
 		fsExists.add("/repo/.git/config");
 		fsFiles["/repo/.git/config"] = "  url = git@github.com:o/jsonproj.git\n";

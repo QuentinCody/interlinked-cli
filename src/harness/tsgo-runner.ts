@@ -204,6 +204,25 @@ function summarizeWatchers(
 	return "not-started";
 }
 
+/** Warm-then-cold dispatch for a single file's diagnostics. */
+async function checkViaWarmOrCold(
+	path: string,
+	ctx: WarmWatcherContext,
+	extraArgs: readonly string[],
+	timeoutMs: number,
+): Promise<TsgoDiagnostic[]> {
+	if (ctx.executable === null) return [];
+	if (isTsFile(path)) {
+		const watcher = await acquireWarmWatcher(path, ctx);
+		if (watcher) {
+			const warm = await watcher.diagnosticsForFile(path);
+			if (warm !== null) return warm;
+		}
+	}
+	// Cold fallback: warm child unavailable / not yet spawned / timed out.
+	return runTsgoOneShot(ctx.executable, path, extraArgs, timeoutMs);
+}
+
 export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 	const executable = opts.executable ?? locateTsgo();
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_COLD_TIMEOUT_MS;
@@ -255,24 +274,12 @@ export function createTsgoRunner(opts: TsgoRunnerOptions = {}): TsgoRunner {
 		const started = nowMs();
 		// Warm path: read the watch child's latest completed pass. Falls back
 		// to the cold one-shot when the warm child is unavailable / raced.
-		const diagnostics = await checkViaWarmOrCold(path);
+		const diagnostics = await checkViaWarmOrCold(path, watcherContext, extraArgs, timeoutMs);
 		const elapsed_ms = nowMs() - started;
 		cachePut(path, { key, diagnostics });
 		return { diagnostics, cached: false, elapsed_ms };
 	}
 
-	/** Warm-then-cold dispatch for a single file's diagnostics. */
-	async function checkViaWarmOrCold(path: string): Promise<TsgoDiagnostic[]> {
-		if (isTsFile(path)) {
-			const watcher = await acquireWarmWatcher(path, watcherContext);
-			if (watcher) {
-				const warm = await watcher.diagnosticsForFile(path);
-				if (warm !== null) return warm;
-			}
-		}
-		// Cold fallback: warm child unavailable / not yet spawned / timed out.
-		return runTsgoOneShot(executable as string, path, extraArgs, timeoutMs);
-	}
 
 	async function simulate(
 		path: string,

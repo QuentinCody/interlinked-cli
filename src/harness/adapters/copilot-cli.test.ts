@@ -1,3 +1,4 @@
+import { flatHookSettings } from "./test-output.js";
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import type { HarnessDecision } from "../types.js";
@@ -120,13 +121,11 @@ describe("Copilot CLI renderSettingsFragment", () => {
 		expect(frag.path).toBe(".github/hooks/hooks.json");
 	});
 	it("includes version: 1", () => {
-		const f = frag.fragment as { version: number };
+		const f = flatHookSettings(frag.fragment);
 		expect(f.version).toBe(1);
 	});
 	it("passes runner and event to the shared hook entry", () => {
-		const f = frag.fragment as {
-			hooks: Record<string, Array<{ bash: string }>>;
-		};
+		const f = flatHookSettings(frag.fragment);
 		expect(nonNull(nonNull(f.hooks.preToolUse)[0]).bash).toContain("--runner 'copilot-cli'");
 		expect(nonNull(nonNull(f.hooks.preToolUse)[0]).bash).toContain("--event 'preToolUse'");
 		expect(nonNull(nonNull(f.hooks.preToolUse)[0]).bash).toContain("if test -f");
@@ -394,10 +393,7 @@ describe("Copilot CLI renderSettingsFragment — full shape", () => {
 	it("emits an array-append fragment with one command hook per native event", () => {
 		const frag = adapter.renderSettingsFragment("/bin/hook", "user");
 		expect(frag.mergeStrategy).toBe("array-append");
-		const f = frag.fragment as {
-			version: number;
-			hooks: Record<string, Array<{ type: string; bash: string }>>;
-		};
+		const f = flatHookSettings(frag.fragment);
 		for (const ev of adapter.nativeEventNames) {
 			const entries = f.hooks[ev];
 			expect(Array.isArray(entries)).toBe(true);
@@ -411,7 +407,7 @@ describe("Copilot CLI renderSettingsFragment — full shape", () => {
 
 	it("shell-quotes a binary path that contains a single quote (injection-safe)", () => {
 		const frag = adapter.renderSettingsFragment("/weird/it's-here/hook", "project");
-		const f = frag.fragment as { hooks: Record<string, Array<{ bash: string }>> };
+		const f = flatHookSettings(frag.fragment);
 		// The single quote is escaped via the '\'' shell idiom.
 		expect(nonNull(nonNull(f.hooks.preToolUse)[0]).bash).toContain("'\\''");
 	});

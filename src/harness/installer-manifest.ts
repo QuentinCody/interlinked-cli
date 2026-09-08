@@ -11,7 +11,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { getAdapter, type InstallerManifestEntry } from "./adapters/index.js";
 import {
 	ensureDir,
@@ -34,6 +34,15 @@ const VALID_MANIFEST_RUNNERS = new Set<string>([
 	"pi",
 	"factory-droid", "windsurf", "antigravity", "crush",
 ]);
+
+interface ValidatedManifestRow extends JsonObject {
+	runner: RunnerId;
+	scope: InstallScope;
+	settings_path: string;
+	added_paths: string[];
+	binary_path: string;
+	installed_at: string;
+}
 
 /** Tri-state manifest read: MISSING is a legitimate never-installed state,
  *  but CORRUPT bytes must never be flattened into "nothing installed". */
@@ -80,10 +89,11 @@ function settingsPathFieldError(r: JsonObject, at: string): string | null {
 }
 
 function addedPathsFieldError(r: JsonObject, at: string): string | null {
-	if (!Array.isArray(r.added_paths) || r.added_paths.some((x) => typeof x !== "string")) {
+	const paths = r.added_paths;
+	if (!Array.isArray(paths) || !paths.every((x) => typeof x === "string")) {
 		return `${at} has a non-string added_paths array`;
 	}
-	for (const p of r.added_paths as string[]) {
+	for (const p of paths) {
 		if (forbiddenSegmentIn(p)) return `${at} has a forbidden added_paths segment in ${JSON.stringify(p)}`;
 	}
 	return null;
@@ -123,14 +133,12 @@ function fieldError(r: JsonObject, at: string): string | null {
 /** ADAPTER/PATH BINDING: the stored path must equal what the named adapter
  *  derives for the stored scope — a Gemini row pointing at an arbitrary
  *  absolute path is hostile or corrupt, never an install record. */
-function bindingError(r: JsonObject, at: string, cwd: string): string | null {
-	// SAFETY: runner and scope were validated by fieldError against the
-	// adapter registry and the InstallScope union.
-	const adapter = getAdapter(r.runner as RunnerId);
+function bindingError(r: ValidatedManifestRow, at: string, cwd: string): string | null {
+	const adapter = getAdapter(r.runner);
 	if (adapter === null) return `${at} names a runner with no adapter`;
 	const derived = resolveSettingsPath(
 		cwd,
-		adapter.renderSettingsFragment(r.binary_path as string, r.scope as InstallScope).path,
+		adapter.renderSettingsFragment(r.binary_path, r.scope).path,
 	);
 	if (r.settings_path !== derived) {
 		return `${at} settings_path ${JSON.stringify(r.settings_path)} does not match the adapter-derived path ${JSON.stringify(derived)}`;
@@ -139,24 +147,25 @@ function bindingError(r: JsonObject, at: string, cwd: string): string | null {
 }
 
 /** STRICT per-entry validation; the returned string is the corrupt reason. */
-function manifestEntryError(row: unknown, index: number, cwd: string): string | null {
+function parseManifestEntry(row: unknown, index: number, cwd: string): InstallerManifestEntry | string {
 	const at = `entry[${index}]`;
-	if (row == null || typeof row !== "object" || Array.isArray(row)) return `${at} is not an object`;
-	const r = row as JsonObject;
-	return fieldError(r, at) ?? bindingError(r, at, cwd);
+	if (!isJsonObject(row)) return `${at} is not an object`;
+	const error = fieldError(row, at);
+	if (error !== null) return error;
+	// SAFETY: fieldError checked runner/scope membership, all four string fields,
+	// and every added_paths element; it returns no error only for this row shape.
+	const validated = row as ValidatedManifestRow;
+	return bindingError(validated, at, cwd) ?? coerceManifestEntry(validated);
 }
 
-function coerceManifestEntry(row: unknown): InstallerManifestEntry {
-	// SAFETY: callers run manifestEntryError first; every field below was
-	// individually type-checked there.
-	const r = row as JsonObject & { runner: RunnerId; scope: InstallScope };
+function coerceManifestEntry(r: ValidatedManifestRow): InstallerManifestEntry {
 	const entry: InstallerManifestEntry = {
 		runner: r.runner,
 		scope: r.scope,
-		settings_path: r.settings_path as string,
-		added_paths: r.added_paths as string[],
-		binary_path: r.binary_path as string,
-		installed_at: r.installed_at as string,
+		settings_path: r.settings_path,
+		added_paths: r.added_paths,
+		binary_path: r.binary_path,
+		installed_at: r.installed_at,
 		// A manifest written before `post_install` existed carries no value; read
 		// that as "ok" — the field records a KNOWN failure.
 		post_install: r.post_install === "failed" ? "failed" : "ok",
@@ -185,7 +194,7 @@ export function readManifestState(path: string): ManifestState {
 	if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
 		return { kind: "corrupt", reason: "manifest is not a JSON object" };
 	}
-	const wrapper = parsed as { schema_version?: unknown; entries?: unknown };
+	const wrapper: { schema_version?: unknown; entries?: unknown } = parsed;
 	if (wrapper.schema_version !== MANIFEST_SCHEMA_VERSION) {
 		return { kind: "corrupt", reason: `unknown schema_version ${JSON.stringify(wrapper.schema_version)}` };
 	}
@@ -198,9 +207,8 @@ export function readManifestState(path: string): ManifestState {
 	// adapter binding derives paths against is two levels up.
 	const cwd = dirname(dirname(path));
 	for (let i = 0; i < wrapper.entries.length; i++) {
-		const error = manifestEntryError(wrapper.entries[i], i, cwd);
-		if (error !== null) return { kind: "corrupt", reason: error };
-		const entry = coerceManifestEntry(wrapper.entries[i]);
+		const entry = parseManifestEntry(wrapper.entries[i], i, cwd);
+		if (typeof entry === "string") return { kind: "corrupt", reason: entry };
 		// One entry per RUNNER: multi-scope installs of the same runner are not
 		// a supported design, and duplicates made uninstall order-dependent.
 		if (seen.has(entry.runner)) return { kind: "corrupt", reason: `duplicate row for runner ${entry.runner}` };

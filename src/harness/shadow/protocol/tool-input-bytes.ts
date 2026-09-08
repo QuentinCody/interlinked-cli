@@ -38,6 +38,8 @@
 // refused in bounded time, not walked. The total is checked after every value,
 // so an over-cap payload is refused after bounded work, never measured in full.
 
+import { isRecord } from "./field-checks.js";
+
 /** Deepest JSON nesting the walk will descend. Beyond it the payload is
  *  refused: no supported tool-input shape nests past a handful of levels, and
  *  a deep chain is an attack on the walker, not a payload. */
@@ -131,22 +133,16 @@ function numberBytes(value: number): ScalarResult {
 const PLAIN_OBJECT_TAG = "[object Object]";
 const ARRAY_TAG = "[object Array]";
 
-/** Any non-null object reaching the walk. Only `toJSON` is read off it — the
- *  rest of its shape is decided by its internal tag, never by its declared
- *  type. */
-type JsonCandidateObject = { readonly toJSON?: unknown };
-
 /** Only a plain object or an array is a JSON container. A `Date`, a boxed
  *  primitive, a `Map` — anything with a `toJSON` or an exotic internal tag —
  *  serializes to something other than a walk of its own keys, so it is refused
  *  rather than mis-costed. */
-function objectBytes(value: unknown): ScalarResult {
+function objectBytes(value: object): ScalarResult {
 	const tag = Object.prototype.toString.call(value);
 	if (tag !== PLAIN_OBJECT_TAG && tag !== ARRAY_TAG) {
 		return refuse(`JSON.stringify does not carry ${tag} as a plain container`);
 	}
-	// SAFETY: the tag check above proves `value` is a plain object or an array, and only `toJSON` is read off it; a throwing getter is caught by the walk's guard.
-	const toJson = (value as JsonCandidateObject).toJSON;
+	const toJson = "toJSON" in value ? value.toJSON : undefined;
 	if (typeof toJson === "function") return refuse("value defines toJSON, so its serialized form is not its own shape");
 	return { ok: true, bytes: null };
 }
@@ -188,11 +184,8 @@ type Opened =
  *  array before a single element is visited. */
 function openContainer(value: unknown): Opened {
 	if (Array.isArray(value)) return { kind: "list", items: value };
-	// SAFETY: reached only when `scalarBytes` returned a container verdict,
-	// which it does for exactly two shapes — an array (handled above) and a
-	// plain object.
-	const record = value as Record<string, unknown>;
-	return { kind: "map", record, keys: Object.keys(record) };
+	if (!isRecord(value)) throw new Error("Expected a JSON object container");
+	return { kind: "map", record: value, keys: Object.keys(value) };
 }
 
 function openedCount(opened: Opened): number {

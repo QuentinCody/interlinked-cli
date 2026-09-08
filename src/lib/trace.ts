@@ -39,12 +39,7 @@ interface TraceDocument {
  *  `exportTrace`'s map callback purely to bring it under the cognitive
  *  complexity cap — same fallbacks, same field order, same output. */
 function buildTraceSpan(e: LocalActivityEvent, i: number): TraceSpan {
-	// `readLocalActivity` is a mockable/injectable boundary; a caller can
-	// supply an event whose `ts` is missing despite the required `string`
-	// type (see the mutation-kill fallback coverage for this file). Read
-	// it through `unknown` so the fallbacks below stay real.
-	const rawTs: unknown = e.ts;
-	const ts = typeof rawTs === "string" ? rawTs : undefined;
+	const ts = e.ts;
 	return {
 		trace_id: e.session || `trace-${ts?.slice(0, 10) || "unknown"}`,
 		span_id: `span-${i}-${ts?.replace(/\D/g, "").slice(0, 14) || i}`,

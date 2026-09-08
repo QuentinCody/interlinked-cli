@@ -20,12 +20,9 @@ import {
 	type SimplificationAgentCiModelBinding,
 	type SimplificationAgentCiOrchestrationBinding,
 	type SimplificationAgentCiRepositoryRef,
-	type SimplificationAgentCiRiskTier,
 	type SimplificationAgentCiScope,
-	type SimplificationAgentCiScopeKind,
 	type SimplificationAgentCiSubmissionMarker,
 	type SimplificationAgentCiToolEvidence,
-	type SimplificationAgentCiValidationMode,
 	type SimplificationAgentCiValidationRequest,
 } from "./simplification-agent-ci-request-schema.js";
 import { SIMPLIFICATION_REMEDIES, type SimplificationRemedy } from "./simplification-types.js";
@@ -145,10 +142,10 @@ export function parseScope(value: unknown): SimplificationAgentCiScope | { reaso
 		"request.scope",
 	);
 	if (extra) return { reason: extra };
-	if (typeof value.kind !== "string" || !VALID_SCOPE_KINDS.includes(value.kind as SimplificationAgentCiScopeKind)) {
+	const kind = VALID_SCOPE_KINDS.find((candidate) => candidate === value.kind);
+	if (kind === undefined) {
 		return { reason: `request.scope.kind must be one of ${VALID_SCOPE_KINDS.join("|")}` };
 	}
-	const kind = value.kind as SimplificationAgentCiScopeKind;
 	const base_sha = parseNullableGitObject(value.base_sha, "request.scope.base_sha");
 	const head_sha = checkedGitObject(value.head_sha, "request.scope.head_sha");
 	const paths = parseCanonicalStringList(value.paths, "request.scope.paths", { require_paths: true });
@@ -283,22 +280,18 @@ function parseModel(value: unknown): SimplificationAgentCiModelBinding | { reaso
 	const family = requiredString(value.family, "request.orchestration.model.family");
 	const model = requiredString(value.model, "request.orchestration.model.model");
 	const version = requiredString(value.version, "request.orchestration.model.version");
-	for (const parsed of [provider, family, model, version]) {
-		const bad = reasonFrom(parsed);
-		if (bad) return { reason: bad };
-	}
-	// Unreachable: the loop above returns on every {reason} shape. Kept as the guard the four `as string` casts below lean on.
-	if ([provider, family, model, version].some((entry) => typeof entry !== "string")) {
-		return { reason: "request.orchestration.model is invalid" };
-	}
-	if (typeof version === "string" && !isPinnedExactVersion(version)) {
+	if (isParseFailure(provider)) return provider;
+	if (isParseFailure(family)) return family;
+	if (isParseFailure(model)) return model;
+	if (isParseFailure(version)) return version;
+	if (!isPinnedExactVersion(version)) {
 		return { reason: "request.orchestration.model.version must be an exact pinned revision" };
 	}
 	return {
-		provider: provider as string,
-		family: family as string,
-		model: model as string,
-		version: version as string,
+		provider,
+		family,
+		model,
+		version,
 	};
 }
 
@@ -310,7 +303,8 @@ export function parseOrchestration(value: unknown): SimplificationAgentCiOrchest
 		"request.orchestration",
 	);
 	if (extra) return { reason: extra };
-	if (typeof value.risk_tier !== "string" || !VALID_RISK_TIERS.includes(value.risk_tier as SimplificationAgentCiRiskTier)) {
+	const risk_tier = VALID_RISK_TIERS.find((candidate) => candidate === value.risk_tier);
+	if (risk_tier === undefined) {
 		return { reason: `request.orchestration.risk_tier must be one of ${VALID_RISK_TIERS.join("|")}` };
 	}
 	const model = parseModel(value.model);
@@ -326,7 +320,7 @@ export function parseOrchestration(value: unknown): SimplificationAgentCiOrchest
 	if (isParseFailure(coordinator_prompt_sha256)) return coordinator_prompt_sha256;
 	if (isParseFailure(partition_plan_version)) return partition_plan_version;
 	return {
-		risk_tier: value.risk_tier as SimplificationAgentCiRiskTier,
+		risk_tier,
 		model,
 		coordinator_prompt_sha256,
 		partition_plan_version,
@@ -337,7 +331,8 @@ export function parseValidation(value: unknown): SimplificationAgentCiValidation
 	if (!isJsonObject(value)) return { reason: "request.validation must be an object" };
 	const extra = unknownKeys(value, ["mode", "check_plan_sha256", "max_candidates"], "request.validation");
 	if (extra) return { reason: extra };
-	if (typeof value.mode !== "string" || !VALIDATION_MODES.includes(value.mode as SimplificationAgentCiValidationMode)) {
+	const mode = VALIDATION_MODES.find((candidate) => candidate === value.mode);
+	if (mode === undefined) {
 		return { reason: `request.validation.mode must be one of ${VALIDATION_MODES.join("|")}` };
 	}
 	const check_plan_sha256 = value.check_plan_sha256 === null
@@ -346,10 +341,10 @@ export function parseValidation(value: unknown): SimplificationAgentCiValidation
 	if (isParseFailure(check_plan_sha256)) return check_plan_sha256;
 	const max_candidates = checkedCandidateCount(value.max_candidates);
 	if (typeof max_candidates !== "number") return max_candidates;
-	const invalidMode = validationModeReason(value.mode, check_plan_sha256, max_candidates);
+	const invalidMode = validationModeReason(mode, check_plan_sha256, max_candidates);
 	if (invalidMode) return { reason: invalidMode };
 	return {
-		mode: value.mode as SimplificationAgentCiValidationMode,
+		mode,
 		check_plan_sha256,
 		max_candidates,
 	};
@@ -364,12 +359,15 @@ export function parseRemedies(value: unknown): SimplificationRemedy[] | { reason
 	if (!Array.isArray(parsed) || parsed.length === 0) {
 		return { reason: "request.requested_remedies must contain at least one remedy" };
 	}
+	const remedies: SimplificationRemedy[] = [];
 	for (const remedy of parsed) {
-		if (!SIMPLIFICATION_REMEDIES.some((known) => known === remedy)) {
+		const known = SIMPLIFICATION_REMEDIES.find((candidate) => candidate === remedy);
+		if (known === undefined) {
 			return { reason: `request.requested_remedies contains unknown remedy ${remedy}` };
 		}
+		remedies.push(known);
 	}
-	return parsed as SimplificationRemedy[];
+	return remedies;
 }
 
 export function parseSubmission(value: unknown): SimplificationAgentCiSubmissionMarker | { reason: string } {

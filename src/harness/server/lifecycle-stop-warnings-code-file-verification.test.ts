@@ -1,3 +1,5 @@
+import { makeServerRuntime, makeServerRules } from "./__tests__/fixtures.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 // Companion smoke tests for lifecycle-stop-warnings-code-file-verification.ts.
 //
 // This module is a pure re-home (line-cap split of lifecycle-stop-warnings.ts,
@@ -34,24 +36,19 @@ vi.mock("./runtime-context.js", async (importOriginal) => {
 	return { ...actual, getGraphForFile: vi.fn(() => null) };
 });
 
-function makeCtx(rules: Record<string, unknown> = {}): ServerRuntime {
-	const logLines: string[] = [];
-	return {
-		cwd: "/repo",
-		rules,
-		log: (msg: string) => logLines.push(msg),
-		_logLines: logLines,
-	} as unknown as ServerRuntime & { _logLines: string[] };
+function makeCtx(rules: NonNullable<Parameters<typeof makeServerRules>[0]> = {}): ServerRuntime & { _logLines: string[] } {
+ const logLines: string[] = [];
+ return Object.assign(makeServerRuntime({ cwd: "/repo", rules: makeServerRules(rules), log: (msg: string) => { logLines.push(msg); } }), { _logLines: logLines });
 }
 
-function makeSession(over: Record<string, unknown> = {}): SessionTrajectory {
+function makeSession(over: Partial<SessionTrajectory> = {}): SessionTrajectory {
 	const base = {
 		files_written: new Set<string>(),
 		commands_run: [],
 		stubs_introduced: [],
 		spec_drift_outstanding: [],
 	};
-	return { ...base, ...over } as unknown as SessionTrajectory;
+	return ({ ...makeSessionFixture(),  ...base, ...over } satisfies SessionTrajectory);
 }
 
 function makeEvent(over: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -93,7 +90,7 @@ describe("checkCodeFileVerification", () => {
 	});
 
 	it("P: returns the formatter's warning and logs with the given tag", () => {
-		const ctx = makeCtx() as ServerRuntime & { _logLines: string[] };
+		const ctx = makeCtx();
 		const session = makeSession({ files_written: new Set(["src/a.ts"]) });
 		const result = checkCodeFileVerification({
 			ctx,
@@ -131,9 +128,9 @@ describe("checkStubsIntroduced", () => {
 	});
 
 	it("P: surfaces a warning and logs the count when stubs exist", () => {
-		const ctx = makeCtx() as ServerRuntime & { _logLines: string[] };
+		const ctx = makeCtx();
 		const session = makeSession({
-			stubs_introduced: [{ file: "src/a.ts", line: 3, marker: "TODO" }],
+			stubs_introduced: [{ file: "src/a.ts", kind: "TODO", snippet: "// TODO" }],
 		});
 		const result = checkStubsIntroduced(ctx, session);
 		expect(result).not.toBeNull();

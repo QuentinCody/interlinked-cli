@@ -86,19 +86,13 @@ afterEach(() => {
 	vi.clearAllMocks();
 });
 
-// ===========================================
-// unwrapTask — mutantId a76f5331f26afff4
-// ConditionalExpression: `typeof result === "object"` -> `true`
-// ===========================================
-describe("unwrapTask: typeof guard (a76f5331f26afff4)", () => {
-	// test-contract: invariant — a truthy non-object result must pass through
-	// unmodified (pristine short-circuits on typeof !== "object"); the mutant
-	// forces `"task" in result`, which throws TypeError for a primitive.
-	it("passes a truthy non-object callTool result through without throwing", async () => {
+describe("tasks show: malformed server response", () => {
+	it("reports a non-object task response as an error", async () => {
 		installClient({ callTool: () => "just-a-string" });
 		await tasksShowCommand("1", { json: true });
-		expect(JSON.parse(rawOut())).toBe("just-a-string");
-		expect(err()).toBe("");
+		expect(rawOut()).toBe("");
+		expect(err()).toContain("Invalid task");
+		expect(process.exitCode).toBe(1);
 	});
 });
 

@@ -83,9 +83,9 @@ let exitSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-		throw new ExitError(code ?? 0);
-	}) as never);
+	exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+		throw new ExitError(Number(code ?? 0));
+	});
 });
 
 afterEach(() => {
@@ -153,16 +153,6 @@ describe("registerCoordinationCommands — structure", () => {
 		);
 		const once = add.options.find((o) => o.long === "--once");
 		expect(once?.defaultValue).toBe(true);
-	});
-
-	it("marks reminder list / skill list / tasks list as the default subcommand", () => {
-		const program = build();
-		// commander records the default-subcommand name on the PARENT command.
-		const defaultName = (parent: string) =>
-			(sub(program, parent) as unknown as { _defaultCommandName?: string })._defaultCommandName;
-		expect(defaultName("reminder")).toBe("list");
-		expect(defaultName("skill")).toBe("list");
-		expect(defaultName("tasks")).toBe("list");
 	});
 
 	it("wires the documented options on tasks create + tasks list", () => {

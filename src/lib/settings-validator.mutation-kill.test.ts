@@ -90,13 +90,7 @@ describe("findMalformedRulesIn — guard boundaries", () => {
 	// test-contract: boundary — a function has typeof "function", not "object"; even with an ad-hoc .permissions property attached (functions ARE real objects at runtime), the top-level type guard must reject it before that property is ever read.
 	it("rejects a function value even when it carries an attached .permissions object", () => {
 		function candidate(): void {}
-		// SAFETY: functions are real JS objects at runtime and accept arbitrary
-		// expando properties; this cast only widens the compile-time view so the
-		// test can attach one, proving the typeof guard (not property absence)
-		// is what rejects the value.
-		(candidate as unknown as { permissions: unknown }).permissions = {
-			allow: ["Bash(broken"],
-		};
+		Object.assign(candidate, { permissions: { allow: ["Bash(broken"] } });
 		expect(findMalformedRulesIn(candidate)).toEqual([]);
 	});
 
@@ -113,10 +107,7 @@ describe("findMalformedRulesIn — guard boundaries", () => {
 	// test-contract: boundary — permissions may itself be truthy yet non-object (typeof "function"); the object-shape guard must reject it even though its attached "allow" property IS a real array.
 	it("rejects a truthy non-object permissions value that carries an array-shaped allow property", () => {
 		function fakePerms(): void {}
-		// SAFETY: same expando-property construction as above, here on the
-		// `permissions` value itself — proves the typeof-object guard on
-		// `perms` (not the absence of a real "allow" array) is what rejects it.
-		(fakePerms as unknown as { allow: unknown }).allow = ["Bash(broken"];
+		Object.assign(fakePerms, { allow: ["Bash(broken"] });
 		expect(findMalformedRulesIn({ permissions: fakePerms })).toEqual([]);
 	});
 

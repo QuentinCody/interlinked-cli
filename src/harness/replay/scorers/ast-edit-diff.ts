@@ -22,9 +22,8 @@ let tsCache: typeof TS | null | undefined;
 function loadTs(): typeof TS | null {
 	if (tsCache !== undefined) return tsCache;
 	try {
-		// SAFETY: the module resolved at runtime IS the typescript package the
-		// type-only import above describes; createRequire is the documented way
-		// to load the optionalDependency from ESM (mirrors cyclomatic-ast.ts).
+		// SAFETY: createRequire loads the installed optional TypeScript package,
+		// whose runtime API is described by the type-only import above.
 		tsCache = createRequire(import.meta.url)("typescript") as typeof TS;
 	} catch (err) {
 		void err; // optional dependency absent — scorer degrades to comparable:false

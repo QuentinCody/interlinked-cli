@@ -3,9 +3,7 @@
 // The function under test is pure given a ProjectGraph: it only calls
 // `graph.getExports(filePath)` and `graph.getImporters(filePath)` and returns
 // StructuralCheckResult[]. No filesystem / network / time access — so we stub
-// the two graph methods directly (the `as unknown as ProjectGraph` idiom used
-// elsewhere in this repo, e.g. impact-analysis.test.ts) rather than mocking a
-// module boundary. This keeps the tests fully deterministic.
+// the two graph methods directly through the consumed graph interface.
 
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectGraph } from "../project-graph.js";
@@ -32,11 +30,11 @@ function edge(symbols: string[], fromFile = "/proj/importer.ts"): ImportEdge {
 function makeGraph(opts: {
 	exports?: ExportedSymbol[];
 	importers?: ImportEdge[];
-}): ProjectGraph {
+}): Pick<ProjectGraph, "getExports" | "getImporters"> {
 	return {
 		getExports: vi.fn().mockReturnValue(opts.exports ?? []),
 		getImporters: vi.fn().mockReturnValue(opts.importers ?? []),
-	} as unknown as ProjectGraph;
+	};
 }
 
 const FILE = "/proj/target.ts";
@@ -50,7 +48,7 @@ describe("checkDeadExports", () => {
 			const graph = makeGraph({ exports: [] });
 			expect(checkDeadExports(FILE, REL, graph)).toEqual([]);
 			// getImporters must not even be reached on the no-exports path.
-			expect((graph.getImporters as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+			expect((vi.mocked(graph.getImporters))).not.toHaveBeenCalled();
 		});
 
 		it("returns [] when a namespace/wildcard importer exists (empty symbols, L31)", () => {

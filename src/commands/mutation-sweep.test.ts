@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireBoolean, wireNumber, wireObject, wireString, wireUnknown } from "../lib/value-validation.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -554,7 +555,7 @@ describe("mutationSweepCommand", () => {
 			return { file: "unused", status: "measured", mutants: 0, survivors: 0, survivorList: [], record: null, notes: [] };
 		});
 		expect(called).toBe(false);
-		const payload = reported() as unknown as { dryRun: boolean; selected: unknown[]; total: number };
+		const payload = parseWire(reported(), wireObject({ "dryRun": wireBoolean, "selected": wireArray(wireUnknown), "total": wireNumber }), "test JSON value");
 		expect(payload.dryRun).toBe(true);
 		expect(payload.selected).toHaveLength(2);
 		expect(payload.total).toBe(2);
@@ -681,7 +682,7 @@ describe("mutationSweepCommand", () => {
 
 		await mutationSweepCommand({ cwd, json: true, allEligible: true, dryRun: true });
 
-		const payload = reported() as unknown as { selected: Array<{ file: string; open: number }>; total: number };
+		const payload = parseWire(reported(), wireObject({ "selected": wireArray(wireObject({ "file": wireString, "open": wireNumber })), "total": wireNumber }), "test JSON value");
 		expect(payload.total).toBe(2);
 		expect(payload.selected.map((row) => row.file)).toEqual(["src/here.ts", "src/there.ts"]);
 		expect(eligibleMutationFiles(cwd)).toEqual(["src/here.ts", "src/there.ts"]);
@@ -715,7 +716,7 @@ describe("mutationSweepCommand", () => {
 			dryRun: true,
 		});
 
-		const payload = reported() as unknown as { selected: Array<{ file: string }> };
+		const payload = parseWire(reported(), wireObject({ "selected": wireArray(wireObject({ "file": wireString })) }), "test JSON value");
 		expect(payload.selected.map((row) => row.file)).toEqual(["src/here.ts", "src/missing.ts"]);
 	});
 
@@ -851,7 +852,7 @@ describe("mutationSweepCommand", () => {
 			},
 		});
 		await mutationSweepCommand({ cwd, json: true, allEligible: true, dryRun: true });
-		const payload = reported() as unknown as { selected: Array<{ file: string; qualified: boolean }> };
+		const payload = parseWire(reported(), wireObject({ "selected": wireArray(wireObject({ "file": wireString, "qualified": wireBoolean })) }), "test JSON value");
 		const here = payload.selected.find((r) => r.file === "src/here.ts");
 		const un = payload.selected.find((r) => r.file === "src/unprovenanced.ts");
 		expect(here?.qualified).toBe(true);
@@ -874,7 +875,7 @@ describe("mutationSweepCommand", () => {
 		writeFileSync(join(cwd, "src", "beta.ts"), "export const b = 1;\n");
 		writeManifest(survivedManifest({ "src/alpha.ts": [{ mutantId: "m1" }], "src/beta.ts": [{ mutantId: "m2" }] }));
 		await mutationSweepCommand({ cwd, json: true, allEligible: true, dryRun: true, file: "alpha" });
-		const payload = reported() as unknown as { selected: Array<{ file: string }> };
+		const payload = parseWire(reported(), wireObject({ "selected": wireArray(wireObject({ "file": wireString })) }), "test JSON value");
 		expect(payload.selected.map((r) => r.file)).toEqual(["src/alpha.ts"]);
 	});
 
@@ -942,7 +943,7 @@ describe("mutationSweepCommand", () => {
 			survivedManifest({ "src/here.ts": [{ mutantId: "m1" }], "src/there.ts": [{ mutantId: "m2" }] }),
 		);
 		await mutationSweepCommand({ cwd, json: true, dryRun: true, limit: "1" });
-		const payload = reported() as unknown as { selected: unknown[] };
+		const payload = parseWire(reported(), wireObject({ "selected": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.selected).toHaveLength(1);
 	});
 
@@ -957,7 +958,7 @@ describe("mutationSweepCommand", () => {
 			}),
 		);
 		await mutationSweepCommand({ cwd, json: true, dryRun: true, shard: "1/2" });
-		const payload = reported() as unknown as { selected: unknown[] };
+		const payload = parseWire(reported(), wireObject({ "selected": wireArray(wireUnknown) }), "test JSON value");
 		expect(payload.selected.length).toBeLessThan(4);
 	});
 
@@ -969,7 +970,7 @@ describe("mutationSweepCommand", () => {
 			},
 		});
 		await mutationSweepCommand({ cwd, json: true, dryRun: true, unqualifiedOnly: true });
-		const payload = reported() as unknown as { selected: Array<{ file: string }> };
+		const payload = parseWire(reported(), wireObject({ "selected": wireArray(wireObject({ "file": wireString })) }), "test JSON value");
 		expect(payload.selected.map((r) => r.file)).toEqual(["src/there.ts"]);
 	});
 });

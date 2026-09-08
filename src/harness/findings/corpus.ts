@@ -392,7 +392,7 @@ export function foldByBugClass(findings: readonly Finding[]): BugClassRow[] {
 				finding_count: 0,
 				times_observed: 0,
 				runners: new Set<string>(),
-				weakest: "anchored_sha" as ProvenanceCompleteness,
+				weakest: "anchored_sha" as const,
 				status_counts: {},
 				files: new Set<string>(),
 			};

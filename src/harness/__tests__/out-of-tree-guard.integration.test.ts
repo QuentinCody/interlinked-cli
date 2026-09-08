@@ -32,6 +32,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
+import { isHarnessDecision } from "../daemon-response-parser.js";
+import { parseWire } from "../../lib/value-validation.js";
 
 const REPO_ROOT = resolve(import.meta.dirname, "../../..");
 const TSX_BIN = join(REPO_ROOT, "node_modules", ".bin", "tsx");
@@ -105,7 +107,7 @@ function sendEvent(event: HarnessEvent): Promise<HarnessDecision> {
 				clearTimeout(timer);
 				sock.destroy();
 				try {
-					resolvePromise(JSON.parse(buffer.slice(0, newlineIdx)) as HarnessDecision);
+					resolvePromise(parseWire(JSON.parse(buffer.slice(0, newlineIdx)), isHarnessDecision, "harness decision"));
 				} catch {
 					rejectPromise(new Error(`unparseable harness response: ${buffer.slice(0, 200)}`));
 				}

@@ -66,11 +66,10 @@ export function buildStaleBaselineNudge(
 export function buildCommitCadenceNudge(
 	ctx: ServerRuntime,
 	event: HarnessEvent,
-	// Nullable: the "returns null when session is falsy" test pins a no-throw contract.
-	session: SessionTrajectory | undefined,
+	session: SessionTrajectory,
 ): string | null {
 	const cadenceCfg = ctx.rules.commit_cadence;
-	if (!cadenceCfg?.enabled || !session || session.stop_nudge_emitted) return null;
+	if (!cadenceCfg?.enabled || session.stop_nudge_emitted) return null;
 	const nonDocCount = session.non_doc_files_edited_since_commit?.size ?? 0;
 	const docCount = session.doc_files_edited_since_commit ?? 0;
 	const tokens = readSessionTokens(event.transcript_path, event.agent_source);

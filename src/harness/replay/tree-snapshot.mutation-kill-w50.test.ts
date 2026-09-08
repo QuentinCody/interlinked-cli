@@ -173,7 +173,7 @@ describe("restoreTree — throws on tar extraction failure", () => {
 			stderr: Buffer.from("boom: extraction failed"),
 			// SAFETY: restoreTree only reads .status and .stderr from the result;
 			// this fixture supplies both plus the other SpawnSyncReturns fields.
-		} as unknown as ReturnType<typeof spawnSync>);
+		});
 		expect(() => restoreTree(tmp, treeSha, destDir)).toThrow(/tar extract failed/);
 	});
 });

@@ -42,7 +42,7 @@ vi.mock("node:fs", async (importOriginal) => {
 				throw new Error("simulated lstat failure (TOCTOU race)");
 			}
 			if (lstatWeirdPath && path === lstatWeirdPath) {
-				const stats = actual.lstatSync(...args);
+				const stats = nonNull(actual.lstatSync(...args));
 				if (stats === undefined) return undefined;
 				stats.isSymbolicLink = () => false;
 				stats.isDirectory = () => false;

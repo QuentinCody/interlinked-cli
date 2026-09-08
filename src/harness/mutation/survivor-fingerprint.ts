@@ -93,11 +93,11 @@ function enclosingStatement(ts: TsModule, node: TS.Node): TS.Node | null {
 	// node visited before binding — the compiler API's well-known type lie.
 	// Cast to the true runtime shape so the loop's null check stays live
 	// instead of reading as an impossible branch.
-	let cur = node.parent as TS.Node | undefined;
+	let cur = node.parent;
 	while (cur !== undefined && !ts.isSourceFile(cur)) {
 		if (ts.isStatement(cur)) return cur;
 		// SAFETY: same `Node.parent` type-lie as above.
-		cur = cur.parent as TS.Node | undefined;
+		cur = cur.parent;
 	}
 	return null;
 }

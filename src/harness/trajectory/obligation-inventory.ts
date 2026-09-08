@@ -50,6 +50,9 @@ export interface ToolEvent {
 	};
 }
 
+/** Persisted records may omit input; the ledger filters them before processing edits. */
+type RecordedToolEvent = Omit<ToolEvent, "input"> & { input?: ToolEvent["input"] };
+
 /** The obligation classes this ledger accounts for. */
 type ObligationKind = "conflict_marker" | "stub" | "test_disabled" | "todo";
 
@@ -219,16 +222,11 @@ function countByKey(occ: Occurrence[], file: string): Map<string, LedgerEntry> {
 
 /** Keep one event per non-empty toolUseId (PreToolUse + PostToolUse carry the
  *  same input — count the edit once) and only the edit-bearing ones. */
-function editEvents(events: readonly ToolEvent[]): ToolEvent[] {
+function editEvents(events: readonly RecordedToolEvent[]): ToolEvent[] {
 	const seen = new Set<string>();
 	const out: ToolEvent[] = [];
 	for (const ev of events) {
-		// `input` is declared required, but this ledger is documented ("we
-		// scan the edit-bearing ones at Stop / per-edit") to eventually read
-		// events reconstructed from a persisted JSONL trajectory log, not
-		// only the in-process `toToolEvent`-built stream — a genuinely
-		// malformed/truncated record there can omit `input` entirely.
-		const input = (ev as { input?: ToolEvent["input"] }).input;
+		const input = ev.input;
 		if (!input) continue;
 		const hasEdit =
 			input.new_string !== undefined ||
@@ -240,7 +238,7 @@ function editEvents(events: readonly ToolEvent[]): ToolEvent[] {
 			if (seen.has(id)) continue;
 			seen.add(id);
 		}
-		out.push(ev);
+		out.push({ ...ev, input });
 	}
 	return out;
 }
@@ -304,7 +302,7 @@ function applyEditEvent(
 
 /** Walk the session's edits in order, netting opened against closed
  *  obligations into a per-`(file, kind, signature)` ledger. */
-function buildLedger(events: readonly ToolEvent[]): Map<string, LedgerEntry> {
+function buildLedger(events: readonly RecordedToolEvent[]): Map<string, LedgerEntry> {
 	const ledger = new Map<string, LedgerEntry>();
 	// Repeated full Writes to the same path diff against the prior content so a
 	// re-Write doesn't re-open obligations it merely carried forward.
@@ -345,7 +343,7 @@ const MAX_FILES_PER_KIND = 6;
  * line is a loose end the session opened — surfacing it once at Stop is a
  * reflective checklist, never a block.
  */
-export function formatOpenObligations(events: ToolEvent[]): string | null {
+export function formatOpenObligations(events: RecordedToolEvent[]): string | null {
 	if (!Array.isArray(events) || events.length === 0) return null;
 	const ledger = buildLedger(events);
 	if (ledger.size === 0) return null;
@@ -401,7 +399,7 @@ export function formatOpenObligations(events: ToolEvent[]): string | null {
  * spec's exact signal) from one freshly introduced by this edit — both fire.
  */
 export function obligationConflictMarkerRule(
-	events: ToolEvent[],
+	events: ToolEvent[] | null | undefined,
 	latest: ToolEvent,
 ): ObligationVerdict | null {
 	const file = latest.input.file_path ?? "";

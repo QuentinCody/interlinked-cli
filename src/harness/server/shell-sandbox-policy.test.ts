@@ -1,3 +1,4 @@
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +21,7 @@ function event(over: Partial<HarnessEvent> = {}): HarnessEvent {
 }
 
 function session(): SessionTrajectory {
-	return { acknowledged_checks: new Set() } as unknown as SessionTrajectory;
+	return ({ ...makeSessionFixture(),  acknowledged_checks: new Set() } satisfies SessionTrajectory);
 }
 
 beforeEach(() => {

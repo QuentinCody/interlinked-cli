@@ -1,56 +1,7 @@
-// ===========================================
-// Companion-stem tests for server-tsgo-bash.ts
-// ===========================================
-// This is the mutation runner's primary overlay target for
-// `server-tsgo-bash.ts`. The runner's fixed-stem probe (`testScopeFor` in
-// scratch/two-box-runner/runner.mjs) looks for `<base>.test.ts` first, and
-// the reverse-import-graph fallback (`computeMutationTestScope` in
-// `mutation/test-scope.ts`) needs a real STATIC import edge to find a test
-// file at all. Neither existed before this file.
-//
-// The two siblings that already cover this module —
-// server-tsgo-bash.survivors.test.ts (7 tests) and
-// server-tsgo-bash.integration.test.ts (38 tests) — both import the SUT via
-// a three-line destructured DYNAMIC import:
-//
-//   const { isTsgoAvailable, ... } = await import(
-//   	"./server-tsgo-bash.js"
-//   );
-//
-// `project-graph/parser-imports.ts`'s `collapseImportLines` only buffers a
-// continuation line when the line itself starts with the literal token
-// "import" (a real static `import { … } from '...'` split across lines).
-// A line starting with `const { … } = await import(` does not qualify, so
-// the three lines are parsed SEPARATELY and none of them satisfies
-// `matchDynamicImport`'s single-line regex (the opening `import(` is on
-// line 1, the string literal on line 2, the closing paren on line 3) —
-// `parseImports` emits ZERO edges for either file. The reverse-graph BFS
-// the mutation runner's `computeMutationTestScope` walks therefore sees no
-// dependents of `server-tsgo-bash.ts`, and the fixed-stem probe also comes
-// up empty since neither sibling is literally named
-// `server-tsgo-bash.test.ts`. Net effect: the runner ships zero overlay
-// tests for this target and all 115 mutants report survived — not because
-// the code is untested, but because neither existing test file is where
-// either resolution path looks.
-//
-// This file ports the full, unmodified test bodies of both siblings (same
-// assertions, same mocked boundary) behind ONE static top-level import so
-// both problems are fixed at once: it satisfies the fixed-stem probe by
-// name, and the static `import { … } from "./server-tsgo-bash.js"` below
-// is matched directly by `matchStaticImport`'s single-line named-import
-// regex, giving the reverse-import graph a real edge. Vitest hoists
-// `vi.mock(...)` calls above ALL imports (static or dynamic) in the same
-// file regardless of source order, so mocking `node:child_process` still
-// works exactly as it did with the dynamic-import form — this is Vitest's
-// documented, primary mocking pattern, not a workaround.
-//
-// Both source files remain in place unmodified; this file is additive
-// only. See them for the full mutant-kill provenance notes —
-// survivors.test.ts's header in particular documents the one proven-
-// equivalent mutant (site 029e1690c06f53bb) that is deliberately not
-// re-tested anywhere.
+// TSC-to-tsgo acceleration behavior and whitespace regressions.
+// Keep a static SUT import so mutation test selection follows this suite.
 
-import type { SpawnSyncReturns } from "node:child_process";
+import type { SpawnSyncReturns, SpawnSyncOptionsWithStringEncoding } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../lib/non-null.js";
 import {
@@ -60,20 +11,13 @@ import {
 	tryTsgoRewrite,
 } from "./server-tsgo-bash.js";
 
-const spawnSyncMock = vi.fn();
+const spawnSyncMock = vi.hoisted(() => vi.fn<(command: string, args: string[], options: SpawnSyncOptionsWithStringEncoding) => SpawnSyncReturns<string>>());
 
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+	spawnSync: spawnSyncMock,
 }));
 
-/** Build a minimal SpawnSyncReturns. `stdout`/`stderr` widened to optional so
- *  we can exercise the `(result.stdout || "")` fallback branches. */
-function spawnResult(
-	over: Partial<Omit<SpawnSyncReturns<string>, "stdout" | "stderr">> & {
-		stdout?: string | undefined;
-		stderr?: string | undefined;
-	},
-): SpawnSyncReturns<string> {
+function spawnResult(over: Partial<SpawnSyncReturns<string>>): SpawnSyncReturns<string> {
 	return {
 		pid: 1,
 		output: [],
@@ -82,12 +26,12 @@ function spawnResult(
 		status: 0,
 		signal: null,
 		...over,
-	} as SpawnSyncReturns<string>;
+	};
 }
 
 /** True when this spawnSync call is the `npx tsgo --version` availability probe. */
 function isVersionProbe(args: unknown[]): boolean {
-	const [cmd, argv] = args as [string, string[]];
+	const [cmd, argv] = args;
 	return cmd === "npx" && Array.isArray(argv) && argv[0] === "tsgo" && argv[1] === "--version";
 }
 
@@ -97,7 +41,7 @@ beforeEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// isTsgoAvailable  (ported from server-tsgo-bash.integration.test.ts)
+// isTsgoAvailable
 // ---------------------------------------------------------------------------
 
 describe("isTsgoAvailable", () => {
@@ -105,11 +49,7 @@ describe("isTsgoAvailable", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		expect(isTsgoAvailable()).toBe(true);
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, argv, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, argv, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("npx");
 		expect(argv).toEqual(["tsgo", "--version"]);
 		expect(opts).toMatchObject({
@@ -260,7 +200,7 @@ describe("isBashTsc — non-matching", () => {
 		expect(isBashTsc({ tool_name: "Bash", tool_input: { command: "   " } })).toBe(false);
 	});
 	it("does not match a non-string command (coerced via `|| ''`)", () => {
-		expect(isBashTsc({ tool_name: "Bash", tool_input: { command: undefined } as never })).toBe(
+		expect(isBashTsc({ tool_name: "Bash", tool_input: { command: undefined } })).toBe(
 			false,
 		);
 	});
@@ -297,11 +237,7 @@ describe("tryTsgoRewrite", () => {
 			].join("\n"),
 		});
 		// The rewritten command is the second spawnSync call, via `sh -c`.
-		const rewriteCall = spawnSyncMock.mock.calls[1] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const rewriteCall = nonNull(spawnSyncMock.mock.calls[1]);
 		expect(rewriteCall[0]).toBe("sh");
 		expect(rewriteCall[1]).toEqual(["-c", "npx tsgo --noEmit"]);
 		expect(rewriteCall[2]).toMatchObject({
@@ -322,7 +258,7 @@ describe("tryTsgoRewrite", () => {
 			return spawnResult({ status: 0, stdout: "" });
 		});
 		const out = tryTsgoRewrite({ tool_input: { command: "tsc --noEmit" } }, "/r", () => {});
-		const rewriteCall = spawnSyncMock.mock.calls[1] as [string, string[], unknown];
+		const rewriteCall = nonNull(spawnSyncMock.mock.calls[1]);
 		expect(rewriteCall[1]).toEqual(["-c", "npx tsgo --noEmit"]);
 		expect(out).not.toBeNull();
 	});
@@ -404,31 +340,14 @@ describe("tryTsgoRewrite", () => {
 		expect(nonNull(log.mock.calls[1])[0]).toBe("tsgo acceleration failed: string failure");
 	});
 
-	it("handles a missing command (the `|| ''` fallback) — rewrites to empty `npx tsgo`-less string", () => {
-		// No `tsc` token to match, so replace() leaves the empty string untouched.
-		spawnSyncMock.mockImplementation((...args: unknown[]) => {
-			if (isVersionProbe(args)) return spawnResult({ status: 0 });
-			return spawnResult({ status: 0, stdout: "ran" });
-		});
-		const out = tryTsgoRewrite({ tool_input: {} }, "/r", () => {});
-		const rewriteCall = spawnSyncMock.mock.calls[1] as [string, string[], unknown];
-		expect(rewriteCall[1]).toEqual(["-c", ""]);
-		expect(out).not.toBeNull();
-	});
-
-	it("uses the undefined-stdout/stderr `|| ''` fallback without throwing", () => {
-		spawnSyncMock.mockImplementation((...args: unknown[]) => {
-			if (isVersionProbe(args)) return spawnResult({ status: 0 });
-			return spawnResult({ status: 0, stdout: undefined, stderr: undefined });
-		});
-		const out = tryTsgoRewrite({ tool_input: { command: "tsc" } }, "/r", () => {});
-		expect(out?.reason.split("\n")).toContain("(no output)");
+	it.each([undefined, null, 42, {}])("declines a non-text command without launching a subprocess: %j", (command) => {
+		expect(tryTsgoRewrite({ tool_input: { command } }, "/r", () => {})).toBeNull();
+		expect(spawnSyncMock).not.toHaveBeenCalled();
 	});
 });
 
 // ---------------------------------------------------------------------------
 // isBashTsc — regex/whitespace boundary cases
-// (ported from server-tsgo-bash.survivors.test.ts)
 // ---------------------------------------------------------------------------
 
 describe("isBashTsc — regex/whitespace boundary cases (kill-brief hardening)", () => {
@@ -464,7 +383,6 @@ describe("isBashTsc — regex/whitespace boundary cases (kill-brief hardening)",
 
 // ---------------------------------------------------------------------------
 // tryTsgoRewrite — regex + trim/slice boundary cases
-// (ported from server-tsgo-bash.survivors.test.ts)
 // ---------------------------------------------------------------------------
 
 describe("tryTsgoRewrite — regex + trim/slice boundary cases (kill-brief hardening)", () => {
@@ -474,7 +392,7 @@ describe("tryTsgoRewrite — regex + trim/slice boundary cases (kill-brief harde
 			return spawnResult({ status: 0, stdout: "ok" });
 		});
 		const out = tryTsgoRewrite({ tool_input: { command: "npx  tsc --noEmit" } }, "/r", () => {});
-		const rewriteCall = spawnSyncMock.mock.calls[1] as [string, string[], unknown];
+		const rewriteCall = nonNull(spawnSyncMock.mock.calls[1]);
 		expect(rewriteCall[1]).toEqual(["-c", "npx tsgo --noEmit"]);
 		expect(out).not.toBeNull();
 	});

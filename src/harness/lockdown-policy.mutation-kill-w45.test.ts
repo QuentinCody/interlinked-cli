@@ -1,21 +1,22 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import { evaluateLockdown, type LockdownConfig } from "./lockdown-policy.js";
 import type { HarnessEvent, SessionTrajectory } from "./types.js";
 import type { SequenceFinding } from "./sequence-checks/types.js";
 
-const BASE_TRAJECTORY: SessionTrajectory = {
+const BASE_TRAJECTORY: SessionTrajectory = ({ ...completeSessionFixture(), ...{
 	session_id: "sess-1",
 	taint_sources: [],
-} as unknown as SessionTrajectory;
+} });
 
 function trajectoryWithUntrusted(count = 1): SessionTrajectory {
-	const sources = Array.from({ length: count }, (_, i) => ({
+	const sources: SessionTrajectory["taint_sources"] = Array.from({ length: count }, (_, i) => ({
 		level: "Confidential",
 		file: `f${i}.ts`,
 		at_step: i + 1,
 		provenance: "document_content" as const,
 	}));
-	return { ...BASE_TRAJECTORY, taint_sources: sources } as unknown as SessionTrajectory;
+	return ({ ...completeSessionFixture(), ...{ ...BASE_TRAJECTORY, taint_sources: sources } });
 }
 
 function makeEvent(overrides: Partial<HarnessEvent>): HarnessEvent {
@@ -25,7 +26,7 @@ function makeEvent(overrides: Partial<HarnessEvent>): HarnessEvent {
 		agent_source: "claude",
 		timestamp: "2026-06-06T00:00:00Z",
 		...overrides,
-	} as HarnessEvent;
+	};
 }
 
 const ACTIVE_CONFIG: LockdownConfig = {
@@ -77,7 +78,7 @@ describe("evaluateLockdown — positive (must fire)", () => {
 			trajectory: trajectoryWithUntrusted(1),
 			candidate: makeEvent({
 				tool_name: "Bash",
-				tool_input: { command: 12345 as unknown as string },
+				tool_input: { command: 12345 },
 			}),
 			sequenceFindings: [],
 			config: ACTIVE_CONFIG,
@@ -196,14 +197,14 @@ describe("evaluateLockdown — positive (must fire)", () => {
 	});
 
 	it("counts and lists only the UNTRUSTED-provenance taint sources (kills the two .filter->identity mutants)", () => {
-		const trajectory: SessionTrajectory = {
+		const trajectory: SessionTrajectory = ({ ...completeSessionFixture(), ...{
 			...BASE_TRAJECTORY,
 			taint_sources: [
 				{ level: "Internal", file: "trusted.ts", at_step: 1, provenance: "local_read" },
 				{ level: "Confidential", file: "untrusted-a.ts", at_step: 2, provenance: "document_content" },
 				{ level: "Confidential", file: "untrusted-b.ts", at_step: 3, provenance: "user_provided" },
 			],
-		} as unknown as SessionTrajectory;
+		} });
 		const result = evaluateLockdown({
 			trajectory,
 			candidate: makeEvent({
@@ -223,7 +224,7 @@ describe("evaluateLockdown — positive (must fire)", () => {
 	});
 
 	it("evidence.slice(-3) keeps only the LAST 3 untrusted sources, not the first 3 (kills -3 -> +3)", () => {
-		const trajectory: SessionTrajectory = {
+		const trajectory: SessionTrajectory = ({ ...completeSessionFixture(), ...{
 			...BASE_TRAJECTORY,
 			taint_sources: [
 				{ level: "Confidential", file: "u1.ts", at_step: 1, provenance: "document_content" },
@@ -231,7 +232,7 @@ describe("evaluateLockdown — positive (must fire)", () => {
 				{ level: "Confidential", file: "u3.ts", at_step: 3, provenance: "document_content" },
 				{ level: "Confidential", file: "u4.ts", at_step: 4, provenance: "document_content" },
 			],
-		} as unknown as SessionTrajectory;
+		} });
 		const result = evaluateLockdown({
 			trajectory,
 			candidate: makeEvent({

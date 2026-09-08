@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---- mocks for every module init.ts imports (besides node:fs/path/process/non-null) ----
@@ -175,9 +175,10 @@ describe("git-derived project name (dry-run)", () => {
 
 	it("falls back to directory basename when no url line is present", async () => {
 		const name = await runAndGetProjectName("[core]\n\tbare = false\n");
-		// basename(tmpDir) — not asserting the exact random tmp name, just that
-		// we got a string back via the fallback path.
 		expect(typeof name).toBe("string");
+		// Pin the exact fallback value: basename(tmpDir). A stub/no-op fallback
+		// (e.g. returning "" or a hardcoded name) would fail this literal check.
+		expect(name).toBe(basename(tmpDir));
 	});
 });
 
@@ -197,6 +198,7 @@ describe("server reachability probe (dry-run)", () => {
 		delete process.env.INTERLINKED_SERVER_URL;
 		// SAFETY: this test reads only Response.ok and restores global.fetch in afterEach.
 		global.fetch = vi.fn().mockResolvedValue({ ok: true }) as any;
+		const setSpy = vi.spyOn(global, "setTimeout");
 		const clearSpy = vi.spyOn(global, "clearTimeout");
 		await initCommand({
 			"dry-run": true,
@@ -205,6 +207,11 @@ describe("server reachability probe (dry-run)", () => {
 			agent: "a",
 		});
 		expect(clearSpy).toHaveBeenCalled();
+		// Pin the exact timer handle: clearTimeout must be called with the SAME
+		// handle setTimeout returned, not merely "called with something".
+		const timerHandle = setSpy.mock.results[0]?.value;
+		expect(clearSpy).toHaveBeenCalledWith(timerHandle);
+		setSpy.mockRestore();
 		clearSpy.mockRestore();
 	});
 });
@@ -492,7 +499,7 @@ describe("shouldStartHarness / startHarness (full run, symbol f950e99585a91174)"
 		expect(createInterface).toHaveBeenCalled();
 		// SAFETY: vi.mock replaces this import, so Vitest supplies its mock methods at runtime.
 		const calledWithInputOutput = (createInterface as any).mock.calls.some(
-			(call: unknown[]) => call[0] && "input" in (call[0] as object) && "output" in (call[0] as object),
+			(call: unknown[]) => typeof call[0] === "object" && call[0] !== null && "input" in call[0] && "output" in call[0],
 		);
 		expect(calledWithInputOutput).toBe(true);
 	});

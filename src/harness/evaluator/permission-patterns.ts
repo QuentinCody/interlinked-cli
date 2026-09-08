@@ -7,9 +7,10 @@
 // user no longer gets prompted for it. This module owns pattern extraction
 // and the safe subset of auto-permittable commands.
 
+import { readToolString } from "./tool-input-values.js";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import { isBash } from "./tool-classifiers.js";
 
@@ -56,10 +57,10 @@ const MULTI_SUBCOMMAND_TOOLS = new Set(["git", "npm", "npx", "node", "cargo"]);
  *  (never auto-permit those) or when no stable pattern can be derived. */
 export function extractPermissionPattern(toolName: string, toolInput: JsonObject): string | null {
 	if (isBash(toolName)) {
-		return extractBashPattern((toolInput.command as string) || "");
+		return extractBashPattern(readToolString(toolInput.command));
 	}
 	if (toolName === "WebFetch" || toolName === "web_fetch") {
-		const url = (toolInput.url as string) || "";
+		const url = readToolString(toolInput.url);
 		try {
 			const host = new URL(url).hostname;
 			return `WebFetch(domain:${host})`;
@@ -171,15 +172,17 @@ export function addPermissionToSettings(pattern: string): boolean {
 
 		let settings: JsonObject = {};
 		try {
-			settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			const parsed: unknown = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			if (!isJsonObject(parsed)) return false;
+			settings = parsed;
 		} catch {
 			mkdirSync(settingsDir, { recursive: true });
 		}
 
-		if (!settings.permissions) settings.permissions = {};
-		const perms = settings.permissions as JsonObject;
-		if (!Array.isArray(perms.allow)) perms.allow = [];
-		const allowList = perms.allow as string[];
+		const perms = isJsonObject(settings.permissions) ? settings.permissions : {};
+		const allowList = Array.isArray(perms.allow) ? perms.allow.filter((entry: unknown): entry is string => typeof entry === "string") : [];
+		perms.allow = allowList;
+		settings.permissions = perms;
 
 		// Don't add duplicates
 		if (allowList.includes(pattern)) return false;

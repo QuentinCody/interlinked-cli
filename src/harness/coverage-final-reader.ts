@@ -16,12 +16,13 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { isJsonObject } from "../lib/json-types.js";
+import { isIstanbulFileEntry, type IstanbulFileEntry, type IstanbulRange } from "./coverage-report-values.js";
 import type { CoverageSummary } from "./coverage-ratchet.js";
 
 // Type-tag constants used in the narrow guards below. Extracted so the
 // runtime checks read as intent ("is this shaped like an object?") rather
 // than comparisons against bare string literals.
-const TYPE_OBJECT = "object";
 const TYPE_STRING = "string";
 
 // ==================================================================
@@ -69,54 +70,6 @@ export interface PerFileCoverage {
 	 */
 	uncoveredLines?: ReadonlySet<number>;
 }
-
-// ==================================================================
-// istanbul source types (minimal — we only read a handful of fields)
-// ==================================================================
-
-interface IstanbulLoc {
-	line: number;
-	column?: number;
-}
-
-// `start`/`end` are marked optional (rather than the istanbul spec's
-// always-present shape) because this whole module parses an externally
-// generated `coverage-final.json` via `JSON.parse` + a bare `as` cast — the
-// declared shape is never runtime-validated past "is this an object", so a
-// truncated/partial/instrumenter-variant report can genuinely omit these
-// fields. The `?.` chains and `== null` guards throughout this file are load
-// -bearing against that, not decoration; keep the types honest so the
-// compiler doesn't tell us they're pointless.
-interface IstanbulRange {
-	start?: IstanbulLoc;
-	end?: IstanbulLoc;
-}
-
-interface IstanbulFnMapEntry {
-	name: string;
-	decl?: IstanbulRange;
-	loc?: IstanbulRange;
-	line?: number;
-}
-
-interface IstanbulFileEntry {
-	path?: string;
-	fnMap?: Record<string, IstanbulFnMapEntry>;
-	f?: Record<string, number>;
-	/** Value may be absent even for a present key — same untrusted-report caveat as above. */
-	statementMap?: Record<string, IstanbulRange | undefined>;
-	s?: Record<string, number>;
-	/** Branch hit arrays (`b[id][pathIndex]`) — read by the summary derivation only. */
-	b?: Record<string, number[]>;
-}
-
-/**
- * Top-level shape is genuinely unknown until checked: this is raw
- * `JSON.parse` output of a file we don't control the producer of. Callers
- * must verify `typeof entry === "object"` per entry before treating it as
- * {@link IstanbulFileEntry}.
- */
-type IstanbulFinalJson = Record<string, unknown>;
 
 // ==================================================================
 // mtime-keyed cache
@@ -171,9 +124,9 @@ export function loadCoverageFinal(
 	} catch {
 		return null;
 	}
-	if (!raw || typeof raw !== TYPE_OBJECT) return null;
+	if (!isJsonObject(raw)) return null;
 
-	const data = buildPerFileCoverage(raw as IstanbulFinalJson, repoRoot, mtime);
+	const data = buildPerFileCoverage(raw, repoRoot, mtime);
 	CACHE.set(coveragePath, { mtime, data });
 	return data;
 }
@@ -199,7 +152,7 @@ function branchMetricsOf(entry: IstanbulFileEntry): { covered: number; total: nu
 	for (const hitsArr of Object.values(entry.b ?? {})) {
 		if (!Array.isArray(hitsArr)) continue;
 		for (const hits of hitsArr) {
-			if (typeof hits !== "number") continue;
+			if (typeof hits !== "number" || !Number.isFinite(hits)) continue;
 			total++;
 			if (hits > 0) covered++;
 		}
@@ -244,13 +197,13 @@ export function loadCoverageFinalSummary(
 	} catch {
 		return null;
 	}
-	if (!raw || typeof raw !== TYPE_OBJECT) return null;
+	if (!isJsonObject(raw)) return null;
 
 	const summary: CoverageSummary = {};
 	let entries = 0;
-	for (const [key, rawEntry] of Object.entries(raw as IstanbulFinalJson)) {
-		if (!rawEntry || typeof rawEntry !== TYPE_OBJECT) continue;
-		const entry = rawEntry as IstanbulFileEntry;
+	for (const [key, rawEntry] of Object.entries(raw)) {
+		if (!isIstanbulFileEntry(rawEntry)) continue;
+		const entry = rawEntry;
 		if (!entry.statementMap || !entry.s) continue;
 		const rel = relKeyFor(entry, key, repoRoot);
 		if (!rel) continue;
@@ -281,15 +234,15 @@ export function coverageForFile(
 // ==================================================================
 
 function buildPerFileCoverage(
-	raw: IstanbulFinalJson,
+	raw: Record<string, unknown>,
 	repoRoot: string,
 	mtime: number,
 ): Map<string, PerFileCoverage> {
 	const result = new Map<string, PerFileCoverage>();
 
 	for (const [key, rawEntry] of Object.entries(raw)) {
-		if (!rawEntry || typeof rawEntry !== TYPE_OBJECT) continue;
-		const entry = rawEntry as IstanbulFileEntry;
+		if (!isIstanbulFileEntry(rawEntry)) continue;
+		const entry = rawEntry;
 		const absolute = resolveFileKey(entry.path ?? key, repoRoot);
 		if (!absolute) continue;
 		const rel = normalizeRelPath(relative(repoRoot, absolute));
@@ -391,7 +344,7 @@ function extractLineCoverage(entry: IstanbulFileEntry): { covered: Set<number>; 
 interface StatementPctInput {
 	fnStartLine: number;
 	fnEndLine: number;
-	statementMap: Record<string, IstanbulRange | undefined>;
+	statementMap: Record<string, IstanbulRange | null | undefined>;
 	statementHits: Record<string, number>;
 }
 

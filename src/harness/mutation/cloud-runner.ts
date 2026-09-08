@@ -42,12 +42,12 @@ export interface CloudRunnerConfig {
  *  `measure.ts` (the out-of-band single-file path) shares this ONE parser
  *  rather than growing its own second reading of the same wire shape. */
 export function readNotMeasurable(body: unknown): { reason: string; detail?: string } | null {
-	if (typeof body !== "object" || body === null) return null;
-	const raw = (body as { not_measurable?: unknown }).not_measurable;
-	if (typeof raw !== "object" || raw === null) return null;
-	const reason = (raw as { reason?: unknown }).reason;
+	if (!isJsonObject(body)) return null;
+	const raw = body.not_measurable;
+	if (!isJsonObject(raw)) return null;
+	const reason = raw.reason;
 	if (typeof reason !== "string" || reason === "") return null;
-	const detail = (raw as { detail?: unknown }).detail;
+	const detail = raw.detail;
 	return typeof detail === "string" ? { reason, detail } : { reason };
 }
 
@@ -247,9 +247,9 @@ function headersFor(config: CloudRunnerConfig): Record<string, string> {
 export function readEngineExitCode(body: unknown): number | null | undefined {
 	if (typeof body !== "object" || body === null) return undefined;
 	if (!("engine" in body)) return undefined;
-	const engine = (body as { engine?: unknown }).engine;
-	if (typeof engine !== "object" || engine === null) return null;
-	const code = (engine as { exitCode?: unknown }).exitCode;
+	const engine = body.engine;
+	if (!isJsonObject(engine)) return null;
+	const code = engine.exitCode;
 	if (code === null) return null;
 	if (typeof code === "number" && Number.isFinite(code)) return code;
 	return null;

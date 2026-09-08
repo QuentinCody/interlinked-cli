@@ -1,3 +1,4 @@
+import { parseWire, wireObject, wireString } from "../lib/value-validation.js";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
@@ -135,7 +136,7 @@ describe("timeline-writer file I/O", () => {
 		const rows = readFileSync(timelinePath(cwd), "utf8")
 			.trim()
 			.split("\n")
-			.map((line) => JSON.parse(line) as { uuid: string });
+			.map((line) => parseWire(JSON.parse(line), wireObject({ "uuid": wireString }), "test JSON value"));
 		expect(rows.map((row) => row.uuid)).toEqual(["backfill", "live"]);
 	});
 
@@ -257,7 +258,7 @@ describe("timeline-writer file I/O", () => {
 			const rows = readFileSync(path, "utf8")
 				.trim()
 				.split("\n")
-				.map((line) => JSON.parse(line) as { uuid: string });
+				.map((line) => parseWire(JSON.parse(line), wireObject({ "uuid": wireString }), "test JSON value"));
 			expect(rows.map((row) => row.uuid)).toEqual(["old", "backfill", "late"]);
 			expect(existsSync(lockPath)).toBe(false);
 		},
@@ -449,7 +450,7 @@ describe("timeline-writer file I/O", () => {
 		const rows = readFileSync(timelinePath(cwd), "utf8")
 			.trim()
 			.split("\n")
-			.map((line) => JSON.parse(line) as { uuid: string });
+			.map((line) => parseWire(JSON.parse(line), wireObject({ "uuid": wireString }), "test JSON value"));
 		expect(rows.map((row) => row.uuid)).toEqual(["old", "late"]);
 	});
 

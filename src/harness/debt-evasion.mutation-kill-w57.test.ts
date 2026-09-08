@@ -49,7 +49,7 @@ describe("trackDebtEvasion — raw type guard (kills a4a51401dd00e384)", () => {
 		// exposing the difference only through the explicit `command` typeof check.
 		const event: HarnessEvent = {
 			...bash("ls"),
-			tool_input: { command: ["node -e 'x'"] as unknown as string },
+			tool_input: { command: ["node -e 'x'"] },
 		};
 		trackDebtEvasion(s, event);
 		expect(s.inline_exec_after_debt_block ?? 0).toBe(0);

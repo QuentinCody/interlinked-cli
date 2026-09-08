@@ -16,6 +16,7 @@
 // optional asymmetric allowlists for IDs that legitimately exist on only
 // one side (e.g. checks deliberately not mirrored to offline verify).
 
+import { errorMessage } from "../lib/error-message.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { JsonObject } from "../lib/json-types.js";
@@ -67,7 +68,7 @@ export function loadRegistryParityConfig(cwd: string): RegistryParityConfig | nu
 		parsed = JSON.parse(raw);
 	} catch (err) {
 		throw new Error(
-			`registry-parity config at ${path} is not valid JSON: ${(err as Error).message}`,
+			`registry-parity config at ${path} is not valid JSON: ${errorMessage(err)}`,
 			{ cause: err },
 		);
 	}
@@ -112,10 +113,10 @@ function requireString(v: unknown, ctx: string): string {
 function arrayOfString(v: unknown, ctx: string): readonly string[] {
 	if (v === undefined) return [];
 	if (!Array.isArray(v)) throw new Error(`${ctx} must be an array`);
-	for (const item of v) {
-		if (typeof item !== "string") throw new Error(`${ctx} entries must be strings`);
+	if (!v.every((item): item is string => typeof item === "string")) {
+		throw new Error(`${ctx} entries must be strings`);
 	}
-	return v as readonly string[];
+	return v;
 }
 
 /** Extract IDs from `content` using `pattern`. Pattern must have one

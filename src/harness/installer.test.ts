@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nonNull } from "../lib/non-null.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import {
 	installHooks,
 	installedEventsFor,
@@ -20,6 +21,20 @@ beforeEach(() => {
 });
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
+function readHookSettings(path: string): JsonObject & { hooks: JsonObject } {
+	const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
+	if (!isJsonObject(parsed)) throw new Error("settings must be an object");
+	const hooks = parsed.hooks ?? {};
+	if (!isJsonObject(hooks)) throw new Error("settings.hooks must be an object");
+	return { ...parsed, hooks };
+}
+
+function hookEntries(settings: { hooks: JsonObject }, event: string): JsonObject[] {
+	const entries = settings.hooks[event];
+	if (!Array.isArray(entries) || !entries.every(isJsonObject)) throw new Error(`invalid hook entries: ${event}`);
+	return entries;
+}
+
 describe("installHooks — project scope", () => {
 	it("writes Claude Code hook settings + manifest", () => {
 		const result = installHooks({
@@ -31,9 +46,7 @@ describe("installHooks — project scope", () => {
 		expect(result.entries.length).toBe(1);
 		expect(nonNull(result.entries[0]).runner).toBe("claude-code");
 
-		const claudeSettings = JSON.parse(
-			readFileSync(join(tmp, ".claude", "settings.json"), "utf-8"),
-		) as { hooks: Record<string, unknown[]> };
+		const claudeSettings = readHookSettings(join(tmp, ".claude", "settings.json"));
 		expect(Array.isArray(claudeSettings.hooks.PreToolUse)).toBe(true);
 
 		const manifest = readManifest(manifestPath(tmp));
@@ -51,7 +64,6 @@ describe("installHooks — project scope", () => {
 				],
 			},
 		};
-		const { mkdirSync } = require("node:fs");
 		mkdirSync(join(tmp, ".claude"), { recursive: true });
 		writeFileSync(settingsPath, JSON.stringify(userHook));
 
@@ -61,10 +73,8 @@ describe("installHooks — project scope", () => {
 			runners: ["claude-code"],
 		});
 
-		const after = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			hooks: { PreToolUse: unknown[] };
-		};
-		expect(after.hooks.PreToolUse.length).toBe(2);
+		const after = readHookSettings(settingsPath);
+		expect(hookEntries(after, "PreToolUse").length).toBe(2);
 	});
 
 	it("purges canonical adapter and legacy hooks without claiming same-basename user scripts", () => {
@@ -101,11 +111,9 @@ describe("installHooks — project scope", () => {
 		});
 
 		expect(result.purged).toBe(2);
-		const after = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			hooks: { BeforeTool: Array<{ command?: string; hooks?: Array<{ command?: string }> }> };
-		};
-		expect(after.hooks.BeforeTool.slice(0, userHooks.length)).toEqual(userHooks);
-		const commands = after.hooks.BeforeTool.flatMap((entry) => entry.hooks ?? [entry]).map((entry) => entry.command ?? "");
+		const after = readHookSettings(settingsPath);
+		expect(hookEntries(after, "BeforeTool").slice(0, userHooks.length)).toEqual(userHooks);
+		const commands = hookEntries(after, "BeforeTool").flatMap(entry => Array.isArray(entry.hooks) ? entry.hooks.filter(isJsonObject) : [entry]).map(entry => typeof entry.command === "string" ? entry.command : "");
 		expect(commands.some((command) => command.includes("/old/dist/hook-entry.js"))).toBe(false);
 		expect(
 			commands.some((command) => command === "node .interlinked/hooks/interlinked-activity.mjs"),
@@ -120,7 +128,6 @@ describe("installHooks — project scope", () => {
 			runners: ["claude-code"],
 			dryRun: true,
 		});
-		const { existsSync } = require("node:fs") as { existsSync(p: string): boolean };
 		expect(existsSync(join(tmp, ".claude", "settings.json"))).toBe(false);
 		expect(existsSync(manifestPath(tmp))).toBe(false);
 	});
@@ -168,7 +175,6 @@ describe("installHooks — multi-runner", () => {
 		expect(nonNull(result.entries[0]).runner).toBe("codex");
 
 		const tomlPath = join(tmp, ".codex", "config.toml");
-		const { existsSync } = require("node:fs") as { existsSync(p: string): boolean };
 		expect(existsSync(tomlPath)).toBe(true);
 		const toml = readFileSync(tomlPath, "utf-8");
 		expect(toml).toMatch(/(?<![\w$])hooks\s*=\s*true/);
@@ -183,7 +189,6 @@ describe("installHooks — multi-runner", () => {
 			dryRun: true,
 		});
 		const tomlPath = join(tmp, ".codex", "config.toml");
-		const { existsSync } = require("node:fs") as { existsSync(p: string): boolean };
 		expect(existsSync(tomlPath)).toBe(false);
 	});
 });
@@ -218,11 +223,9 @@ describe("uninstallHooks — round-trip", () => {
 			runners: ["gemini-cli"],
 		});
 		const settingsPath = join(tmp, ".gemini", "settings.json");
-		const doc = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			hooks: Record<string, unknown[]>;
-		};
+		const doc = readHookSettings(settingsPath);
 		const userHook = { command: "/home/user/my-precious-hook.sh" };
-		for (const key of Object.keys(doc.hooks)) doc.hooks[key] = [userHook, ...(doc.hooks[key] ?? [])];
+		for (const key of Object.keys(doc.hooks)) doc.hooks[key] = [userHook, ...hookEntries(doc, key)];
 		writeFileSync(settingsPath, JSON.stringify(doc, null, 2));
 
 		uninstallHooks({ cwd: tmp, runners: ["gemini-cli"] });
@@ -240,9 +243,7 @@ describe("uninstallHooks — round-trip", () => {
 		const binary = "/usr/bin/interlinked-hook-mention";
 		installHooks({ cwd: tmp, binaryPath: binary, runners: ["gemini-cli"] });
 		const settingsPath = join(tmp, ".gemini", "settings.json");
-		const doc = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			hooks: Record<string, unknown[]>;
-		};
+		const doc = readHookSettings(settingsPath);
 		const userHooks = [
 			{ command: "echo node /repo/dist/hook-entry.js" },
 			{ command: "echo ok # node /repo/dist/hook-entry.js" },
@@ -262,7 +263,7 @@ describe("uninstallHooks — round-trip", () => {
 		// A stale REAL Interlinked hook (old binary, invocation position).
 		const stale = { command: "node '/old/dist/hook-entry.js' --runner 'gemini-cli' --event 'BeforeTool'" };
 		for (const key of Object.keys(doc.hooks)) {
-			doc.hooks[key] = [...userHooks, stale, ...(doc.hooks[key] ?? [])];
+			doc.hooks[key] = [...userHooks, stale, ...hookEntries(doc, key)];
 		}
 		writeFileSync(settingsPath, JSON.stringify(doc, null, 2));
 
@@ -291,16 +292,14 @@ describe("uninstallHooks — round-trip", () => {
 		const binary = "/usr/bin/interlinked-hook-lookalike";
 		installHooks({ cwd: tmp, binaryPath: binary, runners: ["gemini-cli"] });
 		const settingsPath = join(tmp, ".gemini", "settings.json");
-		const doc = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			hooks: Record<string, unknown[]>;
-		};
+		const doc = readHookSettings(settingsPath);
 		const lookalikes = [
 			{ command: "node /home/u/my-hook-entry.js" },
 			{ command: "node /home/u/myinterlinked-activity.mjs" },
 			{ command: "/usr/local/bin/my-interlinked-hook --event pre" },
 		];
 		for (const key of Object.keys(doc.hooks)) {
-			doc.hooks[key] = [...lookalikes, ...(doc.hooks[key] ?? [])];
+			doc.hooks[key] = [...lookalikes, ...hookEntries(doc, key)];
 		}
 		writeFileSync(settingsPath, JSON.stringify(doc, null, 2));
 
@@ -318,9 +317,7 @@ describe("uninstallHooks — round-trip", () => {
 	it("uninstall of an already-removed hook deletes nothing else", () => {
 		installHooks({ cwd: tmp, binaryPath: "/usr/bin/ih-gone", runners: ["gemini-cli"] });
 		const settingsPath = join(tmp, ".gemini", "settings.json");
-		const doc = JSON.parse(readFileSync(settingsPath, "utf-8")) as {
-			hooks: Record<string, unknown[]>;
-		};
+		const doc = readHookSettings(settingsPath);
 		// Hand-remove ours everywhere; leave one user hook per event.
 		for (const key of Object.keys(doc.hooks)) doc.hooks[key] = [{ command: "user-kept.sh" }];
 		writeFileSync(settingsPath, JSON.stringify(doc, null, 2));
@@ -346,7 +343,6 @@ describe("uninstallHooks — round-trip", () => {
 		});
 		uninstallHooks({ cwd: tmp, runners: ["claude-code"] });
 
-		const { existsSync } = require("node:fs") as { existsSync(p: string): boolean };
 		expect(existsSync(join(tmp, ".github", "hooks", "hooks.json"))).toBe(true);
 		const manifest = readManifest(manifestPath(tmp));
 		expect(manifest.length).toBe(1);
@@ -356,7 +352,7 @@ describe("uninstallHooks — round-trip", () => {
 
 describe("mergeSettings — merge engine", () => {
 	it("appends array items and records their paths", () => {
-		const target: Record<string, unknown> = { hooks: { PreToolUse: [{ matcher: "X" }] } };
+		const target = { hooks: { PreToolUse: [{ matcher: "X" }] } };
 		const added: string[] = [];
 		mergeSettings(
 			target,
@@ -365,8 +361,7 @@ describe("mergeSettings — merge engine", () => {
 			"",
 			added,
 		);
-		const pre = (target as { hooks: { PreToolUse: unknown[] } }).hooks.PreToolUse;
-		expect(pre.length).toBe(2);
+		expect(target.hooks.PreToolUse).toEqual([{ matcher: "X" }, { matcher: "Y" }]);
 		expect(added[0]).toBe("hooks.PreToolUse[1]");
 	});
 
@@ -481,11 +476,9 @@ describe("installHooks — cross-scope stale cleanup keeps unrelated entries", (
 		// cleanup (scope !== "user") against the shared user-scope file.
 		installHooks({ cwd: tmp, binaryPath, runners: ["claude-code"] });
 
-		const after = JSON.parse(readFileSync(userClaudeSettings, "utf-8")) as {
-			hooks: { UserPromptSubmit: Array<{ hooks?: Array<{ command?: string }> }> };
-		};
-		expect(after.hooks.UserPromptSubmit.length).toBe(1);
-		expect(after.hooks.UserPromptSubmit[0]?.hooks?.[0]?.command).toBe("echo third-party-hook");
+		const after = readHookSettings(userClaudeSettings);
+		expect(hookEntries(after, "UserPromptSubmit").length).toBe(1);
+		expect(hookEntries(after, "UserPromptSubmit")).toMatchObject([{ hooks: [{ command: "echo third-party-hook" }] }]);
 	});
 
 	it("preserves a customized user-scope managed provider bridge without a manifest hash", () => {
@@ -540,9 +533,7 @@ describe("installHooks — scope switch cleans the stale manifest entry", () => 
 		// The manifest-driven stale-install loop (selectedIds has the runner,
 		// newFiles does NOT contain the old project file) purged it.
 		expect(result.orphans_cleaned).toContain(projectSettings);
-		const after = JSON.parse(readFileSync(projectSettings, "utf-8")) as {
-			hooks?: Record<string, unknown[]>;
-		};
+		const after = readHookSettings(projectSettings);
 		expect(after.hooks ?? {}).toEqual({});
 	});
 
@@ -701,9 +692,7 @@ describe("installHooks — stale-install loop: mixed selected/non-selected prior
 				scope: "project",
 			});
 			const staleSettings = join(tmp, ".claude", "settings.json");
-			const before = JSON.parse(readFileSync(staleSettings, "utf-8")) as {
-				hooks: Record<string, unknown>;
-			};
+			const before = readHookSettings(staleSettings);
 			// Inject a malformed sibling key alongside the real (array) hook
 			// arrays — exercises the `!Array.isArray(arr)` continue branch.
 			before.hooks.SomeMalformedKey = "not-an-array";
@@ -716,9 +705,7 @@ describe("installHooks — stale-install loop: mixed selected/non-selected prior
 				scope: "user",
 			});
 			expect(result.orphans_cleaned).toContain(staleSettings);
-			const after = JSON.parse(readFileSync(staleSettings, "utf-8")) as {
-				hooks?: Record<string, unknown>;
-			};
+			const after = readHookSettings(staleSettings);
 			// The malformed key survives (never touched); the real hook arrays
 			// were emptied and their event keys dropped, leaving only the junk
 			// key — this pins that the malformed-value branch doesn't crash or
@@ -1036,9 +1023,7 @@ describe("installHooks — failed postInstall (must not report success)", () => 
 		});
 		expect(result.entries.length).toBe(1);
 		expect(nonNull(result.entries[0]).added_paths.length).toBeGreaterThan(0);
-		const hooks = JSON.parse(readFileSync(join(tmp, ".codex", "hooks.json"), "utf-8")) as {
-			hooks: Record<string, unknown[]>;
-		};
+		const hooks = readHookSettings(join(tmp, ".codex", "hooks.json"));
 		expect(Array.isArray(hooks.hooks.PreToolUse)).toBe(true);
 	});
 

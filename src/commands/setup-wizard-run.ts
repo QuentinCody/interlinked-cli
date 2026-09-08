@@ -29,12 +29,12 @@ import {
 	describeWizardPlan,
 	moveSelection,
 	parseWizardCapOverrides as parseCapOverrides,
+	parseWizardMode,
 	parseWizardYesNo as parseYesNo,
 	WIZARD_COPY,
 	type WizardChoices,
 	type WizardDeadCode,
 	type WizardDeps,
-	type WizardMode,
 	writeDeadCodeConfig,
 	writeScopeConfig,
 } from "./setup-wizard.js";
@@ -169,17 +169,16 @@ async function askModeSelect(choices: WizardChoices): Promise<void> {
 		initial,
 	});
 	const preset = ALL_PRESETS[picked];
-	// SAFETY: preset names are the WizardMode union (ALL_PRESETS is its source).
-	if (preset) choices.mode = preset.name as WizardMode;
+	const mode = parseWizardMode(preset?.name);
+	if (mode) choices.mode = mode;
 }
 
 async function askModeTyped(rl: AskInterface, choices: WizardChoices): Promise<void> {
 	for (let i = 0; i < ALL_PRESETS.length; i++) console.log(modeRow(i, false));
 	const raw = await rl.question(WIZARD_COPY.steps.mode.prompt(DEFAULT_WIZARD_CHOICES.mode));
 	const v = raw.trim().toLowerCase();
-	// SAFETY: membership in ALL_PRESETS (whose names are the WizardMode union)
-	// is checked on the same value before the narrow.
-	if (ALL_PRESETS.some((p) => p.name === v)) choices.mode = v as WizardMode;
+	const mode = parseWizardMode(v);
+	if (mode) choices.mode = mode;
 }
 
 
@@ -253,7 +252,7 @@ async function askDeadCode(rl: AskInterface, choices: WizardChoices): Promise<vo
 	console.log(`${WIZARD_COPY.steps.deadcode.n}) ${WIZARD_COPY.steps.deadcode.title}`);
 	if (canArrowSelect()) {
 		const picked = await selectFromList({
-			labels: DEADCODE_OPTIONS as string[],
+			labels: [...DEADCODE_OPTIONS],
 			renderLine: deadcodeRow,
 			initial: 0,
 		});

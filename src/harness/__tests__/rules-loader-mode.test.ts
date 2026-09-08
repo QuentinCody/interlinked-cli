@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // ===========================================
 // Phase C — mode preset enablement integration
 // ===========================================
@@ -20,14 +21,18 @@ import type { GuardRule, GuardRulesConfig } from "../types.js";
 // (so `loadRules` keeps reading real temp files), but the two watch hooks are
 // captured into `fsWatchState` so the watch tests can fire listeners
 // synchronously and assert (un)registration without 2s poll latency.
-const fsWatchState = vi.hoisted(() => ({
-	watch: [] as Array<{ path: string; listener: (...a: unknown[]) => void }>,
-	unwatch: [] as Array<{ path: string; listener: (...a: unknown[]) => void }>,
-	reset() {
-		this.watch.length = 0;
-		this.unwatch.length = 0;
-	},
-}));
+const fsWatchState = vi.hoisted(() => {
+	const watch: Array<{ path: string; listener: (...args: unknown[]) => void }> = [];
+	const unwatch: Array<{ path: string; listener: (...args: unknown[]) => void }> = [];
+	return {
+		watch,
+		unwatch,
+		reset() {
+			watch.length = 0;
+			unwatch.length = 0;
+		},
+	};
+});
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
@@ -35,11 +40,9 @@ vi.mock("node:fs", async (importOriginal) => {
 		...actual,
 		watchFile: (path: unknown, _opts: unknown, listener: (...a: unknown[]) => void) => {
 			fsWatchState.watch.push({ path: String(path), listener });
-			return undefined as unknown as ReturnType<typeof actual.watchFile>;
 		},
 		unwatchFile: (path: unknown, listener: (...a: unknown[]) => void) => {
 			fsWatchState.unwatch.push({ path: String(path), listener });
-			return undefined as unknown as ReturnType<typeof actual.unwatchFile>;
 		},
 	};
 });
@@ -208,7 +211,7 @@ describe("getDefaultConfig", () => {
 		// Mutate a nested field on the first clone…
 		const firstKey = Object.keys(a.quality_checks)[0];
 		expect(firstKey).toBeTruthy();
-		const probe = a.quality_checks[firstKey as string];
+		const probe = a.quality_checks[nonNull(firstKey)];
 		if (probe) probe.enabled = !probe.enabled;
 		a.rules.push({
 			id: "probe-mutation",
@@ -223,8 +226,8 @@ describe("getDefaultConfig", () => {
 		// …a fresh read must be untouched.
 		const c = getDefaultConfig();
 		expect(c.rules.some((r) => r.id === "probe-mutation")).toBe(false);
-		const cProbe = c.quality_checks[firstKey as string];
-		const bProbe = b.quality_checks[firstKey as string];
+		const cProbe = c.quality_checks[nonNull(firstKey)];
+		const bProbe = b.quality_checks[nonNull(firstKey)];
 		expect(cProbe?.enabled).toBe(bProbe?.enabled);
 	});
 });
@@ -316,7 +319,7 @@ describe("loadRules — file-presence branches", () => {
 	it("disabled_rules from local config removes a builtin rule from the output", () => {
 		const builtin = getBuiltinRules()[0];
 		expect(builtin).toBeDefined();
-		const targetId = (builtin as GuardRule).id;
+		const targetId = (nonNull(builtin)).id;
 		// Sanity: present by default.
 		expect(loadRules(tmp2).rules.some((r) => r.id === targetId)).toBe(true);
 		writeFileSync(

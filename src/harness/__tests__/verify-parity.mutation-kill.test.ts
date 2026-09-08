@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Mutation-hardening tests for src/harness/verify-parity.ts.
 //
 // verify-parity.test.ts pins the "obvious" shape of each exported function.
@@ -392,7 +393,7 @@ describe("verify-parity mutation-kill: safeReadAll — extension allowlist and l
 		};
 		const paths = Object.keys(files).map((name) => {
 			const p = join(dir, name);
-			writeFileSync(p, files[name] as string);
+			writeFileSync(p, nonNull(files[name]));
 			return p;
 		});
 		const r = runVerifyParityChecks(paths);

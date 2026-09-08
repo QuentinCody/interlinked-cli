@@ -105,6 +105,7 @@ describe("looksLikePackageInstall — detection only", () => {
 
 describe("PACKAGE_INSTALL_COLD_GUARD_SOURCE — embeddable into the .mjs", () => {
 	it("reconstructs and agrees with the imported function", () => {
+		// SAFETY: the source serializes checkPackageInstallCold and its dependencies; this named export is compared directly with the imported guard for each command below.
 		const rebuilt = new Function(
 			`"use strict"; ${PACKAGE_INSTALL_COLD_GUARD_SOURCE}; return checkPackageInstallCold;`,
 		)() as InstallFn;

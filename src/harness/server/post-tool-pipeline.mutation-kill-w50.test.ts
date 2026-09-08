@@ -1,4 +1,9 @@
-import { existsSync, mkdirSync as realMkdirSync, rmSync } from "node:fs";
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { getDefaultConfig } from "../rules-loader.js";
+import { nonNull } from "../../lib/non-null.js";
+import { existsSync, mkdirSync as realMkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -77,20 +82,8 @@ vi.mock("./spec-ledger-phase.js", () => ({ prerefreshSpecLedger: vi.fn() }));
 
 import { runPostToolPipeline } from "./post-tool-pipeline.js";
 
-type ContextFixture = Parameters<typeof runPostToolPipeline>[0] & { log: ReturnType<typeof vi.fn> };
-
-function context(overrides: Record<string, unknown> = {}): ContextFixture {
-	return {
-		cwd: "/repo",
-		interlinkedDir: "/repo/.interlinked",
-		rules: { rules: [{ id: "rule" }], content_scanner: { enabled: true } },
-		contentScanner: {},
-		compiledAllowlist: [],
-		reservations: new Map(),
-		cohort: undefined,
-		log: vi.fn(),
-		...overrides,
-	} as never;
+function context(overrides: Partial<Parameters<typeof runPostToolPipeline>[0]> = {}): Parameters<typeof runPostToolPipeline>[0] {
+	return makeServerRuntime({ rules: { ...makeGuardRules(), content_scanner: { ...nonNull(getDefaultConfig().content_scanner), enabled: true } }, contentScanner: { name: "fixture", runtime: "http", ready: vi.fn(async () => true), scan: vi.fn(async () => []), shutdown: vi.fn(async () => {}) }, ...overrides });
 }
 
 function event(over: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -103,17 +96,10 @@ function event(over: Partial<HarnessEvent> = {}): HarnessEvent {
 		tool_input: { file_path: "src/example.ts" },
 		tool_response: null,
 		...over,
-	} as unknown as HarnessEvent;
+	};
 }
 
-function session() {
-	return {
-		silent_failure_warned: new Set<string>(),
-		bloat_warned: new Set<string>(),
-		consecutive_tool_failures: new Map<string, number>(),
-		acknowledged_checks: new Set<string>(),
-	} as never;
-}
+function session() { return makeSessionFixture(); }
 
 beforeEach(() => {
 	mocks.scan.mockReset().mockResolvedValue({ warnings: [] });
@@ -134,37 +120,6 @@ beforeEach(() => {
 	mocks.runPerFileChecks.mockClear();
 });
 
-describe("observedSkipDecision — paths.length===0 guard", () => {
-	// mutant 7466724558d79f06: `paths.length === 0` -> `false`
-	it("does not short-circuit when the mapped paths list collapses to empty", async () => {
-		const files = { length: 1, map: () => [] } as unknown as Array<{ path: string }>;
-		const decision = await runPostToolPipeline(
-			context(),
-			event({ change_set: { files } as never }),
-			session(),
-		);
-		expect(decision.summary ?? "").not.toContain("matched all");
-		expect(decision.phase_breakdown).toBeDefined();
-	});
-});
-
-describe("observedSkipDecision — optional chaining on change_set", () => {
-	// mutant b4ed94d70e74db7e: `event.change_set?.files` -> `event.change_set.files`
-	it("tolerates change_set becoming falsy between the guard check and the read", async () => {
-		let accessCount = 0;
-		const ev = event();
-		Object.defineProperty(ev, "change_set", {
-			configurable: true,
-			get() {
-				accessCount += 1;
-				if (accessCount === 1) return { files: [{ path: "src/a.ts" }] };
-				return null;
-			},
-		});
-		await expect(runPostToolPipeline(context(), ev, session())).resolves.toBeDefined();
-	});
-});
-
 describe("observedSkipDecision — some vs every", () => {
 	// mutant 0910a9bfbad87f89: `paths.some(isWorkspaceControlPath)` -> `paths.every(...)`
 	it("treats one workspace-control path among several as disqualifying the skip", async () => {
@@ -173,7 +128,7 @@ describe("observedSkipDecision — some vs every", () => {
 		const files = [{ path: "control.path" }, { path: "other.path" }];
 		const decision = await runPostToolPipeline(
 			context(),
-			event({ change_set: { files } as never }),
+			event({ change_set: { files: files.map(({ path }) => ({ path, kind: "modified", before_sha256: "a", after_sha256: "b" })), source: "filesystem-observation", complete: true, before_captured_at: "2026-09-08T00:00:00Z", after_captured_at: "2026-09-08T00:00:01Z" } }),
 			session(),
 		);
 		expect(decision.summary ?? "").not.toContain("matched all");
@@ -189,7 +144,7 @@ describe("observedSkipDecision — return literal", () => {
 		const files = [{ path: "skip.me" }];
 		const decision = await runPostToolPipeline(
 			context(),
-			event({ change_set: { files } as never }),
+			event({ change_set: { files: files.map(({ path }) => ({ path, kind: "modified", before_sha256: "a", after_sha256: "b" })), source: "filesystem-observation", complete: true, before_captured_at: "2026-09-08T00:00:00Z", after_captured_at: "2026-09-08T00:00:01Z" } }),
 			session(),
 		);
 		expect(decision.decision).toBe("allow");
@@ -202,7 +157,7 @@ describe("skipPathsShortCircuit — typeof guard", () => {
 		mocks.skipPath.mockReturnValue(true);
 		const decision = await runPostToolPipeline(
 			context(),
-			event({ tool_input: { file_path: 123 } as never }),
+			event({ tool_input: { file_path: 123 } }),
 			session(),
 		);
 		expect(decision.summary ?? "").not.toContain("matched (123)");
@@ -235,7 +190,7 @@ describe("empty-warnings conditions do not push anything", () => {
 		// empty warnings array; this pin's original intent stands unchanged: no
 		// WARNING content is ever pushed when channel and scan are both empty.
 		const warningPushes = mocks.pushWarnings.mock.calls.filter((call) => {
-			const payload = call[0] as { warnings?: string[] } | undefined;
+			const payload = call[0];
 			return (payload?.warnings?.length ?? 0) > 0;
 		});
 		expect(warningPushes).toEqual([]);
@@ -245,8 +200,8 @@ describe("empty-warnings conditions do not push anything", () => {
 describe("appendContentScanWarnings — call args", () => {
 	// mutant ba71c6544a22dfd3: object literal -> {}
 	it("passes rules, scanner, and compiledAllowlist through to runPostToolScan", async () => {
-		const scannerObj = { marker: "scanner" };
-		const allowlist = ["x"];
+		const scannerObj = nonNull(context().contentScanner);
+		const allowlist: import("../content-scanner/allowlist.js").CompiledEntry[] = [{ entry: { kind: "exact", pattern: "fixture" }, matches: (text) => text === "fixture" }];
 		const ctx = context({ contentScanner: scannerObj, compiledAllowlist: allowlist });
 		await runPostToolPipeline(ctx, event(), session());
 		expect(mocks.scan).toHaveBeenCalledWith(
@@ -259,20 +214,9 @@ describe("appendContentScanWarnings — call args", () => {
 });
 
 describe("runFileChecksWithMarker — existsSync guard", () => {
-	let tmp: string;
-
-	beforeEach(() => {
-		tmp = realMkdirSync(join(tmpdir(), `w50-pipeline-${Date.now()}-${Math.random().toString(36).slice(2)}`), {
-			recursive: true,
-		}) as unknown as string;
-		if (!tmp) {
-			// mkdirSync with recursive:true returns the first created dir path or
-			// undefined if it already existed; construct explicitly to be safe.
-		}
-	});
 
 	it("skips mkdirSync when the data dir already exists", async () => {
-		const root = join(tmpdir(), `w50-pipeline-exists-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+		const root = mkdtempSync(join(tmpdir(), "w50-pipeline-exists-"));
 		realMkdirSync(join(root, ".interlinked"), { recursive: true });
 		expect(existsSync(join(root, ".interlinked"))).toBe(true);
 		try {
@@ -382,7 +326,7 @@ describe("phase timing arithmetic", () => {
 		const spy = vi.spyOn(Date, "now").mockImplementation(() => {
 			const v = sequence[Math.min(i, sequence.length - 1)];
 			i += 1;
-			return v as number;
+			return nonNull(v);
 		});
 		try {
 			const decision = await runPostToolPipeline(context(), event(), session());

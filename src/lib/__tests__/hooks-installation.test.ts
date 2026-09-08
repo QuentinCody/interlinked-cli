@@ -138,6 +138,7 @@ describe("installAllHooks — unknown client", () => {
 	});
 
 	it("reports an error result for a client not in the registry, without touching the filesystem", () => {
+		// SAFETY: intentionally bypass ClientName to verify the runtime registry rejects a foreign client without installing hooks.
 		const results = installAllHooks(tmp, ["not-a-real-client" as ClientName]);
 		expect(results).toEqual([
 			{
@@ -213,6 +214,7 @@ describe("uninstallAllHooks — unknown client and uninstall failure", () => {
 	});
 
 	it("reports an error result for a client not in the registry", () => {
+		// SAFETY: intentionally bypass ClientName to verify uninstall reports a foreign client without changing its files.
 		const results = uninstallAllHooks(tmp, ["not-a-real-client" as ClientName]);
 		expect(results).toEqual([
 			{

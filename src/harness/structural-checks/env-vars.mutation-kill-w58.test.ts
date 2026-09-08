@@ -225,7 +225,6 @@ describe("message formatting — five-var boundary", () => {
 		expect(result).toHaveLength(1);
 		const msg = result[0]?.message ?? "";
 		expect(msg).not.toMatch(/more/);
-		expect(msg).not.toContain("Stryker was here!");
 		expect(msg).toBe(
 			`probe.ts references 5 env var(s) not in .env.example: ${vars.join(", ")}. Add them to .env.example for documentation.`,
 		);

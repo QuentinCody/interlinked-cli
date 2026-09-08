@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Tests for coverage-index invalidation — pins the section 11 validity rules:
 // whole-index invalidation on any coverage-affecting input change, per-shard
 // staleness from content hashes (timestamps are never validity proofs), and
@@ -167,8 +168,8 @@ describe("staleShards — per-shard validity from content hashes (section 7 cond
 		const manifest = manifestWith({
 			"tests/a.test.ts": shardEntry(
 				"tests/a.test.ts",
-				{ "tests/a.test.ts": hashFileSha256(join(root, "tests/a.test.ts")) as string },
-				{ "src/m.ts": hashFileSha256(join(root, "src/m.ts")) as string },
+				{ "tests/a.test.ts": nonNull(hashFileSha256(join(root, "tests/a.test.ts"))) },
+				{ "src/m.ts": nonNull(hashFileSha256(join(root, "src/m.ts"))) },
 			),
 		});
 		expect(staleShards(manifest, root)).toEqual([]);
@@ -176,7 +177,7 @@ describe("staleShards — per-shard validity from content hashes (section 7 cond
 
 	it("flags a shard whose test content changed, naming the path", () => {
 		write("tests/a.test.ts", "test-a");
-		const fresh = hashFileSha256(join(root, "tests/a.test.ts")) as string;
+		const fresh = nonNull(hashFileSha256(join(root, "tests/a.test.ts")));
 		write("tests/a.test.ts", "test-a CHANGED");
 		const manifest = manifestWith({
 			"tests/a.test.ts": shardEntry("tests/a.test.ts", { "tests/a.test.ts": fresh }, {}),
@@ -191,9 +192,9 @@ describe("staleShards — per-shard validity from content hashes (section 7 cond
 		write("tests/a.test.ts", "test-a");
 		write("tests/b.test.ts", "test-b");
 		write("src/dep.ts", "dep");
-		const depHash = hashFileSha256(join(root, "src/dep.ts")) as string;
-		const aHash = hashFileSha256(join(root, "tests/a.test.ts")) as string;
-		const bHash = hashFileSha256(join(root, "tests/b.test.ts")) as string;
+		const depHash = nonNull(hashFileSha256(join(root, "src/dep.ts")));
+		const aHash = nonNull(hashFileSha256(join(root, "tests/a.test.ts")));
+		const bHash = nonNull(hashFileSha256(join(root, "tests/b.test.ts")));
 		rmSync(join(root, "src/dep.ts"));
 		const manifest = manifestWith({
 			"tests/a.test.ts": shardEntry(

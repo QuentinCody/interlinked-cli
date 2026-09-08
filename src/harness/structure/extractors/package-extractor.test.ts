@@ -25,10 +25,7 @@ vi.mock("node:fs", async () => {
 					code: "EACCES",
 				});
 			}
-			// SAFETY: readdirSync is overloaded on `options`; passing the
-			// captured args straight through preserves whichever overload the
-			// caller invoked (this test only exercises withFileTypes:true).
-			return (actual.readdirSync as (...a: unknown[]) => unknown)(...args);
+			return actual.readdirSync(...args);
 		},
 	};
 });

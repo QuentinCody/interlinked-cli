@@ -34,14 +34,18 @@ export function mergeAndDedup<T extends JsonObject>(local: T[], server: T[]): T[
 
 function dedupKey(e: JsonObject): string {
 	const ts = getTimestamp(e);
-	const agent = (e.agent || e.agent_name || "") as string;
-	const type = (e.type || e.event_type || "") as string;
-	const tool = (e.tool || e.tool_name || "") as string;
+	const agent = firstString(e.agent, e.agent_name);
+	const type = firstString(e.type, e.event_type);
+	const tool = firstString(e.tool, e.tool_name);
 	// Bucket to 2-second window
 	const bucket = ts ? Math.floor(new Date(ts).getTime() / 2000) : 0;
 	return `${agent}|${type}|${tool}|${bucket}`;
 }
 
 function getTimestamp(e: JsonObject): string {
-	return (e.ts || e.occurred_at || e.timestamp || e.created_at || "") as string;
+	return firstString(e.ts, e.occurred_at, e.timestamp, e.created_at);
+}
+
+function firstString(...values: unknown[]): string {
+	return values.find((value): value is string => typeof value === "string" && value.length > 0) ?? "";
 }

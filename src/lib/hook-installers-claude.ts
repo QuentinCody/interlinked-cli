@@ -11,13 +11,14 @@ import { join } from "node:path";
 import {
 	buildHookCommand,
 	findParentWithHooks,
+	hookSettingsObject,
 	installHookEntry,
+	isPlainObject,
 	readJsonFile,
 	writeJsonFile,
 } from "./hook-installers-shared.js";
 import { isInterlinkedHookEntry } from "./hook-ownership.js";
 import { CLIENT_CLAUDE, findProjectRoot, type HookEntry } from "./hook-types.js";
-import type { JsonObject } from "./json-types.js";
 
 // Claude Code hook events registered in settings.json.
 // PostToolUseFailure is intentionally omitted — registering it causes Claude Code
@@ -73,8 +74,7 @@ export function installAllClaudeHooks(cwd: string, hookScriptPath: string): void
 	const settingsPath = getClaudeSettingsPath(cwd);
 	const settings = readJsonFile(settingsPath) || {};
 
-	if (!settings.hooks) settings.hooks = {};
-	const hooks = settings.hooks as JsonObject;
+	const hooks = hookSettingsObject(settings);
 
 	const hookCommand = buildHookCommand(hookScriptPath, CLIENT_CLAUDE);
 
@@ -89,9 +89,9 @@ function cleanClaudeHooksFromFile(settingsPath: string): boolean {
 	if (!existsSync(settingsPath)) return false;
 
 	const settings = readJsonFile(settingsPath);
-	if (!settings?.hooks) return false;
+	if (!settings || !isPlainObject(settings.hooks)) return false;
 
-	const hooks = settings.hooks as JsonObject;
+	const hooks = settings.hooks;
 	let changed = false;
 	// Iterate every event present, not a fixed list — the adapter installer
 	// can register events the legacy CLAUDE_HOOK_EVENTS list omits (e.g.

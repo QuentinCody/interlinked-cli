@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../../lib/value-validation.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // --- Mocks for checkCommand integration tests -----------------------------
@@ -8,28 +9,45 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // existsSync/readFileSync answer from an in-memory fixture instead of the
 // real filesystem.
 
-const graphState = vi.hoisted(() => ({
+interface GraphFixture {
 	data: {
-		files: [] as string[],
-		deps: {} as Record<string, unknown[]>,
-		exportsMap: {} as Record<string, unknown[]>,
-		dependents: {} as Record<string, string[]>,
-		boundary: {} as Record<string, string>,
-		cycles: {} as Record<string, string[][]>,
+		files: string[];
+		deps: Record<string, unknown[]>;
+		exportsMap: Record<string, unknown[]>;
+		dependents: Record<string, string[]>;
+		boundary: Record<string, string>;
+		cycles: Record<string, string[][]>;
+		fileCount: number;
+	};
+	constructions: number;
+}
+
+const graphState = vi.hoisted((): GraphFixture => ({
+	data: {
+		files: [],
+		deps: {},
+		exportsMap: {},
+		dependents: {},
+		boundary: {},
+		cycles: {},
 		fileCount: 0,
 	},
 	constructions: 0,
 }));
 
-const engineState = vi.hoisted(() => ({
-	calls: [] as Array<{ cwd: string; scope: unknown; options: unknown }>,
+const engineState = vi.hoisted<{
+	calls: Array<{ cwd: string; scope: unknown; options: unknown }>;
+	report: { results: unknown[]; toolsRun: unknown[]; toolsSkipped: unknown[]; skipped: unknown[]; elapsedMs: number; metrics: unknown[]; deduplicatedCount: number };
+	formatToolReportResult: string;
+}>(() => ({
+	calls: [],
 	report: {
-		results: [] as unknown[],
-		toolsRun: [{ id: "mock-engine-tool", available: true }] as unknown[],
-		toolsSkipped: [] as unknown[],
-		skipped: [] as unknown[],
+		results: [],
+		toolsRun: [{ id: "mock-engine-tool", available: true }],
+		toolsSkipped: [],
+		skipped: [],
 		elapsedMs: 0,
-		metrics: [] as unknown[],
+		metrics: [],
 		deduplicatedCount: 0,
 	},
 	formatToolReportResult: "mock-tool-report",
@@ -51,7 +69,7 @@ vi.mock("node:fs", async (importOriginal) => {
 			}
 			const content = fsState.contents.get(String(p));
 			if (content === undefined) {
-				const err = new Error(`ENOENT: no such file, open '${String(p)}'`) as NodeJS.ErrnoException;
+				const err: NodeJS.ErrnoException = new Error(`ENOENT: no such file, open '${String(p)}'`);
 				err.code = "ENOENT";
 				throw err;
 			}
@@ -611,7 +629,7 @@ describe("checkCommand — engine wiring (runEngineChecks)", () => {
 		// undefined (only an engine-only --only or --tools sets it).
 		await checkCommand({ cwd: "/proj", report: true, only: "cycles" });
 		expect(engineState.calls).toHaveLength(1);
-		const options = engineState.calls[0]?.options as Record<string, unknown>;
+		const options = parseWire(engineState.calls[0]?.options, wireRecord(wireUnknown), "test JSON value");
 		expect(Object.prototype.hasOwnProperty.call(options, "tools")).toBe(false);
 	});
 

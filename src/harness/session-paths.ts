@@ -1,3 +1,4 @@
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 // ===========================================
 // Per-session daemon path derivation
 // ===========================================
@@ -271,7 +272,7 @@ function isProcessAlive(pid: number): boolean {
 		process.kill(pid, 0);
 		alive = true;
 	} catch (err) {
-		alive = (err as NodeJS.ErrnoException).code === "EPERM";
+		alive = hasErrorCode(err, "EPERM");
 	}
 	return alive;
 }

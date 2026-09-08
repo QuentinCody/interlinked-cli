@@ -30,31 +30,35 @@ import {
 	type FindingExtensions,
 } from "./simplification-extension.js";
 
-const SEVERITIES: ReadonlySet<string> = new Set<FindingSeverity>([
+const SEVERITIES = new Set<FindingSeverity>([
 	"critical",
 	"high",
 	"medium",
 	"low",
 	"unknown",
 ]);
-const CATEGORIES: ReadonlySet<string> = new Set<FindingCategory>([
+const CATEGORIES = new Set<FindingCategory>([
 	"security",
 	"performance",
 	"quality",
 ]);
-const STATUSES: ReadonlySet<string> = new Set<FindingStatus>([
+const STATUSES = new Set<FindingStatus>([
 	"candidate",
 	"approved",
 	"distilled",
 	"superseded",
 ]);
-const TIERS: ReadonlySet<string> = new Set<ProvenanceTier>(["site", "file", "class"]);
-const COMPLETENESS: ReadonlySet<string> = new Set<ProvenanceCompleteness>([
+const TIERS = new Set<ProvenanceTier>(["site", "file", "class"]);
+const COMPLETENESS = new Set<ProvenanceCompleteness>([
 	"anchored_sha",
 	"anchored_line",
 	"anchored_file",
 	"unanchored",
 ]);
+
+function memberOf<T extends string>(allowed: ReadonlySet<T>, value: unknown): T | undefined {
+	return Array.from(allowed).find((candidate) => candidate === value);
+}
 
 function stringArray(v: unknown): string[] | null {
 	if (!Array.isArray(v)) return null;
@@ -73,7 +77,7 @@ function lineRange(v: unknown): [number, number] | null | undefined {
 	return typeof a === "number" && typeof b === "number" ? [a, b] : null;
 }
 
-const ACTIONABILITIES: ReadonlySet<string> = new Set<FindingActionability>([
+const ACTIONABILITIES = new Set<FindingActionability>([
 	"bug",
 	"nit",
 	"question",
@@ -153,11 +157,11 @@ function provenanceExtras(v: JsonObject): ProvenanceExtras | null {
 	const enriched_fields =
 		v.enriched_fields === undefined ? undefined : stringArray(v.enriched_fields);
 	if (enriched_fields === null) return null;
-	const act = v.actionability;
-	if (act !== undefined && (typeof act !== "string" || !ACTIONABILITIES.has(act))) return null;
+	const act = memberOf(ACTIONABILITIES, v.actionability);
+	if (v.actionability !== undefined && act === undefined) return null;
 	return {
 		...(lines !== undefined ? { lines } : {}),
-		...(act !== undefined ? { actionability: act as FindingActionability } : {}),
+		...(act !== undefined ? { actionability: act } : {}),
 		...(is_outdated !== undefined ? { is_outdated } : {}),
 		...(is_resolved !== undefined ? { is_resolved } : {}),
 		...(enriched_fields !== undefined ? { enriched_fields } : {}),
@@ -168,17 +172,17 @@ function provenanceExtras(v: JsonObject): ProvenanceExtras | null {
  *  guard checked only that `provenance` was an array. */
 export function parseProvenanceEntry(value: unknown): FindingProvenance | null {
 	if (!isJsonObject(value)) return null;
-	const { provenance_id, provenance_completeness, source_runner } = value;
+	const { provenance_id, source_runner } = value;
+	const provenance_completeness = memberOf(COMPLETENESS, value.provenance_completeness);
 	if (typeof provenance_id !== "string" || typeof source_runner !== "string") return null;
-	if (typeof provenance_completeness !== "string") return null;
-	if (!COMPLETENESS.has(provenance_completeness)) return null;
+	if (provenance_completeness === undefined) return null;
 	const strings = provenanceStrings(value);
 	const extras = provenanceExtras(value);
 	const raw_sha256 = rawSha256(value.raw_sha256);
 	if (strings === null || extras === null || raw_sha256 === null) return null;
 	return {
 		provenance_id,
-		provenance_completeness: provenance_completeness as ProvenanceCompleteness,
+		provenance_completeness,
 		source_runner,
 		...strings,
 		...extras,
@@ -230,15 +234,18 @@ interface RequiredCore {
 
 function requiredCore(v: JsonObject): RequiredCore | null {
 	const { id, bug_class, file, message, dedup_key, first_seen, last_seen } = v;
-	const { line, times_observed, severity, provenance_tier, status } = v;
+	const { line, times_observed } = v;
+	const severity = memberOf(SEVERITIES, v.severity);
+	const provenance_tier = memberOf(TIERS, v.provenance_tier);
+	const status = memberOf(STATUSES, v.status);
 	if (typeof id !== "string" || typeof bug_class !== "string") return null;
 	if (typeof file !== "string" || typeof message !== "string") return null;
 	if (typeof dedup_key !== "string") return null;
 	if (typeof first_seen !== "string" || typeof last_seen !== "string") return null;
 	if (typeof line !== "number" || typeof times_observed !== "number") return null;
-	if (typeof severity !== "string" || !SEVERITIES.has(severity)) return null;
-	if (typeof provenance_tier !== "string" || !TIERS.has(provenance_tier)) return null;
-	if (typeof status !== "string" || !STATUSES.has(status)) return null;
+	if (severity === undefined) return null;
+	if (provenance_tier === undefined) return null;
+	if (status === undefined) return null;
 	return {
 		id,
 		bug_class,
@@ -249,9 +256,9 @@ function requiredCore(v: JsonObject): RequiredCore | null {
 		first_seen,
 		last_seen,
 		times_observed,
-		severity: severity as FindingSeverity,
-		provenance_tier: provenance_tier as ProvenanceTier,
-		status: status as FindingStatus,
+		severity,
+		provenance_tier,
+		status,
 	};
 }
 
@@ -295,11 +302,11 @@ interface OptionalScalars {
 /** `category`, alone: validated against the known-category set. Split out of
  *  `parseOptionalScalars` to keep it under the cyclomatic cap. */
 function parseCategoryField(value: JsonObject): Pick<OptionalScalars, "category"> | null {
-	const category = value.category;
-	if (category !== undefined && (typeof category !== "string" || !CATEGORIES.has(category))) {
+	const category = memberOf(CATEGORIES, value.category);
+	if (value.category !== undefined && category === undefined) {
 		return null;
 	}
-	return category !== undefined ? { category: category as FindingCategory } : {};
+	return category !== undefined ? { category } : {};
 }
 
 /** The two free-text optional members. Split out of `parseOptionalScalars` to

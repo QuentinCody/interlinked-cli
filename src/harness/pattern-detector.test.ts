@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Behavioral tests for the statistical pattern detector.
 //
 // The module exposes a single public entry, `getPatternWarnings`, which fans
@@ -30,13 +31,13 @@ function rec(overrides: Partial<ErrorRecord> = {}): ErrorRecord {
 		session_id: "sess-1",
 		agent_name: "agent-a",
 		file: "src/foo.ts",
-		file_role: "core",
+		file_role: "internal",
 		check_name: "tsc",
 		severity: "error",
 		message: "boom",
 		diff_context: "",
 		...overrides,
-	} as ErrorRecord;
+	};
 }
 
 /**
@@ -48,10 +49,10 @@ function session(
 	filesWritten: string[] = [],
 	toolSequence: string[] = [],
 ): SessionTrajectory {
-	return {
+	return ({ ...completeSessionFixture(), ...{
 		files_written: new Set(filesWritten),
 		tool_sequence: toolSequence,
-	} as unknown as SessionTrajectory;
+	} });
 }
 
 const EMPTY_SESSION = session();

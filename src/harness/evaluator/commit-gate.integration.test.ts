@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,8 +34,8 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 function rules(overrides?: Partial<NonNullable<GuardRulesConfig["per_edit_coverage"]>>): GuardRulesConfig {
-	return {
-		per_edit_coverage: {
+	return ({ ...makeGuardRules(),
+		per_edit_coverage: { ...({ enabled: false, mode: "block", budget_ms: 25_000, languages: [] } satisfies NonNullable<GuardRulesConfig["per_edit_coverage"]>),
 			enabled: true,
 			mode: "block",
 			budget_ms: 25_000,
@@ -46,7 +47,7 @@ function rules(overrides?: Partial<NonNullable<GuardRulesConfig["per_edit_covera
 			block_on_crap: true,
 			...overrides,
 		},
-	} as unknown as GuardRulesConfig;
+	} satisfies GuardRulesConfig);
 }
 
 function commitEvent(command: string): HarnessEvent {
@@ -398,7 +399,7 @@ describe("checkCommitGate — gating", () => {
 		const { runner, ran } = stubRunner(coverageResult("src/a.ts", []));
 		const decision = await checkCommitGate(
 			commitEvent('git commit -m "x"'),
-			{} as GuardRulesConfig,
+			({ ...makeGuardRules(), } satisfies GuardRulesConfig),
 			deps(runner, ["src/a.ts"]),
 		);
 		expect(decision).toBeNull();

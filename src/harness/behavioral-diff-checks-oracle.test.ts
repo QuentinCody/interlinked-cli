@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Tests for the test-oracle diff checks. Everything drives the injectable
 // OracleDiffDeps seam — no live git, no disk.
 
@@ -13,7 +14,7 @@ import {
 import type { SessionTrajectory } from "./types.js";
 
 function session(files: string[]): SessionTrajectory {
-	return { files_written: files } as unknown as SessionTrajectory;
+	return { ...completeSessionFixture(), files_written: new Set(files) };
 }
 
 function deps(

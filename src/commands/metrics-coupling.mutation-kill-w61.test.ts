@@ -16,7 +16,7 @@ import {
 // ---------------------------------------------------------------------------
 const mockState = vi.hoisted(() => ({
 	hasFile: (_f: string) => true,
-	getDependencies: (_f: string) => [] as { toFile: string }[],
+	getDependencies: (_f: string): { toFile: string }[] => [],
 }));
 
 vi.mock("../harness/project-graph.js", () => ({

@@ -106,7 +106,7 @@ describe("detector language corpus — meta", () => {
 	});
 
 	it("every detector keeps both a true-positive and a false-positive case", () => {
-		for (const detector of Object.keys(DETECTORS) as DetectorId[]) {
+		for (const detector of Object.keys(DETECTORS)) {
 			const cases = CORPUS.filter((c) => c.detector === detector);
 			expect(cases.some((c) => c.expect === "fires"), `${detector} has a TP`).toBe(true);
 			expect(cases.some((c) => c.expect === "clean"), `${detector} has an FP`).toBe(true);

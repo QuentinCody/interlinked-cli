@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Tests for how a red TDD cycle is judged and described.
 //
 // The behaviours pinned here both come from a real wedge (2026-07-26): a
@@ -25,10 +26,10 @@ function session(opts: {
 	// SAFETY: the functions under test read only `tool_call_count` and
 	// `test_runs`; building a full SessionTrajectory would add ~40 irrelevant
 	// fields and obscure what each case actually varies.
-	return {
+	return ({ ...completeSessionFixture(), ...{
 		tool_call_count: opts.step,
 		test_runs: new Map(opts.runs ?? []),
-	} as unknown as SessionTrajectory;
+	} });
 }
 
 const live: RedCycleView = {

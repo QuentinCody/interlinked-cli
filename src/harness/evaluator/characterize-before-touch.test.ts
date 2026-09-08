@@ -4,6 +4,7 @@
 // untested-files baseline, call the evaluator, assert the decision. No mocks —
 // the gate only touches the filesystem and the session's written-file set.
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +19,7 @@ function makeSession(writtenAbs: string[] = []): SessionTrajectory {
 	// The gate reads only `files_written`; every other trajectory field is
 	// irrelevant to it, matching the tdd-new-file-gate.test.ts convention.
 	// SAFETY: minimal stand-in — the cast is sound because only files_written is read.
-	return { files_written: new Set(writtenAbs) } as unknown as SessionTrajectory;
+	return ({ ...makeSessionFixture(), files_written: new Set(writtenAbs) } satisfies SessionTrajectory);
 }
 
 function seedBaseline(files: string[]): void {

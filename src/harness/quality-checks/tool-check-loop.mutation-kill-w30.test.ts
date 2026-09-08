@@ -1,3 +1,5 @@
+import type { CheckEngine } from "../check-engine/index.js";
+import { loopAudit, loopEngine, loopProfile, loopReport, type LoopReportFixture } from "./test-tool-loop-fixtures.js";
 // ===========================================
 // tool-check-loop.ts — mutation-kill wave 30
 // ===========================================
@@ -12,10 +14,10 @@ import { runToolCheckLoop, type ToolCheckLoopContext } from "./tool-check-loop.j
 
 // --- module-boundary mocks ------------------------------------------------
 
-vi.mock("../check-engine/index.js", () => ({
-	configNameToToolId: vi.fn(),
-	getOrCreateEngine: vi.fn(),
-}));
+vi.mock("../check-engine/index.js", async () => {
+	const actual = await vi.importActual<typeof import("../check-engine/index.js")>("../check-engine/index.js");
+	return { ...actual, configNameToToolId: vi.fn(), getOrCreateEngine: vi.fn() };
+});
 
 vi.mock("../check-engine/spawn-async.js", () => ({
 	runProcessAsync: vi.fn(),
@@ -154,17 +156,9 @@ function makeCtx(over: Partial<ToolCheckLoopContext> = {}): ToolCheckLoopContext
 	};
 }
 
-function engineReturning(report: {
-	results: { file: string; line: number; message: string }[];
-	metrics?: { tool: string; elapsedMs: number; findingCount: number }[];
-}) {
-	const runChecksAsync = vi.fn().mockResolvedValue({
-		results: report.results,
-		metrics: report.metrics ?? [],
-	});
-	mockGetOrCreateEngine.mockReturnValue({ runChecksAsync } as unknown as ReturnType<
-		typeof getOrCreateEngine
-	>);
+function engineReturning(report: LoopReportFixture) {
+	const runChecksAsync = vi.fn<CheckEngine["runChecksAsync"]>().mockResolvedValue(loopReport(report));
+	mockGetOrCreateEngine.mockReturnValue(loopEngine(runChecksAsync));
 	return runChecksAsync;
 }
 
@@ -202,7 +196,7 @@ beforeEach(() => {
 	mockFindAnyTypes.mockReset().mockReturnValue([]);
 	mockIsLikelyTestFile.mockReset().mockReturnValue(false);
 	for (const k of Object.keys(TEST_DISPATCHERS)) {
-		delete (TEST_DISPATCHERS as Record<string, unknown>)[k];
+		Reflect.deleteProperty(TEST_DISPATCHERS, k);
 	}
 });
 
@@ -213,7 +207,7 @@ afterEach(() => {
 describe("tool-check-loop — mutation-kill wave 30", () => {
 	// test-contract: kill fe82c2dc24cfe2b1 (ArrayDeclaration `parts: string[] = []` → ["Stryker was here"])
 	it("strong_typing: exact message for an any-only finding (no leaked prefix)", async () => {
-		mockFindAnyTypes.mockReturnValue([{ kind: "any", line: 3, text: "x: any" }] as never);
+		mockFindAnyTypes.mockReturnValue([{ kind: "any", line: 3, text: "x: any" }]);
 		const out = await runToolCheckLoop(makeCtx({ checks: { strong_typing: cfg() } }));
 		expect(out[0]?.message).toBe(
 			"1 `any` type(s) in src/x.ts — prefer strong types (interfaces, generics, branded types)",
@@ -273,7 +267,7 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 			parser: "npm-audit",
 		});
 		mockRunProcessAsync.mockResolvedValue(processResult({ code: 1, stdout: "{}" }));
-		mockParseNpmAuditJson.mockReturnValue({ detail: "3 high" } as never);
+		mockParseNpmAuditJson.mockReturnValue(loopAudit("3 high"));
 		const out = await runToolCheckLoop(auditCtx());
 		expect(out).toHaveLength(1);
 		expect(out[0]?.detail).toBe("3 high");
@@ -287,7 +281,7 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 			parser: "npm-audit",
 		});
 		mockRunProcessAsync.mockResolvedValue(processResult({ code: 1, stdout: "  hello  " }));
-		mockParseNpmAuditJson.mockReturnValue({ detail: "d" } as never);
+		mockParseNpmAuditJson.mockReturnValue(loopAudit("d"));
 		await runToolCheckLoop(auditCtx());
 		expect(mockParseNpmAuditJson).toHaveBeenCalledWith("hello");
 	});
@@ -327,10 +321,10 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 	// 2a40b4f80e20f2fb (unary -→+), b892a27d59ea5ab2 (||→&&) — all six change
 	// the basename passed to isLikelyTestFile away from the correct "feature".
 	it("affected_tests: baseForTests strips exactly the extension", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "typescript", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const dispatcher = vi.fn().mockReturnValue([]);
-		(TEST_DISPATCHERS as Record<string, unknown>).typescript = dispatcher;
+		TEST_DISPATCHERS.typescript = dispatcher;
 		await runToolCheckLoop(
 			makeCtx({ filePath: "src/feature.ts", cwd: "/cwd", checks: { affected_tests: cfg() } }),
 		);
@@ -352,7 +346,7 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 	// test-contract: kill 76953ebf1b8662bf (`!dispatcher` → false) — real
 	// no-dispatcher skip is a true continue (boundary not fired).
 	it("affected_tests: no-dispatcher skip is a true continue", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "ruby", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("python"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const boundaries: string[] = [];
 		const out = await runToolCheckLoop(
@@ -366,10 +360,10 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 	// 645b8670d03c5793 (!==→===) — a defined max_dependent_tests must reach
 	// the dispatcher.
 	it("affected_tests: a defined max_dependent_tests is forwarded to the dispatcher", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "typescript", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const dispatcher = vi.fn().mockReturnValue([]);
-		(TEST_DISPATCHERS as Record<string, unknown>).typescript = dispatcher;
+		TEST_DISPATCHERS.typescript = dispatcher;
 		await runToolCheckLoop(makeCtx({ checks: { affected_tests: cfg({ max_dependent_tests: 5 }) } }));
 		const arg = dispatcher.mock.calls[0]?.[0];
 		expect(arg).toMatchObject({ maxDependentTests: 5 });
@@ -378,19 +372,19 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 	// test-contract: kill d1c8154f42f9d72f (`!== undefined` → true) — an
 	// undefined max_dependent_tests must NOT appear as a key at all.
 	it("affected_tests: an undefined max_dependent_tests is omitted from the dispatcher call", async () => {
-		mockGetProfileForFile.mockReturnValue({ id: "typescript", inline_checks: [] } as never);
+		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const dispatcher = vi.fn().mockReturnValue([]);
-		(TEST_DISPATCHERS as Record<string, unknown>).typescript = dispatcher;
+		TEST_DISPATCHERS.typescript = dispatcher;
 		await runToolCheckLoop(makeCtx({ checks: { affected_tests: cfg() } }));
-		const arg = dispatcher.mock.calls[0]?.[0] as object;
+		const arg = dispatcher.mock.calls[0]?.[0];
 		expect("maxDependentTests" in arg).toBe(false);
 	});
 
 	// test-contract: kill 3e5bffbe17ebc817 (`name === "typescript"` → true) —
 	// a non-typescript command check must ignore tscFilterFile entirely.
 	it("command branch: a non-typescript check ignores tscFilterFile for targetFile", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		const run = engineReturning({ results: [] });
 		await runToolCheckLoop(
 			makeCtx({
@@ -409,7 +403,7 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 	// outToolMetrics is undefined the metrics loop must not run (it would throw
 	// on `.push` of undefined, swallowing the real finding).
 	it("command branch: engine findings survive when outToolMetrics is undefined", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		engineReturning({
 			results: [{ file: "src/x.ts", line: 1, message: "m" }],
 			metrics: [{ tool: "biome", elapsedMs: 5, findingCount: 1 }],
@@ -423,7 +417,7 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 	// test-contract: kill 1ab6c2b0e8c62540 (`> 15` → `>= 15`) — exactly 15
 	// results must not append an overflow suffix.
 	it("command branch: exactly 15 engine results has no overflow suffix", async () => {
-		mockConfigNameToToolId.mockReturnValue("biome" as never);
+		mockConfigNameToToolId.mockReturnValue("biome");
 		const results = Array.from({ length: 15 }, (_v, i) => ({
 			file: "src/x.ts",
 			line: i,
@@ -454,7 +448,7 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 
 	// test-contract: kill 0af89a8d11778d1d (`editedFileInRepo === false && check.command` → false)
 	it("an out-of-repo command check truly skips the engine", async () => {
-		mockConfigNameToToolId.mockReturnValue("tsc" as never);
+		mockConfigNameToToolId.mockReturnValue("tsc");
 		const run = engineReturning({ results: [] });
 		const out = await runToolCheckLoop(
 			makeCtx({ checks: { typescript: cfg({ command: "tsc" }) }, editedFileInRepo: false }),
@@ -464,7 +458,7 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 	});
 
 	it("a ChangeSet batch skips subprocess branches but keeps cheap per-file checks", async () => {
-		mockConfigNameToToolId.mockReturnValue("tsc" as never);
+		mockConfigNameToToolId.mockReturnValue("tsc");
 		const run = engineReturning({ results: [] });
 		const checksRan: string[] = [];
 		const out = await runToolCheckLoop(

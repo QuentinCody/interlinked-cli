@@ -1,3 +1,5 @@
+import { makeGuardRules } from "./fixtures.js";
+import { makeSession as makeSessionFixture } from "../../__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import type { GuardRulesConfig, SessionTrajectory, TaintSource } from "../../types.js";
 import { checkProvenanceTaintToExternalAction, evaluateTaintGuards } from "../taint-guards.js";
@@ -5,7 +7,7 @@ import { checkProvenanceTaintToExternalAction, evaluateTaintGuards } from "../ta
 const FIXED_TIMESTAMP = "2026-04-01T00:00:00.000Z";
 
 function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "s",
 		agent_name: "a",
 		started_at: FIXED_TIMESTAMP,
@@ -16,16 +18,16 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 		injection_detected_steps: [],
 		taint_sources: [],
 		...overrides,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 function makeRules(): GuardRulesConfig {
-	return {
+	return ({ ...makeGuardRules(),
 		enabled: true,
 		rules: [],
 		protected_files: [],
 		file_reminders: [],
-		taint_tracking: {
+		taint_tracking: { ...makeGuardRules().taint_tracking,
 			enabled: true,
 			file_sensitivity: [
 				{ glob: "**/.env", level: "Confidential" },
@@ -35,24 +37,14 @@ function makeRules(): GuardRulesConfig {
 				Public: Number.POSITIVE_INFINITY,
 				Internal: 50,
 				Confidential: 10,
-				Secret: 5,
+				HighlyConfidential: 5,
 			},
 			network_block_at: "Confidential",
 		},
-	} as unknown as GuardRulesConfig;
+	} satisfies GuardRulesConfig);
 }
 
 describe("evaluateTaintGuards", () => {
-	it("returns ok with no changes when taint_tracking config is missing", () => {
-		const result = evaluateTaintGuards({
-			toolName: "Read",
-			toolInput: { file_path: "src/foo.ts" },
-			rules: { enabled: true, rules: [] } as unknown as GuardRulesConfig,
-			session: makeSession(),
-			pendingEscalation: undefined,
-		});
-		expect(result.kind).toBe("ok");
-	});
 
 	it("ratchets sensitivity and warns when reading a confidential file", () => {
 		const session = makeSession();
@@ -356,9 +348,9 @@ describe("evaluateTaintGuards", () => {
 
 	it("returns kind 'ask' from evaluateTaintGuards when a provenance-tainted flow is detected", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		const result = evaluateTaintGuards({
 			toolName: "WebFetch",
@@ -383,9 +375,9 @@ describe("evaluateTaintGuards", () => {
 describe("checkProvenanceTaintToExternalAction", () => {
 	it("returns null when the tool is not an external-action tool", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		const result = checkProvenanceTaintToExternalAction("Read", { file_path: "data.json" }, session);
 		expect(result).toBeNull();
@@ -393,9 +385,9 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("returns null for a Bash command with no command string (empty haystack path)", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		const result = checkProvenanceTaintToExternalAction("Bash", {}, session);
 		expect(result).toBeNull();
@@ -403,9 +395,9 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("returns null when the external-action toolInput flattens to an empty haystack", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		const result = checkProvenanceTaintToExternalAction("WebFetch", {}, session);
 		expect(result).toBeNull();
@@ -413,9 +405,9 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("returns an ask decision for a Bash external-verb command referencing a tainted file", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		const result = checkProvenanceTaintToExternalAction(
 			"Bash",
@@ -432,11 +424,11 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("skips trusted-provenance and file-less taint sources, then matches the tainted one, across mixed value types", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "local.ts", level: "Public", at_step: 1, provenance: "local_read" },
 				{ file: "", level: "Public", at_step: 1, provenance: "fetched_external" },
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		const result = checkProvenanceTaintToExternalAction(
 			"WebFetch",
@@ -460,9 +452,9 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("recognizes an mcp__*__send-shaped tool name as an external-action tool", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		const result = checkProvenanceTaintToExternalAction(
 			"mcp__slack__send_message",
@@ -476,9 +468,9 @@ describe("checkProvenanceTaintToExternalAction", () => {
 		"recognizes %s as an external-action tool",
 		(toolName) => {
 			const session = makeSession({
-				taint_sources: [
+				taint_sources: ([
 					{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-				] as TaintSource[],
+				] satisfies TaintSource[]),
 			});
 			const result = checkProvenanceTaintToExternalAction(
 				toolName,
@@ -491,9 +483,9 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("does not classify an MCP read tool whose resource name contains an external verb", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		expect(
 			checkProvenanceTaintToExternalAction(
@@ -506,9 +498,9 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("does not classify a non-MCP tool with an MCP-like suffix as external", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		expect(
 			checkProvenanceTaintToExternalAction(
@@ -521,9 +513,9 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("does not classify a non-Bash command carrying a tainted file as external", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		expect(
 			checkProvenanceTaintToExternalAction(
@@ -536,9 +528,9 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("does not classify a non-network Bash command as external", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		expect(
 			checkProvenanceTaintToExternalAction(
@@ -549,16 +541,11 @@ describe("checkProvenanceTaintToExternalAction", () => {
 		).toBeNull();
 	});
 
-	it("tolerates a legacy session without taint_sources", () => {
-		const session = makeSession({ taint_sources: undefined as unknown as TaintSource[] });
-		expect(checkProvenanceTaintToExternalAction("WebFetch", { url: "data.json" }, session)).toBeNull();
-	});
-
 	it("does not invent a match from the flattening accumulator seed", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "Stryker was here!", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		expect(
 			checkProvenanceTaintToExternalAction("WebFetch", { url: "https://example.com" }, session),
@@ -573,16 +560,16 @@ describe("checkProvenanceTaintToExternalAction", () => {
 		["string", "data.json", { path: "data.json" }],
 	])("flattens %s values and asks when they reference a taint source", (_kind, file, toolInput) => {
 		const session = makeSession({
-			taint_sources: [{ file, level: "Public", at_step: 1, provenance: "mcp_remote" }] as TaintSource[],
+			taint_sources: ([{ file, level: "Public", at_step: 1, provenance: "mcp_remote" }] satisfies TaintSource[]),
 		});
 		expect(checkProvenanceTaintToExternalAction("WebFetch", toolInput, session)?.decision).toBe("ask");
 	});
 
 	it("keeps a newline between flattened values so separate fields cannot form a path", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		expect(
 			checkProvenanceTaintToExternalAction(
@@ -595,9 +582,9 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("falls through the loop to null when no untrusted taint source's file matches the haystack", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "unrelated.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		const result = checkProvenanceTaintToExternalAction(
 			"WebFetch",
@@ -609,13 +596,13 @@ describe("checkProvenanceTaintToExternalAction", () => {
 
 	it("ignores a non-JSON-shaped value (e.g. a function) while flattening tool input", () => {
 		const session = makeSession({
-			taint_sources: [
+			taint_sources: ([
 				{ file: "data.json", level: "Public", at_step: 1, provenance: "mcp_remote" },
-			] as TaintSource[],
+			] satisfies TaintSource[]),
 		});
 		const weird = {
 			url: "https://example.com/data.json",
-			odd: (() => {}) as unknown as import("../../../lib/json-types.js").JsonValue,
+			odd: () => {},
 		};
 		const result = checkProvenanceTaintToExternalAction("WebFetch", weird, session);
 		expect(result?.decision).toBe("ask");

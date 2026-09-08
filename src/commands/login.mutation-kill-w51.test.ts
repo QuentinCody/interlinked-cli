@@ -77,7 +77,7 @@ beforeEach(() => {
 	errSpy = vi.spyOn(console, "error").mockImplementation((s: unknown) => {
 		errors.push(String(s));
 	});
-	exitSpy = vi.spyOn(process, "exit").mockImplementation(() => undefined as never);
+	exitSpy = vi.spyOn(process, "exit").mockImplementation(() => { throw new Error("Unexpected process.exit"); });
 });
 
 afterEach(() => {
@@ -244,13 +244,13 @@ describe("loginCommand — workspace-selected banner", () => {
 describe("loginCommand — login-failure reporters", () => {
 	it("reports timed-out failures with the retry hint", async () => {
 		mockPerformLogin.mockRejectedValue(new Error("Login timed out waiting"));
-		await loginCommand({});
+		await expect(loginCommand({})).rejects.toThrow("Unexpected process.exit");
 		expect(errors).toContain(c.dim("Try again with: interlinked login"));
 	});
 
 	it("reports client-registration failures with server-check guidance", async () => {
 		mockPerformLogin.mockRejectedValue(new Error("Client registration failed: 500"));
-		await loginCommand({});
+		await expect(loginCommand({})).rejects.toThrow("Unexpected process.exit");
 		expect(errors).toContain(`\n${c.red("Server error:")} Could not register OAuth client.`);
 		expect(errors).toContain(
 			c.dim("Check that the Server URL is correct and the server is running."),
@@ -259,7 +259,7 @@ describe("loginCommand — login-failure reporters", () => {
 
 	it("reports token-exchange failures with the exact message and hint", async () => {
 		mockPerformLogin.mockRejectedValue(new Error("Token exchange failed: invalid_grant"));
-		await loginCommand({});
+		await expect(loginCommand({})).rejects.toThrow("Unexpected process.exit");
 		expect(errors).toContain(
 			`\n${c.red("Token exchange failed:")} Token exchange failed: invalid_grant`,
 		);

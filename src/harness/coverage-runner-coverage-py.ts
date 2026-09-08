@@ -9,21 +9,8 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
+import { isJsonObject } from "../lib/json-types.js";
 import type { PerFileCoverage } from "./coverage-final-reader.js";
-
-/** The coverage.py per-file entry we read — line lists only, the rest ignored. */
-interface CoveragePyFileEntry {
-	executed_lines?: unknown;
-	missing_lines?: unknown;
-}
-
-/** The coverage.py JSON top level — only `files` is read. Values are typed
- *  `unknown`, not `CoveragePyFileEntry`: this whole shape is asserted onto an
- *  untrusted `JSON.parse` result below, so a per-entry runtime check is what
- *  actually guards against a malformed/foreign coverage.json, not the type. */
-interface CoveragePyJson {
-	files?: Record<string, unknown>;
-}
 
 /** Coerce a coverage.py line array (`number[]`) into a Set, dropping non-ints. */
 function toLineSet(raw: unknown): Set<number> {
@@ -67,14 +54,13 @@ export function parseCoveragePyJson(
 	} catch {
 		return null;
 	}
-	if (!raw || typeof raw !== "object") return null;
-	const files = (raw as CoveragePyJson).files;
-	if (!files || typeof files !== "object") return null;
+	if (!isJsonObject(raw) || !isJsonObject(raw.files)) return null;
+	const files = raw.files;
 
 	const result = new Map<string, PerFileCoverage>();
 	for (const [key, rawEntry] of Object.entries(files)) {
-		if (!rawEntry || typeof rawEntry !== "object") continue;
-		const entry: CoveragePyFileEntry = rawEntry;
+		if (!isJsonObject(rawEntry)) continue;
+		const entry = rawEntry;
 		const rel = relForKey(key, projectRoot);
 		if (!rel) continue;
 		result.set(rel, {

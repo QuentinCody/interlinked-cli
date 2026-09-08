@@ -30,6 +30,8 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { nonNull } from "../lib/non-null.js";
+import { isJsonObject } from "../lib/json-types.js";
+import { wireLiteral, wireNumber, wireObject, wireRecord } from "../lib/value-validation.js";
 
 /** Priority tier for a tracked file. */
 type PriorityTier = "hot" | "warm" |"cold";
@@ -141,22 +143,23 @@ function cachePath(repoRoot: string): string {
 	return join(repoRoot, ".interlinked", "file-priority.json");
 }
 
+const isPriorityFiles = wireRecord(wireObject<FilePriority>({
+	ageDays: wireNumber,
+	tier: wireLiteral("hot", "warm", "cold"),
+}));
+
 /** Load the cached priority map. Returns null when absent or malformed. */
 export function loadPriorityCache(repoRoot: string): PriorityCache | null {
 	const path = cachePath(repoRoot);
 	if (!existsSync(path)) return null;
 	try {
 		const raw: unknown = JSON.parse(readFileSync(path, "utf-8"));
-		if (typeof raw !== "object" || raw === null) return null;
-		// Cache file on disk — could be truncated, hand-edited, or written by an
-		// older schema, so `files` is honestly `unknown` here, not the
-		// `Record<string, FilePriority>` the loaded cache promises callers.
-		const c = raw as { version?: unknown; computedAt?: unknown; files?: unknown };
-		if (c.version !== 1 || !c.files || typeof c.files !== "object") return null;
+		if (!isJsonObject(raw)) return null;
+		if (raw.version !== 1 || !isPriorityFiles(raw.files)) return null;
 		return {
 			version: 1,
-			computedAt: typeof c.computedAt === "number" ? c.computedAt : 0,
-			files: c.files as Record<string, FilePriority>,
+			computedAt: wireNumber(raw.computedAt) ? raw.computedAt : 0,
+			files: raw.files,
 		};
 	} catch {
 		return null;

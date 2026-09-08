@@ -34,14 +34,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// SAFETY: the object starts empty and the vi.mock factory below fills it with
-// every node:fs export before any test body runs, so the declared shape is the
-// shape callers observe.
-const { actualFs } = vi.hoisted(() => ({ actualFs: {} as typeof import("node:fs") }));
+const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs");
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
-	Object.assign(actualFs, actual);
 	return {
 		...actual,
 		readFileSync: vi.fn(actual.readFileSync),
@@ -304,16 +300,14 @@ describe("gated file transaction", () => {
 		expect(readdirSync(root).filter((name) => name.includes("interlinked-tx"))).toEqual([]);
 	});
 
-	it("keeps the conflict error when a staged temp file cannot be removed", () => {
+	it.each([new Error("EBUSY: resource busy or locked, unlink"), "unlink refused"])("keeps the conflict error when a staged temp file cannot be removed: %s", (cleanupError) => {
 		writeFileSync(join(root, "target.txt"), "before");
 		const transaction = captureGatedWriteBaseline(root, [
 			{ path: "target.txt", content: "loser" },
 		]);
 		writeFileSync(join(root, "target.txt"), "newer");
 		vi.mocked(unlinkSync).mockImplementationOnce(() => {
-			throw Object.assign(new Error("EBUSY: resource busy or locked, unlink"), {
-				code: "EBUSY",
-			});
+			throw cleanupError;
 		});
 
 		expect(() => commitGatedWrites(transaction)).toThrow(GatedWriteConflictError);
@@ -432,7 +426,10 @@ describe("gated file transaction", () => {
 		expect(read("a.txt")).toBe("third-party");
 	});
 
-	it("names the path whose baseline could not be restored and cleans its rollback temp", () => {
+	it.each([
+		{ failure: new Error("rename refused"), message: "rename refused" },
+		{ failure: "rollback refused", message: "rollback refused" },
+	])("names the path whose baseline could not be restored and cleans its rollback temp: $message", ({ failure, message }) => {
 		writeFileSync(join(root, "a.txt"), "before-a");
 		writeFileSync(join(root, "b.txt"), "before-b");
 		const transaction = captureGatedWriteBaseline(root, [
@@ -446,17 +443,15 @@ describe("gated file transaction", () => {
 				actualFs.renameSync(oldPath, newPath);
 				return;
 			}
-			throw Object.assign(new Error("EXDEV: cross-device link not permitted, rename"), {
-				code: "EXDEV",
-			});
+			throw failure;
 		});
 
 		const error = caught(() => commitGatedWrites(transaction));
 
 		expect(error.name).toBe("GatedWriteRollbackError");
 		expect(error.message).toBe(
-			"Transactional write failed (EXDEV: cross-device link not permitted, rename); " +
-				`guarded rollback incomplete: ${join(realRoot, "a.txt")}: EXDEV: cross-device link not permitted, rename`,
+			`Transactional write failed (${message}); ` +
+				`guarded rollback incomplete: ${join(realRoot, "a.txt")}: ${message}`,
 		);
 		expect(read("a.txt")).toBe("after-a");
 		expect(readdirSync(root).filter((name) => name.includes("interlinked-rollback"))).toEqual([]);

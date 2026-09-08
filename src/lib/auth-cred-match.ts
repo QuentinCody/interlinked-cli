@@ -5,24 +5,15 @@
 // decomposition and to stay under the per-file line cap. Pure helpers, no
 // side effects beyond reading the plain-object entries passed in.
 
-interface CredEntry {
+import { isJsonObject, type JsonObject } from "./json-types.js";
+
+interface CredEntry extends JsonObject {
 	accessToken: string;
-	serverUrl?: string;
-	serverName?: string;
-	token_expires_at?: string | number;
-	tokenExpiresAt?: string | number;
-	expires_at?: string | number;
-	expiresAt?: string | number;
-	expiry?: string | number;
-	exp?: string | number;
 }
 
 function isCredEntry(value: unknown): value is CredEntry {
 	return (
-		typeof value === "object" &&
-		value !== null &&
-		"accessToken" in value &&
-		typeof (value as CredEntry).accessToken === "string"
+		isJsonObject(value) && typeof value.accessToken === "string"
 	);
 }
 
@@ -35,7 +26,7 @@ function isCredEntryExpired(value: CredEntry): boolean {
 }
 
 function resolveCredExpiry(value: CredEntry): Date | null {
-	const candidates: Array<string | number | undefined> = [
+	const candidates: unknown[] = [
 		value.token_expires_at,
 		value.tokenExpiresAt,
 		value.expires_at,
@@ -52,7 +43,7 @@ function resolveCredExpiry(value: CredEntry): Date | null {
 	return null;
 }
 
-function parseExpiryValue(value: string | number | undefined): Date | null {
+function parseExpiryValue(value: unknown): Date | null {
 	if (value == null) {
 		return null;
 	}
@@ -96,7 +87,7 @@ export function matchCredByServerName(oauthEntries: object): string | null {
 	for (const [_key, value] of Object.entries(oauthEntries)) {
 		if (
 			isCredEntry(value) &&
-			/interlinked/i.test(value.serverName || "") &&
+			typeof value.serverName === "string" && /interlinked/i.test(value.serverName) &&
 			!isCredEntryExpired(value)
 		) {
 			return value.accessToken;

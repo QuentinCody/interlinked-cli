@@ -99,9 +99,9 @@ let exitSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
 	vi.clearAllMocks();
-	exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-		throw new ExitError(code ?? 0);
-	}) as never);
+	exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+		throw new ExitError(Number(code ?? 0));
+	});
 });
 
 afterEach(() => {
@@ -129,8 +129,10 @@ describe("registerHarnessCommands — structure", () => {
 				.sort(),
 		).toEqual(
 			[
+				"capabilities",
 				"checks",
 				"clean",
+				"coverage",
 				"health",
 				"latency",
 				"mode",

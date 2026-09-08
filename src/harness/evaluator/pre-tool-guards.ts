@@ -8,6 +8,7 @@
 // immediately) or `null` to continue. The shared `warnings` array is passed by
 // reference where the original embedded it; control-flow order is unchanged.
 
+import { readToolString } from "./tool-input-values.js";
 import { isAbsolute, resolve } from "node:path";
 import { loadAllowlist } from "../package-allowlist.js";
 import { parseInstallCommands } from "../package-install-parser.js";
@@ -91,7 +92,7 @@ export function evaluatePackageInstallGuard(
 	toolInput: ToolInput,
 ): HarnessDecision | null {
 	if (process.env.INTERLINKED_DISABLE_PACKAGE_GUARD !== "1" && isBash(toolName)) {
-		const cmd = (toolInput.command as string) || "";
+		const cmd = readToolString(toolInput.command);
 		if (cmd) {
 			const installCommands = parseInstallCommands(cmd);
 			if (installCommands.length > 0) {
@@ -127,7 +128,7 @@ function evaluateGitScopeForBashSession(
 ): HarnessDecision | null {
 	const gateConfig = rules.git_session_scope_gate;
 	if (!gateConfig?.enabled || gateConfig.mode === "off") return null;
-	const cmd = (toolInput.command as string) || "";
+	const cmd = readToolString(toolInput.command);
 	if (!cmd) return null;
 	const evalCwd = event.cwd || process.cwd();
 	const verdict = evaluateGitScopeGateSync(cmd, session, evalCwd);
@@ -180,9 +181,9 @@ export function evaluateProtectedFilesGuard(
 	warnings: string[],
 ): HarnessDecision | null {
 	if (isFileOperation(toolName) || isFileWrite(toolName)) {
-		const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+		const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 		if (filePath) {
-			const content = (toolInput.content as string) || (toolInput.new_string as string) || "";
+			const content = readToolString(toolInput.content) || readToolString(toolInput.new_string);
 			const pfDecision = evaluateProtectedFiles({
 				toolName,
 				filePath,
@@ -205,7 +206,7 @@ export function evaluateRepoConfinementGuard(
 	warnings: string[],
 ): HarnessDecision | null {
 	if (isFileWrite(toolName) && event.cwd) {
-		const rawPath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+		const rawPath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 		if (rawPath) {
 			const rcDecision = evaluateRepoConfinement({
 				rawPath,
@@ -333,7 +334,7 @@ export function evaluateWebFetchGuard(
 	warnings: string[],
 ): HarnessDecision | null {
 	if (toolName === "WebFetch" || toolName === "web_fetch" || toolName === "WebSearch") {
-		const url = (toolInput.url as string) || "";
+		const url = readToolString(toolInput.url);
 		if (url.startsWith("file://")) {
 			return {
 				decision: "block",
@@ -361,7 +362,7 @@ export function evaluateManifestEditGuard(
 	if (process.env.INTERLINKED_DISABLE_PACKAGE_GUARD === "1" || !isFileWrite(toolName)) {
 		return null;
 	}
-	const mfPath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	const mfPath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 	if (!mfPath) return null;
 	const mfCwd = event.cwd || process.cwd();
 	const absPath = isAbsolute(mfPath) ? mfPath : resolve(mfCwd, mfPath);

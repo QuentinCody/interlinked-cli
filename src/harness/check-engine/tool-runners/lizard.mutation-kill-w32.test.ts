@@ -79,7 +79,7 @@ describe("lizardArgs (via runLizard) — target-selection branch", () => {
 			output: [],
 			// SAFETY: test double for SpawnSyncReturns<string> — only the
 			// fields runLizard reads (stdout/error) matter to the test.
-		} as unknown as ReturnType<typeof spawnSync>);
+		});
 		runLizard(makeInput(scopeOverrides));
 		const call = mockedSpawnSync.mock.calls[0];
 		// SAFETY: spawnSync(cmd, args, opts) — args is always string[].
@@ -141,7 +141,7 @@ describe("lizardArgs (via runLizard) — target-selection branch", () => {
 			output: [],
 			// SAFETY: test double for SpawnSyncReturns<string> — only stdout
 			// (consumed via parseLizardOutput/scoped) matters to the test.
-		} as unknown as ReturnType<typeof spawnSync>);
+		});
 		const results = runLizard(makeInput({ mode: "project" }));
 		expect(mockedSpawnSync).toHaveBeenCalledWith("lizard", expect.any(Array), {
 			cwd: "/repo",
@@ -167,7 +167,7 @@ describe("scoped (via runLizard) — filter-gate branch", () => {
 			output: [],
 			// SAFETY: test double for SpawnSyncReturns<string> — only stdout
 			// (consumed via parseLizardOutput/scoped) matters to the test.
-		} as unknown as ReturnType<typeof spawnSync>);
+		});
 		return runLizard(makeInput(scopeOverrides));
 	}
 
@@ -213,7 +213,7 @@ describe("runLizard — ENOENT / spawn-error handling", () => {
 			error: Object.assign(new Error("spawn lizard ENOENT"), { code: "ENOENT" }),
 			// SAFETY: test double for SpawnSyncReturns<string> with a
 			// synthetic ENOENT spawn error — matches Node's real shape.
-		} as unknown as ReturnType<typeof spawnSync>);
+		});
 		expect(runLizard(makeInput({ mode: "project" }))).toEqual([]);
 	});
 
@@ -231,7 +231,7 @@ describe("runLizard — ENOENT / spawn-error handling", () => {
 			error: Object.assign(new Error("spawn lizard EACCES"), { code: "EACCES" }),
 			// SAFETY: test double for SpawnSyncReturns<string> with a
 			// non-ENOENT spawn error — matches Node's real shape.
-		} as unknown as ReturnType<typeof spawnSync>);
+		});
 		const results = runLizard(makeInput({ mode: "project" }));
 		expect(results).toHaveLength(1);
 		expect(results[0]?.file).toBe("src/main.go");

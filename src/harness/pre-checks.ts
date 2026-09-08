@@ -122,7 +122,7 @@ export function checkSelfKill(command: string): PreCheckResult | null {
 			timeout: 1000,
 		}).trim();
 		const ppidMatch = info.match(/^\s*(\d+)\s/);
-		const targetPpid = ppidMatch ? Number.parseInt(ppidMatch[1] as string, 10) : 0;
+		const targetPpid = ppidMatch ? Number.parseInt(nonNull(ppidMatch[1]), 10) : 0;
 		const lower = info.toLowerCase();
 		const isClaudeOrInterlinked =
 			(lower.includes("node") || lower.includes("bun") || lower.includes("deno")) &&

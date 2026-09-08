@@ -78,7 +78,7 @@ function genuineReview(key: string) {
 		tool_name: "tn",
 		body: "b",
 		redacted_body: "rb",
-		findings: [] as unknown[],
+		findings: [],
 		cache_key: key,
 	};
 }
@@ -280,7 +280,7 @@ describe("parseDecisionPayload", () => {
 		// SAFETY: `tty` is deliberately typed as the union the parser accepts
 		// (string | null) so the two negative cases below can widen it to an
 		// invalid type via a spread override.
-		actor: { user: "u", host: "h", tty: null as string | null },
+		actor: { user: "u", host: "h", tty: null },
 	};
 
 	// test-contract: public-api — parseDecisionPayload() rejects a

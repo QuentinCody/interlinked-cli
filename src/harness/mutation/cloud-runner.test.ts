@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import {
 	type CloudRunnerConfig,
 	createCloudMutationRunner,
@@ -89,9 +89,9 @@ describe("createCloudMutationRunner — budget expiry yields a harvestable handl
 			});
 		const runner = createCloudMutationRunner({ url: "https://worker-7", timeoutMs: 10 }, hang);
 		const err = await runner.run("src/f.ts", SOURCE).catch((e: unknown) => e);
-		expect(err).toBeInstanceOf(MutationRunPendingError);
-		expect((err as MutationRunPendingError).runnerUrl).toBe("https://worker-7");
-		expect((err as MutationRunPendingError).jobId).not.toHaveLength(0);
+		assert.instanceOf(err, MutationRunPendingError);
+		expect(err.runnerUrl).toBe("https://worker-7");
+		expect(err.jobId).not.toHaveLength(0);
 	});
 
 	it("P: sends a client-minted job_id so a timed-out caller can still claim it", async () => {
@@ -264,7 +264,7 @@ function jsonRunner(body: unknown) {
 	}));
 	// SAFETY: the mock implements exactly the {ok,status,json} shape FetchLike needs;
 	// vi.fn() cannot express that structurally without restating the full DOM type.
-	return createCloudMutationRunner({ url: "http://runner/", timeoutMs: 500 }, fetchImpl as never);
+	return createCloudMutationRunner({ url: "http://runner/", timeoutMs: 500 }, fetchImpl);
 }
 
 describe("MutationNotMeasurableError — 'nothing to measure' is not 'runner broke'", () => {
@@ -454,9 +454,9 @@ describe("cloud-runner protocol details", () => {
 	it("reports a busy runner with a dedicated typed error and stable identity", async () => {
 		const runner = createCloudMutationRunner(CFG, () => Promise.resolve(resp({}, true, 503)));
 		const err = await runner.run("src/f.ts", SOURCE).catch((value: unknown) => value);
-		expect(err).toBeInstanceOf(MutationRunnerBusyError);
-		expect((err as MutationRunnerBusyError).name).toBe("MutationRunnerBusyError");
-		expect((err as Error).message).toContain("HTTP 503");
+		assert.instanceOf(err, MutationRunnerBusyError);
+		expect(err.name).toBe("MutationRunnerBusyError");
+		expect(err.message).toContain("HTTP 503");
 	});
 
 	it("does not treat a non-ok response containing a valid report as success", async () => {
@@ -528,9 +528,9 @@ describe("cloud-runner error identities", () => {
 				});
 			const runner = createCloudMutationRunner({ ...CFG, timeoutMs: 10 }, hang);
 			const error = await runner.run("src/f.ts", SOURCE).catch((value: unknown) => value);
-			expect(error).toBeInstanceOf(MutationRunPendingError);
-			expect((error as MutationRunPendingError).name).toBe("MutationRunPendingError");
-			expect((error as Error).message).toMatch(/^mutation run still pending \(job m-[^-]+-[a-z0-9]{8}\)$/);
+			assert.instanceOf(error, MutationRunPendingError);
+			expect(error.name).toBe("MutationRunPendingError");
+			expect(error.message).toMatch(/^mutation run still pending \(job m-[^-]+-[a-z0-9]{8}\)$/);
 		} finally {
 			vi.restoreAllMocks();
 		}

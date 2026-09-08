@@ -18,6 +18,7 @@ function manifestWith(file: string, statuses: MutantStatus[]): MutationManifest 
 					symbolId: "sym",
 					qualifiedName: "f",
 					symbolHash: "sh",
+					instability: { events: [], consecutiveStableRuns: 0, quarantined: false },
 					mutants: Object.fromEntries(
 						statuses.map((status, i) => [
 							`m${i}`,
@@ -27,14 +28,20 @@ function manifestWith(file: string, statuses: MutantStatus[]): MutationManifest 
 				},
 			},
 		},
-		// SAFETY: the literal above matches MutationManifest's shape; the cast
-		// avoids restating optional bookkeeping fields no assertion here reads.
-	} as unknown as MutationManifest;
+	};
 }
 
 function mutants(statuses: MutantStatus[]): AdaptedMutant[] {
-	// SAFETY: only `status` is read by the code under test.
-	return statuses.map((status) => ({ status, raw: {} }) as unknown as AdaptedMutant);
+	return statuses.map((status, startOffset) => ({
+		status,
+		raw: {
+			file: "src/a.ts",
+			mutator: "EqualityOperator",
+			originalLexeme: "===",
+			replacement: "!==",
+			startOffset,
+		},
+	}));
 }
 
 describe("isSurvivingStatus — what counts as UNJUSTIFIED", () => {

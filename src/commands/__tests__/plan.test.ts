@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireLiteral, wireNumber, wireObject, wireString } from "../../lib/value-validation.js";
 // ===========================================
 // interlinked plan — CLI subcommand regression suite
 // ===========================================
@@ -25,6 +26,16 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CapturedPlan } from "../../harness/types/plan.js";
 import { nonNull } from "../../lib/non-null.js";
+
+const isCapturedPlan = wireObject<CapturedPlan>({
+ session_id: wireString, agent_name: wireString, created_at_iso: wireString,
+ created_at_step: wireNumber, source: wireLiteral("TaskCreate", "ExitPlanMode", "structured_userprompt"),
+ steps: wireArray(wireObject<CapturedPlan["steps"][number]>({
+  intent: wireString, status: wireLiteral("pending", "executed", "skipped"),
+  tool_hint: wireAbsentOptional(wireString), target_hint: wireAbsentOptional(wireString),
+ })),
+});
+
 import { planListCommand, planShowCommand } from "../plan.js";
 
 let tmp = "";
@@ -56,13 +67,13 @@ async function captureStdio(fn: () => Promise<void>): Promise<CapturedStdio> {
 			typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"),
 		);
 		return true;
-	}) as typeof process.stdout.write;
+	});
 	process.stderr.write = ((chunk: string | Uint8Array): boolean => {
 		stderrChunks.push(
 			typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"),
 		);
 		return true;
-	}) as typeof process.stderr.write;
+	});
 	try {
 		await fn();
 	} finally {
@@ -140,7 +151,7 @@ describe("interlinked plan list", () => {
 			}),
 		]);
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows.map((r) => r.session_id)).toEqual(["sess-b", "sess-c", "sess-a"]);
 	});
 
@@ -158,7 +169,7 @@ describe("interlinked plan list", () => {
 			}),
 		]);
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(1);
 		expect(nonNull(rows[0]).created_at_iso).toBe("2026-04-21T00:00:00.000Z");
 		expect(nonNull(rows[0]).steps).toHaveLength(3);
@@ -173,7 +184,7 @@ describe("interlinked plan list", () => {
 			"utf-8",
 		);
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(1);
 		expect(nonNull(rows[0]).session_id).toBe("sess-broken");
 	});
@@ -191,7 +202,7 @@ describe("interlinked plan show", () => {
 		const captured = await captureStdio(() =>
 			planShowCommand("missing-sess", { cwd: tmp, json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; session_id: string };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "session_id": wireString }), "test JSON value");
 		expect(parsed.ok).toBe(false);
 		expect(parsed.session_id).toBe("missing-sess");
 		expect(process.exitCode).toBe(1);
@@ -342,11 +353,7 @@ describe("interlinked plan show — degenerate files", () => {
 		const captured = await captureStdio(() =>
 			planShowCommand("sess-empty", { cwd: tmp, json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as {
-			ok: boolean;
-			error: string;
-			session_id: string;
-		};
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "error": wireString, "session_id": wireString }), "test JSON value");
 		expect(parsed.ok).toBe(false);
 		expect(parsed.error).toContain("no valid entries");
 		expect(parsed.session_id).toBe("sess-empty");
@@ -367,7 +374,7 @@ describe("interlinked plan show — degenerate files", () => {
 		const captured = await captureStdio(() =>
 			planShowCommand("sess-json", { cwd: tmp, json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as CapturedPlan;
+		const parsed = parseWire(JSON.parse(captured.stdout), isCapturedPlan, "captured plan");
 		expect(parsed.session_id).toBe("sess-json");
 		expect(parsed.agent_name).toBe("agent-j");
 		expect(parsed.source).toBe("structured_userprompt");
@@ -485,7 +492,7 @@ describe("interlinked plan — defensive JSONL parsing", () => {
 			})}\n`,
 		);
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(1);
 		expect(nonNull(rows[0]).steps).toEqual([{ intent: "kept", status: "pending" }]);
 	});
@@ -502,7 +509,7 @@ describe("interlinked plan — defensive JSONL parsing", () => {
 			})}\n`,
 		);
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(nonNull(nonNull(rows[0]).steps[0]).status).toBe("pending");
 	});
 
@@ -518,7 +525,7 @@ describe("interlinked plan — defensive JSONL parsing", () => {
 			})}\n`,
 		);
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(nonNull(nonNull(rows[0]).steps[0]).status).toBe("pending");
 	});
 
@@ -537,7 +544,7 @@ describe("interlinked plan — defensive JSONL parsing", () => {
 			})}\n`,
 		);
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(nonNull(rows[0]).steps[0]).toEqual({
 			intent: "with hints",
 			status: "pending",
@@ -562,7 +569,7 @@ describe("interlinked plan — defensive JSONL parsing", () => {
 			})}\n`,
 		);
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(1);
 		expect(nonNull(rows[0]).steps).toEqual([]);
 	});
@@ -589,7 +596,7 @@ describe("interlinked plan — defensive JSONL parsing", () => {
 		const captured = await captureStdio(() =>
 			planShowCommand("sess-step-default", { cwd: tmp, json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as CapturedPlan;
+		const parsed = parseWire(JSON.parse(captured.stdout), isCapturedPlan, "captured plan");
 		expect(parsed.created_at_step).toBe(0);
 	});
 
@@ -608,7 +615,7 @@ describe("interlinked plan — defensive JSONL parsing", () => {
 		const captured = await captureStdio(() =>
 			planShowCommand("sess-step-num", { cwd: tmp, json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as CapturedPlan;
+		const parsed = parseWire(JSON.parse(captured.stdout), isCapturedPlan, "captured plan");
 		expect(parsed.created_at_step).toBe(12);
 	});
 });
@@ -624,7 +631,7 @@ describe("interlinked plan list — directory walk edge cases", () => {
 		writeFileSync(join(plansDir(), "README.txt"), "ignore me\n", "utf-8");
 		writeFileSync(join(plansDir(), "notes.json"), '{"x":1}\n', "utf-8");
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(1);
 		expect(nonNull(rows[0]).session_id).toBe("sess-real");
 	});
@@ -634,7 +641,7 @@ describe("interlinked plan list — directory walk edge cases", () => {
 		// A directory named like a plan file → statSync().isFile() is false → continue.
 		mkdirSync(join(plansDir(), "subdir.jsonl"), { recursive: true });
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(1);
 		expect(nonNull(rows[0]).session_id).toBe("sess-ok");
 	});
@@ -643,7 +650,7 @@ describe("interlinked plan list — directory walk edge cases", () => {
 		seedPlanFile("sess-good", [plan({ session_id: "sess-good" })]);
 		seedRawFile("sess-garbage", "garbage\nmore garbage\n");
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(1);
 		expect(nonNull(rows[0]).session_id).toBe("sess-good");
 	});
@@ -674,7 +681,7 @@ describe("interlinked plan list — directory walk edge cases", () => {
 		}
 		expect(threw).toBe(true);
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(1);
 		expect(nonNull(rows[0]).session_id).toBe("sess-live");
 	});
@@ -719,7 +726,7 @@ describe("interlinked plan list — created_at_iso sort comparator", () => {
 		}
 
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(8);
 		// The four valid-dated plans lead, newest-first (day 13 → day 10).
 		const validHead = rows.slice(0, 4).map((r) => r.session_id);
@@ -737,7 +744,7 @@ describe("interlinked plan list — created_at_iso sort comparator", () => {
 		seedRawFile("sess-bad-b", badDatePlan("sess-bad-b", "also-bad"));
 		seedRawFile("sess-bad-c", badDatePlan("sess-bad-c", "third-bad"));
 		const captured = await captureStdio(() => planListCommand({ cwd: tmp, json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(3);
 		expect(rows.map((r) => r.session_id).sort()).toEqual([
 			"sess-bad-a",
@@ -769,7 +776,7 @@ describe("interlinked plan — defaults cwd to process.cwd()", () => {
 	it("planListCommand resolves plans relative to process.cwd() when cwd is omitted", async () => {
 		seedPlanFile("sess-cwd", [plan({ session_id: "sess-cwd" })]);
 		const captured = await captureStdio(() => planListCommand({ json: true }));
-		const rows = JSON.parse(captured.stdout) as CapturedPlan[];
+		const rows = parseWire(JSON.parse(captured.stdout), wireArray(isCapturedPlan), "captured plans");
 		expect(rows).toHaveLength(1);
 		expect(nonNull(rows[0]).session_id).toBe("sess-cwd");
 	});
@@ -779,7 +786,7 @@ describe("interlinked plan — defaults cwd to process.cwd()", () => {
 		const captured = await captureStdio(() =>
 			planShowCommand("sess-cwd-show", { json: true }),
 		);
-		const parsed = JSON.parse(captured.stdout) as CapturedPlan;
+		const parsed = parseWire(JSON.parse(captured.stdout), isCapturedPlan, "captured plan");
 		expect(parsed.session_id).toBe("sess-cwd-show");
 	});
 });

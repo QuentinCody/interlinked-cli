@@ -17,6 +17,8 @@ vi.mock("node:fs", async (importOriginal) => {
 	return { ...actual, readFileSync: vi.fn(actual.readFileSync) };
 });
 
+afterEach(() => vi.unstubAllGlobals());
+
 function manifestText(obj: unknown): string {
 	return JSON.stringify(obj);
 }
@@ -262,8 +264,8 @@ describe("createMutantWatcher — timer unref (kills fca999cf/fedbe378/e006f9ae/
 	// its own; observed both via the call and via the exact handle it fires on.
 	it("calls unref() exactly once, on the handle setInterval returned", () => {
 		const fakeUnref = vi.fn();
-		const fakeTimer = { unref: fakeUnref } as unknown as NodeJS.Timeout;
-		const setIntervalSpy = vi.spyOn(global, "setInterval").mockReturnValue(fakeTimer);
+		const fakeTimer = { unref: fakeUnref };
+		vi.stubGlobal("setInterval", vi.fn(() => fakeTimer));
 		const { stop } = createMutantWatcher(path.join(os.tmpdir(), "does-not-exist.json"), () => {});
 		expect(fakeUnref).toHaveBeenCalledTimes(1);
 		// state check beyond call presence: unref must be invoked as a method on
@@ -271,7 +273,7 @@ describe("createMutantWatcher — timer unref (kills fca999cf/fedbe378/e006f9ae/
 		// the watcher must still hand back a usable stop function.
 		expect(fakeUnref.mock.instances[0]).toBe(fakeTimer);
 		expect(typeof stop).toBe("function");
-		setIntervalSpy.mockRestore();
+		vi.unstubAllGlobals();
 		stop();
 	});
 
@@ -279,14 +281,14 @@ describe("createMutantWatcher — timer unref (kills fca999cf/fedbe378/e006f9ae/
 	// timer) must be tolerated, not called into, and the watcher must still
 	// come back fully constructed.
 	it("does not throw and still returns a working stop() when the handle lacks unref()", () => {
-		const fakeTimer = {} as unknown as NodeJS.Timeout;
-		const setIntervalSpy = vi.spyOn(global, "setInterval").mockReturnValue(fakeTimer);
+		const fakeTimer = {};
+		vi.stubGlobal("setInterval", vi.fn(() => fakeTimer));
 		let watcher: { stop: () => void } | undefined;
 		expect(() => {
 			watcher = createMutantWatcher(path.join(os.tmpdir(), "does-not-exist2.json"), () => {});
 		}).not.toThrow();
 		expect(typeof watcher!.stop).toBe("function");
-		setIntervalSpy.mockRestore();
+		vi.unstubAllGlobals();
 		watcher!.stop();
 	});
 });
@@ -295,14 +297,14 @@ describe("createMutantWatcher — stop() (kills 44d30f079d337547)", () => {
 	// test-contract: public-api — stop() must clear the exact interval handle
 	// the watcher created, not merely call clearInterval on something.
 	it("stop() clears the underlying interval with the handle setInterval returned", () => {
-		const fakeTimer = { unref: vi.fn() } as unknown as NodeJS.Timeout;
-		const setIntervalSpy = vi.spyOn(global, "setInterval").mockReturnValue(fakeTimer);
+		const fakeTimer = { unref: vi.fn() };
+		vi.stubGlobal("setInterval", vi.fn(() => fakeTimer));
 		const clearSpy = vi.spyOn(global, "clearInterval").mockImplementation(() => undefined);
 		const { stop } = createMutantWatcher(path.join(os.tmpdir(), "does-not-exist3.json"), () => {}, 10_000);
 		stop();
 		expect(clearSpy).toHaveBeenCalledTimes(1);
 		expect(clearSpy.mock.calls[0]?.[0]).toBe(fakeTimer);
-		setIntervalSpy.mockRestore();
+		vi.unstubAllGlobals();
 		clearSpy.mockRestore();
 	});
 });

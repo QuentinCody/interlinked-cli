@@ -15,6 +15,7 @@ import { REGISTRY_PARITY_CONFIG_PATH } from "../registry-parity.js";
 import type { HarnessDecision } from "../types.js";
 import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import { runRegistryParityPhase } from "./registry-parity-phase.js";
+import { makeServerRuntime, makePerFileCheckCtx } from "./__tests__/fixtures.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
 function makeFixture(): {
@@ -24,17 +25,9 @@ function makeFixture(): {
 	acc: PerFileCheckCtx;
 } {
 	const root = mkdtempSync(join(tmpdir(), "registry-parity-phase-"));
-	// SAFETY: the phase reads only cwd/log from the runtime — a minimal
-	// fixture keeps this test independent of the full server bootstrap
-	// (same pattern as spec-ledger-phase.test.ts).
-	const ctx = {
-		cwd: root,
-		log: () => {},
-	} as unknown as ServerRuntime;
+	const ctx = makeServerRuntime({ cwd: root });
 	const decision: HarnessDecision = { decision: "allow" };
-	// SAFETY: the phase touches only allCheckResults/checksRan on the
-	// accumulator; the remaining PerFileCheckCtx fields are unused here.
-	const acc = { allCheckResults: [], checksRan: [] } as unknown as PerFileCheckCtx;
+	const acc = makePerFileCheckCtx();
 	return { root, ctx, decision, acc };
 }
 
@@ -223,7 +216,7 @@ describe("runRegistryParityPhase", () => {
 		writeFileSync(full, "not valid json");
 		writeFileSync(join(root, "left.ts"), 'check: "alpha"');
 		const log = vi.fn();
-		(ctx as unknown as { log: typeof log }).log = log;
+		vi.spyOn(ctx, "log").mockImplementation(log);
 		expect(() =>
 			runRegistryParityPhase(ctx, join(root, "left.ts"), true, decision, acc),
 		).not.toThrow();

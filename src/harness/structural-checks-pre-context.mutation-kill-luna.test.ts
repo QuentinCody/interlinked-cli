@@ -1,8 +1,11 @@
+import type { PreToolContext } from "./structural-checks-pre-context.js";
+import { makeProjectGraph as completeProjectGraphFixture } from "./__tests__/fixtures/managers.js";
+import { makeSessionTracker as completeSessionTrackerFixture } from "./__tests__/fixtures/managers.js";
+import { makeRouteMap as completeRouteMapFixture } from "./__tests__/fixtures/managers.js";
+import { makeMinimalEvent as completeEventFixture, makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 import { describe, expect, it, vi } from "vitest";
 import type { ProjectGraph } from "./project-graph.js";
-import type { RouteMap } from "./route-map.js";
-import type { SessionTracker } from "./session-state.js";
-import type { HarnessEvent, SessionTrajectory, StructuralChecksConfig } from "./types.js";
+import type { SessionTrajectory, StructuralChecksConfig } from "./types.js";
 import {
 	preCheckBlastRadius,
 	preCheckCompletionTracking,
@@ -48,22 +51,22 @@ const baseConfig = (): StructuralChecksConfig => ({
 	test_first_mode: "nudge",
 });
 
-function graph(overrides: Record<string, unknown> = {}): ProjectGraph {
-	return {
+function graph(overrides: Partial<ProjectGraph> = {}): ProjectGraph {
+	return completeProjectGraphFixture({
 		getDependents: vi.fn().mockReturnValue([]),
 		classifyModule: vi.fn().mockReturnValue("leaf"),
 		getSiblingFiles: vi.fn().mockReturnValue([]),
 		toRelative: (p: string) => p.replace("/workspace/", ""),
 		...overrides,
-	} as unknown as ProjectGraph;
+	});
 }
 
-function ctx(overrides: Record<string, unknown> = {}) {
+function ctx(overrides: Partial<PreToolContext> = {}): PreToolContext {
 	return {
-		event: { cwd: "/workspace", agent_name: "me" } as HarnessEvent,
+		event: ({ ...completeEventFixture(), ...{ cwd: "/workspace", agent_name: "me" } }),
 		config: baseConfig(),
 		graph: graph(),
-		sessions: { getAll: vi.fn().mockReturnValue([]) } as unknown as SessionTracker,
+		sessions: completeSessionTrackerFixture({ getAll: vi.fn().mockReturnValue([]) }),
 		toolName: "Write",
 		filePath: file,
 		relPath: "src/feature.ts",
@@ -72,8 +75,8 @@ function ctx(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-function session(overrides: Record<string, unknown> = {}): SessionTrajectory {
-	return {
+function session(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
+	return ({ ...completeSessionFixture(), ...{
 		session_id: "s1",
 		agent_name: "me",
 		tool_call_count: 12,
@@ -85,7 +88,7 @@ function session(overrides: Record<string, unknown> = {}): SessionTrajectory {
 		failed_files: new Map(),
 		pending_completions: new Map(),
 		...overrides,
-	} as unknown as SessionTrajectory;
+	} });
 }
 
 describe("pre-context mutation contracts", () => {
@@ -120,11 +123,11 @@ describe("pre-context mutation contracts", () => {
 			ext: ".ts",
 			graph: graph({ toRelative: (p: string) => p.replace(repoRoot, "") }),
 		});
-		const g = base.graph as unknown as { toRelative: (p: string) => string };
+		const g = base.graph;
 		const notRun = preCheckTestFirst(base, session());
 		expect(notRun[0]).toContain("Tests at src/harness/structural-checks.test.ts haven't been run");
 		const ran = session({ test_runs: new Map([[testFile, { status: "pass", at_step: 1 }]]) });
-		expect(preCheckTestFirst({ ...base, graph: g as ProjectGraph }, ran)).toEqual([]);
+		expect(preCheckTestFirst({ ...base, graph: g }, ran)).toEqual([]);
 	});
 
 	// test-contract: boundary — warning begins at the configured threshold, lists exactly five dependents, and reports the remaining set count.
@@ -147,7 +150,7 @@ describe("pre-context mutation contracts", () => {
 
 	// test-contract: invariant — resolved follow-ups disappear, while the fifth unresolved file is represented only by the explicit overflow count.
 	it("keeps completion reminders empty when all affected files are resolved and truncates remaining files at four", () => {
-		const completion = { affected_files: Array.from({ length: 6 }, (_, i) => `/workspace/src/f${i}.ts`), resolved_files: new Set(["/workspace/src/f0.ts"]), description: "refresh exports", recorded_at_tool_call: 2 };
+		const completion = { source_file: "src/x.ts", affected_files: Array.from({ length: 6 }, (_, i) => `/workspace/src/f${i}.ts`), resolved_files: new Set(["/workspace/src/f0.ts"]), description: "refresh exports", recorded_at_tool_call: 2 };
 		const out = preCheckCompletionTracking(ctx({ config: { ...baseConfig(), completion_tracking: true, completion_reminder_threshold: 10 }, graph: graph() }), session({ pending_completions: new Map([["src/x.ts", completion]]) }));
 		expect(out).toEqual(["[interlinked:completion-tracking] refresh exports (10 tool calls ago). Still needs updating: src/f1.ts, src/f2.ts, src/f3.ts, src/f4.ts and 1 more"]);
 		const resolved = { ...completion, resolved_files: new Set(completion.affected_files) };
@@ -156,7 +159,7 @@ describe("pre-context mutation contracts", () => {
 
 	// test-contract: boundary — the documented reminder threshold is inclusive, so >= and > have observably different outputs.
 	it("fires completion tracking at the threshold but not one call before it", () => {
-		const completion = { affected_files: ["/workspace/src/f.ts"], resolved_files: new Set<string>(), description: "follow up", recorded_at_tool_call: 2 };
+		const completion = { source_file: "src/x.ts", affected_files: ["/workspace/src/f.ts"], resolved_files: new Set<string>(), description: "follow up", recorded_at_tool_call: 2 };
 		const c = { ...baseConfig(), completion_tracking: true, completion_reminder_threshold: 10 };
 		const at = preCheckCompletionTracking(ctx({ config: c }), session({ tool_call_count: 12, pending_completions: new Map([["x", completion]]) }));
 		const before = preCheckCompletionTracking(ctx({ config: c }), session({ tool_call_count: 11, pending_completions: new Map([["x", completion]]) }));
@@ -167,7 +170,7 @@ describe("pre-context mutation contracts", () => {
 	// test-contract: public-api — failure evidence is scoped to supported tool operations and computes age by subtraction.
 	it("reports recently failed files only for reads and writes with the exact elapsed count", () => {
 		const c = { ...baseConfig(), recently_failed: true };
-		const failed = { failure_count: 2, checks: ["typecheck"], tool_call_count: 5 };
+		const failed = { recorded_at: "2026-08-20T00:00:00.000Z", failure_count: 2, checks: ["typecheck"], tool_call_count: 5 };
 		const s = session({ tool_call_count: 12, failed_files: new Map([[file, failed]]) });
 		expect(preCheckRecentlyFailed(ctx({ config: c, toolName: "Write" }), s)[0]).toContain("7 tool call(s) ago");
 		expect(preCheckRecentlyFailed(ctx({ config: c, toolName: "Read" }), s)).toHaveLength(1);
@@ -189,7 +192,7 @@ describe("pre-context mutation contracts", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-08-20T00:00:10.500Z"));
 		const other = session({ agent_name: "alice", file_write_times: new Map([[file, "2026-08-20T00:00:00.000Z"]]) });
-		const sessions = { getAll: vi.fn().mockReturnValue([other]) } as unknown as SessionTracker;
+		const sessions = completeSessionTrackerFixture({ getAll: vi.fn().mockReturnValue([other]) });
 		const c = { ...baseConfig(), stale_read_warning: true, staleness_window_s: 11 };
 		const out = preCheckStaleRead(ctx({ config: c, toolName: "Read", sessions }),);
 		expect(out).toEqual(["[interlinked:stale-read] src/feature.ts was modified by alice 11s ago. Contents may differ from what you previously read."]);
@@ -216,19 +219,19 @@ describe("pre-context mutation contracts", () => {
 			{ method: "GET", path: "/users" },
 			{ method: "GET", path: "/users" },
 		];
-		const routeMap = { extractEndpointsForFile: vi.fn().mockReturnValue(endpoints) } as unknown as RouteMap;
+		const routeMap = completeRouteMapFixture({ extractEndpointsForFile: vi.fn().mockReturnValue(endpoints) });
 		const c = { ...baseConfig(), route_context: true };
 		const out = preCheckRouteContext(ctx({ config: c, toolName: "Read" }), routeMap);
 		expect(out).toEqual(["[interlinked:route-context] This file handles: TOOL search, /any, GET /users. Changes may affect API consumers."]);
 		expect(preCheckRouteContext(ctx({ config: c, toolName: "Bash" }), routeMap)).toEqual([]);
-		expect(preCheckRouteContext(ctx({ config: c }), { extractEndpointsForFile: vi.fn().mockReturnValue([]) } as unknown as RouteMap)).toEqual([]);
+		expect(preCheckRouteContext(ctx({ config: c }), completeRouteMapFixture({ extractEndpointsForFile: vi.fn().mockReturnValue([]) }))).toEqual([]);
 	});
 
 	// test-contract: security — follow-up enforcement must not fabricate a violation from an empty set and must permit the required affected-file edit.
 	it("returns no follow-up warning when there are no pending completions or when editing an affected file", () => {
 		const c = { ...baseConfig(), impact_analysis: true };
 		expect(preCheckFollowUpViolation(ctx({ config: c }), session())).toEqual([]);
-		const completion = { source_file: "/workspace/src/source.ts", affected_files: [file], resolved_files: new Set<string>() };
+		const completion = { source_file: "/workspace/src/source.ts", recorded_at_tool_call: 0, description: "follow up", affected_files: [file], resolved_files: new Set<string>() };
 		const s = session({ pending_completions: new Map([["source", completion]]) });
 		expect(preCheckFollowUpViolation(ctx({ config: c }), s)).toEqual([]);
 	});

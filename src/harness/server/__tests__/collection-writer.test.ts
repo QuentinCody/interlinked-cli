@@ -56,7 +56,7 @@ describe("mapEventToCollectionInput — client runner detection", () => {
 
 	it("detects copilot from agent_source", () => {
 		const m = mapEventToCollectionInput(
-			harnessEvent({ agent_source: "copilot" as HarnessEvent["agent_source"] }),
+			harnessEvent({ agent_source: "copilot" }),
 			"/repo",
 		);
 		expect(m.client_runner).toBe("copilot");

@@ -30,7 +30,8 @@
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { MutantRecord, MutationManifest, StableId, SymbolRecord } from "./types.js";
+import { isJsonObject } from "../../lib/json-types.js";
+import type { MutationManifest, StableId } from "./types.js";
 
 /** Bumped only on a BREAKING shape change; a reader that sees a version it does
  *  not know treats the file as absent (silent, zero-FP) rather than guessing. */
@@ -73,20 +74,18 @@ export function survivorsIndexPath(dir: string): string {
 	return join(dir, "mutation-survivors-index.json");
 }
 
-function foldSymbol(symbol: SymbolRecord | undefined, entry: SurvivorsIndexFileEntry): void {
+function foldSymbol(symbol: unknown, entry: SurvivorsIndexFileEntry): void {
 	// `symbol.mutants` is declared `Record<StableId, MutantRecord>`, but this
 	// fold runs over manifests built in memory (never healed by
 	// `loadManifest`), so a caller-constructed manifest can genuinely violate
 	// that shape at runtime (see the malformed-shape tests in
 	// survivors-index.test.ts). Treat it as `unknown` and validate rather than
 	// trusting the declared type.
-	const mutants: unknown = symbol?.mutants;
-	if (!mutants || typeof mutants !== "object") return;
-	for (const mutant of Object.values(mutants as Record<string, unknown>)) {
-		if (!mutant || typeof mutant !== "object") continue;
-		const m = mutant as MutantRecord;
+	if (!isJsonObject(symbol) || !isJsonObject(symbol.mutants)) return;
+	for (const m of Object.values(symbol.mutants)) {
+		if (!isJsonObject(m)) continue;
 		entry.mutantCount++;
-		if (m.status === "survived") entry.survivors.push(m.mutantId);
+		if (m.status === "survived" && typeof m.mutantId === "string") entry.survivors.push(m.mutantId);
 		else if (m.status === "killed") entry.killed++;
 	}
 }

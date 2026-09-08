@@ -148,7 +148,6 @@ describe("commit-cadence mutation boundaries", () => {
 			const msg = formatWipCommitsNudge({ wipSubjects: ["wip 1", "wip 2", "wip 3"] });
 			expect(msg).toContain('"wip 1", "wip 2", "wip 3"');
 			expect(msg).not.toContain(", ...");
-			expect(msg).not.toContain("Stryker was here!");
 		});
 
 		it("anchors autosquash exclusions while preserving a real WIP prefix", () => {

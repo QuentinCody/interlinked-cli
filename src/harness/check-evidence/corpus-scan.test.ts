@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Tests for the corpus dogfood scanner.
 
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -37,7 +38,7 @@ function check(fn: (c: string, p: string) => InlineMatch[] = detectEval): CheckR
 		fix_instruction: "no eval",
 		fn,
 		resultsPropName: "evalUsage",
-	} as CheckRegistration;
+	};
 }
 
 beforeEach(() => {
@@ -161,7 +162,7 @@ describe("recordCorpusScan", () => {
 	it("preserves a prior adjudication across a re-scan", () => {
 		write("src/a.ts", "eval(1)");
 		const first = recordCorpusScan(EMPTY_CORPUS, check(), join(root, "src"), root);
-		const sig = first.record.hits[0] as string;
+		const sig = nonNull(first.record.hits[0]);
 		first.store.checks.eval_usage = {
 			...first.record,
 			adjudications: { [sig]: { verdict: "false_positive", note: "in a comment" } },

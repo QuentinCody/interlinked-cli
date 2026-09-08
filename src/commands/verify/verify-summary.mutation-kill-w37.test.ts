@@ -62,7 +62,7 @@ beforeEach(() => {
 	process.stderr.write = ((chunk: string) => {
 		stderrChunks.push(chunk);
 		return true;
-	}) as typeof process.stderr.write;
+	});
 	vi.clearAllMocks();
 });
 
@@ -124,7 +124,7 @@ describe("streamCaseDivergence — loc/more branch exactness (mutation kill)", (
 				// is irrelevant to this branch.
 				spellings: [{ name: "onlyGhost", style: "camelCase", locs: [] }],
 			},
-		] as never);
+		]);
 		const flagged = new Set<string>();
 		expect(() => streamCaseDivergence("/repo", ["a.ts"], flagged)).not.toThrow();
 		const o = out();
@@ -144,7 +144,7 @@ describe("streamCaseDivergence — loc/more branch exactness (mutation kill)", (
 				files: ["b.ts"],
 				spellings: [{ name: "solo", style: "snake_case", locs: [{ file: "b.ts", line: 5, kind: "const" }] }],
 			},
-		] as never);
+		]);
 		streamCaseDivergence("/repo", ["b.ts"], new Set());
 		const o = out();
 		expect(o).toContain("solo — b.ts:5 (snake_case)\x1b[0m\n");

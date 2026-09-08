@@ -8,7 +8,7 @@
 // agent verifies official sources instead of relying on remembered timelines.
 
 import { basename } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject } from "../../lib/json-types.js";
 import { isTestFile } from "../checks/shared.js";
 import {
 	freshnessConcernForRef,
@@ -290,8 +290,8 @@ function collectPackageJsonRefs(content: string): SoftwareVersionReference[] {
 	} catch {
 		return [];
 	}
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
-	const obj = parsed as JsonObject;
+	if (!isJsonObject(parsed)) return [];
+	const obj = parsed;
 	const refs: SoftwareVersionReference[] = [];
 
 	if (typeof obj.version === "string") {
@@ -307,8 +307,8 @@ function collectPackageJsonRefs(content: string): SoftwareVersionReference[] {
 
 	for (const section of PACKAGE_SECTIONS) {
 		const deps = obj[section];
-		if (!deps || typeof deps !== "object" || Array.isArray(deps)) continue;
-		for (const [name, version] of Object.entries(deps as JsonObject)) {
+		if (!isJsonObject(deps)) continue;
+		for (const [name, version] of Object.entries(deps)) {
 			if (typeof version !== "string") continue;
 			refs.push({
 				anchor: `package:${name}`,

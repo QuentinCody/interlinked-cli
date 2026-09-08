@@ -58,7 +58,7 @@ function readDiskSafe(absPath: string): string | null {
 /** The repo-relative path this event wrote, or null when it wrote no file. */
 function writtenFile(event: HarnessEvent, cwd: string): string | null {
 	if (!isFileWrite(event.tool_name ?? "")) return null;
-	const input = (event.tool_input ?? {}) as { file_path?: unknown; path?: unknown };
+	const input: { file_path?: unknown; path?: unknown } = (event.tool_input ?? {});
 	const fromFilePath = typeof input.file_path === "string" ? input.file_path : "";
 	const named = fromFilePath !== "" ? fromFilePath : typeof input.path === "string" ? input.path : "";
 	if (named === "") return null;

@@ -60,7 +60,7 @@ function fixture(jobKey: string, adverse = false): AcceptanceFixture {
 		};
 		// SAFETY: widened to construct the suite_red union arm; the fields that
 		// belong only to mutation_result are removed before authentication.
-		evidence = redShape as unknown as Record<string, unknown>;
+		evidence = redShape;
 		for (const key of ["report", "census", "excluded", "mutants", "identity_algorithm"]) {
 			delete evidence[key];
 		}

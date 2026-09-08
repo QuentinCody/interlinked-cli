@@ -290,7 +290,7 @@ function scanChunkBackwardForTailStart(
 	maxLines: number,
 ): number {
 	for (let i = length - 1; i >= 0; i--) {
-		const byte = chunk[i] as number;
+		const byte = chunk.readUInt8(i);
 		if (byte !== NEWLINE) {
 			if (!isAsciiWhitespace(byte)) state.nonEmpty = true;
 			continue;

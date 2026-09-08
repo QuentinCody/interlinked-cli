@@ -3,6 +3,7 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
+import { hasErrorCode } from "../tool-errors.js";
 import { parseClangTidyOutput, parseGccOutput } from "../output-parsers.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
 
@@ -48,7 +49,7 @@ export function runCCompile(input: ToolRunnerInput): CheckResult[] {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		if (result.status === 0) return [];
@@ -80,7 +81,7 @@ export function runClangTidy(input: ToolRunnerInput): CheckResult[] {
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		if (result.status === 0) return [];

@@ -4,6 +4,7 @@
 // Barrel export and orchestrator for all built-in rule families.
 
 import type { ArtifactGraph } from "../artifact-graph.js";
+import { isStringArray } from "../schema-validator-helpers.js";
 import type { Determinism, StructureConfig, StructureFinding } from "../types.js";
 import { checkConfigKeyCompanions } from "./config-key-companions.js";
 import { checkEnvKeyCompanions } from "./env-key-companions.js";
@@ -34,16 +35,6 @@ export interface StructureRuleContext {
 	repoRoot?: string | undefined;
 }
 
-// Parameter is `unknown`, not `StructureRuleContext | ArtifactGraph`: the
-// second overload's `graph` position is reachable with a type-defeating cast
-// from real callers (proven by the null/string/number cases in
-// index.test.ts), so the `x !== null` guard below is a real runtime check,
-// not dead code — narrowing from the honest union type made TS think it
-// could never see null.
-function isRuleContext(x: unknown): x is StructureRuleContext {
-	return typeof x === "object" && x !== null && "graph" in x && "config" in x && "changedFiles" in x;
-}
-
 export function evaluateStructureRules(ctx: StructureRuleContext): StructureFinding[];
 export function evaluateStructureRules(
 	graph: ArtifactGraph,
@@ -57,16 +48,11 @@ export function evaluateStructureRules(
 	changedFilesArg?: string[],
 	repoRootArg?: string,
 ): StructureFinding[] {
-	const { graph, config, changedFiles, repoRoot }: StructureRuleContext = isRuleContext(
-		ctxOrGraph,
-	)
-		? ctxOrGraph
-		: {
-				graph: ctxOrGraph,
-				config: configArg as StructureConfig,
-				changedFiles: changedFilesArg as string[],
-				repoRoot: repoRootArg,
-			};
+	if (!("graph" in ctxOrGraph)) {
+		if (!configArg || !changedFilesArg) throw new TypeError("Structure rules require config and changedFiles");
+		return evaluateStructureRules({ graph: ctxOrGraph, config: configArg, changedFiles: changedFilesArg, repoRoot: repoRootArg });
+	}
+	const { graph, config, changedFiles, repoRoot } = ctxOrGraph;
 	const findings: StructureFinding[] = [];
 	const builtins = config.builtins;
 
@@ -115,11 +101,11 @@ function extractLayerRules(graph: ArtifactGraph): Array<{ from: string; cannot_i
 	const layerNodes = graph.getNodesByKind("layer");
 
 	for (const layer of layerNodes) {
-		const meta = layer.metadata as { cannot_import?: string[] } | undefined;
-		if (meta?.cannot_import && meta.cannot_import.length > 0) {
+		const cannotImport = layer.metadata?.cannot_import;
+		if (isStringArray(cannotImport) && cannotImport.length > 0) {
 			rules.push({
 				from: layer.id,
-				cannot_import: meta.cannot_import,
+				cannot_import: cannotImport,
 			});
 		}
 	}

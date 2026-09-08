@@ -1,3 +1,4 @@
+import { makeGuardRules as completeGuardRulesConfigFixture } from "./evaluator/__tests__/fixtures.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // The unified evaluator delegates the actual rule pipeline to
@@ -12,7 +13,7 @@ vi.mock("./evaluator.js", () => ({
 	evaluatePostToolUse: (...args: unknown[]) => postMock(...args),
 }));
 
-import type { CohortManager } from "./cohort.js";
+import { CohortManager } from "./cohort.js";
 import {
 	budgetFor,
 	DEFAULT_BUDGETS,
@@ -24,8 +25,8 @@ import {
 	toHarnessEvent,
 	type UnifiedEvaluatorTelemetry,
 } from "./evaluator-unified.js";
-import type { ReservationManager } from "./reservations.js";
-import type { GuardRulesConfig, HarnessDecision } from "./types.js";
+import { ReservationManager } from "./reservations.js";
+import type { HarnessDecision } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 
 function makeEvent(over: Partial<UnifiedHookEvent> = {}): UnifiedHookEvent {
@@ -53,12 +54,12 @@ function makeEvent(over: Partial<UnifiedHookEvent> = {}): UnifiedHookEvent {
 // A minimal context. The reservation/cohort objects are never touched because
 // the real evaluator is mocked out; they exist only to satisfy the type.
 function makeCtx(over: Partial<EvaluateUnifiedContext> = {}): EvaluateUnifiedContext {
-	const rules = { enabled: true } as unknown as GuardRulesConfig;
+	const rules = ({ ...completeGuardRulesConfigFixture(), ...{ enabled: true } });
 	return {
 		rules,
 		session: undefined,
-		reservations: {} as unknown as ReservationManager,
-		cohort: {} as unknown as CohortManager,
+		reservations: new ReservationManager(),
+		cohort: new CohortManager(),
 		...over,
 	};
 }
@@ -529,7 +530,7 @@ describe("toHarnessEvent — tool_input sanitization", () => {
 				kind: "tool_call",
 				tool_name: "read",
 				tool_class: "read",
-				tool_input: 42 as unknown,
+				tool_input: 42,
 				tool_input_redacted: {},
 			},
 		});
@@ -668,7 +669,7 @@ describe("evaluateUnified — pre-tool routing", () => {
 		await evaluateUnified(makeEvent(), ctx);
 		const [harnessArg, rulesArg, sessionArg, reservationsArg, cohortArg] =
 			preMock.mock.calls[0] ?? [];
-		expect((harnessArg as { tool_name?: string }).tool_name).toBe("Edit");
+		expect(harnessArg).toHaveProperty(["tool_name"], "Edit");
 		expect(rulesArg).toBe(ctx.rules);
 		expect(sessionArg).toBe(ctx.session);
 		expect(reservationsArg).toBe(ctx.reservations);

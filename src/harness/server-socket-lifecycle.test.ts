@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 // Behavioral unit tests for createSocketLifecycle (server-socket-lifecycle.ts).
 //
 // What's real vs mocked:
@@ -11,11 +12,7 @@
 //   - ./server/socket-lifecycle.js (cleanupSocket/ensureDirectory/
 //     removeFileIfExists) → mocked spies so we assert orchestration without
 //     touching the filesystem.
-//   - process.exit → spied with a RECORDING (non-throwing) impl. exit() is the
-//     terminal statement on every path (graceful shutdownAsync + the forceExit
-//     timer), so nothing runs after it in the real code; a throwing mock would
-//     surface as an unhandled rejection because shutdownAsync is fire-and-forget
-//     (`void shutdownAsync().finally(...)`). We assert the recorded exit code.
+//   - Process termination → injected callback records each terminal exit code.
 //   - Timers → fake (vi.useFakeTimers) only for the 3000ms force-exit umbrella
 //     and the 500ms per-step shutdown timeout, so they're clock-driven.
 //
@@ -60,44 +57,25 @@ vi.mock("./daemon-pid-ownership.js", () => ({
 // spies and the captured handler so tests can simulate a client connecting.
 type ConnHandler = (sock: FakeSocket) => void;
 
-interface FakeServer {
-	listen: MockInstance;
-	close: MockInstance;
-	on: (event: string, listener: (...args: never[]) => void) => FakeServer;
-	/** Fires a registered `on("error", ...)` listener, or re-throws (mirrors
-	 *  real EventEmitter default behavior: an 'error' with no listener is
-	 *  fatal) so a test omitting `.on("error", ...)` coverage fails loudly
-	 *  instead of silently no-op'ing. */
-	emitError: (err: unknown) => void;
-	/** Fires the registered `on("listening", ...)` listeners — Node's real
-	 *  signal that the bind RESOLVED, which `listen()` returning does not
-	 *  prove. */
-	emitListening: () => void;
-	__handler: ConnHandler;
+class FakeServer extends EventEmitter {
+	listen = vi.fn();
+	close = vi.fn();
+	constructor(readonly __handler: ConnHandler) {
+		super();
+	}
+	emitError(err: unknown): void {
+		this.emit("error", err);
+	}
+	emitListening(): void {
+		this.emit("listening");
+	}
 }
 
 let lastServer: FakeServer | null = null;
 
 function buildFakeServer(handler: ConnHandler): FakeServer {
-	const errorListeners: Array<(err: unknown) => void> = [];
-	const listeningListeners: Array<() => void> = [];
-	const server: FakeServer = {
-		listen: vi.fn(),
-		close: vi.fn(),
-		on: vi.fn((event: string, listener: (...args: never[]) => void) => {
-			if (event === "error") errorListeners.push(listener as (err: unknown) => void);
-			if (event === "listening") listeningListeners.push(listener as () => void);
-			return server;
-		}),
-		emitError: (err: unknown) => {
-			if (errorListeners.length === 0) throw err;
-			for (const listener of errorListeners) listener(err);
-		},
-		emitListening: () => {
-			for (const listener of listeningListeners) listener();
-		},
-		__handler: handler,
-	};
+	const server = new FakeServer(handler);
+	vi.spyOn(server, "on");
 	lastServer = server;
 	return server;
 }
@@ -131,7 +109,7 @@ function makeDeps(overrides: Partial<SocketLifecycleDeps> = {}): DepFakes {
 	const reservations = { shutdown: vi.fn() };
 	const contentScanner = { shutdown: vi.fn(() => Promise.resolve()) };
 	const asyncAnalysis = { drain: vi.fn(() => Promise.resolve()) };
-	const evaluateEventLine = vi.fn(async () => ({ decision: "allow" }) as never);
+	const evaluateEventLine = vi.fn<SocketLifecycleDeps["evaluateEventLine"]>(async () => ({ decision: "allow" }));
 	const log = vi.fn();
 	const logAlways = vi.fn();
 	const deps: SocketLifecycleDeps = {
@@ -139,13 +117,14 @@ function makeDeps(overrides: Partial<SocketLifecycleDeps> = {}): DepFakes {
 		pidPath: "/tmp/test-harness.pid",
 		runRawSocket: true,
 		asyncAnalysisDrainTimeoutMs: 10_000,
-		serverBridge: serverBridge as never,
-		reservations: reservations as never,
-		contentScanner: contentScanner as never,
-		asyncAnalysis: asyncAnalysis as never,
-		evaluateEventLine: evaluateEventLine as never,
-		log: log as never,
-		logAlways: logAlways as never,
+		serverBridge: serverBridge,
+		reservations: reservations,
+		contentScanner: contentScanner,
+		asyncAnalysis: asyncAnalysis,
+		evaluateEventLine: evaluateEventLine,
+		log: log,
+		logAlways: logAlways,
+		exit: exitSpy,
 		...overrides,
 	};
 	return {
@@ -160,14 +139,11 @@ function makeDeps(overrides: Partial<SocketLifecycleDeps> = {}): DepFakes {
 	};
 }
 
-let exitSpy: MockInstance;
+let exitSpy = vi.fn<(code: number) => void>();
 
 /** The code passed to the most recent process.exit() call (undefined if none). */
 function lastExitCode(): number | undefined {
-	const calls = exitSpy.mock.calls;
-	return calls.length
-		? (calls[calls.length - 1]?.[0] as number | undefined)
-		: undefined;
+	return exitSpy.mock.calls.at(-1)?.[0];
 }
 
 beforeEach(() => {
@@ -176,15 +152,12 @@ beforeEach(() => {
 	// (the throwing-helper force-exit cases) can't leak into the next test.
 	vi.resetAllMocks();
 	createServerImpl.mockImplementation(buildFakeServer);
-	// Recording, non-throwing exit. exit() is always terminal in the SUT.
-	exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
-		/* record only */
-	}) as never);
+	exitSpy = vi.fn();
 });
 
 afterEach(() => {
 	vi.useRealTimers();
-	exitSpy.mockRestore();
+	vi.restoreAllMocks();
 });
 
 describe("createSocketLifecycle — public surface", () => {
@@ -224,11 +197,11 @@ describe("writePidFile", () => {
 		expect(ensureDirectory).toHaveBeenCalledWith("/tmp/h.pid");
 		expect(writeFileSync).toHaveBeenCalledWith("/tmp/h.pid", String(process.pid));
 		// Ordering: ensureDirectory must precede writeFileSync.
-		const ensureOrder = (ensureDirectory as unknown as MockInstance).mock
+		const ensureOrder = (vi.mocked(ensureDirectory)).mock
 			.invocationCallOrder[0];
-		const writeOrder = (writeFileSync as unknown as MockInstance).mock
+		const writeOrder = (vi.mocked(writeFileSync)).mock
 			.invocationCallOrder[0];
-		expect(ensureOrder).toBeLessThan(writeOrder as number);
+		expect(ensureOrder).toBeLessThan(nonNull(writeOrder));
 	});
 });
 
@@ -243,7 +216,7 @@ describe("writePidFile — pid-ownership self-heal tick", () => {
 
 	/** The node:fs mock's readFileSync, typed for per-test implementations. */
 	function readMock(): MockInstance {
-		return readFileSync as unknown as MockInstance;
+		return vi.mocked(readFileSync);
 	}
 
 	it("rewrites the pid file on a heal tick when another pid owns it", () => {
@@ -300,7 +273,7 @@ describe("writePidFile — pid-ownership self-heal tick", () => {
 		const { deps } = makeDeps({ pidPath: "/tmp/heal-readonly.pid" });
 		readMock().mockReturnValue(`${process.pid + 1}`);
 		// Initial write succeeds; the first heal write fails (read-only dir).
-		(writeFileSync as unknown as MockInstance)
+		(vi.mocked(writeFileSync))
 			.mockImplementationOnce(() => {})
 			.mockImplementationOnce(() => {
 				throw Object.assign(new Error("EROFS: read-only file system"), {
@@ -631,7 +604,7 @@ describe("shutdown — graceful path (shutdownAsync)", () => {
 			() => {},
 		);
 		lc.startRawServer();
-		(lastServer as FakeServer).close.mockImplementationOnce(() => {
+		(nonNull(lastServer)).close.mockImplementationOnce(() => {
 			throw new Error("already closed");
 		});
 		await runShutdown(lc);
@@ -700,7 +673,7 @@ describe("shutdown — framed daemon stop", () => {
 			() => {},
 		);
 		const stop = vi.fn(() => Promise.resolve());
-		lc.setFramedDaemon({ stop } as never);
+		lc.setFramedDaemon({ stop });
 		await runShutdown(lc);
 		expect(stop).toHaveBeenCalledWith("server_shutdown");
 		expect(lastExitCode()).toBe(0);
@@ -716,7 +689,7 @@ describe("shutdown — framed daemon stop", () => {
 		);
 		// stop() never resolves → the Promise.race must fall through to the 500ms
 		// timer so shutdownAsync can continue to process.exit(0).
-		lc.setFramedDaemon({ stop: vi.fn(() => new Promise<void>(() => {})) } as never);
+		lc.setFramedDaemon({ stop: vi.fn(() => new Promise<void>(() => {})) });
 		lc.shutdown();
 		await vi.runAllTimersAsync();
 		expect(lastExitCode()).toBe(0);
@@ -745,7 +718,7 @@ describe("shutdown — framed daemon stop", () => {
 			() => {},
 		);
 		const stop = vi.fn();
-		lc.setFramedDaemon({ stop } as never);
+		lc.setFramedDaemon({ stop });
 		lc.setFramedDaemon(null);
 		await runShutdown(lc);
 		expect(stop).not.toHaveBeenCalled();
@@ -765,7 +738,7 @@ describe("shutdown — force-exit umbrella (forceExit timer)", () => {
 		lc.startRawServer();
 		// drain() never resolves → shutdownAsync hangs → the 3000ms force-exit
 		// timer must fire and call process.exit(1).
-		deps.asyncAnalysis.drain = vi.fn(() => new Promise<void>(() => {})) as never;
+		deps.asyncAnalysis.drain = vi.fn(() => new Promise<void>(() => {}));
 
 		lc.shutdown();
 		await vi.advanceTimersByTimeAsync(3000);
@@ -787,7 +760,7 @@ describe("shutdown — force-exit umbrella (forceExit timer)", () => {
 			() => {},
 			() => {},
 		);
-		deps.asyncAnalysis.drain = vi.fn(() => new Promise<void>(() => {})) as never;
+		deps.asyncAnalysis.drain = vi.fn(() => new Promise<void>(() => {}));
 
 		lc.shutdown();
 		await vi.advanceTimersByTimeAsync(3000);
@@ -810,7 +783,7 @@ describe("shutdown — force-exit umbrella (forceExit timer)", () => {
 			() => {},
 			() => {},
 		);
-		deps.asyncAnalysis.drain = vi.fn(() => new Promise<void>(() => {})) as never;
+		deps.asyncAnalysis.drain = vi.fn(() => new Promise<void>(() => {}));
 
 		lc.shutdown();
 		await vi.advanceTimersByTimeAsync(3000);
@@ -821,7 +794,7 @@ describe("shutdown — force-exit umbrella (forceExit timer)", () => {
 	it("force-exit swallows a throwing ownership cleanup and still exits 1", async () => {
 		vi.useFakeTimers();
 		const { deps } = makeDeps();
-		(removePidFileIfOwned as unknown as MockInstance).mockImplementationOnce(() => {
+		(vi.mocked(removePidFileIfOwned)).mockImplementationOnce(() => {
 			throw new Error("rm failed");
 		});
 		const lc = createSocketLifecycle(deps);
@@ -829,7 +802,7 @@ describe("shutdown — force-exit umbrella (forceExit timer)", () => {
 			() => {},
 			() => {},
 		);
-		deps.asyncAnalysis.drain = vi.fn(() => new Promise<void>(() => {})) as never;
+		deps.asyncAnalysis.drain = vi.fn(() => new Promise<void>(() => {}));
 
 		lc.shutdown();
 		await vi.advanceTimersByTimeAsync(3000);
@@ -840,7 +813,7 @@ describe("shutdown — force-exit umbrella (forceExit timer)", () => {
 	it("force-exit swallows a throwing cleanupSocket and still exits 1", async () => {
 		vi.useFakeTimers();
 		const { deps } = makeDeps({ runRawSocket: true });
-		(cleanupSocketAt as unknown as MockInstance).mockImplementationOnce(() => {
+		(vi.mocked(cleanupSocketAt)).mockImplementationOnce(() => {
 			throw new Error("unlink failed");
 		});
 		const lc = createSocketLifecycle(deps);
@@ -848,7 +821,7 @@ describe("shutdown — force-exit umbrella (forceExit timer)", () => {
 			() => {},
 			() => {},
 		);
-		deps.asyncAnalysis.drain = vi.fn(() => new Promise<void>(() => {})) as never;
+		deps.asyncAnalysis.drain = vi.fn(() => new Promise<void>(() => {}));
 
 		lc.shutdown();
 		await vi.advanceTimersByTimeAsync(3000);

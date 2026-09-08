@@ -308,6 +308,26 @@ different authorities. Existing onboarding rows migrate using the tenant and
 project values already persisted and request-bound in those rows; no authority
 is reconstructed from a response.
 
+The protocol-v3 contract digest includes the normative source files. After updating those
+files, regenerate the CLI digest and have the remote service vendor the matching contract
+before expecting strict verification to accept its results. Updating a local pin alone does
+not update the remote service; a mismatch remains a verification failure.
+
+Local mutation manifests validate each retained file, symbol, mutant and provenance record.
+An invalid nested record makes the snapshot corrupt: it is not a missing baseline, cannot
+start adoption, and remains on disk for recovery. Legacy `accepted_reason` and raw partial or
+newer disposition data remain preserved; the disposition interpreter decides their meaning
+without treating their mere presence as verification evidence.
+
+The separate shadow-v1 contract has its own schema and digest. In this CLI repository,
+`npx tsx scripts/gen-shadow-schema.mts --check` and
+`npx tsx scripts/gen-shadow-contract-digest.mts --check` verify the committed artifacts;
+omit `--check` to regenerate them after an intentional contract change. Shared generator
+implementations live under `src/harness/shadow/generation/`, outside the normative protocol
+source inventory. Tuple schemas preserve required array entries and rest elements; the binding
+mismatch outcome requires a nonempty array. Regenerate its schema and digest together, and
+coordinate the matching contract with any remote verifier before using changed results.
+
 The authority key intentionally excludes contract digest and evaluator policy
 version. The head stores mechanical mutant identities and statuses, not an old
 clean verdict or policy decision. Each result is authenticated under the
@@ -576,6 +596,11 @@ Pure disk-vs-proposed numeric diff, near-zero FP. Reset an intentional baseline 
 those runs are slow; don't trigger them incidentally. `interlinked metrics` reports complexity +
 companion presence even without a coverage report (coverage columns marked unavailable).
 
+Coverage readers validate nested report data before using it in ratchets. Partial summary
+entries may omit a metric; a present metric must have the expected numeric fields. Malformed
+entries are excluded rather than trusted through a type assertion. Missing or rejected data
+does not establish coverage, and must not be described as a clean measurement.
+
 ### Function-token inventory
 
 `interlinked metrics --top 10` shows the stable function bands, percentile summaries, the ten
@@ -809,6 +834,13 @@ in the planners themselves, not merely avoided.
 `.interlinked/guard-rules.local.json` (default ON). This does not replace
 `interlinked adopt` — adopt still seeds a repo from scratch and folds metrics the
 auto-fold leaves alone.
+
+The unjustified-cast ratchet counts distinct assertion-token lines, even when a line contains
+multiple assertions. AST detection broadens syntax coverage without changing that unit.
+Both pre-edit and proposed content use the same file path and parser selection. If the
+optional TypeScript parser is unavailable, the legacy lexical counter is used; malformed
+syntax retains lexical findings alongside recovered AST findings. This remains an advisory
+cast review signal, not proof that an assertion is unsound or a safety comment is correct.
 
 ### `max_predicate_drift` — ratchet the unchecked-assertion count to zero (added 2026-08-09)
 

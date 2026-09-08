@@ -1,3 +1,5 @@
+import { isJsonObject } from "../../lib/json-types.js";
+import { makeGuardRules } from "./__tests__/fixtures.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -49,15 +51,15 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 function rules(overrides?: Partial<NonNullable<GuardRulesConfig["per_edit_coverage"]>>): GuardRulesConfig {
-	return {
-		per_edit_coverage: {
+	return ({ ...makeGuardRules(),
+		per_edit_coverage: { ...({ enabled: false, mode: "block", budget_ms: 25_000, languages: [] } satisfies NonNullable<GuardRulesConfig["per_edit_coverage"]>),
 			enabled: true,
 			mode: "block",
 			budget_ms: 25_000,
 			languages: ["js", "ts"],
 			...overrides,
 		},
-	} as unknown as GuardRulesConfig;
+	} satisfies GuardRulesConfig);
 }
 
 function writeEvent(relPath: string, content: string): HarnessEvent {
@@ -179,7 +181,7 @@ describe("checkCoverageWrite — gating", () => {
 		const { runner, ran } = stubRunner(coverageResult("src/a.ts", []));
 		const decision = await checkCoverageWrite(
 			writeEvent("src/a.ts", "export const a = 1;\n"),
-			{} as GuardRulesConfig,
+			({ ...makeGuardRules(), } satisfies GuardRulesConfig),
 			deps(runner),
 		);
 		expect(decision).toBeNull();
@@ -354,10 +356,10 @@ describe("default config — all gates are ON (enforce by default unless opted o
 		// Proves opt-out still gives ZERO behavior change: clone the shipped config
 		// and flip just `enabled` off — the guard short-circuits before any runner,
 		// even with a red suite that the default-ON gates would otherwise block on.
-		const optedOut: GuardRulesConfig = {
+		const optedOut: GuardRulesConfig = ({ ...makeGuardRules(),
 			...DEFAULT_CONFIG,
-			per_edit_coverage: { ...DEFAULT_CONFIG.per_edit_coverage, enabled: false },
-		} as GuardRulesConfig;
+			per_edit_coverage: { ...({ enabled: false, mode: "block", budget_ms: 25_000, languages: [] } satisfies NonNullable<GuardRulesConfig["per_edit_coverage"]>),  ...DEFAULT_CONFIG.per_edit_coverage, enabled: false },
+		} satisfies GuardRulesConfig);
 		const { runner, ran } = stubRunner(
 			coverageResult("src/a.ts", [], 1000, { testsPassed: false }),
 		);
@@ -1375,7 +1377,11 @@ function readObligations(projectRoot: string): Array<Record<string, unknown>> {
 		.trim()
 		.split("\n")
 		.filter(Boolean)
-		.map((l: string) => JSON.parse(l) as Record<string, unknown>);
+		.map((line) => {
+			const row: unknown = JSON.parse(line);
+			if (!isJsonObject(row)) throw new Error("Expected an obligation object");
+			return row;
+		});
 }
 
 // ---------------------------------------------------------------------------

@@ -2,11 +2,13 @@
 // Companion to runtime.test.ts; kept separate so this wave's intent (pin
 // exact literals / boundaries / log text the broad companion tests don't
 // assert on) stays legible on its own.
+import assert from "node:assert/strict";
 import { type KeyObject, sign as edSign, generateKeyPairSync } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isJsonObject } from "../../lib/json-types.js";
 import { BEACON_FILE, DEFAULT_FEED_URL, FEED_CACHE_FILE, SPONSOR_STATUS_FILE } from "./feed-client.js";
 import {
 	readSponsorSettingsFromConfig,
@@ -14,6 +16,13 @@ import {
 	startSponsorRuntime,
 } from "./runtime.js";
 import { ROTATION_WINDOW_MS, type SponsorFeed } from "./types.js";
+
+function beaconCount(body: string | undefined): number {
+	assert(typeof body === "string");
+	const payload: unknown = JSON.parse(body);
+	assert(isJsonObject(payload) && Array.isArray(payload.beacons));
+	return payload.beacons.length;
+}
 
 const T0 = Date.parse("2026-06-12T00:00:05Z");
 const FEED_REFRESH_MS = 15 * 60 * 1000;
@@ -63,14 +72,14 @@ interface Call {
 }
 
 function makeFetchStub(wire: string, calls: Call[]): typeof fetch {
-	return (async (url: unknown, init?: { body?: unknown }) => {
+	return (async (url, init) => {
 		const u = String(url);
 		calls.push({ url: u, body: init?.body === undefined ? undefined : String(init.body) });
 		if (u.endsWith("/v1/feed")) {
-			return { ok: true, text: async () => wire } as Response;
+			return new Response(wire, { status: 200 });
 		}
-		return { ok: true, text: async () => "" } as Response;
-	}) as typeof fetch;
+		return new Response("", { status: 200 });
+	});
 }
 
 describe("readSponsorSettingsFromConfig — mutation kill w27", () => {
@@ -160,7 +169,7 @@ describe("startSponsorRuntime — mutation kill w27", () => {
 		});
 		const after = Date.now();
 		expect(dateSpy).toHaveBeenCalled();
-		const observed = dateSpy.mock.results[0]?.value as number | undefined;
+		const observed = dateSpy.mock.results[0]?.value;
 		expect(typeof observed).toBe("number");
 		expect(observed).toBeGreaterThanOrEqual(before);
 		expect(observed).toBeLessThanOrEqual(after);
@@ -300,15 +309,15 @@ describe("startSponsorRuntime — mutation kill w27", () => {
 		const wireBeta = signFeedWithKey(FEED_BETA, privateKey);
 		let now = T0;
 		let feedOk = true;
-		const fetchImpl = (async (url: unknown) => {
+		const fetchImpl: typeof fetch = (async (url: unknown) => {
 			const u = String(url);
 			if (u.endsWith("/v1/feed")) {
 				return feedOk
-					? ({ ok: true, text: async () => wireAlpha } as Response)
-					: ({ ok: false, text: async () => "" } as Response);
+					? (new Response(wireAlpha, { status: 200 }))
+					: (new Response("", { status: 503 }));
 			}
-			return { ok: true, text: async () => "" } as Response;
-		}) as typeof fetch;
+			return new Response("", { status: 200 });
+		});
 		const rt = startSponsorRuntime({
 			interlinkedDir: dir,
 			readSettings: () => settings(),
@@ -353,9 +362,9 @@ describe("startSponsorRuntime — mutation kill w27", () => {
 	it("logs 'using verified cached feed' only when the disk cache actually verifies", async () => {
 		const { wire, pubB64 } = makeSignedWire(FEED);
 		process.env.INTERLINKED_SPONSOR_PUBKEY = pubB64;
-		const dead = (async () => {
+		const dead: typeof fetch = (async () => {
 			throw new Error("offline");
-		}) as unknown as typeof fetch;
+		});
 
 		// (a) good cache: seed it via one successful run, then run again with
 		// a dead network — original code loads and verifies the cache and logs.
@@ -429,7 +438,7 @@ describe("startSponsorRuntime — mutation kill w27", () => {
 			rt.dispose();
 			const flushed = calls
 				.filter((c) => c.url.endsWith("/v1/beacon"))
-				.reduce((sum, c) => sum + ((JSON.parse(c.body ?? "{}").beacons as unknown[] | undefined)?.length ?? 0), 0);
+				.reduce((sum, c) => sum + beaconCount(c.body), 0);
 			let remaining = 0;
 			try {
 				remaining = readFileSync(join(dir, BEACON_FILE), "utf8").trim().split("\n").filter(Boolean).length;
@@ -466,7 +475,7 @@ describe("startSponsorRuntime — mutation kill w27", () => {
 			rt.dispose();
 			const flushed = calls
 				.filter((c) => c.url.endsWith("/v1/beacon"))
-				.reduce((sum, c) => sum + ((JSON.parse(c.body ?? "{}").beacons as unknown[] | undefined)?.length ?? 0), 0);
+				.reduce((sum, c) => sum + beaconCount(c.body), 0);
 			let remaining = 0;
 			try {
 				remaining = readFileSync(join(dir, BEACON_FILE), "utf8").trim().split("\n").filter(Boolean).length;

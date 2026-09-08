@@ -39,12 +39,12 @@ describe("tool-results-types", () => {
 			line: 1,
 			severity: "error",
 			message: "m",
-		} as DiagnosticResult;
+		};
 		expect(d.tool).toBe("tsc");
 	});
 
 	it("AuditResult shape has vulnerability counts (compile-time)", () => {
-		const a = {
+		const a: AuditResult = {
 			tool: "npm" as const,
 			total: 0,
 			critical: 0,
@@ -52,7 +52,7 @@ describe("tool-results-types", () => {
 			moderate: 0,
 			low: 0,
 			detail: "",
-		} as AuditResult;
+		};
 		expect(a.total).toBe(0);
 	});
 });

@@ -1,3 +1,8 @@
+import type { ServerRuntime } from "./runtime-context.js";
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { getDefaultConfig } from "../rules-loader.js";
+import { nonNull } from "../../lib/non-null.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,14 +32,13 @@ vi.mock("../coverage-test-selector.js", async (importActual) => {
 import { appendFlakeCheckWarning } from "./post-tool-flake-phase.js";
 
 function result(over: Partial<CoverageRunResult>): CoverageRunResult {
-	return { ok: true, suiteMs: 50, perFile: new Map(), testsPassed: true, ...over } as CoverageRunResult;
+	return { ok: true, suiteMs: 50, perFile: new Map(), testsPassed: true, ...over };
 }
 
-function ctxWith(flakeCheck: boolean | undefined): { cwd: string; rules: { per_edit_coverage?: { flake_check?: boolean; budget_ms?: number } } } {
-	return {
-		cwd: "/repo",
-		rules: { per_edit_coverage: flakeCheck === undefined ? {} : { flake_check: flakeCheck, budget_ms: 5000 } },
-	};
+function ctxWith(flakeCheck: boolean | undefined): ServerRuntime {
+ const rules = makeGuardRules();
+ rules.per_edit_coverage = { ...nonNull(getDefaultConfig().per_edit_coverage), budget_ms: 5000, ...(flakeCheck === undefined ? {} : { flake_check: flakeCheck }) };
+ return makeServerRuntime({ cwd: "/repo", rules });
 }
 
 function editEvent(file: string): HarnessEvent {
@@ -46,7 +50,7 @@ function editEvent(file: string): HarnessEvent {
 		tool_input: { file_path: `/repo/${file}` },
 		cwd: "/repo",
 		timestamp: "t",
-	} as HarnessEvent;
+	};
 }
 
 afterEach(() => {
@@ -56,22 +60,22 @@ afterEach(() => {
 describe("appendFlakeCheckWarning", () => {
 	it("is a no-op when flake_check is off (default) — never runs a suite", async () => {
 		const decision: HarnessDecision = { decision: "allow" };
-		await appendFlakeCheckWarning(ctxWith(undefined) as any, editEvent("src/foo.test.ts"), decision);
+		await appendFlakeCheckWarning(ctxWith(undefined), editEvent("src/foo.test.ts"), decision);
 		expect(fakeRun).not.toHaveBeenCalled();
 		expect(decision.warnings).toBeUndefined();
 	});
 
 	it("is a no-op for a non-test file edit even when on", async () => {
 		const decision: HarnessDecision = { decision: "allow" };
-		await appendFlakeCheckWarning(ctxWith(true) as any, editEvent("src/foo.ts"), decision);
+		await appendFlakeCheckWarning(ctxWith(true), editEvent("src/foo.ts"), decision);
 		expect(fakeRun).not.toHaveBeenCalled();
 		expect(decision.warnings).toBeUndefined();
 	});
 
 	it("is a no-op for a non-write event", async () => {
 		const decision: HarnessDecision = { decision: "allow" };
-		const readEvent = { ...editEvent("src/foo.test.ts"), tool_name: "Read" } as HarnessEvent;
-		await appendFlakeCheckWarning(ctxWith(true) as any, readEvent, decision);
+		const readEvent: HarnessEvent = { ...editEvent("src/foo.test.ts"), tool_name: "Read" };
+		await appendFlakeCheckWarning(ctxWith(true), readEvent, decision);
 		expect(fakeRun).not.toHaveBeenCalled();
 	});
 
@@ -80,7 +84,7 @@ describe("appendFlakeCheckWarning", () => {
 			.mockResolvedValueOnce(result({ testsPassed: true }))
 			.mockResolvedValueOnce(result({ testsPassed: false, failingTestFiles: ["src/foo.test.ts"] }));
 		const decision: HarnessDecision = { decision: "allow", warnings: ["existing"] };
-		await appendFlakeCheckWarning(ctxWith(true) as any, editEvent("src/foo.test.ts"), decision);
+		await appendFlakeCheckWarning(ctxWith(true), editEvent("src/foo.test.ts"), decision);
 		expect(fakeRun).toHaveBeenCalledTimes(2);
 		expect(decision.warnings).toEqual(["existing", expect.stringContaining("[interlinked:flake]")]);
 	});
@@ -88,7 +92,7 @@ describe("appendFlakeCheckWarning", () => {
 	it("adds no warning when the two runs agree", async () => {
 		fakeRun.mockResolvedValue(result({ testsPassed: true }));
 		const decision: HarnessDecision = { decision: "allow" };
-		await appendFlakeCheckWarning(ctxWith(true) as any, editEvent("src/foo.test.ts"), decision);
+		await appendFlakeCheckWarning(ctxWith(true), editEvent("src/foo.test.ts"), decision);
 		expect(fakeRun).toHaveBeenCalledTimes(2);
 		expect(decision.warnings).toBeUndefined();
 	});
@@ -101,14 +105,12 @@ describe("appendFlakeCheckWarning", () => {
 			});
 			fakeRun.mockResolvedValue(result({ testsPassed: true }));
 			const decision: HarnessDecision = { decision: "allow" };
-			// SAFETY: appendFlakeCheckWarning reads only cwd + rules off the runtime.
-			const ctx = { cwd, rules: { per_edit_coverage: { flake_check: true, budget_ms: 5000 } } } as unknown as Parameters<typeof appendFlakeCheckWarning>[0];
-			// SAFETY: only tool_name/tool_input/cwd are read off the event.
-			const event = {
+			const ctx = makeServerRuntime({ ...ctxWith(true), cwd });
+			const event: HarnessEvent = {
 				...editEvent("src/foo.test.ts"),
 				cwd,
 				tool_input: { file_path: join(cwd, "src/foo.test.ts") },
-			} as HarnessEvent;
+			};
 			await appendFlakeCheckWarning(ctx, event, decision);
 			expect(fakeRun).toHaveBeenCalledTimes(2);
 			expect(fakeRun.mock.calls[0]?.[0]?.selectedTests).toEqual(["src/foo.test.ts"]);
@@ -121,7 +123,7 @@ describe("appendFlakeCheckWarning", () => {
 	it("escalates via the flake calibrator once flakiness is statistically elevated", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "flake-phase-"));
 		try {
-			const ctx = { cwd, rules: { per_edit_coverage: { flake_check: true, budget_ms: 5000 } } };
+			const ctx = makeServerRuntime({ ...ctxWith(true), cwd });
 			let last: HarnessDecision = { decision: "allow" };
 			// Three consecutive divergences cross the e-process alarm (1/α).
 			for (let i = 0; i < 3; i++) {
@@ -131,7 +133,7 @@ describe("appendFlakeCheckWarning", () => {
 						result({ testsPassed: false, failingTestFiles: ["src/foo.test.ts"] }),
 					);
 				last = { decision: "allow" };
-				await appendFlakeCheckWarning(ctx as any, editEvent("src/foo.test.ts"), last);
+				await appendFlakeCheckWarning(ctx, editEvent("src/foo.test.ts"), last);
 			}
 			expect(last.warnings?.some((w) => w.includes("[interlinked:flake-calibrator]"))).toBe(true);
 		} finally {

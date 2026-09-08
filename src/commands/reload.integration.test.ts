@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireBoolean, wireObject, wireString } from "../lib/value-validation.js";
 // interlinked reload — one-command dogfood loop (build → hook refresh → daemon).
 // Pins the pure helpers (root discovery, build-identity hashing, restart
 // decision) and the orchestration's delta-only behavior via module mocks.
@@ -253,7 +254,7 @@ describe("reloadCommand — stdout integrity", () => {
 		// …and its human line never reached stdout.
 		expect(stdout).not.toContain("Harness started");
 		// stdout is the JSON blob and NOTHING else → parseable, restart reported.
-		const parsed = JSON.parse(stdout) as { daemon: { restarted: boolean } };
+		const parsed = parseWire(JSON.parse(stdout), wireObject({ "daemon": wireObject({ "restarted": wireBoolean }) }), "test JSON value");
 		expect(parsed.daemon.restarted).toBe(true);
 	});
 
@@ -340,7 +341,7 @@ describe("reloadCommand — stdout integrity", () => {
 describe("reloadCommand — running-daemon detection (pidfile + ps parsing)", () => {
 	function jsonFrom(spy: ReturnType<typeof vi.spyOn>): { daemon: { restarted: boolean } } {
 		const stdout = spy.mock.calls.map((args: unknown[]) => args.map(String).join(" ")).join("\n");
-		return JSON.parse(stdout) as { daemon: { restarted: boolean } };
+		return parseWire(JSON.parse(stdout), wireObject({ "daemon": wireObject({ "restarted": wireBoolean }) }), "test JSON value");
 	}
 
 	it("treats a non-positive pid in the pidfile as no running daemon (restarts)", async () => {
@@ -429,7 +430,7 @@ describe("reloadCommand — build + hook-script delta branches", () => {
 		await reloadCommand({ json: true, force: true, cwd: dir });
 
 		const stdout = logSpy.mock.calls.map((args: unknown[]) => args.map(String).join(" ")).join("\n");
-		const parsed = JSON.parse(stdout) as { build: { changed: boolean } };
+		const parsed = parseWire(JSON.parse(stdout), wireObject({ "build": wireObject({ "changed": wireBoolean }) }), "test JSON value");
 		expect(parsed.build.changed).toBe(true);
 	});
 
@@ -444,7 +445,7 @@ describe("reloadCommand — build + hook-script delta branches", () => {
 		await reloadCommand({ json: true, force: true, cwd: dir });
 
 		const stdout = logSpy.mock.calls.map((args: unknown[]) => args.map(String).join(" ")).join("\n");
-		const parsed = JSON.parse(stdout) as { hook_script: { changed: boolean }; clients: string[] };
+		const parsed = parseWire(JSON.parse(stdout), wireObject({ "hook_script": wireObject({ "changed": wireBoolean }), "clients": wireArray(wireString) }), "test JSON value");
 		expect(parsed.hook_script.changed).toBe(true);
 		expect(parsed.clients).toEqual(["codex"]);
 	});
@@ -459,7 +460,7 @@ describe("reloadCommand — defaults", () => {
 		).resolves.toBeUndefined();
 
 		const stdout = logSpy.mock.calls.map((args: unknown[]) => args.map(String).join(" ")).join("\n");
-		const parsed = JSON.parse(stdout) as { cli_root: string };
+		const parsed = parseWire(JSON.parse(stdout), wireObject({ "cli_root": wireString }), "test JSON value");
 		expect(typeof parsed.cli_root).toBe("string");
 	});
 });

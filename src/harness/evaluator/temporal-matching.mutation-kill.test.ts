@@ -148,8 +148,7 @@ describe("verificationFieldSatisfied() undefined set — mutation kill", () => {
 	// circuits before `.size` is read (mutants e5b5023a/52eff1a1 read it and throw)
 	it("never touches .size on an undefined verification set", () => {
 		const withoutVerification = session();
-		delete (withoutVerification as { verification_observed?: Set<string> })
-			.verification_observed;
+		delete withoutVerification.verification_observed;
 		expect(() =>
 			evaluateRequiresPrior(withoutVerification, { verification_kind: "test" }),
 		).not.toThrow();

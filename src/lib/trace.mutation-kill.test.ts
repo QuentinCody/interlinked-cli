@@ -108,21 +108,17 @@ describe("exportTrace — per-span field derivation", () => {
 	// test-contract: public-api — when ts is absent, span_id/trace_id must fall
 	// back to the index/"unknown" path instead of throwing (e.ts?.replace has
 	// to stay optional-chained).
-	it("falls back safely on span_id/trace_id when ts and session are both absent", () => {
-		// SAFETY: ts is intentionally the wrong (absent) shape to exercise the
-		// e.ts?.replace optional-chaining fallback path; LocalActivityEvent
-		// normally requires ts, but the exported event array is untyped JSON
-		// at the harness boundary and can legitimately omit it.
+	it("falls back safely on span_id/trace_id when ts is empty and session is absent", () => {
 		mockReadLocal.mockReturnValue([
 			{
-				ts: undefined,
+				ts: "",
 				agent: "a1",
 				type: "t1",
 				tool: null,
 				summary: null,
 				session: null,
 				hook: null,
-			} as unknown as LocalActivityEvent,
+			},
 		]);
 		expect(() => exportTrace({ format: "json" })).not.toThrow();
 		const doc = JSON.parse(exportTrace({ format: "json" }));

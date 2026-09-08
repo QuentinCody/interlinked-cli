@@ -238,6 +238,12 @@ Data dir: `INTERLINKED_DATA_DIR` → `config.local.json.data_dir` → `INTERLINK
 | `costs-cursor.json` | Per-provider, per-actor transcript offsets; prevents replay and keeps sibling Codex subagents independent. |
 | `hook-runtime.json` | Payload-free provider execution receipt: event, timestamp, and current hook-definition hash. All adapter runners write provider rows; `doctor` currently uses the Codex row to detect unreviewed/stale project hooks. |
 
+Claude transcript rows need nonempty string timestamp, UUID and session identifiers before
+they can produce timeline records. Malformed optional metadata, model names and tool identifiers
+are omitted. Valid content blocks retain their original sequence index and raw tool payloads;
+an invalid optional field does not discard the rest of the block. Token usage is included only
+when its numeric fields are finite. Missing or malformed input is not evidence of an empty turn.
+
 `activity.jsonl` and `collection.jsonl` **overlap on tool events by design**; readers dedup by
 event identity (`tool_use_id` + projected type), not by type — no double-counting, no lost
 history. Don't "clean up" by deleting collection rows or dropping tool types from activity.jsonl.
@@ -327,6 +333,14 @@ restart`: the daemon serves the build it started with.
 
 ## `interlinked recurrence` — repeating-pattern aggregation
 Deterministic counting/grouping over `.interlinked/recurrences.jsonl` (no LLM), ranked by count.
+Check-health aggregation accepts only caught rows with a nonempty string check ID and a string
+timestamp. Optional file, message, and session fields must also be strings when supplied;
+malformed rows are skipped. Captured source identities remain open strings so legacy and
+internal CLI events retain their original attribution.
+Daemon-ledger readers also validate optional fields while preserving legacy and future string
+event labels; writers use the current event contract. Gate-reach snapshots validate every nested
+gate and skip-count value before comparison. A corrupt newest snapshot leaves the last valid
+snapshot available, rather than manufacturing a new measurement.
 Four observation kinds (all filterable via `--kind`):
 
 | Kind | Source | Suggested action |

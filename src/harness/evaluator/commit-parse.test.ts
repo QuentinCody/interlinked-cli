@@ -504,7 +504,6 @@ describe("isGitPushCommand", () => {
 
 	it("rejects empty / non-string input", () => {
 		expect(isGitPushCommand("")).toBe(false);
-		// @ts-expect-error runtime guard covers non-string callers
 		expect(isGitPushCommand(undefined)).toBe(false);
 	});
 });

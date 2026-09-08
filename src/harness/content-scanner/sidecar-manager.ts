@@ -17,25 +17,12 @@
 import type { ChildProcess, SpawnOptions } from "node:child_process";
 import { spawn as nodeSpawn } from "node:child_process";
 import type { JsonObject } from "../../lib/json-types.js";
+import { isRecord, parseSpans, type SidecarResponse } from "./sidecar-protocol.js";
+export type { SidecarResponse } from "./sidecar-protocol.js";
 
 // ===========================================
 // Types
 // ===========================================
-
-interface SidecarSpan {
-	label: string;
-start: number;
-	end: number;
-	text: string;
-	score?: number;
-}
-
-export interface SidecarResponse {
-	ok: boolean;
-	error?: string | undefined;
-	spans?: SidecarSpan[] | undefined;
-	redacted_text?: string | undefined;
-}
 
 export interface SidecarRequest {
 	op: "ping" | "scan" | "shutdown";
@@ -104,11 +91,6 @@ type PendingEntry = {
  *  through here so the "failed" shape lives in one place. */
 function failResponse(error: string): SidecarResponse {
 	return { ok: false, error };
-}
-
-/** Type predicate that narrows `unknown` to a plain object (but not `null`). */
-function isRecord(x: unknown): x is JsonObject {
-	return x !== null && typeof x === "object";
 }
 
 /** Type predicate for a non-empty string — used to extract the `id` field from parsed responses. */
@@ -397,7 +379,7 @@ export class SidecarManager {
 		entry.resolve({
 			ok: parsed.ok === true,
 			error: typeof parsed.error === "string" ? parsed.error : undefined,
-			spans: Array.isArray(parsed.spans) ? (parsed.spans as SidecarSpan[]) : undefined,
+			spans: parseSpans(parsed.spans),
 			redacted_text:
 				typeof parsed.redacted_text === "string" ? parsed.redacted_text : undefined,
 		});

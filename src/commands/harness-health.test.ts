@@ -1,3 +1,5 @@
+import { wireLiteral, wireNullable, wireString } from "../lib/value-validation.js";
+import { parseWire, wireArray, wireNumber, wireObject, wireUnknown } from "../lib/value-validation.js";
 // `interlinked harness health` — command-level tests over a small synthetic
 // recurrences.jsonl fixture. The aggregation math is pinned in
 // src/harness/check-health.test.ts; these verify the streaming read, the
@@ -7,7 +9,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { CheckHealthRow } from "../harness/check-health.js";
 import { harnessHealthCommand } from "./harness-health.js";
 
 let dir: string;
@@ -110,7 +111,7 @@ describe("harnessHealthCommand", () => {
 			caughtLine("quiet_check", "src/x.ts", "one-off", "s-1"),
 		]);
 		const out = await capture(() => harnessHealthCommand({ json: true }));
-		const parsed = JSON.parse(out) as { checks: CheckHealthRow[]; probation_candidates: number };
+		const parsed = parseWire(JSON.parse(out), wireObject({ "checks": wireArray(wireObject({ "check_id": wireString, "events": wireNumber, "unique_findings": wireNumber, "sessions": wireNumber, "first_seen": wireString, "last_seen": wireString, "repeat_rate": wireNumber, "determinism": wireNullable(wireLiteral("proven", "heuristic")), "status": wireLiteral("probation-candidate", "healthy", "low-data"), "why": wireString })), "probation_candidates": wireNumber }), "test JSON value");
 		expect(parsed.checks.map((c) => c.check_id)).toEqual([
 			"agent_thumbprint_prose",
 			"quiet_check",
@@ -130,7 +131,7 @@ describe("harnessHealthCommand", () => {
 
 	it("--json with no recurrence log emits the empty-state json shape", async () => {
 		const out = await capture(() => harnessHealthCommand({ json: true }));
-		const parsed = JSON.parse(out) as { checks: unknown[]; probation_candidates: number };
+		const parsed = parseWire(JSON.parse(out), wireObject({ "checks": wireArray(wireUnknown), "probation_candidates": wireNumber }), "test JSON value");
 		expect(parsed).toEqual({ checks: [], probation_candidates: 0 });
 	});
 

@@ -45,9 +45,9 @@ describe("structural-checks submodules (smoke)", () => {
 	});
 
 	it("extractFilePath pulls file_path / path from tool_input", () => {
-		expect(extractFilePath({ tool_input: { file_path: "/a.ts" } } as never)).toBe("/a.ts");
-		expect(extractFilePath({ tool_input: { path: "/b.ts" } } as never)).toBe("/b.ts");
-		expect(extractFilePath({ tool_input: {} } as never)).toBeNull();
+		expect(extractFilePath({ tool_input: { file_path: "/a.ts" } })).toBe("/a.ts");
+		expect(extractFilePath({ tool_input: { path: "/b.ts" } })).toBe("/b.ts");
+		expect(extractFilePath({ tool_input: {} })).toBeNull();
 	});
 
 	it("exportSurfaceChanged returns false for identical sets", () => {

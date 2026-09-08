@@ -7,7 +7,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { isJsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 
 type ReconciliationState = "open" | "touched" | "acked";
 
@@ -71,7 +71,7 @@ function applyTxn(
 
 /** Parse one sidecar line; null for malformed/torn lines (append-only logs
  *  tolerate torn tails — the fold simply skips them). */
-const VALID_ACTIONS = new Set(["touched", "acked", "reopened", "reanchored"]);
+const VALID_ACTIONS = ["touched", "acked", "reopened", "reanchored"] as const;
 
 /**
  * Type/shape validation — a bad `action` must NOT silently fold to "touched"
@@ -86,63 +86,31 @@ const VALID_ACTIONS = new Set(["touched", "acked", "reopened", "reanchored"]);
  * typed txn, so no on-disk row is lost to this tightening.
  */
 /** finding_id/action/by/ts are the txn's required, always-present fields. */
-function hasValidRequiredShape(
-	finding_id: unknown,
-	action: unknown,
-	by: unknown,
-	ts: unknown,
-): boolean {
-	if (typeof finding_id !== "string" || finding_id.length === 0) return false;
-	if (typeof action !== "string" || !VALID_ACTIONS.has(action)) return false;
-	if (typeof by !== "string") return false;
-	if (typeof ts !== "string") return false;
-	return true;
+function parseRequired(value: JsonObject): ReconciliationTxn | null {
+	const { finding_id, by, ts } = value;
+	const action = VALID_ACTIONS.find((candidate) => candidate === value.action);
+	if (typeof finding_id !== "string" || finding_id.length === 0) return null;
+	if (action === undefined || typeof by !== "string" || typeof ts !== "string") return null;
+	return { finding_id, action, by, ts };
 }
 
 /** reason/file/line are optional — absent is valid, present-but-wrong-typed is not. */
-function hasValidOptionalShape(reason: unknown, file: unknown, line: unknown): boolean {
-	if (reason !== undefined && typeof reason !== "string") return false;
-	if (file !== undefined && typeof file !== "string") return false;
-	if (line !== undefined && typeof line !== "number") return false;
-	return true;
-}
-
-/** Constructed as a literal (not asserted) so the compiler checks it against
- *  `ReconciliationTxn` — see the parseTxn doc comment above. */
-function buildTxn(
-	finding_id: string,
-	action: ReconciliationTxn["action"],
-	by: string,
-	ts: string,
-	reason: unknown,
-	file: unknown,
-	line: unknown,
-): ReconciliationTxn {
+function parseOptional({ reason, file, line }: JsonObject): Pick<ReconciliationTxn, "reason" | "file" | "line"> | null {
+	if (reason !== undefined && typeof reason !== "string") return null;
+	if (file !== undefined && typeof file !== "string") return null;
+	if (line !== undefined && typeof line !== "number") return null;
 	return {
-		finding_id,
-		action,
-		by,
-		ts,
-		...(reason !== undefined ? { reason: reason as string } : {}),
-		...(file !== undefined ? { file: file as string } : {}),
-		...(line !== undefined ? { line: line as number } : {}),
+		...(reason !== undefined ? { reason } : {}),
+		...(file !== undefined ? { file } : {}),
+		...(line !== undefined ? { line } : {}),
 	};
 }
 
 function parseTxn(value: unknown): ReconciliationTxn | null {
 	if (!isJsonObject(value)) return null;
-	const { finding_id, action, by, reason, file, line, ts } = value;
-	if (!hasValidRequiredShape(finding_id, action, by, ts)) return null;
-	if (!hasValidOptionalShape(reason, file, line)) return null;
-	return buildTxn(
-		finding_id as string,
-		action as ReconciliationTxn["action"],
-		by as string,
-		ts as string,
-		reason,
-		file,
-		line,
-	);
+	const required = parseRequired(value);
+	const optional = parseOptional(value);
+	return required && optional ? { ...required, ...optional } : null;
 }
 
 /** Parse one sidecar line; null for malformed/torn or semantically invalid. */

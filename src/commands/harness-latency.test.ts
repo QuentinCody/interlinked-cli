@@ -1,3 +1,4 @@
+import { parseWire, wireAbsentOptional, wireArray, wireNullable, wireNumber, wireObject, wireRecord, wireString } from "../lib/value-validation.js";
 // ===========================================
 // `interlinked harness latency` — behavioral coverage
 // ===========================================
@@ -36,13 +37,13 @@ vi.mock("node:fs", () => ({
 		fsState.files.has(p) || fsState.readThrows.has(p),
 	readFileSync: (p: string): string => {
 		if (fsState.readThrows.has(p)) {
-			const err = new Error("EACCES read") as Error & { code?: string };
+			const err: Error & { code?: string } = new Error("EACCES read");
 			err.code = "EACCES";
 			throw err;
 		}
 		const content = fsState.files.get(p);
 		if (content === undefined) {
-			const err = new Error("ENOENT") as Error & { code?: string };
+			const err: Error & { code?: string } = new Error("ENOENT");
 			err.code = "ENOENT";
 			throw err;
 		}
@@ -55,6 +56,8 @@ import {
 	harnessLatencyCommand,
 	type LatencyReport,
 } from "./harness-latency.js";
+
+const isCapturedLatencyReport = wireObject({ "total_events": wireNumber, "by_hook_event": wireRecord(wireNumber), "post_tool_use": wireObject({ "timing_count": wireNumber, "p50": wireNullable(wireNumber), "p90": wireNullable(wireNumber), "p99": wireNullable(wireNumber), "max": wireNullable(wireNumber) }), "slowest_sessions": wireArray(wireObject({ "session_id": wireString, "max_timing_ms": wireNumber, "event_count": wireNumber })), "by_tool": wireAbsentOptional(wireArray(wireObject({ "tool": wireString, "events": wireNumber, "when_present": wireObject({ "timing_count": wireNumber, "p50": wireNullable(wireNumber), "p90": wireNullable(wireNumber), "p99": wireNullable(wireNumber), "max": wireNullable(wireNumber) }) }))) });
 
 // ---- helpers ------------------------------------------------------------
 
@@ -456,7 +459,7 @@ describe("harnessLatencyCommand — JSON output", () => {
 	it("prints the full report as pretty JSON and returns early", async () => {
 		writeLog([sample({ checks_timing_ms: 100 }), sample({ checks_timing_ms: 300 })]);
 		const out = await captureStdout(() => harnessLatencyCommand({ json: true }));
-		const parsed = JSON.parse(out) as LatencyReport;
+		const parsed = parseWire(JSON.parse(out), isCapturedLatencyReport, "test JSON value");
 		expect(parsed.total_events).toBe(2);
 		// percentile() nearest-rank: ceil(.5*2)-1=0 → idx 0 of sorted [100,300].
 		expect(parsed.post_tool_use.p50).toBe(100);
@@ -476,7 +479,7 @@ describe("harnessLatencyCommand — JSON output", () => {
 		const out = await captureStdout(() =>
 			harnessLatencyCommand({ json: true, byTool: true }),
 		);
-		const parsed = JSON.parse(out) as LatencyReport;
+		const parsed = parseWire(JSON.parse(out), isCapturedLatencyReport, "test JSON value");
 		expect(parsed.by_tool?.[0]?.tool).toBe("tsc");
 		expect(parsed.by_tool?.[0]?.when_present.max).toBe(800);
 	});
@@ -486,7 +489,7 @@ describe("harnessLatencyCommand — JSON output", () => {
 			sample({ tool_breakdown: [{ tool: "tsc", ms: 800, finding_count: 0 }] }),
 		]);
 		const out = await captureStdout(() => harnessLatencyCommand({ json: true }));
-		const parsed = JSON.parse(out) as LatencyReport;
+		const parsed = parseWire(JSON.parse(out), isCapturedLatencyReport, "test JSON value");
 		expect(parsed.by_tool).toBeUndefined();
 	});
 });

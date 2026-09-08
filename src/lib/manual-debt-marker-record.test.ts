@@ -20,14 +20,10 @@ let readFileSyncFailure: ((args: readonly unknown[]) => boolean) | null = null;
 
 vi.mock("node:fs", async (importOriginal) => {
     const actual = await importOriginal<typeof import("node:fs")>();
-    // SAFETY: readFileSync is overloaded (path-only vs. path+encoding); this
-    // wrapper only ever inspects/forwards raw args, so a loose signature that
-    // erases the overload — while still calling the real, untouched function —
-    // is sound for a pure pass-through-or-throw shim.
-    const readFileSync = ((...args: unknown[]) => {
+    const readFileSync = (...args: Parameters<typeof actual.readFileSync>) => {
         if (readFileSyncFailure?.(args)) throw new Error("EIO: simulated read failure");
-        return (actual.readFileSync as (...a: unknown[]) => unknown)(...args);
-    }) as unknown as typeof actual.readFileSync;
+        return actual.readFileSync(...args);
+    };
     return { ...actual, readFileSync };
 });
 

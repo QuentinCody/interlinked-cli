@@ -13,7 +13,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
+import { isJsonObject, type JsonObject } from "../../../lib/json-types.js";
 import { DEFAULT_CONFIG } from "../../rules/default-config.js";
 
 const VITERBI_BIAS_KEYS = [
@@ -27,6 +28,15 @@ const VITERBI_BIAS_KEYS = [
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CALIBRATIONS_DIR = join(HERE, "..", "sidecars", "calibrations");
+
+function object(value: unknown): JsonObject {
+	assert(isJsonObject(value));
+	return value;
+}
+
+function presetBiases(raw: string): JsonObject {
+	return object(object(object(object(JSON.parse(raw)).operating_points).default).biases);
+}
 
 function listPresets(): string[] {
 	return readdirSync(CALIBRATIONS_DIR)
@@ -45,32 +55,32 @@ describe("OPF calibration presets", () => {
 	for (const preset of presets) {
 		describe(preset, () => {
 			const raw = readFileSync(join(CALIBRATIONS_DIR, preset), "utf-8");
-			const parsed = JSON.parse(raw) as Record<string, unknown>;
+			const parsed = object(JSON.parse(raw));
 
 			it("has exactly the operating_points top-level key (OPF schema)", () => {
 				expect(Object.keys(parsed)).toEqual(["operating_points"]);
 			});
 
 			it("operating_points contains exactly the `default` entry", () => {
-				const ops = parsed.operating_points as Record<string, unknown>;
+				const ops = object(parsed.operating_points);
 				expect(Object.keys(ops)).toEqual(["default"]);
 			});
 
 			it("default entry contains exactly a `biases` field", () => {
-				const ops = parsed.operating_points as Record<string, unknown>;
-				const def = ops.default as Record<string, unknown>;
+				const ops = object(parsed.operating_points);
+				const def = object(ops.default);
 				expect(Object.keys(def)).toEqual(["biases"]);
 			});
 
 			it("biases contains exactly the six VITERBI_BIAS_KEYS as numbers", () => {
-				const ops = parsed.operating_points as Record<string, unknown>;
-				const def = ops.default as Record<string, unknown>;
-				const biases = def.biases as Record<string, unknown>;
+				const ops = object(parsed.operating_points);
+				const def = object(ops.default);
+				const biases = object(def.biases);
 				const keys = Object.keys(biases).sort();
 				expect(keys).toEqual([...VITERBI_BIAS_KEYS].sort());
 				for (const k of VITERBI_BIAS_KEYS) {
 					expect(typeof biases[k]).toBe("number");
-					expect(Number.isFinite(biases[k] as number)).toBe(true);
+					expect(Number.isFinite(biases[k])).toBe(true);
 				}
 			});
 		});
@@ -78,11 +88,9 @@ describe("OPF calibration presets", () => {
 
 	it("default.json has all-zero biases (matches OPF native default)", () => {
 		const raw = readFileSync(join(CALIBRATIONS_DIR, "default.json"), "utf-8");
-		const parsed = JSON.parse(raw) as {
-			operating_points: { default: { biases: Record<string, number> } };
-		};
+		const biases = presetBiases(raw);
 		for (const k of VITERBI_BIAS_KEYS) {
-			expect(parsed.operating_points.default.biases[k]).toBe(0);
+			expect(biases[k]).toBe(0);
 		}
 	});
 
@@ -91,10 +99,8 @@ describe("OPF calibration presets", () => {
 		// the preset's intent, otherwise the file is mislabeled. This catches
 		// accidental "high precision" presets that boost recall instead.
 		const raw = readFileSync(join(CALIBRATIONS_DIR, "high_precision.json"), "utf-8");
-		const parsed = JSON.parse(raw) as {
-			operating_points: { default: { biases: Record<string, number> } };
-		};
-		const b = parsed.operating_points.default.biases;
+		const biases = presetBiases(raw);
+		const b = biases;
 		expect(b.transition_bias_background_to_start).toBeLessThan(0);
 		expect(b.transition_bias_background_stay).toBeGreaterThan(0);
 	});

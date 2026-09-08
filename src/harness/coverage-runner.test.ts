@@ -729,8 +729,7 @@ describe("coverageRunnerFor", () => {
 	});
 
 	it("returns null for an unsupported language (default branch)", () => {
-		// Exercising the runtime default branch past the CoverageLanguage union.
-		expect(coverageRunnerFor("go" as any)).toBeNull();
+		expect(coverageRunnerFor("go")).toBeNull();
 	});
 });
 

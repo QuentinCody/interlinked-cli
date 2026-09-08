@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 // ===========================================
 // interlinked init — mutation-kill supplement
 // ===========================================
@@ -42,7 +43,7 @@ vi.mock("node:readline/promises", () => ({
 		return {
 			question: (prompt: string) => {
 				rlQuestions.push(prompt);
-				return Promise.resolve(rlAnswers.length ? (rlAnswers.shift() as string) : "");
+				return Promise.resolve(rlAnswers.length ? (nonNull(rlAnswers.shift())) : "");
 			},
 			close: () => {
 				closeCallCount++;
@@ -120,7 +121,7 @@ const origEnv = { ...process.env };
 
 /** Every console.log call's first argument, as an exact-value array. */
 function calls(): string[] {
-	return (logSpy.mock.calls as unknown[][]).map((c) => String(c[0]));
+	return (logSpy.mock.calls).map((c: unknown[]) => String(c[0]));
 }
 
 function setTty(stdin: boolean, stdout: boolean = stdin): void {
@@ -141,7 +142,7 @@ beforeEach(() => {
 	vi.spyOn(process, "cwd").mockReturnValue(FIXED_CWD);
 	logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-	fetchSpy = vi.fn(async () => ({ ok: false }) as Response);
+	fetchSpy = vi.fn<typeof fetch>(async () => new Response(null, { status: 503 }));
 	vi.stubGlobal("fetch", fetchSpy);
 
 	setTty(false, false);
@@ -288,7 +289,7 @@ describe("resolveAgentName", () => {
 // =======================================================================
 describe("installConfigAndHooks", () => {
 	it("only prints an install-error line for a client that actually has one (line 190 &&/true mutants)", async () => {
-		mocks.detectClients.mockReturnValue([{ name: "claude", exists: true } as never]);
+		mocks.detectClients.mockReturnValue([{ name: "claude", exists: true, settingsPath: "/repo/.claude/settings.json" }]);
 		mocks.installAllHooks.mockReturnValue([
 			{ client: "claude", installed: false, events: [] }, // not installed, no error
 		]);
@@ -312,8 +313,8 @@ describe("installConfigAndHooks", () => {
 
 	it("prints every install-step line with exact text in human mode (lines 167,168,174,175,181,182,189,191)", async () => {
 		mocks.detectClients.mockReturnValue([
-			{ name: "claude", exists: true } as never,
-			{ name: "gemini", exists: true } as never,
+			{ name: "claude", exists: true, settingsPath: "/repo/.claude/settings.json" },
+			{ name: "gemini", exists: true, settingsPath: "/repo/.gemini/settings.json" },
 		]);
 		mocks.installAllHooks.mockReturnValue([
 			{ client: "claude", installed: true, events: ["PreToolUse", "PostToolUse"] },
@@ -438,6 +439,7 @@ describe("harness setup", () => {
 		await initCommand({ server: "http://localhost:8787", agent: "bot" });
 		expect(calls().some((s) => s.includes("already running"))).toBe(false);
 		expect(mocks.harnessStartCommand).toHaveBeenCalledTimes(1);
+		expect(mocks.harnessStartCommand).toHaveBeenCalledWith({ daemon: true, json: true });
 	});
 
 	it("prints the exact already-running harness line with its PID (line 323)", async () => {
@@ -465,8 +467,8 @@ describe("harness setup", () => {
 describe("json mode suppresses every human-only line", () => {
 	it("emits exactly one console.log call (the JSON payload) across a full non-dry-run flow", async () => {
 		mocks.detectClients.mockReturnValue([
-			{ name: "claude", exists: true } as never,
-			{ name: "gemini", exists: true } as never,
+			{ name: "claude", exists: true, settingsPath: "/repo/.claude/settings.json" },
+			{ name: "gemini", exists: true, settingsPath: "/repo/.gemini/settings.json" },
 		]);
 		mocks.installAllHooks.mockReturnValue([
 			{ client: "claude", installed: true, events: ["PreToolUse"] },

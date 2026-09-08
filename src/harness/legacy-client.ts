@@ -6,15 +6,17 @@
 // newline-delimited HarnessEvent JSON, not the framed RPC envelope used by
 // session-daemon.ts.
 
+import { nonNull } from "../lib/non-null.js";
 import { createConnection, type Socket } from "node:net";
 import { basename } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
 import type { JsonObject } from "../lib/json-types.js";
-import type { AgentSource, HarnessDecision, HarnessEvent, ResolvedTarget } from "./types.js";
+import type { AgentSource, HarnessDecision, HarnessEvent } from "./types.js";
 import type { UnifiedAction, UnifiedHookEvent } from "./unified-event.js";
 import {
 	asJsonObject,
 	compactJson,
+	parseHarnessDecision,
 	readString,
 	readStringArray,
 } from "./legacy-client-json.js";
@@ -52,54 +54,6 @@ export function isLegacyHarnessSocket(socketPath: string): boolean {
 	return basename(socketPath) === LEGACY_HARNESS_SOCKET_BASENAME;
 }
 
-const RESOLVED_TARGET_KINDS = new Set<ResolvedTarget["kind"]>([
-	"file", "table", "url", "branch", "recipient", "package",
-]);
-
-function parseResolvedTarget(value: unknown): ResolvedTarget | null {
-	if (!isJsonObject(value)) return null;
-	const kind = value.kind;
-	const v = value.value;
-	if (typeof kind !== "string" || !RESOLVED_TARGET_KINDS.has(kind as ResolvedTarget["kind"])) return null;
-	return typeof v === "string" ? { kind: kind as ResolvedTarget["kind"], value: v } : null;
-}
-
-/** Replaces `JSON.parse(line) as HarnessDecision` (unchecked ~24-field cast).
- *  Validates `decision` + the only other fields this bridge's one consumer
- *  reads (grep-verified: adapters/*.ts + last-check-writer.ts); the rest are
- *  never read off a legacy decision and are left unset, not deep-validated. */
-function parseHarnessDecision(value: unknown): HarnessDecision | null {
-	if (!isJsonObject(value)) return null;
-	const { decision } = value;
-	if (decision !== "allow" && decision !== "block" && decision !== "ask") return null;
-	const reason = typeof value.reason === "string" ? value.reason : undefined;
-	const rule_id = typeof value.rule_id === "string" ? value.rule_id : undefined;
-	const additional_context =
-		typeof value.additional_context === "string" ? value.additional_context : undefined;
-	const warnings = Array.isArray(value.warnings)
-		? value.warnings.filter((w): w is string => typeof w === "string")
-		: undefined;
-	const resolved_targets = Array.isArray(value.resolved_targets)
-		? value.resolved_targets.map(parseResolvedTarget).filter((t): t is ResolvedTarget => t !== null)
-		: undefined;
-	return {
-		decision,
-		...parseDecisionExtensions(value),
-		...(reason !== undefined ? { reason } : {}),
-		...(rule_id !== undefined ? { rule_id } : {}),
-		...(additional_context !== undefined ? { additional_context } : {}),
-		...(warnings !== undefined ? { warnings } : {}),
-		...(resolved_targets !== undefined ? { resolved_targets } : {}),
-	};
-}
-
-function parseDecisionExtensions(value: JsonObject): Partial<HarnessDecision> {
-	const extensions: Partial<HarnessDecision> = {};
-	if (isJsonObject(value.updated_input)) extensions.updated_input = value.updated_input;
-	if (Array.isArray(value.watch_paths) && value.watch_paths.every(path => typeof path === "string")) extensions.watch_paths = value.watch_paths;
-	return extensions;
-}
-
 export function callLegacyHarness(
 	socketPath: string,
 	event: UnifiedHookEvent,
@@ -123,7 +77,7 @@ export function callLegacyHarness(
 		}, timeoutMs);
 
 		socket = createConnection(socketPath, () => {
-			(socket as Socket).write(`${JSON.stringify(payload)}\n`);
+			nonNull(socket).write(`${JSON.stringify(payload)}\n`);
 		});
 
 		socket.on("data", (chunk: Buffer) => {
@@ -446,9 +400,8 @@ function copyTurnContext(raw: JsonObject, out: HarnessEvent): void {
 	if (promptId) out.prompt_id = promptId;
 	const effort = raw.effort;
 	if (typeof effort === "string" && effort) out.effort = effort;
-	else if (effort && typeof effort === "object" && !Array.isArray(effort)) {
-		// SAFETY: narrowed to a non-array object; `level` is guarded by readString.
-		const level = readString((effort as JsonObject).level);
+	else if (isJsonObject(effort)) {
+		const level = readString(effort.level);
 		if (level) out.effort = level;
 	}
 	if (Array.isArray(raw.background_tasks)) out.background_tasks = raw.background_tasks;

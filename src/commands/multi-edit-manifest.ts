@@ -9,17 +9,11 @@
 // Imports its shared types from the apply module — the dependency direction
 // is one-way (apply ← manifest ← command), so there is no cycle.
 
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import type { EditBatch, EditPair, NormalizeResult } from "./multi-edit-apply.js";
 
 /** Schema-version number the manifest must declare. */
 const EXPECTED_MANIFEST_VERSION = 1;
-
-/** Expected runtime type of a parsed manifest. */
-const MANIFEST_ROOT_TYPE = "object" as const;
-
-/** Field types inside a manifest. */
-const FIELD_TYPE_STRING = "string" as const;
 
 type EditsValidation = { ok: true; edits: EditPair[] } | { ok: false; message: string };
 
@@ -27,11 +21,10 @@ type EditsValidation = { ok: true; edits: EditPair[] } | { ok: false; message: s
 function validateManifestRoot(
 	raw: unknown,
 ): { ok: true; obj: JsonObject } | { ok: false; message: string } {
-	const isObject = !!raw && typeof raw === MANIFEST_ROOT_TYPE;
-	if (!isObject) {
+	if (!isJsonObject(raw)) {
 		return { ok: false, message: "Manifest must be a JSON object." };
 	}
-	const obj = raw as JsonObject;
+	const obj = raw;
 	if (obj.version !== EXPECTED_MANIFEST_VERSION) {
 		return {
 			ok: false,
@@ -87,7 +80,7 @@ function shapeBatch(
 	raw: unknown,
 ): { ok: true; batch: { path: string; edits: unknown[] } } | { ok: false } {
 	if (!raw || typeof raw !== "object") return { ok: false };
-	const r = raw as { path?: unknown; edits?: unknown };
+	const r: { path?: unknown; edits?: unknown } = raw;
 	if (typeof r.path !== "string" || !Array.isArray(r.edits)) return { ok: false };
 	return { ok: true, batch: { path: r.path, edits: r.edits } };
 }
@@ -145,22 +138,19 @@ function validateEdits(raw: unknown[]): EditsValidation {
 	}
 	const edits: EditPair[] = [];
 	for (let i = 0; i < raw.length; i += 1) {
-		// `raw` is a JSON.parse'd array, so an entry can genuinely be `null` or a
-		// non-object at runtime — `JsonObject | null` (not a bare `JsonObject`
-		// cast) keeps that honest and lets the `!e ||` guard below narrow.
-		const e = raw[i] as JsonObject | null;
+		const e = raw[i];
 		if (
-			!e ||
-			typeof e.old_string !== FIELD_TYPE_STRING ||
-			typeof e.new_string !== FIELD_TYPE_STRING
+			!isJsonObject(e) ||
+			typeof e.old_string !== "string" ||
+			typeof e.new_string !== "string"
 		) {
 			return {
 				ok: false,
 				message: `Edit ${i} must have { old_string: string, new_string: string }.`,
 			};
 		}
-		const oldStr = e.old_string as string;
-		const newStr = e.new_string as string;
+		const oldStr = e.old_string;
+		const newStr = e.new_string;
 		if (oldStr.length === 0) {
 			return { ok: false, message: `Edit ${i}: old_string must not be empty.` };
 		}

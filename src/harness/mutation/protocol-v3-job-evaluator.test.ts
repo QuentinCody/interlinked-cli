@@ -31,16 +31,20 @@ import {
 	MUTATION_RESULT_TARGET_CONTENT,
 	validMutationResult,
 } from "./protocol-v3/test-envelopes.js";
-import { parseAndVerify, type V3ServerAuthority } from "./protocol-v3/verify.js";
+import { parseAndVerify } from "./protocol-v3/verify.js";
 import type { MutationGateOutcome } from "./types.js";
 
-const seams = vi.hoisted(() => ({
+const seams = vi.hoisted((): {
+	outcome: null | ((outcome: MutationGateOutcome) => MutationGateOutcome);
+	decision: HarnessDecision | null;
+	authenticatedReceipts: { execution: string } | null;
+} => ({
 	/** Rewrites the local evaluator's outcome, keeping its evidence + hash. */
-	outcome: null as null | ((outcome: MutationGateOutcome) => MutationGateOutcome),
+	outcome: null,
 	/** Replaces the harness decision the finding message is derived from. */
-	decision: null as null | HarnessDecision,
+	decision: null,
 	/** Receipt text authentication sees, when retention must see other text. */
-	authenticatedReceipts: null as null | { execution: string },
+	authenticatedReceipts: null,
 }));
 
 vi.mock("./protocol-v3/verified-evaluator.js", async (importOriginal) => {
@@ -94,7 +98,7 @@ function manifestHead(snapshot: unknown, version = 0): JournalManifestHead {
 }
 
 function fixtureFor(raw: object, targetContent = MUTATION_RESULT_TARGET_CONTENT) {
-	const authenticated = authenticateFixture(raw as Record<string, unknown>);
+	const authenticated = authenticateFixture({ ...raw });
 	const targetBytes = Buffer.from(targetContent, "utf8");
 	const job: ClaimedMutationJob = {
 		jobId: "local-job-0001",
@@ -281,6 +285,7 @@ describe("ProtocolV3MutationJobEvaluator", () => {
 
 	it("N: rejects evidence bytes changed after the cloud signatures and hashes were created", async () => {
 		const fixture = fixtureFor(validMutationResult());
+		// SAFETY: validMutationResult supplies the runner object; this test deliberately changes its build after authentication to check hash rejection.
 		const runner = fixture.authenticated.raw.runner as Record<string, unknown>;
 		runner.build = "tampered-runner-build";
 		await expect(evaluator().evaluate({
@@ -344,7 +349,7 @@ describe("ProtocolV3MutationJobEvaluator", () => {
 			...options(),
 			// SAFETY: deliberately widened — the constructor's exact-key check is
 			// the behavior under test and runs on untrusted local configuration.
-			serverAuthority: authority as unknown as V3ServerAuthority,
+			serverAuthority: authority,
 		})).toThrow("protocol-v3 mutation evidence: serverAuthority must contain exactly tenant and project");
 	});
 

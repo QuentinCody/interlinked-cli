@@ -370,6 +370,17 @@ describe("buildGateReachStopWarning", () => {
 });
 
 describe("readLatestGateReachSnapshot — malformed-row handling", () => {
+	it.each([
+		null,
+		{ gate: "coverage_ratchet" },
+		{ gate: "coverage_ratchet", unit: "files", status: "measured", eligible: 1, measured: 1, skipped: { no_tests: "many" }, unmeasured: 0, reach: 1 },
+	])("ignores a malformed nested gate and retains the last valid snapshot: %j", (gate) => {
+		const valid = buildGateReachSnapshot({ sessionId: "good", inputs: [{ gate: "coverage_ratchet", eligible: 1, measured: 1 }], at: 1000 });
+		recordGateReach(repo, valid);
+		writeFileSync(join(repo, GATE_REACH_LEDGER_REL), `${JSON.stringify({ ...valid, session_id: "bad", gates: [gate] })}\n`, { flag: "a" });
+		expect(readLatestGateReachSnapshot(repo)).toEqual(valid);
+	});
+
 	it("skips a non-object top-level JSON value", () => {
 		mkdirSync(join(repo, ".interlinked"), { recursive: true });
 		writeFileSync(join(repo, GATE_REACH_LEDGER_REL), "42\n", { flag: "a" });

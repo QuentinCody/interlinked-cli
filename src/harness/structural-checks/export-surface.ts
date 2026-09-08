@@ -1,3 +1,4 @@
+import { hasErrorCode } from "../check-engine/tool-errors.js";
 // ===========================================
 // Export Surface & Ripple Checks
 // ===========================================
@@ -27,7 +28,7 @@ export function checkExportSurface(
 	filePath: string,
 	relPath: string,
 	oldExports: ExportedSymbol[],
-	graph: ProjectGraph,
+	graph: Pick<ProjectGraph, "getExports" | "getDependents" | "getImporters" | "classifyModule" | "getProjectBoundary" | "toRelative">,
 ): StructuralCheckResult[] {
 	const newExports = graph.getExports(filePath);
 	if (!exportSurfaceChanged(oldExports, newExports)) return [];
@@ -93,7 +94,7 @@ export function checkExportRippleCompilation(
 	filePath: string,
 	relPath: string,
 	affectedFiles: string[],
-	graph: ProjectGraph,
+	graph: Pick<ProjectGraph, "getExports" | "getDependents" | "getImporters" | "classifyModule" | "getProjectBoundary" | "toRelative">,
 ): StructuralCheckResult[] {
 	if (affectedFiles.length === 0) return [];
 
@@ -174,7 +175,7 @@ export function checkExportRippleCompilation(
 export function checkRippleTests(
 	filePath: string,
 	relPath: string,
-	graph: ProjectGraph,
+	graph: Pick<ProjectGraph, "getExports" | "getDependents" | "getImporters" | "classifyModule" | "getProjectBoundary" | "toRelative">,
 ): StructuralCheckResult[] {
 	const testFile = findTestFileForSource(filePath);
 	if (!testFile) return [];
@@ -192,7 +193,7 @@ export function checkRippleTests(
 		stdio: ["pipe", "pipe", "pipe"],
 	});
 
-	if (spawnResult.error && (spawnResult.error as NodeJS.ErrnoException).code === "ENOENT") {
+	if (hasErrorCode(spawnResult.error, "ENOENT")) {
 		// vitest not installed — skip silently
 		return [];
 	}

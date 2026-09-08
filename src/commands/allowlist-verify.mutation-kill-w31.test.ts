@@ -27,14 +27,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addToAllowlist } from "../harness/package-allowlist.js";
 import { verifyAllowlistCommand } from "./allowlist-verify.js";
 
-const { readFileSyncSpy, actualRef } = vi.hoisted(() => ({
-	readFileSyncSpy: vi.fn(),
-	actualRef: { fn: null as unknown as (...args: unknown[]) => unknown },
-}));
+const { readFileSyncSpy, actualRef } = vi.hoisted(() => {
+	const actualRef: { fn: typeof import("node:fs").readFileSync } = {
+		fn: () => { throw new Error("readFileSync has not been initialized"); },
+	};
+	return { readFileSyncSpy: vi.fn(), actualRef };
+});
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
-	actualRef.fn = actual.readFileSync as unknown as (...args: unknown[]) => unknown;
+	actualRef.fn = actual.readFileSync;
 	readFileSyncSpy.mockImplementation(actual.readFileSync);
 	return { ...actual, readFileSync: readFileSyncSpy };
 });
@@ -108,11 +110,12 @@ describe("readManifestsByName — content===null guard (mutation-kill)", () => {
 	it("skips a package.json whose read throws even though the file exists on disk", () => {
 		const target = join(workspace, "package.json");
 		writeFileSync(target, "{}");
-		readFileSyncSpy.mockImplementation((path: unknown, ...args: unknown[]) => {
+		readFileSyncSpy.mockImplementation((...args: Parameters<typeof actualRef.fn>) => {
+			const [path] = args;
 			if (typeof path === "string" && path === target) {
 				throw new Error("simulated read failure");
 			}
-			return (actualRef.fn as (...a: unknown[]) => unknown)(path, ...args);
+			return actualRef.fn(...args);
 		});
 		const out = capture(() => verifyAllowlistCommand({ cwd: workspace }));
 		expect(out).toMatch(/clean|all approved/i);
@@ -214,11 +217,12 @@ describe("checkCsprojFiles — content===null guard (mutation-kill)", () => {
 			target,
 			'<Project><ItemGroup><PackageReference Include="Whatever" Version="1.0.0" /></ItemGroup></Project>',
 		);
-		readFileSyncSpy.mockImplementation((path: unknown, ...args: unknown[]) => {
+		readFileSyncSpy.mockImplementation((...args: Parameters<typeof actualRef.fn>) => {
+			const [path] = args;
 			if (typeof path === "string" && path === target) {
 				throw new Error("simulated read failure");
 			}
-			return (actualRef.fn as (...a: unknown[]) => unknown)(path, ...args);
+			return actualRef.fn(...args);
 		});
 		const out = capture(() => verifyAllowlistCommand({ cwd: workspace }));
 		expect(out).toMatch(/clean|all approved/i);
@@ -248,11 +252,12 @@ describe("checkVersionCatalog — content===null guard (mutation-kill)", () => {
 	it("skips a libs.versions.toml whose read throws even though the file exists on disk", () => {
 		const target = join(workspace, "libs.versions.toml");
 		writeFileSync(target, '[libraries]\nwhatever = { module = "g:a", version = "1.0" }\n');
-		readFileSyncSpy.mockImplementation((path: unknown, ...args: unknown[]) => {
+		readFileSyncSpy.mockImplementation((...args: Parameters<typeof actualRef.fn>) => {
+			const [path] = args;
 			if (typeof path === "string" && path === target) {
 				throw new Error("simulated read failure");
 			}
-			return (actualRef.fn as (...a: unknown[]) => unknown)(path, ...args);
+			return actualRef.fn(...args);
 		});
 		const out = capture(() => verifyAllowlistCommand({ cwd: workspace }));
 		expect(out).toMatch(/clean|all approved/i);

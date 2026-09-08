@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
-import type { GuardRulesConfig, HarnessEvent, SessionTrajectory } from "../../types.js";
+import type { HarnessEvent, SessionTrajectory } from "../../types.js";
 import { compileAllowlist } from "../allowlist.js";
-import { runPostToolScan } from "../post-scan.js";
+import { runPostToolScan, type PostScanRules } from "../post-scan.js";
 import type { ContentScanner, ContentScannerConfig, ScanFinding } from "../types.js";
 
 const NO_ALLOWLIST = compileAllowlist(undefined);
@@ -38,16 +38,8 @@ function makeScannerConfig(overrides: Partial<ContentScannerConfig> = {}): Conte
 	};
 }
 
-function makeRules(scanner: ContentScannerConfig | undefined): GuardRulesConfig {
+function makeRules(scanner: ContentScannerConfig | undefined): PostScanRules {
 	return {
-		version: 1,
-		enabled: true,
-		rules: [],
-		protected_files: [],
-		file_reminders: [],
-		curl_mcp_detection: { enabled: false, localhost_ports: [], escalate_after: 0, message: "" },
-		quality_checks: {} as GuardRulesConfig["quality_checks"],
-		error_memory: { enabled: false, max_age_s: 0, max_records: 0 },
 		taint_tracking: {
 			enabled: true,
 			file_sensitivity: [],
@@ -66,11 +58,6 @@ function makeRules(scanner: ContentScannerConfig | undefined): GuardRulesConfig 
 			scan_file_injection: false,
 			max_scan_bytes: 100_000,
 		},
-		structural_checks: {} as GuardRulesConfig["structural_checks"],
-		repo_confinement_allowlist: [],
-		required_tools: [],
-		strict_skips: false,
-		skip_allowlist: [],
 		content_scanner: scanner,
 	};
 }
@@ -361,7 +348,7 @@ describe("runPostToolScan — taint ratchet + warnings", () => {
 			scanner,
 			compiledAllowlist: NO_ALLOWLIST,
 		});
-		const scanSpy = scanner.scan as unknown as ReturnType<typeof vi.fn>;
+		const scanSpy = vi.mocked(scanner.scan);
 		expect(nonNull(scanSpy.mock.calls[0])[0].text.length).toBe(50_000);
 	});
 
@@ -440,7 +427,7 @@ describe("runPostToolScan — response shape + fallback branches", () => {
 			compiledAllowlist: NO_ALLOWLIST,
 		});
 		expect(r.findings).toHaveLength(1);
-		const scanSpy = scanner.scan as unknown as ReturnType<typeof vi.fn>;
+		const scanSpy = vi.mocked(scanner.scan);
 		expect(nonNull(scanSpy.mock.calls[0])[0].text).toBe(JSON.stringify({ matches: ["a@b.com"] }));
 	});
 
@@ -457,7 +444,7 @@ describe("runPostToolScan — response shape + fallback branches", () => {
 			compiledAllowlist: NO_ALLOWLIST,
 		});
 		expect(r.findings).toEqual([]);
-		const scanSpy = scanner.scan as unknown as ReturnType<typeof vi.fn>;
+		const scanSpy = vi.mocked(scanner.scan);
 		expect(scanSpy).not.toHaveBeenCalled();
 	});
 
@@ -473,7 +460,7 @@ describe("runPostToolScan — response shape + fallback branches", () => {
 			compiledAllowlist: NO_ALLOWLIST,
 		});
 		expect(r.findings).toEqual([]);
-		const scanSpy = scanner.scan as unknown as ReturnType<typeof vi.fn>;
+		const scanSpy = vi.mocked(scanner.scan);
 		expect(scanSpy).not.toHaveBeenCalled();
 	});
 
@@ -496,7 +483,7 @@ describe("runPostToolScan — response shape + fallback branches", () => {
 		const scanner = makeScanner([]);
 		const cfg = makeScannerConfig({ max_scan_bytes: 0 });
 		const rules = makeRules(cfg);
-		rules.output_scanning = { ...rules.output_scanning, max_scan_bytes: 30_000 };
+		rules.output_scanning = { ...nonNull(rules.output_scanning), max_scan_bytes: 30_000 };
 		const big = "x".repeat(50_000);
 		await runPostToolScan({
 			event: makeEvent({ tool_response: big }),
@@ -505,7 +492,7 @@ describe("runPostToolScan — response shape + fallback branches", () => {
 			scanner,
 			compiledAllowlist: NO_ALLOWLIST,
 		});
-		const scanSpy = scanner.scan as unknown as ReturnType<typeof vi.fn>;
+		const scanSpy = vi.mocked(scanner.scan);
 		expect(nonNull(scanSpy.mock.calls[0])[0].text.length).toBe(30_000);
 	});
 
@@ -514,7 +501,7 @@ describe("runPostToolScan — response shape + fallback branches", () => {
 		const scanner = makeScanner([]);
 		const cfg = makeScannerConfig({ max_scan_bytes: 0 });
 		const rules = makeRules(cfg);
-		rules.output_scanning = { ...rules.output_scanning, max_scan_bytes: 0 };
+		rules.output_scanning = { ...nonNull(rules.output_scanning), max_scan_bytes: 0 };
 		const big = "x".repeat(200_000);
 		await runPostToolScan({
 			event: makeEvent({ tool_response: big }),
@@ -523,7 +510,7 @@ describe("runPostToolScan — response shape + fallback branches", () => {
 			scanner,
 			compiledAllowlist: NO_ALLOWLIST,
 		});
-		const scanSpy = scanner.scan as unknown as ReturnType<typeof vi.fn>;
+		const scanSpy = vi.mocked(scanner.scan);
 		expect(nonNull(scanSpy.mock.calls[0])[0].text.length).toBe(100_000);
 	});
 

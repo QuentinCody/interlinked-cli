@@ -54,7 +54,7 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 		// SAFETY: this object lists every SessionTrajectory field the current
 		// type declares; the cast only silences the checker's inability to
 		// prove object-literal-plus-spread completeness, not a real shape gap.
-	} as SessionTrajectory;
+	};
 }
 
 function makeRecord(overrides: Partial<WarningRecord>): WarningRecord {

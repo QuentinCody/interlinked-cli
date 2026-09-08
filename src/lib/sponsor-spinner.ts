@@ -15,7 +15,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { stripControlChars } from "../harness/sponsor/types.js";
-import type { JsonObject } from "./json-types.js";
+import { isJsonObject, type JsonObject } from "./json-types.js";
 
 export interface SpinnerEditResult {
 	ok: boolean;
@@ -27,17 +27,12 @@ export interface SpinnerEditResult {
 /** Longest verb we will write — the spinner renders inline, keep it short. */
 const MAX_VERB_LEN = 48;
 
-interface SpinnerVerbsShape {
-	mode?: unknown;
-	verbs?: unknown;
-}
-
 function readSettings(path: string): JsonObject | null {
 	if (!existsSync(path)) return {};
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
-		if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-			return parsed as JsonObject;
+		if (isJsonObject(parsed)) {
+			return parsed;
 		}
 		return null;
 	} catch {
@@ -57,7 +52,7 @@ export function addSponsorSpinnerVerb(settingsPath: string, verb: string): Spinn
 	if (settings === null) {
 		return { ok: false, reason: "settings.json not parseable — left untouched" };
 	}
-	const existing = settings.spinnerVerbs as SpinnerVerbsShape | undefined;
+	const existing = isJsonObject(settings.spinnerVerbs) ? settings.spinnerVerbs : undefined;
 	const verbs: string[] =
 		existing && Array.isArray(existing.verbs)
 			? existing.verbs.filter((v): v is string => typeof v === "string")
@@ -87,7 +82,7 @@ export function removeSponsorSpinnerVerbs(
 	if (settings === null) {
 		return { ok: false, reason: "settings.json not parseable — left untouched" };
 	}
-	const existing = settings.spinnerVerbs as SpinnerVerbsShape | undefined;
+	const existing = isJsonObject(settings.spinnerVerbs) ? settings.spinnerVerbs : undefined;
 	if (!existing || !Array.isArray(existing.verbs)) return { ok: true };
 	const mine = new Set(ours);
 	const kept = existing.verbs.filter(

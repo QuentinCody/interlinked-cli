@@ -31,7 +31,8 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		mkdirSync: ((path: Parameters<typeof actual.mkdirSync>[0], options?: unknown) => {
+		mkdirSync: (...args: Parameters<typeof actual.mkdirSync>) => {
+			const [path] = args;
 			const isProjectLockDir =
 				typeof path === "string" &&
 				path.endsWith(".lock") &&
@@ -42,13 +43,13 @@ vi.mock("node:fs", async (importOriginal) => {
 					// SAFETY: constructing a Node-shaped errno error purely to exercise
 					// the non-EEXIST rethrow branch; `code` is the only field that
 					// branch reads.
-					const err = new Error("simulated EACCES") as NodeJS.ErrnoException;
+					const err: NodeJS.ErrnoException = new Error("simulated EACCES");
 					err.code = "EACCES";
 					throw err;
 				}
 			}
-			return actual.mkdirSync(path, options as Parameters<typeof actual.mkdirSync>[1]);
-		}) as typeof actual.mkdirSync,
+			return actual.mkdirSync(...args);
+		},
 	};
 });
 

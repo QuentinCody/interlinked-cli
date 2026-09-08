@@ -1,3 +1,4 @@
+import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // Behavioral unit tests for the Rust tool runners (cargo check, cargo clippy).
 //
 // Both runners are synchronous, so the only boundary mocked is
@@ -23,10 +24,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import type { CheckResult, CheckScope, ToolRunnerInput } from "../types.js";
 
-const spawnSyncMock = vi.fn();
+const spawnSyncMock = vi.fn<SpawnSyncStub>();
 
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
 }));
 
 // Imported after the mock is registered.
@@ -94,19 +95,20 @@ function spawnResult(
 		stderr?: string | undefined;
 	},
 ): SpawnSyncReturns<string> {
-	const base = {
+	const base: SpawnSyncReturns<string> = {
 		pid: 321,
-		output: [] as Array<string | null>,
+		output: [],
 		stdout: "",
 		stderr: "",
-		status: null as number | null,
-		signal: null as NodeJS.Signals | null,
+		status: null,
+		signal: null,
 	};
+	// SAFETY: this fixture deliberately allows absent stdout/stderr to exercise the runner's fallback for incomplete process results.
 	return { ...base, ...over } as SpawnSyncReturns<string>;
 }
 
 function enoentError(): NodeJS.ErrnoException {
-	const e = new Error("spawn cargo ENOENT") as NodeJS.ErrnoException;
+	const e: NodeJS.ErrnoException = new Error("spawn cargo ENOENT");
 	e.code = "ENOENT";
 	return e;
 }
@@ -139,11 +141,7 @@ describe.each(runners)("$name", ({ fn, expectedTool, expectedArgv }) => {
 		fn(input(fileScope(), 8_888));
 
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("cargo");
 		expect(args).toEqual(expectedArgv);
 		expect(opts).toMatchObject({
@@ -162,7 +160,7 @@ describe.each(runners)("$name", ({ fn, expectedTool, expectedArgv }) => {
 	it("returns [] for a non-ENOENT spawn error that still reports status 0", () => {
 		// A generic error whose code !== ENOENT does NOT hit the early return;
 		// status === 0 then takes over and yields the clean-compile [].
-		const e = new Error("EACCES") as NodeJS.ErrnoException;
+		const e: NodeJS.ErrnoException = new Error("EACCES");
 		e.code = "EACCES";
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0, error: e }));
 		expect(fn(input(fileScope()))).toEqual([]);
@@ -329,7 +327,7 @@ describe.each(runners)("$name", ({ fn, expectedTool, expectedArgv }) => {
 
 	it("does NOT filter when filterToFile is absent even in file mode", () => {
 		const scope = fileScope();
-		delete (scope as { filterToFile?: boolean }).filterToFile;
+		delete scope.filterToFile;
 		spawnSyncMock.mockReturnValue(
 			spawnResult({
 				status: 101,
@@ -345,7 +343,7 @@ describe.each(runners)("$name", ({ fn, expectedTool, expectedArgv }) => {
 
 	it("does NOT filter when targetFile is absent even in file mode", () => {
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		spawnSyncMock.mockReturnValue(
 			spawnResult({
 				status: 101,
@@ -501,7 +499,7 @@ describe("runRustfmtCheck", () => {
 
 	it("does NOT filter when filterToFile is absent (project-wide reporting preserved)", () => {
 		const scope = fileScope();
-		delete (scope as { filterToFile?: boolean }).filterToFile;
+		delete scope.filterToFile;
 		spawnSyncMock.mockReturnValue(
 			spawnResult({
 				status: 1,

@@ -320,7 +320,8 @@ void _allToolIdsCoverEveryToolId;
 // skips a runner-less id → 0 findings, so both --only and --tools must refuse to
 // report it (the summary would otherwise print a misleading clean row).
 function isDiscoveryOnlyTool(id: string): boolean {
-	return (ALL_TOOL_IDS as readonly ToolId[]).includes(id as ToolId) && !RUNNABLE_TOOL_IDS.has(id as ToolId);
+	const tool = ALL_TOOL_IDS.find((candidate) => candidate === id);
+	return tool !== undefined && !RUNNABLE_TOOL_IDS.has(tool);
 }
 
 // Dispatch table: structural check name -> scanner. Keyed by the names in
@@ -389,7 +390,7 @@ function resolveCheckPlan(opts: {
 }): ResolvedCheckPlan {
 	const onlyCheck = opts.only;
 	const isStructuralOnly = Boolean(
-		onlyCheck && (STRUCTURAL_CHECKS as readonly string[]).includes(onlyCheck),
+		onlyCheck && STRUCTURAL_CHECKS.some((name) => name === onlyCheck),
 	);
 	// A known engine tool id. Some are discovery-only (dep-audit / docs-check):
 	// in the ToolId union for availability reporting but with NO engine runner.
@@ -397,26 +398,26 @@ function resolveCheckPlan(opts: {
 	// `--only dep-audit` would emit a false clean. Split "known" from "runnable":
 	// only runnable ids are engine-only; known-but-not-runnable ids are
 	// discovery-only and get rejected by the command (finding 2026-06).
-	const isKnownEngineTool = Boolean(
-		onlyCheck && (ALL_TOOL_IDS as readonly ToolId[]).includes(onlyCheck as ToolId),
-	);
-	const isEngineOnly = isKnownEngineTool && RUNNABLE_TOOL_IDS.has(onlyCheck as ToolId);
+	const engineTool = ALL_TOOL_IDS.find((id) => id === onlyCheck);
+	const isKnownEngineTool = engineTool !== undefined;
+	const isEngineOnly = engineTool !== undefined && RUNNABLE_TOOL_IDS.has(engineTool);
 	const unknown = Boolean(onlyCheck) && !isStructuralOnly && !isKnownEngineTool;
 
 	const runEngine = opts.tools !== undefined || Boolean(opts.report) || isEngineOnly;
 	const runStructural = !isEngineOnly;
 
 	let engineToolFilter: ToolId[] | undefined;
-	if (isEngineOnly && onlyCheck) {
-		engineToolFilter = [onlyCheck as ToolId];
+	if (isEngineOnly && engineTool) {
+		engineToolFilter = [engineTool];
 	} else if (typeof opts.tools === "string") {
 		// Drop discovery-only ids (dep-audit/docs-check): runChecks skips them and
 		// the summary would print a "0 findings" row implying a clean run that never
-		// happened — the same false-clean the --only path rejects. Unknown ids stay
-		// (a typo just runs nothing, no row).
-		engineToolFilter = (
-			opts.tools.split(",").map((t) => t.trim()).filter(Boolean) as ToolId[]
-		).filter((t) => !isDiscoveryOnlyTool(t));
+		// happened — the same false-clean the --only path rejects. Unknown ids are
+		// ignored, preserving the engine behavior for an unrecognized filter.
+		engineToolFilter = opts.tools.split(",")
+			.map((t) => ALL_TOOL_IDS.find((id) => id === t.trim()))
+			.filter((t) => t !== undefined)
+			.filter((t) => !isDiscoveryOnlyTool(t));
 	}
 
 	return {

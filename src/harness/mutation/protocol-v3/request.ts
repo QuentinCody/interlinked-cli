@@ -140,11 +140,11 @@ function checkChangeset(raw: Record<string, unknown>): Reason {
 			checkSha256Hex(entry.content_hash, "request.changeset[].content_hash"),
 		]);
 		if (bad !== null) return bad;
-		// SAFETY: checkRepoRelativePath proved path is a string.
-		if (paths.has(entry.path as string)) {
+		if (typeof entry.path !== "string") return "request.changeset[].path must be a string";
+		if (paths.has(entry.path)) {
 			return `request.changeset has a duplicate path "${String(entry.path)}" — ambiguous identity refused`;
 		}
-		paths.add(entry.path as string);
+		paths.add(entry.path);
 	}
 	return null;
 }

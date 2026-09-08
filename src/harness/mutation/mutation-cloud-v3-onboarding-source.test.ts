@@ -524,9 +524,7 @@ describe("captureMutationOnboardingSource default system dependencies", () => {
 			),
 		);
 		expect(error.message).toBe("mutation onboarding git archive could not be materialized");
-		expect((error.cause as Error).message).toBe(
-			"mutation onboarding archive did not materialize its versioned root",
-		);
+		expect(error.cause).toMatchObject({ message: "mutation onboarding archive did not materialize its versioned root" });
 	});
 
 	it("rejects a materialized snapshot that is missing the target", () => {

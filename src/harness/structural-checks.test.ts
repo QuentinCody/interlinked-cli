@@ -8,8 +8,7 @@
 // inputs. The real helpers (isWriteOperation / isReadOperation / extractFilePath
 // / exportSurfaceChanged) are NOT mocked — the orchestrator's branch coverage
 // depends on their real behavior. The ProjectGraph / SessionTracker / RouteMap /
-// SessionTrajectory inputs are hand-built fakes exposing only the members the
-// orchestrator reads.
+// SessionTrajectory inputs use complete fixtures with controlled methods.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -76,11 +75,12 @@ import {
 	checkCrossFileSwitchDiscriminant,
 	checkSingleImplementationInterface,
 } from "./cross-file-checks.js";
-import { resolveDependencyView } from "./dependency-view.js";
+import { type DependencyView, resolveDependencyView } from "./dependency-view.js";
+import { makeSession } from "./__tests__/fixtures/evaluator.js";
 import { checkFollowUpViolation } from "./impact-analysis.js";
-import type { ProjectGraph } from "./project-graph.js";
-import type { RouteMap } from "./route-map.js";
-import type { SessionTracker } from "./session-state.js";
+import { ProjectGraph } from "./project-graph.js";
+import { RouteMap } from "./route-map.js";
+import { SessionTracker } from "./session-state.js";
 import { checkImportCycles } from "./structural-checks/cycles.js";
 import {
 	checkExportRippleCompilation,
@@ -104,8 +104,8 @@ import type {
 	StructuralChecksConfig,
 } from "./types.js";
 
-const mockedExistsSync = existsSync as unknown as ReturnType<typeof vi.fn>;
-const mockedResolveDependencyView = resolveDependencyView as unknown as ReturnType<typeof vi.fn>;
+const mockedExistsSync = vi.mocked(existsSync);
+const mockedResolveDependencyView = vi.mocked(resolveDependencyView);
 
 // ---------------------------------------------------------------------------
 // Fixtures / builders
@@ -147,42 +147,53 @@ function fullConfig(over: Partial<StructuralChecksConfig> = {}): StructuralCheck
 	};
 }
 
-/** Fake ProjectGraph: only the members the orchestrator reads. */
-function fakeGraph(over: Partial<Record<string, unknown>> = {}): ProjectGraph {
-	const base: Record<string, unknown> = {
-		isInitialized: true,
+/** Real graph state with controlled discovery methods. */
+function fakeGraph(over: Partial<ProjectGraph> = {}): ProjectGraph {
+	const graph = new ProjectGraph("/repo");
+	const { isInitialized = true, ...methods } = over;
+	vi.spyOn(graph, "isInitialized", "get").mockReturnValue(isInitialized);
+	const defaults: Partial<ProjectGraph> = {
 		toRelative: (f: string) => f.replace(/^\/repo\//, ""),
-		toAbsolute: (f: string) => f,
 		getProjectBoundary: () => "/repo",
 		getDependents: () => [],
 		getSiblingFiles: () => [],
 		findCyclesThrough: () => [],
 		classifyModule: () => "leaf",
-		...over,
 	};
-	return base as unknown as ProjectGraph;
+	return Object.assign(graph, defaults, methods);
 }
 
 /** Fake SessionTracker: only getAll() is read. */
 function fakeSessions(all: SessionTrajectory[] = []): SessionTracker {
-	return { getAll: () => all } as unknown as SessionTracker;
+	const tracker = new SessionTracker();
+	vi.spyOn(tracker, "getAll").mockReturnValue(all);
+	return tracker;
 }
 
 /** Minimal SessionTrajectory with empty maps/sets — tests populate specifics. */
 function fakeSession(over: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	const base = {
+	return {
+		...makeSession(),
 		session_id: "s1",
 		agent_name: "agent-a",
 		tool_call_count: 100,
 		failed_files: new Map(),
-		test_runs: new Set<string>() as unknown as SessionTrajectory["test_runs"],
+		test_runs: new Map(),
 		files_written: new Set<string>(),
 		file_read_at: new Map<string, number>(),
 		file_write_times: new Map<string, string>(),
 		pending_completions: new Map(),
 		...over,
 	};
-	return base as unknown as SessionTrajectory;
+}
+
+function dependencyView(over: Partial<DependencyView> = {}): DependencyView {
+	return {
+		answerScope: "repo", source: "internal",
+		getDependents: () => [], hasFile: () => true,
+		classifyModule: () => "leaf", getBlastRadius: () => null,
+		getCallers: () => [], ...over,
+	};
 }
 
 function evt(over: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -205,11 +216,11 @@ const TS = "/repo/src/foo.ts";
 beforeEach(() => {
 	vi.clearAllMocks();
 	mockedExistsSync.mockReturnValue(false);
-	mockedResolveDependencyView.mockReturnValue({
+	mockedResolveDependencyView.mockReturnValue(dependencyView({
 		getDependents: () => [],
 		classifyModule: () => "leaf",
 		source: "internal",
-	});
+	}));
 });
 
 // ===========================================================================
@@ -274,7 +285,7 @@ describe("runStructuralChecks — guards / early returns", () => {
 
 	it("accepts each TS/JS extension variant", () => {
 		for (const ext of [".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs"]) {
-			(checkExportSurface as ReturnType<typeof vi.fn>).mockClear();
+			(vi.mocked(checkExportSurface)).mockClear();
 			runStructuralChecks(
 				writeEvent(`/repo/src/foo${ext}`),
 				fullConfig(),
@@ -296,10 +307,10 @@ describe("runStructuralChecks — per-check dispatch", () => {
 
 	it("runs the full enabled pipeline and aggregates every check's results", () => {
 		// Give a couple of checks something to return so aggregation is observable.
-		(checkExportSurface as ReturnType<typeof vi.fn>).mockReturnValue([
+		(vi.mocked(checkExportSurface)).mockReturnValue([
 			{ check: "export_surface", severity: "warning", message: "m", file: TS },
 		]);
-		(checkImportResolution as ReturnType<typeof vi.fn>).mockReturnValue([
+		(vi.mocked(checkImportResolution)).mockReturnValue([
 			{ check: "import_resolution", severity: "warning", message: "m", file: TS },
 		]);
 
@@ -326,7 +337,7 @@ describe("runStructuralChecks — per-check dispatch", () => {
 	});
 
 	it("leaves compilation and test execution to the async quality phase", () => {
-		(checkExportSurface as ReturnType<typeof vi.fn>).mockReturnValue([
+		(vi.mocked(checkExportSurface)).mockReturnValue([
 			{
 				check: "export_surface",
 				severity: "warning",
@@ -343,7 +354,7 @@ describe("runStructuralChecks — per-check dispatch", () => {
 	});
 
 	it("skips ripple tier when export surface produced no affected files", () => {
-		(checkExportSurface as ReturnType<typeof vi.fn>).mockReturnValue([
+		(vi.mocked(checkExportSurface)).mockReturnValue([
 			{ check: "export_surface", severity: "warning", message: "x", file: TS },
 		]);
 
@@ -564,7 +575,7 @@ describe("getPreToolUseContext — test-first nudge", () => {
 		});
 
 	it("warns when no test file exists for a source file", () => {
-		(findTestFileForSource as ReturnType<typeof vi.fn>).mockReturnValue(null);
+		(vi.mocked(findTestFileForSource)).mockReturnValue(null);
 		const session = fakeSession();
 		const out = getPreToolUseContext(writeEvent(TS), baseCfg(), fakeGraph(), fakeSessions(), session);
 		const w = out.find((m) => m.includes("test-first"));
@@ -573,9 +584,9 @@ describe("getPreToolUseContext — test-first nudge", () => {
 
 	it("warns when the test file exists but has not been run this session", () => {
 		const testPath = "/repo/src/foo.test.ts";
-		(findTestFileForSource as ReturnType<typeof vi.fn>).mockReturnValue(testPath);
+		(vi.mocked(findTestFileForSource)).mockReturnValue(testPath);
 		const session = fakeSession({
-			test_runs: new Map() as unknown as SessionTrajectory["test_runs"],
+			test_runs: new Map(),
 		});
 		const out = getPreToolUseContext(writeEvent(TS), baseCfg(), fakeGraph(), fakeSessions(), session);
 		const w = out.find((m) => m.includes("test-first"));
@@ -584,7 +595,7 @@ describe("getPreToolUseContext — test-first nudge", () => {
 
 	it("stays silent when the test file has already been run", () => {
 		const testPath = "/repo/src/foo.test.ts";
-		(findTestFileForSource as ReturnType<typeof vi.fn>).mockReturnValue(testPath);
+		(vi.mocked(findTestFileForSource)).mockReturnValue(testPath);
 		const session = fakeSession({
 			test_runs: new Map([[testPath, { status: "pass" as const, at_step: 1 }]]),
 		});
@@ -654,11 +665,11 @@ describe("getPreToolUseContext — blast radius", () => {
 		});
 
 	it("warns with hub-module label when dependents meet the threshold and role is hub", () => {
-		mockedResolveDependencyView.mockReturnValue({
+		mockedResolveDependencyView.mockReturnValue(dependencyView({
 			getDependents: () => ["/repo/src/a.ts", "/repo/src/b.ts", "/repo/src/c.ts"],
 			classifyModule: () => "hub",
 			source: "internal",
-		});
+		}));
 		const out = getPreToolUseContext(writeEvent(TS), cfg(), fakeGraph(), fakeSessions());
 		const w = out.find((m) => m.includes("blast-radius"));
 		expect(w).toContain("(hub module)");
@@ -668,11 +679,11 @@ describe("getPreToolUseContext — blast radius", () => {
 	});
 
 	it("omits the hub label for a non-hub role", () => {
-		mockedResolveDependencyView.mockReturnValue({
+		mockedResolveDependencyView.mockReturnValue(dependencyView({
 			getDependents: () => ["/repo/src/a.ts", "/repo/src/b.ts", "/repo/src/c.ts"],
 			classifyModule: () => "internal",
 			source: "internal",
-		});
+		}));
 		const out = getPreToolUseContext(writeEvent(TS), cfg(), fakeGraph(), fakeSessions());
 		const w = out.find((m) => m.includes("blast-radius"));
 		expect(w).not.toContain("(hub module)");
@@ -680,11 +691,11 @@ describe("getPreToolUseContext — blast radius", () => {
 
 	it("truncates the dependent list at five and reports the overflow count", () => {
 		const deps = Array.from({ length: 8 }, (_, i) => `/repo/src/d${i}.ts`);
-		mockedResolveDependencyView.mockReturnValue({
+		mockedResolveDependencyView.mockReturnValue(dependencyView({
 			getDependents: () => deps,
 			classifyModule: () => "hub",
 			source: "internal",
-		});
+		}));
 		const out = getPreToolUseContext(writeEvent(TS), cfg(), fakeGraph(), fakeSessions());
 		const w = out.find((m) => m.includes("blast-radius"));
 		expect(w).toContain("imported by 8 files");
@@ -692,22 +703,22 @@ describe("getPreToolUseContext — blast radius", () => {
 	});
 
 	it("adds the Supermodel provenance clause when the view source is supermodel", () => {
-		mockedResolveDependencyView.mockReturnValue({
+		mockedResolveDependencyView.mockReturnValue(dependencyView({
 			getDependents: () => ["/repo/src/a.ts", "/repo/src/b.ts", "/repo/src/c.ts"],
 			classifyModule: () => "hub",
 			source: "supermodel",
-		});
+		}));
 		const out = getPreToolUseContext(writeEvent(TS), cfg(), fakeGraph(), fakeSessions());
 		const w = out.find((m) => m.includes("blast-radius"));
 		expect(w).toContain("per Supermodel `.graph` shard");
 	});
 
 	it("does not warn when dependents are below the threshold", () => {
-		mockedResolveDependencyView.mockReturnValue({
+		mockedResolveDependencyView.mockReturnValue(dependencyView({
 			getDependents: () => ["/repo/src/a.ts"],
 			classifyModule: () => "leaf",
 			source: "internal",
-		});
+		}));
 		const out = getPreToolUseContext(writeEvent(TS), cfg(), fakeGraph(), fakeSessions());
 		expect(out.some((m) => m.includes("blast-radius"))).toBe(false);
 	});
@@ -724,11 +735,11 @@ describe("getPreToolUseContext — blast radius", () => {
 	});
 
 	it("uses event.cwd when provided for the dependency view resolution", () => {
-		mockedResolveDependencyView.mockReturnValue({
+		mockedResolveDependencyView.mockReturnValue(dependencyView({
 			getDependents: () => [],
 			classifyModule: () => "leaf",
 			source: "internal",
-		});
+		}));
 		const e = evt({ tool_name: "Edit", tool_input: { file_path: TS }, cwd: "/repo" });
 		getPreToolUseContext(e, cfg(), fakeGraph(), fakeSessions());
 		expect(resolveDependencyView).toHaveBeenCalledWith(TS, "/repo", expect.anything());
@@ -923,7 +934,9 @@ describe("getPreToolUseContext — route context", () => {
 	});
 
 	function makeRouteMap(endpoints: Endpoint[]): RouteMap {
-		return { extractEndpointsForFile: () => endpoints } as unknown as RouteMap;
+		const routes = new RouteMap("/repo");
+		vi.spyOn(routes, "extractEndpointsForFile").mockReturnValue(endpoints);
+		return routes;
 	}
 
 	function endpoint(over: Partial<Endpoint>): Endpoint {
@@ -1182,7 +1195,7 @@ describe("getPreToolUseContext — follow-up violation", () => {
 	});
 
 	it("warns when checkFollowUpViolation returns a message", () => {
-		(checkFollowUpViolation as ReturnType<typeof vi.fn>).mockReturnValue(
+		(vi.mocked(checkFollowUpViolation)).mockReturnValue(
 			"finish updating dep.ts first",
 		);
 		const out = getPreToolUseContext(writeEvent(TS), cfg, fakeGraph(), fakeSessions(), fakeSession());
@@ -1191,13 +1204,13 @@ describe("getPreToolUseContext — follow-up violation", () => {
 	});
 
 	it("stays silent when there is no violation", () => {
-		(checkFollowUpViolation as ReturnType<typeof vi.fn>).mockReturnValue(null);
+		(vi.mocked(checkFollowUpViolation)).mockReturnValue(null);
 		const out = getPreToolUseContext(writeEvent(TS), cfg, fakeGraph(), fakeSessions(), fakeSession());
 		expect(out.some((m) => m.includes("follow-up-required"))).toBe(false);
 	});
 
 	it("does not run when impact_analysis is disabled", () => {
-		(checkFollowUpViolation as ReturnType<typeof vi.fn>).mockReturnValue("x");
+		(vi.mocked(checkFollowUpViolation)).mockReturnValue("x");
 		const out = getPreToolUseContext(
 			writeEvent(TS),
 			{ ...cfg, impact_analysis: false },
@@ -1228,8 +1241,11 @@ describe("getPreToolUseContext — change propagation", () => {
 	});
 
 	it("appends propagation warnings on a write operation", () => {
-		(findPropagationTargets as ReturnType<typeof vi.fn>).mockReturnValue([{ kind: "doc" }]);
-		(formatPropagationWarnings as ReturnType<typeof vi.fn>).mockReturnValue([
+		vi.mocked(findPropagationTargets).mockReturnValue([{
+			file: "/repo/README.md", reason: "references the changed export",
+			category: "documentation", confidence: "medium",
+		}]);
+		(vi.mocked(formatPropagationWarnings)).mockReturnValue([
 			"[interlinked:propagation] update the docs",
 		]);
 		const out = getPreToolUseContext(writeEvent(TS), cfg, fakeGraph(), fakeSessions());
@@ -1238,23 +1254,23 @@ describe("getPreToolUseContext — change propagation", () => {
 	});
 
 	it("uses event.cwd when present for propagation discovery", () => {
-		(findPropagationTargets as ReturnType<typeof vi.fn>).mockReturnValue([]);
-		(formatPropagationWarnings as ReturnType<typeof vi.fn>).mockReturnValue([]);
+		(vi.mocked(findPropagationTargets)).mockReturnValue([]);
+		(vi.mocked(formatPropagationWarnings)).mockReturnValue([]);
 		const e = evt({ tool_name: "Edit", tool_input: { file_path: TS }, cwd: "/repo" });
 		getPreToolUseContext(e, cfg, fakeGraph(), fakeSessions());
 		expect(findPropagationTargets).toHaveBeenCalledWith(TS, "/repo");
 	});
 
 	it("falls back to process.cwd() when the event omits cwd", () => {
-		(findPropagationTargets as ReturnType<typeof vi.fn>).mockReturnValue([]);
-		(formatPropagationWarnings as ReturnType<typeof vi.fn>).mockReturnValue([]);
+		(vi.mocked(findPropagationTargets)).mockReturnValue([]);
+		(vi.mocked(formatPropagationWarnings)).mockReturnValue([]);
 		getPreToolUseContext(writeEvent(TS), cfg, fakeGraph(), fakeSessions());
 		expect(findPropagationTargets).toHaveBeenCalledWith(TS, process.cwd());
 	});
 
 	it("does not run propagation on read operations", () => {
-		(findPropagationTargets as ReturnType<typeof vi.fn>).mockReturnValue([]);
-		(formatPropagationWarnings as ReturnType<typeof vi.fn>).mockReturnValue([]);
+		(vi.mocked(findPropagationTargets)).mockReturnValue([]);
+		(vi.mocked(formatPropagationWarnings)).mockReturnValue([]);
 		getPreToolUseContext(
 			evt({ tool_name: "Read", tool_input: { file_path: TS } }),
 			cfg,
@@ -1274,13 +1290,13 @@ describe("getPreToolUseContext — session-optional paths", () => {
 		// recently_failed / test_first / redundant_reread / completion_tracking /
 		// impact_analysis all require `session`; with none passed they must skip,
 		// while blast_radius / sibling_awareness / change-propagation still run.
-		mockedResolveDependencyView.mockReturnValue({
+		mockedResolveDependencyView.mockReturnValue(dependencyView({
 			getDependents: () => ["/repo/src/a.ts", "/repo/src/b.ts", "/repo/src/c.ts"],
 			classifyModule: () => "hub",
 			source: "internal",
-		});
-		(findPropagationTargets as ReturnType<typeof vi.fn>).mockReturnValue([]);
-		(formatPropagationWarnings as ReturnType<typeof vi.fn>).mockReturnValue([]);
+		}));
+		(vi.mocked(findPropagationTargets)).mockReturnValue([]);
+		(vi.mocked(formatPropagationWarnings)).mockReturnValue([]);
 
 		const out = getPreToolUseContext(writeEvent(TS), fullConfig(), fakeGraph(), fakeSessions());
 		// blast-radius still fires without a session.
@@ -1291,15 +1307,15 @@ describe("getPreToolUseContext — session-optional paths", () => {
 	});
 
 	it("aggregates multiple warnings from independent blocks in one call", () => {
-		mockedResolveDependencyView.mockReturnValue({
+		mockedResolveDependencyView.mockReturnValue(dependencyView({
 			getDependents: () => ["/repo/src/a.ts", "/repo/src/b.ts", "/repo/src/c.ts"],
 			classifyModule: () => "hub",
 			source: "internal",
-		});
-		(findTestFileForSource as ReturnType<typeof vi.fn>).mockReturnValue(null);
-		(checkFollowUpViolation as ReturnType<typeof vi.fn>).mockReturnValue("do follow-up");
-		(findPropagationTargets as ReturnType<typeof vi.fn>).mockReturnValue([]);
-		(formatPropagationWarnings as ReturnType<typeof vi.fn>).mockReturnValue([]);
+		}));
+		(vi.mocked(findTestFileForSource)).mockReturnValue(null);
+		(vi.mocked(checkFollowUpViolation)).mockReturnValue("do follow-up");
+		(vi.mocked(findPropagationTargets)).mockReturnValue([]);
+		(vi.mocked(formatPropagationWarnings)).mockReturnValue([]);
 
 		const session = fakeSession();
 		const out = getPreToolUseContext(writeEvent(TS), fullConfig(), fakeGraph(), fakeSessions(), session);

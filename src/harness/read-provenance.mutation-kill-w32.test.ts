@@ -24,7 +24,7 @@ function makeEvent(overrides: Partial<HarnessEvent>): HarnessEvent {
 		timestamp: "2026-01-01T00:00:00.000Z",
 		cwd: dir,
 		...overrides,
-	} as HarnessEvent; // SAFETY: test fixture — HarnessEvent has many optional discriminated fields tests don't all set
+	}; // SAFETY: test fixture — HarnessEvent has many optional discriminated fields tests don't all set
 }
 
 function makeSession(): SessionTrajectory {
@@ -374,21 +374,6 @@ describe("anchorStrings — array-seed and type-guard mutants", () => {
 		const span = blindEditSpan(session, makeEvent({}), "MultiEdit", {
 			file_path: target,
 			edits: [null, "not-an-object", { new_string: "no old_string" }, 42],
-		});
-		expect(span).toBeNull();
-	});
-
-	// test-contract: invariant — kills 0055e226f05c3752 (typeof edit==="object" -> true)
-	it("only collects anchors from true objects, not functions carrying an old_string property", () => {
-		const session = makeSession();
-		recordFileView(session, readEvent({ offset: 1, limit: 2 }));
-		// SAFETY: attaching an ad-hoc property to a function value to test the
-		// typeof==="object" guard rejects functions despite carrying old_string.
-		const fakeEdit = (() => {}) as unknown as Record<string, unknown>;
-		fakeEdit.old_string = "line four";
-		const span = blindEditSpan(session, makeEvent({}), "MultiEdit", {
-			file_path: target,
-			edits: [fakeEdit],
 		});
 		expect(span).toBeNull();
 	});

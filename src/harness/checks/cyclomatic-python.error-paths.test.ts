@@ -51,8 +51,8 @@ describe("computeCyclomaticPython — outer try/catch (fs failure before spawn)"
 			writeFileSync: vi.fn(),
 		}));
 		const { computeCyclomaticPython } = await import("./cyclomatic-python.js");
-		const spawn = vi.fn();
-		const out = computeCyclomaticPython("def f():\n    pass\n", "x.py", spawn as never);
+		const spawn = vi.fn<import("./cyclomatic-python.js").PythonSpawnFn>();
+		const out = computeCyclomaticPython("def f():\n    pass\n", "x.py", spawn);
 		expect(out).toBeNull();
 		// dir stayed null (never assigned) — the finally block's `dir !== null`
 		// guard must skip rmSync rather than calling it with a garbage path.
@@ -73,8 +73,8 @@ describe("computeCyclomaticPython — outer try/catch (fs failure before spawn)"
 			},
 		}));
 		const { computeCyclomaticPython } = await import("./cyclomatic-python.js");
-		const spawn = vi.fn();
-		const out = computeCyclomaticPython("def f():\n    pass\n", "x.py", spawn as never);
+		const spawn = vi.fn<import("./cyclomatic-python.js").PythonSpawnFn>();
+		const out = computeCyclomaticPython("def f():\n    pass\n", "x.py", spawn);
 		expect(out).toBeNull();
 		// dir WAS assigned (mkdtempSync succeeded) — cleanup must still run.
 		expect(rmSyncMock).toHaveBeenCalledWith("/tmp/interlinked-radon-fake", {

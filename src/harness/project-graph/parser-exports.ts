@@ -199,6 +199,11 @@ function matchReExportOrStar(trimmed: string, lineNum: number): ExportedSymbol[]
  * Internal helper for {@link parseExports}. Returns the extracted symbols, or
  * `null` when the line is not a recognised declaration form.
  */
+function variableKind(capture: string | undefined): "const" | "let" | "var" {
+	if (capture === "const" || capture === "let") return capture;
+	return "var";
+}
+
 function matchExportDeclaration(trimmed: string, lineNum: number): ExportedSymbol[] | null {
 	// export default class/function Name
 	const defaultClassFn = trimmed.match(/^export\s+default\s+(class|function)\s*(\w*)/);
@@ -210,7 +215,7 @@ function matchExportDeclaration(trimmed: string, lineNum: number): ExportedSymbo
 		if (defaultClassFn[2]) {
 			out.push({
 				name: defaultClassFn[2],
-				kind: defaultClassFn[1] as "class" | "function",
+				kind: defaultClassFn[1] === "class" ? "class" : "function",
 				isTypeOnly: false,
 				line: lineNum,
 			});
@@ -241,7 +246,7 @@ function matchExportDeclaration(trimmed: string, lineNum: number): ExportedSymbo
 		return [
 			{
 				name: variable[2],
-				kind: variable[1] as "const" | "let" | "var",
+				kind: variableKind(variable[1]),
 				isTypeOnly: false,
 				line: lineNum,
 			},

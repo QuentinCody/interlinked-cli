@@ -30,7 +30,7 @@ import {
 } from "../harness/content-gate.js";
 import { resolveProposedContent } from "../harness/overlay-content.js";
 import { c } from "../lib/formatter.js";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 
 /** Options accepted by `interlinked verify-changeset`. */
 export interface VerifyChangesetOptions {
@@ -79,12 +79,10 @@ async function readChangesetSource(opts: VerifyChangesetOptions): Promise<string
 
 /** Coerce one raw change into a validated ChangeEntry. Throws a usage-level Error. */
 function toChangeEntry(raw: unknown, i: number): ChangeEntry {
-	if (!raw || typeof raw !== "object") {
+	if (!isJsonObject(raw)) {
 		throw new Error(`changes[${i}] must be an object { path, content | old_string+new_string | edits }.`);
 	}
-	// SAFETY: callers pass values produced by JSON.parse; after the object guard,
-	// every reachable property is a JsonValue and the path is validated below.
-	const obj = raw as JsonObject;
+	const obj = raw;
 	if (typeof obj.path !== "string" || obj.path.length === 0) {
 		throw new Error(`changes[${i}].path must be a non-empty string.`);
 	}
@@ -104,7 +102,7 @@ function parseChangeset(raw: string): ChangeEntry[] {
 	if (!parsed || typeof parsed !== "object") {
 		throw new Error("Changeset must be a JSON object { version: 1, changes: [...] }.");
 	}
-	const env = parsed as { version?: unknown; changes?: unknown };
+	const env: { version?: unknown; changes?: unknown } = parsed;
 	if (env.version !== 1) {
 		throw new Error(`Changeset version must be 1 (got ${JSON.stringify(env.version)}).`);
 	}

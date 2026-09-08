@@ -24,7 +24,7 @@ describe("scanner render helpers", () => {
 
     // test-contract: an unknown requested key is reported as an error rather than selecting a review.
     it("reports a missing requested review key", () => {
-        expect(pickReview([{ key: "newest" } as never], "missing")).toEqual({
+        expect(pickReview([{ key: "newest", path: "/repo/review.json", timestamp: "2026-01-01T00:00:00Z", url: "https://example.test", tool_name: "WebFetch", finding_count: 0 }], "missing")).toEqual({
             error: 'no pending review with key "missing"',
         });
     });
@@ -50,23 +50,25 @@ describe("scanner render helpers", () => {
     // test-contract: findings are highlighted in source order while preserving intervening body text.
     it("highlights findings at their original positions", () => {
         const output = stripAnsi(renderReview({
+            timestamp: "2026-01-01T00:00:00Z", prompt: "Fetch page", tool_name: "WebFetch", cache_key: "review", redacted_body: "<EMAIL> and <NAME>",
             url: "https://example.test",
             findings: [
-                { start: 10, end: 13, label: "name" },
-                { start: 0, end: 5, label: "email" },
+                { start: 10, end: 13, label: "name", text: "bob", source: "test" },
+                { start: 0, end: 5, label: "email", text: "alice", source: "test" },
             ],
             body: "alice and bob",
-        } as never));
+        }));
         expect(output).toContain("alice <EMAIL> and bob <NAME>");
     });
 
     // test-contract: a review with no findings renders an empty findings section without injected content.
     it("renders an empty review without sentinel lines", () => {
         const output = renderReview({
+            timestamp: "2026-01-01T00:00:00Z", prompt: "Fetch page", tool_name: "WebFetch", cache_key: "review", redacted_body: "No personal data.",
             url: "https://example.test",
             findings: [],
             body: "No personal data.",
-        } as never);
+        });
         expect(output).toContain("Findings");
         expect(output).toContain("0");
         expect(output).not.toContain("Stryker was here");

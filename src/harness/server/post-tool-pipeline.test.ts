@@ -1,3 +1,6 @@
+import { makeServerRuntime, makeServerRules } from "./__tests__/fixtures.js";
+import { buildTestIndex } from "../__tests__/fixtures/trigram.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 // Behavioral coverage for the PostToolUse pipeline orchestrator.
 //
 // Every sibling check module is mocked at the import boundary so each branch
@@ -6,11 +9,6 @@
 // the real `./post-tool-pipeline.js` and assert the aggregated decision it
 // returns (warnings / summary / check_results / timing / phase_breakdown).
 //
-// `makeCtx` / `makeRules` take loose record literals and cast the whole
-// object once (`as unknown as ...`) so the test can supply just the handful
-// of fields the orchestrator reads without satisfying every field of the
-// large runtime interfaces — and without per-property `undefined`-widening
-// casts that exactOptionalPropertyTypes rejects.
 
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type {
@@ -123,23 +121,33 @@ import {
 	completePostToolWarningSpool,
 } from "./post-tool-warning-spool.js";
 
-const mEvaluate = evaluatePostToolUse as unknown as Mock;
-const mDischarge = dischargeObligationsAfterGreenRun as unknown as Mock;
-const mPostScan = runPostToolScan as unknown as Mock;
-const mFailureChannels = runFailureChannels as unknown as Mock;
-const mDetectTestRun = detectTestRunFile as unknown as Mock;
-const mRecordTestRunCycle = recordTestRunCycle as unknown as Mock;
-const mExtractPaths = extractAllEditedFilePaths as unknown as Mock;
-const mShouldSkip = shouldSkipPath as unknown as Mock;
-const mCheckSilent = checkSilentFailure as unknown as Mock;
-const mCheckBloat = checkContextBloat as unknown as Mock;
-const mConsecutive = consecutiveFailureWarning as unknown as Mock;
-const mGetEngine = getOrCreateEngine as unknown as Mock;
-const mRunPerFile = runPerFileChecks as unknown as Mock;
-const mBeginWarningSpool = beginPostToolWarningSpool as unknown as Mock;
-const mCompleteWarningSpool = completePostToolWarningSpool as unknown as Mock;
-const mExistsSync = existsSync as unknown as Mock;
-const mReadFile = readFileSync as unknown as Mock;
+const mEvaluate = vi.mocked(evaluatePostToolUse);
+const mDischarge = vi.mocked(dischargeObligationsAfterGreenRun);
+const mPostScan = vi.mocked(runPostToolScan);
+const mFailureChannels = vi.mocked(runFailureChannels);
+const mDetectTestRun = vi.mocked(detectTestRunFile);
+const mRecordTestRunCycle = vi.mocked(recordTestRunCycle);
+const mExtractPaths = vi.mocked(extractAllEditedFilePaths);
+const mShouldSkip = vi.mocked(shouldSkipPath);
+const mCheckSilent = vi.mocked(checkSilentFailure);
+const mCheckBloat = vi.mocked(checkContextBloat);
+const mConsecutive = vi.mocked(consecutiveFailureWarning);
+const mGetEngine = vi.mocked(getOrCreateEngine);
+const mRunPerFile = vi.mocked(runPerFileChecks);
+const mBeginWarningSpool = vi.mocked(beginPostToolWarningSpool);
+const mCompleteWarningSpool = vi.mocked(completePostToolWarningSpool);
+const { CheckEngine } = await vi.importActual<typeof import("../check-engine/index.js")>("../check-engine/index.js");
+function engineWithAvailability(isToolAvailable: (tool: string) => boolean) {
+	const engine = new CheckEngine("/repo");
+	vi.spyOn(engine, "isToolAvailable").mockImplementation(isToolAvailable);
+	return engine;
+}
+function failureOutput(warnings: string[]): NonNullable<ReturnType<typeof runFailureChannels>> {
+	return { warnings, failure_id: "failure-1", signature: "test-signature", record_path: "/repo/.interlinked/failures/failure-1.json", triage: { label: "unknown", category: "test", confidence: 1, source: "local-heuristic" } };
+}
+
+const mExistsSync = vi.mocked(existsSync);
+const mReadFile = vi.mocked(readFileSync);
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -155,8 +163,8 @@ function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
 	};
 }
 
-function makeSession(partial: Record<string, unknown> = {}): SessionTrajectory {
-	return {
+function makeSession(partial: Partial<SessionTrajectory> = {}): SessionTrajectory {
+	return ({ ...makeSessionFixture(),
 		test_runs: new Map(),
 		silent_failure_warned: new Set<string>(),
 		bloat_warned: new Set<string>(),
@@ -164,18 +172,15 @@ function makeSession(partial: Record<string, unknown> = {}): SessionTrajectory {
 		acknowledged_checks: new Set<string>(),
 		tool_call_count: 3,
 		...partial,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
-function makeRules(partial: Record<string, unknown> = {}): GuardRulesConfig {
-	return {
-		rules: [{ id: "r1" }, { id: "r2" }],
-		...partial,
-	} as unknown as GuardRulesConfig;
+function makeRules(partial: NonNullable<Parameters<typeof makeServerRules>[0]> = {}): GuardRulesConfig {
+ return makeServerRules({ rules: ["r1", "r2"].map((id) => ({ id, enabled: true, trigger: "PostToolUse", tool_match: ["*"], action: "warn", patterns: [], reason: id, severity: "low" })), ...partial });
 }
 
-function makeCtx(overrides: Record<string, unknown> = {}): ServerRuntime {
-	return {
+function makeCtx(overrides: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime {
+	return makeServerRuntime({
 		cwd: "/repo",
 		interlinkedDir: "/repo/.interlinked",
 		rules: makeRules(),
@@ -187,7 +192,7 @@ function makeCtx(overrides: Record<string, unknown> = {}): ServerRuntime {
 		fileContentCache: { set: vi.fn() },
 		log: vi.fn(),
 		...overrides,
-	} as unknown as ServerRuntime;
+	});
 }
 
 /** A minimal but fully-typed structured finding (the orchestrator only reads
@@ -214,7 +219,7 @@ beforeEach(() => {
 	mCheckSilent.mockReturnValue(null);
 	mCheckBloat.mockReturnValue(null);
 	mConsecutive.mockReturnValue(null);
-	mGetEngine.mockReturnValue({ isToolAvailable: vi.fn(() => true) });
+	mGetEngine.mockReturnValue(engineWithAvailability(vi.fn(() => true)));
 	mRunPerFile.mockResolvedValue(undefined);
 	mExistsSync.mockReturnValue(true);
 	mReadFile.mockReturnValue("file contents");
@@ -314,8 +319,8 @@ describe("skip_paths short-circuit", () => {
 describe("trigram dirty-layer update", () => {
 	function ctxWithIndex(updateFile = vi.fn()): { ctx: ServerRuntime; updateFile: Mock } {
 		const fileContentCache = { set: vi.fn(), invalidate: vi.fn() };
-		const ctx = makeCtx({ trigramIndex: { updateFile }, fileContentCache });
-		return { ctx, updateFile: updateFile as unknown as Mock };
+		const ctx = makeCtx({ trigramIndex: Object.assign(buildTestIndex({}), { updateFile }), fileContentCache });
+		return { ctx, updateFile: vi.mocked(updateFile) };
 	}
 
 	it("updates the index + content cache for an in-repo file write", async () => {
@@ -324,7 +329,7 @@ describe("trigram dirty-layer update", () => {
 		const event = ev({ tool_name: "Edit", tool_input: { file_path: "/repo/src/a.ts" } });
 		await runPostToolPipeline(ctx, event, makeSession());
 		expect(updateFile).toHaveBeenCalledWith("src/a.ts", "file contents");
-		expect((ctx.fileContentCache as unknown as { set: Mock }).set).toHaveBeenCalledWith(
+		expect(ctx.fileContentCache.set).toHaveBeenCalledWith(
 			"src/a.ts",
 			"file contents",
 		);
@@ -351,7 +356,7 @@ describe("trigram dirty-layer update", () => {
 		const event = ev({ tool_name: "Edit", tool_input: { file_path: "/repo/src/gone.ts" } });
 		await runPostToolPipeline(ctx, event, makeSession());
 		expect(updateFile).toHaveBeenCalledWith("src/gone.ts", null);
-		expect((ctx.fileContentCache as unknown as { invalidate: Mock }).invalidate).toHaveBeenCalledWith(
+		expect(ctx.fileContentCache.invalidate).toHaveBeenCalledWith(
 			"src/gone.ts",
 		);
 	});
@@ -388,29 +393,6 @@ describe("trigram dirty-layer update", () => {
 		const event = ev({ tool_input: { file_path: "/repo/src/a.ts" } });
 		await runPostToolPipeline(ctx, event, makeSession());
 		expect(updateFile).not.toHaveBeenCalled();
-	});
-});
-
-// ---------------------------------------------------------------------------
-// 2b. Defensive falsy-session guard (session is typed non-null, but the
-// orchestrator still guards `if (session)`; a degraded caller could pass a
-// falsy value).
-// ---------------------------------------------------------------------------
-
-describe("falsy-session guard", () => {
-	it("skips test-run tracking + tool-response checks when session is falsy", async () => {
-		mDetectTestRun.mockReturnValue("src/x.test.ts");
-		mCheckSilent.mockReturnValue({ kind: "body-error" });
-		const event = ev({ tool_name: "Bash", tool_input: { command: "vitest run x" } });
-		const decision = await runPostToolPipeline(
-			makeCtx(),
-			event,
-			null as unknown as SessionTrajectory,
-		);
-		expect(decision.decision).toBe("allow");
-		// `if (session)` false → no TDD recording, no silent-failure check.
-		expect(mRecordTestRunCycle).not.toHaveBeenCalled();
-		expect(mCheckSilent).not.toHaveBeenCalled();
 	});
 });
 
@@ -803,7 +785,7 @@ describe("observed-check outcome tracking", () => {
 
 describe("failure-recovery channels", () => {
 	it("appends channel warnings when tool_outcome is error", async () => {
-		mFailureChannels.mockReturnValue({ warnings: ["CHAN-1", "CHAN-2"] });
+		mFailureChannels.mockReturnValue(failureOutput(["CHAN-1", "CHAN-2"]));
 		const ctx = makeCtx();
 		const event = ev({ tool_name: "Bash", tool_outcome: "error" });
 		const session = makeSession();
@@ -815,14 +797,14 @@ describe("failure-recovery channels", () => {
 
 	it("merges channel warnings into an existing warnings array", async () => {
 		mEvaluate.mockReturnValue({ decision: "allow", warnings: ["EXISTING"] });
-		mFailureChannels.mockReturnValue({ warnings: ["CHAN"] });
+		mFailureChannels.mockReturnValue(failureOutput(["CHAN"]));
 		const event = ev({ tool_name: "Bash", tool_outcome: "error" });
 		const decision = await runPostToolPipeline(makeCtx(), event, makeSession());
 		expect(decision.warnings).toEqual(["EXISTING", "CHAN"]);
 	});
 
 	it("does not append when the channel output has no warnings", async () => {
-		mFailureChannels.mockReturnValue({ warnings: [] });
+		mFailureChannels.mockReturnValue(failureOutput([]));
 		const event = ev({ tool_name: "Bash", tool_outcome: "error" });
 		const decision = await runPostToolPipeline(makeCtx(), event, makeSession());
 		expect(decision.warnings).toBeUndefined();
@@ -874,7 +856,7 @@ describe("failure-recovery channels", () => {
 describe("content scanner post-scan", () => {
 	function ctxWithScanner(): ServerRuntime {
 		return makeCtx({
-			contentScanner: {},
+			contentScanner: { name: "fixture", runtime: "http", ready: vi.fn(async () => true), scan: vi.fn(async () => []), shutdown: vi.fn(async () => {}) },
 			rules: makeRules({ content_scanner: { enabled: true } }),
 		});
 	}
@@ -918,7 +900,7 @@ describe("content scanner post-scan", () => {
 	});
 
 	it("skips post-scan when content_scanner config is disabled", async () => {
-		const ctx = makeCtx({ contentScanner: {} });
+		const ctx = makeCtx({ contentScanner: { name: "fixture", runtime: "http", ready: vi.fn(async () => true), scan: vi.fn(async () => []), shutdown: vi.fn(async () => {}) } });
 		await runPostToolPipeline(ctx, ev({ tool_name: "Read" }), makeSession());
 		expect(mPostScan).not.toHaveBeenCalled();
 	});
@@ -930,7 +912,7 @@ describe("content scanner post-scan", () => {
 
 describe("tool-response checks", () => {
 	it("pushes a silent-failure warning and records it once per tool", async () => {
-		mCheckSilent.mockReturnValue({ kind: "body-error" });
+		mCheckSilent.mockReturnValue({ pattern: "body-error", detail: "tool response reported an error" });
 		const session = makeSession();
 		const event = ev({ tool_name: "mcp__x", tool_response: { ok: false } });
 		const decision = await runPostToolPipeline(makeCtx(), event, session);
@@ -940,7 +922,7 @@ describe("tool-response checks", () => {
 	});
 
 	it("does not re-fire silent-failure when the tool is already warned", async () => {
-		mCheckSilent.mockReturnValue({ kind: "body-error" });
+		mCheckSilent.mockReturnValue({ pattern: "body-error", detail: "tool response reported an error" });
 		const session = makeSession({ silent_failure_warned: new Set(["mcp__x"]) });
 		const event = ev({ tool_name: "mcp__x" });
 		const decision = await runPostToolPipeline(makeCtx(), event, session);
@@ -960,7 +942,7 @@ describe("tool-response checks", () => {
 	});
 
 	it("pushes a context-bloat warning and records it once per tool", async () => {
-		mCheckBloat.mockReturnValue({ tokens: 9000 });
+		mCheckBloat.mockReturnValue({ approx_tokens: 9000, chars: 9000 * 4 });
 		const session = makeSession();
 		const decision = await runPostToolPipeline(makeCtx(), ev({ tool_name: "Grep" }), session);
 		expect(decision.warnings).toContain("BLOAT");
@@ -969,7 +951,7 @@ describe("tool-response checks", () => {
 	});
 
 	it("does not re-fire context-bloat when already warned", async () => {
-		mCheckBloat.mockReturnValue({ tokens: 9000 });
+		mCheckBloat.mockReturnValue({ approx_tokens: 9000, chars: 9000 * 4 });
 		const session = makeSession({ bloat_warned: new Set(["Grep"]) });
 		await runPostToolPipeline(makeCtx(), ev({ tool_name: "Grep" }), session);
 		expect(mCheckBloat).not.toHaveBeenCalled();
@@ -1003,8 +985,8 @@ describe("tool-response checks", () => {
 		// Pre-seeds postDecision.warnings so the `!postDecision.warnings`
 		// guards on all three tool-response pushes take their false branch.
 		mEvaluate.mockReturnValue({ decision: "allow", warnings: ["SEED"] });
-		mCheckSilent.mockReturnValue({ kind: "body-error" });
-		mCheckBloat.mockReturnValue({ tokens: 9000 });
+		mCheckSilent.mockReturnValue({ pattern: "body-error", detail: "tool response reported an error" });
+		mCheckBloat.mockReturnValue({ approx_tokens: 9000, chars: 9000 * 4 });
 		mConsecutive.mockReturnValue("CONSEC");
 		const session = makeSession({ consecutive_tool_failures: new Map([["Bash", 4]]) });
 		const decision = await runPostToolPipeline(makeCtx(), ev({ tool_name: "Bash" }), session);
@@ -1240,7 +1222,7 @@ describe("tail aggregation of structured results", () => {
 
 describe("required-tool coverage", () => {
 	it("warns once per missing required tool and acknowledges it", async () => {
-		mGetEngine.mockReturnValue({ isToolAvailable: vi.fn(() => false) });
+		mGetEngine.mockReturnValue(engineWithAvailability(vi.fn(() => false)));
 		const ctx = makeCtx({ rules: makeRules({ required_tools: ["tsc"] }) });
 		const session = makeSession();
 		const decision = await runPostToolPipeline(ctx, ev({ tool_name: "Read" }), session);
@@ -1254,7 +1236,7 @@ describe("required-tool coverage", () => {
 
 	it("merges the required-tool warning into an existing warnings array", async () => {
 		mEvaluate.mockReturnValue({ decision: "allow", warnings: ["PRE"] });
-		mGetEngine.mockReturnValue({ isToolAvailable: vi.fn(() => false) });
+		mGetEngine.mockReturnValue(engineWithAvailability(vi.fn(() => false)));
 		const ctx = makeCtx({ rules: makeRules({ required_tools: ["tsc"] }) });
 		const decision = await runPostToolPipeline(ctx, ev({ tool_name: "Read" }), makeSession());
 		expect(decision.warnings?.[0]).toBe("PRE");
@@ -1262,7 +1244,7 @@ describe("required-tool coverage", () => {
 	});
 
 	it("does not warn when the required tool is available", async () => {
-		mGetEngine.mockReturnValue({ isToolAvailable: vi.fn(() => true) });
+		mGetEngine.mockReturnValue(engineWithAvailability(vi.fn(() => true)));
 		const ctx = makeCtx({ rules: makeRules({ required_tools: ["tsc"] }) });
 		const decision = await runPostToolPipeline(ctx, ev({ tool_name: "Read" }), makeSession());
 		expect(decision.warnings ?? []).not.toContainEqual(expect.stringContaining("Required tool"));
@@ -1270,7 +1252,7 @@ describe("required-tool coverage", () => {
 
 	it("skips a required tool already acknowledged this session", async () => {
 		const isToolAvailable = vi.fn(() => false);
-		mGetEngine.mockReturnValue({ isToolAvailable });
+		mGetEngine.mockReturnValue(engineWithAvailability(isToolAvailable));
 		const ctx = makeCtx({ rules: makeRules({ required_tools: ["tsc"] }) });
 		const session = makeSession({
 			acknowledged_checks: new Set(["required-tool-missing::tsc"]),

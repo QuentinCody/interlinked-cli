@@ -1,3 +1,5 @@
+import { parseWire, wireArray, wireObject, wireRecord, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // ===========================================
 // installed-hooks-verify — semantic verification of one runner's install
 // ===========================================
@@ -10,7 +12,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it } from "vitest";
+import { isJsonObject } from "../lib/json-types.js";
 import { installHooks, manifestPath, readManifest, resolveSettingsPath } from "./installer.js";
 import { verifyInstalledRunner } from "./installed-hooks-verify.js";
 
@@ -32,7 +35,7 @@ function installedEntry(runner: "gemini-cli" | "codex" | "cursor") {
 	const entry = readManifest(manifestPath(cwd)).find((e) => e.runner === runner);
 	expect(entry).toBeDefined();
 	// SAFETY: asserted defined on the line above.
-	return entry as NonNullable<typeof entry>;
+	return nonNull(entry);
 }
 
 describe("verifyInstalledRunner — positive (a real install verifies)", () => {
@@ -55,7 +58,7 @@ describe("verifyInstalledRunner — positive (a real install verifies)", () => {
 	it("P3: canonical hook text in unrelated metadata is not an installed stale command", () => {
 		const entry = installedEntry("gemini-cli");
 		// SAFETY: written by installHooks moments ago; JSON by construction.
-		const raw = JSON.parse(readFileSync(entry.settings_path, "utf-8")) as Record<string, unknown>;
+		const raw = parseWire(JSON.parse(readFileSync(entry.settings_path, "utf-8")), wireRecord(wireUnknown), "test JSON value");
 		raw.unrelated_note =
 			'node "/old/dist/hook-entry.js" --runner "gemini-cli" --event "BeforeTool"';
 		writeFileSync(entry.settings_path, JSON.stringify(raw));
@@ -66,19 +69,17 @@ describe("verifyInstalledRunner — positive (a real install verifies)", () => {
 	it("P4: object key order does not make a structurally identical hook stale", () => {
 		const entry = installedEntry("codex");
 		// SAFETY: written by installHooks moments ago; JSON by construction.
-		const raw = JSON.parse(readFileSync(entry.settings_path, "utf-8")) as {
-			hooks: Record<string, unknown[]>;
-		};
+		const raw = parseWire(JSON.parse(readFileSync(entry.settings_path, "utf-8")), wireObject({ "hooks": wireRecord(wireArray(wireUnknown)) }), "test JSON value");
 		const firstEventEntries = Object.values(raw.hooks)[0];
 		const firstEntry = firstEventEntries?.[0];
 		expect(firstEntry).not.toBeNull();
 		expect(typeof firstEntry).toBe("object");
 		expect(Array.isArray(firstEntry)).toBe(false);
 		// SAFETY: the assertions above narrow this installed hook entry to a non-null, non-array object.
-		const firstEntryRecord = firstEntry as Record<string, unknown>;
+		const firstEntryRecord = parseWire(firstEntry, wireRecord(wireUnknown), "test JSON value");
 		expect(firstEventEntries).toBeDefined();
 		// SAFETY: asserted defined on the line above.
-		(firstEventEntries as unknown[])[0] = Object.fromEntries(
+		(nonNull(firstEventEntries))[0] = Object.fromEntries(
 			Object.entries(firstEntryRecord).reverse(),
 		);
 		writeFileSync(entry.settings_path, JSON.stringify(raw));
@@ -103,9 +104,7 @@ describe("verifyInstalledRunner — negative (must fail)", () => {
 	it("N2: a settings file missing one owned event fails", () => {
 		const entry = installedEntry("gemini-cli");
 		// SAFETY: written by installHooks moments ago; JSON by construction.
-		const raw = JSON.parse(readFileSync(entry.settings_path, "utf-8")) as {
-			hooks: Record<string, unknown>;
-		};
+		const raw = parseWire(JSON.parse(readFileSync(entry.settings_path, "utf-8")), wireObject({ "hooks": wireRecord(wireUnknown) }), "test JSON value");
 		delete raw.hooks.AfterTool;
 		writeFileSync(entry.settings_path, JSON.stringify(raw));
 		const v = verifyInstalledRunner(cwd, entry, BINARY);
@@ -161,7 +160,7 @@ describe("verifyInstalledRunner — negative (must fail)", () => {
 	it("N6: hooks moved under an unrelated key (real hooks deleted) fail", () => {
 		const entry = installedEntry("gemini-cli");
 		// SAFETY: written by installHooks moments ago; JSON by construction.
-		const raw = JSON.parse(readFileSync(entry.settings_path, "utf-8")) as Record<string, unknown>;
+		const raw = parseWire(JSON.parse(readFileSync(entry.settings_path, "utf-8")), wireRecord(wireUnknown), "test JSON value");
 		const moved = { unrelated_note: raw.hooks };
 		writeFileSync(entry.settings_path, JSON.stringify(moved));
 		const v = verifyInstalledRunner(cwd, entry, BINARY);
@@ -177,9 +176,7 @@ describe("verifyInstalledRunner — negative (must fail)", () => {
 	it("N8: a stale old-binary Interlinked hook at an undeclared event fails", () => {
 		const entry = installedEntry("gemini-cli");
 		// SAFETY: written by installHooks moments ago; JSON by construction.
-		const raw = JSON.parse(readFileSync(entry.settings_path, "utf-8")) as {
-			hooks: Record<string, unknown>;
-		};
+		const raw = parseWire(JSON.parse(readFileSync(entry.settings_path, "utf-8")), wireObject({ "hooks": wireRecord(wireUnknown) }), "test JSON value");
 		raw.hooks.Obsolete = [
 			{ command: 'node "/some/old/dist/hook-entry.js" --runner "gemini-cli" --event "Obsolete"' },
 		];
@@ -192,9 +189,7 @@ describe("verifyInstalledRunner — negative (must fail)", () => {
 	it("N10: a prototype-name native key is not mistaken for an adapter declaration", () => {
 		const entry = installedEntry("gemini-cli");
 		// SAFETY: written by installHooks moments ago; JSON by construction.
-		const raw = JSON.parse(readFileSync(entry.settings_path, "utf-8")) as {
-			hooks: Record<string, unknown>;
-		};
+		const raw = parseWire(JSON.parse(readFileSync(entry.settings_path, "utf-8")), wireObject({ "hooks": wireRecord(wireUnknown) }), "test JSON value");
 		// Reusing a real current-binary entry prevents the independent stale-command
 		// sweep from hiding the declaration bug this regression isolates.
 		const firstNativeEntries = Object.values(raw.hooks)[0];
@@ -220,20 +215,19 @@ describe("verifyInstalledRunner — negative (must fail)", () => {
 
 	it("an extra owned hook entry beyond the adapter's expected shape fails with a count-mismatch message", () => {
 		const entry = installedEntry("gemini-cli");
-		// SAFETY: written by installHooks moments ago; JSON by construction.
-		const raw = JSON.parse(readFileSync(entry.settings_path, "utf-8")) as {
-			hooks: Record<string, Array<{ command: string }>>;
-		};
-		const original = raw.hooks.BeforeTool?.[0];
-		expect(original).toBeDefined();
-		// SAFETY: asserted defined on the line above. Same binary, a different
-		// --event flag value: still recognized as owned (ownership does not
-		// check the event value), but no longer structurally equal to the
-		// adapter's single expected BeforeTool entry.
+		const raw: unknown = JSON.parse(readFileSync(entry.settings_path, "utf-8"));
+		assert(isJsonObject(raw) && isJsonObject(raw.hooks));
+		assert(Array.isArray(raw.hooks.BeforeTool));
+		const original = raw.hooks.BeforeTool[0];
+		assert(isJsonObject(original) && Array.isArray(original.hooks));
+		const hook = original.hooks[0];
+		assert(isJsonObject(hook) && typeof hook.command === "string");
+		// Same owned binary, but a different event command in a second group.
 		const duplicateOnOtherEvent = {
-			command: (original as { command: string }).command.replace("--event 'BeforeTool'", "--event 'AfterTool'"),
+			...original,
+			hooks: [{ ...hook, command: hook.command.replace("--event 'BeforeTool'", "--event 'AfterTool'") }],
 		};
-		raw.hooks.BeforeTool = [original as { command: string }, duplicateOnOtherEvent];
+		raw.hooks.BeforeTool = [original, duplicateOnOtherEvent];
 		writeFileSync(entry.settings_path, JSON.stringify(raw));
 
 		const verification = verifyInstalledRunner(cwd, entry, BINARY);
@@ -246,7 +240,7 @@ describe("verifyInstalledRunner — negative (must fail)", () => {
 	it("a tampered primitive leaf in the fragment (cursor's version field) reports the expected-vs-found mismatch", () => {
 		const entry = installedEntry("cursor");
 		// SAFETY: written by installHooks moments ago; JSON by construction.
-		const raw = JSON.parse(readFileSync(entry.settings_path, "utf-8")) as Record<string, unknown>;
+		const raw = parseWire(JSON.parse(readFileSync(entry.settings_path, "utf-8")), wireRecord(wireUnknown), "test JSON value");
 		raw.version = 2;
 		writeFileSync(entry.settings_path, JSON.stringify(raw));
 

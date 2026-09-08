@@ -17,7 +17,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 
 // Merge strategy literal compared in `mergeArrayField`.
@@ -34,11 +34,10 @@ export function mergeSettings(
 	parentPath: string,
 	addedPaths: string[],
 ): JsonObject {
-	if (fragment == null || typeof fragment !== "object" || Array.isArray(fragment)) return target;
-	const frag = fragment as JsonObject;
-	for (const key of Object.keys(frag)) {
+	if (!isJsonObject(fragment)) return target;
+	for (const key of Object.keys(fragment)) {
 		const childPath = joinPath(parentPath, key);
-		const nextValue = frag[key];
+		const nextValue = fragment[key];
 		if (Array.isArray(nextValue)) {
 			mergeArrayField(target, key, nextValue, strategy, childPath, addedPaths);
 			continue;
@@ -85,8 +84,8 @@ function mergeArrayField(
 
 function readObjectField(target: JsonObject, key: string): JsonObject {
 	const existing = target[key];
-	if (existing != null && typeof existing === "object" && !Array.isArray(existing)) {
-		return existing as JsonObject;
+	if (isJsonObject(existing)) {
+		return existing;
 	}
 	const fresh: JsonObject = {};
 	target[key] = fresh;
@@ -115,10 +114,9 @@ export function removeJsonPath(target: unknown, path: string): boolean {
 	if (last.kind === "index") {
 		return removeIndexSegment(cursor, last.value);
 	}
-	if (typeof cursor !== "object" || Array.isArray(cursor)) return false;
-	const obj = cursor as JsonObject;
-	if (!Object.hasOwn(obj, last.value)) return false;
-	delete obj[last.value];
+	if (!isJsonObject(cursor)) return false;
+	if (!Object.hasOwn(cursor, last.value)) return false;
+	delete cursor[last.value];
 	return true;
 }
 
@@ -161,10 +159,10 @@ function step(cursor: unknown, seg: PathSegment): unknown {
 		if (!Array.isArray(cursor)) return undefined;
 		return cursor[seg.value];
 	}
-	if (typeof cursor !== "object" || Array.isArray(cursor)) return undefined;
+	if (!isJsonObject(cursor)) return undefined;
 	// Own properties only — inherited members are never hook data.
 	if (!Object.hasOwn(cursor, seg.value)) return undefined;
-	return (cursor as JsonObject)[seg.value];
+	return cursor[seg.value];
 }
 
 // -----------------------------------------------------------------------------
@@ -190,8 +188,7 @@ export function readJson(path: string): JsonObject | null {
 	// JSON.stringify(array), so accepting one records a successful install whose
 	// hook never reached disk. Treat that shape like malformed JSON instead.
 	if (Array.isArray(parsed)) return null;
-	if (parsed == null || typeof parsed !== "object") return {};
-	return parsed as JsonObject;
+	return isJsonObject(parsed) ? parsed : {};
 }
 
 export function writeAtomic(path: string, payload: unknown): void {

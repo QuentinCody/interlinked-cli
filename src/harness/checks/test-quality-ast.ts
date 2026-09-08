@@ -1,15 +1,14 @@
 // Shared syntax-only traversal for advisory test-quality checks. No type checker
 // or code execution; optional TypeScript availability follows cyclomatic-ast.
 import type * as TS from "typescript";
-import { parseTsSource, type ParsedTsSource, type TsModule } from "./cyclomatic-ast.js";
+import { hasParseErrors, parseTsSource, type ParsedTsSource, type TsModule } from "./cyclomatic-ast.js";
 import { getExtension, isTestFile, JS_TS_EXTS } from "./shared.js";
 
 /** Parse supported test source; incomplete source and missing TypeScript have no verdict. */
 export function parseTestQuality(content: string, filePath: string): ParsedTsSource | null {
     if (!isTestFile(filePath) || !JS_TS_EXTS.has(getExtension(filePath))) return null;
     const parsed = parseTsSource(content, filePath);
-    const diagnostics = (parsed?.sf as (TS.SourceFile & { parseDiagnostics?: readonly TS.Diagnostic[] }) | undefined)?.parseDiagnostics;
-    return diagnostics?.length ? null : parsed;
+    return parsed && !hasParseErrors(parsed.sf) ? parsed : null;
 }
 
 /** Visit nodes in source order, pruning descendants when the callback returns false. */

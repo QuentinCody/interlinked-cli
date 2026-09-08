@@ -1,3 +1,4 @@
+import { readToolString } from "../evaluator/tool-input-values.js";
 // ===========================================
 // PreToolUse pipeline — extracted stages
 // ===========================================
@@ -73,7 +74,7 @@ export function runTddCommitGate(
 	if (
 		preDecision.decision === "allow" &&
 		event.tool_name === "Bash" &&
-		/\bgit\s+commit\b/.test((event.tool_input?.command as string) || "")
+		/\bgit\s+commit\b/.test(readToolString(event.tool_input?.command))
 	) {
 		applyTddCommitGateToDecision(rules, event, session, preDecision);
 	}
@@ -90,21 +91,9 @@ function applyTddCommitGateToDecision(
 	session: SessionTrajectory,
 	preDecision: HarnessDecision,
 ): void {
-	// `GuardRulesConfig.structural_checks` is declared required, but a
-	// hot-reload / partial-merge window (and the test fixtures that model
-	// it — see "uses the warn default when structural_checks is absent")
-	// can genuinely hand this function an incompletely-populated rules
-	// object. Widening the local binding to `| undefined` keeps that
-	// honest instead of asserting a guarantee the runtime doesn't have.
-	// SAFETY: `as` (not a plain annotation) is required here — a plain
-	// `: T | undefined` binding still narrows via the initializer's real
-	// (non-optional) type, defeating the point of this cast.
-	const structuralChecks = rules.structural_checks as
-		| { test_first_mode?: "nudge" | "warn" | "enforce" }
-		| undefined;
-	const testFirstMode = structuralChecks?.test_first_mode || "warn";
+	const testFirstMode = rules.structural_checks.test_first_mode || "warn";
 	const commitMessage = parseCommitMessageFromBash(
-		(event.tool_input?.command as string) || "",
+		readToolString(event.tool_input?.command),
 	);
 	const gateResults = [
 		...(session.tdd_cycles.size > 0 ? checkTddCommitGate(session, testFirstMode) : []),
@@ -214,7 +203,7 @@ function captureBaselineForTarget(ctx: ServerRuntime, target: string): void {
 			suppressionCount: countSuppressionDirectives(preContent),
 			asAnyCastCount: countAsAnyCasts(preContent),
 			nonNullAssertionCount: countNonNullAssertions(preContent),
-			unjustifiedCastCount: countUnjustifiedCasts(preContent),
+			unjustifiedCastCount: countUnjustifiedCasts(preContent, baselineFilePath),
 			todoMarkerCount: countTodoMarkers(preContent),
 			consoleStatementCount: countConsoleStatements(preContent),
 			publicApiSurfaceCount: countPublicApiSurface(preContent),

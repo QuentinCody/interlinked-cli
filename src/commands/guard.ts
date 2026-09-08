@@ -15,6 +15,7 @@ import {
 	uninstallGuardHook,
 } from "../lib/guard-hooks.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
+import { wireAbsentOptional, parseWire, wireArray, wireObject, wireOptional, wireString } from "../lib/value-validation.js";
 
 // ===========================================
 // Types
@@ -42,6 +43,13 @@ interface Reservation {
 	path_pattern: string;
 	expires_at?: string | undefined;
 }
+
+const isReservation = wireObject<Reservation>({
+	agent_name: wireString, path_pattern: wireString, expires_at: wireAbsentOptional(wireOptional(wireString)),
+});
+const isReservationsResponse = wireObject<{ reservations?: Reservation[] }>({
+	reservations: wireAbsentOptional(wireArray(isReservation)),
+});
 
 // ===========================================
 // guard install
@@ -396,11 +404,14 @@ interface GuardCache {
 	fetched_at: string;
 }
 
+const isGuardCache = wireObject<GuardCache>({ reservations: wireArray(isReservation), fetched_at: wireString });
+
 function readGuardCache(cwd: string): GuardCache | null {
 	const cachePath = join(getConfigDir(cwd), GUARD_CACHE_FILE);
 	if (!existsSync(cachePath)) return null;
 	try {
-		return JSON.parse(readFileSync(cachePath, "utf-8")) as GuardCache;
+		const value: unknown = JSON.parse(readFileSync(cachePath, "utf-8"));
+		return isGuardCache(value) && Number.isFinite(Date.parse(value.fetched_at)) ? value : null;
 	} catch {
 		return null;
 	}
@@ -423,14 +434,7 @@ async function getReservations(
 	try {
 		const { getClient } = await import("../lib/api-client.js");
 		const client = getClient();
-		const result = await client.callTool<{
-			reservations?: Array<{
-				agent_name: string;
-				path_pattern: string;
-				exclusive?: boolean;
-				expires_at?: string;
-			}>;
-		} | null>("list_file_reservations", { brief: true });
+		const result = parseWire(await client.callTool("list_file_reservations", { brief: true }) ?? {}, isReservationsResponse, "list_file_reservations response");
 
 		const reservations: Reservation[] = (result?.reservations || []).map((r) => ({
 			agent_name: r.agent_name,

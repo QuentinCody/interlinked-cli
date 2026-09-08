@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CrapFinding } from "../harness/checks/crap.js";
 import type { FunctionComplexityEntry } from "../harness/checks/cyclomatic.js";
-import type { CanonicalCoverage } from "../harness/coverage-canonical.js";
+import { type CanonicalCoverage, metric } from "../harness/coverage-canonical.js";
 import type { PerFileCoverage } from "../harness/coverage-final-reader.js";
 import type { CoverageSummary } from "../harness/coverage-ratchet.js";
 import type { FunctionTokenMetricsReport } from "./metrics-function-tokens.js";
@@ -89,6 +89,7 @@ vi.mock("../harness/evaluator/tdd-new-file-gate.js", () => ({
 // formatter is real (color-stripped under CI/NO_COLOR — tests assert plain text).
 
 import { nonNull } from "../lib/non-null.js";
+import { parseWire, wireAbsentOptional, wireArray, wireBoolean, wireLiteral, wireNullable, wireNumber, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import { loadMetricsCoverage } from "./metrics-coverage.js";
 import { cyclomaticForMetrics, metricsCommand } from "./metrics.js";
 
@@ -254,7 +255,7 @@ interface JsonReport {
 		files: number;
 		functions: number;
 		coverageAvailable: boolean;
-		coverageSource: "istanbul" | "lcov" | null;
+		coverageSource: "istanbul" | "lcov" | "istanbul+lcov" | null;
 		astComplexityAvailable: boolean;
 	};
 	gates: {
@@ -272,7 +273,7 @@ interface JsonReport {
 	};
 	hotspots: Array<{ file: string; name: string; crap: number | null; cyclomatic: number }>;
 	tokenHotspots?: Array<{ file: string; name: string; canonicalTokens?: number | null }>;
-	functionTokenMetrics?: FunctionTokenMetricsReport;
+	functionTokenMetrics?: { functions: unknown[] };
 	missingCompanion: string[];
 	files: Array<{
 		file: string;
@@ -284,8 +285,30 @@ interface JsonReport {
 		overGate: number;
 	}>;
 }
+const isJsonReport = wireObject<JsonReport>({
+	scope: wireObject({ files: wireNumber, functions: wireNumber, coverageAvailable: wireBoolean,
+		coverageSource: wireNullable(wireLiteral("istanbul", "lcov", "istanbul+lcov")), astComplexityAvailable: wireBoolean }),
+	gates: wireObject<JsonReport["gates"]>({ functionsOverCrap: wireNumber, functionsCyclomaticReview: wireNumber,
+		functionsCyclomaticBad: wireNumber, filesMissingCompanion: wireNumber, filesNoCoverage: wireNumber,
+		functionsOverTokenCap: wireAbsentOptional(wireNumber) }),
+	distributions: wireObject<JsonReport["distributions"]>({ cyclomatic: wireRecord(wireNumber), crap: wireRecord(wireNumber),
+		functionTokens: wireAbsentOptional(wireRecord(wireNumber)) }),
+	hotspots: wireArray(wireObject({ file: wireString, name: wireString, crap: wireNullable(wireNumber), cyclomatic: wireNumber })),
+	tokenHotspots: wireAbsentOptional(wireArray(wireObject({ file: wireString, name: wireString,
+		canonicalTokens: wireAbsentOptional(wireNullable(wireNumber)) }))),
+	functionTokenMetrics: wireAbsentOptional(wireObject({ functions: wireArray(wireUnknown) })),
+	missingCompanion: wireArray(wireString),
+	files: wireArray(wireObject({ file: wireString, functions: wireNumber, linePct: wireNullable(wireNumber),
+		maxCyclomatic: wireNumber, maxCrap: wireNullable(wireNumber), companion: wireNullable(wireBoolean), overGate: wireNumber })),
+});
 function lastJson(): JsonReport {
-	return JSON.parse(logged) as JsonReport;
+	return parseWire(JSON.parse(logged), isJsonReport, "metrics report");
+}
+function lcovFile(path: string): CanonicalCoverage {
+	return { source: "lcov", files: new Map([[path, {
+		path, lines: metric(0, 0), branches: metric(0, 0), functions: metric(0, 0),
+		perFunction: [], lineHits: new Map(),
+	}]]) };
 }
 
 describe("metricsCommand — file selection (isAnalyzableSource)", () => {
@@ -316,10 +339,7 @@ describe("metricsCommand — file selection (isAnalyzableSource)", () => {
 
 	it("includes a non-src file that appears in the coverage report (F4 multi-language)", async () => {
 		// A Python package outside src/ — admitted because LCOV reports it.
-		m.loadLcovFile.mockReturnValue({
-			files: new Map([["pkg/calc.py", {} as never]]),
-			source: "lcov",
-		} as unknown as CanonicalCoverage);
+		m.loadLcovFile.mockReturnValue(lcovFile("pkg/calc.py"));
 		m.discoverFiles.mockReturnValue([abs("pkg/calc.py"), abs("scripts/build.ts")]);
 		await metricsCommand({ cwd: CWD, json: true });
 		const r = lastJson();
@@ -561,11 +581,14 @@ describe("metricsCommand — linePctFor branches", () => {
 
 	it("returns null linePct when the matched summary pct is not a number", async () => {
 		singleCoveredFile();
-		m.loadCoverageSummary.mockReturnValue({
+		const malformedSummary = {
 			// An ABSOLUTE in-repo key normalizes to src/a.ts (exact match), but the
 			// pct is non-numeric → null branch.
-			"/repo/src/a.ts": { lines: { pct: "x" as unknown as number }, branches: { pct: 0 } },
-		});
+			"/repo/src/a.ts": { lines: { pct: "x" }, branches: { pct: 0 } },
+		};
+		// Inject the malformed loader response at the mock boundary; the fixture
+		// remains explicitly non-numeric and is never presented as valid coverage.
+		Reflect.apply(m.loadCoverageSummary.mockReturnValue, m.loadCoverageSummary, [malformedSummary]);
 		await metricsCommand({ cwd: CWD, json: true });
 		expect(nonNull(lastJson().files[0]).linePct).toBeNull();
 	});
@@ -788,10 +811,7 @@ describe("metricsCommand — cwd resolution default", () => {
 describe("metricsCommand — LCOV coverage source (F4)", () => {
 	function withLcov(): void {
 		m.loadCoverageFinal.mockReturnValue(null); // istanbul absent → LCOV is the source
-		m.loadLcovFile.mockReturnValue({
-			files: new Map([["src/a.ts", {} as never]]),
-			source: "lcov",
-		} as unknown as CanonicalCoverage);
+		m.loadLcovFile.mockReturnValue(lcovFile("src/a.ts"));
 		m.canonicalToCoverageSummary.mockReturnValue({
 			"src/a.ts": { lines: { pct: 60 }, branches: { pct: 0 } },
 		});
@@ -837,9 +857,7 @@ describe("metricsCommand — LCOV coverage source (F4)", () => {
 		m.coverageForFile.mockImplementation((_c, rel) =>
 			rel === "src/a.ts" ? perFile("src/a.ts") : undefined,
 		);
-		m.loadLcovFile.mockReturnValue({
-			files: new Map([["src/b.py", {} as never]]),
-		} as unknown as CanonicalCoverage);
+		m.loadLcovFile.mockReturnValue(lcovFile("src/b.py"));
 		m.canonicalToCoverageSummary.mockReturnValue({
 			"src/b.py": { lines: { pct: 70 }, branches: { pct: 0 } },
 		});
@@ -884,10 +902,7 @@ describe("metricsCommand — LCOV coverage source (F4)", () => {
 			// leading "/" — it's the START of the relative path string) must still
 			// be excluded. A regex requiring a literal preceding "/" before the
 			// tests-dir segment would miss this exact case.
-			m.loadLcovFile.mockReturnValue({
-				files: new Map([["tests/x.py", {} as never]]),
-				source: "lcov",
-			} as unknown as CanonicalCoverage);
+			m.loadLcovFile.mockReturnValue(lcovFile("tests/x.py"));
 			m.discoverFiles.mockReturnValue([abs("tests/x.py")]);
 			await metricsCommand({ cwd: CWD, json: true });
 			expect(lastJson().files.map((f) => f.file)).toEqual([]);
@@ -902,7 +917,7 @@ describe("metricsCommand — LCOV coverage source (F4)", () => {
 			// `lines` entirely absent — the optional-chain `entry.lines?.pct` must
 			// short-circuit to undefined (→ null) rather than throwing on `.pct`.
 			m.loadCoverageSummary.mockReturnValue({
-				"src/a.ts": { branches: { pct: 0 } } as unknown as CoverageSummary[string],
+				"src/a.ts": { branches: { pct: 0 } },
 			});
 			await expect(metricsCommand({ cwd: CWD, json: true })).resolves.not.toThrow();
 			expect(nonNull(lastJson().files[0]).linePct).toBeNull();
@@ -1088,6 +1103,7 @@ describe("metricsCommand — LCOV coverage source (F4)", () => {
 				m.computeCyclomaticAst.mockReturnValue([comp()]);
 				cyclomaticForMetrics("// content", `/repo/src/file${ext}`);
 				expect(m.computeCyclomaticAst).toHaveBeenCalledOnce();
+				expect(m.computeCyclomaticAst).toHaveBeenCalledWith("// content", `/repo/src/file${ext}`);
 				expect(m.computeCyclomaticComplexity).not.toHaveBeenCalled();
 			}
 		});

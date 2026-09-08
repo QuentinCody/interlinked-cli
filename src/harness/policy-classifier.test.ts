@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireRecord, wireString } from "../lib/value-validation.js";
 // Behavioral coverage for the Policy Classifier — the LLM-based escalation
 // layer for ambiguous PreToolUse cases (shadow mode v1).
 //
@@ -78,13 +79,13 @@ import type {
 // ===========================================
 
 type FetchImpl = (url: string, init?: RequestInit) => Response | Promise<Response>;
-let fetchSpy: MockInstance;
+let fetchSpy: MockInstance<typeof fetch>;
 
 function stubFetch(impl: FetchImpl): void {
-	fetchSpy = vi.fn(((input: string | URL | Request, init?: RequestInit) => {
+	fetchSpy = vi.fn<typeof fetch>((input: string | URL | Request, init?: RequestInit) => {
 		const url = typeof input === "string" ? input : input.toString();
 		return Promise.resolve(impl(url, init));
-	}) as typeof fetch) as unknown as MockInstance;
+	});
 	vi.stubGlobal("fetch", fetchSpy);
 }
 
@@ -248,6 +249,26 @@ describe("resolveApiKey", () => {
 	it("falls back to the lowercased key in config.local.json", () => {
 		fsMock.readFileSync.mockReturnValue(JSON.stringify({ test_classifier_key: "lower-secret" }));
 		expect(resolveApiKey("TEST_CLASSIFIER_KEY")).toBe("lower-secret");
+	});
+
+	it.each([42, true, { token: "nested" }, ["array-key"], null])("ignores non-string configured keys: %j", (value) => {
+		fsMock.readFileSync.mockReturnValue(JSON.stringify({ TEST_CLASSIFIER_KEY: value, test_classifier_key: value }));
+		expect(resolveApiKey("TEST_CLASSIFIER_KEY")).toBeUndefined();
+	});
+
+	it.each([42, "", null])("uses a valid lowercase fallback after an unusable exact value: %j", (value) => {
+		fsMock.readFileSync.mockReturnValue(JSON.stringify({ TEST_CLASSIFIER_KEY: value, test_classifier_key: "lower-secret" }));
+		expect(resolveApiKey("TEST_CLASSIFIER_KEY")).toBe("lower-secret");
+	});
+
+	it.each([null, ["array-key"], "text", 42])("ignores a config root that is not an object: %j", (value) => {
+		fsMock.readFileSync.mockReturnValue(JSON.stringify(value));
+		expect(resolveApiKey("TEST_CLASSIFIER_KEY")).toBeUndefined();
+	});
+
+	it("prefers the exact nonempty string over the lowercase fallback", () => {
+		fsMock.readFileSync.mockReturnValue(JSON.stringify({ TEST_CLASSIFIER_KEY: "exact-secret", test_classifier_key: "lower-secret" }));
+		expect(resolveApiKey("TEST_CLASSIFIER_KEY")).toBe("exact-secret");
 	});
 
 	it("returns undefined when the key is absent in config (|| undefined branch)", () => {
@@ -534,12 +555,12 @@ describe("buildEvidenceEnvelope (aggregation + optional fields)", () => {
 
 	it("defaults tool/tool_input to empties when the event omits them", () => {
 		fsMock.existsSync.mockReturnValue(false);
-		const event = {
+		const event: HarnessEvent = {
 			hook_event: "PreToolUse",
 			session_id: "s",
 			agent_source: "claude",
 			timestamp: "2026-06-06T00:00:00Z",
-		} as HarnessEvent;
+		};
 		const ev = buildEvidenceEnvelope(event, makeSession(), makeEscalation());
 		expect(ev.tool).toBe("");
 		// No tool name, no command → classifyAction returns "unknown".
@@ -788,9 +809,9 @@ describe("callClassifier", () => {
 		// so the body sent to the model must be exactly 4 chars.
 		const bigEvidence = makeEvidence({ trigger_reason: "x".repeat(5000) });
 		await callClassifier(bigEvidence, makeConfig({ provider: "groq", max_input_tokens: 1 }), state);
-		const init = nonNull(fetchSpy.mock.calls[0])[1] as RequestInit;
-		const sentBody = JSON.parse(init.body as string);
-		const userMsg = (sentBody.messages as Array<{ role: string; content: string }>).find(
+		const init = nonNull(nonNull(fetchSpy.mock.calls[0])[1]);
+		const sentBody = JSON.parse(parseWire(init.body, wireString, "test JSON value"));
+		const userMsg = (parseWire(sentBody.messages, wireArray(wireObject({ "role": wireString, "content": wireString })), "test JSON value")).find(
 			(m) => m.role === "user",
 		);
 		expect(userMsg?.content).toHaveLength(4);
@@ -806,9 +827,9 @@ describe("callClassifier", () => {
 		const state = createClassifierSessionState();
 		// 0 is falsy → defaults to 800 → 3200 chars. Small evidence is untruncated.
 		await callClassifier(makeEvidence(), makeConfig({ provider: "groq", max_input_tokens: 0 }), state);
-		const init = nonNull(fetchSpy.mock.calls[0])[1] as RequestInit;
-		const sentBody = JSON.parse(init.body as string);
-		const userMsg = (sentBody.messages as Array<{ role: string; content: string }>).find(
+		const init = nonNull(nonNull(fetchSpy.mock.calls[0])[1]);
+		const sentBody = JSON.parse(parseWire(init.body, wireString, "test JSON value"));
+		const userMsg = (parseWire(sentBody.messages, wireArray(wireObject({ "role": wireString, "content": wireString })), "test JSON value")).find(
 			(m) => m.role === "user",
 		);
 		// Untruncated: equals the full serialized evidence.
@@ -1089,7 +1110,7 @@ describe("callViaClaudeCode", () => {
 				child.emit("close", 0);
 			},
 		});
-		const opts = nonNull(spawnMock.spawn.mock.calls[0])[2] as { timeout: number };
+		const opts = parseWire(nonNull(spawnMock.spawn.mock.calls[0])[2], wireObject({ "timeout": wireNumber }), "test JSON value");
 		expect(opts.timeout).toBe(15000);
 	});
 
@@ -1198,8 +1219,8 @@ describe("callViaHttp (OpenAI-compatible providers)", () => {
 			reasoning: "blocked",
 			policy_id: "p1",
 		});
-		const init = nonNull(fetchSpy.mock.calls[0])[1] as RequestInit;
-		expect((init.headers as Record<string, string>).Authorization).toBe("Bearer k-openai");
+		const init = nonNull(nonNull(fetchSpy.mock.calls[0])[1]);
+		expect(init).toHaveProperty(["headers","Authorization"], "Bearer k-openai");
 		expect(state.consecutive_failures).toBe(0);
 	});
 
@@ -1209,7 +1230,7 @@ describe("callViaHttp (OpenAI-compatible providers)", () => {
 		);
 		const state = createClassifierSessionState();
 		await callClassifier(makeEvidence(), makeConfig({ provider: "groq", model: "llama-3.1-8b" }), state);
-		const body = JSON.parse((nonNull(fetchSpy.mock.calls[0])[1] as RequestInit).body as string);
+		const body = JSON.parse(parseWire((nonNull(nonNull(fetchSpy.mock.calls[0])[1])).body, wireString, "test JSON value"));
 		expect(body.max_tokens).toBe(150);
 		expect(body.max_completion_tokens).toBeUndefined();
 		expect(body.reasoning_effort).toBeUndefined();
@@ -1221,7 +1242,7 @@ describe("callViaHttp (OpenAI-compatible providers)", () => {
 		);
 		const state = createClassifierSessionState();
 		await callClassifier(makeEvidence(), makeConfig({ provider: "groq", model: "gpt-oss-120b" }), state);
-		const body = JSON.parse((nonNull(fetchSpy.mock.calls[0])[1] as RequestInit).body as string);
+		const body = JSON.parse(parseWire((nonNull(nonNull(fetchSpy.mock.calls[0])[1])).body, wireString, "test JSON value"));
 		expect(body.max_completion_tokens).toBe(1024);
 		expect(body.reasoning_effort).toBe("low");
 		expect(body.max_tokens).toBeUndefined();
@@ -1233,7 +1254,7 @@ describe("callViaHttp (OpenAI-compatible providers)", () => {
 		);
 		const state = createClassifierSessionState();
 		await callClassifier(makeEvidence(), makeConfig({ provider: "groq", model: "my-reasoning-model" }), state);
-		const body = JSON.parse((nonNull(fetchSpy.mock.calls[0])[1] as RequestInit).body as string);
+		const body = JSON.parse(parseWire((nonNull(nonNull(fetchSpy.mock.calls[0])[1])).body, wireString, "test JSON value"));
 		expect(body.max_completion_tokens).toBe(1024);
 	});
 
@@ -1275,7 +1296,7 @@ describe("callViaHttp (OpenAI-compatible providers)", () => {
 			// so the request is still in flight when the timeout's
 			// `() => controller.abort()` callback runs. Advancing fake timers
 			// past timeout_ms fires that callback → signal aborts → reject.
-			fetchSpy = vi.fn(((_input: string | URL | Request, init?: RequestInit) => {
+			fetchSpy = vi.fn<typeof fetch>((_input: string | URL | Request, init?: RequestInit) => {
 				return new Promise<Response>((_resolve, reject) => {
 					const signal = init?.signal;
 					if (!signal) return;
@@ -1283,7 +1304,7 @@ describe("callViaHttp (OpenAI-compatible providers)", () => {
 						reject(new DOMException("The operation was aborted.", "AbortError"));
 					});
 				});
-			}) as typeof fetch) as unknown as MockInstance;
+			});
 			vi.stubGlobal("fetch", fetchSpy);
 			vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -1328,13 +1349,13 @@ describe("callViaHttp (OpenAI-compatible providers)", () => {
 		const state = createClassifierSessionState();
 		const evidence = makeEvidence();
 		await callClassifier(evidence, makeConfig({ provider: "groq", model: "llama-3.1-8b" }), state);
-		const [, init] = nonNull(fetchSpy.mock.calls[0]) as [string, RequestInit];
+		const init = nonNull(nonNull(fetchSpy.mock.calls[0])[1]);
 		expect(init.method).toBe("POST");
 		expect(init.headers).toEqual({
 			"Content-Type": "application/json",
 			Authorization: "Bearer k-openai",
 		});
-		expect(JSON.parse(init.body as string)).toEqual({
+		expect(JSON.parse(parseWire(init.body, wireString, "test JSON value"))).toEqual({
 			model: "llama-3.1-8b",
 			messages: [
 				{ role: "system", content: CLASSIFIER_SYSTEM_PROMPT },
@@ -1383,11 +1404,11 @@ describe("callViaHttp (Anthropic provider)", () => {
 			state,
 		);
 		expect(result).toMatchObject({ label: "allow", confidence: 0.77, reasoning: "fine" });
-		const init = nonNull(fetchSpy.mock.calls[0])[1] as RequestInit;
-		const headers = init.headers as Record<string, string>;
+		const init = nonNull(nonNull(fetchSpy.mock.calls[0])[1]);
+		const headers = parseWire(init.headers, wireRecord(wireString), "test JSON value");
 		expect(headers["x-api-key"]).toBe("k-anthropic");
 		expect(headers["anthropic-version"]).toBe("2023-06-01");
-		const body = JSON.parse(init.body as string);
+		const body = JSON.parse(parseWire(init.body, wireString, "test JSON value"));
 		expect(body.system).toBe(CLASSIFIER_SYSTEM_PROMPT);
 		expect(body.max_tokens).toBe(150);
 	});
@@ -1442,14 +1463,14 @@ describe("callViaHttp (Anthropic provider)", () => {
 		const state = createClassifierSessionState();
 		const evidence = makeEvidence();
 		await callClassifier(evidence, makeConfig({ provider: "anthropic", model: "vendor-model-v6" }), state);
-		const [, init] = nonNull(fetchSpy.mock.calls[0]) as [string, RequestInit];
+		const init = nonNull(nonNull(fetchSpy.mock.calls[0])[1]);
 		expect(init.method).toBe("POST");
 		expect(init.headers).toEqual({
 			"Content-Type": "application/json",
 			"x-api-key": "k-anthropic",
 			"anthropic-version": "2023-06-01",
 		});
-		expect(JSON.parse(init.body as string)).toEqual({
+		expect(JSON.parse(parseWire(init.body, wireString, "test JSON value"))).toEqual({
 			model: "vendor-model-v6",
 			system: CLASSIFIER_SYSTEM_PROMPT,
 			messages: [{ role: "user", content: JSON.stringify(evidence) }],

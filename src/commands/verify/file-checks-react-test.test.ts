@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireRecord, wireString } from "../../lib/value-validation.js";
 // ===========================================
 // file-checks React / test-smell / taste group unit tests
 // ===========================================
@@ -37,7 +38,7 @@ type DelegationCase = {
 function expectDelegatedCheck(testCase: DelegationCase): void {
 	const c = ctx(testCase.content, testCase.file);
 	runReactAndTasteChecks(c);
-	const findings = (c.r as unknown as Record<string, Array<{ check: string }>>)[testCase.bucket];
+	const findings = (parseWire(c.r, wireRecord(wireArray(wireObject({ "check": wireString }))), "test JSON value"))[testCase.bucket];
 	expect(findings, `${testCase.name} should produce a delegated finding`).toEqual(
 		expect.arrayContaining([expect.objectContaining({ check: testCase.check })]),
 	);

@@ -13,11 +13,10 @@ import baseConfig from "./vitest.config";
 // only `exclude` is extended. The base default export is a plain config object,
 // so spreading its `.test` and overriding one key avoids mergeConfig's
 // array-concatenation (which would otherwise keep the integration files in).
-const base = baseConfig as { test?: Record<string, unknown> };
 export default defineConfig({
 	...baseConfig,
 	test: {
-		...(base.test ?? {}),
+		...baseConfig.test,
 		exclude: [
 			...configDefaults.exclude,
 			"**/*.integration.test.ts",

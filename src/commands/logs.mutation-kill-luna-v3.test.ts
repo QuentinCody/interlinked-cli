@@ -1,3 +1,5 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 interface FsState {
@@ -111,8 +113,8 @@ describe("logs mutation contracts", () => {
             session: 42,
             hook: 7,
         });
-        const rendered = outputLines.find((line) => line.startsWith("{")) as string;
-        const event = JSON.parse(rendered) as Record<string, unknown>;
+        const rendered = nonNull(outputLines.find((line) => line.startsWith("{")));
+        const event = parseWire(JSON.parse(rendered), wireRecord(wireUnknown), "test JSON value");
         expect(event.session).toBeNull();
         expect(event.hook).toBeNull();
     });
@@ -125,8 +127,8 @@ describe("logs mutation contracts", () => {
             type: "tool_use",
             hook: "before-tool",
         });
-        const rendered = outputLines.find((line) => line.startsWith("{")) as string;
-        expect((JSON.parse(rendered) as Record<string, unknown>).hook).toBe("before-tool");
+        const rendered = nonNull(outputLines.find((line) => line.startsWith("{")));
+        expect(JSON.parse(rendered)).toHaveProperty(["hook"], "before-tool");
     });
 
     // test-contract: a string-valued session is retained while a non-string session is discarded.
@@ -137,8 +139,8 @@ describe("logs mutation contracts", () => {
             type: "tool_use",
             session: "session-1",
         });
-        const rendered = outputLines.find((line) => line.startsWith("{")) as string;
-        expect((JSON.parse(rendered) as Record<string, unknown>).session).toBe("session-1");
+        const rendered = nonNull(outputLines.find((line) => line.startsWith("{")));
+        expect(JSON.parse(rendered)).toHaveProperty(["session"], "session-1");
     });
 
     // test-contract: a file whose size is unchanged must not be reread by the tail.

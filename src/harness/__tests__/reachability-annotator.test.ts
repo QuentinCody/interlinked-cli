@@ -1,3 +1,4 @@
+import { makeRouteMap as completeRouteMapFixture } from "./fixtures/managers.js";
 // Phase C — tests for `reachability-annotator.ts`.
 //
 // Covers the `annotateReachability` transformer:
@@ -45,25 +46,24 @@ import {
 import { RouteMap } from "../route-map.js";
 import type { Endpoint } from "../types/session.js";
 
-const mockedExistsSync = existsSync as unknown as ReturnType<typeof vi.fn>;
-const mockedStatSync = statSync as unknown as ReturnType<typeof vi.fn>;
-const mockedReadFileSync = readFileSync as unknown as ReturnType<typeof vi.fn>;
-const mockedReaddirSync = readdirSync as unknown as ReturnType<typeof vi.fn>;
+const mockedExistsSync = vi.mocked(existsSync);
+const mockedStatSync = vi.mocked(statSync);
+const mockedReadFileSync = vi.mocked(readFileSync);
+const mockedReaddirSync = vi.mocked(readdirSync);
+const realFs = await vi.importActual<typeof import("node:fs")>("node:fs");
+const regularFileStat = realFs.statSync(import.meta.filename);
 
 function mockFileSystem(files: Map<string, string>): void {
 	const pathSet = new Set(files.keys());
-	mockedExistsSync.mockImplementation((p: string) => pathSet.has(p));
-	mockedStatSync.mockImplementation((p: string) => {
-		if (pathSet.has(p)) {
-			return {
-				isFile: () => true,
-				isDirectory: () => false,
-			} as unknown as ReturnType<typeof statSync>;
+	mockedExistsSync.mockImplementation((p) => pathSet.has(String(p)));
+	mockedStatSync.mockImplementation((p) => {
+		if (pathSet.has(String(p))) {
+			return regularFileStat;
 		}
 		throw new Error("ENOENT");
 	});
-	mockedReadFileSync.mockImplementation((p: string) => {
-		const content = files.get(p);
+	mockedReadFileSync.mockImplementation((p) => {
+		const content = files.get(String(p));
 		if (content !== undefined) return content;
 		throw new Error("ENOENT");
 	});
@@ -303,9 +303,9 @@ describe("buildHttpHandlerEntryPoints", () => {
 				declared_params: [],
 			},
 		];
-		const routeMapStub = {
+		const routeMapStub = completeRouteMapFixture({
 			extractAllEndpoints: () => fakeEndpoints,
-		} as unknown as RouteMap;
+		});
 
 		const eps = buildHttpHandlerEntryPoints(routeMapStub);
 
@@ -350,9 +350,9 @@ describe("buildHttpHandlerEntryPoints", () => {
 				declared_params: [],
 			},
 		];
-		const routeMapStub = {
+		const routeMapStub = completeRouteMapFixture({
 			extractAllEndpoints: () => fakeEndpoints,
-		} as unknown as RouteMap;
+		});
 
 		const eps = buildHttpHandlerEntryPoints(routeMapStub);
 
@@ -372,9 +372,9 @@ describe("buildHttpHandlerEntryPoints", () => {
 				declared_params: [],
 			},
 		];
-		const routeMapStub = {
+		const routeMapStub = completeRouteMapFixture({
 			extractAllEndpoints: () => fakeEndpoints,
-		} as unknown as RouteMap;
+		});
 
 		const eps = buildHttpHandlerEntryPoints(routeMapStub);
 

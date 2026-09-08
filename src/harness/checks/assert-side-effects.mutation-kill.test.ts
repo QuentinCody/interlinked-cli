@@ -438,20 +438,14 @@ describe("recordMatch — preview text construction", () => {
 	});
 });
 
-// ─── blankTripleQuotedBlocks — offset-preserving replacement ────────────────
-describe("checkJavaAssertSideEffects — text-block blanking preserves a real word boundary", () => {
-	it("a mutating call directly abutting a closing text-block delimiter is still found", () => {
-		// Targets 684ae113fd0021d3 / 914ea21df44d3ef0 (the " " replacement
-		// texts -> ""): blankTripleQuotedBlocks must replace each delimiter/
-		// interior character with exactly one space, preserving length. If it
-		// instead emits "", `assert` becomes directly adjacent to the code
-		// that follows the text block — collapsing the whitespace that
-		// `\bassert\s+` requires and hiding the statement entirely.
+// Text blocks can precede a real mutator in a valid Java assert expression.
+describe("checkJavaAssertSideEffects — text blocks within assertion conditions", () => {
+	it("finds a mutating call after a text-block comparison", () => {
 		const q3 = '"""';
 		const src = [
-			`class C { void f(List<String> list, String x) { assert${q3}`,
+			`class C { void f(List<String> list, String x) { assert ${q3}`,
 			"docstring",
-			`${q3}list.add(x); } }`,
+			`${q3}.isEmpty() || list.add(x); } }`,
 		].join("\n");
 		expect(checkJavaAssertSideEffects(src, JAVA_PATH)).toHaveLength(1);
 	});

@@ -1,7 +1,8 @@
+import { nonNull } from "../lib/non-null.js";
 // Tests for the ephemeral-write ledger: classification (the `.json` blind spot
 // the placement guard never saw) and the never-throw append contract.
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -110,7 +111,7 @@ describe("appendEphemeralWrite", () => {
 			.trim()
 			.split("\n");
 		expect(lines).toHaveLength(2);
-		expect(JSON.parse(lines[0] as string).kind).toBe("manifest");
+		expect(JSON.parse(nonNull(lines[0])).kind).toBe("manifest");
 	});
 
 	it("no-ops when .interlinked/ is absent rather than creating it", () => {
@@ -120,6 +121,8 @@ describe("appendEphemeralWrite", () => {
 	});
 
 	it("never throws on an unwritable root", () => {
-		expect(() => appendEphemeralWrite("/proc/nonexistent-root", record)).not.toThrow();
+		const file = join(makeRoot(false), "not-a-directory");
+		writeFileSync(file, "fixture");
+		expect(() => appendEphemeralWrite(join(file, "nested"), record)).not.toThrow();
 	});
 });

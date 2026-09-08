@@ -19,6 +19,7 @@ import { GUARDS_INLINE_CHUNK } from "../guards-inline.js";
  *  exercises the EXACT function the generated hook evaluates, including the
  *  spliced-in checkDestructiveCommand. */
 function runInlineGuard(command: string): { decision: string; reason: string } | null {
+	// SAFETY: GUARDS_INLINE_CHUNK declares this named guard; the call uses its fixed PreToolUse/Bash/input signature, and cases below compare shutdown verdicts with the imported checker.
 	const fn = new Function(`${GUARDS_INLINE_CHUNK}\nreturn inlineGuardCheck;`)() as (
 		hookEvent: string,
 		toolName: string,

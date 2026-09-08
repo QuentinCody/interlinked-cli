@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,9 +31,7 @@ describe("DEFAULT_MIN_COVERAGE_PCT", () => {
 			".interlinked",
 			"untested-files-baseline.json",
 		);
-		const committed = JSON.parse(readFileSync(baselinePath, "utf-8")) as {
-			min_coverage_pct: number;
-		};
+		const committed = parseWire(JSON.parse(readFileSync(baselinePath, "utf-8")), wireObject({ "min_coverage_pct": wireNumber }), "test JSON value");
 		expect(committed.min_coverage_pct).toBe(DEFAULT_MIN_COVERAGE_PCT);
 	});
 });
@@ -145,7 +144,7 @@ describe("isTestableSourceFile", () => {
 describe("committed baseline contains only genuinely-testable files", () => {
 	it("every baseline entry is still testable under the corrected predicate", () => {
 		const baselinePath = join(process.cwd(), ".interlinked", "untested-files-baseline.json");
-		const committed = JSON.parse(readFileSync(baselinePath, "utf-8")) as { files: string[] };
+		const committed = parseWire(JSON.parse(readFileSync(baselinePath, "utf-8")), wireObject({ "files": wireArray(wireString) }), "test JSON value");
 		const exempt: string[] = [];
 		for (const rel of committed.files) {
 			let content: string;

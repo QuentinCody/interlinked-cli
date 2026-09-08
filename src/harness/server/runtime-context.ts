@@ -57,7 +57,7 @@ export interface ServerRuntime {
 	readonly reservations: ReservationManager;
 	readonly errorHistory: ErrorHistory;
 	readonly routeMap: RouteMap;
-	readonly serverBridge: ServerBridge | null;
+	readonly serverBridge: Pick<ServerBridge, "reportGuardEvent" | "fetchCoordinationState"> | null;
 
 	readonly asyncFindings: AsyncFindingQueue;
 	readonly learnedRules: LearnedRulesStore;

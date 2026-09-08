@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 import { execSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -139,18 +140,18 @@ function stageEdit(file: string, content: string): void {
 }
 
 function makeSession(files: string[]): SessionTrajectory {
-	return {
+	return ({ ...completeSessionFixture(), ...{
 		files_written: new Set(files.map((f) => join(repoDir, f))),
 		files_read: new Set(),
 		file_edit_counts: new Map(),
 		test_runs: new Map(),
-		failed_files: new Set(),
+		failed_files: new Map(),
 		warnings_emitted: new Map(),
 		tdd_cycles: new Map(),
 		assertion_counts: new Map(),
-		active_skills: new Set(),
+		active_skills: new Map(),
 		tool_call_count: 0,
-	} as unknown as SessionTrajectory;
+	} });
 }
 
 describe("checkDisabledTestDelta", () => {

@@ -18,6 +18,7 @@ function recentReceipts(cwd: string): Map<string, Record<string, unknown>> {
         const latest = receipts.get(key) ?? { ...row };
         accumulateReceipt(latest, row);
         if (typeof row.source === "string") receipts.set(key, latest);
+        return undefined;
     });
     return receipts;
 }

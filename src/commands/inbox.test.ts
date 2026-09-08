@@ -58,7 +58,7 @@ function installClient(opts: FakeClientOpts): void {
 	lastCall = undefined;
 	const callTool =
 		opts.callTool ??
-		((_name: string, _args: JsonObject) => ({ messages: [] as unknown[] }));
+		((_name: string, _args: JsonObject) => ({ messages: [] }));
 	mockGetClient.mockReturnValue({
 		isAuthenticated: () => opts.authenticated ?? true,
 		isLocalDevServer: () => opts.localDev ?? false,

@@ -2,7 +2,6 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { JsonObject } from "../../lib/json-types.js";
 import {
 	resolveStructureConfig,
 	validateArtifactFile,
@@ -358,23 +357,14 @@ describe("validateStructureJson: adoption field", () => {
 		expect(errAt(result, "$.adoption.something_else")?.message).toContain("Unknown key");
 	});
 
-	it("validates array-shaped coverage_thresholds by index (arrays pass the typeof-object guard)", () => {
-		// An array is `typeof "object"` and not null, so it flows into
-		// validateCoverageThresholds, which iterates entries by numeric index.
-		// Index "0" is both an unknown key AND (here) an out-of-range value.
+	it("rejects array-shaped coverage_thresholds at the object boundary", () => {
 		const result = validateStructureJson({
 			version: 1,
 			mode: "minimal",
 			adoption: { coverage_thresholds: [2] },
 		});
 		expect(result.valid).toBe(false);
-		const atIndex = result.errors.filter(
-			(e) => e.path === "$.adoption.coverage_thresholds.0",
-		);
-		expect(atIndex.some((e) => e.message.includes("Unknown key"))).toBe(true);
-		expect(
-			atIndex.some((e) => e.message === "Must be a number between 0.0 and 1.0"),
-		).toBe(true);
+		expect(result.errors).toEqual([{ path: "$.adoption.coverage_thresholds", message: "Must be an object" }]);
 	});
 
 	it("rejects coverage_thresholds that is null", () => {
@@ -596,7 +586,7 @@ describe("resolveStructureConfig", () => {
 		const config = resolveStructureConfig({
 			version: 1,
 			mode: "minimal",
-			artifacts: artifacts as JsonObject,
+			artifacts,
 		});
 		expect(config.artifacts).toEqual(artifacts);
 	});
@@ -626,7 +616,7 @@ describe("validateDeclaredPaths", () => {
 		return resolveStructureConfig({
 			version: 1,
 			mode: "minimal",
-			artifacts: artifacts as JsonObject,
+			artifacts,
 		});
 	}
 

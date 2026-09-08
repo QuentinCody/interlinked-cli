@@ -23,14 +23,14 @@ describe("json-types", () => {
 			items: ["a", "b"],
 		};
 		expect(obj.name).toBe("x");
-		expect((obj.nested as JsonObject).inner).toStrictEqual([1, 2, 3]);
+		expect(obj.nested).toHaveProperty("inner", [1, 2, 3]);
 		expect(obj.items).toHaveLength(2);
 	});
 
 	it("round-trips through JSON.parse / JSON.stringify", () => {
 		const input: JsonObject = { a: 1, b: "two", c: [true, null] };
 		const serialised = JSON.stringify(input);
-		const parsed = JSON.parse(serialised) as JsonObject;
+		const parsed: unknown = JSON.parse(serialised);
 		expect(parsed).toStrictEqual(input);
 	});
 });

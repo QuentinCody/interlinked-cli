@@ -86,7 +86,7 @@ interface RawCreative {
 
 export function sanitizeCreative(raw: unknown): SponsorCreative | null {
 	if (typeof raw !== "object" || raw === null) return null;
-	const o = raw as RawCreative;
+	const o: RawCreative = raw;
 	const id = validateCreativeId(o);
 	if (id === null) return null;
 	const text = validateCreativeText(o);
@@ -152,12 +152,12 @@ export function parseFeedPayload(payloadJson: string): SponsorFeed | null {
 		return null;
 	}
 	if (typeof parsed !== "object" || parsed === null) return null;
-	const o = parsed as {
+	const o: {
 		version?: unknown;
 		generated_at?: unknown;
 		valid_until?: unknown;
 		creatives?: unknown;
-	};
+	} = parsed;
 	if (o.version !== 1) return null;
 	if (typeof o.generated_at !== "string" || !isIsoDate(o.generated_at)) return null;
 	if (typeof o.valid_until !== "string" || !isIsoDate(o.valid_until)) return null;

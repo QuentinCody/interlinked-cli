@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../lib/non-null.js";
@@ -138,7 +139,7 @@ describe("registerIndexCommand", () => {
 		const program = newProgram();
 		const indexCmd = program.commands.find((c) => c.name() === "index");
 		expect(indexCmd).toBeDefined();
-		const subNames = (indexCmd as Command).commands.map((c) => c.name()).sort();
+		const subNames = (nonNull(indexCmd)).commands.map((c) => c.name()).sort();
 		expect(subNames).toEqual(["build", "query", "status", "update"]);
 	});
 });
@@ -155,7 +156,7 @@ describe("index build", () => {
 
 		// Build was invoked with parsed numeric options.
 		expect(h.build).toHaveBeenCalledTimes(1);
-		const buildArgs = nonNull(h.build.mock.calls[0])[0] as Record<string, unknown>;
+		const buildArgs = parseWire(nonNull(h.build.mock.calls[0])[0], wireRecord(wireUnknown), "test JSON value");
 		expect(buildArgs.cwd).toContain("/repo");
 		expect(buildArgs.maxFileSize).toBe(1_048_576); // default parsed via parseInt
 		expect(buildArgs.stopThreshold).toBe(0.4); // default parsed via parseFloat
@@ -189,7 +190,7 @@ describe("index build", () => {
 			"0.25",
 		);
 
-		const buildArgs = nonNull(h.build.mock.calls[0])[0] as Record<string, unknown>;
+		const buildArgs = parseWire(nonNull(h.build.mock.calls[0])[0], wireRecord(wireUnknown), "test JSON value");
 		expect(buildArgs.maxFileSize).toBe(2048);
 		expect(buildArgs.stopThreshold).toBe(0.25);
 	});
@@ -215,18 +216,18 @@ describe("index build", () => {
 		// it synchronously while indexing; here we capture it and drive it with
 		// controlled clock values to exercise both sides of the 500ms throttle.
 		let progress: ((indexed: number, total: number) => void) | undefined;
-		const nowSpy = Date.now as unknown as ReturnType<typeof vi.fn>;
+		const nowSpy = vi.mocked(Date.now);
 		h.build.mockImplementation((opts: { onProgress?: (i: number, t: number) => void }) => {
 			progress = opts.onProgress;
 			// First tick: lastReport starts at 0, so 600 - 0 > 500 → writes.
 			nowSpy.mockReturnValue(600);
-			(opts.onProgress as (i: number, t: number) => void)(3, 10);
+			(nonNull(opts.onProgress))(3, 10);
 			// Second tick 200ms later: 800 - 600 = 200 < 500 → suppressed.
 			nowSpy.mockReturnValue(800);
-			(opts.onProgress as (i: number, t: number) => void)(4, 10);
+			(nonNull(opts.onProgress))(4, 10);
 			// Third tick well past the window: 2000 - 600 > 500 → writes again.
 			nowSpy.mockReturnValue(2000);
-			(opts.onProgress as (i: number, t: number) => void)(5, 10);
+			(nonNull(opts.onProgress))(5, 10);
 			return fakeIndex();
 		});
 

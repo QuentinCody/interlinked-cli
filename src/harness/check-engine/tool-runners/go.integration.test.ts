@@ -1,3 +1,4 @@
+import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // Behavioral unit tests for the Go tool runners (go build, golangci-lint).
 //
 // Boundaries mocked at the module edge so the tests are deterministic and
@@ -12,10 +13,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import type { CheckScope, ToolRunnerInput } from "../types.js";
 
-const spawnSyncMock = vi.fn();
+const spawnSyncMock = vi.fn<SpawnSyncStub>();
 
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
 }));
 
 // Imported after the mock is registered.
@@ -64,6 +65,7 @@ function spawnResult(
 		stderr?: string | undefined;
 	},
 ): SpawnSyncReturns<string> {
+	// SAFETY: this fixture deliberately allows absent stdout/stderr to exercise the runner's fallback for incomplete process results.
 	return {
 		pid: 123,
 		output: [],
@@ -76,9 +78,7 @@ function spawnResult(
 }
 
 function enoent(): Error & { code: string } {
-	const e = new Error("spawn go ENOENT") as Error & { code: string };
-	e.code = "ENOENT";
-	return e;
+	return Object.assign(new Error("spawn go ENOENT"), { code: "ENOENT" });
 }
 
 beforeEach(() => {
@@ -94,11 +94,7 @@ describe("runGoBuild", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runGoBuild(input(fileScope(), 8_888));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("go");
 		// Scoped: findings outside TARGET are discarded by filterToFile anyway,
 		// so `./...` only bought a second project-wide compile per edit.
@@ -174,7 +170,7 @@ describe("runGoBuild", () => {
 
 	it("returns unfiltered findings when filterToFile is not set", () => {
 		const scope = fileScope();
-		delete (scope as { filterToFile?: boolean }).filterToFile;
+		delete scope.filterToFile;
 		spawnSyncMock.mockReturnValue(
 			spawnResult({ status: 2, stderr: goBuildOutput(`${PROJECT_ROOT}/cmd/other/x.go`) }),
 		);
@@ -185,7 +181,7 @@ describe("runGoBuild", () => {
 
 	it("returns unfiltered findings when targetFile is missing in file mode", () => {
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 2, stderr: goBuildOutput() }));
 		const out = runGoBuild(input(scope));
 		expect(out).toHaveLength(1);
@@ -209,11 +205,7 @@ describe("runGolangciLint", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runGolangciLint(input(fileScope(), 7_777));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("golangci-lint");
 		expect(args).toEqual(["run", "--out-format=json", "./cmd/server"]);
 		expect(opts).toMatchObject({
@@ -288,7 +280,7 @@ describe("runGolangciLint", () => {
 
 	it("returns unfiltered issues when filterToFile is not set", () => {
 		const scope = fileScope();
-		delete (scope as { filterToFile?: boolean }).filterToFile;
+		delete scope.filterToFile;
 		spawnSyncMock.mockReturnValue(
 			spawnResult({ status: 1, stdout: golangciJson(`${PROJECT_ROOT}/cmd/other/x.go`) }),
 		);
@@ -299,7 +291,7 @@ describe("runGolangciLint", () => {
 
 	it("returns unfiltered issues when targetFile is missing in file mode", () => {
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 1, stdout: golangciJson() }));
 		const out = runGolangciLint(input(scope));
 		expect(out).toHaveLength(1);
@@ -324,13 +316,13 @@ describe("runGolangciLint", () => {
 
 /** argv of the single recorded spawnSync call. */
 function recordedArgs(): string[] {
-	const call = spawnSyncMock.mock.calls[0] as [string, string[], Record<string, unknown>];
+	const call = nonNull(spawnSyncMock.mock.calls[0]);
 	return call[1];
 }
 
 /** spawnSync options of the single recorded call. */
-function recordedOpts(): Record<string, unknown> {
-	const call = spawnSyncMock.mock.calls[0] as [string, string[], Record<string, unknown>];
+function recordedOpts(): Parameters<SpawnSyncStub>[2] {
+	const call = nonNull(spawnSyncMock.mock.calls[0]);
 	return call[2];
 }
 
@@ -402,7 +394,7 @@ describe("Go build-tag + environment parity", () => {
 	it("P3: passes the overridden GOCACHE explicitly to go build", () => {
 		process.env.INTERLINKED_GOCACHE = "/shell/gocache";
 		runGoBuild(input(fileScope()));
-		const env = recordedOpts().env as NodeJS.ProcessEnv;
+		const env = nonNull(recordedOpts().env);
 		expect(env.GOCACHE).toBe("/shell/gocache");
 	});
 
@@ -415,7 +407,7 @@ describe("Go build-tag + environment parity", () => {
 	it("N2: does not invent a GOCACHE when none is configured", () => {
 		delete process.env.INTERLINKED_GOCACHE;
 		runGolangciLint(input(fileScope()));
-		const env = recordedOpts().env as NodeJS.ProcessEnv;
+		const env = nonNull(recordedOpts().env);
 		expect(env.GOCACHE).toBe(process.env.GOCACHE);
 	});
 });

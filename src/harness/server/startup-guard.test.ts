@@ -1,3 +1,5 @@
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { createTsgoRunner } from "../tsgo-runner.js";
 // Startup guard — "reach listening, or die loudly" (audit F1, 2026-08-14).
 //
 // The behavior under test is the one the audit found inverted: a daemon that
@@ -238,22 +240,23 @@ describe("startFramedDaemonOrExit", () => {
 	function antiStomp() {
 		return { logAlways: vi.fn(), recordExit: vi.fn(), exit: vi.fn() };
 	}
-	const opts = {
+	const runtime = makeServerRuntime();
+	const opts: Parameters<typeof startFramedDaemonOrExit>[0] = {
 		paths: { socket: "/repo/.interlinked/harness-default.sock", pid: "/p", log: "/l" },
 		session_id: "default",
 		state: {
-			tsgo: null,
-			getEvaluatorContext: () => ({}),
+			tsgo: createTsgoRunner(),
+			getEvaluatorContext: () => ({ rules: runtime.rules, session: undefined, reservations: runtime.reservations, cohort: runtime.cohort }),
 			evaluateHook: async () => ({ decision: "allow" }),
 		},
-	} as unknown as Parameters<typeof startFramedDaemonOrExit>[0];
+	};
 
 	// P1: success flips the framed half of the latch and returns the handle.
 	it("notes the framed bind and returns the handle on success", async () => {
 		const sd = await import("../session-daemon.js");
-		const handle = { session_id: "default" };
+		const handle: Awaited<ReturnType<typeof sd.startSessionDaemon>> = { session_id: "default", paths: opts.paths, started_at: 0, stop: vi.fn(async () => {}), rpcInflight: vi.fn(() => 0) };
 		vi.mocked(sd.startSessionDaemon).mockResolvedValueOnce(
-			handle as unknown as Awaited<ReturnType<typeof sd.startSessionDaemon>>,
+			handle,
 		);
 		const { guard } = makeGuard({ runRaw: false });
 		const result = await startFramedDaemonOrExit(opts, {

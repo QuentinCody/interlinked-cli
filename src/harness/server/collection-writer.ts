@@ -14,9 +14,9 @@ import { buildCollectionRecord } from "../../lib/collection/builder.js";
 import { appendCollection } from "../../lib/collection/writer.js";
 import type { JsonObject } from "../../lib/json-types.js";
 import { eventAttributionFields } from "../event-attribution-fields.js";
-import type { AgentSource, HarnessEvent } from "../types.js";
+import type { HarnessEvent } from "../types.js";
 
-const CLIENT_RUNNER_BY_AGENT_SOURCE: Partial<Record<AgentSource, string>> = {
+const CLIENT_RUNNER_BY_AGENT_SOURCE: Partial<Record<string, string>> = {
 	codex: "codex",
 	copilot: "copilot",
 	gemini: "gemini-cli",
@@ -44,7 +44,8 @@ export function mapEventToCollectionInput(
 	}
 
 	// Detect client_runner from agent_source for non-Claude providers
-	const clientRunner = CLIENT_RUNNER_BY_AGENT_SOURCE[event.agent_source];
+	const mappedRunner = CLIENT_RUNNER_BY_AGENT_SOURCE[event.agent_source];
+	const clientRunner = typeof mappedRunner === "string" ? mappedRunner : undefined;
 	const cursorVersion = event.agent_source === "cursor" ? "1" : undefined;
 
 	return {

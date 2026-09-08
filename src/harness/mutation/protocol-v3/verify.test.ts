@@ -10,12 +10,14 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
+import { isRecord } from "./field-checks.js";
 import type { V3KeyRegistry } from "./canonical.js";
 import { classifyEvidence } from "./evidence.js";
 import { canonicalReceiptHash } from "./receipts.js";
 import {
 	authenticateFixture,
+	parseReceiptFixture,
 	RUNNER_PEM,
 	seal,
 	signReceipt,
@@ -144,7 +146,8 @@ describe("parseAndVerify — positive (must authenticate)", () => {
 	it("P2: seq does not participate in result identity", () => {
 		const { raw } = authenticated();
 		// SAFETY: sealed fixture; result_hash is a string by construction.
-		const sealedHash = raw.result_hash as string;
+		const sealedHash = raw.result_hash;
+		// SAFETY: authenticateFixture constructed the full valid wire envelope; only the non-identity seq field is changed here.
 		expect(computeResultHash({ ...raw, seq: 999 } as never)).toBe(sealedHash);
 	});
 
@@ -163,11 +166,14 @@ describe("parseAndVerify — positive (must authenticate)", () => {
 		const { raw, bundle, rows } = authenticatedMutationRows();
 		const before = rows[0]?.status;
 		const beforeClassification = classifyEvidence(bundle);
-		// SAFETY: attacker model — the caller retains the raw reference and
-		// mutates it after authentication; the fixture always has row 0.
-		(raw.mutants as Array<{ status: string }>)[0]!.status = "survived";
+		const rawRows = raw.mutants;
+		assert(Array.isArray(rawRows));
+		const first = rawRows[0];
+		assert(isRecord(first));
+		// The caller changes its retained input after authentication.
+		first.status = "survived";
 		expect(rows[0]?.status).toBe(before);
-		expect(rows[0]).not.toBe((raw.mutants as unknown[])[0]);
+		expect(rows[0]).not.toBe(first);
 		expect(classifyEvidence(bundle)).toEqual(beforeClassification);
 	});
 
@@ -198,7 +204,7 @@ describe("parseAndVerify — positive (must authenticate)", () => {
 		expect(isVerifiedEvidenceBundle(bundle)).toBe(true);
 		// SAFETY: adversarial structural copy retains every authenticated field
 		// but was not itself returned by the verifier.
-		const structuralCopy = { ...bundle } as unknown as VerifiedEvidenceBundle;
+		const structuralCopy = { ...bundle };
 		expect(isVerifiedEvidenceBundle(structuralCopy)).toBe(false);
 	});
 
@@ -210,7 +216,7 @@ describe("parseAndVerify — positive (must authenticate)", () => {
 		const { raw, inputs } = authenticated();
 		const original = inputs.keyRegistry;
 		const reads = { control: 0, runner: 0 };
-		const registry = {} as V3KeyRegistry;
+		const registry: V3KeyRegistry = {};
 		Object.defineProperties(registry, {
 			k_control: {
 				enumerable: true,
@@ -272,7 +278,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// purpose to the receipt that authorizes the selected arm.
 	it("N1: purpose and signer binding reject every cross-role signature", () => {
 		const { raw, inputs } = authenticated();
-		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const acceptance = parseReceiptFixture(inputs.receipts.acceptance);
 		const runnerSigned = signReceipt(acceptance.payload, "k_runner");
 		expect(
 			reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, acceptance: runnerSigned } }),
@@ -283,18 +289,16 @@ describe("parseAndVerify — negative (must fail)", () => {
 		expect(reasonOf(raw, inputs)).toContain("must equal the verified execution receipt signer");
 
 		const base = validMutationResult();
-		const cancelled = {
+		const cancelled: Record<string, unknown> = {
 			...base,
 			kind: "cancelled",
 			cancellation_reason: "operator_stop",
-		} as Record<string, unknown>;
+		};
 		for (const key of ["execution_receipt_hash", "attempt_id", "scope", "engine", "runner", "census", "excluded", "mutants", "identity_algorithm", "test_run", "report"]) {
 			delete cancelled[key];
 		}
 		const terminal = authenticateFixture(cancelled);
-		const terminalization = JSON.parse(terminal.inputs.receipts.terminalization ?? "") as {
-			payload: Record<string, unknown>;
-		};
+		const terminalization = parseReceiptFixture(terminal.inputs.receipts.terminalization ?? "");
 		expect(
 			reasonOf(terminal.raw, {
 				...terminal.inputs,
@@ -329,7 +333,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 		const { raw, inputs } = authenticateFixture(cancelled);
 		expect(reasonOf(raw, inputs)).toBe("AUTHENTICATED");
 		// Contradiction: a correctly signed record claiming a different state.
-		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const term = parseReceiptFixture(inputs.receipts.terminalization ?? "");
 		const contradictory = { ...term.payload, terminal_state: "succeeded", reason_code: "contradicts-envelope" };
 		raw.terminalization_record_hash = canonicalReceiptHash(contradictory);
 		seal(raw);
@@ -346,12 +350,14 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// the envelope's result key is valid.
 	it("N3: a revoked receipt key rejects independently", () => {
 		const { raw, inputs } = authenticated();
+		const controlKey = TEST_REGISTRY.k_control;
+		if (!controlKey) throw new Error("control key fixture is missing");
 		const registry: V3KeyRegistry = {
 			...TEST_REGISTRY,
 			k_control: {
-				...TEST_REGISTRY.k_control,
+				...controlKey,
 				revoked_at: "2026-08-01T00:00:00Z",
-			} as V3KeyRegistry[string],
+			},
 		};
 		expect(reasonOf(raw, { ...inputs, keyRegistry: registry })).toContain("revoked");
 	});
@@ -360,7 +366,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// engine name/version, test command hash, and the selected-test list.
 	it("N4: execution receipt echo mismatches reject", () => {
 		const { raw, inputs } = authenticated();
-		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(inputs.receipts.execution ?? "");
 		const wrongEngine = { ...execution.payload, engine_version: "9.9.9" };
 		raw.execution_receipt_hash = canonicalReceiptHash(wrongEngine);
 		seal(raw);
@@ -375,7 +381,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// acceptance fails the chain binding.
 	it("N4b: admission anchoring and receipt mix-and-match reject", () => {
 		const { raw, inputs } = authenticated();
-		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const acceptance = parseReceiptFixture(inputs.receipts.acceptance);
 		const foreign = { ...acceptance.payload, request_hash: "0".repeat(64), changeset_hash: "1".repeat(64) };
 		raw.acceptance_receipt_hash = canonicalReceiptHash(foreign);
 		seal(raw);
@@ -385,7 +391,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 		// Mix-and-match: original envelope + original acceptance, but an
 		// execution receipt that binds a DIFFERENT acceptance hash.
 		const fresh = authenticated();
-		const execution = JSON.parse(fresh.inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(fresh.inputs.receipts.execution ?? "");
 		const mixed = { ...execution.payload, acceptance_receipt_hash: "2".repeat(64) };
 		fresh.raw.execution_receipt_hash = canonicalReceiptHash(mixed);
 		seal(fresh.raw);
@@ -402,7 +408,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// different policy_version violates continuity.
 	it("N4c: chronology and policy continuity reject", () => {
 		const { raw, inputs } = authenticated();
-		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(inputs.receipts.execution ?? "");
 		const future = { ...execution.payload, issued_at: "2099-01-01T00:00:00.000Z" };
 		raw.execution_receipt_hash = canonicalReceiptHash(future);
 		seal(raw);
@@ -417,7 +423,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 			delete cancelled[key];
 		}
 		const term = authenticateFixture(cancelled);
-		const termReceipt = JSON.parse(term.inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const termReceipt = parseReceiptFixture(term.inputs.receipts.terminalization ?? "");
 		const otherPolicy = { ...termReceipt.payload, policy_version: "policy-set-2020-01" };
 		term.raw.terminalization_record_hash = canonicalReceiptHash(otherPolicy);
 		seal(term.raw);
@@ -457,7 +463,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// envelope's actual runner.image_digest.
 	it("acceptance-intended runner image differing from the envelope's rejects", () => {
 		const { raw, inputs } = authenticated();
-		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const acceptance = parseReceiptFixture(inputs.receipts.acceptance);
 		const wrongImage = { ...acceptance.payload, intended_image_digest: `sha256:${"1".repeat(64)}` };
 		raw.acceptance_receipt_hash = canonicalReceiptHash(wrongImage);
 		seal(raw);
@@ -469,7 +475,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — acceptanceEchoFailure's engine-config branch.
 	it("acceptance-intended engine config hash differing from the envelope's rejects", () => {
 		const { raw, inputs } = authenticated();
-		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const acceptance = parseReceiptFixture(inputs.receipts.acceptance);
 		const wrongConfig = { ...acceptance.payload, intended_engine_config_hash: "9".repeat(64) };
 		raw.acceptance_receipt_hash = canonicalReceiptHash(wrongConfig);
 		seal(raw);
@@ -481,7 +487,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — acceptanceEchoFailure's scope-mode branch.
 	it("acceptance-intended scope mode differing from the envelope's rejects", () => {
 		const { raw, inputs } = authenticated();
-		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const acceptance = parseReceiptFixture(inputs.receipts.acceptance);
 		const wrongMode = { ...acceptance.payload, intended_scope_mode: "glob_fallback" };
 		raw.acceptance_receipt_hash = canonicalReceiptHash(wrongMode);
 		seal(raw);
@@ -493,7 +499,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — acceptanceEchoFailure's test-scope-hash branch.
 	it("acceptance-intended test_scope_hash differing from the envelope's actual scope rejects", () => {
 		const { raw, inputs } = authenticated();
-		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const acceptance = parseReceiptFixture(inputs.receipts.acceptance);
 		const wrongScopeHash = { ...acceptance.payload, test_scope_hash: "0".repeat(64) };
 		raw.acceptance_receipt_hash = canonicalReceiptHash(wrongScopeHash);
 		seal(raw);
@@ -511,7 +517,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// re-signed but otherwise unrelated payload still fails the binding).
 	it("an acceptance receipt not matching acceptance_receipt_hash rejects", () => {
 		const { raw, inputs } = authenticated();
-		const acceptance = JSON.parse(inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const acceptance = parseReceiptFixture(inputs.receipts.acceptance);
 		const tampered = { ...acceptance.payload, quota_reservation_id: "quota_tampered" };
 		const newReceipt = signReceipt(tampered, "k_control");
 		expect(reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, acceptance: newReceipt } })).toBe(
@@ -522,7 +528,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — executionEchoFailure's attempt_id branch.
 	it("execution receipt attempt_id differing from the envelope's rejects", () => {
 		const { raw, inputs } = authenticated();
-		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(inputs.receipts.execution ?? "");
 		const wrongAttempt = { ...execution.payload, attempt_id: "attempt_wrong" };
 		raw.execution_receipt_hash = canonicalReceiptHash(wrongAttempt);
 		seal(raw);
@@ -534,7 +540,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — executionEchoFailure's job_key branch.
 	it("execution receipt job_key differing from the envelope's job binding rejects", () => {
 		const { raw, inputs } = authenticated();
-		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(inputs.receipts.execution ?? "");
 		const wrongJobKey = { ...execution.payload, job_key: "job_9999" };
 		raw.execution_receipt_hash = canonicalReceiptHash(wrongJobKey);
 		seal(raw);
@@ -546,7 +552,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — executionEchoFailure's runner-image branch.
 	it("execution receipt image_digest differing from the envelope's runner rejects", () => {
 		const { raw, inputs } = authenticated();
-		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(inputs.receipts.execution ?? "");
 		const wrongImage = { ...execution.payload, image_digest: `sha256:${"1".repeat(64)}` };
 		raw.execution_receipt_hash = canonicalReceiptHash(wrongImage);
 		seal(raw);
@@ -558,7 +564,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — executionEngineEchoFailure's engine-config branch.
 	it("execution receipt engine_config_hash differing from the envelope's engine rejects", () => {
 		const { raw, inputs } = authenticated();
-		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(inputs.receipts.execution ?? "");
 		const wrongConfig = { ...execution.payload, engine_config_hash: "9".repeat(64) };
 		raw.execution_receipt_hash = canonicalReceiptHash(wrongConfig);
 		seal(raw);
@@ -570,7 +576,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — executionEngineEchoFailure's test-command-hash branch.
 	it("execution receipt test_command_hash differing from the envelope's test_run rejects", () => {
 		const { raw, inputs } = authenticated();
-		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(inputs.receipts.execution ?? "");
 		const wrongCommand = { ...execution.payload, test_command_hash: "6".repeat(64) };
 		raw.execution_receipt_hash = canonicalReceiptHash(wrongCommand);
 		seal(raw);
@@ -585,7 +591,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — executionEngineEchoFailure's selected-test-hash branch.
 	it("execution receipt selected_test_hash differing from the envelope's actual test list rejects", () => {
 		const { raw, inputs } = authenticated();
-		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(inputs.receipts.execution ?? "");
 		const wrongTestHash = { ...execution.payload, selected_test_hash: "0".repeat(64) };
 		raw.execution_receipt_hash = canonicalReceiptHash(wrongTestHash);
 		seal(raw);
@@ -600,7 +606,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — executionEngineEchoFailure's selected-test-count branch.
 	it("execution receipt selected_test_count differing from the envelope's actual test list rejects", () => {
 		const { raw, inputs } = authenticated();
-		const execution = JSON.parse(inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(inputs.receipts.execution ?? "");
 		const wrongCount = { ...execution.payload, selected_test_count: 2 };
 		raw.execution_receipt_hash = canonicalReceiptHash(wrongCount);
 		seal(raw);
@@ -623,7 +629,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// branch: the record must bind the SAME acceptance receipt as the envelope.
 	it("terminalization record binding a different acceptance receipt rejects", () => {
 		const { raw, inputs } = cancelledFixture();
-		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const term = parseReceiptFixture(inputs.receipts.terminalization ?? "");
 		const wrongAcceptance = { ...term.payload, acceptance_receipt_hash: "9".repeat(64) };
 		raw.terminalization_record_hash = canonicalReceiptHash(wrongAcceptance);
 		seal(raw);
@@ -638,7 +644,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// test-contract: security — terminalizationEchoFailure's occurred_at branch.
 	it("terminalization occurred_at differing from the envelope's occurred_at rejects", () => {
 		const { raw, inputs } = cancelledFixture();
-		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const term = parseReceiptFixture(inputs.receipts.terminalization ?? "");
 		const wrongOccurred = { ...term.payload, occurred_at: "2026-08-31T12:01:00.000Z" };
 		raw.terminalization_record_hash = canonicalReceiptHash(wrongOccurred);
 		seal(raw);
@@ -655,7 +661,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// combined-tamper case), isolating this specific echo check.
 	it("terminalization reason_code contradicting the envelope's reason rejects", () => {
 		const { raw, inputs } = cancelledFixture();
-		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const term = parseReceiptFixture(inputs.receipts.terminalization ?? "");
 		const wrongReason = { ...term.payload, reason_code: "deadline_exceeded" };
 		raw.terminalization_record_hash = canonicalReceiptHash(wrongReason);
 		seal(raw);
@@ -673,7 +679,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// on the terminal arm's own dedicated fixture (no execution receipt).
 	it("terminalization reason_code contradicting an execution_failed envelope's failure_classification rejects", () => {
 		const { raw, inputs } = executionFailedFixture("infra_error");
-		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const term = parseReceiptFixture(inputs.receipts.terminalization ?? "");
 		const wrongReason = { ...term.payload, reason_code: "operator_stop" };
 		raw.terminalization_record_hash = canonicalReceiptHash(wrongReason);
 		seal(raw);
@@ -699,7 +705,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// canonical hash must equal the envelope's terminalization_record_hash.
 	it("a terminalization record not matching terminalization_record_hash rejects", () => {
 		const { raw, inputs } = cancelledFixture();
-		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const term = parseReceiptFixture(inputs.receipts.terminalization ?? "");
 		const tampered = { ...term.payload, actor: "tampered-actor" };
 		const newReceipt = signReceipt(tampered, "k_control");
 		expect(reasonOf(raw, { ...inputs, receipts: { ...inputs.receipts, terminalization: newReceipt } })).toBe(
@@ -711,7 +717,7 @@ describe("parseAndVerify — negative (must fail)", () => {
 	// check, past the echo/policy/chronology checks that ran before it.
 	it("terminalization record job_key differing from the envelope's job binding rejects", () => {
 		const { raw, inputs } = cancelledFixture();
-		const term = JSON.parse(inputs.receipts.terminalization ?? "") as { payload: Record<string, unknown> };
+		const term = parseReceiptFixture(inputs.receipts.terminalization ?? "");
 		const wrongJobKey = { ...term.payload, job_key: "job_9999" };
 		raw.terminalization_record_hash = canonicalReceiptHash(wrongJobKey);
 		seal(raw);

@@ -1,9 +1,12 @@
+import { ARTIFACT_FILE_KEYS } from "../harness/structure/schema-validator.js";
+import { VALID_ARTIFACT_KINDS } from "../harness/structure/types.js";
+import { errorMessage } from "../lib/error-message.js";
 // Structure Commands — Generic Artifact Structure V1 CLI
 // All harness/structure imports are lazy (dynamic) to keep startup fast.
 
 import { existsSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { ArtifactFileKey, ArtifactKind } from "../harness/structure/types.js";
+import type { ArtifactFileKey } from "../harness/structure/types.js";
 import { c } from "../lib/formatter.js";
 import type { JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
@@ -79,7 +82,7 @@ async function runStructureInit(opts: InitOpts): Promise<void> {
 	const cwd = process.cwd();
 	const mode = opts.mode || "standard";
 	const { VALID_MODES } = await import("../harness/structure/types.js");
-	if (!(VALID_MODES as readonly string[]).includes(mode))
+	if (!VALID_MODES.some((valid) => valid === mode))
 		fatal(`Invalid mode "${mode}". Must be one of: ${VALID_MODES.join(", ")}`);
 
 	const cats = opts.with ? opts.with.split(",").map((s) => s.trim()) : [];
@@ -124,7 +127,7 @@ export async function structureInitCommand(opts: InitOpts): Promise<void> {
 		await runStructureInit(opts);
 	} catch (e) {
 		if (process.exitCode === 1) return;
-		console.error(c.red(`structure init failed: ${(e as Error).message}`));
+		console.error(c.red(`structure init failed: ${errorMessage(e)}`));
 		process.exitCode = 1;
 	}
 }
@@ -165,7 +168,7 @@ export async function structureScanCommand(opts: ScanOpts): Promise<void> {
 			repo_root: cwd,
 			last_scanned_commit: "",
 			manifest_hash: hash,
-			extractor_versions: {} as Record<string, number>,
+			extractor_versions: {},
 		};
 		try {
 			const { execSync } = await import("node:child_process");
@@ -203,7 +206,7 @@ export async function structureScanCommand(opts: ScanOpts): Promise<void> {
 		);
 	} catch (e) {
 		if (process.exitCode === 1) return;
-		console.error(c.red(`structure scan failed: ${(e as Error).message}`));
+		console.error(c.red(`structure scan failed: ${errorMessage(e)}`));
 		process.exitCode = 1;
 	}
 }
@@ -242,17 +245,19 @@ function writeScanCaches(cm: CacheModule, cwd: string, graph: Graph): void {
 			determinism_ceiling: "fully_deterministic",
 		})),
 	});
-	for (const [kind, cat] of Object.entries(KIND_TO_CAT))
-		cm.writeCategoryCache(cwd, cat, {
+	for (const kind of VALID_ARTIFACT_KINDS)
+		cm.writeCategoryCache(cwd, nonNull(KIND_TO_CAT[kind]), {
 			schema_version: 1,
-			items: toItems(graph.getNodesByKind(kind as ArtifactKind)),
+			items: toItems(graph.getNodesByKind(kind)),
 		});
 
-	const adoption = {} as Record<ArtifactFileKey, number>;
-	for (const key of Object.keys(SCAFFOLDS)) {
-		const nodes = graph.getNodesByKind((KEY_TO_KIND[key] ?? key) as ArtifactKind);
+	const adoption: Record<ArtifactFileKey, number> = {
+		public_api: 0, env: 0, config: 0, tests: 0, docs: 0, examples: 0, glossary: 0, layers: 0, packages: 0,
+	};
+	for (const key of ARTIFACT_FILE_KEYS) {
+		const nodes = graph.getNodesByKind(nonNull(KEY_TO_KIND[key]));
 		const decl = nodes.filter((n) => n.provenance === "declared").length;
-		adoption[key as ArtifactFileKey] = nodes.length > 0 ? decl / nodes.length : 0;
+		adoption[key] = nodes.length > 0 ? decl / nodes.length : 0;
 	}
 	cm.writeAdoptionReport(cwd, { schema_version: 1, categories: adoption });
 }
@@ -293,7 +298,7 @@ export async function structureStatusCommand(opts: StructureOpts): Promise<void>
 			buildStatusLines({ mode: config.mode, loaded, meta, adopt, stale, invalid }).join("\n"),
 		);
 	} catch (e) {
-		console.error(c.red(`structure status failed: ${(e as Error).message}`));
+		console.error(c.red(`structure status failed: ${errorMessage(e)}`));
 		process.exitCode = 1;
 	}
 }
@@ -355,7 +360,7 @@ export async function structureAcceptCommand(opts: StructureOpts): Promise<void>
 			);
 		console.log(buildAcceptLines(accepted, skipped).join("\n"));
 	} catch (e) {
-		console.error(c.red(`structure accept failed: ${(e as Error).message}`));
+		console.error(c.red(`structure accept failed: ${errorMessage(e)}`));
 		process.exitCode = 1;
 	}
 }
@@ -400,7 +405,7 @@ export async function structureDoctorCommand(opts: StructureOpts): Promise<void>
 		console.log(lines.join("\n"));
 		if (issues.some((i) => i.severity === "error")) process.exitCode = 1;
 	} catch (e) {
-		console.error(c.red(`structure doctor failed: ${(e as Error).message}`));
+		console.error(c.red(`structure doctor failed: ${errorMessage(e)}`));
 		process.exitCode = 1;
 	}
 }
@@ -471,7 +476,7 @@ export async function structureBaselineCommand(sub: string, opts: BaselineOpts):
 		else fatal(`Unknown baseline subcommand "${sub}". Use: save, clear, status`);
 	} catch (e) {
 		if (process.exitCode === 1) return;
-		console.error(c.red(`structure baseline failed: ${(e as Error).message}`));
+		console.error(c.red(`structure baseline failed: ${errorMessage(e)}`));
 		process.exitCode = 1;
 	}
 }

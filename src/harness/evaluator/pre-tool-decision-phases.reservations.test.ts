@@ -37,7 +37,7 @@ function evaluate(
 		event,
 		undefined,
 		event.tool_name ?? "",
-		(event.tool_input ?? {}) as Record<string, unknown>,
+		(event.tool_input ?? {}),
 		reservations,
 		cohort,
 		warnings,

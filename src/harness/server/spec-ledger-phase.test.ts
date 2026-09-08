@@ -1,8 +1,10 @@
+import { makeServerRuntime, makePerFileCheckCtx } from "./__tests__/fixtures.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import type { SpecLedger } from "../spec/ledger.js";
+import { SpecLedger } from "../spec/ledger.js";
 import type { HarnessDecision, SessionTrajectory } from "../types.js";
 import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import type { ServerRuntime } from "./runtime-context.js";
@@ -36,23 +38,16 @@ function makeFixture(): {
 	// and pending_completions/tool_call_count/spec_drift_outstanding from the
 	// session — a minimal fixture keeps this test independent of the full
 	// server bootstrap (same pattern as post-tool-file-checks-phases.test.ts).
-	const ctx = {
-		cwd: root,
-		rules: { spec_checks: { enabled: true } },
-		log: () => {},
-		specLedger: null,
-	} as unknown as ServerRuntime;
-	const session = {
+	const ctx = makeServerRuntime({ cwd: root });
+	ctx.rules.spec_checks = { enabled: true };
+	const session = ({ ...makeSessionFixture(),
 		pending_completions: new Map(),
 		tool_call_count: 3,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 	const decision: HarnessDecision = { decision: "allow" };
 	// SAFETY: the phase touches only allCheckResults/checksRan on the
 	// accumulator; the remaining PerFileCheckCtx fields are unused here.
-	const acc = {
-		allCheckResults: [],
-		checksRan: [],
-	} as unknown as PerFileCheckCtx;
+	const acc = makePerFileCheckCtx();
 	return { root, ctx, session, decision, acc };
 }
 
@@ -75,7 +70,7 @@ describe("runSpecLedgerPhase", () => {
 			join(root, "docs", "a.md"),
 			join(root, "alias", "a.md"),
 		]);
-		const ledger = ctx.specLedger as { fileList(): string[] } | null | undefined;
+		const ledger: { fileList(): string[] } | null | undefined = ctx.specLedger;
 		const keys = ledger?.fileList() ?? [];
 		// The alias resolved to the real path: docs/a.md present exactly once,
 		// no duplicate alias/a.md key.
@@ -132,8 +127,7 @@ describe("runSpecLedgerPhase", () => {
 		const disabled = makeFixture();
 		fixtures.push(disabled.root);
 		// SAFETY: minimal fixture — see above.
-		(disabled.ctx as { rules: { spec_checks: { enabled: boolean } } }).rules =
-			{ spec_checks: { enabled: false } };
+		disabled.ctx.rules.spec_checks = { enabled: false };
 		runSpecLedgerPhase(
 			disabled.ctx,
 			join(disabled.root, "PLAN.md"),
@@ -238,7 +232,7 @@ describe("runSpecLedgerPhase", () => {
 		const { root, ctx, session, decision, acc } = makeFixture();
 		fixtures.push(root);
 		const log = vi.fn();
-		(ctx as unknown as { log: typeof log }).log = log;
+		vi.spyOn(ctx, "log").mockImplementation(log);
 		// A directory named *.md exists (passes isSpecEligibleFile + realpath
 		// resolves, so toLedgerPath never hits the ".." guard) but readFileSync
 		// throws EISDIR — exercising the genuine catch path, not the path-gone
@@ -256,13 +250,12 @@ describe("runSpecLedgerPhase", () => {
 		fixtures.push(root);
 		writeFileSync(join(root, "X.md"), "# X\n");
 		const log = vi.fn();
-		const fakeLedger = {
-			refreshFile: () => {
+		const fakeLedger = new SpecLedger(root);
+		vi.spyOn(fakeLedger, "refreshFile").mockImplementation(() => {
 				throw "not-an-error-instance";
-			},
-		} as unknown as SpecLedger;
-		(ctx as unknown as { log: typeof log }).log = log;
-		(ctx as unknown as { specLedger: SpecLedger | null }).specLedger = fakeLedger;
+			});
+		vi.spyOn(ctx, "log").mockImplementation(log);
+		ctx.specLedger = fakeLedger;
 		expect(() =>
 			runSpecLedgerPhase(ctx, join(root, "X.md"), true, session, decision, acc),
 		).not.toThrow();
@@ -298,9 +291,7 @@ describe("prerefreshSpecLedger — early-return branches", () => {
 	it("no-ops when spec_checks.enabled is explicitly false, even with 2+ md paths", () => {
 		const { root, ctx } = makeFixture();
 		fixtures.push(root);
-		(ctx as unknown as { rules: { spec_checks: { enabled: boolean } } }).rules = {
-			spec_checks: { enabled: false },
-		};
+		ctx.rules.spec_checks = { enabled: false };
 		writeFileSync(join(root, "A.md"), "# A\n");
 		writeFileSync(join(root, "B.md"), "# B\n");
 		prerefreshSpecLedger(ctx, [join(root, "A.md"), join(root, "B.md")]);
@@ -327,7 +318,7 @@ describe("prerefreshSpecLedger — early-return branches", () => {
 		expect(() =>
 			prerefreshSpecLedger(ctx, [join(root, "A.md"), join(outsideRoot, "OUTSIDE.md")]),
 		).not.toThrow();
-		const ledger = ctx.specLedger as { fileList(): string[] } | null | undefined;
+		const ledger: { fileList(): string[] } | null | undefined = ctx.specLedger;
 		expect(ledger?.fileList() ?? []).toContain("A.md");
 		expect((ledger?.fileList() ?? []).some((k) => k.includes("OUTSIDE.md"))).toBe(false);
 	});
@@ -347,7 +338,7 @@ describe("prerefreshSpecLedger — outer catch (drop-on-delete removeFile, and i
 		expect(() =>
 			prerefreshSpecLedger(ctx, [join(root, "A.md"), join(root, "B.md")]),
 		).not.toThrow();
-		const ledger = ctx.specLedger as { fileList(): string[] } | null | undefined;
+		const ledger: { fileList(): string[] } | null | undefined = ctx.specLedger;
 		// B.md's EISDIR read failure hit removeFile — never recorded in the ledger.
 		expect(ledger?.fileList() ?? []).not.toContain("B.md");
 		expect(ledger?.fileList() ?? []).toContain("A.md");
@@ -357,16 +348,15 @@ describe("prerefreshSpecLedger — outer catch (drop-on-delete removeFile, and i
 		const { root, ctx } = makeFixture();
 		fixtures.push(root);
 		const log = vi.fn();
-		(ctx as unknown as { log: typeof log }).log = log;
-		const fakeLedger = {
-			refreshFile: () => {
+		vi.spyOn(ctx, "log").mockImplementation(log);
+		const fakeLedger = new SpecLedger(root);
+		vi.spyOn(fakeLedger, "refreshFile").mockImplementation(() => {
 				throw new Error("refresh boom");
-			},
-			removeFile: () => {
+			});
+		vi.spyOn(fakeLedger, "removeFile").mockImplementation(() => {
 				throw new Error("remove boom");
-			},
-		} as unknown as SpecLedger;
-		(ctx as unknown as { specLedger: SpecLedger | null }).specLedger = fakeLedger;
+			});
+		ctx.specLedger = fakeLedger;
 		writeFileSync(join(root, "A.md"), "# A\n");
 		writeFileSync(join(root, "B.md"), "# B\n");
 		expect(() => prerefreshSpecLedger(ctx, [join(root, "A.md"), join(root, "B.md")])).not.toThrow();
@@ -378,16 +368,15 @@ describe("prerefreshSpecLedger — outer catch (drop-on-delete removeFile, and i
 		const { root, ctx } = makeFixture();
 		fixtures.push(root);
 		const log = vi.fn();
-		(ctx as unknown as { log: typeof log }).log = log;
-		const fakeLedger = {
-			refreshFile: () => {
+		vi.spyOn(ctx, "log").mockImplementation(log);
+		const fakeLedger = new SpecLedger(root);
+		vi.spyOn(fakeLedger, "refreshFile").mockImplementation(() => {
 				throw new Error("refresh boom");
-			},
-			removeFile: () => {
+			});
+		vi.spyOn(fakeLedger, "removeFile").mockImplementation(() => {
 				throw "remove-non-error";
-			},
-		} as unknown as SpecLedger;
-		(ctx as unknown as { specLedger: SpecLedger | null }).specLedger = fakeLedger;
+			});
+		ctx.specLedger = fakeLedger;
 		writeFileSync(join(root, "A.md"), "# A\n");
 		writeFileSync(join(root, "B.md"), "# B\n");
 		expect(() => prerefreshSpecLedger(ctx, [join(root, "A.md"), join(root, "B.md")])).not.toThrow();

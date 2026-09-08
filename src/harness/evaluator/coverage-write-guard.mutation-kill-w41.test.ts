@@ -1,3 +1,7 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
+import { loadRules } from "../rules-loader.js";
+import { nonNull } from "../../lib/non-null.js";
+import type { JsonObject } from "../../lib/json-types.js";
 // Mutation-kill suite for coverage-write-guard.ts (wave 41 survivors).
 // Targets the specific StringLiteral/ConditionalExpression/EqualityOperator/
 // LogicalOperator/BlockStatement/OptionalChaining/ArrayDeclaration/ObjectLiteral
@@ -49,8 +53,8 @@ afterEach(() => {
 });
 
 function rules(overrides?: Partial<NonNullable<GuardRulesConfig["per_edit_coverage"]>>): GuardRulesConfig {
-	return {
-		per_edit_coverage: {
+	return ({ ...makeGuardRules(),
+		per_edit_coverage: { ...({ enabled: false, mode: "block", budget_ms: 25_000, languages: [] } satisfies NonNullable<GuardRulesConfig["per_edit_coverage"]>),
 			enabled: true,
 			mode: "block",
 			budget_ms: 25_000,
@@ -59,7 +63,14 @@ function rules(overrides?: Partial<NonNullable<GuardRulesConfig["per_edit_covera
 		},
 		// SAFETY: GuardRulesConfig has many unrelated fields the gate never reads;
 		// the object above satisfies the one field (`per_edit_coverage`) it consumes.
-	} as unknown as GuardRulesConfig;
+	} satisfies GuardRulesConfig);
+}
+
+function persistedCoverageRules(overrides: JsonObject): GuardRulesConfig {
+	mkdirSync(join(root, ".interlinked"), { recursive: true });
+	writeFileSync(join(root, ".interlinked", "guard-rules.local.json"),
+		JSON.stringify({ per_edit_coverage: { ...rules().per_edit_coverage, ...overrides } }));
+	return { ...rules(), per_edit_coverage: nonNull(loadRules(root).per_edit_coverage) };
 }
 
 function writeEvent(relPath: string, content: string): HarnessEvent {
@@ -506,10 +517,7 @@ describe("coverage-write-guard — drop_epsilon override cluster (24cdb730, f9a9
 		]);
 		const decision = await checkCoverageWrite(
 			writeEvent("src/a.ts", "export function f() {\n  return 1;\n}\n"),
-			// SAFETY: deliberately violating the declared `number` type to prove the
-			// runtime `typeof ... === "number"` guard rejects a string that would
-			// otherwise coerce truthily via `>= 0`.
-			rules({ drop_epsilon: "0.5" as unknown as number }),
+			persistedCoverageRules({ drop_epsilon: "0.5" }),
 			deps(stubOverlayRunner(result)),
 		);
 		// typeof "0.5" !== "number" -> override rejected -> default epsilon (0.005)

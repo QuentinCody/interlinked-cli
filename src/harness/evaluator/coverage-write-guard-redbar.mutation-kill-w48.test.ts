@@ -3,7 +3,10 @@
 // runRedBarSuites, decideForDeletionOnly, decideForResidualLanguages,
 // blockForDeletionRedBar, blockForCrossSuiteRedBar.
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { loadRules } from "../rules-loader.js";
+import { nonNull } from "../../lib/non-null.js";
+import type { JsonObject } from "../../lib/json-types.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -33,13 +36,20 @@ afterEach(() => {
 function cfg(
 	overrides?: Partial<NonNullable<GuardRulesConfig["per_edit_coverage"]>>,
 ): NonNullable<GuardRulesConfig["per_edit_coverage"]> {
-	return {
+	return ({
 		enabled: true,
 		mode: "block",
 		budget_ms: 25_000,
 		languages: ["js", "ts"],
 		...overrides,
-	} as unknown as NonNullable<GuardRulesConfig["per_edit_coverage"]>;
+	} satisfies NonNullable<GuardRulesConfig["per_edit_coverage"]>);
+}
+
+function persistedCoverage(overrides: JsonObject): NonNullable<GuardRulesConfig["per_edit_coverage"]> {
+	mkdirSync(join(root, ".interlinked"), { recursive: true });
+	writeFileSync(join(root, ".interlinked", "guard-rules.local.json"),
+		JSON.stringify({ per_edit_coverage: { ...cfg(), ...overrides } }));
+	return nonNull(loadRules(root).per_edit_coverage);
 }
 
 function event(): HarnessEvent {
@@ -143,8 +153,8 @@ describe("gatedDeletions — reachable only through decideForDeletionOnly", () =
 		const { runner, calls } = runnerFor("vitest", greenResult());
 		const result = await decideForDeletionOnly(
 			event(),
-			cfg({
-				languages: ["ts", null] as unknown as string[],
+			persistedCoverage({
+				languages: ["ts", null],
 				block_on_test_failure: true,
 				budget_ms: 25_000,
 			}),
@@ -199,7 +209,10 @@ describe("gatedSectionsByLanguage — reachable only through decideForDeletionOn
 		let nullLanguageCalled = false;
 		const result = await decideForDeletionOnly(
 			event(),
-			cfg({ languages: ["ts", null] as unknown as string[], block_on_test_failure: true }),
+			persistedCoverage({
+				languages: ["ts", null],
+				block_on_test_failure: true,
+			}),
 			deps({
 				runnerFor: (language) => {
 					if (language === "ts") return tsRunner;

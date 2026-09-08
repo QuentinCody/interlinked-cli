@@ -47,9 +47,9 @@ export async function buildLegacyIndex(corpusRoot: string, output: string): Prom
 function legacyFilter(query: EvidenceQuery): { where: string; values: Array<string | number> } {
     const clauses: string[] = [];
     const values: Array<string | number> = [];
-    const columns = { source: "source", category: "category", session: "session", actor: "actor", provider: "provider", model: "model", call: "call_id", kind: "kind", decision: "decision", origin: "origin" } as const;
-    for (const key of Object.keys(columns) as Array<keyof typeof columns>) {
-        if (query[key] !== undefined) { clauses.push(`r.${columns[key]}=?`); values.push(query[key]); }
+    const columns = [ ["source", "source"], ["category", "category"], ["session", "session"], ["actor", "actor"], ["provider", "provider"], ["model", "model"], ["call", "call_id"], ["kind", "kind"], ["decision", "decision"], ["origin", "origin"] ] as const;
+    for (const [key, column] of columns) {
+        if (query[key] !== undefined) { clauses.push(`r.${column}=?`); values.push(query[key]); }
     }
     if (query.since !== undefined) { clauses.push("r.event_ms>=?"); values.push(query.since); }
     if (query.until !== undefined) { clauses.push("r.event_ms<=?"); values.push(query.until); }

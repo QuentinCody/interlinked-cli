@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../../lib/value-validation.js";
 // ===========================================
 // verify-summary unit tests
 // ===========================================
@@ -76,7 +77,7 @@ beforeEach(() => {
 	process.stderr.write = ((chunk: string) => {
 		stderrChunks.push(chunk);
 		return true;
-	}) as typeof process.stderr.write;
+	});
 	vi.clearAllMocks();
 });
 
@@ -159,7 +160,7 @@ describe("emitVerifyRun", () => {
 		const [, payload] = nonNull(vi.mocked(appendFileSync).mock.calls[0]);
 		const text = String(payload);
 		expect(text.endsWith("\n")).toBe(true);
-		return JSON.parse(text) as Record<string, unknown>;
+		return parseWire(JSON.parse(text), wireRecord(wireUnknown), "test JSON value");
 	}
 
 	it("appends a full JSONL row with git context, creating the dir when absent", () => {
@@ -245,6 +246,11 @@ describe("emitVerifyRun", () => {
 		});
 		// Must not throw.
 		expect(() => emitVerifyRun("/repo", baseData)).not.toThrow();
+		// Prove the swallow happens AFTER the write is attempted, not before —
+		// a stub that skips the write entirely would still pass not.toThrow().
+		const [writePath, writeContent] = vi.mocked(appendFileSync).mock.calls[0] ?? [];
+		expect(writePath).toBe("/repo/.interlinked/verify-runs.jsonl");
+		expect(String(writeContent)).toContain('"cwd":"/repo"');
 	});
 });
 
@@ -429,7 +435,7 @@ describe("streamDecisionSurfaceRatchet", () => {
 		streamDecisionSurfaceRatchet({
 			baselineRef: "origin/main",
 			skipped: null,
-			growthByCategory: {} as never,
+			growthByCategory: { package_manager: [], test_framework: [], linter: [], formatter: [], bundler: [], http_client: [], date_lib: [] },
 			totalGrowth: 0,
 			warnings: [],
 		});
@@ -440,7 +446,7 @@ describe("streamDecisionSurfaceRatchet", () => {
 		streamDecisionSurfaceRatchet({
 			baselineRef: "origin/main",
 			skipped: null,
-			growthByCategory: {} as never,
+			growthByCategory: { package_manager: [], test_framework: [], linter: [], formatter: [], bundler: [], http_client: [], date_lib: [] },
 			totalGrowth: 3,
 			warnings: ["pre_warn gained foo", "post gained bar"],
 		});
@@ -603,11 +609,11 @@ describe("streamSuggestionsSummary", () => {
 
 	it("totals suggestions across files and lists files sorted", () => {
 		// Insert out of order to prove the localeCompare sort in the listing.
-		const map = new Map<string, Array<{ id: string }>>([
-			["z.ts", [{ id: "1" }]],
-			["a.ts", [{ id: "2" }, { id: "3" }]],
+		const map: ReturnType<typeof runSuggestions> = new Map([
+			["z.ts", [{ check: "silent-catch", line: 1, message: "First finding", source: "quality" }]],
+			["a.ts", [{ check: "silent-catch", line: 2, message: "Second finding", source: "quality" }, { check: "silent-catch", line: 3, message: "Third finding", source: "quality" }]],
 		]);
-		vi.mocked(runSuggestions).mockReturnValue(map as never);
+		vi.mocked(runSuggestions).mockReturnValue(map);
 		streamSuggestionsSummary(["a.ts", "z.ts"], "/repo");
 		const o = out();
 		expect(o).toContain("scored heuristics");

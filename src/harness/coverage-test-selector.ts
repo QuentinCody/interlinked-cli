@@ -50,7 +50,7 @@ export interface SelectAffectedTestsInput {
 	/** Absolute project root the relative paths resolve against. */
 	projectRoot: string;
 	/** The dependency view the daemon already built (reverse import graph). */
-	depView: DependencyView;
+	depView: Pick<DependencyView, "answerScope" | "hasFile" | "getDependents">;
 	/**
 	 * Files materialized in THIS edit's overlay (the whole atomic patch's
 	 * sections). Lets a BRAND-NEW source file — not yet in the import graph —
@@ -189,7 +189,7 @@ function coveringTestsWithoutGraph(
 function expandDependents(
 	current: string,
 	projectRoot: string,
-	depView: DependencyView,
+	depView: SelectAffectedTestsInput["depView"],
 	visited: Set<string>,
 	queue: string[],
 	tests: Set<string>,
@@ -296,7 +296,7 @@ export type SelectionRoute = { kind: "scoped"; tests: string[] } | { kind: "full
 export function routeBySelection(
 	relPath: string,
 	projectRoot: string,
-	depView: DependencyView | undefined,
+	depView: SelectAffectedTestsInput["depView"] | undefined,
 	overlayFiles?: ReadonlyArray<RouteOverlayFile>,
 ): SelectionRoute {
 	if (!depView) return { kind: "full" };

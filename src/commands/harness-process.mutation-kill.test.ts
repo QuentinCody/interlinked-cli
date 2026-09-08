@@ -56,7 +56,7 @@ const FAKE_CWD = "/fake-repo";
 // string the SUT's own `import.meta.dirname || __dirname` produces.
 // SAFETY: this test file runs as a file:// ESM module (Node 20.11+), where
 // import.meta.dirname is always a populated string, never undefined.
-const SUT_DIR = import.meta.dirname as string;
+const SUT_DIR = import.meta.dirname;
 
 beforeEach(() => {
 	mocks.execSync.mockReset();
@@ -198,6 +198,9 @@ describe("ensureDistFresh", () => {
 		mocks.existsSync.mockImplementation((p: unknown) => String(p) === "");
 		ensureDistFresh();
 		expect(mocks.existsSync).toHaveBeenCalledTimes(10);
+		// Candidate #4 is the cwd-relative flat-layout dist path — pin it
+		// literally so a mutant that reorders or drops a candidate is caught.
+		expect(mocks.existsSync).toHaveBeenNthCalledWith(4, DIST_SERVER);
 		expect(mocks.statSync).not.toHaveBeenCalled();
 		expect(mocks.execSync).not.toHaveBeenCalled();
 		// Observable post-state: nothing is printed when the guard short-circuits.

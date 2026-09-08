@@ -1,3 +1,5 @@
+import { nestedHookSettings } from "./test-output.js";
+import { nonNull } from "../../lib/non-null.js";
 import { describe, expect, it } from "vitest";
 import { createClaudeCodeAdapter } from "./claude-code.js";
 
@@ -29,9 +31,7 @@ describe("mutation-kill w29 — renderSettingsFragment runner literal in detache
 	// the literal runner id "claude-code" (mutation target: StringLiteral)
 	it("includes --runner 'claude-code' in the detached SessionEnd command", () => {
 		const frag = adapter.renderSettingsFragment("/usr/local/bin/interlinked-hook", "project");
-		const fragment = frag.fragment as {
-			hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
-		};
+		const fragment = nestedHookSettings(frag.fragment);
 		const sessionEnd = fragment.hooks.SessionEnd?.[0];
 		expect(sessionEnd?.hooks[0]?.command).toContain("--runner 'claude-code'");
 	});
@@ -43,9 +43,7 @@ describe("mutation-kill w29 — renderSettingsFragment conditional timeout sprea
 	// EqualityOperator, ObjectLiteral around `timeout !== undefined ? { timeout } : {}`)
 	it("includes a timeout key for PreToolUse (policy defines one)", () => {
 		const frag = adapter.renderSettingsFragment("/usr/local/bin/interlinked-hook", "project");
-		const fragment = frag.fragment as {
-			hooks: Record<string, Array<{ hooks: Array<{ command: string; timeout?: number }> }>>;
-		};
+		const fragment = nestedHookSettings(frag.fragment);
 		const entry = fragment.hooks.PreToolUse?.[0]?.hooks[0];
 		expect(entry).toBeDefined();
 		expect(entry).toHaveProperty("timeout");
@@ -55,9 +53,7 @@ describe("mutation-kill w29 — renderSettingsFragment conditional timeout sprea
 	// no key at all when there is no policy timeout (mutation targets as above)
 	it("omits the timeout key entirely for an event with no policy timeout (SessionStart)", () => {
 		const frag = adapter.renderSettingsFragment("/usr/local/bin/interlinked-hook", "project");
-		const fragment = frag.fragment as {
-			hooks: Record<string, Array<{ hooks: Array<{ command: string; timeout?: number }> }>>;
-		};
+		const fragment = nestedHookSettings(frag.fragment);
 		const entry = fragment.hooks.SessionStart?.[0]?.hooks[0];
 		expect(entry).toBeDefined();
 		expect(entry).not.toHaveProperty("timeout");
@@ -72,17 +68,14 @@ describe("mutation-kill w29 — encodeDecision hookEventName PostToolUse fallbac
 			{ session_id: "s", cwd: "/repo", tool_name: "Edit", tool_input: {} },
 			"PostToolUse",
 		);
-		const fakeEvent = { ...postEvent, runner_native_event: undefined };
+		const fakeEvent = { ...postEvent, runner_native_event: "" };
 		const out = adapter.encodeDecision(
 			{ decision: "allow", additional_context: "hi" },
-			// SAFETY: fakeEvent is a real UnifiedHookEvent with runner_native_event
-			// forced undefined to exercise the phase-based fallback; `never` only
-			// silences the narrowed literal-union mismatch from the spread.
-			fakeEvent as never,
+			fakeEvent,
 		);
 		// SAFETY: encodeDecision's stdout is always a JSON string on this branch —
 		// asserted immediately below via JSON.parse, which throws if it were not.
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: "hi" },
 		});
 	});

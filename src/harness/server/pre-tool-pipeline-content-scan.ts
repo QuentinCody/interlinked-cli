@@ -1,3 +1,4 @@
+import { readToolString } from "../evaluator/tool-input-values.js";
 // interlinked-tdd: exempt
 // ===========================================
 // PreToolUse content-scanner phase helpers
@@ -44,8 +45,8 @@ export async function runWebFetchProxy(
 	) {
 		return null;
 	}
-	const url = (event.tool_input?.url as string) || "";
-	const promptField = (event.tool_input?.prompt as string) || "";
+	const url = readToolString(event.tool_input?.url);
+	const promptField = readToolString(event.tool_input?.prompt);
 	if (!url) return null;
 	const proxyResult = await fetchAndScan({
 		cwd: CWD,
@@ -174,11 +175,10 @@ export async function runContentScanRequest(
 	// one defensive read rather than the shared interface.
 	// SAFETY: only relaxes `local` to optional; every other field keeps its
 	// declared shape.
-	const contentScannerLocal = rules.content_scanner as
-		| (Omit<NonNullable<GuardRulesConfig["content_scanner"]>, "local"> & {
+	const contentScannerLocal: | (Omit<NonNullable<GuardRulesConfig["content_scanner"]>, "local"> & {
 				local?: { scan_timeout_ms?: number };
 		  })
-		| undefined;
+		| undefined = rules.content_scanner;
 	const timeoutMs = contentScannerLocal?.local?.scan_timeout_ms || 1500;
 	const findings: ScanFinding[] = [];
 	for (const part of scanReq.parts) {

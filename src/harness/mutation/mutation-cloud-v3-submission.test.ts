@@ -9,7 +9,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	MutationCloudV3Submitter,
 	type MutationCloudSubmissionFetch,
@@ -566,7 +566,9 @@ describe("MutationCloudV3Submitter", () => {
 		const putCall = calls.find((call) => call.init.method === "PUT");
 		const postCall = calls.find((call) => call.init.method === "POST");
 		expect(putCall?.init.body).toBe(exactBytes.buffer);
-		expect(Buffer.from(putCall?.init.body as unknown as ArrayBuffer)).toEqual(SOURCE_BYTES);
+		const body = putCall?.init.body;
+		assert.instanceOf(body, ArrayBuffer);
+		expect(Buffer.from(body)).toEqual(SOURCE_BYTES);
 		expect(postCall?.init.body).toBe(JSON.stringify(jobRequest));
 	});
 
@@ -591,7 +593,9 @@ describe("MutationCloudV3Submitter", () => {
 
 		const putCall = calls.find((call) => call.init.method === "PUT");
 		expect(putCall?.init.body).not.toBe(backing);
-		expect(Buffer.from(putCall?.init.body as unknown as ArrayBuffer)).toEqual(SOURCE_BYTES);
+		const body = putCall?.init.body;
+		assert.instanceOf(body, ArrayBuffer);
+		expect(Buffer.from(body)).toEqual(SOURCE_BYTES);
 	});
 
 	it("rejects prepared request bytes that are not valid UTF-8 JSON", async () => {

@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireBoolean, wireNumber, wireObject } from "../../lib/value-validation.js";
 // ===========================================
 // `interlinked harness reap` — orphan-daemon sweep
 // ===========================================
@@ -73,11 +74,11 @@ async function captureStdio(fn: () => Promise<void> | void): Promise<CapturedStd
 	process.stdout.write = ((chunk: string | Uint8Array): boolean => {
 		stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
 		return true;
-	}) as typeof process.stdout.write;
+	});
 	process.stderr.write = ((chunk: string | Uint8Array): boolean => {
 		stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
 		return true;
-	}) as typeof process.stderr.write;
+	});
 	const realConsoleLog = console.log;
 	const realConsoleError = console.error;
 	console.log = (...args: unknown[]): void => {
@@ -173,7 +174,7 @@ describe("reapOrphanHarnesses helper (refactored to return candidates)", () => {
 			.mockImplementation(((pid: number, sig?: string | number): true => {
 				if (sig === 0) {
 					if (dead.has(pid)) {
-						const err = new Error("ESRCH") as NodeJS.ErrnoException;
+						const err: NodeJS.ErrnoException = new Error("ESRCH");
 						err.code = "ESRCH";
 						throw err;
 					}
@@ -182,7 +183,7 @@ describe("reapOrphanHarnesses helper (refactored to return candidates)", () => {
 				sentSignals.push({ pid, signal: sig ?? 0 });
 				if (sig === "SIGTERM" || sig === "SIGKILL") dead.add(pid);
 				return true;
-			}) as typeof process.kill);
+			}));
 		try {
 			const result = reapOrphanHarnesses("/repo");
 			expect(result.dryRun).toBe(false);
@@ -208,7 +209,7 @@ describe("reapOrphanHarnesses helper (refactored to return candidates)", () => {
 					// Authentication probes happen before SIGTERM and are not exit
 					// polling. Record only probes made after this PID was signalled.
 					if (signalled.has(pid)) events.push({ pid, kind: "post-signal-poll" });
-					const err = new Error("ESRCH") as NodeJS.ErrnoException;
+					const err: NodeJS.ErrnoException = new Error("ESRCH");
 					if (signalled.has(pid)) {
 						err.code = "ESRCH";
 						throw err;
@@ -220,7 +221,7 @@ describe("reapOrphanHarnesses helper (refactored to return candidates)", () => {
 					events.push({ pid, kind: "term" });
 				}
 				return true;
-			}) as typeof process.kill);
+			}));
 		try {
 			const result = reapOrphanHarnesses("/repo");
 			expect(result.killed.sort()).toEqual([ORPHAN_A, ORPHAN_B].sort());
@@ -241,10 +242,10 @@ describe("reapOrphanHarnesses helper (refactored to return candidates)", () => {
 			.spyOn(process, "kill")
 			.mockImplementation(((pid: number, sig?: string | number): true => {
 				sentSignals.push({ pid, signal: sig ?? 0 });
-				const err = new Error("EPERM") as NodeJS.ErrnoException;
+				const err: NodeJS.ErrnoException = new Error("EPERM");
 				err.code = "EPERM";
 				throw err;
-			}) as typeof process.kill);
+			}));
 		try {
 			const result = reapOrphanHarnesses("/repo");
 			expect(result.killed).toEqual([]);
@@ -269,12 +270,12 @@ describe("reapOrphanHarnesses helper (refactored to return candidates)", () => {
 				sentSignals.push({ pid, signal: sig ?? 0 });
 				if (sig === 0) {
 					now += 5_000;
-					const err = new Error("EPERM") as NodeJS.ErrnoException;
+					const err: NodeJS.ErrnoException = new Error("EPERM");
 					err.code = "EPERM";
 					throw err;
 				}
 				return true;
-			}) as typeof process.kill);
+			}));
 		try {
 			const result = reapOrphanHarnesses("/repo");
 			expect(result.killed).toEqual([]);
@@ -425,7 +426,7 @@ describe("harnessReapCommand — CLI surface", () => {
 		): true => {
 			if (sig === 0) {
 				if (dead.has(pid)) {
-					const err = new Error("ESRCH") as NodeJS.ErrnoException;
+					const err: NodeJS.ErrnoException = new Error("ESRCH");
 					err.code = "ESRCH";
 					throw err;
 				}
@@ -434,7 +435,7 @@ describe("harnessReapCommand — CLI surface", () => {
 			sent.push({ pid, signal: sig ?? 0 });
 			if (sig === "SIGTERM" || sig === "SIGKILL") dead.add(pid);
 			return true;
-		}) as typeof process.kill);
+		}));
 		try {
 			await captureStdio(() => harnessReapCommand({ force: true }));
 			const sentTermPids = sent
@@ -461,7 +462,7 @@ describe("harnessReapCommand — CLI surface", () => {
 		): true => {
 			if (sig === 0) {
 				if (dead.has(pid)) {
-					const err = new Error("ESRCH") as NodeJS.ErrnoException;
+					const err: NodeJS.ErrnoException = new Error("ESRCH");
 					err.code = "ESRCH";
 					throw err;
 				}
@@ -470,7 +471,7 @@ describe("harnessReapCommand — CLI surface", () => {
 			if (sig === "SIGTERM") sent.push(pid);
 			if (sig === "SIGTERM" || sig === "SIGKILL") dead.add(pid);
 			return true;
-		}) as typeof process.kill);
+		}));
 		try {
 			await captureStdio(() => harnessReapCommand({ force: true, all: true }));
 			expect(sent).toContain(ACTIVE_PID);
@@ -485,11 +486,7 @@ describe("harnessReapCommand — CLI surface", () => {
 			const captured = await captureStdio(() =>
 				harnessReapCommand({ json: true }),
 			);
-			const parsed = JSON.parse(captured.stdout) as {
-				dry_run: boolean;
-				candidates: Array<{ pid: number }>;
-				killed: number[];
-			};
+			const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "dry_run": wireBoolean, "candidates": wireArray(wireObject({ "pid": wireNumber })), "killed": wireArray(wireNumber) }), "test JSON value");
 			expect(parsed.dry_run).toBe(true);
 			expect(parsed.candidates.map((c) => c.pid).sort()).toEqual(
 				[ORPHAN_A, ORPHAN_B].sort(),

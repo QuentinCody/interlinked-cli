@@ -190,7 +190,7 @@ describe("detectPartialReport — isZeroedInReport", () => {
 			...wellCoveredSummaryEntries(MIN),
 			// SAFETY: deliberately missing `lines` to exercise the optional-chaining
 			// guard on a malformed report entry — real coverage tools can omit it.
-			nolines: { branches: { pct: 0 } } as unknown as CoverageSummary[string],
+			nolines: { branches: { pct: 0 } },
 		};
 		expect(() => detectPartialReport(summary, baseline, REPO_ROOT)).not.toThrow();
 	});
@@ -207,7 +207,7 @@ describe("detectPartialReport — isZeroedInReport", () => {
 			...wellCoveredSummaryEntries(MIN),
 			// SAFETY: deliberately missing `branches` to exercise the optional-chaining
 			// guard on a malformed report entry — real coverage tools can omit it.
-			nobranches: { lines: { pct: 0 } } as unknown as CoverageSummary[string],
+			nobranches: { lines: { pct: 0 } },
 		};
 		expect(() => detectPartialReport(summary, baseline, REPO_ROOT)).not.toThrow();
 	});

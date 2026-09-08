@@ -70,7 +70,7 @@ export function checkNewImportCycle(
 	filePath: string,
 	relPath: string,
 	event: HarnessEvent,
-	graph: ProjectGraph,
+	graph: Pick<ProjectGraph, "getDependencies" | "findCyclesThrough" | "toRelative">,
 ): StructuralCheckResult[] {
 	const currentTargets = new Set<string>();
 	for (const edge of graph.getDependencies(filePath)) {

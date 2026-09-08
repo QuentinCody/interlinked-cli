@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import { acknowledgeChecks, isAcknowledged } from "./session-state.js";
 import type { SessionTrajectory } from "./types.js";
@@ -22,12 +23,12 @@ import type { SessionTrajectory } from "./types.js";
 function makeSession(fileCount: number): SessionTrajectory {
 	const files = new Set<string>();
 	for (let i = 0; i < fileCount; i++) files.add(`/tmp/f${i}.ts`);
-	return {
+	return ({ ...completeSessionFixture(), ...{
 		// minimum surface used by the shotgun-surgery check
 		files_written: files,
 		acknowledged_checks: new Set<string>(),
 		// remaining fields are irrelevant for this test; cast to satisfy the type
-	} as unknown as SessionTrajectory;
+	} });
 }
 
 /** Mirror of the gated block in server.ts. Returns true if warning would fire. */

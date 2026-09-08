@@ -1,3 +1,5 @@
+import { wireArray, wireLiteral, wireNumber, wireString } from "../lib/value-validation.js";
+import { wireAbsentOptional, parseWire, wireBoolean, wireObject, wireOptional } from "../lib/value-validation.js";
 import {
 	appendFileSync,
 	chmodSync,
@@ -28,22 +30,24 @@ import {
 	rotationClaimPath,
 } from "./compact-rotation-claim.js";
 
+const isCapturedArchiveManifest = wireObject({ "version": wireLiteral(1), "segments": wireArray(wireObject({ "seq": wireNumber, "file": wireString, "bytes": wireNumber, "gz_bytes": wireNumber, "records": wireNumber, "created_at": wireString, "recovered": wireAbsentOptional(wireLiteral(false, true)), "pending_live_drop": wireAbsentOptional(wireObject({ "cut_bytes": wireNumber, "source": wireObject({ "dev": wireString, "ino": wireString }), "replacement": wireObject({ "dev": wireString, "ino": wireString }), "synced_through_bytes": wireAbsentOptional(wireNumber) })) })) });
+
 // `node:fs`'s `statSync` is partially mocked (delegates to the real
 // implementation by default, same recipe as compact-plain-rotation.test.ts)
 // so the finalize-time identity race — the live file's identity changing
 // between recoverClaimedActivityRotation's outer check and the re-check
 // inside the mutation lock — can be staged deterministically instead of
 // relying on genuine concurrent processes.
-const { statSyncSpy, actualStatSyncRef } = vi.hoisted(() => ({
-	statSyncSpy: vi.fn(),
-	// SAFETY: only ever holds node:fs's real statSync, assigned once below
-	// before any test runs.
-	actualStatSyncRef: { statSync: null as unknown as (...args: unknown[]) => unknown },
-}));
+const { statSyncSpy, actualStatSyncRef } = vi.hoisted(() => {
+	const actualStatSyncRef: { statSync: typeof import("node:fs").statSync } = {
+		statSync: () => { throw new Error("statSync has not been initialized"); },
+	};
+	return { statSyncSpy: vi.fn(), actualStatSyncRef };
+});
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
-	actualStatSyncRef.statSync = actual.statSync as unknown as (...args: unknown[]) => unknown;
+	actualStatSyncRef.statSync = actual.statSync;
 	statSyncSpy.mockImplementation(actual.statSync);
 	return { ...actual, statSync: statSyncSpy };
 });
@@ -71,7 +75,7 @@ describe("activity rotation — append safety and crash recovery", () => {
 
 	function loadManifest(): ArchiveManifest {
 		if (!existsSync(manifestPath)) return { version: 1, segments: [] };
-		return JSON.parse(readFileSync(manifestPath, "utf8")) as ArchiveManifest;
+		return parseWire(JSON.parse(readFileSync(manifestPath, "utf8")), isCapturedArchiveManifest, "test JSON value");
 	}
 
 	it("preserves an append injected after the suffix copy and before pathname replacement", () => {
@@ -937,7 +941,7 @@ describe("activity rotation — finalize-time identity race", () => {
 
 	function loadManifest(): ArchiveManifest {
 		if (!existsSync(manifestPath)) return { version: 1, segments: [] };
-		return JSON.parse(readFileSync(manifestPath, "utf8")) as ArchiveManifest;
+		return parseWire(JSON.parse(readFileSync(manifestPath, "utf8")), isCapturedArchiveManifest, "test JSON value");
 	}
 
 	beforeEach(() => {
@@ -982,19 +986,20 @@ describe("activity rotation — finalize-time identity race", () => {
 		// answered with a different identity, modeling another process
 		// replacing the file in the gap between the two checks.
 		let bigintReadsOfActivity = 0;
-		statSyncSpy.mockImplementation((path: unknown, options?: unknown) => {
+		statSyncSpy.mockImplementation((...args: Parameters<typeof actualStatSyncRef.statSync>) => {
+			const [path, options] = args;
 			const isBigintIdentityRead =
 				path === activityPath &&
 				typeof options === "object" &&
 				options !== null &&
-				(options as { bigint?: boolean }).bigint === true;
+				(parseWire(options, wireObject({ "bigint": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).bigint === true;
 			if (isBigintIdentityRead) {
 				bigintReadsOfActivity += 1;
 				if (bigintReadsOfActivity === 2) {
 					return { dev: 999_999n, ino: 999_999n };
 				}
 			}
-			return (actualStatSyncRef.statSync as (...a: unknown[]) => unknown)(path, options);
+			return actualStatSyncRef.statSync(...args);
 		});
 
 		expect(() =>

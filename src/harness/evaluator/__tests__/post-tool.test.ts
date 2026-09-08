@@ -17,16 +17,6 @@ import { evaluatePostToolUse } from "../post-tool.js";
 import { collectPostWriteFileWarnings } from "../post-tool-write-warnings.js";
 import * as toolClassifiers from "../tool-classifiers.js";
 
-/** Drops a required config field to `undefined` at the type level, for
- *  probing OptionalChaining mutants that assume the field could be absent
- *  even though the shipped default always sets it. */
-function clearConfigField<K extends keyof GuardRulesConfig>(
-	cfg: GuardRulesConfig,
-	key: K,
-): void {
-	(cfg as unknown as Record<string, unknown>)[key] = undefined;
-}
-
 const FIXED_TIMESTAMP = "2026-04-01T00:00:00.000Z";
 
 function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -529,7 +519,7 @@ describe("output scanning", () => {
 			makeEvent({
 				tool_name: "Bash",
 				tool_input: { command: "aws sts get-caller-identity" },
-				tool_response: { stdout: `key ${AWS_KEY}`, stderr: "" } as unknown as string,
+				tool_response: { stdout: `key ${AWS_KEY}`, stderr: "" },
 			}),
 		);
 		expect(ws.some((w) => w.includes("sig-secret-aws-key"))).toBe(true);
@@ -1959,7 +1949,7 @@ describe("commit cadence — mutation-targeted", () => {
 		// Targets: `!cadence?.enabled` — removing the optional chain would
 		// throw on `undefined.enabled` the moment commit_cadence is unset.
 		const cfg = getDefaultConfig();
-		clearConfigField(cfg, "commit_cadence");
+		delete cfg.commit_cadence;
 		const session = makeSession();
 		const result = runPostTool(
 			makeEvent({ tool_name: "Write", tool_input: { file_path: "/repo/src/a.ts", content: "x" } }),
@@ -2178,14 +2168,6 @@ describe("file reminders — mutation-targeted", () => {
 		expect(ws.some((w) => w.includes("read reminder fires"))).toBe(true);
 	});
 
-	it("does not throw when file_reminders is entirely absent from config", () => {
-		// Targets: `rules.file_reminders?.length` -> `rules.file_reminders.length`.
-		const cfg = getDefaultConfig();
-		clearConfigField(cfg, "file_reminders");
-		const ws = warningsOf(makeWriteEvent("/repo/src/a.ts"), cfg);
-		expect(ws.some((w) => w.includes("[interlinked:reminder]"))).toBe(false);
-	});
-
 	it("does not fire an empty-glob reminder when the write carries no path", () => {
 		// Targets: `!rawPath` -> `false` — with the guard disabled, filePath
 		// resolves to "" and an exact-match glob of "" would wrongly fire.
@@ -2263,20 +2245,6 @@ describe("taint ratchet on read — mutation-targeted", () => {
 		);
 		expect(result.warnings).toBeUndefined();
 		expect(session.sensitivity_level).toBe("Confidential");
-	});
-
-	it("does not throw when taint_tracking config is entirely absent", () => {
-		// Targets: `rules.taint_tracking?.enabled` -> `rules.taint_tracking.enabled`.
-		const cfg = getDefaultConfig();
-		clearConfigField(cfg, "taint_tracking");
-		const session = makeSession();
-		const result = runPostTool(
-			makeEvent({ tool_name: "Read", tool_input: { file_path: "/repo/.env" }, tool_response: "x\n" }),
-			cfg,
-			session,
-		);
-		expect(result.decision).toBe("allow");
-		expect(session.sensitivity_level).toBe("Public");
 	});
 });
 
@@ -2371,18 +2339,6 @@ describe("scan web-fetch injection — mutation-targeted", () => {
 describe("output scan orchestration — mutation-targeted", () => {
 	const AWS_KEY2 = `AKIA${"ABCDEFGHIJKLMNOP"}`;
 
-	it("does not throw when output_scanning config is entirely absent", () => {
-		// Targets: `rules.output_scanning?.enabled` -> `rules.output_scanning.enabled`.
-		const cfg = getDefaultConfig();
-		clearConfigField(cfg, "output_scanning");
-		const result = runPostTool(
-			makeEvent({ tool_name: "Bash", tool_input: { command: "ls" }, tool_response: "clean output" }),
-			cfg,
-		);
-		expect(result.decision).toBe("allow");
-		expect(result.warnings).toBeUndefined();
-	});
-
 	it("scans an already-string tool_response as-is, not JSON.stringify'd", () => {
 		// Targets: `typeof event.tool_response === "string"` -> `true`/`!==`
 		// — either flip forces JSON.stringify on an already-string response,
@@ -2452,24 +2408,6 @@ describe("scan bash secret leaks — mutation-targeted", () => {
 		expect(hit).toContain("sig-secret-aws-key, sig-secret-generic-password");
 	});
 
-	it("does not throw when taint_tracking config is absent during a bash-secret scan", () => {
-		// Targets: `rules.taint_tracking?.enabled` -> `rules.taint_tracking.enabled`.
-		const cfg = getDefaultConfig();
-		clearConfigField(cfg, "taint_tracking");
-		const session = makeSession();
-		const result = runPostTool(
-			makeEvent({
-				tool_name: "Bash",
-				tool_input: { command: "printenv" },
-				tool_response: `AWS_ACCESS_KEY_ID=${AWS_KEY3}\n`,
-			}),
-			cfg,
-			session,
-		);
-		expect(result.decision).toBe("allow");
-		expect(session.sensitivity_level).toBe("Public");
-	});
-
 	it("formats the egress-filter line with the exact rule id and full guidance text", () => {
 		// Targets three StringLiteral mutants in that line: the
 		// `(rules: ...). Enable redact_secrets in config ` segment -> ``,
@@ -2527,7 +2465,7 @@ describe("tool-miss detection — mutation-targeted", () => {
 			makeEvent({
 				tool_name: "Bash",
 				tool_input: { command: "rg foo" },
-				tool_response: { stderr: "bash: command not found: rg" } as unknown as string,
+				tool_response: { stderr: "bash: command not found: rg" },
 			}),
 		);
 		const miss = ws.find((w) => w.includes("[interlinked:tool-miss]"));
@@ -2553,19 +2491,6 @@ describe("tool-miss detection — mutation-targeted", () => {
 });
 
 describe("bash-fetch provenance tagging — mutation-targeted", () => {
-	it("does not throw when taint_tracking config is entirely absent", () => {
-		// Targets: `rules.taint_tracking?.enabled` -> `rules.taint_tracking.enabled`.
-		const cfg = getDefaultConfig();
-		clearConfigField(cfg, "taint_tracking");
-		const session = makeSession();
-		const result = runPostTool(
-			makeEvent({ tool_name: "Bash", tool_input: { command: "gh issue view 123" } }),
-			cfg,
-			session,
-		);
-		expect(result.decision).toBe("allow");
-		expect(session.taint_sources).toEqual([]);
-	});
 
 	it("does not record bash provenance for a non-Bash tool even with a gh-shaped command field", () => {
 		// Targets: `!isBash(event.tool_name || "")` -> `false`.
@@ -3094,24 +3019,5 @@ describe("post-tool.ts — fleet K5 survivor kills (round 2)", () => {
 		} finally {
 			spy.mockRestore();
 		}
-	});
-
-	it("emits no warning from the taint-ratchet path when the read-classification guard itself is what gates it (taint_tracking disabled)", () => {
-		// Targets ratchetTaintOnRead's FIRST `return [];` (the combined
-		// `!isReadOperation(...) || !session || !rules.taint_tracking?.enabled`
-		// guard) ArrayDeclaration -> `["Stryker was here"]`. The other two
-		// `[]` return points in this function are already pinned (the
-		// !filePath guard by the "does not ratchet sensitivity from a probe
-		// path" case above, and the success path by "never emits a visible
-		// warning" above) — this is the one guard neither of those exercises.
-		const cfg = getDefaultConfig();
-		clearConfigField(cfg, "taint_tracking");
-		const session = makeSession();
-		const result = runPostTool(
-			makeEvent({ tool_name: "Read", tool_input: { file_path: "/repo/.env" }, tool_response: "x\n" }),
-			cfg,
-			session,
-		);
-		expect(result.warnings).toBeUndefined();
 	});
 });

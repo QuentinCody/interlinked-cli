@@ -498,13 +498,13 @@ describe("default sourceExists (real fs)", () => {
 });
 
 function mkEvent(toolInput: Record<string, unknown>, cwd?: string): HarnessEvent {
-	return {
+	return ({ agent_source: "claude", timestamp: "2026-09-01T00:00:00Z",
 		hook_event: "PreToolUse",
 		session_id: "t",
 		tool_name: "Write",
 		tool_input: toolInput,
-		cwd,
-	} as unknown as HarnessEvent;
+		...(cwd === undefined ? {} : { cwd }),
+	} satisfies HarnessEvent);
 }
 
 describe("evaluateBaselineIntegrityForEvent", () => {

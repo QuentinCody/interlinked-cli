@@ -158,7 +158,7 @@ describe("registerSetupCommands — public help contract", () => {
 				description: "Install agent hooks for detected runners (adapter-based, manifest-driven)",
 				options: {
 					"--runner":
-						"Comma-separated runners (claude-code,copilot-cli,cursor,gemini-cli,codex,opencode,pi); defaults to auto-detect",
+						"Comma-separated runners: claude-code,copilot-cli,cursor,gemini-cli,codex,opencode,pi; explicit experimental: factory-droid,windsurf,antigravity,crush. Defaults to established adapters.",
 					"--scope": "Install scope: user, project, or local",
 					"--mode": "Enforcement preset: balanced, strict, lenient",
 					"--binary": "Override path to the interlinked binary",

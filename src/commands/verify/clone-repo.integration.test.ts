@@ -11,16 +11,17 @@
 
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nonNull } from "../../lib/non-null.js";
 
-const execFileSyncMock = vi.fn();
-const rmSyncMock = vi.fn();
+const execFileSyncMock = vi.fn<typeof import("node:child_process").execFileSync>();
+const rmSyncMock = vi.fn<typeof import("node:fs").rmSync>();
 
 vi.mock("node:child_process", () => ({
-	execFileSync: (...args: unknown[]) => execFileSyncMock(...args),
+	execFileSync: (...args: Parameters<typeof execFileSyncMock>) => execFileSyncMock(...args),
 }));
 
 vi.mock("node:fs", () => ({
-	rmSync: (...args: unknown[]) => rmSyncMock(...args),
+	rmSync: (...args: Parameters<typeof rmSyncMock>) => rmSyncMock(...args),
 }));
 
 // Imported after the mocks are registered so clone-repo binds the mocked fns.
@@ -123,16 +124,13 @@ describe("cloneRepo", () => {
 		expect(result.elapsed_ms).toBeGreaterThanOrEqual(0);
 
 		expect(execFileSyncMock).toHaveBeenCalledOnce();
-		const [bin, argv, options] = execFileSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			{ timeout: number; env: Record<string, string>; stdio: unknown },
-		];
+		const [bin, argv, rawOptions] = nonNull(execFileSyncMock.mock.calls[0]);
+		const options = nonNull(rawOptions);
 		expect(bin).toBe("git");
 		// No --branch when none is requested.
 		expect(argv).toEqual(["clone", "--depth", "1", "https://github.com/owner/repo", result.dir]);
 		expect(options.timeout).toBe(CLONE_TIMEOUT_MS);
-		expect(options.env.GIT_TERMINAL_PROMPT).toBe("0");
+		expect(nonNull(options.env).GIT_TERMINAL_PROMPT).toBe("0");
 		expect(options.stdio).toEqual(["pipe", "pipe", "inherit"]);
 
 		// Success path must never attempt cleanup.
@@ -143,7 +141,7 @@ describe("cloneRepo", () => {
 		execFileSyncMock.mockReturnValue(Buffer.from(""));
 		const result = cloneRepo("https://github.com/owner/repo", { branch: "release-2.0" });
 
-		const argv = (execFileSyncMock.mock.calls[0] as [string, string[], unknown])[1];
+		const argv = nonNull(execFileSyncMock.mock.calls[0])[1];
 		expect(argv).toEqual([
 			"clone",
 			"--depth",
@@ -167,10 +165,7 @@ describe("cloneRepo", () => {
 
 		// Cleanup is attempted on the same temp dir, recursive + force.
 		expect(rmSyncMock).toHaveBeenCalledOnce();
-		const [dir, rmOpts] = rmSyncMock.mock.calls[0] as [
-			string,
-			{ recursive: boolean; force: boolean },
-		];
+		const [dir, rmOpts] = nonNull(rmSyncMock.mock.calls[0]);
 		expect(dir).toMatch(/interlinked-verify-[0-9a-f]{8}$/);
 		expect(rmOpts).toEqual({ recursive: true, force: true });
 	});

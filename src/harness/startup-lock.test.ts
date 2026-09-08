@@ -148,7 +148,7 @@ describe("acquireStartupLock — fs failure branches (forced via mocked node:fs)
 		vi.mocked(openSync).mockImplementationOnce(() => {
 			// SAFETY: constructing a synthetic fs error for the test fixture;
 			// `writeLockFile` only reads `.code`, which we set explicitly below.
-			const err = new Error("EACCES: permission denied, open") as NodeJS.ErrnoException;
+			const err: NodeJS.ErrnoException = new Error("EACCES: permission denied, open");
 			err.code = "EACCES";
 			throw err;
 		});
@@ -177,7 +177,7 @@ describe("acquireStartupLock — fs failure branches (forced via mocked node:fs)
 		vi.mocked(openSync).mockImplementation(() => {
 			// SAFETY: constructing a synthetic fs error for the test fixture;
 			// `writeLockFile` only reads `.code`, which we set explicitly below.
-			const err = new Error("EEXIST: file already exists, open") as NodeJS.ErrnoException;
+			const err: NodeJS.ErrnoException = new Error("EEXIST: file already exists, open");
 			err.code = "EEXIST";
 			throw err;
 		});

@@ -15,7 +15,7 @@
 //   4. Unknown tools default to "modify" — the safer default.
 
 import { existsSync, readFileSync } from "node:fs";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 import type { ToolClass } from "./unified-event.js";
 
@@ -243,8 +243,8 @@ export function classifyFromToolName(
 }
 
 function extractCommandField(input: unknown): string | null {
-	if (input == null || typeof input !== "object") return null;
-	const obj = input as JsonObject;
+	if (!isJsonObject(input)) return null;
+	const obj = input;
 	const cmd = obj.command ?? obj.cmd ?? obj.bash ?? obj.shell ?? obj.script;
 	return typeof cmd === "string" ? cmd : null;
 }
@@ -274,7 +274,7 @@ export function loadOverrides(overridesPath: string): ClassifierOverrides {
 }
 
 function safeRead(path: string): string | null {
-	const result = { ok: false as boolean, text: "" as string, err: "" as string };
+	const result = { ok: false, text: "", err: "" };
 	// Extracted so the try/catch stays in a helper, keeping the happy-path
 	// function body flat.
 	readAttempt(path, result);
@@ -297,7 +297,7 @@ function readAttempt(path: string, out: { ok: boolean; text: string; err: string
 	} catch (e) {
 		text = "";
 		ok = false;
-		err = (e as Error).message;
+		err = (e instanceof Error ? e.message : String(e));
 	}
 	out.text = text;
 	out.ok = ok;
@@ -312,7 +312,7 @@ function safeParse(text: string, path: string): unknown {
 		parsed = JSON.parse(text);
 	} catch (e) {
 		ok = false;
-		err = (e as Error).message;
+		err = (e instanceof Error ? e.message : String(e));
 	}
 	if (!ok) {
 		process.stderr.write(
@@ -327,8 +327,8 @@ function safeParse(text: string, path: string): unknown {
  *  are ignored; invalid entries are dropped with a stderr note. Exported so
  *  test fixtures can share the same parser as the file loader. */
 export function parseOverrides(raw: unknown): ClassifierOverrides {
-	if (raw == null || typeof raw !== "object") return EMPTY_OVERRIDES;
-	const obj = raw as JsonObject;
+	if (!isJsonObject(raw)) return EMPTY_OVERRIDES;
+	const obj = raw;
 
 	const tool_name_classes = parseToolNameClasses(obj.tool_name_classes);
 	const command_substrings = parseCommandSubstrings(obj.command_substrings);
@@ -338,8 +338,8 @@ export function parseOverrides(raw: unknown): ClassifierOverrides {
 
 function parseToolNameClasses(raw: unknown): Record<string, ToolClass> {
 	const out: Record<string, ToolClass> = {};
-	if (raw == null || typeof raw !== "object") return out;
-	for (const [name, cls] of Object.entries(raw as JsonObject)) {
+	if (!isJsonObject(raw)) return out;
+	for (const [name, cls] of Object.entries(raw)) {
 		if (isToolClass(cls)) out[name] = cls;
 	}
 	return out;
@@ -357,8 +357,8 @@ function parseCommandSubstrings(raw: unknown): CommandSubstringRule[] {
 }
 
 function parseSubstringEntry(entry: unknown): CommandSubstringRule | null {
-	if (entry == null || typeof entry !== "object") return null;
-	const e = entry as JsonObject;
+	if (!isJsonObject(entry)) return null;
+	const e = entry;
 	if (typeof e.match !== "string" || e.match.length === 0) return null;
 	if (e.match.length > MAX_SUBSTRING_LENGTH) {
 		process.stderr.write(

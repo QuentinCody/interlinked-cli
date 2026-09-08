@@ -1,27 +1,28 @@
+import type { SpawnSyncReturns } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 
 // spawnSync is mocked (never the SUT itself) so the "adapter printed
 // something that is not valid JSON" catch branch is reachable without
 // depending on the real Python adapter script ever misbehaving. Every
 // other call passes through to the real node:child_process implementation.
-const spawnControl = vi.hoisted(() => ({ forceInvalidJson: false }));
+const spawnControl = vi.hoisted((): { forceInvalidJson: boolean; output?: string } => ({ forceInvalidJson: false }));
 
 vi.mock("node:child_process", async () => {
 	const actual = await vi.importActual<typeof import("node:child_process")>("node:child_process");
 	return {
 		...actual,
 		spawnSync: (...args: Parameters<typeof actual.spawnSync>) => {
-			if (spawnControl.forceInvalidJson) {
-				return {
+			if (spawnControl.forceInvalidJson || spawnControl.output !== undefined) {
+				const stdout = spawnControl.output ?? "not-json-at-all";
+				const result: SpawnSyncReturns<string> = {
 					status: 0,
 					pid: 0,
-					output: [null, Buffer.from("not-json-at-all"), Buffer.from("")],
-					stdout: "not-json-at-all",
+					output: [null, stdout, ""],
+					stdout,
 					stderr: "",
 					signal: null,
-					// SAFETY: this canned result only exercises the caller's
-					// status/stdout handling; the omitted fields are never read.
-				} as ReturnType<typeof actual.spawnSync>;
+				};
+				return result;
 			}
 			return actual.spawnSync(...args);
 		},
@@ -37,6 +38,18 @@ function entries(source: string) {
 }
 
 describe("interlinked-code-v1 Python adapter", () => {
+    it.each([
+        { ok: "true", entries: [] },
+        { ok: true, entries: [null] },
+        { ok: true, entries: [{ name: "incomplete" }] },
+    ])("returns unavailable for malformed adapter payloads: %j", (value) => {
+        spawnControl.output = JSON.stringify(value);
+        try {
+            expect(computePythonFunctionTokens("def f(): pass", "test.py")).toBeNull();
+        } finally {
+            delete spawnControl.output;
+        }
+    });
     it("extracts decorated, nested, method, constructor, and lambda implementations", () => {
         const result = entries(`
 @decorator

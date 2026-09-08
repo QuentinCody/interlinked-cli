@@ -15,6 +15,7 @@
 // session-state.ts so existing importers keep working unchanged.
 
 import { createHash } from "node:crypto";
+import { isJsonObject } from "../lib/json-types.js";
 import type { HarnessEvent, SessionTrajectory } from "./types.js";
 
 /** Per-file ring buffer ceiling for `recent_line_edits`. The §3.21
@@ -73,11 +74,6 @@ export function isSequenceWriteOperation(toolName: string | undefined): boolean 
 	].includes(toolName);
 }
 
-/** Shape of a single MultiEdit edit entry's `new_string` slot. */
-interface MultiEditEntry {
-	new_string?: unknown;
-}
-
 /** Extract every content chunk this event introduced. Write → one chunk
  *  from `tool_input.content`; Edit → `tool_input.new_string`; MultiEdit →
  *  one chunk per `tool_input.edits[i].new_string`. Returns [] when none of
@@ -93,8 +89,8 @@ export function extractWriteChunks(event: HarnessEvent): string[] {
 	const edits = input.edits;
 	if (Array.isArray(edits)) {
 		for (const e of edits) {
-			if (e && typeof e === "object") {
-				const ns = (e as MultiEditEntry).new_string;
+			if (isJsonObject(e)) {
+				const ns = e.new_string;
 				if (typeof ns === "string") chunks.push(ns);
 			}
 		}

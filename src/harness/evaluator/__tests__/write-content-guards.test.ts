@@ -1,3 +1,5 @@
+import { makeGuardRules } from "./fixtures.js";
+import { makeSession as makeSessionFixture } from "../../__tests__/fixtures/evaluator.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,21 +33,21 @@ function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 }
 
 function makeRules(): GuardRulesConfig {
-	return {
+	return ({ ...makeGuardRules(),
 		enabled: true,
 		rules: [],
 		protected_files: [],
 		file_reminders: [],
 		repo_confinement_allowlist: [],
 		quality_checks: {
-			biome_lint: { enabled: false },
-			typescript: { enabled: false },
+			biome_lint: { enabled: false, file_types: [".ts"], timeout_ms: 1000, severity: "warning" },
+			typescript: { enabled: false, file_types: [".ts"], timeout_ms: 1000, severity: "error" },
 		},
-	} as unknown as GuardRulesConfig;
+	} satisfies GuardRulesConfig);
 }
 
 function makeSession(): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "s",
 		agent_name: "a",
 		started_at: FIXED_TIMESTAMP,
@@ -53,7 +55,7 @@ function makeSession(): SessionTrajectory {
 		tool_sequence: [],
 		sensitivity_level: "Public",
 		injection_detected_steps: [],
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 describe("evaluateWriteContentGuards — block cases", () => {
@@ -497,7 +499,7 @@ describe("evaluateWriteContentGuards — ok cases", () => {
 			tool_input_redacted: {},
 			sensitivity_level: "Public" as const,
 			step_number: 0,
-			recent_tool_sequence: [] as string[],
+			recent_tool_sequence: [],
 		};
 		const result = evaluateWriteContentGuards({
 			toolName: "Write",

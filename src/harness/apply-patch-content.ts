@@ -75,6 +75,7 @@ export function parseApplyPatchSections(raw: string): ApplyPatchSection[] {
 		const header = HEADER_RE.exec(line);
 		if (header) {
 			current = {
+				// SAFETY: HEADER_RE captures only Update, Add, or Delete; lowercasing yields exactly ApplyPatchOp.
 				op: nonNull(header[1]).toLowerCase() as ApplyPatchOp,
 				path: nonNull(header[2]).trim(),
 				body: [],

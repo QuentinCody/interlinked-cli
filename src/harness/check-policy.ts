@@ -15,6 +15,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isCheckPolicyFile } from "./check-policy-values.js";
 import { CHECK_REGISTRY } from "./check-registry/registry.js";
 import type { CheckPhase, CheckRegistration } from "./check-registry/types.js";
 import { getPreset, isKnownMode, type ModeName } from "./modes.js";
@@ -190,7 +191,8 @@ export function applyModePreset(policy: CheckPolicy, mode: ModeName): void {
 function readPolicyFile(path: string): CheckPolicyFile | null {
 	if (!existsSync(path)) return null;
 	try {
-		return JSON.parse(readFileSync(path, "utf-8")) as CheckPolicyFile;
+		const value: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		return isCheckPolicyFile(value) ? value : null;
 	} catch {
 		// Best-effort: ignore malformed policy files. Surfaced elsewhere via
 		// `interlinked harness status`, which should validate and report.

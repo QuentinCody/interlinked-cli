@@ -52,7 +52,7 @@ async function fetchJson(
 			signal: controller.signal,
 		});
 		if (!res.ok) return null;
-		return (await res.json()) as unknown;
+		return await res.json();
 	} catch {
 		return null;
 	} finally {
@@ -65,7 +65,7 @@ function str(v: unknown): string | undefined {
 }
 
 function rec(v: unknown): Record<string, unknown> {
-	return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+	return isJsonObject(v) ? v : {};
 }
 
 /**
@@ -306,10 +306,10 @@ export async function queryOsvAdvisories(
 	if (raw === null) return null;
 	const json = rec(raw);
 	const vulns = Array.isArray(json.vulns) ? json.vulns : [];
-	return vulns
-		.map((v) => rec(v))
-		.filter((v) => typeof v.id === "string" && v.id !== "")
-		.map((v) => ({ id: v.id as string, summary: str(v.summary) }));
+	return vulns.flatMap((value) => {
+		const v = rec(value);
+		return typeof v.id === "string" && v.id !== "" ? [{ id: v.id, summary: str(v.summary) }] : [];
+	});
 }
 
 /**
@@ -336,3 +336,4 @@ export async function fetchNpmPublishDates(
 	}
 	return out;
 }
+import { isJsonObject } from "../lib/json-types.js";

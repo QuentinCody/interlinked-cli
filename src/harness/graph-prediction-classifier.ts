@@ -19,6 +19,8 @@
 // out/), and node_modules/. Without it, every edit in this repo would
 // trip case detection against fixtures.
 
+import { nonNull } from "../lib/non-null.js";
+import { isJsonObject } from "../lib/json-types.js";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 import { shardPathFor } from "./supermodel-graph.js";
@@ -85,10 +87,8 @@ function configOptOut(absCwd: string): boolean {
 	} catch {
 		return false;
 	}
-	if (typeof cfg !== "object" || cfg === null) return false;
-	const supermodel = (cfg as { supermodel?: unknown }).supermodel;
-	if (typeof supermodel !== "object" || supermodel === null) return false;
-	return (supermodel as { enabled?: unknown }).enabled === false;
+	if (!isJsonObject(cfg)) return false;
+	return isJsonObject(cfg.supermodel) && cfg.supermodel.enabled === false;
 }
 
 function isExcluded(absPath: string): boolean {
@@ -139,7 +139,7 @@ function processStackLength(dir: string, stack: string[]): boolean {
 function scanForShardNearSourcePair(absCwd: string): boolean {
 	const stack: string[] = [absCwd];
 	while (stack.length > 0) {
-		const dir = stack.pop() as string;
+		const dir = nonNull(stack.pop());
 		if (processStackLength(dir, stack)) return true;
 	}
 	return false;

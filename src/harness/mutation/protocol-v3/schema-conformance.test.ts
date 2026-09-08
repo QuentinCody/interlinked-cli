@@ -20,7 +20,7 @@ import { MAX_APPROVED_POLICY_IDS, parseSignedReceipt } from "./receipts.js";
 import { buildStructuralReport } from "./report.js";
 import { parseMutationJobRequestV3 } from "./request.js";
 import { isRecord } from "./field-checks.js";
-import { signReceipt, TEST_REGISTRY } from "./test-authentication.js";
+import { parseReceiptFixture, signReceipt, TEST_REGISTRY } from "./test-authentication.js";
 import { validMutationResult } from "./test-envelopes.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../../../protocol/mutation-v3");
@@ -50,6 +50,7 @@ describe("schema conformance — portable mutant identity", () => {
 	});
 });
 
+// SAFETY: signed-bundles.json is the committed corpus generated with the protocol fixtures; every envelope and signed receipt is checked against its schema below.
 const bundles = loadJson("fixtures/signed-bundles.json") as unknown as {
 	vectors: Array<{
 		name: string;
@@ -83,7 +84,7 @@ describe("schema conformance — positive (shared fixtures validate)", () => {
 
 describe("schema conformance — negative (reviewer probes reject)", () => {
 	const base = (): Record<string, unknown> =>
-		JSON.parse(JSON.stringify(bundles.vectors[0]?.envelope ?? {})) as Record<string, unknown>;
+		structuredClone(bundles.vectors[0]?.envelope ?? {});
 
 	// test-contract: security — the sixth-pass Ajv probes: unknown root
 	// keys, dot-prefixed paths, backslash paths. Each must fail the SCHEMA
@@ -104,9 +105,7 @@ describe("schema conformance — negative (reviewer probes reject)", () => {
 	// test-contract: security — duplicate approved policy ids fail the
 	// receipt schema and the reference receipt parser.
 	it("N2: duplicate approved_policy_ids fail the receipt schema", () => {
-		const receipt = JSON.parse(bundles.vectors[0]?.acceptance_receipt ?? "") as {
-			payload: { approved_policy_ids: string[] };
-		};
+		const receipt = parseReceiptFixture(bundles.vectors[0]?.acceptance_receipt ?? "");
 		receipt.payload.approved_policy_ids = ["policy-string-literal-noise", "policy-string-literal-noise"];
 		expect(validateReceipt(receipt)).toBe(false);
 	});
@@ -119,6 +118,7 @@ describe("schema conformance — negative (reviewer probes reject)", () => {
 
 describe("schema/parser parity + request schema (seventh pass)", () => {
 	const validateRequest = ajv.compile(loadJson("schema/request.schema.json"));
+	// SAFETY: the committed request-vector corpus contains request objects; this suite validates every request against the published schema.
 	const requestVectors = loadJson("fixtures/request-vectors.json") as unknown as {
 		vectors: Array<{ request: Record<string, unknown> }>;
 	};
@@ -126,6 +126,7 @@ describe("schema/parser parity + request schema (seventh pass)", () => {
 	// test-contract: invariant — the shared request vectors validate
 	// against the request schema.
 	it("P: request vectors validate against request.schema.json", () => {
+		expect(requestVectors.vectors.length).toBeGreaterThan(0);
 		for (const v of requestVectors.vectors) expect(validateRequest(v.request)).toBe(true);
 	});
 
@@ -149,9 +150,7 @@ describe("schema/parser parity + request schema (seventh pass)", () => {
 
 	/** A signed acceptance receipt carrying `count` unique policies. */
 	function acceptanceWithPolicies(count: number): string {
-		const base = JSON.parse(bundles.vectors[0]?.acceptance_receipt ?? "") as {
-			payload: Record<string, unknown>;
-		};
+		const base = parseReceiptFixture(bundles.vectors[0]?.acceptance_receipt ?? "");
 		const ids = Array.from({ length: count }, (_v, i) => `policy-p${i}`);
 		return signReceipt({ ...base.payload, approved_policy_ids: ids }, "k_control");
 	}
@@ -224,6 +223,7 @@ describe("contract digest incl. the NORMATIVE implementation (eighth pass P0-1)"
 	// request/etc. without a digest update fails here, and the cloud repo
 	// vendors this exact digest.
 	it("P: contract-digest.json matches directory + normative sources", () => {
+		// SAFETY: this committed digest record is regenerated from the exact inputs recomputed and compared in this test.
 		const pinned = loadJson("contract-digest.json") as unknown as {
 			files: number;
 			digest: string;

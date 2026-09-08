@@ -6,6 +6,7 @@
 // injected test double.
 
 import { describe, expect, it, vi } from "vitest";
+import { isJsonObject } from "../../lib/json-types.js";
 import { authenticateFixture } from "./protocol-v3/test-authentication.js";
 import { validMutationResult } from "./protocol-v3/test-envelopes.js";
 import {
@@ -72,7 +73,8 @@ function clientWith(fetchImpl: MutationCloudFetch): MutationCloudV3Client {
 }
 
 function claimWithCapturedLease(fixture: ReturnType<typeof terminalFixture>, initBody: unknown): Record<string, unknown> {
-	const parsed = JSON.parse(String(initBody)) as { lease_id: string };
+	const parsed: unknown = JSON.parse(String(initBody));
+	if (!isJsonObject(parsed) || typeof parsed.lease_id !== "string") throw new Error("claim request must contain lease_id");
 	return { ...fixture.claim, lease_id: parsed.lease_id };
 }
 
@@ -190,9 +192,7 @@ describe("MutationCloudV3Client", () => {
 			acceptanceReceiptHash: fixture.acceptanceHash,
 			resultHash: fixture.resultHash,
 			evaluatorPolicyVersion: "policy-v1",
-		// SAFETY: production creates this opaque value only from the committed
-		// SQLite row; this transport test needs only its public bound fields.
-		} as MutationJournalAck;
+		} as MutationJournalAck; // SAFETY: transport tests bind the public ack fields; the journal-only brand has no runtime representation.
 		await clientWith(fetchImpl).acknowledge(
 			{ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash },
 			ack,
@@ -316,9 +316,7 @@ describe("MutationCloudV3Client", () => {
 			acceptanceReceiptHash: "c".repeat(64),
 			resultHash: "d".repeat(64),
 			evaluatorPolicyVersion: "policy-v1",
-		// SAFETY: production creates this opaque value only from the committed
-		// SQLite row; this transport test needs only its public bound fields.
-		} as MutationJournalAck;
+		} as MutationJournalAck; // SAFETY: transport tests bind the public ack fields; the journal-only brand has no runtime representation.
 		await expect(clientWith(fetchImpl).acknowledge(JOB, ack)).rejects.toThrow(
 			"journal acknowledgement is bound to a different acceptance receipt",
 		);
@@ -334,9 +332,7 @@ describe("MutationCloudV3Client", () => {
 			acceptanceReceiptHash: fixture.acceptanceHash,
 			resultHash: "9".repeat(64),
 			evaluatorPolicyVersion: "policy-v1",
-		// SAFETY: production creates this opaque value only from the committed
-		// SQLite row; this transport test needs only its public bound fields.
-		} as MutationJournalAck;
+		} as MutationJournalAck; // SAFETY: transport tests bind the public ack fields; the journal-only brand has no runtime representation.
 		await expect(
 			clientWith(fetchImpl).acknowledge({ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash }, ack),
 		).rejects.toThrow("journal acknowledgement result hash disagrees with the remote result");
@@ -354,9 +350,7 @@ describe("MutationCloudV3Client", () => {
 			acceptanceReceiptHash: fixture.acceptanceHash,
 			resultHash: fixture.resultHash,
 			evaluatorPolicyVersion: "policy-v1",
-		// SAFETY: production creates this opaque value only from the committed
-		// SQLite row; this transport test needs only its public bound fields.
-		} as MutationJournalAck;
+		} as MutationJournalAck; // SAFETY: transport tests bind the public ack fields; the journal-only brand has no runtime representation.
 		await expect(
 			clientWith(fetchImpl).acknowledge({ ...JOB, acceptanceReceiptHash: fixture.acceptanceHash }, ack),
 		).rejects.toThrow("mutation cloud ack response is malformed");

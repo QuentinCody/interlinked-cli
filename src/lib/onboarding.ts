@@ -6,6 +6,8 @@
 
 import { getClient } from "./api-client.js";
 import { resolveConfig, updateLocalConfig } from "./config.js";
+import { isJsonObject } from "./json-types.js";
+import { wireAbsentOptional, wireBoolean, wireObject, wireString } from "./value-validation.js";
 
 export type RemoteOnboardingStatus = "linked" | "skipped" | "failed";
 
@@ -37,6 +39,17 @@ interface GetStartedResponse {
 	};
 }
 
+const isGetStartedResponse = wireObject<GetStartedResponse>({
+	workspace: wireAbsentOptional(wireObject<NonNullable<GetStartedResponse["workspace"]>>({ name: wireAbsentOptional(wireString) })),
+	agent: wireAbsentOptional(wireObject<NonNullable<GetStartedResponse["agent"]>>({ name: wireAbsentOptional(wireString), agent_handle: wireAbsentOptional(wireString), is_new: wireAbsentOptional(wireBoolean), reclaimed: wireAbsentOptional(wireBoolean) })),
+});
+
+function parseGetStartedResponse(value: unknown): GetStartedResponse | null {
+	if (value == null) return null;
+	if (!isJsonObject(value) || !isGetStartedResponse(value)) throw new Error("Invalid agent bootstrap response");
+	return value;
+}
+
 export async function ensureRemoteOnboarding(options?: {
 	serverUrl?: string;
 	token?: string;
@@ -59,15 +72,10 @@ export async function ensureRemoteOnboarding(options?: {
 	}
 
 	try {
-		// callTool's return type is trusted, not verified — the raw payload
-		// comes from `res.json()` over the network, so it can be null (or any
-		// other shape) at runtime despite the generic annotation. Widen to
-		// `| null` here so the `result?.` guards below stay honest instead of
-		// being unnecessary-condition dead code against a lying non-null type.
-		const result = await client.callTool<GetStartedResponse | null>("get_started", {
+		const result = parseGetStartedResponse(await client.callTool("get_started", {
 			name: agentName,
 			program: "interlinked-cli",
-		});
+		}));
 
 		const resolvedAgentName =
 			typeof result?.agent?.name === "string" && result.agent.name.trim().length > 0

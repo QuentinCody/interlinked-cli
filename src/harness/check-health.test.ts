@@ -22,6 +22,15 @@ import type { RecurrenceEvent } from "./recurrence.js";
 // Fixture builders
 // ===========================================
 
+it.each(["file", "message", "session_id"])("rejects non-string %s in raw recurrence rows", (field) => {
+	const acc = createCheckHealthAccumulator();
+	expect(foldRecurrenceLine(acc, JSON.stringify({ ...caught(), [field]: { invalid: true } }))).toBe(false);
+	expect(foldRecurrenceLine(acc, JSON.stringify(caught()))).toBe(true);
+	expect(finalizeCheckHealth(acc, () => "heuristic")).toMatchObject([
+		{ events: 1, unique_findings: 1, sessions: 1 },
+	]);
+});
+
 function caught(overrides: Partial<RecurrenceEvent> = {}): RecurrenceEvent {
 	return {
 		ts: "2026-06-01T00:00:00.000Z",
@@ -240,11 +249,11 @@ describe("foldRecurrenceLine", () => {
 
 describe("classifyCheckHealth", () => {
 	it("requires all three conditions (rate AND floor AND heuristic) for probation", () => {
-		const base = {
+		const base: Parameters<typeof classifyCheckHealth>[0] = {
 			events: 100,
 			unique_findings: PROBATION_UNIQUE_FINDINGS_FLOOR,
 			repeat_rate: PROBATION_REPEAT_RATE_THRESHOLD,
-			determinism: "heuristic" as CheckDeterminismTag,
+			determinism: "heuristic",
 		};
 		expect(classifyCheckHealth(base)).toBe("probation-candidate");
 		expect(classifyCheckHealth({ ...base, repeat_rate: base.repeat_rate - 0.1 })).toBe("healthy");

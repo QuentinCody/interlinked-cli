@@ -29,7 +29,7 @@ import { parseAndVerify, type VerifiedEvidenceBundle } from "./verify.js";
  *  affected — every other test's re-derivation still runs against the real
  *  algorithm constant. Declared via vi.hoisted so the hoisted vi.mock call
  *  below (which runs before this file's own top-level statements) can see it. */
-const identityAlgorithmOverride = vi.hoisted(() => ({ value: null as string | null }));
+const identityAlgorithmOverride = vi.hoisted((): { value: string | null } => ({ value: null }));
 
 vi.mock("../identity.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../identity.js")>();
@@ -163,7 +163,7 @@ describe("authenticatedEvidenceToMutationRun", () => {
 	it("N: rejects a structural bundle copy that the verifier did not mint", () => {
 		const genuine = authenticate(coherentEnvelope());
 		// SAFETY: deliberate type forgery exercises the runtime trust boundary.
-		const forged = { ...genuine } as unknown as VerifiedEvidenceBundle;
+		const forged = { ...genuine };
 		expect(authenticatedEvidenceToMutationRun(forged, CONTENT)).toEqual({
 			ok: false,
 			reason: "protocol-v3 evidence bundle was not minted by the verifier",

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../lib/non-null.js";
 import { type DispatcherState, dispatchRpc } from "./daemon-dispatcher.js";
-import type { RpcError, RpcRequest, RpcResponse } from "./daemon-protocol.js";
+import type { RpcError, RpcWireRequest, RpcResponse } from "./daemon-protocol.js";
 import type { TsgoRunner } from "./tsgo-runner.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 
@@ -39,14 +39,14 @@ function makeState(overrides: Partial<DispatcherState> = {}): DispatcherState {
 }
 
 function isError(m: RpcResponse | RpcError): m is RpcError {
-	return (m as RpcError).error !== undefined;
+	return "error" in m;
 }
 
 describe("dispatchRpc — schema check", () => {
 	it("rejects requests with a wrong schema_version", async () => {
 		const result = await dispatchRpc(
 			{
-				schema_version: "2" as unknown as "1",
+				schema_version: "2",
 				id: "r",
 				method: "daemon.health",
 				params: {},
@@ -66,11 +66,7 @@ describe("dispatchRpc — daemon.health", () => {
 			state,
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		const health = result.result as {
-			status: string;
-			tsgo_status: string;
-			protocol_version: string;
-		};
+		const health = result.result;
 		expect(health.status).toBe("ready");
 		expect(health.tsgo_status).toBe("ready");
 		expect(health.protocol_version).toBe("1");
@@ -88,7 +84,7 @@ describe("dispatchRpc — daemon.health", () => {
 			state,
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		const health = result.result as { status: string; tsgo_status: string };
+		const health = result.result;
 		expect(health.status).toBe("degraded");
 		expect(health.tsgo_status).toBe("unavailable");
 	});
@@ -107,8 +103,8 @@ describe("dispatchRpc — daemon.shutdown + invalidate", () => {
 			state,
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		expect((state.shutdown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
-		expect((result.result as { ack: true }).ack).toBe(true);
+		expect((vi.mocked(state.shutdown)).mock.calls.length).toBe(1);
+		expect((result.result).ack).toBe(true);
 	});
 
 	it("invalidate forwards to tsgo.invalidate and acks", async () => {
@@ -123,7 +119,7 @@ describe("dispatchRpc — daemon.shutdown + invalidate", () => {
 			state,
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		expect(nonNull((state.tsgo.invalidate as ReturnType<typeof vi.fn>).mock.calls[0])[0]).toBe("/a.ts");
+		expect(nonNull((vi.mocked(state.tsgo.invalidate)).mock.calls[0])[0]).toBe("/a.ts");
 	});
 });
 
@@ -140,7 +136,7 @@ describe("dispatchRpc — tsgo methods", () => {
 			state,
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		expect(nonNull((state.tsgo.checkFile as ReturnType<typeof vi.fn>).mock.calls[0])[0]).toBe(
+		expect(nonNull((vi.mocked(state.tsgo.checkFile)).mock.calls[0])[0]).toBe(
 			"/repo/a.ts",
 		);
 	});
@@ -191,7 +187,7 @@ describe("dispatchRpc — tsgo methods", () => {
 			state,
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		expect((state.tsgo.simulateEdit as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1);
+		expect((vi.mocked(state.tsgo.simulateEdit)).mock.calls.length).toBe(1);
 	});
 });
 
@@ -215,7 +211,7 @@ describe("dispatchRpc — lifecycle acks", () => {
 			makeState(),
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		expect((result.result as { decision: string }).decision).toBe("allow");
+		expect((result.result).decision).toBe("allow");
 	});
 
 	it("pre_compact acks", async () => {
@@ -224,7 +220,7 @@ describe("dispatchRpc — lifecycle acks", () => {
 			makeState(),
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		expect((result.result as { decision: string }).decision).toBe("allow");
+		expect((result.result).decision).toBe("allow");
 	});
 
 	it.each([
@@ -237,7 +233,7 @@ describe("dispatchRpc — lifecycle acks", () => {
 			makeState(),
 		);
 		if (isError(result)) throw new Error("unexpected error");
-		expect((result.result as { decision: string }).decision).toBe("allow");
+		expect((result.result).decision).toBe("allow");
 	});
 });
 
@@ -274,7 +270,7 @@ describe("dispatchRpc — hook runtime bridge", () => {
 		if (isError(result)) throw new Error("unexpected error");
 		expect(evaluateHook).toHaveBeenCalledWith(event);
 		expect(result.id).toBe("rh-1");
-		expect((result.result as { warnings?: string[] }).warnings).toEqual(["runtime warning"]);
+		expect((result.result).warnings).toEqual(["runtime warning"]);
 	});
 
 	it("routes lifecycle RPCs through evaluateHook so session side effects are shared", async () => {
@@ -291,17 +287,17 @@ describe("dispatchRpc — hook runtime bridge", () => {
 
 		if (isError(result)) throw new Error("unexpected error");
 		expect(evaluateHook).toHaveBeenCalledOnce();
-		expect((result.result as { decision: string }).decision).toBe("allow");
+		expect((result.result).decision).toBe("allow");
 	});
 });
 
 describe("dispatchRpc — bad event payload", () => {
 	it("hook.pre_tool_use rejects an invalid envelope", async () => {
-		const req: RpcRequest = {
+		const req: RpcWireRequest = {
 			schema_version: "1",
 			id: "r11",
 			method: "hook.pre_tool_use",
-			params: {} as UnifiedHookEvent,
+			params: {},
 		};
 		const result = await dispatchRpc(req, makeState());
 		expect(isError(result)).toBe(true);
@@ -316,9 +312,39 @@ describe("dispatchRpc — unknown method", () => {
 			id: "r12",
 			method: "not.a.method",
 			params: {},
-		} as unknown as RpcRequest;
+		};
 		const result = await dispatchRpc(req, makeState());
 		expect(isError(result)).toBe(true);
 		if (isError(result)) expect(result.error.code).toBe("unknown_method");
+	});
+});
+
+describe("dispatchRpc — administrative request boundaries", () => {
+	it.each([undefined, null, [], { reason: 42 }])("rejects invalid shutdown params before invoking shutdown: %j", async (params) => {
+		const state = makeState();
+		const result = await dispatchRpc({ schema_version: "1", id: "shutdown", method: "daemon.shutdown", params }, state);
+		expect(result).toMatchObject({ id: "shutdown", error: { code: "bad_request" } });
+		expect(state.shutdown).not.toHaveBeenCalled();
+	});
+
+	it.each([undefined, null, [], {}, { path: "" }, { path: 42 }])("rejects invalid invalidation params before touching the cache: %j", async (params) => {
+		const state = makeState();
+		const result = await dispatchRpc({ schema_version: "1", id: "invalidate", method: "daemon.invalidate", params }, state);
+		expect(result).toMatchObject({ id: "invalidate", error: { code: "bad_request" } });
+		expect(state.tsgo.invalidate).not.toHaveBeenCalled();
+	});
+
+	it("rejects an incomplete action before invoking a hook evaluator", async () => {
+		const evaluateHook = vi.fn().mockResolvedValue({ decision: "allow" });
+		const result = await dispatchRpc({
+			schema_version: "1", id: "hook", method: "hook.pre_tool_use",
+			params: {
+				schema_version: "1", event_id: "evt", session_id: "s", ts: "2026-09-07T00:00:00Z",
+				runner: "codex", runner_native_event: "PreToolUse", phase: "pre-tool",
+				context: { cwd: "/repo" }, action: { kind: "tool_call" }, raw: {},
+			},
+		}, makeState({ evaluateHook }));
+		expect(result).toMatchObject({ error: { code: "bad_request" } });
+		expect(evaluateHook).not.toHaveBeenCalled();
 	});
 });

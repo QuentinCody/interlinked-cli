@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireRecord, wireString } from "../lib/value-validation.js";
 // Evidence for the three SessionEnd baseline folds.
 //
 // Labeled per the Check Evidence Contract: each describe names a direction,
@@ -50,7 +51,7 @@ function readCoverageBaseline(): { files: Record<string, { lines_pct: number }> 
 	const raw: unknown = JSON.parse(readFileSync(join(cwd, ".interlinked/coverage-baseline.json"), "utf-8"));
 	// SAFETY: this test wrote the file through writeCoverageBaseline / foldCoverage,
 	// both of which emit the CoverageBaseline shape.
-	return raw as { files: Record<string, { lines_pct: number }> };
+	return parseWire(raw, wireObject({ "files": wireRecord(wireObject({ "lines_pct": wireNumber })) }), "test JSON value");
 }
 
 function writeCoverageReport(files: Record<string, number>, mtimeSec?: number) {
@@ -75,7 +76,7 @@ function readUntestedFiles(): string[] {
 		readFileSync(join(cwd, ".interlinked/untested-files-baseline.json"), "utf-8"),
 	);
 	// SAFETY: written above / by saveUntestedFilesBaseline — `files` is a string[].
-	return (raw as { files: string[] }).files;
+	return (parseWire(raw, wireObject({ "files": wireArray(wireString) }), "test JSON value")).files;
 }
 
 function writeLargeFileBaseline(maxLines: number, files: Record<string, number>) {
@@ -88,7 +89,7 @@ function readLargeFiles(): Record<string, number> {
 		readFileSync(join(cwd, ".interlinked/large-files-baseline.json"), "utf-8"),
 	);
 	// SAFETY: written above / by saveLargeFileBaseline — `files` is path→count.
-	return (raw as { files: Record<string, number> }).files;
+	return (parseWire(raw, wireObject({ "files": wireRecord(wireNumber) }), "test JSON value")).files;
 }
 
 beforeEach(() => {
@@ -366,7 +367,7 @@ describe("coverage-edit fold — negative (must hold)", () => {
 		expect(out.changed).toBe(0);
 		expect(out.refused).toBe(1);
 		// no-change fold must not rewrite the file
-		const raw = JSON.parse(readFileSync(editPath, "utf-8")) as Record<string, { f: number; scope: string }>;
+		const raw = parseWire(JSON.parse(readFileSync(editPath, "utf-8")), wireRecord(wireObject({ "f": wireNumber, "scope": wireString })), "test JSON value");
 		expect(raw["src/a.ts"]).toEqual({ f: 0.95, scope: "companion" });
 	});
 

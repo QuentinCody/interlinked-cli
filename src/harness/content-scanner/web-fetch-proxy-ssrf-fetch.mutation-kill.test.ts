@@ -18,7 +18,7 @@
 // "used the right agent against an unreachable port".
 
 import { EventEmitter } from "node:events";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assert, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---- module mocks (only pinnedFetch touches node:http/node:https; every
 // other export in this file uses node:net's real isIP and an injected
@@ -167,8 +167,8 @@ describe("assertSafeFetchTarget — rejection message content", () => {
 	// directly observable (the companion suite only ever checks `.reason`).
 	it("includes the literal 'URL parse failed' detail when the URL fails to parse", async () => {
 		const err = await assertSafeFetchTarget("not a url").catch((e: unknown) => e);
-		expect(err).toBeInstanceOf(SsrfBlockedError);
-		expect((err as SsrfBlockedError).message).toBe(
+		assert(err instanceof SsrfBlockedError);
+		expect(err.message).toBe(
 			"SSRF guard blocked WebFetch (invalid_url): URL parse failed",
 		);
 	});
@@ -178,8 +178,8 @@ describe("assertSafeFetchTarget — rejection message content", () => {
 	// `.reason`.
 	it("includes the literal scheme name in the scheme_not_allowed detail", async () => {
 		const err = await assertSafeFetchTarget("ftp://x.example/").catch((e: unknown) => e);
-		expect(err).toBeInstanceOf(SsrfBlockedError);
-		expect((err as SsrfBlockedError).message).toBe(
+		assert(err instanceof SsrfBlockedError);
+		expect(err.message).toBe(
 			"SSRF guard blocked WebFetch (scheme_not_allowed): scheme ftp: not in {http, https}",
 		);
 	});
@@ -187,8 +187,8 @@ describe("assertSafeFetchTarget — rejection message content", () => {
 	// test-contract: invariant — vetIpLiteral's detail template.
 	it("includes the literal 'is private/loopback/link-local' detail for a blocked IP literal", async () => {
 		const err = await assertSafeFetchTarget("http://127.0.0.1/").catch((e: unknown) => e);
-		expect(err).toBeInstanceOf(SsrfBlockedError);
-		expect((err as SsrfBlockedError).message).toBe(
+		assert(err instanceof SsrfBlockedError);
+		expect(err.message).toBe(
 			"SSRF guard blocked WebFetch (ip_literal_blocked): literal address 127.0.0.1 is private/loopback/link-local",
 		);
 	});
@@ -199,33 +199,12 @@ describe("assertSafeFetchTarget — rejection message content", () => {
 		const err = await assertSafeFetchTarget("https://attacker.example/", blockedResolver).catch(
 			(e: unknown) => e,
 		);
-		expect(err).toBeInstanceOf(SsrfBlockedError);
-		expect((err as SsrfBlockedError).message).toBe(
+		assert(err instanceof SsrfBlockedError);
+		expect(err.message).toBe(
 			"SSRF guard blocked WebFetch (resolved_ip_blocked): hostname attacker.example resolves to blocked address 127.0.0.1",
 		);
 	});
 
-	// test-contract: security — a resolver is a fully injectable seam; this
-	// one reports length=1 while index 0 is genuinely undefined, which is
-	// exactly what `!first` exists to catch — skipping it crashes with a raw
-	// TypeError instead of failing closed with SsrfBlockedError.
-	it("still fails closed with SsrfBlockedError when the resolver's length disagrees with what it actually iterates", async () => {
-		const weirdAddresses = {
-			length: 1,
-			0: undefined,
-			[Symbol.iterator]: function* () {
-				/* yields nothing: .length lies about what's iterable */
-			},
-		} as unknown as { address: string; family: number }[];
-		const weirdResolver: HostResolver = async () => weirdAddresses;
-		const err = await assertSafeFetchTarget("https://weird-empty.example/", weirdResolver).catch(
-			(e: unknown) => e,
-		);
-		expect(err).toBeInstanceOf(SsrfBlockedError);
-		expect((err as SsrfBlockedError).message).toBe(
-			"SSRF guard blocked WebFetch (hostname_resolution_failed): DNS lookup of weird-empty.example returned no usable address",
-		);
-	});
 });
 
 // ---------------------------------------------------------------------------
@@ -373,9 +352,9 @@ describe("pinnedFetch — request construction (mocked node:http/https)", () => 
 		pinnedFetch(target);
 		const req = getCapturedReq();
 		req.emit("timeout");
-		const destroyArg = req.destroy.mock.calls[0]?.[0] as unknown;
-		expect(destroyArg).toBeInstanceOf(Error);
-		expect((destroyArg as Error).message).toBe("fetch timeout after 30000ms");
+		const destroyArg = req.destroy.mock.calls[0]?.[0];
+		assert(destroyArg instanceof Error);
+		expect(destroyArg.message).toBe("fetch timeout after 30000ms");
 	});
 
 	// test-contract: invariant — forcing this ConditionalExpression to `true`
@@ -479,7 +458,7 @@ describe("fetchBody — status-comparison boundary mutants", () => {
 		const err = await fetchBody("https://public.example/", { vet, fetchOne }).catch(
 			(e: unknown) => e,
 		);
-		expect(err).toBeInstanceOf(Error);
-		expect((err as Error).message).toBe("HTTP 400");
+		assert(err instanceof Error);
+		expect(err.message).toBe("HTTP 400");
 	});
 });

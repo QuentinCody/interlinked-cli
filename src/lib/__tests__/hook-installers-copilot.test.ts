@@ -117,10 +117,10 @@ describe("installCopilotHooks / uninstallCopilotHooks", () => {
 
 		installCopilotHooks(tmp, ".interlinked/hooks/interlinked-activity-v2.mjs");
 
-		const content = JSON.parse(readFileSync(hooksPath, "utf-8"));
-		const entries = content.hooks.sessionStart as Array<{ bash: string }>;
-		expect(entries).toHaveLength(1);
-		expect(entries[0].bash).toContain("interlinked-activity-v2.mjs");
+		const content: unknown = JSON.parse(readFileSync(hooksPath, "utf-8"));
+		expect(content).toHaveProperty("hooks.sessionStart", [
+			{ type: "command", bash: expect.stringContaining("interlinked-activity-v2.mjs") },
+		]);
 	});
 
 	it("skips array-valued events that already have a populated entries array", () => {
@@ -137,11 +137,11 @@ describe("installCopilotHooks / uninstallCopilotHooks", () => {
 
 		installCopilotHooks(tmp, ".interlinked/hooks/interlinked-activity.mjs");
 
-		const content = JSON.parse(readFileSync(hooksPath, "utf-8"));
-		const entries = content.hooks.sessionStart as Array<{ bash: string }>;
-		expect(entries).toHaveLength(2);
-		expect(entries[0].bash).toBe("echo user-hook");
-		expect(entries[1].bash).toContain("interlinked-activity");
+		const content: unknown = JSON.parse(readFileSync(hooksPath, "utf-8"));
+		expect(content).toHaveProperty("hooks.sessionStart", [
+			{ type: "command", bash: "echo user-hook" },
+			{ type: "command", bash: expect.stringContaining("interlinked-activity") },
+		]);
 	});
 
 	it("uninstall skips a non-array event value and returns false when nothing changes", () => {

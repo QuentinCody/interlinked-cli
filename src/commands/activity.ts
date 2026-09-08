@@ -5,6 +5,7 @@
 // merges with server data when connected.
 
 import { type ActivityEvent, parseDuration } from "../lib/activity-utils.js";
+import { type ActivityFeedResponse, parseActivityFeed } from "../lib/activity-response.js";
 import { getClient } from "../lib/api-client.js";
 import {
 	c,
@@ -25,13 +26,7 @@ interface ResolveMergedContext {
 	isLocalEmpty: boolean;
 }
 
-// The server response body is untyped JSON — it may be null/undefined
-// (empty body, non-object payload) even though callTool's generic promises
-// the shape below, so this is nullable rather than a plain object type.
-type ServerActivityFeedResult =
-	| { events?: ActivityEvent[]; activity?: ActivityEvent[]; activities?: ActivityEvent[] }
-	| null
-	| undefined;
+type ServerActivityFeedResult = ActivityFeedResponse | undefined;
 
 /** Pick which sources to merge based on availability (no server → local only, etc). */
 function resolveMergedEvents(ctx: ResolveMergedContext): ActivityEvent[] {
@@ -151,10 +146,10 @@ function fetchServerEvents(
 	opts: { agent?: string },
 	limit: number,
 ): Promise<ServerActivityFeedResult> {
-	return getClient().callTool<ServerActivityFeedResult>("query_activity_feed", {
+	return getClient().callTool("query_activity_feed", {
 		limit: limit * 2,
 		...(opts.agent ? { agent_name: opts.agent } : {}),
-	});
+	}).then(parseActivityFeed);
 }
 
 /** Normalize the untyped server payload into tagged ActivityEvents. */

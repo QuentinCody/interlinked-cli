@@ -1,3 +1,5 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireRecord, wireString } from "../../lib/value-validation.js";
+import { nonNull } from "../../lib/non-null.js";
 import { createHash } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -731,7 +733,7 @@ describe("SessionTracker.serialize/hydrate — edge branches", () => {
 		recordSkillEnter(session, { name: "interlinked-verify", ttl_seconds: 600 });
 
 		const snap = writer.serialize("skills-session");
-		const activeSkills = snap?.active_skills as Record<string, { name: string }>;
+		const activeSkills = parseWire(snap?.active_skills, wireRecord(wireObject({ "name": wireString })), "test JSON value");
 		expect(activeSkills["interlinked-verify"]?.name).toBe("interlinked-verify");
 
 		const reader = new SessionTracker();
@@ -774,24 +776,24 @@ describe("SessionTracker.serialize/hydrate — edge branches", () => {
 
 		const snap = writer.serialize("content-session");
 
-		const failedFiles = snap?.failed_files as Record<string, { failure_count: number }>;
+		const failedFiles = parseWire(snap?.failed_files, wireRecord(wireObject({ "failure_count": wireNumber })), "test JSON value");
 		expect(failedFiles["src/broken.ts"]?.failure_count).toBe(2);
 
-		const warningsIssued = snap?.warnings_issued as Record<string, { issue_count: number }>;
+		const warningsIssued = parseWire(snap?.warnings_issued, wireRecord(wireObject({ "issue_count": wireNumber })), "test JSON value");
 		expect(warningsIssued["src/broken.ts::typescript"]?.issue_count).toBe(2);
 
-		const tddCycles = snap?.tdd_cycles as Record<string, { state: string }>;
+		const tddCycles = parseWire(snap?.tdd_cycles, wireRecord(wireObject({ "state": wireString })), "test JSON value");
 		expect(tddCycles["src/foo.ts"]?.state).toBe("red");
 
-		const testRuns = snap?.test_runs as Record<string, { status: string }>;
+		const testRuns = parseWire(snap?.test_runs, wireRecord(wireObject({ "status": wireString })), "test JSON value");
 		expect(testRuns["src/foo.test.ts"]?.status).toBe("fail");
 
-		const stubsIntroduced = snap?.stubs_introduced as Array<{ kind: string }>;
+		const stubsIntroduced = parseWire(snap?.stubs_introduced, wireArray(wireObject({ "kind": wireString })), "test JSON value");
 		expect(stubsIntroduced).toHaveLength(1);
 		expect(stubsIntroduced[0]?.kind).toBe("TODO");
 
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 		expect(restored?.failed_files.get("src/broken.ts")?.failure_count).toBe(2);
 		expect(restored?.tdd_cycles.get("src/foo.ts")?.state).toBe("red");
 		expect(restored?.test_runs.get("src/foo.test.ts")?.status).toBe("fail");
@@ -928,21 +930,15 @@ describe("SessionTracker.serialize — full field-content mapping", () => {
 		expect(snap?.mid_session_nudge_emitted).toBe(true);
 		expect(snap?.stop_nudge_emitted).toBe(true);
 
-		const assertionCounts = snap?.assertion_counts as Record<
-			string,
-			{ blocks: number; assertions: number }
-		>;
+		const assertionCounts = parseWire(snap?.assertion_counts, wireRecord(wireObject({ "blocks": wireNumber, "assertions": wireNumber })), "test JSON value");
 		expect(assertionCounts["src/foo.test.ts"]).toEqual({ blocks: 2, assertions: 4 });
 
 		expect(snap?.verification_observed).toEqual(["test", "lint"]);
 
-		const observedChecks = snap?.observed_checks as Record<string, { status: string }>;
+		const observedChecks = parseWire(snap?.observed_checks, wireRecord(wireObject({ "status": wireString })), "test JSON value");
 		expect(observedChecks.typecheck?.status).toBe("green");
 
-		const pendingCompletions = snap?.pending_completions as Record<
-			string,
-			{ resolved_files: string[]; affected_files: string[] }
-		>;
+		const pendingCompletions = parseWire(snap?.pending_completions, wireRecord(wireObject({ "resolved_files": wireArray(wireString), "affected_files": wireArray(wireString) })), "test JSON value");
 		expect(pendingCompletions["api.ts"]?.affected_files).toEqual(["client.ts"]);
 		expect(pendingCompletions["api.ts"]?.resolved_files).toEqual(["client.ts"]);
 	});
@@ -958,12 +954,7 @@ describe("SessionTracker.serialize — full field-content mapping", () => {
 		};
 
 		const snap = writer.serialize("git-baseline-content");
-		const baseline = snap?.git_session_baseline as {
-			head_sha: string;
-			modified: string[];
-			staged: string[];
-			untracked: string[];
-		};
+		const baseline = parseWire(snap?.git_session_baseline, wireObject({ "head_sha": wireString, "modified": wireArray(wireString), "staged": wireArray(wireString), "untracked": wireArray(wireString) }), "test JSON value");
 		expect(baseline.head_sha).toBe("deadbeef");
 		expect(baseline.modified).toEqual(["src/modified.ts"]);
 		expect(baseline.staged).toEqual(["src/staged.ts"]);

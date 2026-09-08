@@ -5,8 +5,9 @@
 
 import { getClient } from "../lib/api-client.js";
 import { badge, c, header, kvLine, relativeTime, table, truncate } from "../lib/formatter.js";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
+import { wireAbsentOptional, parseWire, wireArray, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 
 interface Task {
 	id?: number;
@@ -17,8 +18,15 @@ interface Task {
 	assignee_name?: string;
 	created_at?: string;
 	updated_at?: string;
-	[key: string]: unknown;
 }
+
+const isTask = wireObject<Task>({
+	id: wireAbsentOptional(wireNumber), title: wireAbsentOptional(wireString),
+	description: wireAbsentOptional(wireString), status: wireAbsentOptional(wireString),
+	priority: wireAbsentOptional(wireString), assignee_name: wireAbsentOptional(wireString),
+	created_at: wireAbsentOptional(wireString), updated_at: wireAbsentOptional(wireString),
+});
+const isTaskList = wireObject<{ tasks?: Task[] }>({ tasks: wireAbsentOptional(wireArray(isTask)) });
 
 function isUnauthenticatedRemote(client: ReturnType<typeof getClient>): boolean {
 	return !client.isAuthenticated() && !client.isLocalDevServer();
@@ -42,11 +50,9 @@ function requireAgentName(client: ReturnType<typeof getClient>, purpose: string)
 	return name;
 }
 
-function unwrapTask(result: Task | { task?: Task } | undefined): Task {
-	if (result && typeof result === "object" && "task" in result) {
-		return (result as { task?: Task }).task || {};
-	}
-	return result || {};
+function unwrapTask(result: unknown): Task {
+	const value = isJsonObject(result) && "task" in result ? result.task : result;
+	return parseWire(value ?? {}, isTask, "task response");
 }
 
 export async function tasksListCommand(opts: {
@@ -73,12 +79,7 @@ export async function tasksListCommand(opts: {
 		if (opts.priority) args.priority = opts.priority;
 		if (opts.limit) args.limit = parsePositiveInt(opts.limit, "--limit");
 
-		// `callTool<T>()`'s declared `Promise<T>` return type is honest about
-		// the shape of a genuine tool result but not about presence: an MCP
-		// tool call can resolve to a bare `null` (a malformed/absent server
-		// response — exercised directly in tests via a mocked client), so `T`
-		// is widened here to `| null` rather than trusted as always-present.
-		const result = await client.callTool<{ tasks?: Task[] } | null>("list_tasks", args);
+		const result = parseWire(await client.callTool("list_tasks", args) ?? {}, isTaskList, "list_tasks response");
 		const tasks = result?.tasks || [];
 
 		output(mode, tasks, {
@@ -160,7 +161,7 @@ export async function tasksCreateCommand(
 		if (opts.assignee) args.assignee_name = opts.assignee;
 		if (opts.priority) args.priority = opts.priority;
 
-		const rawResult = await client.callTool<Task | { task?: Task }>("create_task", args);
+		const rawResult = await client.callTool("create_task", args);
 		const task = unwrapTask(rawResult);
 
 		output(mode, rawResult, {
@@ -187,7 +188,7 @@ export async function tasksShowCommand(id: string, opts: { json?: boolean }): Pr
 
 	try {
 		const taskId = parsePositiveInt(id, "task id");
-		const rawResult = await client.callTool<Task | { task?: Task }>("get_task", {
+		const rawResult = await client.callTool("get_task", {
 			task_id: taskId,
 		});
 		const result = unwrapTask(rawResult);

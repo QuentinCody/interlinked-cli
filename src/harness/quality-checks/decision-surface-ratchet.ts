@@ -21,6 +21,7 @@ import {
 } from "./decision-surface.js";
 import {
 	DECISION_SURFACE_CATEGORIES,
+	decisionCategoryRecord,
 	type DecisionSurfaceCategory,
 } from "./decision-surface-map.js";
 
@@ -203,9 +204,7 @@ function computeGrowth(
 	baseline: DecisionSurfaceReport,
 	current: DecisionSurfaceReport,
 ): Record<DecisionSurfaceCategory, string[]> {
-	const result = Object.fromEntries(
-		DECISION_SURFACE_CATEGORIES.map((c) => [c, [] as string[]]),
-	) as Record<DecisionSurfaceCategory, string[]>;
+	const result = decisionCategoryRecord((): string[] => []);
 
 	for (const cat of DECISION_SURFACE_CATEGORIES) {
 		const before = new Set(baseline.byCategory[cat]);
@@ -234,9 +233,7 @@ function buildWarnings(
 function skippedResult(
 	skipped: "not-a-repo" | "no-baseline-ref" | "git-error",
 ): DecisionSurfaceRatchetResult {
-	const empty = Object.fromEntries(
-		DECISION_SURFACE_CATEGORIES.map((c) => [c, [] as string[]]),
-	) as Record<DecisionSurfaceCategory, string[]>;
+	const empty = decisionCategoryRecord((): string[] => []);
 	return {
 		baselineRef: null,
 		skipped,

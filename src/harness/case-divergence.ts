@@ -36,6 +36,7 @@ type TsModule = typeof TS;
 type TsRequirer = () => TsModule;
 
 const defaultTsRequirer: TsRequirer = () =>
+	// SAFETY: the fixed module specifier loads the installed TypeScript compiler; loadTs catches an unavailable dependency.
 	createRequire(import.meta.url)("typescript") as TsModule;
 
 let tsRequirer: TsRequirer = defaultTsRequirer;

@@ -55,6 +55,7 @@
 // `commit-gate-decision.ts`; the injectable-deps interface + suite run/scan
 // engine in `commit-gate-suite.ts` (all re-exported below).
 
+import { readToolString } from "./tool-input-values.js";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { recordCoverageDischarge } from "../coverage-obligation-ledger.js";
@@ -194,7 +195,7 @@ function commitGateApplicability(
 ): CommitGateApplicability | null {
 	const cfg = rules.per_edit_coverage;
 	if (!cfg?.enabled || cfg.mode !== "block") return null;
-	const command = (event.tool_input?.command as string) || "";
+	const command = readToolString(event.tool_input?.command);
 	const parse = parseGitCommit(command);
 	if (!parse?.isCommit) return null;
 	return { cfg, parse };

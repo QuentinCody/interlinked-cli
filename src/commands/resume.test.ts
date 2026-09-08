@@ -26,11 +26,12 @@ vi.mock("../lib/local-activity.js", () => ({
 
 // resume.ts reaches the server via a *dynamic* `await import("../lib/api-client.js")`.
 // Mocking the module is enough — the dynamic import resolves to the mock factory.
-vi.mock("../lib/api-client.js", () => ({
+vi.mock("../lib/api-client.js", async (importOriginal) => ({
+	...await importOriginal<typeof import("../lib/api-client.js")>(),
 	getClient: vi.fn(),
 }));
 
-import { getClient } from "../lib/api-client.js";
+import { getClient, InterlinkedClient } from "../lib/api-client.js";
 import { getCheckpoint, listCheckpoints, rewindToCheckpoint } from "../lib/checkpoints.js";
 import { readLocalSessions } from "../lib/local-activity.js";
 import { resumeCommand } from "./resume.js";
@@ -97,11 +98,11 @@ function makeSession(over: Partial<SessionState> = {}): SessionState {
 function fakeClient(opts: {
 	authenticated?: boolean;
 	callTool?: () => Promise<unknown>;
-}): { isAuthenticated: () => boolean; callTool: () => Promise<unknown> } {
-	return {
-		isAuthenticated: () => opts.authenticated ?? false,
-		callTool: opts.callTool ?? (() => Promise.resolve(null)),
-	};
+}): InterlinkedClient {
+	const client = new InterlinkedClient({ serverUrl: "https://api.example", token: "test-token" });
+	vi.spyOn(client, "isAuthenticated").mockReturnValue(opts.authenticated ?? false);
+	vi.spyOn(client, "callTool").mockImplementation(opts.callTool ?? (() => Promise.resolve(null)));
+	return client;
 }
 
 beforeEach(() => {
@@ -113,7 +114,7 @@ beforeEach(() => {
 	// Safe defaults so a test that doesn't care about a given boundary still works.
 	mocks.readLocalSessions.mockReturnValue([]);
 	mocks.getClient.mockReturnValue(
-		fakeClient({ authenticated: false }) as unknown as ReturnType<typeof getClient>,
+		fakeClient({ authenticated: false }),
 	);
 });
 
@@ -357,7 +358,7 @@ describe("resumeCommand — server context", () => {
 		mocks.getCheckpoint.mockReturnValue(makeCheckpoint({ agent: "claude", restorable: false }));
 		const callTool = vi.fn().mockResolvedValue({ recent: "work-summary" });
 		mocks.getClient.mockReturnValue(
-			fakeClient({ authenticated: true, callTool }) as unknown as ReturnType<typeof getClient>,
+			fakeClient({ authenticated: true, callTool }),
 		);
 
 		await resumeCommand("abc123def456", {});
@@ -372,9 +373,7 @@ describe("resumeCommand — server context", () => {
 		mocks.getCheckpoint.mockReturnValue(makeCheckpoint({ restorable: false }));
 		const callTool = vi.fn();
 		mocks.getClient.mockReturnValue(
-			fakeClient({ authenticated: false, callTool }) as unknown as ReturnType<
-				typeof getClient
-			>,
+			fakeClient({ authenticated: false, callTool }),
 		);
 
 		await resumeCommand("abc123def456", {});
@@ -388,7 +387,7 @@ describe("resumeCommand — server context", () => {
 		// callTool never resolves → the 3s timeout race rejects → .catch(() => null).
 		const callTool = vi.fn().mockReturnValue(new Promise(() => {}));
 		mocks.getClient.mockReturnValue(
-			fakeClient({ authenticated: true, callTool }) as unknown as ReturnType<typeof getClient>,
+			fakeClient({ authenticated: true, callTool }),
 		);
 
 		const p = resumeCommand("abc123def456", {});
@@ -403,7 +402,7 @@ describe("resumeCommand — server context", () => {
 		mocks.getCheckpoint.mockReturnValue(makeCheckpoint({ restorable: false }));
 		const callTool = vi.fn().mockRejectedValue(new Error("502 bad gateway"));
 		mocks.getClient.mockReturnValue(
-			fakeClient({ authenticated: true, callTool }) as unknown as ReturnType<typeof getClient>,
+			fakeClient({ authenticated: true, callTool }),
 		);
 
 		await resumeCommand("abc123def456", {});

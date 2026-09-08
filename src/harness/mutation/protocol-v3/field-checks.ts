@@ -126,7 +126,8 @@ export function checkPolicyId(value: unknown, where: string): Reason {
 export function checkRepoRelativePath(value: unknown, where: string): Reason {
 	const bounded = checkBoundedString(value, where);
 	if (bounded !== null) return bounded;
-	const path = value as string;
+	if (typeof value !== "string") return `${where} must be a string`;
+	const path = value;
 	const segments = path.split("/");
 	const bad =
 		path.startsWith("/") ||

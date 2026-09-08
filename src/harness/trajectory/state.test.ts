@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 import { describe, expect, it } from "vitest";
 
 import { anchorHash, sha256 } from "./helpers.js";
@@ -102,7 +103,7 @@ describe("applyEvent — churn substrate folding", () => {
 	it("does NOT fold edit state on a PreToolUse-only event", () => {
 		const s = createState("s");
 		const [pre] = editEvents("src/a.ts", "", "x");
-		applyEvent(s, pre as ToolEvent);
+		applyEvent(s, nonNull(pre));
 		expect(s.fileShaHistory.size).toBe(0);
 		expect(s.recentEvents.length).toBe(1);
 	});

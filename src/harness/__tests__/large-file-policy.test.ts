@@ -1,3 +1,4 @@
+import { parseWire, wireNumber, wireObject } from "../../lib/value-validation.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,7 +30,7 @@ describe("DEFAULT_MAX_LINES", () => {
 	// BOTH together; this test fails the moment they drift apart.
 	it("equals the committed baseline's max_lines (no drift)", () => {
 		const baselinePath = join(process.cwd(), ".interlinked", "large-files-baseline.json");
-		const committed = JSON.parse(readFileSync(baselinePath, "utf-8")) as { max_lines: number };
+		const committed = parseWire(JSON.parse(readFileSync(baselinePath, "utf-8")), wireObject({ "max_lines": wireNumber }), "test JSON value");
 		expect(committed.max_lines).toBe(DEFAULT_MAX_LINES);
 	});
 });

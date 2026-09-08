@@ -1,12 +1,14 @@
-// Behavioral companion for lifecycle-persist.ts. The source-text security
-// pins (sanitize + containment) live in lifecycle-events.test.ts and read
-// this file; these cases drive the write/reject/cleanup behavior directly.
+// Exercises trajectory persistence and lifecycle cleanup behavior.
 
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFreshSession } from "../session-state-mutators.js";
+import { createClassifierSessionState } from "../policy-classifier.js";
+import { createAutoCoordinationState } from "../auto-coordinate.js";
+import { buildTurnEndSummary } from "../turn-end.js";
+import { makeServerRuntime } from "./__tests__/fixtures.js";
 import type { HarnessEvent, SessionTrajectory } from "../types.js";
 import { cleanupSessionState, persistSessionTrajectory } from "./lifecycle-persist.js";
 import type { ServerRuntime } from "./runtime-context.js";
@@ -21,13 +23,11 @@ function makeEvent(sessionId: string): HarnessEvent {
 		agent_name: "tester",
 		timestamp: new Date().toISOString(),
 		cwd: dir,
-	} as HarnessEvent;
+	};
 }
 
-// SAFETY: persistSessionTrajectory reads only cwd/log/sessions.serialize;
-// cleanupSessionState additionally touches the stubbed collaborators below.
-function makeCtx(overrides: Partial<Record<string, unknown>> = {}): ServerRuntime {
-	return {
+function makeCtx(overrides: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime {
+	return makeServerRuntime({
 		cwd: dir,
 		log: vi.fn(),
 		sessions: { serialize: () => ({ session_id: "s" }), remove: vi.fn() },
@@ -37,12 +37,10 @@ function makeCtx(overrides: Partial<Record<string, unknown>> = {}): ServerRuntim
 		classifierSessions: new Map(),
 		autoCoordStates: new Map(),
 		...overrides,
-	} as unknown as ServerRuntime;
+	});
 }
 
-const turnSummary = { turn_patterns: [] } as unknown as ReturnType<
-	typeof import("../turn-end.js").buildTurnEndSummary
->;
+let turnSummary: ReturnType<typeof buildTurnEndSummary>;
 
 let session: SessionTrajectory;
 
@@ -51,6 +49,7 @@ beforeEach(() => {
 	// A real trajectory: persistSessionTrajectory feeds it through
 	// computeEffectivenessSummary, which walks several of its Maps/Sets.
 	session = createFreshSession(makeEvent("seed"), "seed");
+	turnSummary = buildTurnEndSummary(session, 0, 0);
 });
 
 afterEach(() => {
@@ -63,7 +62,7 @@ describe("persistSessionTrajectory", () => {
 		await persistSessionTrajectory({ ctx, event: makeEvent("good-id"), session, turnSummary });
 		const path = join(dir, ".interlinked", "sessions", "good-id.trajectory.json");
 		expect(existsSync(path)).toBe(true);
-		expect(JSON.parse(readFileSync(path, "utf-8")).turn_summary).toEqual({ turn_patterns: [] });
+		expect(JSON.parse(readFileSync(path, "utf-8")).turn_summary).toEqual(turnSummary);
 	});
 
 	it("refuses a session id that sanitizes to nothing (non-fatal, logged)", async () => {
@@ -84,8 +83,8 @@ describe("persistSessionTrajectory", () => {
 describe("cleanupSessionState", () => {
 	it("tears down cohort, reservations, session map, and per-session state", () => {
 		const ctx = makeCtx();
-		ctx.classifierSessions.set("sess-1", {} as never);
-		ctx.autoCoordStates.set("sess-1", {} as never);
+		ctx.classifierSessions.set("sess-1", createClassifierSessionState());
+		ctx.autoCoordStates.set("sess-1", createAutoCoordinationState());
 		cleanupSessionState(ctx, makeEvent("sess-1"), session);
 		expect(vi.mocked(ctx.cohort.agentLeft)).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(ctx.reservations.releaseAllForAgent)).toHaveBeenCalledWith(

@@ -3,7 +3,6 @@
 // ===========================================
 
 import type { ClassifierOverrides } from "../tool-class-classifier.js";
-import type { RunnerId } from "../unified-event.js";
 import { createClaudeCodeAdapter } from "./claude-code.js";
 import { createCodexAdapter } from "./codex.js";
 import { createCopilotCliAdapter } from "./copilot-cli.js";
@@ -50,7 +49,7 @@ export function detectAdapter(
 
 /** Look up an adapter by id. Returns null if not found. */
 export function getAdapter(
-	id: RunnerId,
+	id: string,
 	adapters: RunnerAdapter[] = buildAllAdapters(),
 ): RunnerAdapter | null {
 	return adapters.find((a) => a.id === id) ?? null;

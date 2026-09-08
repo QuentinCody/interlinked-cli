@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Behavioral companion for `pre-tool-phases.ts` — the later PreToolUse guard /
 // context / escalation phases extracted from the orchestrator. Each phase
 // function is driven directly (input → output / side-effect) rather than
@@ -12,6 +13,7 @@
 // present, graph present, session present, Edit-line path) are exercised in
 // isolation without the JSONL persistence machinery.
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { execFileSync as run } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,18 +40,18 @@ import {
 const FIXED_TS = "2026-04-01T00:00:00.000Z";
 
 function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
-	return {
+	return ({
 		hook_event: "PreToolUse",
 		session_id: "sess-1",
 		agent_source: "claude",
 		tool_name: "Bash",
 		timestamp: FIXED_TS,
 		...overrides,
-	} as unknown as HarnessEvent;
+	} satisfies HarnessEvent);
 }
 
 function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "sess-1",
 		agent_name: "agent-a",
 		started_at: FIXED_TS,
@@ -68,7 +70,7 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 		file_write_times: new Map(),
 		step_limit: Number.POSITIVE_INFINITY,
 		...overrides,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 let tmp: string;
@@ -423,7 +425,7 @@ describe("evaluatePreChecksTail", () => {
 			files_written: new Set([join(tmp, "different.ts")]),
 			file_write_times: new Map([[join(tmp, "different.ts"), new Date().toISOString()]]),
 		});
-		const sessions = { getAll: () => [other] } as unknown as SessionTracker;
+		const sessions = ({ getAll: () => [other] } satisfies Pick<SessionTracker, "getAll">);
 		const warnings: string[] = [];
 		const out = evaluatePreChecksTail(
 			makeEvent({ cwd: tmp }),
@@ -459,9 +461,9 @@ describe("evaluatePreChecksTail", () => {
 			files_written: new Set([filePath]),
 			file_write_times: new Map([[filePath, new Date().toISOString()]]),
 		});
-		const sessions = {
+		const sessions = ({
 			getAll: () => [other],
-		} as unknown as SessionTracker;
+		} satisfies Pick<SessionTracker, "getAll">);
 
 		const warnings: string[] = [];
 		const out = evaluatePreChecksTail(
@@ -494,7 +496,7 @@ describe("evaluatePreChecksTail", () => {
 	});
 
 	it("skips the concurrent-edit check when the write has no file path (tracker present)", () => {
-		const sessions = { getAll: () => [] } as unknown as SessionTracker;
+		const sessions = ({ getAll: () => [] } satisfies Pick<SessionTracker, "getAll">);
 		const warnings: string[] = [];
 		const out = evaluatePreChecksTail(
 			makeEvent({ cwd: tmp }),
@@ -745,12 +747,12 @@ describe("evaluatePermissionPatternDetection", () => {
 
 /** Minimal GuardRulesConfig carrying only the error_memory toggle the phase reads. */
 function rulesWithErrorMemory(enabled: boolean): GuardRulesConfig {
-	return { error_memory: { enabled, max_age_s: 86_400, max_records: 5000 } } as unknown as GuardRulesConfig;
+	return ({ ...makeGuardRules(),  error_memory: { ...makeGuardRules().error_memory,  enabled, max_age_s: 86_400, max_records: 5000 } } satisfies GuardRulesConfig);
 }
 
 /** Typed stub graph: identity-style toRelative so assertions stay readable. */
-function stubGraph(rel: string): ProjectGraph {
-	return { toRelative: (_p: string) => rel } as unknown as ProjectGraph;
+function stubGraph(rel: string): Pick<ProjectGraph, "toRelative"> {
+	return ({ toRelative: (_p: string) => rel } satisfies Pick<ProjectGraph, "toRelative">);
 }
 
 interface StubHistoryOpts {
@@ -759,11 +761,11 @@ interface StubHistoryOpts {
 }
 
 /** Typed stub ErrorHistory exposing only getFileHistoryWarning + getRecords. */
-function stubHistory(opts: StubHistoryOpts = {}): ErrorHistory {
-	return {
+function stubHistory(opts: StubHistoryOpts = {}): Pick<ErrorHistory, "getFileHistoryWarning" | "getRecords"> {
+	return ({
 		getFileHistoryWarning: (_f: string) => opts.historyWarning ?? null,
 		getRecords: () => opts.records ?? [],
-	} as unknown as ErrorHistory;
+	} satisfies Pick<ErrorHistory, "getFileHistoryWarning" | "getRecords">);
 }
 
 describe("evaluateErrorMemory", () => {

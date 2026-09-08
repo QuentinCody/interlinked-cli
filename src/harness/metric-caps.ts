@@ -305,7 +305,7 @@ function readFunctionTokenCap(value: unknown): number | undefined {
  *  strictly positive; a coverage floor of 0 is valid (means "no floor"). */
 function normalizeOverrides(raw: unknown): MetricCapsOverrides {
 	if (typeof raw !== "object" || raw === null) return {};
-	const obj = raw as RawMetricCaps;
+	const obj: RawMetricCaps = raw;
 	const out: MetricCapsOverrides = {};
 	const maxLines = readPositive(obj.max_lines);
 	if (maxLines !== undefined && maxLines > 0) out.max_lines = maxLines;
@@ -439,7 +439,7 @@ export function functionTokenCapConfigIssue(cwd: string): string | null {
 		}
 		// SAFETY: object-ness is checked above; every field remains unknown until
 		// the same strict parser used by ordinary analysis validates it.
-		const raw = parsed as RawMetricCaps;
+		const raw: RawMetricCaps = parsed;
 		if (raw.max_function_tokens === undefined) return null;
 		return readFunctionTokenCap(raw.max_function_tokens) === undefined
 			? `max_function_tokens must be an integer from 1 through ${DEFAULT_MAX_FUNCTION_TOKENS}; analysis is using ${DEFAULT_MAX_FUNCTION_TOKENS}`

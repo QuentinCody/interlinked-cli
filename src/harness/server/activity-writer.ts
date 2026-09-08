@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../lib/json-types.js";
 // ===========================================
 // Legacy activity.jsonl mirror (daemon dual-write)
 // ===========================================
@@ -107,9 +108,7 @@ const TOOL_FIELD_BY_LIFECYCLE_TYPE: Readonly<Record<string, string>> = {
 /** Read a lifecycle payload field from the normalized event first, then from
  *  the compact `tool_input` fallback used by the legacy bridge. */
 function lifecycleField(event: HarnessEvent, key: string): unknown {
-	// SAFETY: hook payloads are parsed JSON objects and HarnessEvent deliberately
-	// models only the decision-path subset; lifecycle metadata remains keyed data.
-	const direct = (event as HarnessEvent & Record<string, unknown>)[key];
+	const direct = isJsonObject(event) ? event[key] : undefined;
 	return direct !== undefined ? direct : event.tool_input?.[key];
 }
 
@@ -187,20 +186,6 @@ function projectKeys(cwd: string): { workspace: string; project: string } {
 	return keys;
 }
 
-/**
- * `event` is parsed straight from an untrusted socket payload (`JSON.parse`
- * in server-event-loop.ts, cast to `HarnessEvent` with no runtime
- * validation), so `agent_source` — typed as the required, non-optional
- * `AgentSource` union — can genuinely be missing or malformed at runtime
- * despite the type saying otherwise. Read it through `unknown` and narrow
- * with a real `typeof` check so callers see an honest `string | undefined`
- * instead of a lint-dead `?? "unknown"` fallback.
- */
-function honestAgentSource(event: HarnessEvent): string | undefined {
-	const value: unknown = event.agent_source;
-	return typeof value === "string" ? value : undefined;
-}
-
 /** Map a tool `HarnessEvent` to a v5 `LocalActivityEvent`, or null for non-tool
  *  events. Pure (modulo the cached config lookup). */
 export function mapEventToActivityRecord(
@@ -214,7 +199,7 @@ export function mapEventToActivityRecord(
 	const rec: LocalActivityEvent = {
 		schema_version: 5,
 		ts: event.timestamp,
-		agent: event.agent_name ?? honestAgentSource(event) ?? "unknown",
+		agent: event.agent_name ?? event.agent_source,
 		workspace_key: keys.workspace,
 		project_key: keys.project,
 		type,
@@ -254,7 +239,7 @@ export function mapLifecycleEventToActivityRecord(
 	const rec: LocalActivityEvent = {
 		schema_version: 5,
 		ts: event.timestamp,
-		agent: event.agent_name ?? honestAgentSource(event) ?? "unknown",
+		agent: event.agent_name ?? event.agent_source,
 		workspace_key: keys.workspace,
 		project_key: keys.project,
 		type,
@@ -373,7 +358,7 @@ function buildGuardBaseRecord(
 	return {
 		schema_version: 5,
 		ts: event.timestamp,
-		agent: event.agent_name ?? honestAgentSource(event) ?? "unknown",
+		agent: event.agent_name ?? event.agent_source,
 		workspace_key: keys.workspace,
 		project_key: keys.project,
 		type: kind,

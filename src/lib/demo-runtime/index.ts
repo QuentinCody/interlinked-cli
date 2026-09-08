@@ -24,8 +24,6 @@
 // project file imports this module but the project's root layout doesn't
 // also render `<DemoBanner />` (provided in the JSX-flavored sibling).
 
-import type { JsonObject } from "../json-types.js";
-
 export interface DemoDataOptions {
 	/** One-line reason the data is fake. Surfaced in the UI banner. */
 	reason?: string;
@@ -58,8 +56,22 @@ const ANNOUNCED = new Set<string>();
  *  !== "undefined"` a type-checker tautology even though it's a real
  *  runtime branch here. */
 function getGlobalDocument(): Document | undefined {
-	const doc = (globalThis as Record<string, unknown>).document;
-	return typeof doc === "object" && doc !== null ? (doc as Document) : undefined;
+	return globalThis.document;
+}
+
+function isDemoEntry(value: unknown): value is DemoEntry {
+	if (typeof value !== "object" || value === null) return false;
+	return "key" in value && typeof value.key === "string" &&
+		"reason" in value && typeof value.reason === "string" &&
+		"registeredAt" in value && typeof value.registeredAt === "number" &&
+		(!("ticket" in value) || value.ticket === undefined || typeof value.ticket === "string");
+}
+
+function appendGlobalEntry(entry: DemoEntry): void {
+	const value: unknown = Reflect.get(globalThis, "__INTERLINKED_DEMO__");
+	const list = Array.isArray(value) && value.every(isDemoEntry) ? value : [];
+	list.push(entry);
+	Reflect.set(globalThis, "__INTERLINKED_DEMO__", list);
 }
 
 /** `Document.body` is typed non-null by lib.dom, but the DOM spec allows a
@@ -80,10 +92,7 @@ function announceOnce(key: string, reason: string): void {
 		console.warn(msg);
 	}
 	if (typeof globalThis !== "undefined") {
-		const target = globalThis as JsonObject;
-		const list = (target.__INTERLINKED_DEMO__ as DemoEntry[] | undefined) ?? [];
-		list.push({ key, reason, registeredAt: Date.now() });
-		target.__INTERLINKED_DEMO__ = list;
+		appendGlobalEntry({ key, reason, registeredAt: Date.now() });
 	}
 	const doc = getGlobalDocument();
 	if (doc?.body) {
@@ -154,7 +163,7 @@ export function __resetDemoRegistry(): void {
 	LISTENERS.clear();
 	ANNOUNCED.clear();
 	if (typeof globalThis !== "undefined") {
-		(globalThis as JsonObject).__INTERLINKED_DEMO__ = [];
+		Reflect.set(globalThis, "__INTERLINKED_DEMO__", []);
 	}
 	const doc = getGlobalDocument();
 	if (doc?.body) {

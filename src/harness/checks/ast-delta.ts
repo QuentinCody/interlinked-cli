@@ -34,8 +34,8 @@ function kindName(ts: TsModule, kind: TS.SyntaxKind): string {
 	// host project resolves) may not have a reverse-mapping entry for every
 	// `kind` the type declares, so the indexer is honestly `string | undefined`
 	// here, not the always-`string` the ambient .d.ts claims.
-	const reverseMap = ts.SyntaxKind as unknown as Record<number, string | undefined>;
-	return reverseMap[kind] ?? String(kind);
+	const name = ts.SyntaxKind[kind];
+	return typeof name === "string" ? name : String(kind);
 }
 
 const JS_TS_RE = /\.[cm]?[jt]sx?$/i;

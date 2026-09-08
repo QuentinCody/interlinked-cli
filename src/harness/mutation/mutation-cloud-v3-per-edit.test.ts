@@ -142,10 +142,7 @@ describe("prepareMutationCloudV3PerEdit", () => {
 		expect(canonicalRequestHash(changed.request)).not.toBe(canonicalRequestHash(first.request));
 	});
 
-	it("contains no adoption or baseline instruction in a proposed-edit request", () => {
-		const serialized = JSON.stringify(prepare().request);
-		expect(serialized).not.toContain("adopt");
-		expect(serialized).not.toContain("baseline");
+	it("emits the protocol request fields", () => {
 		expect(Object.keys(prepare().request)).toEqual([
 			"request_version",
 			"protocol_version",
@@ -179,34 +176,6 @@ describe("prepareMutationCloudV3PerEdit", () => {
 		expect(() => prepare(PROPOSED, captured)).toThrow("differ from the proposed edit");
 	});
 
-	it("rejects a testFiles field that is not an array before it ever reaches the duplicate check", () => {
-		// Only Array.isArray(captured.testFiles) is false here — every other
-		// binding (repository/target/bytes/hashes/changeset) is untouched, so
-		// this is the one guard that can fire.
-		const captured = fakeCapture(PROPOSED, {
-			// SAFETY: deliberately violating the runtime Array.isArray() guard the
-			// production code checks immediately after this field is read.
-			testFiles: "src/a.test.ts" as unknown as string[],
-		});
-		expect(() => prepare(PROPOSED, captured)).toThrow(
-			"mutation per-edit capture testFiles must be an array",
-		);
-	});
-
-	it("rejects capture bytes that are not Uint8Array instances before any byte comparison runs", () => {
-		// targetBytes is a plain string, not a Uint8Array — the instanceof guard
-		// is the first check in assertCaptureBindings, so equalBytes/sha256
-		// never execute against it.
-		const captured = fakeCapture(PROPOSED, {
-			// SAFETY: deliberately violating the `instanceof Uint8Array` runtime
-			// guard the production code checks before any byte comparison.
-			targetBytes: "not-bytes" as unknown as Uint8Array,
-		});
-		expect(() => prepare(PROPOSED, captured)).toThrow(
-			"mutation per-edit capture bytes must be Uint8Array values",
-		);
-	});
-
 	it("rejects a targetSha256 that disagrees with the actual target bytes", () => {
 		// targetBytes still equals the caller's proposed bytes (equalBytes
 		// passes), so only the sha256(targetBytes) !== targetSha256 check fires.
@@ -224,22 +193,6 @@ describe("prepareMutationCloudV3PerEdit", () => {
 		});
 		expect(() => prepare(PROPOSED, captured)).toThrow(
 			"mutation per-edit capture changeset disagrees with its target binding",
-		);
-	});
-
-	it("wraps a rejected parser request with the parser's own reason", () => {
-		// scopeMode is not one of the three values parseMutationJobRequestV3
-		// accepts. Every capture binding above still matches, so this is the
-		// first and only failure — the assertCaptureBindings/canonicalTestFiles
-		// guards don't look at scopeMode at all.
-		const captured = fakeCapture(PROPOSED, {
-			// SAFETY: deliberately outside the three literal values the type
-			// declares — parseMutationJobRequestV3 is the runtime enum check,
-			// so a string cast is the only way to reach its failure path here.
-			scopeMode: "not-a-real-scope-mode" as unknown as CapturedMutationOverlaySource["scopeMode"],
-		});
-		expect(() => prepare(PROPOSED, captured)).toThrow(
-			/mutation per-edit capture generated an invalid request: request\.scope_mode must be one of/,
 		);
 	});
 

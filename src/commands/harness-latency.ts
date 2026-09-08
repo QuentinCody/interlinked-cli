@@ -12,12 +12,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
 
-interface ToolBreakdownRecord {
-	tool: string;
-	ms: number;
-	finding_count: number;
-}
-
 // Only the fields the report reads. Wire rows carry more (schema/kind/ts/
 // tool_name/agent_source/decision); parsing them was validate-and-ignore
 // dead weight — twice-confirmed unobserved by mutation re-measure 2026-08-22.
@@ -240,16 +234,14 @@ function addBreakdownTimings(buckets: Map<string, number[]>, r: LatencyRecord): 
 	if (!Array.isArray(r.tool_breakdown)) return;
 	for (const entry of r.tool_breakdown) {
 		if (
-			typeof entry !== "object" ||
-			entry === null ||
-			typeof (entry as ToolBreakdownRecord).tool !== "string" ||
-			typeof (entry as ToolBreakdownRecord).ms !== "number"
+			!isJsonObject(entry) ||
+			typeof entry.tool !== "string" ||
+			typeof entry.ms !== "number"
 		)
 			continue;
-		const validated = entry as ToolBreakdownRecord;
-		const arr = buckets.get(validated.tool) ?? [];
-		arr.push(validated.ms);
-		buckets.set(validated.tool, arr);
+		const arr = buckets.get(entry.tool) ?? [];
+		arr.push(entry.ms);
+		buckets.set(entry.tool, arr);
 	}
 }
 

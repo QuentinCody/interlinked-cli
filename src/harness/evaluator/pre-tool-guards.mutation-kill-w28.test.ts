@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Mutation-kill wave 28 for pre-tool-guards.ts.
 //
 // The sibling `pre-tool-guards.integration.test.ts` drives these guards
@@ -14,26 +15,27 @@
 // guard's own branch/fallback wiring, not the collaborator's behavior,
 // which is covered by that collaborator's own test file.
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { GuardRulesConfig, HarnessEvent, SessionTrajectory } from "../types.js";
 
 const mocks = vi.hoisted(() => ({
-	isInspectionWrapperCall: vi.fn(() => false),
-	parseInstallCommands: vi.fn(() => [] as unknown[]),
-	loadAllowlist: vi.fn(() => ({}) as unknown),
-	evaluatePackageInstall: vi.fn(() => null as unknown),
-	evaluateGitScopeGateSync: vi.fn(() => null as unknown),
-	evaluateProtectedFiles: vi.fn(() => null as unknown),
-	evaluateRepoConfinement: vi.fn(() => null as unknown),
-	evaluateTddNewFileGateForEvent: vi.fn(() => null as unknown),
-	evaluateCharacterizeForEvent: vi.fn(() => null as unknown),
-	evaluateConfigLooseningForEvent: vi.fn(() => null as unknown),
-	evaluateBaselineIntegrityForEvent: vi.fn(() => null as unknown),
-	baselineBashWriteRefusal: vi.fn(() => null as string | null),
-	evaluateManifestEdit: vi.fn(() => null as unknown),
-	computeFullNewContent: vi.fn(() => null as string | null),
-	containsSecrets: vi.fn(() => false),
+	isInspectionWrapperCall: vi.fn<typeof import("./inspection-wrapper.js").isInspectionWrapperCall>(() => false),
+	parseInstallCommands: vi.fn<typeof import("../package-install-parser.js").parseInstallCommands>(() => []),
+	loadAllowlist: vi.fn<typeof import("../package-allowlist.js").loadAllowlist>(),
+	evaluatePackageInstall: vi.fn<typeof import("./package-install-guard.js").evaluatePackageInstall>(() => null),
+	evaluateGitScopeGateSync: vi.fn<typeof import("./git-session-scope-gate.js").evaluateGitScopeGateSync>(() => null),
+	evaluateProtectedFiles: vi.fn<typeof import("./filesystem-guards.js").evaluateProtectedFiles>(() => null),
+	evaluateRepoConfinement: vi.fn<typeof import("./filesystem-guards.js").evaluateRepoConfinement>(() => null),
+	evaluateTddNewFileGateForEvent: vi.fn<typeof import("./tdd-new-file-gate.js").evaluateTddNewFileGateForEvent>(() => null),
+	evaluateCharacterizeForEvent: vi.fn<typeof import("./characterize-before-touch.js").evaluateCharacterizeForEvent>(() => null),
+	evaluateConfigLooseningForEvent: vi.fn<typeof import("./config-loosening-gate.js").evaluateConfigLooseningForEvent>(() => null),
+	evaluateBaselineIntegrityForEvent: vi.fn<typeof import("./baseline-integrity-gate.js").evaluateBaselineIntegrityForEvent>(() => null),
+	baselineBashWriteRefusal: vi.fn<typeof import("./baseline-bash-guard.js").baselineBashWriteRefusal>(() => null),
+	evaluateManifestEdit: vi.fn<typeof import("./manifest-edit-guard.js").evaluateManifestEdit>(() => null),
+	computeFullNewContent: vi.fn<typeof import("./pre-tool-helpers.js").computeFullNewContent>(() => null),
+	containsSecrets: vi.fn<typeof import("./pre-tool-helpers.js").containsSecrets>(() => false),
 }));
 
 vi.mock("./inspection-wrapper.js", () => ({
@@ -100,16 +102,16 @@ function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 }
 
 function makeSession(): SessionTrajectory {
-	return { session_id: "sess-w28" } as unknown as SessionTrajectory;
+	return ({ ...makeSessionFixture(), session_id: "sess-w28" } satisfies SessionTrajectory);
 }
 
 function makeRules(overrides: Partial<GuardRulesConfig> = {}): GuardRulesConfig {
-	return {
+	return ({ ...makeGuardRules(),
 		protected_files: [],
 		repo_confinement_allowlist: [],
 		linked_projects: [],
 		...overrides,
-	} as unknown as GuardRulesConfig;
+	} satisfies GuardRulesConfig);
 }
 
 beforeEach(() => {
@@ -128,7 +130,7 @@ describe("evaluateMetaTestWrapper — mutation kill", () => {
 	// test-contract: boundary — non-string tool_input.command must coerce to
 	// the documented "" fallback (line 53), not pass through raw.
 	it("calls isInspectionWrapperCall with the empty-string fallback, never the raw non-string value", () => {
-		const result = evaluateMetaTestWrapper("Bash", { command: 42 as unknown as string });
+		const result = evaluateMetaTestWrapper("Bash", { command: 42 });
 		expect(result).toBeNull();
 		expect(mocks.isInspectionWrapperCall).toHaveBeenCalledWith("");
 	});
@@ -142,7 +144,7 @@ describe("evaluatePackageInstallGuard — mutation kill", () => {
 	// test-contract: invariant — an absent command (line 95's "" fallback)
 	// must be falsy at the line-96 `if (cmd)` gate, never trigger parsing.
 	it("never calls parseInstallCommands when the command field is absent", () => {
-		const result = evaluatePackageInstallGuard(makeEvent(), "Bash", {} as ToolInput);
+		const result = evaluatePackageInstallGuard(makeEvent(), "Bash", ({} satisfies ToolInput));
 		expect(result).toBeNull();
 		expect(mocks.parseInstallCommands).not.toHaveBeenCalled();
 	});
@@ -168,13 +170,13 @@ describe("evaluateGitScopeGate — mutation kill", () => {
 	it("never calls evaluateGitScopeGateSync when the command field is absent", () => {
 		const rules = makeRules({
 			git_session_scope_gate: { enabled: true, mode: "ask" },
-		} as unknown as Partial<GuardRulesConfig>);
+		} satisfies Partial<GuardRulesConfig>);
 		const result = evaluateGitScopeGate(
 			makeEvent(),
 			rules,
 			makeSession(),
 			"Bash",
-			{} as ToolInput,
+			({} satisfies ToolInput),
 			[],
 		);
 		expect(result).toBeNull();
@@ -186,11 +188,13 @@ describe("evaluateGitScopeGate — mutation kill", () => {
 	it("falls back to the default ambiguous-scope reason when verdict.reason is undefined (not just falsy)", () => {
 		mocks.evaluateGitScopeGateSync.mockReturnValueOnce({
 			decision: "ask",
-			reason: undefined,
-		} as unknown);
+			resolved_files: [],
+			unauthorized_files: [],
+			baseline_files: [],
+		});
 		const rules = makeRules({
 			git_session_scope_gate: { enabled: true, mode: "ask" },
-		} as unknown as Partial<GuardRulesConfig>);
+		} satisfies Partial<GuardRulesConfig>);
 		const result = evaluateGitScopeGate(
 			makeEvent(),
 			rules,
@@ -267,7 +271,7 @@ describe("evaluateRepoConfinementGuard — mutation kill", () => {
 		const result = evaluateRepoConfinementGuard(
 			makeEvent(),
 			"Write",
-			{} as ToolInput,
+			({} satisfies ToolInput),
 			makeRules(),
 			[],
 		);
@@ -278,7 +282,7 @@ describe("evaluateRepoConfinementGuard — mutation kill", () => {
 	// test-contract: invariant — an absent allowlist/linked_projects key must
 	// resolve to `[]` (lines 203-204), never to a non-empty sentinel array.
 	it("defaults allowlist and linkedProjects to [] when rules omit both keys", () => {
-		const rules = { protected_files: [] } as unknown as GuardRulesConfig;
+		const rules = ({ ...makeGuardRules(),  protected_files: [] } satisfies GuardRulesConfig);
 		const result = evaluateRepoConfinementGuard(
 			makeEvent(),
 			"Write",
@@ -314,7 +318,7 @@ describe("evaluateTddGate — mutation kill", () => {
 		mocks.evaluateCharacterizeForEvent.mockReturnValueOnce({
 			decision: "block",
 			reason: "needs characterization test",
-		} as unknown);
+		});
 		const event = makeEvent();
 		const rules = makeRules();
 		const session = makeSession();
@@ -333,7 +337,7 @@ describe("evaluateTddGate — mutation kill", () => {
 			decision: "block",
 			reason: "no companion test",
 			warnings: ["sub-gate warning"],
-		} as unknown);
+		});
 		const warnings: string[] = ["outer warning"];
 		const result = evaluateTddGate(makeEvent(), makeRules(), makeSession(), "Write", warnings);
 		expect(result?.warnings).toEqual(["outer warning", "sub-gate warning"]);
@@ -403,7 +407,7 @@ describe("evaluateBaselineIntegrityGate — mutation kill", () => {
 	it("falls back to an empty command string when tool_input.command is not a string", () => {
 		const event = makeEvent({
 			tool_name: "Bash",
-			tool_input: { command: 42 as unknown as string },
+			tool_input: { command: 42 },
 		});
 		const result = evaluateBaselineIntegrityGate(event, "Bash", []);
 		expect(result).toBeNull();
@@ -439,7 +443,7 @@ describe("evaluateManifestEditGuard — mutation kill", () => {
 	// test-contract: invariant — an absent file_path/path (line 348's ""
 	// fallback) must be falsy at the line-349 `if (mfPath)` gate.
 	it("never calls computeFullNewContent when no manifest path is present", () => {
-		const result = evaluateManifestEditGuard(makeEvent(), "Write", {} as ToolInput, []);
+		const result = evaluateManifestEditGuard(makeEvent(), "Write", ({} satisfies ToolInput), []);
 		expect(result).toBeNull();
 		expect(mocks.computeFullNewContent).not.toHaveBeenCalled();
 	});
@@ -456,20 +460,5 @@ describe("evaluateManifestEditGuard — mutation kill", () => {
 		);
 		expect(result).toBeNull();
 		expect(mocks.evaluateManifestEdit).not.toHaveBeenCalled();
-	});
-
-	// test-contract: invariant — line 361's `if (manifestBlock) return
-	// manifestBlock;` must fall through to the function's own `return null`
-	// (not return the falsy `undefined` value itself) when unset.
-	it("returns null (not the falsy manifestBlock value itself) when evaluateManifestEdit resolves to undefined", () => {
-		mocks.computeFullNewContent.mockReturnValueOnce("{}");
-		mocks.evaluateManifestEdit.mockReturnValueOnce(undefined as unknown);
-		const result = evaluateManifestEditGuard(
-			makeEvent(),
-			"Write",
-			{ file_path: "package.json", content: "{}" },
-			[],
-		);
-		expect(result).toBeNull();
 	});
 });

@@ -1,3 +1,4 @@
+import { makeServerRules } from "./fixtures.js";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -201,17 +202,10 @@ describe("buildStartupMessage", () => {
 });
 
 describe("computeClassifierStatusLine", () => {
-	// computeClassifierStatusLine only reads `rules.policy_classifier`, so a
-	// minimal stub (cast through `unknown`) exercises every branch without
-	// constructing a full GuardRulesConfig.
 	function rules(
 		partial: Partial<GuardRulesConfig["policy_classifier"]> | undefined,
 	): GuardRulesConfig {
-		const stub = {
-			rules: [],
-			...(partial ? { policy_classifier: partial } : {}),
-		};
-		return stub as unknown as GuardRulesConfig;
+		return { ...makeServerRules(), ...(partial && { policy_classifier: { enabled: false, mode: "shadow", provider: "claude_code", endpoint: "", api_key_env: "", model: "fixture", timeout_ms: 3000, max_input_tokens: 800, confidence_threshold: 0.8, max_calls_per_session: 50, ...partial } }) };
 	}
 
 	it("returns disabled when there is no policy_classifier", () => {

@@ -1,3 +1,4 @@
+import { parseWire, wireObject, wireString } from "../lib/value-validation.js";
 // ===========================================
 // harness-process — behavioral branch coverage
 // ===========================================
@@ -105,7 +106,7 @@ import {
 
 // ---- ESRCH helper: an Error carrying the "no such process" code ------------
 function esrch(): NodeJS.ErrnoException {
-	const e = new Error("no such process") as NodeJS.ErrnoException;
+	const e: NodeJS.ErrnoException = new Error("no such process");
 	e.code = "ESRCH";
 	return e;
 }
@@ -124,7 +125,7 @@ beforeEach(() => {
 	vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string | Uint8Array) => {
 		stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
 		return true;
-	}) as typeof process.stderr.write);
+	}));
 	vi.spyOn(process, "cwd").mockReturnValue("/repo");
 	// Default config-dir resolver: <cwd>/.interlinked
 	mocks.getConfigDir.mockImplementation((cwd?: string) => `${cwd ?? "/repo"}/.interlinked`);
@@ -226,10 +227,10 @@ describe("reapOrphanHarnesses — ps failure + dry-run", () => {
 	});
 
 	it("returns an empty result when execSync yields a non-string", () => {
-		mocks.execSync.mockReturnValue(Buffer.from("ignored") as unknown as string);
+		mocks.execSync.mockReturnValue(Buffer.from("ignored"));
 		// collectAncestorPids also calls execSync — keep it a Buffer-safe noop string
 		// on the second call so the ancestor walk doesn't throw.
-		mocks.execSync.mockReturnValueOnce(123 as unknown as string);
+		mocks.execSync.mockReturnValueOnce(123);
 		const r = reapOrphanHarnesses("/repo");
 		expect(r.candidates).toEqual([]);
 	});
@@ -377,7 +378,7 @@ describe("reapOrphanHarnesses — signalling + escalation", () => {
 			if (sig === "SIGTERM") termAccepted.add(pid);
 			if (sig === 0 && (gone.has(pid) || termAccepted.has(pid))) throw esrch();
 			return true;
-		}) as typeof process.kill);
+		}));
 
 		const r = reapOrphanHarnesses("/repo");
 		expect(r.dryRun).toBe(false);
@@ -396,7 +397,7 @@ describe("reapOrphanHarnesses — signalling + escalation", () => {
 		vi.spyOn(process, "kill").mockImplementation(((_pid: number, sig?: string | number) => {
 			if (sig === 0) throw esrch(); // dies immediately after SIGTERM
 			return true;
-		}) as typeof process.kill);
+		}));
 		const r = reapOrphanHarnesses("/repo");
 		expect(r.killed).toEqual([9100]);
 		expect(stderrText()).toContain("Reaped 1 orphan harness daemon:");
@@ -419,7 +420,7 @@ describe("reapOrphanHarnesses — signalling + escalation", () => {
 				return true;
 			}
 			return true; // SIGTERM accepted
-		}) as typeof process.kill);
+		}));
 		const r = reapOrphanHarnesses("/repo");
 		expect(killSpy).toHaveBeenCalledWith(9200, "SIGTERM");
 		expect(killSpy).toHaveBeenCalledWith(9200, "SIGKILL");
@@ -431,12 +432,12 @@ describe("reapOrphanHarnesses — signalling + escalation", () => {
 		mocks.readdirSync.mockReturnValue([]);
 		vi.spyOn(process, "kill").mockImplementation(((_pid: number, sig?: string | number) => {
 			if (sig === "SIGTERM") {
-				const e = new Error("EPERM") as NodeJS.ErrnoException;
+				const e: NodeJS.ErrnoException = new Error("EPERM");
 				e.code = "EPERM";
 				throw e; // not ESRCH → not reaped, and not added to termSent
 			}
 			return true;
-		}) as typeof process.kill);
+		}));
 		const r = reapOrphanHarnesses("/repo");
 		expect(r.candidates.map((c) => c.pid)).toEqual([9300]);
 		expect(r.killed).toEqual([]);
@@ -459,7 +460,7 @@ describe("reapOrphanHarnesses — signalling + escalation", () => {
 				return true;
 			}
 			return true; // SIGTERM
-		}) as typeof process.kill);
+		}));
 		const r = reapOrphanHarnesses("/repo");
 		expect(r.killed).toEqual([9400]);
 	});
@@ -479,7 +480,7 @@ describe("clearOrphanedPidFiles (via reap) — defensive arms", () => {
 		vi.spyOn(process, "kill").mockImplementation(((_pid: number, sig?: string | number) => {
 			if (sig === 0) throw esrch();
 			return true;
-		}) as typeof process.kill);
+		}));
 		const r = reapOrphanHarnesses("/repo");
 		expect(r.killed).toEqual([9500]);
 		expect(mocks.rmSync).not.toHaveBeenCalled();
@@ -497,7 +498,7 @@ describe("clearOrphanedPidFiles (via reap) — defensive arms", () => {
 		vi.spyOn(process, "kill").mockImplementation(((_pid: number, sig?: string | number) => {
 			if (sig === 0) throw esrch();
 			return true;
-		}) as typeof process.kill);
+		}));
 		const r = reapOrphanHarnesses("/repo");
 		expect(r.killed).toEqual([9600]);
 		// Neither file matched the killed pid → no removal.
@@ -513,7 +514,7 @@ describe("clearOrphanedPidFiles (via reap) — defensive arms", () => {
 		vi.spyOn(process, "kill").mockImplementation(((_pid: number, sig?: string | number) => {
 			if (sig === 0) throw esrch();
 			return true;
-		}) as typeof process.kill);
+		}));
 		const r = reapOrphanHarnesses("/repo");
 		expect(r.killed).toEqual([9700]);
 		expect(mocks.rmSync).not.toHaveBeenCalled();
@@ -531,7 +532,7 @@ describe("clearOrphanedPidFiles (via reap) — defensive arms", () => {
 		vi.spyOn(process, "kill").mockImplementation(((_pid: number, sig?: string | number) => {
 			if (sig === 0) throw esrch();
 			return true;
-		}) as typeof process.kill);
+		}));
 		// Must not throw despite both rm failures.
 		const r = reapOrphanHarnesses("/repo");
 		expect(r.killed).toEqual([9800]);
@@ -546,7 +547,7 @@ describe("clearOrphanedPidFiles (via reap) — defensive arms", () => {
 		vi.spyOn(process, "kill").mockImplementation(((_pid: number, sig?: string | number) => {
 			if (sig === 0) throw esrch();
 			return true;
-		}) as typeof process.kill);
+		}));
 		const r = reapOrphanHarnesses("/repo");
 		expect(r.killed).toEqual([9850]);
 		// pid removed, but the .sock removal was guarded out.
@@ -590,7 +591,7 @@ describe("openDaemonStderrLog / close / read", () => {
 	it("creates the log dir, captures the start offset, and opens for append", () => {
 		// dir missing → mkdir; file pre-exists → startOffset = size.
 		mocks.existsSync.mockImplementation((p: unknown) => String(p).endsWith("daemon.log"));
-		mocks.statSync.mockReturnValue({ size: 128 } as unknown as ReturnType<typeof mocks.statSync>);
+		mocks.statSync.mockReturnValue({ size: 128 });
 		mocks.openSync.mockReturnValue(11);
 		const log = openDaemonStderrLog("/repo");
 		expect(log).not.toBeNull();
@@ -612,7 +613,7 @@ describe("openDaemonStderrLog / close / read", () => {
 
 	it("returns null when opening the log throws", () => {
 		mocks.existsSync.mockReturnValue(true);
-		mocks.statSync.mockReturnValue({ size: 0 } as unknown as ReturnType<typeof mocks.statSync>);
+		mocks.statSync.mockReturnValue({ size: 0 });
 		mocks.openSync.mockImplementation(() => {
 			throw new Error("EMFILE");
 		});
@@ -689,7 +690,7 @@ describe("ensureDistFresh", () => {
 		mocks.execSync.mockReturnValue("built");
 		ensureDistFresh({ readStaleness });
 		expect(mocks.execSync).toHaveBeenCalledOnce();
-		const opts = mocks.execSync.mock.calls[0]?.[1] as { cwd: string };
+		const opts = parseWire(mocks.execSync.mock.calls[0]?.[1], wireObject({ "cwd": wireString }), "test JSON value");
 		expect(opts.cwd).toBe("/repo");
 		expect(mocks.execSync).toHaveBeenCalledWith("npm run build", {
 			cwd: "/repo",

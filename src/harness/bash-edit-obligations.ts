@@ -1,3 +1,4 @@
+import { isJsonObject } from "../lib/json-types.js";
 // ===========================================
 // Bash-edit obligations — the Ring-2 equalizer (gap 6, 2026-08-25 audit)
 // ===========================================
@@ -81,7 +82,7 @@ function storePath(cwd: string): string {
 
 function decodeObligationRow(rel: string, value: unknown): BashEditObligation | null {
 	if (typeof value !== "object" || value === null) return null;
-	const ob = value as Partial<BashEditObligation>;
+	const ob: Partial<BashEditObligation> = value;
 	if (!Array.isArray(ob.checkIds) || ob.checkIds.length === 0) return null;
 	return {
 		file: rel,
@@ -95,8 +96,8 @@ function readStoreRows(file: string): Record<string, unknown> {
 	try {
 		if (!existsSync(file)) return {};
 		const parsed: unknown = JSON.parse(readFileSync(file, "utf-8"));
-		if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-			return parsed as Record<string, unknown>;
+		if (isJsonObject(parsed)) {
+			return parsed;
 		}
 	} catch (err) {
 		void err; // corrupt store — in-memory-only until the next persist

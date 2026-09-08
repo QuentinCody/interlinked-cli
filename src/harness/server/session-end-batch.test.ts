@@ -1,3 +1,4 @@
+import { makeServerRuntime } from "./__tests__/fixtures.js";
 import os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CohortManager } from "../cohort.js";
@@ -28,11 +29,11 @@ function sessionEnd(sessionId = "s1"): HarnessEvent {
 	};
 }
 
-function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
+function makeCtx(over: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime & { _logLines: string[] } {
 	const logLines: string[] = [];
 	const base = {
 		cwd: "/repo",
-		rules: {},
+
 		cohort: new CohortManager(),
 		log: (msg: string) => {
 			logLines.push(msg);
@@ -40,7 +41,7 @@ function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
 		logAlways: () => {},
 		_logLines: logLines,
 	};
-	return { ...base, ...over } as unknown as ServerRuntime;
+	return Object.assign(makeServerRuntime({ ...base, ...over }), { _logLines: logLines });
 }
 
 describe("runSessionEndResourcePlan", () => {
@@ -118,7 +119,7 @@ describe("runSessionEndJobs", () => {
 		const spawn = ((file: string, args: string[]) => {
 			calls.push({ file, args });
 			return fakeChild();
-		}) as unknown as SpawnFn;
+		}) satisfies SpawnFn;
 		runSessionEndJobs(makeCtx(), activePlan, {
 			spawn,
 			cliEntry: "/repo/dist/index.js",
@@ -144,12 +145,12 @@ describe("runSessionEndJobs", () => {
 		const spawn = (() => {
 			spawnCount += 1;
 			return {
-				on(event: string, cb: () => void) {
-					if (event === "exit") exits.push(cb);
+				on(...args: ["error", (error: Error) => void] | ["exit", () => void]) {
+					if (args[0] === "exit") exits.push(args[1]);
 				},
 				unref() {},
 			};
-		}) as unknown as SpawnFn;
+		}) satisfies SpawnFn;
 		const deps = { spawn, cliEntry: "/repo/dist/index.js", execPath: "/node", activeJobs };
 
 		runSessionEndJobs(makeCtx(), activePlan, deps);
@@ -167,7 +168,7 @@ describe("runSessionEndJobs", () => {
 		const spawn = (() => {
 			spawned = true;
 			return fakeChild();
-		}) as unknown as SpawnFn;
+		}) satisfies SpawnFn;
 		runSessionEndJobs(makeCtx(), { ...activePlan, defer: true }, { spawn });
 		expect(spawned).toBe(false);
 	});
@@ -178,7 +179,7 @@ describe("runSessionEndJobs", () => {
 		const spawn = (() => {
 			spawned = true;
 			return fakeChild();
-		}) as unknown as SpawnFn;
+		}) satisfies SpawnFn;
 		runSessionEndJobs(makeCtx(), activePlan, { spawn });
 		expect(spawned).toBe(false);
 	});
@@ -186,7 +187,7 @@ describe("runSessionEndJobs", () => {
 	it("never throws when spawn itself fails", () => {
 		const spawn = (() => {
 			throw new Error("ENOENT");
-		}) as unknown as SpawnFn;
+		}) satisfies SpawnFn;
 		expect(() =>
 			runSessionEndJobs(makeCtx(), activePlan, { spawn, cliEntry: "x", execPath: "y" }),
 		).not.toThrow();
@@ -202,9 +203,9 @@ describe("runSessionEndJobs", () => {
 				},
 				unref() {},
 			};
-		}) as unknown as SpawnFn;
+		}) satisfies SpawnFn;
 		runSessionEndJobs(ctx, activePlan, { spawn, cliEntry: "/x", execPath: "/node" });
-		const lines = (ctx as unknown as { _logLines: string[] })._logLines;
+		const lines = ctx._logLines;
 		expect(lines.some((l) => l.includes("spawn failed (skipped): ENOENT: no such file"))).toBe(
 			true,
 		);
@@ -218,7 +219,7 @@ describe("runSessionEndJobs", () => {
 			const spawn = ((file: string, args: string[]) => {
 				calls.push({ file, args });
 				return fakeChild();
-			}) as unknown as SpawnFn;
+			}) satisfies SpawnFn;
 			runSessionEndJobs(makeCtx(), activePlan, { spawn, execPath: "/node" });
 			expect(calls[0]?.args).toContain("/repo/dist/index.js");
 		} finally {
@@ -229,13 +230,13 @@ describe("runSessionEndJobs", () => {
 	it("resolves the default cli entry relative to '.' when argv[1] is unset", () => {
 		const original = process.argv[1];
 		// SAFETY: simulating a runtime where argv[1] is absent; resolveCliEntry's `?? ""` fallback.
-		process.argv[1] = undefined as unknown as string;
+		process.argv.splice(1);
 		try {
 			const calls: Array<{ file: string; args: string[] }> = [];
 			const spawn = ((file: string, args: string[]) => {
 				calls.push({ file, args });
 				return fakeChild();
-			}) as unknown as SpawnFn;
+			}) satisfies SpawnFn;
 			runSessionEndJobs(makeCtx(), activePlan, { spawn, execPath: "/node" });
 			expect(calls.length).toBeGreaterThan(0);
 			expect(calls[0]?.args.some((a) => a.endsWith("index.js"))).toBe(true);

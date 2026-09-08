@@ -201,6 +201,7 @@ describe("DESTRUCTIVE_COMMAND_GUARD_SOURCE — embeddable into the .mjs", () => 
 		// single function expression — so it's spliced bare, then
 		// `checkDestructiveCommand` (hoisted, like every function declaration)
 		// is returned by name. Mirrors exactly how guards-inline.ts embeds it.
+		// SAFETY: the trusted source serializes checkDestructiveCommand and its helpers; this factory returns that export, whose output is compared with the imported function below.
 		return new Function(
 			`"use strict"; ${DESTRUCTIVE_COMMAND_GUARD_SOURCE}; return checkDestructiveCommand;`,
 		)() as (cmd: string) => { decision: string; reason: string } | null;

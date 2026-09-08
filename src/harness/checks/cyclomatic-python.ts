@@ -26,7 +26,7 @@ import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject } from "../../lib/json-types.js";
 import type { FunctionComplexityEntry } from "./cyclomatic.js";
 
 /** The slice of a spawn result this module reads. The real `spawnSync` return
@@ -88,8 +88,8 @@ function isBlock(b: RadonBlock | null): b is RadonBlock {
 
 /** Narrow one untrusted JSON node into a RadonBlock, or null if malformed. */
 function toRadonBlock(raw: unknown): RadonBlock | null {
-	if (typeof raw !== "object" || raw === null) return null;
-	const o = raw as JsonObject;
+	if (!isJsonObject(raw)) return null;
+	const o = raw;
 	const type = o.type;
 	if (type !== "function" && type !== "method" && type !== "class") return null;
 	const name = typeof o.name === "string" ? o.name : null;
@@ -140,8 +140,8 @@ export function parseRadonJson(stdout: string): FunctionComplexityEntry[] | null
 	} catch {
 		return null;
 	}
-	if (typeof parsed !== "object" || parsed === null) return null;
-	const fileEntries = Object.values(parsed as JsonObject);
+	if (!isJsonObject(parsed)) return null;
+	const fileEntries = Object.values(parsed);
 	if (fileEntries.length === 0) return [];
 
 	const out: FunctionComplexityEntry[] = [];

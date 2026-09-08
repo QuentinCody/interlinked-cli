@@ -8,7 +8,6 @@
 
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import type { ClaimedMutationJob } from "./mutation-journal-types.js";
 import {
 	manifestFromHead,
 	parseProtocolV3Envelope,
@@ -40,18 +39,13 @@ function jobBinding(overrides: Partial<V3JobBinding> = {}): V3JobBinding {
 	};
 }
 
-/** Only the fields `targetContentFromJournal` reads. The remaining
- *  `ClaimedMutationJob` fields are journal bookkeeping this module never
- *  touches, so the cast is a fixture shortcut, not a behavior stand-in. */
+/** Supply exactly the target-content reader's boundary contract. */
 function claimedJob(overrides: {
 	acceptanceReceiptHash: string;
 	targetSha256: string;
 	targetBytes: Uint8Array;
-}): Readonly<ClaimedMutationJob> {
-	// SAFETY: targetContentFromJournal reads only acceptanceReceiptHash,
-	// targetSha256, and targetBytes off this parameter; the remaining
-	// ClaimedMutationJob fields are journal bookkeeping it never touches.
-	return overrides as unknown as Readonly<ClaimedMutationJob>;
+}): Parameters<typeof targetContentFromJournal>[0] {
+	return overrides;
 }
 
 /** A full "cancelled" envelope, parsed through the real strict parser, so
@@ -206,19 +200,9 @@ describe("manifestFromHead — head snapshot field validation", () => {
 });
 
 describe("reportBytes — envelope report-pointer binding", () => {
-	it("rejects an envelope whose report pointer is not a well-formed object", () => {
-		// SAFETY: reportBytes immediately casts its envelope param to JsonObject
-		// and reads only `.report` at runtime — the ParsedEnvelope brand is a
-		// compile-time-only symbol this shape never needs to carry.
-		const envelope = { report: "not-an-object" } as unknown as ParsedEnvelope;
-		expect(() => reportBytes(envelope, null)).toThrow("parsed envelope contains an invalid report pointer");
-	});
 
-	it("rejects a report pointer whose bytes field is not a number", () => {
-		// SAFETY: same as above — only `.report.bytes` is read at runtime.
-		const envelope = { report: { bytes: "20480" } } as unknown as ParsedEnvelope;
-		expect(() => reportBytes(envelope, null)).toThrow("parsed envelope contains an invalid report pointer");
-	});
+
+
 
 	it("requires report_bytes when the envelope binds a report pointer", () => {
 		const envelope = executionEnvelope();

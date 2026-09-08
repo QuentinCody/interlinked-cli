@@ -226,12 +226,8 @@ describe("createCheckpoint", () => {
 		]);
 
 		// every git() call in this run must be routed through opts.cwd
-		// SAFETY: this test's own mock is the only thing that ever populates
-		// execSyncMock.mock.calls, and git() always calls execSync with a
-		// { cwd, ... } options object as the second argument — the cast just
-		// gives that recorded arg the shape this assertion reads back.
 		expect(
-			execSyncMock.mock.calls.every(([, opts]) => (opts as { cwd: string }).cwd === tmpA),
+			execSyncMock.mock.calls.every(([, opts]) => opts?.cwd === tmpA),
 		).toBe(true);
 
 		const expectedStashMeta = JSON.stringify({

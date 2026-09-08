@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireRecord, wireUnknown } from "../../lib/value-validation.js";
 // End-to-end tests for `interlinked scanner {on,off,toggle,status}` — exercise
 // the real filesystem side effects (config write + audit append) by pointing
 // INTERLINKED_HOME at a fresh tmp dir per test. The command module reads/writes
@@ -39,7 +40,7 @@ afterEach(() => {
 
 function readLocalRules(): Record<string, unknown> {
 	const path = join(workDir, "guard-rules.local.json");
-	return JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+	return parseWire(JSON.parse(readFileSync(path, "utf-8")), wireRecord(wireUnknown), "test JSON value");
 }
 
 function readAuditLines(): Array<Record<string, unknown>> {
@@ -48,7 +49,7 @@ function readAuditLines(): Array<Record<string, unknown>> {
 	return readFileSync(path, "utf-8")
 		.split("\n")
 		.filter(Boolean)
-		.map((line) => JSON.parse(line) as Record<string, unknown>);
+		.map((line) => parseWire(JSON.parse(line), wireRecord(wireUnknown), "test JSON value"));
 }
 
 describe("interlinked scanner — enable/disable flow", () => {
@@ -58,7 +59,7 @@ describe("interlinked scanner — enable/disable flow", () => {
 
 		const rules = readLocalRules();
 		expect(rules).toHaveProperty("content_scanner");
-		expect((rules.content_scanner as Record<string, unknown>).enabled).toBe(false);
+		expect(rules).toHaveProperty(["content_scanner","enabled"], false);
 
 		const audit = readAuditLines();
 		expect(audit).toHaveLength(1);
@@ -73,7 +74,7 @@ describe("interlinked scanner — enable/disable flow", () => {
 		await scannerOffCommand({ json: true });
 		await scannerOnCommand({ reason: "re-enable for sensitive session", json: true });
 		const rules = readLocalRules();
-		expect((rules.content_scanner as Record<string, unknown>).enabled).toBe(true);
+		expect(rules).toHaveProperty(["content_scanner","enabled"], true);
 	});
 
 	it("scanner on after off records both transitions in the audit log", async () => {
@@ -103,7 +104,7 @@ describe("interlinked scanner — enable/disable flow", () => {
 		await scannerOffCommand({ json: true });
 		await scannerOnCommand({ reason: "re-enable for sensitive session", json: true });
 		const audit = readAuditLines();
-		const actor = nonNull(audit[1]).actor as Record<string, unknown>;
+		const actor = parseWire(nonNull(audit[1]).actor, wireRecord(wireUnknown), "test JSON value");
 		expect(actor.via).toBe("cli");
 		expect(typeof actor.user).toBe("string");
 		expect(nonNull(audit[1]).ts).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/);
@@ -118,7 +119,7 @@ describe("interlinked scanner — enable/disable flow", () => {
 		await scannerToggleCommand({ reason: "ending session — disable", json: true });
 
 		const rules = readLocalRules();
-		expect((rules.content_scanner as Record<string, unknown>).enabled).toBe(false);
+		expect(rules).toHaveProperty(["content_scanner","enabled"], false);
 
 		const audit = readAuditLines();
 		expect(audit.map((e) => e.action)).toEqual(["enable", "disable", "enable", "disable"]);
@@ -146,7 +147,7 @@ describe("interlinked scanner — enable/disable flow", () => {
 		const rules = readLocalRules();
 		expect(rules.disabled_rules).toEqual(["some-rule"]);
 		expect(rules.output_scanning).toEqual({ max_scan_bytes: 50000 });
-		expect((rules.content_scanner as Record<string, unknown>).enabled).toBe(true);
+		expect(rules).toHaveProperty(["content_scanner","enabled"], true);
 	});
 
 	it("status prints the current enabled flag and last audit entries", async () => {
@@ -162,10 +163,10 @@ describe("interlinked scanner — enable/disable flow", () => {
 		// json mode output goes through output() which console.logs a JSON string.
 		const jsonPayload = logs.find((l) => l.includes("enabled"));
 		expect(jsonPayload).toBeDefined();
-		const parsed = JSON.parse(jsonPayload as string) as Record<string, unknown>;
+		const parsed = parseWire(JSON.parse(nonNull(jsonPayload)), wireRecord(wireUnknown), "test JSON value");
 		expect(parsed.enabled).toBe(true);
 		expect(Array.isArray(parsed.last_audit)).toBe(true);
-		expect((parsed.last_audit as unknown[]).length).toBeGreaterThanOrEqual(2);
+		expect((parseWire(parsed.last_audit, wireArray(wireUnknown), "test JSON value")).length).toBeGreaterThanOrEqual(2);
 	});
 
 	it("status renders review_* audit entries as 'review: <decision>', not 'off → off'", async () => {

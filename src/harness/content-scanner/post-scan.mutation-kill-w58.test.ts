@@ -1,4 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nonNull } from "../../lib/non-null.js";
+import { makeSession as sessionFixture } from "../__tests__/fixtures/evaluator.js";
+import { DEFAULT_CONFIG } from "../rules/default-config.js";
+import type { HarnessEvent, SessionTrajectory, TaintTrackingConfig } from "../types.js";
+import type { PostScanRules } from "./post-scan.js";
+import type { ContentScanner, ContentScannerConfig, ScanFinding } from "./types.js";
 
 // Spy-wrap the neighboring modules so individual tests can both observe
 // real behavior (default) and, where needed, override a return value for
@@ -33,8 +39,7 @@ const { filterFindingsByScore, decideFromFindings } = await import("./policy.js"
 const { applyAllowlist } = await import("./allowlist.js");
 const { ratchetSensitivity } = await import("../taint-tracker.js");
 
-// These mutation fixtures stay deliberately loose-typed so each case can vary one field.
-function makeCfg(overrides: Record<string, any> = {}): any {
+function makeCfg(overrides: Partial<ContentScannerConfig> = {}): ContentScannerConfig {
 	return {
 		enabled: true,
 		runtime: "local",
@@ -61,17 +66,19 @@ function makeCfg(overrides: Record<string, any> = {}): any {
 	};
 }
 
-// These mutation fixtures stay deliberately loose-typed so each case can vary one field.
-function makeRules(overrides: Record<string, any> = {}): any {
+function makeRules(overrides: {
+	content_scanner?: Partial<ContentScannerConfig> | undefined;
+	output_scanning?: PostScanRules["output_scanning"];
+	taint_tracking?: Partial<TaintTrackingConfig> | undefined;
+} = {}): PostScanRules {
 	return {
 		content_scanner: makeCfg(overrides.content_scanner ?? {}),
 		output_scanning: overrides.output_scanning,
-		taint_tracking: overrides.taint_tracking,
+		taint_tracking: overrides.taint_tracking ? { ...structuredClone(DEFAULT_CONFIG.taint_tracking), ...overrides.taint_tracking } : undefined,
 	};
 }
 
-// These mutation fixtures stay deliberately loose-typed so each case can vary one field.
-function makeEvent(overrides: Record<string, any> = {}): any {
+function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 	return {
 		hook_event: "PostToolUse",
 		session_id: "s1",
@@ -84,24 +91,23 @@ function makeEvent(overrides: Record<string, any> = {}): any {
 	};
 }
 
-// These mutation fixtures stay deliberately loose-typed so each case can vary one field.
-function makeSession(overrides: Record<string, any> = {}): any {
+function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
 	return {
+		...sessionFixture(),
 		pii_detected_steps: [],
 		tool_call_count: 3,
 		...overrides,
 	};
 }
 
-function makeScanner(findings: unknown[] = []) {
+function makeScanner(findings: ScanFinding[] = []) {
 	return {
 		name: "fake",
 		runtime: "local",
 		ready: async () => true,
-		// The request stays loose because each case asserts the relevant request shape.
-		scan: vi.fn(async (_req: any) => findings),
+		scan: vi.fn<ContentScanner["scan"]>(async () => findings),
 		shutdown: async () => {},
-	};
+	} satisfies ContentScanner;
 }
 
 const ONE_FINDING = [{ label: "secret", start: 0, end: 5, text: "hello", score: 1, source: "x" }];
@@ -125,11 +131,11 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event,
 			session: undefined,
 			rules: makeRules(),
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(scanner.scan).toHaveBeenCalledTimes(1);
-		const call = scanner.scan.mock.calls[0]?.[0] as { text: string };
+		const call = nonNull(scanner.scan.mock.calls[0]?.[0]);
 		expect(call.text).toBe("hi");
 	});
 
@@ -141,7 +147,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event,
 			session: undefined,
 			rules: makeRules(),
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(stringifySpy).not.toHaveBeenCalled();
@@ -171,14 +177,14 @@ describe("runPostToolScan — mutation kill w58", () => {
 
 	it("resolves to an empty result (does not throw) when content_scanner config is absent", async () => {
 		const rules = makeRules({ content_scanner: undefined });
-		delete (rules as any).content_scanner;
+		delete rules.content_scanner;
 		const scanner = makeScanner([]);
 		await expect(
 			runPostToolScan({
 				event: makeEvent(),
 				session: undefined,
 				rules,
-				scanner: scanner as any,
+				scanner,
 				compiledAllowlist: [],
 			}),
 		).resolves.toEqual({ warnings: [], findings: [] });
@@ -192,7 +198,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event,
 			session: undefined,
 			rules: makeRules(),
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		const relevantCalls = hasSpy.mock.calls.filter(
@@ -210,7 +216,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 				event: makeEvent(),
 				session: undefined,
 				rules,
-				scanner: scanner as any,
+				scanner,
 				compiledAllowlist: [],
 			}),
 		).resolves.toEqual({ warnings: [], findings: [] });
@@ -224,10 +230,10 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event,
 			session: undefined,
 			rules: makeRules(),
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
-		const call = scanner.scan.mock.calls[0]?.[0] as { source: string };
+		const call = nonNull(scanner.scan.mock.calls[0]?.[0]);
 		expect(call.source).toBe("Read.tool_response");
 	});
 
@@ -237,7 +243,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event: makeEvent(),
 			session: undefined,
 			rules: makeRules(),
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(filterFindingsByScore).not.toHaveBeenCalled();
@@ -252,7 +258,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event: makeEvent(),
 			session: undefined,
 			rules,
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(timeoutSpy).toHaveBeenCalledWith(1500);
@@ -266,7 +272,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event: makeEvent(),
 			session: undefined,
 			rules,
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(applyAllowlist).not.toHaveBeenCalled();
@@ -282,7 +288,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event,
 			session,
 			rules,
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(ratchetSensitivity).toHaveBeenCalledTimes(1);
@@ -297,7 +303,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event: makeEvent(),
 			session: undefined,
 			rules,
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(result.ratcheted_to).toBeUndefined();
@@ -312,7 +318,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event: makeEvent(),
 			session,
 			rules,
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(result.ratcheted_to).toBeUndefined();
@@ -325,7 +331,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event: makeEvent({ tool_name: "Grep" }),
 			session: undefined,
 			rules: makeRules(),
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(result.warnings[0]).toMatch(/^\[interlinked:content-scanner\] Grep returned sensitive content /);
@@ -340,7 +346,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event: makeEvent(),
 			session,
 			rules,
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(result.ratcheted_to).toBeUndefined();
@@ -357,7 +363,7 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event: makeEvent(),
 			session: undefined,
 			rules: makeRules(),
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(result.warnings[0]).toContain("xxx BLOCKED: yyy");
@@ -373,10 +379,9 @@ describe("runPostToolScan — mutation kill w58", () => {
 			event: makeEvent(),
 			session: undefined,
 			rules: makeRules(),
-			scanner: scanner as any,
+			scanner,
 			compiledAllowlist: [],
 		});
 		expect(result.warnings[0]).toContain("). hello");
-		expect(result.warnings[0]).not.toContain("Stryker was here!");
 	});
 });

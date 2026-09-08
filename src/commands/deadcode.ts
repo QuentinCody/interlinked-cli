@@ -281,13 +281,13 @@ export function scanDeadCode(cwd: string): DeadCodeReport {
 	const entries = entryPoints(cwd, files.map((f) => f.split(sep).join("/")));
 	const { repo: deadExportsRepo, prime } = buildDeadExportsRepo(cwd, getGitSourceFiles(cwd));
 	const refs = collectReferences(cwd, files);
-	const out = {
-		unreachableFiles: [] as string[],
-		deadImportBindings: [] as DeadImportBinding[],
-		deadExports: [] as DeadExportFinding[],
-		deadTypeExports: [] as DeadExportFinding[],
-		testOnlyImporterFiles: [] as string[],
-		scannedPaths: [] as string[],
+	const out: { unreachableFiles: string[]; deadImportBindings: DeadImportBinding[]; deadExports: DeadExportFinding[]; deadTypeExports: DeadExportFinding[]; testOnlyImporterFiles: string[]; scannedPaths: string[] } = {
+		unreachableFiles: [],
+		deadImportBindings: [],
+		deadExports: [],
+		deadTypeExports: [],
+		testOnlyImporterFiles: [],
+		scannedPaths: [],
 	};
 
 	for (const relRaw of files) {

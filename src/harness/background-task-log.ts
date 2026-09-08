@@ -175,7 +175,7 @@ export function captureBackgroundTasks(
 	// SAFETY: HarnessEvent.session_id is declared as a required string, but this
 	// event is deserialized from an external hook/agent JSON payload with no
 	// runtime validation of that field — a caller can omit it.
-	const rawSessionId = event.session_id as string | null;
+	const rawSessionId: string | null = event.session_id;
 	const rows = recordBackgroundTasks({
 		tasks: parseBackgroundTasks(event.background_tasks),
 		sessionId: rawSessionId ?? null,

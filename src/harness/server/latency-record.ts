@@ -7,7 +7,7 @@
 // yields all-null event fields rather than throwing) so the caller's logging
 // path stays a single `appendLatencyLog(dir, buildLatencyRecord(...))` call.
 
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import type { LatencyLogEntry } from "../latency-log.js";
 import type { HarnessDecision } from "../types.js";
 
@@ -17,7 +17,8 @@ import type { HarnessDecision } from "../types.js";
 export function buildLatencyRecord(line: string, decision: HarnessDecision): LatencyLogEntry {
 	let evt: JsonObject = {};
 	try {
-		evt = JSON.parse(line);
+		const parsed: unknown = JSON.parse(line);
+		if (isJsonObject(parsed)) evt = parsed;
 	} catch (e) {
 		void e;
 	}

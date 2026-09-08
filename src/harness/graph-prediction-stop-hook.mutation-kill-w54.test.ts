@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,9 +20,9 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		existsSync: (p: unknown) => {
+		existsSync: (p: Parameters<typeof actual.existsSync>[0]) => {
 			if (denyState.deny.has(String(p))) return false;
-			return actual.existsSync(p as never);
+			return actual.existsSync(p);
 		},
 	};
 });
@@ -140,7 +141,7 @@ describe("harvestPredictionsFromTranscript — E-fresh persistence content", () 
 		expect(result.skipped).toHaveLength(0);
 
 		const row = readLastPredictionRow(dir);
-		const prediction = row.prediction as Record<string, unknown>;
+		const prediction = parseWire(row.prediction, wireRecord(wireUnknown), "test JSON value");
 		// {} would silently drop these keys entirely from the serialized JSON.
 		expect(Object.keys(prediction).sort()).toEqual(["calls", "deps", "impact"]);
 		expect(prediction.deps).toBeNull();

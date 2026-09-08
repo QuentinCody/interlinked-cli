@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isInterlinkedHookEntry } from "../../lib/hook-ownership.js";
 import { installAllHooks } from "../../lib/hooks.js";
 import { nonNull } from "../../lib/non-null.js";
+import { parseWire, wireAbsentOptional, wireArray, wireObject, wireRecord, wireString, wireUnknown } from "../../lib/value-validation.js";
 import { installHooks } from "../installer.js";
 import type { RunnerId } from "../unified-event.js";
 
@@ -67,7 +68,7 @@ interface NestedHookEntry {
 
 function readHookFile(settingsPath: string): HookFile {
 	if (!existsSync(settingsPath)) return {};
-	return JSON.parse(readFileSync(settingsPath, "utf-8")) as HookFile;
+	return parseWire(JSON.parse(readFileSync(settingsPath, "utf-8")), wireObject<HookFile>({ hooks: wireAbsentOptional(wireRecord(wireUnknown)) }), "installed hook settings");
 }
 
 /** Count of Interlinked hook entries across every event array in a file. */
@@ -94,7 +95,7 @@ function maxInterlinkedPerEvent(settingsPath: string): number {
 /** The PreToolUse event array, typed for command inspection. */
 function preToolUseEntries(settingsPath: string): NestedHookEntry[] {
 	const arr = readHookFile(settingsPath).hooks?.PreToolUse;
-	return Array.isArray(arr) ? (arr as NestedHookEntry[]) : [];
+	return Array.isArray(arr) ? parseWire(arr, wireArray(wireObject<NestedHookEntry>({ hooks: wireAbsentOptional(wireArray(wireObject({ command: wireAbsentOptional(wireString) }))) })), "PreToolUse hooks") : [];
 }
 
 describe("installer idempotency — run twice", () => {

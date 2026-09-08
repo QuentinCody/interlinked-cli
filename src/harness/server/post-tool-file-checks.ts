@@ -1,3 +1,4 @@
+import { readToolString } from "../evaluator/tool-input-values.js";
 // ===========================================
 // PostToolUse — per-file check body
 // ===========================================
@@ -113,7 +114,7 @@ export async function runPerFileChecks(
 
 	// --- Structural checks (fast, sub-100ms, dependency-aware) ---
 	const structuralConfig = ctx.rules.structural_checks;
-	editedFilePath = (checkEvent.tool_input?.file_path as string) || "";
+	editedFilePath = readToolString(checkEvent.tool_input?.file_path);
 
 	// Is the edited file inside this harness's own project (CWD)?
 	// Project-rooted analysis — the cross-file project-wide sweep and
@@ -131,12 +132,7 @@ export async function runPerFileChecks(
 		editedFilePath.length > 0 && isInsideRoot(CWD, editedFilePath);
 
 	// --- TDD cycle tracking: record impl edits and test writes ---
-	// `session` is typed as required `SessionTrajectory`, but production
-	// code elsewhere calls this defensively with a possibly-null session
-	// (see the "falsy session handling" tests). Read it through `unknown`
-	// so the guard stays real instead of being lint-dead.
-	const sessionPresent: unknown = session;
-	if (sessionPresent && editedFilePath) {
+	if (editedFilePath) {
 		if (TEST_FILE_RE.test(editedFilePath)) {
 			recordTestWrite(session, editedFilePath, CWD);
 		} else {
@@ -371,12 +367,7 @@ function recordFeedbackAndAck(
 	// Pass full evidence (name + line) so the escalation check on the NEXT
 	// edit can read each persistent finding's line for the diff-aware
 	// proximity gate (refinement 2026-05).
-	// `session` is forwarded from `runPerFileChecks`, which the "falsy
-	// session handling" tests prove can be called with a null session
-	// despite the required `SessionTrajectory` type. Read it through
-	// `unknown` so the guard stays real instead of being lint-dead.
-	const sessionPresent: unknown = session;
-	if (sessionPresent && editedFilePath && allCheckResults.length > 0) {
+	if (editedFilePath && allCheckResults.length > 0) {
 		const warningEvidence = allCheckResults
 			.filter((r) => r.severity === "warning" || r.severity === "error")
 			.map((r) => ({ name: r.name, ...(r.line !== undefined ? { line: r.line } : {}) }));

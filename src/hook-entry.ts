@@ -20,7 +20,7 @@ import type { RunnerAdapter } from "./harness/adapters/types.js";
 import { methodForPhase } from "./harness/daemon-protocol.js";
 import type { HarnessDecision } from "./harness/types.js";
 import { resetSupervisorBackoff } from "./harness/supervisor-backoff.js";
-import type { RunnerId, UnifiedHookEvent } from "./harness/unified-event.js";
+import type { UnifiedHookEvent } from "./harness/unified-event.js";
 import { encodeHookResult } from "./hook-entry-translation.js";
 import {
 	coldDestructiveCommandBlockReason,
@@ -62,7 +62,7 @@ export interface HookEntryOptions {
 	/** Repo root to discover the daemon socket under. Defaults to cwd. */
 	cwd?: string;
 	/** Explicit runner id (overrides env detection). */
-	runner?: RunnerId | undefined;
+	runner?: string | undefined;
 	/** Explicit socket path (overrides discovery). */
 	socketPath?: string | undefined;
 	/** Hard timeout for the daemon call. Defaults to 2s. */
@@ -222,7 +222,7 @@ export function isStopHookReentry(eventName: string, nativeJson: unknown): boole
 	// (this repo's payload-casing map lists this exact pair). Reading one casing
 	// only would silently disable the guard under the other — and the loop this
 	// guard exists to prevent would return for that runner alone.
-	const raw = nativeJson as { stop_hook_active?: unknown; stopHookActive?: unknown };
+	const raw: { stop_hook_active?: unknown; stopHookActive?: unknown } = nativeJson;
 	return raw.stop_hook_active === true || raw.stopHookActive === true;
 }
 
@@ -260,7 +260,7 @@ async function mainFromStdin(): Promise<void> {
 		nativeEventName,
 		nativeJson,
 		env: process.env,
-		runner: runner as RunnerId | undefined,
+		runner,
 		socketPath,
 	});
 	if (result.stdout) process.stdout.write(result.stdout);
@@ -304,9 +304,7 @@ function coldBlockResult(
 function isDryRunEvent(event: UnifiedHookEvent): boolean {
 	const raw = event.raw;
 	if (typeof raw !== "object" || raw === null) return false;
-	// SAFETY: object-ness checked above; the field is read as unknown and
-	// compared to `true`, so a non-boolean value can never be trusted.
-	return (raw as { dry_run?: unknown }).dry_run === true;
+	return "dry_run" in raw && raw.dry_run === true;
 }
 
 async function encodeColdFallback(

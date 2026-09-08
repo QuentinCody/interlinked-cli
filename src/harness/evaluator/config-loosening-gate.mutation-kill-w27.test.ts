@@ -4,7 +4,7 @@
 // no real process spawns, no real disk I/O. Pure string/regex logic is
 // exercised directly through the exported functions.
 
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnessEvent } from "../types.js";
@@ -22,12 +22,8 @@ const mockSpawn = vi.mocked(spawnSync);
 const mockExists = vi.mocked(existsSync);
 const mockReadFile = vi.mocked(readFileSync);
 
-function spawnResult(status: number, stdout: string) {
-	// SAFETY: this fixture only feeds a mocked spawnSync; the SUT reads just
-	// `.status` and `.stdout` off the result, both of which are set here.
-	return { status, stdout, stderr: "", pid: 0, output: [], signal: null } as unknown as ReturnType<
-		typeof spawnSync
-	>;
+function spawnResult(status: number, stdout: string): SpawnSyncReturns<string> {
+	return { status, stdout, stderr: "", pid: 0, output: [], signal: null };
 }
 
 function makeWriteEvent(toolInput: Record<string, unknown>, cwd?: string): HarnessEvent {

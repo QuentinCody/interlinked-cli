@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import {
 	type AutoCoordinationConfig,
@@ -16,7 +17,7 @@ const cfg = (over: Partial<AutoCoordinationConfig> = {}): AutoCoordinationConfig
 });
 
 const session = (toolCallCount: number): SessionTrajectory =>
-	({ tool_call_count: toolCallCount }) as unknown as SessionTrajectory;
+	({ ...completeSessionFixture(), ...{ tool_call_count: toolCallCount } });
 
 const emptyResponse = (over: Partial<CoordinationResponse> = {}): CoordinationResponse => ({
 	heartbeat_recorded: true,

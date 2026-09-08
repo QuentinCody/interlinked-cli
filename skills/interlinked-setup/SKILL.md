@@ -33,6 +33,9 @@ network.
 	worktrees, package installs, line-cap, merge conflicts).
 - **The server is optional.** Auth / sync only matter for server-backed coordination
   (see `interlinked-coordination`). Skip it entirely for local-only use.
+- Classifier API-key lookup accepts nonempty strings from the configured environment variable
+  first, then the exact or lowercase key in `config.local.json`. Malformed JSON roots and
+  non-string local values do not become credentials.
 - **Semantic search is optional and local.** Setup never downloads model weights. The explicit
   `interlinked semantic install` command is the only model-acquisition path; see
   **interlinked-semantic-index**.

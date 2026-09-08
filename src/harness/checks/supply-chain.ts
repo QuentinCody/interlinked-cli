@@ -4,6 +4,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isJsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import type { InlineMatch } from "./shared.js";
 import {
@@ -33,15 +34,10 @@ function loadPopularPackagesData(): readonly string[] {
 		];
 		for (const p of candidates) {
 			if (!existsSync(p)) continue;
-			// Side-loaded JSON off disk: an entry in `packages` can legally be
-			// `null` (hand-edited or partially-written data file), so the type
-			// says so and the reader guards it rather than trusting the shape.
-			const json = JSON.parse(readFileSync(p, "utf-8")) as {
-				packages?: Array<{ name?: unknown } | null>;
-			};
-			if (!Array.isArray(json.packages)) return [];
+			const json: unknown = JSON.parse(readFileSync(p, "utf-8"));
+			if (!isJsonObject(json) || !Array.isArray(json.packages)) return [];
 			return json.packages
-				.map((entry) => (typeof entry?.name === "string" ? entry.name : null))
+				.map((entry) => (isJsonObject(entry) && typeof entry.name === "string" ? entry.name : null))
 				.filter((n): n is string => !!n);
 		}
 		return [];

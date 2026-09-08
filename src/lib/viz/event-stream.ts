@@ -7,7 +7,7 @@
 // offset — it never loads the multi-hundred-MB log.
 
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
-import type { JsonObject } from "../json-types.js";
+import { isJsonObject, type JsonObject } from "../json-types.js";
 import { readRecentLines } from "../local-activity-collection.js";
 
 export interface VizEvent {
@@ -39,8 +39,7 @@ interface ActivityTailer {
  * this file asserts a shape — every other reader takes the resulting
  * `JsonObject`, never a bare `Record<string, unknown>`. */
 function asRecord(v: unknown): JsonObject | null {
-	if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
-	return v as JsonObject;
+	return isJsonObject(v) ? v : null;
 }
 
 function str(o: JsonObject, key: string): string | undefined {

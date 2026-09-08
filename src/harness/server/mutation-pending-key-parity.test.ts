@@ -1,3 +1,4 @@
+import { makeServerRuntime, makeServerRules } from "./__tests__/fixtures.js";
 // ===========================================
 // Cross-window invariant: ONE file ⇒ ONE pending-registry key
 // ===========================================
@@ -98,11 +99,11 @@ function stubHangingRunner(): void {
 }
 
 function ctxFor(root: string): ServerRuntime {
-	return {
+	return makeServerRuntime({
 		cwd: root,
 		graphCache: new Map(),
 		log: () => {},
-		rules: {
+		rules: { ...makeServerRules(),
 			per_edit_mutation: {
 				enabled: true,
 				mode: "warn",
@@ -112,16 +113,18 @@ function ctxFor(root: string): ServerRuntime {
 				harvest_budget_ms: 0,
 			},
 		},
-	} as unknown as ServerRuntime;
+	});
 }
 
 function editEvent(spelling: string, hookEvent: "PreToolUse" | "PostToolUse"): HarnessEvent {
 	return {
+		agent_source: "claude",
+		timestamp: "2026-09-08T00:00:00Z",
 		hook_event: hookEvent,
 		session_id: "s",
 		tool_name: "Edit",
 		tool_input: { file_path: spelling, old_string: "positive", new_string: "nonneg" },
-	} as unknown as HarnessEvent;
+	};
 }
 
 /**

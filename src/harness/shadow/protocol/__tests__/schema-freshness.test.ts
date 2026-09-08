@@ -1,3 +1,4 @@
+import { nonNull } from "../../../../lib/non-null.js";
 // Finding 5 (external review, both repos): the generated JSON Schemas had no
 // FULL freshness gate. `gen-shadow-schema.mts` only ever wrote, and
 // `schema-differential.test.ts` compares property/required sets against
@@ -16,7 +17,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { checkShadowSchemaFresh, renderShadowSchema } from "../../../../../scripts/gen-shadow-schema.mjs";
+import { checkShadowSchemaFresh, renderShadowSchema } from "../../generation/schema.js";
 
 const SCHEMA_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../../../../protocol/shadow-v1/schema");
 
@@ -68,7 +69,7 @@ describe("shadow schema freshness — negative (must not hold)", () => {
 	it("N3: a byte-level change to one file's content is caught as drift", () => {
 		const rendered = renderShadowSchema();
 		const disk = new Map(onDisk());
-		const [firstFile, firstContent] = [...rendered][0] as [string, string];
+		const [firstFile, firstContent] = nonNull([...rendered][0]);
 		disk.set(firstFile, `${firstContent}\n`);
 		expect(checkShadowSchemaFresh(rendered, disk)).toBe(false);
 	});

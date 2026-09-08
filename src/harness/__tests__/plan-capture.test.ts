@@ -76,7 +76,7 @@ describe("parseTaskCreate", () => {
 		});
 		const plan = parseTaskCreate(event, session);
 		expect(plan).not.toBeNull();
-		const p = plan as NonNullable<typeof plan>;
+		const p = nonNull(plan);
 		expect(p.session_id).toBe("sess-1");
 		expect(p.agent_name).toBe("agent-claude");
 		expect(p.created_at_iso).toBe(TIMESTAMP);
@@ -107,7 +107,7 @@ describe("parseTaskCreate", () => {
 			parseTaskCreate(
 				preEvent({
 					tool_name: "TaskCreate",
-					tool_input: { tasks: [null, "bare string", 7] as unknown[] },
+					tool_input: { tasks: [null, "bare string", 7] },
 				}),
 				session,
 			),
@@ -163,7 +163,7 @@ describe("parseExitPlanMode", () => {
 		});
 		const plan = parseExitPlanMode(event, session);
 		expect(plan).not.toBeNull();
-		const p = plan as NonNullable<typeof plan>;
+		const p = nonNull(plan);
 		expect(p.source).toBe("ExitPlanMode");
 		expect(p.steps).toHaveLength(3);
 		expect(nonNull(p.steps[0]).intent).toContain("read src/foo.ts");
@@ -181,9 +181,7 @@ describe("parseExitPlanMode", () => {
 					"- Run npm test\n",
 			},
 		});
-		const plan = parseExitPlanMode(event, session) as NonNullable<
-			ReturnType<typeof parseExitPlanMode>
-		>;
+		const plan = nonNull(parseExitPlanMode(event, session));
 		expect(nonNull(plan.steps[0]).tool_hint).toBe("Read");
 		expect(nonNull(plan.steps[0]).target_hint).toBe("src/foo.ts");
 		expect(nonNull(plan.steps[1]).tool_hint).toBe("Edit");
@@ -676,7 +674,7 @@ describe("SessionTracker round-trip with declared_plan", () => {
 		const snapshot = tracker.serialize("sess-old");
 		expect(snapshot).not.toBeNull();
 		// Older shape: declared_plan was never written
-		const old = { ...(snapshot as Record<string, unknown>) };
+		const old = { ...(nonNull(snapshot)) };
 		delete old.declared_plan;
 
 		const tracker2 = new SessionTracker();
@@ -697,8 +695,8 @@ describe("SessionTracker round-trip with declared_plan", () => {
 			agent_name: "agent",
 			timestamp: TIMESTAMP,
 		});
-		const snapshot = tracker.serialize("sess-bad") as Record<string, unknown>;
-		snapshot.declared_plan = { not_a_plan: 7 } as unknown;
+		const snapshot = nonNull(tracker.serialize("sess-bad"));
+		snapshot.declared_plan = { not_a_plan: 7 };
 		const tracker2 = new SessionTracker();
 		const restored = tracker2.hydrate(snapshot);
 		expect(restored).not.toBeNull();

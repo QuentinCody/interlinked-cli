@@ -1,3 +1,4 @@
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 // ===========================================
 // CoverageRunner — run a project's suite WITH coverage, parse to per-file
 // ===========================================
@@ -373,8 +374,7 @@ async function runSuite(
 	}
 	const suiteMs = Date.now() - start;
 	if (result.error) {
-		const code = (result.error as NodeJS.ErrnoException).code;
-		const hint = code === "ENOENT" ? `'${bin}' not found` : result.error.message;
+		const hint = hasErrorCode(result.error, "ENOENT") ? `'${bin}' not found` : result.error.message;
 		return { suiteMs, error: `suite did not run: ${hint}`, result: null };
 	}
 	return { suiteMs, error: null, result };
@@ -481,7 +481,7 @@ export class PythonCoverageRunner implements CoverageRunner {
  * `spawn` is forwarded so callers/tests can inject a stub.
  */
 export function coverageRunnerFor(
-	language: CoverageLanguage,
+	language: string,
 	spawn?: SpawnFn,
 ): CoverageRunner | null {
 	const inject = spawn ?? defaultSpawn;

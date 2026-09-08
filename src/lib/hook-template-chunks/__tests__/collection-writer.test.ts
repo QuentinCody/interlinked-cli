@@ -7,7 +7,8 @@
 // the .mjs runtime does), then call it with synthetic events.
 
 import { describe, expect, it } from "vitest";
-import { nonNull } from "../../non-null.js";
+import { isJsonObject } from "../../json-types.js";
+import { parseWire, wireString } from "../../value-validation.js";
 import { COLLECTION_WRITER_CHUNK } from "../collection-writer.js";
 
 /**
@@ -16,10 +17,19 @@ import { COLLECTION_WRITER_CHUNK } from "../collection-writer.js";
  * Function constructor to get a callable reference.
  */
 function getRecordBuilder(): (event: Record<string, unknown>) => Record<string, unknown> | null {
-	const fn = new Function(
+	const fn: unknown = new Function(
 		`"use strict"; ${COLLECTION_WRITER_CHUNK}\nreturn buildCollectionRecord;`,
 	)();
-	return fn as (event: Record<string, unknown>) => Record<string, unknown> | null;
+	if (typeof fn !== "function") throw new Error("Collection chunk did not export a function");
+	return (event) => {
+		const result: unknown = fn(event);
+		if (result === null || isJsonObject(result)) return result;
+		throw new Error("Collection chunk returned a non-record value");
+	};
+}
+
+function field(value: unknown, ...keys: string[]): unknown {
+	return keys.reduce<unknown>((current, key) => isJsonObject(current) ? current[key] : undefined, value);
 }
 
 function makeEditEvent(overrides?: Record<string, unknown>): Record<string, unknown> {
@@ -50,15 +60,13 @@ describe("collection writer chunk — tool class: file_edit", () => {
 	});
 
 	it("extracts file path into action", () => {
-		const action = build(makeEditEvent())!.action as Record<string, unknown>;
-		expect(action.path).toBe("/src/foo.ts");
+		const action = build(makeEditEvent())!.action;
+		expect(field(action, "path")).toBe("/src/foo.ts");
 	});
 
 	it("produces diff hunks from old/new strings", () => {
-		const action = build(makeEditEvent())!.action as Record<string, unknown>;
-		const diff = action.diff as { hunks: Array<{ old: string; new: string }> };
-		expect(diff.hunks).toHaveLength(1);
-		expect(diff.hunks[0]).toEqual({ old: "const a = 1;", new: "const a = 2;" });
+		const action = build(makeEditEvent())!.action;
+		expect(action).toHaveProperty("diff.hunks", [{ old: "const a = 1;", new: "const a = 2;" }]);
 	});
 });
 
@@ -82,8 +90,8 @@ describe("collection writer chunk — tool class: file_write", () => {
 			tool_input: { file_path: "/src/new.ts", content: "export const x = 1;" },
 			ts: "2026-05-19T00:00:00Z",
 		});
-		const action = record!.action as Record<string, unknown>;
-		expect(action.content).toBe("export const x = 1;");
+		const action = record!.action;
+		expect(field(action, "content")).toBe("export const x = 1;");
 	});
 });
 
@@ -108,8 +116,8 @@ describe("collection writer chunk — tool class: shell_exec", () => {
 			tool_input: { command: "npm test" },
 			ts: "2026-05-19T00:00:00Z",
 		});
-		const action = record!.action as Record<string, unknown>;
-		expect(action.command).toBe("npm test");
+		const action = record!.action;
+		expect(field(action, "command")).toBe("npm test");
 	});
 
 	it("extracts stdout and exit_code into observation", () => {
@@ -120,9 +128,9 @@ describe("collection writer chunk — tool class: shell_exec", () => {
 			tool_response: { stdout: "ok", exitCode: 0 },
 			ts: "2026-05-19T00:00:00Z",
 		});
-		const obs = record!.observation as Record<string, unknown>;
-		expect(obs.stdout).toBe("ok");
-		expect(obs.exit_code).toBe(0);
+		const obs = record!.observation;
+		expect(field(obs, "stdout")).toBe("ok");
+		expect(field(obs, "exit_code")).toBe(0);
 	});
 });
 
@@ -138,8 +146,8 @@ describe("collection writer chunk — tool class: file_read", () => {
 			ts: "2026-05-19T00:00:00Z",
 		});
 		expect(record!.tool_class).toBe("file_read");
-		const obs = record!.observation as Record<string, unknown>;
-		expect(obs.content).toBe("const x = 1;\n");
+		const obs = record!.observation;
+		expect(field(obs, "content")).toBe("const x = 1;\n");
 	});
 });
 
@@ -366,7 +374,7 @@ describe("collection writer chunk — timestamp fallback (Bug 1)", () => {
 		expect(noTsRecord).not.toBeNull();
 		expect(noTsRecord!.ts).not.toBe("");
 		// Must be a valid ISO 8601 timestamp
-		expect(new Date(noTsRecord!.ts as string).toISOString()).toBe(noTsRecord!.ts);
+		expect(new Date(parseWire(noTsRecord!.ts, wireString, "collection timestamp")).toISOString()).toBe(noTsRecord!.ts);
 	});
 
 	it("generates an ISO timestamp when event.ts is empty string", () => {
@@ -378,7 +386,7 @@ describe("collection writer chunk — timestamp fallback (Bug 1)", () => {
 		});
 		expect(record).not.toBeNull();
 		expect(record!.ts).not.toBe("");
-		expect(new Date(record!.ts as string).toISOString()).toBe(record!.ts);
+		expect(new Date(parseWire(record!.ts, wireString, "collection timestamp")).toISOString()).toBe(record!.ts);
 	});
 });
 
@@ -400,16 +408,13 @@ describe("collection writer chunk — fidelity (Bug 2)", () => {
 			ts: "2026-05-19T00:00:00Z",
 		});
 		expect(record).not.toBeNull();
-		const fidelity = record!.fidelity as {
-			record: { source: string; completeness: string };
-			fields: Record<string, { completeness: string; interlinked_capped: boolean; provider_payload_bytes: number; captured_bytes: number }>;
-		};
-		expect(fidelity.record.completeness).toBe("interlinked_capped");
-		expect(fidelity.fields["observation.stdout"]).toBeDefined();
-		expect(nonNull(fidelity.fields["observation.stdout"]).completeness).toBe("interlinked_capped");
-		expect(nonNull(fidelity.fields["observation.stdout"]).interlinked_capped).toBe(true);
-		expect(nonNull(fidelity.fields["observation.stdout"]).provider_payload_bytes).toBe(1048576);
-		expect(nonNull(fidelity.fields["observation.stdout"]).captured_bytes).toBeGreaterThan(0);
+		const fidelity = record!.fidelity;
+		expect(field(fidelity, "record", "completeness")).toBe("interlinked_capped");
+		expect(field(fidelity, "fields", "observation.stdout")).toBeDefined();
+		expect(field(fidelity, "fields", "observation.stdout", "completeness")).toBe("interlinked_capped");
+		expect(field(fidelity, "fields", "observation.stdout", "interlinked_capped")).toBe(true);
+		expect(field(fidelity, "fields", "observation.stdout", "provider_payload_bytes")).toBe(1048576);
+		expect(field(fidelity, "fields", "observation.stdout", "captured_bytes")).toBeGreaterThan(0);
 	});
 
 	it("produces complete fidelity for uncapped Bash response", () => {
@@ -422,14 +427,11 @@ describe("collection writer chunk — fidelity (Bug 2)", () => {
 			ts: "2026-05-19T00:00:00Z",
 		});
 		expect(record).not.toBeNull();
-		const fidelity = record!.fidelity as {
-			record: { source: string; completeness: string };
-			fields: Record<string, { completeness: string; interlinked_capped: boolean }>;
-		};
-		expect(fidelity.record.completeness).toBe("complete");
-		expect(fidelity.fields["observation.stdout"]).toBeDefined();
-		expect(nonNull(fidelity.fields["observation.stdout"]).completeness).toBe("complete");
-		expect(nonNull(fidelity.fields["observation.stdout"]).interlinked_capped).toBe(false);
+		const fidelity = record!.fidelity;
+		expect(field(fidelity, "record", "completeness")).toBe("complete");
+		expect(field(fidelity, "fields", "observation.stdout")).toBeDefined();
+		expect(field(fidelity, "fields", "observation.stdout", "completeness")).toBe("complete");
+		expect(field(fidelity, "fields", "observation.stdout", "interlinked_capped")).toBe(false);
 	});
 
 	it("produces interlinked_capped fidelity for capped file_read response", () => {
@@ -441,13 +443,10 @@ describe("collection writer chunk — fidelity (Bug 2)", () => {
 			tool_output_bytes: 500000,
 			ts: "2026-05-19T00:00:00Z",
 		});
-		const fidelity = record!.fidelity as {
-			record: { completeness: string };
-			fields: Record<string, { completeness: string; interlinked_capped: boolean }>;
-		};
-		expect(fidelity.record.completeness).toBe("interlinked_capped");
-		expect(fidelity.fields["observation.content"]).toBeDefined();
-		expect(nonNull(fidelity.fields["observation.content"]).completeness).toBe("interlinked_capped");
+		const fidelity = record!.fidelity;
+		expect(field(fidelity, "record", "completeness")).toBe("interlinked_capped");
+		expect(field(fidelity, "fields", "observation.content")).toBeDefined();
+		expect(field(fidelity, "fields", "observation.content", "completeness")).toBe("interlinked_capped");
 	});
 
 	it("produces complete fidelity for capped search response", () => {
@@ -458,14 +457,11 @@ describe("collection writer chunk — fidelity (Bug 2)", () => {
 			tool_response: "line1\nline2",
 			ts: "2026-05-19T00:00:00Z",
 		});
-		const fidelity = record!.fidelity as {
-			record: { completeness: string };
-			fields: Record<string, { completeness: string }>;
-		};
+		const fidelity = record!.fidelity;
 		// String response has no _interlinked_truncated_bytes marker
-		expect(fidelity.record.completeness).toBe("complete");
-		expect(fidelity.fields["observation.result_text"]).toBeDefined();
-		expect(nonNull(fidelity.fields["observation.result_text"]).completeness).toBe("complete");
+		expect(field(fidelity, "record", "completeness")).toBe("complete");
+		expect(field(fidelity, "fields", "observation.result_text")).toBeDefined();
+		expect(field(fidelity, "fields", "observation.result_text", "completeness")).toBe("complete");
 	});
 
 	it("produces complete fidelity for fetch response with result", () => {
@@ -476,13 +472,10 @@ describe("collection writer chunk — fidelity (Bug 2)", () => {
 			tool_response: { status: 200, result: "page content" },
 			ts: "2026-05-19T00:00:00Z",
 		});
-		const fidelity = record!.fidelity as {
-			record: { completeness: string };
-			fields: Record<string, { completeness: string }>;
-		};
-		expect(fidelity.record.completeness).toBe("complete");
-		expect(fidelity.fields["observation.result"]).toBeDefined();
-		expect(nonNull(fidelity.fields["observation.result"]).completeness).toBe("complete");
+		const fidelity = record!.fidelity;
+		expect(field(fidelity, "record", "completeness")).toBe("complete");
+		expect(field(fidelity, "fields", "observation.result")).toBeDefined();
+		expect(field(fidelity, "fields", "observation.result", "completeness")).toBe("complete");
 	});
 
 	it("has empty fields for pre-phase events", () => {
@@ -492,22 +485,16 @@ describe("collection writer chunk — fidelity (Bug 2)", () => {
 			tool_input: { command: "ls" },
 			ts: "2026-05-19T00:00:00Z",
 		});
-		const fidelity = record!.fidelity as {
-			record: { completeness: string };
-			fields: Record<string, unknown>;
-		};
-		expect(fidelity.record.completeness).toBe("complete");
-		expect(Object.keys(fidelity.fields)).toHaveLength(0);
+		const fidelity = record!.fidelity;
+		expect(field(fidelity, "record", "completeness")).toBe("complete");
+		expect(field(fidelity, "fields")).toEqual({});
 	});
 
 	it("has empty fields for tool classes without fidelity mapping (file_edit)", () => {
 		const record = build(makeEditEvent({ tool_response: "success" }));
-		const fidelity = record!.fidelity as {
-			record: { completeness: string };
-			fields: Record<string, unknown>;
-		};
-		expect(fidelity.record.completeness).toBe("complete");
-		expect(Object.keys(fidelity.fields)).toHaveLength(0);
+		const fidelity = record!.fidelity;
+		expect(field(fidelity, "record", "completeness")).toBe("complete");
+		expect(field(fidelity, "fields")).toEqual({});
 	});
 });
 

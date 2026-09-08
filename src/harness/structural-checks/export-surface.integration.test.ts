@@ -12,9 +12,7 @@
 //   - node:fs.existsSync                    -> controllable predicate
 //   - ../check-engine/index.js getOrCreateEngine -> stub engine
 //
-// ProjectGraph is stubbed via the `as unknown as ProjectGraph` idiom used by
-// the sibling dead-exports.test.ts: we only implement the handful of methods
-// each function actually calls.
+// Graph fixtures implement the methods consumed by these checks.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectGraph } from "../project-graph.js";
@@ -43,9 +41,9 @@ let spawnImpl: () => SpawnResult = () => ({
 	stderr: "",
 	error: null,
 });
-const spawnSyncMock = vi.fn(() => spawnImpl());
+const spawnSyncMock = vi.fn((..._args: unknown[]) => spawnImpl());
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...(args as [])),
+	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
 }));
 
 // getOrCreateEngine drives checkExportRippleCompilation. We hand back a stub
@@ -97,7 +95,7 @@ function makeGraph(opts: {
 	importers?: ImportEdge[];
 	role?: "leaf" | "internal" | "hub" | "root";
 	projectBoundary?: string;
-} = {}): ProjectGraph {
+} = {}): Pick<ProjectGraph, "getExports" | "getDependents" | "getImporters" | "classifyModule" | "getProjectBoundary" | "toRelative"> {
 	const boundary = opts.projectBoundary ?? "/proj";
 	return {
 		getExports: vi.fn().mockReturnValue(opts.exports ?? []),
@@ -106,7 +104,7 @@ function makeGraph(opts: {
 		classifyModule: vi.fn().mockReturnValue(opts.role ?? "leaf"),
 		getProjectBoundary: vi.fn().mockReturnValue(boundary),
 		toRelative: vi.fn((f: string) => f.replace(`${boundary}/`, "")),
-	} as unknown as ProjectGraph;
+	};
 }
 
 const FILE = "/proj/target.ts";

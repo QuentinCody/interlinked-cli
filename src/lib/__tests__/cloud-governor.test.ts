@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nonNull } from "../non-null.js";
 import type { HarnessEvent } from "../../harness/types.js";
 import { type CloudGovernorConfig, evaluateRemote } from "../cloud-governor.js";
 
@@ -22,9 +23,9 @@ function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 }
 
 describe("evaluateRemote", () => {
-	let fetchSpy: ReturnType<typeof vi.fn>;
+	let fetchSpy = vi.fn<typeof fetch>();
 	beforeEach(() => {
-		fetchSpy = vi.fn();
+		fetchSpy = vi.fn<typeof fetch>();
 		vi.stubGlobal("fetch", fetchSpy);
 	});
 	afterEach(() => {
@@ -59,14 +60,16 @@ describe("evaluateRemote", () => {
 		const event = makeEvent({ tool_input: { command: "cf dns records delete --id abc" } });
 		await evaluateRemote(event, ENABLED_CONFIG);
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
-		const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+		const [url, rawInit] = nonNull(fetchSpy.mock.calls[0]);
+		const init = nonNull(rawInit);
 		expect(url).toBe(ENABLED_CONFIG.url);
 		expect(init.method).toBe("POST");
-		const headers = init.headers as Record<string, string>;
-		expect(headers.authorization).toBe(`Bearer ${ENABLED_CONFIG.bearer_token}`);
-		expect(headers["content-type"]).toBe("application/json");
-		const body = JSON.parse(init.body as string) as HarnessEvent;
-		expect(body.tool_input).toEqual({ command: "cf dns records delete --id abc" });
+		const headers = new Headers(init.headers);
+		expect(headers.get("authorization")).toBe(`Bearer ${ENABLED_CONFIG.bearer_token}`);
+		expect(headers.get("content-type")).toBe("application/json");
+		if (typeof init.body !== "string") throw new Error("Expected serialized request body");
+		const body: unknown = JSON.parse(init.body);
+		expect(body).toHaveProperty("tool_input", { command: "cf dns records delete --id abc" });
 	});
 
 	it("returns parsed allow verdict", async () => {
@@ -130,9 +133,9 @@ describe("evaluateRemote", () => {
 
 	it("returns null when the request aborts on timeout", async () => {
 		fetchSpy.mockImplementationOnce(
-			(_url: string, init: RequestInit) =>
+			(_url, init) =>
 				new Promise((_resolve, reject) => {
-					const signal = init.signal as AbortSignal;
+					const signal = nonNull(init?.signal);
 					signal.addEventListener("abort", () => {
 						const err = new Error("aborted");
 						err.name = "AbortError";

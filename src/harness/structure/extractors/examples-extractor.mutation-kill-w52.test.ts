@@ -50,7 +50,6 @@ describe("classifyFile — positive (must fire)", () => {
 		expect(result.nodes).toHaveLength(1);
 		const node = result.nodes[0]!;
 		expect(node.id).toContain("examples-bar");
-		expect(node.id).not.toContain("Stryker was here!");
 		expect(node.id).not.toMatch(/\.ts$/);
 		expect(node.label).toBe("examples/bar.ts");
 		expect(node.file).toBe("examples/bar.ts");

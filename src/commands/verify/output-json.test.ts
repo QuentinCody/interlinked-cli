@@ -19,7 +19,7 @@ function captureStdout(fn: () => void): string {
 	process.stdout.write = ((c: string) => {
 		chunks.push(c);
 		return true;
-	}) as typeof process.stdout.write;
+	});
 	try {
 		fn();
 		return chunks.join("");

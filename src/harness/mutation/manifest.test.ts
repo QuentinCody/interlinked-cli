@@ -618,7 +618,7 @@ describe("applyMeasuredRun — no measured mutant may be dropped on persist", ()
 	}
 
 	const asMeasured = (ids: MutantIdentity[]): MeasuredMutant[] =>
-		ids.map((identity) => ({ identity, status: "survived" as MutantStatus }));
+		ids.map((identity) => ({ identity, status: "survived" }));
 
 	const persistedMutantIds = (m: MutationManifest): string[] =>
 		Object.values(m.files[MIXED_FILE] ?? {})

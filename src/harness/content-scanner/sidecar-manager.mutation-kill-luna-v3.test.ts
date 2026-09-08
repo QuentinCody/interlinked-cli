@@ -1,26 +1,14 @@
-import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
-import type { ChildProcess } from "node:child_process";
+import { makeSidecarChild } from "./test-sidecar-child.js";
 import { describe, expect, it, vi } from "vitest";
 import { SidecarManager, type SidecarManagerOptions } from "./sidecar-manager.js";
 
-function makeChild(pid = 1): ChildProcess & { out(value: string): void } {
-    const c = new EventEmitter() as ChildProcess & { out(value: string): void };
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    const stdin = new PassThrough();
-    Object.assign(c, { pid, killed: false, stdout, stderr, stdin });
-    c.out = (value) => stdout.emit("data", value);
-    c.kill = vi.fn(() => {
-        Object.assign(c, { killed: true });
-        c.emit("exit", null);
-        return true;
-    }) as ChildProcess["kill"];
-    return c;
+function makeChild(pid = 1) {
+    const child = makeSidecarChild(pid);
+    return Object.assign(child, { out(value: string): void { child.stdout.emit("data", value); } });
 }
 
-function options(spawn: (...args: never[]) => ChildProcess, extra: Partial<SidecarManagerOptions> = {}): SidecarManagerOptions {
-    return { python_bin: "python3", script_path: "/tmp/sidecar.py", script_args: ["--mode", "test"], startup_timeout_ms: 1000, scan_timeout_ms: 1000, idle_shutdown_ms: 1000, max_restarts: 2, spawn: spawn as SidecarManagerOptions["spawn"], ...extra };
+function options(spawn: NonNullable<SidecarManagerOptions["spawn"]>, extra: Partial<SidecarManagerOptions> = {}): SidecarManagerOptions {
+    return { python_bin: "python3", script_path: "/tmp/sidecar.py", script_args: ["--mode", "test"], startup_timeout_ms: 1000, scan_timeout_ms: 1000, idle_shutdown_ms: 1000, max_restarts: 2, spawn, ...extra };
 }
 
 describe("SidecarManager", () => {

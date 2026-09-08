@@ -57,20 +57,20 @@ describe("validateUnifiedEvent", () => {
 
 	it("rejects wrong schema_version", () => {
 		const e = makeEvent();
-		const bad = { ...e, schema_version: "2" } as unknown;
+		const bad = { ...e, schema_version: "2" };
 		const problems = validateUnifiedEvent(bad);
 		expect(problems.some((p) => p.includes("schema_version"))).toBe(true);
 	});
 
 	it("rejects missing context.cwd", () => {
 		const e = makeEvent();
-		const bad = { ...e, context: {} } as unknown;
+		const bad = { ...e, context: {} };
 		const problems = validateUnifiedEvent(bad);
 		expect(problems.some((p) => p.includes("context.cwd"))).toBe(true);
 	});
 
 	it("rejects missing action.kind", () => {
-		const bad = { ...makeEvent(), action: {} } as unknown;
+		const bad = { ...makeEvent(), action: {} };
 		const problems = validateUnifiedEvent(bad);
 		expect(problems.some((p) => p.includes("action.kind"))).toBe(true);
 	});

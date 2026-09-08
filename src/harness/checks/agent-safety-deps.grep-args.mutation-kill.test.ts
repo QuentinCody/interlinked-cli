@@ -19,9 +19,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 
-const mockExecFileSync = vi.fn();
+const mockExecFileSync = vi.fn<typeof import("node:child_process").execFileSync>();
 vi.mock("node:child_process", () => ({
-	execFileSync: (...args: unknown[]) => mockExecFileSync(...args),
+	execFileSync: (...args: Parameters<typeof mockExecFileSync>) => mockExecFileSync(...args),
 }));
 
 import { checkPhantomDependencies } from "./agent-safety-deps.js";
@@ -54,11 +54,7 @@ describe("_isDepReferencedInProject — grep invocation shape", () => {
 		checkPhantomDependencies(join(tmp, "package.json"));
 
 		expect(mockExecFileSync).toHaveBeenCalledTimes(1);
-		const call = nonNull(mockExecFileSync.mock.calls[0]) as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const call = nonNull(mockExecFileSync.mock.calls[0]);
 		const [cmd, args, options] = call;
 		expect(cmd).toBe("grep");
 		expect(args).toEqual([

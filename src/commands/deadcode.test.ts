@@ -1,3 +1,4 @@
+import { parseWire, wireAbsentOptional, wireArray, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 // Tests for `interlinked deadcode` — the whole-repo dead-code scan verb
 // (operator request 2026-08-17: per-edit detection and repo scanning are two
 // separate controls; this is the scan half).
@@ -9,7 +10,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildDeadExportsRepo,
 	collectReferences,
-	type DeadCodeReport,
 	deadcodeCommand,
 	scanDeadCode,
 } from "./deadcode.js";
@@ -32,7 +32,7 @@ interface CapturedCategories {
 /** Parse the `--categorize --json` payload the action printed. Every field the
  *  cast promises is asserted by the caller. */
 function parseCategories(lines: string[]): CapturedCategories {
-	const parsed = JSON.parse(lines.join("\n")) as { categories: CapturedCategories };
+	const parsed = parseWire(JSON.parse(lines.join("\n")), wireObject({ "categories": wireObject({ "items": wireArray(wireObject({ "file": wireString, "symbol": wireAbsentOptional(wireString), "bucket": wireString, "recommendation": wireString })) }) }), "test JSON value");
 	return parsed.categories;
 }
 
@@ -115,7 +115,7 @@ describe("scanDeadCode — negative (must not report)", () => {
 		expect(code).toBe(0);
 		// SAFETY: parsing the command's own --json output; the assertions
 		// below verify every field the cast promises.
-		const report = JSON.parse(lines.join("\n")) as DeadCodeReport;
+		const report = parseWire(JSON.parse(lines.join("\n")), wireObject({ "unreachableFiles": wireArray(wireString), "deadImportBindings": wireArray(wireObject({ "file": wireString, "binding": wireString })), "deadExports": wireArray(wireObject({ "file": wireString, "detail": wireString })), "deadTypeExports": wireArray(wireObject({ "file": wireString, "detail": wireString })), "testOnlyImporterFiles": wireAbsentOptional(wireArray(wireString)), "scannedFiles": wireNumber, "scannedPaths": wireArray(wireString) }), "test JSON value");
 		expect(report.unreachableFiles).toContain("src/orphan.ts");
 		expect(report.deadImportBindings.map((b) => b.binding)).toContain("neverTouched");
 		expect(Array.isArray(report.deadExports)).toBe(true);

@@ -35,7 +35,7 @@ function postEvent(cwd: string, file: string): HarnessEvent {
         cwd,
         tool_name: "Write",
         tool_input: { file_path: file },
-    } as HarnessEvent;
+    };
 }
 
 let temporary = "";

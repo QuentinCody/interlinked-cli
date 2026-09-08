@@ -22,6 +22,7 @@
 // tool-I/O decision (see project_thinking_capture_full_fidelity), and the
 // canonical full tool copy lives in collection.jsonl regardless.
 
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { redactPii, scrubSecrets } from "../lib/secrets.js";
 
 /** The categories a transcript entry decomposes into — one per content block. */
@@ -125,38 +126,23 @@ type RecordBase = Pick<
 /** Cap on the serialized structural tool result kept per record. */
 export const MAX_TOOL_USE_RESULT_BYTES = 32 * 1024;
 
-/** Structural view of a transcript JSONL entry — only the fields we read. */
-interface TranscriptEntry {
-	type?: string;
-	uuid?: string;
-	timestamp?: string;
-	sessionId?: string;
-	agentId?: string;
-	cwd?: string;
-	gitBranch?: string;
-	version?: string;
-	isSidechain?: boolean;
-	promptId?: string;
-	requestId?: string;
-	effort?: string;
-	permissionMode?: string;
-	attributionAgent?: string;
-	toolDenialKind?: string;
-	toolUseResult?: unknown;
-	message?: { role?: string; model?: string; content?: unknown; usage?: unknown };
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0;
 }
 
-/** Structural view of a content block (assistant or user message content). */
-interface ContentBlock {
-	type?: string;
-	text?: string;
-	thinking?: string;
-	id?: string;
-	name?: string;
-	input?: unknown;
-	tool_use_id?: string;
-	is_error?: boolean;
-	content?: unknown;
+function readEntryMetadata(entry: JsonObject): Omit<RecordBase, "schema" | "ts" | "session" | "uuid" | "provider"> {
+	const metadata: Omit<RecordBase, "schema" | "ts" | "session" | "uuid" | "provider"> = {};
+	const fields = [
+		["agent_id", entry.agentId], ["cwd", entry.cwd], ["git_branch", entry.gitBranch],
+		["version", entry.version], ["prompt_id", entry.promptId], ["request_id", entry.requestId],
+		["effort", entry.effort], ["permission_mode", entry.permissionMode],
+		["attribution_agent", entry.attributionAgent],
+	] as const;
+	for (const [key, value] of fields) {
+		if (typeof value === "string") metadata[key] = value;
+	}
+	if (typeof entry.isSidechain === "boolean") metadata.is_sidechain = entry.isSidechain;
+	return metadata;
 }
 
 /** Secrets + PII scrub for natural-language fields. */
@@ -168,10 +154,7 @@ function scrubText(text: string): string {
  *  `{text}` block). RAW — not scrubbed (tool-I/O parity). */
 function blockText(b: unknown): string {
 	if (typeof b === "string") return b;
-	// SAFETY: a transcript content element is untyped JSON; only the optional
-	// `text` string is read, guarded by the typeof below.
-	const text = (b as ContentBlock | null)?.text;
-	return typeof text === "string" ? text : "";
+	return isJsonObject(b) && typeof b.text === "string" ? b.text : "";
 }
 
 /** Flatten a tool_result `content` (string | block[]) to a plain string. RAW —
@@ -189,31 +172,26 @@ function flattenContent(content: unknown): string {
 function userRecords(base: RecordBase, content: unknown): TimelineRecord[] {
 	const out: TimelineRecord[] = [];
 	if (typeof content === "string") {
-		if (content.trim()) {
-			out.push({ ...base, seq: 0, category: "user_prompt", role: "user", text: scrubText(content), scrubbed: true });
-		}
+		if (content.trim()) out.push({ ...base, seq: 0, category: "user_prompt", role: "user", text: scrubText(content), scrubbed: true });
 		return out;
 	}
 	if (!Array.isArray(content)) return out;
-	content.forEach((raw, i) => {
-		// SAFETY: untyped JSON block that may legitimately contain `null`
-		// elements (adversarial/malformed transcripts) — every field read
-		// below is type-guarded first.
-		const b = raw as ContentBlock | null;
-		if (b?.type === "text" && typeof b.text === "string" && b.text.trim()) {
-			out.push({ ...base, seq: i, category: "user_prompt", role: "user", text: scrubText(b.text), scrubbed: true });
-		} else if (b?.type === "tool_result") {
-			const flat = flattenContent(b.content);
-			out.push({
-				...base,
-				seq: i,
-				category: "tool_result",
-				role: "user",
-				tool_use_id: b.tool_use_id,
-				is_error: b.is_error === true,
-				text: flat.length > 0 ? flat : undefined,
-			});
+	content.forEach((b, seq) => {
+		if (!isJsonObject(b)) return;
+		if (b.type === "text" && typeof b.text === "string" && b.text.trim()) {
+			out.push({ ...base, seq, category: "user_prompt", role: "user", text: scrubText(b.text), scrubbed: true });
+			return;
 		}
+		if (b.type !== "tool_result") return;
+		const flat = flattenContent(b.content);
+		const record: TimelineRecord = {
+			...base, seq, category: "tool_result", role: "user",
+			text: flat.length > 0 ? flat : undefined,
+		};
+		if (typeof b.tool_use_id === "string") record.tool_use_id = b.tool_use_id;
+		if (b.is_error === undefined) record.is_error = false;
+		else if (typeof b.is_error === "boolean") record.is_error = b.is_error;
+		out.push(record);
 	});
 	return out;
 }
@@ -222,18 +200,22 @@ function userRecords(base: RecordBase, content: unknown): TimelineRecord[] {
 function assistantRecords(base: RecordBase, content: unknown, model: string | undefined): TimelineRecord[] {
 	const out: TimelineRecord[] = [];
 	if (!Array.isArray(content)) return out;
-	content.forEach((raw, i) => {
-		// SAFETY: untyped JSON block that may legitimately contain `null`
-		// elements (adversarial/malformed transcripts) — every field read
-		// below is type-guarded first.
-		const b = raw as ContentBlock | null;
-		if (b?.type === "text" && typeof b.text === "string" && b.text.trim()) {
-			out.push({ ...base, seq: i, category: "agent_message", role: "assistant", model, text: scrubText(b.text), scrubbed: true });
-		} else if (b?.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim()) {
-			out.push({ ...base, seq: i, category: "agent_thinking", role: "assistant", model, text: scrubText(b.thinking), scrubbed: true });
-		} else if (b?.type === "tool_use") {
-			out.push({ ...base, seq: i, category: "tool_use", role: "assistant", model, tool_name: b.name, tool_input: b.input, tool_use_id: b.id });
+	const modelFields = model === undefined ? {} : { model };
+	content.forEach((b, seq) => {
+		if (!isJsonObject(b)) return;
+		if (b.type === "text" && typeof b.text === "string" && b.text.trim()) {
+			out.push({ ...base, ...modelFields, seq, category: "agent_message", role: "assistant", text: scrubText(b.text), scrubbed: true });
+			return;
 		}
+		if (b.type === "thinking" && typeof b.thinking === "string" && b.thinking.trim()) {
+			out.push({ ...base, ...modelFields, seq, category: "agent_thinking", role: "assistant", text: scrubText(b.thinking), scrubbed: true });
+			return;
+		}
+		if (b.type !== "tool_use") return;
+		const record: TimelineRecord = { ...base, ...modelFields, seq, category: "tool_use", role: "assistant", tool_input: b.input };
+		if (typeof b.name === "string") record.tool_name = b.name;
+		if (typeof b.id === "string") record.tool_use_id = b.id;
+		out.push(record);
 	});
 	return out;
 }
@@ -246,31 +228,21 @@ function assistantRecords(base: RecordBase, content: unknown, model: string | un
  * backfill command.
  */
 export function parseTranscriptEntry(entry: unknown): TimelineRecord[] {
-	if (!entry || typeof entry !== "object") return [];
-	// SAFETY: a transcript line is untyped JSON; TranscriptEntry covers only the
-	// optional fields read here, each guarded before use.
-	const e = entry as TranscriptEntry;
-	if (!e.timestamp || !e.uuid || !e.sessionId) return [];
+	if (!isJsonObject(entry)) return [];
+	if (!isNonEmptyString(entry.timestamp) || !isNonEmptyString(entry.uuid) || !isNonEmptyString(entry.sessionId)) return [];
+	if (!isJsonObject(entry.message)) return [];
 	const base: RecordBase = {
 		schema: "timeline.v1",
-		ts: e.timestamp,
-		session: e.sessionId,
-		uuid: e.uuid,
+		ts: entry.timestamp,
+		session: entry.sessionId,
+		uuid: entry.uuid,
 		provider: "claude-code",
-		agent_id: e.agentId,
-		cwd: e.cwd,
-		git_branch: e.gitBranch,
-		version: e.version,
-		is_sidechain: typeof e.isSidechain === "boolean" ? e.isSidechain : undefined,
-		prompt_id: e.promptId,
-		request_id: e.requestId,
-		effort: e.effort,
-		permission_mode: e.permissionMode,
-		attribution_agent: e.attributionAgent,
+		...readEntryMetadata(entry),
 	};
-	if (e.type === "user") return attachEntryExtras(userRecords(base, e.message?.content), e);
-	if (e.type === "assistant") {
-		return attachEntryExtras(assistantRecords(base, e.message?.content, e.message?.model), e);
+	if (entry.type === "user") return attachEntryExtras(userRecords(base, entry.message.content), entry);
+	if (entry.type === "assistant") {
+		const model = typeof entry.message.model === "string" ? entry.message.model : undefined;
+		return attachEntryExtras(assistantRecords(base, entry.message.content, model), entry);
 	}
 	return [];
 }
@@ -292,11 +264,9 @@ export function capToolUseResult(value: unknown): { value: unknown; truncated: b
 }
 
 /** Read `message.usage` into the compact timeline shape; null when absent. */
-export function readUsage(message: TranscriptEntry["message"]): TimelineUsage | null {
-	const usage = message?.usage;
-	if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
-	// SAFETY: guarded above as a non-array object; every field is typeof-checked below.
-	const u = usage as Record<string, unknown>;
+export function readUsage(message: unknown): TimelineUsage | null {
+	if (!isJsonObject(message) || !isJsonObject(message.usage)) return null;
+	const u = message.usage;
 	const num = (v: unknown): number | undefined =>
 		typeof v === "number" && Number.isFinite(v) ? v : undefined;
 	const out: TimelineUsage = {
@@ -312,12 +282,12 @@ export function readUsage(message: TranscriptEntry["message"]): TimelineUsage | 
  *  kind and structural result onto tool_result rows, and token usage onto the
  *  FIRST record only (so summing the timeline never double-counts an entry
  *  that decomposed into several blocks). */
-function attachEntryExtras(records: TimelineRecord[], e: TranscriptEntry): TimelineRecord[] {
+function attachEntryExtras(records: TimelineRecord[], e: JsonObject): TimelineRecord[] {
 	if (records.length === 0) return records;
 	const capped = capToolUseResult(e.toolUseResult);
 	for (const record of records) {
 		if (record.category !== "tool_result") continue;
-		if (e.toolDenialKind) record.tool_denial_kind = e.toolDenialKind;
+		if (typeof e.toolDenialKind === "string" && e.toolDenialKind) record.tool_denial_kind = e.toolDenialKind;
 		if (!capped) continue;
 		record.tool_use_result = capped.value;
 		if (capped.truncated) record.tool_use_result_truncated = true;

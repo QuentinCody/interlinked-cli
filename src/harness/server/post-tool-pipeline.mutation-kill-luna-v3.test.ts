@@ -1,3 +1,8 @@
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { getDefaultConfig } from "../rules-loader.js";
+import { nonNull } from "../../lib/non-null.js";
 import { describe, expect, it, vi } from "vitest";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 
@@ -67,17 +72,8 @@ vi.mock("./spec-ledger-phase.js", () => ({ prerefreshSpecLedger: vi.fn() }));
 
 import { runPostToolPipeline } from "./post-tool-pipeline.js";
 
-function context(): Parameters<typeof runPostToolPipeline>[0] {
-    return {
-        cwd: "/repo",
-		interlinkedDir: "/repo/.interlinked",
-        rules: { rules: [{ id: "rule" }], content_scanner: { enabled: true } },
-        contentScanner: {},
-        compiledAllowlist: [],
-        reservations: new Map(),
-        cohort: undefined,
-        log: vi.fn(),
-    } as never;
+function context(overrides: Partial<Parameters<typeof runPostToolPipeline>[0]> = {}): Parameters<typeof runPostToolPipeline>[0] {
+	return makeServerRuntime({ rules: { ...makeGuardRules(), content_scanner: { ...nonNull(getDefaultConfig().content_scanner), enabled: true } }, contentScanner: { name: "fixture", runtime: "http", ready: vi.fn(async () => true), scan: vi.fn(async () => []), shutdown: vi.fn(async () => {}) }, ...overrides });
 }
 
 function event(over: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -90,17 +86,10 @@ function event(over: Partial<HarnessEvent> = {}): HarnessEvent {
         tool_input: { file_path: "src/example.ts" },
         tool_response: null,
         ...over,
-    } as unknown as HarnessEvent;
+    };
 }
 
-function session() {
-    return {
-        silent_failure_warned: new Set<string>(),
-        bloat_warned: new Set<string>(),
-        consecutive_tool_failures: new Map<string, number>(),
-        acknowledged_checks: new Set<string>(),
-    } as never;
-}
+function session() { return makeSessionFixture(); }
 
 describe("post-tool pipeline contracts", () => {
     // test-contract: all supported check families retain their exact compact summary labels.

@@ -7,7 +7,6 @@
 // detectors are dispatched together regardless of severity, and the per-phase
 // filter happens at call time, not at registry-construction time.
 
-import { noopSequenceDetector } from "./_placeholder.js";
 import { CROSS_AGENT_DETECTORS } from "./cross-agent.js";
 import { INJECTION_DETECTORS } from "./injection.js";
 import { QUALITY_DETECTORS } from "./quality.js";
@@ -26,7 +25,6 @@ import type { SequenceDetector } from "./types.js";
  *   5. Run `npx vitest run src/harness/sequence-checks/` to validate.
  */
 export const ALL_SEQUENCE_DETECTORS: ReadonlyArray<SequenceDetector> = [
-	noopSequenceDetector,
 	...QUALITY_DETECTORS,
 	...SECURITY_DETECTORS,
 	...INJECTION_DETECTORS,

@@ -170,6 +170,17 @@ describe("parseTranscriptEntry — negative cases (must produce no records)", ()
 });
 
 describe("parseTranscriptText", () => {
+	it.each([
+		{ field: "timestamp", value: 123 },
+		{ field: "uuid", value: { id: "bad" } },
+		{ field: "sessionId", value: true },
+	])("rejects a non-string $field from JSONL while preserving the next valid entry", ({ field, value }) => {
+		const malformed = { ...assistant([{ type: "text", text: "invalid entry" }]), [field]: value };
+		const valid = user("next valid prompt");
+		const records = parseTranscriptText([JSON.stringify(malformed), JSON.stringify(valid)].join("\n"));
+		expect(records.map((record) => record.text)).toEqual(["next valid prompt"]);
+	});
+
 	it("parses multiple JSONL lines and preserves file order", () => {
 		const lines = [
 			JSON.stringify(user("a question")),
@@ -186,6 +197,59 @@ describe("parseTranscriptText", () => {
 		const recs = parseTranscriptText(lines);
 		expect(recs).toHaveLength(1);
 		expect(recs[0]?.category).toBe("agent_message");
+	});
+});
+
+describe("malformed transcript metadata", () => {
+	it("omits wrong-type optional metadata without discarding valid assistant text", () => {
+		const entry = {
+			...assistant([]),
+			agentId: 1, cwd: false, gitBranch: [], version: {}, isSidechain: "true",
+			promptId: 2, requestId: {}, effort: 3, permissionMode: true, attributionAgent: [],
+			message: { model: {}, content: [{ type: "text", text: "valid text" }] },
+		};
+		expect(parseTranscriptText(JSON.stringify(entry))).toEqual([{
+			schema: "timeline.v1", ts: entry.timestamp, session: entry.sessionId,
+			uuid: entry.uuid, provider: "claude-code", seq: 0,
+			category: "agent_message", role: "assistant", text: "valid text", scrubbed: true,
+		}]);
+	});
+
+	it("keeps unknown tool input and block indexes while omitting malformed optional names and IDs", () => {
+		const input = [null, { nested: [1, "value"] }];
+		const records = parseTranscriptEntry(assistant([
+			null,
+			[],
+			{ type: "tool_use", id: 123, name: {}, input },
+			{ type: "tool_use", id: "", name: "", input: null },
+			{ type: "text", text: "after tools" },
+		]));
+		expect(records.map((record) => record.seq)).toEqual([2, 3, 4]);
+		expect(records[0]?.tool_input).toBe(input);
+		expect(records[0]).not.toHaveProperty("tool_use_id");
+		expect(records[0]).not.toHaveProperty("tool_name");
+		expect(records[1]).toMatchObject({ tool_use_id: "", tool_name: "", tool_input: null });
+	});
+
+	it("keeps tool results while omitting malformed optional identifiers, flags, and denial metadata", () => {
+		const toolUseResult = { output: [1, null, { ok: true }] };
+		const records = parseTranscriptEntry({
+			...user([{ type: "tool_result", tool_use_id: {}, is_error: "false",
+				content: ["raw", null, [], { text: 3 }, { text: "result" }] }]),
+			toolUseResult,
+			toolDenialKind: { reason: "bad" },
+		});
+		expect(records).toHaveLength(1);
+		expect(records[0]?.text).toBe("raw\nresult");
+		expect(records[0]?.tool_use_result).toBe(toolUseResult);
+		expect(records[0]).not.toHaveProperty("tool_use_id");
+		expect(records[0]).not.toHaveProperty("is_error");
+		expect(records[0]).not.toHaveProperty("tool_denial_kind");
+	});
+
+	it.each([null, [], "message", 7])("rejects a non-object message without throwing: %j", (message) => {
+		expect(parseTranscriptEntry({ ...assistant([]), message })).toEqual([]);
+		expect(readUsage(message)).toBeNull();
 	});
 });
 
@@ -347,8 +411,7 @@ describe("userRecords — array-form branch-guard edge cases", () => {
 
 describe("assistantRecords — array-form branch-guard edge cases", () => {
 	it("P1: non-array content (e.g. a plain object) produces no record and does not throw", () => {
-		const entry = assistant([]);
-		(entry.message as { content: unknown }).content = {};
+		const entry = { ...assistant([]), message: { content: {} } };
 		expect(() => parseTranscriptEntry(entry)).not.toThrow();
 		expect(parseTranscriptEntry(entry)).toEqual([]);
 	});
@@ -398,29 +461,27 @@ describe("parseTranscriptEntry — entry-level guards (mutation hardening)", () 
 		// `typeof` a function is "function", not "object" — the guard must
 		// reject it before ever reading the attached fields below.
 		// Deliberately attach arbitrary fields to a function value to exercise the typeof guard.
-		const fn: any = function entryFn() {};
-		fn.timestamp = "2026-01-01T00:00:00Z";
-		fn.uuid = "fn-uuid";
-		fn.sessionId = "fn-session";
-		fn.type = "user";
-		fn.message = { content: "function-shaped entry" };
+		const fn = Object.assign(function entryFn() {}, {
+			timestamp: "2026-01-01T00:00:00Z", uuid: "fn-uuid", sessionId: "fn-session",
+			type: "user", message: { content: "function-shaped entry" },
+		});
 		expect(parseTranscriptEntry(fn)).toEqual([]);
 	});
 
 	it("P2: a missing uuid drops the entry even when the content is non-empty", () => {
-		const entry = assistant([{ type: "text", text: "hello" }]) as Record<string, unknown>;
+		const entry: Record<string, unknown> = assistant([{ type: "text", text: "hello" }]);
 		delete entry.uuid;
 		expect(parseTranscriptEntry(entry)).toEqual([]);
 	});
 
 	it("P3: a missing timestamp drops the entry even when the content is non-empty", () => {
-		const entry = assistant([{ type: "text", text: "hello" }]) as Record<string, unknown>;
+		const entry: Record<string, unknown> = assistant([{ type: "text", text: "hello" }]);
 		delete entry.timestamp;
 		expect(parseTranscriptEntry(entry)).toEqual([]);
 	});
 
 	it("P4: a missing sessionId drops the entry even when the content is non-empty", () => {
-		const entry = assistant([{ type: "text", text: "hello" }]) as Record<string, unknown>;
+		const entry: Record<string, unknown> = assistant([{ type: "text", text: "hello" }]);
 		delete entry.sessionId;
 		expect(parseTranscriptEntry(entry)).toEqual([]);
 	});
@@ -431,14 +492,14 @@ describe("parseTranscriptEntry — entry-level guards (mutation hardening)", () 
 	});
 
 	it("P6: a user entry with no message field at all produces no record (no throw)", () => {
-		const entry = user("x") as Record<string, unknown>;
+		const entry: Record<string, unknown> = user("x");
 		delete entry.message;
 		expect(() => parseTranscriptEntry(entry)).not.toThrow();
 		expect(parseTranscriptEntry(entry)).toEqual([]);
 	});
 
 	it("P7: an assistant entry with no message field at all produces no record (no throw)", () => {
-		const entry = assistant([]) as Record<string, unknown>;
+		const entry: Record<string, unknown> = assistant([]);
 		delete entry.message;
 		expect(() => parseTranscriptEntry(entry)).not.toThrow();
 		expect(parseTranscriptEntry(entry)).toEqual([]);
@@ -465,8 +526,7 @@ describe("capToolUseResult — exact-boundary mutation hardening", () => {
 describe("readUsage / readUsage.num — guard edge cases (mutation hardening)", () => {
 	it("P1: a function-shaped usage payload is rejected by the typeof-object guard even with a numeric field attached", () => {
 		// Use the same loose function shape as the entry-shaped boundary case above.
-		const fn: any = function usageFn() {};
-		fn.input_tokens = 42;
+		const fn = Object.assign(function usageFn() {}, { input_tokens: 42 });
 		expect(readUsage({ role: "assistant", usage: fn })).toBeNull();
 	});
 

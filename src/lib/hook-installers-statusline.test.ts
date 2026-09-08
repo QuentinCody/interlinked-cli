@@ -6,6 +6,8 @@
 // predicates (`isPlainObject` / `isNonEmptyString`) and `JSON.parse` are NOT
 // mocked, so the actual branch logic of `applyStatuslineToSettings` runs.
 
+import { isJsonObject } from "./json-types.js";
+import { nonNull } from "./non-null.js";
 import * as fs from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,7 +51,7 @@ function wireMocks(): void {
 		if (!files.has(key)) {
 			throw Object.assign(new Error(`ENOENT: ${key}`), { code: "ENOENT" });
 		}
-		return files.get(key) as string;
+		return nonNull(files.get(key));
 	});
 	mockFs.writeFileSync.mockImplementation((p, data) => {
 		seedFile(String(p), String(data));
@@ -59,7 +61,8 @@ function wireMocks(): void {
 		return undefined;
 	});
 	mockFs.chmodSync.mockImplementation((p, mode) => {
-		chmods.set(String(p), mode as number);
+		if (typeof mode !== "number") throw new Error("Expected numeric chmod mode");
+		chmods.set(String(p), mode);
 	});
 }
 
@@ -91,7 +94,15 @@ const CLAUDE_SETTINGS = join(HOME, ".claude", "settings.json");
 const COPILOT_CONFIG = join(HOME, ".copilot", "settings.json");
 
 function readSettings(path: string): Record<string, unknown> {
-	return JSON.parse(files.get(path) as string) as Record<string, unknown>;
+	const value: unknown = JSON.parse(nonNull(files.get(path)));
+	if (!isJsonObject(value)) throw new Error("Expected installed settings object");
+	return value;
+}
+
+function readStatusLine(path: string): Record<string, unknown> {
+	const value = readSettings(path).statusLine;
+	if (!isJsonObject(value)) throw new Error("Expected installed statusLine object");
+	return value;
 }
 
 // ===========================================
@@ -134,7 +145,7 @@ describe("installStatusLine — script generation", () => {
 		installStatusLine(["claude"]);
 
 		expect(files.has(SCRIPT_PATH)).toBe(true);
-		const script = files.get(SCRIPT_PATH) as string;
+		const script = nonNull(files.get(SCRIPT_PATH));
 		expect(script.startsWith("#!/bin/bash")).toBe(true);
 		// A few load-bearing anchors from the generated bash.
 		expect(script).toContain("◆ interlinked");
@@ -151,7 +162,7 @@ describe("installStatusLine — script generation", () => {
 		writeStatuslineScript("/anywhere/status.sh");
 		// SAFETY: the mocked writeFileSync stored a string one line above; a
 		// miss would fail the toContain assertions immediately.
-		const script = files.get("/anywhere/status.sh") as string;
+		const script = nonNull(files.get("/anywhere/status.sh"));
 		expect(script).toContain("⟳ mut");
 		expect(script).toContain("mutation-24x7.status");
 		expect(script).toContain("hardened");
@@ -160,7 +171,7 @@ describe("installStatusLine — script generation", () => {
 
 	it("renders the opt-in sponsor row from sponsor.status with a freshness gate", () => {
 		installStatusLine(["claude"]);
-		const script = files.get(SCRIPT_PATH) as string;
+		const script = nonNull(files.get(SCRIPT_PATH));
 		// Row 3 anchors: the daemon-written kv file, the visible label, and
 		// the 30-minute staleness cutoff that ages a dead daemon's ad out.
 		expect(script).toContain("sponsor.status");
@@ -171,7 +182,7 @@ describe("installStatusLine — script generation", () => {
 
 	it("caps the stale last-check row at 24 hours", () => {
 		installStatusLine(["claude"]);
-		const script = files.get(SCRIPT_PATH) as string;
+		const script = nonNull(files.get(SCRIPT_PATH));
 		expect(script).toContain('"$LAST_AGE" -lt 86400');
 	});
 
@@ -189,7 +200,7 @@ describe("installStatusLine — script generation", () => {
 	describe("down branch — positive (must display honestly)", () => {
 		it("P1: renders the hook-supervisor down row first, alarms only past the threshold", () => {
 			installStatusLine(["claude"]);
-			const script = files.get(SCRIPT_PATH) as string;
+			const script = nonNull(files.get(SCRIPT_PATH));
 			expect(script).toContain("REVIVE_ALARM_SECS=45");
 			expect(script).toContain("harness down — hook recovery active");
 			expect(script).toContain("harness offline");
@@ -197,7 +208,7 @@ describe("installStatusLine — script generation", () => {
 
 		it("P2: discovers the first LIVE pid across raw AND framed/session pid files", () => {
 			installStatusLine(["claude"]);
-			const script = files.get(SCRIPT_PATH) as string;
+			const script = nonNull(files.get(SCRIPT_PATH));
 			expect(script).toContain('"$IL"/harness.pid "$IL"/harness-*.pid');
 			expect(script).toContain('if ps -p "$CAND" > /dev/null 2>&1; then PID="$CAND"; break; fi');
 		});
@@ -206,7 +217,7 @@ describe("installStatusLine — script generation", () => {
 	describe("down branch — negative (must never manage processes)", () => {
 		it("N1: the generated script spawns no daemon (display-only contract)", () => {
 			installStatusLine(["claude"]);
-			const script = files.get(SCRIPT_PATH) as string;
+			const script = nonNull(files.get(SCRIPT_PATH));
 			expect(script).not.toContain("REVIVE_SERVER");
 			expect(script).not.toContain("REVIVE_NODE");
 			expect(script).not.toContain("--expose-gc");
@@ -217,7 +228,7 @@ describe("installStatusLine — script generation", () => {
 			// The pure-bash guarantee is pinned structurally: the loop prefers a
 			// live candidate (break) and only falls back to the first pid file.
 			installStatusLine(["claude"]);
-			const script = files.get(SCRIPT_PATH) as string;
+			const script = nonNull(files.get(SCRIPT_PATH));
 			const loopStart = script.indexOf('for PF in "$IL"/harness.pid');
 			const loopEnd = script.indexOf("done", loopStart);
 			const loop = script.slice(loopStart, loopEnd);
@@ -368,7 +379,7 @@ describe("applyStatuslineToSettings — existing statusLine key", () => {
 		);
 		const result = installStatusLine(["claude"]);
 		expect(result).toBe(SCRIPT_PATH);
-		const sl = readSettings(CLAUDE_SETTINGS).statusLine as Record<string, unknown>;
+		const sl = readStatusLine(CLAUDE_SETTINGS);
 		expect(sl.command).toBe(SCRIPT_PATH);
 		expect(sl.refreshInterval).toBe(5);
 		// type is preserved from the existing object (only command/refresh updated).
@@ -383,7 +394,7 @@ describe("applyStatuslineToSettings — existing statusLine key", () => {
 		const result = installStatusLine(["claude"]);
 		expect(result).toBeNull();
 		// Untouched: command not overwritten.
-		const sl = readSettings(CLAUDE_SETTINGS).statusLine as Record<string, unknown>;
+		const sl = readStatusLine(CLAUDE_SETTINGS);
 		expect(sl.command).toBe("/usr/bin/my-custom-statusline");
 		expect(sl.refreshInterval).toBe(3);
 	});
@@ -405,7 +416,7 @@ describe("applyStatuslineToSettings — existing statusLine key", () => {
 		const result = installStatusLine(["claude"]);
 		expect(result).toBeNull();
 		// Empty command left as-is (no overwrite).
-		const sl = readSettings(CLAUDE_SETTINGS).statusLine as Record<string, unknown>;
+		const sl = readStatusLine(CLAUDE_SETTINGS);
 		expect(sl.command).toBe("");
 	});
 
@@ -464,7 +475,7 @@ describe("applyStatuslineToSettings — error handling", () => {
 			if (String(p) === CLAUDE_SETTINGS) {
 				throw Object.assign(new Error("EIO: read error"), { code: "EIO" });
 			}
-			return files.get(String(p)) as string;
+			return nonNull(files.get(String(p)));
 		});
 
 		const result = installStatusLine(["claude"]);
@@ -490,7 +501,7 @@ describe("installStatusLine — idempotency", () => {
 		const second = installStatusLine(["claude"]);
 		expect(first).toBe(SCRIPT_PATH);
 		expect(second).toBe(SCRIPT_PATH);
-		const sl = readSettings(CLAUDE_SETTINGS).statusLine as Record<string, unknown>;
+		const sl = readStatusLine(CLAUDE_SETTINGS);
 		expect(sl.command).toBe(SCRIPT_PATH);
 		expect(sl.refreshInterval).toBe(5);
 	});

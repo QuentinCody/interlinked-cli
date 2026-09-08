@@ -39,17 +39,20 @@ export interface SocketLifecycleDeps {
 	readonly pidPath: string;
 	readonly runRawSocket: boolean;
 	readonly asyncAnalysisDrainTimeoutMs: number;
-	readonly serverBridge: ServerBridge | null;
-	readonly reservations: ReservationManager;
-	readonly contentScanner: ContentScanner | undefined;
-	readonly asyncAnalysis: AsyncAnalysisManager;
+	readonly serverBridge: Pick<ServerBridge, "shutdown"> | null;
+	readonly reservations: Pick<ReservationManager, "shutdown">;
+	readonly contentScanner: Pick<ContentScanner, "shutdown"> | undefined;
+	readonly asyncAnalysis: Pick<AsyncAnalysisManager, "drain">;
 	readonly evaluateEventLine: (
 		line: string,
 		protocol: "raw" | "framed",
 	) => Promise<HarnessDecision>;
 	readonly log: (msg: string) => void;
 	readonly logAlways: (msg: string) => void;
+	readonly exit?: (code: number) => void;
 }
+
+type FramedStopHandle = Pick<SessionDaemonHandle, "stop">;
 
 /** How the raw listener reports its BIND OUTCOME — bound, or failed to bind.
  *  Kept structural (rather than importing `StartupGuard` from
@@ -75,7 +78,7 @@ export interface SocketLifecycle {
 	writePidFile: () => void;
 	shutdown: () => void;
 	startRawServer: (reporter?: RawListenReporter) => void;
-	setFramedDaemon: (handle: SessionDaemonHandle | null) => void;
+	setFramedDaemon: (handle: FramedStopHandle | null) => void;
 	setUnwatchers: (unwatchRules: () => void, unwatchSettings: () => void) => void;
 }
 
@@ -105,10 +108,11 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 		evaluateEventLine,
 		log,
 		logAlways,
+		exit = process.exit,
 	} = deps;
 
 	let socketServer: ReturnType<typeof createServer> | null = null;
-	let framedDaemon: SessionDaemonHandle | null = null;
+	let framedDaemon: FramedStopHandle | null = null;
 	let shuttingDown = false;
 	let connectionCount = 0;
 	let unwatchRules: () => void = () => {};
@@ -198,7 +202,7 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 			} catch (cleanupErr) {
 				void cleanupErr; /* intentional: best-effort cleanup during forced exit */
 			}
-			process.exit(1);
+			exit(1);
 		}, SHUTDOWN_GRACE_MS);
 		forceExit.unref();
 		void shutdownAsync().finally(() => clearTimeout(forceExit));
@@ -258,7 +262,7 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 		});
 		unwatchRules();
 		unwatchSettings();
-		process.exit(0);
+		exit(0);
 	}
 
 	function createRawSocketServer(): ReturnType<typeof createServer> {
@@ -329,13 +333,13 @@ export function createSocketLifecycle(deps: SocketLifecycleDeps): SocketLifecycl
 			logAlways(
 				`[interlinked] Raw socket listen failed (${err.code ?? err.message}) — exiting so auto-revive can spawn a working daemon.`,
 			);
-			process.exit(1);
+			exit(1);
 		});
 		if (reporter) rawServer.on("listening", () => reporter.note("raw"));
 		rawServer.listen(SOCKET_PATH);
 	}
 
-	function setFramedDaemon(handle: SessionDaemonHandle | null): void {
+	function setFramedDaemon(handle: FramedStopHandle | null): void {
 		framedDaemon = handle;
 	}
 

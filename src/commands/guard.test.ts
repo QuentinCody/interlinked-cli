@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../lib/non-null.js";
 import {
@@ -76,12 +77,12 @@ vi.mock("../lib/glob-overlap.js", () => ({
 // --- node:fs (cache read/write) ---
 const mockExistsSync = vi.fn<(p: string) => boolean>(() => false);
 const mockReadFileSync = vi.fn<(p: string, enc?: string) => string>(() => "{}");
-const mockWriteFileSync = vi.fn();
+const mockWriteFileSync = vi.fn<typeof import("node:fs").writeFileSync>();
 const mockMkdirSync = vi.fn();
 vi.mock("node:fs", () => ({
 	existsSync: (p: string) => mockExistsSync(p),
 	readFileSync: (p: string, enc?: string) => mockReadFileSync(p, enc),
-	writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+	writeFileSync: (...args: Parameters<typeof mockWriteFileSync>) => mockWriteFileSync(...args),
 	mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
 }));
 
@@ -106,7 +107,7 @@ function errOutput(): string {
 function lastLogJson(): Record<string, unknown> {
 	const raw = vi.mocked(console.log).mock.calls.at(-1)?.[0];
 	if (typeof raw !== "string") throw new Error(`expected string log, got ${typeof raw}`);
-	return JSON.parse(raw) as Record<string, unknown>;
+	return parseWire(JSON.parse(raw), wireRecord(wireUnknown), "test JSON value");
 }
 
 beforeEach(() => {
@@ -138,6 +139,7 @@ afterEach(() => {
 describe("guardInstallCommand", () => {
 	it("exports a function", () => {
 		expect(typeof guardInstallCommand).toBe("function");
+		expect(guardInstallCommand.name).toBe("guardInstallCommand");
 	});
 
 	it("installs pre-commit in warn mode (json) and persists guard_mode", async () => {
@@ -230,7 +232,7 @@ describe("guardInstallCommand", () => {
 
 		expect(mockInstallGuardHook).not.toHaveBeenCalled();
 		expect(process.exitCode).toBe(1);
-		const err = JSON.parse(errOutput()) as { error: string };
+		const err = parseWire(JSON.parse(errOutput()), wireObject({ "error": wireString }), "test JSON value");
 		expect(err.error).toContain("Not a git repository");
 	});
 
@@ -252,6 +254,7 @@ describe("guardInstallCommand", () => {
 describe("guardCheckCommand", () => {
 	it("exports a function", () => {
 		expect(typeof guardCheckCommand).toBe("function");
+		expect(guardCheckCommand.name).toBe("guardCheckCommand");
 	});
 
 	it("no staged files → clean, files_checked 0 (json)", async () => {
@@ -308,7 +311,7 @@ describe("guardCheckCommand", () => {
 
 		const out = lastLogJson();
 		expect(out.clean).toBe(false);
-		const conflicts = out.conflicts as Array<Record<string, unknown>>;
+		const conflicts = parseWire(out.conflicts, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(conflicts).toHaveLength(1);
 		expect(conflicts[0]).toMatchObject({
 			file: "src/auth/login.ts",
@@ -335,7 +338,7 @@ describe("guardCheckCommand", () => {
 			reservations: [{ agent_name: "anon", path_pattern: "src/**" }],
 		});
 		await guardCheckCommand({ files: ["src/x.ts"], json: true });
-		expect((lastLogJson().conflicts as unknown[]).length).toBe(1);
+		expect(lastLogJson()).toHaveProperty(["conflicts","length"], 1);
 	});
 
 	it("uses staged files when --files is empty", async () => {
@@ -374,7 +377,7 @@ describe("guardCheckCommand", () => {
 			files: ["src/auth/login.ts", "src/api/routes.ts", "README.md"],
 			json: true,
 		});
-		const conflicts = lastLogJson().conflicts as Array<Record<string, unknown>>;
+		const conflicts = parseWire(lastLogJson().conflicts, wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(conflicts).toHaveLength(2);
 		expect(conflicts.map((x) => x.reserved_by)).toEqual(["a", "b"]);
 		expect(lastLogJson().files_checked).toBe(3);
@@ -432,7 +435,7 @@ describe("guardCheckCommand reservation fallback", () => {
 		expect(out.cached).toBe(true);
 		expect(typeof out.cache_age_seconds).toBe("number");
 		expect(out.cache_age_seconds).toBeGreaterThanOrEqual(2);
-		expect((out.conflicts as unknown[]).length).toBe(1);
+		expect(out).toHaveProperty(["conflicts","length"], 1);
 		// No stale warning for a fresh cache.
 		expect(errOutput()).not.toContain("stale");
 	});
@@ -534,7 +537,10 @@ describe("guardCheckCommand reservation fallback", () => {
 		mockCallTool.mockResolvedValue({ reservations: [] });
 		await guardCheckCommand({ files: ["src/a.ts"], json: true });
 		expect(mockMkdirSync).not.toHaveBeenCalled();
-		expect(mockWriteFileSync).toHaveBeenCalled();
+		expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+		const [cachePath, cacheBody] = nonNull(mockWriteFileSync.mock.calls[0]);
+		expect(cachePath).toBe("/test/.interlinked/guard-cache.json");
+		expect(JSON.parse(parseWire(cacheBody, wireString, "guard cache write")).reservations).toEqual([]);
 	});
 
 	it("not a git repo → outputError and exit 1 (no server call)", async () => {
@@ -542,7 +548,7 @@ describe("guardCheckCommand reservation fallback", () => {
 		await guardCheckCommand({ files: ["src/a.ts"], json: true });
 		expect(process.exitCode).toBe(1);
 		expect(mockCallTool).not.toHaveBeenCalled();
-		const err = JSON.parse(errOutput()) as { error: string };
+		const err = parseWire(JSON.parse(errOutput()), wireObject({ "error": wireString }), "test JSON value");
 		expect(err.error).toContain("Not a git repository");
 	});
 });
@@ -578,7 +584,7 @@ describe("guardStatusCommand", () => {
 			}),
 		);
 		await guardStatusCommand({ json: true });
-		const cache = lastLogJson().cache as Record<string, unknown>;
+		const cache = parseWire(lastLogJson().cache, wireRecord(wireUnknown), "test JSON value");
 		expect(cache.reservation_count).toBe(1);
 		expect(cache.age_seconds).toBeGreaterThanOrEqual(5);
 		expect(typeof cache.fetched_at).toBe("string");
@@ -673,7 +679,7 @@ describe("guardStatusCommand", () => {
 		});
 		await guardStatusCommand({ json: true });
 		expect(process.exitCode).toBe(1);
-		const err = JSON.parse(errOutput()) as { error: string };
+		const err = parseWire(JSON.parse(errOutput()), wireObject({ "error": wireString }), "test JSON value");
 		expect(err.error).toBe("config blew up");
 	});
 });
@@ -740,7 +746,7 @@ describe("guardUninstallCommand", () => {
 		expect(process.exitCode).toBe(1);
 		expect(mockUninstallGuardHook).not.toHaveBeenCalled();
 		expect(mockUpdateLocalConfig).not.toHaveBeenCalled();
-		const err = JSON.parse(errOutput()) as { error: string };
+		const err = parseWire(JSON.parse(errOutput()), wireObject({ "error": wireString }), "test JSON value");
 		expect(err.error).toContain("Not a git repository");
 	});
 

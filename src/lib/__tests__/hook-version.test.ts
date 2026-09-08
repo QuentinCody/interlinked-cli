@@ -22,12 +22,8 @@ describe("HOOK_SCRIPT_VERSION", () => {
 		const here = dirname(fileURLToPath(import.meta.url));
 		// Walk from the test file up to the cli/ package root.
 		const pkgPath = join(here, "..", "..", "..", "package.json");
-		const pkg = JSON.parse(readFileSync(pkgPath, "utf-8")) as {
-			name?: string;
-			version?: string;
-		};
-		expect(pkg.name).toBe("interlinked-cli");
-		expect(HOOK_SCRIPT_VERSION).toBe(pkg.version);
+		const pkg: unknown = JSON.parse(readFileSync(pkgPath, "utf-8"));
+		expect(pkg).toMatchObject({ name: "interlinked-cli", version: HOOK_SCRIPT_VERSION });
 	});
 
 	it("is a valid-ish semver (major.minor.patch prefix)", () => {

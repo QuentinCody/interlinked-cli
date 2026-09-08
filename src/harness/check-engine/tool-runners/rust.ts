@@ -3,6 +3,7 @@
 // ===========================================
 
 import { spawnSync } from "node:child_process";
+import { hasErrorCode } from "../tool-errors.js";
 import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -38,7 +39,7 @@ function runCargoJsonSubcommand(
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		if (result.status === 0) return [];
@@ -114,7 +115,7 @@ export function crateEditionFor(targetFile: string, projectRoot: string): string
 			// A missing manifest at this level is expected — keep walking up. Any
 			// OTHER error (permissions, I/O) is genuinely exceptional: rethrow it
 			// rather than silently mis-detecting the edition as 2015.
-			if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+			if (!hasErrorCode(err, "ENOENT")) throw err;
 		}
 		if (dir === root) return null;
 		const parent = dirname(dir);
@@ -213,7 +214,7 @@ export function runRustfmtCheck(input: ToolRunnerInput): CheckResult[] {
 		const fileTarget = scope.mode === "file" ? scope.targetFile : undefined;
 		const result = spawnRustfmt(fileTarget, scope, timeoutMs);
 
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		// Exit 0 = formatted clean.

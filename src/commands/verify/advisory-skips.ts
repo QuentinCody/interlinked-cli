@@ -40,6 +40,6 @@ export function getEffectiveSkipChecks(
  */
 export function getSkipTools(skipChecks: Set<string>): Array<(typeof TOOL_IDS)[number]> {
 	return [...skipChecks].filter((check): check is (typeof TOOL_IDS)[number] =>
-		(TOOL_IDS as readonly string[]).includes(check),
+		TOOL_IDS.some((id) => id === check),
 	);
 }

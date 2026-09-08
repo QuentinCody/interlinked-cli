@@ -1,3 +1,5 @@
+import { readJsonRecord } from "./__tests__/json.js";
+import type { JsonObject } from "../../lib/json-types.js";
 // Mutation-kill wave (fleet-r3, pass1_w21) for agent-event-capture.ts.
 // Targets the 63 mutants that survived prior waves. See
 // scratch/fleet-r3/receipts/agent-event-capture.jsonl for the per-mutant
@@ -20,7 +22,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { AgentEventRecord, AgentTranscriptMetrics } from "../../lib/collection/types.js";
+import type { AgentTranscriptMetrics } from "../../lib/collection/types.js";
 import { getCollectionPath } from "../../lib/collection/writer.js";
 import { timelinePath } from "../timeline-writer.js";
 import type { HarnessEvent } from "../types/events.js";
@@ -61,16 +63,14 @@ function rawLine(obj: unknown): string {
 	return `${JSON.stringify(obj)}\n`;
 }
 
-function collectionRowsAt(cwd: string): AgentEventRecord[] {
+function collectionRowsAt(cwd: string): JsonObject[] {
 	const path = getCollectionPath(cwd);
 	if (!existsSync(path)) return [];
 	return readFileSync(path, "utf-8")
 		.trim()
 		.split("\n")
 		.filter((l) => l.trim())
-		// SAFETY: this fixture file only ever receives agent_event records
-		// written by the code under test; assertions verify the shape.
-		.map((l) => JSON.parse(l) as AgentEventRecord);
+		.map((l) => readJsonRecord(l));
 }
 
 describe("readTranscriptTail offset/slice arithmetic (via resolveFinalMessage)", () => {
@@ -247,10 +247,7 @@ describe("eventField fallback precedence (via buildAgentEventRecord.task)", () =
 	// test-contract: invariant — the top-level (legacy raw-socket) fallback
 	// field must likewise reject a non-string value rather than leaking it.
 	it("rejects a non-string top-level fallback field instead of leaking it", () => {
-		// SAFETY: eventField reads legacy raw-socket fields off the event
-		// object via an untyped index probe (see agent-event-capture.ts);
-		// this cast constructs exactly that shape for the test.
-		const event = { ...mkEvent({ hook_event: "TaskCompleted" }), team_name: 99 } as unknown as HarnessEvent;
+		const event = { ...mkEvent({ hook_event: "TaskCompleted" }), team_name: 99 };
 		const rec = buildAgentEventRecord(event, "task_completed", "/fallback");
 		expect(rec.task).toBeNull();
 	});
@@ -260,13 +257,10 @@ describe("eventField fallback precedence (via buildAgentEventRecord.task)", () =
 	// under its OWN key name; also pins that taskContext looks up
 	// "team_name" specifically (not some other literal) for that slot.
 	it("reads a valid top-level string fallback field under its own key", () => {
-		// SAFETY: same legacy raw-socket shape as the non-string case above —
-		// a top-level field outside HarnessEvent's declared surface that
-		// eventField's fromRoot probe is specifically written to read.
 		const event = {
 			...mkEvent({ hook_event: "TaskCompleted" }),
 			team_name: "Team Rocket",
-		} as unknown as HarnessEvent;
+		};
 		const rec = buildAgentEventRecord(event, "task_completed", "/fallback");
 		expect(rec.task).toEqual({
 			task_id: null,

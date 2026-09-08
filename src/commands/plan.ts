@@ -24,7 +24,7 @@ import type {
 	PlanStep,
 	PlanStepStatus,
 } from "../harness/types/plan.js";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject } from "../lib/json-types.js";
 
 interface CommonOpts {
 	cwd?: string;
@@ -209,20 +209,21 @@ function parsePlanLine(line: string): CapturedPlan | null {
 	} catch {
 		return null;
 	}
-	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-	const rec = parsed as JsonObject;
+	if (!isJsonObject(parsed)) return null;
+	const rec = parsed;
 	const session_id = readString(rec.session_id);
 	const agent_name = readString(rec.agent_name);
 	const created_at_iso = readString(rec.created_at_iso);
 	if (!session_id || !agent_name || !created_at_iso) return null;
 	const sourceRaw = typeof rec.source === "string" ? rec.source : "";
-	if (!PLAN_SOURCES.has(sourceRaw as PlanSource)) return null;
+	const source = [...PLAN_SOURCES].find((candidate) => candidate === sourceRaw);
+	if (source === undefined) return null;
 	return {
 		session_id,
 		agent_name,
 		created_at_iso,
 		created_at_step: readCreatedAtStep(rec.created_at_step),
-		source: sourceRaw as PlanSource,
+		source,
 		steps: parsePlanSteps(rec.steps),
 	};
 }
@@ -240,8 +241,8 @@ function parsePlanSteps(stepsField: unknown): PlanStep[] {
 
 /** Parses one step record. Returns null when it is not an object or has no intent. */
 function parsePlanStep(item: unknown): PlanStep | null {
-	if (!item || typeof item !== "object" || Array.isArray(item)) return null;
-	const r = item as JsonObject;
+	if (!isJsonObject(item)) return null;
+	const r = item;
 	const intent = readString(r.intent);
 	if (!intent) return null;
 	const step: PlanStep = { intent, status: readPlanStepStatus(r.status) };
@@ -255,9 +256,7 @@ function parsePlanStep(item: unknown): PlanStep | null {
 /** Normalizes an unknown status field to a known status, defaulting to "pending". */
 function readPlanStepStatus(v: unknown): PlanStepStatus {
 	const statusRaw = typeof v === "string" ? v : "pending";
-	return PLAN_STEP_STATUSES.has(statusRaw as PlanStepStatus)
-		? (statusRaw as PlanStepStatus)
-		: "pending";
+	return [...PLAN_STEP_STATUSES].find((status) => status === statusRaw) ?? "pending";
 }
 
 /** Reads the numeric step counter, defaulting to 0 for missing or non-finite values. */

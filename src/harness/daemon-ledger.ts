@@ -23,6 +23,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { readRecentLines } from "../lib/local-activity-collection.js";
+import { wireAbsentOptional, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 
 /** Known reasons; readers must handle unknown strings (forward compatibility). */
 export type DaemonEventKind = "start" | "listening" | "handover" | "exit" | "spike" | "emergency-gc";
@@ -75,6 +76,22 @@ export interface DaemonLedgerEvent {
 	 *  old counting semantics' spawn). */
 	outcome?: HandoverOutcome;
 }
+
+/** Readers preserve legacy and future event labels; writers use the current contract. */
+export type DaemonLedgerRow = Omit<DaemonLedgerEvent, "event" | "outcome" | "disposition"> & {
+	event: string;
+	outcome?: string;
+	disposition?: string;
+};
+
+const isDaemonLedgerRow = wireObject<DaemonLedgerRow>({
+	at: wireNumber, pid: wireNumber, event: wireString,
+	reason: wireAbsentOptional(wireString), detail: wireAbsentOptional(wireString),
+	rss_mb: wireAbsentOptional(wireNumber), heap_mb: wireAbsentOptional(wireNumber),
+	ext_mb: wireAbsentOptional(wireNumber), uptime_s: wireAbsentOptional(wireNumber),
+	disposition: wireAbsentOptional(wireString), attempt_id: wireAbsentOptional(wireString),
+	outcome: wireAbsentOptional(wireString),
+});
 
 /** Planned = someone asked for this exit (a restart, a recycle, a stop).
  *  Unplanned = the daemon lost, and the guard had a gap. Unknown = a reason a
@@ -170,16 +187,10 @@ export function recordDaemonExit(projectRoot: string, reason: string, startedAtM
 	});
 }
 
-function parseEventLine(line: string): DaemonLedgerEvent | null {
+function parseEventLine(line: string): DaemonLedgerRow | null {
 	try {
 		const raw: unknown = JSON.parse(line);
-		if (typeof raw !== "object" || raw === null) return null;
-		// SAFETY: object-ness checked above; the three required fields are
-		// individually type-tested below before the row is trusted.
-		const e = raw as Partial<DaemonLedgerEvent>;
-		if (typeof e.at !== "number" || typeof e.pid !== "number" || typeof e.event !== "string") return null;
-		// SAFETY: at/pid/event verified as number/number/string on the line above.
-		return e as DaemonLedgerEvent;
+		return isDaemonLedgerRow(raw) ? raw : null;
 	} catch {
 		// A torn final line from a killed daemon is expected, not exceptional.
 		return null;
@@ -187,14 +198,14 @@ function parseEventLine(line: string): DaemonLedgerEvent | null {
 }
 
 /** The newest events, oldest→newest, from a bounded tail read. Never throws. */
-export function readRecentDaemonEvents(projectRoot: string): DaemonLedgerEvent[] {
+export function readRecentDaemonEvents(projectRoot: string): DaemonLedgerRow[] {
 	const path = ledgerPath(projectRoot);
 	try {
 		// Reverse-tail I/O is bounded BEFORE bytes become a JS string. The old
 		// implementation read the whole ever-growing ledger and only then sliced
 		// 8KB, defeating this function's memory contract.
 		const lines = readRecentLines(path, 10_000, READ_TAIL_BYTES).reverse();
-		const out: DaemonLedgerEvent[] = [];
+		const out: DaemonLedgerRow[] = [];
 		for (const line of lines) {
 			if (line.trim() === "") continue;
 			const evt = parseEventLine(line);
@@ -215,9 +226,9 @@ export function readRecentDaemonEvents(projectRoot: string): DaemonLedgerEvent[]
  * build-refresh watcher hands over by spawning `harness restart`, so the exit
  * itself only ever sees SIGTERM.
  */
-export function describeLastExit(events: DaemonLedgerEvent[], nowMs: number): string | null {
-	let lastExit: DaemonLedgerEvent | null = null;
-	let lastHandover: DaemonLedgerEvent | null = null;
+export function describeLastExit(events: DaemonLedgerRow[], nowMs: number): string | null {
+	let lastExit: DaemonLedgerRow | null = null;
+	let lastHandover: DaemonLedgerRow | null = null;
 	for (const e of events) {
 		if (e.event === "exit") lastExit = e;
 		if (e.event === "handover") lastHandover = e;
@@ -250,7 +261,7 @@ export function describeLastExit(events: DaemonLedgerEvent[], nowMs: number): st
  * was real and stale; the start after it was the news. Callers reporting an
  * outage should quote this, not the exit alone.
  */
-export function describeLastLedgerEvent(events: DaemonLedgerEvent[], nowMs: number): string | null {
+export function describeLastLedgerEvent(events: DaemonLedgerRow[], nowMs: number): string | null {
 	const last = events.length > 0 ? events[events.length - 1] : undefined;
 	if (last === undefined) return null;
 	const ageS = Math.max(0, Math.round((nowMs - last.at) / 1000));

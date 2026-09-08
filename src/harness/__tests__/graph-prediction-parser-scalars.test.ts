@@ -122,7 +122,7 @@ describe("parseInlineValue", () => {
 		const result = parseInlineValue(`[${items}]`);
 		expect(result.formatViolation).toBe(true);
 		expect(Array.isArray(result.value)).toBe(true);
-		expect((result.value as string[]).length).toBe(51);
+		expect(result).toHaveProperty(["value","length"], 51);
 	});
 
 	it("falls through to parseScalar for a plain non-list, non-sentinel value", () => {

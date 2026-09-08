@@ -15,12 +15,12 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { runHookEntry } from "./hook-entry.js";
 import * as stopSelfHeal from "./hook-entry-stop-self-heal.js";
 
 let tmp = "";
-let spy: ReturnType<typeof vi.spyOn>;
+let spy: MockInstance<typeof stopSelfHeal.attemptSelfHealOnStop>;
 
 beforeEach(() => {
 	tmp = mkdtempSync(join(tmpdir(), "interlinked-stop-heal-wiring-"));
@@ -46,7 +46,7 @@ describe("runHookEntry -> attemptSelfHealOnStop wiring — positive (must fire)"
 		});
 		expect(spy).toHaveBeenCalledTimes(1);
 		const [calledEvent] = spy.mock.calls[0] ?? [];
-		expect((calledEvent as { phase?: string } | undefined)?.phase).toBe("stop");
+		expect(calledEvent?.phase).toBe("stop");
 		// Non-blocking: the daemon-absent cold path still returns its ordinary
 		// allow decision, unaffected by whatever the self-heal call decided.
 		expect(result.exit_code).toBe(0);
@@ -64,7 +64,7 @@ describe("runHookEntry -> attemptSelfHealOnStop wiring — positive (must fire)"
 		});
 		expect(spy).toHaveBeenCalledTimes(1);
 		const [calledEvent] = spy.mock.calls[0] ?? [];
-		expect((calledEvent as { phase?: string } | undefined)?.phase).toBe("subagent-stop");
+		expect(calledEvent?.phase).toBe("subagent-stop");
 		expect(result.exit_code).toBe(0);
 	});
 });

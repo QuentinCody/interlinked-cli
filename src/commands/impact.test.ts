@@ -837,7 +837,7 @@ describe("impact evidence", () => {
 		process.stderr.write = ((chunk: string) => {
 			captured.push(chunk);
 			return true;
-		}) as typeof process.stderr.write;
+		});
 		let exitCode: number;
 		try {
 			exitCode = await impactCommand({ cwd: root, experimentManifest: "missing.json" });

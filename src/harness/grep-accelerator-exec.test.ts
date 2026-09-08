@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 // Coverage for grep-accelerator-exec.ts: the ripgrep executor
 // (runRipgrepOnCandidates + its internal processRgOutput), the rg binary
 // resolver (findRipgrep), and the matchInProcess ReDoS-safe-regex-null
@@ -119,7 +120,7 @@ describe("runRipgrepOnCandidates", () => {
 		fsMock.existsSync.mockImplementation((p: string) => p === "/opt/homebrew/bin/rg");
 		childProcessMock.spawnSync.mockReturnValue({ status: 1 });
 		runRipgrepOnCandidates("foo", ["a.ts"], "/tmp", false, false, CFG);
-		const args = childProcessMock.spawnSync.mock.calls[0]?.[1] as string[];
+		const args = nonNull(childProcessMock.spawnSync.mock.calls[0]?.[1]);
 		expect(args).toContain("--fixed-strings");
 	});
 
@@ -127,7 +128,7 @@ describe("runRipgrepOnCandidates", () => {
 		fsMock.existsSync.mockImplementation((p: string) => p === "/opt/homebrew/bin/rg");
 		childProcessMock.spawnSync.mockReturnValue({ status: 1 });
 		runRipgrepOnCandidates("foo", ["a.ts"], "/tmp", true, false, CFG);
-		const args = childProcessMock.spawnSync.mock.calls[0]?.[1] as string[];
+		const args = nonNull(childProcessMock.spawnSync.mock.calls[0]?.[1]);
 		expect(args).not.toContain("--fixed-strings");
 	});
 
@@ -135,7 +136,7 @@ describe("runRipgrepOnCandidates", () => {
 		fsMock.existsSync.mockImplementation((p: string) => p === "/opt/homebrew/bin/rg");
 		childProcessMock.spawnSync.mockReturnValue({ status: 1 });
 		runRipgrepOnCandidates("foo", ["a.ts"], "/tmp", true, true, CFG);
-		const args = childProcessMock.spawnSync.mock.calls[0]?.[1] as string[];
+		const args = nonNull(childProcessMock.spawnSync.mock.calls[0]?.[1]);
 		expect(args).toContain("--ignore-case");
 	});
 
@@ -143,7 +144,7 @@ describe("runRipgrepOnCandidates", () => {
 		fsMock.existsSync.mockImplementation((p: string) => p === "/opt/homebrew/bin/rg");
 		childProcessMock.spawnSync.mockReturnValue({ status: 1 });
 		runRipgrepOnCandidates("foo", ["a.ts"], "/tmp", true, false, CFG);
-		const args = childProcessMock.spawnSync.mock.calls[0]?.[1] as string[];
+		const args = nonNull(childProcessMock.spawnSync.mock.calls[0]?.[1]);
 		expect(args).not.toContain("--ignore-case");
 	});
 

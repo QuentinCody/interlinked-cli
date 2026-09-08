@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../lib/json-types.js";
 // ===========================================
 // SandboxJob wire contract — cloud runtime-oracle jobs
 // ===========================================
@@ -73,8 +74,8 @@ const VALID_RISK_TIERS: ReadonlySet<string> = new Set<SandboxRiskTier>([
  * reintroduce the command channel this contract forbids).
  */
 export function isValidSandboxJobRequest(v: unknown): v is SandboxJobRequest {
-	if (v === null || typeof v !== "object") return false;
-	const r = v as Record<string, unknown>;
+	if (!isJsonObject(v)) return false;
+	const r = v;
 	if (!hasValidScalarFields(r)) return false;
 	if (!Array.isArray(r.overlays) || !overlaysAreValid(r.overlays)) return false;
 	// The security invariant: reject any smuggled execution channel.
@@ -104,8 +105,8 @@ function hasValidScalarFields(r: Record<string, unknown>): boolean {
  *  object. */
 function overlaysAreValid(overlays: unknown[]): boolean {
 	for (const o of overlays) {
-		if (o === null || typeof o !== "object") return false;
-		const fo = o as Record<string, unknown>;
+		if (!isJsonObject(o)) return false;
+		const fo = o;
 		if (typeof fo.path !== "string" || typeof fo.content !== "string") return false;
 	}
 	return true;

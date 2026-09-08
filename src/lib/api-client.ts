@@ -6,7 +6,7 @@
 
 import { resolveAuthToken, resolveAuthTokenWithRefresh } from "./auth.js";
 import { type ResolvedConfig, resolveConfig } from "./config.js";
-import type { JsonObject } from "./json-types.js";
+import { isJsonObject, type JsonObject } from "./json-types.js";
 
 /** Timeout for the /health reachability ping, in milliseconds. */
 const HEALTH_PING_TIMEOUT_MS = 5000;
@@ -17,6 +17,37 @@ const HEALTH_PING_TIMEOUT_MS = 5000;
  * generous enough for larger payloads (activity feeds, timelines).
  */
 const API_REQUEST_TIMEOUT_MS = 30000;
+
+function apiErrorMessage(result: unknown): string {
+	if (!isJsonObject(result)) return String(result);
+	if (isJsonObject(result.error) && typeof result.error.message === "string" && result.error.message) return result.error.message;
+	if (typeof result.message === "string" && result.message) return result.message;
+	return JSON.stringify(result);
+}
+
+interface WorkspaceSummary {
+	id: string;
+	name: string;
+	role?: string;
+	display_name?: string;
+}
+
+function parseWorkspace(value: unknown): WorkspaceSummary {
+	if (!isJsonObject(value) || typeof value.id !== "string" || typeof value.name !== "string") {
+		throw new Error("Workspace response contains an invalid workspace");
+	}
+	const workspace: WorkspaceSummary = { id: value.id, name: value.name };
+	if (typeof value.role === "string") workspace.role = value.role;
+	if (typeof value.display_name === "string") workspace.display_name = value.display_name;
+	return workspace;
+}
+
+function parseWorkspaces(value: unknown): WorkspaceSummary[] {
+	if (!isJsonObject(value)) throw new Error("Workspace response must be an object");
+	if (value.workspaces == null) return [];
+	if (!Array.isArray(value.workspaces)) throw new Error("Workspace response must contain a workspace array");
+	return value.workspaces.map(parseWorkspace);
+}
 
 /**
  * Timeout for fire-and-forget hook-event POSTs, in milliseconds. Shorter than
@@ -92,7 +123,9 @@ export class InterlinkedClient {
 	 * Returns the parsed tool result (already unwrapped from JSON-RPC).
 	 * Throws on errors.
 	 */
-	async callTool<T = unknown>(name: string, args: JsonObject = {}): Promise<T> {
+	callTool(name: string, args?: JsonObject): Promise<unknown>;
+	callTool<T>(name: string, args: JsonObject, parse: (value: unknown) => T): Promise<T>;
+	async callTool(name: string, args: JsonObject = {}, parse?: (value: unknown) => unknown): Promise<unknown> {
 		await this.ensureToken();
 		const isLocalDev = this.isLocalDevServer();
 
@@ -140,20 +173,14 @@ export class InterlinkedClient {
 			);
 		}
 
-		const result = await res.json();
+		const result: unknown = await res.json();
 
 		if (!res.ok) {
-			const errMsg =
-				typeof result === "object" && result !== null
-					? (result as { error?: { message?: string }; message?: string }).error
-							?.message ||
-						(result as { message?: string }).message ||
-						JSON.stringify(result)
-					: String(result);
+			const errMsg = apiErrorMessage(result);
 			throw new Error(`API error (${res.status}): ${errMsg}`);
 		}
 
-		return result as T;
+		return parse ? parse(result) : result;
 	}
 
 	/**
@@ -190,10 +217,7 @@ export class InterlinkedClient {
 			throw new Error(`API error (${res.status}): ${text}`);
 		}
 
-		const data = (await res.json()) as {
-			workspaces?: Array<{ id: string; name: string; role?: string; display_name?: string }>;
-		};
-		return data.workspaces || [];
+		return parseWorkspaces(await res.json());
 	}
 
 	/**
@@ -277,8 +301,8 @@ export class InterlinkedClient {
 					serverReachable: true,
 					authenticated: true,
 					serverVersion:
-						typeof result === "object" && result !== null
-							? (result as { version?: string }).version
+						isJsonObject(result) && typeof result.version === "string"
+							? result.version
 							: undefined,
 				};
 			}
@@ -293,8 +317,8 @@ export class InterlinkedClient {
 				serverReachable: true,
 				authenticated: true,
 				serverVersion:
-					typeof result === "object" && result !== null
-						? (result as { version?: string }).version
+					isJsonObject(result) && typeof result.version === "string"
+						? result.version
 						: undefined,
 			};
 		} catch (e) {

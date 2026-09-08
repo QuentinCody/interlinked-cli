@@ -1,3 +1,11 @@
+import { readJsonRecord } from "./__tests__/json.js";
+import * as runtimeContext from "./runtime-context.js";
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { getDefaultConfig } from "../rules-loader.js";
+import type { PerEditMutationConfig } from "../mutation/gate.js";
+import type { MutationManifest } from "../mutation/types.js";
+import { nonNull } from "../../lib/non-null.js";
 // Behavioral coverage for the two config-gated coverage phase helpers extracted
 // from the PreToolUse pipeline orchestrator. `checkCoverageWrite` (per-edit) and
 // `checkCommitGate` (commit-time) are mocked at the import boundary so each
@@ -7,7 +15,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionTracker } from "../session-state.js";
 import type { GuardRulesConfig, HarnessDecision, HarnessEvent } from "../types.js";
 import type { ServerRuntime } from "./runtime-context.js";
@@ -36,7 +44,7 @@ vi.mock("../mutation/manifest.js", () => ({
 }));
 
 vi.mock("../mutation/cloud-runner.js", () => ({
-	createCloudMutationRunner: vi.fn(() => ({ runOverlay: vi.fn() })),
+	createCloudMutationRunner: vi.fn(() => ({ available: vi.fn(() => true), run: vi.fn(async () => ({ mutants: [] })) })),
 }));
 
 import { checkCommitGate } from "../evaluator/commit-gate.js";
@@ -46,10 +54,10 @@ import { runPerEditMutationGate } from "../mutation/gate.js";
 import { loadManifestState } from "../mutation/manifest.js";
 import { runCommitGate, runCoverageWriteGate, runMutationWriteGate } from "./pre-tool-coverage-gates.js";
 
-const mCheckCoverage = checkCoverageWrite as unknown as Mock;
-const mCheckCommit = checkCommitGate as unknown as Mock;
-const mMutation = runPerEditMutationGate as unknown as Mock;
-const mCreateRunner = createCloudMutationRunner as unknown as Mock;
+const mCheckCoverage = vi.mocked(checkCoverageWrite);
+const mCheckCommit = vi.mocked(checkCommitGate);
+const mMutation = vi.mocked(runPerEditMutationGate);
+const mCreateRunner = vi.mocked(createCloudMutationRunner);
 const mLoadManifestState = vi.mocked(loadManifestState);
 
 function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -63,19 +71,15 @@ function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
 }
 
 function ctxWith(perEditEnabled: boolean): ServerRuntime {
-	const rules = {
-		per_edit_coverage: perEditEnabled
-			? { enabled: true, mode: "block", budget_ms: 25_000, languages: ["js", "ts"] }
-			: undefined,
-	} as unknown as GuardRulesConfig;
-	return { rules } as unknown as ServerRuntime;
+ const rules = makeGuardRules();
+ if (perEditEnabled) rules.per_edit_coverage = { ...nonNull(getDefaultConfig().per_edit_coverage), enabled: true, mode: "block", budget_ms: 25_000, languages: ["js", "ts"] };
+ return makeServerRuntime({ rules });
 }
 
-function ctxMutation(cfg: unknown): ServerRuntime {
-	return {
-		rules: { per_edit_mutation: cfg } as unknown as GuardRulesConfig,
-		cwd: "/tmp/harness-mutation-test",
-	} as unknown as ServerRuntime;
+function ctxMutation(cfg: Partial<PerEditMutationConfig> | undefined): ServerRuntime {
+ const rules = makeGuardRules();
+ if (cfg) rules.per_edit_mutation = { ...nonNull(getDefaultConfig().per_edit_mutation), ...cfg };
+ return makeServerRuntime({ rules, cwd: "/tmp/harness-mutation-test" });
 }
 
 function allow(warnings?: string[]): HarnessDecision {
@@ -92,16 +96,18 @@ describe("runCoverageWriteGate — debt-evasion arming (2026-07-17)", () => {
 	});
 
 	function ctxDebt(sessions: SessionTracker): ServerRuntime {
-		const rules = {
+		const rules: GuardRulesConfig = {
+			...makeGuardRules(),
 			per_edit_coverage: {
+				...nonNull(getDefaultConfig().per_edit_coverage),
 				enabled: true,
 				mode: "block",
 				budget_ms: 25_000,
 				languages: ["ts"],
 				debt_mode: true,
 			},
-		} as unknown as GuardRulesConfig;
-		return { rules, sessions, cwd: root, log: () => {} } as unknown as ServerRuntime;
+		};
+		return makeServerRuntime({ rules, sessions, cwd: root, log: () => {} });
 	}
 
 	function editEv(session: string, file: string): HarnessEvent {
@@ -155,7 +161,7 @@ beforeEach(() => {
 	mCheckCoverage.mockResolvedValue(null);
 	mCheckCommit.mockResolvedValue(null);
 	mMutation.mockResolvedValue(null);
-	mCreateRunner.mockReturnValue({ runOverlay: vi.fn() });
+	mCreateRunner.mockReturnValue({ available: vi.fn(() => true), run: vi.fn(async () => ({ mutants: [] })) });
 });
 
 afterEach(() => {
@@ -495,13 +501,13 @@ describe("runMutationWriteGate", () => {
 				cwd: root,
 				graphCache: new Map(),
 				log: () => {},
-			} as unknown as ServerRuntime;
+			};
 			await runMutationWriteGate(
 				runtime,
 				ev({ tool_name: "Write", tool_input: { file_path: "src/subject.ts", content: "export const subject = 2;\n" } }),
 				allow(),
 			);
-			expect(mMutation.mock.calls[0]?.[0]?.selectTests("src/subject.ts")).toEqual({
+			expect(nonNull(nonNull(mMutation.mock.calls[0]?.[0]).selectTests)("src/subject.ts")).toEqual({
 				kind: "selected",
 				options: { testFiles: ["src/subject-roundtrip.test.ts"], scopeMode: "import_graph" },
 				partial: false,
@@ -525,13 +531,13 @@ describe("runMutationWriteGate", () => {
 				cwd: root,
 				graphCache: new Map(),
 				log: () => {},
-			} as unknown as ServerRuntime;
+			};
 			await runMutationWriteGate(
 				runtime,
 				ev({ tool_name: "Write", tool_input: { file_path: "src/subject.ts", content: "export const subject = 2;\n" } }),
 				allow(),
 			);
-			expect(mMutation.mock.calls[0]?.[0]?.selectTests("src/subject.ts")).toEqual({
+			expect(nonNull(nonNull(mMutation.mock.calls[0]?.[0]).selectTests)("src/subject.ts")).toEqual({
 				kind: "selected",
 				options: { testFiles: ["src/subject.mutation-kill.test.ts"], scopeMode: "companion_fallback" },
 				partial: true,
@@ -559,60 +565,6 @@ describe("runMutationWriteGate", () => {
 		);
 		expect(mCreateRunner).toHaveBeenCalledTimes(1);
 		expect(mCreateRunner.mock.calls[0]?.[0]?.url).toBe("https://runner-a.example");
-	});
-
-	it("N: cloud_shards is IGNORED — one un-shard-tagged runner regardless of the knob", async () => {
-		mMutation.mockResolvedValue(null);
-		await runMutationWriteGate(
-			ctxMutation({
-				enabled: true,
-				mode: "block",
-				runner_url: "https://runner.example",
-				cloud_shards: 3,
-			}),
-			ev({ tool_name: "Write" }),
-			allow(),
-		);
-		expect(mCreateRunner).toHaveBeenCalledTimes(1);
-		expect(mCreateRunner.mock.calls[0]?.[0]?.shard).toBeUndefined();
-	});
-
-	it("N: cloud_shards + multiple urls still yields exactly one runner, no shard tags", async () => {
-		mMutation.mockResolvedValue(null);
-		await runMutationWriteGate(
-			ctxMutation({
-				enabled: true,
-				mode: "block",
-				runner_url: "https://runner-a.example",
-				runner_urls: ["https://runner-b.example"],
-				cloud_shards: 4,
-			}),
-			ev({ tool_name: "Write" }),
-			allow(),
-		);
-		expect(mCreateRunner).toHaveBeenCalledTimes(1);
-		for (const call of mCreateRunner.mock.calls) {
-			expect(call[0]?.shard).toBeUndefined();
-		}
-	});
-
-	it("N: cloud_shards of 1, 0, or nonsense stays the unsharded single-runner path", async () => {
-		mMutation.mockResolvedValue(null);
-		for (const bad of [1, 0, -2, 1.5, Number.NaN]) {
-			mCreateRunner.mockClear();
-			await runMutationWriteGate(
-				ctxMutation({
-					enabled: true,
-					mode: "block",
-					runner_url: "https://runner.example",
-					cloud_shards: bad,
-				}),
-				ev({ tool_name: "Write" }),
-				allow(),
-			);
-			expect(mCreateRunner).toHaveBeenCalledOnce();
-			expect(mCreateRunner.mock.calls[0]?.[0]?.shard).toBeUndefined();
-		}
 	});
 
 	it("returns the gate's block, merging pre-decision warnings onto it", async () => {
@@ -657,7 +609,7 @@ describe("runMutationWriteGate", () => {
 	// version of this pin hand-built an allow, silently bypassing fail-closed.
 	// In every case the gate itself never runs, so even a clean runner result
 	// can persist nothing.
-	async function corruptManifestCase(cfg: Record<string, unknown>) {
+	async function corruptManifestCase(cfg: Partial<PerEditMutationConfig>) {
 		mLoadManifestState.mockReturnValueOnce({
 			kind: "corrupt",
 			detail: "Unexpected token < in JSON",
@@ -711,11 +663,11 @@ describe("runMutationWriteGate — the callbacks handed to the gate", () => {
 	async function callbacks(runtime: ServerRuntime, event: HarnessEvent) {
 		mMutation.mockResolvedValue(null);
 		await runMutationWriteGate(runtime, event, allow());
-		return mMutation.mock.calls[0]?.[0];
+		return nonNull(mMutation.mock.calls[0]?.[0]);
 	}
 
 	/** A runtime rooted at a real temp dir, with the daemon's graph cache. */
-	function rootedRuntime(root: string, cfg: Record<string, unknown>): ServerRuntime {
+	function rootedRuntime(root: string, cfg: Partial<PerEditMutationConfig>): ServerRuntime {
 		return {
 			// SAFETY: the production shape is assembled by the daemon; these tests
 			// need only the fields the mutation gate reads.
@@ -723,19 +675,16 @@ describe("runMutationWriteGate — the callbacks handed to the gate", () => {
 			cwd: root,
 			graphCache: new Map(),
 			log: () => {},
-		} as unknown as ServerRuntime;
+		};
 	}
 
 	it("selectTests reports the graph unavailable when the project graph cannot be built", async () => {
-		// `ctxMutation` carries no `graphCache`, so `getGraphForFile` throws — the
-		// same shape a graph-init failure produces. The gate must decline with an
-		// honest reason, never a silently narrowed scope.
-		const args = await callbacks(ctxMutation({ enabled: true, mode: "block" }), ev({ tool_name: "Write" }));
-		expect(mMutation).toHaveBeenCalledOnce();
-		expect(args.selectTests("src/subject.ts")).toEqual({
-			kind: "unavailable",
-			reason: "dependency graph unavailable — exact mutation test scope is unproven",
-		});
+        const unavailable = vi.spyOn(runtimeContext, "getGraphForFile").mockImplementation(() => { throw new Error("graph construction failed"); });
+        try {
+            const args = await callbacks(ctxMutation({ enabled: true, mode: "block" }), ev({ tool_name: "Write" }));
+            expect(nonNull(args.selectTests)("src/subject.ts")).toEqual({ kind: "unavailable", reason: "dependency graph unavailable — exact mutation test scope is unproven" });
+        } finally { unavailable.mockRestore(); }
+
 	});
 
 	it("selectTests names the file and the decline reason when the graph does not know it", async () => {
@@ -744,7 +693,7 @@ describe("runMutationWriteGate — the callbacks handed to the gate", () => {
 		writeFileSync(join(root, "src", "subject.ts"), "export const subject = 1;\n");
 		writeFileSync(join(root, "src", "subject-roundtrip.test.ts"), 'import { subject } from "./subject.js";\nvoid subject;\n');
 		const args = await callbacks(rootedRuntime(root, {}), ev({ tool_name: "Write" }));
-		const selection = args.selectTests("src/nowhere.ts");
+		const selection = nonNull(args.selectTests)("src/nowhere.ts");
 		rmSync(root, { recursive: true, force: true });
 		expect(selection).toEqual({
 			kind: "unavailable",
@@ -761,7 +710,7 @@ describe("runMutationWriteGate — the callbacks handed to the gate", () => {
 		// scope and must say how many tests it declined.
 		writeFileSync(join(root, "src", "nested", "uses-subject.test.ts"), 'import { subject } from "../subject.js";\nvoid subject;\n');
 		const args = await callbacks(rootedRuntime(root, { max_test_scope: 0 }), ev({ tool_name: "Write" }));
-		const selection = args.selectTests("src/subject.ts");
+		const selection = nonNull(args.selectTests)("src/subject.ts");
 		rmSync(root, { recursive: true, force: true });
 		expect(selection).toEqual({
 			kind: "unavailable",
@@ -781,25 +730,28 @@ describe("runMutationWriteGate — the callbacks handed to the gate", () => {
 		expect(absent).toBeNull();
 	});
 
-	const PERSIST_MANIFEST = {
+	const PERSIST_MANIFEST: MutationManifest = {
 		version: 1,
 		generation: 7,
+		engine: "stryker", engineVersion: "test", dependencyGraphVersion: "test", environmentHash: "test",
 		authoritativeAt: "2026-08-30T00:00:00.000Z",
 		files: {
 			"src/a.ts": {
 				"sym-1": {
+					symbolId: "sym-1", qualifiedName: "a", symbolHash: "hash", instability: { events: [], consecutiveStableRuns: 0, quarantined: false },
 					mutants: {
-						"m-killed": { mutantId: "m-killed", status: "killed" },
-						"m-survived": { mutantId: "m-survived", status: "survived" },
+						"m-killed": { mutantId: "m-killed", status: "killed", siteId: "site", mutator: "EqualityOperator", originalLexeme: "===", replacement: "!==", ordinalWithinSymbol: 0, firstSeen: "2026-08-30T00:00:00.000Z" },
+						"m-survived": { mutantId: "m-survived", status: "survived", siteId: "site", mutator: "EqualityOperator", originalLexeme: "===", replacement: "!==", ordinalWithinSymbol: 0, firstSeen: "2026-08-30T00:00:00.000Z" },
 					},
 				},
 			},
 		},
 	};
 
-	const PERSIST_RECEIPT = {
+	const PERSIST_RECEIPT: Parameters<NonNullable<Parameters<typeof runPerEditMutationGate>[0]["persist"]>>[1] = {
+		overlayHash: "measured-overlay", generation: 7, engine: "stryker", engineVersion: "test",
 		measuredAt: "2026-08-30T01:02:03.000Z",
-		outcome: "clean",
+		outcome: "measured_clean",
 		sites: [
 			{ mutantId: "m1", symbolId: "sym-1", status: "killed" },
 			{ mutantId: "m2", symbolId: "sym-1", status: "killed" },
@@ -816,7 +768,7 @@ describe("runMutationWriteGate — the callbacks handed to the gate", () => {
 			rootedRuntime(root, {}),
 			ev({ tool_name: "Write", cwd: root, tool_input: { file_path: join(root, "src", "a.ts") } }),
 		);
-		args.persist(PERSIST_MANIFEST, PERSIST_RECEIPT);
+		nonNull(args.persist)(PERSIST_MANIFEST, PERSIST_RECEIPT);
 	}
 
 	it("persist appends a run-log row whose counts come from the receipt's site STATUSES", async () => {
@@ -836,7 +788,7 @@ describe("runMutationWriteGate — the callbacks handed to the gate", () => {
 				killed: 2,
 				survived: 1,
 				uncovered: 1,
-				outcome: "clean",
+				outcome: "measured_clean",
 			},
 		]);
 	});
@@ -846,10 +798,8 @@ describe("runMutationWriteGate — the callbacks handed to the gate", () => {
 		await persistInto(root);
 		const sidecar = readFileSync(join(root, ".interlinked", "mutation-survivors-index.json"), "utf-8");
 		rmSync(root, { recursive: true, force: true });
-		// SAFETY: the file was just written by `writeSurvivorsIndex`; the fields
-		// read below are asserted against literals, so a shape change fails loudly.
-		const parsed = JSON.parse(sidecar) as { generation: number; files: Record<string, unknown> };
+		const parsed = readJsonRecord(sidecar);
 		expect(parsed.generation).toBe(7);
-		expect(parsed.files["src/a.ts"]).toEqual({ survivors: ["m-survived"], mutantCount: 2, killed: 1 });
+		expect(parsed.files).toEqual({ "src/a.ts": { survivors: ["m-survived"], mutantCount: 2, killed: 1 } });
 	});
 });

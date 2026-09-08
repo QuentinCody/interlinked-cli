@@ -150,9 +150,9 @@ function decodeBaselineValue(
 		return { fraction: value, scope: null };
 	}
 	if (typeof value === "object" && value !== null) {
-		const fraction = (value as { f?: unknown }).f;
+		const fraction = value.f;
 		if (typeof fraction === "number" && Number.isFinite(fraction)) {
-			const scope = (value as { scope?: unknown }).scope;
+			const scope = value.scope;
 			return { fraction, scope: typeof scope === "string" ? scope : null };
 		}
 	}

@@ -1,3 +1,5 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 import {
 	existsSync,
 	mkdirSync,
@@ -99,7 +101,7 @@ describe("per-file coverage baseline", () => {
 		expect(readFileCoverageBaselineEntry(root, "src/none.ts")).toBeNull();
 		writeFileCoverageBaseline(root, "src/a.ts", 0.5, "full");
 		const path = join(root, ".interlinked", "coverage-edit-baseline.json");
-		const data = JSON.parse(readFileSync(path, "utf-8")) as Record<string, unknown>;
+		const data = parseWire(JSON.parse(readFileSync(path, "utf-8")), wireRecord(wireUnknown), "test JSON value");
 		data["src/bad.ts"] = { scope: "full" }; // no fraction
 		writeFileSync(path, JSON.stringify(data));
 		expect(readFileCoverageBaselineEntry(root, "src/bad.ts")).toBeNull();
@@ -131,7 +133,7 @@ describe("obligation log", () => {
 		const path = join(root, ".interlinked", "coverage-obligations.jsonl");
 		const lines = readFileSync(path, "utf-8").trim().split("\n");
 		expect(lines).toHaveLength(1);
-		expect(JSON.parse(lines[0] as string)).toEqual(obligation);
+		expect(JSON.parse(nonNull(lines[0]))).toEqual(obligation);
 	});
 
 	it("appends successive obligations rather than overwriting", () => {

@@ -1,3 +1,4 @@
+import { parseWire, wireObject, wireString } from "../lib/value-validation.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,7 +63,7 @@ describe("isHarnessSocketReady", () => {
 	it("accepts framed readiness only after a valid daemon.health response", async () => {
 		const path = await listen((socket) => {
 			socket.once("data", (chunk: Buffer) => {
-				const request = JSON.parse(chunk.toString("utf8").trim()) as { id: string };
+				const request = parseWire(JSON.parse(chunk.toString("utf8").trim()), wireObject({ "id": wireString }), "test JSON value");
 				socket.end(
 					encodeFrame({
 						schema_version: "1",
@@ -112,7 +113,7 @@ describe("isHarnessSocketReady", () => {
 	it("rejects a framed listener whose health body only resembles the contract", async () => {
 		const path = await listen((socket) => {
 			socket.once("data", (chunk: Buffer) => {
-				const request = JSON.parse(chunk.toString("utf8").trim()) as { id: string };
+				const request = parseWire(JSON.parse(chunk.toString("utf8").trim()), wireObject({ "id": wireString }), "test JSON value");
 				// Deliberately bypass the typed encoder: this is an untrusted peer
 				// returning a schema-shaped but incomplete health response.
 				socket.end(

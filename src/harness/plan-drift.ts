@@ -23,7 +23,7 @@
 //   6. drift_pct: missing_count / declared_count (0 when declared_count = 0).
 
 import { nonNull } from "../lib/non-null.js";
-import type { CapturedPlan, PlanStep } from "./types/plan.js";
+import type { PlanStep } from "./types/plan.js";
 import type { SessionTrajectory } from "./types/session.js";
 
 /** Tokens shared across English plan prose that carry no signal for
@@ -189,13 +189,7 @@ function matchStepsToActions(steps: readonly PlanStep[], pool: PoolEntry[]): Ste
  * mirrors the temporal order an agent would typically execute them.
  */
 export function detectPlanDrift(session: SessionTrajectory): PlanDriftReport | null {
-	// TODO(item-2-coordination): SessionTrajectory.declared_plan is added
-	// by Item #2 of the agent-quality rollout. Until that lands in main,
-	// access via a defensive cast so this module type-checks against the
-	// pre-merge session.ts shape. The merger will resolve the cast.
-	const declaredPlan = (
-		session as SessionTrajectory & { declared_plan?: CapturedPlan }
-	).declared_plan;
+	const declaredPlan = session.declared_plan;
 	if (!declaredPlan) return null;
 
 	const declaredCount = declaredPlan.steps.length;

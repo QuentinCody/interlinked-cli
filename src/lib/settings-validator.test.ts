@@ -130,10 +130,8 @@ describe("validateSettingsFile + stripMalformedRules", () => {
 		);
 		const stripped = stripMalformedRules(path);
 		expect(stripped).toBe(2);
-		const after = JSON.parse(readFileSync(path, "utf-8")) as {
-			permissions: { allow: string[] };
-		};
-		expect(after.permissions.allow).toEqual([
+		const after: unknown = JSON.parse(readFileSync(path, "utf-8"));
+		expect(after).toHaveProperty("permissions.allow", [
 			"Bash(grep *)",
 			"Bash(git *)",
 			"Bash(node *)",

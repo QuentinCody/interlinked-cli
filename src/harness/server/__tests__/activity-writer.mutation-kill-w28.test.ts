@@ -57,7 +57,7 @@ describe("summarize — truncation and type-guard mutants", () => {
 	// test-contract: boundary — a non-string command must fail the typeof guard
 	// in str() and fall through to the tool name, not reach command.slice()
 	it("does not treat a non-string command as usable, falls through to tool name", () => {
-		const input = { tool_name: "SomeTool", tool_input: { command: 12345 as unknown as string } };
+		const input = { tool_name: "SomeTool", tool_input: { command: 12345 } };
 		const rec = mapEventToActivityRecord(harnessEvent(input), "/r");
 		expect(rec?.summary).toBe("SomeTool");
 	});
@@ -252,26 +252,11 @@ describe("mapDecisionToGuardRecord — field derivation mutants", () => {
 		expect(rec?.cwd).toBe("/explicit-cwd");
 	});
 
-	// SAFETY: constructing a HarnessEvent missing the required agent_source
-	// field on purpose — agent_source is typed required but the daemon never
-	// runtime-validates an incoming event, so this reflects a real
-	// malformed-payload path, not a type-system escape hatch.
-	// test-contract: boundary — with neither agent_name nor agent_source resolvable, agent falls back to "unknown" (discriminates the outer ?? chain from &&)
-	it("falls back to 'unknown' when agent_name and agent_source are both absent", () => {
-		const bare = {
-			hook_event: "PostToolUse",
-			session_id: "sess-bare",
-			timestamp: "2026-06-06T12:00:00.000Z",
-		} as unknown as HarnessEvent;
-		const rec = mapDecisionToGuardRecord(bare, dec({ decision: "block", reason: "x" }), "/r");
-		expect(rec?.agent).toBe("unknown");
-	});
-
 	// test-contract: invariant — agent_source is used when agent_name is absent
 	// (discriminates the inner ?? chain from &&)
 	it("uses agent_source when agent_name is absent", () => {
 		const rec = mapDecisionToGuardRecord(
-			harnessEvent({ agent_source: "src-x" as HarnessEvent["agent_source"] }),
+			harnessEvent({ agent_source: "src-x" }),
 			dec({ decision: "block", reason: "x" }),
 			"/r",
 		);

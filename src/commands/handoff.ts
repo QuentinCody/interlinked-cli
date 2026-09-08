@@ -5,7 +5,7 @@
 
 import { getClient } from "../lib/api-client.js";
 import { c, header, kvLine } from "../lib/formatter.js";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 
 export async function handoffCommand(
@@ -14,6 +14,8 @@ export async function handoffCommand(
 	opts?: {
 		includeFiles?: boolean;
 		json?: boolean;
+		short?: boolean;
+		full?: boolean;
 	},
 ): Promise<void> {
 	const mode = getOutputMode(opts || {});
@@ -28,9 +30,10 @@ export async function handoffCommand(
 		// Step 1: Get work context from source agent
 		let context: JsonObject | null = null;
 		try {
-			context = await client.callTool<JsonObject>("get_work_context", {
+			const result = await client.callTool("get_work_context", {
 				agent_name: fromAgent,
 			});
+			if (isJsonObject(result)) context = result;
 		} catch (_) {
 			/* intentional: work context is optional, continue handoff without it */
 		}

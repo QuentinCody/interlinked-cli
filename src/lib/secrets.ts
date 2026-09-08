@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { getConfigDir } from "./config.js";
 import type { JsonObject } from "./json-types.js";
+import { wireAbsentOptional, wireArray, wireBoolean, wireNumber, wireObject, wireString } from "./value-validation.js";
 
 // ===========================================
 // Types
@@ -26,6 +27,12 @@ interface ScrubConfig {
 	entropy_threshold?: number;
 	entropy_min_length?: number;
 }
+
+const isScrubConfig = wireObject<ScrubConfig>({
+	enabled: wireAbsentOptional(wireBoolean), extra_patterns: wireAbsentOptional(wireArray(wireString)),
+	ignore_patterns: wireAbsentOptional(wireArray(wireString)), entropy_threshold: wireAbsentOptional(wireNumber),
+	entropy_min_length: wireAbsentOptional(wireNumber),
+});
 
 // ===========================================
 // Patterns
@@ -118,7 +125,8 @@ export function loadScrubConfig(cwd?: string): ScrubConfig {
 		return { enabled: true };
 	}
 	try {
-		return JSON.parse(readFileSync(configPath, "utf-8")) as ScrubConfig;
+		const parsed: unknown = JSON.parse(readFileSync(configPath, "utf-8"));
+		return isScrubConfig(parsed) ? parsed : { enabled: true };
 	} catch (_err) {
 		/* intentional: malformed scrub.json — fall back to default-enabled config */
 		return { enabled: true };
@@ -376,7 +384,7 @@ export function containsSecrets(text: string): boolean {
 // Stats
 // ===========================================
 
-const scrubStats = { total_scrubbed: 0, by_type: {} as Record<string, number> };
+const scrubStats: { total_scrubbed: number; by_type: Record<string, number> } = { total_scrubbed: 0, by_type: {} };
 
 export function recordScrub(types: string[]): void {
 	scrubStats.total_scrubbed++;

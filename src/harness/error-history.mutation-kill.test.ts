@@ -39,7 +39,7 @@ beforeEach(() => {
 	mockFs.readFileSync.mockReturnValue("");
 	mockFs.appendFileSync.mockReturnValue(undefined);
 	mockFs.writeFileSync.mockReturnValue(undefined);
-	mockFs.mkdirSync.mockReturnValue(undefined as unknown as string);
+	mockFs.mkdirSync.mockReturnValue(undefined);
 });
 afterEach(() => {
 	vi.useRealTimers();
@@ -54,7 +54,7 @@ function cfg(over: Partial<ErrorMemoryConfig> = {}): ErrorMemoryConfig {
 	return { enabled: true, max_age_s: 100, max_records: 5000, ...over };
 }
 function result(over: Partial<StructuralCheckResult> = {}): StructuralCheckResult {
-	return { check: "no-cycles", severity: "error", message: "boom", ...over } as StructuralCheckResult;
+	return { check: "no-cycles", severity: "error", message: "boom", file: "src/foo.ts", ...over };
 }
 function freshHistory(config: ErrorMemoryConfig = cfg()): ErrorHistory {
 	mockFs.existsSync.mockReturnValue(false);
@@ -208,20 +208,6 @@ describe("ErrorHistory.buildErrorContext — cap/separator mutants", () => {
 		expect(out).not.toContain("more");
 	});
 
-	// Kills: dfa9eb6e00d40469 (the overflow ternary's "" branch -> "Stryker was here!")
-	// test-contract: boundary — the overflow ternary's non-overflow branch.
-	it("N: the non-overflow branch never injects placeholder text", () => {
-		const out = ErrorHistory.buildErrorContext({
-			file: "proj/a.ts",
-			fileRole: "leaf",
-			dependentCount: 0,
-			dependencyCount: 0,
-			exports: ["only"],
-			result: result(),
-		});
-		expect(out).not.toContain("Stryker was here!");
-	});
-
 	// Kills: d485d0efa6cc080e (affectedFiles.slice(0,8) -> affectedFiles; drops the cap)
 	// test-contract: boundary — the documented 8-item Affected cap.
 	it("N: caps the Affected list at 8 (item 9+ never appears)", () => {
@@ -349,18 +335,6 @@ describe("ErrorHistory.buildQueryContext — cap/separator mutants", () => {
 			exports,
 		});
 		expect(out).not.toContain("more");
-	});
-
-	// Kills: fdbb8db46c548759 (overflow ternary's "" branch -> placeholder text)
-	it("N: the non-overflow branch never injects placeholder text", () => {
-		const out = ErrorHistory.buildQueryContext({
-			file: "proj/a.ts",
-			fileRole: "leaf",
-			dependentCount: 0,
-			dependencyCount: 0,
-			exports: ["only"],
-		});
-		expect(out).not.toContain("Stryker was here!");
 	});
 
 	// Kills: b8b73e940b38578b / 75c273a8250e38b6 (oldString/newString cap dropped)

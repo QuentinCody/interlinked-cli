@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireString } from "../../lib/value-validation.js";
 import type { SpawnSyncReturns } from "node:child_process";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -70,7 +71,7 @@ function mkSpawnResult(opts: {
 		status: opts.status === undefined ? 0 : opts.status,
 		signal: null,
 		...(opts.error ? { error: opts.error } : {}),
-	} as SpawnSyncReturns<string>;
+	};
 }
 
 beforeEach(() => {
@@ -123,7 +124,7 @@ describe("runPytestDispatcher", () => {
 				status: null,
 				error: Object.assign(new Error("ENOENT"), {
 					code: "ENOENT",
-				}) as NodeJS.ErrnoException,
+				}),
 			}),
 		);
 		const out = await dispatcher({
@@ -145,7 +146,7 @@ describe("runPytestDispatcher", () => {
 				status: 1,
 				error: Object.assign(new Error("ENOENT"), {
 					code: "ENOENT",
-				}) as NodeJS.ErrnoException,
+				}),
 			}),
 		);
 		const out = await dispatcher({
@@ -318,7 +319,7 @@ describe("runCargoTestDispatcher", () => {
 				status: null,
 				error: Object.assign(new Error("ENOENT"), {
 					code: "ENOENT",
-				}) as NodeJS.ErrnoException,
+				}),
 			}),
 		);
 		const out = await dispatcher({
@@ -339,7 +340,7 @@ describe("runCargoTestDispatcher", () => {
 				status: 1,
 				error: Object.assign(new Error("ENOENT"), {
 					code: "ENOENT",
-				}) as NodeJS.ErrnoException,
+				}),
 			}),
 		);
 		const out = await dispatcher({
@@ -431,7 +432,7 @@ describe("runGoTestDispatcher", () => {
 			checkName: "affected_tests",
 		});
 		expect(out).toEqual([]);
-		const args = nonNull(spawnSyncMock.mock.calls[0])[1] as string[];
+		const args = parseWire(nonNull(spawnSyncMock.mock.calls[0])[1], wireArray(wireString), "test JSON value");
 		expect(args[0]).toBe("test");
 		// Scopes to ./src/pkg — NOT ./... — so unrelated failing packages
 		// don't drown the agent in noise unrelated to the current edit.
@@ -456,7 +457,7 @@ describe("runGoTestDispatcher", () => {
 				status: 1,
 				error: Object.assign(new Error("ENOENT"), {
 					code: "ENOENT",
-				}) as NodeJS.ErrnoException,
+				}),
 			}),
 		);
 		const out = await dispatcher({
@@ -574,7 +575,7 @@ describe("runVitestDispatcher", () => {
 		expect(out).toEqual([]);
 		// related succeeded → convention fallback must NOT run (one spawn only).
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const firstArgs = nonNull(spawnSyncMock.mock.calls[0])[1] as string[];
+		const firstArgs = parseWire(nonNull(spawnSyncMock.mock.calls[0])[1], wireArray(wireString), "test JSON value");
 		expect(firstArgs).toContain("related");
 	});
 
@@ -699,7 +700,7 @@ describe("runVitestDispatcher", () => {
 		});
 		expect(out).toHaveLength(1);
 		// The convention runner received the full absolute test path (not sliced).
-		const convArgs = nonNull(spawnSyncMock.mock.calls[1])[1] as string[];
+		const convArgs = parseWire(nonNull(spawnSyncMock.mock.calls[1])[1], wireArray(wireString), "test JSON value");
 		expect(convArgs.some((a) => a === "/outside/proj/m.test.ts")).toBe(true);
 		// And the message embeds that absolute path.
 		expect(nonNull(out[0]).message).toContain("/outside/proj/m.test.ts");
@@ -759,7 +760,7 @@ describe("runVitestDispatcher", () => {
 		expect(nonNull(out[0]).message).not.toContain("--related");
 		// Convention runner invoked with the profile command head ("npx").
 		expect(spawnSyncMock).toHaveBeenCalledTimes(2);
-		const convArgs = nonNull(spawnSyncMock.mock.calls[1])[1] as string[];
+		const convArgs = parseWire(nonNull(spawnSyncMock.mock.calls[1])[1], wireArray(wireString), "test JSON value");
 		expect(convArgs).toContain("--reporter=verbose");
 		expect(convArgs.some((a) => a.endsWith("conv.test.ts"))).toBe(true);
 	});
@@ -808,7 +809,7 @@ describe("runVitestDispatcher", () => {
 					status: null,
 					error: Object.assign(new Error("EPIPE"), {
 						code: "EPIPE",
-					}) as NodeJS.ErrnoException,
+					}),
 				}),
 			)
 			.mockReturnValueOnce(
@@ -849,7 +850,7 @@ describe("runVitestDispatcher", () => {
 					status: null,
 					error: Object.assign(new Error("ENOENT"), {
 						code: "ENOENT",
-					}) as NodeJS.ErrnoException,
+					}),
 				}),
 			);
 		const out = await dispatcher({
@@ -880,7 +881,7 @@ describe("runVitestDispatcher", () => {
 					status: 1,
 					error: Object.assign(new Error("ENOENT"), {
 						code: "ENOENT",
-					}) as NodeJS.ErrnoException,
+					}),
 				}),
 			);
 		const out = await dispatcher({
@@ -1109,7 +1110,7 @@ describe("runGoTestDispatcher — path scoping branches", () => {
 			severity: "error",
 			checkName: "affected_tests",
 		});
-		const args = nonNull(spawnSyncMock.mock.calls[0])[1] as string[];
+		const args = parseWire(nonNull(spawnSyncMock.mock.calls[0])[1], wireArray(wireString), "test JSON value");
 		// relative("/repo","/repo") === "" → falls back to "."
 		expect(args).toContain(".");
 		expect(args).toEqual(["test", "-count=1", "."]);
@@ -1126,7 +1127,7 @@ describe("runGoTestDispatcher — path scoping branches", () => {
 			severity: "error",
 			checkName: "affected_tests",
 		});
-		const args = nonNull(spawnSyncMock.mock.calls[0])[1] as string[];
+		const args = parseWire(nonNull(spawnSyncMock.mock.calls[0])[1], wireArray(wireString), "test JSON value");
 		expect(args).toContain("./internal/svc");
 	});
 
@@ -1143,7 +1144,7 @@ describe("runGoTestDispatcher — path scoping branches", () => {
 			severity: "error",
 			checkName: "affected_tests",
 		});
-		const args = nonNull(spawnSyncMock.mock.calls[0])[1] as string[];
+		const args = parseWire(nonNull(spawnSyncMock.mock.calls[0])[1], wireArray(wireString), "test JSON value");
 		const pkgArg = args[2];
 		expect(nonNull(pkgArg).startsWith("..")).toBe(true);
 		expect(nonNull(pkgArg).startsWith("./..")).toBe(false);
@@ -1174,7 +1175,7 @@ describe("runGoTestDispatcher — path scoping branches", () => {
 				status: null,
 				error: Object.assign(new Error("ENOENT"), {
 					code: "ENOENT",
-				}) as NodeJS.ErrnoException,
+				}),
 			}),
 		);
 		const out = await dispatcher({
@@ -1326,7 +1327,7 @@ describe("runPytestDispatcher — additional branches", () => {
 			severity: "error",
 			checkName: "affected_tests",
 		});
-		const args = nonNull(spawnSyncMock.mock.calls[0])[1] as string[];
+		const args = parseWire(nonNull(spawnSyncMock.mock.calls[0])[1], wireArray(wireString), "test JSON value");
 		// First existing candidate for src/rel.py is the sibling test_rel.py.
 		const relArg = args[args.length - 1];
 		expect(nonNull(relArg).startsWith("/")).toBe(false);
@@ -1398,7 +1399,7 @@ describe("dispatcher survivor contracts", () => {
 					stdout: "AssertionError: runner pipe failed",
 					error: Object.assign(new Error("EPIPE"), {
 						code: "EPIPE",
-					}) as NodeJS.ErrnoException,
+					}),
 				}),
 			);
 		const out = await dispatcher({
@@ -1447,7 +1448,7 @@ describe("runGoTestDispatcher — build-tag parity", () => {
 				severity: "error",
 				checkName: "affected_tests",
 			});
-			return nonNull(spawnSyncMock.mock.calls[0])[1] as string[];
+			return parseWire(nonNull(spawnSyncMock.mock.calls[0])[1], wireArray(wireString), "test JSON value");
 		} finally {
 			if (saved === undefined) delete process.env.INTERLINKED_GOFLAGS;
 			else process.env.INTERLINKED_GOFLAGS = saved;

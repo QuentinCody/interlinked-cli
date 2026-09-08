@@ -1,23 +1,20 @@
+import { nonNull } from "../lib/non-null.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { selectAffectedTests } from "./coverage-test-selector.js";
-import type { DependencyView } from "./dependency-view.js";
+import { selectAffectedTests, type SelectAffectedTestsInput } from "./coverage-test-selector.js";
 
-// Minimal fake DependencyView. Cast through `unknown` — the mutation target
-// module only calls answerScope / hasFile / getDependents, so a full
-// structural implementation of the real interface is unnecessary.
 function fakeDepView(opts: {
-	answerScope?: "repo" | "seed";
+	answerScope?: "repo" | "seed-only";
 	hasFile?: (abs: string) => boolean;
 	getDependents?: (abs: string) => string[];
-}): DependencyView {
+}): SelectAffectedTestsInput["depView"] {
 	return {
 		answerScope: opts.answerScope ?? "repo",
 		hasFile: opts.hasFile ?? (() => true),
 		getDependents: opts.getDependents ?? (() => []),
-	} as unknown as DependencyView;
+	};
 }
 
 let dirs: string[] = [];
@@ -272,7 +269,7 @@ describe("selectAffectedTests main BFS — hop cap equality boundary (24e849d340
 			hasFile: (abs) => abs === nodePaths[0],
 			getDependents: (abs) => {
 				const idx = nodePaths.indexOf(abs);
-				if (idx >= 0 && idx < MAX) return [nodePaths[idx + 1] as string];
+				if (idx >= 0 && idx < MAX) return [nonNull(nodePaths[idx + 1])];
 				return [];
 			},
 		});

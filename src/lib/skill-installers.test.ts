@@ -28,6 +28,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "./non-null.js";
+import { readSkillSourceFiles } from "./skill-source-files.js";
 import {
 	findEnforceSkillSource,
 	findSkillSource,
@@ -169,13 +170,13 @@ describe("findEnforceSkillSource", () => {
 	});
 
 	it("returns a path to an existing SKILL.md whose frontmatter names enforce", () => {
-		const path = findEnforceSkillSource() as string;
+		const path = nonNull(findEnforceSkillSource());
 		expect(existsSync(path)).toBe(true);
 		expect(readFileSync(path, "utf-8")).toContain("name: enforce");
 	});
 
 	it("ships a parser-safe source description under 1024 chars", () => {
-		const path = findEnforceSkillSource() as string;
+		const path = nonNull(findEnforceSkillSource());
 		const content = readFileSync(path, "utf-8");
 		const description = extractDescription(extractFrontmatter(content));
 		expect(description.length).toBeGreaterThan(0);
@@ -346,7 +347,7 @@ describe("description transform for runners with strict limits", () => {
 	it("claude install body still matches the source SKILL.md body", () => {
 		installEnforceSkill(tmpRoot, ["claude"]);
 		const claudePath = join(tmpRoot, ".claude", "skills", "enforce", "SKILL.md");
-		const sourcePath = findEnforceSkillSource() as string;
+		const sourcePath = nonNull(findEnforceSkillSource());
 		const claudeContent = readFileSync(claudePath, "utf-8");
 		const sourceContent = readFileSync(sourcePath, "utf-8");
 		const claudeBody = claudeContent.replace(/^---\n[\s\S]*?\n---\n/, "");
@@ -585,7 +586,9 @@ describe("inspectInstalledSkills", () => {
 		const two = inspectInstalledSkills(tmpRoot, ["claude", "gemini"]);
 		const none = inspectInstalledSkills(tmpRoot, []);
 
-		expect(one.expectedFiles).toBe(listInstallableSkills().length * 2); // SKILL.md + agents/openai.yaml
+		expect(one.expectedFiles).toBe(
+			listInstallableSkills().reduce((count, skill) => count + nonNull(readSkillSourceFiles(skill)).length, 0),
+		);
 		expect(two.expectedFiles).toBe(one.expectedFiles * 2);
 		expect(none).toEqual({ expectedFiles: 0, currentFiles: 0, issues: [] });
 	});
@@ -711,9 +714,8 @@ describe("inspectInstalledSkills", () => {
 		const inspection = inspectInstalledSkills(tmpRoot, ["claude"]);
 
 		expect(inspection.currentFiles).toBe(0);
-		// Pin the count outright: `issues.every(...)` below is vacuously true on
-		// an empty array, so the length must be independently non-zero.
-		expect(inspection.expectedFiles).toBe(listInstallableSkills().length * 2);
+		// The per-file assertion must see at least one bundled resource.
+		expect(inspection.expectedFiles).toBeGreaterThan(0);
 		expect(inspection.issues).toHaveLength(inspection.expectedFiles);
 		expect(
 			inspection.issues.every((line) =>

@@ -5,11 +5,13 @@
 // evaluation. Runs the structure analysis pipeline for a single file edit.
 
 import { isAbsolute, relative } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import type { CheckResultEntry } from "../types.js";
 import { ArtifactGraph } from "./artifact-graph.js";
 import { relinkEditedFile, runAllExtractors } from "./extractors/index.js";
 import { evaluateStructureRules } from "./rules/index.js";
+import { isStringArray } from "./schema-validator-helpers.js";
+import { ARTIFACT_FILE_KEYS } from "./schema-validator.js";
 import { getImplicitConfig, loadArtifactFile, loadStructureConfig } from "./structure-loader.js";
 import type {
 	ArtifactEdge,
@@ -157,9 +159,7 @@ export function layerDeclaredArtifacts(
 	repoRoot: string,
 	config: StructureConfig,
 ): void {
-	const artifactKeys = Object.keys(config.artifacts) as ArtifactFileKey[];
-
-	for (const key of artifactKeys) {
+	for (const key of ARTIFACT_FILE_KEYS) {
 		const relPath = config.artifacts[key];
 		if (!relPath) continue;
 
@@ -233,8 +233,8 @@ function extractModuleSymbols(
 	file: string,
 	symbols: unknown[],
 ): GraphContribution[] {
-	return symbols.map((sym) => {
-		const s = sym as { name: string; docs?: string[]; tests?: string[]; examples?: string[] };
+	return symbols.flatMap<GraphContribution>((s) => {
+		if (!isJsonObject(s) || typeof s.name !== "string") return [];
 		const symbolLocalId = `${moduleId}#${s.name}`;
 		const symbolRef = `public_symbol:${symbolLocalId}`;
 		const edges: ArtifactEdge[] = [
@@ -248,7 +248,7 @@ function extractModuleSymbols(
 			},
 		];
 		// Create companion edges from declared docs/tests/examples arrays
-		for (const docId of s.docs ?? []) {
+		for (const docId of stringValues(s.docs)) {
 			edges.push({
 				id: `edge:${symbolRef}->doc:${docId}`,
 				kind: "documents",
@@ -258,7 +258,7 @@ function extractModuleSymbols(
 				confidence: 1.0,
 			});
 		}
-		for (const testId of s.tests ?? []) {
+		for (const testId of stringValues(s.tests)) {
 			edges.push({
 				id: `edge:${symbolRef}->test:${testId}`,
 				kind: "tests",
@@ -268,7 +268,7 @@ function extractModuleSymbols(
 				confidence: 1.0,
 			});
 		}
-		for (const exId of s.examples ?? []) {
+		for (const exId of stringValues(s.examples)) {
 			edges.push({
 				id: `edge:${symbolRef}->example:${exId}`,
 				kind: "illustrates",
@@ -283,12 +283,12 @@ function extractModuleSymbols(
 }
 
 function extractPublicApiContributions(data: JsonObject): GraphContribution[] {
-	const modules = (data as { modules?: unknown[] }).modules;
+	const modules = data.modules;
 	if (!Array.isArray(modules)) return [];
 
 	const results: GraphContribution[] = [];
-	for (const mod of modules) {
-		const m = mod as { id: string; file: string; symbols?: unknown[] };
+	for (const m of modules) {
+		if (!isFileEntry(m)) continue;
 		results.push({ node: declaredNode("module", m.id, m.id, m.file), edges: [] });
 
 		if (Array.isArray(m.symbols)) {
@@ -303,23 +303,16 @@ function extractSimpleKeyContributions(
 	arrayField: string,
 	kind: ArtifactNode["kind"],
 ): GraphContribution[] {
-	const items = (data as Record<string, unknown[]>)[arrayField];
+	const items = data[arrayField];
 	if (!Array.isArray(items)) return [];
 
-	return items.map((item) => {
-		const entry = item as {
-			name: string;
-			docs?: string[];
-			tests?: string[];
-			examples?: string[];
-			default_sources?: string[];
-			declared_in?: string[];
-		};
+	return items.flatMap<GraphContribution>((entry) => {
+		if (!isJsonObject(entry) || typeof entry.name !== "string") return [];
 		const ref = `${kind}:${entry.name}`;
 		// Use the first declared source file so the changed-file gate can match
-		const file = (entry.default_sources ?? entry.declared_in ?? [])[0] ?? "";
+		const file = stringValues(entry.default_sources ?? entry.declared_in)[0] ?? "";
 		const edges: ArtifactEdge[] = [];
-		for (const docId of entry.docs ?? []) {
+		for (const docId of stringValues(entry.docs)) {
 			edges.push({
 				id: `edge:${ref}->doc:${docId}`,
 				kind: "documents",
@@ -329,7 +322,7 @@ function extractSimpleKeyContributions(
 				confidence: 1.0,
 			});
 		}
-		for (const testId of entry.tests ?? []) {
+		for (const testId of stringValues(entry.tests)) {
 			edges.push({
 				id: `edge:${ref}->test:${testId}`,
 				kind: "tests",
@@ -339,7 +332,7 @@ function extractSimpleKeyContributions(
 				confidence: 1.0,
 			});
 		}
-		for (const exId of entry.examples ?? []) {
+		for (const exId of stringValues(entry.examples)) {
 			edges.push({
 				id: `edge:${ref}->example:${exId}`,
 				kind: "illustrates",
@@ -358,7 +351,7 @@ function extractFileEntryContributions(
 	arrayField: string,
 	kind: ArtifactNode["kind"],
 ): GraphContribution[] {
-	const items = (data as Record<string, unknown[]>)[arrayField];
+	const items = data[arrayField];
 	if (!Array.isArray(items)) return [];
 
 	const edgeKindMap: Record<string, EdgeKind> = {
@@ -368,16 +361,13 @@ function extractFileEntryContributions(
 	};
 	const edgeKind = edgeKindMap[kind] ?? "documents";
 
-	return items.map((item) => {
-		const entry = item as {
-			id: string;
-			file: string;
-			covers?: Array<{ artifact_kind: string; artifact_id: string }>;
-		};
+	return items.flatMap<GraphContribution>((entry) => {
+		if (!isFileEntry(entry)) return [];
 		const ref = `${kind}:${entry.id}`;
 		const edges: ArtifactEdge[] = [];
 		// Create edges from covers entries back to the covered artifact
-		for (const c of entry.covers ?? []) {
+		for (const c of Array.isArray(entry.covers) ? entry.covers : []) {
+			if (!isJsonObject(c) || typeof c.artifact_kind !== "string" || typeof c.artifact_id !== "string") continue;
 			const targetRef = `${c.artifact_kind}:${c.artifact_id}`;
 			edges.push({
 				id: `edge:${targetRef}->${ref}`,
@@ -393,22 +383,19 @@ function extractFileEntryContributions(
 }
 
 function extractGlossaryContributions(data: JsonObject): GraphContribution[] {
-	const terms = (data as { terms?: unknown[] }).terms;
+	const terms = data.terms;
 	if (!Array.isArray(terms)) return [];
 
-	return terms.map((item) => {
-		const entry = item as {
-			id: string;
-			canonical: string;
-			aliases?: string[];
-			deprecated?: string[];
-		};
+	return terms.flatMap<GraphContribution>((entry) => {
+		if (!isJsonObject(entry) || typeof entry.id !== "string" || typeof entry.canonical !== "string") return [];
 		const node = declaredNode("term", entry.id, entry.canonical, "");
+		const aliases = stringValues(entry.aliases);
+		const deprecated = stringValues(entry.deprecated);
 		// Preserve aliases and deprecated arrays as metadata so rules can access them
-		if (entry.aliases?.length || entry.deprecated?.length) {
+		if (aliases.length || deprecated.length) {
 			node.metadata = {
-				...(entry.aliases?.length ? { aliases: entry.aliases } : {}),
-				...(entry.deprecated?.length ? { deprecated: entry.deprecated } : {}),
+				...(aliases.length ? { aliases } : {}),
+				...(deprecated.length ? { deprecated } : {}),
 			};
 		}
 		return { node, edges: [] };
@@ -420,21 +407,21 @@ function extractLabelOnlyContributions(
 	arrayField: string,
 	kind: ArtifactNode["kind"],
 ): GraphContribution[] {
-	const items = (data as Record<string, unknown[]>)[arrayField];
+	const items = data[arrayField];
 	if (!Array.isArray(items)) return [];
 
-	return items.map((item) => {
-		const entry = item as { id: string };
+	return items.flatMap<GraphContribution>((entry) => {
+		if (!isJsonObject(entry) || typeof entry.id !== "string") return [];
 		return { node: declaredNode(kind, entry.id, entry.id, ""), edges: [] };
 	});
 }
 
 function extractPackageContributions(data: JsonObject): GraphContribution[] {
-	const packages = (data as { packages?: unknown[] }).packages;
+	const packages = data.packages;
 	if (!Array.isArray(packages)) return [];
 
-	return packages.map((item) => {
-		const entry = item as { id: string; root: string };
+	return packages.flatMap<GraphContribution>((entry) => {
+		if (!isJsonObject(entry) || typeof entry.id !== "string" || typeof entry.root !== "string") return [];
 		return { node: declaredNode("package", entry.id, entry.id, entry.root), edges: [] };
 	});
 }
@@ -442,6 +429,14 @@ function extractPackageContributions(data: JsonObject): GraphContribution[] {
 // -------------------------------------------
 // Filter findings by PostToolUse emission config
 // -------------------------------------------
+
+function stringValues(value: unknown): string[] {
+	return isStringArray(value) ? value : [];
+}
+
+function isFileEntry(value: unknown): value is JsonObject & { id: string; file: string } {
+	return isJsonObject(value) && typeof value.id === "string" && typeof value.file === "string";
+}
 
 function filterByEmissionConfig(
 	findings: StructureFinding[],

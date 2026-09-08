@@ -10,8 +10,9 @@ import {
 	makeError,
 	PROTOCOL_VERSION,
 	type RpcError,
-	type RpcParams,
+	type RpcMethod,
 	type RpcRequest,
+	type RpcWireRequest,
 	type RpcResponse,
 	type RpcResult,
 } from "./daemon-protocol.js";
@@ -22,6 +23,7 @@ import type { TsgoRunner } from "./tsgo-runner.js";
 import type { HarnessDecision } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 import { validateUnifiedEvent } from "./unified-event.js";
+import { isRpcHookEvent } from "./daemon-request-parser.js";
 import { isHookCoverageRequest, type HookCoverageReport, type HookCoverageRequest } from "./hook-coverage-control.js";
 
 type HookDecisionMethod =
@@ -35,7 +37,7 @@ type HookDecisionMethod =
 	| "hook.post_compact"
 	| "hook.lifecycle";
 
-const HOOK_DECISION_METHODS = new Set<HookDecisionMethod>([
+const HOOK_DECISION_METHODS = new Set<string>([
 	"hook.pre_tool_use",
 	"hook.post_tool_use",
 	"hook.user_prompt",
@@ -47,7 +49,7 @@ const HOOK_DECISION_METHODS = new Set<HookDecisionMethod>([
 	"hook.lifecycle",
 ]);
 
-const OBSERVATION_ONLY_HOOK_METHODS = new Set<HookDecisionMethod>([
+const OBSERVATION_ONLY_HOOK_METHODS = new Set<string>([
 	"hook.session_start",
 	"hook.session_end",
 	"hook.pre_compact",
@@ -77,15 +79,13 @@ export interface DispatcherState {
 
 /** Dispatch a single RPC request. Never throws — errors come back as
  *  RpcError frames. */
+export function dispatchRpc<M extends RpcMethod>(request: RpcRequest<M>, state: DispatcherState): Promise<RpcResponse<M> | RpcError>;
+export function dispatchRpc(request: RpcWireRequest, state: DispatcherState): Promise<RpcResponse | RpcError>;
 export async function dispatchRpc(
-	request: RpcRequest,
+	request: RpcWireRequest,
 	state: DispatcherState,
 ): Promise<RpcResponse | RpcError> {
-	// `request` is cast from an untrusted wire object upstream (decodeFrame /
-	// session-daemon's `message as RpcRequest`), so schema_version isn't
-	// actually guaranteed to be the literal "1" at runtime — widen before
-	// comparing so this stays a real runtime check, not a tautology.
-	const receivedSchemaVersion: unknown = request.schema_version;
+	const receivedSchemaVersion = request.schema_version;
 	if (receivedSchemaVersion !== PROTOCOL_VERSION) {
 		return makeError(
 			request.id,
@@ -94,7 +94,7 @@ export async function dispatchRpc(
 			false,
 		);
 	}
-	if (isHookDecisionRequest(request)) {
+	if (HOOK_DECISION_METHODS.has(request.method)) {
 		return dispatchHookDecision(request, state);
 	}
 	switch (request.method) {
@@ -106,21 +106,13 @@ export async function dispatchRpc(
 				result: buildHealthResponse(state),
 			} satisfies RpcResponse<"daemon.health">;
 		case "daemon.shutdown":
-			state.shutdown((request.params as RpcParams["daemon.shutdown"]).reason);
-			return {
-				id: request.id,
-				result: { ack: true },
-			} satisfies RpcResponse<"daemon.shutdown">;
+			return dispatchShutdown(request, state);
 		case "daemon.invalidate":
-			state.tsgo.invalidate((request.params as RpcParams["daemon.invalidate"]).path);
-			return {
-				id: request.id,
-				result: { ack: true },
-			} satisfies RpcResponse<"daemon.invalidate">;
+			return dispatchInvalidate(request, state);
 		case "tsgo.check_file":
-			return dispatchTsgoCheck(request as RpcRequest<"tsgo.check_file">, state);
+			return dispatchTsgoCheck(request, state);
 		case "tsgo.simulate_edit":
-			return dispatchTsgoSimulate(request as RpcRequest<"tsgo.simulate_edit">, state);
+			return dispatchTsgoSimulate(request, state);
 		default:
 			return makeError(
 				request.id,
@@ -131,6 +123,10 @@ export async function dispatchRpc(
 	}
 }
 
+// -----------------------------------------------------------------------------
+// Handlers
+// -----------------------------------------------------------------------------
+
 function dispatchCoverage(request: { id: string; params?: unknown }, state: DispatcherState): RpcResponse<"daemon.coverage"> | RpcError {
 	if (!isHookCoverageRequest(request.params)) return makeError(request.id, "bad_request", "Invalid hook coverage operation");
 	try {
@@ -138,24 +134,17 @@ function dispatchCoverage(request: { id: string; params?: unknown }, state: Disp
 	} catch (error) { return makeError(request.id, "internal", String(error)); }
 }
 
-function isHookDecisionRequest(
-	request: RpcRequest,
-): request is RpcRequest<HookDecisionMethod> {
-	return HOOK_DECISION_METHODS.has(request.method as HookDecisionMethod);
-}
-
-// -----------------------------------------------------------------------------
-// Handlers
-// -----------------------------------------------------------------------------
-
-async function dispatchHookDecision<M extends HookDecisionMethod>(
-	request: RpcRequest<M>,
+async function dispatchHookDecision(
+	request: RpcWireRequest,
 	state: DispatcherState,
-): Promise<RpcResponse<M> | RpcError> {
+): Promise<RpcResponse<HookDecisionMethod> | RpcError> {
 	const event = request.params;
 	const violations = validateUnifiedEvent(event);
 	if (violations.length > 0) {
 		return makeError(request.id, "bad_request", `invalid event: ${violations.join("; ")}`);
+	}
+	if (!isRpcHookEvent(event)) {
+		return makeError(request.id, "bad_request", "invalid event: malformed action or metadata");
 	}
 	if (state.evaluateHook) {
 		const decision = await state.evaluateHook(event);
@@ -178,19 +167,15 @@ async function dispatchHookDecision<M extends HookDecisionMethod>(
 	};
 }
 
-function isLifecycleHookMethod(method: HookDecisionMethod): boolean {
+function isLifecycleHookMethod(method: string): boolean {
 	return OBSERVATION_ONLY_HOOK_METHODS.has(method);
 }
 
 async function dispatchTsgoCheck(
-	request: RpcRequest<"tsgo.check_file">,
+	request: RpcWireRequest,
 	state: DispatcherState,
 ): Promise<RpcResponse<"tsgo.check_file"> | RpcError> {
-	// `request.params` is typed as the required `{ path: string }` shape, but
-	// that's inherited from the same untrusted `as RpcRequest` cast at the
-	// socket boundary (session-daemon.ts) — a malformed client can send
-	// anything here, so widen before validating.
-	const params: unknown = request.params;
+	const params = request.params;
 	if (!isJsonObject(params) || typeof params.path !== "string" || params.path.length === 0) {
 		return makeError(request.id, "bad_request", "tsgo.check_file requires a path");
 	}
@@ -202,11 +187,10 @@ async function dispatchTsgoCheck(
 }
 
 async function dispatchTsgoSimulate(
-	request: RpcRequest<"tsgo.simulate_edit">,
+	request: RpcWireRequest,
 	state: DispatcherState,
 ): Promise<RpcResponse<"tsgo.simulate_edit"> | RpcError> {
-	// Same untrusted-boundary reasoning as dispatchTsgoCheck above.
-	const params: unknown = request.params;
+	const params = request.params;
 	if (
 		!isJsonObject(params) ||
 		typeof params.path !== "string" ||
@@ -224,6 +208,24 @@ async function dispatchTsgoSimulate(
 	}
 	const result = await state.tsgo.simulateEdit(params.path, params.old_string, params.new_string);
 	return { id: request.id, result };
+}
+
+function dispatchShutdown(request: RpcWireRequest, state: DispatcherState): RpcResponse<"daemon.shutdown"> | RpcError {
+	const params = request.params;
+	if (!isJsonObject(params) || (params.reason !== undefined && typeof params.reason !== "string")) {
+		return makeError(request.id, "bad_request", "daemon.shutdown requires an object with an optional reason string");
+	}
+	state.shutdown(params.reason);
+	return { id: request.id, result: { ack: true } };
+}
+
+function dispatchInvalidate(request: RpcWireRequest, state: DispatcherState): RpcResponse<"daemon.invalidate"> | RpcError {
+	const params = request.params;
+	if (!isJsonObject(params) || typeof params.path !== "string" || params.path.length === 0) {
+		return makeError(request.id, "bad_request", "daemon.invalidate requires a path");
+	}
+	state.tsgo.invalidate(params.path);
+	return { id: request.id, result: { ack: true } };
 }
 
 function buildHealthResponse(state: DispatcherState): RpcResult["daemon.health"] {

@@ -71,12 +71,12 @@ export type TestDispatcher = (
 ) => TestDispatcherResult[] | Promise<TestDispatcherResult[]>;
 
 /** Public API — consumed by quality-checks.runQualityChecks. */
-export const TEST_DISPATCHERS = {
+export const TEST_DISPATCHERS: Partial<Record<LanguageId, TestDispatcher>> = {
 	typescript: runVitestDispatcher,
 	python: runPytestDispatcher,
 	rust: runCargoTestDispatcher,
 	go: runGoTestDispatcher,
-} satisfies Partial<Record<LanguageId, TestDispatcher>>;
+};
 
 // ===========================================
 // Shared helpers
@@ -479,4 +479,3 @@ export const __test_only__ = {
 	relativizeFromRoot,
 	runDirectImporterCompanions,
 };
-

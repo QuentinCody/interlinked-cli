@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -462,7 +463,7 @@ describe("registerFindingsCommands — status subcommand", () => {
 			runFindingsCli(cwd, [
 				"findings",
 				"ack",
-				(anchoredWithLine as NonNullable<typeof anchoredWithLine>).id,
+				(nonNull(anchoredWithLine)).id,
 				"--reason",
 				"known, deferred",
 				"--by",
@@ -473,22 +474,22 @@ describe("registerFindingsCommands — status subcommand", () => {
 		const defaultLogs = await runFindingsCli(cwd, ["findings", "status"]);
 		expect(defaultLogs[0]).toBe("Review findings: 3 total — 2 open, 0 touched, 1 acked");
 		// The acked row is filtered out by default (state !== "open").
-		expect(defaultLogs.some((l) => l.includes((anchoredWithLine as NonNullable<typeof anchoredWithLine>).id))).toBe(
+		expect(defaultLogs.some((l) => l.includes((nonNull(anchoredWithLine)).id))).toBe(
 			false,
 		);
 		// A truthy `file` with a falsy `line` (0) prints the file with no ":line".
 		expect(defaultLogs).toContainEqual(
-			`  [open] ${(anchoredNoLine as NonNullable<typeof anchoredNoLine>).id} docs/plan.md — docs/plan.md needs an update.`,
+			`  [open] ${(nonNull(anchoredNoLine)).id} docs/plan.md — docs/plan.md needs an update.`,
 		);
 		// A fully unanchored finding prints with no trailing anchor at all.
 		expect(defaultLogs).toContainEqual(
-			`  [open] ${(unanchored as NonNullable<typeof unanchored>).id} — Unanchored, no file at all.`,
+			`  [open] ${(nonNull(unanchored)).id} — Unanchored, no file at all.`,
 		);
 		expect(defaultLogs).toHaveLength(3); // header + 2 open rows (acked row filtered)
 
 		const allLogs = await runFindingsCli(cwd, ["findings", "status", "--all"]);
 		expect(allLogs).toContainEqual(
-			`  [acked] ${(anchoredWithLine as NonNullable<typeof anchoredWithLine>).id} src/a.ts:21 — Anchored with a line.`,
+			`  [acked] ${(nonNull(anchoredWithLine)).id} src/a.ts:21 — Anchored with a line.`,
 		);
 		expect(allLogs).toHaveLength(4); // header + all 3 rows, acked now visible
 	});

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildTestIndex } from "../__tests__/fixtures/trigram.js";
 
 const { clearDiagnosticCacheMock, clearManifestCacheMock, clearTscOverlayCacheMock } = vi.hoisted(
 	() => ({
@@ -23,16 +24,15 @@ import { makeShrinkIdleMemory } from "./idle-shrink.js";
 describe("makeShrinkIdleMemory", () => {
 	afterEach(() => {
 		vi.clearAllMocks();
-		// Remove the global test-only stub so it cannot leak into the next case.
-		delete (globalThis as { gc?: () => void }).gc;
+		vi.unstubAllGlobals();
 	});
 
 	// P1 (must fire): clears every reconstructible PostTool cache, including the
 	// file-diagnostic map that otherwise grows with every visited file.
 	it("P1: clears diagnostic, manifest, tsc, and trigram caches", () => {
-		const clearDirty = vi.fn();
-		const trigramIndex = { clearDirty } as unknown as { clearDirty: () => void };
-		const shrink = makeShrinkIdleMemory(() => trigramIndex as never);
+		const trigramIndex = buildTestIndex({});
+		const clearDirty = vi.spyOn(trigramIndex, "clearDirty");
+		const shrink = makeShrinkIdleMemory(() => trigramIndex);
 
 		shrink();
 
@@ -55,7 +55,7 @@ describe("makeShrinkIdleMemory", () => {
 	// P3 (must fire): when --expose-gc's global gc is present, it is invoked.
 	it("P3: invokes globalThis.gc when present", () => {
 		const gcMock = vi.fn();
-		(globalThis as { gc?: () => void }).gc = gcMock;
+		vi.stubGlobal("gc", gcMock);
 		const shrink = makeShrinkIdleMemory(() => null);
 
 		shrink();
@@ -66,6 +66,7 @@ describe("makeShrinkIdleMemory", () => {
 	// N1 (must NOT throw/fire gc): without --expose-gc, globalThis.gc is
 	// undefined — the optional-chained call must be a silent no-op.
 	it("N1: does not throw when globalThis.gc is absent", () => {
+		vi.stubGlobal("gc", undefined);
 		const shrink = makeShrinkIdleMemory(() => null);
 		expect(() => shrink()).not.toThrow();
 	});

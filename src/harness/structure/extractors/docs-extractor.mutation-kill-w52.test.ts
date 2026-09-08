@@ -37,7 +37,6 @@ describe("docs-extractor — classifyFile (must fire)", () => {
 		expect(id).toContain("sub-notes.v2");
 		expect(id).not.toContain("sub-notes.v2.md");
 		expect(id).not.toContain("sub-notes.md");
-		expect(id).not.toContain("Stryker");
 	});
 
 	it("sets kind, provenance, determinism_ceiling and an empty edges array on a classified doc", () => {

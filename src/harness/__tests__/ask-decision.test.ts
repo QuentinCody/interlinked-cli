@@ -38,10 +38,12 @@ function freshRules(): GuardRulesConfig {
 }
 
 describe("agentSupportsAsk", () => {
-	it("returns true for Claude Code and Cursor (the two ask-capable runtimes)", () => {
+	it("returns true for runtimes with an ask primitive", () => {
 		expect(agentSupportsAsk("claude")).toBe(true);
 		expect(agentSupportsAsk("cursor")).toBe(true);
 		expect(agentSupportsAsk("pi")).toBe(true);
+		expect(agentSupportsAsk("factory-droid")).toBe(true);
+		expect(agentSupportsAsk("antigravity")).toBe(true);
 	});
 	it("returns false for runtimes without an ask primitive", () => {
 		expect(agentSupportsAsk("copilot")).toBe(false);
@@ -53,11 +55,10 @@ describe("agentSupportsAsk", () => {
 		expect(agentSupportsAsk("")).toBe(false);
 		expect(agentSupportsAsk("anthropic-cli")).toBe(false);
 	});
-	it("the ASK_CAPABLE_AGENTS set is exactly {claude, cursor, pi}", () => {
-		expect(ASK_CAPABLE_AGENTS.size).toBe(3);
-		expect(ASK_CAPABLE_AGENTS.has("claude")).toBe(true);
-		expect(ASK_CAPABLE_AGENTS.has("cursor")).toBe(true);
-		expect(ASK_CAPABLE_AGENTS.has("pi")).toBe(true);
+	it("exports the supported ask-capable runtimes", () => {
+		expect(ASK_CAPABLE_AGENTS).toEqual(new Set([
+			"claude", "cursor", "pi", "factory-droid", "antigravity",
+		]));
 	});
 });
 

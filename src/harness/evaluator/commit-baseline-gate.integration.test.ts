@@ -20,7 +20,7 @@ function writeBaseline(rel: string, obj: unknown): void {
 }
 
 function commitEvent(command: string, cwd = root): HarnessEvent {
-	return {
+	return ({
 		hook_event: "PreToolUse",
 		session_id: "s1",
 		agent_source: "claude",
@@ -28,7 +28,7 @@ function commitEvent(command: string, cwd = root): HarnessEvent {
 		tool_input: { command },
 		timestamp: "2026-06-21T00:00:00.000Z",
 		cwd,
-	} as unknown as HarnessEvent;
+	} satisfies HarnessEvent);
 }
 
 function allow() {
@@ -125,7 +125,7 @@ describe("runCommitBaselineGate (pipeline wrapper)", () => {
 	});
 
 	it("returns null for a non-Bash tool", () => {
-		const ev = { ...commitEvent('git commit -m "x"'), tool_name: "Write" } as HarnessEvent;
+		const ev = ({  ...commitEvent('git commit -m "x"'), tool_name: "Write" } satisfies HarnessEvent);
 		expect(runCommitBaselineGate(ev, allow())).toBeNull();
 	});
 });

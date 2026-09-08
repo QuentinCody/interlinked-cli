@@ -1,3 +1,5 @@
+import { nonNull } from "../../../lib/non-null.js";
+import type { SpawnSyncStub } from "./test-process-fixtures.js";
 // Behavioral unit tests for the Python tool runners (mypy + ruff lint + ruff
 // format, sync + async).
 //
@@ -14,15 +16,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { RunProcessResult } from "../spawn-async.js";
 import type { CheckScope, ToolRunnerInput } from "../types.js";
 
-const spawnSyncMock = vi.fn();
-const runProcessAsyncMock = vi.fn();
+const spawnSyncMock = vi.fn<SpawnSyncStub>();
+const runProcessAsyncMock = vi.fn<typeof import("../spawn-async.js").runProcessAsync>();
 
 vi.mock("node:child_process", () => ({
-	spawnSync: (...args: unknown[]) => spawnSyncMock(...args),
+	spawnSync: (...args: Parameters<SpawnSyncStub>) => spawnSyncMock(...args),
 }));
 
 vi.mock("../spawn-async.js", () => ({
-	runProcessAsync: (...args: unknown[]) => runProcessAsyncMock(...args),
+	runProcessAsync: (...args: Parameters<typeof runProcessAsyncMock>) => runProcessAsyncMock(...args),
 }));
 
 // Imported after the mocks are registered.
@@ -108,6 +110,7 @@ function spawnResult(
 		stderr?: string | undefined;
 	},
 ): SpawnSyncReturns<string> {
+	// SAFETY: this fixture deliberately allows absent stdout/stderr to exercise the runner's fallback for incomplete process results.
 	return {
 		pid: 123,
 		output: [],
@@ -146,11 +149,7 @@ describe("runMypy (sync)", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runMypy(input(fileScope(), 9_999));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("mypy");
 		expect(args).toEqual(["--no-error-summary", "--no-color-output", TARGET]);
 		expect(opts).toMatchObject({
@@ -164,16 +163,16 @@ describe("runMypy (sync)", () => {
 	it("targets '.' in project mode", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runMypy(input(fileScope({ mode: "project" })));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["--no-error-summary", "--no-color-output", "."]);
 	});
 
 	it("targets '.' when file mode but targetFile is missing", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		runMypy(input(scope));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["--no-error-summary", "--no-color-output", "."]);
 	});
 
@@ -251,11 +250,7 @@ describe("runRuff (sync)", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runRuff(input(fileScope(), 8_888));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("ruff");
 		expect(args).toEqual(["check", "--output-format=json", ...ENFORCED, TARGET]);
 		expect(opts).toMatchObject({
@@ -269,16 +264,16 @@ describe("runRuff (sync)", () => {
 	it("targets '.' in project mode", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runRuff(input(fileScope({ mode: "project" })));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["check", "--output-format=json", ...ENFORCED, "."]);
 	});
 
 	it("targets '.' when file mode but targetFile is missing", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		runRuff(input(scope));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["check", "--output-format=json", ...ENFORCED, "."]);
 	});
 
@@ -398,11 +393,7 @@ describe("runRuffFormat (sync)", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runRuffFormat(input(fileScope(), 7_777));
 		expect(spawnSyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = spawnSyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(spawnSyncMock.mock.calls[0]);
 		expect(cmd).toBe("ruff");
 		expect(args).toEqual(["format", "--check", TARGET]);
 		expect(opts).toMatchObject({ cwd: PROJECT_ROOT, timeout: 7_777, encoding: "utf-8" });
@@ -411,7 +402,7 @@ describe("runRuffFormat (sync)", () => {
 	it("targets '.' in project mode", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runRuffFormat(input(fileScope({ mode: "project" })));
-		const args = spawnSyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(spawnSyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["format", "--check", "."]);
 	});
 
@@ -473,11 +464,7 @@ describe("runMypyAsync", () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runMypyAsync(input(fileScope(), 4_321));
 		expect(runProcessAsyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("mypy");
 		expect(args).toEqual(["--no-error-summary", "--no-color-output", TARGET]);
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 4_321 });
@@ -486,16 +473,16 @@ describe("runMypyAsync", () => {
 	it("targets '.' in project mode", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runMypyAsync(input(fileScope({ mode: "project" })));
-		const args = runProcessAsyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["--no-error-summary", "--no-color-output", "."]);
 	});
 
 	it("targets '.' when file mode but targetFile is missing", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		await runMypyAsync(input(scope));
-		const args = runProcessAsyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["--no-error-summary", "--no-color-output", "."]);
 	});
 
@@ -537,11 +524,7 @@ describe("runRuffAsync", () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runRuffAsync(input(fileScope(), 1_234));
 		expect(runProcessAsyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("ruff");
 		expect(args).toEqual(["check", "--output-format=json", ...ENFORCED, TARGET]);
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 1_234 });
@@ -550,16 +533,16 @@ describe("runRuffAsync", () => {
 	it("targets '.' in project mode", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runRuffAsync(input(fileScope({ mode: "project" })));
-		const args = runProcessAsyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["check", "--output-format=json", ...ENFORCED, "."]);
 	});
 
 	it("targets '.' when file mode but targetFile is missing", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		const scope = fileScope();
-		delete (scope as { targetFile?: string }).targetFile;
+		delete (scope).targetFile;
 		await runRuffAsync(input(scope));
-		const args = runProcessAsyncMock.mock.calls[0]?.[1] as string[];
+		const args = nonNull(runProcessAsyncMock.mock.calls[0])[1];
 		expect(args).toEqual(["check", "--output-format=json", ...ENFORCED, "."]);
 	});
 
@@ -615,11 +598,7 @@ describe("runRuffFormatAsync", () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runRuffFormatAsync(input(fileScope(), 2_222));
 		expect(runProcessAsyncMock).toHaveBeenCalledTimes(1);
-		const [cmd, args, opts] = runProcessAsyncMock.mock.calls[0] as [
-			string,
-			string[],
-			Record<string, unknown>,
-		];
+		const [cmd, args, opts] = nonNull(runProcessAsyncMock.mock.calls[0]);
 		expect(cmd).toBe("ruff");
 		expect(args).toEqual(["format", "--check", TARGET]);
 		expect(opts).toEqual({ cwd: PROJECT_ROOT, timeout: 2_222 });

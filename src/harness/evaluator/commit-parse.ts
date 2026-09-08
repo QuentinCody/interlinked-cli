@@ -338,7 +338,7 @@ function processCommitSegment(segment: string, state: RunningCommitState): Commi
  * `cd repo && git commit` and `git -C repo commit` both surface `cwd: "repo"`.
  * Returns the parse for the first matching segment, or `null`.
  */
-export function parseGitCommit(command: string): CommitParse | null {
+export function parseGitCommit(command: unknown): CommitParse | null {
 	if (!command || typeof command !== "string") return null;
 	const state: RunningCommitState = {
 		runCwd: null,
@@ -364,7 +364,7 @@ export function parseGitCommit(command: string): CommitParse | null {
  * the server-side push gate both consume it, retiring the divergent bare
  * `/\bgit\s+push\b/` regexes (2026-07-17).
  */
-export function isGitPushCommand(command: string): boolean {
+export function isGitPushCommand(command: unknown): boolean {
 	if (!command || typeof command !== "string") return false;
 	for (const segment of splitSegments(command)) {
 		const tokens = stripLeadingPrefix(shellSplit(segment));

@@ -24,6 +24,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isJsonObject } from "./json-types.js";
 
 /** Disable granularity. Only whole-project today; `paths` (subtree globs) is a
  *  documented future seam, hence the single-member union rather than a bare
@@ -86,9 +87,8 @@ function readMarker(
 	} catch {
 		return null; // malformed → treat as not disabled (fail toward guarding)
 	}
-	if (typeof parsed !== "object" || parsed === null) return null;
-	const rec = parsed as Partial<GuardDisableRecord>;
-	if (rec.disabled !== true) return null;
+	const rec = parseDisableRecord(parsed);
+	if (!rec) return null;
 	if (rec.expires_at !== undefined) {
 		const exp = Date.parse(rec.expires_at);
 		// Fail toward GUARDING on a malformed expiry: an unparseable `expires_at`
@@ -107,6 +107,18 @@ function readMarker(
 		...(rec.expires_at !== undefined ? { expires_at: rec.expires_at } : {}),
 		version: 1,
 		source,
+	};
+}
+
+function parseDisableRecord(value: unknown): GuardDisableRecord | null {
+	if (!isJsonObject(value) || value.disabled !== true) return null;
+	if (value.expires_at !== undefined && typeof value.expires_at !== "string") return null;
+	return {
+		disabled: true, scope: "project", version: 1,
+		...(typeof value.reason === "string" ? { reason: value.reason } : {}),
+		...(typeof value.by === "string" ? { by: value.by } : {}),
+		...(typeof value.at === "string" ? { at: value.at } : {}),
+		...(value.expires_at !== undefined ? { expires_at: value.expires_at } : {}),
 	};
 }
 

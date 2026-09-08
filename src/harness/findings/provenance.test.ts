@@ -76,13 +76,13 @@ describe("computeDedupKey", () => {
 
 describe("computeProvenanceId", () => {
 	it("is deterministic for the same sighting (idempotent re-harvest)", () => {
-		const input = {
+		const input: Parameters<typeof computeProvenanceId>[0] = {
 			source_runner: "github-inline",
 			repo: "o/r",
 			pr: 7,
 			commit_sha: "abc123",
 			file: "a.ts",
-			lines: [10, 12] as [number, number],
+			lines: [10, 12],
 		};
 		expect(computeProvenanceId(input)).toBe(computeProvenanceId(input));
 	});

@@ -228,8 +228,8 @@ describe("manifest read + CAS promotion (section 12)", () => {
 	// validated at the read boundary.
 	const okEntry = {
 		shardId: "s",
-		testPaths: [] as unknown[],
-		testContentHashes: {} as Record<string, unknown>,
+		testPaths: [],
+		testContentHashes: {},
 		dependencyHashes: {},
 		lastDurationMs: 0,
 		contributionPath: "p",

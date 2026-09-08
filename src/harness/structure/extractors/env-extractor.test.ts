@@ -12,33 +12,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // factory's wrapper closures, since the closures themselves are set up once
 // at mock-hoist time, before any per-test path is known.
 const { readFileSyncSpy, readdirSyncSpy, testControl } = vi.hoisted(() => {
+	const testControl: { badReadPath: string | null; throwOnNextReaddir: boolean } = {
+		badReadPath: null,
+		throwOnNextReaddir: false,
+	};
 	return {
-		readFileSyncSpy: vi.fn(),
-		readdirSyncSpy: vi.fn(),
-		// SAFETY: this literal is a plain optional-string field; the assertion
-		// only widens `null` to the declared union, it changes nothing at runtime.
-		testControl: { badReadPath: null as string | null, throwOnNextReaddir: false },
+		readFileSyncSpy: vi.fn<typeof import("node:fs").readFileSync>(),
+		readdirSyncSpy: vi.fn<typeof import("node:fs").readdirSync>(),
+		testControl,
 	};
 });
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
-	readFileSyncSpy.mockImplementation((path: unknown, options?: unknown) => {
+	readFileSyncSpy.mockImplementation((...args: Parameters<typeof actual.readFileSync>) => {
+		const path = args[0];
 		if (typeof path === "string" && path === testControl.badReadPath) {
 			throw new Error(`EACCES: permission denied, open '${path}'`);
 		}
-		// SAFETY: every call this module makes to readFileSync passes a string
-		// path and a string encoding (`fs.readFileSync(absPath, "utf-8")`); this
-		// narrows the real overload set down to the one shape actually used.
-		return (actual.readFileSync as (p: string, o: string) => string)(path as string, options as string);
+		return actual.readFileSync(...args);
 	});
-	readdirSyncSpy.mockImplementation((dir: unknown, options?: unknown) => {
+	readdirSyncSpy.mockImplementation((...args: Parameters<typeof actual.readdirSync>) => {
 		if (testControl.throwOnNextReaddir) {
 			testControl.throwOnNextReaddir = false;
 			throw new Error("EACCES: permission denied, scandir");
 		}
-		// SAFETY: env-extractor.ts only ever calls readdirSync(dir, { withFileTypes: true });
-		// the wider return type is passed through untouched to the real caller.
-		return (actual.readdirSync as (d: string, o: unknown) => unknown)(dir as string, options);
+		return actual.readdirSync(...args);
 	});
 	return { ...actual, readFileSync: readFileSyncSpy, readdirSync: readdirSyncSpy };
 });

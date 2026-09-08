@@ -289,11 +289,15 @@ function formatCleanSummaryLines(
 	return lines;
 }
 
-export async function cleanCommand(opts: {
+interface CleanOptions {
 	dryRun?: boolean;
 	force?: boolean;
 	json?: boolean;
-}): Promise<void> {
+	short?: boolean;
+	full?: boolean;
+}
+
+export async function cleanCommand(opts: CleanOptions): Promise<void> {
 	const mode = getOutputMode(opts);
 	const cwd = process.cwd();
 	const isDryRun = !opts.force; // Default is dry-run unless --force

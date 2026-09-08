@@ -1,3 +1,4 @@
+import { parseWire, wireString } from "../../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock fs before importing
@@ -29,7 +30,7 @@ const mockReadLocalConfig = vi.mocked(readLocalConfig);
 
 // console.log captures the rendered output for one command; grab it as a string.
 function lastLog(): string {
-	const calls = (console.log as ReturnType<typeof vi.fn>).mock.calls;
+	const calls = (vi.mocked(console.log)).mock.calls;
 	return String(calls[calls.length - 1]?.[0] ?? "");
 }
 
@@ -91,7 +92,7 @@ describe("reminder add", () => {
 		reminderAddCommand({ glob: "src/auth/**", message: "Run auth tests" });
 
 		expect(mockWriteFileSync).toHaveBeenCalledOnce();
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders).toHaveLength(1);
 		expect(written.file_reminders[0].glob).toBe("src/auth/**");
 		expect(written.file_reminders[0].message).toBe("Run auth tests");
@@ -106,7 +107,7 @@ describe("reminder add", () => {
 		});
 		reminderAddCommand({ glob: "new/**", message: "new" });
 
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders).toHaveLength(2);
 		expect(written.file_reminders[1].glob).toBe("new/**");
 	});
@@ -118,14 +119,16 @@ describe("reminder add", () => {
 		reminderAddCommand({ glob: "src/auth/**", message: "duplicate" });
 
 		expect(mockWriteFileSync).not.toHaveBeenCalled();
-		expect(console.error).toHaveBeenCalled();
+		expect(console.error).toHaveBeenCalledWith(
+			'Error: Reminder with id "reminder-309fbaef" already exists for glob "src/auth/**"',
+		);
 	});
 
 	it("parses --ops into operations array", () => {
 		mockGuardRulesFile(true, null);
 		reminderAddCommand({ glob: "*.ts", message: "test", ops: "Edit,Write" });
 
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders[0].operations).toEqual(["Edit", "Write"]);
 	});
 
@@ -134,20 +137,20 @@ describe("reminder add", () => {
 		reminderAddCommand({ glob: "*.ts", message: "team reminder", team: true });
 
 		expect(mockWriteFileSync).toHaveBeenCalledOnce();
-		const path = nonNull(mockWriteFileSync.mock.calls[0])[0] as string;
+		const path = parseWire(nonNull(mockWriteFileSync.mock.calls[0])[0], wireString, "test JSON value");
 		expect(path).toContain("guard-rules.json");
 		expect(path).not.toContain("local");
 	});
 
 	it("errors when --glob or --message missing", () => {
 		reminderAddCommand({ glob: "*.ts" });
-		expect(console.error).toHaveBeenCalled();
+		expect(console.error).toHaveBeenCalledWith("Error: --glob and --message are required");
 		expect(mockWriteFileSync).not.toHaveBeenCalled();
 	});
 
 	it("errors when --message present but --glob missing", () => {
 		reminderAddCommand({ message: "no glob" });
-		expect(console.error).toHaveBeenCalled();
+		expect(console.error).toHaveBeenCalledWith("Error: --glob and --message are required");
 		expect(mockWriteFileSync).not.toHaveBeenCalled();
 	});
 
@@ -184,7 +187,7 @@ describe("reminder add", () => {
 		mockGuardRulesFile(true, null);
 		reminderAddCommand({ glob: "src/z/**", message: "custom id", id: "my-custom-id" });
 
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders[0].id).toBe("my-custom-id");
 	});
 
@@ -193,7 +196,7 @@ describe("reminder add", () => {
 		mockGuardRulesFile(true, null);
 		reminderAddCommand({ glob: "src/nocfg/**", message: "no agent" });
 
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders[0].created_by).toBe("cli");
 	});
 
@@ -201,7 +204,7 @@ describe("reminder add", () => {
 		mockGuardRulesFile(true, null);
 		reminderAddCommand({ glob: "src/every/**", message: "every time", once: false });
 
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders[0].once_per_session).toBe(false);
 	});
 });
@@ -211,7 +214,7 @@ describe("reminder list", () => {
 		mockGuardRulesFile(true, null);
 		mockGuardRulesFile(false, null);
 		reminderListCommand({});
-		expect(console.log).toHaveBeenCalled();
+		expect(lastLog()).toContain("No active file reminders");
 	});
 
 	it("annotates team and local sources in JSON", () => {
@@ -237,7 +240,7 @@ describe("reminder list", () => {
 		});
 
 		reminderListCommand({ json: true });
-		const output = JSON.parse(nonNull((console.log as ReturnType<typeof vi.fn>).mock.calls[0])[0]);
+		const output = JSON.parse(nonNull((vi.mocked(console.log)).mock.calls[0])[0]);
 		expect(output).toHaveLength(2);
 		expect(output[0].source).toBe("team");
 		expect(output[1].source).toBe("local");
@@ -314,7 +317,7 @@ describe("reminder remove", () => {
 		});
 		reminderRemoveCommand("rem-a", {});
 
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders).toHaveLength(1);
 		expect(written.file_reminders[0].id).toBe("rem-b");
 	});
@@ -325,7 +328,7 @@ describe("reminder remove", () => {
 		});
 		reminderRemoveCommand("src/auth/**", {});
 
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders).toHaveLength(0);
 	});
 
@@ -338,7 +341,7 @@ describe("reminder remove", () => {
 		});
 		reminderRemoveCommand(undefined, { all: true });
 
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders).toHaveLength(0);
 	});
 
@@ -348,13 +351,15 @@ describe("reminder remove", () => {
 		});
 		reminderRemoveCommand("nonexistent", {});
 
-		expect(console.error).toHaveBeenCalled();
+		expect(console.error).toHaveBeenCalledWith('Error: No reminder found matching "nonexistent"');
 		expect(mockWriteFileSync).not.toHaveBeenCalled();
 	});
 
 	it("errors when no arg and no --all", () => {
 		reminderRemoveCommand(undefined, {});
-		expect(console.error).toHaveBeenCalled();
+		expect(console.error).toHaveBeenCalledWith(
+			"Error: Provide a reminder id or glob to remove, or use --all",
+		);
 	});
 
 	it("removes from the team file with --team", () => {
@@ -364,10 +369,10 @@ describe("reminder remove", () => {
 		reminderRemoveCommand("rem-team", { team: true });
 
 		expect(mockWriteFileSync).toHaveBeenCalledOnce();
-		const path = nonNull(mockWriteFileSync.mock.calls[0])[0] as string;
+		const path = parseWire(nonNull(mockWriteFileSync.mock.calls[0])[0], wireString, "test JSON value");
 		expect(path).toContain("guard-rules.json");
 		expect(path).not.toContain("local");
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders).toHaveLength(0);
 	});
 
@@ -412,7 +417,7 @@ describe("reminder remove", () => {
 
 		expect(lastLog()).toContain("No reminders to remove");
 		// still writes an (empty) list back
-		const written = JSON.parse(nonNull(mockWriteFileSync.mock.calls[0])[1] as string);
+		const written = JSON.parse(parseWire(nonNull(mockWriteFileSync.mock.calls[0])[1], wireString, "test JSON value"));
 		expect(written.file_reminders).toHaveLength(0);
 	});
 
@@ -432,7 +437,7 @@ describe("reminder remove", () => {
 		reminderRemoveCommand("anything", {});
 
 		// nothing matched => error, no write
-		expect(console.error).toHaveBeenCalled();
+		expect(console.error).toHaveBeenCalledWith('Error: No reminder found matching "anything"');
 		expect(mockWriteFileSync).not.toHaveBeenCalled();
 	});
 

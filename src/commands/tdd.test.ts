@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireString, wireUnknown } from "../lib/value-validation.js";
 // Tests for `interlinked tdd` — the inspection and reset path for TDD cycle
 // state. This exists because the commit gate blocks on remembered state that
 // nothing re-measures, and when that memory went wrong there was no way to see
@@ -33,7 +34,7 @@ function snapshot(id: string, step: number, cycles: Record<string, unknown>[]): 
 		join(root, ".interlinked", "sessions", `${id}.json`),
 		JSON.stringify({
 			tool_call_count: step,
-			tdd_cycles: Object.fromEntries(cycles.map((c) => [c.source_file as string, c])),
+			tdd_cycles: Object.fromEntries(cycles.map((c) => [parseWire(c.source_file, wireString, "test JSON value"), c])),
 		}),
 	);
 }
@@ -89,6 +90,20 @@ describe("collectCycles", () => {
 		writeFileSync(join(root, ".interlinked", "sessions", "bad.json"), "{ not json");
 		snapshot("s1", 50, [redCycle]);
 		expect(collectCycles(root)).toHaveLength(1);
+	});
+
+	it.each([
+		{ tdd_cycles: 42 },
+		{ tdd_cycles: [["/r/a.ts", null]] },
+		{ tdd_cycles: { "/r/a.ts": { ...redCycle, state: 42 } } },
+		{ tool_call_count: "50", tdd_cycles: { "/r/a.ts": redCycle } },
+	])("ignores malformed cycle data without rewriting it: %j", (malformed) => {
+		const path = join(root, ".interlinked", "sessions", "bad.json");
+		const original = JSON.stringify(malformed);
+		writeFileSync(path, original);
+		expect(collectCycles(root)).toEqual([]);
+		expect(clearCycles(root)).toBe(0);
+		expect(readFileSync(path, "utf8")).toBe(original);
 	});
 });
 
@@ -218,7 +233,7 @@ describe("tddStatusCommand", () => {
 		// assertion that the double-encoding is gone.
 		snapshot("s1", 146, [redCycle]);
 		const { out } = await runCmd(() => tddStatusCommand({ cwd: root, json: true }));
-		const parsed = JSON.parse(out) as { total: number; blocking: number; cycles: unknown[] };
+		const parsed = parseWire(JSON.parse(out), wireObject({ "total": wireNumber, "blocking": wireNumber, "cycles": wireArray(wireUnknown) }), "test JSON value");
 		expect(parsed).toMatchObject({ total: 1, blocking: 1 });
 		expect(parsed.cycles).toHaveLength(1);
 	});

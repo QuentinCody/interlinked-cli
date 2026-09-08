@@ -9,23 +9,30 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
+import { readOptionalToolString } from "./evaluator/tool-input-values.js";
 
 /**
  * Resolve an API key by name. Checks:
  * 1. process.env[envVarName]
  * 2. .interlinked/config.local.json (gitignored, same pattern as access_token)
+ * Empty and non-string file values are ignored, including at the lowercase fallback.
  */
 export function resolveApiKey(envVarName: string): string | undefined {
 	if (!envVarName) return undefined;
 	const fromEnv = process.env[envVarName];
 	if (fromEnv) return fromEnv;
 	try {
-		const localConfig = JSON.parse(
+		const localConfig: unknown = JSON.parse(
 			readFileSync(join(process.cwd(), ".interlinked", "config.local.json"), "utf-8"),
 		);
-		return localConfig[envVarName] || localConfig[envVarName.toLowerCase()] || undefined;
+		if (!isJsonObject(localConfig)) return undefined;
+		for (const key of [envVarName, envVarName.toLowerCase()]) {
+			const value = localConfig[key];
+			if (typeof value === "string" && value) return value;
+		}
+		return undefined;
 	} catch {
 		return undefined;
 	}
@@ -128,7 +135,7 @@ function classifyAction(toolName: string, toolInput: JsonObject): string {
 
 /** Build a redacted target summary (no raw URLs, commands, or content) */
 function buildTargetSummary(toolName: string, toolInput: JsonObject): string {
-	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	const filePath = readOptionalToolString(toolInput.file_path) || readOptionalToolString(toolInput.path) || "";
 	if (filePath) return `file: ${filePath}`;
 
 	const cmd = String(toolInput.command || "");
@@ -388,7 +395,7 @@ async function callViaHttp(
 			return failOpenClassification(`Classifier HTTP error: ${response.status}`);
 		}
 
-		const data = (await response.json()) as JsonObject;
+		const data: unknown = await response.json();
 		const classification = isAnthropic
 			? parseAnthropicResponse(data)
 			: parseOpenAIResponse(data);

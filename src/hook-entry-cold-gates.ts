@@ -23,7 +23,7 @@ import {
 	type ColdWriteToolInput,
 } from "./lib/hook-template-chunks/cold-write-guards.js";
 import { checkDestructiveCommand } from "./lib/hook-template-chunks/destructive-command-guard.js";
-import type { JsonObject } from "./lib/json-types.js";
+import { isJsonObject, type JsonObject } from "./lib/json-types.js";
 
 // Unified phase tag (a subset of UnifiedPhase). Local copy of the constant in
 // hook-entry.ts so this leaf module does not import back from the main file
@@ -61,12 +61,8 @@ function colColdToolName(event: UnifiedHookEvent): string | null {
  *  against the (honest-elsewhere) required type. */
 function resolveColdCwd(event: UnifiedHookEvent): string {
 	const rawContext: unknown = event.context;
-	if (
-		typeof rawContext === "object" &&
-		rawContext !== null &&
-		typeof (rawContext as { cwd?: unknown }).cwd === "string"
-	) {
-		return (rawContext as { cwd: string }).cwd;
+	if (isJsonObject(rawContext) && typeof rawContext.cwd === "string") {
+		return rawContext.cwd;
 	}
 	return process.cwd();
 }
@@ -120,7 +116,7 @@ export function coldMergeConflictBlockReason(event: UnifiedHookEvent): string | 
 	if (!toolName) return null;
 	// SAFETY: every field of ColdWriteToolInput is optional-unknown, so any
 	// tool_input object satisfies it; the guard type-checks each value it reads.
-	const ti = (action.tool_input ?? {}) as ColdWriteToolInput;
+	const ti: ColdWriteToolInput = (action.tool_input ?? {});
 	const verdict = checkMergeConflictWrite(toolName, ti);
 	return verdict ? verdict.reason : null;
 }
@@ -154,7 +150,7 @@ export function coldDestructiveCommandBlockReason(event: UnifiedHookEvent): stri
 		command = action.command;
 	} else if (action.kind === ACTION_TOOL_CALL) {
 		if (!COLD_BASH_TOOL_NAMES.has(action.tool_name)) return null;
-		const ti = (action.tool_input ?? {}) as { command?: unknown };
+		const ti: { command?: unknown } = (action.tool_input ?? {});
 		command = typeof ti.command === "string" ? ti.command : "";
 	} else {
 		return null;
@@ -188,7 +184,7 @@ function resolveColdPackageInstallCommand(event: UnifiedHookEvent): string {
 	if (action.kind === ACTION_SHELL_COMMAND) return action.command;
 	if (action.kind !== ACTION_TOOL_CALL) return "";
 	if (!COLD_BASH_TOOL_NAMES.has(action.tool_name)) return "";
-	const ti = (action.tool_input ?? {}) as { command?: unknown };
+	const ti: { command?: unknown } = (action.tool_input ?? {});
 	return typeof ti.command === "string" ? ti.command : "";
 }
 

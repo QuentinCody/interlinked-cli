@@ -1,3 +1,5 @@
+import { wireAbsentOptional, parseWire, wireArray, wireNullable, wireNumber, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // `interlinked experience` actions — export/analyze/list over session logs.
 
 import {
@@ -89,7 +91,7 @@ describe("experienceExportAction", () => {
 		const lines = readFileSync(outPath, "utf-8").trim().split("\n");
 		expect(lines).toHaveLength(3);
 		// SAFETY: first exported line is the meta record by construction.
-		const meta = JSON.parse(lines[0] as string) as { role: string; schema?: string };
+		const meta = parseWire(JSON.parse(nonNull(lines[0])), wireObject({ "role": wireString, "schema": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value");
 		expect(meta.role).toBe("meta");
 		expect(meta.schema).toBe("trajectory-ix.v1");
 	});
@@ -105,7 +107,7 @@ describe("experienceExportAction", () => {
 		const outPath = join(dir, ".interlinked", "trajectories", "sess-a.letta.jsonl");
 		const lines = readFileSync(outPath, "utf-8").trim().split("\n");
 		// SAFETY: first exported line is the meta record by construction.
-		const meta = JSON.parse(lines[0] as string) as Record<string, unknown>;
+		const meta = parseWire(JSON.parse(nonNull(lines[0])), wireRecord(wireUnknown), "test JSON value");
 		expect(meta.schema).toBeUndefined();
 		expect(meta.role).toBe("meta");
 	});
@@ -146,7 +148,7 @@ describe("experienceExportAction", () => {
 		const outPath = join(dir, ".interlinked", "trajectories", "sess-a.ix.jsonl");
 		const lines = readFileSync(outPath, "utf-8").trim().split("\n");
 		// SAFETY: first exported line is the meta record by construction.
-		const meta = JSON.parse(lines[0] as string) as { ix_meta: { truncate_chars: number } };
+		const meta = parseWire(JSON.parse(nonNull(lines[0])), wireObject({ "ix_meta": wireObject({ "truncate_chars": wireNumber }) }), "test JSON value");
 		expect(meta.ix_meta.truncate_chars).toBe(10);
 	});
 
@@ -237,7 +239,7 @@ describe("experienceAnalyzeAction", () => {
 		const code = experienceAnalyzeAction({ session: "sess-a", cwd: dir, json: true });
 		expect(code).toBe(0);
 		// SAFETY: --json mode prints exactly one JSON document.
-		const parsed = JSON.parse(loggedText()) as { records: number; by_role: Record<string, number> };
+		const parsed = parseWire(JSON.parse(loggedText()), wireObject({ "records": wireNumber, "by_role": wireRecord(wireNumber) }), "test JSON value");
 		expect(parsed.records).toBe(2);
 		expect(parsed.by_role).toEqual({ user: 1, assistant: 1 });
 	});
@@ -456,9 +458,7 @@ describe("experienceListAction", () => {
 		const code = experienceListAction({ cwd: dir, json: true });
 		expect(code).toBe(0);
 		// SAFETY: --json mode prints exactly one JSON document.
-		const parsed = JSON.parse(loggedText()) as {
-			sessions: { session: string; records: number; provider: string | null }[];
-		};
+		const parsed = parseWire(JSON.parse(loggedText()), wireObject({ "sessions": wireArray(wireObject({ "session": wireString, "records": wireNumber, "provider": wireNullable(wireString) })) }), "test JSON value");
 		expect(parsed.sessions.map((s) => s.session)).toEqual(["sess-b", "sess-a"]);
 		expect(parsed.sessions[1]).toMatchObject({ session: "sess-a", records: 2 });
 	});
@@ -469,6 +469,8 @@ describe("experienceListAction", () => {
 		try {
 			const code = experienceListAction({ json: true });
 			expect(code).toBe(0);
+			const parsed = parseWire(JSON.parse(loggedText()), wireObject({ "sessions": wireArray(wireObject({ "session": wireString })) }), "test JSON value");
+			expect(parsed.sessions.map((s) => s.session)).toEqual(["sess-b", "sess-a"]);
 		} finally {
 			spy.mockRestore();
 		}
@@ -477,7 +479,7 @@ describe("experienceListAction", () => {
 	it("honors a valid --limit", () => {
 		const code = experienceListAction({ cwd: dir, limit: "1", json: true });
 		expect(code).toBe(0);
-		const parsed = JSON.parse(loggedText()) as { sessions: { session: string }[] };
+		const parsed = parseWire(JSON.parse(loggedText()), wireObject({ "sessions": wireArray(wireObject({ "session": wireString })) }), "test JSON value");
 		expect(parsed.sessions).toHaveLength(1);
 		expect(parsed.sessions[0]?.session).toBe("sess-b");
 	});
@@ -485,14 +487,14 @@ describe("experienceListAction", () => {
 	it("falls back to the default limit for a non-positive --limit", () => {
 		const code = experienceListAction({ cwd: dir, limit: "-3", json: true });
 		expect(code).toBe(0);
-		const parsed = JSON.parse(loggedText()) as { sessions: { session: string }[] };
+		const parsed = parseWire(JSON.parse(loggedText()), wireObject({ "sessions": wireArray(wireObject({ "session": wireString })) }), "test JSON value");
 		expect(parsed.sessions).toHaveLength(2);
 	});
 
 	it("treats an unparsable --limit as the default", () => {
 		const code = experienceListAction({ cwd: dir, limit: "not-a-number", json: true });
 		expect(code).toBe(0);
-		const parsed = JSON.parse(loggedText()) as { sessions: { session: string }[] };
+		const parsed = parseWire(JSON.parse(loggedText()), wireObject({ "sessions": wireArray(wireObject({ "session": wireString })) }), "test JSON value");
 		expect(parsed.sessions).toHaveLength(2);
 	});
 
@@ -515,9 +517,7 @@ describe("experienceListAction", () => {
 		);
 		const code = experienceListAction({ cwd: dir, json: true });
 		expect(code).toBe(0);
-		const parsed = JSON.parse(loggedText()) as {
-			sessions: { session: string; provider: string | null; records: number }[];
-		};
+		const parsed = parseWire(JSON.parse(loggedText()), wireObject({ "sessions": wireArray(wireObject({ "session": wireString, "provider": wireNullable(wireString), "records": wireNumber })) }), "test JSON value");
 		expect(parsed.sessions).toEqual([
 			{
 				session: "sess-noprovider",
@@ -550,7 +550,7 @@ describe("experienceListAction", () => {
 		);
 		const code = experienceListAction({ cwd: dir, json: true });
 		expect(code).toBe(0);
-		const parsed = JSON.parse(loggedText()) as { sessions: { session: string }[] };
+		const parsed = parseWire(JSON.parse(loggedText()), wireObject({ "sessions": wireArray(wireObject({ "session": wireString })) }), "test JSON value");
 		expect(parsed.sessions.map((s) => s.session).sort()).toEqual(["sess-x", "sess-y"]);
 	});
 
@@ -616,7 +616,7 @@ describe("experienceListAction", () => {
 		);
 		const code = experienceListAction({ cwd: dir, json: true });
 		expect(code).toBe(0);
-		const parsed = JSON.parse(loggedText()) as { sessions: { session: string }[] };
+		const parsed = parseWire(JSON.parse(loggedText()), wireObject({ "sessions": wireArray(wireObject({ "session": wireString })) }), "test JSON value");
 		expect(parsed.sessions.map((s) => s.session)).toEqual([
 			"sess-newest",
 			"sess-middle",
@@ -653,7 +653,7 @@ describe("experienceListAction", () => {
 		);
 		const code = experienceListAction({ cwd: dir, json: true });
 		expect(code).toBe(0);
-		const parsed = JSON.parse(loggedText()) as { sessions: { session: string }[] };
+		const parsed = parseWire(JSON.parse(loggedText()), wireObject({ "sessions": wireArray(wireObject({ "session": wireString })) }), "test JSON value");
 		expect(parsed.sessions.map((s) => s.session)).toEqual(["sess-newer", "sess-mid", "sess-old"]);
 	});
 

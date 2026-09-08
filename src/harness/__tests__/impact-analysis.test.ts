@@ -1,3 +1,4 @@
+import { makeProjectGraph as completeProjectGraphFixture } from "./fixtures/managers.js";
 // ===========================================
 // Impact Analysis — Unit Tests
 // ===========================================
@@ -78,13 +79,13 @@ function makeGraph(opts: {
 	moduleRole?: ModuleRole;
 	toRelative?: (f: string) => string;
 }) {
-	return {
+	return completeProjectGraphFixture({
 		getDependents: vi.fn().mockReturnValue(opts.dependents || []),
 		classifyModule: vi.fn().mockReturnValue(opts.moduleRole || "leaf"),
 		getExports: vi.fn().mockReturnValue([]),
 		toRelative: opts.toRelative || ((f: string) => f.replace(/^\/project\//, "")),
 		isInitialized: true,
-	} as unknown as ProjectGraph;
+	});
 }
 
 /**

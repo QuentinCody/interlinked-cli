@@ -1,3 +1,4 @@
+import { parseWire, wireAbsentOptional, wireArray, wireLiteral, wireNullable, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,8 @@ import type {
 	SurvivorSummary,
 } from "../harness/mutation/survivors.js";
 import { mutationSurvivorsCommand, parseShard, renderSurvivorReport, shardOf } from "./mutation-survivors.js";
+
+const isCapturedSurvivorSummary = wireObject({ "generation": wireNumber, "authoritativeAt": wireString, "totals": wireObject({ "files": wireNumber, "symbols": wireNumber, "mutants": wireNumber, "killed": wireNumber, "survived": wireNumber, "open": wireNumber, "dispositioned": wireNumber, "uncovered": wireNumber, "timeout": wireNumber, "staleFiles": wireNumber, "unqualifiedFiles": wireNumber, "openByRemedy": wireObject({ "write_test": wireNumber, "strengthen_tests": wireNumber, "unknown": wireNumber }), "score": wireNumber }), "files": wireArray(wireObject({ "file": wireString, "symbols": wireNumber, "open": wireNumber, "dispositioned": wireNumber, "uncovered": wireNumber, "timeout": wireNumber, "killed": wireNumber, "total": wireNumber, "score": wireNumber, "stale": wireLiteral(false, true), "remedy": wireLiteral("write_test", "strengthen_tests", "unknown"), "provenance": wireNullable(wireObject({ "at": wireString, "scope": wireLiteral("unknown", "import_graph", "companion_fallback", "glob_fallback"), "testCount": wireNumber, "surface": wireLiteral("unknown", "per_edit", "measure", "sweep", "adopt"), "engine": wireAbsentOptional(wireString), "engineVersion": wireAbsentOptional(wireString) })) })), "symbols": wireArray(wireObject({ "file": wireString, "symbolId": wireString, "qualifiedName": wireString, "open": wireNumber, "dispositioned": wireNumber, "uncovered": wireNumber, "total": wireNumber, "quarantined": wireLiteral(false, true) })), "mutators": wireArray(wireObject({ "mutator": wireString, "open": wireNumber, "total": wireNumber, "escapeRate": wireNumber })), "mutants": wireArray(wireObject({ "file": wireString, "symbolId": wireString, "qualifiedName": wireString, "mutantId": wireString, "mutator": wireString, "originalLexeme": wireString, "replacement": wireString, "firstSeen": wireString, "disposition": wireNullable(wireLiteral("killed", "dead_code", "proved_equivalent", "proved_unreachable", "duplicate", "outside_contract", "accepted_risk", "unresolved")) })) });
 
 function fileRow(file: string, open: number): SurvivorFileRow {
 	return {
@@ -231,7 +234,7 @@ describe("mutationSurvivorsCommand — file scope options", () => {
 	});
 
 	function reported(): SurvivorSummary {
-		return JSON.parse(logs.join("\n")) as SurvivorSummary;
+		return parseWire(JSON.parse(logs.join("\n")), isCapturedSurvivorSummary, "test JSON value");
 	}
 
 	it("P1: hides survivors in files that no longer exist by default", async () => {
@@ -662,6 +665,11 @@ describe("renderSurvivorReport — next steps", () => {
 		expect(() => {
 			const text = renderSurvivorReport(s, { top: 20 });
 			expect(text).not.toContain("Next: interlinked mutation survivors --file");
+			// Pins that the rest of the report still rendered normally — a stub
+			// that swallowed the whole render (or threw and got caught elsewhere)
+			// would also satisfy the not.toContain check above.
+			expect(text).toContain("Mutators that escape most often");
+			expect(text).toContain("BooleanLiteral");
 		}).not.toThrow();
 	});
 
@@ -799,12 +807,12 @@ describe("mutationSurvivorsCommand — --top parsing, --short, --include-disposi
 
 	it("--include-dispositioned reveals judged survivors that are hidden by default", async () => {
 		await mutationSurvivorsCommand({ cwd, json: true, file: "f0.ts" });
-		const hidden = JSON.parse(logs.join("\n")) as SurvivorSummary;
+		const hidden = parseWire(JSON.parse(logs.join("\n")), isCapturedSurvivorSummary, "test JSON value");
 		expect(hidden.mutants.map((m) => m.mutantId)).toEqual(["m0a"]);
 
 		logs = [];
 		await mutationSurvivorsCommand({ cwd, json: true, file: "f0.ts", includeDispositioned: true });
-		const shown = JSON.parse(logs.join("\n")) as SurvivorSummary;
+		const shown = parseWire(JSON.parse(logs.join("\n")), isCapturedSurvivorSummary, "test JSON value");
 		expect(shown.mutants.map((m) => m.mutantId).sort()).toEqual(["m0a", "m0b"]);
 	});
 });

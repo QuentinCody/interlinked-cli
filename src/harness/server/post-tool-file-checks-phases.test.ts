@@ -1,3 +1,9 @@
+import { makeServerRuntime, makeServerRules } from "./__tests__/fixtures.js";
+import { buildTestIndex } from "../__tests__/fixtures/trigram.js";
+import { ArtifactGraph } from "../structure/artifact-graph.js";
+import { resolveStructureConfig } from "../structure/schema-validator.js";
+import type { StructureFinding } from "../structure/types.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 // Behavioral coverage for the six extracted PostToolUse per-file check phases
 // in `./post-tool-file-checks-phases.js`.
 //
@@ -9,13 +15,8 @@
 // `decision.warnings`, `decision.decision`, `acc.allCheckResults`,
 // `acc.checksRan`, `session.pending_completions`, and the phase marks.
 //
-// Argument/return assertions go through vitest matchers (`toHaveBeenCalledWith`
-// + `expect.objectContaining` / `arrayContaining`) and concrete value checks
-// rather than casting `mock.mock.calls[i]`. `makeCtx` uses one fixture-boundary
-// `as unknown as` to avoid satisfying every field of the ~30-field
-// ServerRuntime interface (the same pattern the sibling tests use).
 
-import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	CheckResultEntry,
 	GuardRulesConfig,
@@ -27,7 +28,7 @@ import type { PerFileCheckCtx } from "./post-tool-file-checks.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
 const { createChangeSetExternalBatch, batchResultsForFile } = vi.hoisted(() => ({
-	createChangeSetExternalBatch: vi.fn(),
+	createChangeSetExternalBatch: vi.fn<typeof import("../quality-checks/change-set-external.js").createChangeSetExternalBatch>(),
 	batchResultsForFile: vi.fn(),
 }));
 
@@ -90,7 +91,7 @@ vi.mock("../structure/structure-formatter.js", async (importOriginal) => ({
 
 vi.mock("../structure/structure-loader.js", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../structure/structure-loader.js")>()),
-	loadStructureConfig: vi.fn(() => ({ config: { loaded: true } })),
+	loadStructureConfig: vi.fn(() => ({ config: loadedStructureConfig })),
 }));
 
 vi.mock("../suggestion-scorer.js", async (importOriginal) => ({
@@ -151,33 +152,39 @@ import {
 } from "./post-tool-file-checks-phases.js";
 import { collectSuggestionFindings } from "./suggestion-checks.js";
 
-const mExistsSync = existsSync as unknown as Mock;
-const mReadFileSync = readFileSync as unknown as Mock;
-const mRunQualityChecks = runQualityChecks as unknown as Mock;
-const mRunProjectWide = runProjectWideChecksAsync as unknown as Mock;
-const mFormatQuality = formatQualityWarnings as unknown as Mock;
-const mCountSuppressions = countSuppressionDirectives as unknown as Mock;
-const mFindProjectRoot = findProjectRoot as unknown as Mock;
-const mIsAck = isAcknowledged as unknown as Mock;
-const mAck = acknowledgeChecks as unknown as Mock;
-const mExpandSiblings = expandSiblings as unknown as Mock;
-const mRunStructure = runStructureChecks as unknown as Mock;
-const mFormatStructure = formatStructureWarnings as unknown as Mock;
-const mLoadStructureConfig = loadStructureConfig as unknown as Mock;
-const mScoreFindings = scoreFindings as unknown as Mock;
-const mFormatScored = formatScoredFindings as unknown as Mock;
-const mWriteTelemetry = writeTelemetry as unknown as Mock;
-const mLoadFileSup = loadFileSuppressions as unknown as Mock;
-const mScanInlineSup = scanInlineSuppressions as unknown as Mock;
-const mDeletionHygiene = collectDeletionHygieneDiffFindings as unknown as Mock;
-const mDeriveLines = deriveEditedLineNumbers as unknown as Mock;
-const mCollectSuggestions = collectSuggestionFindings as unknown as Mock;
-const mRunBehavioral = runBehavioralChecks as unknown as Mock;
-const mAssertionDensity = checkAssertionDensity as unknown as Mock;
+const mExistsSync = vi.mocked(existsSync);
+const mReadFileSync = vi.mocked(readFileSync);
+const mRunQualityChecks = vi.mocked(runQualityChecks);
+const mRunProjectWide = vi.mocked(runProjectWideChecksAsync);
+const mFormatQuality = vi.mocked(formatQualityWarnings);
+const mCountSuppressions = vi.mocked(countSuppressionDirectives);
+const mFindProjectRoot = vi.mocked(findProjectRoot);
+const mIsAck = vi.mocked(isAcknowledged);
+const mAck = vi.mocked(acknowledgeChecks);
+const mExpandSiblings = vi.mocked(expandSiblings);
+const mRunStructure = vi.mocked(runStructureChecks);
+const mFormatStructure = vi.mocked(formatStructureWarnings);
+const mLoadStructureConfig = vi.mocked(loadStructureConfig);
+const mScoreFindings = vi.mocked(scoreFindings);
+const mFormatScored = vi.mocked(formatScoredFindings);
+const mWriteTelemetry = vi.mocked(writeTelemetry);
+const mLoadFileSup = vi.mocked(loadFileSuppressions);
+const mScanInlineSup = vi.mocked(scanInlineSuppressions);
+const mDeletionHygiene = vi.mocked(collectDeletionHygieneDiffFindings);
+const mDeriveLines = vi.mocked(deriveEditedLineNumbers);
+const mCollectSuggestions = vi.mocked(collectSuggestionFindings);
+const mRunBehavioral = vi.mocked(runBehavioralChecks);
+const mAssertionDensity = vi.mocked(checkAssertionDensity);
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
+
+const builtGraph = new ArtifactGraph();
+const loadedStructureConfig = resolveStructureConfig({ version: 1 });
+function structureFinding(name: string): StructureFinding {
+	return { name, severity: "warning", message: "Companion update required", file: "/repo/src/mod.ts", determinism: "heuristic", provenance: "declared", artifact_kind: "module", artifact_id: "foo", required_updates: [], confidence: 1 };
+}
 
 const CWD = "/repo";
 const FILE = "/repo/src/mod.ts";
@@ -203,26 +210,19 @@ function makeSession(partial: Partial<SessionTrajectory> = {}): SessionTrajector
 		pending_completions: new Map(),
 		tool_sequence: ["Read", "Edit"],
 	};
-	return { ...base, ...partial } as SessionTrajectory;
+	return ({ ...makeSessionFixture(),  ...base, ...partial } satisfies SessionTrajectory);
 }
 
-function makeRules(partial: Record<string, unknown> = {}): GuardRulesConfig {
-	return {
-		quality_checks: {},
-		project_wide_checks: { enabled: false },
-		...partial,
-	} as unknown as GuardRulesConfig;
+function makeRules(partial: NonNullable<Parameters<typeof makeServerRules>[0]> = {}): GuardRulesConfig {
+ return makeServerRules({ ...partial });
 }
 
-/** Structural-checks config fixture. `runQualityPhase` only reads `smart_tsc`;
- *  the full StructuralChecksConfig has 28 fields, so this builds a partial at
- *  the fixture boundary (one cast, the same pattern makeRules/makeCtx use). */
-function sc(over: Record<string, unknown> = {}): GuardRulesConfig["structural_checks"] {
-	return { enabled: true, ...over } as unknown as GuardRulesConfig["structural_checks"];
+function sc(over: Partial<GuardRulesConfig["structural_checks"]> = {}): GuardRulesConfig["structural_checks"] {
+ return { ...makeServerRules().structural_checks, enabled: true, ...over };
 }
 
-function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
-	return {
+function makeCtx(over: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime {
+	return makeServerRuntime({
 		cwd: CWD,
 		interlinkedDir: `${CWD}/.interlinked`,
 		rules: makeRules(),
@@ -237,7 +237,7 @@ function makeCtx(over: Record<string, unknown> = {}): ServerRuntime {
 		},
 		log: vi.fn(),
 		...over,
-	} as unknown as ServerRuntime;
+	});
 }
 
 function makeAcc(partial: Partial<PerFileCheckCtx> = {}): PerFileCheckCtx {
@@ -288,15 +288,15 @@ beforeEach(() => {
 	mRunStructure.mockReturnValue({
 		results: [],
 		findings: [],
-		graph: { id: "g" },
+		graph: builtGraph,
 		pendingCompletions: [],
 	});
 	mFormatStructure.mockImplementation((fs: { name: string }[]) => fs.map((f) => `[struct] ${f.name}`));
-	mLoadStructureConfig.mockReturnValue({ config: { loaded: true } });
+	mLoadStructureConfig.mockReturnValue({ config: loadedStructureConfig, errors: [], implicit: false });
 	mScoreFindings.mockReturnValue([]);
 	mFormatScored.mockImplementation((ss: { check: string }[]) => ss.map((s) => `[sugg] ${s.check}`));
 	mLoadFileSup.mockReturnValue(new Set<string>());
-	mScanInlineSup.mockReturnValue([]);
+	mScanInlineSup.mockReturnValue(new Map());
 	mDeletionHygiene.mockReturnValue([]);
 	mDeriveLines.mockReturnValue(undefined);
 	mCollectSuggestions.mockReturnValue([]);
@@ -347,7 +347,7 @@ describe("runQualityPhase", () => {
 	it("runs checks and fires the structural_checks + quality_checks phase marks in order", async () => {
 		const { acc } = await call();
 		expect(mRunQualityChecks).toHaveBeenCalledOnce();
-		const markNames = (acc.markPhase as unknown as Mock).mock.calls.map((c) => c[0]);
+		const markNames = (vi.mocked(acc.markPhase)).mock.calls.map((c) => c[0]);
 		expect(markNames).toEqual(["structural_checks", "quality_checks"]);
 	});
 
@@ -371,7 +371,7 @@ describe("runQualityPhase", () => {
 		});
 		await call({ ctx, structuralConfig: sc({ smart_tsc: true }), exportChanged: true });
 		const opts = nonNull(mRunQualityChecks.mock.calls[0])[3];
-		expect(opts.tscFilterFile).toBeUndefined();
+		expect(nonNull(opts).tscFilterFile).toBeUndefined();
 	});
 
 	it("falls back to CWD when findProjectRoot returns null for the smart-tsc relative path", async () => {
@@ -390,7 +390,7 @@ describe("runQualityPhase", () => {
 	});
 
 	it("threads a pre-edit baseline (+ its suppressionCount) and clears it after", async () => {
-		const baseline = { suppressionCount: 4, fileHash: "h" };
+		const baseline = { suppressionCount: 4, fileHash: "h", missingReturnTypes: new Set<string>(), complexFunctions: new Set<string>(), capturedAt: 0, asAnyCastCount: 0, nonNullAssertionCount: 0 };
 		const preEditBaselines = new Map([[FILE, baseline]]);
 		const ctx = makeCtx({
 			rules: makeRules({ quality_checks: { typescript: { enabled: true, file_types: [".ts"] } } }),
@@ -410,8 +410,8 @@ describe("runQualityPhase", () => {
 
 	it("shares one ChangeSet batch while preserving each file's own pre-edit baseline", async () => {
 		const secondFile = "/repo/src/other.ts";
-		const firstBaseline = { suppressionCount: 4, fileHash: "first" };
-		const secondBaseline = { suppressionCount: 9, fileHash: "second" };
+		const firstBaseline = { suppressionCount: 4, fileHash: "first", missingReturnTypes: new Set<string>(), complexFunctions: new Set<string>(), capturedAt: 0, asAnyCastCount: 0, nonNullAssertionCount: 0 };
+		const secondBaseline = { suppressionCount: 9, fileHash: "second", missingReturnTypes: new Set<string>(), complexFunctions: new Set<string>(), capturedAt: 0, asAnyCastCount: 0, nonNullAssertionCount: 0 };
 		const preEditBaselines = new Map([
 			[FILE, firstBaseline],
 			[secondFile, secondBaseline],
@@ -475,10 +475,7 @@ describe("runQualityPhase", () => {
 
 		await call({ acc, event });
 
-		const batchArgs = nonNull(createChangeSetExternalBatch.mock.calls[0])[0] as {
-			paths: string[];
-			newFilePaths: string[];
-		};
+		const batchArgs = nonNull(createChangeSetExternalBatch.mock.calls[0])[0];
 		// Every edited path is batched, but only the `created` effect's path is
 		// reported as new — the map projects the effect down to its path string.
 		expect(batchArgs.paths).toEqual([FILE, createdFile]);
@@ -486,7 +483,7 @@ describe("runQualityPhase", () => {
 	});
 
 	it("resolves a relative editedFilePath against CWD for the baseline key", async () => {
-		const baseline = { suppressionCount: 9 };
+		const baseline = { suppressionCount: 9, missingReturnTypes: new Set<string>(), complexFunctions: new Set<string>(), capturedAt: 0, asAnyCastCount: 0, nonNullAssertionCount: 0 };
 		const preEditBaselines = new Map([[FILE, baseline]]);
 		const ctx = makeCtx({
 			rules: makeRules({ quality_checks: { typescript: { enabled: true, file_types: [".ts"] } } }),
@@ -525,7 +522,7 @@ describe("runQualityPhase", () => {
 			}),
 		});
 		mRunQualityChecks.mockImplementation(async (_event, _checks, _cwd, options) => {
-			options.outChecksRan.push("typescript");
+			nonNull(nonNull(options).outChecksRan).push("typescript");
 			return [];
 		});
 		const { acc } = await call({ ctx });
@@ -686,7 +683,7 @@ describe("runQualityPhase", () => {
 	});
 
 	it("expands siblings when a trigger finding fires and the trigram index is present", async () => {
-		const trigramIndex = { fake: "index" };
+		const trigramIndex = buildTestIndex({});
 		const ctx = makeCtx({
 			rules: makeRules({ quality_checks: { typescript: { enabled: true, file_types: [".ts"] } } }),
 			trigramIndex,
@@ -713,7 +710,7 @@ describe("runQualityPhase", () => {
 	it("uses the finding's own file for the sibling trigger when present", async () => {
 		const ctx = makeCtx({
 			rules: makeRules({ quality_checks: { typescript: { enabled: true, file_types: [".ts"] } } }),
-			trigramIndex: {},
+			trigramIndex: buildTestIndex({}),
 		});
 		mRunQualityChecks.mockResolvedValue([qres({ name: "as_any_ratchet", severity: "warning", file: "/repo/src/specific.ts" })]);
 		await call({ ctx });
@@ -725,7 +722,7 @@ describe("runQualityPhase", () => {
 	it("falls back to the edited file for the sibling trigger when the finding has no file", async () => {
 		const ctx = makeCtx({
 			rules: makeRules({ quality_checks: { typescript: { enabled: true, file_types: [".ts"] } } }),
-			trigramIndex: {},
+			trigramIndex: buildTestIndex({}),
 		});
 		// A trigger finding with `file` omitted — the `?? editedFilePath` fallback fires.
 		mRunQualityChecks.mockResolvedValue([
@@ -740,7 +737,7 @@ describe("runQualityPhase", () => {
 	it("sibling reader.read returns file content via readFileSync, undefined on throw", async () => {
 		const ctx = makeCtx({
 			rules: makeRules({ quality_checks: { typescript: { enabled: true, file_types: [".ts"] } } }),
-			trigramIndex: {},
+			trigramIndex: buildTestIndex({}),
 		});
 		mRunQualityChecks.mockResolvedValue([qres({ name: "as_any_ratchet", severity: "warning" })]);
 		let captured: { read: (p: string) => string | undefined } | undefined;
@@ -760,7 +757,7 @@ describe("runQualityPhase", () => {
 	it("does not crash and logs when sibling expansion throws", async () => {
 		const ctx = makeCtx({
 			rules: makeRules({ quality_checks: { typescript: { enabled: true, file_types: [".ts"] } } }),
-			trigramIndex: {},
+			trigramIndex: buildTestIndex({}),
 		});
 		mRunQualityChecks.mockResolvedValue([qres({ name: "as_any_ratchet", severity: "warning" })]);
 		mExpandSiblings.mockImplementation(() => {
@@ -775,7 +772,7 @@ describe("runQualityPhase", () => {
 	it("stringifies a non-Error sibling-expansion throw via String(e)", async () => {
 		const ctx = makeCtx({
 			rules: makeRules({ quality_checks: { typescript: { enabled: true, file_types: [".ts"] } } }),
-			trigramIndex: {},
+			trigramIndex: buildTestIndex({}),
 		});
 		mRunQualityChecks.mockResolvedValue([qres({ name: "as_any_ratchet", severity: "warning" })]);
 		mExpandSiblings.mockImplementation(() => {
@@ -794,7 +791,7 @@ describe("runQualityPhase", () => {
 	it("skips sibling expansion when no finding matches a trigger name", async () => {
 		const ctx = makeCtx({
 			rules: makeRules({ quality_checks: { typescript: { enabled: true, file_types: [".ts"] } } }),
-			trigramIndex: {},
+			trigramIndex: buildTestIndex({}),
 		});
 		mRunQualityChecks.mockResolvedValue([qres({ name: "strong_typing", severity: "warning" })]);
 		await call({ ctx });
@@ -831,7 +828,7 @@ describe("runProjectWideSweepPhase", () => {
 		const ctx = ctxWithSweep();
 		const acc = makeAcc();
 		await runProjectWideSweepPhase(ctx, FILE, false, false, { decision: "allow" }, acc);
-		expect((ctx.projectWideSweepState.recordFileChecked as unknown as Mock)).not.toHaveBeenCalled();
+		expect((vi.mocked(ctx.projectWideSweepState.recordFileChecked))).not.toHaveBeenCalled();
 		expect(mRunProjectWide).not.toHaveBeenCalled();
 		expect(acc.markPhase).toHaveBeenCalledWith("project_wide_sweep");
 	});
@@ -1037,8 +1034,8 @@ describe("runScoredSuggestionsPhase", () => {
 	it("scores findings, pushes scored rows and warnings, writes telemetry", () => {
 		mExistsSync.mockReturnValue(true);
 		mReadFileSync.mockReturnValue("const x = 1\n");
-		mCollectSuggestions.mockReturnValue([{ check: "magic-number", severity: "warning", line: 1, message: "magic" }]);
-		mScoreFindings.mockReturnValue([{ check: "magic-number", severity: "warning", line: 1, message: "magic", score: 0.81 }]);
+		mCollectSuggestions.mockReturnValue([{ check: "magic-number", source: "quality", line: 1, message: "magic" }]);
+		mScoreFindings.mockReturnValue([{ check: "magic-number", source: "quality", line: 1, message: "magic", score: 0.81 }]);
 		const { acc, decision } = callSugg();
 		expect(acc.allCheckResults).toEqual([
 			expect.objectContaining({
@@ -1059,7 +1056,7 @@ describe("runScoredSuggestionsPhase", () => {
 	it("computes the edit region (start/end line) from old_string position", () => {
 		mExistsSync.mockReturnValue(true);
 		mReadFileSync.mockReturnValue("aaa\nbbb\nccc\nddd\n");
-		mCollectSuggestions.mockReturnValue([{ check: "c", severity: "warning", line: 1, message: "m" }]);
+		mCollectSuggestions.mockReturnValue([{ check: "c", source: "quality", line: 1, message: "m" }]);
 		const event = ev({ tool_input: { file_path: FILE, old_string: "bbb\nccc" } });
 		callSugg({ event });
 		// idx of "bbb\nccc" is after "aaa\n" → line 2; old spans 2 lines → end line 4.
@@ -1072,7 +1069,7 @@ describe("runScoredSuggestionsPhase", () => {
 	it("omits editStartLine/editEndLine when old_string is not found in content", () => {
 		mExistsSync.mockReturnValue(true);
 		mReadFileSync.mockReturnValue("aaa\nbbb\n");
-		mCollectSuggestions.mockReturnValue([{ check: "c", severity: "warning", line: 1, message: "m" }]);
+		mCollectSuggestions.mockReturnValue([{ check: "c", source: "quality", line: 1, message: "m" }]);
 		const event = ev({ tool_input: { file_path: FILE, old_string: "ZZZ-not-present" } });
 		callSugg({ event });
 		const opts = nonNull(mScoreFindings.mock.calls[0])[1];
@@ -1083,8 +1080,8 @@ describe("runScoredSuggestionsPhase", () => {
 	it("filters out acknowledged scored suggestions before surfacing", () => {
 		mExistsSync.mockReturnValue(true);
 		mReadFileSync.mockReturnValue("x\n");
-		mCollectSuggestions.mockReturnValue([{ check: "ack-me", severity: "warning", line: 1, message: "m" }]);
-		mScoreFindings.mockReturnValue([{ check: "ack-me", severity: "warning", line: 1, message: "m", score: 0.9 }]);
+		mCollectSuggestions.mockReturnValue([{ check: "ack-me", source: "quality", line: 1, message: "m" }]);
+		mScoreFindings.mockReturnValue([{ check: "ack-me", source: "quality", line: 1, message: "m", score: 0.9 }]);
 		mIsAck.mockReturnValue(true); // acknowledged → dropped from `scored`
 		const { acc, decision } = callSugg();
 		expect(acc.allCheckResults).toEqual([]);
@@ -1096,7 +1093,7 @@ describe("runScoredSuggestionsPhase", () => {
 	it("passes suggestion_limit/threshold from rules into scoreFindings", () => {
 		const ctx = makeCtx({ rules: makeRules({ suggestion_limit: 7, suggestion_threshold: 0.25 }) });
 		mExistsSync.mockReturnValue(true);
-		mCollectSuggestions.mockReturnValue([{ check: "c", severity: "warning", line: 1, message: "m" }]);
+		mCollectSuggestions.mockReturnValue([{ check: "c", source: "quality", line: 1, message: "m" }]);
 		callSugg({ ctx });
 		expect(mScoreFindings).toHaveBeenCalledWith(
 			expect.anything(),
@@ -1115,7 +1112,7 @@ describe("runScoredSuggestionsPhase", () => {
 
 	it("uses 'unknown' as the telemetry agentName when the session has no agent_name", () => {
 		mExistsSync.mockReturnValue(true);
-		mCollectSuggestions.mockReturnValue([{ check: "c", severity: "warning", line: 1, message: "m" }]);
+		mCollectSuggestions.mockReturnValue([{ check: "c", source: "quality", line: 1, message: "m" }]);
 		const session = makeSession({ agent_name: "" }); // falsy → "unknown" fallback
 		callSugg({ session });
 		expect(mWriteTelemetry).toHaveBeenCalledWith(
@@ -1235,34 +1232,34 @@ describe("runStructureChecksPhase", () => {
 	});
 
 	it("STILL runs when over budget but a cached graph exists", () => {
-		const ctx = makeCtx({ structureGraph: { cached: true } });
+		const ctx = makeCtx({ structureGraph: builtGraph });
 		const acc = makeAcc({ postStartMs: Date.now() - 60_000 });
 		const session = makeSession();
 		session.files_written.add("src/changed-sibling.ts");
 		callStruct({ ctx, acc, session });
 		expect(mRunStructure).toHaveBeenCalledOnce();
-		expect(mRunStructure).toHaveBeenCalledWith(FILE, CWD, { cached: true }, null, session.files_written);
+		expect(mRunStructure).toHaveBeenCalledWith(FILE, CWD, builtGraph, null, session.files_written);
 	});
 
 	it("runs structure checks, updates the graph cache, and loads the config when absent", () => {
 		const ctx = makeCtx({ structureGraph: null, structureConfigCache: null });
-		mRunStructure.mockReturnValue({ results: [], findings: [], graph: { id: "built" }, pendingCompletions: [] });
+		mRunStructure.mockReturnValue({ results: [], findings: [], graph: builtGraph, pendingCompletions: [] });
 		callStruct({ ctx });
-		expect(ctx.structureGraph).toEqual({ id: "built" });
+		expect(ctx.structureGraph).toEqual(builtGraph);
 		expect(mLoadStructureConfig).toHaveBeenCalledOnce();
-		expect(ctx.structureConfigCache).toEqual({ loaded: true });
+		expect(ctx.structureConfigCache).toEqual(loadedStructureConfig);
 	});
 
 	it("does not reload the structure config when already cached", () => {
-		const ctx = makeCtx({ structureGraph: { x: 1 }, structureConfigCache: { existing: true } });
+		const ctx = makeCtx({ structureGraph: builtGraph, structureConfigCache: loadedStructureConfig });
 		callStruct({ ctx });
 		expect(mLoadStructureConfig).not.toHaveBeenCalled();
-		expect(ctx.structureConfigCache).toEqual({ existing: true });
+		expect(ctx.structureConfigCache).toEqual(loadedStructureConfig);
 	});
 
 	it("pushes structure results into allCheckResults", () => {
 		const r: CheckResultEntry = { source: "structure", name: "public_symbol_companions", severity: "warning", message: "needs companion", determinism: "heuristic" };
-		mRunStructure.mockReturnValue({ results: [r], findings: [], graph: { id: "g" }, pendingCompletions: [] });
+		mRunStructure.mockReturnValue({ results: [r], findings: [], graph: builtGraph, pendingCompletions: [] });
 		const { acc } = callStruct();
 		expect(acc.allCheckResults).toEqual([r]);
 	});
@@ -1270,8 +1267,8 @@ describe("runStructureChecksPhase", () => {
 	it("records the structure check + appends formatted warnings when findings exist", () => {
 		mRunStructure.mockReturnValue({
 			results: [],
-			findings: [{ name: "env_key_companions" }],
-			graph: { id: "g" },
+			findings: [structureFinding("env_key_companions")],
+			graph: builtGraph,
 			pendingCompletions: [],
 		});
 		const { acc, decision } = callStruct();
@@ -1284,12 +1281,13 @@ describe("runStructureChecksPhase", () => {
 		mRunStructure.mockReturnValue({
 			results: [],
 			findings: [],
-			graph: { id: "g" },
+			graph: builtGraph,
 			pendingCompletions: [
 				{
 					source_artifact_ref: "module:foo",
 					source_file: "/repo/src/foo.ts",
 					finding_class: "public_symbol_companions",
+					determinism: "heuristic", provenance: "declared", first_detected_tool_call: 7,
 					required_companion_files: ["/repo/docs/foo.md"],
 					resolved_companion_files: new Set(["/repo/docs/done.md"]),
 				},
@@ -1316,8 +1314,8 @@ describe("runStructureChecksPhase", () => {
 	it("appends structure warnings onto a pre-existing decision.warnings array", () => {
 		mRunStructure.mockReturnValue({
 			results: [],
-			findings: [{ name: "glossary_residue" }],
-			graph: { id: "g" },
+			findings: [structureFinding("glossary_residue")],
+			graph: builtGraph,
 			pendingCompletions: [],
 		});
 		const decision: HarnessDecision = { decision: "allow", warnings: ["earlier"] };
@@ -1334,7 +1332,7 @@ describe("runStructureChecksPhase", () => {
 		expect(() => callStruct({ ctx })).not.toThrow();
 		expect(ctx.log).toHaveBeenCalledWith(expect.stringContaining("Structure check error: graph blew up"));
 		// the phase mark still fires after the catch.
-		expect((ctx.log as unknown as Mock)).toHaveBeenCalled();
+		expect((vi.mocked(ctx.log))).toHaveBeenCalled();
 	});
 
 	it("stringifies a non-Error structure throw via String(structErr)", () => {
@@ -1372,7 +1370,7 @@ describe("runBehavioralPhase", () => {
 			over.event ?? ev(),
 			over.file ?? FILE,
 			over.prevSuppress ?? 0,
-			(over.session === undefined ? makeSession() : over.session) as SessionTrajectory,
+			nonNull((over.session === undefined ? makeSession() : over.session)),
 			decision,
 			acc,
 		);

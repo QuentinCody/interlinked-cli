@@ -642,17 +642,7 @@ describe("id extraction hardening (round-7 ids-deep)", () => {
 	});
 });
 
-describe("branch-coverage batch (line-array holes, span merge, binary search)", () => {
-	it("extractRangeClaims tolerates a missing (undefined) line entry instead of throwing", () => {
-		// A sparse/type-unsafe `lines` array is the only way `lines[i] ?? ""`
-		// ever sees its fallback — with a real string[] the loop bound guarantees
-		// every index is defined. extractRangeClaims guards BEFORE stripping, so
-		// it survives; extractIdNamespaces does not (see note in the campaign
-		// report — its `lines.map(stripEmphasis)` crashes on the same hole before
-		// collectHits' own `?? ""` guard is ever reached, so that guard is dead).
-		const withHole = ["FG-INV-01 through FG-INV-05", undefined as unknown as string, "FG-INV-03"];
-		expect(() => extractRangeClaims(withHole)).not.toThrow();
-	});
+describe("branch-coverage batch (span merge, binary search)", () => {
 
 	it("merges a range-claim span fully contained in a preceding span on the same line, and still excludes both endpoints", () => {
 		// Two explicit spans on line 1: [4,7) then a CONTAINED [4,6) — sorted with

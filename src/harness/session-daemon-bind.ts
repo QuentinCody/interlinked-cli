@@ -1,3 +1,4 @@
+import { hasErrorCode } from "./check-engine/tool-errors.js";
 // ===========================================
 // Session daemon — socket bind + socket-state probing
 // ===========================================
@@ -52,7 +53,7 @@ async function prepareBindRetry(
 	socketPath: string,
 	isServing: (socketPath: string) => Promise<boolean>,
 ): Promise<boolean> {
-	if ((err as NodeJS.ErrnoException).code !== "EADDRINUSE") return true;
+	if (!hasErrorCode(err, "EADDRINUSE")) return true;
 	if (await isServing(socketPath)) return false;
 	rmSync(socketPath, { force: true });
 	return true;

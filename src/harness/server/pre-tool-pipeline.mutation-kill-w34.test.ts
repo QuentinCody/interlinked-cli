@@ -1,3 +1,7 @@
+import type { CoordinationResponse } from "../auto-coordinate.js";
+import { makeServerRuntime, makeServerRules } from "./__tests__/fixtures.js";
+import { ProjectGraph } from "../project-graph.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 // Mutation-kill suite for the survivor mutants in `pre-tool-pipeline.ts`
 // (wave 34). The existing `pre-tool-pipeline.integration.test.ts` covers the
 // broad decision-tree but never mocks `baseline-effect-guard.js`,
@@ -7,7 +11,7 @@
 // This file mocks every sibling module at the import boundary (matching the
 // established pattern) and pins the exact observable each survivor needs.
 
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	ClassifierConfig,
 	EscalationRequest,
@@ -51,7 +55,7 @@ vi.mock("../evaluator.js", () => ({
 }));
 
 vi.mock("../evaluator/baseline-effect-guard.js", () => ({
-	baselineCallKey: vi.fn((opts: { toolUseId?: string; sessionId: string; timestamp: string }) =>
+	baselineCallKey: vi.fn((opts: { toolUseId?: string | undefined; sessionId: string; timestamp: string }) =>
 		opts.toolUseId ?? `${opts.sessionId}:${opts.timestamp}`,
 	),
 	rememberBaselineSnapshot: vi.fn(),
@@ -101,7 +105,7 @@ vi.mock("./runtime-context.js", async () => {
 		await vi.importActual<typeof import("./runtime-context.js")>("./runtime-context.js");
 	return {
 		summarizeToolInput: actual.summarizeToolInput,
-		getGraphForFile: vi.fn(() => ({}) as unknown),
+		getGraphForFile: vi.fn(() => ({})),
 		getAutoCoordState: vi.fn(() => ({
 			lastCoordAt: 0,
 			lastCoordTs: 0,
@@ -125,21 +129,21 @@ import { rememberWorkspaceSnapshot, shouldObserveWorkspaceEffects } from "../wor
 import { runCoverageWriteGate, runMutationWriteGate } from "./pre-tool-coverage-gates.js";
 import { getAutoCoordState, getGraphForFile } from "./runtime-context.js";
 
-const mShouldCoordinate = shouldCoordinate as unknown as Mock;
-const mEvaluate = evaluatePreToolUse as unknown as Mock;
-const mExtractPattern = extractPermissionPattern as unknown as Mock;
-const mRunCommitBaselineGate = runCommitBaselineGate as unknown as Mock;
-const mBaselineCallKey = baselineCallKey as unknown as Mock;
-const mRememberBaselineSnapshot = rememberBaselineSnapshot as unknown as Mock;
-const mRunCommitLaunderingGate = runCommitLaunderingGate as unknown as Mock;
-const mAppendShadow = appendShadowLog as unknown as Mock;
-const mCallClassifier = callClassifier as unknown as Mock;
-const mRememberWorkspaceSnapshot = rememberWorkspaceSnapshot as unknown as Mock;
-const mShouldObserveWorkspaceEffects = shouldObserveWorkspaceEffects as unknown as Mock;
-const mRunCoverageWriteGate = runCoverageWriteGate as unknown as Mock;
-const mRunMutationWriteGate = runMutationWriteGate as unknown as Mock;
-const mGetAutoCoord = getAutoCoordState as unknown as Mock;
-const mGetGraphForFile = getGraphForFile as unknown as Mock;
+const mShouldCoordinate = vi.mocked(shouldCoordinate);
+const mEvaluate = vi.mocked(evaluatePreToolUse);
+const mExtractPattern = vi.mocked(extractPermissionPattern);
+const mRunCommitBaselineGate = vi.mocked(runCommitBaselineGate);
+const mBaselineCallKey = vi.mocked(baselineCallKey);
+const mRememberBaselineSnapshot = vi.mocked(rememberBaselineSnapshot);
+const mRunCommitLaunderingGate = vi.mocked(runCommitLaunderingGate);
+const mAppendShadow = vi.mocked(appendShadowLog);
+const mCallClassifier = vi.mocked(callClassifier);
+const mRememberWorkspaceSnapshot = vi.mocked(rememberWorkspaceSnapshot);
+const mShouldObserveWorkspaceEffects = vi.mocked(shouldObserveWorkspaceEffects);
+const mRunCoverageWriteGate = vi.mocked(runCoverageWriteGate);
+const mRunMutationWriteGate = vi.mocked(runMutationWriteGate);
+const mGetAutoCoord = vi.mocked(getAutoCoordState);
+const mGetGraphForFile = vi.mocked(getGraphForFile);
 
 function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
 	return {
@@ -151,8 +155,8 @@ function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
 	};
 }
 
-function makeSession(partial: Record<string, unknown> = {}): SessionTrajectory {
-	return {
+function makeSession(partial: Partial<SessionTrajectory> = {}): SessionTrajectory {
+	return ({ ...makeSessionFixture(),
 		agent_name: "session-agent",
 		tool_call_count: 5,
 		tool_sequence: [],
@@ -160,15 +164,13 @@ function makeSession(partial: Record<string, unknown> = {}): SessionTrajectory {
 		pending_completions: new Map(),
 		acknowledged_checks: new Set(["shell-sandbox-evidence"]),
 		...partial,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
-function makeRules(partial: Record<string, unknown> = {}): GuardRulesConfig {
-	return { rules: [], ...partial } as unknown as GuardRulesConfig;
-}
+function makeRules(partial: NonNullable<Parameters<typeof makeServerRules>[0]> = {}): GuardRulesConfig { return makeServerRules(partial); }
 
-function makeCtx(overrides: Record<string, unknown> = {}): ServerRuntime {
-	return {
+function makeCtx(overrides: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}): ServerRuntime {
+	return makeServerRuntime({
 		cwd: "/repo",
 		interlinkedDir: "/repo/.interlinked",
 		rules: makeRules(),
@@ -194,7 +196,7 @@ function makeCtx(overrides: Record<string, unknown> = {}): ServerRuntime {
 		writeClassifierStatus: vi.fn(),
 		writeReviewPendingMarker: vi.fn(),
 		...overrides,
-	} as unknown as ServerRuntime;
+	});
 }
 
 function escalation(partial: Partial<EscalationRequest> = {}): EscalationRequest {
@@ -232,7 +234,7 @@ beforeEach(() => {
 	mRunCommitBaselineGate.mockReturnValue(null);
 	mRunCommitLaunderingGate.mockReturnValue(null);
 	mBaselineCallKey.mockImplementation(
-		(opts: { toolUseId?: string; sessionId: string; timestamp: string }) =>
+		(opts) =>
 			opts.toolUseId ?? `${opts.sessionId}:${opts.timestamp}`,
 	);
 	mShouldObserveWorkspaceEffects.mockReturnValue(false);
@@ -247,7 +249,7 @@ beforeEach(() => {
 		totalCheckins: 0,
 		disabled: false,
 	});
-	mGetGraphForFile.mockReturnValue({});
+	mGetGraphForFile.mockReturnValue(new ProjectGraph("/repo"));
 });
 
 afterEach(() => {
@@ -263,7 +265,7 @@ describe("dry-run baseline/workspace snapshot gate", () => {
 	it("skips baseline snapshotting entirely when event.dry_run is true", async () => {
 		await runPreToolPipeline(
 			makeCtx(),
-			ev({ tool_name: "Read", dry_run: true } as Partial<HarnessEvent>),
+			ev({ tool_name: "Read", dry_run: true }),
 			makeSession(),
 		);
 		expect(mRememberBaselineSnapshot).not.toHaveBeenCalled();
@@ -535,7 +537,7 @@ describe("auto-coordination exact observables", () => {
 	// test-contract: exact-observable — the resolved tool_name reaches shouldCoordinate
 	it("passes the actual event.tool_name to shouldCoordinate", async () => {
 		await runPreToolPipeline(
-			makeCtx({ serverBridge: { fetchCoordinationState: vi.fn(async () => null) } }),
+			makeCtx({ serverBridge: { reportGuardEvent: vi.fn(),  fetchCoordinationState: vi.fn(async () => null) } }),
 			ev({ tool_name: "Edit" }),
 			makeSession(),
 		);
@@ -550,7 +552,7 @@ describe("auto-coordination exact observables", () => {
 	// test-contract: exact-observable — an absent tool_name falls back to "" (not a sentinel)
 	it("passes '' to shouldCoordinate when tool_name is absent", async () => {
 		await runPreToolPipeline(
-			makeCtx({ serverBridge: { fetchCoordinationState: vi.fn(async () => null) } }),
+			makeCtx({ serverBridge: { reportGuardEvent: vi.fn(),  fetchCoordinationState: vi.fn(async () => null) } }),
 			ev({}),
 			makeSession(),
 		);
@@ -570,7 +572,7 @@ describe("auto-coordination exact observables", () => {
 		const fetchCoordinationState = vi.fn(async () => null);
 		await runPreToolPipeline(
 			makeCtx({
-				serverBridge: { fetchCoordinationState, reportGuardEvent: vi.fn() },
+				serverBridge: { reportGuardEvent: vi.fn(), fetchCoordinationState },
 			}),
 			ev({ tool_name: "Edit" }),
 			makeSession(),
@@ -581,9 +583,9 @@ describe("auto-coordination exact observables", () => {
 	// test-contract: exact-observable — the log line names counts, not blank
 	it("logs the unread/task-change counts on a successful check-in", async () => {
 		mShouldCoordinate.mockReturnValue(true);
-		const coordResponse = { unread: { total: 3, urgent: [] }, task_changes: [{ id: 1 }, { id: 2 }] };
+		const coordResponse: CoordinationResponse = { heartbeat_recorded: true, unread: { total: 3, urgent: [] }, task_changes: [1, 2].map((id) => ({ id, title: "Task", status: "blocked", change_type: "blocked" })) };
 		const ctx = makeCtx({
-			serverBridge: { fetchCoordinationState: vi.fn(async () => coordResponse) },
+			serverBridge: { reportGuardEvent: vi.fn(), fetchCoordinationState: vi.fn(async () => coordResponse) },
 		});
 		await runPreToolPipeline(ctx, ev({ tool_name: "Edit" }), makeSession());
 		expect(ctx.log).toHaveBeenCalledWith("Auto-coordination: 3 unread, 2 task changes");
@@ -601,7 +603,7 @@ describe("auto-coordination exact observables", () => {
 		};
 		mGetAutoCoord.mockReturnValue(coordState);
 		const ctx = makeCtx({
-			serverBridge: { fetchCoordinationState: vi.fn(async () => null) },
+			serverBridge: { reportGuardEvent: vi.fn(),  fetchCoordinationState: vi.fn(async () => null) },
 			autoCoordConfig: { max_misses_before_disable: 5, timeout_ms: 2000 },
 		});
 		await runPreToolPipeline(ctx, ev({ tool_name: "Edit" }), makeSession());
@@ -616,7 +618,7 @@ describe("auto-coordination exact observables", () => {
 describe("async-analysis findings exact observables", () => {
 	// test-contract: exact-observable — the warnings array starts at [] (length 1, not 2)
 	it("produces exactly one async warning when preDecision.warnings started empty", async () => {
-		const ctx = makeCtx({ asyncAnalysis: { consume: vi.fn(() => [{ name: "n", message: "m" }]) } });
+		const ctx = makeCtx({ asyncAnalysis: { consume: vi.fn(() => [{ name: "n", message: "m", source: "quality", severity: "warning", determinism: "heuristic" } satisfies import("../types.js").CheckResultEntry]) } });
 		const decision = await runPreToolPipeline(
 			ctx,
 			ev({ tool_name: "Edit", tool_input: { file_path: "src/x.ts" } }),
@@ -631,8 +633,8 @@ describe("async-analysis findings exact observables", () => {
 		const ctx = makeCtx({
 			asyncAnalysis: {
 				consume: vi.fn(() => [
-					{ name: "a", message: "1" },
-					{ name: "b", message: "2" },
+					{ name: "a", message: "1", source: "quality", severity: "warning", determinism: "heuristic" } satisfies import("../types.js").CheckResultEntry,
+					{ name: "b", message: "2", source: "quality", severity: "warning", determinism: "heuristic" } satisfies import("../types.js").CheckResultEntry,
 				]),
 			},
 		});
@@ -655,7 +657,7 @@ describe("learned rules exact observables", () => {
 		mExtractPattern.mockReturnValue("Bash(npm test *)");
 		const learnedRules = {
 			has: vi.fn(() => false),
-			observe: vi.fn(() => ({ pattern: "Bash(npm test *)", observation_count: 5 })),
+			observe: vi.fn<ServerRuntime["learnedRules"]["observe"]>(() => ({ pattern: "Bash(npm test *)", observation_count: 5, decision: "allow", first_seen: "2026-09-08T00:00:00Z", learned_at: "2026-09-08T00:00:00Z", learned_in_session: "s" })),
 		};
 		const decision = await runPreToolPipeline(
 			makeCtx({ learnedRules }),
@@ -670,7 +672,7 @@ describe("learned rules exact observables", () => {
 		mExtractPattern.mockReturnValue("Bash(npm test *)");
 		const learnedRules = {
 			has: vi.fn(() => false),
-			observe: vi.fn(() => ({ pattern: "Bash(npm test *)", observation_count: 5 })),
+			observe: vi.fn<ServerRuntime["learnedRules"]["observe"]>(() => ({ pattern: "Bash(npm test *)", observation_count: 5, decision: "allow", first_seen: "2026-09-08T00:00:00Z", learned_at: "2026-09-08T00:00:00Z", learned_in_session: "s" })),
 		};
 		const ctx = makeCtx({ learnedRules });
 		await runPreToolPipeline(

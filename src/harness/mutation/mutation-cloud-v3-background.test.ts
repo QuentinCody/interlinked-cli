@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import type { MutationCloudV3ProcessResult } from "./mutation-cloud-v3-runtime.js";
+import type { MutationCloudV3ProcessResult, MutationCloudV3RuntimeConfig } from "./mutation-cloud-v3-runtime.js";
+import { TEST_REGISTRY } from "./protocol-v3/test-authentication.js";
+import { PROTOCOL_V3_CONTRACT_DIGEST } from "./protocol-v3/contract-identity.js";
 import type { MutationFindingDeliveryOutcome } from "./mutation-cloud-v3-finding-delivery.js";
 import { startMutationCloudV3Background } from "./mutation-cloud-v3-background.js";
 
@@ -7,6 +9,23 @@ const IDLE: MutationCloudV3ProcessResult = {
 	processor: { kind: "idle" },
 	evaluation: null,
 };
+
+function runtimeConfig(): MutationCloudV3RuntimeConfig {
+	const serverAuthority = { tenant: "test-tenant", project: "test-project" };
+	return {
+		submission: {
+			baseUrl: "https://mutation.example", token: "test-credential", projectRef: "test-project",
+			repository: "test-repository", timeoutMs: 5_000, contractDigest: PROTOCOL_V3_CONTRACT_DIGEST,
+			keyRegistry: TEST_REGISTRY, serverAuthority,
+		},
+		client: {
+			baseUrl: "https://mutation.example", token: "test-credential", projectRef: "test-project",
+			claimantId: "test-installation", timeoutMs: 5_000,
+		},
+		evaluator: { keyRegistry: TEST_REGISTRY, serverAuthority, evaluatorPolicyVersion: "test-policy", siteCountThreshold: 50 },
+		owner: "test-owner", leaseMs: 15_000,
+	};
+}
 
 function dependencies(overrides: {
 	exists?: boolean;
@@ -24,7 +43,7 @@ function dependencies(overrides: {
 		deliverOneFinding,
 		openRuntime,
 		configExists: vi.fn(() => overrides.exists ?? true),
-		loadConfig: vi.fn(() => ({ backgroundEnabled: overrides.backgroundEnabled ?? true }) as never),
+		loadConfig: vi.fn(() => ({ ...runtimeConfig(), backgroundEnabled: overrides.backgroundEnabled ?? true })),
 	};
 }
 
@@ -300,10 +319,7 @@ describe("mutation cloud v3 background scheduler", () => {
 			{ root: "/repo", log, intervalMs: 60_000 },
 			{
 				configExists: vi.fn(() => true),
-				// SAFETY: the test only exercises backgroundEnabled; the rest of
-				// MutationCloudV3RuntimeConfig is irrelevant because openRuntime is
-				// overridden below and never reads the config's other fields.
-				loadConfig: vi.fn(() => ({ backgroundEnabled: true }) as never),
+				loadConfig: vi.fn(() => ({ ...runtimeConfig(), backgroundEnabled: true })),
 				openRuntime,
 			},
 		);
@@ -316,10 +332,8 @@ describe("mutation cloud v3 background scheduler", () => {
 	it("fires a real tick from the scheduled interval callback", async () => {
 		const deps = dependencies();
 		let scheduled: (() => void) | undefined;
-		// SAFETY: the production code only ever calls `.unref()` on the value
-		// `installInterval` returns; a bare `{ unref }` stub satisfies that full
-		// contract without needing a real Node Timeout handle.
-		const fakeTimer = { unref: vi.fn() } as unknown as ReturnType<typeof setInterval>;
+		const fakeTimer = setInterval(() => undefined, 60_000);
+		clearInterval(fakeTimer);
 		const background = startMutationCloudV3Background(
 			{ root: "/repo", log: vi.fn(), intervalMs: 60_000 },
 			{
@@ -344,10 +358,7 @@ describe("mutation cloud v3 background scheduler", () => {
 			{ root: "/repo", log, intervalMs: 60_000 },
 			{
 				configExists: vi.fn(() => true),
-				// SAFETY: this test intentionally leaves the config incomplete
-				// (only `owner` is set) to reach validateRuntimeConfig's real
-				// "owner is required" throw through the un-overridden openRuntime.
-				loadConfig: vi.fn(() => ({ backgroundEnabled: true, owner: "" }) as never),
+				loadConfig: vi.fn(() => ({ ...runtimeConfig(), backgroundEnabled: true, owner: "" })),
 			},
 		);
 

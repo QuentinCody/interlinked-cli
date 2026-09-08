@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // Behavioral tests for `interlinked rewind` — restores the working tree to a
 // checkpoint state. The command has two top-level paths: (1) a list shorthand
 // (when `--list` is passed OR no checkpoint id is given) that delegates to
@@ -109,8 +110,8 @@ let logSpy: ReturnType<typeof vi.spyOn>;
 let errSpy: ReturnType<typeof vi.spyOn>;
 
 function callsToString(spy: ReturnType<typeof vi.spyOn>): string {
-	const calls = spy.mock.calls as unknown[][];
-	return calls.map((call) => call.map((arg) => String(arg)).join(" ")).join("\n");
+	const calls = spy.mock.calls;
+	return calls.map((call: unknown[]) => call.map((arg: unknown) => String(arg)).join(" ")).join("\n");
 }
 
 function logged(): string {
@@ -122,7 +123,7 @@ function errored(): string {
 }
 
 function loggedJson(): Record<string, unknown> {
-	return JSON.parse(logged()) as Record<string, unknown>;
+	return parseWire(JSON.parse(logged()), wireRecord(wireUnknown), "test JSON value");
 }
 
 /** Build a successful RewindResult; `warning` omitted unless provided. */
@@ -167,6 +168,9 @@ describe("rewindCommand — list shorthand", () => {
 	it("delegates to checkpointListCommand when --list is passed (even with an id)", async () => {
 		await rewindCommand("cp-123", { list: true });
 		expect(mockCheckpointListCommand).toHaveBeenCalledTimes(1);
+		// json is undefined on these opts -> forwarded as {} (no json key),
+		// distinguishing this from the sibling --list --json test below.
+		expect(mockCheckpointListCommand).toHaveBeenCalledWith({});
 		expect(mockRewindToCheckpoint).not.toHaveBeenCalled();
 	});
 
@@ -330,7 +334,7 @@ describe("rewindCommand — error handling", () => {
 			throw new Error("boom");
 		});
 		await rewindCommand("cp-json-err", { json: true });
-		const payload = JSON.parse(errored()) as Record<string, unknown>;
+		const payload = parseWire(JSON.parse(errored()), wireRecord(wireUnknown), "test JSON value");
 		expect(payload.error).toBe("boom");
 		expect(process.exitCode).toBe(1);
 	});

@@ -98,12 +98,12 @@ export function retrievalCostByFile(events: readonly OutcomeEvent[]): Map<string
 	let pending = emptyExploration();
 
 	for (const e of events) {
-		const isEdit = Boolean(e.file) && !READ_TOOLS.has(e.tool) && !SEARCH_TOOLS.has(e.tool);
+		const file = e.file;
+		const isEdit = file && !READ_TOOLS.has(e.tool) && !SEARCH_TOOLS.has(e.tool);
 		if (!isEdit) {
 			accumulate(pending, e);
 			continue;
 		}
-		const file = e.file as string;
 		if (!costs.has(file)) costs.set(file, chargeTo(file, pending));
 		pending = emptyExploration();
 	}

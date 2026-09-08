@@ -1,9 +1,8 @@
 // Behavioral unit tests for the import-relationship structural checks.
 //
 // The five exported functions are pure given (a) a ProjectGraph and (b) the
-// filesystem. We stub the graph with the `as unknown as ProjectGraph` idiom
-// used across this repo (see dead-exports.test.ts / impact-analysis.test.ts)
-// and automock `node:fs` (the writer.test.ts pattern) so existsSync /
+// filesystem. The graph fixture implements the four operations these checks
+// consume, and we automock `node:fs` so existsSync /
 // readFileSync are fully controlled — no real disk, network, or time access.
 // `node:path` (dirname / join) is left real: it is pure, and the fs mock's
 // implementation inspects the joined paths to decide what "exists".
@@ -14,7 +13,7 @@
 
 import * as fs from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProjectGraph } from "../project-graph.js";
+import type { ImportGraph } from "./imports.js";
 import type { ExportedSymbol, ImportEdge } from "../types/graph.js";
 import {
 	checkCrossPackageImports,
@@ -55,14 +54,14 @@ function makeGraph(opts: {
 	dependencies?: ImportEdge[];
 	exports?: ExportedSymbol[];
 	duplicates?: string[];
-} = {}): ProjectGraph {
+} = {}): ImportGraph {
 	return {
 		getDependencies: vi.fn().mockReturnValue(opts.dependencies ?? []),
 		getExports: vi.fn().mockReturnValue(opts.exports ?? []),
 		findDuplicateExports: vi.fn().mockReturnValue(opts.duplicates ?? []),
 		// toRelative: deterministic, strips a leading /proj/ for readability.
 		toRelative: vi.fn((p: string) => p.replace(/^\/proj\//, "")),
-	} as unknown as ProjectGraph;
+	};
 }
 
 const FILE = "/proj/src/a.ts";
@@ -81,7 +80,7 @@ describe("checkImportResolution", () => {
 	it("skips bare specifiers with no toFile (L29 !edge.toFile)", () => {
 		// toFile must be falsy; the ImportEdge type says string, so cast through.
 		const graph = makeGraph({
-			dependencies: [edge({ toFile: "" as unknown as string, specifier: "lodash" })],
+			dependencies: [edge({ toFile: "", specifier: "lodash" })],
 		});
 		expect(checkImportResolution(FILE, REL, graph)).toEqual([]);
 		expect(mockFs.existsSync).not.toHaveBeenCalled();
@@ -675,14 +674,14 @@ describe("checkHallucinatedImports", () => {
 		mockFs.existsSync.mockImplementation((p) => String(p).endsWith("package.json"));
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: {} }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier, toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier, toFile: "" })],
 		});
 		expect(checkHallucinatedImports(FILE, REL, graph)).toEqual([]);
 	});
 
 	it("returns [] when no package.json is found within 10 ancestors (L337)", () => {
 		mockFs.existsSync.mockReturnValue(false); // nothing exists anywhere
-		const graph = makeGraph({ dependencies: [edge({ specifier: "left-pad", toFile: "" as unknown as string })] });
+		const graph = makeGraph({ dependencies: [edge({ specifier: "left-pad", toFile: "" })] });
 		expect(checkHallucinatedImports(FILE, REL, graph)).toEqual([]);
 	});
 
@@ -699,7 +698,7 @@ describe("checkHallucinatedImports", () => {
 	it("treats a malformed package.json as absent (L326 catch → pkgJson stays null)", () => {
 		mockFs.existsSync.mockImplementation((p) => String(p).endsWith("package.json"));
 		mockFs.readFileSync.mockReturnValue("{ not valid json");
-		const graph = makeGraph({ dependencies: [edge({ specifier: "left-pad", toFile: "" as unknown as string })] });
+		const graph = makeGraph({ dependencies: [edge({ specifier: "left-pad", toFile: "" })] });
 		// parse throws, break, pkgJson null => [].
 		expect(checkHallucinatedImports(FILE, REL, graph)).toEqual([]);
 	});
@@ -719,10 +718,10 @@ describe("checkHallucinatedImports", () => {
 		// Each declared dep is recognised => no hallucination warning for any.
 		const graph = makeGraph({
 			dependencies: [
-				edge({ specifier: "pkg-dep", toFile: "" as unknown as string }),
-				edge({ specifier: "pkg-dev", toFile: "" as unknown as string }),
-				edge({ specifier: "pkg-peer", toFile: "" as unknown as string }),
-				edge({ specifier: "pkg-opt", toFile: "" as unknown as string }),
+				edge({ specifier: "pkg-dep", toFile: "" }),
+				edge({ specifier: "pkg-dev", toFile: "" }),
+				edge({ specifier: "pkg-peer", toFile: "" }),
+				edge({ specifier: "pkg-opt", toFile: "" }),
 			],
 		});
 		expect(checkHallucinatedImports(FILE, REL, graph)).toEqual([]);
@@ -734,7 +733,7 @@ describe("checkHallucinatedImports", () => {
 		// guard must skip it without throwing, leaving allDeps empty.
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: "oops" }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "ghost", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "ghost", toFile: "" })],
 		});
 		const res = checkHallucinatedImports(FILE, REL, graph);
 		expect(res).toHaveLength(1);
@@ -749,7 +748,7 @@ describe("checkHallucinatedImports", () => {
 		// array.
 		mockFs.readFileSync.mockReturnValue(JSON.stringify(["not", "an", "object"]));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "left-pad", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "left-pad", toFile: "" })],
 		});
 		expect(checkHallucinatedImports(FILE, REL, graph)).toEqual([]);
 	});
@@ -765,7 +764,7 @@ describe("checkHallucinatedImports", () => {
 		// correctly flagged instead of hidden.
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: ["left-pad"] }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "0", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "0", toFile: "" })],
 		});
 		const res = checkHallucinatedImports(FILE, REL, graph);
 		expect(res).toHaveLength(1);
@@ -785,7 +784,7 @@ describe("checkHallucinatedImports", () => {
 		mockFs.existsSync.mockImplementation((p) => String(p).endsWith("package.json"));
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: {} }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: spec, toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: spec, toFile: "" })],
 		});
 		expect(checkHallucinatedImports(FILE, REL, graph)).toEqual([]);
 	});
@@ -805,7 +804,7 @@ describe("checkHallucinatedImports", () => {
 		mockFs.existsSync.mockImplementation((p) => String(p).endsWith("package.json"));
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: {} }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "crypto", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "crypto", toFile: "" })],
 		});
 		expect(checkHallucinatedImports(FILE, REL, graph)).toEqual([]);
 	});
@@ -814,7 +813,7 @@ describe("checkHallucinatedImports", () => {
 		mockFs.existsSync.mockImplementation((p) => String(p).endsWith("package.json"));
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: {} }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "fs/promises", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "fs/promises", toFile: "" })],
 		});
 		expect(checkHallucinatedImports(FILE, REL, graph)).toEqual([]);
 	});
@@ -838,7 +837,7 @@ describe("checkHallucinatedImports", () => {
 		mockFs.existsSync.mockImplementation((p) => p === "/package.json");
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: {} }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "ghost", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "ghost", toFile: "" })],
 		});
 		expect(checkHallucinatedImports(file, "a/b/c/d/e/f/g/h/i/j/k.ts", graph)).toEqual([]);
 	});
@@ -850,7 +849,7 @@ describe("checkHallucinatedImports", () => {
 			return JSON.stringify({ dependencies: {} });
 		});
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "ghost", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "ghost", toFile: "" })],
 		});
 		const res = checkHallucinatedImports(FILE, REL, graph);
 		expect(res[0]?.message).toContain('"ghost" is not in package.json');
@@ -863,7 +862,7 @@ describe("checkHallucinatedImports", () => {
 		);
 		// Deep import of a scoped dep: pkgName collapses to "@scope/pkg" => known.
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "@scope/pkg/sub/path", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "@scope/pkg/sub/path", toFile: "" })],
 		});
 		expect(checkHallucinatedImports(FILE, REL, graph)).toEqual([]);
 	});
@@ -872,7 +871,7 @@ describe("checkHallucinatedImports", () => {
 		mockFs.existsSync.mockImplementation((p) => String(p).endsWith("package.json"));
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: { lodash: "1" } }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "lodash/fp", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "lodash/fp", toFile: "" })],
 		});
 		expect(checkHallucinatedImports(FILE, REL, graph)).toEqual([]);
 	});
@@ -881,7 +880,7 @@ describe("checkHallucinatedImports", () => {
 		mockFs.existsSync.mockImplementation((p) => String(p).endsWith("package.json"));
 		mockFs.readFileSync.mockReturnValue(JSON.stringify({ dependencies: { lodash: "1" } }));
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "totally-made-up", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "totally-made-up", toFile: "" })],
 		});
 		const res = checkHallucinatedImports(FILE, REL, graph);
 		expect(res).toHaveLength(1);
@@ -904,7 +903,7 @@ describe("checkCrossPackageImports", () => {
 		const graph = makeGraph({
 			dependencies: [
 				edge({ specifier: "lodash", toFile: "/proj/node_modules/lodash/index.js" }),
-				edge({ specifier: "../missing", toFile: "" as unknown as string }),
+				edge({ specifier: "../missing", toFile: "" }),
 			],
 		});
 		expect(checkCrossPackageImports(FILE, REL, graph)).toEqual([]);
@@ -920,7 +919,7 @@ describe("checkCrossPackageImports", () => {
 
 	it("skips edges with no toFile (L396 !edge.toFile)", () => {
 		const graph = makeGraph({
-			dependencies: [edge({ specifier: "./x", toFile: "" as unknown as string })],
+			dependencies: [edge({ specifier: "./x", toFile: "" })],
 		});
 		expect(checkCrossPackageImports(FILE, REL, graph)).toEqual([]);
 	});

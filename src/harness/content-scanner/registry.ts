@@ -16,8 +16,14 @@ import type { ContentScanner, ContentScannerConfig, ScanFinding } from "./types.
  * or misconfigured. Never throws — startup errors surface as `ready() ===
  * false` on the returned scanner instead, consistent with fail-open posture.
  */
-export function createScanner(config: ContentScannerConfig): ContentScanner | undefined {
-	if (!config.enabled) return undefined;
+type ScannerFactoryConfig = Omit<ContentScannerConfig, "runtime"> & { runtime: unknown };
+
+function hasSupportedRuntime(config: ScannerFactoryConfig): config is ContentScannerConfig {
+	return config.runtime === "local" || config.runtime === "huggingface" || config.runtime === "custom_http";
+}
+
+export function createScanner(config: ScannerFactoryConfig): ContentScanner | undefined {
+	if (!config.enabled || !hasSupportedRuntime(config)) return undefined;
 	const backend = buildBackend(config);
 	if (!backend) return undefined;
 	return wrapWithDisabledLabels(backend, config.disabled_labels);

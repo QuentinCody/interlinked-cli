@@ -1,3 +1,4 @@
+import { makeMinimalEvent as completeEventFixture } from "./__tests__/fixtures/evaluator.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -27,7 +28,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 /** Minimal HarnessEvent for de-dup tests — only the fields the module reads. */
 function ev(p: Partial<HarnessEvent>): HarnessEvent {
-	return {
+	return ({ ...completeEventFixture(), ...{
 		hook_event: "PostToolUse",
 		session_id: "sess-1",
 		agent_source: "claude",
@@ -36,7 +37,7 @@ function ev(p: Partial<HarnessEvent>): HarnessEvent {
 		timestamp: "2026-05-17T00:00:00Z",
 		cwd: sandboxRoot,
 		...p,
-	} as unknown as HarnessEvent;
+	} });
 }
 
 describe("dedupKey", () => {

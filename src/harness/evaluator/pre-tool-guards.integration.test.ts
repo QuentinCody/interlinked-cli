@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Behavioral tests for the PreToolUse short-circuit guard phases.
 //
 // Each guard inspects a HarnessEvent (+ tool name/input, rules, session) and
@@ -57,7 +58,6 @@ afterEach(() => {
 	delete process.env.INTERLINKED_DISABLE_PACKAGE_GUARD;
 });
 
-type ToolInput = NonNullable<HarnessEvent["tool_input"]>;
 
 function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 	return {
@@ -176,7 +176,7 @@ describe("evaluateMetaTestWrapper", () => {
 	it("returns null when the command field is missing/non-string", () => {
 		expect(evaluateMetaTestWrapper("Bash", {})).toBeNull();
 		expect(
-			evaluateMetaTestWrapper("Bash", { command: 123 as unknown as string }),
+			evaluateMetaTestWrapper("Bash", { command: 123 }),
 		).toBeNull();
 	});
 
@@ -557,7 +557,7 @@ describe("evaluateGitScopeGate", () => {
 
 describe("evaluateProtectedFilesGuard", () => {
 	const protectedRules = (
-		check?: string,
+		check?: "secrets",
 	): GuardRulesConfig =>
 		makeRules({
 			protected_files: [
@@ -566,7 +566,7 @@ describe("evaluateProtectedFilesGuard", () => {
 					operations: ["Write", "Edit"],
 					reason: "secret files are read-only",
 					...(check ? { check } : {}),
-				} as unknown as GuardRulesConfig["protected_files"][number],
+				} satisfies GuardRulesConfig["protected_files"][number],
 			],
 		});
 
@@ -641,7 +641,7 @@ describe("evaluateProtectedFilesGuard", () => {
 					glob: "**/*.pem",
 					operations: ["Write", "Edit", "Read"],
 					reason: "Private key files should not be accessed by agents",
-				} as unknown as GuardRulesConfig["protected_files"][number],
+				},
 			],
 		});
 		const d = evaluateProtectedFilesGuard(
@@ -807,9 +807,9 @@ describe("evaluateRepoConfinementGuard", () => {
 	it("defaults allowlist + linkedProjects to [] when both keys are absent", () => {
 		// Rules object omitting repo_confinement_allowlist and linked_projects —
 		// exercises both `|| []` fallbacks. An outside write still blocks.
-		const bareRules = {
+		const bareRules = ({ ...makeGuardRules(),
 			protected_files: [],
-		} as unknown as GuardRulesConfig;
+		} satisfies GuardRulesConfig);
 		const outside = join(tmpdir(), "outside-bare-rules-xyz", "f.ts");
 		const d = evaluateRepoConfinementGuard(
 			makeEvent(),
@@ -1195,7 +1195,7 @@ describe("evaluateEditOldStringGuard", () => {
 		expect(
 			evaluateEditOldStringGuard(
 				"Write",
-				{ file_path: "f.ts", old_string: "x", new_string: "y" } as ToolInput,
+				{ file_path: "f.ts", old_string: "x", new_string: "y" },
 				[],
 			),
 		).toBeNull();

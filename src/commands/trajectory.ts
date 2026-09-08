@@ -19,8 +19,10 @@ import {
 	runSequenceDetectorsForPhase,
 } from "../harness/sequence-checks/index.js";
 import { SessionTracker } from "../harness/session-state.js";
-import type { AgentSource, HarnessEvent, SessionTrajectory } from "../harness/types.js";
-import { isJsonObject, type JsonObject } from "../lib/json-types.js";
+import type { HarnessEvent, SessionTrajectory } from "../harness/types.js";
+import { isJsonObject } from "../lib/json-types.js";
+import { nonNull } from "../lib/non-null.js";
+import { isReplayEvent } from "./trajectory-event.js";
 
 interface CommonOpts {
 	cwd?: string;
@@ -168,24 +170,15 @@ export function summarizeValue(v: unknown): string | null {
 	if (typeof v === "string") return v.length > 200 ? `${v.slice(0, 200)}…` : v;
 	if (typeof v === "number" || typeof v === "boolean") return String(v);
 	if (Array.isArray(v)) return `[${v.length} item${v.length === 1 ? "" : "s"}]`;
-	if (typeof v === "object") {
-		const keys = Object.keys(v as JsonObject);
+	if (isJsonObject(v)) {
+		const keys = Object.keys(v);
 		return `{${keys.length} field${keys.length === 1 ? "" : "s"}}`;
 	}
 	return null;
 }
 
-/** Boundary parser for one line of a replayed events.jsonl. Only the four
- *  identity fields the tracker/dispatcher key on are validated; the rest of
- *  `HarnessEvent` is a wide, evolving wire shape shared across five agent
- *  runners (see `harness/types/events.ts`) that downstream code already
- *  reads defensively, and `trajectory replay`'s whole purpose is accepting
- *  real captured logs — including ones carrying fields this build doesn't
- *  know about — so it is carried through unchanged rather than re-validated
- *  field-by-field. `agent_source` is checked as a string, not narrowed to
- *  the `AgentSource` literal union: real wire events already carry values
- *  outside it (`interlinked skill` posts `agent_source: "cli"`), so a strict
- *  union check would reject legitimate captured rows. */
+/** Validate recorded fields while retaining future provider names and extra
+ * evidence. Identity failures keep their specific line-number diagnostics. */
 function parseHarnessEvent(value: unknown, lineNumber: number): HarnessEvent {
 	if (!isJsonObject(value)) {
 		throw new Error(`line ${lineNumber}: not a JSON object`);
@@ -203,20 +196,15 @@ function parseHarnessEvent(value: unknown, lineNumber: number): HarnessEvent {
 	if (typeof timestamp !== "string") {
 		throw new Error(`line ${lineNumber}: missing/invalid timestamp`);
 	}
-	return {
-		...value,
-		hook_event,
-		session_id,
-		agent_source: agent_source as AgentSource,
-		timestamp,
-	};
+	if (!isReplayEvent(value)) throw new Error(`line ${lineNumber}: invalid event fields`);
+	return value;
 }
 
 type ReplayPhase = "pre_block" | "pre_warn" | "stop";
 
 interface ReplayFinding {
 	event_index: number;
-	phase: string;
+	phase: ReplayPhase;
 	detector_id: string;
 	message: string;
 }
@@ -249,7 +237,7 @@ function collectReplayFindings(
 	const tracker = new SessionTracker();
 	const findings: ReplayFinding[] = [];
 	for (let i = 0; i < events.length; i++) {
-		const event = events[i] as HarnessEvent;
+		const event = nonNull(events[i]);
 		const trajectory: SessionTrajectory = tracker.recordEvent(event);
 		for (const phase of phases) {
 			const out = runSequenceDetectorsForPhase({
@@ -313,7 +301,7 @@ export async function trajectoryReplayCommand(opts: ReplayOpts): Promise<void> {
 			formatSequenceFinding({
 				detector_id: f.detector_id,
 				family: "quality",
-				phase: f.phase as "pre_block" | "pre_warn" | "stop",
+				phase: f.phase,
 				match: { message: f.message },
 			}),
 		);

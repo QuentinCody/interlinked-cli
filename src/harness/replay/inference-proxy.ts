@@ -17,7 +17,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { buildEnvelope } from "./inference-envelope.js";
 import { appendEnvelope } from "./inference-store.js";
 import { createSseReassembler } from "./sse-reassembly.js";
@@ -101,14 +101,8 @@ function readBody(req: IncomingMessage): Promise<Buffer> {
 
 function parseJsonObject(text: string): JsonObject | null {
 	try {
-		// SAFETY: JSON.parse returns `any`; widening to `unknown` forces the
-		// shape check below before any property access.
-		const parsed = JSON.parse(text) as unknown;
-		return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-			? // SAFETY: non-null, non-array object was just verified — the JSON
-				// object case is exactly what JsonObject models.
-				(parsed as JsonObject)
-			: null;
+		const parsed: unknown = JSON.parse(text);
+		return isJsonObject(parsed) ? parsed : null;
 	} catch (err) {
 		void err; // malformed body — forward anyway, just skip capture
 		return null;

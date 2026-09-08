@@ -1,12 +1,13 @@
 import { Command } from "commander";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { nonNull } from "../lib/non-null.js";
 
 const mocks = vi.hoisted(() => ({
-	addAllowlistCommand: vi.fn(async (..._args: unknown[]) => {}),
-	removeAllowlistCommand: vi.fn((..._args: unknown[]) => {}),
-	listAllowlistCommand: vi.fn((..._args: unknown[]) => {}),
-	snapshotAllowlistCommand: vi.fn((..._args: unknown[]) => {}),
-	verifyAllowlistCommand: vi.fn((..._args: unknown[]) => {}),
+	addAllowlistCommand: vi.fn<typeof import("../commands/allowlist.js").addAllowlistCommand>(),
+	removeAllowlistCommand: vi.fn<typeof import("../commands/allowlist.js").removeAllowlistCommand>(),
+	listAllowlistCommand: vi.fn<typeof import("../commands/allowlist.js").listAllowlistCommand>(),
+	snapshotAllowlistCommand: vi.fn<typeof import("../commands/allowlist.js").snapshotAllowlistCommand>(),
+	verifyAllowlistCommand: vi.fn<typeof import("../commands/allowlist.js").verifyAllowlistCommand>(),
 }));
 
 vi.mock("../commands/allowlist.js", () => mocks);
@@ -108,10 +109,7 @@ describe("supply-chain registrar — conditional spread of optional opts (add)",
 			{ from: "node" },
 		);
 		expect(mocks.addAllowlistCommand).toHaveBeenCalledTimes(1);
-		const passedOpts = mocks.addAllowlistCommand.mock.calls[0]?.[2] as unknown as Record<
-			string,
-			unknown
-		>;
+		const passedOpts = nonNull(nonNull(mocks.addAllowlistCommand.mock.calls[0])[2]);
 		expect(Object.prototype.hasOwnProperty.call(passedOpts, "reason")).toBe(false);
 		expect(Object.prototype.hasOwnProperty.call(passedOpts, "versionRange")).toBe(false);
 		expect(Object.prototype.hasOwnProperty.call(passedOpts, "force")).toBe(false);
@@ -137,10 +135,7 @@ describe("supply-chain registrar — conditional spread of optional opts (add)",
 			],
 			{ from: "node" },
 		);
-		const passedOpts = mocks.addAllowlistCommand.mock.calls[0]?.[2] as unknown as Record<
-			string,
-			unknown
-		>;
+		const passedOpts = nonNull(nonNull(mocks.addAllowlistCommand.mock.calls[0])[2]);
 		expect(passedOpts.reason).toBe("utility");
 		expect(passedOpts.versionRange).toBe("^4.0.0");
 		expect(passedOpts.force).toBe(true);
@@ -152,10 +147,7 @@ describe("supply-chain registrar — conditional spread of optional opts (list)"
 		const program = buildProgram();
 		await program.parseAsync(["node", "test", "allowlist", "list"], { from: "node" });
 		expect(mocks.listAllowlistCommand).toHaveBeenCalledTimes(1);
-		const passedOpts = mocks.listAllowlistCommand.mock.calls[0]?.[0] as unknown as Record<
-			string,
-			unknown
-		>;
+		const passedOpts = nonNull(nonNull(mocks.listAllowlistCommand.mock.calls[0])[0]);
 		expect(Object.prototype.hasOwnProperty.call(passedOpts, "ecosystem")).toBe(false);
 		expect(Object.prototype.hasOwnProperty.call(passedOpts, "json")).toBe(false);
 	});
@@ -166,10 +158,7 @@ describe("supply-chain registrar — conditional spread of optional opts (list)"
 			["node", "test", "allowlist", "list", "--ecosystem", "npm", "--json"],
 			{ from: "node" },
 		);
-		const passedOpts = mocks.listAllowlistCommand.mock.calls[0]?.[0] as unknown as Record<
-			string,
-			unknown
-		>;
+		const passedOpts = nonNull(nonNull(mocks.listAllowlistCommand.mock.calls[0])[0]);
 		expect(passedOpts.ecosystem).toBe("npm");
 		expect(passedOpts.json).toBe(true);
 	});
@@ -182,10 +171,7 @@ describe("supply-chain registrar — conditional spread of optional opts (snapsh
 			from: "node",
 		});
 		expect(mocks.snapshotAllowlistCommand).toHaveBeenCalledTimes(1);
-		const passedOpts = mocks.snapshotAllowlistCommand.mock.calls[0]?.[0] as unknown as Record<
-			string,
-			unknown
-		>;
+		const passedOpts = nonNull(nonNull(mocks.snapshotAllowlistCommand.mock.calls[0])[0]);
 		expect(Object.prototype.hasOwnProperty.call(passedOpts, "reason")).toBe(false);
 		expect(Object.prototype.hasOwnProperty.call(passedOpts, "lockfile")).toBe(false);
 	});
@@ -207,10 +193,7 @@ describe("supply-chain registrar — conditional spread of optional opts (snapsh
 			],
 			{ from: "node" },
 		);
-		const passedOpts = mocks.snapshotAllowlistCommand.mock.calls[0]?.[0] as unknown as Record<
-			string,
-			unknown
-		>;
+		const passedOpts = nonNull(nonNull(mocks.snapshotAllowlistCommand.mock.calls[0])[0]);
 		expect(passedOpts.reason).toBe("state approved");
 		expect(passedOpts.lockfile).toBe("package-lock.json");
 	});

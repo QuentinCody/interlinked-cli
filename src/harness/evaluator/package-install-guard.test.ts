@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,10 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // for node:fs — this is the vitest-documented workaround (mirrors
 // src/lib/config.mutation-kill.test.ts). Restored to the real implementation
 // in afterEach so it never leaks into other tests in this file.
-const gateFsHoisted = vi.hoisted(() => ({
+const gateFsHoisted = vi.hoisted((): { actualStatSync: typeof import("node:fs").statSync | null } => ({
 	// SAFETY: populated synchronously by the vi.mock factory below before any
 	// test body runs; only read from afterEach after that factory has executed.
-	actualStatSync: null as unknown as typeof import("node:fs").statSync,
+	actualStatSync: null,
 }));
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
@@ -40,7 +41,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	rmSync(workspace, { recursive: true, force: true });
-	vi.mocked(statSync).mockImplementation(gateFsHoisted.actualStatSync);
+	vi.mocked(statSync).mockImplementation(nonNull(gateFsHoisted.actualStatSync));
 });
 
 function evalCmd(command: string): HarnessDecision {
@@ -346,7 +347,7 @@ describe("evaluatePackageInstall — isExistingFile survives an unreadable manif
 					code: "EACCES",
 				});
 			}
-			return gateFsHoisted.actualStatSync(p, opts);
+			return nonNull(gateFsHoisted.actualStatSync)(p, opts);
 		});
 		const r = evalCmd("npm ci");
 		expect(r.decision).toBe("block");

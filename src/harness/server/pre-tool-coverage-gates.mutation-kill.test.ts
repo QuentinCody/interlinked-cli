@@ -39,15 +39,15 @@ import { runPerEditMutationGate } from "../mutation/gate.js";
 import { runCommitGate, runCoverageWriteGate, runMutationWriteGate } from "./pre-tool-coverage-gates.js";
 
 // SAFETY: this import is replaced by a vi.mock factory above.
-const coverage = checkCoverageWrite as unknown as ReturnType<typeof vi.fn>;
+const coverage = vi.mocked(checkCoverageWrite);
 // SAFETY: this import is replaced by a vi.mock factory above.
-const commit = checkCommitGate as unknown as ReturnType<typeof vi.fn>;
+const commit = vi.mocked(checkCommitGate);
 // SAFETY: this import is replaced by a vi.mock factory above.
-const mutationGate = runPerEditMutationGate as unknown as ReturnType<typeof vi.fn>;
+const mutationGate = vi.mocked(runPerEditMutationGate);
 // SAFETY: this import is replaced by a vi.mock factory above.
-const mLoadManifestState = loadManifestState as unknown as ReturnType<typeof vi.fn>;
+const mLoadManifestState = vi.mocked(loadManifestState);
 // SAFETY: this import is replaced by a vi.mock factory above.
-const mEmptyManifest = emptyManifest as unknown as ReturnType<typeof vi.fn>;
+const mEmptyManifest = vi.mocked(emptyManifest);
 
 function event(input: Record<string, unknown> = {}, extra: Partial<HarnessEvent> = {}): HarnessEvent {
 	return {
@@ -92,7 +92,7 @@ it("keeps preDecision.warnings by REFERENCE when the coverage decision carries n
 	coverage.mockResolvedValue({ decision: "allow" });
 	const originalWarnings = ["PRE"];
 	// SAFETY: minimal HarnessDecision literal; only decision/warnings are read by the gate under test.
-	const preDecision = { decision: "allow", warnings: originalWarnings } as HarnessDecision;
+	const preDecision: HarnessDecision = { decision: "allow", warnings: originalWarnings };
 	const decision = await runCoverageWriteGate(covCtx(), event(), preDecision);
 	expect(decision).toBeNull();
 	expect(preDecision.warnings).toBe(originalWarnings);
@@ -103,7 +103,7 @@ it("keeps preDecision.warnings by REFERENCE when the coverage decision's warning
 	coverage.mockResolvedValue({ decision: "allow", warnings: [] });
 	const originalWarnings = ["PRE"];
 	// SAFETY: minimal HarnessDecision literal; only decision/warnings are read by the gate under test.
-	const preDecision = { decision: "allow", warnings: originalWarnings } as HarnessDecision;
+	const preDecision: HarnessDecision = { decision: "allow", warnings: originalWarnings };
 	const decision = await runCoverageWriteGate(covCtx(), event(), preDecision);
 	expect(decision).toBeNull();
 	expect(preDecision.warnings).toBe(originalWarnings);
@@ -150,7 +150,7 @@ it("resolves the manifest directory as cwd + '.interlinked' (module constant)", 
 
 // test-contract: invariant — `??` must prefer a real manifest over the empty-fallback constructor.
 it("uses the VALID state's manifest directly (not the emptyManifest fallback) when one is found", async () => {
-	const realManifest = { generation: 7, mutants: [] };
+	const realManifest: import("../mutation/types.js").MutationManifest = { version: 1, generation: 7, files: {}, authoritativeAt: "2026-08-30T00:00:00.000Z", engine: "stryker", engineVersion: "test", dependencyGraphVersion: "test", environmentHash: "test" };
 	mLoadManifestState.mockReturnValueOnce({ kind: "valid", manifest: realManifest });
 	await runMutationWriteGate(mutationCtx(), event(), { decision: "allow" });
 	expect(mutationGate.mock.calls[0]?.[0]?.baseManifest).toBe(realManifest);
@@ -181,7 +181,7 @@ it("keeps preDecision.warnings by REFERENCE when the mutation decision carries n
 	mutationGate.mockResolvedValue({ decision: "allow" });
 	const originalWarnings = ["PRE"];
 	// SAFETY: minimal HarnessDecision literal; only decision/warnings are read by the gate under test.
-	const preDecision = { decision: "allow", warnings: originalWarnings } as HarnessDecision;
+	const preDecision: HarnessDecision = { decision: "allow", warnings: originalWarnings };
 	const decision = await runMutationWriteGate(mutationCtx(), event(), preDecision);
 	expect(decision).toBeNull();
 	expect(preDecision.warnings).toBe(originalWarnings);
@@ -192,7 +192,7 @@ it("keeps preDecision.warnings by REFERENCE when the mutation decision's warning
 	mutationGate.mockResolvedValue({ decision: "allow", warnings: [] });
 	const originalWarnings = ["PRE"];
 	// SAFETY: minimal HarnessDecision literal; only decision/warnings are read by the gate under test.
-	const preDecision = { decision: "allow", warnings: originalWarnings } as HarnessDecision;
+	const preDecision: HarnessDecision = { decision: "allow", warnings: originalWarnings };
 	const decision = await runMutationWriteGate(mutationCtx(), event(), preDecision);
 	expect(decision).toBeNull();
 	expect(preDecision.warnings).toBe(originalWarnings);

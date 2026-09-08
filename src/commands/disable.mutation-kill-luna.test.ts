@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { InstallResult } from "../lib/hook-types.js";
@@ -40,7 +41,7 @@ const CLIENTS: ClientName[] = [
 ];
 
 function outputOf(spy: ReturnType<typeof vi.spyOn>): string {
-	return stripAnsi((spy.mock.calls as unknown[][]).map((args) => args.join(" ")).join("\n"));
+	return stripAnsi((spy.mock.calls).map((args: unknown[]) => args.join(" ")).join("\n"));
 }
 
 function hookResult(client: ClientName, events: string[] = [], error?: string): InstallResult {
@@ -56,7 +57,7 @@ beforeEach(() => {
 	vi.spyOn(process, "cwd").mockReturnValue(CWD);
 	vi.mocked(getConfigDir).mockReturnValue(`${CWD}/.interlinked`);
 	vi.mocked(isConfigured).mockReturnValue(true);
-	vi.mocked(readLocalConfig).mockReturnValue({ agent_name: "agent-from-config" } as never);
+	vi.mocked(readLocalConfig).mockReturnValue({ agent_name: "agent-from-config" });
 	vi.mocked(writeGuardDisable).mockReturnValue({
 		disabled: true,
 		scope: "project",
@@ -64,9 +65,9 @@ beforeEach(() => {
 		at: "2026-08-20T00:00:00.000Z",
 		version: 1,
 		source: "local",
-	} as never);
+	});
 	vi.mocked(harnessStopCommand).mockResolvedValue(undefined);
-	vi.mocked(isHarnessRunning).mockReturnValue({ running: false } as never);
+	vi.mocked(isHarnessRunning).mockReturnValue({ running: false });
 	vi.mocked(uninstallAllHooks).mockReturnValue([]);
 	vi.mocked(deleteHookScript).mockReturnValue(false);
 	vi.mocked(deleteConfigDir).mockReturnValue(false);
@@ -155,7 +156,7 @@ describe("disable stand-down mutation contracts", () => {
 			at: "2026-08-20T00:00:00.000Z",
 			version: 1,
 			source: "local",
-		} as never);
+		});
 		await disableCommand({});
 		expect(outputOf(logSpy)).toContain("By:      unknown");
 	});
@@ -171,7 +172,7 @@ describe("disable stand-down mutation contracts", () => {
 			expires_at: "2026-08-20T14:00:00.000Z",
 			version: 1,
 			source: "local",
-		} as never);
+		});
 		await disableCommand({ reason: "debug mode", until: "2h" });
 		const out = outputOf(logSpy);
 		expect(vi.mocked(writeGuardDisable)).toHaveBeenCalledWith(
@@ -187,7 +188,7 @@ describe("disable stand-down mutation contracts", () => {
 	it("calculates the expiry boundary in the future", async () => {
 		vi.setSystemTime(new Date("2026-08-20T12:00:00.000Z"));
 		await disableCommand({ until: "1h" });
-		const args = vi.mocked(writeGuardDisable).mock.calls[0]?.[1] as { expires_at?: string };
+		const args = nonNull(vi.mocked(writeGuardDisable).mock.calls[0]?.[1]);
 		expect(args.expires_at).toBe("2026-08-20T13:00:00.000Z");
 		expect(Date.parse(args.expires_at ?? "")).toBeGreaterThan(Date.now());
 	});
@@ -196,7 +197,7 @@ describe("disable stand-down mutation contracts", () => {
 	it("reports invalid duration guidance and does not disable", async () => {
 		const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
 			throw new Error("exit");
-		}) as never);
+		}));
 		await expect(disableCommand({ until: "soon" })).rejects.toThrow("exit");
 		const out = outputOf(logSpy);
 		expect(out).toContain("Error: Invalid duration \"soon\". Expected format like 30m, 1h, 15s, or 2d.");
@@ -206,7 +207,7 @@ describe("disable stand-down mutation contracts", () => {
 
 	// test-contract: public-api — a live daemon means the marker is recorded but success must not be claimed.
 	it("reports the exact incomplete-stand-down guidance when daemon survives", async () => {
-		vi.mocked(isHarnessRunning).mockReturnValue({ running: true, pid: 42 } as never);
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: true, pid: 42 });
 		await disableCommand({});
 		const out = outputOf(logSpy);
 		expect(process.exitCode).toBe(1);

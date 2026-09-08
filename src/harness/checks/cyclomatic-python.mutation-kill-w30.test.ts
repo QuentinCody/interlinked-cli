@@ -273,9 +273,9 @@ describe("computeCyclomaticPython — temp-file naming and spawn call shape", ()
 					mkdtempPrefixes.push(prefix);
 					return actual.mkdtempSync(prefix);
 				},
-				writeFileSync: (path: unknown, data: unknown, encoding: unknown) => {
+				writeFileSync: (...[path, data, encoding]: Parameters<typeof actual.writeFileSync>) => {
 					writeFileCalls.push({ path: String(path), encoding });
-					return actual.writeFileSync(path as string, data as string, encoding as never);
+					return actual.writeFileSync(path, data, encoding);
 				},
 			};
 		});
@@ -283,16 +283,16 @@ describe("computeCyclomaticPython — temp-file naming and spawn call shape", ()
 		const calls: { command: string; args: readonly string[]; options: unknown }[] = [];
 		const spawn = (command: string, args: readonly string[], options: unknown) => {
 			calls.push({ command, args, options });
-			return { status: 0, stdout: "{}", stderr: "", error: undefined };
+			return { status: 0, stdout: "{}", stderr: "" };
 		};
-		const out = computeFresh("def f():\n  pass\n", "weird name!.py", spawn as never);
+		const out = computeFresh("def f():\n  pass\n", "weird name!.py", spawn);
 		expect(out).toEqual([]);
 		expect(mkdtempPrefixes[0]).toMatch(/interlinked-radon-$/);
 		expect(writeFileCalls[0]?.encoding).toBe("utf-8");
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.command).toBe("radon");
 		expect(calls[0]?.options).toEqual({ encoding: "utf-8", timeout: 5000 });
-		const tmpFile = calls[0]?.args[3] as string;
+		const tmpFile = calls[0]?.args[3];
 		expect(tmpFile).toMatch(/weird_name_\.py$/);
 		vi.doUnmock("node:fs");
 		vi.resetModules();
@@ -357,6 +357,7 @@ describe("computeCyclomaticPython — error/status/stdout guards", () => {
 		const boxed = new String("{}");
 		const out = computeCyclomaticPython("def f():\n  pass\n", "x.py", () => ({
 			status: 0,
+			// SAFETY: the boxed string intentionally violates the spawn contract to exercise rejection of non-primitive stdout.
 			stdout: boxed as unknown as string,
 			stderr: "",
 		}));

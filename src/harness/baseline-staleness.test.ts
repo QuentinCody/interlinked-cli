@@ -11,25 +11,22 @@ import { registerQualityCommands } from "../registrars/quality.js";
 // is not configurable in ESM" for node:fs under this vitest version) so every
 // other fs call — including this file's own fixture writes — hits the real
 // filesystem untouched.
-const { statSyncControl } = vi.hoisted(() => ({
-	// SAFETY: hoisted mock state has no real type to widen from; `string | null`
-	// is the actual shape (a poisoned path, or none).
-	statSyncControl: { poisonPath: null as string | null },
-}));
+const { statSyncControl } = vi.hoisted(() => {
+	const statSyncControl: { poisonPath: string | null } = { poisonPath: null };
+	return { statSyncControl };
+});
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		statSync: ((path: unknown, opts?: unknown) => {
+		statSync: (...args: Parameters<typeof actual.statSync>) => {
+			const [path] = args;
 			if (statSyncControl.poisonPath !== null && String(path) === statSyncControl.poisonPath) {
 				throw new Error(`EACCES: permission denied, stat '${String(path)}'`);
 			}
-			return (actual.statSync as (p: unknown, o?: unknown) => unknown)(path, opts);
-			// SAFETY: this wrapper implements the same call signature as the real
-			// `statSync`; the cast restores that type after the `unknown`-typed
-			// call-through above.
-		}) as typeof actual.statSync,
+			return actual.statSync(...args);
+		},
 	};
 });
 

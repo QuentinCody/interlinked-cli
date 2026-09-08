@@ -1,3 +1,4 @@
+import { parseWire, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // interlinked trace — behavioral coverage (companion to trace.ts)
 // ===========================================
@@ -129,7 +130,7 @@ describe("traceExportCommand — option spread", () => {
 		await traceExportCommand({});
 		// exactOptionalPropertyTypes: absent keys must NOT appear at all.
 		expect(mockExportTrace).toHaveBeenCalledWith({ format: "json" });
-		const arg = mockExportTrace.mock.calls[0]?.[0] as Record<string, unknown>;
+		const arg = parseWire(mockExportTrace.mock.calls[0]?.[0], wireRecord(wireUnknown), "test JSON value");
 		expect(Object.keys(arg).sort()).toEqual(["format"]);
 	});
 
@@ -229,7 +230,7 @@ describe("traceExportCommand — error handling", () => {
 
 		await traceExportCommand({ output: "out/x.json", json: true });
 
-		const payload = JSON.parse(lastErr()) as { error: string };
+		const payload = parseWire(JSON.parse(lastErr()), wireObject({ "error": wireString }), "test JSON value");
 		expect(payload.error).toBe("disk full");
 		expect(process.exitCode).toBe(1);
 	});
@@ -299,7 +300,7 @@ describe("traceImportCommand — error handling", () => {
 
 		await traceImportCommand("in/trace.json", { json: true });
 
-		const payload = JSON.parse(lastErr()) as { error: string };
+		const payload = parseWire(JSON.parse(lastErr()), wireObject({ "error": wireString }), "test JSON value");
 		expect(payload.error).toBe("corrupt trace");
 		expect(process.exitCode).toBe(1);
 	});

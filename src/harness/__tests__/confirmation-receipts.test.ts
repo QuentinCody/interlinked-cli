@@ -1,3 +1,4 @@
+import { parseWire, wireObject, wireString } from "../../lib/value-validation.js";
 // ===========================================
 // Confirmation Receipts — ask-decision resolved-target rendering
 // ===========================================
@@ -245,9 +246,7 @@ describe("claude-code adapter — ask reason includes Targets section", () => {
 		);
 		// PreToolUse ask lives in hookSpecificOutput.permissionDecision(Reason),
 		// not root {decision,reason} (invalid for PreToolUse).
-		const parsed = JSON.parse(out.stdout as string) as {
-			hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
-		};
+		const parsed = parseWire(JSON.parse(nonNull(out.stdout)), wireObject({ "hookSpecificOutput": wireObject({ "permissionDecision": wireString, "permissionDecisionReason": wireString }) }), "test JSON value");
 		const hso = parsed.hookSpecificOutput;
 		expect(hso.permissionDecision).toBe("ask");
 		expect(hso.permissionDecisionReason).toContain("POTENTIALLY DESTRUCTIVE: rm");
@@ -258,7 +257,7 @@ describe("claude-code adapter — ask reason includes Targets section", () => {
 
 	it("ask without resolved_targets renders unchanged from baseline", () => {
 		const out = adapter.encodeDecision({ decision: "ask", reason: "confirm?" }, event);
-		expect(JSON.parse(out.stdout as string)).toEqual({
+		expect(JSON.parse(nonNull(out.stdout))).toEqual({
 			hookSpecificOutput: {
 				hookEventName: "PreToolUse",
 				permissionDecision: "ask",
@@ -285,11 +284,7 @@ describe("cursor adapter — ask reason+user_message include Targets section", (
 			},
 			event,
 		);
-		const parsed = JSON.parse(out.stdout as string) as {
-			permission: string;
-			agent_message: string;
-			user_message: string;
-		};
+		const parsed = parseWire(JSON.parse(nonNull(out.stdout)), wireObject({ "permission": wireString, "agent_message": wireString, "user_message": wireString }), "test JSON value");
 		expect(parsed.permission).toBe("ask");
 		expect(parsed.agent_message).toContain("Targets:");
 		expect(parsed.agent_message).toContain("• file: src/legacy.ts");
@@ -306,10 +301,7 @@ describe("cursor adapter — ask reason+user_message include Targets section", (
 			{ decision: "ask", reason: "confirm?", resolved_targets: TARGETS_BRANCH },
 			preEvent,
 		);
-		const parsed = JSON.parse(out.stdout as string) as {
-			permission: string;
-			agent_message: string;
-		};
+		const parsed = parseWire(JSON.parse(nonNull(out.stdout)), wireObject({ "permission": wireString, "agent_message": wireString }), "test JSON value");
 		expect(parsed.permission).toBe("deny");
 		expect(parsed.agent_message).toContain("• branch: main");
 	});
@@ -319,11 +311,7 @@ describe("cursor adapter — ask reason+user_message include Targets section", (
 			{ decision: "ask", reason: "confirm?", system_message: "destructive op" },
 			event,
 		);
-		const parsed = JSON.parse(out.stdout as string) as {
-			permission: string;
-			agent_message: string;
-			user_message: string;
-		};
+		const parsed = parseWire(JSON.parse(nonNull(out.stdout)), wireObject({ "permission": wireString, "agent_message": wireString, "user_message": wireString }), "test JSON value");
 		expect(parsed).toEqual({
 			permission: "ask",
 			agent_message: "confirm?",

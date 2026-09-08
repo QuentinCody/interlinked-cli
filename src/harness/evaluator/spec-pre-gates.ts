@@ -13,7 +13,7 @@
 
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { relative } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { getSharedSpecLedger } from "../server/spec-ledger-phase.js";
 import { extractSpecFacts } from "../spec/extract-facts.js";
 import type { SpecLedger } from "../spec/ledger.js";
@@ -35,12 +35,6 @@ const WRITE_TOOLS = new Set(["Write", "Edit", "MultiEdit"]);
 /** Max pre-warnings appended per event. */
 const MAX_PRE_WARNINGS = 3;
 
-interface EditShape {
-	old_string?: unknown;
-	new_string?: unknown;
-	replace_all?: unknown;
-}
-
 /** Projected post-write content, or null when it can't be computed safely. */
 export function projectAfterContent(
 	toolName: string,
@@ -50,20 +44,17 @@ export function projectAfterContent(
 	if (toolName === "Write") {
 		return typeof toolInput.content === "string" ? toolInput.content : null;
 	}
-	// toolInput comes from the untrusted tool-call payload (agent/hook JSON), so
-	// individual edit entries can genuinely be null/undefined at runtime despite
-	// the `as` cast below asserting EditShape — the !e guard is load-bearing.
-	const edits: (EditShape | null | undefined)[] =
+	const edits: unknown[] =
 		toolName === "Edit"
 			? [toolInput]
 			: Array.isArray(toolInput.edits)
-				? (toolInput.edits as (EditShape | null | undefined)[])
+				? toolInput.edits
 				: [];
 	let after = before;
 	for (const e of edits) {
 		// A malformed (e.g. null) edit element returns null, not a throw (sol-max
 		// #25): the contract is "unsafe projection → null".
-		if (!e || typeof e.old_string !== "string" || typeof e.new_string !== "string") {
+		if (!isJsonObject(e) || typeof e.old_string !== "string" || typeof e.new_string !== "string") {
 			return null;
 		}
 		if (!after.includes(e.old_string)) return null;
@@ -233,7 +224,7 @@ export function evaluateSpecPreGates(
 	// or locally-merged spec_checks.enabled:false disables asks AND warnings.
 	if (rules.spec_checks?.enabled === false) return null;
 	if (!WRITE_TOOLS.has(toolName)) return null;
-	const toolInput = (event.tool_input ?? {}) as Record<string, unknown>;
+	const toolInput = event.tool_input ?? {};
 	const filePath = typeof toolInput.file_path === "string" ? toolInput.file_path : "";
 	if (!filePath || !isSpecEligibleFile(filePath)) return null;
 	const ledger = getSharedSpecLedger();

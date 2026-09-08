@@ -45,7 +45,7 @@ interface RawSuiteBaseline {
 /** Validate + normalize a parsed baseline; returns null when unusable (torn). */
 function normalizeSuiteBaseline(raw: unknown): SuiteBaseline | null {
 	if (typeof raw !== "object" || raw === null) return null;
-	const obj = raw as RawSuiteBaseline;
+	const obj: RawSuiteBaseline = raw;
 	if (typeof obj.recorded_at !== "string") return null;
 	if (typeof obj.language !== "string") return null;
 	if (typeof obj.green !== "boolean") return null;

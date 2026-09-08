@@ -1,3 +1,5 @@
+import { parseWire, wireArray, wireRecord, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // ===========================================
 // interlinked logs — wave-40 survivor-kill suite
 // ===========================================
@@ -110,7 +112,7 @@ function allOut(): string {
 function lastJson(): unknown {
 	// SAFETY: called only after a test has asserted `logs` is non-empty and
 	// the last entry is JSON output from the command under test.
-	return JSON.parse(logs.at(-1) as string);
+	return JSON.parse(nonNull(logs.at(-1)));
 }
 
 function ev(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -202,12 +204,32 @@ describe("parseLogEvent — optional field normalization", () => {
 		// SAFETY: the fixture line above always emits one JSON object, so a
 		// line starting with "{" is present; JSON.parse output is asserted
 		// on below rather than exhaustively typed.
-		const line = allOut()
+		const line = nonNull(allOut()
 			.split("\n")
-			.find((l) => l.startsWith("{")) as string;
-		const parsed = JSON.parse(line) as Record<string, unknown>;
+			.find((l) => l.startsWith("{")));
+		const parsed = parseWire(JSON.parse(line), wireRecord(wireUnknown), "test JSON value");
 		expect(parsed.tool).toBeNull();
 		expect(parsed.summary).toBeNull();
+	});
+
+	// test-contract: invariant — a string tool/summary value must pass through
+	// verbatim, distinguishing real normalization from an "always null" stub.
+	it("P3b: string tool and summary values pass through verbatim (not always-null)", async () => {
+		await runFollow({ follow: true, raw: true }, () => {
+			const content = `${JSON.stringify({ ts: "T", agent: "claude", type: "tool_use", tool: "Read", summary: "did-a-thing" })}\n`;
+			fsState.fileContent = Buffer.from(content, "utf-8");
+			fsState.size = fsState.fileContent.length;
+			watchCallback?.();
+		});
+		// SAFETY: the fixture line above always emits one JSON object, so a
+		// line starting with "{" is present; JSON.parse output is asserted
+		// on below rather than exhaustively typed.
+		const line = nonNull(allOut()
+			.split("\n")
+			.find((l) => l.startsWith("{")));
+		const parsed = parseWire(JSON.parse(line), wireRecord(wireUnknown), "test JSON value");
+		expect(parsed.tool).toBe("Read");
+		expect(parsed.summary).toBe("did-a-thing");
 	});
 });
 
@@ -365,10 +387,6 @@ describe("logsCommand — omitted optional query keys are truly absent", () => {
 	it("P: default call produces exactly { limit, cwd } with no extra keys", async () => {
 		await logsCommand({});
 		expect(lastReadOpts).toStrictEqual({ limit: 20, cwd: "/repo" });
-		// SAFETY: the toStrictEqual above already proves lastReadOpts is a
-		// plain object with exactly these keys; the cast only satisfies
-		// Object.keys' parameter type.
-		expect(Object.keys(lastReadOpts as object).sort()).toEqual(["cwd", "limit"]);
 	});
 });
 
@@ -381,7 +399,7 @@ describe("logsCommand — final limit trim", () => {
 		await logsCommand({ tool: "Bash", limit: "2", json: true });
 		// SAFETY: `json: true` guarantees the last logged line is a JSON
 		// array of event objects; the length assertion below verifies the shape.
-		const out = lastJson() as Record<string, unknown>[];
+		const out = parseWire(lastJson(), wireArray(wireRecord(wireUnknown)), "test JSON value");
 		expect(out).toHaveLength(2);
 	});
 });
@@ -400,7 +418,7 @@ describe("logsCommand — normal-mode line assembly", () => {
 		readLocalActivityImpl = () => [ev({ tool: "Read", summary: "a.ts" })];
 		await logsCommand({});
 		// SAFETY: the console.log spy above only ever pushes strings.
-		const rendered = logs[0] as string;
+		const rendered = nonNull(logs[0]);
 		const lines = rendered.split("\n");
 		const footerIdx = lines.findIndex((l) => l.includes("event shown"));
 		expect(footerIdx).toBeGreaterThan(0);
@@ -413,7 +431,7 @@ describe("logsCommand — normal-mode line assembly", () => {
 		readLocalActivityImpl = () => [ev({ tool: "Read", summary: "a.ts" })];
 		await logsCommand({});
 		// SAFETY: the console.log spy above only ever pushes strings.
-		const rendered = logs[0] as string;
+		const rendered = nonNull(logs[0]);
 		expect(rendered).toContain("\n");
 		expect(rendered.split("\n").length).toBeGreaterThanOrEqual(3);
 	});

@@ -152,7 +152,7 @@ describe("OpfHttpScanner — huggingface runtime", () => {
 		await scanner.scan({ text: "x", source: "s" });
 		const init = nonNull(fetchFn.mock.calls[0])[1];
 		expect(init?.headers).toMatchObject({ "Content-Type": "application/json" });
-		expect((init?.headers as Record<string, string>).Authorization).toBeUndefined();
+		expect(new Headers(init?.headers).get("Authorization")).toBeNull();
 	});
 });
 
@@ -169,7 +169,7 @@ describe("OpfHttpScanner — custom_http runtime", () => {
 		await scanner.scan({ text: "x", source: "s" });
 		const [url, init] = nonNull(fetchFn.mock.calls[0]);
 		expect(url).toBe("https://my-tgi.internal/scan");
-		expect((init?.headers as Record<string, string>).Authorization).toBeUndefined();
+		expect(new Headers(init?.headers).get("Authorization")).toBeNull();
 	});
 
 	it("ready() returns false when endpoint is empty", async () => {
@@ -203,7 +203,7 @@ describe("OpfHttpScanner — custom_http runtime", () => {
 		);
 		await scanner.scan({ text: "x", source: "s" });
 		const init = nonNull(fetchFn.mock.calls[0])[1];
-		expect((init?.headers as Record<string, string>).Authorization).toBe(
+		expect(new Headers(init?.headers).get("Authorization")).toBe(
 			"Bearer custom-secret-123",
 		);
 	});
@@ -363,7 +363,7 @@ describe("OpfHttpScanner — default DI seams (no test hooks supplied)", () => {
 			);
 			await scanner.scan({ text: "x", source: "s" });
 			const init = nonNull(fetchFn.mock.calls[0])[1];
-			expect((init?.headers as Record<string, string>).Authorization).toBe(
+			expect(new Headers(init?.headers).get("Authorization")).toBe(
 				"Bearer env-token-from-process",
 			);
 		} finally {
@@ -384,7 +384,7 @@ describe("OpfHttpScanner — default DI seams (no test hooks supplied)", () => {
 		);
 		await scanner.scan({ text: "x", source: "s" });
 		const init = nonNull(fetchFn.mock.calls[0])[1];
-		expect((init?.headers as Record<string, string>).Authorization).toBeUndefined();
+		expect(new Headers(init?.headers).get("Authorization")).toBeNull();
 	});
 });
 
@@ -478,7 +478,7 @@ describe("OpfHttpScanner — caller AbortSignal is merged into the request", () 
 		const original = AbortSignal.any;
 		// Simulate a runtime without AbortSignal.any to drive the fallback listener
 		// branch (the `forward` closure + manual AbortController).
-		(AbortSignal as { any?: unknown }).any = undefined;
+		Reflect.set(AbortSignal, "any", undefined);
 		let observed: AbortSignal | undefined;
 		const fetchFn = vi.fn<typeof fetch>(async (_url, init) => {
 			observed = init?.signal ?? undefined;
@@ -497,7 +497,7 @@ describe("OpfHttpScanner — caller AbortSignal is merged into the request", () 
 			caller.abort();
 			expect(observed?.aborted).toBe(true);
 		} finally {
-			(AbortSignal as { any?: typeof original }).any = original;
+			Reflect.set(AbortSignal, "any", original);
 		}
 	});
 });

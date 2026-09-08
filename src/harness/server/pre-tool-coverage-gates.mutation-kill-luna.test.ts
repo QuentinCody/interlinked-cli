@@ -1,3 +1,11 @@
+import { nonNull } from "../../lib/non-null.js";
+import type { ServerRuntime } from "./runtime-context.js";
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { getDefaultConfig } from "../rules-loader.js";
+import type { PerEditMutationConfig } from "../mutation/gate.js";
+import { ProjectGraph } from "../project-graph.js";
+import { InternalDependencyView } from "../dependency-view.js";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { HarnessDecision, HarnessEvent } from "../types.js";
 
@@ -17,7 +25,7 @@ vi.mock("../mutation/pending-registry.js", () => ({
 	commitPendingRegistry: vi.fn(),
 }));
 vi.mock("../mutation/pending-runs.js", () => ({ recordPending: vi.fn() }));
-vi.mock("../dependency-view.js", () => ({ resolveDependencyView: vi.fn() }));
+vi.mock("../dependency-view.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../dependency-view.js")>(), resolveDependencyView: vi.fn() }));
 vi.mock("./runtime-context.js", () => ({ getGraphForFile: vi.fn() }));
 vi.mock("../coverage-debt-gate.js", () => ({ applyDebtMode: vi.fn((_event, _cfg, decision) => decision) }));
 vi.mock("../debt-evasion.js", () => ({ noteWanderBlockDecision: vi.fn() }));
@@ -30,15 +38,18 @@ import { getGraphForFile } from "./runtime-context.js";
 import { runCommitGate, runCoverageWriteGate, runMutationWriteGate } from "./pre-tool-coverage-gates.js";
 
 // SAFETY: this import is replaced by a vi.mock factory above.
-const coverage = checkCoverageWrite as unknown as ReturnType<typeof vi.fn>;
+const coverage = vi.mocked(checkCoverageWrite);
 // SAFETY: this import is replaced by a vi.mock factory above.
-const commit = checkCommitGate as unknown as ReturnType<typeof vi.fn>;
+const commit = vi.mocked(checkCommitGate);
 // SAFETY: this import is replaced by a vi.mock factory above.
-const mutation = runPerEditMutationGate as unknown as ReturnType<typeof vi.fn>;
+const mutation = vi.mocked(runPerEditMutationGate);
 // SAFETY: this import is replaced by a vi.mock factory above.
-const graph = getGraphForFile as unknown as ReturnType<typeof vi.fn>;
+const graph = vi.mocked(getGraphForFile);
 // SAFETY: this import is replaced by a vi.mock factory above.
-const view = resolveDependencyView as unknown as ReturnType<typeof vi.fn>;
+const view = vi.mocked(resolveDependencyView);
+
+const fixtureGraph = new ProjectGraph("/repo");
+const fixtureView = new InternalDependencyView(fixtureGraph);
 
 function event(input: Record<string, unknown> = {}, extra: Partial<HarnessEvent> = {}): HarnessEvent {
 	return {
@@ -57,12 +68,16 @@ function allow(warnings?: string[]): HarnessDecision {
 	return warnings ? { decision: "allow", warnings } : { decision: "allow" };
 }
 
-function coverageContext(): any {
-	return { cwd: "/repo", rules: { per_edit_coverage: { enabled: true } }, sessions: {} };
+function coverageContext(): ServerRuntime {
+ const rules = makeGuardRules();
+ rules.per_edit_coverage = { ...nonNull(getDefaultConfig().per_edit_coverage), enabled: true };
+ return makeServerRuntime({ cwd: "/repo", rules });
 }
 
-function mutationContext(cfg: Record<string, unknown>): any {
-	return { cwd: "/repo", rules: { per_edit_mutation: cfg }, sessions: {} };
+function mutationContext(cfg: Partial<PerEditMutationConfig>): ServerRuntime {
+ const rules = makeGuardRules();
+ rules.per_edit_mutation = { ...nonNull(getDefaultConfig().per_edit_mutation), ...cfg };
+ return makeServerRuntime({ cwd: "/repo", rules });
 }
 
 beforeEach(() => {
@@ -70,23 +85,23 @@ beforeEach(() => {
 	coverage.mockResolvedValue(null);
 	commit.mockResolvedValue(null);
 	mutation.mockResolvedValue(null);
-	graph.mockReturnValue({ graph: true });
-	view.mockReturnValue({ answerScope: "repo" });
+	graph.mockReturnValue(fixtureGraph);
+	view.mockReturnValue(fixtureView);
 });
 
 it("passes a string file_path to dependency resolution", async () => {
 	// test-contract: public-api — Write/Edit file_path is the primary dependency-view seed.
 	await runCoverageWriteGate(coverageContext(), event({ file_path: "src/main.ts" }), allow());
 	expect(graph).toHaveBeenCalledWith(expect.anything(), "src/main.ts");
-	expect(view).toHaveBeenCalledWith("src/main.ts", "/repo", { graph: true });
-	expect(coverage.mock.calls[0]?.[3]).toEqual({ answerScope: "repo" });
+	expect(view).toHaveBeenCalledWith("src/main.ts", "/repo", fixtureGraph);
+	expect(coverage.mock.calls[0]?.[3]).toEqual(fixtureView);
 });
 
 it("rejects a non-string file_path and uses a string path", async () => {
 	// test-contract: boundary — malformed file_path must not masquerade as a usable path.
 	await runCoverageWriteGate(coverageContext(), event({ file_path: 42, path: "src/fallback.ts" }), allow());
 	expect(graph).toHaveBeenCalledWith(expect.anything(), "src/fallback.ts");
-	expect(view).toHaveBeenCalledWith("src/fallback.ts", "/repo", { graph: true });
+	expect(view).toHaveBeenCalledWith("src/fallback.ts", "/repo", fixtureGraph);
 });
 
 it("rejects a non-string path when no usable named path exists", async () => {
@@ -124,8 +139,8 @@ it("extracts patch paths from patch and raw-patch input keys", async () => {
 	for (const key of ["patch", "_raw_patch", "content"]) {
 		vi.clearAllMocks();
 		coverage.mockResolvedValue(null);
-		graph.mockReturnValue({ graph: true });
-		view.mockReturnValue({ answerScope: "repo" });
+		graph.mockReturnValue(fixtureGraph);
+		view.mockReturnValue(fixtureView);
 		await runCoverageWriteGate(
 			coverageContext(),
 			event({ [key]: `*** Begin Patch\n*** Add File: src/${key}.ts\n+x\n*** End Patch` }),
@@ -148,7 +163,7 @@ it("returns no dependency view when graph construction or view resolution fails"
 	graph.mockImplementation(() => { throw new Error("graph unavailable"); });
 	await runCoverageWriteGate(coverageContext(), event({ file_path: "src/fail.ts" }), allow());
 	expect(coverage.mock.calls[0]?.[3]).toBeUndefined();
-	graph.mockReturnValue({ graph: true });
+	graph.mockReturnValue(fixtureGraph);
 	view.mockImplementation(() => { throw new Error("view unavailable"); });
 	await runCoverageWriteGate(coverageContext(), event({ file_path: "src/fail-view.ts" }), allow());
 	expect(coverage.mock.calls[1]?.[3]).toBeUndefined();
@@ -156,7 +171,7 @@ it("returns no dependency view when graph construction or view resolution fails"
 
 it("returns an exact block and merges evaluator warnings first", async () => {
 	// test-contract: public-api — block metadata and warning ordering are propagated without rewriting.
-	const blocked = { decision: "block", reason: "exact-reason", rule_id: "coverage", warnings: ["gate"] } as const;
+	const blocked: HarnessDecision = { decision: "block", reason: "exact-reason", rule_id: "coverage", warnings: ["gate"] };
 	coverage.mockResolvedValue(blocked);
 	const result = await runCoverageWriteGate(coverageContext(), event({ file_path: "src/x.ts" }), allow(["pre"]));
 	expect(result).toEqual({ ...blocked, warnings: ["pre", "gate"] });
@@ -180,14 +195,14 @@ it("merges a fail-open warning after pre-existing warnings", async () => {
 
 it("skips coverage for disabled config and upstream blocks", async () => {
 	// test-contract: invariant — both configuration opt-out and prior blocks short-circuit the expensive gate.
-	await runCoverageWriteGate({ cwd: "/repo", rules: {}, sessions: {} } as any, event(), allow());
+	await runCoverageWriteGate(makeServerRuntime(), event(), allow());
 	await runCoverageWriteGate(coverageContext(), event(), { decision: "block", reason: "upstream" });
 	expect(coverage).not.toHaveBeenCalled();
 });
 
 it("skips commit checks for non-Bash, disabled, and upstream-blocked events", async () => {
 	// test-contract: boundary — commit quality checks only run for enabled Bash events after an allow.
-	await runCommitGate({ cwd: "/repo", rules: {}, sessions: {} } as any, event({}, { tool_name: "Bash" }), allow());
+	await runCommitGate(makeServerRuntime(), event({}, { tool_name: "Bash" }), allow());
 	await runCommitGate(coverageContext(), event({}, { tool_name: "Write" }), allow());
 	await runCommitGate(coverageContext(), event({}, { tool_name: "Bash" }), { decision: "block", reason: "upstream" });
 	expect(commit).not.toHaveBeenCalled();
@@ -195,7 +210,7 @@ it("skips commit checks for non-Bash, disabled, and upstream-blocked events", as
 
 it("returns exact commit block metadata and warning order", async () => {
 	// test-contract: public-api — commit-gate decision fields are returned intact with accumulated warnings first.
-	const blocked = { decision: "block", reason: "commit-reason", rule_id: "commit-gate", warnings: ["commit-warning"] } as const;
+	const blocked: HarnessDecision = { decision: "block", reason: "commit-reason", rule_id: "commit-gate", warnings: ["commit-warning"] };
 	commit.mockResolvedValue(blocked);
 	const result = await runCommitGate(coverageContext(), event({ command: "git commit" }, { tool_name: "Bash" }), allow(["pre"]));
 	expect(result).toEqual({ ...blocked, warnings: ["pre", "commit-warning"] });

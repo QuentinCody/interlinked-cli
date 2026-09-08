@@ -1,3 +1,5 @@
+import { nonNull } from "../../lib/non-null.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CohortManager } from "../cohort.js";
 import { ReservationManager } from "../reservations.js";
@@ -12,7 +14,6 @@ vi.mock("./edit-contract-phase.js", () => ({ evaluateEditContractPhase: vi.fn(nu
 vi.mock("./interpreter-write-guard.js", () => ({ evaluateInterpreterWriteGuard: vi.fn(nullPhase) }));
 vi.mock("./mutation-directed-guard.js", () => ({ evaluateMutationDirectedProfile: vi.fn(nullPhase) }));
 vi.mock("./pre-tool-context-phases.js", () => ({
-	drainPendingSessionWarnings: vi.fn(),
 	evaluateCurlMcpPhase: vi.fn(),
 	evaluateDiagnosticsPhase: vi.fn(),
 	evaluateMarkdownFirstPhase: vi.fn(),
@@ -58,7 +59,6 @@ import { recordDeliveryForShadow } from "../event-dedup.js";
 import { evaluateEditContractPhase } from "./edit-contract-phase.js";
 import { evaluateMutationDirectedProfile } from "./mutation-directed-guard.js";
 import {
-	drainPendingSessionWarnings,
 	evaluateCurlMcpPhase,
 	evaluateDiagnosticsPhase,
 	evaluateMarkdownFirstPhase,
@@ -114,7 +114,7 @@ const event = (overrides: Partial<HarnessEvent> = {}): HarnessEvent => ({
 });
 
 const session = (): SessionTrajectory =>
-	({
+	({ ...makeSessionFixture(),
 		session_id: "session-1",
 		agent_name: "agent",
 		started_at: "2026-08-20T00:00:00.000Z",
@@ -130,7 +130,7 @@ const session = (): SessionTrajectory =>
 		taint_sources: [],
 		step_limit: Number.POSITIVE_INFINITY,
 		// SAFETY: this fixture includes the session fields consumed by the public evaluator.
-	}) as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 
 const rules = (enabled = true): GuardRulesConfig => ({ ...getDefaultConfig(), enabled });
 const reservations = new ReservationManager();
@@ -166,7 +166,7 @@ describe("evaluatePreToolUse orchestrator — additional mutation contracts", ()
 
 	// test-contract: public-api — a truthy sharedConfig must be forwarded to phases by identity, not replaced by null/undefined.
 	it("forwards a truthy sharedConfig by identity into cfg-consuming phases", () => {
-		const cfgObj = { serverUrl: "https://example.test" } as unknown as SharedConfig;
+		const cfgObj = ({ version: 1, server_url: "https://example.test", } satisfies SharedConfig);
 		evaluatePreToolUse(
 			event(),
 			rules(),
@@ -202,7 +202,7 @@ describe("evaluatePreToolUse orchestrator — additional mutation contracts", ()
 		evaluatePreToolUse(event(), rules(), session(), reservations, cohort);
 		const ctxArg = vi.mocked(evaluateExfilPhase).mock.calls[0]?.[6];
 		// SAFETY: the mock captures whatever object the SUT passed as the 7th arg; we only inspect its own keys.
-		expect(Object.keys(ctxArg as object).sort()).toEqual(["actor", "contentScan", "escalation", "graphPredAdditionalContext"]);
+		expect(Object.keys(nonNull(ctxArg)).sort()).toEqual(["actor", "contentScan", "escalation", "graphPredAdditionalContext"]);
 	});
 
 	// test-contract: invariant — with no live session there is no actor to budget, so the ctx carries only its three cross-phase locals.
@@ -210,7 +210,7 @@ describe("evaluatePreToolUse orchestrator — additional mutation contracts", ()
 		evaluatePreToolUse(event(), rules(), undefined, reservations, cohort);
 		const ctxArg = vi.mocked(evaluateExfilPhase).mock.calls[0]?.[6];
 		// SAFETY: same capture as above; only the own keys are inspected.
-		expect(Object.keys(ctxArg as object).sort()).toEqual(["contentScan", "escalation", "graphPredAdditionalContext"]);
+		expect(Object.keys(nonNull(ctxArg)).sort()).toEqual(["contentScan", "escalation", "graphPredAdditionalContext"]);
 	});
 
 	// test-contract: invariant — a bare (non-terminal) allow decision from an earlier phase must not short-circuit the pipeline; a later phase's block must still win.
@@ -309,13 +309,6 @@ describe("evaluatePreToolUse orchestrator — additional mutation contracts", ()
 				vi
 					.mocked(evaluateDiagnosticsPhase)
 					.mockImplementationOnce((_e, _r, _t, _i, warnings: string[]) => warnings.push("diagnostics")),
-		],
-		[
-			"drain",
-			() =>
-				vi
-					.mocked(drainPendingSessionWarnings)
-					.mockImplementationOnce((_s, warnings: string[]) => warnings.push("drain")),
 		],
 		[
 			"late-side-effects",

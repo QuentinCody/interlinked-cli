@@ -26,16 +26,16 @@ function makeEvent(phase: UnifiedHookEvent["phase"], cwd: string): UnifiedHookEv
 		event_id: "e1",
 		session_id: "s1",
 		ts: "2026-06-12T00:00:00.000Z",
-		runner: "claude-code" as never,
+		runner: "claude-code",
 		runner_native_event: phase === "pre-tool" ? "PreToolUse" : "Stop",
 		phase,
 		action:
 			phase === "pre-tool"
-				? ({ kind: "shell_command", command: "echo hi", cwd } as never)
-				: ({ kind: "lifecycle" } as never),
+				? { kind: "shell_command", command: "echo hi", cwd, tool_class: "read" }
+				: { kind: "session_lifecycle", event: "stop" },
 		context: { cwd },
 		raw: null,
-	} as UnifiedHookEvent;
+	};
 }
 
 let dir: string;
@@ -270,7 +270,7 @@ describe("coldDaemonUnreachableBlockReason", () => {
 	it("allows the recovery command through the cold gate itself", () => {
 		writePid();
 		const event = makeEvent("pre-tool", dir);
-		event.action = { kind: "shell_command", command: "interlinked harness start" } as never;
+		event.action = { kind: "shell_command", command: "interlinked harness start", tool_class: "side-effect" };
 		expect(coldDaemonUnreachableBlockReason(event, dir, {})).toBeNull();
 	});
 
@@ -279,7 +279,7 @@ describe("coldDaemonUnreachableBlockReason", () => {
 		writeSock("harness.sock");
 		vi.spyOn(process, "kill").mockImplementation((() => {
 			throw Object.assign(new Error("permission denied"), { code: "EPERM" });
-		}) as never);
+		}));
 		expect(coldDaemonUnreachableBlockReason(makeEvent("pre-tool", dir), dir, {})).toBeNull();
 	});
 
@@ -288,7 +288,7 @@ describe("coldDaemonUnreachableBlockReason", () => {
 		writeSock("harness.sock");
 		vi.spyOn(process, "kill").mockImplementation((() => {
 			throw Object.assign(new Error("missing process"), { code: "ESRCH" });
-		}) as never);
+		}));
 		expect(coldDaemonUnreachableBlockReason(makeEvent("pre-tool", dir), dir, {})).toContain(
 			"BLOCKED",
 		);

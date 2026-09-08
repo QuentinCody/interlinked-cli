@@ -1,3 +1,5 @@
+import { parseWire, wireArray, wireNumber, wireObject, wireRecord, wireString } from "../../lib/value-validation.js";
+import { nonNull } from "../../lib/non-null.js";
 // ===========================================
 // SessionTracker.serialize / hydrate round-trip
 // ===========================================
@@ -31,7 +33,7 @@ describe("SessionTracker round-trip", () => {
 		expect(snap).not.toBeNull();
 
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 		expect(restored).not.toBeNull();
 		expect(restored?.session_id).toBe("rtt-session");
 		expect(restored?.tool_call_count).toBe(1);
@@ -56,7 +58,7 @@ describe("SessionTracker round-trip", () => {
 
 		const snap = writer.serialize("rtt-session");
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 
 		expect(restored?.tool_call_count).toBe(3);
 		// Phase 1 path normalization stores BOTH raw + resolved-absolute
@@ -82,7 +84,7 @@ describe("SessionTracker round-trip", () => {
 
 		const snap = writer.serialize("rtt-session");
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 
 		expect(restored?.acknowledged_checks.has("src/x.ts::typescript")).toBe(true);
 		expect(restored?.acknowledged_checks.has("src/x.ts::biome_lint")).toBe(true);
@@ -99,7 +101,7 @@ describe("SessionTracker round-trip", () => {
 		expect(snap?.step_limit).toBeNull(); // JSON-safe encoding
 
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 		expect(restored?.step_limit).toBe(Number.POSITIVE_INFINITY);
 	});
 
@@ -115,7 +117,7 @@ describe("SessionTracker round-trip", () => {
 			}),
 		);
 		const snap = writer.serialize("rtt-session");
-		const restored = new SessionTracker().hydrate(snap as Record<string, unknown>);
+		const restored = new SessionTracker().hydrate(nonNull(snap));
 		expect(restored?.tool_call_count).toBe(2);
 		expect(restored?.actor_tool_calls).toEqual(
 			new Map([
@@ -128,7 +130,7 @@ describe("SessionTracker round-trip", () => {
 	it("hydrates a pre-fix snapshot with no actor_tool_calls as absent (total-count fallback), not empty", () => {
 		const writer = new SessionTracker();
 		writer.recordEvent(baseEvent({}));
-		const snap = writer.serialize("rtt-session") as Record<string, unknown>;
+		const snap = nonNull(writer.serialize("rtt-session"));
 		delete snap.actor_tool_calls;
 		const restored = new SessionTracker().hydrate(snap);
 		expect(restored?.actor_tool_calls).toBeUndefined();
@@ -144,7 +146,7 @@ describe("SessionTracker round-trip", () => {
 		expect(snap?.step_limit).toBe(25);
 
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 		expect(restored?.step_limit).toBe(25);
 	});
 
@@ -164,7 +166,7 @@ describe("SessionTracker round-trip", () => {
 
 		const snap = writer.serialize("rtt-session");
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 
 		const pending = restored?.pending_completions.get("api.ts");
 		expect(pending?.source_file).toBe("api.ts");
@@ -192,7 +194,7 @@ describe("SessionTracker round-trip", () => {
 
 		const snap = writer.serialize("rtt-session");
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 
 		expect(restored?.consecutive_tool_failures.get("Bash")).toBe(3);
 	});
@@ -210,7 +212,7 @@ describe("SessionTracker round-trip", () => {
 
 		const snap = writer.serialize("rtt-session");
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 
 		expect(restored?.mid_session_nudge_emitted).toBe(true);
 		expect(restored?.stop_nudge_emitted).toBe(false);
@@ -263,7 +265,7 @@ describe("SessionTracker round-trip", () => {
 
 		const snap = writer.serialize("rtt-session");
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 
 		expect(restored?.assertion_counts.size).toBe(2);
 		expect(restored?.assertion_counts.get("src/foo.test.ts")).toEqual({
@@ -301,7 +303,7 @@ describe("SessionTracker round-trip", () => {
 
 		const snap = writer.serialize("rtt-session");
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 
 		expect(restored?.observed_checks?.size).toBe(2);
 		expect(restored?.observed_checks?.get("typecheck")).toEqual({
@@ -361,7 +363,7 @@ describe("SessionTracker round-trip", () => {
 		if (session) recordSkillEnter(session, { name: "interlinked-verify", ttl_seconds: 600 });
 
 		const snap = writer.serialize("rtt-session");
-		const activeSkills = snap?.active_skills as Record<string, { name: string }>;
+		const activeSkills = parseWire(snap?.active_skills, wireRecord(wireObject({ "name": wireString })), "test JSON value");
 		expect(activeSkills["interlinked-verify"]?.name).toBe("interlinked-verify");
 
 		// A snapshot that never recorded a skill hydrates active_skills to
@@ -414,25 +416,25 @@ describe("SessionTracker round-trip", () => {
 
 		const snap = writer.serialize("rtt-session");
 
-		const failedFiles = snap?.failed_files as Record<string, { failure_count: number }>;
+		const failedFiles = parseWire(snap?.failed_files, wireRecord(wireObject({ "failure_count": wireNumber })), "test JSON value");
 		expect(failedFiles["src/broken.ts"]?.failure_count).toBe(2);
 
-		const warningsIssued = snap?.warnings_issued as Record<string, { issue_count: number }>;
+		const warningsIssued = parseWire(snap?.warnings_issued, wireRecord(wireObject({ "issue_count": wireNumber })), "test JSON value");
 		expect(warningsIssued["src/broken.ts::typescript"]?.issue_count).toBe(2);
 
-		const tddCycles = snap?.tdd_cycles as Record<string, { state: string }>;
+		const tddCycles = parseWire(snap?.tdd_cycles, wireRecord(wireObject({ "state": wireString })), "test JSON value");
 		expect(tddCycles["src/foo.ts"]?.state).toBe("red");
 
-		const testRuns = snap?.test_runs as Record<string, { status: string }>;
+		const testRuns = parseWire(snap?.test_runs, wireRecord(wireObject({ "status": wireString })), "test JSON value");
 		expect(testRuns["src/foo.test.ts"]?.status).toBe("fail");
 
-		const stubsIntroduced = snap?.stubs_introduced as Array<{ kind: string }>;
+		const stubsIntroduced = parseWire(snap?.stubs_introduced, wireArray(wireObject({ "kind": wireString })), "test JSON value");
 		expect(stubsIntroduced).toHaveLength(1);
 		expect(stubsIntroduced[0]?.kind).toBe("TODO");
 
 		// Round-trip: the hydrated copy must carry the same content forward.
 		const reader = new SessionTracker();
-		const restored = reader.hydrate(snap as Record<string, unknown>);
+		const restored = reader.hydrate(nonNull(snap));
 		expect(restored?.failed_files.get("src/broken.ts")?.failure_count).toBe(2);
 		expect(restored?.tdd_cycles.get("src/foo.ts")?.state).toBe("red");
 		expect(restored?.test_runs.get("src/foo.test.ts")?.status).toBe("fail");

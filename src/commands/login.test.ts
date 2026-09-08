@@ -102,15 +102,15 @@ class ProcessExit extends Error {
 }
 
 function logged(): string {
-	return (logSpy.mock.calls as unknown[][]).map((a) => String(a[0])).join("\n");
+	return (logSpy.mock.calls).map((a: unknown[]) => String(a[0])).join("\n");
 }
 function errored(): string {
-	return (errSpy.mock.calls as unknown[][]).map((a) => String(a[0])).join("\n");
+	return (errSpy.mock.calls).map((a: unknown[]) => String(a[0])).join("\n");
 }
 
 /** A ResolvedConfig stub with sensible defaults, overridable per-test. */
 function resolved(over: Partial<ResolvedConfig> = {}): ResolvedConfig {
-	return { server_url: "https://srv.example", ...over } as ResolvedConfig;
+	return { server_url: "https://srv.example", sync_mode: "realtime", ...over };
 }
 
 const SKIPPED: RemoteOnboardingResult = { status: "skipped", reason: "not_authenticated" };
@@ -120,9 +120,9 @@ beforeEach(() => {
 	ctorCalls.length = 0;
 	logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 	errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-	exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-		throw new ProcessExit(code);
-	}) as never);
+	exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+		throw new ProcessExit(code === undefined ? undefined : Number(code));
+	});
 	// Defaults: configured, resolves to a remote server, onboarding skipped.
 	mockIsConfigured.mockReturnValue(true);
 	mockResolveConfig.mockReturnValue(resolved());

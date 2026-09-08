@@ -60,8 +60,8 @@ function result(client: ClientName, over: Partial<InstallResult> = {}): InstallR
 }
 
 function logged(spy: ReturnType<typeof vi.spyOn>): string {
-	const calls = spy.mock.calls as unknown[][];
-	return stripAnsi(calls.map((args) => args.join(" ")).join("\n"));
+	const calls = spy.mock.calls;
+	return stripAnsi(calls.map((args: unknown[]) => args.join(" ")).join("\n"));
 }
 
 let logSpy: ReturnType<typeof vi.spyOn>;
@@ -73,7 +73,7 @@ beforeEach(() => {
 
 	vi.mocked(getConfigDir).mockReturnValue(`${CWD}/.interlinked`);
 	vi.mocked(isConfigured).mockReturnValue(true);
-	vi.mocked(readLocalConfig).mockReturnValue({ agent_name: "qcody" } as never);
+	vi.mocked(readLocalConfig).mockReturnValue({ agent_name: "qcody" });
 	vi.mocked(uninstallAllHooks).mockReturnValue([]);
 	vi.mocked(deleteHookScript).mockReturnValue(false);
 	vi.mocked(deleteConfigDir).mockReturnValue(false);
@@ -85,10 +85,10 @@ beforeEach(() => {
 		at: "2026-06-14T00:00:00.000Z",
 		version: 1,
 		source: "local",
-	} as never);
+	});
 	vi.mocked(harnessStopCommand).mockResolvedValue(undefined);
 	// Default: the daemon stopped cleanly, so a stand-down is fully in effect.
-	vi.mocked(isHarnessRunning).mockReturnValue({ running: false } as never);
+	vi.mocked(isHarnessRunning).mockReturnValue({ running: false });
 });
 
 afterEach(() => {
@@ -129,7 +129,7 @@ describe("disableCommand — stand down (default)", () => {
 		// The live daemon ignores the marker; if it survived SIGTERM the project is
 		// still guarded, so the command must warn + exit non-zero rather than report
 		// a successful stand-down (finding 2026-06, round 8).
-		vi.mocked(isHarnessRunning).mockReturnValue({ running: true, pid: 999 } as never);
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: true, pid: 999 });
 
 		await disableCommand({});
 
@@ -175,7 +175,7 @@ describe("disableCommand — stand down (default)", () => {
 	it("exits on an unparseable --until", async () => {
 		const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
 			throw new Error("exit");
-		}) as never);
+		}));
 		await expect(disableCommand({ until: "soon" })).rejects.toThrow("exit");
 		expect(exitSpy).toHaveBeenCalledWith(1);
 		expect(vi.mocked(writeGuardDisable)).not.toHaveBeenCalled();

@@ -15,8 +15,9 @@
 // Two import scenarios cover both arms of the top-level
 // `main().catch(...)`: a well-formed corpus (success: readStdin loop →
 // JSON.parse → map → stdout.write) and malformed JSON (failure:
-// console.error → process.exit(1)).
+// console.error → process.exitCode = 1).
 
+import { Readable } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { nonNull } from "../lib/non-null.js";
@@ -39,24 +40,13 @@ const mRunPipeline = vi.mocked(runInlinePipeline);
 
 // ---- process.stdin / stdout / exit harness --------------------------------
 
-type StdinLike = NodeJS.ReadStream;
-
-/** A minimal async-iterable stand-in for `process.stdin`. The driver only
- *  consumes it via `for await (const chunk of process.stdin)`, so an object
- *  exposing `Symbol.asyncIterator` is sufficient. `chunks` is the sequence
- *  of yielded values (Buffers and/or strings, to exercise both arms of the
- *  `Buffer.isBuffer(chunk) ? … : Buffer.from(chunk)` ternary). */
-function makeStdin(chunks: Array<Buffer | string>): StdinLike {
-	return {
-		async *[Symbol.asyncIterator]() {
-			for (const c of chunks) yield c;
-		},
-	} as unknown as StdinLike;
+function makeStdin(chunks: Array<Buffer | string>): Readable {
+	return Readable.from(chunks);
 }
 
 const originalStdin = process.stdin;
 const originalWrite = process.stdout.write.bind(process.stdout);
-const originalExit = process.exit.bind(process);
+const originalExitCode = process.exitCode;
 const originalError = console.error.bind(console);
 
 let stdoutCapture: string[];
@@ -75,12 +65,7 @@ async function runDriverWith(chunks: Array<Buffer | string>): Promise<void> {
 	process.stdout.write = ((s: string | Uint8Array): boolean => {
 		stdoutCapture.push(typeof s === "string" ? s : Buffer.from(s).toString("utf-8"));
 		return true;
-	}) as typeof process.stdout.write;
-	// Swallow process.exit so the failure path doesn't kill the test runner.
-	process.exit = ((code?: number): never => {
-		exitCodes.push(code ?? 0);
-		return undefined as never;
-	}) as typeof process.exit;
+	});
 	console.error = (...args: unknown[]): void => {
 		consoleErrArgs.push(args);
 	};
@@ -92,11 +77,13 @@ async function runDriverWith(chunks: Array<Buffer | string>): Promise<void> {
 	// readStdin → main.
 	await new Promise((r) => setTimeout(r, 0));
 	await Promise.resolve();
+	if (process.exitCode !== undefined) exitCodes.push(Number(process.exitCode));
 }
 
 beforeEach(() => {
 	stdoutCapture = [];
 	exitCodes = [];
+	process.exitCode = undefined;
 	consoleErrArgs = [];
 	vi.clearAllMocks();
 });
@@ -107,7 +94,7 @@ afterEach(() => {
 		configurable: true,
 	});
 	process.stdout.write = originalWrite;
-	process.exit = originalExit;
+	process.exitCode = originalExitCode;
 	console.error = originalError;
 });
 
@@ -170,7 +157,7 @@ describe("determinism-replay-driver main()", () => {
 
 	it("logs the error and exits non-zero when stdin is not valid JSON (catch arm)", async () => {
 		// Malformed JSON makes JSON.parse throw inside main(); the top-level
-		// `.catch` should console.error it and process.exit(1).
+		// `.catch` should report the error and set a failure exit status.
 		await runDriverWith([Buffer.from("{ not json", "utf-8")]);
 
 		expect(consoleErrArgs).toHaveLength(1);

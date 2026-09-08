@@ -270,7 +270,7 @@ describe("formatOpenObligations — ledger internals", () => {
 			tool: "Edit",
 			toolUseId: "m1",
 			hook: "PostToolUse",
-		} as unknown as ToolEvent;
+		};
 		const real = edit("src/ok.ts", "x", "// TODO: still here\nx");
 		const msg = formatOpenObligations([malformed, real]);
 		expect(msg).not.toBeNull();
@@ -389,9 +389,9 @@ describe("obligationConflictMarkerRule — additional branch coverage", () => {
 		expect(obligationConflictMarkerRule([], latest)).toBeNull();
 	});
 
-	it("tolerates a non-array events argument", () => {
+	it("tolerates absent prior event history", () => {
 		const latest = edit("src/solo.ts", "x", "<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> b");
-		const v = obligationConflictMarkerRule(null as unknown as ToolEvent[], latest);
+		const v = obligationConflictMarkerRule(null, latest);
 		expect(v).not.toBeNull();
 		expect(v!.message).toContain("This edit leaves Git merge-conflict markers");
 	});

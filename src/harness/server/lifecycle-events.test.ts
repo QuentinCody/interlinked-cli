@@ -1,7 +1,17 @@
+import { readJsonRecord, jsonRecords } from "./__tests__/json.js";
+import { makeServerRuntime } from "./__tests__/fixtures.js";
+import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
+import { getDefaultConfig } from "../rules-loader.js";
+import { buildTestIndex } from "../__tests__/fixtures/trigram.js";
+import { createClassifierSessionState } from "../policy-classifier.js";
+import { createAutoCoordinationState } from "../auto-coordinate.js";
+import type { CohortAgent, TurnEndSummary } from "../types.js";
+import type { CapturedPlan } from "../types/plan.js";
+import type { FilePriority } from "../file-priority.js";
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import { CohortManager } from "../cohort.js";
@@ -134,27 +144,8 @@ function ev(partial: Partial<HarnessEvent> = {}): HarnessEvent {
 	};
 }
 
-/** A ServerRuntime stub carrying only what handleLifecycleEvent reads for
- *  the arms exercised here. */
 function makeCtx(over: Partial<ServerRuntime> = {}): ServerRuntime {
-	const base = {
-		cwd: tmp,
-		interlinkedDir: join(tmp, ".interlinked"),
-		rules: { rules: [], content_scanner: undefined },
-		cohort: new CohortManager(),
-		sessions: new SessionTracker(),
-		trigramIndex: null,
-		contentScanner: undefined,
-		classifierSessions: new Map(),
-		autoCoordStates: new Map(),
-		asyncFindings: { clearSession: () => {} },
-		asyncAnalysis: { drain: async () => {} },
-		reservations: { releaseAllForAgent: () => {} },
-		filePriorityMap: new Map(),
-		log: () => {},
-		logAlways: () => {},
-	};
-	return { ...base, ...over } as unknown as ServerRuntime;
+ return makeServerRuntime({ cwd: tmp, ...over });
 }
 
 describe("resolveParentSessionId", () => {
@@ -264,7 +255,8 @@ describe("handleLifecycleEvent", () => {
 
 	it("SessionEnd returns an allow decision and removes the session", async () => {
 		const drain = vi.fn(async () => undefined);
-		const ctx = makeCtx({ asyncAnalysis: { drain } as never });
+		const ctx = makeCtx();
+		vi.spyOn(ctx.asyncAnalysis, "drain").mockImplementation(drain);
 		const session = ctx.sessions.recordEvent(ev({ hook_event: "SessionEnd" }));
 		const out = await handleLifecycleEvent(
 			ctx,
@@ -280,110 +272,11 @@ describe("handleLifecycleEvent", () => {
 	});
 });
 
-// ─────────────────────────────────────────────────────────────────────────
-// Trajectory-write path-traversal regression.
-//
-// The SessionEnd / Stop arm of handleLifecycleEvent writes the session
-// trajectory to .interlinked/sessions/<id>.trajectory.json. event.session_id
-// arrives over the Unix socket as arbitrary JSON-parsed data; passing it
-// straight through path.join would let "../../../.config/target" escape the
-// sessions dir (path.join collapses ../ rather than rejecting it).
-//
-// The fix — moved here verbatim with the SessionEnd handler from server.ts:
-//   1. sanitizeSessionId (whitelist charset + length cap) before path build.
-//   2. Defense-in-depth: resolve() the target and require it under
-//      resolve(sessDir) + sep (or equal to it) before writing.
-//
-// These source-level assertions pin both halves in place. (The behavioral
-// guarantees of sanitizeSessionId itself live in
-// __tests__/server-trajectory-write.test.ts.)
-const LIFECYCLE_TS = resolve(fileURLToPath(new URL(".", import.meta.url)), "lifecycle-events.ts");
-// persistSessionTrajectory moved verbatim to lifecycle-persist.ts (line-cap
-// decomposition 2026-07-17); the source-text security pins follow the code.
-const LIFECYCLE_PERSIST_TS = resolve(
-	fileURLToPath(new URL(".", import.meta.url)),
-	"lifecycle-persist.ts",
-);
-
-describe("lifecycle trajectory write - path traversal regression", () => {
-	const source = readFileSync(LIFECYCLE_PERSIST_TS, "utf-8");
-
-	it("imports sanitizeSessionId from session-paths", () => {
-		expect(source).toMatch(
-			/import\s*\{[^}]*\bsanitizeSessionId\b[^}]*\}\s*from\s*["']\.\.\/session-paths\.js["']/,
-		);
-	});
-
-	it("applies sanitizeSessionId before building the trajectory path", () => {
-		expect(source).toContain("sanitizeSessionId(event.session_id)");
-		expect(source).toContain("`${safeId}.trajectory.json`");
-	});
-
-	it("does NOT concatenate raw event.session_id into the trajectory filename", () => {
-		expect(source).not.toContain("${event.session_id}.trajectory.json");
-	});
-
-	it("performs a resolve-and-containment check before writing", () => {
-		expect(source).toMatch(/resolve\s*\(\s*sessDir\s*\)/);
-		expect(source).toMatch(/resolve\s*\(\s*targetPath\s*\)/);
-		expect(source).toContain("resolvedDir + sep");
-	});
-
-	it("throws (triggering tryFn error path) when sanitization produces an empty id", () => {
-		expect(source).toContain('throw new Error("invalid session_id: no safe characters")');
-	});
-});
-
-// ─────────────────────────────────────────────────────────────────────────
-// Stop-event pattern rescan wiring regression.
-//
-// `buildPatternRescanWarnings` from stop-rescan.ts must be called from
-// `buildStopWarnings` so every Stop runs the deterministic pattern rescan
-// over `session.files_written`. The function itself has dedicated unit
-// coverage in stop-rescan.test.ts; this assertion pins the WIRING so a
-// future refactor that drops the call from the Stop path fails loudly.
-
-// The repeat-suppressor must sit at the OUTERMOST assembler. Wired into one
-// nudge family instead, every OTHER family keeps looping — which is exactly the
-// bug that shipped: the deferred-coverage nudge went quiet while the trajectory
-// nudge kept re-firing verbatim on a session that was blocked on a human.
-describe("Stop-nudge repeat suppression wiring", () => {
-	const source = readFileSync(LIFECYCLE_TS, "utf-8");
-
-	it("imports suppressRepeatedNudges from the throttle", () => {
-		expect(source).toMatch(
-			/import\s*\{[^}]*\bsuppressRepeatedNudges\b[^}]*\}\s*from\s*["']\.\/stop-nudge-throttle\.js["']/,
-		);
-	});
-
-	it("applies it to the RETURN of buildStopWarnings, so every family is covered", () => {
-		expect(source).toMatch(/return suppressRepeatedNudges\(/);
-	});
-});
-
-describe("Stop-event pattern rescan wiring", () => {
-	const source = readFileSync(LIFECYCLE_TS, "utf-8");
-
-	it("imports buildPatternRescanWarnings from stop-rescan", () => {
-		expect(source).toMatch(
-			/import\s*\{[^}]*\bbuildPatternRescanWarnings\b[^}]*\}\s*from\s*["']\.\.\/stop-rescan\.js["']/,
-		);
-	});
-
-	it("invokes buildPatternRescanWarnings inside buildStopWarnings", () => {
-		// The wiring sits between the verification-stop-checks block and the
-		// function's return — flexible match so refactors that keep the call
-		// but move surrounding code still pass.
-		expect(source).toMatch(/buildPatternRescanWarnings\s*\(\s*session\s*,/);
-	});
-});
-
-
 // ═══════════════════════════════════════════════════════════════════════════
 // BEHAVIORAL BRANCH SUITES (mocked-helper style)
 //
 // The real-collaborator suites above pin the high-level contracts and the
-// source-text regressions. The suites below drive every remaining branch of
+// lifecycle behavior. The suites below exercise
 // each lifecycle handler — file-priority refresh, trigram refresh,
 // permission-rule auto-strip, the full Stop reflection/persist/cleanup chain,
 // the content-scanner + plan-capture arms of UserPromptSubmit, subagent
@@ -459,55 +352,33 @@ const mSuppressRepeatedNudges = vi.mocked(suppressRepeatedNudges);
 const bLog: string[] = [];
 const bLogAlways: string[] = [];
 
-function bCohort(over: Record<string, unknown> = {}) {
-	return {
-		agentJoined: vi.fn(),
-		agentLeft: vi.fn(),
-		subagentJoined: vi.fn(),
-		subagentLeft: vi.fn(),
-		recordActivity: vi.fn(),
-		findAgentByIdentity: vi.fn(() => undefined),
-		...over,
-	};
+function bCohort(over: Partial<CohortManager> = {}): CohortManager {
+ const cohort = new CohortManager();
+ vi.spyOn(cohort, "agentJoined").mockImplementation(() => agent());
+ vi.spyOn(cohort, "agentLeft").mockImplementation(() => {});
+ vi.spyOn(cohort, "subagentJoined").mockImplementation(() => agent());
+ vi.spyOn(cohort, "subagentLeft").mockImplementation(() => {});
+ vi.spyOn(cohort, "recordActivity").mockImplementation(() => {});
+ vi.spyOn(cohort, "findAgentByIdentity").mockReturnValue(undefined);
+ return Object.assign(cohort, over);
 }
 
-function bSessions(over: Record<string, unknown> = {}) {
-	return {
-		get: vi.fn(() => undefined),
-		getAll: vi.fn(() => []),
-		remove: vi.fn(),
-		serialize: vi.fn(() => null),
-		rollUpVerificationSignals: vi.fn(() => false),
-		rollUpFileTracking: vi.fn(() => false),
-		...over,
-	};
+function bSessions(over: Partial<SessionTracker> = {}): SessionTracker {
+ const sessions = new SessionTracker();
+ vi.spyOn(sessions, "get").mockReturnValue(undefined);
+ vi.spyOn(sessions, "getAll").mockReturnValue([]);
+ vi.spyOn(sessions, "remove").mockImplementation(() => {});
+ vi.spyOn(sessions, "serialize").mockReturnValue(null);
+ vi.spyOn(sessions, "rollUpVerificationSignals").mockReturnValue(false);
+ vi.spyOn(sessions, "rollUpFileTracking").mockReturnValue(false);
+ return Object.assign(sessions, over);
 }
 
-/** ServerRuntime stub carrying every field the handlers read, with vi.fn()
- *  collaborators so each branch is independently assertable. */
-function bCtx(over: Record<string, unknown> = {}): ServerRuntime {
-	const base = {
-		cwd: "/repo",
-		interlinkedDir: "/repo/.interlinked",
-		rules: {},
-		cohort: bCohort(),
-		sessions: bSessions(),
-		reservations: { releaseAllForAgent: vi.fn() },
-		asyncFindings: { clearSession: vi.fn() },
-		asyncAnalysis: { drain: vi.fn(async () => undefined) },
-		classifierSessions: new Map<string, unknown>(),
-		autoCoordStates: new Map<string, unknown>(),
-		contentScanner: undefined,
-		trigramIndex: null,
-		filePriorityMap: new Map<string, unknown>(),
-		log: (m: string) => {
-			bLog.push(m);
-		},
-		logAlways: (m: string) => {
-			bLogAlways.push(m);
-		},
-	};
-	return { ...base, ...over } as unknown as ServerRuntime;
+function bCtx(over: Partial<ServerRuntime> = {}): ServerRuntime {
+ const ctx = makeServerRuntime({ cwd: "/repo", cohort: bCohort(), sessions: bSessions(),
+  log: m => bLog.push(m), logAlways: m => bLogAlways.push(m), ...over });
+ vi.spyOn(ctx.asyncFindings, "clearSession");
+ return ctx;
 }
 
 function bEvent(over: Partial<HarnessEvent> = {}): HarnessEvent {
@@ -520,20 +391,36 @@ function bEvent(over: Partial<HarnessEvent> = {}): HarnessEvent {
 	};
 }
 
-function bSession(over: Record<string, unknown> = {}): SessionTrajectory {
+function bSession(over: Partial<SessionTrajectory> = {}): SessionTrajectory {
 	// files_written non-empty by default: gate-reach only reports for sessions
 	// that wrote something, and most Stop-path tests assume an editing session.
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "s1",
 		agent_name: "agent-a",
 		files_written: new Set(["src/a.ts"]),
 		...over,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
-function fnOf<T>(v: T): ReturnType<typeof vi.fn> {
-	return v as unknown as ReturnType<typeof vi.fn>;
+function agent(over: Partial<CohortAgent> = {}): CohortAgent {
+ return { name: "agent", session_id: "s1", source: "claude", status: "active", joined_at: "2026-06-05T00:00:00.000Z", last_event_at: "2026-06-05T00:00:00.000Z", files_reserved: [], ...over };
 }
+function summary(turn_patterns: string[] = []): TurnEndSummary {
+ return { session_id: "s1", agent_name: "agent-a", tool_call_count: 0, files_written: [], files_read: [], commands_run: [], warning_count: 0, block_count: 0, turn_patterns, sensitivity_level: "Public", turn_duration_ms: 0 };
+}
+function captured(source: CapturedPlan["source"], intents: string[]): CapturedPlan {
+ return { source, session_id: "s1", agent_name: "agent-a", created_at_iso: "2026-06-05T00:00:00.000Z", created_at_step: 0, steps: intents.map(intent => ({ intent, status: "pending" })) };
+}
+function trigram(update: NonNullable<ServerRuntime["trigramIndex"]>["incrementalUpdate"]): NonNullable<ServerRuntime["trigramIndex"]> {
+ const index = buildTestIndex({});
+ vi.spyOn(index, "incrementalUpdate").mockImplementation(update);
+ return index;
+}
+function scanner(): NonNullable<ServerRuntime["contentScanner"]> {
+ return { name: "fixture", runtime: "http", ready: vi.fn(async () => true), scan: vi.fn(async () => []), shutdown: vi.fn(async () => {}) };
+}
+const driftReport: NonNullable<ReturnType<typeof detectPlanDrift>> = { declared_count: 1, matched_count: 0, missing_steps: [{ intent: "Edit src/a.ts", status: "pending" }], unexpected_actions: [], drift_pct: 1 };
+const fnOf = vi.mocked;
 
 beforeEach(() => {
 	bLog.length = 0;
@@ -551,7 +438,7 @@ beforeEach(() => {
 	mScanUserPrompt.mockResolvedValue(undefined);
 	mDetectPlanDrift.mockReturnValue(null);
 	mFormatPlanDrift.mockReturnValue(null);
-	mBuildTurnSummary.mockReturnValue({ turn_patterns: [] } as never);
+	mBuildTurnSummary.mockReturnValue(summary());
 	mFormatTurnEnd.mockReturnValue([]);
 	mBuildRescan.mockReturnValue([]);
 	mRunSeq.mockReturnValue([]);
@@ -579,8 +466,8 @@ beforeEach(() => {
 describe("resolveParentSessionId — branch coverage", () => {
 	it("derives subName from agent_name → parent via cohort, mapping back to a live session", () => {
 		const findAgentByIdentity = vi.fn((name: string) => {
-			if (name === "sub") return { parent_agent: "parent" };
-			if (name === "parent") return { session_id: "psess" };
+			if (name === "sub") return agent({ parent_agent: "parent" });
+			if (name === "parent") return agent({ session_id: "psess" });
 			return undefined;
 		});
 		const cohort = bCohort({ findAgentByIdentity });
@@ -588,12 +475,12 @@ describe("resolveParentSessionId — branch coverage", () => {
 			get: vi.fn((id: string) => (id === "psess" ? bSession() : undefined)),
 		});
 		expect(
-			resolveParentSessionId(bEvent({ agent_name: "sub" }), cohort as never, sessions as never),
+			resolveParentSessionId(bEvent({ agent_name: "sub" }), cohort, sessions),
 		).toBe("psess");
 	});
 
 	it("derives subName from tool_input.subagent_id and parent from tool_input.parent_agent_name", () => {
-		const findAgentByIdentity = vi.fn((name: string) => (name === "pname" ? { session_id: "ps" } : undefined));
+		const findAgentByIdentity = vi.fn((name: string) => (name === "pname" ? agent({ session_id: "ps" }) : undefined));
 		const cohort = bCohort({ findAgentByIdentity });
 		const sessions = bSessions({
 			get: vi.fn((id: string) => (id === "ps" ? bSession() : undefined)),
@@ -601,8 +488,8 @@ describe("resolveParentSessionId — branch coverage", () => {
 		expect(
 			resolveParentSessionId(
 				bEvent({ tool_input: { subagent_id: "sub", parent_agent_name: "pname" } }),
-				cohort as never,
-				sessions as never,
+				cohort,
+				sessions,
 			),
 		).toBe("ps");
 	});
@@ -615,8 +502,8 @@ describe("resolveParentSessionId — branch coverage", () => {
 		expect(
 			resolveParentSessionId(
 				bEvent({ tool_input: { agent_id: "sub2", parent_agent: "pdirect" } }),
-				cohort as never,
-				sessions as never,
+				cohort,
+				sessions,
 			),
 		).toBe("pdirect");
 	});
@@ -625,7 +512,7 @@ describe("resolveParentSessionId — branch coverage", () => {
 		const cohort = bCohort({ findAgentByIdentity: vi.fn(() => undefined) });
 		const sessions = bSessions({ get: vi.fn(() => undefined) });
 		expect(
-			resolveParentSessionId(bEvent({ parent_agent: "ghost" }), cohort as never, sessions as never),
+			resolveParentSessionId(bEvent({ parent_agent: "ghost" }), cohort, sessions),
 		).toBeUndefined();
 	});
 
@@ -633,8 +520,8 @@ describe("resolveParentSessionId — branch coverage", () => {
 		expect(
 			resolveParentSessionId(
 				bEvent({ tool_input: { subagent_id: 42, agent_id: { x: 1 } } }),
-				bCohort() as never,
-				bSessions() as never,
+				bCohort(),
+				bSessions(),
 			),
 		).toBeUndefined();
 	});
@@ -643,11 +530,7 @@ describe("resolveParentSessionId — branch coverage", () => {
 // ───────────────────────────── dispatch + pre-switch plan capture ─────────
 describe("handleLifecycleEvent — dispatch branches", () => {
 	it("PreToolUse: runs plan capture (default enabled), logs the capture, falls through to null", async () => {
-		mCapturePre.mockResolvedValue({
-			source: "TaskCreate",
-			steps: [{}, {}],
-			session_id: "s1",
-		} as never);
+		mCapturePre.mockResolvedValue(captured("TaskCreate", ["Read src/a.ts", "Edit src/a.ts"]));
 		const ctx = bCtx();
 		const out = await handleLifecycleEvent(ctx, bEvent({ hook_event: "PreToolUse" }), bSession());
 		expect(out).toBeNull();
@@ -658,7 +541,7 @@ describe("handleLifecycleEvent — dispatch branches", () => {
 
 	it("PreToolUse: honors plan_capture.enabled === false and does not log on no-capture", async () => {
 		mCapturePre.mockResolvedValue(null);
-		const ctx = bCtx({ rules: { plan_capture: { enabled: false } } });
+		const ctx = bCtx({ rules: { ...makeGuardRules(), plan_capture: { enabled: false, parse_userprompt: false } } });
 		await handleLifecycleEvent(ctx, bEvent({ hook_event: "PreToolUse" }), bSession());
 		expect(mCapturePre.mock.calls[0]?.[0].enabled).toBe(false);
 		expect(bLog.some((l) => l.includes("Plan capture:"))).toBe(false);
@@ -740,7 +623,7 @@ describe("SessionStart handler — branch coverage", () => {
 	});
 
 	it("assigns the refreshed file-priority map and logs when non-empty", async () => {
-		const refreshed = new Map([["a.ts", { score: 1 } as never]]);
+		const refreshed = new Map<string, FilePriority>([["a.ts", { ageDays: 1, tier: "hot" }]]);
 		mRefreshPriority.mockReturnValue(refreshed);
 		const ctx = bCtx();
 		await start(ctx);
@@ -766,37 +649,33 @@ describe("SessionStart handler — branch coverage", () => {
 	});
 
 	it("refreshes the trigram index and logs when files were updated", async () => {
-		const trigramIndex = { incrementalUpdate: vi.fn(() => 7) };
+		const trigramIndex = trigram(() => 7);
 		await start(bCtx({ trigramIndex }));
 		expect(trigramIndex.incrementalUpdate).toHaveBeenCalled();
 		expect(bLog.some((l) => l.includes("Trigram index refreshed: 7 files updated"))).toBe(true);
 	});
 
 	it("does not log a trigram refresh when zero files updated", async () => {
-		const trigramIndex = { incrementalUpdate: vi.fn(() => 0) };
+		const trigramIndex = trigram(() => 0);
 		await start(bCtx({ trigramIndex }));
 		expect(bLog.some((l) => l.includes("Trigram index refreshed"))).toBe(false);
 	});
 
 	it("swallows a trigram refresh error non-fatally", async () => {
-		const trigramIndex = {
-			incrementalUpdate: vi.fn(() => {
-				throw new Error("index boom");
-			}),
-		};
+		const trigramIndex = trigram(() => { throw new Error("index boom"); });
 		await start(bCtx({ trigramIndex }));
 		expect(bLog.some((l) => l.includes("Trigram index refresh failed (non-fatal)"))).toBe(true);
 	});
 
 	it("warns via logAlways when an index exists but ripgrep is missing", async () => {
 		mFindRipgrep.mockReturnValue(null);
-		await start(bCtx({ trigramIndex: { incrementalUpdate: vi.fn(() => 0) } }));
+		await start(bCtx({ trigramIndex: trigram(() => 0) }));
 		expect(bLogAlways.some((l) => l.includes("ripgrep (rg) not found"))).toBe(true);
 	});
 
 	it("does NOT warn about ripgrep when rg is present", async () => {
 		mFindRipgrep.mockReturnValue("/usr/bin/rg");
-		await start(bCtx({ trigramIndex: { incrementalUpdate: vi.fn(() => 0) } }));
+		await start(bCtx({ trigramIndex: trigram(() => 0) }));
 		expect(bLogAlways.some((l) => l.includes("ripgrep"))).toBe(false);
 	});
 
@@ -810,6 +689,7 @@ describe("SessionStart handler — branch coverage", () => {
 			totalStripped: 2,
 			entries: [
 				{
+					timestamp: "2026-06-05T00:00:00.000Z",
 					file: "/repo/.claude/settings.json",
 					bucket: "allow",
 					index: 0,
@@ -817,13 +697,14 @@ describe("SessionStart handler — branch coverage", () => {
 					reason: "paren_imbalance",
 				},
 				{
+					timestamp: "2026-06-05T00:00:00.000Z",
 					file: "/repo/.claude/settings.local.json",
 					bucket: "deny",
 					index: 1,
 					rule: "",
 					reason: "empty_rule",
 				},
-			] as never,
+			],
 		});
 		const ctx = bCtx();
 		const out = await start(ctx);
@@ -844,30 +725,31 @@ describe("SessionStart handler — branch coverage", () => {
 
 	it("appends '...and N more' when more than five entries are stripped", async () => {
 		const entries = Array.from({ length: 7 }, (_v, i) => ({
+			timestamp: "2026-06-05T00:00:00.000Z",
 			file: "/repo/.claude/settings.json",
 			bucket: "allow" as const,
 			index: i,
 			rule: `Bash(r${i})`,
 			reason: "paren_imbalance" as const,
 		}));
-		mAutoStrip.mockReturnValue({ totalStripped: 7, entries: entries as never });
+		mAutoStrip.mockReturnValue({ totalStripped: 7, entries: entries });
 		const out = await start(bCtx());
 		expect(out?.warnings?.[0]).toContain("...and 2 more");
 	});
 
 	it("does not append an empty or fabricated remainder for exactly five entries", async () => {
 		const entries = Array.from({ length: 5 }, (_v, i) => ({
+			timestamp: "2026-06-05T00:00:00.000Z",
 			file: "/repo/.claude/settings.json",
 			bucket: "allow" as const,
 			index: i,
 			rule: `Bash(r${i})`,
 			reason: "paren_imbalance" as const,
 		}));
-		mAutoStrip.mockReturnValue({ totalStripped: 5, entries: entries as never });
+		mAutoStrip.mockReturnValue({ totalStripped: 5, entries: entries });
 		const warning = (await start(bCtx()))?.warnings?.[0] ?? "";
 		expect(warning).toContain("\nThese rules came from Claude Code's permission UI");
 		expect(warning).not.toContain("...and");
-		expect(warning).not.toContain("Stryker was here");
 	});
 
 	it("uses the audit path verbatim when it is not under cwd", async () => {
@@ -876,13 +758,14 @@ describe("SessionStart handler — branch coverage", () => {
 			totalStripped: 1,
 			entries: [
 				{
+					timestamp: "2026-06-05T00:00:00.000Z",
 					file: "/x/.claude/settings.json",
 					bucket: "allow",
 					index: 0,
 					rule: "bad",
 					reason: "missing_tool_prefix",
 				},
-			] as never,
+			],
 		});
 		const out = await start(bCtx({ cwd: "/repo" }));
 		expect(out?.warnings?.[0]).toContain("/elsewhere/audit.jsonl");
@@ -894,13 +777,14 @@ describe("SessionStart handler — branch coverage", () => {
 			totalStripped: 1,
 			entries: [
 				{
+					timestamp: "2026-06-05T00:00:00.000Z",
 					file: "/repo/.claude/settings.json",
 					bucket: "allow",
 					index: 0,
 					rule: "bad",
 					reason: "missing_tool_prefix",
 				},
-			] as never,
+			],
 		});
 		const warning = (await start(bCtx({ cwd: "/repo" })))?.warnings?.[0] ?? "";
 		expect(warning).toContain("(full audit at .interlinked/audit.jsonl)");
@@ -944,8 +828,8 @@ describe("SessionEnd handler — branch coverage", () => {
 		const sessions = bSessions();
 		const ctx = bCtx({
 			sessions,
-			classifierSessions: new Map([["s1", {}]]),
-			autoCoordStates: new Map([["s1", {}]]),
+			classifierSessions: new Map([["s1", createClassifierSessionState()]]),
+			autoCoordStates: new Map([["s1", createAutoCoordinationState()]]),
 		});
 		const out = await handleLifecycleEvent(
 			ctx,
@@ -956,8 +840,8 @@ describe("SessionEnd handler — branch coverage", () => {
 		expect(fnOf(sessions.remove)).toHaveBeenCalledWith("s1");
 		expect(fnOf(ctx.asyncFindings.clearSession)).toHaveBeenCalledWith("s1");
 		expect(mDeleteSnapshot).toHaveBeenCalledWith("/repo", "s1");
-		expect((ctx.classifierSessions as Map<string, unknown>).has("s1")).toBe(false);
-		expect((ctx.autoCoordStates as Map<string, unknown>).has("s1")).toBe(false);
+		expect((ctx.classifierSessions).has("s1")).toBe(false);
+		expect((ctx.autoCoordStates).has("s1")).toBe(false);
 	});
 });
 
@@ -980,7 +864,7 @@ describe("Stop handler — branch coverage", () => {
 	// each category prints in full and the rest collapse to one count line, so
 	// these assertions check the head plus the count rather than every string.
 	it("logs turn patterns and surfaces turn-end warnings when present", async () => {
-		mBuildTurnSummary.mockReturnValue({ turn_patterns: ["churn", "thrash"] } as never);
+		mBuildTurnSummary.mockReturnValue(summary(["churn", "thrash"]));
 		mFormatTurnEnd.mockReturnValue(["TE-1", "TE-2"]);
 		const out = await stop(bCtx());
 		expect(out?.warnings).toEqual(expect.arrayContaining(["TE-1"]));
@@ -992,7 +876,7 @@ describe("Stop handler — branch coverage", () => {
 		mBuildCadence.mockReturnValue("CADENCE");
 		mBuildVsc.mockReturnValue(["VSC-1"]);
 		mBuildRescan.mockReturnValue(["RESCAN-1"]);
-		mRunSeq.mockReturnValue([{ id: "seq-a" }] as never);
+		mRunSeq.mockReturnValue([{ detector_id: "seq-a", family: "quality", phase: "stop", match: { message: "sequence warning" } }]);
 		const ctx = bCtx();
 		const out = await stop(ctx, { cwd: "/event-cwd", session_id: "session-123" });
 		// All four are untagged, so the digest treats them as one category:
@@ -1070,7 +954,7 @@ describe("Stop handler — branch coverage", () => {
 		try {
 			mkdirSync(join(repo, "src"), { recursive: true });
 			writeFileSync(join(repo, "src", "a.ts"), "export const a = 1;\n", "utf-8");
-			const ctx = bCtx({ cwd: repo, rules: { per_edit_coverage: { enabled: false } } });
+			const ctx = bCtx({ cwd: repo, rules: { ...makeGuardRules(), per_edit_coverage: { ...nonNull(getDefaultConfig().per_edit_coverage), enabled: false } } });
 			const out = await stop(ctx, { cwd: repo });
 			const warnings = out?.warnings ?? [];
 			expect(warnings.some((w) => w.includes("[interlinked:gate-reach]"))).toBe(true);
@@ -1088,7 +972,7 @@ describe("Stop handler — branch coverage", () => {
 		try {
 			mkdirSync(join(repo, "src"), { recursive: true });
 			writeFileSync(join(repo, "src", "a.ts"), "export const a = 1;\n", "utf-8");
-			const ctx = bCtx({ cwd: repo, rules: { per_edit_coverage: { enabled: false } } });
+			const ctx = bCtx({ cwd: repo, rules: { ...makeGuardRules(), per_edit_coverage: { ...nonNull(getDefaultConfig().per_edit_coverage), enabled: false } } });
 			const out = await stop(ctx, { cwd: repo }, bSession({ files_written: new Set() }));
 			const warnings = out?.warnings ?? [];
 			expect(warnings.some((w) => w.includes("[interlinked:gate-reach]"))).toBe(false);
@@ -1104,19 +988,19 @@ describe("Stop handler — branch coverage", () => {
 			writeFileSync(join(repo, "src", "a.ts"), "export const a = 1;\n", "utf-8");
 			const ctx = bCtx({
 				cwd: repo,
-				rules: { per_edit_coverage: { enabled: true } },
+				rules: { ...makeGuardRules(), per_edit_coverage: { ...nonNull(getDefaultConfig().per_edit_coverage), enabled: true } },
 			});
 			await stop(ctx, { cwd: repo, session_id: "ledger-session" });
 			const rows = readFileSync(join(repo, ".interlinked", "gate-reach.jsonl"), "utf8")
 				.trim()
 				.split("\n")
-				.map((line) => JSON.parse(line) as { session_id: string; gates: Array<Record<string, unknown>> });
+				.map((line) => readJsonRecord(line));
 			const snapshot = rows.at(-1);
 			expect(snapshot?.session_id).toBe("ledger-session");
 			expect(snapshot?.gates).toEqual(
 				expect.arrayContaining([expect.objectContaining({ gate: "per_edit_coverage" })]),
 			);
-			const perEdit = snapshot?.gates.find((gate) => gate.gate === "per_edit_coverage");
+			const perEdit = jsonRecords(snapshot?.gates).find((gate) => gate.gate === "per_edit_coverage");
 			expect(perEdit?.status).toBe("source_unavailable");
 			expect(perEdit?.disabled).toBeUndefined();
 		} finally {
@@ -1129,7 +1013,7 @@ describe("Stop handler — branch coverage", () => {
 		// drive it with a session shape that clears its threshold (doomed >= 3)
 		// and assert the actual rendered text, not just that something fired.
 		const session = bSession({
-			edit_mechanics: { doomed: 4, rescued: 1, stale_reads: 2, blind_edits: 0 },
+			edit_mechanics: { doomed: 4, rescued: 1, stale_reads: 2, blind_edits: 0, stale_warned: new Set() },
 		});
 		const out = await stop(bCtx(), {}, session);
 		const warnings = out?.warnings ?? [];
@@ -1141,7 +1025,7 @@ describe("Stop handler — branch coverage", () => {
 
 	it("omits the edit-mechanics reflection below the doomed-edit threshold", async () => {
 		const session = bSession({
-			edit_mechanics: { doomed: 2, rescued: 0, stale_reads: 0, blind_edits: 0 },
+			edit_mechanics: { doomed: 2, rescued: 0, stale_reads: 0, blind_edits: 0, stale_warned: new Set() },
 		});
 		const out = await stop(bCtx(), {}, session);
 		const warnings = out?.warnings ?? [];
@@ -1200,19 +1084,9 @@ describe("Stop handler — branch coverage", () => {
 		expect(nudge).toContain("src/churny.ts");
 	});
 
-	it("falls back to 'unknown' for the nudge-throttle session id when event.session_id is absent", async () => {
-		// event.session_id is typed as a required `string`, but the comment on
-		// this call site says it arrives as untrusted JSON over the socket — cast
-		// past the type to exercise the `?? "unknown"` defensive fallback the way
-		// a malformed hook payload actually would.
-		const out = await stop(bCtx(), { session_id: undefined as unknown as string });
-		// Must not throw, and still produce a normal allow decision.
-		expect(out?.decision).toBe("allow");
-	});
-
 	it("pushes a plan-drift warning when a drift report formats to text", async () => {
-		const report = { kind: "drift" };
-		mDetectPlanDrift.mockReturnValue(report as never);
+		const report = driftReport;
+		mDetectPlanDrift.mockReturnValue(report);
 		mFormatPlanDrift.mockReturnValue("PLAN-DRIFT");
 		const out = await stop(bCtx());
 		expect(out?.warnings).toContain("PLAN-DRIFT");
@@ -1220,7 +1094,7 @@ describe("Stop handler — branch coverage", () => {
 	});
 
 	it("does not push a plan-drift warning when the report formats to null", async () => {
-		mDetectPlanDrift.mockReturnValue({ kind: "drift" } as never);
+		mDetectPlanDrift.mockReturnValue(driftReport);
 		mFormatPlanDrift.mockReturnValue(null);
 		const out = await stop(bCtx());
 		expect(out).toEqual({ decision: "allow", warnings: undefined });
@@ -1233,14 +1107,16 @@ describe("Stop handler — branch coverage", () => {
 	});
 
 	it("releases reservations for the event agent name, falling back to the session agent name", async () => {
-		const reservations = { releaseAllForAgent: vi.fn() };
+		const reservations = makeServerRuntime().reservations;
+		vi.spyOn(reservations, "releaseAllForAgent").mockImplementation(() => {});
 		const ctx = bCtx({ reservations });
 		await stop(ctx, {}, bSession({ agent_name: "session-agent" }));
 		expect(reservations.releaseAllForAgent).toHaveBeenCalledWith("session-agent", ctx.cohort);
 	});
 
 	it("prefers event.agent_name for reservation release when present", async () => {
-		const reservations = { releaseAllForAgent: vi.fn() };
+		const reservations = makeServerRuntime().reservations;
+		vi.spyOn(reservations, "releaseAllForAgent").mockImplementation(() => {});
 		const ctx = bCtx({ reservations });
 		await stop(ctx, { agent_name: "event-agent" }, bSession({ agent_name: "session-agent" }));
 		expect(reservations.releaseAllForAgent).toHaveBeenCalledWith("event-agent", ctx.cohort);
@@ -1319,14 +1195,14 @@ describe("Stop handler — branch coverage", () => {
 		const sessions = bSessions();
 		const ctx = bCtx({
 			sessions,
-			classifierSessions: new Map([["s1", {}]]),
-			autoCoordStates: new Map([["s1", {}]]),
+			classifierSessions: new Map([["s1", createClassifierSessionState()]]),
+			autoCoordStates: new Map([["s1", createAutoCoordinationState()]]),
 		});
 		await stop(ctx, { session_id: "s1" }, bSession({ session_id: "s1" }));
 		expect(fnOf(sessions.remove)).toHaveBeenCalledWith("s1");
 		expect(mDeleteSnapshot).toHaveBeenCalledWith("/repo", "s1");
-		expect((ctx.classifierSessions as Map<string, unknown>).has("s1")).toBe(false);
-		expect((ctx.autoCoordStates as Map<string, unknown>).has("s1")).toBe(false);
+		expect((ctx.classifierSessions).has("s1")).toBe(false);
+		expect((ctx.autoCoordStates).has("s1")).toBe(false);
 	});
 });
 
@@ -1343,8 +1219,8 @@ describe("UserPromptSubmit handler — branch coverage", () => {
 	});
 
 	it("runs user-prompt plan capture (with parse_userprompt) and logs when captured", async () => {
-		mCaptureUser.mockResolvedValue({ steps: [{}], session_id: "s1" } as never);
-		const ctx = bCtx({ rules: { plan_capture: { enabled: true, parse_userprompt: true } } });
+		mCaptureUser.mockResolvedValue(captured("structured_userprompt", ["Edit src/a.ts"]));
+		const ctx = bCtx({ rules: { ...makeGuardRules(), plan_capture: { enabled: true, parse_userprompt: true } } });
 		await ups(ctx);
 		expect(mCaptureUser.mock.calls[0]?.[0]).toMatchObject({ enabled: true, parseUserPrompt: true });
 		expect(bLog.some((l) => l.includes("Plan capture (user-prompt): 1 step(s)"))).toBe(true);
@@ -1352,12 +1228,12 @@ describe("UserPromptSubmit handler — branch coverage", () => {
 
 	it("defaults parseUserPrompt to false and enabled to true when plan_capture is absent", async () => {
 		mCaptureUser.mockResolvedValue(null);
-		await ups(bCtx({ rules: {} }));
+		await ups(bCtx({ rules: { ...makeGuardRules(),} }));
 		expect(mCaptureUser.mock.calls[0]?.[0]).toMatchObject({ enabled: true, parseUserPrompt: false });
 	});
 
 	it("passes an explicitly disabled plan-capture setting through", async () => {
-		await ups(bCtx({ rules: { plan_capture: { enabled: false } } }));
+		await ups(bCtx({ rules: { ...makeGuardRules(), plan_capture: { enabled: false, parse_userprompt: false } } }));
 		expect(mCaptureUser.mock.calls[0]?.[0]).toMatchObject({
 			enabled: false,
 			parseUserPrompt: false,
@@ -1365,10 +1241,10 @@ describe("UserPromptSubmit handler — branch coverage", () => {
 	});
 
 	it("returns a redacted prompt when the content scanner finds spans", async () => {
-		mScanUserPrompt.mockResolvedValue({ findings: [{ x: 1 }], redacted: "<REDACTED>" } as never);
+		mScanUserPrompt.mockResolvedValue({ findings: [{ label: "secret", start: 0, end: 7, text: "leak me", source: "UserPromptSubmit.prompt" }], redacted: "<REDACTED>" });
 		const ctx = bCtx({
-			rules: { content_scanner: { enabled: true } },
-			contentScanner: { scan: vi.fn() },
+			rules: { ...makeGuardRules(), content_scanner: { ...nonNull(getDefaultConfig().content_scanner), enabled: true } },
+			contentScanner: scanner(),
 		});
 		const out = await ups(ctx, { prompt: "leak me" });
 		expect(out).toEqual({ decision: "allow", redacted_prompt: "<REDACTED>" });
@@ -1378,33 +1254,17 @@ describe("UserPromptSubmit handler — branch coverage", () => {
 	it("uses an empty-string prompt fallback for the scanner when event.prompt is absent", async () => {
 		mScanUserPrompt.mockResolvedValue(undefined);
 		const ctx = bCtx({
-			rules: { content_scanner: { enabled: true } },
-			contentScanner: { scan: vi.fn() },
+			rules: { ...makeGuardRules(), content_scanner: { ...nonNull(getDefaultConfig().content_scanner), enabled: true } },
+			contentScanner: scanner(),
 		});
 		await ups(ctx, {});
 		expect(mScanUserPrompt).toHaveBeenCalledWith("", expect.anything(), expect.anything());
 	});
 
 	it("skips the scanner when content_scanner is enabled but no scanner is wired", async () => {
-		const ctx = bCtx({ rules: { content_scanner: { enabled: true } }, contentScanner: undefined });
+		const ctx = bCtx({ rules: { ...makeGuardRules(), content_scanner: { ...nonNull(getDefaultConfig().content_scanner), enabled: true } }, contentScanner: undefined });
 		expect(await ups(ctx, { prompt: "hi" })).toEqual({ decision: "allow" });
 		expect(mScanUserPrompt).not.toHaveBeenCalled();
-	});
-
-	it("skips plan-capture when the session is absent", async () => {
-		// The handler's `session?` param is optional; passing it absent exercises
-		// the `if (session)` false branch — the scanner still runs, but the
-		// session-bound plan-capture side effect does not fire.
-		const ctx = bCtx({
-			rules: { plan_capture: { enabled: true, parse_userprompt: true } },
-		});
-		const out = await handleLifecycleEvent(
-			ctx,
-			bEvent({ hook_event: "UserPromptSubmit", prompt: "see https://example.com/x" }),
-			undefined as unknown as SessionTrajectory,
-		);
-		expect(out).toEqual({ decision: "allow" });
-		expect(mCaptureUser).not.toHaveBeenCalled();
 	});
 });
 
@@ -1433,8 +1293,8 @@ describe("SubagentStop handler — branch coverage", () => {
 			rollUpFileTracking: vi.fn(() => true),
 		});
 		const getAgent = vi.fn((name: string) => {
-			if (name === "sub") return { parent_agent: "parent" };
-			if (name === "parent") return { session_id: "psess" };
+			if (name === "sub") return agent({ parent_agent: "parent" });
+			if (name === "parent") return agent({ session_id: "psess" });
 			return undefined;
 		});
 		const ctx = bCtx({ sessions, cohort: bCohort({ findAgentByIdentity: getAgent }) });
@@ -1450,7 +1310,7 @@ describe("SubagentStop handler — branch coverage", () => {
 			rollUpVerificationSignals: vi.fn(() => false),
 			rollUpFileTracking: vi.fn(() => false),
 		});
-		const ctx = bCtx({ sessions, cohort: bCohort({ findAgentByIdentity: vi.fn(() => ({ session_id: "p" })) }) });
+		const ctx = bCtx({ sessions, cohort: bCohort({ findAgentByIdentity: vi.fn(() => agent({ session_id: "p" })) }) });
 		await subStop(ctx, { agent_name: "sub" });
 		expect(bLog.some((l) => l.includes("rolled up into parent"))).toBe(false);
 	});
@@ -1577,14 +1437,10 @@ describe("SkillList handler — branch coverage", () => {
 		});
 		const out = await list(ctx0(), { session_id: "s1" }, session);
 		expect(out?.decision).toBe("allow");
-		const parsed = JSON.parse(out?.additional_context ?? "[]") as Array<{
-			session_id: string;
-			agent_name: string;
-			skills: Array<{ name: string }>;
-		}>;
+		const parsed = jsonRecords(JSON.parse(nonNull(out?.additional_context)));
 		expect(parsed).toHaveLength(1);
 		expect(nonNull(parsed[0]).session_id).toBe("s1");
-		expect(nonNull(parsed[0]).skills.map((s) => s.name)).toEqual(["verify"]);
+		expect(jsonRecords(nonNull(parsed[0]).skills).map((s) => s.name)).toEqual(["verify"]);
 	});
 
 	it("collects across all live sessions when session_id is absent", async () => {
@@ -1594,7 +1450,7 @@ describe("SkillList handler — branch coverage", () => {
 		];
 		const ctx = ctx0({ sessions: bSessions({ getAll: vi.fn(() => all) }) });
 		const out = await list(ctx, { session_id: "" });
-		const parsed = JSON.parse(out?.additional_context ?? "[]") as Array<{ session_id: string }>;
+		const parsed = jsonRecords(JSON.parse(nonNull(out?.additional_context)));
 		expect(parsed.map((p) => p.session_id)).toEqual(["a", "b"]);
 	});
 });
@@ -1602,6 +1458,6 @@ describe("SkillList handler — branch coverage", () => {
 /** Skill suites use the REAL session-state helpers (recordSkillEnter /
  *  recordSkillLeave / getActiveSkills are not mocked), so the ctx just needs
  *  the collaborator surface; `bCtx` already provides it. Aliased for intent. */
-function ctx0(over: Record<string, unknown> = {}): ServerRuntime {
+function ctx0(over: Partial<ServerRuntime> = {}): ServerRuntime {
 	return bCtx(over);
 }

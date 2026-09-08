@@ -22,11 +22,11 @@ export const JS_TS_EXT_LIST = [
 ] as const;
 
 export function isPyFile(ext: string): boolean {
-	return (PY_EXTS as readonly string[]).includes(ext);
+	return PY_EXTS.some((candidate) => candidate === ext);
 }
 
 export function isJsTsFile(ext: string): boolean {
-	return (JS_TS_EXT_LIST as readonly string[]).includes(ext);
+	return JS_TS_EXT_LIST.some((candidate) => candidate === ext);
 }
 
 /** Per-detector finding cap shared across the UBS backlog detectors. */

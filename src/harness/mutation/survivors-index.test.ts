@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, assert, describe, expect, it } from "vitest";
 import {
 	deriveSurvivorsIndex,
 	loadSurvivorsIndex,
@@ -164,8 +164,16 @@ describe("deriveSurvivorsIndex — negative (must not fire)", () => {
 	it("N3: a malformed symbol yields a smaller entry, never a throw", () => {
 		const broken = manifestOf({ "src/a.ts": [symbol("s1", [mutant("m1", "survived")])] });
 		// A manifest built in memory never passes through `loadManifest`'s healer.
-		(broken.files["src/a.ts"] as Record<string, unknown>).s2 = { symbolId: "s2" };
+		const file = broken.files["src/a.ts"];
+		assert.exists(file);
+		Object.assign(file, { s2: { symbolId: "s2" } });
 		const index = deriveSurvivorsIndex(broken, AT);
+		expect(index.files["src/a.ts"]?.survivors).toEqual(["m1"]);
+	});
+	it("does not publish a non-string survivor id from a malformed in-memory record", () => {
+		const malformed = symbol("s1", [mutant("m1", "survived")]);
+		Object.assign(malformed.mutants, { bad: { status: "survived", mutantId: 7 } });
+		const index = deriveSurvivorsIndex(manifestOf({ "src/a.ts": [malformed] }), AT);
 		expect(index.files["src/a.ts"]?.survivors).toEqual(["m1"]);
 	});
 

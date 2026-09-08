@@ -1,4 +1,6 @@
+import { parseWire, wireNumber, wireObject } from "../lib/value-validation.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { nonNull } from "../lib/non-null.js";
 
 // ---------------------------------------------------------------------------
 // Mocks for every dynamic/static dependency measureOneFile / maybeRecordMeasurement
@@ -22,12 +24,12 @@ vi.mock("../harness/mutation/baseline-suite.js", () => ({
 const normalizeManifestKeyMock = vi.fn((..._args: any[]): any => _args[0]);
 // Tri-state loader (review 2026-08-28): missing may bootstrap, corrupt refuses.
 const loadManifestStateMock = vi.fn((..._args: any[]): any => ({ kind: "missing" }));
-const emptyManifestMock = vi.fn((..._args: any[]): any => ({ ...(_args[0] as object) }));
+const emptyManifestMock = vi.fn((value: object): object => ({ ...value }));
 const saveManifestMock = vi.fn((..._args: any[]): any => undefined);
 vi.mock("../harness/mutation/manifest.js", () => ({
 	normalizeManifestKey: (...args: any[]) => normalizeManifestKeyMock(...args),
 	loadManifestState: (...args: any[]) => loadManifestStateMock(...args),
-	emptyManifest: (...args: any[]) => emptyManifestMock(...args),
+	emptyManifest: (value: object) => emptyManifestMock(value),
 	saveManifest: (...args: any[]) => saveManifestMock(...args),
 }));
 
@@ -73,7 +75,7 @@ beforeEach(() => {
 	normalizeManifestKeyMock.mockImplementation((..._args: any[]): any => _args[0]);
 	configuredMaxTestScopeMock.mockReturnValue(undefined);
 	loadManifestStateMock.mockReturnValue({ kind: "missing" });
-	emptyManifestMock.mockImplementation((..._args: any[]): any => ({ ...(_args[0] as object) }));
+	emptyManifestMock.mockImplementation((value) => ({ ...value }));
 });
 
 // ---------------------------------------------------------------------------
@@ -87,7 +89,7 @@ describe("spawnVitestSuite", () => {
 			return { on: vi.fn() };
 		});
 		await spawnVitestSuite({ tests: ["a.test.ts"], cwd: "/tmp" });
-		const opts = execFileMock.mock.calls[0]![2] as { maxBuffer: number };
+		const opts = parseWire(execFileMock.mock.calls[0]![2], wireObject({ "maxBuffer": wireNumber }), "test JSON value");
 		expect(opts.maxBuffer).toBe(8 * 1024 * 1024);
 	});
 
@@ -129,11 +131,11 @@ describe("spawnVitestSuite", () => {
 describe("testScopeNote", () => {
 	it("prefers the companion-kill-test note over the lossy glob note when a companion scope exists", () => {
 		const note = testScopeNote({
-			tests: undefined,
+			tests: null,
 			reason: "over_cap",
 			uncappedCount: 9,
 			companionScope: ["a.mutation-kill.test.ts"],
-		} as any);
+		});
 		expect(note).toContain("companion kill test(s)");
 		expect(note).not.toContain("falling back to filename-glob scope");
 	});
@@ -145,17 +147,17 @@ describe("testScopeNote", () => {
 
 describe("measurementScopeFor", () => {
 	it("returns import_graph when scope.tests is present", () => {
-		expect(measurementScopeFor({ tests: ["x.test.ts"] } as any)).toBe("import_graph");
+		expect(measurementScopeFor({ tests: ["x.test.ts"] })).toBe("import_graph");
 	});
 
 	it("returns companion_fallback when there are no tests but a non-empty companionScope", () => {
-		expect(measurementScopeFor({ tests: undefined, companionScope: ["y.test.ts"] } as any)).toBe(
+		expect(measurementScopeFor({ tests: null, companionScope: ["y.test.ts"] })).toBe(
 			"companion_fallback",
 		);
 	});
 
 	it("returns glob_fallback when neither tests nor companionScope are present", () => {
-		expect(measurementScopeFor({ tests: undefined, companionScope: [] } as any)).toBe("glob_fallback");
+		expect(measurementScopeFor({ tests: null, companionScope: [] })).toBe("glob_fallback");
 	});
 });
 
@@ -180,9 +182,9 @@ describe("preflightScopedSuite", () => {
 // ---------------------------------------------------------------------------
 
 describe("maybeRecordMeasurement", () => {
-	const baseArgs = {
+	const baseArgs: Parameters<typeof maybeRecordMeasurement>[0] = {
 		record: true,
-		outcome: { status: "measured", mutantCount: 1, survivorCount: 0, survivors: [] } as any,
+		outcome: { status: "measured", mutantCount: 1, survivorCount: 0, survivors: [] },
 		configDir: "/proj/.interlinked",
 		key: "f.ts",
 		content: "x",
@@ -215,7 +217,7 @@ describe("maybeRecordMeasurement", () => {
 		recordMeasurementMock.mockReturnValue({ recorded: true, manifest: {} });
 		const result = await maybeRecordMeasurement({ ...baseArgs });
 		expect(result?.recorded).toBe(true);
-		expect(Object.keys(result as object).sort()).toEqual(["recorded"]);
+		expect(Object.keys(nonNull(result)).sort()).toEqual(["recorded"]);
 	});
 });
 

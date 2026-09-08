@@ -28,11 +28,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * src/lib/__tests__/local-activity.mutation-kill-w34.test.ts). Every other call
  * passes straight through to the real fs.
  */
-const race = vi.hoisted(() => ({
-	segment: null as string | null,
+const race = vi.hoisted<{ segment: string | null; content: Buffer; writes: string[] }>(() => ({
+	segment: null,
 	content: Buffer.from("rival-compactor-segment-bytes"),
 	/** Basenames of every write/link/rename destination, in call order. */
-	writes: [] as string[],
+	writes: [],
 }));
 
 vi.mock("node:fs", async (importOriginal) => {

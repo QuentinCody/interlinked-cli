@@ -9,7 +9,7 @@ function run(over: Partial<CoverageRunResult>): CoverageRunResult {
 		perFile: new Map(),
 		testsPassed: true,
 		...over,
-	} as CoverageRunResult;
+	};
 }
 
 describe("flakeDivergence", () => {

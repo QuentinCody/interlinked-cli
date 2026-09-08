@@ -132,7 +132,7 @@ describe("full-mode detail line's empty-string fallbacks stay empty", () => {
 					agent_name: "claude",
 					occurred_at: isoAgo(2 * MIN),
 					// event_type, tool_name, tool_input_summary all absent.
-				} as ActivityEvent,
+				},
 			],
 		});
 

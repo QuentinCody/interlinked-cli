@@ -7,6 +7,7 @@ import { getClient } from "../lib/api-client.js";
 import { c, header, relativeTime, table, truncate } from "../lib/formatter.js";
 import type { JsonObject } from "../lib/json-types.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 
 interface Message {
 	id?: number;
@@ -18,8 +19,17 @@ interface Message {
 	importance?: string;
 	created_at?: string;
 	read?: boolean;
-	[key: string]: unknown;
 }
+
+const isMessage = wireObject<Message>({
+	id: wireAbsentOptional(wireNumber), from: wireAbsentOptional(wireString),
+	from_agent: wireAbsentOptional(wireString), recipients: wireAbsentOptional(wireArray(wireString)),
+	to_agents: wireAbsentOptional(wireArray(wireString)), body_md: wireAbsentOptional(wireString),
+	importance: wireAbsentOptional(wireString), created_at: wireAbsentOptional(wireString), read: wireAbsentOptional(wireBoolean),
+});
+const isInbox = wireObject<{ messages?: Message[]; inbox?: Message[] }>({
+	messages: wireAbsentOptional(wireArray(isMessage)), inbox: wireAbsentOptional(wireArray(isMessage)),
+});
 
 export async function inboxCommand(opts: {
 	all?: boolean;
@@ -59,9 +69,7 @@ export async function inboxCommand(opts: {
 			args.limit = parsedLimit;
 		}
 
-		const result = await client.callTool<
-			{ messages?: Message[]; inbox?: Message[] } | undefined
-		>("fetch_inbox", args);
+		const result = parseWire(await client.callTool("fetch_inbox", args) ?? {}, isInbox, "fetch_inbox response");
 
 		const messages = result?.messages || result?.inbox || [];
 

@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireBoolean, wireObject, wireString } from "../../lib/value-validation.js";
 // ===========================================
 // `interlinked harness clean` — stale state-file removal
 // ===========================================
@@ -56,11 +57,11 @@ async function captureStdio(fn: () => Promise<void> | void): Promise<CapturedStd
 	process.stdout.write = ((chunk: string | Uint8Array): boolean => {
 		stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
 		return true;
-	}) as typeof process.stdout.write;
+	});
 	process.stderr.write = ((chunk: string | Uint8Array): boolean => {
 		stderrChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
 		return true;
-	}) as typeof process.stderr.write;
+	});
 	const realConsoleLog = console.log;
 	const realConsoleError = console.error;
 	console.log = (...args: unknown[]): void => {
@@ -126,10 +127,10 @@ describe("harnessCleanCommand — removes stale files when daemon is dead", () =
 			_pid: number,
 			_sig?: string | number,
 		): true => {
-			const err = new Error("ESRCH") as Error & { code?: string };
+			const err: Error & { code?: string } = new Error("ESRCH");
 			err.code = "ESRCH";
 			throw err;
-		}) as typeof process.kill);
+		}));
 	});
 
 	it("unlinks stale .sock and .pid files", async () => {
@@ -164,7 +165,7 @@ describe("harnessCleanCommand — removes stale files when daemon is dead", () =
 		mkdirSync(pidPath());
 		writeFileSync(sockPath(), "");
 		const captured = await captureStdio(() => harnessCleanCommand({ json: true }));
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; removed: string[] };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "removed": wireArray(wireString) }), "test JSON value");
 		expect(parsed.ok).toBe(true);
 		expect(parsed.removed).not.toContain(pidPath());
 		expect(parsed.removed).toContain(sockPath());
@@ -177,7 +178,7 @@ describe("harnessCleanCommand — removes stale files when daemon is dead", () =
 		writeFileSync(pidPath(), String(STALE_DAEMON_PID));
 		mkdirSync(sockPath());
 		const captured = await captureStdio(() => harnessCleanCommand({ json: true }));
-		const parsed = JSON.parse(captured.stdout) as { ok: boolean; removed: string[] };
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "removed": wireArray(wireString) }), "test JSON value");
 		expect(parsed.ok).toBe(true);
 		expect(parsed.removed).toContain(pidPath());
 		expect(parsed.removed).not.toContain(sockPath());
@@ -188,10 +189,7 @@ describe("harnessCleanCommand — removes stale files when daemon is dead", () =
 		writeFileSync(pidPath(), String(STALE_DAEMON_PID));
 		writeFileSync(sockPath(), "");
 		const captured = await captureStdio(() => harnessCleanCommand({ json: true }));
-		const parsed = JSON.parse(captured.stdout) as {
-			ok: boolean;
-			removed: string[];
-		};
+		const parsed = parseWire(JSON.parse(captured.stdout), wireObject({ "ok": wireBoolean, "removed": wireArray(wireString) }), "test JSON value");
 		expect(parsed.ok).toBe(true);
 		expect(parsed.removed).toEqual(
 			expect.arrayContaining([

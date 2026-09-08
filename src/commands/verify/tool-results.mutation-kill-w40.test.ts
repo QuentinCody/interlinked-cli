@@ -5,7 +5,7 @@
 //   - buildUndocumentedEnvIssues: outer (var-name) and inner (file/line) sort
 //   - collectModuleExports: ext-case matching, .d.ts skip, export-name mapping
 //   - applyParityFindings: files_without_test issue construction
-//   - applyPersistedSuppressions: filtering loop + stub hygiene findings
+//   - applyPersistedSuppressions: filtering persisted file suppressions
 //   - runCodeQualityChecks: piiOpts conditional-spread construction
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -128,27 +128,19 @@ describe("applyParityFindings — files_without_test issue shape", () => {
 	});
 });
 
-describe("applyPersistedSuppressions — filtering + hygiene stub", () => {
+describe("applyPersistedSuppressions — filtering", () => {
 	// test-contract: public-api — a persisted suppression entry for a file+check
 	// must remove that issue from the corresponding result bucket.
 	it("filters a flagged issue when a matching suppression entry is on disk", () => {
 		fixture(
 			".interlinked/verify-suppressions.json",
-			JSON.stringify({ "bad.ts": { strong_typing: {} } }),
+			JSON.stringify({ "bad.ts": { strong_typing: { reason: "reviewed boundary fixture", by: "reviewer", at: "2026-09-08T12:00:00Z" } } }),
 		);
 		const f = fixture("bad.ts", "export function foo(x: any): any { return x; }\n");
 		const r = runCodeQualityChecks([f], tempDir);
 		expect(r.strongTyping).toEqual([]);
 	});
 
-	// test-contract: invariant — validateSuppressionFile is a permanently
-	// disabled stub (see the comment above it in tool-results.ts); the
-	// hygiene-findings bucket must stay empty no matter what else runs.
-	it("keeps suppressionHygiene empty (validateSuppressionFile stub returns [])", () => {
-		const f = fixture("plain.ts", "export const x = 1;\n");
-		const r = runCodeQualityChecks([f], tempDir);
-		expect(r.suppressionHygiene).toEqual([]);
-	});
 });
 
 describe("runCodeQualityChecks — piiOpts conditional-spread construction", () => {

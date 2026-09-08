@@ -66,14 +66,14 @@ function importedAssertNames(content: string): Set<string> {
 			const local = (raw.split(/\s+as\s+/i)[1] ?? raw).trim();
 			if (
 				local &&
-				NODE_ASSERT_NAMES.includes(local as (typeof NODE_ASSERT_NAMES)[number])
+				NODE_ASSERT_NAMES.some((name) => name === local)
 			) {
 				out.add(local);
 			} else if (local) {
 				const src = raw.split(/\s+as\s+/i)[0]?.trim();
 				if (
 					src &&
-					NODE_ASSERT_NAMES.includes(src as (typeof NODE_ASSERT_NAMES)[number])
+					NODE_ASSERT_NAMES.some((name) => name === src)
 				) {
 					out.add(local);
 				}

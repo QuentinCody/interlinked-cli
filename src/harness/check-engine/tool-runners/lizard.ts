@@ -19,6 +19,8 @@
 // installed (ENOENT) — never an error.
 
 import { spawnSync } from "node:child_process";
+import { hasErrorCode } from "../tool-errors.js";
+import { nonNull } from "../../../lib/non-null.js";
 import { maxCyclomaticFor } from "../../metric-caps.js";
 import { filterResultsToFile } from "../output-parsers.js";
 import { runProcessAsync } from "../spawn-async.js";
@@ -39,12 +41,12 @@ export function parseLizardOutput(output: string): CheckResult[] {
 	for (const raw of output.split("\n")) {
 		const m = raw.match(/^(.+?):(\d+):\s*warning:\s*(.+?)\s+has\b.*?\b(\d+)\s*CCN\b/i);
 		if (!m) continue;
-		const fn = (m[3] as string).trim();
+		const fn = nonNull(m[3]).trim();
 		results.push({
 			tool: "lizard",
 			severity: "warning",
-			file: m[1] as string,
-			line: Number.parseInt(m[2] as string, 10),
+			file: nonNull(m[1]),
+			line: Number.parseInt(nonNull(m[2]), 10),
 			message: `Function \`${fn}\` has cyclomatic complexity ${m[4]} — consider decomposing it.`,
 			ruleId: "lizard/cyclomatic",
 		});
@@ -83,7 +85,7 @@ export function runLizard(input: ToolRunnerInput): CheckResult[] {
 			encoding: "utf-8",
 			stdio: ["pipe", "pipe", "pipe"],
 		});
-		if (result.error && (result.error as NodeJS.ErrnoException).code === "ENOENT") {
+		if (hasErrorCode(result.error, "ENOENT")) {
 			return [];
 		}
 		return scoped(parseLizardOutput(result.stdout || ""), input);

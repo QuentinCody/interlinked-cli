@@ -75,13 +75,13 @@ describe("sanitizeCreative", () => {
 		expect(long?.text).toHaveLength(MAX_TEXT_LEN);
 		expect(sanitizeCreative({ ...GOOD, weight: 9999 })?.weight).toBe(100);
 		expect(sanitizeCreative({ ...GOOD, weight: -3 })?.weight).toBe(1);
-		const noWeight = { ...GOOD } as Record<string, unknown>;
+		const noWeight: Record<string, unknown> = { ...GOOD };
 		delete noWeight.weight;
 		expect(sanitizeCreative(noWeight)?.weight).toBe(1);
 	});
 
 	it("defaults campaign and keeps only ISO flight bounds", () => {
-		const noCampaign = { ...GOOD } as Record<string, unknown>;
+		const noCampaign: Record<string, unknown> = { ...GOOD };
 		delete noCampaign.campaign;
 		expect(sanitizeCreative(noCampaign)?.campaign).toBe("default");
 		const flighted = sanitizeCreative({

@@ -1,3 +1,5 @@
+import { makeSession as makeSessionFixture, makeEvent as makeEventFixture } from "../__tests__/fixtures/evaluator.js";
+import { makeServerRuntime } from "./__tests__/fixtures.js";
 // Companion smoke tests for lifecycle-stop-warnings-tdd-cycle-checks.ts.
 //
 // This module is a pure re-home (line-cap split of lifecycle-stop-warnings.ts,
@@ -30,20 +32,16 @@ vi.mock("../verification-stop-checks.js", () => ({
 }));
 
 function makeCtx(): ServerRuntime {
-	return {
-		cwd: "/repo",
-		log: vi.fn(),
-		rules: {},
-	} as unknown as ServerRuntime;
+	return makeServerRuntime();
 }
 
 function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		tdd_cycles: new Map(),
 		observed_checks: new Map(),
 		commands_run: [],
 		...overrides,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 describe("checkTddRegression", () => {
@@ -58,7 +56,7 @@ describe("checkTddRegression", () => {
 		const ctx = makeCtx();
 		const session = makeSession({
 			tdd_cycles: new Map([
-				["a", { state: "regression", source_file: "src/a.ts" } as never],
+				["a", { state: "regression", source_file: "src/a.ts", test_file: null, impl_edits_before_test: 0 }],
 			]),
 		});
 		vi.mocked(formatTddRegressionWarning).mockReturnValueOnce("[interlinked:tdd] regressed");
@@ -73,7 +71,7 @@ describe("checkTddRegression", () => {
 		const ctx = makeCtx();
 		const session = makeSession({
 			tdd_cycles: new Map([
-				["a", { state: "regression", source_file: "src/a.ts" } as never],
+				["a", { state: "regression", source_file: "src/a.ts", test_file: null, impl_edits_before_test: 0 }],
 			]),
 		});
 		vi.mocked(isSuiteSourcedRed).mockReturnValueOnce(true);
@@ -92,15 +90,15 @@ describe("checkUnresolvedRed", () => {
 	it("P: collects a red observed check and a stayed-red TDD cycle, logs counts", () => {
 		const ctx = makeCtx();
 		const session = makeSession({
-			observed_checks: new Map([["tsc", { kind: "tsc", status: "red" } as never]]),
+			observed_checks: new Map([["typecheck", { kind: "typecheck", status: "red" }]]),
 			tdd_cycles: new Map([
-				["b", { state: "red", source_file: "src/b.ts", red_at: 5 } as never],
+				["b", { state: "red", source_file: "src/b.ts", red_at: 5, test_file: null, impl_edits_before_test: 0 }],
 			]),
 		});
 		vi.mocked(formatUnresolvedRedWarning).mockReturnValueOnce("[interlinked:red] unresolved");
 		expect(checkUnresolvedRed(ctx, session)).toBe("[interlinked:red] unresolved");
 		expect(formatUnresolvedRedWarning).toHaveBeenCalledWith({
-			redChecks: [{ kind: "tsc", detail: undefined }],
+			redChecks: [{ kind: "typecheck", detail: undefined }],
 			redTests: [{ sourceFile: "src/b.ts" }],
 		});
 		expect(ctx.log).toHaveBeenCalledWith(
@@ -137,7 +135,7 @@ describe("checkUnresolvedRed", () => {
 		const ctx = makeCtx();
 		const session = makeSession({
 			observed_checks: new Map([
-				["test-suite", { kind: "test-suite", status: "red", detail: "3 failed" } as never],
+				["test-suite", { kind: "test-suite", status: "red", detail: "3 failed" }],
 			]),
 			test_runs: new Map([[ALL_TESTS_SENTINEL, { status: "fail", at_step: 7 }]]),
 		});
@@ -167,7 +165,7 @@ describe("checkUnresolvedRed", () => {
 
 describe("checkWipCommits", () => {
 	function makeEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
-		return { cwd: "/repo", ...overrides } as unknown as HarnessEvent;
+		return makeEventFixture({ cwd: "/repo", ...overrides });
 	}
 
 	it("N: returns null when the session never recorded a git baseline", () => {
@@ -179,7 +177,7 @@ describe("checkWipCommits", () => {
 	it("N: returns null when no command looked like a commit", () => {
 		const ctx = makeCtx();
 		const session = makeSession({
-			git_session_baseline: { head_sha: "abc123" } as never,
+			git_session_baseline: { head_sha: "abc123", modified: new Set(), staged: new Set(), untracked: new Set() },
 			commands_run: ["npm test"],
 		});
 		expect(checkWipCommits(ctx, makeEvent(), session)).toBeNull();
@@ -189,7 +187,7 @@ describe("checkWipCommits", () => {
 	it("P: surfaces wip subjects and logs the count", () => {
 		const ctx = makeCtx();
 		const session = makeSession({
-			git_session_baseline: { head_sha: "abc123" } as never,
+			git_session_baseline: { head_sha: "abc123", modified: new Set(), staged: new Set(), untracked: new Set() },
 			commands_run: ["git commit -m wip"],
 		});
 		vi.mocked(collectWipCommitSubjects).mockReturnValueOnce(["wip: fix"]);

@@ -7,6 +7,7 @@
 // `checks.id=floating_promises` matches a record whose checks[] contains an
 // entry with that id. Multiple clauses AND together.
 
+import { isJsonObject } from "../../lib/json-types.js";
 import { parseDuration } from "../../lib/activity-utils.js";
 import { dataTimestampMs } from "../../lib/data-time.js";
 
@@ -48,8 +49,8 @@ export function getPath(record: unknown, path: string): unknown[] {
 
 function stepInto(value: unknown, segment: string): unknown[] {
 	if (Array.isArray(value)) return value.flatMap((element) => stepInto(element, segment));
-	if (typeof value === "object" && value !== null) {
-		return [(value as Record<string, unknown>)[segment]];
+	if (isJsonObject(value)) {
+		return [value[segment]];
 	}
 	return [];
 }

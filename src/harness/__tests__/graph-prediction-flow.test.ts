@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // ===========================================
 // graph-prediction-flow.ts — unit tests for the extracted flow helpers
 // ===========================================
@@ -113,9 +114,9 @@ describe("collectCachedPredictions", () => {
 		appendPredictionRow(dir, {
 			session_id: "sess-1",
 			file_path: target.sourcePath,
-			source_mtime: target.sourceMtime as string,
-			shard_mtime: target.shardMtime as string,
-			shard_path: target.shardPath as string,
+			source_mtime: nonNull(target.sourceMtime),
+			shard_mtime: nonNull(target.shardMtime),
+			shard_path: nonNull(target.shardPath),
 			emitted_at: "2026-05-10T12:01:00Z",
 			tool_input_hash: "",
 			case: "E-fresh",
@@ -146,9 +147,9 @@ describe("collectCachedPredictions", () => {
 		appendPredictionRow(dir, {
 			session_id: "sess-1",
 			file_path: target.sourcePath,
-			source_mtime: target.sourceMtime as string,
-			shard_mtime: target.shardMtime as string,
-			shard_path: target.shardPath as string,
+			source_mtime: nonNull(target.sourceMtime),
+			shard_mtime: nonNull(target.shardMtime),
+			shard_path: nonNull(target.shardPath),
 			emitted_at: "2026-05-10T12:01:00Z",
 			tool_input_hash: "",
 			case: "E-fresh",
@@ -677,9 +678,9 @@ describe("recordShardRead", () => {
 		appendPredictionRow(dir, {
 			session_id: "sess-1",
 			file_path: target.sourcePath,
-			source_mtime: target.sourceMtime as string,
-			shard_mtime: target.shardMtime as string,
-			shard_path: target.shardPath as string,
+			source_mtime: nonNull(target.sourceMtime),
+			shard_mtime: nonNull(target.shardMtime),
+			shard_path: nonNull(target.shardPath),
 			emitted_at: "2026-05-10T12:01:00Z",
 			tool_input_hash: "",
 			case: "E-fresh",
@@ -701,9 +702,9 @@ describe("recordShardRead", () => {
 		appendPredictionRow(dir, {
 			session_id: "sess-1",
 			file_path: target.sourcePath,
-			source_mtime: target.sourceMtime as string,
-			shard_mtime: target.shardMtime as string,
-			shard_path: target.shardPath as string,
+			source_mtime: nonNull(target.sourceMtime),
+			shard_mtime: nonNull(target.shardMtime),
+			shard_path: nonNull(target.shardPath),
 			emitted_at: "2026-05-10T12:01:00Z",
 			tool_input_hash: "",
 			case: "E-fresh",
@@ -723,9 +724,9 @@ describe("recordShardRead", () => {
 		appendPredictionRow(dir, {
 			session_id: "sess-1",
 			file_path: target.sourcePath,
-			source_mtime: target.sourceMtime as string,
-			shard_mtime: target.shardMtime as string,
-			shard_path: target.shardPath as string,
+			source_mtime: nonNull(target.sourceMtime),
+			shard_mtime: nonNull(target.shardMtime),
+			shard_path: nonNull(target.shardPath),
 			emitted_at: "2026-05-10T12:01:00Z",
 			tool_input_hash: "",
 			case: "E-fresh",
@@ -752,9 +753,9 @@ describe("recordShardRead", () => {
 		appendPredictionRow(dir, {
 			session_id: "sess-1",
 			file_path: target.sourcePath,
-			source_mtime: target.sourceMtime as string,
-			shard_mtime: target.shardMtime as string,
-			shard_path: target.shardPath as string,
+			source_mtime: nonNull(target.sourceMtime),
+			shard_mtime: nonNull(target.shardMtime),
+			shard_path: nonNull(target.shardPath),
 			emitted_at: "2026-05-10T12:01:00Z",
 			tool_input_hash: "",
 			case: "E-fresh",
@@ -765,7 +766,7 @@ describe("recordShardRead", () => {
 			},
 			comparison_status: "pending",
 		});
-		const event = readEvent(target.shardPath as string, "path");
+		const event = readEvent(nonNull(target.shardPath), "path");
 		const result = recordShardRead(event, dir);
 		expect(result?.decision).toBe("allow");
 	});
@@ -790,9 +791,9 @@ describe("recordShardRead", () => {
 		appendPredictionRow(dir, {
 			session_id: "sess-1",
 			file_path: target.sourcePath,
-			source_mtime: target.sourceMtime as string,
-			shard_mtime: target.shardMtime as string,
-			shard_path: target.shardPath as string,
+			source_mtime: nonNull(target.sourceMtime),
+			shard_mtime: nonNull(target.shardMtime),
+			shard_path: nonNull(target.shardPath),
 			emitted_at: "2026-05-10T12:01:00Z",
 			tool_input_hash: "",
 			case: "E-fresh",
@@ -804,7 +805,7 @@ describe("recordShardRead", () => {
 			comparison_status: "pending",
 			shard_read_at: "2026-05-10T12:02:00Z",
 		});
-		const event = readEvent(target.shardPath as string);
+		const event = readEvent(nonNull(target.shardPath));
 		expect(recordShardRead(event, dir)).toBeNull();
 	});
 
@@ -818,9 +819,9 @@ describe("recordShardRead", () => {
 		appendPredictionRow(dir, {
 			session_id: "sess-1",
 			file_path: target.sourcePath,
-			source_mtime: target.sourceMtime as string,
-			shard_mtime: target.shardMtime as string,
-			shard_path: target.shardPath as string,
+			source_mtime: nonNull(target.sourceMtime),
+			shard_mtime: nonNull(target.shardMtime),
+			shard_path: nonNull(target.shardPath),
 			emitted_at: "2026-05-10T12:01:00Z",
 			tool_input_hash: "",
 			case: "E-fresh",
@@ -831,14 +832,14 @@ describe("recordShardRead", () => {
 			},
 			comparison_status: "pending",
 		});
-		const event = readEvent(target.shardPath as string, "file_path", "");
+		const event = readEvent(nonNull(target.shardPath), "file_path", "");
 		const result = recordShardRead(event, dir);
 		expect(result?.decision).toBe("allow");
 		const row = findPredictionRow(dir, {
 			session_id: "sess-1",
 			file_path: target.sourcePath,
-			source_mtime: target.sourceMtime as string,
-			shard_mtime: target.shardMtime as string,
+			source_mtime: nonNull(target.sourceMtime),
+			shard_mtime: nonNull(target.shardMtime),
 		});
 		expect(row?.shard_read_at).toEqual(expect.any(String));
 		expect(row?.shard_read_at).not.toBe("");
@@ -869,9 +870,9 @@ describe("recordShardRead", () => {
 		appendPredictionRow(dir, {
 			session_id: "sess-1",
 			file_path: target.sourcePath,
-			source_mtime: target.sourceMtime as string,
-			shard_mtime: target.shardMtime as string,
-			shard_path: target.shardPath as string,
+			source_mtime: nonNull(target.sourceMtime),
+			shard_mtime: nonNull(target.shardMtime),
+			shard_path: nonNull(target.shardPath),
 			emitted_at: "2026-05-10T12:01:00Z",
 			tool_input_hash: "",
 			case: "E-fresh",

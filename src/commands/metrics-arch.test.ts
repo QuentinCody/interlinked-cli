@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireNullable, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 // ===========================================
 // metrics-arch unit tests — pure core (dir fold → Ca/Ce/I, propagation cost)
 // ===========================================
@@ -185,11 +186,7 @@ describe("metricsArchCommand — JSON output", () => {
 	it("reports depth, propagation cost, and per-dir Ca/Ce/I matching the pure oracle", async () => {
 		const { out, exitCode } = await runArch({ cwd: project, json: true });
 		expect(exitCode).toBeUndefined();
-		const payload = JSON.parse(out) as {
-			depth: number;
-			propagation: { files: number; cost: number };
-			dirs: Array<{ dir: string; files: number; ca: number; ce: number; instability: number | null }>;
-		};
+		const payload = parseWire(JSON.parse(out), wireObject({ "depth": wireNumber, "propagation": wireObject({ "files": wireNumber, "cost": wireNumber }), "dirs": wireArray(wireObject({ "dir": wireString, "files": wireNumber, "ca": wireNumber, "ce": wireNumber, "instability": wireNullable(wireNumber) })) }), "test JSON value");
 		expect(payload.depth).toBe(2);
 		expect(payload.propagation.files).toBe(3);
 		expect(payload.propagation.cost).toBeCloseTo(3 / 9, 5);
@@ -219,30 +216,27 @@ describe("metricsArchCommand — JSON output", () => {
 	it("counts the test file into `files` only when --include-tests is set", async () => {
 		const withoutTests = await runArch({ cwd: project, json: true, includeTests: false });
 		const withTests = await runArch({ cwd: project, json: true, includeTests: true });
-		const dirsWithout = (JSON.parse(withoutTests.out) as { dirs: Array<{ dir: string; files: number }> }).dirs;
-		const dirsWith = (JSON.parse(withTests.out) as { dirs: Array<{ dir: string; files: number }> }).dirs;
+		const dirsWithout = (parseWire(JSON.parse(withoutTests.out), wireObject({ "dirs": wireArray(wireObject({ "dir": wireString, "files": wireNumber })) }), "test JSON value")).dirs;
+		const dirsWith = (parseWire(JSON.parse(withTests.out), wireObject({ "dirs": wireArray(wireObject({ "dir": wireString, "files": wireNumber })) }), "test JSON value")).dirs;
 		expect(dirsWithout.find((d) => d.dir === "src/commands")?.files).toBe(1);
 		expect(dirsWith.find((d) => d.dir === "src/commands")?.files).toBe(2);
 	});
 
 	it("falls back to depth 2 when --depth is omitted", async () => {
 		const { out } = await runArch({ cwd: project, json: true });
-		expect((JSON.parse(out) as { depth: number }).depth).toBe(2);
+		expect(JSON.parse(out)).toHaveProperty(["depth"], 2);
 	});
 
 	it("falls back to depth 2 when --depth is empty or non-numeric", async () => {
 		for (const depth of ["", "not-a-number"]) {
 			const { out } = await runArch({ cwd: project, json: true, depth });
-			expect((JSON.parse(out) as { depth: number }).depth).toBe(2);
+			expect(JSON.parse(out)).toHaveProperty(["depth"], 2);
 		}
 	});
 
 	it("honors an explicit --depth, folding everything into one root dir", async () => {
 		const { out } = await runArch({ cwd: project, json: true, depth: "1" });
-		const payload = JSON.parse(out) as {
-			depth: number;
-			dirs: Array<{ dir: string; files: number; ca: number; ce: number; instability: number | null }>;
-		};
+		const payload = parseWire(JSON.parse(out), wireObject({ "depth": wireNumber, "dirs": wireArray(wireObject({ "dir": wireString, "files": wireNumber, "ca": wireNumber, "ce": wireNumber, "instability": wireNullable(wireNumber) })) }), "test JSON value");
 		expect(payload.depth).toBe(1);
 		expect(payload.dirs).toEqual([
 			{ dir: "src", files: 3, ca: 0, ce: 0, instability: null },

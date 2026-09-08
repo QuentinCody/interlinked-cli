@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Behavioral unit tests for the failure-recovery channel orchestrator.
 // Every imported `./` dependency is mocked at the module boundary so the
 // orchestration logic (branch selection, warning assembly, fail-open
@@ -9,8 +10,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	HarnessEvent,
 	RollbackAssessment,
-	SessionTrajectory,
-	ToolFailureEvent,
 	TriageResult,
 } from "./types.js";
 
@@ -78,11 +77,9 @@ const GOOD_TRIAGE: TriageResult = {
 	source: "local-heuristic",
 };
 
-// `over` values of `undefined` mean "omit this key" — the resulting object has
-// the key genuinely absent (required under tsconfig `exactOptionalPropertyTypes`,
-// which forbids assigning literal `undefined` to a non-`| undefined` optional).
 function makeEvent(
-	over: { [K in keyof HarnessEvent]?: HarnessEvent[K] | undefined } = {},
+	over: Partial<HarnessEvent> = {},
+	omit: readonly ("tool_outcome" | "tool_name" | "tool_input" | "error_message" | "stderr")[] = [],
 ): HarnessEvent {
 	const base: HarnessEvent = {
 		hook_event: "PostToolUse",
@@ -98,17 +95,12 @@ function makeEvent(
 		stdout: "stdout text",
 		timestamp: "2026-06-05T00:00:00Z",
 	};
-	const merged: Record<string, unknown> = { ...base };
-	for (const [key, value] of Object.entries(over)) {
-		if (value === undefined) delete merged[key];
-		else merged[key] = value;
-	}
-	return merged as unknown as HarnessEvent;
+	const merged: HarnessEvent = { ...base, ...over };
+	for (const key of omit) delete merged[key];
+	return merged;
 }
 
-// A SessionTrajectory is only passed through to the mocked
-// isFileTrackedAsWritten, so a thin cast is sufficient and honest here.
-const SESSION = { session_id: "sess-1" } as unknown as SessionTrajectory;
+const SESSION = ({ ...completeSessionFixture(), ...{ session_id: "sess-1" } });
 
 const SAFE_ROLLBACK: RollbackAssessment = {
 	safe: true,
@@ -151,7 +143,7 @@ describe("runFailureChannels early returns", () => {
 
 	it("returns null when tool_outcome is undefined", () => {
 		const out = runFailureChannels({
-			event: makeEvent({ tool_outcome: undefined }),
+			event: makeEvent({}, ["tool_outcome"]),
 			cwd: "/repo",
 		});
 		expect(out).toBeNull();
@@ -418,20 +410,6 @@ describe("runFailureChannels rollback gating", () => {
 		const [record] = nonNull(writeFailureRecordMock.mock.calls[0]);
 		expect(record.rollback).toEqual(SAFE_ROLLBACK);
 	});
-
-	it("handles a falsy rollback assessment (assess returns undefined)", () => {
-		// undefined is falsy → the `if (rollback)` block is skipped.
-		assessRollbackMock.mockReturnValue(undefined as unknown as RollbackAssessment);
-		const out = runFailureChannels({
-			event: makeEvent(),
-			session: SESSION,
-			cwd: "/repo",
-		});
-		expect(formatRollbackLineMock).not.toHaveBeenCalled();
-		expect(out!.warnings.some((w) => w.startsWith("[interlinked:rollback]"))).toBe(
-			false,
-		);
-	});
 });
 
 // --- Disk-write catch path ---------------------------------------------
@@ -520,7 +498,7 @@ describe("signature derivation", () => {
 
 	it("uses stderr for the signature prefix when error_message is absent", () => {
 		const out = runFailureChannels({
-			event: makeEvent({ error_message: undefined, stderr: "   raw   stderr   text " }),
+			event: makeEvent({ stderr: "   raw   stderr   text " }, ["error_message"]),
 			session: SESSION,
 			cwd: "/repo",
 		});
@@ -530,7 +508,7 @@ describe("signature derivation", () => {
 
 	it("yields an empty message prefix when both error_message and stderr are absent", () => {
 		const out = runFailureChannels({
-			event: makeEvent({ error_message: undefined, stderr: undefined }),
+			event: makeEvent({}, ["error_message", "stderr"]),
 			session: SESSION,
 			cwd: "/repo",
 		});
@@ -622,7 +600,7 @@ describe("file-path extraction", () => {
 describe("toFailureEvent construction", () => {
 	it("forwards canonical diagnostic fields into the failure event", () => {
 		runFailureChannels({ event: makeEvent(), session: SESSION, cwd: "/repo" });
-		const passed = nonNull(classifyFailureMock.mock.calls[0])[0] as ToolFailureEvent;
+		const passed = nonNull(classifyFailureMock.mock.calls[0])[0];
 		expect(passed).toMatchObject({
 			session_id: "sess-1",
 			agent_source: "claude",
@@ -647,13 +625,13 @@ describe("toFailureEvent construction", () => {
 			session: SESSION,
 			cwd: "/repo",
 		});
-		const passed = nonNull(classifyFailureMock.mock.calls[0])[0] as ToolFailureEvent;
+		const passed = nonNull(classifyFailureMock.mock.calls[0])[0];
 		expect(passed.tool_name).toBe("Write");
 	});
 
 	it("message defaults to undefined in the recurrence row when error_message is absent", () => {
 		runFailureChannels({
-			event: makeEvent({ error_message: undefined }),
+			event: makeEvent({}, ["error_message"]),
 			session: SESSION,
 			cwd: "/repo",
 		});

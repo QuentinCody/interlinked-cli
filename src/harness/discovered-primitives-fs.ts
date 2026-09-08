@@ -81,7 +81,7 @@ export function loadCache(repoRoot: string): DiscoveryCache | null {
 	try {
 		const raw: unknown = JSON.parse(readFileSync(path, "utf-8"));
 		if (typeof raw !== "object" || raw === null) return null;
-		const c = raw as Partial<DiscoveryCache>;
+		const c: Partial<DiscoveryCache> = raw;
 		if (c.version !== 1 || !Array.isArray(c.primitives)) return null;
 		return {
 			version: 1,

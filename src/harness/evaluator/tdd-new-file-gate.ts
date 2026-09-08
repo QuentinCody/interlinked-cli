@@ -16,6 +16,7 @@
 //   - Path is on the exemption list (tests, fixtures, generated artifacts,
 //     type declarations, config files, standalone scripts).
 
+import { readOptionalToolString, readToolString } from "./tool-input-values.js";
 import { basename, dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import {
@@ -33,7 +34,6 @@ import type {
 	HarnessDecision,
 	HarnessEvent,
 	SessionTrajectory,
-	StructuralChecksConfig,
 } from "../types.js";
 
 /** The only mode in which this gate fires. Extracted so the conditional reads
@@ -236,22 +236,17 @@ export function evaluateTddNewFileGateForEvent(
 	rules: GuardRulesConfig,
 	session: SessionTrajectory | undefined,
 ): HarnessDecision | null {
-	// SAFETY: GuardRulesConfig declares `structural_checks` as required, but a
-	// hand-built or partially-merged rules object can omit it in practice
-	// (proven by the "returns null when test_first_mode is not enforce"
-	// test, whose `makeRules()` fixture omits this field entirely) — cast to
-	// the honest optional shape so the chain below reflects reality instead
-	// of the (unenforced) declared type.
-	const structuralChecks = rules.structural_checks as StructuralChecksConfig | undefined;
+
+	const structuralChecks = rules.structural_checks;
 	const toolInput = event.tool_input || {};
-	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 	const block = evaluateTddNewFileGate({
 		filePath,
 		cwd: event.cwd,
 		session,
 		content:
-			(toolInput.content as string | undefined) ??
-			(toolInput.new_string as string | undefined),
+			(readOptionalToolString(toolInput.content)) ??
+			(readOptionalToolString(toolInput.new_string)),
 		// NOTE: keyed off `structural_checks.test_first_mode` alone — DELIBERATELY
 		// independent of `structural_checks.enabled` (the 2026-07-06 portability
 		// review flagged the surprise; independence is preserved for back-compat:

@@ -139,19 +139,19 @@ function nthParent(ts: TsModule, node: TS.Node, depth: number): TS.Node | undefi
 
 /** Whether a node carries an `export` modifier. */
 function isExported(ts: TsModule, node: TS.Node): boolean {
-	const mods = (node as { modifiers?: readonly TS.ModifierLike[] }).modifiers;
-	if (mods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) return true;
 	// `export const foo = () => {}` puts the modifier on the statement.
-	const parent = nthParent(ts, node, 3);
-	const parentMods = (parent as { modifiers?: readonly TS.ModifierLike[] } | undefined)?.modifiers;
-	return parentMods?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) ?? false;
+	return hasExportModifier(ts, node) || hasExportModifier(ts, nthParent(ts, node, 3));
+}
+
+function hasExportModifier(ts: TsModule, node: TS.Node | undefined): boolean {
+	if (!node || !ts.canHaveModifiers(node)) return false;
+	return ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false;
 }
 
 /** Parameter count, ignoring `this` parameters. */
-function parameterCount(_ts: TsModule, node: TS.Node): number {
-	const params = (node as { parameters?: readonly TS.ParameterDeclaration[] }).parameters;
-	if (!params) return 0;
-	return params.filter((p) => p.name.getText() !== "this").length;
+function parameterCount(ts: TsModule, node: TS.Node): number {
+	if (!ts.isFunctionLike(node)) return 0;
+	return node.parameters.filter((p) => p.name.getText() !== "this").length;
 }
 
 /** One function that would benefit from a property test. */

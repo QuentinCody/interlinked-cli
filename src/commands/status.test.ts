@@ -1,3 +1,4 @@
+import { parseWire, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // Behavioral coverage for `interlinked status`.
 //
 // status.ts is a ~246-stmt commander handler that fans out to local readers
@@ -105,7 +106,7 @@ function makeConfig(over: Partial<ResolvedConfig> = {}): ResolvedConfig {
 		agent_name: "Alice",
 		sync_mode: "realtime",
 		...over,
-	} as ResolvedConfig;
+	};
 }
 
 function makeStats(over: Partial<LocalStats> = {}): LocalStats {
@@ -223,7 +224,7 @@ describe("statusCommand — json mode", () => {
 		await statusCommand({ json: true });
 
 		expect(console.log).toHaveBeenCalledTimes(1);
-		const parsed = JSON.parse(firstLog()) as Record<string, unknown>;
+		const parsed = parseWire(JSON.parse(firstLog()), wireRecord(wireUnknown), "test JSON value");
 		expect(parsed.sessions).toEqual(sessions);
 		expect(parsed.stats).toEqual(stats);
 		expect(parsed.sync_diagnostics).toEqual(sync);
@@ -233,7 +234,7 @@ describe("statusCommand — json mode", () => {
 			authenticated: true,
 			workspaceName: "ws_main",
 		});
-		const cfg = parsed.config as Record<string, unknown>;
+		const cfg = parseWire(parsed.config, wireRecord(wireUnknown), "test JSON value");
 		expect(cfg.server_url).toBe("https://server.example.com");
 		expect(cfg.workspace_id).toBe("ws_main");
 		expect(cfg.default_workspace_key).toBe("main");
@@ -254,7 +255,7 @@ describe("statusCommand — json mode", () => {
 
 		await statusCommand({ json: true });
 
-		const parsed = JSON.parse(firstLog()) as { config: Record<string, unknown> };
+		const parsed = parseWire(JSON.parse(firstLog()), wireObject({ "config": wireRecord(wireUnknown) }), "test JSON value");
 		expect(parsed.config.workspace_id).toBeNull();
 		expect(parsed.config.default_workspace_key).toBe("main");
 		expect(parsed.config.default_project).toBe("main");
@@ -944,7 +945,7 @@ describe("statusCommand — error path", () => {
 
 		const errText = erroredText();
 		expect(errText).toContain("plain string failure");
-		const parsed = JSON.parse(errText) as { error: string };
+		const parsed = parseWire(JSON.parse(errText), wireObject({ "error": wireString }), "test JSON value");
 		expect(parsed.error).toBe("plain string failure");
 		expect(process.exitCode).toBe(1);
 	});
@@ -1466,7 +1467,7 @@ describe("statusCommand — server health exact object shape", () => {
 		await vi.advanceTimersByTimeAsync(3000);
 		await p;
 
-		const parsed = JSON.parse(firstLog()) as { server: unknown };
+		const parsed = parseWire(JSON.parse(firstLog()), wireObject({ "server": wireUnknown }), "test JSON value");
 		expect(parsed.server).toStrictEqual({
 			reachable: false,
 			authenticated: false,
@@ -1481,7 +1482,7 @@ describe("statusCommand — server health exact object shape", () => {
 
 		await statusCommand({ json: true });
 
-		const parsed = JSON.parse(firstLog()) as { server: unknown };
+		const parsed = parseWire(JSON.parse(firstLog()), wireObject({ "server": wireUnknown }), "test JSON value");
 		expect(parsed.server).toStrictEqual({
 			reachable: false,
 			authenticated: false,

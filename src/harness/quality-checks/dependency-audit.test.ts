@@ -125,7 +125,7 @@ describe("resolveDependencyAuditCommandAsync — osv-scanner probe via runProces
 	it("shares the memoized availability flag set by the sync hasOsvScanner probe", async () => {
 		// hasOsvScanner() (sync) populates the cache; the async resolver must
 		// read it back rather than issuing its own runProcessAsync probe.
-		spawnMock.mockReturnValueOnce({ status: 0 } as never);
+		spawnMock.mockReturnValueOnce({ status: 0, signal: null, pid: 1, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), output: [] });
 		hasOsvScanner();
 		const r = await resolveDependencyAuditCommandAsync("Pipfile.lock");
 		expect(r?.parser).toBe("osv-scanner");

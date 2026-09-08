@@ -306,7 +306,7 @@ describe("handoff: normal output", () => {
 describe("handoff: short / full modes reuse the normal renderer", () => {
 	it("--short produces the same normal render (no short renderer provided)", async () => {
 		installClient({ callTool: () => ({ c: 1 }) });
-		await handoffCommand("p", "q", { short: true } as { short?: boolean; json?: boolean });
+		await handoffCommand("p", "q", { short: true });
 		const text = out();
 		expect(text).toContain("Agent Handoff");
 		expect(text).toContain("Handoff complete. q has been notified.");
@@ -314,7 +314,7 @@ describe("handoff: short / full modes reuse the normal renderer", () => {
 
 	it("--full produces the same normal render (no full renderer provided)", async () => {
 		installClient({ callTool: () => ({ c: 1 }) });
-		await handoffCommand("p", "q", { full: true } as { full?: boolean; json?: boolean });
+		await handoffCommand("p", "q", { full: true });
 		const text = out();
 		expect(text).toContain("Agent Handoff");
 		expect(text).toContain("Handoff complete. q has been notified.");

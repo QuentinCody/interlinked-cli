@@ -92,9 +92,8 @@ describe("keyMaySign — negative (must reject)", () => {
 	});
 
 	it("N7: a key with no declared purposes signs nothing", () => {
-		// SAFETY: the wire type pins purposes as NonEmpty; this fixture models
-		// an untrusted registry record that violated it, which must be refused
-		// rather than trusted.
+		// SAFETY: the public key-purpose gate must reject an untrusted registry
+		// key with no authorized purpose before any signature can be accepted.
 		const empty = { ...key(), purposes: [] } as unknown as ShadowKeyRecordV1;
 		expect(keyMaySign(empty, AUTHORING, ts("2026-08-15T00:00:00Z"))).toBe(false);
 	});

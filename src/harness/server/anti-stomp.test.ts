@@ -164,7 +164,7 @@ describe("reapZombieIncumbent", () => {
 			logAlways: vi.fn(),
 			deps: { identify: () => "daemon-identity", isAlive: () => true, kill: () => {
 			// SAFETY: ErrnoException is Error plus optional string fields; adding `code` below makes the shape real.
-			const err = new Error("kill ESRCH") as NodeJS.ErrnoException;
+			const err: NodeJS.ErrnoException = new Error("kill ESRCH");
 			err.code = "ESRCH";
 			throw err;
 			} },
@@ -180,7 +180,7 @@ describe("reapZombieIncumbent", () => {
 			logAlways,
 			deps: { identify: () => "daemon-identity", isAlive: () => true, kill: () => {
 			// SAFETY: ErrnoException is Error plus optional string fields; adding `code` below makes the shape real.
-			const err = new Error("kill EPERM") as NodeJS.ErrnoException;
+			const err: NodeJS.ErrnoException = new Error("kill EPERM");
 			err.code = "EPERM";
 			throw err;
 			} },

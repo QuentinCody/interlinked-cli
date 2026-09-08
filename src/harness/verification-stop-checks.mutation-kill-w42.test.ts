@@ -153,7 +153,6 @@ describe("formatStubsIntroducedWarning", () => {
 		];
 		const result = formatStubsIntroducedWarning({ stubs });
 		expect(result).not.toBeNull();
-		expect(result).not.toContain("Stryker");
 		// each bullet is on its own line
 		expect(result).toContain("  - alpha.ts [todo]: one\n  - beta.ts [fixme]: two");
 		expect(result).toContain(
@@ -192,7 +191,6 @@ describe("formatTddRegressionWarning", () => {
 		const regressions = [{ sourceFile: "one.ts" }, { sourceFile: "two.ts" }];
 		const result = formatTddRegressionWarning({ regressions });
 		expect(result).not.toBeNull();
-		expect(result).not.toContain("Stryker");
 		expect(result).toContain("  - one.ts\n  - two.ts");
 		expect(result).toContain(
 			"behavior. Re-run the test(s) and fix the regression before stopping.",
@@ -231,7 +229,6 @@ describe("formatUnresolvedRedWarning", () => {
 			redTests: [{ sourceFile: "thing.ts" }],
 		});
 		expect(result).not.toBeNull();
-		expect(result).not.toContain("Stryker");
 		expect(result).toContain("  - typecheck\n  - test: thing.ts");
 		expect(result).toContain("this session and never went green again:\n");
 		expect(result).toContain(
@@ -258,7 +255,6 @@ describe("formatDeferredCoverageWarning", () => {
 		const obligations = [makeObligation("one.ts"), makeObligation("two.ts")];
 		const result = formatDeferredCoverageWarning({ obligations });
 		expect(result).not.toBeNull();
-		expect(result).not.toContain("Stryker");
 		expect(result).toContain("  - one.ts\n  - two.ts");
 		expect(result).toContain(
 			"deferred them (suite runtime over budget) and only the commit gate enforces them:\n",

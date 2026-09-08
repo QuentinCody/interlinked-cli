@@ -1,7 +1,9 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Targeted branch-coverage fills for pre-tool-decision-phases.ts, complementing
 // the behavioral and reservations suites. Each case below is named after the
 // specific uncovered branch it exercises (see coverage/lcov.info gap list).
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { describe, expect, it, vi } from "vitest";
 
 const driveGraphPredictionMock = vi.fn();
@@ -37,7 +39,7 @@ function makeCtx(): PreToolCtx {
 }
 
 function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "t",
 		agent_name: "agent",
 		started_at: "2026-04-01T00:00:00.000Z",
@@ -53,11 +55,11 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 		taint_sources: [],
 		step_limit: Number.POSITIVE_INFINITY,
 		...overrides,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 function makeRules(overrides?: Partial<GuardRulesConfig>): GuardRulesConfig {
-	return {
+	return ({ ...makeGuardRules(),
 		version: 1,
 		enabled: true,
 		rules: [],
@@ -65,22 +67,22 @@ function makeRules(overrides?: Partial<GuardRulesConfig>): GuardRulesConfig {
 		file_reminders: [],
 		curl_mcp_detection: { enabled: false, localhost_ports: [], escalate_after: 5, message: "" },
 		quality_checks: {},
-		structural_checks: {} as GuardRulesConfig["structural_checks"],
-		error_memory: { enabled: false, expires_after_s: 0, scope: "file" },
-		taint_tracking: { enabled: false } as GuardRulesConfig["taint_tracking"],
-		output_scanning: { enabled: false } as GuardRulesConfig["output_scanning"],
+		structural_checks: { ...makeGuardRules().structural_checks, },
+		error_memory: { ...makeGuardRules().error_memory,  enabled: false, max_age_s: 0, max_records: 0 },
+		taint_tracking: { ...makeGuardRules().taint_tracking,  enabled: false },
+		output_scanning: { ...makeGuardRules().output_scanning,  enabled: false },
 		...overrides,
-	} as GuardRulesConfig;
+	} satisfies GuardRulesConfig);
 }
 
-function mockReservations(conflict: ReservationConflict | null): ReservationManager {
-	return {
+function mockReservations(conflict: ReservationConflict | null): Pick<ReservationManager, "checkAndReserveBatch"> {
+	return ({
 		checkAndReserveBatch: ({ filePaths, shouldBlock }: ReservationBatchOptions) => {
 			if (!conflict) return null;
 			const filePath = filePaths[0] ?? "";
 			return shouldBlock(filePath, conflict) ? { filePath, conflict } : null;
 		},
-	} as unknown as ReservationManager;
+	} satisfies Pick<ReservationManager, "checkAndReserveBatch">);
 }
 
 // ============================================================
@@ -479,9 +481,9 @@ describe("evaluateTaintPhase — merges the block decision's own non-empty warni
 // ============================================================
 
 describe("evaluateGraphPrediction — cwd fallback and result-handling branches", () => {
-	const enabledConfig = {
+	const enabledConfig = ({ version: 1, server_url: "https://example.test",
 		harness: { graph_prediction: { enabled: true, mode: "enforced" } },
-	} as unknown as import("../../lib/config.js").SharedConfig;
+	} satisfies import("../../lib/config.js").SharedConfig);
 
 	it("falls back to process.cwd() when event.cwd is absent (L382)", () => {
 		driveGraphPredictionMock.mockReturnValueOnce(null);

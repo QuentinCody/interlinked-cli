@@ -67,10 +67,10 @@ function parseVectors(output: string, expected: number, dimension: number): Floa
         throw new Error(`embedding runtime returned ${Array.isArray(parsed) ? parsed.length : "non-array"} vectors; expected ${expected}`);
     }
     return parsed.map((value, index) => {
-        if (!Array.isArray(value) || value.length !== dimension || value.some((item) => typeof item !== "number" || !Number.isFinite(item))) {
+        if (!Array.isArray(value) || value.length !== dimension || !value.every((item): item is number => typeof item === "number" && Number.isFinite(item))) {
             throw new Error(`embedding ${index} is not a finite ${dimension}-dimension vector`);
         }
-        return Float32Array.from(value as number[]);
+        return Float32Array.from(value);
     });
 }
 

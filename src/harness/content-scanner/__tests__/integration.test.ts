@@ -1,3 +1,4 @@
+import { DEFAULT_CONFIG } from "../../rules/default-config.js";
 // ===========================================
 // Content Scanner — End-to-end integration
 // ===========================================
@@ -79,7 +80,7 @@ function makeRules(scanner: ContentScannerConfig): GuardRulesConfig {
 		protected_files: [],
 		file_reminders: [],
 		curl_mcp_detection: { enabled: false, localhost_ports: [], escalate_after: 0, message: "" },
-		quality_checks: {} as GuardRulesConfig["quality_checks"],
+		quality_checks: {},
 		error_memory: { enabled: false, max_age_s: 0, max_records: 0 },
 		taint_tracking: {
 			enabled: true,
@@ -99,7 +100,7 @@ function makeRules(scanner: ContentScannerConfig): GuardRulesConfig {
 			scan_file_injection: false,
 			max_scan_bytes: 100_000,
 		},
-		structural_checks: {} as GuardRulesConfig["structural_checks"],
+		structural_checks: { ...structuredClone(DEFAULT_CONFIG.structural_checks), enabled: false },
 		repo_confinement_allowlist: [],
 		required_tools: [],
 		strict_skips: false,

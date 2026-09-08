@@ -62,7 +62,7 @@ export function isSuiteSourcedRed(
 	// in lifecycle-stop-warnings.ts do, for pre-check-existence sessions) —
 	// this cast keeps the read honest instead of asserting a guarantee that
 	// doesn't hold everywhere.
-	const testRuns = session.test_runs as SessionTrajectory["test_runs"] | undefined;
+	const testRuns: SessionTrajectory["test_runs"] | undefined = session.test_runs;
 	const suite = testRuns?.get(ALL_TESTS_SENTINEL);
 	if (!suite || suite.status !== "fail") return false;
 	if (cycle.red_at === undefined || cycle.red_at !== suite.at_step) return false;
@@ -80,7 +80,7 @@ function hasTargetedFailureAtRedStep(
 	if (!cycle.test_file || cycle.red_at === undefined) return false;
 	const cycleTestKey = normalizeCycleKey(cycle.test_file);
 	// SAFETY: see isSuiteSourcedRed above — same partially-hydrated-session case.
-	const testRuns = session.test_runs as SessionTrajectory["test_runs"] | undefined;
+	const testRuns: SessionTrajectory["test_runs"] | undefined = session.test_runs;
 	for (const [testFile, result] of testRuns ?? []) {
 		if (testFile === ALL_TESTS_SENTINEL) continue;
 		if (normalizeCycleKey(testFile) !== cycleTestKey) continue;

@@ -29,4 +29,6 @@ const ECOSYSTEM_PRESENT: { readonly [K in Ecosystem]: true } = {
 
 /** Every ecosystem the supply-chain guard understands, in declaration order.
  *  Parity-locked to the parser's `Ecosystem` union by `ECOSYSTEM_PRESENT`. */
+// SAFETY: this private object literal has exactly the Ecosystem keys, enforced
+// by its complete mapped type above; it is never extended or exported.
 export const ECOSYSTEMS = Object.keys(ECOSYSTEM_PRESENT) as readonly Ecosystem[];

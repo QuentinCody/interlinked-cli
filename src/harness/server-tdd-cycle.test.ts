@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,7 +59,7 @@ function makeSession(overrides: Partial<SessionTrajectory> = {}): SessionTraject
 		bloat_warned: new Set(),
 		assertion_counts: new Map(),
 	};
-	return { ...base, ...overrides } as SessionTrajectory;
+	return ({ ...completeSessionFixture(), ...{ ...base, ...overrides } });
 }
 
 describe("detectTestRunFile", () => {

@@ -55,14 +55,12 @@ function makeFakeElement(): FakeElement {
 function installFakeDocument(): { body: FakeElement; restore: () => void } {
 	const body = makeFakeElement();
 	const fakeDoc = { body, createElement: () => makeFakeElement() };
-	const previous = (globalThis as { document?: unknown }).document;
-	// SAFETY: test-only stand-in implementing exactly the DOM surface
-	// mountDemoBanner calls; cast bridges the fake shape to the DOM lib type.
-	(globalThis as { document?: unknown }).document = fakeDoc as unknown as Document;
+	const previous: unknown = Reflect.get(globalThis, "document");
+	Reflect.set(globalThis, "document", fakeDoc);
 	return {
 		body,
 		restore: () => {
-			(globalThis as { document?: unknown }).document = previous;
+			Reflect.set(globalThis, "document", previous);
 		},
 	};
 }

@@ -130,7 +130,7 @@ function parseExcludedReportRow(row: ReportRowShell): ExcludedReportRow | string
 }
 
 function parseExecutableReportRow(row: ReportRowShell): V3MutantRow | string {
-	if (!V3_MUTANT_STATUSES.includes(row.status as V3MutantStatus)) {
+	if (!V3_MUTANT_STATUSES.some((status) => status === row.status)) {
 		return `report mutant status "${row.status}" is not a known status`;
 	}
 	const shape = firstReason([
@@ -228,10 +228,8 @@ function envExcludedMismatch(e: V3ExcludedRow, reportById: Map<string, ReportRow
 }
 
 function rowCorrespondenceFailure(envelope: ParsedEnvelope, rows: ReportRow[]): string | null {
-	// SAFETY: keyed access across the union; report-requiring kinds carry these.
-	const record = envelope as unknown as Record<string, unknown>;
-	const envMutants = (record.mutants as V3MutantRow[] | undefined) ?? [];
-	const envExcluded = (record.excluded as V3ExcludedRow[] | undefined) ?? [];
+	const envMutants = "mutants" in envelope ? envelope.mutants : [];
+	const envExcluded = "excluded" in envelope ? envelope.excluded : [];
 	if (envelope.kind === "not_mutatable" && rows.length !== 0) {
 		return "not_mutatable requires an exact zero-mutant result for the target — the report carries rows";
 	}
@@ -257,10 +255,7 @@ export function verifyReportAgainstEnvelope(
 	envelope: ParsedEnvelope,
 	bytes: Uint8Array,
 ): string | null {
-	// SAFETY: keyed access across the union; kinds without a pointer skip.
-	const pointer = (envelope as unknown as Record<string, unknown>).report as
-		| { r2_sha256: string; bytes: number; content_hash: string }
-		| undefined;
+	const pointer = "report" in envelope ? envelope.report : undefined;
 	if (pointer === undefined) return null;
 	if (bytes.byteLength !== pointer.bytes) {
 		return `report is ${bytes.byteLength} bytes but the pointer declares ${pointer.bytes}`;

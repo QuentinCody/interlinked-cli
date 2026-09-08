@@ -89,12 +89,7 @@ function propertyName(ts: TsModule, name: TS.PropertyName): string | null {
  * fail-open toward allow, matching every other abstention here.
  */
 function parseErrorCount(sf: TS.SourceFile): number {
-	// SAFETY: `parseDiagnostics` is present on every SourceFile the parser
-	// produces but is absent from the PUBLIC `ts.SourceFile` type, so the only
-	// way to read it is a structural cast. The cast asserts nothing about the
-	// value — the `Array.isArray` guard below narrows it, and an absent or
-	// unexpected shape degrades to 0 (allow).
-	const diagnostics = (sf as unknown as { parseDiagnostics?: unknown }).parseDiagnostics;
+	const diagnostics = "parseDiagnostics" in sf ? sf.parseDiagnostics : undefined;
 	return Array.isArray(diagnostics) ? diagnostics.length : 0;
 }
 

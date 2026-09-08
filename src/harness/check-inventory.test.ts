@@ -20,7 +20,7 @@ import { SPEC_LEDGER_CHECK_KINDS } from "./spec/ledger-drift.js";
 const EXPECTED_BY_FAMILY: Record<string, number> = {
 	// +8 Bun-regression detector pack wired (assert-erasure ×3, reinterpret ×2, placeholder-const, unsafe-span ×2), 2026-07-20
 	inline: 287, // Includes fourteen advisory test-discrimination and isolation checks.
-	sequence: 23,
+	sequence: 22, // Removed the no-op sequence sentinel.
 	structural: 26, // +new_import_cycle (Plan 25 lane 5, "Cycle-delta check" — built concurrently by another lane of the same refactor-readiness program; this pin was simply stale, not authored here), 2026-08-17; prior: 25.
 	tool_quality: 34, // Includes the lint-import tool check.
 	suggestion: 29,

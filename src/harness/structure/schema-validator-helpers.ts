@@ -5,7 +5,7 @@
 // No imports from either of those files (avoids circular deps).
 
 import { posix } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { ENV_KEY_PATTERN, LOCAL_ID_PATTERN, VALID_ARTIFACT_KINDS } from "./types.js";
 
 // -------------------------------------------
@@ -39,7 +39,12 @@ export function err(path: string, message: string): ValidationError {
 // -------------------------------------------
 
 export function includes<T>(arr: readonly T[], val: unknown): val is T {
-	return (arr as readonly unknown[]).includes(val);
+	const values: readonly unknown[] = arr;
+	return values.includes(val);
+}
+
+export function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((entry: unknown) => typeof entry === "string");
 }
 
 export function isRepoRelativePath(p: string): boolean {
@@ -70,15 +75,19 @@ export function validateLocalId(id: string, path: string): ValidationError[] {
 	return [];
 }
 
-export function validateCoversArray(covers: unknown[], path: string): ValidationError[] {
+export function validateCoversArray(covers: unknown, path: string): ValidationError[] {
 	const errors: ValidationError[] = [];
 	if (!Array.isArray(covers)) {
 		errors.push(err(path, "covers must be an array"));
 		return errors;
 	}
 	for (let i = 0; i < covers.length; i++) {
-		const c = covers[i] as JsonObject;
+		const c: unknown = covers[i];
 		const cp = `${path}[${i}]`;
+		if (!isJsonObject(c)) {
+			errors.push(err(cp, "Must be a JSON object"));
+			continue;
+		}
 		errors.push(...checkUnknownKeys(c, ["artifact_kind", "artifact_id"], cp));
 		if (
 			typeof c.artifact_kind !== "string" ||

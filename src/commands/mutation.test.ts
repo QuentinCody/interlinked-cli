@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireObject, wireOptional, wireRecord, wireString } from "../lib/value-validation.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -602,16 +603,11 @@ describe("mutationAcceptCommand", () => {
 		writeFileSync(join(cwd, ".interlinked", "mutation-manifest.json"), JSON.stringify(manifest));
 	}
 
-	function readMutant(cwd: string): { status: string; accepted_reason?: string } | undefined {
+	function readMutant(cwd: string): { status: string; accepted_reason?: string | undefined } | undefined {
 		// SAFETY: reads back the fixture this describe block wrote.
-		const saved = JSON.parse(
+		const saved = parseWire(JSON.parse(
 			readFileSync(join(cwd, ".interlinked", "mutation-manifest.json"), "utf-8"),
-		) as {
-			files: Record<
-				string,
-				Record<string, { mutants: Record<string, { status: string; accepted_reason?: string }> }>
-			>;
-		};
+		), wireObject({ "files": wireRecord(wireRecord(wireObject({ "mutants": wireRecord(wireObject({ "status": wireString, "accepted_reason": wireAbsentOptional(wireOptional(wireString)) })) }))) }), "test JSON value");
 		return saved.files[FILE]?.sym1?.mutants.m1;
 	}
 
@@ -804,9 +800,7 @@ describe("mutationMeasureCommand", () => {
 	}
 
 	function manifestFileRecord(cwd: string): { mutants: Record<string, { status: string }> }[] | undefined {
-		const raw = JSON.parse(readFileSync(manifestPath(cwd), "utf-8")) as {
-			files: Record<string, Record<string, { mutants: Record<string, { status: string }> }>>;
-		};
+		const raw = parseWire(JSON.parse(readFileSync(manifestPath(cwd), "utf-8")), wireObject({ "files": wireRecord(wireRecord(wireObject({ "mutants": wireRecord(wireObject({ "status": wireString })) }))) }), "test JSON value");
 		const symbols = raw.files[FILE];
 		return symbols ? Object.values(symbols) : undefined;
 	}

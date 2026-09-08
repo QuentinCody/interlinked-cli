@@ -1,3 +1,4 @@
+import { makeMinimalEvent as completeEventFixture } from "./__tests__/fixtures/evaluator.js";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,14 +18,14 @@ function assistantLine(uuid: string, ts: string, text: string): string {
 }
 
 function stopEvent(cwd: string | undefined, transcriptPath: string): HarnessEvent {
-	return {
+	return ({ ...completeEventFixture(), ...{
 		hook_event: "Stop",
 		session_id: "S",
 		agent_source: "claude",
 		timestamp: "2026-06-28T00:00:00.000Z",
-		cwd,
+		...(cwd === undefined ? {} : { cwd }),
 		transcript_path: transcriptPath,
-	} as HarnessEvent;
+	} });
 }
 
 function timelineTexts(cwd: string): string[] {

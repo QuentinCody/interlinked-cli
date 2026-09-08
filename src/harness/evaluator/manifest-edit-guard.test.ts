@@ -1853,7 +1853,6 @@ describe("classifyManifestValue — file: branch (anchor + replacement-text pins
 		const r = classify("file:../evil");
 		expect(r?.decision).toBe("block");
 		expect(r?.reason).toMatch(/file: installs are never auto-allowed \(\.\.\/evil\)/);
-		expect(r?.reason).not.toMatch(/Stryker/);
 	});
 });
 

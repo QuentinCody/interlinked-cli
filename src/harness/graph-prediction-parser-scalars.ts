@@ -135,10 +135,7 @@ const RISK_VALUES = new Set<"low" | "medium" | "high" | typeof UNKNOWN_SENTINEL>
 ]);
 
 export function parseRisk(text: string): "low" | "medium" | "high" | typeof UNKNOWN_SENTINEL {
-	if (RISK_VALUES.has(text as "low" | "medium" | "high" | typeof UNKNOWN_SENTINEL)) {
-		return text as "low" | "medium" | "high" | typeof UNKNOWN_SENTINEL;
-	}
-	return UNKNOWN_SENTINEL;
+	return Array.from(RISK_VALUES).find((risk) => risk === text) ?? UNKNOWN_SENTINEL;
 }
 
 export function parseCount(text: string): number | typeof UNKNOWN_SENTINEL {

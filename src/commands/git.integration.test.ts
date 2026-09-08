@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireNumber, wireObject, wireOptional, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // Behavioral tests for `interlinked git` (git.ts)
 // ===========================================
@@ -17,12 +18,13 @@
 process.env.NO_COLOR = "1";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { nonNull } from "../lib/non-null.js";
 
 // --- mock surfaces ---------------------------------------------------------
 
-const mockExecSync = vi.fn();
+const mockExecSync = vi.fn<typeof import("node:child_process").execSync>();
 vi.mock("node:child_process", () => ({
-	execSync: (...args: unknown[]) => mockExecSync(...args),
+	execSync: (...args: Parameters<typeof mockExecSync>) => mockExecSync(...args),
 }));
 
 const mockIsGitRepo = vi.fn<(cwd: string) => boolean>();
@@ -126,7 +128,7 @@ describe("gitContextCommand — guard + error branches", () => {
 		await gitContextCommand({ json: true });
 
 		expect(process.exitCode).toBe(1);
-		const parsed = JSON.parse(String(errSpy.mock.calls.at(-1)?.[0])) as { error: string };
+		const parsed = parseWire(JSON.parse(String(errSpy.mock.calls.at(-1)?.[0])), wireObject({ "error": wireString }), "test JSON value");
 		expect(parsed.error).toContain("Not a git repository");
 	});
 
@@ -175,7 +177,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ json: true });
 
-		const out = lastJson() as { server: { checkpoint: string; agent: string } };
+		const out = parseWire(lastJson(), wireObject({ "server": wireObject({ "checkpoint": wireString, "agent": wireString }) }), "test JSON value");
 		expect(out.server.checkpoint).toBe('#42 — "Auth refactor"');
 		expect(out.server.agent).toBe("Worker-Alpha");
 	});
@@ -188,7 +190,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ json: true });
 
-		const out = lastJson() as { server: { checkpoint: string } };
+		const out = parseWire(lastJson(), wireObject({ "server": wireObject({ "checkpoint": wireString }) }), "test JSON value");
 		expect(out.server.checkpoint).toBe('#7 — ""');
 	});
 
@@ -201,7 +203,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ commit: "deadbee", json: true });
 
-		const out = lastJson() as { server: { checkpoint: string; agent: string } };
+		const out = parseWire(lastJson(), wireObject({ "server": wireObject({ "checkpoint": wireString, "agent": wireString }) }), "test JSON value");
 		expect(out.server.checkpoint).toBe('#99 — ""');
 		expect(out.server.agent).toBe("Bob");
 	});
@@ -214,7 +216,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ json: true });
 
-		const out = lastJson() as { server: { checkpoint?: string; agent?: string } };
+		const out = parseWire(lastJson(), wireObject({ "server": wireObject({ "checkpoint": wireAbsentOptional(wireOptional(wireString)), "agent": wireAbsentOptional(wireOptional(wireString)) }) }), "test JSON value");
 		// 0 is falsy → ternary picks undefined; serialized JSON drops the key.
 		expect(out.server.checkpoint).toBeUndefined();
 		expect(out.server.agent).toBeUndefined();
@@ -225,7 +227,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ json: true });
 
-		const out = lastJson() as { server: { trailers: string[]; checkpoint?: string } };
+		const out = parseWire(lastJson(), wireObject({ "server": wireObject({ "trailers": wireArray(wireString), "checkpoint": wireAbsentOptional(wireOptional(wireString)) }) }), "test JSON value");
 		expect(out.server.trailers).toEqual(["Interlinked-X: y"]);
 		expect(out.server.checkpoint).toBeUndefined();
 	});
@@ -235,7 +237,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ json: true });
 
-		const out = lastJson() as { server?: unknown };
+		const out = parseWire(lastJson(), wireObject({ "server": wireAbsentOptional(wireOptional(wireUnknown)) }), "test JSON value");
 		expect(out.server).toBeUndefined();
 	});
 
@@ -244,7 +246,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ json: true });
 
-		const out = lastJson() as { server: { error: string } };
+		const out = parseWire(lastJson(), wireObject({ "server": wireObject({ "error": wireString }) }), "test JSON value");
 		expect(out.server.error).toBe("not authenticated");
 	});
 
@@ -253,7 +255,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ json: true });
 
-		const out = lastJson() as { server: { error: string } };
+		const out = parseWire(lastJson(), wireObject({ "server": wireObject({ "error": wireString }) }), "test JSON value");
 		expect(out.server.error).toBe("unreachable");
 	});
 
@@ -262,7 +264,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ json: true });
 
-		const out = lastJson() as { server: { error: string } };
+		const out = parseWire(lastJson(), wireObject({ "server": wireObject({ "error": wireString }) }), "test JSON value");
 		expect(out.server.error).toBe("unreachable");
 	});
 
@@ -283,12 +285,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ json: true });
 
-		const out = lastJson() as {
-			branch: string;
-			head: string;
-			attribution: { agent_percentage: number; agent_lines: number; total_lines: number };
-			trailers: Record<string, string>;
-		};
+		const out = parseWire(lastJson(), wireObject({ "branch": wireString, "head": wireString, "attribution": wireObject({ "agent_percentage": wireNumber, "agent_lines": wireNumber, "total_lines": wireNumber }), "trailers": wireRecord(wireString) }), "test JSON value");
 		expect(out.branch).toBe("feature/x");
 		expect(out.head).toBe("cafef00");
 		expect(out.attribution).toEqual({
@@ -309,7 +306,7 @@ describe("gitContextCommand — JSON mode (server shapes)", () => {
 
 		await gitContextCommand({ json: true });
 
-		const out = lastJson() as { trailers: Record<string, string> };
+		const out = parseWire(lastJson(), wireObject({ "trailers": wireRecord(wireString) }), "test JSON value");
 		expect(out.trailers).toEqual({});
 	});
 });
@@ -401,7 +398,7 @@ describe("gitLinkCheckpointCommand — guard + resolution errors", () => {
 		await gitLinkCheckpointCommand({ checkpoint: "42", json: true });
 
 		expect(process.exitCode).toBe(1);
-		const parsed = JSON.parse(String(errSpy.mock.calls.at(-1)?.[0])) as { error: string };
+		const parsed = parseWire(JSON.parse(String(errSpy.mock.calls.at(-1)?.[0])), wireObject({ "error": wireString }), "test JSON value");
 		expect(parsed.error).toContain("Not a git repository");
 		expect(mockCallTool).not.toHaveBeenCalled();
 	});
@@ -480,7 +477,7 @@ describe("gitLinkCheckpointCommand — server call wiring", () => {
 			commit_sha: "abc123f456789abcdef0123456789012345678901",
 			branch_name: "main",
 		});
-		const out = lastJson() as { checkpoint_id: number; applied: boolean; commit_sha: string };
+		const out = parseWire(lastJson(), wireObject({ "checkpoint_id": wireNumber, "applied": wireBoolean, "commit_sha": wireString }), "test JSON value");
 		expect(out.checkpoint_id).toBe(42);
 		expect(out.applied).toBe(false);
 		expect(out.commit_sha).toBe("abc123f456789abcdef0123456789012345678901");
@@ -523,7 +520,7 @@ describe("gitLinkCheckpointCommand — server call wiring", () => {
 			"push_checkpoint_to_git",
 			expect.objectContaining({ checkpoint_id: 99 }),
 		);
-		expect((lastJson() as { checkpoint_id: number }).checkpoint_id).toBe(99);
+		expect(lastJson()).toHaveProperty(["checkpoint_id"], 99);
 	});
 
 	it("propagates a push_checkpoint_to_git rejection to the outer catch (error output)", async () => {
@@ -532,7 +529,7 @@ describe("gitLinkCheckpointCommand — server call wiring", () => {
 		await gitLinkCheckpointCommand({ checkpoint: "42", json: true });
 
 		expect(process.exitCode).toBe(1);
-		const parsed = JSON.parse(String(errSpy.mock.calls.at(-1)?.[0])) as { error: string };
+		const parsed = parseWire(JSON.parse(String(errSpy.mock.calls.at(-1)?.[0])), wireObject({ "error": wireString }), "test JSON value");
 		expect(parsed.error).toBe("server 500");
 	});
 
@@ -541,11 +538,7 @@ describe("gitLinkCheckpointCommand — server call wiring", () => {
 
 		await gitLinkCheckpointCommand({ checkpoint: "42", json: true });
 
-		const out = lastJson() as {
-			checkpoint_id: number;
-			trailers?: string[];
-			applied: boolean;
-		};
+		const out = parseWire(lastJson(), wireObject({ "checkpoint_id": wireNumber, "trailers": wireAbsentOptional(wireOptional(wireArray(wireString))), "applied": wireBoolean }), "test JSON value");
 		expect(out.checkpoint_id).toBe(42);
 		expect(out.trailers).toBeUndefined();
 		expect(out.applied).toBe(false);
@@ -577,17 +570,19 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 		expect(mockExecSync).toHaveBeenCalledTimes(2);
 
 		// 1) amend: command + input message containing both trailers.
-		const [amendCmd, amendOpts] = mockExecSync.mock.calls[0] as [string, { input: string }];
+		const [amendCmd, amendOptions] = nonNull(mockExecSync.mock.calls[0]);
+		const amendOpts = nonNull(amendOptions);
 		expect(amendCmd).toBe("git commit --amend -F -");
 		expect(amendOpts.input).toContain("Interlinked-Checkpoint: 42");
 		expect(amendOpts.input).toContain("Interlinked-Agent: Worker-Alpha");
 
 		// 2) notes target the RE-CAPTURED post-amend SHA, fed via stdin.
-		const [notesCmd, notesOpts] = mockExecSync.mock.calls[1] as [string, { input: string }];
+		const [notesCmd, notesOptions] = nonNull(mockExecSync.mock.calls[1]);
+		const notesOpts = nonNull(notesOptions);
 		expect(notesCmd).toBe("git notes add -f -F - postamendsha11111111111111111111111111111");
 		expect(notesOpts.input).toBe('{"checkpoint_id":42}');
 
-		const out = lastJson() as { applied: boolean; commit_sha: string };
+		const out = parseWire(lastJson(), wireObject({ "applied": wireBoolean, "commit_sha": wireString }), "test JSON value");
 		expect(out.applied).toBe(true);
 		expect(out.commit_sha).toBe("postamendsha11111111111111111111111111111");
 	});
@@ -608,7 +603,7 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
-		const [, amendOpts] = mockExecSync.mock.calls[0] as [string, { input: string }];
+		const amendOpts = nonNull(nonNull(mockExecSync.mock.calls[0])[1]);
 		// New trailer present, dangerous chars removed.
 		expect(amendOpts.input).toContain("Interlinked-Agent: Worker(rm)");
 		expect(amendOpts.input).not.toMatch(/[`$\\!"]/);
@@ -616,7 +611,7 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 		expect(amendOpts.input).not.toContain("malformed-no-colon");
 		// notes_json empty → no notes execSync call (only the amend happened).
 		expect(mockExecSync).toHaveBeenCalledTimes(1);
-		expect((lastJson() as { applied: boolean }).applied).toBe(true);
+		expect(lastJson()).toHaveProperty(["applied"], true);
 	});
 
 	it("when every trailer is already present, skips the amend but still applies (applied=true)", async () => {
@@ -633,7 +628,7 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 
 		// newTrailerLines empty → no amend; notes_json empty → no notes. Zero execSync.
 		expect(mockExecSync).not.toHaveBeenCalled();
-		expect((lastJson() as { applied: boolean }).applied).toBe(true);
+		expect(lastJson()).toHaveProperty(["applied"], true);
 	});
 
 	it("null current message coerces to '' (|| '') so amend still builds", async () => {
@@ -647,7 +642,7 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
 		expect(mockExecSync).toHaveBeenCalledTimes(1);
-		const [, amendOpts] = mockExecSync.mock.calls[0] as [string, { input: string }];
+		const amendOpts = nonNull(nonNull(mockExecSync.mock.calls[0])[1]);
 		expect(amendOpts.input).toContain("Interlinked-Checkpoint: 42");
 	});
 
@@ -664,7 +659,7 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
-		const out = lastJson() as { commit_sha: string; applied: boolean };
+		const out = parseWire(lastJson(), wireObject({ "commit_sha": wireString, "applied": wireBoolean }), "test JSON value");
 		expect(out.commit_sha).toBe("origcommitsha0000000000000000000000000000");
 		expect(out.applied).toBe(true);
 		// notes still attached, targeting the fallback SHA.
@@ -689,7 +684,7 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 
 		// Amend threw → caught → applied stays false; command still succeeds (exit 0).
 		expect(process.exitCode).toBe(0);
-		expect((lastJson() as { applied: boolean }).applied).toBe(false);
+		expect(lastJson()).toHaveProperty(["applied"], false);
 	});
 
 	it("notes execSync throwing is swallowed (inner catch) — applied stays true", async () => {
@@ -711,7 +706,7 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 
 		// Notes failure swallowed by the inner try/catch → applied true, exit 0.
 		expect(process.exitCode).toBe(0);
-		expect((lastJson() as { applied: boolean }).applied).toBe(true);
+		expect(lastJson()).toHaveProperty(["applied"], true);
 		expect(mockExecSync).toHaveBeenCalledTimes(2);
 	});
 
@@ -722,7 +717,7 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 
 		// `opts.apply && serverResult?.trailers` short-circuits → block skipped.
 		expect(mockExecSync).not.toHaveBeenCalled();
-		expect((lastJson() as { applied: boolean }).applied).toBe(false);
+		expect(lastJson()).toHaveProperty(["applied"], false);
 	});
 });
 

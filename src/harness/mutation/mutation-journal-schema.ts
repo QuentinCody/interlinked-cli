@@ -3,6 +3,7 @@
 // ===========================================
 
 import type { SqliteDatabase } from "./mutation-journal-driver.js";
+import { isJsonObject } from "../../lib/json-types.js";
 import { MUTATION_JOURNAL_V1_SQL } from "./mutation-journal-schema-v1.js";
 
 /** Public for migration/conformance tests and future backend implementations. */
@@ -298,8 +299,8 @@ function assertV8ManifestHeadSchema(db: SqliteDatabase): void {
 }
 
 function currentVersion(db: SqliteDatabase): number {
-	const row = db.prepare("PRAGMA user_version").get() as { user_version?: unknown } | undefined;
-	return typeof row?.user_version === "number" ? row.user_version : 0;
+	const row = db.prepare("PRAGMA user_version").get();
+	return isJsonObject(row) && typeof row.user_version === "number" ? row.user_version : 0;
 }
 
 /**

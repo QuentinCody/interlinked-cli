@@ -82,7 +82,7 @@ describe("coverage-final-reader — mutation-kill-w34", () => {
 		});
 		utimesSync(coveragePath, new Date(mtime), new Date(mtime));
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/foo.ts");
+		const entry = coverageForFile(nonNull(result), "src/foo.ts");
 		expect(entry?.functions.map((f) => f.name)).toEqual(["second"]);
 	});
 
@@ -241,7 +241,7 @@ describe("coverage-final-reader — mutation-kill-w34", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/allcovered.ts");
+		const entry = coverageForFile(nonNull(result), "src/allcovered.ts");
 		expect(entry?.coveredLines?.has(1)).toBe(true);
 		expect(entry?.uncoveredLines?.size).toBe(0);
 	});
@@ -260,7 +260,7 @@ describe("coverage-final-reader — mutation-kill-w34", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/declnostart.ts");
+		const entry = coverageForFile(nonNull(result), "src/declnostart.ts");
 		expect(entry?.functions[0]?.line).toBe(7);
 	});
 
@@ -278,7 +278,7 @@ describe("coverage-final-reader — mutation-kill-w34", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/zeroline.ts");
+		const entry = coverageForFile(nonNull(result), "src/zeroline.ts");
 		expect(entry?.functions).toEqual([]);
 	});
 
@@ -302,7 +302,7 @@ describe("coverage-final-reader — mutation-kill-w34", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/locnoend.ts");
+		const entry = coverageForFile(nonNull(result), "src/locnoend.ts");
 		expect(entry?.functions[0]?.endLine).toBe(9);
 	});
 
@@ -320,7 +320,7 @@ describe("coverage-final-reader — mutation-kill-w34", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/declnoend.ts");
+		const entry = coverageForFile(nonNull(result), "src/declnoend.ts");
 		expect(entry?.functions[0]?.endLine).toBe(4);
 	});
 
@@ -346,7 +346,7 @@ describe("coverage-final-reader — mutation-kill-w34", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/order.ts");
+		const entry = coverageForFile(nonNull(result), "src/order.ts");
 		expect(entry?.functions.map((f) => f.name)).toEqual(["one", "five", "ten"]);
 	});
 
@@ -363,7 +363,7 @@ describe("coverage-final-reader — mutation-kill-w34", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/nullrange.ts");
+		const entry = coverageForFile(nonNull(result), "src/nullrange.ts");
 		expect(entry?.coveredLines?.has(5)).toBe(true);
 	});
 
@@ -380,7 +380,7 @@ describe("coverage-final-reader — mutation-kill-w34", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/nullstmt.ts");
+		const entry = coverageForFile(nonNull(result), "src/nullstmt.ts");
 		expect(entry?.functions[0]?.statement_pct).toBe(100);
 	});
 
@@ -398,7 +398,8 @@ describe("coverage-final-reader — mutation-kill-w34", () => {
 			},
 		});
 		const result = loadCoverageFinal(coveragePath, tmp);
-		const entry = coverageForFile(result as never, "src/nostartline.ts");
+		const entry = coverageForFile(nonNull(result), "src/nostartline.ts");
 		expect(entry?.functions).toEqual([]);
 	});
 });
+import { nonNull } from "../lib/non-null.js";

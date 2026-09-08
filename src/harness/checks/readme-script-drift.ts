@@ -24,6 +24,7 @@
 // Advisory only — deterministic extraction, but nearest-manifest resolution
 // is a heuristic in monorepos.
 
+import { isJsonObject } from "../../lib/json-types.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { InlineMatch } from "./shared.js";
@@ -192,10 +193,10 @@ function readManifestScriptNames(manifestPath: string): ReadonlySet<string> | nu
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(manifestPath, "utf-8"));
 		const scripts =
-			typeof parsed === "object" && parsed !== null
-				? (parsed as { scripts?: unknown }).scripts
+			isJsonObject(parsed)
+				? parsed.scripts
 				: undefined;
-		if (typeof scripts !== "object" || scripts === null) return null;
+		if (!isJsonObject(scripts)) return null;
 		return new Set(Object.keys(scripts));
 	} catch {
 		return null; // malformed manifest → fail open

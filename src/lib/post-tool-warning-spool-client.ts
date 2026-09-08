@@ -9,6 +9,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { isJsonObject } from "./json-types.js";
 import { basename, join } from "node:path";
 
 export const QUALITY_WARNING_SPOOL_DIR = "quality-warning-spool";
@@ -41,8 +42,8 @@ function validDeliveryToken(value: unknown): value is string {
 function parseRecord(raw: string): QualityWarningRecord | null {
 	try {
 		const value: unknown = JSON.parse(raw);
-		if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-		const record = value as Record<string, unknown>;
+		if (!isJsonObject(value)) return null;
+		const record = value;
 		if (record.version !== 1 || !validDeliveryToken(record.token)) return null;
 		if (typeof record.session_id !== "string" || typeof record.produced_at !== "string") {
 			return null;
@@ -69,8 +70,8 @@ function parseRecord(raw: string): QualityWarningRecord | null {
 function parseActiveRecord(raw: string): QualityWarningActiveRecord | null {
 	try {
 		const value: unknown = JSON.parse(raw);
-		if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
-		const record = value as Record<string, unknown>;
+		if (!isJsonObject(value)) return null;
+		const record = value;
 		if (record.version !== 1 || !validDeliveryToken(record.token)) return null;
 		if (typeof record.session_id !== "string") return null;
 		const clientPid =
@@ -145,8 +146,8 @@ function attemptDrainLease(lockPath: string): DrainLeaseAttempt {
 	let stale = false;
 	try {
 		const holder: unknown = JSON.parse(readFileSync(lockPath, "utf-8"));
-		if (holder !== null && typeof holder === "object" && !Array.isArray(holder)) {
-			const row = holder as Record<string, unknown>;
+		if (isJsonObject(holder)) {
+			const row = holder;
 			stale =
 				typeof row.pid === "number" &&
 				typeof row.at === "number" &&
@@ -197,8 +198,8 @@ function releaseDrainLease(dataDir: string, ownerToken: string): void {
 	const lockPath = join(spoolDir(dataDir), DRAIN_LOCK_FILE);
 	try {
 		const holder: unknown = JSON.parse(readFileSync(lockPath, "utf-8"));
-		if (holder === null || typeof holder !== "object" || Array.isArray(holder)) return;
-		const row = holder as Record<string, unknown>;
+		if (!isJsonObject(holder)) return;
+		const row = holder;
 		if (row.owner_token !== ownerToken || row.pid !== process.pid) return;
 		const claimed = `${lockPath}.release-${ownerToken}`;
 		renameSync(lockPath, claimed);

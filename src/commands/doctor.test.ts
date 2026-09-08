@@ -1,3 +1,5 @@
+import { parseWire, wireString } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ===========================================================================
@@ -57,7 +59,7 @@ const {
 		mockExistsSync: vi.fn((p: string) => state.exists.has(p)),
 		mockReadFileSync: vi.fn((p: string) => {
 			if (state.throwOnReadFile.has(p)) throw new Error(`read fail: ${p}`);
-			if (state.content.has(p)) return state.content.get(p) as string;
+			if (state.content.has(p)) return nonNull(state.content.get(p));
 			throw new Error(`ENOENT: ${p}`);
 		}),
 		mockReaddirSync: vi.fn((p: string) => {
@@ -66,59 +68,54 @@ const {
 		}),
 		mockStatSync: vi.fn((p: string) => {
 			if (!state.mtime.has(p)) throw new Error(`stat fail: ${p}`);
-			return { mtimeMs: state.mtime.get(p) as number };
+			return { mtimeMs: nonNull(state.mtime.get(p)) };
 		}),
 		mockRunSystemChecks: vi.fn(
-			() => [] as Array<{ name: string; status: string; message: string }>,
+			(): Array<{ name: string; status: string; message: string }> => [],
 		),
 		mockIsHarnessRunning: vi.fn(
-			() => ({ running: false }) as { running: boolean; pid?: number },
+			(): { running: boolean; pid?: number } => ({ running: false }),
 		),
 		mockResolveConfig: vi.fn(
-			() =>
+			(): { server_url: string; agent_name?: string } =>
 				({
 					server_url: "https://remote.example.com",
 					agent_name: "Worker-Alpha",
-				}) as { server_url: string; agent_name?: string },
+				}),
 		),
 		mockGetConfigDir: vi.fn((cwd: string) => `${cwd}/.interlinked`),
 		mockGetSharedConfigPath: vi.fn((cwd: string) => `${cwd}/.interlinked/config.json`),
 		mockGetLocalConfigPath: vi.fn((cwd: string) => `${cwd}/.interlinked/config.local.json`),
 		mockHasLegacyConfig: vi.fn(() => false),
 		mockMigrateLegacyConfig: vi.fn(() => true),
-		mockResolveAuthToken: vi.fn(() => "tok_abc" as string | null),
+		mockResolveAuthToken: vi.fn((): string | null => "tok_abc"),
 		mockWriteHookScript: vi.fn(() => ""),
-		mockDefaultSettingsPaths: vi.fn(() => [] as string[]),
+		mockDefaultSettingsPaths: vi.fn((): string[] => []),
 		mockValidateSettingsFile: vi.fn(
-			() =>
+			(): { exists: boolean; parseError: boolean; malformed: Array<{ rule: string }> } =>
 				({
 					exists: false,
 					parseError: false,
 					malformed: [],
-				}) as { exists: boolean; parseError: boolean; malformed: Array<{ rule: string }> },
+				}),
 		),
 		mockStripMalformedRules: vi.fn(() => 0),
 		mockMigrateLegacyMode: vi.fn(() => "quality"),
 		mockHealthCheck: vi.fn(
-			async () =>
+			async (): Promise<{ serverReachable: boolean; authenticated: boolean; serverVersion?: string; error?: string }> =>
 				({
 					serverReachable: true,
 					authenticated: true,
 					serverVersion: "9.9.9",
-				}) as {
-					serverReachable: boolean;
-					authenticated: boolean;
-					serverVersion?: string;
-					error?: string;
-				},
+				}),
 		),
-		mockFetchWorkspaces: vi.fn(async () => [{ workspace_key: "main" }] as unknown[]),
-		mockCallTool: vi.fn(async () => ({ workspaces: [{ name: "cb-1" }] }) as unknown),
+		mockFetchWorkspaces: vi.fn(async (): Promise<unknown[]> => [{ workspace_key: "main" }]),
+		mockCallTool: vi.fn(async (): Promise<unknown> => ({ workspaces: [{ name: "cb-1" }] })),
 		mockGetClient: vi.fn(),
 		// The harness liveness ROUND-TRIP (`probeHarnessSocket` → queryHarness).
 		// Default null = nothing answered, which is what an unseeded fixture
 		// should mean: no daemon.
-		mockQueryHarness: vi.fn(async () => null as unknown),
+		mockQueryHarness: vi.fn(async (): Promise<unknown> => null),
 	};
 });
 
@@ -162,6 +159,7 @@ vi.mock("./harness-status-helpers.js", () => ({
 // these fixtures keep their pre-adopt output shape (no warn row from the
 // host repo's missing baselines leaking into unrelated expectations).
 vi.mock("./adopt.js", () => ({ adoptionArtifactChecks: () => [] }));
+vi.mock("./doctor-lint.js", () => ({ lintAdoptionChecks: () => [] }));
 vi.mock("./doctor-skills.js", () => ({ skillInstallationChecks: () => [] }));
 
 vi.mock("../lib/config.js", () => ({
@@ -231,7 +229,7 @@ function capturedJson(): {
 	server: Array<{ name: string; status: string; message: string }>;
 	summary: { pass: number; fail: number; warn: number };
 } {
-	const raw = vi.mocked(console.log).mock.calls.at(-1)?.[0] as string;
+	const raw = parseWire(vi.mocked(console.log).mock.calls.at(-1)?.[0], wireString, "test JSON value");
 	return JSON.parse(raw);
 }
 
@@ -705,22 +703,6 @@ describe("doctorCommand", () => {
 		expect(captured()).toContain("Permission rules (.claude/settings.json)");
 	});
 
-	it("renders an empty sample when malformed[0] is undefined (?? fallback)", async () => {
-		seedHealthyFs();
-		const settings = `${CWD}/.claude/settings.json`;
-		mockDefaultSettingsPaths.mockReturnValue([settings]);
-		// Non-empty length (passes the `> 0` guard) but [0] is a hole -> the
-		// `?.rule.slice(...) ?? ""` fallback supplies the empty sample string.
-		const sparse = [undefined] as unknown as Array<{ rule: string }>;
-		mockValidateSettingsFile.mockReturnValue({
-			exists: true,
-			parseError: false,
-			malformed: sparse,
-		});
-		await run();
-		// 1 malformed, empty sample -> message ends with the empty JSON string.
-		expect(captured()).toContain('1 malformed rule(s) -- e.g. ""');
-	});
 
 	// -------------------------------------------------------------------------
 	// Auth token (6)

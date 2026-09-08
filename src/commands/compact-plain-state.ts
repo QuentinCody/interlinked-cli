@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 import { existsSync, readdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { findLineBoundaryAtOrBefore, readFileRange } from "../lib/bounded-file-io.js";
@@ -69,7 +70,7 @@ function matchesArchiveFile(file: string, seq: number, expectedLog?: ArchiveLogN
 	const match = ARCHIVE_SEGMENT_FILE_RE.exec(file);
 	if (!match) return false;
 	if (expectedLog !== undefined && match[1] !== expectedLog) return false;
-	return Number.parseInt(match[2] as string, 10) === seq;
+	return Number.parseInt(nonNull(match[2]), 10) === seq;
 }
 
 function parseFileIdentity(value: unknown): FileIdentity | null {
@@ -176,7 +177,7 @@ function rebuildPlainManifestFromDisk(log: PlainLogName, cwd: string): ArchiveMa
 			const match = pattern.exec(name);
 			if (!match) continue;
 			// SAFETY: the capture group is digits, so it is present and numeric.
-			const seq = Number.parseInt(match[1] as string, 10);
+			const seq = Number.parseInt(nonNull(match[1]), 10);
 			if (!Number.isFinite(seq)) continue;
 			let gzBytes = 0;
 			try {
@@ -227,7 +228,7 @@ export function nextPlainSegmentSeq(
 		for (const name of readdirSync(archiveDir)) {
 			const match = onDisk.exec(name);
 			if (!match) continue;
-			const seq = Number.parseInt(match[1] as string, 10);
+			const seq = Number.parseInt(nonNull(match[1]), 10);
 			if (Number.isFinite(seq) && seq > max) max = seq;
 		}
 	} catch {

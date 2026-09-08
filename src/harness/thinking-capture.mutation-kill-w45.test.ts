@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -118,7 +119,7 @@ describe("extractNewThinking — cursor persistence and JSON-line parsing", () =
 		const result = extractNewThinking(transcriptPath, cursorPath);
 		expect(result).not.toBeNull();
 		// SAFETY: guarded by the not-null assertion above — result is a string here.
-		expect(result as string).toContain("---");
+		expect(nonNull(result)).toContain("---");
 	});
 
 	// test-contract: boundary — `cursor.offset >= size` must return null BEFORE

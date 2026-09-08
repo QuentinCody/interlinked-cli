@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import type { FunctionTokenEntry } from "./types.js";
 
 const PYTHON_ADAPTER = String.raw`
@@ -118,10 +119,38 @@ for row in rows:
 print(json.dumps({"ok": True, "entries": rows}, separators=(",", ":")))
 `;
 
-interface PythonAdapterResponse {
-    ok?: boolean;
-    reason?: string;
-    entries?: FunctionTokenEntry[];
+function isTokenCount(value: unknown): value is number {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function parsePositions(value: JsonObject): Pick<FunctionTokenEntry, "startOffset" | "endOffset" | "line" | "endLine" | "canonicalTokens"> | null {
+    const { startOffset, endOffset, line, endLine, canonicalTokens } = value;
+    if (!isTokenCount(startOffset) || !isTokenCount(endOffset) || !isTokenCount(line)
+        || !isTokenCount(endLine) || !isTokenCount(canonicalTokens)) return null;
+    return { startOffset, endOffset, line, endLine, canonicalTokens };
+}
+
+function parseEntry(value: unknown): FunctionTokenEntry | null {
+    if (!isJsonObject(value)) return null;
+    const { name, qualifiedName, language } = value;
+    if (typeof name !== "string" || typeof qualifiedName !== "string" || language !== "python") return null;
+    const declarationKind = (["function", "method", "constructor", "closure", "lambda"] as const)
+        .find((kind) => kind === value.declarationKind);
+    const identityKind = (["named", "anonymous", "colliding"] as const).find((kind) => kind === value.identityKind);
+    const positions = parsePositions(value);
+    if (!declarationKind || !identityKind || !positions) return null;
+    return { name, qualifiedName, language, declarationKind, identityKind, ...positions };
+}
+
+function parseAdapterOutput(value: unknown): FunctionTokenEntry[] | null {
+    if (!isJsonObject(value) || value.ok !== true || !Array.isArray(value.entries)) return null;
+    const entries: FunctionTokenEntry[] = [];
+    for (const valueEntry of value.entries) {
+        const entry = parseEntry(valueEntry);
+        if (!entry) return null;
+        entries.push(entry);
+    }
+    return entries;
 }
 
 export function computePythonFunctionTokens(
@@ -136,8 +165,7 @@ export function computePythonFunctionTokens(
     });
     if (result.status !== 0 || result.error || !result.stdout) return null;
     try {
-        const parsed = JSON.parse(result.stdout) as PythonAdapterResponse;
-        return parsed.ok && Array.isArray(parsed.entries) ? parsed.entries : null;
+        return parseAdapterOutput(JSON.parse(result.stdout));
     } catch {
         return null;
     }

@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireLiteral, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 // ===========================================
 // Cross-Session Learned Rules — persistence failure paths
 // ===========================================
@@ -12,7 +13,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createLearnedRulesStore } from "./learned-rules.js";
-import type { LearnedRule } from "./types/session.js";
 
 let tmp: string;
 
@@ -38,9 +38,9 @@ describe("createLearnedRulesStore — save() lazily creates the directory", () =
 		expect(existsSync(interlinkedDir)).toBe(true);
 		// SAFETY: we just wrote this file via the module's own save() path,
 		// which always serializes a LearnedRule[].
-		const onDisk = JSON.parse(
+		const onDisk = parseWire(JSON.parse(
 			readFileSync(join(interlinkedDir, "learned-rules.json"), "utf-8"),
-		) as LearnedRule[];
+		), wireArray(wireObject({ "pattern": wireString, "observation_count": wireNumber, "decision": wireLiteral("allow"), "first_seen": wireString, "learned_at": wireString, "learned_in_session": wireString })), "test JSON value");
 		expect(onDisk.map((r) => r.pattern)).toEqual(["Bash(npm run build *)"]);
 	});
 });

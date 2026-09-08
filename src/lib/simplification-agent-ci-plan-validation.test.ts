@@ -129,13 +129,10 @@ describe("simplification P5 validation plan", () => {
 
 	it("refuses a request whose check plan hash is not a valid sha256 despite candidate mode", () => {
 		const request = buildSimplificationAgentCiRequest(draft());
-		// SAFETY: the branded type has no runtime marker, so this is the only
-		// way to exercise the defensive re-check inside buildSimplificationAgentCiP5Plan
-		// against a request whose validation shape violates its own type contract.
 		const tampered = {
 			...request,
 			validation: { ...request.validation, check_plan_sha256: "not-a-sha" },
-		} as typeof request;
+		};
 		expect(() => buildSimplificationAgentCiP5Plan(tampered, candidates())).toThrow(
 			/pinned request\.validation\.check_plan_sha256/,
 		);
@@ -170,7 +167,7 @@ describe("simplification P5 validation plan", () => {
 	it("rejects a plan whose eligibility verdict was tampered with", () => {
 		const request = buildSimplificationAgentCiRequest(draft());
 		const plan = buildSimplificationAgentCiP5Plan(request, candidates());
-		const tampered = JSON.parse(JSON.stringify(plan)) as typeof plan;
+		const tampered = structuredClone(plan);
 		const unnarrowed = tampered.candidates.find(
 			(candidate) => candidate.fingerprint === "protected",
 		);

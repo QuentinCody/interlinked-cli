@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../lib/json-types.js";
 // ===========================================
 // Durable mutation journal — legacy file-store import seam (unit companion)
 // ===========================================
@@ -29,18 +30,15 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		lstatSync: ((path: unknown, opts?: unknown) => {
-			if (fsControl.poisonLstatPath !== null && String(path) === fsControl.poisonLstatPath) {
-				throw new Error(`EACCES: permission denied, lstat '${String(path)}'`);
-			}
-			// SAFETY: mutation-journal-legacy.ts only ever calls lstatSync(path)
-			// with no second argument; every non-poisoned call (including this
-			// file's own fixture writes) passes through to the real fs untouched.
-			return (actual.lstatSync as (p: unknown, o?: unknown) => unknown)(path, opts);
-			// SAFETY: this wrapper only intercepts the poisoned path above; its
-			// return shape is identical to the real lstatSync it replaces.
-		}) as typeof actual.lstatSync,
-		readSync: ((
+		lstatSync: new Proxy(actual.lstatSync, {
+			apply(target, receiver, args) {
+				if (fsControl.poisonLstatPath !== null && String(args[0]) === fsControl.poisonLstatPath) {
+					throw new Error(`EACCES: permission denied, lstat '${String(args[0])}'`);
+				}
+				return Reflect.apply(target, receiver, args);
+			},
+		}),
+		readSync: (
 			fd: number,
 			buffer: NodeJS.ArrayBufferView,
 			offset: number,
@@ -52,25 +50,11 @@ vi.mock("node:fs", async (importOriginal) => {
 				// between the stat and this read: fill the FULL requested span
 				// instead of stopping at the real (tiny) on-disk length, exactly
 				// as a real concurrent writer racing the capture would produce.
-				// SAFETY: readBoundedFile only ever passes a Buffer (a Uint8Array
-				// subclass) here — `.fill` is safe on the narrower view type.
-				(buffer as Uint8Array).fill(65, offset, offset + length);
+				new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength).fill(65, offset, offset + length);
 				return length;
 			}
-			// SAFETY: readBoundedFile always calls readSync with all five
-			// positional args; the real implementation is used verbatim here.
-			return (
-				actual.readSync as (
-					fd: number,
-					buffer: NodeJS.ArrayBufferView,
-					offset: number,
-					length: number,
-					position: number | null,
-				) => number
-			)(fd, buffer, offset, length, position);
-			// SAFETY: this wrapper only intercepts calls while forceOverread is
-			// set; its return shape is identical to the real readSync it replaces.
-		}) as typeof actual.readSync,
+			return actual.readSync(fd, buffer, offset, length, position);
+		},
 	};
 });
 
@@ -102,17 +86,13 @@ function capturedField(sourceId: string, field: string): Record<string, unknown>
 	journal?.close();
 	journal = null;
 	const raw = openNodeSqlite(mutationJournalPath(root));
-	// SAFETY: source_id is the primary key and payload_json is stored text.
-	const row = raw
-		.prepare("SELECT payload_json FROM mutation_legacy_imports WHERE source_id = ?")
-		.get(sourceId) as { payload_json: string };
+	const row = raw.prepare("SELECT payload_json FROM mutation_legacy_imports WHERE source_id = ?").get(sourceId);
 	raw.close();
-	// SAFETY: payload_json is written by inTransaction/stableJson from the
-	// exact CapturedLegacyFile-keyed object importLegacyMutationFiles built;
-	// this test only reads back fields it wrote in the same test.
-	const payload = JSON.parse(row.payload_json) as Record<string, Record<string, unknown>>;
+	if (!isJsonObject(row) || typeof row.payload_json !== "string") throw new Error("Missing captured payload");
+	const payload: unknown = JSON.parse(row.payload_json);
+	if (!isJsonObject(payload)) throw new Error("Invalid captured payload");
 	const record = payload[field];
-	if (!record) throw new Error(`no captured record for field "${field}"`);
+	if (!isJsonObject(record)) throw new Error(`no captured record for field "${field}"`);
 	return record;
 }
 
@@ -178,9 +158,10 @@ describe("importLegacyMutationFiles — capture-skip branches", () => {
 		writeFileSync(pendingPath, "abc");
 		fsControl.poisonLstatPath = pendingPath;
 
+		const activeJournal = journal;
 		let imported: ReturnType<typeof importLegacyMutationFiles>;
 		expect(() => {
-			imported = importLegacyMutationFiles(journal as MutationJournal, root, 100);
+			imported = importLegacyMutationFiles(activeJournal, root, 100);
 		}).not.toThrow();
 		fsControl.poisonLstatPath = null;
 

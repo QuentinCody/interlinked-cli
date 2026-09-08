@@ -219,7 +219,7 @@ describe("validateCoversArray", () => {
 	});
 
 	it("errors and short-circuits when covers is not an array", () => {
-		const errors = validateCoversArray({ artifact_kind: "module" } as unknown as unknown[], "covers");
+		const errors = validateCoversArray({ artifact_kind: "module" }, "covers");
 		expect(errors).toEqual([{ path: "covers", message: "covers must be an array" }]);
 	});
 

@@ -171,31 +171,11 @@ describe("ci-status survivor contracts", () => {
 
     // test-contract: commander registration exposes the documented descriptions and option flags.
     it("registers the documented command metadata", () => {
-        const descriptions: string[] = [];
-        const flags: string[] = [];
-        const subcommand = {
-            description(value: string) {
-                descriptions.push(value);
-                return this;
-            },
-            option(flag: string, description: string) {
-                flags.push(flag + "|" + description);
-                return this;
-            },
-            action() {
-                return this;
-            },
-        };
-
-        registerCiCommand({
-            command(name: string) {
-                expect(name).toBe("ci-status");
-                return subcommand;
-            },
-        } as never);
-
-        expect(descriptions[0]).toContain("GitHub Actions");
-        expect(flags).toEqual([
+        const program = new Command();
+        registerCiCommand(program);
+        const subcommand = nonNull(program.commands.find((command) => command.name() === "ci-status"));
+        expect(subcommand.description()).toContain("GitHub Actions");
+        expect(subcommand.options.map((option) => option.flags + "|" + option.description)).toEqual([
             "--limit <n>|Number of recent runs to fetch (default 30, max 100)",
             "--branch <name>|Restrict to a specific branch (default: all branches)",
             "--json|Output JSON",
@@ -204,3 +184,5 @@ describe("ci-status survivor contracts", () => {
         ]);
     });
 });
+import { Command } from "commander";
+import { nonNull } from "../lib/non-null.js";

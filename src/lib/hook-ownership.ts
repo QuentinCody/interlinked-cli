@@ -115,7 +115,7 @@ function scanChar(
  *  aware, so a `|` inside quotes never splits. `&&`/`||` fall out of the
  *  single-character split naturally (empty segments are dropped). */
 function splitShellSegments(command: string): string[] {
-	const state = { quote: null as string | null, current: "", segments: [] as string[] };
+	const state: { quote: string | null; current: string; segments: string[] } = { quote: null, current: "", segments: [] };
 	let i = 0;
 	while (i < command.length) i = scanChar(command, i, state);
 	state.segments.push(state.current);

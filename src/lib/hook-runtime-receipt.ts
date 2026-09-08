@@ -53,11 +53,32 @@ export function readHookRuntimeReceipt(path: string): HookRuntimeReceipt | null 
 	try {
 		const value: unknown = JSON.parse(readFileSync(path, "utf-8"));
 		if (!isJsonObject(value) || value.schema_version !== "1") return null;
-		if (!isJsonObject(value.providers)) return null;
-		return value as unknown as HookRuntimeReceipt;
+		const providers = parseProviders(value.providers);
+		return providers ? { schema_version: "1", providers } : null;
 	} catch {
 		return null;
 	}
+}
+
+function parseObservation(raw: unknown): HookRuntimeObservation | null {
+	if (!isJsonObject(raw) || typeof raw.observed_at !== "string" || typeof raw.native_event !== "string") return null;
+	const observation: HookRuntimeObservation = { observed_at: raw.observed_at, native_event: raw.native_event };
+	if (raw.definition_sha256 !== undefined) {
+		if (typeof raw.definition_sha256 !== "string") return null;
+		observation.definition_sha256 = raw.definition_sha256;
+	}
+	return observation;
+}
+
+function parseProviders(raw: unknown): HookRuntimeReceipt["providers"] | null {
+	if (!isJsonObject(raw)) return null;
+	const providers: Array<[string, HookRuntimeObservation]> = [];
+	for (const [provider, value] of Object.entries(raw)) {
+		const observation = parseObservation(value);
+		if (!observation) return null;
+		providers.push([provider, observation]);
+	}
+	return Object.fromEntries(providers);
 }
 
 export function hashHookDefinition(path: string): string | undefined {

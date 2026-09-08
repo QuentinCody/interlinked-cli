@@ -1,3 +1,4 @@
+import { isJsonObject } from "../lib/json-types.js";
 // ===========================================
 // interlinked doctor — Diagnose and fix issues
 // ===========================================
@@ -94,14 +95,11 @@ async function workspaceAccessChecks(client: DoctorClient): Promise<CheckResult[
 	// Internal codebases in the active workspace DO context — a different scope
 	// than registry workspaces; can be >1 inside a single ws_ membership.
 	try {
-		// `callTool` returns `unknown` cast to the requested shape internally
-		// (it asserts a parsed HTTP body `as T` with no runtime validation), so
-		// the response can genuinely be any JSON value at runtime — narrow it
-		// here instead of trusting the assumed shape.
+		// The server response is unknown until its consumed fields are checked.
 		const wsResult: unknown = await client.callTool("list_workspaces", {});
 		const wsWorkspaces =
-			typeof wsResult === "object" && wsResult !== null
-				? (wsResult as { workspaces?: unknown }).workspaces
+			isJsonObject(wsResult)
+				? wsResult.workspaces
 				: undefined;
 		const codebaseCount = Array.isArray(wsWorkspaces) ? wsWorkspaces.length : 0;
 		out.push({

@@ -5,7 +5,7 @@
 // Multiple inflight requests are keyed by `id` (the daemon echoes it back).
 // See docs/design/free-cli-architecture.md §"Daemon architecture".
 
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../lib/json-types.js";
 import type { HarnessDecision } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 import type { HookCoverageReport, HookCoverageRequest } from "./hook-coverage-control.js";
@@ -44,6 +44,19 @@ type RpcErrorCode =
 
 export type RpcMessage = RpcRequest | RpcResponse | RpcError;
 
+/** Only the transport identity is trusted until a method-specific parser runs. */
+export interface RpcEnvelope extends JsonObject {
+	id: string;
+}
+
+/** Incoming requests can carry unsupported methods/versions or malformed params. */
+export interface RpcWireRequest {
+	id: string;
+	method: string;
+	schema_version?: unknown;
+	params?: unknown;
+}
+
 // -----------------------------------------------------------------------------
 // Method table
 // -----------------------------------------------------------------------------
@@ -64,6 +77,8 @@ export type RpcMethod =
 	| "daemon.invalidate"
 	| "tsgo.check_file"
 	| "tsgo.simulate_edit";
+
+export type HookRpcMethod = Extract<RpcMethod, `hook.${string}`>;
 
 // -----------------------------------------------------------------------------
 // Parameter + result types (indexed by method name)
@@ -168,36 +183,29 @@ export function splitFrames(chunk: string, pending = ""): { frames: string[]; re
 	return { frames, remainder: chunk.slice(start) };
 }
 
-/** Decode a single JSON frame into an RpcMessage. Throws when the shape is
+/** Decode a single JSON frame into an envelope. Throws when the shape is
  *  fundamentally broken; callers should translate the throw into an RpcError
  *  with `code: bad_request`. */
-export function decodeFrame(frame: string): RpcMessage {
+export function decodeFrame(frame: string): RpcEnvelope {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(frame);
 	} catch (err) {
-		throw new Error(`invalid JSON frame: ${(err as Error).message}`, {
+		throw new Error(`invalid JSON frame: ${err instanceof Error ? err.message : String(err)}`, {
 			cause: err,
 		});
 	}
-	if (parsed == null || typeof parsed !== "object") {
+	if (!isJsonObject(parsed)) {
 		throw new Error("frame must be an object");
 	}
-	const obj = parsed as JsonObject;
-	if (typeof obj.id !== "string" || obj.id.length === 0) {
+	if (!isEnvelope(parsed)) {
 		throw new Error("frame missing id");
 	}
-	// Protocol edge: we validate the envelope `id` here and defer variant
-	// discrimination (request / response / error) to `isRequest` / `isError`
-	// downstream, so the wire object is widened from `unknown` to the
-	// `RpcMessage` union rather than structurally smuggled into it.
-	const wireMessage: unknown = obj;
-	return wireMessage as RpcMessage;
+	return parsed;
 }
 
-/** Type-narrowing predicate: true when the message has a `method` field. */
-export function isRequest(msg: RpcMessage): msg is RpcRequest {
-	return typeof (msg as RpcRequest).method === "string";
+function isEnvelope(value: JsonObject): value is RpcEnvelope {
+	return typeof value.id === "string" && value.id.length > 0;
 }
 
 /**
@@ -207,21 +215,28 @@ export function isRequest(msg: RpcMessage): msg is RpcRequest {
  * `error` members. Before 2026-08-09 this tested only that `error` was a
  * non-null object, so `{ error: {} }` off the wire narrowed to `RpcError` and
  * callers then read `.id` / `.error.code` as `string` when both were
- * `undefined` — `parseWireMessage` widens an untrusted object into `RpcMessage`
- * by assertion, which makes this predicate the only real gate. Found by the
- * `type_predicate_drift` check.
+ * `undefined`. The transport now retains an unknown-field envelope until a
+ * variant parser has established every required field.
  *
  * Tightening is safe for our own traffic: `makeError` is the sole producer and
  * always populates all four fields.
  */
-export function isError(msg: RpcMessage): msg is RpcError {
-	if (typeof (msg as RpcError).id !== "string") return false;
-	const err: unknown = (msg as RpcError).error;
-	if (typeof err !== "object" || err === null) return false;
-	const { code, message, recoverable } = err as Partial<RpcError["error"]>;
+export function isError(msg: unknown): msg is RpcError {
+	if (!isJsonObject(msg) || !isEnvelope(msg) || !isJsonObject(msg.error)) return false;
+	const { code, message, recoverable } = msg.error;
 	return (
-		typeof code === "string" && typeof message === "string" && typeof recoverable === "boolean"
+		isErrorCode(code) && typeof message === "string" && typeof recoverable === "boolean"
 	);
+}
+
+/** Discriminate routing fields without claiming validated method parameters. */
+export function isRequest(msg: unknown): msg is RpcWireRequest {
+	return isJsonObject(msg) && isEnvelope(msg) && typeof msg.method === "string";
+}
+
+function isErrorCode(code: unknown): code is RpcErrorCode {
+	return code === "timeout" || code === "bad_request" || code === "unknown_method" ||
+		code === "schema_mismatch" || code === "tsgo_unavailable" || code === "internal";
 }
 
 /** Construct a well-formed RpcError. */
@@ -235,7 +250,7 @@ export function makeError(
 }
 
 /** Map a hook UnifiedPhase to the corresponding RpcMethod. */
-export function methodForPhase(phase: UnifiedHookEvent["phase"]): RpcMethod {
+export function methodForPhase(phase: UnifiedHookEvent["phase"]): HookRpcMethod {
 	switch (phase) {
 		case "pre-tool":
 			return "hook.pre_tool_use";

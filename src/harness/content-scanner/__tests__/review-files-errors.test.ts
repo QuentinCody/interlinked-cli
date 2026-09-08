@@ -8,20 +8,24 @@
 import {
 	existsSync,
 	mkdirSync,
-	readdirSync,
 	readFileSync,
-	statSync,
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PathLike, Stats } from "node:fs";
+
+const { readdirSyncMock, statSyncMock } = vi.hoisted(() => ({
+	readdirSyncMock: vi.fn<(path: PathLike) => string[]>(),
+	statSyncMock: vi.fn<(path: PathLike) => Stats>(),
+}));
 
 vi.mock("node:fs", () => ({
 	existsSync: vi.fn(),
 	mkdirSync: vi.fn(),
-	readdirSync: vi.fn(),
+	readdirSync: readdirSyncMock,
 	readFileSync: vi.fn(),
-	statSync: vi.fn(),
+	statSync: statSyncMock,
 	unlinkSync: vi.fn(),
 	writeFileSync: vi.fn(),
 }));
@@ -36,11 +40,16 @@ import {
 
 const existsSyncMock = vi.mocked(existsSync);
 const mkdirSyncMock = vi.mocked(mkdirSync);
-const readdirSyncMock = vi.mocked(readdirSync);
 const readFileSyncMock = vi.mocked(readFileSync);
-const statSyncMock = vi.mocked(statSync);
 const unlinkSyncMock = vi.mocked(unlinkSync);
 const writeFileSyncMock = vi.mocked(writeFileSync);
+
+const { statSync: realStatSync } = await vi.importActual<typeof import("node:fs")>("node:fs");
+function statResult(mtimeMs: number): Stats {
+	const result = realStatSync(new URL(import.meta.url));
+	result.mtimeMs = mtimeMs;
+	return result;
+}
 
 const CWD = "/repo";
 const actor = { user: "u", host: "h", tty: null };
@@ -165,7 +174,7 @@ describe("listPendingReviews — corrupt entry and equal-timestamp sort", () => 
 			"a.review.json",
 			"b.review.json",
 			"c.review.json",
-		] as unknown as ReturnType<typeof readdirSync>);
+		]);
 		readFileSyncMock.mockImplementation((p) => {
 			const path = String(p);
 			if (path.endsWith("a.review.json")) return "not json";
@@ -194,7 +203,7 @@ describe("listPendingReviews — corrupt entry and equal-timestamp sort", () => 
 			"x.review.json",
 			"y.review.json",
 			"z.review.json",
-		] as unknown as ReturnType<typeof readdirSync>);
+		]);
 		const timestamps: Record<string, string> = {
 			x: "2026-01-01T00:00:00.000Z",
 			y: "2026-06-01T00:00:00.000Z",
@@ -244,14 +253,14 @@ describe("pruneStale (via writeReview) — TTL sweep branches", () => {
 			"recent.decision.json",
 			"ignore.txt",
 			"broken.review.json",
-		] as unknown as ReturnType<typeof readdirSync>);
+		]);
 		statSyncMock.mockImplementation((p) => {
 			const path = String(p);
 			if (path.endsWith("old.review.json")) {
-				return { mtimeMs: Date.now() - 2 * 60 * 60 * 1000 } as ReturnType<typeof statSync>;
+				return statResult(Date.now() - 2 * 60 * 60 * 1000);
 			}
 			if (path.endsWith("recent.decision.json")) {
-				return { mtimeMs: Date.now() } as ReturnType<typeof statSync>;
+				return statResult(Date.now());
 			}
 			// broken.review.json: simulate a stat race
 			throw new Error("stat race");

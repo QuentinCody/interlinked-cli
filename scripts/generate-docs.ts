@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { STRUCTURAL_CHECK_META } from "../src/harness/check-metadata.js";
 import { METRIC_DEFS } from "../src/harness/metric-caps.js";
 import { renderDataCatalogMarkdown } from "../src/lib/data/catalog.js";
+import { isJsonObject } from "../src/lib/json-types.js";
 // Import data structures from the harness
 import { getBuiltinRules, getDefaultConfig } from "../src/harness/rules-loader.js";
 import { ALL_SEQUENCE_DETECTORS } from "../src/harness/sequence-checks/registry.js";
@@ -43,7 +44,7 @@ function generateGuardRules(): string {
 	// Group by category
 	const byCategory = new Map<string, typeof rules>();
 	for (const rule of rules) {
-		const cat = (rule as { category?: string }).category || "uncategorized";
+		const cat = rule.category || "uncategorized";
 		if (!byCategory.has(cat)) byCategory.set(cat, []);
 		byCategory.get(cat)!.push(rule);
 	}
@@ -320,13 +321,19 @@ function getHelpOutput(args: string[]): string {
 	} catch (err) {
 		// Commander writes help to stdout and exits with code 0, but execFileSync
 		// may throw if the process exits before consuming all stdin. Try stderr fallback.
-		const e = err as { stdout?: string; stderr?: string };
-		raw = (e.stdout || e.stderr || "").trim();
+		raw = helpOutputFromError(err);
 	}
 	// Strip the repeated "Interface boundaries" / "Quick start" footer that commander appends
 	const footerIdx = raw.indexOf("\nInterface boundaries:");
 	const withoutFooter = footerIdx >= 0 ? raw.slice(0, footerIdx).trimEnd() : raw;
 	return sanitizeHelpOutput(withoutFooter);
+}
+
+function helpOutputFromError(error: unknown): string {
+	if (!isJsonObject(error)) return "";
+	const stdout = typeof error.stdout === "string" ? error.stdout : "";
+	const stderr = typeof error.stderr === "string" ? error.stderr : "";
+	return (stdout || stderr).trim();
 }
 
 function sanitizeHelpOutput(output: string): string {

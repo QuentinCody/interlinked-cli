@@ -163,7 +163,7 @@ describe("parseInlineValue — MAX_LIST_ENTRIES boundary is strictly '>'", () =>
 		expect(result.formatViolation).toBe(false);
 		// SAFETY: parseInlineValue on bracketed input always yields a string[] for
 		// `value`; asserting the length is how the "exactly 50" boundary is checked.
-		expect((result.value as string[]).length).toBe(50);
+		expect(result).toHaveProperty(["value","length"], 50);
 	});
 
 	// test-contract: boundary — sanity check that the cap is enforced at all (51 > 50

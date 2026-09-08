@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Mutation-directed kills for src/harness/graph-prediction-classifier.ts.
 // Every case below closes a gap the companion graph-prediction-classifier.test.ts
 // left open — verified by shadow-running the exact mutation against a real
@@ -37,7 +38,7 @@ afterEach(() => {
 function makePair(root: string, ...segments: string[]): void {
 	const leafDir = join(root, ...segments.slice(0, -1));
 	mkdirSync(leafDir, { recursive: true });
-	const base = join(leafDir, segments.at(-1) as string);
+	const base = join(leafDir, nonNull(segments.at(-1)));
 	writeFileSync(`${base}.ts`, "export {}");
 	writeFileSync(`${base}.graph.ts`, "// @generated supermodel-sidecar");
 }

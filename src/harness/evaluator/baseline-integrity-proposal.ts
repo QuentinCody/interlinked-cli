@@ -5,17 +5,15 @@
 // edit WOULD leave on disk, or null when the edit cannot be reconstructed
 // (the gate then fails open).
 
+import { readOptionalToolString } from "./tool-input-values.js";
 import { reconstructEditContent } from "./config-loosening-gate.js";
-
-type EditPair = { old_string?: string; new_string?: string };
+import { isJsonObject } from "../../lib/json-types.js";
 
 function applyEditList(before: string, edits: unknown[]): string | null {
 	let cur: string | null = before;
-	// SAFETY: the element shape is unvalidated tool input; every member is re-checked
-	// with `typeof` below, so a non-conforming entry is skipped rather than trusted.
-	for (const e of edits as EditPair[]) {
+	for (const e of edits) {
 		if (cur === null) break;
-		if (typeof e.old_string === "string" && typeof e.new_string === "string") {
+		if (isJsonObject(e) && typeof e.old_string === "string" && typeof e.new_string === "string") {
 			cur = reconstructEditContent(cur, e.old_string, e.new_string);
 		}
 	}
@@ -27,14 +25,12 @@ function applyEditList(before: string, edits: unknown[]): string | null {
  * carries neither full content nor a reconstructable edit.
  */
 export function reconstructProposedBaseline(before: string, toolInput: Record<string, unknown>): string | null {
-	// SAFETY: these three reads narrow unvalidated tool input; each value is
-	// re-checked with `typeof … === "string"` before use, so a wrong runtime type
-	// falls through to the null (fail-open) path instead of being trusted.
-	const content = toolInput.content as string | undefined;
+
+	const content = readOptionalToolString(toolInput.content);
 	if (typeof content === "string") return content;
 	if (Array.isArray(toolInput.edits)) return applyEditList(before, toolInput.edits);
-	const oldString = toolInput.old_string as string | undefined;
-	const newString = toolInput.new_string as string | undefined;
+	const oldString = readOptionalToolString(toolInput.old_string);
+	const newString = readOptionalToolString(toolInput.new_string);
 	if (typeof oldString === "string" && typeof newString === "string") {
 		return reconstructEditContent(before, oldString, newString);
 	}

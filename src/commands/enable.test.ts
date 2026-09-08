@@ -186,8 +186,8 @@ function config(over: Partial<ConfigShape> = {}): ConfigShape {
 
 /** Concatenate every console.log argument into one ANSI-stripped blob. */
 function logged(spy: ReturnType<typeof vi.spyOn>): string {
-	const calls = spy.mock.calls as unknown[][];
-	return stripAnsi(calls.map((args) => args.join(" ")).join("\n"));
+	const calls = spy.mock.calls;
+	return stripAnsi(calls.map((args: unknown[]) => args.join(" ")).join("\n"));
 }
 
 let logSpy: ReturnType<typeof vi.spyOn>;
@@ -205,7 +205,7 @@ beforeEach(() => {
 	vi.mocked(hasLegacyConfig).mockReturnValue(false);
 	vi.mocked(migrateLegacyConfig).mockReturnValue(false);
 	vi.mocked(getConfigDir).mockReturnValue(`${CWD}/.interlinked`);
-	vi.mocked(resolveConfig).mockReturnValue(config() as never);
+	vi.mocked(resolveConfig).mockReturnValue(config());
 	vi.mocked(detectHookManagers).mockReturnValue([]);
 	vi.mocked(writeHookScript).mockReturnValue(`${CWD}/.interlinked/hooks/interlinked-activity.mjs`);
 	vi.mocked(getHookScriptPath).mockReturnValue(
@@ -216,7 +216,7 @@ beforeEach(() => {
 	vi.mocked(ensureGitignore).mockReturnValue(false);
 	vi.mocked(installStatusLine).mockReturnValue(null);
 	vi.mocked(installSkills).mockReturnValue([]);
-	vi.mocked(isHarnessRunning).mockReturnValue({ running: true, pid: 4242 } as never);
+	vi.mocked(isHarnessRunning).mockReturnValue({ running: true, pid: 4242 });
 	vi.mocked(harnessStartCommand).mockResolvedValue(undefined);
 	vi.mocked(structureInitCommand).mockResolvedValue(undefined);
 });
@@ -402,7 +402,7 @@ describe("enableCommand — config lifecycle", () => {
 
 	it("updates the server URL when configured and the flag differs", async () => {
 		vi.mocked(isConfigured).mockReturnValue(true);
-		vi.mocked(resolveConfig).mockReturnValue(config({ server_url: "http://old" }) as never);
+		vi.mocked(resolveConfig).mockReturnValue(config({ server_url: "http://old" }));
 
 		await enableCommand({ server: "http://new" });
 
@@ -413,7 +413,7 @@ describe("enableCommand — config lifecycle", () => {
 
 	it("leaves the server URL untouched when configured and the flag matches", async () => {
 		vi.mocked(isConfigured).mockReturnValue(true);
-		vi.mocked(resolveConfig).mockReturnValue(config({ server_url: "http://same" }) as never);
+		vi.mocked(resolveConfig).mockReturnValue(config({ server_url: "http://same" }));
 
 		await enableCommand({ server: "http://same" });
 
@@ -770,7 +770,7 @@ describe("enableCommand — gitignore, status line, enforce skill", () => {
 
 describe("enableCommand — harness autostart", () => {
 	it("does not start the harness when it is already running", async () => {
-		vi.mocked(isHarnessRunning).mockReturnValue({ running: true, pid: 99 } as never);
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: true, pid: 99 });
 
 		await enableCommand({});
 
@@ -778,7 +778,7 @@ describe("enableCommand — harness autostart", () => {
 	});
 
 	it("starts the harness as a daemon when it is not running", async () => {
-		vi.mocked(isHarnessRunning).mockReturnValue({ running: false } as never);
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: false });
 		vi.mocked(harnessStartCommand).mockResolvedValue(undefined);
 
 		await enableCommand({});
@@ -787,7 +787,7 @@ describe("enableCommand — harness autostart", () => {
 	});
 
 	it("reports a recovery hint when harness start throws", async () => {
-		vi.mocked(isHarnessRunning).mockReturnValue({ running: false } as never);
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: false });
 		vi.mocked(harnessStartCommand).mockRejectedValue(new Error("port in use"));
 
 		await enableCommand({});
@@ -910,7 +910,7 @@ describe("enableCommand — summary block", () => {
 				sync_mode: "manual",
 				agent_name: "atlas",
 				access_token: "tok",
-			}) as never,
+			}),
 		);
 		vi.mocked(detectClients).mockReturnValue([detected("claude", true)]);
 		vi.mocked(installAllHooks).mockReturnValue([
@@ -932,7 +932,7 @@ describe("enableCommand — summary block", () => {
 
 	it("omits the agent line and shows the not-logged-in prompt when no token", async () => {
 		vi.mocked(resolveConfig).mockReturnValue(
-			config({ server_url: "https://srv", sync_mode: "realtime" }) as never,
+			config({ server_url: "https://srv", sync_mode: "realtime" }),
 		);
 		vi.mocked(detectClients).mockReturnValue([detected("claude", true)]);
 		vi.mocked(installAllHooks).mockReturnValue([

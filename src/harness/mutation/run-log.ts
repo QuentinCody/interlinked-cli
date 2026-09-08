@@ -10,6 +10,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { isJsonObject } from "../../lib/json-types.js";
 
 export const MUTATION_RUNS_REL = join(".interlinked", "mutation-runs.jsonl");
 
@@ -61,17 +62,31 @@ export function appendMutationRun(root: string, row: MutationRunRow): void {
 function parseRow(line: string): MutationRunRow | null {
 	try {
 		const raw: unknown = JSON.parse(line);
-		if (typeof raw !== "object" || raw === null) return null;
-		const r = raw as Partial<MutationRunRow>;
+		if (!isJsonObject(raw)) return null;
+		const r = raw;
 		if (typeof r.file !== "string" || typeof r.ts !== "string") return null;
 		if (typeof r.mutants !== "number" || typeof r.killed !== "number") return null;
-		// SAFETY: the four load-bearing fields are type-tested above; the rest
-		// are optional numbers a renderer treats as absent when malformed.
-		return raw as MutationRunRow;
+		if (typeof r.survived !== "number") return null;
+		const source = (["per-edit", "harvest", "script"] as const).find((value) => value === r.source);
+		if (source === undefined) return null;
+		const row: MutationRunRow = { file: r.file, ts: r.ts, mutants: r.mutants, killed: r.killed, survived: r.survived, source };
+		copyOptionalFields(r, row);
+		return row;
 	} catch (err) {
 		void err; // a torn tail line from a live writer is expected
 		return null;
 	}
+}
+
+function copyOptionalFields(raw: Record<string, unknown>, row: MutationRunRow): void {
+	for (const key of ["uncovered", "duration_ms", "shards"] as const) {
+		if (typeof raw[key] === "number") row[key] = raw[key];
+	}
+	for (const key of ["partial", "dry_run"] as const) {
+		if (typeof raw[key] === "boolean") row[key] = raw[key];
+	}
+	const outcome = (["baseline_adopted", "measured_clean", "finding", "harvest_partial"] as const).find((value) => value === raw.outcome);
+	if (outcome !== undefined) row.outcome = outcome;
 }
 
 /** Newest `limit` rows, oldest first. Missing/corrupt file reads as empty. */

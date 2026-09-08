@@ -41,6 +41,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { isJsonObject } from "../../lib/json-types.js";
 import { detectBaselineGaming } from "./baseline-integrity-gate.js";
 import { WATER_LINE_PATHS } from "./water-line-files.js";
 
@@ -178,10 +179,12 @@ export function writeUndoRecord(
 /** Read an undo record by id, or null when absent/unreadable. */
 function loadUndoRecord(path: string): UndoRecord | null {
 	const parsed = parseOrNull(readOrNull(path));
-	if (!parsed || typeof parsed !== "object") return null;
-	const rec = parsed as Partial<UndoRecord>;
-	if (!Array.isArray(rec.entries)) return null;
-	return { tool_use_id: rec.tool_use_id ?? "", entries: rec.entries };
+	if (!isJsonObject(parsed) || !Array.isArray(parsed.entries) || !parsed.entries.every(isUndoEntry)) return null;
+	return { tool_use_id: typeof parsed.tool_use_id === "string" ? parsed.tool_use_id : "", entries: parsed.entries };
+}
+
+function isUndoEntry(value: unknown): value is UndoRecord["entries"][number] {
+	return isJsonObject(value) && typeof value.file === "string" && typeof value.beforeText === "string";
 }
 
 /** Rewrite one water-line to its pre-call bytes. Reports failure rather than

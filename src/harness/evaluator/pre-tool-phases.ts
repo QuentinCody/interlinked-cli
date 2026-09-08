@@ -10,6 +10,7 @@
 // return a `HarnessDecision` to short-circuit or mutate session state in place;
 // control-flow order is unchanged.
 
+import { readToolString } from "./tool-input-values.js";
 import { isAbsolute, resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import type { ErrorHistory } from "../error-history.js";
@@ -69,7 +70,7 @@ export function evaluatePreChecksSelfKillEnv(
  *  no-op (null), so the caller needs no surrounding branch. */
 function blockSelfKillCommand(toolName: string, toolInput: ToolInput): HarnessDecision | null {
 	if (!isBash(toolName)) return null;
-	const command = (toolInput.command as string) || "";
+	const command = readToolString(toolInput.command);
 	if (!command) return null;
 	const selfKillResult = checkSelfKill(command);
 	if (!selfKillResult?.block) return null;
@@ -91,9 +92,9 @@ function blockEnvLeakToGitWrite(
 	warnings: string[],
 ): HarnessDecision | null {
 	if (!isFileWrite(toolName)) return null;
-	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 	if (!filePath) return null;
-	const content = (toolInput.content as string) || (toolInput.new_string as string);
+	const content = readToolString(toolInput.content) || readToolString(toolInput.new_string);
 	const envResult = checkEnvLeakToGit(filePath, content, eventCwd);
 	if (envResult?.block) {
 		return {
@@ -224,7 +225,7 @@ function pushDirtyTreeWarning(
 	warnings: string[],
 ): void {
 	if (!isBash(toolName)) return;
-	const command = (toolInput.command as string) || "";
+	const command = readToolString(toolInput.command);
 	if (!command) return;
 	const dirtyResult = checkDirtyWorkingTree(command, eventCwd);
 	if (dirtyResult?.warning) warnings.push(dirtyResult.warning);
@@ -232,20 +233,20 @@ function pushDirtyTreeWarning(
 
 function pushLargeFileByteWarning(toolName: string, toolInput: ToolInput, warnings: string[]): void {
 	if (!isFileWrite(toolName)) return;
-	const content = (toolInput.content as string) || "";
+	const content = readToolString(toolInput.content);
 	const largeResult = checkLargeFileWrite(content);
 	if (largeResult?.warning) warnings.push(largeResult.warning);
 }
 
 function pushConcurrentEditWarning(
 	event: HarnessEvent,
-	sessions: SessionTracker | undefined,
+	sessions: Pick<SessionTracker, "getAll"> | undefined,
 	toolName: string,
 	toolInput: ToolInput,
 	warnings: string[],
 ): void {
 	if (!isFileWrite(toolName) || !sessions) return;
-	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 	if (!filePath) return;
 	const concurrentResult = checkConcurrentEdit(filePath, event.session_id, sessions.getAll());
 	if (concurrentResult?.warning) warnings.push(concurrentResult.warning);
@@ -254,7 +255,7 @@ function pushConcurrentEditWarning(
 function pushTailWarnings(
 	event: HarnessEvent,
 	session: SessionTrajectory | undefined,
-	sessions: SessionTracker | undefined,
+	sessions: Pick<SessionTracker, "getAll"> | undefined,
 	eventCwd: string,
 	toolName: string,
 	toolInput: ToolInput,
@@ -270,7 +271,7 @@ function pushTailWarnings(
 export function evaluatePreChecksTail(
 	event: HarnessEvent,
 	session: SessionTrajectory | undefined,
-	sessions: SessionTracker | undefined,
+	sessions: Pick<SessionTracker, "getAll"> | undefined,
 	toolName: string,
 	toolInput: ToolInput,
 	warnings: string[],
@@ -305,7 +306,7 @@ export function computePostInjectionEscalation(
 			session.injection_detected_steps[session.injection_detected_steps.length - 1],
 		);
 		const stepsSince = session.tool_call_count - lastInjectionStep;
-		const filePath = (toolInput.file_path as string) || "";
+		const filePath = readToolString(toolInput.file_path);
 		return {
 			trigger: "post_injection_action",
 			summary: `State-changing tool (${toolName}) used ${stepsSince} steps after injection was detected at step ${lastInjectionStep}`,
@@ -373,19 +374,17 @@ export function evaluateErrorMemory(
 	_event: HarnessEvent,
 	rules: GuardRulesConfig,
 	session: SessionTrajectory | undefined,
-	graph: ProjectGraph | undefined,
-	errorHistory: ErrorHistory | undefined,
+	graph: Pick<ProjectGraph, "toRelative"> | undefined,
+	errorHistory: Pick<ErrorHistory, "getFileHistoryWarning" | "getRecords"> | undefined,
 	toolName: string,
 	toolInput: ToolInput,
 	warnings: string[],
 ): void {
-	// SAFETY: `error_memory` is declared required on GuardRulesConfig, but a
-	// partially-constructed rules object (test fixtures modeling that state,
-	// and potentially a partial hot-reload merge) can omit it.
-	const errorMemory = rules.error_memory as GuardRulesConfig["error_memory"] | undefined;
+
+	const errorMemory = rules.error_memory;
 	if (!errorHistory || !errorMemory?.enabled) return;
 	if (!isFileWrite(toolName) && !isReadOperation(toolName)) return;
-	const filePath = (toolInput.file_path as string) || (toolInput.path as string) || "";
+	const filePath = readToolString(toolInput.file_path) || readToolString(toolInput.path);
 	if (!filePath || !graph) return;
 	const relPath = graph.toRelative(filePath);
 	const historyWarning = errorHistory.getFileHistoryWarning(relPath);
@@ -408,5 +407,5 @@ function editedLineNumber(
 	filePath: string,
 ): number | undefined {
 	if (toolName !== "Edit" || !toolInput.old_string || !filePath) return undefined;
-	return estimateEditLine(filePath, toolInput.old_string as string);
+	return estimateEditLine(filePath, readToolString(toolInput.old_string));
 }

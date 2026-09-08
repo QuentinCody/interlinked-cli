@@ -12,7 +12,7 @@ import { evaluateMutation, v2RunEvidenceGaps } from "../evaluate.js";
 import { emptyManifest } from "../manifest.js";
 import type { MutationGateOutcome, MutationManifest } from "../types.js";
 import { canonicalReceiptHash } from "./receipts.js";
-import { authenticateFixture, seal, signReceipt } from "./test-authentication.js";
+import { authenticateFixture, parseReceiptFixture, seal, signReceipt } from "./test-authentication.js";
 import {
 	MUTATION_RESULT_TARGET_CONTENT,
 	NOT_MUTATABLE_TARGET_CONTENT,
@@ -109,7 +109,7 @@ describe("evaluateVerifiedMutationEvidence", () => {
 	it("N: rejects a structural bundle copy that lacks verifier runtime provenance", () => {
 		const genuine = bundleOf(validMutationResult());
 		// SAFETY: deliberate type forgery exercises the runtime trust boundary.
-		const forged = { ...genuine } as unknown as VerifiedEvidenceBundle;
+		const forged = { ...genuine };
 		expect(() => evaluate(forged, MUTATION_RESULT_TARGET_CONTENT)).toThrow("not minted by the verifier");
 	});
 
@@ -163,11 +163,11 @@ describe("evaluateVerifiedMutationEvidence", () => {
 
 	it("N: a named policy omitted from the signed acceptance never authenticates", () => {
 		const fixture = authenticateFixture({ ...zeroTestNotMutatable() });
-		const acceptance = JSON.parse(fixture.inputs.receipts.acceptance) as { payload: Record<string, unknown> };
+		const acceptance = parseReceiptFixture(fixture.inputs.receipts.acceptance);
 		const unapproved = { ...acceptance.payload, approved_policy_ids: [] };
 		const acceptanceHash = canonicalReceiptHash(unapproved);
 		fixture.raw.acceptance_receipt_hash = acceptanceHash;
-		const execution = JSON.parse(fixture.inputs.receipts.execution ?? "") as { payload: Record<string, unknown> };
+		const execution = parseReceiptFixture(fixture.inputs.receipts.execution ?? "");
 		const reboundExecution = { ...execution.payload, acceptance_receipt_hash: acceptanceHash };
 		fixture.raw.execution_receipt_hash = canonicalReceiptHash(reboundExecution);
 		seal(fixture.raw);
@@ -271,6 +271,7 @@ describe("evaluateVerifiedMutationEvidence", () => {
 			if (outcome.kind === "unavailable") expect(outcome.reason).toContain("zero mutants");
 		}
 
+		// SAFETY: deliberately forged input tests that the runtime provenance check rejects a structurally plausible bundle.
 		const structuralBundle = {
 			envelope: {
 				kind: "not_mutatable",
@@ -289,7 +290,7 @@ describe("evaluateVerifiedMutationEvidence", () => {
 	});
 
 	it("N: an authenticated cancellation short-circuits with none-completeness before any bridging runs", () => {
-		const base = validMutationResult() as unknown as Record<string, unknown>;
+		const base = validMutationResult();
 		const cancelled: Record<string, unknown> = {
 			...base,
 			kind: "cancelled",

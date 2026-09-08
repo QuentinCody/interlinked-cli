@@ -1,9 +1,10 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 import { describe, expect, it } from "vitest";
 import { classifyBashCommandProvenance, recordBashTaintSource } from "./bash-provenance.js";
 import type { SessionTrajectory } from "./types.js";
 
 function makeSession(toolCallCount = 3): SessionTrajectory {
-	return {
+	return ({ ...completeSessionFixture(), ...{
 		session_id: "s1",
 		agent_name: "tester",
 		tool_call_count: toolCallCount,
@@ -11,7 +12,7 @@ function makeSession(toolCallCount = 3): SessionTrajectory {
 		taint_sources: [],
 		// SAFETY: mirrors the fixture shape used by bash-provenance.test.ts —
 		// recordBashTaintSource only reads taint_sources/tool_call_count.
-	} as unknown as SessionTrajectory;
+	} });
 }
 
 describe("classifyBashCommandProvenance — mutation kill w62", () => {

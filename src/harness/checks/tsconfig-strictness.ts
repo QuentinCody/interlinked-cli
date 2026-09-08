@@ -32,7 +32,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import type { InlineMatch } from "./shared.js";
 
@@ -148,9 +148,7 @@ function safeJsoncParse(text: string): JsonObject | null {
 	} catch {
 		return null;
 	}
-	if (parsed instanceof Object && !Array.isArray(parsed)) {
-		return parsed as JsonObject;
-	}
+	if (isJsonObject(parsed)) return parsed;
 	return null;
 }
 
@@ -169,9 +167,7 @@ function safeReadJsonc(path: string): JsonObject | null {
 function getCompilerOptions(cfg: JsonObject | null): JsonObject | null {
 	if (!cfg) return null;
 	const co = cfg.compilerOptions;
-	if (co instanceof Object && !Array.isArray(co)) {
-		return co as JsonObject;
-	}
+	if (isJsonObject(co)) return co;
 	return null;
 }
 
@@ -297,7 +293,7 @@ function isCompositeRootWithoutCompilerOptions(cfg: JsonObject, merged: JsonObje
 	const ownCompiler = getCompilerOptions(cfg);
 	const ownHasCompilerOptions = ownCompiler !== null && Object.keys(ownCompiler).length > 0;
 	const inheritedHasCompilerOptions = Object.keys(merged).length > 0;
-	const hasReferences = Array.isArray(cfg.references) && (cfg.references as unknown[]).length > 0;
+	const hasReferences = Array.isArray(cfg.references) && cfg.references.length > 0;
 	return !ownHasCompilerOptions && !inheritedHasCompilerOptions && hasReferences;
 }
 

@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -165,7 +166,7 @@ describe("doctestCommand", () => {
 		doctestCommand({ path: cwd, json: true });
 
 		expect(logs).toHaveLength(1);
-		expect(JSON.parse(logs[0] as string)).toEqual({ total: 1, failed: 0, failures: [] });
+		expect(JSON.parse(nonNull(logs[0]))).toEqual({ total: 1, failed: 0, failures: [] });
 		expect(process.exitCode).toBeUndefined();
 	});
 
@@ -175,7 +176,7 @@ describe("doctestCommand", () => {
 
 		doctestCommand({ path: file, json: true });
 
-		expect(JSON.parse(logs[0] as string)).toEqual({
+		expect(JSON.parse(nonNull(logs[0]))).toEqual({
 			total: 1,
 			failed: 1,
 			failures: [{ file, line: 1, exitCode: 1 }],
@@ -198,13 +199,13 @@ describe("doctestCommand", () => {
 			cwdSpy.mockRestore();
 		}
 
-		expect(JSON.parse(logs[0] as string)).toEqual({ total: 1, failed: 0, failures: [] });
+		expect(JSON.parse(nonNull(logs[0]))).toEqual({ total: 1, failed: 0, failures: [] });
 	});
 
 	it("treats a nonexistent path as zero files found (statSync throws -> catch -> [])", () => {
 		doctestCommand({ path: join(cwd, "does-not-exist"), json: true });
 
-		expect(JSON.parse(logs[0] as string)).toEqual({ total: 0, failed: 0, failures: [] });
+		expect(JSON.parse(nonNull(logs[0]))).toEqual({ total: 0, failed: 0, failures: [] });
 		expect(process.exitCode).toBeUndefined();
 	});
 });
@@ -247,6 +248,6 @@ describe("registerDoctestCommand", () => {
 
 		await program.parseAsync(["doctest", "--path", cwd, "--json"], { from: "user" });
 
-		expect(JSON.parse(logs[0] as string)).toEqual({ total: 1, failed: 0, failures: [] });
+		expect(JSON.parse(nonNull(logs[0]))).toEqual({ total: 1, failed: 0, failures: [] });
 	});
 });

@@ -1,3 +1,4 @@
+import { makeSession as completeSessionFixture } from "./__tests__/fixtures/evaluator.js";
 // Tests for the Stop-event deterministic pattern rescan.
 //
 // These are BEHAVIORAL tests against the public surface of `stop-rescan.ts`
@@ -36,25 +37,11 @@ const mockScanDeferrals = vi.mocked(scanInlineDeferrals);
 const FIXED_TIMESTAMP = "2026-01-01T00:00:00.000Z";
 
 function makeSession(filesWritten: string[]): SessionTrajectory {
-	// SessionTrajectory has many required fields; build a minimal shape with
-	// just `files_written`, the only field the rescan reads.
-	return {
-		session_id: "test-session",
-		agent_source: "claude",
+	return { ...completeSessionFixture(),
 		agent_name: "tester",
 		started_at: FIXED_TIMESTAMP,
-		tdd_cycles: [],
-		assertion_counts: new Map<string, number>(),
 		files_written: new Set(filesWritten),
-		commands_run: [],
-		active_skills: new Map<string, unknown>(),
-		verification_observed: new Set<string>(),
-		stubs_introduced: [],
-		fired_reminders: new Set<string>(),
-		non_doc_files_edited_since_commit: new Set<string>(),
-		doc_files_edited_since_commit: 0,
-		stop_nudge_emitted: false,
-	} as unknown as SessionTrajectory;
+	};
 }
 
 /** A single mocked detector returning a fixed match list. */

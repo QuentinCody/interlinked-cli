@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireBoolean, wireObject, wireOptional } from "../lib/value-validation.js";
 // Coverage companion for compact-plain-rotation.ts. compact-plain.test.ts
 // already proves the common publish/dry-run/idempotent-rerun paths through
 // the facade; this file targets the crash-recovery edge cases that only show
@@ -34,32 +35,19 @@ import {
 	type RotationClaim,
 } from "./compact-rotation-claim.js";
 
-const { unlinkSyncSpy, readdirSyncSpy, statSyncSpy, actualFsRef } = vi.hoisted(() => ({
-	unlinkSyncSpy: vi.fn(),
-	readdirSyncSpy: vi.fn(),
-	statSyncSpy: vi.fn(),
-	// SAFETY: only ever holds node:fs's real implementations, assigned once
-	// below before any test runs; the placeholder shape matches their call
-	// signatures.
-	actualFsRef: {
-		// SAFETY: only ever assigned node:fs's real unlinkSync/readdirSync/
-		// statSync below, before any test runs; the null/unknown placeholders
-		// exist purely so the object's shape is declared ahead of that
-		// assignment.
-		unlinkSync: null as unknown as (...args: unknown[]) => unknown,
-		readdirSync: null as unknown as (...args: unknown[]) => unknown,
-		statSync: null as unknown as (...args: unknown[]) => unknown,
-	},
-}));
+const { unlinkSyncSpy, readdirSyncSpy, statSyncSpy, actualFsRef } = vi.hoisted(() => {
+	function uninitialized(): never { throw new Error("node:fs has not been initialized"); }
+	const actualFsRef: { unlinkSync: typeof import("node:fs").unlinkSync; readdirSync: typeof import("node:fs").readdirSync; statSync: typeof import("node:fs").statSync } = {
+		unlinkSync: uninitialized, readdirSync: uninitialized, statSync: uninitialized,
+	};
+	return { unlinkSyncSpy: vi.fn(), readdirSyncSpy: vi.fn(), statSyncSpy: vi.fn(), actualFsRef };
+});
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
-	// SAFETY: all three hold the real node:fs functions from `actual`; only
-	// their call-signature shape is used (mockImplementation / direct
-	// invocation), never a function-specific property.
-	actualFsRef.unlinkSync = actual.unlinkSync as unknown as (...args: unknown[]) => unknown;
-	actualFsRef.readdirSync = actual.readdirSync as unknown as (...args: unknown[]) => unknown;
-	actualFsRef.statSync = actual.statSync as unknown as (...args: unknown[]) => unknown;
+	actualFsRef.unlinkSync = actual.unlinkSync;
+	actualFsRef.readdirSync = actual.readdirSync;
+	actualFsRef.statSync = actual.statSync;
 	unlinkSyncSpy.mockImplementation(actual.unlinkSync);
 	readdirSyncSpy.mockImplementation(actual.readdirSync);
 	statSyncSpy.mockImplementation(actual.statSync);
@@ -413,19 +401,20 @@ describe("compactPlainLog — finalize-time identity race", () => {
 		// finalizing — is answered with a different identity, modeling another
 		// process replacing the file in the gap between the two checks.
 		let bigintReadsOfTail = 0;
-		statSyncSpy.mockImplementation((path: unknown, options?: unknown) => {
+		statSyncSpy.mockImplementation((...args: Parameters<typeof actualFsRef.statSync>) => {
+			const [path, options] = args;
 			const isBigintIdentityRead =
 				path === tailPath &&
 				typeof options === "object" &&
 				options !== null &&
-				(options as { bigint?: boolean }).bigint === true;
+				(parseWire(options, wireObject({ "bigint": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).bigint === true;
 			if (isBigintIdentityRead) {
 				bigintReadsOfTail += 1;
 				if (bigintReadsOfTail === 2) {
 					return { dev: 999_999n, ino: 999_999n };
 				}
 			}
-			return (actualFsRef.statSync as (...a: unknown[]) => unknown)(path, options);
+			return actualFsRef.statSync(...args);
 		});
 
 		expect(() => compactPlainLog("collection", { cwd, keepRecentBytes: 1024 * 1024 })).toThrow(
@@ -503,9 +492,10 @@ describe("compactPlainLog — fresh-publish conflict resolution", () => {
 		// Simulate the TOCTOU window the recovery path exists for: the file is
 		// physically present (another writer raced past us) but was still
 		// invisible to our own directory scan when we picked the next sequence.
-		readdirSyncSpy.mockImplementation((path: unknown, ...rest: unknown[]) => {
+		readdirSyncSpy.mockImplementation((...args: Parameters<typeof actualFsRef.readdirSync>) => {
+			const [path] = args;
 			if (path === archiveDir) return [];
-			return (actualFsRef.readdirSync as (...a: unknown[]) => unknown)(path, ...rest);
+			return actualFsRef.readdirSync(...args);
 		});
 
 		const res = compactPlainLog("collection", { cwd, keepRecentBytes: 128 });
@@ -521,15 +511,15 @@ describe("compactPlainLog — fresh-publish conflict resolution", () => {
 
 	it("propagates a non-ENOENT failure while cleaning up the gzip temp file", () => {
 		writeLog("collection", Array.from({ length: 60 }, (_, i) => jsonLine(i)));
-		unlinkSyncSpy.mockImplementation((path: unknown, ...rest: unknown[]) => {
+		unlinkSyncSpy.mockImplementation((path: Parameters<typeof actualFsRef.unlinkSync>[0]) => {
 			if (typeof path === "string" && path.endsWith(".jsonl.gz.tmp")) {
 				// SAFETY: NodeJS.ErrnoException only adds an optional `code` field
 				// on top of Error; setting it below satisfies the interface.
-				const error = new Error("permission denied") as NodeJS.ErrnoException;
+				const error: NodeJS.ErrnoException = new Error("permission denied");
 				error.code = "EPERM";
 				throw error;
 			}
-			return (actualFsRef.unlinkSync as (...a: unknown[]) => unknown)(path, ...rest);
+			return actualFsRef.unlinkSync(path);
 		});
 
 		expect(() => compactPlainLog("collection", { cwd, keepRecentBytes: 128 })).toThrow(

@@ -97,12 +97,12 @@ describe("parseInferenceEnvelope", () => {
 	});
 
 	it("N1: rejects the wrong schema tag", () => {
-		expect(parseInferenceEnvelope(envelope({ schema: "other.v1" as "inference-envelope.v1" }))).toBeNull();
+		expect(parseInferenceEnvelope({ ...envelope(), schema: "other.v1" })).toBeNull();
 	});
 
 	it("N2: rejects a provider other than anthropic", () => {
 		expect(
-			parseInferenceEnvelope(envelope({ provider: "openai" as "anthropic" })),
+			parseInferenceEnvelope({ ...envelope(), provider: "openai" }),
 		).toBeNull();
 	});
 

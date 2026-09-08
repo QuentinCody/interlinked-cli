@@ -53,7 +53,7 @@ import { ECOSYSTEMS } from "./allowlist-ecosystems.js";
 export { type VerifyOpts, verifyAllowlistCommand } from "./allowlist-verify.js";
 
 function isEcosystem(s: string): s is Ecosystem {
-	return (ECOSYSTEMS as readonly string[]).includes(s);
+	return ECOSYSTEMS.some((ecosystem) => ecosystem === s);
 }
 
 interface AddOpts {
@@ -340,17 +340,20 @@ function printEcosystemEntries(
 	}
 }
 
+function selectPackages(al: Allowlist, ecosystem: string): Allowlist["packages"] {
+	const packages = { ...al.packages };
+	for (const name of ECOSYSTEMS) {
+		if (name !== ecosystem) packages[name] = {};
+	}
+	return packages;
+}
+
 export function listAllowlistCommand(opts: ListOpts): void {
 	const al = loadAllowlist(opts.cwd);
 	const filtered: Allowlist = opts.ecosystem
 		? {
 				...al,
-				packages: Object.fromEntries(
-					ECOSYSTEMS.map((e) => [
-						e,
-						e === opts.ecosystem ? al.packages[e] : {},
-					]),
-				) as Allowlist["packages"],
+				packages: selectPackages(al, opts.ecosystem),
 			}
 		: al;
 	if (opts.json) {

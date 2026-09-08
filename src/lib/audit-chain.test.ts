@@ -1,3 +1,5 @@
+import { isJsonObject } from "./json-types.js";
+import { nonNull } from "./non-null.js";
 import { createHash } from "node:crypto";
 import {
 	createWriteStream,
@@ -34,7 +36,7 @@ function makeEntry(opts: {
 	ts?: string;
 	tool?: string;
 	reason?: string;
-}): Record<string, unknown> {
+}): Record<string, unknown> & { hash: string } {
 	const base: Record<string, unknown> = {
 		schema_version: 3,
 		ts: opts.ts ?? "2026-05-26T10:00:00.000Z",
@@ -44,15 +46,14 @@ function makeEntry(opts: {
 		summary: opts.reason ?? "ok",
 		previousHash: opts.previousHash,
 	};
-	base.hash = computeEntryHash(base);
-	return base;
+	return { ...base, hash: computeEntryHash(base) };
 }
 
 function makeSessionEndEntry(opts: {
 	previousHash: string;
 	ts?: string;
 	reason?: string;
-}): Record<string, unknown> {
+}): Record<string, unknown> & { hash: string } {
 	const base: Record<string, unknown> = {
 		schema_version: 4,
 		ts: opts.ts ?? "2026-05-26T10:30:00.000Z",
@@ -61,8 +62,7 @@ function makeSessionEndEntry(opts: {
 		reason: opts.reason ?? "prompt_input_exit",
 		previousHash: opts.previousHash,
 	};
-	base.hash = computeEntryHash(base);
-	return base;
+	return { ...base, hash: computeEntryHash(base) };
 }
 
 function writeJsonl(path: string, records: Record<string, unknown>[]): void {
@@ -126,7 +126,9 @@ describe("appendChainedAuditRecord", () => {
 
 	function readLastRecord(): Record<string, unknown> {
 		const lines = readFileSync(activityPath, "utf8").trim().split("\n");
-		return JSON.parse(lines[lines.length - 1] as string) as Record<string, unknown>;
+		const value: unknown = JSON.parse(nonNull(lines.at(-1)));
+		if (!isJsonObject(value)) throw new Error("Expected persisted audit object");
+		return value;
 	}
 
 	it("chains onto the most recent chained entry already on disk", () => {
@@ -139,7 +141,7 @@ describe("appendChainedAuditRecord", () => {
 		);
 
 		const appended = readLastRecord();
-		expect(appended.previousHash).toBe(existing.hash as string);
+		expect(appended.previousHash).toBe(existing.hash);
 	});
 
 	it("falls back to GENESIS_HASH when the file exists but holds no chainable entry", () => {
@@ -192,18 +194,18 @@ describe("verifyAuditChain", () => {
 		expect(res.valid).toBe(true);
 		expect(res.guard_events).toBe(1);
 		expect(res.chained_events).toBe(1);
-		expect(res.last_hash).toBe(e1.hash as string);
+		expect(res.last_hash).toBe(e1.hash);
 	});
 
 	it("verifies a 3-entry chain end-to-end", () => {
 		const e1 = makeEntry({ previousHash: GENESIS_HASH, ts: "2026-05-26T10:00:00.000Z" });
 		const e2 = makeEntry({
-			previousHash: e1.hash as string,
+			previousHash: e1.hash,
 			type: "guard_block",
 			ts: "2026-05-26T10:00:01.000Z",
 		});
 		const e3 = makeEntry({
-			previousHash: e2.hash as string,
+			previousHash: e2.hash,
 			type: "guard_warn",
 			ts: "2026-05-26T10:00:02.000Z",
 		});
@@ -212,12 +214,12 @@ describe("verifyAuditChain", () => {
 		const res = verifyAuditChain(tmp);
 		expect(res.valid).toBe(true);
 		expect(res.chained_events).toBe(3);
-		expect(res.last_hash).toBe(e3.hash as string);
+		expect(res.last_hash).toBe(e3.hash);
 	});
 
 	it("detects a tampered payload field", () => {
 		const e1 = makeEntry({ previousHash: GENESIS_HASH });
-		const e2 = makeEntry({ previousHash: e1.hash as string, ts: "2026-05-26T10:00:01.000Z" });
+		const e2 = makeEntry({ previousHash: e1.hash, ts: "2026-05-26T10:00:01.000Z" });
 		// Tamper: rewrite reason but keep stored hash — verify must recompute and fail.
 		const tampered = { ...e2, summary: "altered" };
 		writeJsonl(activityPath, [e1, tampered]);
@@ -287,7 +289,7 @@ describe("verifyAuditChain", () => {
 			ts: "2026-05-26T10:00:00.000Z",
 		});
 		const e2 = makeSessionEndEntry({
-			previousHash: e1.hash as string,
+			previousHash: e1.hash,
 			ts: "2026-05-26T10:30:00.000Z",
 			reason: "prompt_input_exit",
 		});
@@ -297,13 +299,13 @@ describe("verifyAuditChain", () => {
 		expect(res.valid).toBe(true);
 		expect(res.guard_events).toBe(2);
 		expect(res.chained_events).toBe(2);
-		expect(res.last_hash).toBe(e2.hash as string);
+		expect(res.last_hash).toBe(e2.hash);
 	});
 
 	it("detects a session_end record whose reason was rewritten post-hash", () => {
 		const e1 = makeEntry({ previousHash: GENESIS_HASH });
 		const e2 = makeSessionEndEntry({
-			previousHash: e1.hash as string,
+			previousHash: e1.hash,
 			ts: "2026-05-26T10:30:00.000Z",
 			reason: "logout",
 		});
@@ -321,7 +323,7 @@ describe("verifyAuditChain", () => {
 		const e1 = makeEntry({ previousHash: GENESIS_HASH });
 		const broken = "{not valid json";
 		const e2 = makeEntry({
-			previousHash: e1.hash as string,
+			previousHash: e1.hash,
 			ts: "2026-05-26T10:00:01.000Z",
 		});
 		// Manually compose so we control line order
@@ -353,7 +355,7 @@ describe("verifyAuditChain", () => {
 
 	it("N1: fails closed when a physical row is valid JSON but not an audit object", () => {
 		const e1 = makeEntry({ previousHash: GENESIS_HASH });
-		const e2 = makeEntry({ previousHash: e1.hash as string, ts: "2026-05-26T10:00:01.000Z" });
+		const e2 = makeEntry({ previousHash: e1.hash, ts: "2026-05-26T10:00:01.000Z" });
 		const dir = join(tmp, ".interlinked");
 		if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 		writeFileSync(
@@ -499,7 +501,7 @@ describe("verifyAuditChain — archived segments (readArchivedAuditLines)", () =
 	it("sorts segments missing 'seq' first (nullish default 0)", () => {
 		const e1 = makeEntry({ previousHash: GENESIS_HASH, ts: "2026-05-26T10:00:00.000Z" });
 		const e2 = makeEntry({
-			previousHash: e1.hash as string,
+			previousHash: e1.hash,
 			type: "guard_block",
 			ts: "2026-05-26T10:00:01.000Z",
 		});
@@ -521,7 +523,7 @@ describe("verifyAuditChain — archived segments (readArchivedAuditLines)", () =
 		const res = verifyAuditChain(tmp);
 		expect(res.valid).toBe(true);
 		expect(res.chained_events).toBe(2);
-		expect(res.last_hash).toBe(e2.hash as string);
+		expect(res.last_hash).toBe(e2.hash);
 	});
 
 	// Split out of the case above, where it was asserted as a benign skip. A

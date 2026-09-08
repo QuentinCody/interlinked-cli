@@ -69,14 +69,14 @@ export interface CoordinationResponse {
 	}>;
 
 	/** Agent's active intent (if assigned), null otherwise */
-	intent: {
+	intent?: {
 		id: number;
 		goal: string;
 		status: string;
 		constraints: string;
 	} | null;
 
-	server_time: string;
+	server_time?: string;
 }
 
 // ===========================================

@@ -21,13 +21,13 @@ function makeEvent(overrides: {
 	cwd?: string;
 }): UnifiedHookEvent {
 	const cwd = overrides.cwd ?? "/repo";
-	const action =
+	const action: UnifiedHookEvent["action"] =
 		overrides.kind === "shell_command"
-			? { kind: "shell_command" as const, command: "rm -rf /", cwd }
+			? { kind: "shell_command", command: "rm -rf /", tool_class: "side-effect", cwd }
 			: {
 					kind: "tool_call" as const,
 					tool_name: overrides.toolName ?? "edit",
-					tool_class: "file_write" as never,
+					tool_class: "modify",
 					tool_input:
 						"toolInput" in overrides
 							? overrides.toolInput
@@ -39,13 +39,13 @@ function makeEvent(overrides: {
 		event_id: "e1",
 		session_id: "s1",
 		ts: "2026-06-12T00:00:00.000Z",
-		runner: "claude-code" as never,
+		runner: "claude-code",
 		runner_native_event: "PreToolUse",
 		phase: overrides.phase ?? "pre-tool",
-		action: action as never,
+		action,
 		context: { cwd },
 		raw: null,
-	} as UnifiedHookEvent;
+	};
 }
 
 describe("formatLastCheckLine", () => {

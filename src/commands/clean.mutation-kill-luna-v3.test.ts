@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import { mkdirSync, readFileSync, rmSync, truncateSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +21,7 @@ afterEach(() => {
 });
 
 function result(): Record<string, unknown> {
-    return JSON.parse(String(log.mock.calls[0]?.[0])) as Record<string, unknown>;
+    return parseWire(JSON.parse(String(log.mock.calls[0]?.[0])), wireRecord(wireUnknown), "test JSON value");
 }
 
 function oldFile(path: string): void {
@@ -42,7 +43,7 @@ describe("clean", () => {
         oldFile(file);
         vi.spyOn(Date, "now").mockReturnValue(1_000_000 + 24 * 3600000 + 1);
         await cleanCommand({ json: true });
-        const items = result().stale_items as Array<{ detail: string }>;
+        const items = parseWire(result().stale_items, wireArray(wireObject({ "detail": wireString })), "test JSON value");
         expect(items).toHaveLength(1);
         expect(items[0]?.detail).toBe("Last modified 1d ago");
     });
@@ -107,7 +108,7 @@ describe("clean", () => {
             mkdirSync(join(root, dir), { recursive: true });
             writeFileSync(join(root, dir, file), "node /gone/interlinked-activity.mjs");
             await cleanCommand({ json: true });
-            const items = result().stale_items as Array<{ detail: string }>;
+            const items = parseWire(result().stale_items, wireArray(wireObject({ "detail": wireString })), "test JSON value");
             expect(items.some((item) => item.detail.startsWith(`${name}: Hook references missing script`))).toBe(true);
             log.mockClear();
         }

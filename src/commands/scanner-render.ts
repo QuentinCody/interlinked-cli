@@ -14,7 +14,7 @@ import type {
 	ReviewPayload,
 } from "../harness/content-scanner/review-files.js";
 import { c, header, kvLine } from "../lib/formatter.js";
-import type { JsonObject } from "../lib/json-types.js";
+import { isJsonObject } from "../lib/json-types.js";
 import type {
 	AuditAction,
 	AuditEntry,
@@ -25,7 +25,6 @@ import type {
 /** typeof tag for an object — inlined here (rather than imported from
  *  scanner.ts) so this sibling has no runtime dependency back on the main
  *  module; importing a runtime value would form an import cycle. */
-const TYPEOF_OBJECT = "object" as const;
 
 export interface ToggleContext {
 	cwd: string;
@@ -134,7 +133,7 @@ interface PickError {
 }
 
 export function isPickError(v: unknown): v is PickError {
-	return typeof v === TYPEOF_OBJECT && v !== null && "error" in (v as JsonObject);
+	return isJsonObject(v) && typeof v.error === "string";
 }
 
 /** Pick a review by --key, otherwise return the first (newest) pending. */
@@ -157,9 +156,8 @@ export function pickReview(
 export function pickFlagDecision(
 	opts: ScannerReviewOptions,
 ): ReviewDecision | undefined | PickError {
-	const flags = [opts.allow && "allow", opts.redact && "redact", opts.block && "block"].filter(
-		Boolean,
-	) as ReviewDecision[];
+	const candidates = [opts.allow && "allow", opts.redact && "redact", opts.block && "block"] as const;
+	const flags = candidates.filter((value) => typeof value === "string");
 	if (flags.length === 0) return undefined;
 	if (flags.length > 1) {
 		return { error: `conflicting flags: ${flags.join(", ")} — pick one` };

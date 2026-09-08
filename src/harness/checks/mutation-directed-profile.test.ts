@@ -406,7 +406,7 @@ describe("mutation-hardening additions (wave 41)", () => {
 			writeFileSync(
 				join(dir, ".interlinked", "verify-suppressions.json"),
 				JSON.stringify({
-					"widget.mutation-kill.test.ts": { [REMOVED_ASSERTION_CHECK_ID]: { reason: "silenced for test" } },
+					"widget.mutation-kill.test.ts": { [REMOVED_ASSERTION_CHECK_ID]: { reason: "silenced for test", by: "test", at: "2026-09-07T00:00:00Z" } },
 				}),
 			);
 			const baseline = [

@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireObject, wireOptional, wireString } from "../../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -10,11 +11,16 @@ const {
 	mockWriteSharedConfig,
 	mockEnsureRemoteOnboarding,
 } = vi.hoisted(() => {
-	const state = {
+	const state: {
+		server_url: string; workspace_id: string;
+		default_workspace_key: string | undefined; default_project: string | undefined;
+		agent_name: string; active_server: string;
+		servers: { production: { server_url: string; workspace_id: string } };
+	} = {
 		server_url: "https://initial.example.com",
 		workspace_id: "ws_initial",
-		default_workspace_key: undefined as string | undefined,
-		default_project: undefined as string | undefined,
+		default_workspace_key: undefined,
+		default_project: undefined,
 		agent_name: "InitialAgent",
 		active_server: "production",
 		servers: {
@@ -74,9 +80,7 @@ const {
 			if (typeof updates.agent_name === "string") {
 				state.agent_name = updates.agent_name;
 			}
-			const servers = updates.servers as
-				| { production?: { workspace_id?: string; server_url?: string } }
-				| undefined;
+			const servers = parseWire(updates.servers, wireOptional(wireObject({ "production": wireAbsentOptional(wireOptional(wireObject({ "workspace_id": wireAbsentOptional(wireOptional(wireString)), "server_url": wireAbsentOptional(wireOptional(wireString)) }))) })), "test JSON value");
 			if (servers?.production?.workspace_id) {
 				state.servers.production.workspace_id = servers.production.workspace_id;
 			}
@@ -156,8 +160,8 @@ describe("attach command", () => {
 				json: true,
 			});
 
-			const payloadRaw = vi.mocked(console.log).mock.calls.at(-1)?.[0] as string;
-			return JSON.parse(payloadRaw) as ParsedAttachPayload;
+			const payloadRaw = parseWire(vi.mocked(console.log).mock.calls.at(-1)?.[0], wireString, "test JSON value");
+			return parseWire(JSON.parse(payloadRaw), wireObject({ "server_url": wireString, "workspace_id": wireAbsentOptional(wireString), "default_workspace_key": wireAbsentOptional(wireString), "default_project": wireAbsentOptional(wireString), "agent_name": wireAbsentOptional(wireString), "remote": wireObject({ "status": wireString, "agent_handle": wireAbsentOptional(wireString) }) }), "test JSON value");
 		}
 
 		it("initializes config with the given server URL", async () => {
@@ -220,7 +224,7 @@ describe("attach command", () => {
 		const { attachCommand } = await import("../attach.js");
 		await attachCommand({ agent: "Worker-Beta" });
 
-		const output = vi.mocked(console.log).mock.calls.at(-1)?.[0] as string;
+		const output = parseWire(vi.mocked(console.log).mock.calls.at(-1)?.[0], wireString, "test JSON value");
 		expect(output).toContain("Run: interlinked login");
 	});
 

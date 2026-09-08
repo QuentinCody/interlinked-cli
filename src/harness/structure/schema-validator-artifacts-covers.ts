@@ -9,7 +9,7 @@
 // module imports these back for its dispatcher table; this file never imports
 // from the parent).
 
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import type { ValidationError, ValidationResult } from "./schema-validator-helpers.js";
 import {
 	checkUnknownKeys,
@@ -63,10 +63,10 @@ function validateEntryPath(entry: JsonObject, path: string, key: string): Valida
 // -------------------------------------------
 
 export function validateTestsFile(data: unknown): ValidationResult {
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!isJsonObject(data)) {
 		return fail([err("$", "Must be a JSON object")]);
 	}
-	const obj = data as JsonObject;
+	const obj = data;
 	const errors = checkUnknownKeys(obj, ["version", "tests"], "$");
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
@@ -78,8 +78,12 @@ export function validateTestsFile(data: unknown): ValidationResult {
 
 	const testIds = new Set<string>();
 	for (let i = 0; i < obj.tests.length; i++) {
-		const t = obj.tests[i] as JsonObject;
+		const t: unknown = obj.tests[i];
 		const tp = `$.tests[${i}]`;
+		if (!isJsonObject(t)) {
+			errors.push(err(tp, "Must be a JSON object"));
+			continue;
+		}
 		errors.push(...checkUnknownKeys(t, ["id", "file", "kind", "covers"], tp));
 
 		errors.push(...validateEntryId(t, tp, testIds, "test"));
@@ -100,10 +104,10 @@ export function validateTestsFile(data: unknown): ValidationResult {
 // -------------------------------------------
 
 export function validateDocsFile(data: unknown): ValidationResult {
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!isJsonObject(data)) {
 		return fail([err("$", "Must be a JSON object")]);
 	}
-	const obj = data as JsonObject;
+	const obj = data;
 	const errors = checkUnknownKeys(obj, ["version", "docs"], "$");
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
@@ -115,8 +119,12 @@ export function validateDocsFile(data: unknown): ValidationResult {
 
 	const docIds = new Set<string>();
 	for (let i = 0; i < obj.docs.length; i++) {
-		const d = obj.docs[i] as JsonObject;
+		const d: unknown = obj.docs[i];
 		const dp = `$.docs[${i}]`;
+		if (!isJsonObject(d)) {
+			errors.push(err(dp, "Must be a JSON object"));
+			continue;
+		}
 		errors.push(...checkUnknownKeys(d, ["id", "file", "kind", "covers"], dp));
 
 		errors.push(...validateEntryId(d, dp, docIds, "doc"));
@@ -137,10 +145,10 @@ export function validateDocsFile(data: unknown): ValidationResult {
 // -------------------------------------------
 
 export function validateExamplesFile(data: unknown): ValidationResult {
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!isJsonObject(data)) {
 		return fail([err("$", "Must be a JSON object")]);
 	}
-	const obj = data as JsonObject;
+	const obj = data;
 	const errors = checkUnknownKeys(obj, ["version", "examples"], "$");
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
@@ -152,8 +160,12 @@ export function validateExamplesFile(data: unknown): ValidationResult {
 
 	const exIds = new Set<string>();
 	for (let i = 0; i < obj.examples.length; i++) {
-		const e = obj.examples[i] as JsonObject;
+		const e: unknown = obj.examples[i];
 		const ep = `$.examples[${i}]`;
+		if (!isJsonObject(e)) {
+			errors.push(err(ep, "Must be a JSON object"));
+			continue;
+		}
 		errors.push(...checkUnknownKeys(e, ["id", "file", "covers"], ep));
 
 		errors.push(...validateEntryId(e, ep, exIds, "example"));
@@ -171,10 +183,10 @@ export function validateExamplesFile(data: unknown): ValidationResult {
 // -------------------------------------------
 
 export function validatePackagesFile(data: unknown): ValidationResult {
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+	if (!isJsonObject(data)) {
 		return fail([err("$", "Must be a JSON object")]);
 	}
-	const obj = data as JsonObject;
+	const obj = data;
 	const errors = checkUnknownKeys(obj, ["version", "packages"], "$");
 
 	if (obj.version !== 1) errors.push(err("$.version", "Must be 1"));
@@ -186,8 +198,12 @@ export function validatePackagesFile(data: unknown): ValidationResult {
 
 	const pkgIds = new Set<string>();
 	for (let i = 0; i < obj.packages.length; i++) {
-		const p = obj.packages[i] as JsonObject;
+		const p: unknown = obj.packages[i];
 		const pp = `$.packages[${i}]`;
+		if (!isJsonObject(p)) {
+			errors.push(err(pp, "Must be a JSON object"));
+			continue;
+		}
 		errors.push(...checkUnknownKeys(p, ["id", "root", "entrypoints"], pp));
 
 		errors.push(...validateEntryId(p, pp, pkgIds, "package"));

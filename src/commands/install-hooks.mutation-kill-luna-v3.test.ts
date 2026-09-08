@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -106,7 +107,7 @@ describe("installHooksCommand", () => {
             json: true,
         });
 
-        const config = JSON.parse(readFileSync(join(tmp, ".interlinked", "cloud.json"), "utf8")) as Record<string, unknown>;
+        const config = parseWire(JSON.parse(readFileSync(join(tmp, ".interlinked", "cloud.json"), "utf8")), wireRecord(wireUnknown), "test JSON value");
         expect(config).toEqual(expect.objectContaining({
             enabled: true,
             product: "guardrails",

@@ -8,6 +8,7 @@
 // numeric guards, endpoint-prefix agreement on ranges, first-on-line
 // definition credit, bounded gap enumeration, comma-grouped counts.
 
+import { nonNull } from "../../lib/non-null.js";
 import { isDefinitionSite } from "./definition-site.js";
 import { hasUnicodeWordGlue, stripEmphasis } from "./emphasis-strip.js";
 import type {
@@ -348,8 +349,8 @@ export function extractIdNamespaces(
 ): IdNamespace[] {
 	const { hits, views, firstColByLine } = spanFilteredHits(lines, rangeClaims);
 	const out: IdNamespace[] = [];
-	for (const [key, groupHits] of groupByPrefix(hits)) {
-		const [style, prefix] = key.split(" ") as ["dashed" | "compact", string];
+	for (const groupHits of groupByPrefix(hits).values()) {
+		const { style, prefix } = nonNull(groupHits[0]);
 		const distinct = new Set(groupHits.map((h) => h.num)).size;
 		const minimum = style === "dashed" ? MIN_DASHED_IDS : MIN_COMPACT_IDS;
 		if (distinct < minimum) continue;
@@ -374,8 +375,8 @@ export function extractLooseDefinedIds(
 ): LooseId[] {
 	const { hits, views, firstColByLine } = spanFilteredHits(lines, rangeClaims);
 	const out: LooseId[] = [];
-	for (const [key, groupHits] of groupByPrefix(hits)) {
-		const [style, prefix] = key.split(" ") as ["dashed" | "compact", string];
+	for (const groupHits of groupByPrefix(hits).values()) {
+		const { style, prefix } = nonNull(groupHits[0]);
 		const distinct = new Set(groupHits.map((h) => h.num)).size;
 		const minimum = style === "dashed" ? MIN_DASHED_IDS : MIN_COMPACT_IDS;
 		if (distinct >= minimum) continue; // qualifies on its own — already a namespace

@@ -1,3 +1,5 @@
+import { wireLiteral } from "../lib/value-validation.js";
+import { parseWire, wireArray, wireBoolean, wireNullable, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
@@ -6,10 +8,13 @@ import {
 	type DaemonHealth,
 	encodeFrame,
 	type RpcError,
-	type RpcRequest,
+	type RpcEnvelope,
+	decodeFrame,
 } from "../harness/daemon-protocol.js";
 import { nonNull } from "../lib/non-null.js";
 import { daemonsCommand } from "./daemons.js";
+
+const isCapturedDaemonHealth = wireObject({ "daemons": wireArray(wireObject({ "alive": wireBoolean, "health": wireNullable(wireObject({ "status": wireLiteral("ready", "warming", "degraded"), "uptime_ms": wireNumber, "warm_caches": wireArray(wireString), "tsgo_status": wireLiteral("ready", "starting", "unavailable"), "rpc_inflight": wireNumber, "protocol_version": wireLiteral("1") })), "health_error": wireNullable(wireString) })) });
 
 let tmp = "";
 // SPY, not process.chdir(): chdir THROWS in a worker thread ("process.chdir()
@@ -76,12 +81,12 @@ afterEach(async () => {
 
 function captureStdout(): { text: () => string; restore: () => void } {
 	let captured = "";
-	const spy = vi.spyOn(process.stdout, "write").mockImplementation(((
+	const spy = vi.spyOn(process.stdout, "write").mockImplementation((
 		buf: string | Uint8Array,
 	) => {
 		captured += typeof buf === "string" ? buf : Buffer.from(buf).toString("utf-8");
 		return true;
-	}) as unknown as typeof process.stdout.write);
+	});
 	return {
 		text: () => captured,
 		restore: () => spy.mockRestore(),
@@ -96,7 +101,7 @@ function captureStdout(): { text: () => string; restore: () => void } {
  */
 async function startFakeDaemon(
 	sessionId: string,
-	responder: (req: RpcRequest) => DaemonHealth | RpcError,
+	responder: (req: RpcEnvelope) => DaemonHealth | RpcError,
 ): Promise<void> {
 	const base = join(tmp, ".interlinked");
 	const socketPath = join(base, `harness-${sessionId}.sock`);
@@ -111,7 +116,7 @@ async function startFakeDaemon(
 			pending = lines.pop() ?? "";
 			for (const line of lines) {
 				if (line.length === 0) continue;
-				const req = JSON.parse(line) as RpcRequest;
+				const req = decodeFrame(line);
 				const out = responder(req);
 				const frame =
 					"error" in out
@@ -157,10 +162,7 @@ describe("daemons command", () => {
 		const cap = captureStdout();
 		await daemonsCommand({ json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			ok: boolean;
-			daemons: Array<{ session_id: string }>;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "ok": wireBoolean, "daemons": wireArray(wireObject({ "session_id": wireString })) }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		expect(payload.daemons.length).toBe(1);
 		expect(nonNull(payload.daemons[0]).session_id).toBe("json1");
@@ -171,14 +173,7 @@ describe("daemons command", () => {
 		const cap = captureStdout();
 		await daemonsCommand({ json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			daemons: Array<{
-				session_id: string;
-				alive: boolean;
-				health: DaemonHealth | null;
-				health_error: string | null;
-			}>;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "daemons": wireArray(wireObject({ "session_id": wireString, "alive": wireBoolean, "health": wireNullable(wireObject({ "status": wireLiteral("ready", "warming", "degraded"), "uptime_ms": wireNumber, "warm_caches": wireArray(wireString), "tsgo_status": wireLiteral("ready", "starting", "unavailable"), "rpc_inflight": wireNumber, "protocol_version": wireLiteral("1") })), "health_error": wireNullable(wireString) })) }), "test JSON value");
 		const row = payload.daemons[0];
 		expect(nonNull(row).alive).toBe(false);
 		expect(nonNull(row).health).toBeNull();
@@ -219,7 +214,7 @@ describe("daemons command", () => {
 		const cap = captureStdout();
 		await daemonsCommand({ cleanup: true, json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as { ok: boolean; cleaned: string[] };
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "ok": wireBoolean, "cleaned": wireArray(wireString) }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		expect(payload.cleaned).toEqual(["gone"]);
 		// The orphan was removed; the live daemon's PID file survives.
@@ -231,7 +226,7 @@ describe("daemons command", () => {
 		const cap = captureStdout();
 		await daemonsCommand({ cleanup: true, json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as { ok: boolean; cleaned: string[] };
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "ok": wireBoolean, "cleaned": wireArray(wireString) }), "test JSON value");
 		expect(payload.ok).toBe(true);
 		expect(payload.cleaned).toEqual([]);
 	});
@@ -257,15 +252,7 @@ describe("daemons command", () => {
 		const cap = captureStdout();
 		await daemonsCommand({ json: true, healthTimeoutMs: 1000 });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			daemons: Array<{
-				session_id: string;
-				pid: number | null;
-				alive: boolean;
-				health: DaemonHealth | null;
-				health_error: string | null;
-			}>;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "daemons": wireArray(wireObject({ "session_id": wireString, "pid": wireNullable(wireNumber), "alive": wireBoolean, "health": wireNullable(wireObject({ "status": wireLiteral("ready", "warming", "degraded"), "uptime_ms": wireNumber, "warm_caches": wireArray(wireString), "tsgo_status": wireLiteral("ready", "starting", "unavailable"), "rpc_inflight": wireNumber, "protocol_version": wireLiteral("1") })), "health_error": wireNullable(wireString) })) }), "test JSON value");
 		const row = payload.daemons[0];
 		expect(nonNull(row).session_id).toBe("livej");
 		expect(nonNull(row).alive).toBe(true);
@@ -303,13 +290,7 @@ describe("daemons command", () => {
 		const cap = captureStdout();
 		await daemonsCommand({ json: true, healthTimeoutMs: 1000 });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			daemons: Array<{
-				alive: boolean;
-				health: DaemonHealth | null;
-				health_error: string | null;
-			}>;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), isCapturedDaemonHealth, "test JSON value");
 		const row = payload.daemons[0];
 		expect(nonNull(row).alive).toBe(true);
 		expect(nonNull(row).health).toBeNull();
@@ -341,9 +322,7 @@ describe("daemons command", () => {
 		const cap = captureStdout();
 		await daemonsCommand({ json: true, healthTimeoutMs: 1000 });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			daemons: Array<{ health: DaemonHealth | null; health_error: string | null }>;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "daemons": wireArray(wireObject({ "health": wireNullable(wireObject({ "status": wireLiteral("ready", "warming", "degraded"), "uptime_ms": wireNumber, "warm_caches": wireArray(wireString), "tsgo_status": wireLiteral("ready", "starting", "unavailable"), "rpc_inflight": wireNumber, "protocol_version": wireLiteral("1") })), "health_error": wireNullable(wireString) })) }), "test JSON value");
 		const row = payload.daemons[0];
 		expect(nonNull(row).health).toBeNull();
 		// Empty error message → `err || "unknown"` fallback.
@@ -363,9 +342,7 @@ describe("daemons command", () => {
 		const cap = captureStdout();
 		await daemonsCommand({ json: true, healthTimeoutMs: 60 });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			daemons: Array<{ alive: boolean; health: DaemonHealth | null; health_error: string | null }>;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), isCapturedDaemonHealth, "test JSON value");
 		const row = payload.daemons[0];
 		expect(nonNull(row).alive).toBe(true);
 		expect(nonNull(row).health).toBeNull();
@@ -403,9 +380,7 @@ describe("daemons command", () => {
 		const cap = captureStdout();
 		await daemonsCommand({ json: true });
 		cap.restore();
-		const payload = JSON.parse(cap.text()) as {
-			daemons: Array<{ session_id: string; pid: number | null; alive: boolean }>;
-		};
+		const payload = parseWire(JSON.parse(cap.text()), wireObject({ "daemons": wireArray(wireObject({ "session_id": wireString, "pid": wireNullable(wireNumber), "alive": wireBoolean })) }), "test JSON value");
 		const row = payload.daemons[0];
 		expect(nonNull(row).session_id).toBe("nopidj");
 		expect(nonNull(row).pid).toBeNull();

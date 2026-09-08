@@ -14,7 +14,7 @@
 import { existsSync } from "node:fs";
 import { relative } from "node:path";
 import { isFeatureEnabled, type SharedConfig } from "../../lib/config.js";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject } from "../../lib/json-types.js";
 import { getOrCreateEngine } from "../check-engine/index.js";
 import { checkProjectSetup } from "../generic-checks.js";
 import type { GraphPredictionMode } from "../graph-prediction-pre-tool.js";
@@ -126,8 +126,8 @@ export function runTrajectoryDetector(
  *  to "shadow" — telemetry-only, no challenge fires. Phase 4 of the
  *  rollout flips the default to "soft_gate" or "enforced". */
 export function readGraphPredictionMode(config: SharedConfig | null): GraphPredictionMode {
-	const harness = config?.harness as JsonObject | undefined;
-	const block = harness?.graph_prediction as JsonObject | undefined;
+	const harness = config?.harness;
+	const block = isJsonObject(harness?.graph_prediction) ? harness.graph_prediction : undefined;
 	const mode = block?.mode;
 	if (mode === "shadow" || mode === "soft_gate" || mode === "enforced") return mode;
 	return "shadow";
@@ -137,9 +137,8 @@ export function readGraphPredictionMode(config: SharedConfig | null): GraphPredi
  *  `harness.graph_prediction.enabled: true`. Disabled by default (user, 2026-06-08):
  *  we no longer require a Supermodel `.graph` shard prediction before an edit. */
 export function isGraphPredictionEnabled(config: SharedConfig | null): boolean {
-	const block = (config?.harness as JsonObject | undefined)?.graph_prediction as
-		| JsonObject
-		| undefined;
+	const prediction = config?.harness?.graph_prediction;
+	const block = isJsonObject(prediction) ? prediction : undefined;
 	return block?.enabled === true;
 }
 

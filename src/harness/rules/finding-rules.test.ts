@@ -13,7 +13,7 @@ function asFindingRule(rule: GuardRule): FindingRule {
 	// (`{ ...raw }` where raw: FindingRule) — the extra `source`/`user_modified`
 	// fields are always present on the runtime object; GuardRule is just the
 	// narrower return type of the public API.
-	return rule as FindingRule;
+	return rule;
 }
 
 let cwd: string;
@@ -363,11 +363,10 @@ describe("loadFindingRules — per-pattern ReDoS predicate (null/non-string entr
 		expect(loadFindingRules(cwd).map((r) => r.id)).toEqual([]);
 	});
 
-	// test-contract: invariant — does not call looksLikeReDoS on a non-string regex value (typeof guard short-circuits)
-	it("does not call looksLikeReDoS on a non-string regex value (typeof guard short-circuits)", () => {
+	it("skips a rule with a non-string regex before it reaches the evaluator", () => {
 		writeRules([
 			{ ...baseRule({ id: "finding-numregex" }), patterns: [{ field: "content", regex: 123 }] },
 		]);
-		expect(loadFindingRules(cwd).map((r) => r.id)).toEqual(["finding-numregex"]);
+		expect(loadFindingRules(cwd).map((r) => r.id)).toEqual([]);
 	});
 });

@@ -69,6 +69,9 @@ describe("compactPlainLog — positive (must fire)", () => {
 		compactPlainLog("collection", { cwd, keepRecentBytes: 256 });
 		const firstLive = readFileSync(join(dataDir, "collection.jsonl"), "utf-8").split("\n")[0] ?? "";
 		expect(() => JSON.parse(firstLive)).not.toThrow();
+		// Pins the actual cut point: a no-op (or off-by-one) cut would still
+		// parse as valid JSON but would not start at record 47.
+		expect(JSON.parse(firstLive)).toHaveProperty(["seq"], 47);
 	});
 
 	it("P3: writes a per-log manifest and never creates the activity manifest.json", () => {

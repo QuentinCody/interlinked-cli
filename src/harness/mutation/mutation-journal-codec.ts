@@ -3,6 +3,7 @@
 // ===========================================
 
 import { createHash, randomUUID } from "node:crypto";
+import { isJsonObject } from "../../lib/json-types.js";
 import type { SqliteDatabase } from "./mutation-journal-driver.js";
 import { checkSourceArtifactBinding } from "./protocol-v3/field-checks.js";
 import { normalizeRetainedEvidence } from "./mutation-journal-retained.js";
@@ -242,16 +243,12 @@ export function detached<T>(value: T, label: string): T {
 export function stableJson(value: unknown): string {
 	const snapshot = detached(value, "journal value");
 	assertJsonValue(snapshot, "journal value", new Set());
-	// SAFETY: JSON.stringify's declared return type is `string`, but it
-	// really returns `undefined` when the top-level value serializes to
-	// nothing (e.g. a bare function or symbol survives `detached()`).
 	const encoded = JSON.stringify(snapshot, (_key, item: unknown) => {
-		if (typeof item !== "object" || item === null || Array.isArray(item)) return item;
-		const source = item as Record<string, unknown>; // SAFETY: guarded object, non-array.
+		if (!isJsonObject(item)) return item;
 		const sorted: Record<string, unknown> = {};
-		for (const key of Object.keys(source).sort()) sorted[key] = source[key];
+		for (const key of Object.keys(item).sort()) sorted[key] = item[key];
 		return sorted;
-	}) as string | undefined;
+	});
 	if (encoded === undefined) throw new Error("mutation journal values must be JSON-serializable");
 	return encoded;
 }
@@ -263,7 +260,7 @@ export function stableJsonHash(encoded: string): string {
 export function parsedJson(text: unknown): unknown {
 	if (typeof text !== "string") throw new Error("mutation journal row contains non-text JSON");
 	try {
-		return JSON.parse(text) as unknown; // SAFETY: caller receives unknown and narrows it.
+		return JSON.parse(text);
 	} catch (error) {
 		throw new Error("mutation journal contains corrupt JSON", { cause: error });
 	}

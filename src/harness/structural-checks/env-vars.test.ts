@@ -146,7 +146,8 @@ describe("checkUndefinedEnvVars", () => {
 				session_id: "s1",
 				agent_source: "claude",
 				tool_input: toolInput,
-			}) as unknown as HarnessEvent;
+				timestamp: "2026-01-01T00:00:00Z",
+			});
 
 		it("only reports env vars introduced in new_string (existing keys ignored)", () => {
 			// File references two vars; the edit only introduces NEW_VAR.
@@ -233,12 +234,13 @@ describe("checkUndefinedEnvVars", () => {
 		it("treats a missing tool_input object as whole-file (event present, tool_input undefined)", () => {
 			file(SRC, "const a = process.env.NO_TOOLINPUT_VAR;");
 			envExample(ROOT_ENV, "DECLARED=1\n");
-			const event = {
+			const event: HarnessEvent = {
 				hook_event: "PostToolUse",
 				session_id: "s1",
 				agent_source: "claude",
+				timestamp: "2026-01-01T00:00:00Z",
 				// tool_input intentionally omitted
-			} as unknown as HarnessEvent;
+			};
 			const res = checkUndefinedEnvVars(SRC, "src/app.ts", event);
 			expect(res).toHaveLength(1);
 			expect(nonNull(res[0]).message).toContain("NO_TOOLINPUT_VAR");

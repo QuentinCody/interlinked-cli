@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireObject, wireOptional, wireString } from "../lib/value-validation.js";
 import {
 	appendFileSync,
 	existsSync,
@@ -325,7 +326,7 @@ describe("captureAgentTranscript (one-shot subagent drain)", () => {
 			.trim()
 			.split("\n")
 			// SAFETY: our own timeline JSONL, written one line above.
-			.map((l) => JSON.parse(l) as { text?: string; agent_id?: string });
+			.map((l) => parseWire(JSON.parse(l), wireObject({ "text": wireAbsentOptional(wireOptional(wireString)), "agent_id": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value"));
 		expect(rows).toEqual([expect.objectContaining({ text: "agent result", agent_id: "z9" })]);
 	});
 

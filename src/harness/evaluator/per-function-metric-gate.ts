@@ -26,7 +26,7 @@
 
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
-import type { JsonObject } from "../../lib/json-types.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import { extractApplyPatchRaw, looksLikeApplyPatch, parseApplyPatchSections } from "../apply-patch-content.js";
 import { appendPlanHints, type PlanHintFn } from "./metric-gate-plan-hints.js";
@@ -129,8 +129,8 @@ function applyEdit(text: string, oldStr: string, newStr: string, all: boolean): 
 function applyEditList(text: string, edits: readonly unknown[]): string {
 	let after = text;
 	for (const raw of edits) {
-		if (typeof raw !== "object" || raw === null) continue;
-		const e = raw as JsonObject;
+		if (!isJsonObject(raw)) continue;
+		const e = raw;
 		if (typeof e.old_string !== "string" || typeof e.new_string !== "string") continue;
 		after = applyEdit(after, e.old_string, e.new_string, e.replace_all === true);
 	}

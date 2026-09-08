@@ -1,3 +1,4 @@
+import { isJsonObject } from "../lib/json-types.js";
 // ===========================================
 // doctor — posture-enum configuration findings
 // ===========================================
@@ -28,8 +29,8 @@ export function postureEnumChecks(cwd: string): CheckResult[] {
 			continue; // malformed files have their own findings elsewhere
 		}
 		const structural =
-			parsed !== null && typeof parsed === "object"
-				? (parsed as Record<string, unknown>).structural_checks
+			isJsonObject(parsed)
+				? parsed.structural_checks
 				: undefined;
 		for (const violation of postureEnumViolationsIn(structural)) {
 			out.push({

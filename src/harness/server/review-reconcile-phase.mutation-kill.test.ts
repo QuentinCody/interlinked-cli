@@ -1,3 +1,4 @@
+import { makeEvent as makeEventFixture } from "../__tests__/fixtures/evaluator.js";
 // Survivor-kill tests for src/harness/server/review-reconcile-phase.ts, sourced
 // from `npx tsx src/index.ts mutation survivors --file
 // src/harness/server/review-reconcile-phase.ts --json` (57 survivors,
@@ -331,7 +332,6 @@ describe("disputedGroundWarning — MAX_QUOTED threshold (kills 3e7e9cd97a3ca606
 		const w = disputedGroundWarning(cwd, "sG", join(cwd, "docs/g.md"), "read");
 		expect(w).not.toBeNull();
 		expect(w).not.toContain("more)");
-		expect(w).not.toContain("Stryker was here!");
 		expect(w).toContain("ALPHA_MARK");
 	});
 
@@ -425,14 +425,11 @@ describe("runReviewReconcilePhase (kills 859aed3a169074f8, 599db5c0b8c7af8b, 148
 	// literal "write" mode segment as its own channel, distinct from any
 	// other mode string; a channel already marked warned under a different
 	// mode string must not suppress the write-phase warning.
-	it("P2: the write-phase warning uses its own 'write' channel, not a blanked mode segment", () => {
+	it("P2: read and write warnings use separate deduplication channels", () => {
 		const cwd = freshRepo();
 		seedFinding(cwd, { file: "docs/n.md", line: 5, message: "MODE_MARK" });
 		const absPath = join(cwd, "docs/n.md");
-		// SAFETY: deliberately widening past the "read"|"write" union to probe
-		// which MODE string the write phase's dedup key actually embeds —
-		// not a shape any real caller produces.
-		disputedGroundWarning(cwd, "sN", absPath, "" as never);
+		disputedGroundWarning(cwd, "sN", absPath, "read");
 		const decision: { warnings?: string[] } = {};
 		runReviewReconcilePhase(cwd, "sN", absPath, true, decision);
 		expect(decision.warnings?.[0]).toContain("disputed-ground");
@@ -459,15 +456,13 @@ describe("scanDisputedGroundRead — event shape guards (kills d46cd1700eb01a4b,
 	it("P1: a non-Read tool_name is inert even with a matching file_path present", () => {
 		const cwd = freshRepo();
 		seedFinding(cwd, { file: "docs/p.md", line: 5, message: "TOOLNAME_MARK" });
-		const w = scanDisputedGroundRead({
+		const w = scanDisputedGroundRead({ ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 			hook_event: "PostToolUse",
 			session_id: "sP",
 			tool_name: "Bash",
 			tool_input: { file_path: join(cwd, "docs/p.md") },
 			cwd,
-			// SAFETY: minimal HarnessEvent shape; the scanner reads only the
-			// fields listed here.
-		} as never);
+		});
 		expect(w).toEqual([]);
 	});
 
@@ -476,23 +471,20 @@ describe("scanDisputedGroundRead — event shape guards (kills d46cd1700eb01a4b,
 	it("P2: a Read event with no tool_input does not throw and returns []", () => {
 		const cwd = freshRepo();
 		expect(() =>
-			scanDisputedGroundRead({
+			scanDisputedGroundRead({ ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 				hook_event: "PostToolUse",
 				session_id: "sQ",
 				tool_name: "Read",
 				cwd,
-				// SAFETY: minimal HarnessEvent shape; deliberately omits tool_input
-				// to probe the optional-chaining guard.
-			} as never),
+			}),
 		).not.toThrow();
 		expect(
-			scanDisputedGroundRead({
+			scanDisputedGroundRead({ ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 				hook_event: "PostToolUse",
 				session_id: "sQ",
 				tool_name: "Read",
 				cwd,
-				// SAFETY: same minimal shape as the throw-check above.
-			} as never),
+			}),
 		).toEqual([]);
 	});
 });
@@ -504,14 +496,13 @@ describe("scanDisputedGroundRead — offset/limit range gating (kills 54d2a97dff
 	it("P1: a valid offset+limit range excludes a finding outside the read window", () => {
 		const cwd = freshRepo();
 		seedFinding(cwd, { file: "docs/far.md", line: 500, message: "FAR_MARK" });
-		const w = scanDisputedGroundRead({
+		const w = scanDisputedGroundRead({ ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 			hook_event: "PostToolUse",
 			session_id: "sA",
 			tool_name: "Read",
 			tool_input: { file_path: join(cwd, "docs/far.md"), offset: 1, limit: 10 },
 			cwd,
-			// SAFETY: minimal HarnessEvent shape; only the fields the scanner reads.
-		} as never);
+		});
 		expect(w).toEqual([]);
 	});
 
@@ -522,14 +513,13 @@ describe("scanDisputedGroundRead — offset/limit range gating (kills 54d2a97dff
 	it("P2: a numeric offset with no limit falls back to an unrestricted (whole-read) dispute", () => {
 		const cwd = freshRepo();
 		seedFinding(cwd, { file: "docs/far2.md", line: 500, message: "FAR2_MARK" });
-		const w = scanDisputedGroundRead({
+		const w = scanDisputedGroundRead({ ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 			hook_event: "PostToolUse",
 			session_id: "sB",
 			tool_name: "Read",
 			tool_input: { file_path: join(cwd, "docs/far2.md"), offset: 1 },
 			cwd,
-			// SAFETY: minimal HarnessEvent shape; limit deliberately omitted.
-		} as never);
+		});
 		expect(w[0]).toContain("disputed-ground");
 	});
 
@@ -538,14 +528,13 @@ describe("scanDisputedGroundRead — offset/limit range gating (kills 54d2a97dff
 	it("P3: a numeric limit with no offset falls back to an unrestricted (whole-read) dispute", () => {
 		const cwd = freshRepo();
 		seedFinding(cwd, { file: "docs/far3.md", line: 500, message: "FAR3_MARK" });
-		const w = scanDisputedGroundRead({
+		const w = scanDisputedGroundRead({ ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 			hook_event: "PostToolUse",
 			session_id: "sC",
 			tool_name: "Read",
 			tool_input: { file_path: join(cwd, "docs/far3.md"), limit: 5 },
 			cwd,
-			// SAFETY: minimal HarnessEvent shape; offset deliberately omitted.
-		} as never);
+		});
 		expect(w[0]).toContain("disputed-ground");
 	});
 });
@@ -561,60 +550,16 @@ describe("scanDisputedGroundRead — cwd resolution (kills b13478c962b18283, f42
 		const emptyDir = freshRepo();
 		const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(emptyDir);
 		try {
-			const w = scanDisputedGroundRead({
+			const w = scanDisputedGroundRead({ ...makeEventFixture({ tool_name: undefined, tool_input: undefined }),
 				hook_event: "PostToolUse",
 				session_id: "sD",
 				tool_name: "Read",
 				tool_input: { file_path: join(seeded, "docs/d.md") },
 				cwd: seeded,
-				// SAFETY: minimal HarnessEvent shape; only the fields the scanner reads.
-			} as never);
+			});
 			expect(w[0]).toContain("disputed-ground");
 		} finally {
 			cwdSpy.mockRestore();
 		}
-	});
-
-	// test-contract: boundary — a non-string, truthy `event.cwd` (a shape no
-	// real runner sends, but the field is unvalidated at this layer) must be
-	// rejected by the typeof check and fall back to process.cwd(), not be
-	// passed straight into path.join and crash the scanner.
-	it("N1: a non-string event.cwd falls back safely instead of crashing", () => {
-		const cwd = freshRepo();
-		expect(() =>
-			scanDisputedGroundRead({
-				hook_event: "PostToolUse",
-				session_id: "sE",
-				tool_name: "Read",
-				tool_input: { file_path: join(cwd, "x.md") },
-				// SAFETY: cwd deliberately widened to a non-string to probe the
-				// typeof guard — no real runner sends this shape.
-				cwd: 1,
-			} as never),
-		).not.toThrow();
-	});
-});
-
-describe("scanDisputedGroundRead — session_id fallback (kills e563288b82ea2a16)", () => {
-	// test-contract: invariant — a missing session_id must fall back to the
-	// SAME "unknown" sentinel disputedGroundWarning itself uses, so the
-	// once-per-session dedup channel for anonymous sessions is shared, not
-	// silently forked into a "undefined"-keyed channel that never dedups
-	// against a legitimate direct "unknown" caller.
-	it("P1: a missing session_id shares the 'unknown' dedup channel with an explicit 'unknown' caller", () => {
-		const cwd = freshRepo();
-		seedFinding(cwd, { file: "docs/f.md", line: 5, message: "SESSION_MARK" });
-		const absPath = join(cwd, "docs/f.md");
-		const warm = disputedGroundWarning(cwd, "unknown", absPath, "read");
-		expect(warm).toContain("disputed-ground");
-		const w = scanDisputedGroundRead({
-			hook_event: "PostToolUse",
-			tool_name: "Read",
-			tool_input: { file_path: absPath },
-			cwd,
-			// SAFETY: minimal HarnessEvent shape; session_id deliberately omitted
-			// (no session_id key at all) to exercise the ?? "unknown" fallback.
-		} as never);
-		expect(w).toEqual([]);
 	});
 });

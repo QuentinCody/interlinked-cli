@@ -1,71 +1,16 @@
-import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
+import { makeSidecarChild as makeFakeChild, type FakeSidecarChild as FakeChild } from "../test-sidecar-child.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
-import type { SidecarManagerOptions } from "../sidecar-manager.js";
+import type { SidecarManagerOptions, SpawnFn } from "../sidecar-manager.js";
 import { SidecarManager } from "../sidecar-manager.js";
 
 // ===========================================
 // Fake child process
 // ===========================================
 
-interface FakeChild extends EventEmitter {
-	stdin: PassThrough;
-	stdout: PassThrough;
-	stderr: PassThrough;
-	killed: boolean;
-	kill(signal?: string): boolean;
-	/** Helper: emit a JSON line on the fake stdout. */
-	respond(obj: Record<string, unknown>): void;
-	/** Helper: pretend the child exited. */
-	exit(code: number | null): void;
-	/** Signals passed to kill(), in call order. */
-	readonly killSignals: string[];
-	/** Captured stdin writes, one JSON object per line. */
-	readonly stdinLines: string[];
-}
-
-function makeFakeChild(): FakeChild {
-	const emitter = new EventEmitter() as FakeChild;
-	emitter.stdin = new PassThrough();
-	emitter.stdout = new PassThrough();
-	emitter.stderr = new PassThrough();
-	emitter.killed = false;
-
-	const lines: string[] = [];
-	const killSignals: string[] = [];
-	emitter.stdin.on("data", (chunk: Buffer) => {
-		// Each chunk may contain one or more \n-delimited JSON objects.
-		const text = chunk.toString();
-		for (const line of text.split("\n")) {
-			if (line.length > 0) lines.push(line);
-		}
-	});
-	Object.defineProperty(emitter, "stdinLines", { get: () => lines });
-	Object.defineProperty(emitter, "killSignals", { get: () => killSignals });
-
-	emitter.respond = (obj) => {
-		emitter.stdout.write(`${JSON.stringify(obj)}\n`);
-	};
-	emitter.exit = (code) => {
-		emitter.killed = true;
-		emitter.emit("exit", code);
-	};
-	emitter.kill = (signal?: string) => {
-		killSignals.push(signal ?? "");
-		if (!emitter.killed) {
-			emitter.killed = true;
-			queueMicrotask(() => emitter.emit("exit", null));
-		}
-		return true;
-	};
-
-	return emitter;
-}
-
 function makeOpts(overrides: Partial<SidecarManagerOptions> = {}): SidecarManagerOptions {
 	const child = makeFakeChild();
-	const spawn = vi.fn(() => child as unknown as import("node:child_process").ChildProcess);
+	const spawn = vi.fn<SpawnFn>(() => child);
 	return {
 		python_bin: "python3",
 		script_path: "/tmp/fake-sidecar.py",
@@ -86,12 +31,12 @@ function makeOpts(overrides: Partial<SidecarManagerOptions> = {}): SidecarManage
 type ManagerCtx = {
 	mgr: SidecarManager;
 	child: FakeChild;
-	spawn: ReturnType<typeof vi.fn>;
+	spawn: ReturnType<typeof vi.fn<SpawnFn>>;
 };
 
 function makeManager(overrides: Partial<SidecarManagerOptions> = {}): ManagerCtx {
 	const child = makeFakeChild();
-	const spawn = vi.fn(() => child as unknown as import("node:child_process").ChildProcess);
+	const spawn = vi.fn<SpawnFn>(() => child);
 	const opts = { ...makeOpts(), ...overrides, spawn };
 	return { mgr: new SidecarManager(opts), child, spawn };
 }
@@ -159,6 +104,18 @@ describe("SidecarManager — happy path", () => {
 		child.respond({ id: sent.id, ok: true });
 		const resp = await p;
 		expect(resp.ok).toBe(true);
+	});
+
+	it("retains valid spans beside malformed sidecar response entries", async () => {
+		const { mgr, child } = makeManager();
+		const pending = mgr.send({ op: "scan", text: "alice@example.com" });
+		await Promise.resolve();
+		const sent = JSON.parse(nonNull(child.stdinLines[0]));
+		const valid = { label: "EMAIL", start: 0, end: 17, text: "alice@example.com", score: 0.95 };
+		child.respond({ id: sent.id, ok: true, spans: [
+			null, { ...valid, start: "0" }, { ...valid, end: -1 }, { ...valid, score: "high" }, valid,
+		] });
+		expect((await pending).spans).toEqual([valid]);
 	});
 
 	it("delivers spans and redacted_text on scan responses", async () => {
@@ -302,7 +259,7 @@ describe("SidecarManager — crash handling", () => {
 		const spawn = vi.fn(() => {
 			const c = makeFakeChild();
 			queueMicrotask(() => c.exit(1));
-			return c as unknown as import("node:child_process").ChildProcess;
+			return c;
 		});
 		const mgr = new SidecarManager({ ...makeOpts(), spawn, max_restarts: 2 });
 
@@ -435,7 +392,7 @@ describe("SidecarManager — child error event", () => {
 describe("SidecarManager — optional child streams", () => {
 	it("keeps the request alive when stdout is absent", async () => {
 		const { mgr, child } = makeManager({ startup_timeout_ms: 25 });
-		child.stdout = undefined as unknown as PassThrough;
+		Reflect.set(child, "stdout", undefined);
 		const p = mgr.send({ op: "ping" });
 		await vi.advanceTimersByTimeAsync(26);
 		expect(await p).toEqual({ ok: false, error: "timeout after 25ms" });
@@ -443,7 +400,7 @@ describe("SidecarManager — optional child streams", () => {
 
 	it("keeps the request alive when stderr is absent", async () => {
 		const { mgr, child } = makeManager({ startup_timeout_ms: 25 });
-		child.stderr = undefined as unknown as PassThrough;
+		Reflect.set(child, "stderr", undefined);
 		const p = mgr.send({ op: "ping" });
 		await vi.advanceTimersByTimeAsync(26);
 		expect(await p).toEqual({ ok: false, error: "timeout after 25ms" });
@@ -451,7 +408,7 @@ describe("SidecarManager — optional child streams", () => {
 
 	it("keeps the request alive when stdin is absent", async () => {
 		const { mgr, child } = makeManager({ startup_timeout_ms: 25 });
-		child.stdin = undefined as unknown as PassThrough;
+		Reflect.set(child, "stdin", undefined);
 		const p = mgr.send({ op: "ping" });
 		await vi.advanceTimersByTimeAsync(26);
 		expect(await p).toEqual({ ok: false, error: "timeout after 25ms" });
@@ -709,7 +666,7 @@ describe("SidecarManager — default stderr sink", () => {
 		const writeSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 		try {
 			const child = makeFakeChild();
-			const spawn = vi.fn(() => child as unknown as import("node:child_process").ChildProcess);
+			const spawn = vi.fn<SpawnFn>(() => child);
 			const mgr = new SidecarManager({
 				python_bin: "python3",
 				script_path: "/tmp/fake-sidecar.py",
@@ -764,7 +721,7 @@ describe("SidecarManager — idle recovery", () => {
 		const spawn = vi.fn(() => {
 			const c = children.shift();
 			if (!c) throw new Error("no more fake children");
-			return c as unknown as import("node:child_process").ChildProcess;
+			return c;
 		});
 		const mgr = new SidecarManager({ ...makeOpts(), spawn, idle_shutdown_ms: 5000 });
 
@@ -822,13 +779,15 @@ describe("SidecarManager — idle recovery", () => {
 	});
 
 	it("does not idle-close a child after explicit shutdown has begun", async () => {
-		const { mgr, child } = makeManager();
-		void mgr.send({ op: "ping" });
+		const { mgr, child } = makeManager({ idle_shutdown_ms: 100 });
+		const ping = mgr.send({ op: "ping" });
 		await Promise.resolve();
+		child.respond({ id: JSON.parse(nonNull(child.stdinLines[0])).id, ok: true });
+		await ping;
 
 		const shutdown = mgr.shutdown();
 		const linesAfterShutdown = child.stdinLines.length;
-		await (mgr as unknown as { closeChildForIdle(): Promise<void> }).closeChildForIdle();
+		await vi.advanceTimersByTimeAsync(100);
 		expect(child.stdinLines).toHaveLength(linesAfterShutdown);
 		expect(child.killSignals).toEqual([]);
 
@@ -843,7 +802,7 @@ describe("SidecarManager — idle recovery", () => {
 		const spawn = vi.fn(() => {
 			const child = children.shift();
 			if (!child) throw new Error("no more fake children");
-			return child as unknown as import("node:child_process").ChildProcess;
+			return child;
 		});
 		const mgr = new SidecarManager({
 			...makeOpts(),
@@ -884,7 +843,7 @@ describe("SidecarManager — idle recovery", () => {
 		const spawn = vi.fn(() => {
 			const c = children.shift();
 			if (!c) throw new Error("no more fake children");
-			return c as unknown as import("node:child_process").ChildProcess;
+			return c;
 		});
 		const mgr = new SidecarManager({ ...makeOpts(), spawn, max_restarts: 2, idle_shutdown_ms: 5000 });
 
@@ -908,7 +867,7 @@ describe("SidecarManager — idle recovery", () => {
 	it("fires onStatusChange on every lifecycle transition", async () => {
 		const statuses: string[] = [];
 		const child = makeFakeChild();
-		const spawn = vi.fn(() => child as unknown as import("node:child_process").ChildProcess);
+		const spawn = vi.fn<SpawnFn>(() => child);
 		const mgr = new SidecarManager({
 			...makeOpts(),
 			spawn,

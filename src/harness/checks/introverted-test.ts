@@ -20,6 +20,7 @@
 
 import { createRequire } from "node:module";
 import type * as TS from "typescript";
+import { sutBaseFromPath } from "./shared-test-classification.js";
 import { parseTsSourceWith } from "./cyclomatic-ast.js";
 import { getExtension, type InlineMatch, isStrictTestFile, JS_TS_EXTS } from "./shared.js";
 
@@ -34,6 +35,7 @@ let tsCache: TsModule | null | undefined;
 function loadTs(): TsModule | null {
 	if (tsCache !== undefined) return tsCache;
 	try {
+		// SAFETY: createRequire loads the installed TypeScript package selected by Node resolution; its exported compiler API matches the imported declarations.
 		tsCache = createRequire(import.meta.url)("typescript") as TsModule;
 	} catch {
 		tsCache = null;
@@ -83,13 +85,6 @@ function normalizeSpec(spec: string): string {
 function importBasename(spec: string): string {
 	const last = spec.split("/").pop() ?? "";
 	return last.replace(/\.(js|ts|tsx|jsx|mjs|cjs|mts|cts)$/, "");
-}
-
-/** Companion SUT basename for a test path (`foo.test.ts` → `foo`); "" if none. */
-function sutBaseFromPath(filePath: string): string {
-	const fileName = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
-	const base = fileName.replace(/\.(test|spec)\.(tsx?|jsx?|mjs|cjs|mts|cts)$/, "");
-	return base === fileName ? "" : base;
 }
 
 interface SutSymbols {

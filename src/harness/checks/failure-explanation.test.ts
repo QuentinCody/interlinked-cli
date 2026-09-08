@@ -55,7 +55,8 @@ describe("listExplanationKeys", () => {
 	it("every listed key resolves to a non-empty explanation", () => {
 		for (const key of listExplanationKeys()) {
 			const slash = key.indexOf("/");
-			const label = key.slice(0, slash) as TriageResult["label"];
+			const label = (["agent-error", "environmental", "transient", "unrecoverable", "unknown"] as const).find((candidate) => candidate === key.slice(0, slash));
+			if (!label) throw new Error(`Unexpected explanation label: ${key}`);
 			const category = key.slice(slash + 1);
 			const out = explainFailure(makeEvent(), triage(label, category));
 			expect(out, key).toBeTruthy();
@@ -193,8 +194,7 @@ describe("explainFailure — fallback-by-label (no matching template)", () => {
 	});
 
 	it("label absent from FALLBACK_BY_LABEL returns null (undefined fallback)", () => {
-		// Cast through a string the union doesn't include to exercise the
-		// `fallback === undefined` arm of `fallback || null`.
+		// SAFETY: the invalid label deliberately exercises missing-fallback handling outside the declared triage-label union.
 		const bogus = { ...triage("agent-error", "x"), label: "totally-made-up" as unknown as TriageResult["label"] };
 		expect(explainFailure(makeEvent(), bogus)).toBeNull();
 	});
@@ -293,7 +293,7 @@ describe("buildContext (via explainFailure) — error-source + extraction branch
 		const out = explainFailure(
 			makeEvent({
 				error_message: "Cannot find module './m'",
-				tool_input: { file_path: 123 as unknown as string },
+				tool_input: { file_path: 123 },
 			}),
 			triage("agent-error", "missing-import"),
 		);

@@ -38,7 +38,7 @@ const EVIDENCE_RE = /^\s*Evidence:\s*(.*)$/i;
 
 function parseSeverity(text: string): ReviewSeverity {
 	const m = SEVERITY_RE.exec(text);
-	return m ? ((m[1] ?? "unknown").toLowerCase() as ReviewSeverity) : "unknown";
+	return (["critical", "high", "medium", "low"] as const).find((severity) => severity === m?.[1]?.toLowerCase()) ?? "unknown";
 }
 
 /** A candidate token is a repo anchor only when it neither starts with "/"

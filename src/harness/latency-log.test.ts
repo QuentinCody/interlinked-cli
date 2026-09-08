@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { appendLatencyLog, ROTATION_BYTES_DEFAULT } from "./latency-log.js";
+import { appendLatencyLog, ROTATION_BYTES_DEFAULT, type LatencyLogEntry } from "./latency-log.js";
 
 let tmp: string;
 
@@ -14,11 +14,11 @@ afterEach(() => {
 	rmSync(tmp, { recursive: true, force: true });
 });
 
-const SAMPLE_ENTRY = {
-	hook_event: "PostToolUse" as string | null,
-	tool_name: "Edit" as string | null,
-	session_id: "s1" as string | null,
-	agent_source: "claude" as string | null,
+const SAMPLE_ENTRY: LatencyLogEntry = {
+	hook_event: "PostToolUse",
+	tool_name: "Edit",
+	session_id: "s1",
+	agent_source: "claude",
 	decision: "allow",
 	checks_ran: ["typescript", "biome_lint"],
 	checks_timing_ms: 1234,

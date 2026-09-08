@@ -22,14 +22,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_MATERIALIZED_RANGE_BYTES } from "./bounded-file-core.js";
 
-// SAFETY: the object starts empty and the vi.mock factory below fills it with
-// every node:fs export before any test body runs, so the declared shape is the
-// shape callers observe.
-const { actualFs } = vi.hoisted(() => ({ actualFs: {} as typeof import("node:fs") }));
-
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
-	Object.assign(actualFs, actual);
 	return {
 		...actual,
 		unlinkSync: vi.fn(actual.unlinkSync),

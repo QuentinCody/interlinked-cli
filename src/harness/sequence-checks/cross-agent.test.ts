@@ -335,7 +335,7 @@ describe("stale_read_then_write", () => {
 		);
 		const candidate = makeCandidate({
 			tool_name: "Edit",
-			tool_input: { file_path: 123 as unknown as string },
+			tool_input: { file_path: 123 },
 			cwd: dir,
 			agent_name: "me",
 		});

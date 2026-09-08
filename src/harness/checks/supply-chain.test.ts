@@ -465,8 +465,8 @@ describe("loadPopularPackagesData — side-loaded JSON merge (mocked fs)", () =>
 				...actual,
 				existsSync: (p: string) =>
 					isDataPath(p) ? p.endsWith("checks/checks/data/npm-popular-packages.json") : actual.existsSync(p),
-				readFileSync: (p: string, enc?: unknown) => {
-					if (!isDataPath(p)) return actual.readFileSync(p as never, enc as never);
+				readFileSync: (p: string, enc?: Parameters<typeof actual.readFileSync>[1]) => {
+					if (!isDataPath(p)) return actual.readFileSync(p, enc);
 					if (p.endsWith("checks/checks/data/npm-popular-packages.json")) return payload;
 					throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
 				},
@@ -499,8 +499,8 @@ describe("loadPopularPackagesData — side-loaded JSON merge (mocked fs)", () =>
 			return {
 				...actual,
 				existsSync: (p: string) => (isDataPath(p) ? true : actual.existsSync(p)),
-				readFileSync: (p: string, enc?: unknown) =>
-					isDataPath(p) ? "{ not valid json" : actual.readFileSync(p as never, enc as never),
+				readFileSync: (p: string, enc?: Parameters<typeof actual.readFileSync>[1]) =>
+					isDataPath(p) ? "{ not valid json" : actual.readFileSync(p, enc),
 			};
 		});
 		const { checkTyposquatDependencies: freshCheck } = await import("./supply-chain.js");
@@ -526,10 +526,10 @@ describe("loadPopularPackagesData — side-loaded JSON merge (mocked fs)", () =>
 			return {
 				...actual,
 				existsSync: (p: string) => (isDataPath(p) ? true : actual.existsSync(p)),
-				readFileSync: (p: string, enc?: unknown) =>
+				readFileSync: (p: string, enc?: Parameters<typeof actual.readFileSync>[1]) =>
 					isDataPath(p)
 						? JSON.stringify({ packages: "not-an-array" })
-						: actual.readFileSync(p as never, enc as never),
+						: actual.readFileSync(p, enc),
 			};
 		});
 		const { checkTyposquatDependencies: freshCheck } = await import("./supply-chain.js");

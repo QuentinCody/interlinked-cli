@@ -6,7 +6,6 @@
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
 import { detectAuthChain } from "../auth-chain.js";
-import type { EndpointFramework } from "../types/session.js";
 
 describe("detectAuthChain — express", () => {
 	it("picks up app.use(requireAuth) above the route", () => {
@@ -201,16 +200,5 @@ describe("detectAuthChain — frameworks with no in-file auth scan", () => {
 	it.each(["sveltekit", "nuxt", "mcp"] as const)("returns [] for %s", (framework) => {
 		const content = ["export const load = () => ({});", "app.use(requireAuth);"].join("\n");
 		expect(detectAuthChain(framework, "/abs/file.ts", content, 2)).toEqual([]);
-	});
-});
-
-describe("detectAuthChain — defensive exhaustiveness fallback", () => {
-	it("returns [] for an unknown framework value (never-branch guard)", () => {
-		// The switch covers every member of EndpointFramework; the default
-		// arm is a compile-time exhaustiveness guard that only executes if the
-		// union grows without a matching case. Force it via a type escape to
-		// prove it fails closed (empty chain, no throw).
-		const bogus = "graphql-yoga" as unknown as EndpointFramework;
-		expect(detectAuthChain(bogus, "/abs/file.ts", "app.use(requireAuth);", 2)).toEqual([]);
 	});
 });

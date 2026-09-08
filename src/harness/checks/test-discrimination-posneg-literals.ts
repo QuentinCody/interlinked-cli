@@ -74,7 +74,7 @@ function classifyTopLevelLiteral(maskedTrim: string, rawTrim: string): string | 
 function splitArgSpans(open: number, span: { end: number; topLevelCommas: number[] }): Array<[number, number]> {
 	const starts = [open, ...span.topLevelCommas.map((c) => c + 1)];
 	const ends = [...span.topLevelCommas, span.end];
-	return starts.map((s, i) => [s, ends[i] ?? span.end] as [number, number]);
+	return starts.map((s, i): [number, number] => [s, ends[i] ?? span.end]);
 }
 
 /** Index of the first non-whitespace character of `text`, or -1 when blank. */

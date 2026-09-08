@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireBoolean, wireNullable, wireNumber, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -90,7 +91,7 @@ describe("capsRatchetAction — dry run", () => {
 
 	it("--json dry run carries the entries it would write", async () => {
 		expect(await capsRatchetAction("cyclomatic", { to: "16", dryRun: true, json: true }, { cwd })).toBe(0);
-		const parsed = JSON.parse(out()) as { dry_run: boolean; entries: Array<{ name: string }>; cap: number };
+		const parsed = parseWire(JSON.parse(out()), wireObject({ "dry_run": wireBoolean, "entries": wireArray(wireObject({ "name": wireString })), "cap": wireNumber }), "test JSON value");
 		expect(parsed.dry_run).toBe(true);
 		expect(parsed.cap).toBe(16);
 		expect(parsed.entries.map((e) => e.name)).toEqual(["big", "other"]);
@@ -153,14 +154,14 @@ describe("capsRatchetAction — real ratchet", () => {
 		resetMetricCapsCache();
 		expect(await capsRatchetAction("cyclomatic", { to: "16", json: true }, { cwd })).toBe(0);
 		expect(ledgerFile().metrics.cyclomatic?.entries.map((e) => e.name)).toEqual(["big"]);
-		const parsed = JSON.parse(out()) as { added: number; unlisted: Array<{ name: string }> };
+		const parsed = parseWire(JSON.parse(out()), wireObject({ "added": wireNumber, "unlisted": wireArray(wireObject({ "name": wireString })) }), "test JSON value");
 		expect(parsed.added).toBe(0);
 		expect(parsed.unlisted.map((e) => e.name)).toEqual(["other"]);
 	});
 
 	it("N: the FIRST section for a metric seeds every over-cap function (no old regime to admit against)", async () => {
 		expect(await capsRatchetAction("cyclomatic", { to: "25", json: true }, { cwd })).toBe(0);
-		const parsed = JSON.parse(out()) as { added: number; unlisted: unknown[]; entries: Array<{ name: string }> };
+		const parsed = parseWire(JSON.parse(out()), wireObject({ "added": wireNumber, "unlisted": wireArray(wireUnknown), "entries": wireArray(wireObject({ "name": wireString })) }), "test JSON value");
 		expect(parsed.entries.map((e) => e.name)).toEqual(["other"]);
 		expect(parsed.added).toBe(1);
 		expect(parsed.unlisted).toEqual([]);
@@ -263,10 +264,7 @@ describe("capsStatusAction", () => {
 		await capsRatchetAction("cyclomatic", { to: "16" }, { cwd });
 		logs = [];
 		expect(await capsStatusAction({ json: true }, { cwd })).toBe(0);
-		const parsed = JSON.parse(out()) as Record<
-			string,
-			{ cap: number; effective_cap: number; remaining: number; top: Array<{ name: string }>; previous: unknown } | null
-		>;
+		const parsed = parseWire(JSON.parse(out()), wireRecord(wireNullable(wireObject({ "cap": wireNumber, "effective_cap": wireNumber, "remaining": wireNumber, "top": wireArray(wireObject({ "name": wireString })), "previous": wireUnknown }))), "test JSON value");
 		expect(parsed.cyclomatic?.cap).toBe(16);
 		expect(parsed.cyclomatic?.effective_cap).toBe(16);
 		expect(parsed.cyclomatic?.remaining).toBe(2);

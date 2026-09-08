@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireObject, wireOptional, wireString } from "../../lib/value-validation.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -909,7 +910,7 @@ describe("readDeferredCoverageObligations", () => {
 		// (deleted ⇒ dropped) removes it before the assertion under test runs.
 		for (const line of lines) {
 			try {
-				const f = (JSON.parse(line) as { file?: string }).file;
+				const f = (parseWire(JSON.parse(line), wireObject({ "file": wireAbsentOptional(wireOptional(wireString)) }), "test JSON value")).file;
 				if (f) touchFiles([f]);
 			} catch (err) {
 				// Torn-line fixtures are deliberate inputs to the malformed-JSONL test.

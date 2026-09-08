@@ -1,3 +1,4 @@
+import { makeSidecarChild } from "../test-sidecar-child.js";
 // Tests for SidecarPool — N-instance wrapper that round-robins scan requests
 // across independent SidecarManager children. Exists because the Python OPF
 // sidecar is single-threaded: one instance handling events from multiple
@@ -5,55 +6,12 @@
 // AbortSignal timeout, and the scanner silently fail-opens. With N children,
 // concurrent sessions can actually run in parallel.
 
-import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
 import type { SidecarPoolOptions } from "../sidecar-pool.js";
 import { SidecarPool } from "../sidecar-pool.js";
 
-interface FakeChild extends EventEmitter {
-	stdin: PassThrough;
-	stdout: PassThrough;
-	stderr: PassThrough;
-	killed: boolean;
-	pid: number;
-	kill(signal?: string): boolean;
-	respond(obj: Record<string, unknown>): void;
-	exit(code: number | null): void;
-	readonly stdinLines: string[];
-}
-
-function makeFakeChild(pid = 1000): FakeChild {
-	const emitter = new EventEmitter() as FakeChild;
-	emitter.stdin = new PassThrough();
-	emitter.stdout = new PassThrough();
-	emitter.stderr = new PassThrough();
-	emitter.killed = false;
-	emitter.pid = pid;
-	const lines: string[] = [];
-	emitter.stdin.on("data", (chunk: Buffer) => {
-		for (const line of chunk.toString().split("\n")) {
-			if (line.length > 0) lines.push(line);
-		}
-	});
-	Object.defineProperty(emitter, "stdinLines", { get: () => lines });
-	emitter.respond = (obj) => {
-		emitter.stdout.write(`${JSON.stringify(obj)}\n`);
-	};
-	emitter.exit = (code) => {
-		emitter.killed = true;
-		emitter.emit("exit", code);
-	};
-	emitter.kill = () => {
-		if (!emitter.killed) {
-			emitter.killed = true;
-			queueMicrotask(() => emitter.emit("exit", null));
-		}
-		return true;
-	};
-	return emitter;
-}
+function makeFakeChild(pid = 1000) { return makeSidecarChild(pid); }
 
 function makePoolOpts(
 	pool_size: number,
@@ -81,7 +39,7 @@ afterEach(() => {
 
 describe("SidecarPool — lazy spawn", () => {
 	it("does not spawn any child until the first send", () => {
-		const spawn = vi.fn(() => makeFakeChild() as unknown as import("node:child_process").ChildProcess);
+		const spawn = vi.fn(() => makeFakeChild());
 		const pool = new SidecarPool(makePoolOpts(3, spawn));
 		expect(spawn).toHaveBeenCalledTimes(0);
 		void pool; // suppress unused-var linting
@@ -89,7 +47,7 @@ describe("SidecarPool — lazy spawn", () => {
 
 	it("spawns only one child for a single-session workload", async () => {
 		const children = [makeFakeChild(101), makeFakeChild(102), makeFakeChild(103)];
-		const spawn = vi.fn(() => children.shift() as unknown as import("node:child_process").ChildProcess);
+		const spawn = vi.fn(() => nonNull(children.shift()));
 		const pool = new SidecarPool(makePoolOpts(3, spawn));
 
 		const p = pool.send({ op: "ping" });
@@ -100,7 +58,7 @@ describe("SidecarPool — lazy spawn", () => {
 		const alive = children.length === 2; // first consumed
 		expect(alive).toBe(true);
 		// Respond using the child that was actually spawned (first in pool).
-		const spawned = nonNull(spawn.mock.results[0]).value as FakeChild;
+		const spawned = nonNull(spawn.mock.results[0]).value;
 		spawned.respond({ id: JSON.parse(nonNull(spawned.stdinLines[0])).id, ok: true });
 		await p;
 	});
@@ -110,7 +68,7 @@ describe("SidecarPool — round-robin dispatch", () => {
 	it("dispatches N concurrent sends to N distinct children", async () => {
 		const children = [makeFakeChild(201), makeFakeChild(202), makeFakeChild(203)];
 		const copy = [...children];
-		const spawn = vi.fn(() => copy.shift() as unknown as import("node:child_process").ChildProcess);
+		const spawn = vi.fn(() => nonNull(copy.shift()));
 		const pool = new SidecarPool(makePoolOpts(3, spawn));
 
 		// Three concurrent requests should fan out to three distinct children.
@@ -134,7 +92,7 @@ describe("SidecarPool — round-robin dispatch", () => {
 	it("wraps around after N sends — request N+1 lands on child 0 again", async () => {
 		const children = [makeFakeChild(301), makeFakeChild(302)];
 		const copy = [...children];
-		const spawn = vi.fn(() => copy.shift() as unknown as import("node:child_process").ChildProcess);
+		const spawn = vi.fn(() => nonNull(copy.shift()));
 		const pool = new SidecarPool(makePoolOpts(2, spawn));
 
 		// Kick off three sends in rapid succession against a pool of 2.
@@ -162,7 +120,7 @@ describe("SidecarPool — round-robin dispatch", () => {
 describe("SidecarPool — status aggregation", () => {
 	it("fires onStatusChange with state=ready once any child boots", async () => {
 		const child = makeFakeChild(401);
-		const spawn = vi.fn(() => child as unknown as import("node:child_process").ChildProcess);
+		const spawn = vi.fn(() => child);
 		const statuses: string[] = [];
 		const pool = new SidecarPool({
 			...makePoolOpts(3, spawn),
@@ -186,7 +144,7 @@ describe("SidecarPool — status aggregation", () => {
 		const spawn = vi.fn(() => {
 			const c = makeFakeChild();
 			queueMicrotask(() => c.exit(1));
-			return c as unknown as import("node:child_process").ChildProcess;
+			return c;
 		});
 		const statuses: string[] = [];
 		const pool = new SidecarPool({
@@ -212,7 +170,7 @@ describe("SidecarPool — shutdown", () => {
 	it("shuts down every child on pool.shutdown()", async () => {
 		const children = [makeFakeChild(501), makeFakeChild(502)];
 		const copy = [...children];
-		const spawn = vi.fn(() => copy.shift() as unknown as import("node:child_process").ChildProcess);
+		const spawn = vi.fn(() => nonNull(copy.shift()));
 		const pool = new SidecarPool(makePoolOpts(2, spawn));
 
 		// Kick both children alive.

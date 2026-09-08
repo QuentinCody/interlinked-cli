@@ -88,8 +88,33 @@ interface RawHookEntry {
 	}>;
 }
 
-function hasInterlinkedCommand(h: { command?: unknown }): boolean {
-	return typeof h.command === "string" && h.command.includes(INTERLINKED_MARKER);
+function hasInterlinkedCommand(h: unknown): h is JsonObject & {
+	command: string;
+	async?: unknown;
+	statusMessage?: unknown;
+	additionalContextLimit?: unknown;
+} {
+	return isPlainObject(h) && typeof h.command === "string" && h.command.includes(INTERLINKED_MARKER);
+}
+
+function isRawHookEntry(value: unknown): value is RawHookEntry {
+	if (!isPlainObject(value)) return false;
+	const hooks = value.hooks;
+	return Array.isArray(hooks) && hooks.every(isPlainObject);
+}
+
+export function hookEventEntries(hooks: JsonObject, eventName: string): unknown[] {
+	const entries = hooks[eventName] ?? [];
+	if (!Array.isArray(entries)) throw new Error(`Invalid hooks.${eventName}: expected an array`);
+	hooks[eventName] = entries;
+	return entries;
+}
+
+export function hookSettingsObject(settings: JsonObject): JsonObject {
+	const hooks = settings.hooks ?? {};
+	if (!isPlainObject(hooks)) throw new Error("Invalid hooks: expected an object");
+	settings.hooks = hooks;
+	return hooks;
 }
 
 export function installHookEntry(
@@ -98,11 +123,10 @@ export function installHookEntry(
 	command: string,
 	options: InstallHookEntryOptions = {},
 ): void {
-	if (!hooks[eventName]) hooks[eventName] = [];
-	const entries = hooks[eventName] as RawHookEntry[];
+	const entries = hookEventEntries(hooks, eventName);
 
 	// Check if already installed
-	const existing = entries.find((entry) => entry.hooks?.some(hasInterlinkedCommand));
+	const existing = entries.filter(isRawHookEntry).find((entry) => entry.hooks?.some(hasInterlinkedCommand));
 
 	const timeout = options.timeout ?? hookTimeoutSecondsFor(eventName);
 	if (existing) {

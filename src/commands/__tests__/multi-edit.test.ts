@@ -1,3 +1,4 @@
+import { parseWire, wireLiteral, wireNumber, wireObject, wireString } from "../../lib/value-validation.js";
 // ===========================================
 // multi-edit — unit + integration tests
 // ===========================================
@@ -58,7 +59,7 @@ function applyAndExpectOk(original: string, edits: EditPair[]): string {
 	// Cast is safe because `expect(ok).toBe(true)` above throws on the
 	// failure branch; vitest's matchers abort the test before we reach
 	// this line if `result.ok` was false.
-	return (result as { ok: true; content: string }).content;
+	return (parseWire(result, wireObject({ "ok": wireLiteral(true), "content": wireString }), "test JSON value")).content;
 }
 
 function applyAndExpectFail(
@@ -67,20 +68,21 @@ function applyAndExpectFail(
 ): { code: string; index: number; matches: number } {
 	const result = applyEditsToBuffer(original, edits);
 	expect(result.ok).toBe(false);
-	const fail = result as { ok: false; code: string; index: number; matches: number };
+	const fail = parseWire(result, wireObject({ "ok": wireLiteral(false), "code": wireString, "index": wireNumber, "matches": wireNumber }), "test JSON value");
 	return { code: fail.code, index: fail.index, matches: fail.matches };
 }
 
 function normalizeAndExpectOk(raw: unknown, singleFilePath?: string): EditBatch[] {
 	const result = normalizeManifest(raw, singleFilePath);
 	expect(result.ok).toBe(true);
-	return (result as { ok: true; batches: EditBatch[] }).batches;
+	if (!result.ok) throw new Error(result.message);
+	return result.batches;
 }
 
 function normalizeAndExpectFail(raw: unknown, singleFilePath?: string): string {
 	const result: NormalizeResult = normalizeManifest(raw, singleFilePath);
 	expect(result.ok).toBe(false);
-	return (result as { ok: false; message: string }).message;
+	return (parseWire(result, wireObject({ "ok": wireLiteral(false), "message": wireString }), "test JSON value")).message;
 }
 
 function runAndExpectOk(batches: EditBatch[]): MultiEditResult {

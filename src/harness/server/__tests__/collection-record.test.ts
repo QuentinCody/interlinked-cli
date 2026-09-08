@@ -35,7 +35,7 @@ function mapHarnessEventToCollectionInput(event: HarnessEvent, cwd: string): Jso
 		session: event.session_id,
 		tool_name: event.tool_name ?? "",
 		tool_input: event.tool_input ?? {},
-		tool_response: event.tool_response as JsonObject | undefined,
+		tool_response: event.tool_response,
 		tool_use_id: event.tool_use_id,
 		cwd: event.cwd ?? cwd,
 		tool_response_sha256: event.tool_response_sha256,
@@ -167,7 +167,7 @@ describe("HarnessEvent → collection record mapping (PreToolUse)", () => {
 	it("produces a pre-phase record for Gemini BeforeTool", () => {
 		const event = harnessEvent({
 			hook_event: "BeforeTool",
-			agent_source: "gemini" as HarnessEvent["agent_source"],
+			agent_source: "gemini",
 			tool_name: "Read",
 			tool_input: { file_path: "/src/index.ts" },
 		});
@@ -237,7 +237,7 @@ describe("HarnessEvent → collection record provider detection", () => {
 
 	it("detects copilot from agent_source", () => {
 		const event = harnessEvent({
-			agent_source: "copilot" as HarnessEvent["agent_source"],
+			agent_source: "copilot",
 			tool_name: "Bash",
 			tool_input: { command: "ls" },
 		});
@@ -262,7 +262,7 @@ describe("HarnessEvent → collection record provider detection", () => {
 	it("detects gemini via hook_event BeforeTool", () => {
 		const event = harnessEvent({
 			hook_event: "BeforeTool",
-			agent_source: "gemini" as HarnessEvent["agent_source"],
+			agent_source: "gemini",
 			tool_name: "Bash",
 			tool_input: { command: "ls" },
 		});

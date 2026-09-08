@@ -10,6 +10,8 @@
 
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { isJsonObject } from "../lib/json-types.js";
+import { wireAbsentOptional, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 import { nonNull } from "../lib/non-null.js";
 
 // ===========================================
@@ -29,10 +31,6 @@ interface SuppressionEntry {
 	line?: number;
 }
 
-// Every read site casts an unvalidated `JSON.parse` of a user-editable
-// on-disk config (`.interlinked/verify-suppressions.json`) to this type, so a
-// hand-edited file can genuinely have a `null`/missing entry for a path
-// despite the index signature claiming otherwise — kept honestly nullable.
 interface SuppressionFile {
 	[filePath: string]:
 		| {
@@ -40,6 +38,28 @@ interface SuppressionFile {
 		  }
 		| null
 		| undefined;
+}
+
+const isSuppressionEntry = wireObject<SuppressionEntry>({
+	reason: wireString,
+	by: wireString,
+	at: wireString,
+	line: wireAbsentOptional(wireNumber),
+});
+
+/** Keep valid entries beside malformed hand-edited records. */
+function parseSuppressionFile(value: unknown): SuppressionFile {
+	if (!isJsonObject(value)) return {};
+	const result: SuppressionFile = {};
+	for (const [path, entries] of Object.entries(value)) {
+		if (!isJsonObject(entries)) continue;
+		const checks: Record<string, SuppressionEntry> = {};
+		for (const [check, entry] of Object.entries(entries)) {
+			if (isSuppressionEntry(entry)) checks[check] = entry;
+		}
+		result[path] = checks;
+	}
+	return result;
 }
 
 // ===========================================
@@ -225,7 +245,7 @@ export function loadFileSuppressions(
 		) {
 			data = suppressionFileCache.cache.data;
 		} else {
-			data = JSON.parse(readFileSync(filePath, "utf-8")) as SuppressionFile;
+			data = parseSuppressionFile(JSON.parse(readFileSync(filePath, "utf-8")));
 			suppressionFileCache = { path: filePath, cache: { mtimeMs, data } };
 		}
 		const checks = new Set<string>();
@@ -309,7 +329,7 @@ export function loadSuppressionFile(interlinkedDir: string): SuppressionFile {
 	try {
 		const filePath = join(interlinkedDir, "verify-suppressions.json");
 		if (!existsSync(filePath)) return {};
-		return JSON.parse(readFileSync(filePath, "utf-8")) as SuppressionFile;
+		return parseSuppressionFile(JSON.parse(readFileSync(filePath, "utf-8")));
 	} catch {
 		return {};
 	}
@@ -382,7 +402,7 @@ export function addSuppressions(
 	let data: SuppressionFile = {};
 	try {
 		if (existsSync(filePath)) {
-			data = JSON.parse(readFileSync(filePath, "utf-8")) as SuppressionFile;
+			data = parseSuppressionFile(JSON.parse(readFileSync(filePath, "utf-8")));
 		}
 	} catch {
 		data = {};

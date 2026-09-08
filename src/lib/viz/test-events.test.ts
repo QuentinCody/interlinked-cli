@@ -103,7 +103,7 @@ describe("mapTestLine", () => {
 	});
 
 	it("returns null on an unknown kind", () => {
-		expect(mapTestLine(JSON.stringify(ev({ kind: "explode" as TestEvent["kind"] })))).toBeNull();
+		expect(mapTestLine(JSON.stringify({ ...ev(), kind: "explode" }))).toBeNull();
 	});
 
 	it("drops an out-of-domain status rather than passing it through", () => {

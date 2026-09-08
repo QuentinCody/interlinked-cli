@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import ts from "typescript";
 import {
 	indexTypeAliases,
@@ -37,14 +37,16 @@ function emptyCtx(): ResolutionContext {
 describe("typeNodeToLiteralUnion — positive", () => {
 	it("reads a string-literal union", () => {
 		const sf = parse(`type T = "a" | "b" | "c";`);
-		const alias = sf.statements[0] as import("typescript").TypeAliasDeclaration;
+		const alias = sf.statements[0];
+		assert(alias && ts.isTypeAliasDeclaration(alias));
 		const result = typeNodeToLiteralUnion(ts, alias.type);
 		expect(result?.members).toEqual(['"a"', '"b"', '"c"']);
 	});
 
 	it("dedupes and sorts members", () => {
 		const sf = parse(`type T = "b" | "a" | "b";`);
-		const alias = sf.statements[0] as import("typescript").TypeAliasDeclaration;
+		const alias = sf.statements[0];
+		assert(alias && ts.isTypeAliasDeclaration(alias));
 		const result = typeNodeToLiteralUnion(ts, alias.type);
 		expect(result?.members).toEqual(['"a"', '"b"']);
 	});
@@ -53,13 +55,15 @@ describe("typeNodeToLiteralUnion — positive", () => {
 describe("typeNodeToLiteralUnion — negative", () => {
 	it("returns null for a non-union type", () => {
 		const sf = parse(`type T = string;`);
-		const alias = sf.statements[0] as import("typescript").TypeAliasDeclaration;
+		const alias = sf.statements[0];
+		assert(alias && ts.isTypeAliasDeclaration(alias));
 		expect(typeNodeToLiteralUnion(ts, alias.type)).toBeNull();
 	});
 
 	it("returns null for a union with a boolean literal member", () => {
 		const sf = parse(`type T = "a" | true;`);
-		const alias = sf.statements[0] as import("typescript").TypeAliasDeclaration;
+		const alias = sf.statements[0];
+		assert(alias && ts.isTypeAliasDeclaration(alias));
 		expect(typeNodeToLiteralUnion(ts, alias.type)).toBeNull();
 	});
 });
@@ -67,7 +71,8 @@ describe("typeNodeToLiteralUnion — negative", () => {
 describe("typeNodeToDiscriminatedUnion — positive", () => {
 	it("reads a discriminated union keyed on `kind`", () => {
 		const sf = parse(`type T = { kind: "a"; v: number } | { kind: "b"; v: string };`);
-		const alias = sf.statements[0] as import("typescript").TypeAliasDeclaration;
+		const alias = sf.statements[0];
+		assert(alias && ts.isTypeAliasDeclaration(alias));
 		const result = typeNodeToDiscriminatedUnion(ts, alias.type);
 		expect(result?.discriminant).toBe("kind");
 		expect(result?.tags).toEqual(['"a"', '"b"']);
@@ -77,7 +82,8 @@ describe("typeNodeToDiscriminatedUnion — positive", () => {
 describe("typeNodeToDiscriminatedUnion — negative", () => {
 	it("returns null when members lack a shared literal discriminant", () => {
 		const sf = parse(`type T = { a: number } | { b: string };`);
-		const alias = sf.statements[0] as import("typescript").TypeAliasDeclaration;
+		const alias = sf.statements[0];
+		assert(alias && ts.isTypeAliasDeclaration(alias));
 		expect(typeNodeToDiscriminatedUnion(ts, alias.type)).toBeNull();
 	});
 });
@@ -97,8 +103,9 @@ describe("indexTypeAliases", () => {
 describe("resolveExpressionType — positive (must resolve)", () => {
 	it("resolves an `as` expression against an inline literal union", () => {
 		const sf = parse(`const x = y as "a" | "b";`);
-		const expr = findExpression(sf, "y") as unknown as import("typescript").Expression;
-		const asExpr = expr.parent as import("typescript").AsExpression;
+		const expr = findExpression(sf, "y");
+		const asExpr = expr.parent;
+		assert(asExpr && ts.isAsExpression(asExpr));
 		const resolved = resolveExpressionType(ts, asExpr, emptyCtx());
 		expect(resolved?.tags).toEqual(['"a"', '"b"']);
 	});
@@ -126,7 +133,7 @@ describe("resolveExpressionType — positive (must resolve)", () => {
 			localUnions: indexTypeAliases(ts, sf, typeNodeToLiteralUnion),
 			localDiscriminated: indexTypeAliases(ts, sf, typeNodeToDiscriminatedUnion),
 		};
-		const expr = findExpression(sf, "v") as unknown as import("typescript").Expression;
+		const expr = findExpression(sf, "v");
 		// The parameter identifier's own declared-type resolution requires it be
 		// referenced from within the function body, not the declaration site.
 		const bodyRef = (() => {
@@ -175,8 +182,10 @@ describe("resolveExpressionType — negative (must not resolve)", () => {
 
 	it("returns null for an arbitrary call expression", () => {
 		const sf = parse(`f(x);`);
-		const stmt = sf.statements[0] as import("typescript").ExpressionStatement;
-		const call = stmt.expression as import("typescript").CallExpression;
+		const stmt = sf.statements[0];
+		assert(stmt && ts.isExpressionStatement(stmt));
+		const call = stmt.expression;
+		assert(call && ts.isCallExpression(call));
 		expect(resolveExpressionType(ts, call, emptyCtx())).toBeNull();
 	});
 });

@@ -7,11 +7,16 @@
 // observe: setAttribute calls (its FakeElement.setAttribute is a documented
 // no-op) and console.warn invocation (never spied there).
 
+import { parseWire, wireArray, wireNumber, wireObject, wireString } from "../value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetDemoRegistry, demoData, demoStateSummary, mountDemoBanner } from "./index.js";
 
-interface DemoRegistryGlobal {
-	__INTERLINKED_DEMO__?: Array<{ key: string; reason: string; registeredAt: number }>;
+const isDemoEntry = wireObject<{ key: string; reason: string; registeredAt: number }>({
+	key: wireString, reason: wireString, registeredAt: wireNumber,
+});
+function readGlobalEntries() {
+	const value: unknown = Reflect.get(globalThis, "__INTERLINKED_DEMO__");
+	return parseWire(value ?? [], wireArray(isDemoEntry), "demo registry entries");
 }
 
 /**
@@ -65,14 +70,12 @@ function installRecordingDocument(bodyOverride: RecordingElement | null | undefi
 	restore: () => void;
 } {
 	const fakeDoc = { body: bodyOverride, createElement: (tag: string) => makeRecordingElement(tag) };
-	const previous = (globalThis as { document?: unknown }).document;
-	// SAFETY: test-only stand-in implementing exactly the DOM surface
-	// mountDemoBanner calls; cast bridges the fake shape to the DOM lib type.
-	(globalThis as { document?: unknown }).document = fakeDoc as unknown as Document;
+	const previous: unknown = Reflect.get(globalThis, "document");
+	Reflect.set(globalThis, "document", fakeDoc);
 	return {
 		body: bodyOverride,
 		restore: () => {
-			(globalThis as { document?: unknown }).document = previous;
+			Reflect.set(globalThis, "document", previous);
 		},
 	};
 }
@@ -90,8 +93,7 @@ describe("announceOnce (internal, exercised only via demoData)", () => {
 		demoData("dupkey", 1, { reason: "r1" });
 		demoData("dupkey", 2, { reason: "r1" });
 		expect(warnSpy).toHaveBeenCalledTimes(1);
-		// SAFETY: reading the same ambient global announceOnce() writes to; shape is DemoRegistryGlobal by construction.
-		const list = (globalThis as DemoRegistryGlobal).__INTERLINKED_DEMO__ ?? [];
+		const list = readGlobalEntries();
 		expect(list.length).toBe(1);
 		warnSpy.mockRestore();
 	});
@@ -109,7 +111,7 @@ describe("announceOnce (internal, exercised only via demoData)", () => {
 	it("does not throw when console.warn is not a function", () => {
 		const previousWarn = console.warn;
 		// SAFETY: deliberately breaking console.warn to exercise the typeof guard; restored in finally.
-		(console as unknown as { warn: unknown }).warn = "not-a-function";
+		Reflect.set(console, "warn", "not-a-function");
 		try {
 			expect(() => demoData("notafn", 1)).not.toThrow();
 		} finally {
@@ -121,7 +123,7 @@ describe("announceOnce (internal, exercised only via demoData)", () => {
 	it("does not throw when console itself is undefined", () => {
 		const previousConsole = globalThis.console;
 		// SAFETY: deliberately breaking the global console to exercise the typeof guard; restored in finally.
-		(globalThis as { console?: unknown }).console = undefined;
+		Reflect.set(globalThis, "console", undefined);
 		try {
 			expect(() => demoData("noconsole", 1)).not.toThrow();
 		} finally {
@@ -132,7 +134,7 @@ describe("announceOnce (internal, exercised only via demoData)", () => {
 	// test-contract: behavioral — the pushed __INTERLINKED_DEMO__ entry has the real key/reason/registeredAt shape, not an emptied object
 	it("pushes a correctly-shaped entry onto globalThis.__INTERLINKED_DEMO__", () => {
 		demoData("q1", 1, { reason: "r1" });
-		const list = (globalThis as DemoRegistryGlobal).__INTERLINKED_DEMO__ ?? [];
+		const list = readGlobalEntries();
 		expect(list.length).toBe(1);
 		expect(list[0]?.key).toBe("q1");
 		expect(list[0]?.reason).toBe("r1");
@@ -143,16 +145,16 @@ describe("announceOnce (internal, exercised only via demoData)", () => {
 	it("accumulates entries across distinct keys instead of resetting the list", () => {
 		demoData("first", 1);
 		demoData("second", 2);
-		const list = (globalThis as DemoRegistryGlobal).__INTERLINKED_DEMO__ ?? [];
+		const list = readGlobalEntries();
 		expect(list.length).toBe(2);
 		expect(list.map((e) => e.key)).toEqual(["first", "second"]);
 	});
 
 	// test-contract: behavioral — the ?? [] fallback starts a real empty array (not a poisoned placeholder) when __INTERLINKED_DEMO__ was never initialized at all. __resetDemoRegistry's beforeEach normally leaves the global as an already-real [] (which hides this site since ?? never triggers); deleting the key first forces the fallback to actually run.
 	it("starts a real empty array (never a poisoned placeholder) when __INTERLINKED_DEMO__ is truly undefined, not just cleared", () => {
-		delete (globalThis as DemoRegistryGlobal).__INTERLINKED_DEMO__;
+		Reflect.deleteProperty(globalThis, "__INTERLINKED_DEMO__");
 		demoData("freshkey", 1, { reason: "r" });
-		const list = (globalThis as DemoRegistryGlobal).__INTERLINKED_DEMO__ ?? [];
+		const list = readGlobalEntries();
 		expect(list).toEqual([{ key: "freshkey", reason: "r", registeredAt: expect.any(Number) }]);
 	});
 });
@@ -214,11 +216,11 @@ describe("__resetDemoRegistry — globalThis reset", () => {
 
 	// test-contract: behavioral — reset overwrites a polluted __INTERLINKED_DEMO__ with exactly a fresh empty array
 	it("overwrites a polluted __INTERLINKED_DEMO__ with exactly an empty array", () => {
-		(globalThis as DemoRegistryGlobal).__INTERLINKED_DEMO__ = [
+		Reflect.set(globalThis, "__INTERLINKED_DEMO__", [
 			{ key: "stale", reason: "stale", registeredAt: 0 },
-		];
+		]);
 		__resetDemoRegistry();
-		expect((globalThis as DemoRegistryGlobal).__INTERLINKED_DEMO__).toEqual([]);
+		expect(Reflect.get(globalThis, "__INTERLINKED_DEMO__")).toEqual([]);
 	});
 });
 

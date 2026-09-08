@@ -46,7 +46,7 @@ function buildNoImporterResult(
 export function checkDeadExports(
 	filePath: string,
 	relPath: string,
-	graph: ProjectGraph,
+	graph: Pick<ProjectGraph, "getExports" | "getImporters">,
 	deadCodeAction?: "flag" | "delete",
 ): StructuralCheckResult[] {
 	// Exports stay caveated under "delete": the graph cannot see

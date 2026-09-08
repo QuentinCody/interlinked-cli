@@ -18,6 +18,8 @@
 // Fail-open discipline: no recorded view (Bash cat/sed reads, prior-session
 // carry-over, >2MB files) ⇒ no check — omp's `seenLines === undefined` rule.
 
+import { isJsonObject } from "../lib/json-types.js";
+import { readOptionalToolString } from "./evaluator/tool-input-values.js";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
@@ -121,7 +123,7 @@ function trackRescue(session: SessionTrajectory, _event: HarnessEvent, filePath:
  * be blocked and never display or land anything.
  */
 export function recordFileView(session: SessionTrajectory, event: HarnessEvent): void {
-	const filePath = event.tool_input?.file_path as string | undefined;
+	const filePath = readOptionalToolString(event.tool_input?.file_path);
 	const toolName = event.tool_name;
 	if (!filePath || !toolName || !isPostToolUseEvent(event)) return;
 	const isRead = isReadOperation(toolName);
@@ -177,7 +179,7 @@ export function staleReadWarning(
 	toolName: string,
 	toolInput: NonNullable<HarnessEvent["tool_input"]>,
 ): string | null {
-	const filePath = toolInput.file_path as string | undefined;
+	const filePath = readOptionalToolString(toolInput.file_path);
 	if (!filePath || !isWriteOperation(toolName)) return null;
 	const view = session.file_views?.get(filePath);
 	if (!view) return null;
@@ -225,7 +227,7 @@ export function blindEditSpan(
 	toolInput: NonNullable<HarnessEvent["tool_input"]>,
 ): BlindEditSpan | null {
 	if (toolName !== "Edit" && toolName !== "MultiEdit") return null;
-	const filePath = toolInput.file_path as string | undefined;
+	const filePath = readOptionalToolString(toolInput.file_path);
 	if (!filePath) return null;
 	const view = session.file_views?.get(filePath);
 	if (!view || view.ranges === null) return null;
@@ -260,8 +262,8 @@ function anchorStrings(toolInput: NonNullable<HarnessEvent["tool_input"]>): stri
 	const rawEdits: unknown[] = toolInput.edits;
 	const anchors: string[] = [];
 	for (const edit of rawEdits) {
-		if (edit && typeof edit === "object") {
-			const oldS = (edit as Record<string, unknown>).old_string;
+		if (isJsonObject(edit)) {
+			const oldS = edit.old_string;
 			if (typeof oldS === "string") anchors.push(oldS);
 		}
 	}

@@ -1,3 +1,4 @@
+import { readToolString } from "../evaluator/tool-input-values.js";
 import { listWithOverflow } from "../finding-overflow.js";
 import {
 	checkProjectTestsClean,
@@ -33,21 +34,16 @@ function currentDecision(preDecision: HarnessDecision): HarnessDecision["decisio
 	return preDecision.decision;
 }
 
-/** Report a project-wide git-gate block when a server bridge is configured.
- *  `session` is typed non-optional at every OTHER call site in this module,
- *  but the "reports an absent session agent as an empty name without
- *  throwing" test deliberately calls the exported gate with
- *  `undefined as unknown as SessionTrajectory` to model a caller that
- *  defeats the type system — so this one parameter is honestly optional. */
+/** Report a project-wide git-gate block when a server bridge is configured. */
 function reportGitGateGuardBlock(
 	ctx: ServerRuntime,
 	event: HarnessEvent,
-	session: SessionTrajectory | undefined,
+	session: SessionTrajectory,
 	reason: string,
 ): void {
 	if (!ctx.serverBridge) return;
 	ctx.serverBridge.reportGuardEvent({
-		agent_name: event.agent_name || session?.agent_name || "",
+		agent_name: event.agent_name || session.agent_name || "",
 		event_type: "guard_block",
 		tool_name: event.tool_name,
 		tool_input_summary: summarizeToolInput(event),
@@ -205,7 +201,7 @@ export function runProjectWideGitGate(
 	preDecision: HarnessDecision,
 ): void {
 	if (preDecision.decision !== "allow" || event.tool_name !== "Bash") return;
-	const cmdStr = (event.tool_input?.command as string) || "";
+	const cmdStr = readToolString(event.tool_input?.command);
 	const isCommit = /\bgit\s+commit\b/.test(cmdStr);
 	const isPush = /\bgit\s+push\b/.test(cmdStr);
 	if (!isCommit && !isPush) return;
@@ -224,7 +220,7 @@ export async function runProjectWideGitGateAsync(
 	preDecision: HarnessDecision,
 ): Promise<void> {
 	if (preDecision.decision !== "allow" || event.tool_name !== "Bash") return;
-	const cmdStr = (event.tool_input?.command as string) || "";
+	const cmdStr = readToolString(event.tool_input?.command);
 	const isCommit = /\bgit\s+commit\b/.test(cmdStr);
 	const isPush = /\bgit\s+push\b/.test(cmdStr);
 	if (!isCommit && !isPush) return;

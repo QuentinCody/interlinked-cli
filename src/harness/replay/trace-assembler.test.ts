@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // T1 trace assembler — joins the three capture surfaces into the
 // `replay-trace.v1` spine (docs/design/reproducibility/README.md §Trace
 // spine): collection tool events (action + result, keyed by seq/tool_use_id)
@@ -10,7 +11,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { appendEnvelope, type InferenceEnvelope } from "./inference-store.js";
+import { appendEnvelope, parseInferenceEnvelope, type InferenceEnvelope } from "./inference-store.js";
 import { assembleTrace, loadTrace, parseTraceStep } from "./trace-assembler.js";
 
 const cleanups: string[] = [];
@@ -138,7 +139,7 @@ describe("assembleTrace", () => {
 		)
 			.trim()
 			.split("\n")
-			.map((l) => JSON.parse(l) as InferenceEnvelope);
+			.map((l) => nonNull(parseInferenceEnvelope(JSON.parse(l))));
 		expect(perSession).toHaveLength(1);
 		expect(perSession[0]?.session_id).toBe(SESSION);
 		expect(perSession[0]?.seq).toBe(1);
@@ -197,7 +198,7 @@ describe("assembleTrace", () => {
 		)
 			.trim()
 			.split("\n")
-			.map((l) => JSON.parse(l) as InferenceEnvelope);
+			.map((l) => nonNull(parseInferenceEnvelope(JSON.parse(l))));
 		expect(perSession).toHaveLength(1);
 		expect(perSession[0]?.seq).toBeNull();
 	});

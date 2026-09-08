@@ -1,3 +1,4 @@
+import { nonNull } from "../../lib/non-null.js";
 // Assembly-theoretic significance scoring (docs/design/
 // spec-audit-runtime-checks.md §8.2, spike 14; evaluation in
 // docs/external-pulse/assembly-theory.md). The transferable core and
@@ -44,8 +45,8 @@ function countAdjacentPairs(
 ): Map<string | object, Map<string | object, number>> {
 	const counts = new Map<string | object, Map<string | object, number>>();
 	for (let i = 0; i + 1 < seq.length; i++) {
-		const left = seq[i] as string | object;
-		const right = seq[i + 1] as string | object;
+		const left = nonNull(seq[i]);
+		const right = nonNull(seq[i + 1]);
 		let inner = counts.get(left);
 		if (!inner) {
 			inner = new Map();
@@ -92,7 +93,7 @@ function runRepairRound(
 			next.push(nonterminal);
 			i++;
 		} else {
-			next.push(seq[i] as string | object);
+			next.push(nonNull(seq[i]));
 		}
 	}
 	return { seq: next, merged: true };

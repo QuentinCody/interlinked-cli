@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireNumber, wireObject, wireOptional, wireString, wireUnknown } from "../../lib/value-validation.js";
 // Tests for the `interlinked recurrence` CLI subcommands.
 //
 // Each command is exported as a plain async function that accepts an
@@ -84,7 +85,7 @@ describe("recurrence list", () => {
 		seedThreeCaughtEvents();
 		await recurrenceListCommand({ cwd: dir, json: true });
 		const out = captured();
-		const parsed = JSON.parse(out) as Array<{ count: number; kind: string }>;
+		const parsed = parseWire(JSON.parse(out), wireArray(wireObject({ "count": wireNumber, "kind": wireString })), "test JSON value");
 		expect(parsed).toHaveLength(1);
 		expect(nonNull(parsed[0]).count).toBe(3);
 		expect(nonNull(parsed[0]).kind).toBe("harness_caught");
@@ -97,7 +98,7 @@ describe("recurrence list", () => {
 			dir,
 		);
 		await recurrenceListCommand({ cwd: dir, kind: "codebase_existing", json: true });
-		const parsed = JSON.parse(captured()) as Array<{ kind: string }>;
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireObject({ "kind": wireString })), "test JSON value");
 		expect(parsed.every((r: { kind: string }) => r.kind === "codebase_existing")).toBe(true);
 	});
 
@@ -113,7 +114,7 @@ describe("recurrence list", () => {
 			});
 		}
 		await recurrenceListCommand({ cwd: dir, top: "2", json: true });
-		const parsed = JSON.parse(captured()) as unknown[];
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireUnknown), "test JSON value");
 		expect(parsed).toHaveLength(2);
 	});
 });
@@ -180,7 +181,7 @@ describe("recurrence list — filters and rendering", () => {
 			cwd: dir,
 		});
 		await recurrenceListCommand({ cwd: dir, agentSource: "codex", json: true });
-		const parsed = JSON.parse(captured()) as Array<{ agent_sources: string[] }>;
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireObject({ "agent_sources": wireArray(wireString) })), "test JSON value");
 		// Both events share the same check_id but a *different* agent_source, so
 		// they aggregate to distinct signatures — the filter must keep only codex.
 		expect(parsed).toHaveLength(1);
@@ -203,7 +204,7 @@ describe("recurrence list — filters and rendering", () => {
 			cwd: dir,
 		});
 		await recurrenceListCommand({ cwd: dir, checkId: "raw_sql_concat", json: true });
-		const parsed = JSON.parse(captured()) as Array<{ check_id: string }>;
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireObject({ "check_id": wireString })), "test JSON value");
 		expect(parsed).toHaveLength(1);
 		expect(nonNull(parsed[0]).check_id).toBe("raw_sql_concat");
 	});
@@ -232,7 +233,7 @@ describe("recurrence list — filters and rendering", () => {
 			dir,
 		);
 		await recurrenceListCommand({ cwd: dir, since: "1h", json: true });
-		const parsed = JSON.parse(captured()) as Array<{ count: number; distinct_sessions: number }>;
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireObject({ "count": wireNumber, "distinct_sessions": wireNumber })), "test JSON value");
 		// Same signature; the old event must be filtered out by the cutoff.
 		expect(parsed).toHaveLength(1);
 		expect(nonNull(parsed[0]).count).toBe(1);
@@ -242,7 +243,7 @@ describe("recurrence list — filters and rendering", () => {
 	it("ignores an unparseable --since (no cutoff applied, all rows kept)", async () => {
 		seedThreeCaughtEvents();
 		await recurrenceListCommand({ cwd: dir, since: "not-a-duration", json: true });
-		const parsed = JSON.parse(captured()) as Array<{ count: number }>;
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireObject({ "count": wireNumber })), "test JSON value");
 		expect(nonNull(parsed[0]).count).toBe(3);
 	});
 
@@ -257,7 +258,7 @@ describe("recurrence list — filters and rendering", () => {
 			});
 		}
 		await recurrenceListCommand({ cwd: dir, top: "abc", json: true });
-		const parsed = JSON.parse(captured()) as unknown[];
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireUnknown), "test JSON value");
 		expect(parsed).toHaveLength(3);
 	});
 
@@ -272,7 +273,7 @@ describe("recurrence list — filters and rendering", () => {
 			});
 		}
 		await recurrenceListCommand({ cwd: dir, top: "0", json: true });
-		const parsed = JSON.parse(captured()) as unknown[];
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireUnknown), "test JSON value");
 		expect(parsed).toHaveLength(3);
 	});
 
@@ -324,7 +325,7 @@ describe("recurrence detail — json and message rendering", () => {
 			cwd: dir,
 			json: true,
 		});
-		const parsed = JSON.parse(captured()) as Array<{ kind: string; file?: string }>;
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireObject({ "kind": wireString, "file": wireAbsentOptional(wireOptional(wireString)) })), "test JSON value");
 		expect(parsed).toHaveLength(3);
 		expect(parsed.every((e) => e.kind === "harness_caught")).toBe(true);
 		expect(parsed.map((e) => e.file)).toContain("src/foo0.ts");
@@ -414,14 +415,14 @@ describe("recurrence — defaults to process.cwd() when --cwd is omitted", () =>
 	it("list reads the recurrences log from process.cwd()", async () => {
 		seedThreeCaughtEvents();
 		await recurrenceListCommand({ json: true });
-		const parsed = JSON.parse(captured()) as Array<{ count: number }>;
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireObject({ "count": wireNumber })), "test JSON value");
 		expect(nonNull(parsed[0]).count).toBe(3);
 	});
 
 	it("detail reads events from process.cwd()", async () => {
 		seedThreeCaughtEvents();
 		await recurrenceDetailCommand("harness_caught:misused_promises:claude", { json: true });
-		const parsed = JSON.parse(captured()) as unknown[];
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireUnknown), "test JSON value");
 		expect(parsed).toHaveLength(3);
 	});
 
@@ -440,7 +441,7 @@ describe("recurrence — defaults to process.cwd() when --cwd is omitted", () =>
 	it("propose reads aggregated rows from process.cwd()", async () => {
 		seedThreeCaughtEvents();
 		await recurrenceProposeCommand("harness_caught:misused_promises:claude", { json: true });
-		const parsed = JSON.parse(captured()) as { action: { kind: string } };
+		const parsed = parseWire(JSON.parse(captured()), wireObject({ "action": wireObject({ "kind": wireString }) }), "test JSON value");
 		expect(parsed.action.kind).toBe("ratchet");
 	});
 });
@@ -459,7 +460,7 @@ describe("recurrence flag — usage error and json", () => {
 			checkId: "raw_sql_concat",
 			file: "src/db.ts",
 		});
-		const parsed = JSON.parse(captured()) as { ok: boolean; signature: string };
+		const parsed = parseWire(JSON.parse(captured()), wireObject({ "ok": wireBoolean, "signature": wireString }), "test JSON value");
 		expect(parsed).toEqual({ ok: true, signature: "raw-sql-concat" });
 		const events = loadRecurrenceEvents(dir);
 		expect(events).toHaveLength(1);
@@ -503,10 +504,7 @@ describe("recurrence propose — variants and json", () => {
 			cwd: dir,
 			json: true,
 		});
-		const parsed = JSON.parse(captured()) as {
-			row: { signature: string; count: number };
-			action: { kind: string };
-		};
+		const parsed = parseWire(JSON.parse(captured()), wireObject({ "row": wireObject({ "signature": wireString, "count": wireNumber }), "action": wireObject({ "kind": wireString }) }), "test JSON value");
 		expect(parsed.row.signature).toBe("harness_caught:misused_promises:claude");
 		expect(parsed.row.count).toBe(3);
 		expect(parsed.action.kind).toBe("ratchet");
@@ -579,11 +577,7 @@ describe("recurrence scan", () => {
 	it("emits findings as JSON when --json is set", async () => {
 		seedScannableSource();
 		await recurrenceScanCommand({ cwd: dir, json: true });
-		const parsed = JSON.parse(captured()) as Array<{
-			file: string;
-			check_id: string;
-			line: number;
-		}>;
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireObject({ "file": wireString, "check_id": wireString, "line": wireNumber })), "test JSON value");
 		expect(parsed.length).toBeGreaterThan(0);
 		expect(parsed.some((f) => f.check_id === "eval_usage")).toBe(true);
 		expect(parsed.every((f) => f.file.startsWith("src/"))).toBe(true);
@@ -593,7 +587,7 @@ describe("recurrence scan", () => {
 		seedScannableSource();
 		mkdirSync(join(dir, "empty-root"), { recursive: true });
 		await recurrenceScanCommand({ cwd: dir, root: ["empty-root"], json: true });
-		const parsed = JSON.parse(captured()) as unknown[];
+		const parsed = parseWire(JSON.parse(captured()), wireArray(wireUnknown), "test JSON value");
 		// The scannable source lives under src/, which the custom root excludes.
 		expect(parsed).toEqual([]);
 	});

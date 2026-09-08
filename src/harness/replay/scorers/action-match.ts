@@ -1,3 +1,4 @@
+import { isJsonObject } from "../../../lib/json-types.js";
 // ===========================================
 // T1 scorer — action match
 // ===========================================
@@ -20,10 +21,10 @@ export interface ActionMatchScore {
 
 function sortValue(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(sortValue);
-	if (value !== null && typeof value === "object") {
+	if (isJsonObject(value)) {
 		const out: Record<string, unknown> = {};
 		for (const key of Object.keys(value).sort()) {
-			out[key] = sortValue((value as Record<string, unknown>)[key]);
+			out[key] = sortValue(value[key]);
 		}
 		return out;
 	}

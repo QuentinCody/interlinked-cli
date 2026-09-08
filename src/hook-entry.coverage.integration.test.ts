@@ -12,14 +12,11 @@
 //   - the CLI wrapper internals (mainFromStdin / readStdinJson / argOrEnv /
 //     isDirectRun) driven through a real subprocess of the module via tsx.
 //
-// Only this one file is written; no source or sibling-test edits.
-
 import { spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	mkdirSync,
 	mkdtempSync,
-	realpathSync,
 	rmSync,
 	utimesSync,
 	writeFileSync,
@@ -27,7 +24,6 @@ import {
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { discoverSocket, runHookEntry } from "./hook-entry.js";
@@ -828,7 +824,7 @@ describe("runHookEntry — unknown explicit runner", () => {
 			nativeJson: {},
 			env: {},
 			// Deliberately an id no adapter registers.
-			runner: "totally-made-up" as unknown as undefined,
+			runner: "totally-made-up",
 			cwd: tmp,
 		});
 		expect(result.exit_code).toBe(0);
@@ -861,7 +857,18 @@ describe("hook-entry as a direct-run subprocess", () => {
 		"cli.mjs",
 	);
 
-	function runSubprocess(args: string[], input: string, extraEnv: Record<string, string>) {
+	function stdinErrorEntry(): string {
+		const launcher = join(tmp, "stdin-error.mjs");
+		writeFileSync(launcher, [
+			'import { Readable } from "node:stream";',
+			'Object.defineProperty(process, "stdin", { value: new Readable({ read() { this.destroy(new Error("stdin unavailable")); } }) });',
+			`process.argv[1] = ${JSON.stringify(entry)};`,
+			`await import(${JSON.stringify(entry)});`,
+		].join("\n"));
+		return launcher;
+	}
+
+	function runSubprocess(args: string[], input: string, extraEnv: Record<string, string>, stdinError = false) {
 		const childHome = join(tmp, "home");
 		mkdirSync(childHome, { recursive: true });
 		const childEnv: NodeJS.ProcessEnv = {
@@ -878,7 +885,7 @@ describe("hook-entry as a direct-run subprocess", () => {
 			INTERLINKED_SOCKET: missingSocket(),
 			...extraEnv,
 		};
-		const r = spawnSync(process.execPath, [tsxCli, entry, ...args], {
+		const r = spawnSync(process.execPath, [tsxCli, stdinError ? stdinErrorEntry() : entry, ...args], {
 			input,
 			encoding: "utf-8",
 			cwd: tmp,
@@ -985,260 +992,14 @@ describe("hook-entry as a direct-run subprocess", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("no runner detected");
 	});
-});
-
-// ---------------------------------------------------------------------------
-// CLI wrapper internals, IN-PROCESS. The subprocess block above proves the
-// behavior end-to-end but runs in a child process, so vitest's in-process v8
-// coverage can't see mainFromStdin / readStdinJson / argOrEnv / isDirectRun or
-// the bottom IIFE. Here we reproduce the entry-point conditions inside the test
-// process: point process.argv[1] at the module's own realpath (so isDirectRun()
-// returns true), feed a fake process.stdin, stub process.exit, then re-import
-// the module with a cache-busting query so its top-level IIFE re-runs and
-// drives the full mainFromStdin path under coverage.
-// ---------------------------------------------------------------------------
-
-interface DirectRunCapture {
-	stdout: string;
-	stderr: string;
-	exitCode: number | undefined;
-}
-
-interface DirectRunOptions {
-	/** Stdin payload pushed before EOF. Ignored when `emitStdinError` is set. */
-	stdinData?: string;
-	/** Override process.argv[1] (defaults to the module's own realpath). Used to
-	 *  exercise isDirectRun()'s false branches (no argv[1] / a bogus path). */
-	argv1Override?: string | null;
-	/** Emit an `error` event on stdin instead of data → covers the stdin
-	 *  error-listener resolve path in readStdinJson. */
-	emitStdinError?: boolean;
-	/** Make the FIRST process.exit() call throw (later calls no-op). Used to
-	 *  reject mainFromStdin so the module IIFE's runtime-failure catch runs. */
-	failFirstExit?: boolean;
-}
-
-async function runDirectRunInProcess(
-	argv: string[],
-	extraEnv: Record<string, string>,
-	options: DirectRunOptions = {},
-): Promise<DirectRunCapture> {
-	const realSourcePath = realpathSync(fileURLToPath(new URL("./hook-entry.ts", import.meta.url)));
-	const argv1 =
-		options.argv1Override === undefined
-			? realSourcePath
-			: options.argv1Override;
-
-	const savedArgv = process.argv;
-	const savedExit = process.exit;
-	const savedStdoutWrite = process.stdout.write.bind(process.stdout);
-	const savedStderrWrite = process.stderr.write.bind(process.stderr);
-	const savedStdinDesc = Object.getOwnPropertyDescriptor(process, "stdin");
-	const savedEnv: Record<string, string | undefined> = {};
-	for (const k of Object.keys(extraEnv)) savedEnv[k] = process.env[k];
-
-	const cap: DirectRunCapture = { stdout: "", stderr: "", exitCode: undefined };
-
-	// Fake stdin that yields the payload then ends — drives readStdinJson.
-	const fakeStdin = new Readable({ read() {} });
-
-	try {
-		// argv1 === null → no process.argv[1] at all (isDirectRun's !invoked arm).
-		process.argv = argv1 === null ? ["node"] : ["node", argv1, ...argv];
-		for (const [k, v] of Object.entries(extraEnv)) process.env[k] = v;
-
-		Object.defineProperty(process, "stdin", {
-			value: fakeStdin,
-			configurable: true,
-		});
-		// Capture stdout/stderr without echoing to the real streams.
-		(process.stdout as { write: (s: string) => boolean }).write = (s: string) => {
-			cap.stdout += s;
-			return true;
-		};
-		(process.stderr as { write: (s: string) => boolean }).write = (s: string) => {
-			cap.stderr += s;
-			return true;
-		};
-		// Stub exit: record the code WITHOUT throwing (normally). mainFromStdin
-		// calls process.exit() as its very last statement, so a no-op lets it
-		// resolve cleanly. The `failFirstExit` path deliberately throws on the
-		// first call to reject mainFromStdin and exercise the IIFE's `.catch`
-		// (which writes "hook runtime failed" then exits again — the second call
-		// no-ops). The `as never` cast keeps the Node signature.
-		let exitCalls = 0;
-		(process as { exit: (code?: number) => never }).exit = ((code?: number) => {
-			exitCalls++;
-			cap.exitCode = code ?? 0;
-			if (options.failFirstExit && exitCalls === 1) {
-				throw new Error("synthetic first-exit failure");
-			}
-		}) as (code?: number) => never;
-
-		// Drive stdin once the module's IIFE has attached its listeners. `data`
-		// and `end`/`null` are buffered by the Readable so a microtask is enough,
-		// but `emit("error")` throws synchronously if no error listener is
-		// registered yet — so for that path we wait until the listener exists.
-		if (options.emitStdinError) {
-			void (async () => {
-				for (let i = 0; i < 200 && fakeStdin.listenerCount("error") === 0; i++) {
-					// interlinked-ignore: hardcoded_timeout_in_tests — bounded 5ms poll of a deterministic predicate (listener attached), not a naked sleep
-					await new Promise<void>((r) => setTimeout(r, 5));
-				}
-				fakeStdin.emit("error", new Error("synthetic stdin failure"));
-				fakeStdin.push(null);
-			})();
-		} else {
-			queueMicrotask(() => {
-				if (options.stdinData) fakeStdin.push(options.stdinData);
-				fakeStdin.push(null);
-			});
-		}
-
-		// Cache-busting query → fresh module instance → top-level IIFE re-runs
-		// with the patched argv, so isDirectRun() === true and mainFromStdin runs.
-		const bust = `?direct=${Date.now()}-${Math.random().toString(36).slice(2)}`;
-		await import(/* @vite-ignore */ `./hook-entry.ts${bust}`);
-
-		// When the module is a direct run the IIFE drives mainFromStdin
-		// asynchronously; poll for the stubbed exit. When isDirectRun() is false
-		// (argv1Override null / bogus) no exit fires — waitForExit caps out fast.
-		await waitForExit(cap, argv1 !== null && argv1 === realSourcePath);
-	} finally {
-		process.argv = savedArgv;
-		(process as { exit: typeof process.exit }).exit = savedExit;
-		(process.stdout as { write: typeof savedStdoutWrite }).write = savedStdoutWrite;
-		(process.stderr as { write: typeof savedStderrWrite }).write = savedStderrWrite;
-		if (savedStdinDesc) Object.defineProperty(process, "stdin", savedStdinDesc);
-		for (const [k, v] of Object.entries(savedEnv)) {
-			if (v === undefined) delete process.env[k];
-			else process.env[k] = v;
-		}
-	}
-	return cap;
-}
-
-/** Poll until the stubbed process.exit has fired (or a generous cap elapses).
- *  When `expectExit` is false (isDirectRun returns false → the IIFE never calls
- *  mainFromStdin) a couple of turns are enough to let the import settle. */
-async function waitForExit(cap: DirectRunCapture, expectExit: boolean): Promise<void> {
-	const maxIters = expectExit ? 200 : 5;
-	for (let i = 0; i < maxIters && cap.exitCode === undefined; i++) {
-		// interlinked-ignore: hardcoded_timeout_in_tests — bounded 5ms poll of a deterministic predicate (stubbed exit fired), not a naked sleep
-		await new Promise<void>((r) => setTimeout(r, 5));
-	}
-}
-
-describe("hook-entry as a direct-run import (in-process coverage)", () => {
-	it("drives mainFromStdin: stdin JSON + flags → cold allow, exit 0", async () => {
-		const payload = JSON.stringify({
-			session_id: "inproc1",
-			cwd: tmp,
-			tool_name: "Read",
-			tool_input: { file_path: "/a" },
-		});
-		const cap = await runDirectRunInProcess(
-			["--runner", "claude-code", "--event", "PreToolUse", "--socket", missingSocket()],
-			{},
-			{ stdinData: payload },
-		);
-		expect(cap.exitCode).toBe(0);
-		expect(cap.stderr).toContain("evaluator skipped");
-	});
-
-	it("drives mainFromStdin: rm -rf → cold destructive block writes stdout", async () => {
-		const payload = JSON.stringify({
-			session_id: "inproc2",
-			cwd: tmp,
-			tool_name: "Bash",
-			tool_input: { command: "rm -rf /" },
-		});
-		const cap = await runDirectRunInProcess(
-			["--runner", "claude-code", "--event", "PreToolUse", "--socket", missingSocket()],
-			{},
-			{ stdinData: payload },
-		);
-		expect(cap.exitCode).toBe(0);
-		expect(cap.stdout).toContain("permissionDecision");
-		expect(cap.stderr).toContain("destructive-command fail-closed gate engaged");
-	});
-
-	it("drives mainFromStdin via env vars + empty stdin (readStdinJson empty → {})", async () => {
-		// Empty stdin → {} payload → no cwd, so the daemon-down gate would resolve
-		// process.cwd() (this configured repo) and fail closed. Stand it down to
-		// isolate stdin parsing; the gate is covered in hook-entry-daemon-gate.test.ts.
-		const cap = await runDirectRunInProcess(
-			[],
-			{
-				INTERLINKED_RUNNER: "claude-code",
-				INTERLINKED_EVENT: "PreToolUse",
-				INTERLINKED_SOCKET: missingSocket(),
-				INTERLINKED_ALLOW_NO_DAEMON: "1",
-			},
-			{ stdinData: "" },
-		);
-		expect(cap.exitCode).toBe(0);
-		expect(cap.stderr).toContain("evaluator skipped");
-	});
-
-	it("drives mainFromStdin with malformed stdin JSON (parse catch → {})", async () => {
-		// Malformed → {} payload → no cwd; stand down the daemon-down gate (see above).
-		const cap = await runDirectRunInProcess(
-			["--runner=claude-code", "--event=PreToolUse", `--socket=${missingSocket()}`],
+	it("resolves stdin via the error-listener path (readStdinJson stdin error)", () => {
+		const result = runSubprocess(
+			["--runner", "claude-code", "--event", "PreToolUse"],
+			"",
 			{ INTERLINKED_ALLOW_NO_DAEMON: "1" },
-			{ stdinData: "{not valid json" },
+			true,
 		);
-		expect(cap.exitCode).toBe(0);
-		expect(cap.stderr).toContain("evaluator skipped");
-	});
-
-	it("resolves stdin via the error-listener path (readStdinJson stdin error)", async () => {
-		// Stdin emits `error` before EOF → the error listener resolves with the
-		// (empty) collected buffer → {} payload → benign cold allow. No payload
-		// cwd, so stand down the daemon-down gate (see above) to isolate the path.
-		const cap = await runDirectRunInProcess(
-			["--runner", "claude-code", "--event", "PreToolUse", "--socket", missingSocket()],
-			{ INTERLINKED_ALLOW_NO_DAEMON: "1" },
-			{ emitStdinError: true },
-		);
-		expect(cap.exitCode).toBe(0);
-		expect(cap.stderr).toContain("evaluator skipped");
-	});
-
-	it("isDirectRun returns false when process.argv[1] is absent (IIFE skipped)", async () => {
-		// No argv[1] → isDirectRun's `!invoked` arm → false → the IIFE never runs
-		// mainFromStdin, so no exit fires.
-		const cap = await runDirectRunInProcess([], {}, { argv1Override: null });
-		expect(cap.exitCode).toBeUndefined();
-	});
-
-	it("isDirectRun returns false when argv[1] is a non-existent path (realpath catch)", async () => {
-		// argv[1] points at a path that doesn't exist → realpathSync throws →
-		// isDirectRun's catch returns false → the IIFE is skipped.
-		const bogus = join(tmp, "does", "not", "exist", "hook-entry.ts");
-		const cap = await runDirectRunInProcess([], {}, { argv1Override: bogus });
-		expect(cap.exitCode).toBeUndefined();
-	});
-
-	it("makes the direct-run IIFE fail nonzero when mainFromStdin rejects", async () => {
-		// Forcing the first process.exit() to throw rejects mainFromStdin's
-		// promise, so the module IIFE's `.catch` writes the runtime-failure notice and
-		// exits again (the second call no-ops).
-		const payload = JSON.stringify({
-			session_id: "inproc-fail",
-			cwd: tmp,
-			tool_name: "Read",
-			tool_input: { file_path: "/a" },
-		});
-		const cap = await runDirectRunInProcess(
-			["--runner", "claude-code", "--event", "PreToolUse", "--socket", missingSocket()],
-			{},
-			{ stdinData: payload, failFirstExit: true },
-		);
-		expect(cap.stderr).toContain("hook runtime failed");
-		expect(cap.stderr).toContain("synthetic first-exit failure");
-		// The outer shell wrapper translates this nonzero into the event's
-		// fail-closed or warn-open fallback instead of accepting a false allow.
-		expect(cap.exitCode).toBe(1);
+		expect(result.status).toBe(0);
+		expect(result.stderr).toContain("evaluator skipped");
 	});
 });

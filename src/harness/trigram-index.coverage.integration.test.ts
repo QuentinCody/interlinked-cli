@@ -346,7 +346,7 @@ describe("query intersection + early-exit paths", () => {
 			[triX, xIds],
 			[triY, yIds],
 			[triZ, zIds],
-		] as Array<[number, number[]]>) {
+		] as const) {
 			postings.set(tri, {
 				fileIds: new Uint32Array(ids),
 				locMasks: new Uint8Array(ids.length),

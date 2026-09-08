@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // Behavioral tests for `interlinked logout`
 // ===========================================
@@ -33,7 +34,6 @@ vi.mock("../lib/formatter.js", () => ({
 	),
 }));
 
-import type { LocalConfig } from "../lib/config.js";
 import { isConfigured, readLocalConfig, updateLocalConfig } from "../lib/config.js";
 import { nonNull } from "../lib/non-null.js";
 import { logoutCommand } from "./logout.js";
@@ -46,7 +46,7 @@ const mockUpdateLocalConfig = vi.mocked(updateLocalConfig);
 let logSpy: ReturnType<typeof vi.spyOn>;
 
 function logged(): string[] {
-	return (logSpy.mock.calls as unknown[][]).map((args) => String(args[0]));
+	return (logSpy.mock.calls).map((args: unknown[]) => String(args[0]));
 }
 function loggedText(): string {
 	return logged().join("\n");
@@ -55,7 +55,7 @@ function loggedText(): string {
 function jsonOut(): Record<string, unknown> {
 	const calls = logged();
 	expect(calls).toHaveLength(1);
-	return JSON.parse(nonNull(calls[0])) as Record<string, unknown>;
+	return parseWire(JSON.parse(nonNull(calls[0])), wireRecord(wireUnknown), "test JSON value");
 }
 
 beforeEach(() => {
@@ -121,7 +121,7 @@ describe("logout — no credentials present", () => {
 	beforeEach(() => {
 		mockIsConfigured.mockReturnValue(true);
 		// agent_handle present but no token/refresh/oauth → still "no credentials"
-		mockReadLocalConfig.mockReturnValue({ agent_handle: "agent-7" } as LocalConfig);
+		mockReadLocalConfig.mockReturnValue({ agent_handle: "agent-7" });
 	});
 
 	it("human mode: prints 'Already logged out'", async () => {
@@ -152,7 +152,7 @@ describe("logout — clears credentials (human output)", () => {
 			refresh_token: "ref",
 			oauth_client_id: "cid",
 			agent_handle: "agent-7",
-		} as LocalConfig);
+		});
 
 		await logoutCommand({});
 
@@ -179,7 +179,7 @@ describe("logout — clears credentials (human output)", () => {
 	});
 
 	it("only reports the credentials that were present (token only)", async () => {
-		mockReadLocalConfig.mockReturnValue({ access_token: "tok" } as LocalConfig);
+		mockReadLocalConfig.mockReturnValue({ access_token: "tok" });
 
 		await logoutCommand({});
 
@@ -194,7 +194,7 @@ describe("logout — clears credentials (human output)", () => {
 		mockReadLocalConfig.mockReturnValue({
 			refresh_token: "ref",
 			oauth_client_id: "cid",
-		} as LocalConfig);
+		});
 
 		await logoutCommand({});
 
@@ -218,7 +218,7 @@ describe("logout --all — clears agent handle", () => {
 		mockReadLocalConfig.mockReturnValue({
 			access_token: "tok",
 			agent_handle: "agent-7",
-		} as LocalConfig);
+		});
 
 		await logoutCommand({ all: true });
 
@@ -239,7 +239,7 @@ describe("logout --all — clears agent handle", () => {
 	it("--all with no agent_handle: clears it in updates but prints no handle line", async () => {
 		// hadHandle === false → the `options.all && hadHandle` console block is skipped,
 		// but updates.agent_handle is still set to undefined.
-		mockReadLocalConfig.mockReturnValue({ access_token: "tok" } as LocalConfig);
+		mockReadLocalConfig.mockReturnValue({ access_token: "tok" });
 
 		await logoutCommand({ all: true });
 
@@ -268,7 +268,7 @@ describe("logout — JSON output", () => {
 			refresh_token: "ref",
 			oauth_client_id: "cid",
 			agent_handle: "agent-7",
-		} as LocalConfig);
+		});
 
 		await logoutCommand({ json: true, all: true });
 
@@ -291,13 +291,13 @@ describe("logout — JSON output", () => {
 		mockReadLocalConfig.mockReturnValue({
 			access_token: "tok",
 			agent_handle: "agent-7",
-		} as LocalConfig);
+		});
 
 		await logoutCommand({ json: true });
 
 		const out = jsonOut();
 		expect(out.status).toBe("logged_out");
-		const cleared = out.cleared as Record<string, unknown>;
+		const cleared = parseWire(out.cleared, wireRecord(wireUnknown), "test JSON value");
 		expect("agent_handle" in cleared).toBe(false);
 		expect(cleared.access_token).toBe(true);
 	});
@@ -305,7 +305,7 @@ describe("logout — JSON output", () => {
 	it("cleared flags reflect absent credentials (oauth only, no --all)", async () => {
 		// agent_handle is absent here AND --all is unset, so `undefined && false`
 		// === undefined → the key is omitted from the serialized map.
-		mockReadLocalConfig.mockReturnValue({ oauth_client_id: "cid" } as LocalConfig);
+		mockReadLocalConfig.mockReturnValue({ oauth_client_id: "cid" });
 
 		await logoutCommand({ json: true });
 
@@ -321,12 +321,12 @@ describe("logout — JSON output", () => {
 
 	it("agent_handle cleared is false when --all set but no handle present", async () => {
 		// options.all && hadHandle  →  true && false  →  false (the && short-circuit)
-		mockReadLocalConfig.mockReturnValue({ refresh_token: "ref" } as LocalConfig);
+		mockReadLocalConfig.mockReturnValue({ refresh_token: "ref" });
 
 		await logoutCommand({ json: true, all: true });
 
 		const out = jsonOut();
-		expect((out.cleared as Record<string, unknown>).agent_handle).toBe(false);
-		expect((out.cleared as Record<string, unknown>).refresh_token).toBe(true);
+		expect(out).toHaveProperty(["cleared","agent_handle"], false);
+		expect(out).toHaveProperty(["cleared","refresh_token"], true);
 	});
 });

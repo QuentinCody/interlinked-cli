@@ -83,7 +83,7 @@ function collectRedChecks(
 			redChecks.push({ kind: observed.kind, detail: observed.detail });
 		}
 	}
-	const suiteRun = (session.test_runs as SessionTrajectory["test_runs"] | undefined)?.get(ALL_TESTS_SENTINEL);
+	const suiteRun = session.test_runs.get(ALL_TESTS_SENTINEL);
 	if (
 		suiteRun?.status === "fail" &&
 		!redChecks.some((check) => check.kind === "test-suite")

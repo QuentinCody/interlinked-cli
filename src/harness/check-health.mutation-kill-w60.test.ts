@@ -53,13 +53,9 @@ describe("foldRecurrenceLine / foldCheckHealthEvent — isCaughtRow guard", () =
 		expect(acc.buckets.size).toBe(0);
 	});
 
-	it("N2: an array masquerading as a caught row (with kind/check_id/ts props) is rejected", () => {
+	it("N2: an array JSON value is rejected", () => {
 		const acc = createCheckHealthAccumulator();
-		const arr: any = ["irrelevant"];
-		arr.kind = "harness_caught";
-		arr.check_id = "some-check";
-		arr.ts = "2024-01-01T00:00:00Z";
-		foldCheckHealthEvent(acc, arr);
+		expect(foldRecurrenceLine(acc, '["irrelevant"]')).toBe(false);
 		expect(acc.buckets.size).toBe(0);
 	});
 
@@ -69,17 +65,17 @@ describe("foldRecurrenceLine / foldCheckHealthEvent — isCaughtRow guard", () =
 			kind: "harness_caught",
 			check_id: "",
 			ts: "2024-01-01T00:00:00Z",
-		} as any);
+		});
 		expect(acc.buckets.size).toBe(0);
 	});
 
 	it("N4: non-string ts is rejected", () => {
 		const acc = createCheckHealthAccumulator();
-		foldCheckHealthEvent(acc, {
+		foldRecurrenceLine(acc, JSON.stringify({
 			kind: "harness_caught",
 			check_id: "chk",
 			ts: 12345,
-		} as any);
+		}));
 		expect(acc.buckets.size).toBe(0);
 	});
 
@@ -89,7 +85,7 @@ describe("foldRecurrenceLine / foldCheckHealthEvent — isCaughtRow guard", () =
 			kind: "harness_caught",
 			check_id: "chk",
 			ts: "2024-01-01T00:00:00Z",
-		} as any);
+		});
 		expect(acc.buckets.size).toBe(1);
 		expect(acc.buckets.has("chk")).toBe(true);
 	});
@@ -102,12 +98,12 @@ describe("foldCaughtRow — first_seen / last_seen bucket tracking", () => {
 			kind: "harness_caught",
 			check_id: "chk",
 			ts: "2024-06-01T00:00:00Z",
-		} as any);
+		});
 		foldCheckHealthEvent(acc, {
 			kind: "harness_caught",
 			check_id: "chk",
 			ts: "2024-01-01T00:00:00Z",
-		} as any);
+		});
 		const bucket = acc.buckets.get("chk")!;
 		expect(bucket.last_seen).toBe("2024-06-01T00:00:00Z");
 		expect(bucket.first_seen).toBe("2024-01-01T00:00:00Z");
@@ -119,13 +115,13 @@ describe("foldCaughtRow — first_seen / last_seen bucket tracking", () => {
 			kind: "harness_caught",
 			check_id: "chk",
 			ts: "2024-01-01T00:00:00.000Z",
-		} as any);
+		});
 		// Same instant, different string representation.
 		foldCheckHealthEvent(acc, {
 			kind: "harness_caught",
 			check_id: "chk",
 			ts: "2024-01-01T00:00:00Z",
-		} as any);
+		});
 		const bucket = acc.buckets.get("chk")!;
 		expect(bucket.first_seen).toBe("2024-01-01T00:00:00.000Z");
 		expect(bucket.last_seen).toBe("2024-01-01T00:00:00.000Z");

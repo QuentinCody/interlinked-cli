@@ -316,6 +316,7 @@ export function stripForBraceScan(content: string): string {
 	let i = 0;
 	let prevChar = ""; // last significant (non-whitespace) code char
 	while (i < n) {
+		// SAFETY: the initial code frame has expr=false and is never popped; only nested literal/interpolation frames close.
 		const top = stack[stack.length - 1] as ScanFrame;
 		const step = stepScan(content, n, i, top, stack, prevChar, blank);
 		i = step.i;

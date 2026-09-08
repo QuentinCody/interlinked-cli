@@ -1,3 +1,4 @@
+import { wireAbsentOptional, parseWire, wireArray, wireBoolean, wireNullable, wireObject, wireOptional, wireString, wireUnknown } from "../lib/value-validation.js";
 // Supplementary coverage tests for `src/commands/scanner.ts`.
 //
 // The two substantial companions (scanner.test.ts, scanner-review.test.ts)
@@ -141,8 +142,8 @@ beforeEach(() => {
 	workDir = makeWorkDir();
 	previousInterlinkedHome = process.env.INTERLINKED_HOME;
 	process.env.INTERLINKED_HOME = workDir;
-	logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined) as unknown as Mock;
-	errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined) as unknown as Mock;
+	logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+	errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 	process.exitCode = 0;
 });
 
@@ -239,7 +240,7 @@ describe("scanner toggle — short-mode renderer", () => {
 	it("short prints 'enabled (no change)' when already on", async () => {
 		await scannerOnCommand({ json: true });
 		logSpy.mockClear();
-		await scannerToggleCommand({ short: true, json: false } as { short: boolean });
+		await scannerToggleCommand({ short: true, json: false });
 		// toggle from on -> off; verify the disabled+changed short string instead
 		expect(logged()).toBe("disabled");
 	});
@@ -266,14 +267,12 @@ describe("scanner toggle — unparseable guard-rules.local.json", () => {
 		writeFileSync(rulesPath(), "this is { not json");
 		const stderrSpy = vi
 			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true) as unknown as Mock;
+			.mockImplementation(() => true);
 		await scannerOnCommand({ json: true });
 		const warnings = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
 		expect(warnings).toMatch(/was unparseable; overwriting/);
 		// File is now valid JSON with the scanner block written.
-		const parsed = JSON.parse(readFileSync(rulesPath(), "utf-8")) as {
-			content_scanner?: { enabled?: boolean };
-		};
+		const parsed = parseWire(JSON.parse(readFileSync(rulesPath(), "utf-8")), wireObject({ "content_scanner": wireAbsentOptional(wireOptional(wireObject({ "enabled": wireAbsentOptional(wireOptional(wireBoolean)) }))) }), "test JSON value");
 		expect(parsed.content_scanner?.enabled).toBe(true);
 	});
 
@@ -282,7 +281,7 @@ describe("scanner toggle — unparseable guard-rules.local.json", () => {
 		// returns false rather than throwing.
 		writeFileSync(rulesPath(), "{ broken");
 		await scannerStatusCommand({ json: true });
-		const parsed = JSON.parse(logged()) as { enabled: boolean };
+		const parsed = parseWire(JSON.parse(logged()), wireObject({ "enabled": wireBoolean }), "test JSON value");
 		expect(parsed.enabled).toBe(false);
 	});
 
@@ -291,9 +290,7 @@ describe("scanner toggle — unparseable guard-rules.local.json", () => {
 		// scannerBlock defaults to {} and previous resolves to false.
 		writeFileSync(rulesPath(), JSON.stringify({ content_scanner: "nope" }));
 		await scannerOnCommand({ json: true });
-		const parsed = JSON.parse(readFileSync(rulesPath(), "utf-8")) as {
-			content_scanner: { enabled: boolean };
-		};
+		const parsed = parseWire(JSON.parse(readFileSync(rulesPath(), "utf-8")), wireObject({ "content_scanner": wireObject({ "enabled": wireBoolean }) }), "test JSON value");
 		expect(parsed.content_scanner.enabled).toBe(true);
 	});
 
@@ -301,9 +298,7 @@ describe("scanner toggle — unparseable guard-rules.local.json", () => {
 		// JSON parses but is an array, not a plain object -> parsed stays {}.
 		writeFileSync(rulesPath(), JSON.stringify(["a", "b"]));
 		await scannerOnCommand({ json: true });
-		const parsed = JSON.parse(readFileSync(rulesPath(), "utf-8")) as {
-			content_scanner: { enabled: boolean };
-		};
+		const parsed = parseWire(JSON.parse(readFileSync(rulesPath(), "utf-8")), wireObject({ "content_scanner": wireObject({ "enabled": wireBoolean }) }), "test JSON value");
 		expect(parsed.content_scanner.enabled).toBe(true);
 	});
 });
@@ -318,7 +313,7 @@ describe("scanner toggle — audit-log write failure", () => {
 		mkdirSync(auditPath(), { recursive: true });
 		const stderrSpy = vi
 			.spyOn(process.stderr, "write")
-			.mockImplementation(() => true) as unknown as Mock;
+			.mockImplementation(() => true);
 		// Should resolve cleanly (the toggle still wrote the rules file).
 		await scannerOnCommand({ json: true });
 		const warnings = stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join("");
@@ -342,7 +337,7 @@ describe("scanner toggle — runCommand error handling", () => {
 			await scannerOnCommand({ json: true });
 			expect(process.exitCode).toBe(1);
 			// outputError(json) writes a JSON {error,...} to stderr.
-			const parsed = JSON.parse(errored()) as { error: string };
+			const parsed = parseWire(JSON.parse(errored()), wireObject({ "error": wireString }), "test JSON value");
 			expect(typeof parsed.error).toBe("string");
 			expect(parsed.error.length).toBeGreaterThan(0);
 		} finally {
@@ -450,7 +445,7 @@ describe("scanner status — malformed / unreadable audit log", () => {
 				`{ also broken\n`,
 		);
 		await scannerStatusCommand({ json: true });
-		const parsed = JSON.parse(logged()) as { last_audit: unknown[] };
+		const parsed = parseWire(JSON.parse(logged()), wireObject({ "last_audit": wireArray(wireUnknown) }), "test JSON value");
 		// Only the single well-formed line survives.
 		expect(parsed.last_audit).toHaveLength(1);
 	});
@@ -458,7 +453,7 @@ describe("scanner status — malformed / unreadable audit log", () => {
 	it("readLastAudit returns [] when the audit path is a directory", async () => {
 		mkdirSync(auditPath(), { recursive: true });
 		await scannerStatusCommand({ json: true });
-		const parsed = JSON.parse(logged()) as { last_audit: unknown[] };
+		const parsed = parseWire(JSON.parse(logged()), wireObject({ "last_audit": wireArray(wireUnknown) }), "test JSON value");
 		expect(parsed.last_audit).toEqual([]);
 	});
 });
@@ -480,7 +475,7 @@ describe("scanner status — parseAuditEntry boundary (valid JSON, wrong shape)"
 				`${JSON.stringify({ ts, action: "enable", from: false, to: true, actor, reason: null })}\n`,
 		);
 		await scannerStatusCommand({ json: true });
-		const parsed = JSON.parse(logged()) as { last_audit: Array<{ action: string }> };
+		const parsed = parseWire(JSON.parse(logged()), wireObject({ "last_audit": wireArray(wireObject({ "action": wireString })) }), "test JSON value");
 		expect(parsed.last_audit).toHaveLength(1);
 		expect(parsed.last_audit[0]?.action).toBe("enable");
 	});
@@ -489,7 +484,7 @@ describe("scanner status — parseAuditEntry boundary (valid JSON, wrong shape)"
 		const ts = "2026-05-04T00:01:00.000Z";
 		writeFileSync(auditPath(), `${JSON.stringify({ ts, action: "enable", reason: null })}\n`);
 		await scannerStatusCommand({ json: true });
-		const parsed = JSON.parse(logged()) as { last_audit: unknown[] };
+		const parsed = parseWire(JSON.parse(logged()), wireObject({ "last_audit": wireArray(wireUnknown) }), "test JSON value");
 		expect(parsed.last_audit).toHaveLength(0);
 	});
 
@@ -498,7 +493,7 @@ describe("scanner status — parseAuditEntry boundary (valid JSON, wrong shape)"
 		const actor = { user: "u", host: "h", tty: null, via: "web" };
 		writeFileSync(auditPath(), `${JSON.stringify({ ts, action: "enable", actor, reason: null })}\n`);
 		await scannerStatusCommand({ json: true });
-		const parsed = JSON.parse(logged()) as { last_audit: unknown[] };
+		const parsed = parseWire(JSON.parse(logged()), wireObject({ "last_audit": wireArray(wireUnknown) }), "test JSON value");
 		expect(parsed.last_audit).toHaveLength(0);
 	});
 
@@ -509,7 +504,7 @@ describe("scanner status — parseAuditEntry boundary (valid JSON, wrong shape)"
 			`${JSON.stringify({ ts: 12345, action: "enable", actor, reason: null })}\n`,
 		);
 		await scannerStatusCommand({ json: true });
-		const parsed = JSON.parse(logged()) as { last_audit: unknown[] };
+		const parsed = parseWire(JSON.parse(logged()), wireObject({ "last_audit": wireArray(wireUnknown) }), "test JSON value");
 		expect(parsed.last_audit).toHaveLength(0);
 	});
 
@@ -521,9 +516,7 @@ describe("scanner status — parseAuditEntry boundary (valid JSON, wrong shape)"
 			`${JSON.stringify({ ts, action: "review_block", actor, reason: "flagged" })}\n`,
 		);
 		await scannerStatusCommand({ json: true });
-		const parsed = JSON.parse(logged()) as {
-			last_audit: Array<{ action: string; reason: string | null; from?: boolean }>;
-		};
+		const parsed = parseWire(JSON.parse(logged()), wireObject({ "last_audit": wireArray(wireObject({ "action": wireString, "reason": wireNullable(wireString), "from": wireAbsentOptional(wireOptional(wireBoolean)) })) }), "test JSON value");
 		expect(parsed.last_audit).toHaveLength(1);
 		expect(parsed.last_audit[0]?.action).toBe("review_block");
 		expect(parsed.last_audit[0]?.reason).toBe("flagged");
@@ -548,7 +541,7 @@ describe("scanner status — parseAuditEntry boundary (valid JSON, wrong shape)"
 			actions.map((action) => JSON.stringify({ ts, action, actor, reason: null })).join("\n") + "\n",
 		);
 		await scannerStatusCommand({ json: true });
-		const parsed = JSON.parse(logged()) as { last_audit: Array<{ action: string }> };
+		const parsed = parseWire(JSON.parse(logged()), wireObject({ "last_audit": wireArray(wireObject({ "action": wireString })) }), "test JSON value");
 		// readLastAudit tails to the last 5 rows.
 		expect(parsed.last_audit).toHaveLength(5);
 		expect(parsed.last_audit.map((e) => e.action)).toEqual(actions.slice(-5));
@@ -572,7 +565,7 @@ describe("scanner — resolveTty when stdout is a TTY", () => {
 			const entries = readFileSync(auditPath(), "utf-8")
 				.trim()
 				.split("\n")
-				.map((l) => JSON.parse(l) as { actor: { tty: string | null } });
+				.map((l) => parseWire(JSON.parse(l), wireObject({ "actor": wireObject({ "tty": wireNullable(wireString) }) }), "test JSON value"));
 			expect(entries.at(-1)?.actor.tty).toBe("/dev/pts/9");
 		} finally {
 			if (origIsTTY) Object.defineProperty(process.stdout, "isTTY", origIsTTY);
@@ -594,7 +587,7 @@ describe("scanner — resolveTty when stdout is a TTY", () => {
 			const entries = readFileSync(auditPath(), "utf-8")
 				.trim()
 				.split("\n")
-				.map((l) => JSON.parse(l) as { actor: { tty: string | null } });
+				.map((l) => parseWire(JSON.parse(l), wireObject({ "actor": wireObject({ "tty": wireNullable(wireString) }) }), "test JSON value"));
 			expect(entries.at(-1)?.actor.tty).toBe("/dev/ttys003");
 		} finally {
 			if (origIsTTY) Object.defineProperty(process.stdout, "isTTY", origIsTTY);
@@ -616,7 +609,7 @@ describe("scanner — resolveTty when stdout is a TTY", () => {
 			const entries = readFileSync(auditPath(), "utf-8")
 				.trim()
 				.split("\n")
-				.map((l) => JSON.parse(l) as { actor: { tty: string | null } });
+				.map((l) => parseWire(JSON.parse(l), wireObject({ "actor": wireObject({ "tty": wireNullable(wireString) }) }), "test JSON value"));
 			expect(entries.at(-1)?.actor.tty).toBeNull();
 		} finally {
 			if (origIsTTY) Object.defineProperty(process.stdout, "isTTY", origIsTTY);
@@ -676,7 +669,7 @@ function makeTtyStdin(): () => void {
 	// so we restore by value: defineProperty(true) for the test, then put the
 	// original value back. Capturing the value (not a descriptor) avoids a
 	// `{ value: undefined }` descriptor literal in the restore path.
-	const origValue = (process.stdin as { isTTY?: boolean }).isTTY;
+	const origValue = (parseWire(process.stdin, wireObject({ "isTTY": wireAbsentOptional(wireOptional(wireBoolean)) }), "test JSON value")).isTTY;
 	Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
 	return () => {
 		Object.defineProperty(process.stdin, "isTTY", { value: origValue, configurable: true });
@@ -708,7 +701,7 @@ describe("scannerReviewCommand — interactive prompt (renderReview + promptForD
 		// Final confirmation line for a non-skip decision.
 		expect(out).toContain("Recorded: allow");
 		expect(mockWriteDecision).toHaveBeenCalledTimes(1);
-		const arg = mockWriteDecision.mock.calls[0]?.[0] as { decision: string };
+		const arg = parseWire(mockWriteDecision.mock.calls[0]?.[0], wireObject({ "decision": wireString }), "test JSON value");
 		expect(arg.decision).toBe("allow");
 		expect(rlClose).toHaveBeenCalled();
 	});
@@ -723,7 +716,7 @@ describe("scannerReviewCommand — interactive prompt (renderReview + promptForD
 		} finally {
 			restoreTty();
 		}
-		const arg = mockWriteDecision.mock.calls[0]?.[0] as { decision: string };
+		const arg = parseWire(mockWriteDecision.mock.calls[0]?.[0], wireObject({ "decision": wireString }), "test JSON value");
 		expect(arg.decision).toBe("redact");
 		expect(logged()).toContain("Recorded: redact");
 	});
@@ -738,7 +731,7 @@ describe("scannerReviewCommand — interactive prompt (renderReview + promptForD
 		} finally {
 			restoreTty();
 		}
-		const arg = mockWriteDecision.mock.calls[0]?.[0] as { decision: string };
+		const arg = parseWire(mockWriteDecision.mock.calls[0]?.[0], wireObject({ "decision": wireString }), "test JSON value");
 		expect(arg.decision).toBe("block");
 	});
 
@@ -758,7 +751,7 @@ describe("scannerReviewCommand — interactive prompt (renderReview + promptForD
 		const entries = readFileSync(auditPath(), "utf-8")
 			.trim()
 			.split("\n")
-			.map((l) => JSON.parse(l) as { action: string; reason: string | null });
+			.map((l) => parseWire(JSON.parse(l), wireObject({ "action": wireString, "reason": wireNullable(wireString) }), "test JSON value"));
 		expect(entries.at(-1)?.action).toBe("review_skip");
 		expect(entries.at(-1)?.reason).toBe("deferring");
 	});
@@ -854,7 +847,7 @@ describe("scannerReviewCommand — short-mode renderers", () => {
 		mockReadReview.mockReturnValue(makeReviewPayload());
 		await scannerReviewCommand({ short: true, allow: true });
 		expect(logged()).toBe("allow");
-		const arg = mockWriteDecision.mock.calls[0]?.[0] as { decision: string };
+		const arg = parseWire(mockWriteDecision.mock.calls[0]?.[0], wireObject({ "decision": wireString }), "test JSON value");
 		expect(arg.decision).toBe("allow");
 	});
 
@@ -909,7 +902,7 @@ describe("scannerReviewCommand — JSON skip payload", () => {
 		mockReadReview.mockReturnValue(makeReviewPayload());
 		await scannerReviewCommand({ json: true });
 		expect(process.exitCode).toBe(1);
-		const parsed = JSON.parse(errored()) as { error: string };
+		const parsed = parseWire(JSON.parse(errored()), wireObject({ "error": wireString }), "test JSON value");
 		expect(parsed.error).toMatch(/non-interactive/i);
 		expect(mockCreateInterface).not.toHaveBeenCalled();
 	});

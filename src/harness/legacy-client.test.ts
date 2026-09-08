@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnessDecision, HarnessEvent } from "./types.js";
@@ -144,16 +145,15 @@ describe("callLegacyHarness", () => {
 		});
 		expect(createConnectionMock).toHaveBeenCalledTimes(1);
 		expect(lastConnectPath).toBe("/repo/harness.sock");
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		await flushMicrotasks();
 		expect(socket.written).toHaveLength(1);
-		const framed = socket.written[0] as string;
+		const framed = nonNull(socket.written[0]);
 		expect(framed.endsWith("\n")).toBe(true);
-		const sent = JSON.parse(framed.slice(0, -1)) as HarnessEvent;
-		expect(sent.hook_event).toBe("PreToolUse");
-		expect(sent.tool_name).toBe("Edit");
-		expect("id" in sent).toBe(false);
-		expect("method" in sent).toBe(false);
+		const sent: unknown = JSON.parse(framed.slice(0, -1));
+		expect(sent).toMatchObject({ hook_event: "PreToolUse", tool_name: "Edit" });
+		expect(sent).not.toHaveProperty("id");
+		expect(sent).not.toHaveProperty("method");
 
 		const decision: HarnessDecision = { decision: "allow", warnings: ["w"], updated_input: { command: "safe" }, watch_paths: ["/repo/package.json"] };
 		socket.emit("data", Buffer.from(`${JSON.stringify(decision)}\n`));
@@ -164,7 +164,7 @@ describe("callLegacyHarness", () => {
 
 	it("uses DEFAULT_LEGACY_PRE_TOOL_TIMEOUT_MS when no timeout is supplied", async () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent());
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		// Just before the default deadline: still pending.
 		vi.advanceTimersByTime(DEFAULT_LEGACY_PRE_TOOL_TIMEOUT_MS - 1);
 		const decision: HarnessDecision = { decision: "block", reason: "no" };
@@ -176,7 +176,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		const decision: HarnessDecision = { decision: "allow" };
 		const full = `${JSON.stringify(decision)}\n`;
 		const mid = Math.floor(full.length / 2);
@@ -193,7 +193,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		const decision: HarnessDecision = { decision: "ask", reason: "confirm?" };
 		socket.emit("data", Buffer.from(`${JSON.stringify(decision)}\n{"decision":"block"}\n`));
 		await expect(promise).resolves.toEqual(decision);
@@ -203,7 +203,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit("data", Buffer.from("not json at all\n"));
 		// JSON.parse throws a SyntaxError (an Error), so the ternary keeps `err`.
 		await expect(promise).rejects.toThrowError(SyntaxError);
@@ -222,7 +222,7 @@ describe("callLegacyHarness", () => {
 			const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 				timeout_ms: 250,
 			});
-			const socket = lastSocket as FakeSocket;
+			const socket = nonNull(lastSocket);
 			socket.emit("data", Buffer.from('{"decision":"allow"}\n'));
 			await expect(promise).rejects.toThrow(
 				"invalid legacy harness response: raw-string-failure",
@@ -237,7 +237,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		const boom = new Error("ECONNREFUSED");
 		socket.emit("error", boom);
 		await expect(promise).rejects.toBe(boom);
@@ -248,7 +248,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit("close");
 		await expect(promise).rejects.toThrow("socket closed");
 		expect(socket.destroyed).toBe(true);
@@ -258,7 +258,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		const decision: HarnessDecision = { decision: "allow" };
 		socket.emit("data", Buffer.from(`${JSON.stringify(decision)}\n`));
 		await expect(promise).resolves.toEqual(decision);
@@ -270,7 +270,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 25,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		const rejection = expect(promise).rejects.toThrow("timeout");
 		vi.advanceTimersByTime(25);
 		await rejection;
@@ -281,7 +281,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 25,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		const rejection = expect(promise).rejects.toThrow("timeout");
 		vi.advanceTimersByTime(25);
 		await rejection;
@@ -298,7 +298,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		const decision = {
 			decision: "ask",
 			reason: "confirm?",
@@ -315,7 +315,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		// Old cast behavior: this "resolved" with `decision: undefined`, which
 		// every adapter's `=== "block"` / `=== "ask"` check then silently read
 		// as an implicit allow. The new parser rejects the whole line instead.
@@ -327,7 +327,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit("data", Buffer.from(`${JSON.stringify({ decision: "maybe" })}\n`));
 		await expect(promise).rejects.toThrow("malformed legacy harness decision");
 	});
@@ -336,7 +336,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit(
 			"data",
 			Buffer.from(
@@ -357,7 +357,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit(
 			"data",
 			Buffer.from(`${JSON.stringify({ decision: "allow", warnings: ["ok", 42, "also-ok"] })}\n`),
@@ -370,7 +370,7 @@ describe("callLegacyHarness", () => {
 		const promise = callLegacyHarness("/repo/harness.sock", makePreEditEvent(), {
 			timeout_ms: 250,
 		});
-		const socket = lastSocket as FakeSocket;
+		const socket = nonNull(lastSocket);
 		socket.emit(
 			"data",
 			Buffer.from(
@@ -650,7 +650,7 @@ describe("toLegacyHarnessEvent action variants", () => {
 			}),
 		);
 		expect(noCwd.tool_input).toEqual({ command: "echo hi" });
-		expect("cwd" in (noCwd.tool_input as object)).toBe(false);
+		expect(noCwd.tool_input).not.toHaveProperty("cwd");
 	});
 
 	it("file_operation read/write/edit map to Read/Write/Edit with compacted input", () => {

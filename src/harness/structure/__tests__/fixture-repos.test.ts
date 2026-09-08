@@ -8,14 +8,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { nonNull } from "../../../lib/non-null.js";
+import { isJsonObject } from "../../../lib/json-types.js";
 import { ArtifactGraph } from "../artifact-graph.js";
 import { runAllExtractors } from "../extractors/index.js";
 import { evaluateStructureRules } from "../rules/index.js";
-import { validateStructureJson } from "../schema-validator.js";
+import { ARTIFACT_FILE_KEYS, validateStructureJson } from "../schema-validator.js";
 import { layerDeclaredArtifacts } from "../structure-checks.js";
 import { formatStructureVerifyOutput } from "../structure-formatter.js";
 import { getImplicitConfig, loadArtifactFile, loadStructureConfig } from "../structure-loader.js";
-import type { ArtifactFileKey, StructureConfig } from "../types.js";
+import type { StructureConfig } from "../types.js";
 
 // -------------------------------------------
 // Helper: build a full graph from a fixture root
@@ -77,25 +78,26 @@ function runDoctor(root: string): DoctorIssue[] {
 	const config = loaded.config ?? getImplicitConfig();
 
 	// Check artifact file validity
-	for (const [key, rel] of Object.entries(config.artifacts)) {
+	for (const key of ARTIFACT_FILE_KEYS) {
+		const rel = config.artifacts[key];
 		if (!rel) continue;
-		const { errors } = loadArtifactFile(root, key as ArtifactFileKey, rel);
+		const { errors } = loadArtifactFile(root, key, rel);
 		for (const err of errors) {
 			issues.push({ severity: "error", message: `${key} (${rel}): ${err}` });
 		}
 	}
 
 	// Check declared paths exist
-	for (const [key, rel] of Object.entries(config.artifacts)) {
+	for (const key of ARTIFACT_FILE_KEYS) {
+		const rel = config.artifacts[key];
 		if (!rel) continue;
-		const { data } = loadArtifactFile(root, key as ArtifactFileKey, rel);
+		const { data } = loadArtifactFile(root, key, rel);
 		if (!data) continue;
 		for (const col of ["modules", "tests", "docs", "examples", "packages"]) {
-			const arr = (data as Record<string, unknown>)[col];
+			const arr = data[col];
 			if (!Array.isArray(arr)) continue;
-			for (const item of arr) {
-				if (typeof item !== "object" || item === null) continue;
-				const rec = item as Record<string, unknown>;
+			for (const rec of arr) {
+				if (!isJsonObject(rec)) continue;
 				if (typeof rec.file === "string" && !existsSync(resolve(root, rec.file))) {
 					issues.push({
 						severity: "warning",
@@ -407,11 +409,7 @@ describe("fixture repos", () => {
 			// by directly loading and checking the artifact file.
 			const { data } = loadArtifactFile(root, "public_api", "artifacts/public-api.json");
 			expect(data).not.toBeNull();
-			const modules = (data as Record<string, unknown>).modules as Array<
-				Record<string, unknown>
-			>;
-			const badModule = modules.find((m) => m.file === "nonexistent.ts");
-			expect(badModule).toBeDefined();
+			expect(data?.modules).toEqual(expect.arrayContaining([expect.objectContaining({ file: "nonexistent.ts" })]));
 			expect(existsSync(resolve(root, "nonexistent.ts"))).toBe(false);
 		});
 

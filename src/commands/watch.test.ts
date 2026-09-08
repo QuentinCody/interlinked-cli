@@ -1,3 +1,4 @@
+import { parseWire, wireAbsentOptional, wireArray, wireBoolean, wireNullable, wireNumber, wireObject, wireString, wireUnknown } from "../lib/value-validation.js";
 // ===========================================
 // watch command — behavioral coverage
 // ===========================================
@@ -89,7 +90,9 @@ interface RawAgent {
 function programClient(perTool: Partial<Record<Tool, unknown | unknown[]>>): void {
 	const queues = new Map<Tool, unknown[]>();
 	const singles = new Map<Tool, unknown>();
-	for (const [tool, val] of Object.entries(perTool) as [Tool, unknown][]) {
+	const tools: Tool[] = ["has_unread_messages", "list_tasks", "list_agents"];
+	for (const tool of tools) {
+		const val = perTool[tool];
 		if (Array.isArray(val)) queues.set(tool, [...val]);
 		else singles.set(tool, val);
 	}
@@ -127,10 +130,10 @@ function erroredText(): string {
 }
 
 /** The last console.log payload parsed as JSON (json-mode assertions). */
-function lastLogJson<T = Record<string, unknown>>(): T {
+function lastLogJson(): unknown {
 	const raw = vi.mocked(console.log).mock.calls.at(-1)?.[0];
 	if (typeof raw !== "string") throw new Error(`expected string log, got ${typeof raw}`);
-	return JSON.parse(raw) as T;
+	return JSON.parse(raw);
 }
 
 let stdoutWriteSpy: ReturnType<typeof vi.spyOn>;
@@ -168,13 +171,7 @@ describe("watch — authentication gate", () => {
 
 		// callTool must NOT run when the gate trips.
 		expect(mockCallTool).not.toHaveBeenCalled();
-		const payload = lastLogJson<{
-			server: { reachable: boolean; error?: string };
-			messages: unknown;
-			tasks: unknown;
-			agents: unknown;
-			notifications: unknown[];
-		}>();
+		const payload = parseWire(lastLogJson(), wireObject({ "server": wireObject({ "reachable": wireBoolean, "error": wireAbsentOptional(wireString) }), "messages": wireUnknown, "tasks": wireUnknown, "agents": wireUnknown, "notifications": wireArray(wireUnknown) }), "watch output");
 		expect(payload.server.reachable).toBe(false);
 		expect(payload.server.error).toBe("Not authenticated. Run: interlinked login");
 		expect(payload.messages).toBeNull();
@@ -220,7 +217,7 @@ describe("watch — authentication gate", () => {
 		expect(mockCallTool).toHaveBeenCalledWith("has_unread_messages", {});
 		expect(mockCallTool).toHaveBeenCalledWith("list_tasks", { limit: 50 });
 		expect(mockCallTool).toHaveBeenCalledWith("list_agents", {});
-		expect(lastLogJson<{ server: { reachable: boolean } }>().server.reachable).toBe(true);
+		expect(parseWire(lastLogJson(), wireObject({ "server": wireObject({ "reachable": wireBoolean }) }), "watch output").server.reachable).toBe(true);
 	});
 });
 
@@ -264,22 +261,7 @@ describe("watch — data aggregation (json)", () => {
 
 		await watchCommand({ json: true });
 
-		const p = lastLogJson<{
-			messages: { has_unread: boolean; unread_count: number; oldest_unread_at: string };
-			tasks: {
-				pending: number;
-				in_progress: number;
-				blocked: number;
-				unassigned: number;
-				items: { id: number }[];
-			};
-			agents: {
-				total: number;
-				online: number;
-				idle: number;
-				items: { name: string; current_task: string | null }[];
-			};
-		}>();
+		const p = parseWire(lastLogJson(), wireObject({ "messages": wireObject({ "has_unread": wireBoolean, "unread_count": wireNumber, "oldest_unread_at": wireString }), "tasks": wireObject({ "pending": wireNumber, "in_progress": wireNumber, "blocked": wireNumber, "unassigned": wireNumber, "items": wireArray(wireObject({ "id": wireNumber })) }), "agents": wireObject({ "total": wireNumber, "online": wireNumber, "idle": wireNumber, "items": wireArray(wireObject({ "name": wireString, "current_task": wireNullable(wireString) })) }) }), "watch output");
 
 		expect(p.messages).toEqual({
 			has_unread: true,
@@ -312,12 +294,7 @@ describe("watch — data aggregation (json)", () => {
 
 		await watchCommand({ json: true });
 
-		const p = lastLogJson<{
-			server: { reachable: boolean };
-			messages: unknown;
-			tasks: unknown;
-			agents: unknown;
-		}>();
+		const p = parseWire(lastLogJson(), wireObject({ "server": wireObject({ "reachable": wireBoolean }), "messages": wireUnknown, "tasks": wireUnknown, "agents": wireUnknown }), "watch output");
 		// Server still reachable (auth passed); individual tools degraded to null.
 		expect(p.server.reachable).toBe(true);
 		expect(p.messages).toBeNull();
@@ -334,10 +311,7 @@ describe("watch — data aggregation (json)", () => {
 
 		await watchCommand({ json: true });
 
-		const p = lastLogJson<{
-			tasks: { pending: number; items: unknown[] };
-			agents: { total: number; items: unknown[] };
-		}>();
+		const p = parseWire(lastLogJson(), wireObject({ "tasks": wireObject({ "pending": wireNumber, "items": wireArray(wireUnknown) }), "agents": wireObject({ "total": wireNumber, "items": wireArray(wireUnknown) }) }), "watch output");
 		expect(p.tasks.pending).toBe(0);
 		expect(p.tasks.items).toEqual([]);
 		expect(p.agents.total).toBe(0);
@@ -706,7 +680,7 @@ describe("watch — targeted mutant kills", () => {
 
 		await watchCommand({ json: true });
 
-		const p = lastLogJson<{ tasks: { unassigned: number } }>();
+		const p = parseWire(lastLogJson(), wireObject({ "tasks": wireObject({ "unassigned": wireNumber }) }), "watch output");
 		expect(p.tasks.unassigned).toBe(1);
 	});
 
@@ -725,7 +699,7 @@ describe("watch — targeted mutant kills", () => {
 
 		await watchCommand({ json: true });
 
-		const p = lastLogJson<{ agents: { online: number } }>();
+		const p = parseWire(lastLogJson(), wireObject({ "agents": wireObject({ "online": wireNumber }) }), "watch output");
 		expect(p.agents.online).toBe(1);
 	});
 
@@ -893,12 +867,12 @@ describe("watch — change detection across ticks", () => {
 
 		await watchCommand({ json: true });
 		// First poll: no previous → notifications empty.
-		expect(lastLogJson<{ notifications: string[] }>().notifications).toEqual([]);
+		expect(parseWire(lastLogJson(), wireObject({ "notifications": wireArray(wireString) }), "watch output").notifications).toEqual([]);
 
 		// Fire one follow tick → second snapshot diffed against the first.
 		await vi.advanceTimersByTimeAsync(10_000);
 
-		const notes = lastLogJson<{ notifications: string[] }>().notifications;
+		const notes = parseWire(lastLogJson(), wireObject({ "notifications": wireArray(wireString) }), "watch output").notifications;
 		expect(notes).toContain("2 new unread messages"); // delta 2 → plural
 		expect(notes).toContain("New task #2: brand new");
 		expect(notes).toContain("New task #3: also new");
@@ -939,7 +913,7 @@ describe("watch — change detection across ticks", () => {
 		await watchCommand({ json: true });
 		await vi.advanceTimersByTimeAsync(10_000);
 
-		const notes = lastLogJson<{ notifications: string[] }>().notifications;
+		const notes = parseWire(lastLogJson(), wireObject({ "notifications": wireArray(wireString) }), "watch output").notifications;
 		expect(notes).toContain("1 new unread message"); // singular
 		expect(notes).toContain("New task #2: single new");
 		expect(notes).toContain("1 task waiting for assignment"); // unassigned 1→2, singular
@@ -961,7 +935,7 @@ describe("watch — change detection across ticks", () => {
 		await watchCommand({ json: true });
 		await vi.advanceTimersByTimeAsync(10_000);
 
-		expect(lastLogJson<{ notifications: string[] }>().notifications).toEqual([]);
+		expect(parseWire(lastLogJson(), wireObject({ "notifications": wireArray(wireString) }), "watch output").notifications).toEqual([]);
 	});
 
 	it("renders the Notifications header block in normal mode when changes occur", async () => {
@@ -1000,7 +974,7 @@ describe("watch — change detection across ticks", () => {
 		await watchCommand({ json: true });
 		await vi.advanceTimersByTimeAsync(10_000);
 
-		const notes = lastLogJson<{ notifications: string[] }>().notifications;
+		const notes = parseWire(lastLogJson(), wireObject({ "notifications": wireArray(wireString) }), "watch output").notifications;
 		// truncate(title, 40) => 37 chars + "..."
 		expect(notes).toContain(`New task #5: ${"y".repeat(37)}...`);
 	});
@@ -1023,7 +997,7 @@ describe("watch — change detection across ticks", () => {
 		await watchCommand({ json: true });
 		await vi.advanceTimersByTimeAsync(10_000);
 
-		expect(lastLogJson<{ notifications: string[] }>().notifications).toContain(
+		expect(parseWire(lastLogJson(), wireObject({ "notifications": wireArray(wireString) }), "watch output").notifications).toContain(
 			"1 new agent came online", // singular branch of the came-online ternary
 		);
 	});
@@ -1047,7 +1021,7 @@ describe("watch — change detection across ticks", () => {
 		await watchCommand({ json: true });
 		await vi.advanceTimersByTimeAsync(10_000);
 
-		expect(lastLogJson<{ notifications: string[] }>().notifications).toContain(
+		expect(parseWire(lastLogJson(), wireObject({ "notifications": wireArray(wireString) }), "watch output").notifications).toContain(
 			"2 agents went offline", // plural branch of the went-offline ternary
 		);
 	});
@@ -1078,7 +1052,7 @@ describe("watch — change detection across ticks", () => {
 		await watchCommand({ json: true });
 		await vi.advanceTimersByTimeAsync(10_000);
 
-		const p = lastLogJson<{ messages: unknown; notifications: string[] }>();
+		const p = parseWire(lastLogJson(), wireObject({ "messages": wireUnknown, "notifications": wireArray(wireString) }), "watch output");
 		expect(p.messages).toBeNull();
 		// No deltas can be computed when curr sections are null → empty notes.
 		expect(p.notifications).toEqual([]);
@@ -1230,7 +1204,7 @@ describe("watch — additional mutant kills (survivor sweep)", () => {
 		await watchCommand({ json: true });
 		await vi.advanceTimersByTimeAsync(10_000);
 
-		const notes = lastLogJson<{ notifications: string[] }>().notifications;
+		const notes = parseWire(lastLogJson(), wireObject({ "notifications": wireArray(wireString) }), "watch output").notifications;
 		expect(notes).toContain("1 task waiting for assignment");
 	});
 
@@ -1255,7 +1229,7 @@ describe("watch — additional mutant kills (survivor sweep)", () => {
 		await watchCommand({ json: true });
 		await vi.advanceTimersByTimeAsync(10_000);
 
-		const notes = lastLogJson<{ notifications: string[] }>().notifications;
+		const notes = parseWire(lastLogJson(), wireObject({ "notifications": wireArray(wireString) }), "watch output").notifications;
 		expect(notes.some((n) => n.includes("waiting for assignment"))).toBe(false);
 	});
 
@@ -1345,8 +1319,8 @@ describe("watch — additional mutant kills (survivor sweep)", () => {
 
 		const raw = vi.mocked(console.log).mock.calls[0]?.[0];
 		expect(typeof raw).toBe("string");
-		expect((raw as string).includes("\n")).toBe(true);
-		expect((raw as string).split("\n").length).toBeGreaterThan(5);
+		expect((parseWire(raw, wireString, "test JSON value")).includes("\n")).toBe(true);
+		expect((parseWire(raw, wireString, "test JSON value")).split("\n").length).toBeGreaterThan(5);
 	});
 
 	it("joins the dashboard with real newlines when the server is unreachable", async () => {
@@ -1357,7 +1331,7 @@ describe("watch — additional mutant kills (survivor sweep)", () => {
 
 		const raw = vi.mocked(console.log).mock.calls[0]?.[0];
 		expect(typeof raw).toBe("string");
-		expect((raw as string).includes("\n")).toBe(true);
+		expect((parseWire(raw, wireString, "test JSON value")).includes("\n")).toBe(true);
 	});
 
 	it("keeps two adjacent unassigned-pending tasks in their original relative order (stable sort)", async () => {
@@ -1488,9 +1462,7 @@ describe("watch — error handling (runOnce catch)", () => {
 
 		await watchCommand({ json: true });
 
-		const errJson = JSON.parse(vi.mocked(console.error).mock.calls.at(-1)?.[0] as string) as {
-			error: string;
-		};
+		const errJson = parseWire(JSON.parse(parseWire(vi.mocked(console.error).mock.calls.at(-1)?.[0], wireString, "test JSON value")), wireObject({ "error": wireString }), "test JSON value");
 		expect(errJson.error).toBe("client construction failed");
 		expect(process.exitCode).toBe(1);
 	});

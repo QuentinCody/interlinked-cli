@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -124,8 +124,7 @@ describe("metric-caps", () => {
 		// Overwrite with a newer mtime; the cache must not serve the stale value.
 		const future = Date.now() / 1000 + 5;
 		writeCaps(cwd, { max_cyclomatic: 12 });
-		const fs = require("node:fs") as typeof import("node:fs");
-		fs.utimesSync(join(cwd, METRIC_CAPS_REL), future, future);
+		utimesSync(join(cwd, METRIC_CAPS_REL), future, future);
 		expect(loadMetricCaps(cwd).max_cyclomatic).toBe(12);
 	});
 

@@ -41,7 +41,9 @@ export function isBashTsc(event: {
 	tool_input?: JsonObject | undefined;
 }): boolean {
 	if (event.tool_name !== "Bash") return false;
-	const cmd = ((event.tool_input?.command as string) || "").trim();
+	const command = event.tool_input?.command;
+	if (typeof command !== "string") return false;
+	const cmd = command.trim();
 	if (/\btsgo\b/.test(cmd)) return false; // already using tsgo
 	// Only match tsc as the primary command (not inside strings/echo)
 	const isTscCommand = /^(npx\s+)?tsc\b/.test(cmd) || /[;&|]\s*(npx\s+)?tsc\b/.test(cmd);
@@ -65,9 +67,9 @@ export function tryTsgoRewrite(
 	cwd: string,
 	log: (msg: string) => void,
 ): { decision: "block"; reason: string } | null {
+	const cmd = event.tool_input?.command;
+	if (typeof cmd !== "string") return null;
 	if (!isTsgoAvailable()) return null;
-
-	const cmd = (event.tool_input?.command as string) || "";
 	const rewritten = cmd.replace(/\b(npx\s+)?tsc\b/, "npx tsgo");
 	log(`tsgo acceleration: ${cmd.trim().slice(0, 60)} → ${rewritten.trim().slice(0, 60)}`);
 

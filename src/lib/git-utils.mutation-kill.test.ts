@@ -1,7 +1,8 @@
+import { nonNull } from "./non-null.js";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-	execFileSync: vi.fn(),
+	execFileSync: vi.fn<(file: string, args: readonly string[], options: object) => string>(),
 }));
 
 vi.mock("node:child_process", () => ({
@@ -31,7 +32,7 @@ describe("git() subprocess contract", () => {
 		mocks.execFileSync.mockReturnValueOnce("abc\n");
 		expect(isGitRepo(CWD)).toBe(true);
 		expect(mocks.execFileSync).toHaveBeenCalledTimes(1);
-		const [cmd, args, options] = mocks.execFileSync.mock.calls[0] as [string, string[], object];
+		const [cmd, args, options] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(cmd).toBe("git");
 		expect(args).toEqual(["rev-parse", "--git-dir"]);
 		expect(options).toEqual({
@@ -52,7 +53,7 @@ describe("git() subprocess contract", () => {
 	it("sends exact argv tokens for getGitToplevel", () => {
 		mocks.execFileSync.mockReturnValueOnce("/repo\n");
 		expect(getGitToplevel(CWD)).toBe("/repo");
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["rev-parse", "--show-toplevel"]);
 	});
 
@@ -60,7 +61,7 @@ describe("git() subprocess contract", () => {
 	it("strips a fully double-quoted argument", () => {
 		mocks.execFileSync.mockReturnValueOnce("msg");
 		getCommitMessage('"hello"', CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["log", "-1", "--format=%B", "hello"]);
 	});
 
@@ -68,7 +69,7 @@ describe("git() subprocess contract", () => {
 	it("strips a fully single-quoted argument", () => {
 		mocks.execFileSync.mockReturnValueOnce("msg");
 		getCommitMessage("'hello'", CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["log", "-1", "--format=%B", "hello"]);
 	});
 
@@ -76,7 +77,7 @@ describe("git() subprocess contract", () => {
 	it("leaves an unquoted argument unchanged", () => {
 		mocks.execFileSync.mockReturnValueOnce("msg");
 		getCommitMessage("hello", CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["log", "-1", "--format=%B", "hello"]);
 	});
 
@@ -84,7 +85,7 @@ describe("git() subprocess contract", () => {
 	it("does not strip a token that only opens with a double quote", () => {
 		mocks.execFileSync.mockReturnValueOnce("msg");
 		getCommitMessage('"hello', CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["log", "-1", "--format=%B", '"hello']);
 	});
 
@@ -92,7 +93,7 @@ describe("git() subprocess contract", () => {
 	it("does not strip a token that only closes with a double quote", () => {
 		mocks.execFileSync.mockReturnValueOnce("msg");
 		getCommitMessage('hello"', CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["log", "-1", "--format=%B", 'hello"']);
 	});
 
@@ -100,7 +101,7 @@ describe("git() subprocess contract", () => {
 	it("does not strip a token that only opens with a single quote", () => {
 		mocks.execFileSync.mockReturnValueOnce("msg");
 		getCommitMessage("'hello", CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["log", "-1", "--format=%B", "'hello"]);
 	});
 
@@ -108,7 +109,7 @@ describe("git() subprocess contract", () => {
 	it("does not strip a token that only closes with a single quote", () => {
 		mocks.execFileSync.mockReturnValueOnce("msg");
 		getCommitMessage("hello'", CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["log", "-1", "--format=%B", "hello'"]);
 	});
 
@@ -116,7 +117,7 @@ describe("git() subprocess contract", () => {
 	it("preserves an embedded space inside a double-quoted argument", () => {
 		mocks.execFileSync.mockReturnValueOnce("msg");
 		getCommitMessage('"a b"', CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["log", "-1", "--format=%B", "a b"]);
 	});
 
@@ -124,7 +125,7 @@ describe("git() subprocess contract", () => {
 	it("preserves an embedded space inside a single-quoted argument", () => {
 		mocks.execFileSync.mockReturnValueOnce("msg");
 		getCommitMessage("'a b'", CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["log", "-1", "--format=%B", "a b"]);
 	});
 });
@@ -134,7 +135,7 @@ describe("getHeadSha", () => {
 	it("defaults to short form when no argument is passed", () => {
 		mocks.execFileSync.mockReturnValueOnce("abc1234");
 		getHeadSha(CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["rev-parse", "--short", "HEAD"]);
 	});
 
@@ -142,7 +143,7 @@ describe("getHeadSha", () => {
 	it("requests the full SHA when short is false", () => {
 		mocks.execFileSync.mockReturnValueOnce("abc1234567890");
 		getHeadSha(CWD, false);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["rev-parse", "HEAD"]);
 	});
 });
@@ -152,7 +153,7 @@ describe("getCommitMessage", () => {
 	it("builds the exact command for a ref", () => {
 		mocks.execFileSync.mockReturnValueOnce("commit body");
 		getCommitMessage("HEAD", CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["log", "-1", "--format=%B", "HEAD"]);
 	});
 });
@@ -168,7 +169,7 @@ describe("getStagedFiles", () => {
 	it("sends exact argv tokens", () => {
 		mocks.execFileSync.mockReturnValueOnce("a.ts\n");
 		getStagedFiles(CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["diff", "--cached", "--name-only"]);
 	});
 });
@@ -206,7 +207,7 @@ describe("deriveProjectIdentity", () => {
 	it("sends exact argv tokens for the remote lookup", () => {
 		mocks.execFileSync.mockReturnValueOnce("git@github.com:user/my-project.git");
 		deriveProjectIdentity(CWD);
-		const [, args] = mocks.execFileSync.mock.calls[0] as [string, string[]];
+		const [, args] = nonNull(mocks.execFileSync.mock.calls[0]);
 		expect(args).toEqual(["remote", "get-url", "origin"]);
 	});
 

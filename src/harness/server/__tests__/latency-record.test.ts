@@ -55,8 +55,8 @@ describe("buildLatencyRecord", () => {
 		expect(rec.agent_source).toBeNull();
 	});
 
-	it("does not throw on an unparseable line — all event fields null", () => {
-		const rec = buildLatencyRecord("{not valid json", decision({ decision: "block" }));
+	it.each(["{not valid json", "null", "[]", "42", "true", '"event"'])("preserves decision metadata for a non-object event: %s", (line) => {
+		const rec = buildLatencyRecord(line, decision({ decision: "block" }));
 		expect(rec.hook_event).toBeNull();
 		expect(rec.tool_name).toBeNull();
 		expect(rec.session_id).toBeNull();

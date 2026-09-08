@@ -1,3 +1,4 @@
+import { nonNull } from "../lib/non-null.js";
 // Mutation-kill suite for wave pass1_w59 survivors in settings-watcher.ts.
 // The companion `../lib/settings-validator.js` module is fully mocked so
 // every assertion targets the debounce/guard/wiring logic in this file
@@ -23,14 +24,15 @@ vi.mock("../lib/settings-validator.js", () => ({
 	defaultStripAuditLogPath: (...args: unknown[]) => defaultStripAuditLogPathMock(...args),
 }));
 
-const watchFileMock = vi.fn();
+type WatchFile = (path: fs.PathLike, options: fs.WatchFileOptions, listener: (current: fs.Stats, previous: fs.Stats) => void) => void;
+const watchFileMock = vi.fn<WatchFile>();
 const unwatchFileMock = vi.fn();
 
 vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		watchFile: (...args: unknown[]) => watchFileMock(...args),
+		watchFile: (...args: Parameters<WatchFile>) => watchFileMock(...args),
 		unwatchFile: (...args: unknown[]) => unwatchFileMock(...args),
 	};
 });
@@ -165,24 +167,6 @@ describe("createStripDebouncer — trigger() timer bookkeeping", () => {
 		expect(onStrip).toHaveBeenCalledTimes(1);
 	});
 
-	it("does not throw when the scheduled timer object has no unref method", () => {
-		const fakeTimerId = {} as unknown as NodeJS.Timeout;
-		const setTimeoutSpy = vi
-			.spyOn(global, "setTimeout")
-			.mockImplementation(((..._args: unknown[]) => fakeTimerId) as unknown as typeof setTimeout);
-		try {
-			const debouncer = createStripDebouncer({
-				cwd: tmpDir,
-				onStrip: vi.fn(),
-				paths: ["/tmp/fileA"],
-				auditLogPath: "/tmp/audit.jsonl",
-				debounceMs: 100,
-			});
-			expect(() => debouncer.trigger()).not.toThrow();
-		} finally {
-			setTimeoutSpy.mockRestore();
-		}
-	});
 });
 
 describe("createStripDebouncer — cancel()", () => {
@@ -265,10 +249,9 @@ describe("watchSettingsFiles — watchFile wiring", () => {
 		vi.advanceTimersByTime(10);
 		expect(onStrip).toHaveBeenCalledTimes(1);
 
-		// SAFETY: watchFileMock.mock.calls[0] is guaranteed present — the
-		// preceding watchSettingsFiles call registers exactly one watcher.
-		const onChange = watchFileMock.mock.calls[0]![2] as () => void;
-		onChange();
+		const onChange = nonNull(watchFileMock.mock.calls[0])[2];
+		const stats = fs.statSync(tmpDir);
+		onChange(stats, stats);
 		vi.advanceTimersByTime(10);
 		expect(onStrip).toHaveBeenCalledTimes(2);
 

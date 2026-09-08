@@ -49,16 +49,15 @@ describe("resolveEndpoints — negative (must not fire)", () => {
 
 describe("networkMeasure — positive (must fire)", () => {
 	it("P1: forwards required fields and omits optional ones when absent", async () => {
-		const measureFile = vi.fn(async (..._a: any[]): Promise<any> => ({ status: "measured" }));
-		// SAFETY: the mock only needs to match measureFile's call shape, not its full type.
-		const measure = networkMeasure(measureFile as any);
+		const measureFile = vi.fn<typeof import("../harness/mutation/measure.js").measureFile>(async () => ({ status: "measured", mutantCount: 1, survivorCount: 0, survivors: [] }));
+		const measure = networkMeasure(measureFile);
 		const outcome = await measure({
 			file: "src/a.ts",
 			content: "export const x = 1;",
 			overlays: [],
 			endpoints: ["https://runner"],
 		});
-		expect(outcome).toEqual({ status: "measured" });
+		expect(outcome).toEqual({ status: "measured", mutantCount: 1, survivorCount: 0, survivors: [] });
 		expect(measureFile).toHaveBeenCalledTimes(1);
 		const call = measureFile.mock.calls[0]![0];
 		expect(call.file).toBe("src/a.ts");
@@ -70,8 +69,8 @@ describe("networkMeasure — positive (must fire)", () => {
 	});
 
 	it("P2: forwards token, deadlineMs, and testScope when present", async () => {
-		const measureFile = vi.fn(async (..._a: any[]): Promise<any> => ({ status: "measured" }));
-		const measure = networkMeasure(measureFile as any);
+		const measureFile = vi.fn<typeof import("../harness/mutation/measure.js").measureFile>(async () => ({ status: "measured", mutantCount: 1, survivorCount: 0, survivors: [] }));
+		const measure = networkMeasure(measureFile);
 		await measure({
 			file: "src/a.ts",
 			content: "export const x = 1;",

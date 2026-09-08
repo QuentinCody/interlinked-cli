@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { SurvivorDisposition } from "./disposition.js";
+import { afterEach, assert, beforeEach, describe, expect, it } from "vitest";
+import type { ProofCertificate, SurvivorDisposition } from "./disposition.js";
 import {
 	type DispositionLedger,
 	type DispositionRecord,
@@ -75,18 +75,33 @@ function emptyLedger(): DispositionLedger {
 	return { version: 1, note: "", environmentHash: "", dependencyGraphVersion: "", records: [] };
 }
 
+function requireLedger(value: DispositionLedger | null): DispositionLedger {
+	assert.exists(value, "valid disposition fixture must be accepted");
+	return value;
+}
+
+const certificate: ProofCertificate = {
+	producedBy: "fixture-verifier", verifierVersion: "1", producedAt: NOW(),
+	validity: { mutantId: "m1", sourceSymbolHash: "H1", environmentHash: "env", dependencyGraphVersion: "deps" },
+};
+const equivalent: SurvivorDisposition = {
+	kind: "proved_equivalent",
+	method: { kind: "rewrite_lemma", lemmaId: "fixture", normalizedOriginalHash: "same", normalizedMutantHash: "same" },
+	certificate,
+};
+
 // ===========================================================================
 describe("suppressionLevel — the gaming-relevant axis", () => {
 	it("P1: dead_code / duplicate / accepted_risk / proved_unreachable / outside_contract are level 1", () => {
 		expect(suppressionLevel({ kind: "dead_code", resolution: "delete" })).toBe(1);
-		expect(suppressionLevel({ kind: "duplicate", representativeMutantId: "x", certificate: {} as never })).toBe(1);
+		expect(suppressionLevel({ kind: "duplicate", representativeMutantId: "x", certificate })).toBe(1);
 	});
 	it("N1: unresolved suppresses nothing (level 0)", () => {
 		expect(suppressionLevel({ kind: "unresolved" })).toBe(0);
 		expect(suppressionLevel({ kind: "killed" })).toBe(0);
 	});
 	it("P2: proved_equivalent is the only level-2 kind", () => {
-		expect(suppressionLevel({ kind: "proved_equivalent", method: {} as never, certificate: {} as never })).toBe(2);
+		expect(suppressionLevel(equivalent)).toBe(2);
 	});
 });
 
@@ -98,8 +113,7 @@ describe("refuseRecord — store-level rules, each closing a §1 hole", () => {
 		expect(refuseRecord(deadCodeRecord({ disposition: { kind: "killed" } }))).toMatch(/killed/);
 	});
 	it("P3: proved_equivalent is refused (goes through mutation accept, and is not durable in M0)", () => {
-		const disposition = { kind: "proved_equivalent", method: {}, certificate: {} } as unknown as SurvivorDisposition;
-		expect(refuseRecord(deadCodeRecord({ disposition }))).toMatch(/mutation accept/);
+		expect(refuseRecord(deadCodeRecord({ disposition: equivalent }))).toMatch(/mutation accept/);
 	});
 	it("N1: an unresolved WITH evidence is accepted", () => {
 		const disposition: SurvivorDisposition = {
@@ -171,7 +185,7 @@ describe("upsertRecord — pure, keyed, refusal-gated", () => {
 	});
 	it("P2: replaces the record with the same (file, symbolId, mutantId) key rather than duplicating", () => {
 		const first = upsertRecord({ ledger: emptyLedger(), record: deadCodeRecord({ recordedBy: "a" }) });
-		const second = upsertRecord({ ledger: first as DispositionLedger, record: deadCodeRecord({ recordedBy: "b" }) });
+		const second = upsertRecord({ ledger: requireLedger(first), record: deadCodeRecord({ recordedBy: "b" }) });
 		expect(second?.records).toHaveLength(1);
 		expect(second?.records[0]?.recordedBy).toBe("b");
 	});
@@ -183,7 +197,7 @@ describe("upsertRecord — pure, keyed, refusal-gated", () => {
 
 describe("withDispositions — apply live, suppressing records onto a manifest copy", () => {
 	it("P1: a live level-1 record is applied (survivor leaves the work-list)", () => {
-		const ledger = upsertRecord({ ledger: emptyLedger(), record: deadCodeRecord() }) as DispositionLedger;
+		const ledger = requireLedger(upsertRecord({ ledger: emptyLedger(), record: deadCodeRecord() }));
 		const out = withDispositions(baseManifest(), ledger);
 		expect(out.files["src/a.ts"]?.s1?.mutants.m1?.disposition).toEqual({ kind: "dead_code", resolution: "delete" });
 	});
@@ -203,7 +217,7 @@ describe("withDispositions — apply live, suppressing records onto a manifest c
 	});
 	it("N3: the input manifest is never mutated (copy-on-write)", () => {
 		const manifest = baseManifest();
-		const ledger = upsertRecord({ ledger: emptyLedger(), record: deadCodeRecord() }) as DispositionLedger;
+		const ledger = requireLedger(upsertRecord({ ledger: emptyLedger(), record: deadCodeRecord() }));
 		withDispositions(manifest, ledger);
 		expect(manifest.files["src/a.ts"]?.s1?.mutants.m1?.disposition).toBeUndefined();
 	});
@@ -232,7 +246,7 @@ describe("ledger persistence + durability regression", () => {
 	});
 
 	it("P2: save → load round-trips a record verbatim", () => {
-		const ledger = upsertRecord({ ledger: emptyLedger(), record: deadCodeRecord({ complexity_delta: 3 }) }) as DispositionLedger;
+		const ledger = requireLedger(upsertRecord({ ledger: emptyLedger(), record: deadCodeRecord({ complexity_delta: 3 }) }));
 		saveLedger(configDir, ledger);
 		const back = loadLedger(configDir);
 		expect(back.records).toHaveLength(1);
@@ -240,12 +254,12 @@ describe("ledger persistence + durability regression", () => {
 	});
 
 	it("N1: loadLedger drops a malformed record rather than crashing", () => {
-		const ledger: DispositionLedger = {
+		const ledger = {
 			...emptyLedger(),
 			// This deliberately malformed row exercises on-disk validation.
-			records: [deadCodeRecord(), { file: "x" } as any],
+			records: [deadCodeRecord(), { file: "x" }],
 		};
-		saveLedger(configDir, ledger);
+		writeFileSync(join(configDir, "mutation-dispositions.json"), JSON.stringify(ledger));
 		expect(loadLedger(configDir).records).toHaveLength(1);
 	});
 
@@ -263,7 +277,7 @@ describe("ledger persistence + durability regression", () => {
 
 	it("P3: a re-measure over the same symbol does NOT wipe the record — the ledger is durable (plan 18 §1.3)", () => {
 		// Record a dead_code judgment against m1, persisted to the ledger.
-		const ledger = upsertRecord({ ledger: emptyLedger(), record: deadCodeRecord() }) as DispositionLedger;
+		const ledger = requireLedger(upsertRecord({ ledger: emptyLedger(), record: deadCodeRecord() }));
 
 		// Simulate the exact operation that DESTROYED a manifest-stored disposition:
 		// applyMeasuredRun rebuilds every MutantRecord with the SAME unchanged symbolHash.

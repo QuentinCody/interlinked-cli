@@ -6,7 +6,6 @@
 // See docs/design/pre-post-pipelined-cloud-checks-and-failure-recovery.md.
 
 import type { JsonObject } from "../../lib/json-types.js";
-import type { AgentSource } from "./events.js";
 
 /** Triage label assigned to a tool failure. Drives downstream behavior. */
 export type TriageLabel =
@@ -21,7 +20,7 @@ export type TriageLabel =
  *  Pure data — every channel reads it; channels never mutate. */
 export interface ToolFailureEvent {
 	session_id: string;
-	agent_source: AgentSource;
+	agent_source: string;
 	tool_name: string;
 	tool_input?: JsonObject | undefined;
 	tool_use_id?: string | undefined;
@@ -96,7 +95,7 @@ export interface ExplanationTemplate {
 export interface FailureRecord {
 	failure_id: string;
 	session_id: string;
-	agent_source: AgentSource;
+	agent_source: string;
 	tool_name: string;
 	tool_input?: JsonObject | undefined;
 	tool_use_id?: string | undefined;

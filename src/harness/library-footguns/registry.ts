@@ -59,7 +59,7 @@ export function loadDisabledLibraries(repoRoot: string): Set<string> {
 	try {
 		const raw: unknown = JSON.parse(readFileSync(path, "utf-8"));
 		if (typeof raw !== "object" || raw === null) return new Set();
-		const c = raw as Partial<DisabledLibrariesConfig>;
+		const c: Partial<DisabledLibrariesConfig> = raw;
 		if (c.version !== 1 || !Array.isArray(c.disabled)) return new Set();
 		return new Set(c.disabled.filter((x) => typeof x === "string"));
 	} catch {

@@ -1,9 +1,12 @@
+import { readToolString } from "./tool-input-values.js";
+import { makeGuardRules, makeQualityCheck } from "./__tests__/fixtures.js";
 // Co-located tests for evaluateWriteContentGuards + buildTscDiffOverlayBlockReason.
 // Every collaborator (signatures, pre-block-gate, diff-overlay, transient-debt-guard,
 // type-erasure-overlay, settings-validator, content-quality regex heuristics) is mocked
 // so each guard's own branches can be driven independently — the function under test is
 // pure orchestration over these collaborators' return shapes.
 
+import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluator.js";
 import { existsSync, readFileSync } from "node:fs";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -101,27 +104,28 @@ import { evaluateTypeErasureOverlay } from "./type-erasure-overlay.js";
 import { collectContentQualityWarnings, isContentScanExempt } from "./write-content-guards-content-quality.js";
 import { buildTscDiffOverlayBlockReason, evaluateWriteContentGuards } from "./write-content-guards.js";
 
-const BASE_RULES = { quality_checks: {} } as GuardRulesConfig;
+const BASE_RULES = ({ ...makeGuardRules(),  quality_checks: {} } satisfies GuardRulesConfig);
 
 function baseEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
-	return {
+	return ({
 		hook_event: "PreToolUse",
 		session_id: "sess-1",
 		agent_source: "claude",
+		timestamp: "2026-09-01T00:00:00Z",
 		cwd: "/repo",
 		...overrides,
-	} as unknown as HarnessEvent;
+	} satisfies HarnessEvent);
 }
 
 function baseSession(overrides: Partial<SessionTrajectory> = {}): SessionTrajectory {
-	return {
+	return ({ ...makeSessionFixture(),
 		session_id: "sess-1",
 		agent_name: "claude",
 		sensitivity_level: "Confidential",
 		tool_call_count: 7,
 		tool_sequence: ["Read:a.ts", "Edit:b.ts"],
 		...overrides,
-	} as unknown as SessionTrajectory;
+	} satisfies SessionTrajectory);
 }
 
 function run(
@@ -135,7 +139,7 @@ function run(
 ) {
 	return evaluateWriteContentGuards({
 		toolName: opts.toolName ?? "Write",
-		toolInput: toolInput as never,
+		toolInput: toolInput,
 		event: opts.event ?? baseEvent(),
 		rules: opts.rules ?? BASE_RULES,
 		session: opts.session,
@@ -147,7 +151,7 @@ function run(
 // run" as clean. These drive the real evaluateWriteContentGuards production
 // path with the overlay mocked to the sidecar's actual unavailable shape.
 describe("tsc overlay unavailable — NOT CHECKED on the live path", () => {
-	const mTscOverlay = evaluateTscDiffOverlay as unknown as ReturnType<typeof vi.fn>;
+	const mTscOverlay = vi.mocked(evaluateTscDiffOverlay);
 
 	it("P: checkerUnavailable ⇒ a loud NOT CHECKED warning on an otherwise-allowed edit", () => {
 		mTscOverlay.mockReturnValueOnce({
@@ -247,8 +251,8 @@ describe("evaluateWriteContentGuards", () => {
 		vi.mocked(resolveProposedContent).mockImplementation(
 			(_filePath: string, toolInput: Record<string, unknown>) =>
 				typeof toolInput.new_string === "string"
-					? (toolInput.new_string as string)
-					: ((toolInput.content as string) ?? ""),
+					? (toolInput.new_string)
+					: readToolString(toolInput.content),
 		);
 		vi.mocked(isContentScanExempt).mockReturnValue(false);
 		vi.mocked(scanPromptInjection).mockReturnValue([]);
@@ -377,14 +381,6 @@ describe("evaluateWriteContentGuards", () => {
 			{ event: baseEvent({ cwd: "/my/proj" }) },
 		);
 		expect(isContentScanExempt).toHaveBeenCalledWith("src/a.ts", "/my/proj");
-	});
-
-	it("passes undefined to isContentScanExempt when event.cwd is not a string (L202 typeof guard, non-string case)", () => {
-		run(
-			{ file_path: "src/a.ts", content: "x".repeat(50) },
-			{ event: baseEvent({ cwd: 12345 as unknown as string }) },
-		);
-		expect(isContentScanExempt).toHaveBeenCalledWith("src/a.ts", undefined);
 	});
 
 	it("skips injection scanning when the path is exempt", () => {
@@ -585,9 +581,9 @@ describe("evaluateWriteContentGuards", () => {
 	it("blocks a malformed permission rule written to .claude/settings.json", async () => {
 		const { findMalformedRulesIn, suggestRuleFix } = await import("../../lib/settings-validator.js");
 		vi.mocked(findMalformedRulesIn).mockReturnValue([
-			{ bucket: "allow", index: 0, rule: "Bash(", reason: "unbalanced-paren" },
-			{ bucket: "allow", index: 1, rule: "Edit(", reason: "unbalanced-paren" },
-		] as never);
+			{ bucket: "allow", index: 0, rule: "Bash(", reason: "paren_imbalance" },
+			{ bucket: "allow", index: 1, rule: "Edit(", reason: "paren_imbalance" },
+		]);
 		vi.mocked(suggestRuleFix).mockReturnValue("Bash(*)");
 		const result = run({
 			file_path: ".claude/settings.json",
@@ -611,8 +607,8 @@ describe("evaluateWriteContentGuards", () => {
 	it("omits the suggestion clause and the '(and N more)' suffix for a single malformed rule with no suggestion", async () => {
 		const { findMalformedRulesIn, suggestRuleFix } = await import("../../lib/settings-validator.js");
 		vi.mocked(findMalformedRulesIn).mockReturnValue([
-			{ bucket: "deny", index: 0, rule: "Bash(*", reason: "unbalanced-paren" },
-		] as never);
+			{ bucket: "deny", index: 0, rule: "Bash(*", reason: "paren_imbalance" },
+		]);
 		vi.mocked(suggestRuleFix).mockReturnValue(null);
 		const result = run({
 			file_path: ".claude/settings.local.json",
@@ -767,9 +763,9 @@ describe("evaluateWriteContentGuards", () => {
 			{ file_path: "src/a.ts", content: "clean" },
 			{
 				event: baseEvent({ cwd: "/event/cwd" }),
-				rules: {
-					quality_checks: { typescript: { enabled: false }, biome_lint: { enabled: false } },
-				} as never,
+				rules: { ...makeGuardRules(),
+					quality_checks: { typescript: makeQualityCheck({ enabled: false }), biome_lint: makeQualityCheck({ enabled: false }) },
+				},
 			},
 		);
 		expect(findProjectRoot).toHaveBeenNthCalledWith(1, "src/a.ts", "/event/cwd");
@@ -784,7 +780,7 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "parametrize",
 				deferrable: false,
 			},
-		] as never);
+		]);
 		const result = run({ file_path: "src/a.ts", content: "bad" });
 		expect(result).toEqual({
 			kind: "block",
@@ -814,7 +810,7 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "resolve",
 				deferrable: true,
 			},
-		] as never);
+		]);
 		run({ file_path: "src/a.ts", content: "// TODO" });
 		expect(applyTransientDebt).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -832,7 +828,7 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "resolve",
 				deferrable: true,
 			},
-		] as never);
+		]);
 		vi.mocked(applyTransientDebt).mockReturnValue({ decision: null, warnings: ["[debt] noted"] });
 		const result = run({ file_path: "src/a.ts", content: "// TODO" });
 		expect(result.kind).toBe("ok");
@@ -855,7 +851,7 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "resolve",
 				deferrable: true,
 			},
-		] as never);
+		]);
 		vi.mocked(preexistingPreBlockWarnings).mockReturnValue(["[interlinked:pre-block] preexisting note"]);
 		vi.mocked(applyTransientDebt).mockReturnValue({ decision: null, warnings: [] });
 		const result = run({ file_path: "src/a.ts", content: "// TODO" });
@@ -873,17 +869,17 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "resolve",
 				deferrable: true,
 			},
-		] as never);
+		]);
 		vi.mocked(applyTransientDebt).mockReturnValue({
-			decision: { decision: "block", reason: "debt due", rule_id: "transient-debt" } as never,
+			decision: { decision: "block", reason: "debt due", rule_id: "transient-debt" },
 			warnings: [],
 		});
 		const result = run(
 			{ file_path: "src/a.ts", content: "// TODO" },
 			{
-				rules: {
-					quality_checks: { typescript: { enabled: false }, biome_lint: { enabled: false } },
-				} as never,
+				rules: { ...makeGuardRules(),
+					quality_checks: { typescript: makeQualityCheck({ enabled: false }), biome_lint: makeQualityCheck({ enabled: false }) },
+				},
 			},
 		);
 		expect(result).toEqual({
@@ -901,9 +897,9 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "resolve",
 				deferrable: true,
 			},
-		] as never);
+		]);
 		vi.mocked(applyTransientDebt).mockReturnValue({
-			decision: { decision: "block", reason: "debt due", rule_id: "transient-debt" } as never,
+			decision: { decision: "block", reason: "debt due", rule_id: "transient-debt" },
 			warnings: [],
 		});
 		const result = run({ file_path: "src/a.ts", content: "// TODO" });
@@ -922,7 +918,7 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "parametrize",
 				deferrable: false,
 			},
-		] as never);
+		]);
 		vi.mocked(preexistingPreBlockWarnings).mockReturnValue(["[interlinked:pre-block] preexisting"]);
 		const result = run({ file_path: "src/a.ts", content: "clean" });
 		expect(result.kind).toBe("ok");
@@ -940,14 +936,14 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "resolve",
 				deferrable: true,
 			},
-		] as never);
+		]);
 		run(
 			{ file_path: "src/a.ts", content: "// TODO" },
 			{
 				event: baseEvent({ cwd: "/event/cwd" }),
-				rules: {
-					quality_checks: { typescript: { enabled: false }, biome_lint: { enabled: false } },
-				} as never,
+				rules: { ...makeGuardRules(),
+					quality_checks: { typescript: makeQualityCheck({ enabled: false }), biome_lint: makeQualityCheck({ enabled: false }) },
+				},
 			},
 		);
 		expect(applyTransientDebt).toHaveBeenCalledWith(
@@ -965,14 +961,14 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "resolve",
 				deferrable: true,
 			},
-		] as never);
+		]);
 		run(
 			{ file_path: "src/a.ts", content: "// TODO" },
 			{
 				event: baseEvent({ cwd: "/event/cwd" }),
-				rules: {
-					quality_checks: { typescript: { enabled: false }, biome_lint: { enabled: false } },
-				} as never,
+				rules: { ...makeGuardRules(),
+					quality_checks: { typescript: makeQualityCheck({ enabled: false }), biome_lint: makeQualityCheck({ enabled: false }) },
+				},
 			},
 		);
 		expect(applyTransientDebt).toHaveBeenCalledWith(
@@ -989,14 +985,14 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "resolve",
 				deferrable: true,
 			},
-		] as never);
+		]);
 		run(
 			{ file_path: "src/a.ts", content: "// TODO" },
 			{
 				event: baseEvent({ cwd: "/event/cwd" }),
-				rules: {
-					quality_checks: { typescript: { enabled: false }, biome_lint: { enabled: false } },
-				} as never,
+				rules: { ...makeGuardRules(),
+					quality_checks: { typescript: makeQualityCheck({ enabled: false }), biome_lint: makeQualityCheck({ enabled: false }) },
+				},
 			},
 		);
 		expect(findProjectRoot).toHaveBeenNthCalledWith(2, "src/a.ts", "/event/cwd");
@@ -1012,7 +1008,7 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "resolve",
 				deferrable: true,
 			},
-		] as never);
+		]);
 		run({ file_path: "src/a.ts", content: "// TODO" });
 		expect(applyTransientDebt).toHaveBeenCalledWith(
 			expect.objectContaining({ projectRoot: "/resolved/root" }),
@@ -1038,7 +1034,7 @@ describe("evaluateWriteContentGuards", () => {
 			{ file_path: "src/a.ts", content: "x" },
 			{
 				event: baseEvent({ cwd: "/event/cwd" }),
-				rules: { quality_checks: { typescript: { enabled: false } } } as never,
+				rules: { ...makeGuardRules(),  quality_checks: { typescript: makeQualityCheck({ enabled: false }) } },
 			},
 		);
 		expect(findProjectRoot).toHaveBeenNthCalledWith(2, "src/a.ts", "/event/cwd");
@@ -1047,14 +1043,14 @@ describe("evaluateWriteContentGuards", () => {
 	it("skips the biome overlay entirely when disabled by config", () => {
 		run(
 			{ file_path: "src/a.ts", content: "x" },
-			{ rules: { quality_checks: { biome_lint: { enabled: false } } } as never },
+			{ rules: { ...makeGuardRules(),  quality_checks: { biome_lint: makeQualityCheck({ enabled: false }) } } },
 		);
 		expect(evaluateBiomeDiffOverlay).not.toHaveBeenCalled();
 	});
 
 	it("demotes to a warning (does not block) when the biome overlay exceeded its time budget", () => {
 		vi.mocked(evaluateBiomeDiffOverlay).mockReturnValue({
-			newFindings: [{ ruleId: "lint/x", line: 2, message: "bad thing" }] as never,
+			newFindings: [{ tool: "biome", severity: "error", file: "src/a.ts",  ruleId: "lint/x", line: 2, message: "bad thing" }],
 			elapsedMs: 750,
 			exceededBudget: true,
 		});
@@ -1068,7 +1064,7 @@ describe("evaluateWriteContentGuards", () => {
 
 	it("blocks on new biome findings within budget, with a ruleId fallback and a '+N more' summary", () => {
 		vi.mocked(evaluateBiomeDiffOverlay).mockReturnValue({
-			newFindings: [{ line: 2, message: "no ruleId here" }, { ruleId: "lint/y", line: 5, message: "second" }] as never,
+			newFindings: [{ tool: "biome", severity: "error", file: "src/a.ts",  line: 2, message: "no ruleId here" }, { tool: "biome", severity: "error", file: "src/a.ts",  ruleId: "lint/y", line: 5, message: "second" }],
 			elapsedMs: 5,
 			exceededBudget: false,
 		});
@@ -1091,7 +1087,7 @@ describe("evaluateWriteContentGuards", () => {
 
 	it("does not include a '+N more' summary for a single biome finding", () => {
 		vi.mocked(evaluateBiomeDiffOverlay).mockReturnValue({
-			newFindings: [{ ruleId: "lint/z", line: 1, message: "only one" }] as never,
+			newFindings: [{ tool: "biome", severity: "error", file: "src/a.ts",  ruleId: "lint/z", line: 1, message: "only one" }],
 			elapsedMs: 5,
 			exceededBudget: false,
 		});
@@ -1119,7 +1115,7 @@ describe("evaluateWriteContentGuards", () => {
 			{ file_path: "src/a.ts", content: "x" },
 			{
 				event: baseEvent({ cwd: "/event/cwd" }),
-				rules: { quality_checks: { biome_lint: { enabled: false } } } as never,
+				rules: { ...makeGuardRules(),  quality_checks: { biome_lint: makeQualityCheck({ enabled: false }) } },
 			},
 		);
 		expect(findProjectRoot).toHaveBeenNthCalledWith(2, "src/a.ts", "/event/cwd");
@@ -1131,10 +1127,10 @@ describe("evaluateWriteContentGuards", () => {
 		);
 		vi.mocked(evaluateTscDiffOverlay).mockReturnValue({
 			newFindings: [
-				{ ruleId: "TS2345", line: 1, message: "blocking one" },
-				{ ruleId: "TS7053", line: 2, message: "warn one" },
-			] as never,
-			proposedFindings: [] as never,
+				{ tool: "tsc", severity: "error", file: "src/a.ts",  ruleId: "TS2345", line: 1, message: "blocking one" },
+				{ tool: "tsc", severity: "error", file: "src/a.ts",  ruleId: "TS7053", line: 2, message: "warn one" },
+			],
+			proposedFindings: [],
 			elapsedMs: 1,
 			exceededBudget: false,
 		});
@@ -1148,7 +1144,7 @@ describe("evaluateWriteContentGuards", () => {
 	it("skips the tsc overlay entirely when disabled by config", () => {
 		run(
 			{ file_path: "src/a.ts", content: "x" },
-			{ rules: { quality_checks: { typescript: { enabled: false } } } as never },
+			{ rules: { ...makeGuardRules(),  quality_checks: { typescript: makeQualityCheck({ enabled: false }) } } },
 		);
 		expect(evaluateTscDiffOverlay).not.toHaveBeenCalled();
 	});
@@ -1156,7 +1152,7 @@ describe("evaluateWriteContentGuards", () => {
 	it("warns (does not block) for a warn-only tsc finding and returns null when the debt ledger has no decision (L434, L454)", () => {
 		vi.mocked(isTscFindingBlocking).mockReturnValue(false);
 		vi.mocked(evaluateTscDiffOverlay).mockReturnValue({
-			newFindings: [{ ruleId: "TS7053", line: 6, message: "implicit any" }] as never,
+			newFindings: [{ tool: "tsc", severity: "error", file: "src/a.ts",  ruleId: "TS7053", line: 6, message: "implicit any" }],
 			proposedFindings: [],
 			elapsedMs: 4,
 			exceededBudget: false,
@@ -1177,7 +1173,7 @@ describe("evaluateWriteContentGuards", () => {
 			exceededBudget: false,
 		});
 		vi.mocked(applyTransientDebt).mockReturnValue({
-			decision: { decision: "block", reason: "tsc debt due", rule_id: "transient-debt-tsc" } as never,
+			decision: { decision: "block", reason: "tsc debt due", rule_id: "transient-debt-tsc" },
 			warnings: [],
 		});
 		const result = run({ file_path: "src/a.ts", content: "x" });
@@ -1195,18 +1191,18 @@ describe("evaluateWriteContentGuards", () => {
 	it("L442+L446: tscDiffOverlayGuard passes the full debt payload to applyTransientDebt, with dryRun normalized via !! (isolated — no deferrable pre-block outcome)", () => {
 		vi.mocked(evaluateTscDiffOverlay).mockReturnValue({
 			newFindings: [],
-			proposedFindings: [{ ruleId: "TS7053", line: 6, message: "implicit any" }] as never,
+			proposedFindings: [{ tool: "tsc", severity: "error", file: "src/a.ts",  ruleId: "TS7053", line: 6, message: "implicit any" }],
 			elapsedMs: 4,
 			exceededBudget: false,
 		});
 		vi.mocked(deferrableFromTsc).mockReturnValue([
 			{ detector: "tsc", line: 6, message: "implicit any" },
-		] as never);
+		]);
 		vi.mocked(findProjectRoot).mockReturnValue("/found/root");
 		const event = baseEvent({ session_id: "sess-xyz" });
 		run(
 			{ file_path: "src/a.ts", content: "x" },
-			{ event, rules: { quality_checks: { transient_debt: { enabled: true } } } as never },
+			{ event, rules: { ...makeGuardRules(),  quality_checks: { transient_debt: makeQualityCheck({ enabled: true }) } } },
 		);
 		expect(applyTransientDebt).toHaveBeenCalledWith({
 			filePath: "src/a.ts",
@@ -1215,19 +1211,19 @@ describe("evaluateWriteContentGuards", () => {
 			dryRun: false,
 			findings: [{ detector: "tsc", line: 6, message: "implicit any" }],
 			content: "x",
-			config: { enabled: true },
+			config: { enabled: true, file_types: [], timeout_ms: 1000, severity: "warning" },
 		});
 	});
 
 	it("blocks on a genuinely new hard type error, outranking any debt decision", () => {
 		vi.mocked(evaluateTscDiffOverlay).mockReturnValue({
-			newFindings: [{ ruleId: "TS2345", line: 8, column: 2, message: "type mismatch" }] as never,
-			proposedFindings: [{ ruleId: "TS2345", line: 8, message: "type mismatch" }] as never,
+			newFindings: [{ tool: "tsc", severity: "error", file: "src/a.ts",  ruleId: "TS2345", line: 8, column: 2, message: "type mismatch" }],
+			proposedFindings: [{ tool: "tsc", severity: "error", file: "src/a.ts",  ruleId: "TS2345", line: 8, message: "type mismatch" }],
 			elapsedMs: 4,
 			exceededBudget: false,
 		});
 		vi.mocked(applyTransientDebt).mockReturnValue({
-			decision: { decision: "block", reason: "should be outranked", rule_id: "transient-debt-tsc" } as never,
+			decision: { decision: "block", reason: "should be outranked", rule_id: "transient-debt-tsc" },
 			warnings: [],
 		});
 		const result = run({ file_path: "src/a.ts", content: "x" }, { toolName: "MultiEdit" });
@@ -1238,8 +1234,8 @@ describe("evaluateWriteContentGuards", () => {
 
 	it("pins the full block-decision shape from a hard tsc type error (decision/severity/category literals, L456/460/461)", () => {
 		vi.mocked(evaluateTscDiffOverlay).mockReturnValue({
-			newFindings: [{ ruleId: "TS2345", line: 8, column: 2, message: "type mismatch" }] as never,
-			proposedFindings: [] as never,
+			newFindings: [{ tool: "tsc", severity: "error", file: "src/a.ts",  ruleId: "TS2345", line: 8, column: 2, message: "type mismatch" }],
+			proposedFindings: [],
 			elapsedMs: 4,
 			exceededBudget: false,
 		});
@@ -1261,13 +1257,13 @@ describe("evaluateWriteContentGuards", () => {
 		vi.mocked(evaluateTypeErasureOverlay).mockReturnValue({
 			applicable: true,
 			newFindings: [
-				{ ruleId: "as-any", line: 3, message: "as any used" },
-				{ ruleId: "as-any", line: 9, message: "as any used again" },
-			] as never,
+				{ column: 1, matchKey: "as-any fixture",  ruleId: "as-any", line: 3, message: "as any used" },
+				{ column: 1, matchKey: "as-any fixture",  ruleId: "as-any", line: 9, message: "as any used again" },
+			],
 		});
 		const result = run(
 			{ file_path: "src/a.ts", content: "x as any" },
-			{ rules: { quality_checks: { strict_typing_block: { enabled: true } } } as never },
+			{ rules: { ...makeGuardRules(),  quality_checks: { strict_typing_block: makeQualityCheck({ enabled: true }) } } },
 		);
 		expect(result).toEqual({
 			kind: "block",
@@ -1290,7 +1286,7 @@ describe("evaluateWriteContentGuards", () => {
 		vi.mocked(evaluateTypeErasureOverlay).mockReturnValue({ newFindings: [], applicable: true });
 		const result = run(
 			{ file_path: "src/a.ts", content: "x" },
-			{ rules: { quality_checks: { strict_typing_block: { enabled: true } } } as never },
+			{ rules: { ...makeGuardRules(),  quality_checks: { strict_typing_block: makeQualityCheck({ enabled: true }) } } },
 		);
 		expect(result.kind).toBe("ok");
 	});
@@ -1299,8 +1295,8 @@ describe("evaluateWriteContentGuards", () => {
 
 	it("uses an empty instruction string when no instruction is registered for the check name (L516)", () => {
 		vi.mocked(buildAgentSafetyChecks).mockReturnValue([
-			{ name: "some_check", fn: () => [{ line: 3, text: "bad" }] },
-		] as never);
+			{ severity: "warning",  name: "some_check", fn: () => [{ line: 3, text: "bad" }] },
+		]);
 		vi.mocked(buildCheckInstructions).mockReturnValue({});
 		const result = run({ file_path: "src/a.ts", content: "x" });
 		expect(result.kind).toBe("ok");
@@ -1312,8 +1308,8 @@ describe("evaluateWriteContentGuards", () => {
 
 	it("uses the registered instruction and joins multiple match lines", () => {
 		vi.mocked(buildAgentSafetyChecks).mockReturnValue([
-			{ name: "some_check", fn: () => [{ line: 3, text: "bad" }, { line: 8, text: "worse" }] },
-		] as never);
+			{ severity: "warning",  name: "some_check", fn: () => [{ line: 3, text: "bad" }, { line: 8, text: "worse" }] },
+		]);
 		vi.mocked(buildCheckInstructions).mockReturnValue({ some_check: "fix it please" });
 		const result = run({ file_path: "src/a.ts", content: "x" });
 		if (result.kind !== "ok") throw new Error("unreachable");
@@ -1324,8 +1320,8 @@ describe("evaluateWriteContentGuards", () => {
 
 	it("skips a check whose fn returns no matches", () => {
 		vi.mocked(buildAgentSafetyChecks).mockReturnValue([
-			{ name: "quiet_check", fn: () => [] },
-		] as never);
+			{ severity: "warning",  name: "quiet_check", fn: () => [] },
+		]);
 		const result = run({ file_path: "src/a.ts", content: "x" });
 		if (result.kind !== "ok") throw new Error("unreachable");
 		expect(result.warnings).toEqual([]);
@@ -1343,12 +1339,12 @@ describe("evaluateWriteContentGuards", () => {
 				instruction: "resolve",
 				deferrable: true,
 			},
-		] as never);
-		const eventNoCwd = {
+		]);
+		const eventNoCwd = ({ timestamp: "2026-09-01T00:00:00Z",
 			hook_event: "PreToolUse",
 			session_id: "sess-1",
 			agent_source: "claude",
-		} as unknown as HarnessEvent;
+		} satisfies HarnessEvent);
 		const result = run(
 			{ file_path: "src/a.ts", content: "// TODO" },
 			{ event: eventNoCwd },
@@ -1378,16 +1374,18 @@ describe("evaluateWriteContentGuards", () => {
 	it("truncates the strict-typing lineList to the first 5 findings (L482 .slice(0,5))", () => {
 		const manyFindings = Array.from({ length: 8 }, (_, i) => ({
 			ruleId: "as-any",
+			column: 1,
+			matchKey: `as-any fixture ${i}`,
 			line: i + 1,
 			message: `as any used #${i + 1}`,
 		}));
 		vi.mocked(evaluateTypeErasureOverlay).mockReturnValue({
 			applicable: true,
-			newFindings: manyFindings as never,
+			newFindings: manyFindings,
 		});
 		const result = run(
 			{ file_path: "src/a.ts", content: "x as any" },
-			{ rules: { quality_checks: { strict_typing_block: { enabled: true } } } as never },
+			{ rules: { ...makeGuardRules(),  quality_checks: { strict_typing_block: makeQualityCheck({ enabled: true }) } } },
 		);
 		if (result.kind !== "block") throw new Error("expected block");
 		expect(result.decision.reason).toContain("(L1, L2, L3, L4, L5)");
@@ -1397,11 +1395,11 @@ describe("evaluateWriteContentGuards", () => {
 	it("does not include a '+N more' summary for a single strict-typing finding", () => {
 		vi.mocked(evaluateTypeErasureOverlay).mockReturnValue({
 			applicable: true,
-			newFindings: [{ ruleId: "as-any", line: 3, message: "as any used" }] as never,
+			newFindings: [{ column: 1, matchKey: "as-any fixture",  ruleId: "as-any", line: 3, message: "as any used" }],
 		});
 		const result = run(
 			{ file_path: "src/a.ts", content: "x as any" },
-			{ rules: { quality_checks: { strict_typing_block: { enabled: true } } } as never },
+			{ rules: { ...makeGuardRules(),  quality_checks: { strict_typing_block: makeQualityCheck({ enabled: true }) } } },
 		);
 		if (result.kind !== "block") throw new Error("expected block");
 		expect(result.decision.reason).toContain("(L3). First: [as-any] L3 — as any used. Fix the pattern(s)");

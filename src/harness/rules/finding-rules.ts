@@ -19,8 +19,10 @@
 
 import { join } from "node:path";
 import { readJsonObject } from "../../lib/json-file.js";
+import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { looksLikeReDoS } from "../redos-validation.js";
 import type { GuardRule } from "../types.js";
+import { parseRuleModifications, parseRuntimeRule, stringList, type RuleModification } from "./parsed-rule.js";
 
 /** Provenance sidecar emitted by the `finding-distill` skill. Ignored at eval. */
 export interface FindingRuleSource {
@@ -51,19 +53,6 @@ interface FindingRulesFile {
 	rules?: unknown[];
 }
 
-interface RuleModification {
-	action?: GuardRule["action"];
-	severity?: GuardRule["severity"];
-	note?: string;
-}
-
-interface FindingRulesOverrides {
-	version?: number;
-	removed_rule_ids?: string[];
-	disabled_rule_ids?: string[];
-	modifications?: Record<string, RuleModification>;
-}
-
 export function findingRulesPath(cwd: string): string {
 	return join(cwd, ".interlinked", "findings-rules.json");
 }
@@ -75,26 +64,29 @@ function findingRulesOverridesPath(cwd: string): string {
 // `rawSource` is unvalidated JSON — the raw file may have any `kind`, or not
 // even be an object — so this is honestly `unknown`, not `FindingRuleSource`.
 function normalizeFindingRuleSource(rawSource: unknown): FindingRuleSource | undefined {
-	if (!rawSource || typeof rawSource !== "object") return undefined;
-	const source = rawSource as Partial<FindingRuleSource>;
+	if (!isJsonObject(rawSource)) return undefined;
+	const source = rawSource;
 	if (source.kind !== "finding" || typeof source.bug_class !== "string") return undefined;
 	const normalized: FindingRuleSource = {
 		kind: "finding",
 		bug_class: source.bug_class,
 	};
 	copyStringSourceField(source, normalized, "finding_id");
-	if (source.repo !== undefined) normalized.repo = source.repo;
-	if (source.commit !== undefined) normalized.commit = source.commit;
-	if (source.file !== undefined) normalized.file = source.file;
-	if (source.lines !== undefined) normalized.lines = source.lines;
-	if (source.reviewer !== undefined) normalized.reviewer = source.reviewer;
+	if (typeof source.repo === "string") normalized.repo = source.repo;
+	if (typeof source.commit === "string") normalized.commit = source.commit;
+	if (typeof source.file === "string") normalized.file = source.file;
+	if (Array.isArray(source.lines) && source.lines.length === 2) {
+		const [start, end] = source.lines;
+		if (typeof start === "number" && typeof end === "number") normalized.lines = [start, end];
+	}
+	if (typeof source.reviewer === "string") normalized.reviewer = source.reviewer;
 	copyStringSourceField(source, normalized, "found_at");
-	if (source.quote !== undefined) normalized.quote = source.quote;
+	if (typeof source.quote === "string") normalized.quote = source.quote;
 	return normalized;
 }
 
 function copyStringSourceField(
-	source: Partial<FindingRuleSource>,
+	source: JsonObject,
 	target: FindingRuleSource,
 	key: string,
 ): void {
@@ -121,14 +113,14 @@ function applyRuleModification(rule: FindingRule, mod: RuleModification | undefi
  * concept (findings have no source-file groups).
  */
 export function loadFindingRules(cwd: string): GuardRule[] {
-	const file = readJsonObject(findingRulesPath(cwd)) as FindingRulesFile | null;
+	const file: FindingRulesFile | null = readJsonObject(findingRulesPath(cwd));
 	if (!file?.rules || !Array.isArray(file.rules)) return [];
 
-	const overrides = (readJsonObject(findingRulesOverridesPath(cwd)) ?? {}) as FindingRulesOverrides;
+	const overrides = readJsonObject(findingRulesOverridesPath(cwd)) ?? {};
 	const overrideState: FindingRuleOverrideState = {
-		removed: new Set(overrides.removed_rule_ids ?? []),
-		disabled: new Set(overrides.disabled_rule_ids ?? []),
-		mods: overrides.modifications ?? {},
+		removed: new Set(stringList(overrides.removed_rule_ids)),
+		disabled: new Set(stringList(overrides.disabled_rule_ids)),
+		mods: parseRuleModifications(overrides.modifications),
 	};
 
 	const out: GuardRule[] = [];
@@ -152,11 +144,8 @@ interface FindingRuleOverrideState {
  * non-null result, so this is the whole per-entry decision in one place.
  */
 function resolveActiveFindingRule(entry: unknown, overrides: FindingRuleOverrideState): FindingRule | null {
-	if (!entry || typeof entry !== "object") return null;
-	// `entry` is unvalidated JSON at this point; `id` is the one field we
-	// must confirm before trusting the rest of the shape below.
-	const raw = entry as Record<string, unknown>;
-	if (typeof raw.id !== "string" || !raw.id) return null;
+	const raw = parseRuntimeRule(entry);
+	if (!raw) return null;
 	const id = raw.id;
 	if (overrides.removed.has(id)) return null;
 
@@ -170,13 +159,21 @@ function resolveActiveFindingRule(entry: unknown, overrides: FindingRuleOverride
 		return null;
 	}
 
-	const rule: FindingRule = { ...(raw as unknown as FindingRule), id };
-	const source = normalizeFindingRuleSource(raw.source);
-	delete rule.source;
-	if (source) rule.source = source;
+	const rule = normalizeFindingMetadata(raw);
 	applyRuleModification(rule, overrides.mods[id]);
 	rule.enabled = overrides.disabled.has(id) ? false : raw.enabled !== false;
 	return rule.enabled ? rule : null;
+}
+
+function normalizeFindingMetadata(raw: GuardRule & JsonObject): FindingRule {
+	const { source: rawSource, distilled_action_reason, confidence, user_modified, ...runtimeRule } = raw;
+	const rule: FindingRule = { ...runtimeRule };
+	if (typeof distilled_action_reason === "string") rule.distilled_action_reason = distilled_action_reason;
+	if (typeof confidence === "number" && Number.isFinite(confidence)) rule.confidence = confidence;
+	if (typeof user_modified === "boolean") rule.user_modified = user_modified;
+	const source = normalizeFindingRuleSource(rawSource);
+	if (source) rule.source = source;
+	return rule;
 }
 
 /**
@@ -186,8 +183,8 @@ function resolveActiveFindingRule(entry: unknown, overrides: FindingRuleOverride
  */
 function findUnsafePatternRegex(patterns: unknown[]): string | undefined {
 	for (const p of patterns) {
-		if (!p || typeof p !== "object") continue;
-		const regex = (p as Record<string, unknown>).regex;
+		if (!isJsonObject(p)) continue;
+		const regex = p.regex;
 		if (typeof regex === "string" && looksLikeReDoS(regex)) return regex;
 	}
 	return undefined;

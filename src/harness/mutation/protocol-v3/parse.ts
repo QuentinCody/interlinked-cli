@@ -398,11 +398,10 @@ export function parseUntrustedEnvelope(raw: unknown): ParseOutcome {
 	if (snapshot === null || !isRecord(snapshot)) {
 		return { ok: false, reason: "envelope must be a plain JSON object" };
 	}
-	if (typeof snapshot.kind !== "string" || !(V3_KINDS as readonly string[]).includes(snapshot.kind)) {
+	const kind = V3_KINDS.find((candidate) => candidate === snapshot.kind);
+	if (kind === undefined) {
 		return { ok: false, reason: `kind must be one of ${V3_KINDS.join("|")}` };
 	}
-	// SAFETY: membership in V3_KINDS was just checked.
-	const kind = snapshot.kind as V3Kind;
 	const reason = firstReason([
 		checkCommon(snapshot, kind),
 		unknownKeyError(snapshot, kind),

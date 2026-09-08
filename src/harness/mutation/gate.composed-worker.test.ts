@@ -77,7 +77,7 @@ async function driveBody(body: unknown, status = 200): Promise<Run> {
 			// fabricating them would make the double LESS faithful to what the code
 			// under test actually depends on.
 			// SAFETY: every member the caller dereferences is present above.
-			return stub as unknown as Response;
+			return stub;
 		},
 	);
 	const persists: Run["persists"] = [];
@@ -118,9 +118,9 @@ describe("composed: a Worker body reaching (or not reaching) persistence", () =>
 	// test-contract: invariant — goal 28 §8, the #1 false clean. A mutants-only
 	// runner reports every mutant Killed because no test ever ran.
 	it("N: the SAME body with testRun removed persists NOTHING", async () => {
-		const body = workerBody();
+		const body: Partial<ReturnType<typeof workerBody>> = workerBody();
 		// Delete the property to model a runner that omits the field entirely.
-		delete (body as { testRun?: unknown }).testRun;
+		delete body.testRun;
 		const run = await driveBody(body);
 		expect(run.persists).toHaveLength(0);
 		expect(warned(run)).toContain("not-measured");
@@ -231,9 +231,9 @@ describe("composed: a Worker body reaching (or not reaching) persistence", () =>
 	// a proxy, a replay, or a misdeployed Worker can legitimately omit the field
 	// — and a crashed engine's partial report would then read as complete.
 	it("N: a body with NO engine field is not-measured and persists nothing", async () => {
-		const body = workerBody();
+		const body: Partial<ReturnType<typeof workerBody>> = workerBody();
 		// Delete the property to model a runner that omits the field entirely.
-		delete (body as { engine?: unknown }).engine;
+		delete body.engine;
 		const run = await driveBody(body);
 		expect(run.persists).toHaveLength(0);
 		expect(warned(run)).toContain("no engine-exit evidence");

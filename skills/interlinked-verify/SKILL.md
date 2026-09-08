@@ -192,6 +192,22 @@ correctness/bug-class, agent-clarity, complexity, test-quality, comment/spec dri
   `write_without_mkdir`, `unvalidated_json_boundary`, `magic_literal_in_conditional`,
   `non_null_assertion` ratchet, `introverted_test`, …).
 
+**Type assertions.** `unjustified_cast` uses the TypeScript AST when available, including
+angle-bracket assertions, literal targets, and anonymous object targets. `as const` is excluded.
+A justification must be an actual comment with a nonempty `SAFETY:` explanation on the
+assertion's line, asserted expression's starting line, or nearest enclosing statement's starting line, or the immediately preceding
+comment lines (up to two). Text inside
+a string does not qualify. Without TypeScript, the legacy lexical scan remains available;
+malformed syntax combines recovered AST findings with that fallback.
+
+Prefer deleting a redundant assertion, adding a checked declaration type, using `vi.mocked`
+with complete test fixtures, or validating an unknown input. Keep an assertion only when its
+specific invariant is understood and explained. Exercise malformed external data at its actual
+parser or adapter boundary. Do not fabricate impossible internal states just to kill a mutant
+or prove that a removed feature stays absent. Retain a malformed-input assertion only when an
+actual untyped caller can supply that value, and explain that caller and the expected behavior.
+A generic explanation or an unchecked JSON annotation does not establish safety.
+
 **Test-file ladder.** A test edit is checked before it lands as well as after it lands. `pre_block`
 rejects only introduced deterministic theatre/sabotage: assertion-free cases, tautologies
 (including identical literals/constant truthiness), SUT self-mocking, focused cases, and

@@ -24,7 +24,7 @@ describe("collectAccepts", () => {
 		const read = vi.fn(() => null);
 		// SAFETY: the stub honours the ReadCategoryCache contract; `never` only
 		// bridges vi.fn's inferred literal return type to that signature.
-		const r = collectAccepts("/repo", emptyConfig, read as never);
+		const r = collectAccepts("/repo", emptyConfig, read);
 		expect(r).toEqual({ accepted: [], skipped: [] });
 		expect(read).toHaveBeenCalledWith("/repo", "public-symbols");
 		expect(read).toHaveBeenCalledWith("/repo", "env-keys");

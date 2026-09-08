@@ -1,3 +1,4 @@
+import { parseWire, wireRecord, wireUnknown } from "../lib/value-validation.js";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -112,7 +113,7 @@ describe("writeFileCoverageBaseline — guard + shape", () => {
 		writeFileCoverageBaseline(root, "src/a.ts", 0.5);
 		// SAFETY: this file is written exclusively by writeFileCoverageBaseline in this test,
 		// so its parsed shape is the CoverageBaseline map asserted below.
-		const data = JSON.parse(readFileSync(baselinePath(), "utf-8")) as Record<string, unknown>;
+		const data = parseWire(JSON.parse(readFileSync(baselinePath(), "utf-8")), wireRecord(wireUnknown), "test JSON value");
 		expect(data).toEqual({ "src/a.ts": 0.5 });
 	});
 });

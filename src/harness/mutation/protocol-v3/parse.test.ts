@@ -86,7 +86,7 @@ describe("parseUntrustedEnvelope — negative (must reject)", () => {
 				mutants: [{ ...base.mutants[0]!, mutant_id: "stryker-1" }, base.mutants[1]!],
 			}),
 		).toContain("mutant_id");
-		const missingContext = { ...base.mutants[0] } as Partial<(typeof base.mutants)[number]>;
+		const missingContext: Partial<(typeof base.mutants)[number]> = { ...base.mutants[0] };
 		delete missingContext.symbol_context;
 		expect(parseVerdict({ ...base, mutants: [missingContext, base.mutants[1]!] })).toContain(
 			"symbol_context",

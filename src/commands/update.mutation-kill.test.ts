@@ -1,3 +1,4 @@
+import { parseWire, wireArray, wireString } from "../lib/value-validation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ===========================================
@@ -123,7 +124,7 @@ function setSourceCheckoutLayout(): void {
  *  for distinguishing "silenced by THIS call site" from "a sibling call
  *  site happens to print the same literal". */
 function exactLogCount(text: string): number {
-	return (logSpy.mock.calls as unknown[][]).filter((call) => call.length === 1 && call[0] === text).length;
+	return (logSpy.mock.calls).filter((call: unknown[]) => call.length === 1 && call[0] === text).length;
 }
 
 function execCmds(): string[] {
@@ -139,9 +140,9 @@ beforeEach(() => {
 	logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 	errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 	stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-	exitSpy = vi.spyOn(process, "exit").mockImplementation(((code?: number) => {
-		throw new ProcessExit(code ?? 0);
-	}) as never);
+	exitSpy = vi.spyOn(process, "exit").mockImplementation((code) => {
+		throw new ProcessExit(Number(code ?? 0));
+	});
 	vi.spyOn(process, "cwd").mockReturnValue("/cwd");
 	process.argv[1] = "/bin/interlinked";
 	setSourceCheckoutLayout();
@@ -427,7 +428,7 @@ describe("update — managed-checkout clone and link precise progress lines", ()
 	it("logs the bare 'failed' line before fail() on a clone error (human mode)", async () => {
 		setCloneAbsentLayout();
 		mocks.execFileSync.mockImplementation((_file: unknown, args: unknown) => {
-			if (Array.isArray(args) && (args as string[]).includes("clone")) {
+			if (Array.isArray(args) && (parseWire(args, wireArray(wireString), "test JSON value")).includes("clone")) {
 				throw new Error("clone refused");
 			}
 			return "";
@@ -456,7 +457,7 @@ describe("update — managed-checkout clone and link precise progress lines", ()
 	it("emits no bare 'failed' line under --json when the clone throws", async () => {
 		setCloneAbsentLayout();
 		mocks.execFileSync.mockImplementation((_file: unknown, args: unknown) => {
-			if (Array.isArray(args) && (args as string[]).includes("clone")) {
+			if (Array.isArray(args) && (parseWire(args, wireArray(wireString), "test JSON value")).includes("clone")) {
 				throw new Error("nope");
 			}
 			return "";
@@ -683,7 +684,7 @@ describe("update — resolveCliRoot boundary conditions", () => {
 	// BEFORE calling realpathSync at all; realpathSync must never be invoked
 	// on an undefined path.
 	it("never calls realpathSync when process.argv[1] is undefined", async () => {
-		process.argv[1] = undefined as unknown as string;
+		process.argv.length = 1;
 		mocks.existsSync.mockImplementation((p: unknown) => {
 			const path = String(p);
 			if (path === MANAGED_ROOT) return true;

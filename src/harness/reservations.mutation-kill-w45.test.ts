@@ -13,7 +13,7 @@ function baseEvent(overrides: Partial<HarnessEvent> = {}): HarnessEvent {
 		tool_name: "Write",
 		timestamp: "2026-06-06T00:00:00Z",
 		...overrides,
-	} as HarnessEvent;
+	};
 }
 
 function registeredCohort(agentName: string): CohortManager {
@@ -230,7 +230,7 @@ describe("ReservationManager — release() timer cleanup", () => {
 
 describe("ReservationManager — refreshFromServer eviction + upsert", () => {
 	it("does not evict a local reservation just because it is absent from the server list", async () => {
-		const listReservations = vi.fn(async () => [] as Array<{ agent_name: string; path_pattern: string; expires_at?: string }>);
+		const listReservations = vi.fn(async () : Promise<Array<{ agent_name: string; path_pattern: string; expires_at?: string }>> => []);
 		const apiClient = {
 			reserveFile: vi.fn(async () => undefined),
 			releaseFile: vi.fn(async () => undefined),

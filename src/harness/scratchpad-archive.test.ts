@@ -1,3 +1,6 @@
+import { makeGuardRules as completeGuardRulesConfigFixture } from "./evaluator/__tests__/fixtures.js";
+import { parseWire, wireArray, wireNumber, wireObject, wireRecord, wireString, wireUnknown } from "../lib/value-validation.js";
+import { nonNull } from "../lib/non-null.js";
 // Tests for the SessionEnd scratchpad archive sweep: content-addressed blob
 // copy of the session scratchpad into .interlinked/scratchpad-archive/ with
 // bounded work (dir/extension/binary excludes, per-file + total + count caps)
@@ -16,7 +19,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { GuardRulesConfig } from "./types.js";
 
 // realpathSync is forced to always fail so `deriveScratchpadCandidates`'s
 // catch-fallback (base path used as-is) is exercised — on this dev host
@@ -58,7 +60,7 @@ function makeFixture(): { source: string; destRoot: string } {
 function manifestOf(destRoot: string, sessionId: string): Record<string, unknown> {
 	const raw = readFileSync(join(destRoot, `${sessionId}.manifest.json`), "utf8");
 	// SAFETY: the manifest is JSON we just wrote — an object at the top level.
-	return JSON.parse(raw) as Record<string, unknown>;
+	return parseWire(JSON.parse(raw), wireRecord(wireUnknown), "test JSON value");
 }
 
 describe("archiveScratchpadDir", () => {
@@ -70,7 +72,7 @@ describe("archiveScratchpadDir", () => {
 		expect(summary?.truncated).toBe(false);
 		const manifest = manifestOf(destRoot, "s1");
 		// SAFETY: manifest schema under test — `files` is the entry array asserted below.
-		const files = manifest.files as Array<{ path: string; sha256: string; size: number }>;
+		const files = parseWire(manifest.files, wireArray(wireObject({ "path": wireString, "sha256": wireString, "size": wireNumber })), "test JSON value");
 		expect(files.map((f) => f.path).sort()).toEqual(["probe.mts", "sub/results.json"]);
 		for (const f of files) {
 			const blob = readFileSync(join(destRoot, "blobs", f.sha256), "utf8");
@@ -327,11 +329,11 @@ describe("runSessionEndScratchpadArchive", () => {
 
 	it("does nothing when scratchpad_archive.enabled is false", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "sess-end-cwd-"));
-		const log = vi.fn();
+		const log = vi.fn<(message: string) => void>();
 		runSessionEndScratchpadArchive({
 			cwd,
 			sessionId: "disabled-1",
-			rules: { scratchpad_archive: { enabled: false } } as GuardRulesConfig,
+			rules: ({ ...completeGuardRulesConfigFixture(), ...{ scratchpad_archive: { enabled: false } } }),
 			log,
 		});
 		expect(log).not.toHaveBeenCalled();
@@ -339,11 +341,11 @@ describe("runSessionEndScratchpadArchive", () => {
 
 	it("logs nothing when no scratchpad exists for the session", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "sess-end-cwd-"));
-		const log = vi.fn();
+		const log = vi.fn<(message: string) => void>();
 		runSessionEndScratchpadArchive({
 			cwd,
 			sessionId: `no-scratch-${Date.now()}`,
-			rules: {} as GuardRulesConfig,
+			rules: ({ ...completeGuardRulesConfigFixture(), ...{} }),
 			log,
 		});
 		expect(log).not.toHaveBeenCalled();
@@ -353,10 +355,10 @@ describe("runSessionEndScratchpadArchive", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "sess-end-cwd-"));
 		const sessionId = `real-${Date.now()}`;
 		setupRealScratchpad(cwd, sessionId);
-		const log = vi.fn();
-		runSessionEndScratchpadArchive({ cwd, sessionId, rules: {} as GuardRulesConfig, log });
+		const log = vi.fn<(message: string) => void>();
+		runSessionEndScratchpadArchive({ cwd, sessionId, rules: ({ ...completeGuardRulesConfigFixture(), ...{} }), log });
 		expect(log).toHaveBeenCalledTimes(1);
-		const message = (log.mock.calls[0] as [string])[0];
+		const message = nonNull(log.mock.calls[0])[0];
 		expect(message).toContain("Scratchpad archived:");
 		expect(message).not.toContain("(truncated)");
 	});
@@ -365,15 +367,15 @@ describe("runSessionEndScratchpadArchive", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "sess-end-cwd-"));
 		const sessionId = `truncated-${Date.now()}`;
 		setupRealScratchpad(cwd, sessionId); // writes one file (note.txt)
-		const log = vi.fn();
+		const log = vi.fn<(message: string) => void>();
 		runSessionEndScratchpadArchive({
 			cwd,
 			sessionId,
-			rules: { scratchpad_archive: { max_files: 0 } } as GuardRulesConfig,
+			rules: ({ ...completeGuardRulesConfigFixture(), ...{ scratchpad_archive: { max_files: 0 } } }),
 			log,
 		});
 		expect(log).toHaveBeenCalledTimes(1);
-		const message = (log.mock.calls[0] as [string])[0];
+		const message = nonNull(log.mock.calls[0])[0];
 		expect(message).toContain("(truncated)");
 	});
 
@@ -387,10 +389,10 @@ describe("runSessionEndScratchpadArchive", () => {
 			if (calls === 1) throw new Error("log boom");
 		});
 		expect(() =>
-			runSessionEndScratchpadArchive({ cwd, sessionId, rules: {} as GuardRulesConfig, log }),
+			runSessionEndScratchpadArchive({ cwd, sessionId, rules: ({ ...completeGuardRulesConfigFixture(), ...{} }), log }),
 		).not.toThrow();
 		expect(log).toHaveBeenCalledTimes(2);
-		expect((log.mock.calls[1] as [string])[0]).toBe(
+		expect((nonNull(log.mock.calls[1]))[0]).toBe(
 			"Scratchpad archive failed (non-fatal): log boom",
 		);
 	});
@@ -404,9 +406,9 @@ describe("runSessionEndScratchpadArchive", () => {
 			calls++;
 			if (calls === 1) throw "log boom string";
 		});
-		runSessionEndScratchpadArchive({ cwd, sessionId, rules: {} as GuardRulesConfig, log });
+		runSessionEndScratchpadArchive({ cwd, sessionId, rules: ({ ...completeGuardRulesConfigFixture(), ...{} }), log });
 		expect(log).toHaveBeenCalledTimes(2);
-		expect((log.mock.calls[1] as [string])[0]).toBe(
+		expect((nonNull(log.mock.calls[1]))[0]).toBe(
 			"Scratchpad archive failed (non-fatal): log boom string",
 		);
 	});

@@ -39,7 +39,7 @@ const bash = (command: string): HarnessEvent =>
 		tool_input: { command },
 		timestamp: "2026-08-16T00:00:00Z",
 		// SAFETY: guard reads only the fields set above.
-	}) as HarnessEvent;
+	});
 
 describe("acknowledgedSequenceIds — positive (must fire)", () => {
 	it("P1: reads a marker on its own line, with the reason", () => {
@@ -63,7 +63,7 @@ describe("acknowledgedSequenceIds — positive (must fire)", () => {
 	});
 
 	it("P4: reads the marker out of a write's content, not just a command", () => {
-		const event = {
+		const event = ({
 			hook_event: "PreToolUse",
 			session_id: "s-defer-2",
 			agent_source: "claude",
@@ -71,7 +71,7 @@ describe("acknowledgedSequenceIds — positive (must fire)", () => {
 			tool_input: { content: `// interlinked: defer ${DETECTOR} -- fixture text\nexport const x = 1;` },
 			timestamp: "2026-08-16T00:00:00Z",
 			// SAFETY: guard reads only the fields set above.
-		} as HarnessEvent;
+		} satisfies HarnessEvent);
 		expect(acknowledgedSequenceIds(event).has(DETECTOR)).toBe(true);
 	});
 });
@@ -92,7 +92,7 @@ describe("acknowledgedSequenceIds — negative (must not fire)", () => {
 	});
 
 	it("N4: an empty tool_input acknowledges nothing", () => {
-		expect(acknowledgedSequenceIds({ hook_event: "PreToolUse" } as HarnessEvent).size).toBe(0);
+		expect(acknowledgedSequenceIds(({ session_id: "fixture", agent_source: "claude", timestamp: "2026-09-01T00:00:00Z",  hook_event: "PreToolUse" } satisfies HarnessEvent)).size).toBe(0);
 	});
 });
 

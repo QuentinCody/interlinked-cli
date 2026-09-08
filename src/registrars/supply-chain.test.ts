@@ -39,9 +39,9 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	exitSpy = vi
 		.spyOn(process, "exit")
-		.mockImplementation(((code?: number) => {
-			throw new ExitError(code ?? 0);
-		}) as never);
+		.mockImplementation((code) => {
+			throw new ExitError(Number(code ?? 0));
+		});
 	stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 });
 

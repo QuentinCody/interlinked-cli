@@ -13,6 +13,7 @@
 // voluntary predictions through the deferred mechanism.
 
 import { existsSync, readFileSync } from "node:fs";
+import { isJsonObject } from "../lib/json-types.js";
 import { nonNull } from "../lib/non-null.js";
 import {
 	appendPredictionRow,
@@ -166,35 +167,20 @@ export function readRecentAssistantTexts(transcriptPath: string): string[] {
 	return texts.reverse();
 }
 
-interface MaybeAssistantMessage {
-	type?: unknown;
-	message?: unknown;
-}
-
-interface MaybeMessageContent {
-	content?: unknown;
-}
-
-interface MaybeContentBlock {
-	type?: unknown;
-	text?: unknown;
-}
-
 function extractAssistantText(obj: unknown): string | null {
-	if (!obj || typeof obj !== "object") return null;
-	const o = obj as MaybeAssistantMessage;
+	if (!isJsonObject(obj)) return null;
+	const o = obj;
 	if (o.type !== "assistant") return null;
-	const m = o.message as MaybeMessageContent | undefined;
-	const content = m?.content;
+	if (!isJsonObject(o.message)) return null;
+	const content = o.message.content;
 	if (!Array.isArray(content)) return null;
 	const parts: string[] = [];
 	for (const block of content) {
-		if (!block || typeof block !== "object") continue;
-		const b = block as MaybeContentBlock;
+		if (!isJsonObject(block)) continue;
+		const b = block;
 		if (b.type !== "text") continue;
 		if (typeof b.text === "string") parts.push(b.text);
 	}
 	if (parts.length === 0) return null;
 	return parts.join("\n");
 }
-
