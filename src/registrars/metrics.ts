@@ -1,4 +1,5 @@
 import { type Command, type OptionValues } from "commander";
+import { registerMetricsAnalysisCommands } from "./metrics-analysis.js";
 
 function parentAndChildOptions(opts: OptionValues, command: Command): OptionValues {
     return { ...(command.parent?.opts() ?? {}), ...opts };
@@ -96,7 +97,8 @@ function registerReworkCommand(metrics: Command): void {
 function registerScoreCommand(metrics: Command): void {
     metrics
         .command("score")
-        .description("Experimental structural burden scores from local AST analysis; no model calls")
+        .description("Explained 0–100 quality burden with explicit evidence completeness; no model calls")
+        .option("--profile <name>", "slop-v1 (default) or legacy structure-v1")
         .option("--cwd <path>", "Project root (default: current directory)")
         .option("--json", "Full measurements, profile, hashes and explicit evidence gaps")
         .option("--short", "One-line structural score and measurement status")
@@ -129,4 +131,5 @@ export function registerMetricsCommands(program: Command): void {
     registerComplexityCommand(metrics);
     registerSplitPlanCommand(metrics);
     registerScoreCommand(metrics);
+    registerMetricsAnalysisCommands(metrics);
 }

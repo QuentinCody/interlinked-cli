@@ -5,6 +5,7 @@ import { COMPOSITE_PROFILE } from "./composite-profile.js";
 import { composeScore, type CompositeResult } from "./composite.js";
 import { joinDeletionEvidence, type DeletionCandidate } from "./deletion-evidence.js";
 import { loadEvidence } from "./evidence-store.js";
+import { executionEvidenceBlockers } from "./execution-evidence.js";
 import type { StoredEvidence } from "./evidence-types.js";
 import type { InventoryGap, MetricReading, QualityFinding, RepositoryInventory } from "./measurement-types.js";
 import { collectStaticMeasurements } from "./static-measurements.js";
@@ -30,7 +31,7 @@ export function collectCompositeScoreReport(root: string): CompositeScoreReport 
     const coverage = selectedEvidence(evidence.entries, "coverage")?.observations;
     const mutation = selectedEvidence(evidence.entries, "mutation")?.observations;
     const metrics = [...measured.metrics, ...measureCoverageEvidence(analysis, coverage), ...measureMutationEvidence(analysis, mutation)];
-    const blockers = [...inventory.issues, ...measured.config.issues, ...evidence.issues];
+    const blockers = [...inventory.issues, ...measured.config.issues, ...evidence.issues, ...executionEvidenceBlockers(inventory)];
     if (analysis.gaps.length) blockers.push(`${analysis.gaps.length} source files could not be measured`);
     if (catalog.registryHash !== REVIEWED_REGISTRY_HASH) blockers.push("Check registry changed; scoring disposition review required");
     const composite = composeScore(metrics, blockers);

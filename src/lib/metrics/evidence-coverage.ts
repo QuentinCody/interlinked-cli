@@ -1,6 +1,7 @@
 import type { CoverageCount, CoverageObservation } from "./behavioral-types.js";
 import { artifactSourcePath, natural, record, sourceSpan } from "./evidence-json.js";
 import type { JsonObject } from "../json-types.js";
+import { coverageBranchLocations, coverageFunctionSpan } from "./coverage-span.js";
 
 interface Statement { line: number; endLine: number; hits: number; }
 function counts(values: number[]): CoverageCount { return { total: values.length, covered: values.filter(value => value > 0).length }; }
@@ -16,7 +17,7 @@ function branchCounts(data: JsonObject): CoverageCount {
     if (Object.keys(map).length !== Object.keys(hits).length) throw new Error("Branch map/count mismatch");
     const values: number[] = [];
     for (const [id, raw] of Object.entries(map)) {
-        const locations = record(raw, "branch").locations, row = hits[id];
+        const locations = coverageBranchLocations(raw), row = hits[id];
         if (!Array.isArray(locations) || !Array.isArray(row) || row.length !== locations.length) throw new Error("Branch outcome/count mismatch");
         for (const location of locations) sourceSpan(location);
         values.push(...row.map(value => natural(value, "branch hit count")));
@@ -29,7 +30,7 @@ function functions(data: JsonObject, rows: Statement[]): { count: CoverageCount;
     if (Object.keys(map).length !== Object.keys(hits).length) throw new Error("Function map/count mismatch");
     const values: number[] = [], spans: CoverageObservation["spans"] = [];
     for (const [id, raw] of Object.entries(map)) {
-        const location = sourceSpan(record(raw, "function").loc);
+        const location = coverageFunctionSpan(record(raw, "function").loc);
         values.push(natural(hits[id], "function hit count"));
         spans.push({ line: location.line, endLine: location.endLine,
             count: counts(rows.filter(row => row.line >= location.line && row.endLine <= location.endLine).map(row => row.hits)) });

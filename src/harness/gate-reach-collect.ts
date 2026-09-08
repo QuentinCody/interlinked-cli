@@ -23,6 +23,7 @@
 // `daemon-ledger.ts` / `coverage-ratchet.ts` do — never through the edit tools,
 // which are barred from `.interlinked/`.
 
+import { coverageExecutionReach } from "./coverage-execution.js";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -129,7 +130,7 @@ function parseSnapshotLine(line: string): GateReachSnapshot | null {
 		if (typeof raw !== "object" || raw === null) return null;
 		// SAFETY: object-ness checked above; each required field is type-tested
 		// below before the row is handed to a caller.
-		const candidate = raw as Partial<GateReachSnapshot>;
+		const candidate: Partial<GateReachSnapshot> = raw;
 		if (candidate.version !== 1) return null;
 		if (typeof candidate.at !== "string" || typeof candidate.session_id !== "string") return null;
 		if (!Array.isArray(candidate.gates)) return null;
@@ -214,20 +215,19 @@ function coverageRatchetInput(cwd: string, eligible: string[]): GateReachInput {
 }
 
 /**
- * The PER-EDIT coverage gate's reach. Two honest answers, no third:
- *   - switched off  → `disabled`, which the report says out loud. This is the
- *     exact blind spot of 2026-07-29: the gate had been off for a performance
- *     reason nobody revisited, and every surface still reported success.
- *   - switched on   → `source_unavailable`. Being enabled does not prove it
- *     RAN; nothing records per-edit measurements yet, so claiming reach here
- *     would fabricate the confidence this module exists to remove.
+ * Per-edit reach comes from the execution journal and current input hashes.
+ * A disabled gate is explicit; an absent journal is unavailable. Old or failed
+ * attempts never count as fresh measurements just because the gate is enabled.
  */
-function perEditCoverageInput(eligible: string[], enabled: boolean): GateReachInput {
+function perEditCoverageInput(eligible: string[], enabled: boolean, cwd: string): GateReachInput {
 	const base = { gate: "per_edit_coverage", eligible: eligible.length, measured: 0 };
 	if (!enabled) {
 		return { ...base, disabled: true, reason: "config per_edit_coverage.enabled=false" };
 	}
-	return { ...base, sourceUnavailable: true, reason: "no_per_edit_measurement_ledger" };
+    const reach = coverageExecutionReach(cwd, eligible);
+    if (!reach.present) return { ...base, sourceUnavailable: true, reason: "no_per_edit_measurement_ledger" };
+    if (reach.issues.length) return { ...base, measured: reach.measured, sourceUnavailable: true, reason: reach.issues.join("; ") };
+    return { ...base, measured: reach.measured, reason: `${reach.stale} stale or unavailable observations; ${reach.attempts} executions recorded` };
 }
 
 /** Walk the tree once and build every wired gate's figure. */
@@ -252,7 +252,7 @@ export function collectGateReachSnapshot(args: {
 			? []
 			: [
 					coverageRatchetInput(args.cwd, eligible),
-					perEditCoverageInput(eligible, args.perEditCoverageEnabled),
+                    perEditCoverageInput(eligible, args.perEditCoverageEnabled, args.cwd),
 				];
 	const wanted = args.gates;
 	return buildGateReachSnapshot({

@@ -8,6 +8,8 @@ import type { EvidenceIdentity, EvidenceOutcome, EvidenceReceipt, EvidenceRunner
 import { copyEvidenceWorkspace } from "./evidence-workspace.js";
 import { collectRepositoryInventory, containedFile, hashBytes } from "./inventory.js";
 import type { RepositoryInventory } from "./measurement-types.js";
+import { appendMeasurementExecution } from "./execution-journal.js";
+import { executionEvidenceBlockers } from "./execution-evidence.js";
 
 export interface EvidenceRunOptions {
     root: string; kind: "coverage" | "mutation"; artifact: string; runner: EvidenceRunner;
@@ -16,17 +18,22 @@ export interface EvidenceRunOptions {
 export interface EvidenceRunResult { outcome: EvidenceOutcome; cached: boolean; evidence: StoredEvidence | null; durationMs: number; issues: string[]; }
 
 function cachedRun(inventory: RepositoryInventory, options: EvidenceRunOptions): StoredEvidence | undefined {
-    if (!options.resume) return undefined;
+    if (!options.resume || executionEvidenceBlockers(inventory).length) return undefined;
     const key = evidenceCacheKey(evidenceIdentity(inventory), options.runner, options.kind);
-    return loadEvidence(inventory).entries.find(entry => entry.observations.state === "measured"
-        && evidenceCacheKey(entry.receipt.identity, entry.receipt.runner, entry.receipt.kind) === key);
+    const latest = loadEvidence(inventory).entries.filter(entry => evidenceCacheKey(entry.receipt.identity, entry.receipt.runner, entry.receipt.kind) === key)
+        .sort((a, b) => Date.parse(b.receipt.finishedAt) - Date.parse(a.receipt.finishedAt))[0];
+    return latest?.observations.state === "measured" ? latest : undefined;
 }
 
-function executionRecord(options: EvidenceRunOptions, result: EvidenceRunResult): void {
+function executionRecord(options: EvidenceRunOptions, result: EvidenceRunResult, identity: EvidenceIdentity): void {
     const directory = evidenceDirectory(options.root);
     mkdirSync(directory, { recursive: true });
     appendFileSync(join(directory, "executions.jsonl"), `${JSON.stringify({ schemaVersion: 1, kind: options.kind, at: new Date().toISOString(),
         outcome: result.outcome, cached: result.cached, durationMs: result.durationMs, evidenceId: result.evidence?.id ?? null, issues: result.issues })}\n`, { mode: 0o600 });
+    appendMeasurementExecution(options.root, { schemaVersion: 1, gate: `metrics.${options.kind}`, at: new Date().toISOString(), sessionId: "metrics-cli",
+        inputFingerprint: hashBytes(JSON.stringify(identity)), file: "*", sourceHash: identity.sourceHash,
+        scope: [evidenceCacheKey(identity, options.runner, options.kind)], elapsedMs: Math.round(result.durationMs),
+        outcome: result.evidence?.observations.state === "measured" ? "measured" : "unavailable", testsPassed: result.outcome === "passed" ? true : result.outcome === "failed" ? false : null, reason: result.issues.join("; ") });
 }
 
 function changedWorkspaceInputs(inventory: RepositoryInventory, workspace: string): string[] {
@@ -59,7 +66,7 @@ async function executeWorkspace(options: EvidenceRunOptions, context: RunContext
 export async function runBehavioralEvidence(options: EvidenceRunOptions): Promise<EvidenceRunResult> {
     if (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1) throw new Error("Positive timeout required");
     const inventory = collectRepositoryInventory(options.root), cached = cachedRun(inventory, options), started = Date.now();
-    if (cached) { const result: EvidenceRunResult = { outcome: "passed", cached: true, evidence: cached, durationMs: 0, issues: [] }; executionRecord(options, result); return result; }
+    if (cached) { const result: EvidenceRunResult = { outcome: "passed", cached: true, evidence: cached, durationMs: 0, issues: [] }; executionRecord(options, result, cached.receipt.identity); return result; }
     const context: RunContext = { inventory, identity: evidenceIdentity(inventory), started };
     const workspace = realpathSync(mkdtempSync(join(tmpdir(), "interlinked-metrics-run-")));
     let result: EvidenceRunResult;
@@ -67,6 +74,6 @@ export async function runBehavioralEvidence(options: EvidenceRunOptions): Promis
     catch (error) { result = { outcome: options.signal?.aborted ? "cancelled" : "error", cached: false, evidence: null, durationMs: Date.now() - started,
         issues: [error instanceof Error ? error.message : "Evidence execution failed"] }; }
     finally { rmSync(workspace, { recursive: true, force: true }); }
-    executionRecord(options, result);
+    executionRecord(options, result, context.identity);
     return result;
 }

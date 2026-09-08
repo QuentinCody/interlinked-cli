@@ -55,3 +55,25 @@ explains each metric, and reports observed burden, missing-evidence bounds and
 ranking eligibility separately. CRAP and uncovered mutation sites remain
 diagnostics. Twelve adapter/composite/report tests passed. CLI integration,
 operational coverage evidence, corpus calibration and final guidance remain.
+
+Stage 6: the CLI now exposes score profiles, catalog, explanation, comparison,
+corpus, behavioral evidence, deletion validation, gate reach and coverage-index
+operations. The Vitest index validates full-report parity, replaces changed
+test contributions, invalidates dependencies/configuration/discovery/environment,
+and promotes a staged generation only after its source fingerprint is on disk.
+Content-addressed blobs and locked generation checks preserve accepted evidence.
+Coverage churn under identical inputs quarantines reuse until three full runs agree.
+Unsupported capture degrades visibly; it does not authorize a guessed coverage block.
+Full warm runs also produce source-bound scoring evidence. Failed or cancelled
+attempts prevent an older passing receipt from silently satisfying resume/ranking.
+
+The combined metrics/index/gate regression run passed 341 tests in 25 files.
+The final receipt/stability integration checks passed five tests in three files.
+`npx tsx benchmarks/metrics-coverage.mts` measured eight controlled test files:
+median incremental wall time 668 ms versus 1,997 ms for full runs (three samples).
+Each incremental run executed one test file while retaining coverage for all eight.
+This fixture demonstrates the mechanism; it does not establish this repository's
+full-suite cost. The local per-edit gate remains explicitly disabled pending an
+acceptable full-suite warm run. At the September 8 snapshot, the historical ratchet
+knew 1,565 of 2,004 eligible files (78.1% reach); no per-edit execution journal existed.
+Those figures describe measurement reach, not the fraction of source lines tested.

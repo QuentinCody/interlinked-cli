@@ -1,8 +1,10 @@
 import { getOutputMode, output, outputError } from "../lib/output.js";
 import { collectMetricsScoreReport, type MetricsScoreReport } from "../lib/metrics/score-report.js";
+import { collectCompositeScoreReport } from "../lib/metrics/composite-report.js";
+import { renderCompositeScore, renderCompositeShort } from "./metrics-score-render.js";
 
 export { collectMetricsScoreReport as buildMetricsScoreReport } from "../lib/metrics/score-report.js";
-export interface MetricsScoreOptions { cwd?: string; json?: boolean; short?: boolean; }
+export interface MetricsScoreOptions { cwd?: string; json?: boolean; short?: boolean; profile?: string; }
 
 function formatScore(value: number | null): string {
     return value === null ? "unavailable" : `${value.toFixed(1)}/100`;
@@ -23,10 +25,19 @@ function renderScore(report: MetricsScoreReport): string {
     return lines.join("\n");
 }
 
+function renderSelectedComposite(options: MetricsScoreOptions): boolean {
+    if (options.profile !== undefined && options.profile !== "structure-v1" && options.profile !== "slop-v1") throw new Error("Profile must be slop-v1 or structure-v1");
+    if (options.profile === "structure-v1") return false;
+    const report = collectCompositeScoreReport(options.cwd ?? process.cwd());
+    output(getOutputMode(options), report, { normal: () => renderCompositeScore(report), short: () => renderCompositeShort(report) });
+    return true;
+}
+
 /** Offline scoring; it does not run target scripts, install dependencies or query a model. */
 export function metricsScoreCommand(options: MetricsScoreOptions): void {
     const mode = getOutputMode(options);
     try {
+        if (renderSelectedComposite(options)) return;
         const report = collectMetricsScoreReport(options.cwd ?? process.cwd());
         output(mode, report, {
             normal: () => renderScore(report),

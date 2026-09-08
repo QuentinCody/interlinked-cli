@@ -15,6 +15,8 @@
 // allow silently. TRANSIENT degrade reasons (loudDegrade, spawn failures)
 // keep per-edit loudness — each unmeasured edit still warns.
 
+import { readToolString } from "./tool-input-values.js";
+import { recordCoverageNotRun } from "../coverage-execution.js";
 import { resolve } from "node:path";
 import {
 	type CoverageObligation,
@@ -157,10 +159,11 @@ export function profileRunnerFastPath(
 	projectRoot: string,
 ): HarnessDecision | null | undefined {
 	const input = event.tool_input ?? {};
-	const rawPath = (input.file_path as string) || (input.path as string) || "";
+	const rawPath = readToolString(input.file_path) || readToolString(input.path);
 	const language = coverageLanguageForPath(rawPath);
 	if (!language || !cfg.languages.includes(language)) return undefined;
 	if (getRepoProfile(projectRoot).runners[profileRunnerKey(language)]) return undefined;
+    recordCoverageNotRun(projectRoot, event, rawPath, "No supported runner detected", "unavailable");
 	if (!firstOccurrence(projectRoot, language, "runner-absent")) return null;
 	const runner = language === "python" ? "pytest (+pytest-cov)" : "vitest or jest";
 	return allowWithCoverageWarning(
@@ -178,6 +181,7 @@ export function deferForBudget(
 	estimateMs: number,
 	budgetMs: number,
 ): null {
+    recordCoverageNotRun(projectRoot, event, relPath, `Estimated suite ${estimateMs} ms exceeds ${budgetMs} ms budget`, "deferred");
 	const obligation: CoverageObligation = {
 		kind: "coverage",
 		file: relPath,

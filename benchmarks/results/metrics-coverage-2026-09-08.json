@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "kind": "controlled-fixture",
+  "node": "v22.22.0",
+  "platform": "darwin",
+  "testFiles": 8,
+  "perTestDelayMs": 80,
+  "coldMs": 2056.9350000000004,
+  "rounds": [
+    {
+      "incremental": {
+        "totalMs": 618.4832920000003,
+        "suiteMs": 497,
+        "rerunTests": 1,
+        "measuredFiles": 8
+      },
+      "fullMs": 1884.843542
+    },
+    {
+      "incremental": {
+        "totalMs": 702.077209,
+        "suiteMs": 575,
+        "rerunTests": 1,
+        "measuredFiles": 8
+      },
+      "fullMs": 2114.2418750000006
+    },
+    {
+      "incremental": {
+        "totalMs": 667.9793339999997,
+        "suiteMs": 553,
+        "rerunTests": 1,
+        "measuredFiles": 8
+      },
+      "fullMs": 1997.4415420000005
+    }
+  ],
+  "limitations": [
+    "Controlled fixture, not an estimate for Interlinked CLI's full suite",
+    "Three timing samples; machine load affects results"
+  ],
+  "modelCalls": 0
+}

@@ -60,6 +60,8 @@ import {
 } from "./coverage-crap-decision.js";
 import { type CoverageTarget, coverageEditPlan } from "./coverage-edit-targets.js";
 import { isFileWrite } from "./tool-classifiers.js";
+import { recordCoverageExecution } from "../coverage-execution.js";
+import { hasCoverageIndex, runCoverageForGate } from "../coverage-index/gate-run.js";
 
 // Re-exported so this module's public surface is unchanged for existing importers.
 export type { CyclomaticAnalyzer } from "./coverage-crap-decision.js";
@@ -199,9 +201,11 @@ async function runOverlayAndDecide(
 	const overlay = deps.createOverlay(ctx.projectRoot, ctx.relPath, ctx.proposed, ctx.overlayFiles);
 	try {
 		const runOpts = buildOverlayRunOpts(ctx, overlay.overlayRoot);
-		const result = await runner.run(runOpts);
+        const execution = await runCoverageForGate(ctx, runner, runOpts);
+        const result = execution.result;
+        recordCoverageExecution({ ...ctx, selectedTests: execution.selectedTests ?? [] }, event, result, deps.clock());
 		// Budget estimate from FULL runs ONLY: a scoped subset's runtime isn't the full-suite cost the gate keys on; blending it erodes the estimate below budget → the next full route re-runs the whole suite + times out (the big-monorepo starvation).
-		if (runOpts.selectedTests === undefined) {
+		if (execution.selectedTests === undefined) {
 			updateRuntimeEstimateMs(ctx.projectRoot, result.suiteMs, deps.clock);
 		}
 		if (!result.ok) {
@@ -220,7 +224,7 @@ async function runOverlayAndDecide(
 		// The scope id (which affected-test set measured `cov`) makes the drop
 		// ratchet compare like-with-like: a baseline earned under a different scope
 		// re-anchors instead of false-blocking (coverage-scope.ts).
-		const scopeId = coverageScopeId(ctx.selectedTests);
+		const scopeId = coverageScopeId(execution.fullUniverse ? undefined : execution.selectedTests);
 		const covOut: CoverageDecisionOut = {};
 		const coverageDecision = decideFromCoverage(
 			ctx.projectRoot,
@@ -411,7 +415,7 @@ async function selectRunAndDecide(call: GateCall, target: GateTarget): Promise<H
 		? { kind: "full" }
 		: routeBySelection(relPath, projectRoot, depView, target.overlayFiles);
 
-	if (route.kind === "full") {
+	if (route.kind === "full" && !hasCoverageIndex(projectRoot, language)) {
 		const estimate = readRuntimeEstimateMs(projectRoot);
 		if (estimate !== null && estimate >= cfg.budget_ms) {
 			return deferForBudget(projectRoot, relPath, event, estimate, cfg.budget_ms);
