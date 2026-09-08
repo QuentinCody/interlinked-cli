@@ -187,9 +187,15 @@ diagnostic anchor lines have a separate 1 MiB character limit. Unreadable inputs
 exhausted bounds mean unavailable, never clean. Large scopes incur repeated reads
 and may need a longer timeout or narrower valid working scope. Native ignores are
 not guessed to make a census fit.
-Analyzers that write generated outputs inside their scope (for example, Clippy's
-`target` output) can be unavailable until that tree is stable; only the listed
-runtime/cache exclusions are omitted.
+Native Clippy runs use a unique temporary Cargo target/build directory outside
+the project, removed when the process finishes; compiler caches start fresh on each
+measurement. Cargo arguments and child
+environment override configured output locations so normal compilation cannot
+invalidate the source snapshot. Existing `target` files remain measured inputs;
+source, lockfile or build-script writes inside the scope still make the result
+unavailable. A temporary-directory setting inside the project is unavailable.
+Other analyzers that write inside their scope can also invalidate
+their snapshots; only the listed runtime/cache exclusions are omitted.
 Config drift requires review with `lint import`, then `--write`. The default
 batch budget is 30000 ms (`--timeout`, maximum 300000 ms, on lint commands).
 

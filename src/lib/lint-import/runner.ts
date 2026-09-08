@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { runProcessAsync } from "../../harness/check-engine/spawn-async.js";
+import { runProcessAsync, type RunProcessOptions } from "../../harness/check-engine/spawn-async.js";
+import { runClippyWithIsolatedOutput } from "./clippy-output.js";
 import { lintDigest } from "./discovery.js";
-import { importedLintInvocation } from "./invocation.js";
+import { importedLintInvocation, type LintInvocation } from "./invocation.js";
 import { type LintDiagnostic, parseImportedLint } from "./parsers.js";
 import { parseSarif } from "./sarif.js";
 import { checkLintSources, lintPath } from "./policy.js";
@@ -38,6 +39,11 @@ function finding(root: string, entry: LintImportEntry, row: LintDiagnostic, snap
 
 interface EntryMeasurement { measurement: LintMeasurement; snapshot?: LintSourceSnapshot }
 
+function runAnalyzer(root: string, entry: LintImportEntry, invocation: LintInvocation, command: string, options: RunProcessOptions) {
+    if (entry.tool === "clippy" && !entry.report) return runClippyWithIsolatedOutput(root, command, invocation.args, options);
+    return runProcessAsync(command, invocation.args, options);
+}
+
 function unavailable(entry: LintImportEntry, error: unknown): LintMeasurement {
     return { entry, status: "unavailable", findings: [], reason: error instanceof Error ? error.message : String(error) };
 }
@@ -51,7 +57,7 @@ async function measureEntry(root: string, entry: LintImportEntry, timeoutMs: num
         const snapshot = captureLintSourceSnapshot(root, entry, deadline);
         const remaining = deadline - performance.now();
         if (remaining <= 0) throw new Error("Lint batch budget exhausted; no verdict");
-        const result = await runProcessAsync(command, invocation.args, { cwd, timeout: remaining });
+        const result = await runAnalyzer(root, entry, invocation, command, { cwd, timeout: remaining });
         if (result.timedOut || result.killed || result.code === null) throw new Error("Analyzer unavailable or timed out; no verdict");
         if (!invocation.successCodes.includes(result.code)) throw new Error(`Analyzer exited ${result.code}: ${result.stderr.slice(0, 500)}`);
         // Both a zero exit status with warnings and a nonzero lint exit must be parsed.
