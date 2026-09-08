@@ -6,8 +6,50 @@ import {
 	buildHookCommand,
 	cleanJsonHookFile,
 	findParentWithHooks,
+	hookEventEntries,
+	hookSettingsObject,
+	installHookEntry,
 	readJsonFile,
 } from "../hook-installers-shared.js";
+
+describe("hook configuration boundaries", () => {
+	it.each([
+		{ label: "null", entry: null },
+		{ label: "number", entry: 42 },
+		{ label: "array", entry: [] },
+		{ label: "missing handlers", entry: {} },
+		{ label: "non-array handlers", entry: { hooks: "invalid" } },
+		{ label: "non-object handler", entry: { hooks: [null] } },
+	])("preserves a malformed $label entry while adding the managed hook", ({ entry }) => {
+		const hooks = { PreToolUse: [entry] };
+		const command = "node .interlinked/hooks/interlinked-activity.mjs";
+
+		installHookEntry(hooks, "PreToolUse", command);
+
+		expect(hooks.PreToolUse).toEqual([
+			entry,
+			{ matcher: "", hooks: [{ type: "command", command, timeout: 240 }] },
+		]);
+	});
+
+	it("rejects a non-array event without overwriting the user's configuration", () => {
+		const hooks = { PreToolUse: { command: "echo user-hook" } };
+		const before = structuredClone(hooks);
+
+		expect(() => hookEventEntries(hooks, "PreToolUse")).toThrow(
+			"Invalid hooks.PreToolUse: expected an array",
+		);
+		expect(hooks).toEqual(before);
+	});
+
+	it("rejects a non-object hooks setting without overwriting the user's configuration", () => {
+		const settings = { hooks: ["echo user-hook"] };
+		const before = structuredClone(settings);
+
+		expect(() => hookSettingsObject(settings)).toThrow("Invalid hooks: expected an object");
+		expect(settings).toEqual(before);
+	});
+});
 
 describe("readJsonFile", () => {
 	let tmp: string;

@@ -79,22 +79,17 @@ interface InstallHookEntryOptions {
 // uses this looser shape instead of asserting the strict one.
 interface RawHookEntry {
 	matcher?: unknown;
-	hooks?: Array<{
-		type?: unknown;
-		command?: unknown;
-		timeout?: unknown;
-		async?: unknown;
-		statusMessage?: unknown;
-		additionalContextLimit?: unknown;
-	}>;
+	hooks: JsonObject[];
 }
 
-function hasInterlinkedCommand(h: unknown): h is JsonObject & {
+interface ManagedHookHandler extends JsonObject {
 	command: string;
 	async?: unknown;
 	statusMessage?: unknown;
 	additionalContextLimit?: unknown;
-} {
+}
+
+function hasInterlinkedCommand(h: unknown): h is ManagedHookHandler {
 	return isPlainObject(h) && typeof h.command === "string" && h.command.includes(INTERLINKED_MARKER);
 }
 
@@ -126,13 +121,13 @@ export function installHookEntry(
 ): void {
 	const entries = hookEventEntries(hooks, eventName);
 
-	// Check if already installed
-	const existing = entries.filter(isRawHookEntry).find((entry) => entry.hooks?.some(hasInterlinkedCommand));
-
 	const timeout = options.timeout ?? hookTimeoutSecondsFor(eventName);
-	if (existing) {
-		reconcileExistingEntry(existing, eventName, command, timeout, options);
-		return;
+	for (const existing of entries.filter(isRawHookEntry)) {
+		const hook = existing.hooks.find(hasInterlinkedCommand);
+		if (hook) {
+			reconcileExistingEntry(existing, hook, eventName, command, timeout, options);
+			return;
+		}
 	}
 
 	entries.push({
@@ -157,20 +152,20 @@ function buildInstalledHandler(
  *  existed gain one; policy changes propagate), and the matcher. */
 function reconcileExistingEntry(
 	existing: RawHookEntry,
+	hook: ManagedHookHandler,
 	eventName: string,
 	command: string,
 	timeout: number | undefined,
 	options: InstallHookEntryOptions,
 ): void {
 	// Update command if it points to a stale path (e.g. .claude/hooks/ → .interlinked/hooks/)
-	const hook = existing.hooks?.find(hasInterlinkedCommand);
-	if (hook && hook.command !== command) {
+	if (hook.command !== command) {
 		hook.command = command;
 	}
-	if (hook && timeout !== undefined && hook.timeout !== timeout) {
+	if (timeout !== undefined && hook.timeout !== timeout) {
 		hook.timeout = timeout;
 	}
-	if (hook) applyHandlerMetadata(hook, options);
+	applyHandlerMetadata(hook, options);
 	// Update the tool-event matcher when the install rules change.
 	const expectedMatcher = getHookMatcher(eventName);
 	if (existing.matcher !== expectedMatcher) {

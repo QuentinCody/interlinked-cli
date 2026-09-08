@@ -215,6 +215,10 @@ describe("Codex encodeDecision — PermissionRequest path", () => {
 		const out = adapter.encodeDecision({ decision: "ask", reason: "confirm?" }, event);
 		expect(out.stdout).toBeUndefined();
 	});
+	it("reports permission diagnostics on stderr while leaving the native decision open", () => {
+		const out = adapter.encodeDecision({ decision: "allow", warnings: ["Review repository permissions"] }, event);
+		expect(out).toEqual({ exit_code: 0, stderr: "Review repository permissions" });
+	});
 	it("block uses hookSpecificOutput.decision.behavior=deny + message", () => {
 		const out = adapter.encodeDecision(
 			{ decision: "block", reason: "Blocked by repo policy" },

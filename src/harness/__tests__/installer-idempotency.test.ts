@@ -307,18 +307,26 @@ describe("installer idempotency — user scope with an out-of-project binary", (
 	});
 
 	it("still spares a genuinely different repo's user-scope hooks", () => {
-		// The dedupe must not become a clobber: only entries IDENTICAL to the
-		// incoming ones are dropped. A sibling repo's hook differs, so it stays.
-		const sibling = join(base, "other-repo", "dist", "hook-entry.js");
-		installHooks({ cwd: projectDir, binaryPath: sibling, runners: CLAUDE, scope: "user" as const });
+		// Each project records its own installation in its own manifest, even
+		// though both installations share the user-scope settings file.
+		const siblingProject = join(base, "other-repo");
+		mkdirSync(siblingProject);
+		const sibling = join(siblingProject, "dist", "hook-entry.js");
+		expect(installHooks({ cwd: siblingProject, binaryPath: sibling, runners: CLAUDE, scope: "user" as const }).ok).toBe(true);
 		const withSibling = totalEntries(claudeSettings(homeDir));
+		const siblingEntries = preToolUseEntries(claudeSettings(homeDir));
+		expect(siblingEntries).toHaveLength(1);
 
-		installHooks({ cwd: projectDir, binaryPath: globalMarkedBinary(), runners: CLAUDE, scope: "user" as const });
-		expect(totalEntries(claudeSettings(homeDir))).toBeGreaterThan(withSibling);
-		expect(
-			preToolUseEntries(claudeSettings(homeDir)).some((e) =>
-				e.hooks?.some((h) => (h.command ?? "").includes("other-repo")),
-			),
-		).toBe(true);
+		const opts = { cwd: projectDir, binaryPath: globalMarkedBinary(), runners: CLAUDE, scope: "user" as const };
+		expect(installHooks(opts).ok).toBe(true);
+		const withBothProjects = totalEntries(claudeSettings(homeDir));
+		expect(withBothProjects).toBeGreaterThan(withSibling);
+		expect(preToolUseEntries(claudeSettings(homeDir))).toEqual(expect.arrayContaining(siblingEntries));
+
+		expect(installHooks(opts).ok).toBe(true);
+		expect(totalEntries(claudeSettings(homeDir))).toBe(withBothProjects);
+		const repeatedEntries = preToolUseEntries(claudeSettings(homeDir));
+		expect(repeatedEntries).toHaveLength(2);
+		expect(repeatedEntries).toEqual(expect.arrayContaining(siblingEntries));
 	});
 });

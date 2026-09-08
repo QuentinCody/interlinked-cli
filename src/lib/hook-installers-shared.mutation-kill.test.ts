@@ -6,15 +6,12 @@
 // companion-scope resolver actually picks it up — the pre-existing
 // __tests__/hook-installers-shared.test.ts sits outside that scope.
 //
-// Three groups of mutants require techniques beyond plain input/output
+// Two groups of mutants require techniques beyond plain input/output
 // assertions, documented at each site:
 //   - "call-through fs spy": vi.mock("node:fs", ...) wrapping mkdirSync and
 //     readFileSync with vi.fn(actual.fn) — the vitest-documented workaround
 //     for "Module namespace is not configurable in ESM" (see
 //     src/lib/config.mutation-kill.test.ts for the same pattern).
-//   - "getter with call-count state": distinguishes optional chaining from
-//     unguarded property access when the guarded value is provably
-//     non-nullish on every synchronous, non-instrumented call path.
 //   - "accessor-property call counter": distinguishes "assignment guarded by
 //     a redundant-value check" from "assignment always attempted" when the
 //     assigned value happens to equal the current value (so the final state
@@ -272,28 +269,6 @@ describe("installHookEntry — reconciliation (reconcileExistingEntry)", () => {
 
 		expect(setCounts.timeout).toBe(0);
 		expect(timeoutVal).toBe(99);
-	});
-
-	// test-contract: invariant — kills "existing.hooks?.find" -> "existing.hooks.find". The
-	// preceding entries.find(...).some(...) check already proves `hooks` is
-	// non-nullish for any single, non-instrumented read, so the only way to
-	// observe the missing `?.` is a getter whose return value legitimately
-	// changes between the two reads — a call-count-gated getter reproduces
-	// that without mutating any real caller behavior.
-	// test-contract: boundary — existing.hooks becoming undefined between reads must not throw.
-	it("does not throw when existing.hooks becomes undefined between the match check and the reconcile lookup", () => {
-		let accessCount = 0;
-		const entry = {
-			matcher: "",
-			get hooks() {
-				accessCount++;
-				return accessCount === 1
-					? [{ type: "command", command: "node .interlinked/hooks/interlinked-activity.mjs" }]
-					: undefined;
-			},
-		};
-		const hooks: JsonObject = { PreToolUse: [entry] };
-		expect(() => installHookEntry(hooks, "PreToolUse", "node NEW.mjs")).not.toThrow();
 	});
 
 	// test-contract: invariant — kills "h.command?.includes" -> "h.command.includes" inside
