@@ -92,6 +92,21 @@ describe("behavioral evidence provenance", () => {
         const readings = collectCompositeScoreReport(options.root).metrics.filter(row => row.id.startsWith("mutation."));
         expect(readings.map(row => row.state)).toEqual(["missing", "missing"]);
     });
+    it.each([
+        ["absolute", "require('node:path').join(process.cwd(), 'index.cjs')"],
+        ["relative", JSON.stringify("./index.cjs")],
+    ])("rejects a duplicate %s coverage path before scoring the same source twice", async (_name, alias) => {
+        const options = fixture();
+        writeFileSync(join(options.root, "tests/run.cjs"), `const assert = require('node:assert/strict'); assert.equal(require('../index.cjs')(1), 2); const report = ${JSON.stringify(coverage())}; report[${alias}] = report['index.cjs']; require('node:fs').writeFileSync('report.json', JSON.stringify(report));`);
+        const result = await runBehavioralEvidence(options);
+        expect(result.outcome).toBe("error");
+        expect(result.issues.join()).toContain("Duplicate coverage source path: index.cjs");
+        expect(result.evidence).toBeNull();
+        expect(loadEvidence(collectRepositoryInventory(options.root)).entries).toEqual([]);
+        const reading = collectCompositeScoreReport(options.root).metrics.find(row => row.id === "coverage.lines");
+        expect(reading?.state).toBe("missing");
+        expect(reading?.score).toBeNull();
+    });
     it("terminates bounded execution and honors pre-cancellation", async () => {
         const options = fixture();
         const timed = await runEvidenceProcess({ cwd: options.root, argv: [process.execPath, "-e", "setInterval(() => {}, 1000)"], timeoutMs: 100 });

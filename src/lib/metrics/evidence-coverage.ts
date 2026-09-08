@@ -39,12 +39,15 @@ function functions(data: JsonObject, rows: Statement[]): { count: CoverageCount;
 }
 
 export function parseIstanbulEvidence(value: unknown, root: string): CoverageObservation[] {
-    const files = record(value, "Istanbul report");
-    return Object.entries(files).map(([path, raw]) => {
+    const files = record(value, "Istanbul report"), paths = new Set<string>();
+    return Object.entries(files).map(([rawPath, raw]) => {
+        const path = artifactSourcePath(root, rawPath);
+        if (paths.has(path)) throw new Error(`Duplicate coverage source path: ${path}`);
+        paths.add(path);
         const data = record(raw, "file coverage"), rows = statements(data), lines = new Map<number, number>();
         for (const row of rows) lines.set(row.line, Math.max(lines.get(row.line) ?? 0, row.hits));
         const fn = functions(data, rows);
-        return { path: artifactSourcePath(root, path), lines: counts([...lines.values()]), branches: branchCounts(data),
+        return { path, lines: counts([...lines.values()]), branches: branchCounts(data),
             functions: fn.count, spans: fn.spans, uncoveredLines: [...lines].filter(([, hits]) => hits === 0).map(([line]) => line) };
     });
 }
