@@ -29,6 +29,17 @@ defeat the pattern.
 ## Mental model
 - Each installed hook event ships its payload to the daemon over a Unix socket. The daemon runs an
   ordered set of phases; **the first phase that returns a terminal decision wins**.
+- Framed daemon RPC validates each method's request shape, including nested hook metadata
+  and administrative arguments, before dispatch. The client accepts only matching-id responses
+  with the expected method result shape. Malformed frames do not become successful decisions;
+  the existing timeout and fallback behavior still applies.
+- Local quality-check overrides validate each supplied field before merging it. Malformed
+  fields are ignored while valid fields and sibling checks survive; new checks require the
+  complete mandatory configuration. Team overrides affect existing checks only. Default
+  configuration copies preserve non-JSON values such as an unlimited (`Infinity`) step limit.
+- Content-scanner allowlists skip malformed entries. Known entry kinds require their declared
+  string fields; an unrecognized scanner runtime cannot select a backend. These checks apply
+  to these boundaries and do not imply that every legacy configuration section has a schema.
 - Decisions: `block` (tool refused, you see the reason), `ask` (human confirmation — Claude and
   supported Cursor gates can ask natively; interactive Pi calls `ctx.ui.confirm`; headless Pi,
   OpenCode's stable tool gate, Codex `PreToolUse`, Copilot, and Gemini deny instead;
@@ -40,6 +51,9 @@ defeat the pattern.
   quoted/heredoc/comment text, so *mentioning* `rm -rf /` in an `echo` is allowed while the
   bare command blocks. Compound commands (`&&`, `||`, `;`, `|`, newline) are decomposed and
   each part checked.
+- Python `open(...)` checks inspect executable calls and recognize write and append modes;
+  read-only calls and quoted examples do not establish a file write. Keep malformed tool
+  input tests at the raw hook-input boundary rather than passing invalid normalized events.
 - The log-output guard measures ordinary single-file `head`/`tail` windows of up to 200
   lines before rejecting a file over 100 KiB. Small windows pass on large logs; a selected
   line over the byte budget still blocks. Signed counts and unfamiliar option combinations
