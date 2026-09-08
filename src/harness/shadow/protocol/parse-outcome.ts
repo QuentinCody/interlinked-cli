@@ -406,7 +406,7 @@ export const COMPLETED_SHAPES: Record<string, readonly FieldSpec[]> = {
 };
 
 const checkCompletedOutcome: RecordCheck = (value, where) => {
-	const fields = typeof value.kind === "string" ? COMPLETED_SHAPES[value.kind] : undefined;
+	const fields = typeof value.kind === "string" && Object.hasOwn(COMPLETED_SHAPES, value.kind) ? COMPLETED_SHAPES[value.kind] : undefined;
 	if (fields === undefined) {
 		return `${where}.kind must be one of: ${Object.keys(COMPLETED_SHAPES).sort().join(", ")}`;
 	}

@@ -225,7 +225,7 @@ const RECEIPT_SHAPES: Record<string, readonly FieldSpec[]> = {
 };
 
 const checkDeletionReceipt: RecordCheck = (value, where) => {
-	const fields = typeof value.state === "string" ? RECEIPT_SHAPES[value.state] : undefined;
+	const fields = typeof value.state === "string" && Object.hasOwn(RECEIPT_SHAPES, value.state) ? RECEIPT_SHAPES[value.state] : undefined;
 	if (fields === undefined) {
 		return `${where}.state must be one of: ${Object.keys(RECEIPT_SHAPES).sort().join(", ")}`;
 	}

@@ -427,7 +427,9 @@ function overCapDetail(roots: readonly string[]): string {
 function collectIgnoredCandidates(runGit: GitBytesRunner, manifest: OverlayManifestV1): NulSplitResult {
 	const roots = overlayScanRoots(manifest);
 	const parsed = parseNulSeparated(
-		runGit(["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ...roots]),
+		// These are literal paths/prefixes already derived from manifest rules.
+		// Git must not reinterpret filename bytes as glob or pathspec magic.
+		runGit(["--literal-pathspecs", "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ...roots]),
 	);
 	if (!parsed.ok) return parsed;
 	if (parsed.paths.length > MAX_IGNORED_CANDIDATES) {

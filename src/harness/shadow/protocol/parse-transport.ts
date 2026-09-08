@@ -80,7 +80,7 @@ const mirrorRefField = mirrorRef;
 export function byState(shapes: Record<string, readonly FieldSpec[]>, key = "state"): RecordCheck {
 	return (value, where) => {
 		const tag = value[key];
-		const fields = typeof tag === "string" ? shapes[tag] : undefined;
+		const fields = typeof tag === "string" && Object.hasOwn(shapes, tag) ? shapes[tag] : undefined;
 		if (fields === undefined) return `${where}.${key} must be one of: ${Object.keys(shapes).sort().join(", ")}`;
 		return checkFields(value, where, fields);
 	};
@@ -253,7 +253,7 @@ export const FINALIZE_STATUS_SHAPES: Record<string, readonly FieldSpec[]> = {
 
 /** The two TERMINAL states carry a payload; every in-flight state is bare. */
 const checkFinalizeStatus: RecordCheck = (value, where) => {
-	const terminal = typeof value.state === "string" ? FINALIZE_STATUS_SHAPES[value.state] : undefined;
+	const terminal = typeof value.state === "string" && Object.hasOwn(FINALIZE_STATUS_SHAPES, value.state) ? FINALIZE_STATUS_SHAPES[value.state] : undefined;
 	return checkFields(value, where, terminal ?? IN_FLIGHT_STATUS_FIELDS);
 };
 

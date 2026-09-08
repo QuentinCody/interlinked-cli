@@ -375,7 +375,7 @@ describe("collectLocalTreeInputs — positive (must accept)", () => {
 		expect(calls).toEqual([
 			["ls-files", "-z"],
 			["ls-files", "--others", "--exclude-standard", "-z"],
-			["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", "scratch"],
+			["--literal-pathspecs", "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", "scratch"],
 		]);
 	});
 
@@ -428,6 +428,7 @@ describe("collectLocalTreeInputs — positive (must accept)", () => {
 		if (!result.ok) throw new Error(result.detail);
 		const ignoredCall = calls.find((call) => call.includes("--ignored"));
 		expect(ignoredCall).toEqual([
+			"--literal-pathspecs",
 			"ls-files",
 			"--others",
 			"--ignored",
