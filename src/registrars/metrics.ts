@@ -101,7 +101,7 @@ function registerScoreCommand(metrics: Command): void {
         .option("--profile <name>", "slop-v1 (default) or legacy structure-v1")
         .option("--cwd <path>", "Project root (default: current directory)")
         .option("--json", "Full measurements, profile, hashes and explicit evidence gaps")
-        .option("--short", "One-line structural score and measurement status")
+        .option("--short", "One-line score and evidence status")
         .action(async (opts: OptionValues, command: Command) => {
             const { metricsScoreCommand } = await import("../commands/metrics-score.js");
             metricsScoreCommand(parentAndChildOptions(opts, command));

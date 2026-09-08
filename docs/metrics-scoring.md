@@ -1,108 +1,225 @@
-# Offline metrics scoring and repository corpus
+# Deterministic code-quality scoring
 
-Measured 2026-09-05. This is an experimental structural profile, not an authorship detector or a validated ranking of software quality.
+`interlinked metrics score` reports individual measurements and an explained
+0–100 slop score under the experimental `interlinked-slop-v1` profile. Higher
+means more measured burden. It measures code characteristics, not authorship.
+Interlinked makes no model calls to calculate these metrics. Static scoring
+does not execute repository scripts; behavioral measurements explicitly run tests.
 
-## Run the CLI
-
-```bash
-interlinked metrics score --cwd /path/to/repository
-interlinked metrics score --cwd /path/to/repository --json
-interlinked metrics score --cwd /path/to/repository --short
-```
-
-From this checkout, use `npm run dev -- metrics score ...`, or `node dist/index.js metrics score ...` after building.
-
-The command performs local static analysis. It requires no model calls, embeddings, credentials, network access, dependency installation in the target, or target-code execution. Git discovery disables executable filesystem-monitor hooks. Syntax tokens are code units, not billed LLM tokens.
-
-JSON reports individual scores, raw per-function measurements, physical file lengths, type-annotation diagnostics, measured and excluded paths, explicit measurement gaps, and source/profile hashes. The score is advisory; existing metric gates and baselines retain their existing contracts.
-
-## Structural profile
-
-The frozen definition is [score-profile.ts](../src/lib/metrics/score-profile.ts). This run uses `interlinked-structure-js-ts-v1`, TypeScript 5.9.3, and profile hash `e83ef9c1b2ac6a216b32e4815c509c37890597c05b673a59d721da25954e6e56`.
-
-| Metric | Share | Raw value → normalized burden knots |
-|---|---:|---|
-| Cyclomatic complexity | 25% | 1→0, 5→0, 15→.25, 25→.60, 50→1 |
-| Cognitive complexity | 25% | 0→0, 5→0, 15→.25, 30→.65, 60→1 |
-| AST function tokens | 5/18 | 0→0, 150→0, 300→.20, 500→.50, 1000→1 |
-| Halstead difficulty | 2/9 | 0→0, 20→0, 40→.25, 80→.65, 160→1 |
-
-Interpolate between knots and clamp at the ends. Successfully measured functions with Halstead volume below 200 have zero difficulty burden. These are provisional policy choices, not coefficients fitted to the corpus or validated against expert assessments.
-
-For each component, weight functions by exclusively owned syntax tokens. Combine 75% of the exposure-weighted mean burden with 25% of the worst-decile exposure-weighted burden, then multiply by 100. Include a fractional final function at the decile boundary. The structural composite uses the shares above. Lower means less measured structural burden.
-
-Function size includes nested implementations; ownership assigns each token to its innermost implementation so aggregation does not double-count exposure. Parser-resolved tokenization handles templates, regexes and JSX. JSDoc is excluded from token and Halstead tallies. Ordinary comments and identifier length do not increase syntax-token counts. The `interlinked-code-v2` edit/commit gates and metric inventory now share this JS/TS counter. Historical scanner counts and earlier pilot profiles are not directly comparable; this migration preserves the structural profile's weights, knots and scores. See [function-token migration](function-token-migration.md).
-
-## Corpus results
-
-The original pilot was expanded with projects selected before measurement from a GitHub search for nonarchived, nonfork TypeScript repositories with 100–180 stars, sorted by stars ascending. The added projects were chosen to vary application role. Star counts were captured on 2026-09-05; this is a purposive sample, not a representative estimate of GitHub.
-
-All snapshots were clean, pinned to complete commit SHAs, and checked before and after measurement. The maintained corpus runner performed zero model calls and no target-code execution. Every row uses the same profile hash. The Interlinked row measures the public pinned repository, not the concurrently edited local checkout.
-
-Component columns and the composite are on a 0–100 burden scale. Files/functions count successfully measured JS/TS source. Gaps are source paths without a supported structural measurement; any gap makes the result partial.
-
-| Repository at measured commit | Stars | Cyclomatic | Cognitive | Size | Difficulty | Structural | Files/functions | Gaps |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| [mesqueeb/is-what](https://github.com/mesqueeb/is-what/tree/dadd235f03d201ffbd8fd73dcc5d1891d754fcd4) | 200 | 2.7 | 4.5 | 0.0 | 4.0 | **2.7** | 45/43 | 0 |
-| [antfu/diff-match-patch-es](https://github.com/antfu/diff-match-patch-es/tree/4f35fb7fd57df68d69068cdee0780bb779f5497f) | 199 | 37.0 | 58.1 | 44.8 | 62.9 | **50.2** | 8/42 | 0 |
-| [caderek/aocrunner](https://github.com/caderek/aocrunner/tree/7eaba95faa8708b4b0b9c79b0b3eaf13347ead57) | 199 | 10.2 | 14.2 | 22.9 | 15.4 | **15.9** | 36/83 | 0 |
-| [sergiodxa/remix-auth-oauth2](https://github.com/sergiodxa/remix-auth-oauth2/tree/6e7bfd2a5741f5b04dafd4f9f57c83775936a39a) | 200 | 5.8 | 12.8 | 17.3 | 8.3 | **11.3** | 4/24 | 0 |
-| [JNKKKK/pianochord.io](https://github.com/JNKKKK/pianochord.io/tree/568efa33124a034d131e787fd20c28b298780433) | 200 | 4.0 | 7.0 | 33.6 | 28.6 | **18.4** | 50/239 | 16 |
-| [QuentinCody/interlinked-cli](https://github.com/QuentinCody/interlinked-cli/tree/a2d4e41fb1ccb0a6514e9e177170f0386e399f06) | 171 | 8.0 | 9.4 | 14.9 | 14.1 | **11.6** | 1519/15593 | 12 |
-| [figma/vite-plugin-yaml](https://github.com/figma/vite-plugin-yaml/tree/2273c3f46fdfdb4de2dc9a273e8ee062e54dff35) | 100 | 0.0 | 3.3 | 0.3 | 2.3 | **1.4** | 6/7 | 2 |
-| [jokull/python-ts-graphql-demo](https://github.com/jokull/python-ts-graphql-demo/tree/52d4fb5a9bf2143c7585fadc43bbaa574e59e3db) | 100 | 0.0 | 0.0 | 5.1 | 0.9 | **1.6** | 6/21 | 5 |
-| [dcodesdev/LetterSpace](https://github.com/dcodesdev/LetterSpace/tree/5e9b3391bcae33ab9069b0821c3fce85a57c0e47) | 100 | 15.7 | 21.1 | 51.4 | 32.3 | **30.6** | 247/925 | 24 |
-| [wobsoriano/solid-sonner](https://github.com/wobsoriano/solid-sonner/tree/4082d5e52074a846d5e139fcbeccb75addb6871b) | 100 | 20.3 | 27.5 | 41.4 | 28.3 | **29.8** | 19/254 | 7 |
-| [mk12/vscode-better-git-line-blame](https://github.com/mk12/vscode-better-git-line-blame/tree/20528d8fadb681b5598cefc7b84b891583dc4643) | 100 | 27.0 | 35.4 | 28.6 | 16.3 | **27.2** | 1/67 | 0 |
-| [gmickel/turborepo-shadcn-nextjs](https://github.com/gmickel/turborepo-shadcn-nextjs/tree/c1f19e41b36f84cd731d8a3a62b9ca5a7436b3d0) | 100 | 0.0 | 0.0 | 14.0 | 12.1 | **6.6** | 39/32 | 2 |
-
-The range is 1.4–50.2. Four samples fall below 10, four in 10–20, two in 20–30, and two at 30 or above. Those are descriptive bins, not quality grades. Samples differ substantially in role and size, and partial rows describe only their measured functions.
-
-The low score of the mixed Python/TypeScript demo applies to its measured JS/TS portion; it says nothing about its Python implementation. CSS/SCSS, GraphQL, shell and other unsupported source extensions remain explicit gaps. Current source classification also includes some executable configuration, examples and fixture trees. Classifying those roles consistently is further work before a cross-repository quality ranking.
-
-[Machine-readable summary](metrics-score-corpus-2026-09-05.json) preserves unrounded component scores, distribution terms, source hashes, commit pins and measurement status. Full per-file/per-function reports from this session are in `scratch/2026-09-05-metrics-automation/results/`.
-
-## Mutation testing uses computation, not LLM tokens
-
-The earlier pilot used StrykerJS 9.6.1 to generate mutations mechanically and run existing tests under Node 22.22.0 with the Vitest runner. No LLM generated mutants or judged test outcomes. Agent setup and interpretation used model tokens; the measurement pipeline itself did not.
-
-| Repository | Generated | Killed | Survived | No coverage | Timeout | Native mutation score |
-|---|---:|---:|---:|---:|---:|---:|
-| mesqueeb/is-what | 349 | 299 | 31 | 19 | 0 | 85.67% |
-| antfu/diff-match-patch-es | 1,984 | 1,508 | 348 | 19 | 109 | 81.50% |
-
-These are completed runs from the earlier pilot, not new mutation runs on the expanded corpus. Native Stryker scoring treats timeouts as detected. The experiment did not adjudicate every timeout or equivalent mutant, so it does not convert this native score into a qualified verification burden.
-
-Coverage and mutation testing can be automated without an LLM, but require executing tests and consume CPU time. A static scan cannot infer those results. Deterministic test-smell and dead-code checks can emit candidates; general semantic claims such as “this test is useless” or “this abstraction is unnecessary” need a specified evidence contract.
-
-## What the experiment improved
-
-- Fixed a dead-import false positive caused by a tree-shaking comment inside a named import. The actual `is-what` scan now reports no dead import bindings. The broader dead-code census still includes tracked build output and must not be treated as a qualified redundancy score.
-- Added isolated modules to `metrics arch`. The live scans now include all 44 source modules plus one executable configuration file for `is-what`, and six source modules plus two configuration files for the diff library. The JSON reports `graphVersion: 2`, retains the N² propagation-cost definition and adds `normalizedReach` with the N(N−1) denominator.
-- Corrected token ownership around nested functions and parser-sensitive syntax in the new scoring adapter.
-- Excluded JSDoc from code-size and Halstead measurements after the corpus exposed documentation-sensitive tallies.
-- Preserved missing and unsupported evidence instead of converting it into a clean or worst-case score.
-
-## Reproduce and extend
-
-Clone the linked repositories and check out their pinned commits. Create a JSON manifest with this shape; paths resolve relative to the manifest file:
-
-```json
-{"repositories":[{"name":"owner/repo","path":"./repositories/owner__repo","commit":"FULL_40_CHARACTER_COMMIT_SHA","stars":100}]}
-```
-
-Then run the maintained source-repository utility:
+## Commands
 
 ```bash
-node --import tsx scripts/metrics-corpus.ts --manifest corpus-manifest.json --out corpus-results
+interlinked metrics score --json > score.json
+interlinked metrics catalog --checks --json
+interlinked metrics explain tokens --json
+interlinked metrics compare before.json after.json --json
+interlinked metrics evidence status --json
+interlinked metrics gates --json
+interlinked metrics deletions --json
 ```
 
-The runner refuses a mismatched commit or dirty snapshot, writes a report for each successful repository plus `corpus.json`, and exits nonzero if any repository fails. It does not clone repositories or install their dependencies. Add pinned rows to extend the corpus without model usage.
+All accept `--cwd <path>`. Catalog inventories metrics and every registered inline,
+external, structural, suggestion, behavioral, sequence, spec-ledger and command
+guard. Each check is classified as scored, supporting, advisory or enforcement.
+A session guard is not added to repository burden merely because it exists.
+Registry changes invalidate ranking until their scoring disposition is reviewed.
 
-## Limits and next measurement work
+`metrics score --profile structure-v1` preserves the earlier schema-1 structural
+report. The default report is schema 2 and uses `rankingEligible`. Consumers of
+the earlier `rankEligible` field should select that legacy profile or migrate
+explicitly. Existing top-level `metrics`, `metrics complexity`, `metrics arch`
+and the `canonicalTokens` inventory field remain available.
 
-`slopScore` remains null and `rankEligible` remains false. Behavioral verification, test integrity, architecture burden, correctness/security, type soundness, qualified redundancy and contract consistency still need complete scoring adapters. Physical lines, `any`, `unknown` and assertions are available as diagnostics; raw counts are not interchangeable with established defects. Normalized file size and top-level executable burden are also unscored.
+## Reading scores and missing evidence
 
-Next work is to standardize source roles across collectors; ingest coverage/mutation reports with matching source and runner receipts; define finding denominators and duplicate ownership; and validate fixed scoring profiles against independent maintenance outcomes. None requires an LLM in the measurement path. Arbitrary software architecture cannot be fully judged from a deterministic warning count.
+Every metric carries its raw value, numerator, denominator, burden score,
+eligible/measured entity counts, evidence IDs and limitations. Burden curves are
+piecewise linear between the catalog's knots. For function size, 150 syntax tokens
+has zero burden, 300 has 20, 500 has 50, and 1,000 has 100. These are scoring-policy
+points, independent of the 500-token edit cap. Function scores combine exposure
+and tail burden; exclusive ownership avoids charging nested syntax repeatedly.
 
-Validation for this iteration includes 97 passing focused tests, clean pinned corpus execution, an atomic CLI build, equality of built-CLI and source-runner JSON on the diff library, identical repeated corpus summaries, and rejection of a mismatched commit. Biome and both affected skill validators pass. The repository-wide typecheck currently reports errors in concurrently edited files outside this change; no clean whole-workspace typecheck is claimed.
+| State | Meaning |
+| --- | --- |
+| `measured` | The declared measurement completed for its eligible scope. |
+| `not-applicable` | The declared metric has no applicable opportunities. |
+| `missing` | Required evidence was not supplied. |
+| `stale` | Evidence does not match current inputs. |
+| `unsupported` | No suitable measurement adapter is available. |
+| `inconclusive` | Partial results or execution limitations prevent a complete measurement. |
+
+`observedScore` summarizes measured scoring weight. `evidenceCompleteness`
+reports how much applicable weight was measured, not test coverage.
+`range` gives missing-evidence bounds under the profile. Unmeasured source or
+incomplete discovery broadens whole-repository bounds to 0–100.
+`slopScore` remains null and `rankingEligible` remains false until all applicable
+scoring evidence is complete and no integrity/review blocker remains.
+Unknown evidence is never silently converted to a clean score or zero coverage.
+
+For complete evidence, the composite is the weighted mean of applicable group
+scores. Not-applicable weights are removed; missing weights are retained as
+uncertainty. The fixed budget is:
+
+| Group | Points | Combination |
+| --- | ---: | --- |
+| Function structure | 20 | Cyclomatic, cognitive, syntax size and Halstead difficulty |
+| File size | 10 | Physical lines and executable syntax outside functions |
+| Coverage | 15 | Lines 30%, branch outcomes 50%, functions 20% |
+| Mutation | 15 | Surviving / (killed + surviving) mutants |
+| Test integrity | 10 | Unique affected test cases |
+| Unreferenced code | 5 | Maximum of declaration and disconnected-module burdens |
+| Duplicate implementations | 3 | Repeated exclusive syntax after retaining one representative |
+| Overwritten initial values | 2 | Dead-store candidates |
+| Unsafe types | 5 | Unsafe operations and unchecked assertions |
+| Import graph | 5 | Maximum of cycle and propagation burdens |
+| Declared import boundaries | 2 | Violating resolved edges |
+| Correctness/security | 5 | Reviewed findings per affected executable statement |
+| Declared contracts | 3 | Failing evaluated assertions |
+
+CRAP and uncovered mutation sites remain diagnostic to avoid counting their
+underlying complexity/coverage evidence again. Related findings share bounded
+groups. `metrics explain <id>` provides the precise current curve, denominator,
+group rationale, findings and a counterfactual improvement estimate.
+
+Comparison requires compatible profile hashes, reviewed registries, language
+cohorts, selected behavioral policies and complete evidence. Provisional reports
+may expose individual measured metric deltas, but have no composite ranking delta.
+Measurement revisions are included in the profile hash; do not compare old parser
+or adapter results as though they used identical measurements.
+
+## Scope and interpretation
+
+Product source, tests, configuration, documentation, generated outputs, fixtures,
+vendors and assets have explicit roles. Tests supply test-integrity evidence;
+they do not pad product-code denominators. Generated/build/vendor/fixture paths
+are excluded under the shared role policy; a bare `@generated` comment does not
+exempt product source. Declarations and excluded support files remain visible.
+Ignored directories explicitly selected as roots receive a bounded filesystem
+census when Git returns no files.
+
+Scoring adapters currently support JavaScript/TypeScript. Recognized unsupported
+source (including Python, Vue, Svelte and Astro) remains a gap. This differs from
+the edit gate, which also has an exact Python token adapter. Syntax recovery,
+symlink sources, inputs over 2 MiB and bounded discovery failures are not passing
+measurements. Dynamic loading and unresolved local imports qualify graph results.
+Declared package exports and recognized framework routes protect public entries;
+static reachability still cannot prove that external consumers do not exist.
+
+`types.unsafe` distinguishes explicit `any` and `unknown` counts from unsafe
+access/call/assertion/assignment/return sites. Safe narrowing, `as const` and sound
+widening do not incur a penalty. Direct unchecked propagation is measured;
+arbitrary deep data flow is not. Missing type bindings make results inconclusive
+because compiler error-types can otherwise resemble `any`. A justification
+comment alone does not establish that an assertion is sound.
+
+Test integrity and redundancy include heuristic findings. Saturated detector
+limits produce lower-bound findings and inconclusive metrics. The scoring profile
+is a review policy, not an empirical guarantee of architectural quality. Ratios
+can be diluted by padding; inspect scope, tails and findings alongside the number.
+
+## Syntax tokens and the edit gate
+
+The user-facing term is **syntax tokens** (lexical tokens), not “AST tokens.”
+Tokens are language units such as identifiers, keywords, operators and punctuation;
+AST nodes describe parsed constructs and are not interchangeable with tokens.
+Interlinked's JS/TS counter resolves lexical leaves through the TypeScript parser
+so regexes, template literals and JSX follow a declared parsing contract. Languages
+and counting policies still differ: there is no universal tokenizer-independent
+conversion to LLM tokens.
+
+The `interlinked-code-v2` gate counts complete implementation spans, including
+types and nested implementations, excluding comments, whitespace, JSDoc and
+zero-width recovery markers. Its JS/TS adapter is `interlinked-ts-ast-v1`.
+Python uses `interlinked-python-tokenize-v1`. The hard cap is inclusive:
+500 passes; a new 501-token implementation does not. Existing over-limit functions
+may hold or shrink, and may not grow. Migration recounts before and after with
+the same adapter, preserving existing debt. Unavailable parsing is visibly
+unmeasured, never an empty baseline.
+
+The stable `canonicalTokens` field now denotes this versioned syntax count.
+There is no additional 500 LLM-token cap. The optional semantic index still uses
+`llama-tokenize` and its GGUF model to measure separate `modelTokens` and chunk
+embedding inputs. Neither a model download nor that executable is required for
+the edit gate or scoring. Reducing existing oversized functions is a separate,
+deferred campaign.
+
+## Coverage and mutation evidence
+
+```bash
+interlinked metrics evidence run --kind coverage \
+  --command '["node","node_modules/vitest/vitest.mjs","run","--coverage","--coverage.reporter=json"]' \
+  --artifact coverage/coverage-final.json --runner-version vitest-YOUR-PIN \
+  --policy v8-product-scope-v1 --timeout 120000 --resume --json
+interlinked metrics evidence identity --json > identity.json
+interlinked metrics evidence import receipt.json artifact.json --json
+```
+
+Use the repository's configured runner and declare its exact version and policy.
+The explicit argv runs without a shell in a disposable copy, with a shared copy/
+execution deadline and cancellation. Dependencies must already exist; the runner
+does not install them. Source/tests/configuration/manifests/locks/support inputs,
+scope, runner identity, outcome and artifact hashes are bound into receipts.
+Source mutation by the runner invalidates evidence. Resume requires matching
+inputs and a current passing receipt; a newer failed/cancelled attempt cannot be
+hidden by an older pass.
+
+Coverage uses strict Istanbul maps and aligned nonnegative counts. Mutation uses
+Stryker-style reports with exact source bytes and sites. Missing eligible files
+stay inconclusive. Killed, surviving, uncovered, timed-out, errored and ignored
+mutants remain distinct; only killed and surviving outcomes establish assertion
+discrimination. Reported operator scope matters as much as the survivor ratio.
+
+CI imports use the schema-1 receipt contract in
+[src/lib/metrics/evidence-types.ts](../src/lib/metrics/evidence-types.ts).
+Import validates hashes and preserves the asserted CI origin; these receipts are
+not cryptographically signed CI attestations. Dependency identity binds manifests
+and locks, not an independently attested host or every installed dependency byte.
+Keep runner/environment policy consistent when comparing results.
+
+## Incremental per-edit coverage
+
+```bash
+interlinked metrics coverage warm --timeout 120000 --json
+interlinked metrics coverage status --json
+interlinked metrics gates --json
+```
+
+A full Vitest warm run measures an isolated overlay, checks full-report parity,
+and records per-test-file contributions and scoring evidence. Incremental runs
+replace affected contributions, retain unchanged ones and preserve zero-hit
+denominators. Source, test, configuration, dependency, discovery, import-graph,
+runner and environment changes invalidate the appropriate evidence.
+Opaque dependencies broaden selection conservatively. Multi-project or ambiguous
+capture and incomplete exact locations may prevent reuse; status explains why.
+
+A proposed generation can promote only after its exact inputs exist on disk.
+Content-addressed blobs and locked generation checks preserve accepted data.
+Identical-input coverage churn quarantines reuse until three full warm runs agree.
+A stale/corrupt index cannot authorize a guessed coverage verdict.
+
+`metrics gates` separates enabled policy, actual execution attempts, fresh measured
+files, stale/unavailable/deferred work and recorded latency percentiles. Historical
+ratchet reach is not current test coverage. A disabled gate measures nothing.
+The local development checkout remains explicitly disabled pending an acceptable
+full-suite warm run; the controlled benchmark does not justify silently enabling it.
+Its eight-file fixture measured a median 668 ms incremental versus 1,997 ms full
+run, rerunning one test file while retaining all eight files' coverage.
+
+## Deletion trials
+
+`metrics deletions` joins unused/disconnected/duplicate/dead-store candidates with
+current coverage and exact-site mutant evidence. Public APIs, dynamic consumers
+and missing evidence remain review blockers. A survivor alone is not dead code.
+
+`metrics deletions validate plan.json --timeout 120000 --json` runs an explicit
+schema-1 removal plan in isolation. Each edit supplies a relative path, exact source
+SHA-256 and a UTF-16 half-open deletion range (`start`, `end`). Checks supply
+`kind` and argv; both tests and type checking are required, with optional build.
+Baseline checks must pass before candidate checks run. A `checks-passed` result
+records what the checks established; review remains required and the source
+checkout is unchanged. The command does not automatically apply a removal.
+
+See the [calibration report](metrics-corpus-2026-09-08.md) for pinned repository
+results and original behavioral artifacts, and
+[the completion record](metrics-completion.md) for implementation validation.
+
