@@ -196,6 +196,7 @@ async function bindFramedSocket(
 				state: {
 					tsgo: tsgoRunner,
 					getEvaluatorContext: () => ({
+				hasBackgroundWork: () => options.runtime.hookCoverage?.verification?.isRunning() ?? false,
 						rules: options.getRules(),
 						session: state.sessions.get(cli.framedSessionId),
 						reservations: state.reservations,
@@ -236,7 +237,7 @@ async function finishStartup(options: ActivateDaemonOptions): Promise<void> {
 	startBuildRefreshWatcher({
 		moduleUrl: options.moduleUrl,
 		cwd: cli.cwd,
-		lastActivityMs: options.getLastHookEventAtMs,
+		lastActivityMs: () => options.runtime.hookCoverage?.verification?.isRunning() ? Date.now() : options.getLastHookEventAtMs(),
 		log: logAlways,
 	});
 	const rules = options.getRules();

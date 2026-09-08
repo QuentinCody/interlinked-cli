@@ -50,6 +50,9 @@ Unavailable checks, unreadable/excluded/absent files, and file or policy changes
 verification stay pending. With waiting enabled, findings or remaining pending versions
 produce exit 1. Re-run after the reported capacity/tool problem is resolved. A daemon
 restart interrupts the job; recorded receipts survive and unchecked entries remain pending.
+Active recovery keeps the raw and framed listeners out of idle shutdown and delays
+automatic build handover within its normal freshness deadline. Explicit restarts and
+memory safety shutdowns still interrupt recovery; inspect status and retry afterward.
 
 Released reservations remain watched while pending, so review cannot acknowledge a stale
 historical hash. `harness coverage acknowledge <id> <generation> <identity> <evidence>`

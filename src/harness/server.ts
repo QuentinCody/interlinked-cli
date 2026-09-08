@@ -248,6 +248,7 @@ function resetIdleTimer(): void {
 // Sponsor-runtime activity signal: stamped on every event-loop dispatch (the
 // event loop already calls the idle-timer reset per event), so sponsor
 // rotation-impressions only count windows with real hook traffic.
+		if (serverRuntime.hookCoverage?.verification?.isRunning()) { resetIdleTimer(); return; }
 let lastHookEventAtMs = 0;
 function noteActivityAndResetIdleTimer(): void {
 	lastHookEventAtMs = Date.now();

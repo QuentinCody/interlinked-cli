@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { basename, extname } from "node:path";
+import { setImmediate } from "node:timers/promises";
 import { wireArray, wireLiteral, wireNumber, wireObject, wireString } from "../lib/value-validation.js";
 import type { HookCoverageLedger, HookPendingCheck } from "./hook-coverage-ledger.js";
 import { isLikelyTestFile } from "./quality-checks/test-classifier.js";
@@ -47,6 +48,8 @@ export class HookCoverageVerification {
         return this.current ? structuredClone(this.current) : undefined;
     }
 
+    isRunning(): boolean { return !this.stopped && this.current?.status === "running"; }
+
     start(): void {
         if (this.stopped || this.current?.status === "running") return;
         this.owner.reconcile();
@@ -65,6 +68,9 @@ export class HookCoverageVerification {
 
     private async run(entries: HookPendingCheck[], job: HookVerificationStatus): Promise<void> {
         for (let offset = 0; offset < entries.length; offset += BATCH_SIZE) {
+            // A resolved checker promise only yields to microtasks. Let socket
+            // requests and shutdown timers run even when every batch defers.
+            await setImmediate();
             if (this.stopped) break;
             const batch = entries.slice(offset, offset + BATCH_SIZE);
             await this.checkBatch(batch, job);

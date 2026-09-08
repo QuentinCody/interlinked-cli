@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setImmediate } from "node:timers/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import { HookCoverageLedger } from "./hook-coverage-ledger.js";
 import { HookCoverageVerification, type HookCheckEvidence, type HookCoverageChecker } from "./hook-coverage-verification.js";
@@ -24,11 +25,25 @@ function deferred() {
 }
 
 describe("coverage verification evidence", () => {
+    it("serves other event-loop work between immediately completed batches", async () => {
+        const owner = fixture();
+        for (let index = 0; index < 16; index++) owner.ledger.observe(`source-${index}.ts`, "first", "reservation");
+        const verifier = new HookCoverageVerification(owner, completed);
+        verifier.start();
+        await setImmediate();
+        expect(verifier.status()).toMatchObject({ status: "running", processed: 8, checked: 8, total: 17 });
+        await expect.poll(() => verifier.status()?.status).toBe("complete");
+        expect(owner.ledger.snapshot().pending).toEqual([]);
+    });
+
     it("records completed checks with findings durably without accepting policy", async () => {
         const owner = fixture();
         const verifier = new HookCoverageVerification(owner, completed);
+        expect(verifier.isRunning()).toBe(false);
         verifier.start();
+        expect(verifier.isRunning()).toBe(true);
         await expect.poll(() => verifier.status()?.status).toBe("complete");
+        expect(verifier.isRunning()).toBe(false);
         expect(verifier.status()).toMatchObject({ checked: 1, findings: 1, unmeasured: [] });
         const reopened = new HookCoverageLedger(owner.path).snapshot();
         expect(reopened.pending).toEqual([]);
@@ -88,6 +103,7 @@ describe("coverage verification evidence", () => {
         expect(verifier.status()?.id).toBe(id);
         expect(calls).toBe(1);
         verifier.stop();
+        expect(verifier.isRunning()).toBe(false);
         finish.resolve();
         await expect.poll(() => verifier.status()?.status).toBe("complete");
         expect(owner.ledger.snapshot().pending).toHaveLength(1);

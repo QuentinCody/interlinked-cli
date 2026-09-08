@@ -965,6 +965,31 @@ describe("startSessionDaemon", () => {
 				session_id: "idle-boundary",
 				idle_shutdown_ms: 100,
 				state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
+	it("keeps the listener available for background work, then resumes idle shutdown", async () => {
+		vi.useFakeTimers();
+		try {
+			const paths = makePaths("idle-background");
+			let working = true;
+			daemon = await startSessionDaemon({
+				paths,
+				session_id: "idle-background",
+				idle_shutdown_ms: 100,
+				hasBackgroundWork: () => working,
+				state: { tsgo: makeTsgo(), getEvaluatorContext: makeEvaluatorContext },
+			});
+			await vi.advanceTimersByTimeAsync(300);
+			expect(existsSync(paths.socket)).toBe(true);
+			expect(existsSync(paths.pid)).toBe(true);
+			working = false;
+			await vi.advanceTimersByTimeAsync(100);
+			expect(existsSync(paths.socket)).toBe(false);
+			expect(existsSync(paths.pid)).toBe(false);
+			daemon = null;
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 			});
 
 			await vi.advanceTimersByTimeAsync(99);

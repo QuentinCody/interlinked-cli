@@ -55,6 +55,8 @@ export interface SessionDaemonOptions {
 	idle_shutdown_ms?: number;
 	/** Dispatcher state — tsgo runner + evaluator context factory. */
 	state: Omit<DispatcherState, "shutdown" | "started_at" | "rpc_inflight">;
+	/** Keep the listener available while daemon-owned background work runs. */
+	hasBackgroundWork?: () => boolean;
 }
 
 export interface SessionDaemonHandle {
@@ -366,6 +368,7 @@ export async function startSessionDaemon(opts: SessionDaemonOptions): Promise<Se
 					Math.min(idleMs, 60_000),
 				)
 			: null;
+						if (opts.hasBackgroundWork?.()) return;
 	idleTimer?.unref();
 
 	const handle: SessionDaemonHandle = {
