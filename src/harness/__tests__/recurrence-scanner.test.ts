@@ -3,7 +3,6 @@
 // codebase_existing recurrence events for repeated patterns.
 
 import {
-	type Stats,
 	mkdirSync,
 	mkdtempSync,
 	rmSync,
@@ -37,26 +36,29 @@ vi.mock("node:fs", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("node:fs")>();
 	return {
 		...actual,
-		lstatSync: (path: Parameters<typeof actual.lstatSync>[0], opts?: unknown) => {
+		lstatSync: (...args: Parameters<typeof actual.lstatSync>) => {
+			const [path] = args;
 			if (lstatThrowPath && path === lstatThrowPath) {
 				throw new Error("simulated lstat failure (TOCTOU race)");
 			}
 			if (lstatWeirdPath && path === lstatWeirdPath) {
-				return {
-					isSymbolicLink: () => false,
-					isDirectory: () => false,
-					isFile: () => false,
-				} as Stats;
+				const stats = actual.lstatSync(...args);
+				if (stats === undefined) return undefined;
+				stats.isSymbolicLink = () => false;
+				stats.isDirectory = () => false;
+				stats.isFile = () => false;
+				return stats;
 			}
 			// Passthrough to the real overload set.
-			return (actual.lstatSync as any)(path, opts);
+			return actual.lstatSync(...args);
 		},
-		readFileSync: (path: Parameters<typeof actual.readFileSync>[0], opts?: unknown) => {
+		readFileSync: (...args: Parameters<typeof actual.readFileSync>) => {
+			const [path] = args;
 			if (readFileSyncThrowPath && path === readFileSyncThrowPath) {
 				throw new Error("EACCES: permission denied (simulated)");
 			}
 			// Passthrough to the real overload set.
-			return (actual.readFileSync as any)(path, opts);
+			return actual.readFileSync(...args);
 		},
 	};
 });
@@ -76,13 +78,9 @@ vi.mock("../check-registry/index.js", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("../check-registry/index.js")>();
 	return {
 		...actual,
-		buildAgentSafetyChecks: (
-			content: string,
-			filePath: string,
-			...rest: unknown[]
-		) => {
-			// Passthrough to the real overload set.
-			const real = (actual.buildAgentSafetyChecks as any)(content, filePath, ...rest);
+		buildAgentSafetyChecks: (...args: Parameters<typeof actual.buildAgentSafetyChecks>) => {
+			const [content] = args;
+			const real = actual.buildAgentSafetyChecks(...args);
 			if (content.includes(THROWING_DETECTOR_MARKER)) {
 				return [
 					...real,
@@ -333,7 +331,7 @@ describe("scanFilesForDetector", () => {
 		process.stderr.write = ((chunk: unknown) => {
 			stderrWrites.push(String(chunk));
 			return true;
-		}) as typeof process.stderr.write;
+		});
 		try {
 			const out = scanFilesForDetector({
 				detector: badLineDetector,
@@ -362,7 +360,7 @@ describe("scanFilesForDetector", () => {
 		process.stderr.write = ((chunk: unknown) => {
 			stderrWrites.push(String(chunk));
 			return true;
-		}) as typeof process.stderr.write;
+		});
 		try {
 			const out = scanFilesForDetector({
 				detector: (file, content) => {
@@ -403,7 +401,7 @@ describe("scanFilesForDetector", () => {
 		process.stderr.write = ((chunk: unknown) => {
 			stderrWrites.push(String(chunk));
 			return true;
-		}) as typeof process.stderr.write;
+		});
 		try {
 			const out = scanFilesForDetector({
 				detector: badLineDetector,
@@ -426,7 +424,7 @@ describe("scanFilesForDetector", () => {
 		process.stderr.write = ((chunk: unknown) => {
 			stderrWrites.push(String(chunk));
 			return true;
-		}) as typeof process.stderr.write;
+		});
 		try {
 			const out = scanFilesForDetector({
 				detector: () => {
