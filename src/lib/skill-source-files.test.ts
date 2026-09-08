@@ -1,5 +1,4 @@
-import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
-import type { NonSharedBuffer } from "node:buffer";
+import { existsSync, readFileSync, readdirSync, type Dirent, type PathLike } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { nonNull } from "./non-null.js";
@@ -63,18 +62,22 @@ describe("bundled runner metadata", () => {
     });
 
     it("refuses to bundle a skill resource that is a symlink", () => {
-        // SAFETY: walkSkillFiles only calls entry.isSymbolicLink(),
-        // entry.isDirectory(), and entry.isFile() on each readdirSync
-        // result; this fixture supplies exactly those three methods.
-        const fakeEntries = [
+        const fakeEntries: Dirent[] = [
             {
                 name: "sneaky-link",
+                parentPath: "/skills",
+                path: "/skills",
                 isSymbolicLink: () => true,
                 isDirectory: () => false,
                 isFile: () => false,
+                isBlockDevice: () => false,
+                isCharacterDevice: () => false,
+                isFIFO: () => false,
+                isSocket: () => false,
             },
-        ] as unknown as Dirent<NonSharedBuffer>[];
-        vi.mocked(readdirSync).mockReturnValueOnce(fakeEntries);
+        ];
+        const readStringEntries: (path: PathLike, options: { withFileTypes: true }) => Dirent[] = readdirSync;
+        vi.mocked(readStringEntries).mockReturnValueOnce(fakeEntries);
         expect(() => readSkillSourceFiles(ENFORCE_SKILL)).toThrow(
             "Bundled skill resources must not be symlinks: sneaky-link",
         );
