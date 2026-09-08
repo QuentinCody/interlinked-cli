@@ -10,6 +10,17 @@ import type { QualityCheckResult } from "./quality-checks/result-types.js";
 import { resolveQualityCheckTarget, runQualityChecks } from "./quality-checks.js";
 import type { HarnessEvent, QualityCheckConfig } from "./types.js";
 
+// Recovery runs outside the interactive hook deadline. Keep admission and
+// source-count limits, but allow a related suite time to produce a verdict.
+const RECOVERY_TEST_TIMEOUT_MS = 120_000;
+
+function recoveryChecks(configured: Record<string, QualityCheckConfig>): Record<string, QualityCheckConfig> {
+    const checks = structuredClone(configured);
+    const tests = checks.affected_tests;
+    if (tests) tests.timeout_ms = Math.max(tests.timeout_ms, RECOVERY_TEST_TIMEOUT_MS);
+    return checks;
+}
+
 function capturedContent(root: string, entry: HookPendingCheck): string {
     if (entry.identity === "missing") throw new Error("File is absent; review deletion or optional absence explicitly");
     if (!isInsideRoot(root, entry.path)) throw new Error("File is outside the workspace");
@@ -50,7 +61,8 @@ export function createHookCoverageChecker(root: string, getChecks: () => Record<
     return async entries => {
         const evidence = new Map<string, HookCheckEvidence>();
         const inputs = collectInputs(root, entries, evidence);
-        const checks = structuredClone(getChecks());
+        const configured = structuredClone(getChecks());
+        const checks = recoveryChecks(configured);
         const externalRan: string[] = [];
         const external = createChangeSetExternalBatch({ cwd: root, paths: [...inputs.keys()].map(entry => entry.path), checks, outChecksRan: externalRan });
         const externalRows = new Map<string, QualityCheckResult[]>();
@@ -61,7 +73,7 @@ export function createHookCoverageChecker(root: string, getChecks: () => Record<
         for (const [entry, event] of inputs) {
             evidence.set(entry.id, await checkInput({ root, entry, event, checks, externalRan, externalRows: externalRows.get(entry.id) ?? [], deferred }));
         }
-        if (JSON.stringify(checks) !== JSON.stringify(getChecks())) {
+        if (JSON.stringify(configured) !== JSON.stringify(getChecks())) {
             for (const result of evidence.values()) result.unavailable.push("Configured checks changed during verification");
         }
         return evidence;

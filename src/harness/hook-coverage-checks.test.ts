@@ -78,4 +78,13 @@ describe("coverage check scope", () => {
         const evidence = await createHookCoverageChecker(root, () => checks)(entries);
         expect([...evidence.values()].every(result => result.unavailable.includes("Configured checks changed during verification"))).toBe(true);
     });
+
+    it("gives recovery related tests a longer deadline without changing live configuration", async () => {
+        const { root, entries } = fixture();
+        const configured = { affected_tests: { enabled: true, severity: "error" as const, timeout_ms: 15000, max_dependent_tests: 8, file_types: [".ts"] } };
+        const evidence = await createHookCoverageChecker(root, () => configured)(entries);
+        expect(mocks.batch).toHaveBeenCalledWith(expect.objectContaining({ checks: { affected_tests: { ...configured.affected_tests, timeout_ms: 120000 } } }));
+        expect(configured.affected_tests.timeout_ms).toBe(15000);
+        expect([...evidence.values()].map(result => result.unavailable)).toEqual([[], []]);
+    });
 });

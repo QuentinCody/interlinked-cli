@@ -38,6 +38,8 @@ For `[interlinked:hook-coverage] NOT CHECKED`, use `interlinked harness coverage
 for completion; `--no-wait` returns after starting it. Poll `harness coverage status
 --json` to inspect progress. Checks reuse the configured PostToolUse battery in bounded
 external batches. This does not replay PreToolUse guards or certify every hook phase.
+Recovery allows at least two minutes for each related-test process; ordinary hook
+deadlines and the shared admission/source-count limits remain in effect on their paths.
 
 The daemon retains `automated_check` receipts with exact file identities, completed check
 names and findings. Completed checks may have findings; a receipt is not a clean verdict.
