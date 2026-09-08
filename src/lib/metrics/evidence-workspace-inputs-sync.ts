@@ -3,9 +3,9 @@ import { closeSync, fstatSync, lstatSync, openSync, readSync, readdirSync, readl
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { hashBytes } from "./inventory.js";
 import { assertWorkspaceActive, EVIDENCE_WORKSPACE_EXCLUDED, MAX_WORKSPACE_BYTES, MAX_WORKSPACE_FILES } from "./evidence-workspace.js";
-import { sameWorkspaceState, workspaceSnapshot, type EvidenceWorkspaceSnapshot, type WorkspaceInput, type WorkspaceSnapshotOptions } from "./evidence-workspace-state.js";
+import { sameWorkspaceState, workspaceSnapshot, type EvidenceWorkspaceSnapshot, type WorkspaceInput, type WorkspaceInputOptions } from "./evidence-workspace-state.js";
 
-interface SnapshotContext { root: string; options: WorkspaceSnapshotOptions; count: number; bytes: number; buffer: Buffer; }
+interface SnapshotContext { root: string; options: WorkspaceInputOptions; count: number; bytes: number; buffer: Buffer; }
 
 function fileHash(path: string, before: BigIntStats, context: SnapshotContext): string {
     const descriptor = openSync(path, "r");
@@ -44,10 +44,11 @@ function inputAt(path: string, context: SnapshotContext): WorkspaceInput {
 }
 
 /** Streaming and deadline-bounded freshness validation for synchronous status and scoring APIs. */
-export function captureWorkspaceInputsSync(root: string, options: WorkspaceSnapshotOptions): EvidenceWorkspaceSnapshot {
+export function captureWorkspaceInputsSync(root: string, options: WorkspaceInputOptions): EvidenceWorkspaceSnapshot {
     assertWorkspaceActive(options);
     const context: SnapshotContext = { root: realpathSync(root), options, count: 0, bytes: 0, buffer: Buffer.allocUnsafe(64 * 1024) };
-    const inputs: WorkspaceInput[] = [], directories = [""], artifact = resolve(context.root, options.artifact);
+    const inputs: WorkspaceInput[] = [], directories = [""];
+    const artifact = options.artifact === undefined ? undefined : resolve(context.root, options.artifact);
     for (let index = 0; index < directories.length; index++) {
         const directory = directories[index] ?? "";
         assertWorkspaceActive(options);

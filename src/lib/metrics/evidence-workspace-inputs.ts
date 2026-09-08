@@ -4,10 +4,10 @@ import { lstat, open, readdir, readlink, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { hashBytes } from "./inventory.js";
 import { assertWorkspaceActive, EVIDENCE_WORKSPACE_EXCLUDED, MAX_WORKSPACE_BYTES, MAX_WORKSPACE_FILES } from "./evidence-workspace.js";
-import { sameWorkspaceState, workspaceSnapshot, type EvidenceWorkspaceSnapshot, type WorkspaceInput, type WorkspaceSnapshotOptions } from "./evidence-workspace-state.js";
+import { sameWorkspaceState, workspaceSnapshot, type EvidenceWorkspaceSnapshot, type WorkspaceInput, type WorkspaceInputOptions } from "./evidence-workspace-state.js";
 export type { EvidenceWorkspaceSnapshot, WorkspaceSnapshotOptions } from "./evidence-workspace-state.js";
 
-interface SnapshotContext { root: string; options: WorkspaceSnapshotOptions; count: number; bytes: number; buffer: Buffer; }
+interface SnapshotContext { root: string; options: WorkspaceInputOptions; count: number; bytes: number; buffer: Buffer; }
 
 async function fileHash(path: string, before: BigIntStats, context: SnapshotContext): Promise<string> {
     const handle = await open(path, "r");
@@ -45,15 +45,15 @@ async function inputAt(path: string, context: SnapshotContext): Promise<Workspac
     return { path, kind: "file", hash: await fileHash(absolute, stat, context), mode };
 }
 
-async function snapshotContext(root: string, options: WorkspaceSnapshotOptions): Promise<SnapshotContext> {
+async function snapshotContext(root: string, options: WorkspaceInputOptions): Promise<SnapshotContext> {
     assertWorkspaceActive(options);
     return { root: await realpath(root), options, count: 0, bytes: 0, buffer: Buffer.allocUnsafe(64 * 1024) };
 }
 
 /** The copy policy defines runtime inputs, including ignored files and installed dependencies. */
-export async function captureWorkspaceInputs(root: string, options: WorkspaceSnapshotOptions): Promise<EvidenceWorkspaceSnapshot> {
+export async function captureWorkspaceInputs(root: string, options: WorkspaceInputOptions): Promise<EvidenceWorkspaceSnapshot> {
     const context = await snapshotContext(root, options), inputs: WorkspaceInput[] = [], directories = [""];
-    const artifact = resolve(context.root, options.artifact);
+    const artifact = options.artifact === undefined ? undefined : resolve(context.root, options.artifact);
     for (let index = 0; index < directories.length; index++) {
         const directory = directories[index] ?? "";
         assertWorkspaceActive(options);
@@ -71,7 +71,7 @@ export async function captureWorkspaceInputs(root: string, options: WorkspaceSna
 }
 
 /** Newly produced outputs are allowed; every original runtime input must remain unchanged. */
-export async function changedWorkspaceInputs(root: string, snapshot: EvidenceWorkspaceSnapshot, options: WorkspaceSnapshotOptions): Promise<string[]> {
+export async function changedWorkspaceInputs(root: string, snapshot: EvidenceWorkspaceSnapshot, options: WorkspaceInputOptions): Promise<string[]> {
     const context = await snapshotContext(root, options), issues: string[] = [];
     for (const before of snapshot.inputs) {
         const after = await inputAt(before.path, context);

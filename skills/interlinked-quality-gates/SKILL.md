@@ -800,6 +800,12 @@ local evidence before changing a disabled gate's policy.
 `metrics deletions validate plan.json` runs explicit removal trials in isolation,
 requiring both baseline and candidate tests plus type checking. A checks-passed
 result still requires public-API/runtime review; it does not apply the deletion.
+Baseline and candidate phases use separate matching copies prepared before any
+check runs. Each phase executes the same ordered checks, so a compiler/build can
+produce artifacts consumed by later tests within that phase. Baseline side effects
+do not become candidate inputs. Copying and validation share the trial deadline;
+changed original runtime inputs make the result inconclusive. This uses two
+bounded disposable trees and can increase copy/storage costs.
 See `docs/metrics-scoring.md` and `docs/metrics-corpus-2026-09-08.md` for the complete
 contract, policies, bounds and pinned empirical artifacts.
 

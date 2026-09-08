@@ -243,7 +243,11 @@ and missing evidence remain review blockers. A survivor alone is not dead code.
 schema-1 removal plan in isolation. Each edit supplies a relative path, exact source
 SHA-256 and a UTF-16 half-open deletion range (`start`, `end`). Checks supply
 `kind` and argv; both tests and type checking are required, with optional build.
-Baseline checks must pass before candidate checks run. A `checks-passed` result
+Baseline and candidate trees are prepared from the same captured runtime inputs
+before any check runs. Each phase starts fresh and executes its own ordered
+checks, so baseline-generated state cannot hide a broken candidate. Runtime
+input changes in the source checkout invalidate the trial. Baseline checks must
+pass before candidate checks run. A `checks-passed` result
 records what the checks established; review remains required and the source
 checkout is unchanged. The command does not automatically apply a removal.
 

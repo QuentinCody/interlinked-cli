@@ -3,7 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { evidenceIdentity, identityDifferences } from "./evidence-identity.js";
 import { runEvidenceProcess, type EvidenceProcessResult } from "./evidence-process.js";
-import { copyEvidenceWorkspace, removeEvidenceWorkspace } from "./evidence-workspace.js";
+import { assertWorkspaceActive, removeEvidenceWorkspace } from "./evidence-workspace.js";
+import { captureWorkspaceInputs } from "./evidence-workspace-inputs.js";
+import { prepareRemovalWorkspaces } from "./removal-workspace.js";
 import { collectRepositoryInventory, containedFile, hashBytes } from "./inventory.js";
 import type { RepositoryInventory } from "./measurement-types.js";
 import { parseRemovalPlan, type RemovalCheck, type RemovalEdit, type RemovalPlan } from "./removal-plan.js";
@@ -34,6 +36,7 @@ function applyFileRemoval(workspace: string, inventory: RepositoryInventory, edi
 async function checks(options: RemovalTrialOptions, workspace: string, deadline: number): Promise<RemovalCheckResult[]> {
     const results: RemovalCheckResult[] = [];
     for (const check of options.plan.checks) {
+        assertWorkspaceActive({ deadline, ...(options.signal ? { signal: options.signal } : {}) });
         const result = await runEvidenceProcess({ cwd: workspace, argv: check.argv, timeoutMs: Math.max(1, deadline - Date.now()), ...(options.signal ? { signal: options.signal } : {}) });
         results.push({ ...result, kind: check.kind, argv: check.argv });
         if (result.outcome !== "passed") break;
@@ -41,14 +44,27 @@ async function checks(options: RemovalTrialOptions, workspace: string, deadline:
     return results;
 }
 
+function unchangedBaselineInputs(workspace: string, inventory: RepositoryInventory, edits: RemovalEdit[]): void {
+    for (const path of new Set(edits.map(edit => edit.path))) {
+        const input = inventory.files.find(file => file.path === path);
+        if (!input || hashBytes(readFileSync(containedFile(workspace, path))) !== input.sha256) throw new Error("Baseline checks changed the proposed removal input");
+    }
+}
+
 async function trial(options: RemovalTrialOptions, workspace: string, inventory: RepositoryInventory, deadline: number): Promise<RemovalTrialResult> {
     const result: RemovalTrialResult = { schemaVersion: 1, planHash: hashBytes(JSON.stringify(options.plan)), verdict: "inconclusive", before: [], after: [], issues: [], reviewRequired: true };
-    await copyEvidenceWorkspace({ source: inventory.root, destination: workspace, deadline, ...(options.signal ? { signal: options.signal } : {}) });
-    result.before = await checks(options, workspace, deadline);
+    const window = { deadline, ...(options.signal ? { signal: options.signal } : {}) };
+    const phases = await prepareRemovalWorkspaces(inventory.root, workspace, window);
+    result.before = await checks(options, phases.baseline, deadline);
     if (result.before.some(row => row.outcome !== "passed")) { result.verdict = "baseline-failed"; return result; }
-    for (const path of new Set(options.plan.edits.map(edit => edit.path))) applyFileRemoval(workspace, inventory, options.plan.edits.filter(edit => edit.path === path));
-    result.after = await checks(options, workspace, deadline);
+    unchangedBaselineInputs(phases.baseline, inventory, options.plan.edits);
+    for (const path of new Set(options.plan.edits.map(edit => edit.path))) applyFileRemoval(phases.candidate, inventory, options.plan.edits.filter(edit => edit.path === path));
+    result.after = await checks(options, phases.candidate, deadline);
     result.verdict = result.after.every(row => row.outcome === "passed") ? "checks-passed" : "candidate-failed";
+    if ((await captureWorkspaceInputs(inventory.root, window)).hash !== phases.runtimeHash) {
+        result.verdict = "inconclusive";
+        result.issues.push("Repository runtime inputs changed during removal validation");
+    }
     result.issues.push("Passing selected checks supports this removal only within their scope; external consumers and unasserted side effects still require review.");
     return result;
 }
