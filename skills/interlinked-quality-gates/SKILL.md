@@ -67,9 +67,16 @@ rails and every tighten-only ratchet ignore the mode. Hand edits to
   a file on the untested list asks for a characterization test FIRST — capture
   today's behavior with exact assertions, then change it. Same
   `// interlinked-tdd: exempt` escape as the new-file gate.
-- Ratchet-family dimensions: `seam_ratchet` (ambient clock/random/env reads
-  must not rise) and `assertion_strength_ratchet` (an edit may not add weak
-  matchers without adding exact ones, test files only).
+- Ratchet-family dimensions: `seam_ratchet` tracks added ambient clock/random/env
+  reads. `assertion_strength_ratchet` is heuristic PostToolUse advice for test files,
+  never a block: it flags introduced broad matchers without introduced exact checks.
+  JS/TS comparison uses complete assertion calls, ignoring comments, strings,
+  formatting, moves, and existing calls; Python retains a stripped-line heuristic.
+  Missing raw pre-edit content or unusable JS/TS syntax yields no assertion advice.
+  Exact undefined/null, call-count, and zero-call checks are legitimate contracts.
+  Broad membership/type checks can also be appropriate; assess the tested behavior
+  before changing them. A matcher classification does not prove mutation coverage
+  or require literal-only expected values.
 - `new_import_cycle` (structural, default warn): fires the moment an edit
   closes a module cycle that did not exist before.
 - Advisory portability family: `dynamic_code_execution`,

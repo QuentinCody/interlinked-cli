@@ -56,4 +56,8 @@ export interface PreEditBaseline {
 	ambientSeams?: import("../quality-checks/ratchet-metrics.js").AmbientSeamCounts | undefined;
 	/** Assertion-strength counts before the edit (plan 25 lane 4); assertion_strength_ratchet warns on pure weakening. Optional — fails open. */
 	assertionStrength?: import("../quality-checks/ratchet-metrics.js").AssertionStrengthCounts | undefined;
+	/** Raw pre-edit content for assertion introduction comparisons. Whole-file
+	 *  counts cannot distinguish new calls from unchanged or moved assertions.
+	 *  Optional for older captured baselines; advice is omitted when absent. */
+	assertionStrengthPreContent?: string | undefined;
 }

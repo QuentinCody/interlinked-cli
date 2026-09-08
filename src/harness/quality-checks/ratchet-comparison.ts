@@ -9,7 +9,9 @@
 // invoke it unconditionally.
 
 import { capturePrimitiveViolations } from "../discovered-primitives.js";
+import { stripAllLiterals } from "../strip-helpers.js";
 import type { PreEditBaseline } from "../types.js";
+import { addedLinesText, countAddedJsTsAssertions } from "./assertion-strength-hunks.js";
 import {
 	countAmbientSeams,
 	countAsAnyCasts,
@@ -335,33 +337,36 @@ function checkSeamRatchet(
  *  Python test shapes (`test_*.py`, `*_test.py`, `tests/*.py`) — the counter
  *  dispatches the matcher vocabulary by extension (plan 25 Python parity). */
 const ASSERTION_STRENGTH_TEST_PATH_RE =
-	/\.(?:test|spec)\.tsx?$|(?:^|\/)__tests__\/|(?:^|\/)test_[^/]+\.py$|_test\.py$|(?:^|\/)tests\/[^/]+\.py$/;
+	/\.(?:test|spec)\.[cm]?[jt]sx?$|(?:^|\/)__tests__\/|(?:^|\/)test_[^/]+\.py$|_test\.py$|(?:^|\/)tests\/[^/]+\.py$/;
 
-/** Assertion-strength ratchet (plan 25 lane 4): fires only on PURE weakening
- *  — the edit adds a weak matcher (toContain/toMatch/toBeTruthy/toBeDefined)
- *  without adding any exact matcher (toBe/toEqual/toStrictEqual) to offset
- *  it. Test files only; fails open when the baseline predates the field. */
+/** Advisory only: an edit introduces broad assertions without any introduced
+ *  exact-value assertion. JS/TS compares complete call token multisets, so
+ *  formatting/moves cancel and multiline assertions retain their context.
+ *  Python retains its stripped added-line heuristic. Missing baselines fail open. */
 function checkAssertionStrengthRatchet(
 	absPath: string,
 	pre: PreEditBaseline,
 	postContent: string,
 ): QualityCheckResult[] {
-	if (!pre.assertionStrength) return [];
+	if (!pre.assertionStrength || pre.assertionStrengthPreContent === undefined) return [];
 	const posix = absPath.replace(/\\/g, "/");
 	if (!ASSERTION_STRENGTH_TEST_PATH_RE.test(posix)) return [];
 	const post = countAssertionStrength(postContent, posix);
-	const weakGrew = post.weak > pre.assertionStrength.weak;
-	const exactGrew = post.exact > pre.assertionStrength.exact;
-	if (!weakGrew || exactGrew) return [];
+	const added = /\.py$/i.test(posix)
+		? countAssertionStrength(addedLinesText(stripAllLiterals(pre.assertionStrengthPreContent), stripAllLiterals(postContent)), posix)
+		: countAddedJsTsAssertions(pre.assertionStrengthPreContent, postContent, posix);
+	if (added.weak === 0 || added.exact > 0) return [];
 	return [
 		{
 			name: "assertion_strength_ratchet",
 			severity: "warning",
 			message:
-				`Weak assertions increased (${pre.assertionStrength.weak} → ${post.weak}) with no new ` +
-				`exact-value assertions (${pre.assertionStrength.exact} → ${post.exact}). Prefer ` +
-				`toBe/toEqual/toStrictEqual over toContain/toMatch/toBeTruthy/toBeDefined — mutation ` +
-				`testing kills mutants with exact observables, and weak matchers let them survive.`,
+				`[heuristic] Broad assertion forms added (${added.weak} new, 0 new exact-value assertions ` +
+				`in this edit) — file totals: weak ${pre.assertionStrength.weak} → ${post.weak}, exact ` +
+				`${pre.assertionStrength.exact} → ${post.exact}. Review whether these assertions pin the ` +
+				`intended observable. Membership, type, and absence checks can be the correct contract; ` +
+				`prefer precise expected values when the behavior promises them. Matcher shape alone ` +
+				`does not establish test quality or mutation effectiveness.`,
 			file: absPath,
 		},
 	];

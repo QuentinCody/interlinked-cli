@@ -297,11 +297,10 @@ describe("countAssertionStrength (plan 25 lane 4)", () => {
 		expect(countAssertionStrength(src)).toEqual({ weak: 4, exact: 3 });
 	});
 
-	// test-contract: boundary — matchers deliberately left OFF the "use exactly"
-	// list (toBeFalsy/toBeUndefined) must not count toward weak
-	it("N1: matchers excluded from the exact list are not counted", () => {
+	// Falsy accepts several values; undefined pins one exact result.
+	it("distinguishes broad falsiness from exact undefined", () => {
 		const src = "expect(x).toBeFalsy();\nexpect(y).toBeUndefined();\n";
-		expect(countAssertionStrength(src)).toEqual({ weak: 0, exact: 0 });
+		expect(countAssertionStrength(src)).toEqual({ weak: 1, exact: 1 });
 	});
 
 	// test-contract: boundary — string/comment mentions of matcher names are not calls

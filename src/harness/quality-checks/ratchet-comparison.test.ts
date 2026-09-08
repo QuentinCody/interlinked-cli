@@ -706,19 +706,79 @@ describe("runRatchetComparison — seam_ratchet (plan 25 lane 2)", () => {
 	});
 });
 
-describe("runRatchetComparison — assertion_strength_ratchet (plan 25 lane 4)", () => {
-	// test-contract: behavior — pure weakening (weak grows, exact does not) fires
+describe("runRatchetComparison — assertion_strength_ratchet (introduced assertions)", () => {
+	// test-contract: behavior — pure weakening (weak added, no offsetting exact
+	// in the same added lines) fires
 	it("P1: fires when the edit adds a weak matcher with no offsetting exact matcher", () => {
 		const results = runRatchetComparison(
 			makeCtx({
 				absPath: "/repo/src/touched.test.ts",
-				baseline: zeroBaseline({ assertionStrength: { weak: 0, exact: 0 } }),
+				baseline: zeroBaseline({
+					assertionStrength: { weak: 0, exact: 0 },
+					assertionStrengthPreContent: "",
+				}),
 				postContent: "expect(x).toContain(1);\n",
 			}),
 		);
 		expect(names(results)).toEqual(["assertion_strength_ratchet"]);
 		expect(results[0]?.message).toContain("0 → 1");
 		expect(results[0]?.message).toContain("exact-value");
+		expect(results[0]?.severity).toBe("warning");
+		expect(results[0]?.message).toContain("[heuristic]");
+	});
+
+	it.each([
+		{
+			name: "a multiline matcher replacement",
+			pre: "expect(\n result\n).toEqual(\n [1]\n);",
+			post: "expect(\n result\n).toContain(\n 1\n);",
+			before: { weak: 0, exact: 1 },
+			expected: ["assertion_strength_ratchet"],
+		},
+		{
+			name: "an unchanged exact call on the edited line",
+			pre: "expect(x).toBe(1);",
+			post: "expect(x).toBe(1); expect(y).toBeTruthy();",
+			before: { weak: 0, exact: 1 },
+			expected: ["assertion_strength_ratchet"],
+		},
+		{
+			name: "new text inside an existing block comment",
+			pre: "/*\nexample\n*/",
+			post: "/*\nexample\nexpect(x).toBeTruthy();\n*/",
+			before: { weak: 0, exact: 0 },
+			expected: [],
+		},
+		{
+			name: "legitimate exact absence and call-count checks",
+			pre: "",
+			post: "expect(result).toBeUndefined(); expect(fn).toHaveBeenCalledTimes(2); expect(other).not.toHaveBeenCalled();",
+			before: { weak: 0, exact: 0 },
+			expected: [],
+		},
+		{
+			name: "a negated equality that does not offset a broad assertion",
+			pre: "",
+			post: "expect(x).toBeTruthy(); expect(y).not.toBe(1);",
+			before: { weak: 0, exact: 0 },
+			expected: ["assertion_strength_ratchet"],
+		},
+	])("handles $name", ({ pre, post, before, expected }) => {
+		const results = runRatchetComparison(makeCtx({
+			absPath: "/repo/src/touched.test.ts",
+			baseline: zeroBaseline({ assertionStrength: before, assertionStrengthPreContent: pre }),
+			postContent: post,
+		}));
+		expect(names(results)).toEqual(expected);
+	});
+
+	it("uses JSX syntax for a JavaScript test path", () => {
+		const results = runRatchetComparison(makeCtx({
+			absPath: "/repo/src/touched.test.jsx",
+			baseline: zeroBaseline({ assertionStrength: { weak: 0, exact: 0 }, assertionStrengthPreContent: "" }),
+			postContent: "const view = <Panel />; expect(view).toBeTruthy();",
+		}));
+		expect(names(results)).toEqual(["assertion_strength_ratchet"]);
 	});
 
 	// test-contract: boundary — the path predicate also matches __tests__/ and .spec.tsx
@@ -726,7 +786,10 @@ describe("runRatchetComparison — assertion_strength_ratchet (plan 25 lane 4)",
 		const dirResults = runRatchetComparison(
 			makeCtx({
 				absPath: "/repo/src/__tests__/touched.ts",
-				baseline: zeroBaseline({ assertionStrength: { weak: 0, exact: 0 } }),
+				baseline: zeroBaseline({
+					assertionStrength: { weak: 0, exact: 0 },
+					assertionStrengthPreContent: "",
+				}),
 				postContent: "expect(x).toMatch(/a/);\n",
 			}),
 		);
@@ -735,30 +798,78 @@ describe("runRatchetComparison — assertion_strength_ratchet (plan 25 lane 4)",
 		const specResults = runRatchetComparison(
 			makeCtx({
 				absPath: "/repo/src/touched.spec.tsx",
-				baseline: zeroBaseline({ assertionStrength: { weak: 0, exact: 0 } }),
+				baseline: zeroBaseline({
+					assertionStrength: { weak: 0, exact: 0 },
+					assertionStrengthPreContent: "",
+				}),
 				postContent: "expect(x).toBeTruthy();\n",
 			}),
 		);
 		expect(names(specResults)).toEqual(["assertion_strength_ratchet"]);
 	});
 
-	// test-contract: boundary — an offsetting exact matcher means it's not PURE weakening
-	it("N1: adding an exact matcher alongside the weak one stays silent", () => {
+	// test-contract: behavior (harness-debt row 25 fix) — a PRE-EXISTING exact
+	// matcher elsewhere in the file, unchanged by this edit, must not offset
+	// a newly-added weak matcher
+	it("P3: fires even though the file already has an unrelated pre-existing exact matcher", () => {
+		const pre = "expect(a).toBe(1);\n";
 		const results = runRatchetComparison(
 			makeCtx({
 				absPath: "/repo/src/touched.test.ts",
-				baseline: zeroBaseline({ assertionStrength: { weak: 0, exact: 0 } }),
+				baseline: zeroBaseline({
+					assertionStrength: { weak: 0, exact: 1 },
+					assertionStrengthPreContent: pre,
+				}),
+				postContent: `${pre}expect(x).toContain(1);\n`,
+			}),
+		);
+		expect(names(results)).toEqual(["assertion_strength_ratchet"]);
+		expect(results[0]?.message).toContain("exact 1 → 1");
+	});
+
+	// test-contract: behavior — a newly-recognized weak form (harness-debt row
+	// 25) flows end-to-end through the added-lines scoped ratchet
+	it("P4: fires for a newly-added toBeFalsy() with no offsetting exact matcher", () => {
+		const results = runRatchetComparison(
+			makeCtx({
+				absPath: "/repo/src/touched.test.ts",
+				baseline: zeroBaseline({
+					assertionStrength: { weak: 0, exact: 0 },
+					assertionStrengthPreContent: "",
+				}),
+				postContent: "expect(x).toBeFalsy();\n",
+			}),
+		);
+		expect(names(results)).toEqual(["assertion_strength_ratchet"]);
+	});
+
+	// test-contract: boundary — an offsetting exact matcher in the SAME added
+	// lines means it's not PURE weakening
+	it("N1: adding an exact matcher alongside the weak one in the same edit stays silent", () => {
+		const results = runRatchetComparison(
+			makeCtx({
+				absPath: "/repo/src/touched.test.ts",
+				baseline: zeroBaseline({
+					assertionStrength: { weak: 0, exact: 0 },
+					assertionStrengthPreContent: "",
+				}),
 				postContent: "expect(x).toContain(1);\nexpect(y).toBe(2);\n",
 			}),
 		);
 		expect(names(results)).toEqual([]);
 	});
 
+	// test-contract: boundary — a deleted weak matcher (present in pre, absent
+	// from post, nothing new added) stays silent
 	it("N2: holding or removing weak matchers stays silent", () => {
+		const pre = "expect(x).toContain(1);\nexpect(y).toContain(2);\n";
 		const results = runRatchetComparison(
 			makeCtx({
 				absPath: "/repo/src/touched.test.ts",
-				baseline: zeroBaseline({ assertionStrength: { weak: 2, exact: 0 } }),
+				baseline: zeroBaseline({
+					assertionStrength: { weak: 2, exact: 0 },
+					assertionStrengthPreContent: pre,
+				}),
 				postContent: "expect(x).toContain(1);\n",
 			}),
 		);
@@ -770,6 +881,35 @@ describe("runRatchetComparison — assertion_strength_ratchet (plan 25 lane 4)",
 		const results = runRatchetComparison(
 			makeCtx({
 				absPath: "/repo/src/touched.ts",
+				baseline: zeroBaseline({
+					assertionStrength: { weak: 0, exact: 0 },
+					assertionStrengthPreContent: "",
+				}),
+				postContent: "expect(x).toContain(1);\n",
+			}),
+		);
+		expect(names(results)).toEqual([]);
+	});
+
+	// test-contract: boundary — a baseline captured before the counters
+	// existed must fail open, never fire
+	it("N4: fails open when the baseline lacks assertionStrength", () => {
+		const results = runRatchetComparison(
+			makeCtx({
+				absPath: "/repo/src/touched.test.ts",
+				postContent: "expect(x).toContain(1);\n",
+			}),
+		);
+		expect(names(results)).toEqual([]);
+	});
+
+	// test-contract: boundary (harness-debt row 25) — a baseline that HAS
+	// assertionStrength counts but predates the raw-content field must also
+	// fail open, since the added-lines scope has nothing to diff against
+	it("N5: fails open when the baseline lacks assertionStrengthPreContent", () => {
+		const results = runRatchetComparison(
+			makeCtx({
+				absPath: "/repo/src/touched.test.ts",
 				baseline: zeroBaseline({ assertionStrength: { weak: 0, exact: 0 } }),
 				postContent: "expect(x).toContain(1);\n",
 			}),
@@ -777,13 +917,35 @@ describe("runRatchetComparison — assertion_strength_ratchet (plan 25 lane 4)",
 		expect(names(results)).toEqual([]);
 	});
 
-	// test-contract: boundary — a baseline captured before the field existed
-	// must fail open, never fire
-	it("N4: fails open when the baseline lacks assertionStrength", () => {
+	// test-contract: boundary (harness-debt row 25 fix) — a pure move (the
+	// same lines reordered, nothing textually new) must not fire
+	it("N6: a pure move of existing lines stays silent", () => {
+		const pre = "expect(a).toBe(1);\nexpect(x).toContain(1);\n";
+		const post = "expect(x).toContain(1);\nexpect(a).toBe(1);\n";
 		const results = runRatchetComparison(
 			makeCtx({
 				absPath: "/repo/src/touched.test.ts",
-				postContent: "expect(x).toContain(1);\n",
+				baseline: zeroBaseline({
+					assertionStrength: { weak: 1, exact: 1 },
+					assertionStrengthPreContent: pre,
+				}),
+				postContent: post,
+			}),
+		);
+		expect(names(results)).toEqual([]);
+	});
+
+	// test-contract: boundary — an unchanged file (identical pre/post) stays silent
+	it("N7: an unchanged file stays silent", () => {
+		const content = "expect(x).toContain(1);\n";
+		const results = runRatchetComparison(
+			makeCtx({
+				absPath: "/repo/src/touched.test.ts",
+				baseline: zeroBaseline({
+					assertionStrength: { weak: 1, exact: 0 },
+					assertionStrengthPreContent: content,
+				}),
+				postContent: content,
 			}),
 		);
 		expect(names(results)).toEqual([]);

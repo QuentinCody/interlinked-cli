@@ -8,6 +8,7 @@
 
 import { nonNull } from "../../lib/non-null.js";
 import { stripAllLiterals } from "../strip-helpers.js";
+import { classifyJsTsAssertionCalls } from "./assertion-strength-hunks.js";
 
 // `interlinked-ignore` is the harness's OWN fully-suppressing directive
 // (suppressions.ts) — leaving it uncounted meant an agent could silence
@@ -288,16 +289,19 @@ export function countAmbientSeams(content: string, filePath: string): AmbientSea
 // ===========================================
 // Assertion-strength counters (plan 25, lane 4)
 // ===========================================
-// A WEAK matcher (toContain/toMatch/toBeTruthy/toBeDefined) accepts a wide
-// range of post-mutation values, so a mutant that corrupts the exact result
-// can still slip past it. An EXACT matcher (toBe/toEqual/toStrictEqual) pins
-// one specific observable, so mutation testing kills more of what it should.
+// These are advisory assertion-shape counts. Broad matchers can be correct
+// for membership, type, and other contracts; an exact matcher alone is not
+// evidence of meaningful behavior coverage. Equality against a fixture or a
+// variable can pin a value just as well as a literal. Undefined/null and
+// positive call-count checks also pin exact observables.
 // The ratchet (in ratchet-comparison.ts) reads these counts and fires only
 // on pure weakening; this module only counts — the test-file scope filter
 // lives at the comparison layer, so capturing counts for any file is safe.
 
-const WEAK_MATCHER_PATTERN = /\b(?:toContain|toMatch|toBeTruthy|toBeDefined)\s*\(/g;
-const EXACT_MATCHER_PATTERN = /\b(?:toBe|toEqual|toStrictEqual)\s*\(/g;
+// JS/TS classification reads raw syntax, preserving literal identity. Bare
+// call-presence advice is suppressed only by an argument check for the same
+// subject in the same function scope.
+//
 // Python parity (plan 25): unittest matchers plus pytest's plain asserts —
 // a bare truthy `assert x` and membership `assert a in b` are the weak forms;
 // `assert a == b` and the *Equal family pin exact observables.
@@ -311,23 +315,18 @@ export interface AssertionStrengthCounts {
 	exact: number;
 }
 
-/** Count weak and exact assertion forms in `content`. Strings/comments are
- *  stripped first so a matcher name mentioned in prose doesn't count. The
- *  optional `filePath` picks the idiom set: `.py` counts unittest/pytest
- *  forms; everything else counts the vitest/jest matchers. */
+/** Count broad and exact assertion forms. JS/TS uses complete parsed calls;
+ *  Python uses stripped unittest/pytest patterns. Neither counts prose. */
 export function countAssertionStrength(
 	content: string,
 	filePath = "",
 ): AssertionStrengthCounts {
-	const stripped = stripAllLiterals(content);
 	if (/\.py$/i.test(filePath)) {
+		const stripped = stripAllLiterals(content);
 		return {
 			weak: countMatches(stripped, PY_WEAK_MATCHER_PATTERN),
 			exact: countMatches(stripped, PY_EXACT_MATCHER_PATTERN),
 		};
 	}
-	return {
-		weak: countMatches(stripped, WEAK_MATCHER_PATTERN),
-		exact: countMatches(stripped, EXACT_MATCHER_PATTERN),
-	};
+	return classifyJsTsAssertionCalls(content, filePath);
 }
