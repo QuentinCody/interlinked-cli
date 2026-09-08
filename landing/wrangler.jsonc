@@ -4,9 +4,8 @@
  * Deploy:    npx wrangler deploy
  * Local:     npx wrangler dev
  *
- * Routes are served by Workers Static Assets first; the Worker only runs for
- * paths that don't match a static file. Add dynamic routes (e.g. /api/*) to
- * src/index.ts as they're needed.
+ * API and health routes run the Worker first. Other paths use Workers Static
+ * Assets, falling through to the Worker when no static file matches.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -17,8 +16,18 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "not_found_handling": "404-page"
+    "not_found_handling": "404-page",
+    "run_worker_first": ["/api/*", "/healthz"]
   },
+  // Waitlist email store. Rows are `wl:<email>` JSON; export via
+  // GET /api/waitlist/export with the ADMIN_TOKEN secret
+  // (wrangler secret put ADMIN_TOKEN).
+  "kv_namespaces": [
+    {
+      "binding": "WAITLIST_KV",
+      "id": "9c9a776ebb0a4438a820bff6594cd6c2"
+    }
+  ],
   "routes": [
     {
       "pattern": "interlinked.quentincody.dev",

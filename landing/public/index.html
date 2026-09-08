@@ -83,6 +83,7 @@
       <a href="#how" class="hover:text-zinc-100 transition">How it works</a>
       <a href="#compare" class="hover:text-zinc-100 transition">Compare</a>
       <a href="#faq" class="hover:text-zinc-100 transition">FAQ</a>
+      <a href="#waitlist" class="text-accent-400 hover:text-accent-300 transition font-medium">Waitlist</a>
     </div>
     <a href="https://github.com/QuentinCody/interlinked-cli" class="inline-flex items-center gap-2 rounded-md border border-ink-600 bg-ink-800/80 hover:bg-ink-700 hover:border-ink-600 px-3 py-1.5 text-sm text-zinc-200 transition">
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.27-.01-1-.02-1.96-3.2.69-3.87-1.54-3.87-1.54-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.16 1.18a10.96 10.96 0 0 1 5.75 0c2.2-1.49 3.16-1.18 3.16-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.84 1.18 3.1 0 4.42-2.7 5.39-5.27 5.68.41.36.78 1.06.78 2.13 0 1.54-.02 2.78-.02 3.16 0 .31.21.68.8.56C20.22 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
@@ -115,8 +116,23 @@
       </div>
 
       <p class="mt-3 text-xs text-zinc-500 max-w-xl">
-        Node 22+, macOS or Linux. <span class="text-zinc-400">No npm package yet — stay tuned!</span>
+        Node 22+, macOS or Linux. No npm package yet. The 0.2 release goes to the waitlist first:
       </p>
+
+      <form data-waitlist data-source="hero" autocomplete="off" class="mt-3 max-w-xl">
+        <div class="flex flex-col sm:flex-row gap-2">
+          <input type="email" required maxlength="254" placeholder="you@example.com" aria-label="Email address"
+                 class="wl-email flex-1 rounded-md border border-ink-600 bg-ink-900/60 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20" />
+          <button type="submit"
+                  class="wl-go inline-flex items-center justify-center gap-2 rounded-md border border-accent-500/60 bg-accent-500/10 hover:bg-accent-500/20 disabled:opacity-50 text-accent-400 font-semibold px-5 py-2.5 text-sm transition whitespace-nowrap">
+            Join the waitlist
+          </button>
+        </div>
+        <div class="absolute -left-[9999px] w-px h-px opacity-0 overflow-hidden" aria-hidden="true">
+          <input type="text" tabindex="-1" class="wl-hp" aria-label="Leave this field empty" />
+        </div>
+        <p class="wl-msg mt-2 text-sm leading-relaxed hidden" role="status" aria-live="polite"></p>
+      </form>
 
       <div class="mt-10 flex flex-wrap gap-x-6 gap-y-2 text-xs text-zinc-500 uppercase tracking-wider font-medium">
         <span>Works with</span>
@@ -290,7 +306,7 @@
       </div>
       <div class="rounded-lg border border-ink-700 bg-ink-900/40 p-5 hover:border-accent-500/40 transition">
         <p class="text-zinc-50 font-semibold">Multi-runner</p>
-        <p class="mt-2 text-sm text-zinc-400 leading-relaxed">Same harness for Claude Code, Codex, Cursor, Copilot CLI, and Gemini CLI. One config, every agent.</p>
+        <p class="mt-2 text-sm text-zinc-400 leading-relaxed">Same harness for Claude Code, Codex, Cursor, Copilot CLI, Gemini CLI, opencode, and Pi. One config, every agent.</p>
       </div>
       <div class="rounded-lg border border-ink-700 bg-ink-900/40 p-5 hover:border-accent-500/40 transition">
         <p class="text-zinc-50 font-semibold">Deterministic</p>
@@ -298,7 +314,7 @@
       </div>
       <div class="rounded-lg border border-ink-700 bg-ink-900/40 p-5 hover:border-accent-500/40 transition">
         <p class="text-zinc-50 font-semibold">Supply-chain gate</p>
-        <p class="mt-2 text-sm text-zinc-400 leading-relaxed">New dependencies are blocked until allowlisted — npm, pnpm, yarn, bun, pip, poetry, uv, cargo, gem, go. URL installs and registry overrides always blocked. Fail-closed even when the daemon is down.</p>
+        <p class="mt-2 text-sm text-zinc-400 leading-relaxed">New dependencies are blocked until allowlisted — npm, pnpm, yarn, bun, pip, pipx, poetry, uv, cargo, gem, bundle, go, composer, dotnet, mvn. URL installs and registry overrides always blocked. Fail-closed even when the daemon is down.</p>
       </div>
       <div class="rounded-lg border border-ink-700 bg-ink-900/40 p-5 hover:border-accent-500/40 transition">
         <p class="text-zinc-50 font-semibold">Coverage-aware</p>
@@ -312,8 +328,10 @@
 
     <div class="mt-14 rounded-xl border border-ink-700 bg-ink-900/60 p-6 lg:p-8 overflow-x-auto">
       <pre class="font-mono text-xs sm:text-sm leading-relaxed text-zinc-300"><span class="text-zinc-500"># the hot path</span>
-agent (Claude / Codex / Cursor / Copilot / Gemini)
-  ├─→ <span class="text-accent-400">interlinked-hook</span>  (~0.1 ms)
+Claude / Codex / Cursor / Copilot / Gemini
+  ├─→ <span class="text-accent-400">interlinked-hook</span>
+OpenCode / Pi
+  ├─→ <span class="text-accent-400">managed plugin / extension bridge</span>
   │     ├─→ <span class="text-zinc-100">.interlinked/harness.sock</span>
   │     │     └─→ guard eval (block / allow / warn) ............ <span class="text-emerald-400">3 ms p50</span>
   │     │     └─→ post-edit quality + structural checks ........ <span class="text-emerald-400">~0.1–3 s (compilers)</span>
@@ -358,7 +376,7 @@ agent (Claude / Codex / Cursor / Copilot / Gemini)
           </tr>
           <tr>
             <td class="px-4 py-3 font-medium text-zinc-100">Multi-agent runner support</td>
-            <td class="px-4 py-3 text-emerald-400">✓ 5 runners</td>
+            <td class="px-4 py-3 text-emerald-400">✓ 7 runners</td>
             <td class="px-4 py-3 text-zinc-500">— (git only)</td>
             <td class="px-4 py-3 text-zinc-500">— (Claude Code only)</td>
             <td class="px-4 py-3 text-zinc-500">—</td>
@@ -372,7 +390,7 @@ agent (Claude / Codex / Cursor / Copilot / Gemini)
           </tr>
           <tr>
             <td class="px-4 py-3 font-medium text-zinc-100">Blocks unapproved package installs (supply chain)</td>
-            <td class="px-4 py-3 text-emerald-400">✓ fail-closed allowlist, 13 package managers</td>
+            <td class="px-4 py-3 text-emerald-400">✓ fail-closed allowlist, 15 package managers</td>
             <td class="px-4 py-3 text-zinc-500">—</td>
             <td class="px-4 py-3">post-merge at best</td>
             <td class="px-4 py-3 text-zinc-500">—</td>
@@ -492,6 +510,29 @@ agent (Claude / Codex / Cursor / Copilot / Gemini)
     </div>
   </section>
 
+  <!-- Waitlist -->
+  <section id="waitlist" class="max-w-4xl mx-auto px-6 py-20 lg:py-28 border-t border-ink-700/50">
+    <p class="text-accent-500 text-sm font-semibold uppercase tracking-wider">Waitlist</p>
+    <h2 class="mt-3 text-3xl sm:text-4xl font-bold text-zinc-50 tracking-tight">Get the npm release the day it ships.</h2>
+
+    <form data-waitlist data-source="waitlist-section" autocomplete="off" class="mt-8 max-w-xl">
+      <div class="flex flex-col sm:flex-row gap-3">
+        <input type="email" required maxlength="254" placeholder="you@example.com"
+               aria-label="Email address"
+               class="wl-email flex-1 rounded-md border border-ink-600 bg-ink-900/60 px-3.5 py-2.5 text-sm text-zinc-100 placeholder-zinc-600 focus:border-accent-500 focus:outline-none focus:ring-2 focus:ring-accent-500/20" />
+        <button type="submit"
+                class="wl-go inline-flex items-center justify-center gap-2 rounded-md bg-accent-500 hover:bg-accent-400 disabled:opacity-50 text-ink-950 font-semibold px-6 py-2.5 text-sm transition">
+          Join the waitlist
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
+      <div class="absolute -left-[9999px] w-px h-px opacity-0 overflow-hidden" aria-hidden="true">
+        <input type="text" tabindex="-1" class="wl-hp" aria-label="Leave this field empty" />
+      </div>
+      <p class="wl-msg mt-4 text-sm leading-relaxed hidden" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+
   <!-- Sponsors -->
   <section id="sponsor" class="max-w-4xl mx-auto px-6 py-20 lg:py-28 border-t border-ink-700/50">
     <p class="text-accent-500 text-sm font-semibold uppercase tracking-wider">Sponsors</p>
@@ -577,6 +618,9 @@ agent (Claude / Codex / Cursor / Copilot / Gemini)
       <a href="https://github.com/QuentinCody/interlinked-cli/blob/main/README.md" class="inline-flex items-center justify-center gap-2 rounded-md border border-ink-600 bg-ink-800 hover:bg-ink-700 text-zinc-200 px-6 py-3 text-sm transition">
         Read the docs
       </a>
+      <a href="#waitlist" class="inline-flex items-center justify-center gap-2 rounded-md border border-accent-500/60 bg-accent-500/10 hover:bg-accent-500/20 text-accent-400 font-semibold px-6 py-3 text-sm transition">
+        Join the waitlist
+      </a>
     </div>
   </section>
 
@@ -589,6 +633,7 @@ agent (Claude / Codex / Cursor / Copilot / Gemini)
       <a href="https://github.com/QuentinCody/interlinked-cli" class="hover:text-zinc-200 transition">GitHub</a>
       <a href="https://github.com/QuentinCody/interlinked-cli/blob/main/README.md" class="hover:text-zinc-200 transition">Docs</a>
       <a href="https://github.com/QuentinCody/interlinked-cli/issues" class="hover:text-zinc-200 transition">Issues</a>
+      <a href="#waitlist" class="hover:text-zinc-200 transition">Waitlist</a>
       <a href="#sponsor" class="hover:text-zinc-200 transition">Sponsor</a>
     </div>
   </footer>
@@ -596,6 +641,47 @@ agent (Claude / Codex / Cursor / Copilot / Gemini)
   </div>
 
   <script>
+    // Waitlist forms (hero + section) → same-origin Worker endpoint (exists on
+    // both the custom domain and the workers.dev mirror; same KV namespace).
+    document.querySelectorAll('form[data-waitlist]').forEach(function (form) {
+      var btn = form.querySelector('.wl-go');
+      var msg = form.querySelector('.wl-msg');
+      var msgBase = msg.className.replace(' hidden', '');
+      form.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var email = form.querySelector('.wl-email').value.trim();
+        btn.disabled = true;
+        msg.className = msgBase + ' hidden';
+        fetch('/api/waitlist', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            email: email,
+            source: form.getAttribute('data-source') || 'landing',
+            website: form.querySelector('.wl-hp').value
+          })
+        }).then(function (res) {
+          return res.json().then(function (j) { return { ok: res.ok, j: j }; });
+        }).then(function (r) {
+          if (r.ok) {
+            msg.className = msgBase + ' text-emerald-400';
+            msg.textContent = r.j && r.j.already
+              ? 'You\'re already on the list — ' + email + ' is saved.'
+              : 'You\'re on the list. We\'ll email ' + email + ' when the npm release ships.';
+            form.reset();
+          } else {
+            msg.className = msgBase + ' text-red-400';
+            msg.textContent = 'Not saved: ' + (r.j && r.j.error ? r.j.error : 'something went wrong.');
+          }
+          btn.disabled = false;
+        }).catch(function () {
+          msg.className = msgBase + ' text-red-400';
+          msg.textContent = 'Not saved: network error — try again.';
+          btn.disabled = false;
+        });
+      });
+    });
+
     // Sponsor form → review queue. Absolute endpoint so the workers.dev
     // mirror and local `wrangler dev` submit to the same production queue
     // (the /v1/* routes only exist on the custom domain).
