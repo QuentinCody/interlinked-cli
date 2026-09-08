@@ -90,7 +90,7 @@ observed invocation and native enforcement are separate evidence.
 | `[interlinked:hook-coverage] NOT CHECKED`; verifying or reviewing pending file versions (`harness coverage`) | **interlinked-verify**; daemon/capability diagnostics: **interlinked-setup** |
 | Discovering/adopting lint configs, script aliases and CI/tasks (`lint scan`, `lint import`, `lint check`), native or declared SARIF adapters, explicit `--config tool=file` and hook/audit cadence | **interlinked-verify**; baseline integrity and retirement: **interlinked-quality-gates** |
 | Finding, reviewing, recording, or auditing opportunities to delete, replace, defer, or shrink code; `simplify …`; simplification coverage/evidence/deep handoff | **interlinked-simplification** |
-| Offline `metrics score`, its experimental structural profile, function-token counter migrations, unmeasured inputs, or repeatable repository corpus measurements | **interlinked-quality-gates** |
+| `metrics score`, catalog/explain/compare/corpus, behavioral receipts, gate reach, incremental coverage, or syntax-token counter migrations | **interlinked-quality-gates** |
 | Installing a local embedding model; building, inspecting, searching, or repairing the optional function-vector index | **interlinked-semantic-index** |
 | An `npm/pip/cargo/…` install or manifest edit was blocked; the package **allowlist** | **interlinked-supply-chain** |
 | Spec/doc facts, drift, invariants, review **findings**, `doctest`; `[interlinked:spec-*]` | **interlinked-spec-audit** |

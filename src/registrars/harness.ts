@@ -5,6 +5,7 @@
 // ===========================================
 
 import { type Command, type OptionValues } from "commander";
+import { registerHarnessInventory } from "./harness-inventory.js";
 
 export function registerHarnessCommands(program: Command): void {
 	const harnessCmd = program
@@ -55,18 +56,7 @@ export function registerHarnessCommands(program: Command): void {
 			await harnessStatusCommand(opts);
 		});
 
-	harnessCmd
-		.command("checks")
-		.description(
-			"Show the authoritative check inventory — per-family counts + total (static; no daemon needed)",
-		)
-		.option("--json", "Machine-readable output")
-		.option("--short", "One-line summary")
-		.option("--full", "Include each count's authoritative source")
-		.action(async (opts: OptionValues) => {
-			const { harnessChecksCommand } = await import("../commands/harness-checks.js");
-			harnessChecksCommand(opts);
-		});
+	registerHarnessInventory(harnessCmd);
 
 	harnessCmd
 		.command("health")

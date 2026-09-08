@@ -23,6 +23,21 @@ it never edits source or changes the branch.
 checks the tamper-evident guard-decision chain. It is also distinct from `interlinked debt`,
 whose `list`, `show`, and `resolve` verbs operate the automatic obligation ledger.
 
+## Metrics deletion trials
+
+The separate `metrics deletions [--cwd <path>] [--json]` command joins static redundancy
+candidates with current coverage and exact-site mutation receipts. Public APIs, dynamic
+consumers and missing measurements remain review blockers. A surviving mutant, including
+paired forced-true/forced-false survivors, is not proof that source can be removed.
+
+`metrics deletions validate plan.json [--timeout <ms>] [--json]` tests an explicit removal
+plan in a disposable copy. Schema 1 edits specify relative paths, exact `sourceSha256`,
+and UTF-16 half-open `start`/`end` ranges. Checks specify `kind` and argv; both `test` and
+`typecheck` are required, with optional `build`. Baseline checks must pass before candidate
+checks. A `checks-passed` verdict records only the supplied checks' scope, keeps review
+required and leaves the source checkout unchanged. Use **interlinked-quality-gates** for
+the associated receipt freshness, operator-policy and scoring contracts.
+
 ## The five remedy lenses
 
 | Remedy | Question |

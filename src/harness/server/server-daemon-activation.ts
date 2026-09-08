@@ -26,6 +26,7 @@ import type { EarlyShutdownController, ServerCliConfig } from "./server-cli-boot
 import type { DaemonState } from "./server-daemon-state.js";
 import type { ServerRuntime } from "./runtime-context.js";
 import { ensureDirectory } from "./socket-lifecycle.js";
+import { activateHookCoverage } from "./hook-coverage.js";
 import {
 	runStartupSelfCheck,
 	startFramedDaemonOrExit,
@@ -79,6 +80,7 @@ function installLostAgentScan(state: DaemonState, log: (message: string) => void
 
 function installRulesWatchers(options: ActivateDaemonOptions): void {
 	const { cli, state, runtime, socketLifecycle, log, logAlways } = options;
+	const stopHookCoverage = activateHookCoverage(runtime);
 	const unwatchRules = watchRulesFiles(cli.cwd, (newRules) => {
 		options.setRules(newRules);
 		runtime.rules = newRules;
@@ -126,6 +128,7 @@ function installRulesWatchers(options: ActivateDaemonOptions): void {
 		onFinding: state.deliverMutationFindingToSessions,
 	});
 	socketLifecycle.setUnwatchers(() => {
+		stopHookCoverage();
 		mutationBackground.stop();
 		unwatchRules();
 	}, unwatchSettings);
@@ -193,10 +196,10 @@ async function bindFramedSocket(
 				paths: cli.framedPaths,
 				session_id: cli.framedSessionId,
 				idle_shutdown_ms: cli.idleTimeoutMs,
+				hasBackgroundWork: () => options.runtime.hookCoverage?.verification?.isRunning() ?? false,
 				state: {
 					tsgo: tsgoRunner,
 					getEvaluatorContext: () => ({
-				hasBackgroundWork: () => options.runtime.hookCoverage?.verification?.isRunning() ?? false,
 						rules: options.getRules(),
 						session: state.sessions.get(cli.framedSessionId),
 						reservations: state.reservations,
@@ -207,6 +210,7 @@ async function bindFramedSocket(
 						errorHistory: state.errorHistory,
 					}),
 					evaluateHook: options.evaluateUnifiedViaRuntime,
+					coverage: request => controlHookCoverage(options.runtime.hookCoverage, request),
 				},
 			},
 			{ cwd: cli.cwd, antiStomp, startup: startupGuard },
@@ -275,3 +279,5 @@ export async function activateDaemon(options: ActivateDaemonOptions): Promise<vo
 	if (cli.runRawSocket) socketLifecycle.startRawServer(startupGuard);
 	await finishStartup(options);
 }
+
+import { controlHookCoverage } from "../hook-coverage-control.js";

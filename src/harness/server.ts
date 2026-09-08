@@ -35,7 +35,7 @@ import {
 import { installEarlyShutdown, readServerCliConfig } from "./server/server-cli-bootstrap.js";
 import { createDaemonState } from "./server/server-daemon-state.js";
 import { activateDaemon } from "./server/server-daemon-activation.js";
-import { createEventLoop } from "./server-event-loop.js";
+import { createCoverageEventLoop } from "./server/hook-coverage-loop.js";
 import { createSocketLifecycle } from "./server-socket-lifecycle.js";
 import { createStartupGuard } from "./server/startup-guard.js";
 import { guardTallySnapshot } from "./guard-tally.js";
@@ -352,7 +352,7 @@ function writeLifecycleRecord(event: HarnessEvent, decision?: HarnessDecision): 
 /** Deadline (in ms) to drain pending async analysis work before shutdown. */
 const ASYNC_ANALYSIS_DRAIN_TIMEOUT_MS = 5_000;
 
-const { evaluateEventLine, evaluateUnifiedViaRuntime, writeProtocolStatus } = createEventLoop({
+const { evaluateEventLine, evaluateUnifiedViaRuntime, writeProtocolStatus } = createCoverageEventLoop({
 	ctx: serverRuntime,
 	protocolStatus,
 	protocolStatusPath: PROTOCOL_STATUS_PATH,

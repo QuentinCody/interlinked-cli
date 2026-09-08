@@ -8,6 +8,7 @@
 // format. See docs/design/cli-hook-normalization.md §"Per-runner adapters".
 
 import type { HarnessDecision } from "../types.js";
+import type { HookControl, HookTranslation } from "./hook-contract.js";
 import type {
 	RunnerId,
 	ToolClass,
@@ -32,6 +33,8 @@ export interface SettingsFragment {
 }
 
 export interface AdapterOutput {
+	/** Translation evidence only; native enforcement requires a separate receipt. */
+	translation?: HookTranslation;
 	/** What the adapter writes to stdout. Format is runner-specific. */
 	stdout?: string | undefined;
 	/** What the adapter writes to stderr. `warnings[]` always land here. */
@@ -52,6 +55,8 @@ export type NativeDecisionControl =
 export interface NativeHookEventCapability {
 	name: string;
 	phase: UnifiedPhase;
+	/** Explicit independent abilities. Absence means unmeasured, not none. */
+	controls?: readonly HookControl[];
 	/** False for events an adapter can parse but deliberately does not install. */
 	install: boolean;
 	control: NativeDecisionControl;
@@ -116,6 +121,8 @@ export interface RunnerAdapter {
 
 	/** When true we may flag this adapter as experimental in the installer UI. */
 	readonly experimental?: boolean;
+	/** False requires explicit runner selection; absence retains existing default selection. */
+	readonly installByDefault?: boolean;
 	readonly capabilities: RunnerCapabilities;
 
 	/** Heuristic detection. True if the current process environment suggests

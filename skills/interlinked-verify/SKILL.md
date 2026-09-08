@@ -25,6 +25,16 @@ JS/TS counts match `metrics score` function size, edit gates and commit checks. 
 syntax remains unmeasured. Verify is an inventory of current over-cap functions; edit/commit
 ratchets separately allow existing debt to hold or shrink, including debt revealed by migration.
 
+Explain that size unit as **syntax tokens** (lexical tokens); AST-node counts and embedding
+model tokens are different units. `metrics score` is an advisory composite, not a replacement
+for verify or the hard cap. A provisional score does not prove checks passed. Use
+`metrics gates --json` for actual coverage execution/freshness and `metrics coverage status`
+for index validity. `metrics coverage warm` explicitly runs full Vitest coverage; subsequent
+per-edit runs can replace affected test-file contributions. Proposed evidence promotes only
+after the matching edit lands, and unsupported/stale capture remains visibly unmeasured.
+Route evidence receipts, incremental coverage setup and deletion trials to
+**interlinked-quality-gates**.
+
 ## Load this when
 - You want to verify a batch of edits before declaring done.
 - A `pre_block` check blocked an edit (see also **interlinked-harness** for how blocks read).

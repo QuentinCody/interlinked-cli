@@ -1,0 +1,6094 @@
+{
+  "schema_version": 1,
+  "surveyed_at": "2026-09-07",
+  "status": "documented_inventory_not_runtime_certification",
+  "method": "Primary documentation and public source inspection. No new native-runtime conformance runs. Presence is documented or declared, not proof that a particular installed version emits or enforces it.",
+  "scope": "Coding clients, hosted variants, agent SDKs, adjacent protocols and discovery gaps. Named surfaces only; not an exhaustive census of private or unindexed products.",
+  "semantics": {
+    "inventory_status": "documented_catalog = enumerated public hook API; source_declared = source interface/enum; partial = selected seams; conflicted = primary documents disagree; discovery_only = no usable event contract established.",
+    "controls": "Capabilities of the named event only. Empty controls means unmeasured, not observe-only. A capability may require configuration or a specific runtime. See limitations. wake denotes event-triggered activation of an idle session, not an unrestricted external submission API.",
+    "phases": "Proposed semantic classification, not current UnifiedPhase literals or native event names. Around callbacks retain their wrapper semantics.",
+    "registration": "Disambiguates exact native names scoped to different callback APIs or event buses.",
+    "verification": "All entries need version-pinned native conformance before enforcement certification.",
+    "absence": "An omitted hook/capability is not evidence of absence. Unsupported is asserted only in explicit limitations."
+  },
+  "surfaces": [
+    {
+      "id": "claude-code",
+      "label": "Claude Code",
+      "kind": "command_hooks",
+      "scope": "Current reference; CLI/SDK differences retained",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://code.claude.com/docs/en/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "partial",
+      "event_groups": [
+        {
+          "phase": "session.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "SessionStart"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "SessionEnd"
+          ]
+        },
+        {
+          "phase": "setup",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "Setup"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny",
+            "context"
+          ],
+          "native_names": [
+            "UserPromptSubmit",
+            "UserPromptExpansion"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "ask",
+            "defer",
+            "rewrite_input",
+            "context"
+          ],
+          "native_names": [
+            "PreToolUse"
+          ]
+        },
+        {
+          "phase": "permission.request",
+          "controls": [
+            "allow",
+            "deny",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "PermissionRequest"
+          ]
+        },
+        {
+          "phase": "permission.denied",
+          "controls": [
+            "retry"
+          ],
+          "native_names": [
+            "PermissionDenied"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "context",
+            "continue"
+          ],
+          "native_names": [
+            "PostToolUseFailure"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": ["context", "continue", "replace_result"],
+          "native_names": ["PostToolUse"]
+        },
+        {
+          "phase": "batch.after",
+          "controls": [
+            "context",
+            "cancel"
+          ],
+          "native_names": [
+            "PostToolBatch"
+          ]
+        },
+        {
+          "phase": "notification",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "Notification"
+          ]
+        },
+        {
+          "phase": "display.before",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "MessageDisplay"
+          ]
+        },
+        {
+          "phase": "agent.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "SubagentStart"
+          ]
+        },
+        {
+          "phase": "agent.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "SubagentStop"
+          ]
+        },
+        {
+          "phase": "task.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "TaskCreated"
+          ]
+        },
+        {
+          "phase": "task.complete.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "TaskCompleted"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "Stop"
+          ]
+        },
+        {
+          "phase": "turn.error",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "StopFailure"
+          ]
+        },
+        {
+          "phase": "agent.idle",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "TeammateIdle"
+          ]
+        },
+        {
+          "phase": "instructions.loaded",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "InstructionsLoaded"
+          ]
+        },
+        {
+          "phase": "config.apply.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "ConfigChange"
+          ]
+        },
+        {
+          "phase": "workspace.changed",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "CwdChanged",
+            "DirectoryAdded"
+          ]
+        },
+        {
+          "phase": "filesystem.changed",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "FileChanged"
+          ]
+        },
+        {
+          "phase": "worktree.create",
+          "controls": [
+            "replace_operation"
+          ],
+          "native_names": [
+            "WorktreeCreate"
+          ]
+        },
+        {
+          "phase": "worktree.remove",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "WorktreeRemove"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "PreCompact"
+          ]
+        },
+        {
+          "phase": "compaction.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "PostCompact"
+          ]
+        },
+        {
+          "phase": "model.switch.before",
+          "controls": ["deny", "ask"],
+          "native_names": [
+            "PreModelSwitch"
+          ]
+        },
+        {
+          "phase": "model.switch.after",
+          "controls": ["context"],
+          "native_names": [
+            "PostModelSwitch"
+          ]
+        },
+        {
+          "phase": "elicitation.before",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "Elicitation"
+          ]
+        },
+        {
+          "phase": "elicitation.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "ElicitationResult"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Settings at user, project, local and managed scopes; plugins.",
+        "handlers": "command, http, mcp_tool, prompt, agent; event restrictions apply.",
+        "payload": "Session/cwd/event plus event-specific tool, task, path or batch fields.",
+        "dispatch": "Synchronous and asynchronous; asyncRewake can wake an idle session.",
+        "failure": "Phase-specific; exit 2 is not a universal veto."
+      },
+      "limitations": [
+        "FileChanged detects completed writes; no writer identity or rollback. Literal path matching; watchPaths replacements accepted only at SessionStart, CwdChanged and FileChanged.",
+        "PostToolBatch precedes a model request, not necessarily the end of a user turn.",
+        "ConfigChange gates runtime application, not disk writes; managed policy exceptions exist.",
+        "PreToolUse defer is restricted to the noninteractive SDK path."
+      ]
+    },
+    {
+      "id": "codex",
+      "label": "Codex CLI",
+      "kind": "command_hooks",
+      "scope": "Current official reference; installed CLI previously identified as 0.153.4",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://learn.chatgpt.com/docs/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "registered",
+      "event_groups": [
+        {
+          "phase": "session.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "SessionStart"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "SessionEnd"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny",
+            "context"
+          ],
+          "native_names": [
+            "UserPromptSubmit"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "Stop"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "rewrite_input",
+            "context"
+          ],
+          "native_names": [
+            "PreToolUse"
+          ]
+        },
+        {
+          "phase": "permission.request",
+          "controls": [
+            "allow",
+            "deny"
+          ],
+          "native_names": [
+            "PermissionRequest"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "context",
+            "continue"
+          ],
+          "native_names": [
+            "PostToolUse"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "cancel",
+            "context"
+          ],
+          "native_names": [
+            "PreCompact"
+          ]
+        },
+        {
+          "phase": "compaction.after",
+          "controls": [
+            "cancel",
+            "context"
+          ],
+          "native_names": [
+            "PostCompact"
+          ]
+        },
+        {
+          "phase": "agent.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "SubagentStart"
+          ]
+        },
+        {
+          "phase": "agent.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "SubagentStop"
+          ]
+        },
+        {
+          "phase": "turn.interrupted",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "Interrupt"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Reviewed hook definitions; project/user and managed scopes.",
+        "handlers": "command and mcp_tool; prompt/agent definitions are parsed but skipped.",
+        "payload": "Claude-shaped envelopes; native event identity must retain the Codex client.",
+        "dispatch": "Async feedback needs a safe active boundary or subsequent user turn; session shutdown cancels pending work.",
+        "failure": "PreToolUse ask is unsupported and fails open as a hook error; reserved permission fields fail closed."
+      },
+      "limitations": [
+        "No documented FileChanged, watchPaths, ConfigChange, PostToolBatch or idle async wake.",
+        "PostToolUse also covers failed shell calls. Code-mode block can reject a nested promise; continue:false has different behavior.",
+        "All twelve names are registered locally; this does not establish semantic parity."
+      ]
+    },
+    {
+      "id": "copilot-cli",
+      "label": "GitHub Copilot CLI",
+      "kind": "command_hooks",
+      "scope": "Current CLI reference",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.github.com/en/copilot/reference/hooks-reference"
+      ],
+      "runtime_verified": false,
+      "interlinked": "partial",
+      "event_groups": [
+        {
+          "phase": "session.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "sessionStart"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "sessionEnd"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "userPromptSubmitted"
+          ]
+        },
+        {
+          "phase": "prompt.transform",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "userPromptTransformed"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "ask",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "preToolUse"
+          ]
+        },
+        {
+          "phase": "permission.request",
+          "controls": [
+            "allow",
+            "deny",
+            "cancel"
+          ],
+          "native_names": [
+            "permissionRequest"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output",
+            "context"
+          ],
+          "native_names": [
+            "postToolUse"
+          ]
+        },
+        {
+          "phase": "tool.failure",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "postToolUseFailure"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "agentStop"
+          ]
+        },
+        {
+          "phase": "agent.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "subagentStart"
+          ]
+        },
+        {
+          "phase": "agent.stop.before",
+          "controls": [
+            "continue",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "subagentStop"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "preCompact"
+          ]
+        },
+        {
+          "phase": "notification",
+          "controls": [
+            "observe",
+            "context",
+            "wake"
+          ],
+          "native_names": [
+            "notification"
+          ]
+        },
+        {
+          "phase": "error",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "errorOccurred"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Project .github/hooks/*.json, user ~/.copilot/hooks/*.json, settings, plugins and policy.",
+        "handlers": "command and HTTP; sessionStart also accepts prompt entries.",
+        "payload": "camelCase versus PascalCase aliases select different input schemas and matching conventions.",
+        "dispatch": "Configured hooks run in order; notification context can activate an idle session.",
+        "failure": "Pre-tool command failure can deny; timeouts always fail open. HTTP errors fail open."
+      },
+      "limitations": [
+        "Current docs supersede the old deny-only, repository-only description.",
+        "userPromptTransformed rewrites content before persistence but cannot veto submission.",
+        "Config-file userPromptSubmitted output is discarded; modifiedPrompt belongs to SDK callbacks. Built-in general-purpose subagents omit subagent lifecycle hooks.",
+        "Stop continuation is bounded. Subagent response rewrites do not compose: the last rewrite wins."
+      ]
+    },
+    {
+      "id": "copilot-cloud",
+      "label": "GitHub Copilot cloud agent",
+      "kind": "command_hooks",
+      "scope": "Hosted restrictions in the shared hooks reference",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.github.com/en/copilot/reference/hooks-reference"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "session.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "sessionStart"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "sessionEnd"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "userPromptSubmitted"
+          ]
+        },
+        {
+          "phase": "prompt.transform",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "userPromptTransformed"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "preToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output",
+            "context"
+          ],
+          "native_names": [
+            "postToolUse"
+          ]
+        },
+        {
+          "phase": "tool.failure",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "postToolUseFailure"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "agentStop"
+          ]
+        },
+        {
+          "phase": "agent.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "subagentStart"
+          ]
+        },
+        {
+          "phase": "agent.stop.before",
+          "controls": [
+            "continue",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "subagentStop"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "preCompact"
+          ]
+        },
+        {
+          "phase": "error",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "errorOccurred"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Repository hook definitions in the hosted job.",
+        "handlers": "See shared reference and hosted restrictions.",
+        "payload": "Shared hook family with job-specific lifecycle.",
+        "dispatch": "Session lifecycle once per job; prompt once; compaction automatic only.",
+        "failure": "PreToolUse ask becomes deny; shared timeout caveat remains."
+      },
+      "limitations": [
+        "notification unsupported. permissionRequest has no hosted permission UI and does not provide an effective gate.",
+        "Stop continuation is constrained by the hosted job timeout.",
+        "Config-file userPromptSubmitted output is discarded; modifiedPrompt belongs to SDK callbacks. Built-in general-purpose subagents omit subagent lifecycle hooks."
+      ]
+    },
+    {
+      "id": "vscode-copilot",
+      "label": "VS Code Copilot hooks",
+      "kind": "command_hooks",
+      "scope": "Documented preview; distinct from Copilot CLI and cloud",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://code.visualstudio.com/docs/copilot/customization/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "session.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "SessionStart"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny",
+            "context"
+          ],
+          "native_names": [
+            "UserPromptSubmit"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "ask",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "PreToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "PostToolUse"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "PreCompact"
+          ]
+        },
+        {
+          "phase": "agent.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "SubagentStart"
+          ]
+        },
+        {
+          "phase": "agent.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "SubagentStop"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "Stop"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Workspace/user hooks, Claude settings, agent frontmatter and plugins.",
+        "handlers": "Commands.",
+        "payload": "Claude-style event-specific JSON.",
+        "dispatch": "SessionStart on first prompt, not necessarily process startup.",
+        "failure": "Exit 2 has event-specific blocking meaning; other nonzero exits warn."
+      },
+      "limitations": [
+        "PostToolUse success path only. Do not infer CLI event support from VS Code branding.",
+        "Agent Host versus extension-host deployment needs a separate runtime probe."
+      ]
+    },
+    {
+      "id": "gemini-cli",
+      "label": "Gemini CLI",
+      "kind": "command_hooks",
+      "scope": "Current hooks reference",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://geminicli.com/docs/hooks/reference/"
+      ],
+      "runtime_verified": false,
+      "interlinked": "partial",
+      "event_groups": [
+        {
+          "phase": "session.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "SessionStart"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "SessionEnd"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny",
+            "context"
+          ],
+          "native_names": [
+            "BeforeAgent"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "AfterAgent"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "BeforeTool"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output",
+            "context"
+          ],
+          "native_names": [
+            "AfterTool"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "rewrite_input",
+            "short_circuit"
+          ],
+          "native_names": [
+            "BeforeModel"
+          ]
+        },
+        {
+          "phase": "tool.catalog",
+          "controls": [
+            "filter_tools"
+          ],
+          "native_names": [
+            "BeforeToolSelection"
+          ]
+        },
+        {
+          "phase": "model.chunk",
+          "controls": [
+            "rewrite_output",
+            "cancel"
+          ],
+          "native_names": [
+            "AfterModel"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "PreCompress"
+          ]
+        },
+        {
+          "phase": "notification",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "Notification"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "System/user/project settings and extensions; project hook trust.",
+        "handlers": "Commands.",
+        "payload": "Separate model, tool and agent envelopes.",
+        "dispatch": "Parallel hook groups unless sequential is configured; PreCompress is asynchronous.",
+        "failure": "Event-specific; SessionEnd is best effort and not awaited."
+      },
+      "limitations": [
+        "AfterModel is a streaming-chunk surface, not a completed-response event.",
+        "BeforeToolSelection has no general decision/continue contract; it changes the permitted tool selection.",
+        "Notification cannot approve an operation."
+      ]
+    },
+    {
+      "id": "cursor-ide",
+      "label": "Cursor IDE Agent and Tab",
+      "kind": "command_hooks",
+      "scope": "Current IDE hooks reference",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://cursor.com/docs/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "partial",
+      "event_groups": [
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "preToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "context",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "postToolUse"
+          ]
+        },
+        {
+          "phase": "tool.failure",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "postToolUseFailure"
+          ]
+        },
+        {
+          "phase": "agent.start.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "subagentStart"
+          ]
+        },
+        {
+          "phase": "agent.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "subagentStop"
+          ]
+        },
+        {
+          "phase": "shell.before",
+          "controls": [
+            "allow",
+            "deny",
+            "ask"
+          ],
+          "native_names": [
+            "beforeShellExecution"
+          ]
+        },
+        {
+          "phase": "mcp.before",
+          "controls": [
+            "allow",
+            "deny",
+            "ask"
+          ],
+          "native_names": [
+            "beforeMCPExecution"
+          ]
+        },
+        {
+          "phase": "shell.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "afterShellExecution"
+          ]
+        },
+        {
+          "phase": "mcp.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "afterMCPExecution"
+          ]
+        },
+        {
+          "phase": "filesystem.tool_edit.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "afterFileEdit"
+          ]
+        },
+        {
+          "phase": "file.read.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "beforeReadFile",
+            "beforeTabFileRead"
+          ]
+        },
+        {
+          "phase": "filesystem.tab_edit.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "afterTabFileEdit"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "beforeSubmitPrompt"
+          ]
+        },
+        {
+          "phase": "message.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "afterAgentResponse",
+            "afterAgentThought"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "stop"
+          ]
+        },
+        {
+          "phase": "session.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "sessionStart"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "sessionEnd"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "preCompact"
+          ]
+        },
+        {
+          "phase": "workspace.open",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "workspaceOpen"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Project/user, team and enterprise-managed hooks.",
+        "handlers": "command and prompt.",
+        "payload": "Conversation/generation IDs, workspace roots, tool-specific shapes.",
+        "dispatch": "Session start/end fire and forget; follow-up continuation is bounded.",
+        "failure": "Per-hook failClosed opt-in for invalid output, crash or timeout."
+      },
+      "limitations": [
+        "Generic preToolUse ask is not enforced; dedicated shell/MCP ask differs. subagentStart ask behaves as deny.",
+        "SessionStart continue:false is not a session veto. Post-tool result rewriting is scoped, including MCP results."
+      ]
+    },
+    {
+      "id": "cursor-cloud",
+      "label": "Cursor cloud agents",
+      "kind": "command_hooks",
+      "scope": "Cloud support table in current hooks reference",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://cursor.com/docs/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "preToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "context",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "postToolUse"
+          ]
+        },
+        {
+          "phase": "tool.failure",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "postToolUseFailure"
+          ]
+        },
+        {
+          "phase": "agent.start.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "subagentStart"
+          ]
+        },
+        {
+          "phase": "agent.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "subagentStop"
+          ]
+        },
+        {
+          "phase": "shell.before",
+          "controls": [
+            "allow",
+            "deny",
+            "ask"
+          ],
+          "native_names": [
+            "beforeShellExecution"
+          ]
+        },
+        {
+          "phase": "shell.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "afterShellExecution"
+          ]
+        },
+        {
+          "phase": "filesystem.tool_edit.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "afterFileEdit"
+          ]
+        },
+        {
+          "phase": "file.read.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "beforeReadFile"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "beforeSubmitPrompt"
+          ]
+        },
+        {
+          "phase": "message.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "afterAgentResponse",
+            "afterAgentThought"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "stop"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "preCompact"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Repository .cursor/hooks.json in the cloud environment.",
+        "handlers": "Command hooks; prompt hooks unavailable.",
+        "payload": "Cloud-supported subset of IDE events.",
+        "dispatch": "No session start/end hooks in documented cloud subset.",
+        "failure": "Pin the cloud environment and verify per-hook failure policy."
+      },
+      "limitations": [
+        "Dedicated MCP hooks, Tab hooks, workspaceOpen and session lifecycle hooks are outside this documented subset."
+      ]
+    },
+    {
+      "id": "windsurf",
+      "label": "Windsurf Cascade",
+      "kind": "command_hooks",
+      "scope": "Current Cascade hooks page",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.windsurf.com/windsurf/cascade/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "file.read.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "pre_read_code"
+          ]
+        },
+        {
+          "phase": "file.read.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "post_read_code"
+          ]
+        },
+        {
+          "phase": "file.write.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "pre_write_code"
+          ]
+        },
+        {
+          "phase": "filesystem.tool_edit.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "post_write_code"
+          ]
+        },
+        {
+          "phase": "shell.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "pre_run_command"
+          ]
+        },
+        {
+          "phase": "shell.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "post_run_command"
+          ]
+        },
+        {
+          "phase": "mcp.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "pre_mcp_tool_use"
+          ]
+        },
+        {
+          "phase": "mcp.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "post_mcp_tool_use"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "pre_user_prompt"
+          ]
+        },
+        {
+          "phase": "turn.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "post_cascade_response",
+            "post_cascade_response_with_transcript"
+          ]
+        },
+        {
+          "phase": "worktree.created",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "post_setup_worktree"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "System, user and workspace hooks.",
+        "handlers": "Commands.",
+        "payload": "agent_action_name, trajectory_id, execution_id, timestamp and tool_info.",
+        "dispatch": "Post-response observers are asynchronous.",
+        "failure": "Exit 2 blocks pre events; other nonzero exits do not."
+      },
+      "limitations": [
+        "Transcript variant includes broader history. Worktree hook runs after setup; it does not veto creation.",
+        "These file hooks describe Cascade operations, not arbitrary foreign-process writes."
+      ]
+    },
+    {
+      "id": "factory-droid",
+      "label": "Factory Droid",
+      "kind": "command_hooks",
+      "scope": "Current harness hooks reference",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.factory.ai/harness/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "ask",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "PreToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "context",
+            "continue"
+          ],
+          "native_names": [
+            "PostToolUse"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny",
+            "context"
+          ],
+          "native_names": [
+            "UserPromptSubmit"
+          ]
+        },
+        {
+          "phase": "notification",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "Notification"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "Stop"
+          ]
+        },
+        {
+          "phase": "agent.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "SubagentStop"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "PreCompact"
+          ]
+        },
+        {
+          "phase": "session.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "SessionStart"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "SessionEnd"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": ".factory/hooks.json uses an event map directly; settings and legacy paths have different wrappers.",
+        "handlers": "Commands.",
+        "payload": "Claude-shaped event inputs.",
+        "dispatch": "Startup configuration snapshot; changed external definitions require review.",
+        "failure": "Exit 2 is event-specific; other failures normally open."
+      },
+      "limitations": [
+        "User cancellation is not an overridable Stop. Post-tool feedback cannot undo execution."
+      ]
+    },
+    {
+      "id": "augment",
+      "label": "Augment Auggie",
+      "kind": "command_hooks",
+      "scope": "CLI documented; editor configuration scope differs",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.augmentcode.com/cli/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "PreToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "PostToolUse"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "Stop"
+          ]
+        },
+        {
+          "phase": "session.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "SessionStart"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "SessionEnd"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "System/user hooks; project hooks documented for CLI only.",
+        "handlers": "Commands.",
+        "payload": "conversation_id, workspace_roots; post-tool file_changes and optional metadata.",
+        "dispatch": "Synchronous callback integration.",
+        "failure": "Per-event control; timeout defaults to 60000 milliseconds."
+      },
+      "limitations": [
+        "Notification appears in a common enum without a corresponding event contract; excluded from verified inventory.",
+        "IDE and IntelliJ coverage must be established separately."
+      ]
+    },
+    {
+      "id": "kiro-ide",
+      "label": "Kiro IDE",
+      "kind": "command_hooks",
+      "scope": "IDE 1.x; v1 hook files; migration documentation disagrees",
+      "inventory_status": "conflicted",
+      "sources": [
+        "https://kiro.dev/docs/hooks/",
+        "https://kiro.dev/docs/hooks/types/",
+        "https://kiro.dev/docs/cli/v3/migration-guide/"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "filesystem.tool_edit.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "PostFileSave",
+            "PostFileCreate",
+            "PostFileDelete"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "PreToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "PostToolUse"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "UserPromptSubmit"
+          ]
+        },
+        {
+          "phase": "session.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "SessionStart"
+          ]
+        },
+        {
+          "phase": "turn.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "Stop"
+          ]
+        },
+        {
+          "phase": "task.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "PreTaskExec"
+          ]
+        },
+        {
+          "phase": "task.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "PostTaskExec"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": ".kiro/hooks/*.json; version:v1, hooks[] trigger/action.",
+        "handlers": "command and agent prompt.",
+        "payload": "Event-specific stdin; examples retain some legacy camelCase payload names.",
+        "dispatch": "Stop can confirm running its command; this is not a stop veto.",
+        "failure": "Pre-tool/prompt/task command failures can block."
+      },
+      "limitations": [
+        "File triggers explicitly describe agent edits, not external filesystem writes.",
+        "Top-level Web checkmarks conflict with the per-trigger Web exclusions. Do not certify Web support.",
+        "The v3 migration page supplies the PascalCase names and describes CLI file/task triggers; the live availability table differs. Treat these as declared migration capabilities until captured."
+      ]
+    },
+    {
+      "id": "kiro-cli-legacy",
+      "label": "Kiro CLI legacy hook contract",
+      "kind": "command_hooks",
+      "scope": "CLI 2.x agent configuration; 3.x migration requires probing",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://kiro.dev/docs/cli/custom-agents/configuration-reference/",
+        "https://kiro.dev/docs/hooks/types/",
+        "https://kiro.dev/docs/cli/v3/migration-guide/"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "agent.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "agentSpawn"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny",
+            "context"
+          ],
+          "native_names": [
+            "userPromptSubmit"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "preToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "postToolUse"
+          ]
+        },
+        {
+          "phase": "turn.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "stop"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Legacy custom-agent JSON hooks; new v1 file format is documented elsewhere.",
+        "handlers": "Commands.",
+        "payload": "CLI camelCase examples and tool event data.",
+        "dispatch": "Agent spawn differs from IDE session start.",
+        "failure": "Pre-tool command failure may block; non-gating events are advisory."
+      },
+      "limitations": [
+        "The migration maps agentSpawn to SessionStart and the other legacy names to PascalCase triggers, but availability tables disagree. Capture CLI 3.x before certifying those capabilities."
+      ]
+    },
+    {
+      "id": "opencode-v1",
+      "label": "OpenCode v1 plugin API",
+      "kind": "plugin",
+      "scope": "Public dev-branch interface; unpinned source",
+      "inventory_status": "source_declared",
+      "sources": [
+        "https://raw.githubusercontent.com/anomalyco/opencode/dev/packages/plugin/src/index.ts",
+        "https://opencode.ai/docs/plugins/"
+      ],
+      "runtime_verified": false,
+      "interlinked": "partial",
+      "event_groups": [
+        {
+          "phase": "runtime.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "dispose"
+          ]
+        },
+        {
+          "phase": "event.bus",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "event"
+          ]
+        },
+        {
+          "phase": "config.loaded",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "config"
+          ]
+        },
+        {
+          "phase": "extension.registration",
+          "controls": [],
+          "native_names": [
+            "tool",
+            "auth",
+            "provider"
+          ]
+        },
+        {
+          "phase": "prompt.transform",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "chat.message"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "chat.params",
+            "chat.headers",
+            "experimental.chat.messages.transform",
+            "experimental.chat.system.transform",
+            "experimental.provider.small_model"
+          ]
+        },
+        {
+          "phase": "permission.request",
+          "controls": [],
+          "native_names": [
+            "permission.ask"
+          ]
+        },
+        {
+          "phase": "command.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "command.execute.before"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "tool.execute.before"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "tool.execute.after"
+          ]
+        },
+        {
+          "phase": "environment.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "shell.env"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "context",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "experimental.session.compacting"
+          ]
+        },
+        {
+          "phase": "compaction.after",
+          "controls": [
+            "cancel"
+          ],
+          "native_names": [
+            "experimental.compaction.autocontinue"
+          ]
+        },
+        {
+          "phase": "message.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "experimental.text.complete"
+          ]
+        },
+        {
+          "phase": "tool.catalog",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "tool.definition"
+          ]
+        },
+        {
+          "phase": "filesystem.changed",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "file.edited",
+            "file.watcher.updated"
+          ],
+          "registration": "event"
+        },
+        {
+          "phase": "session.lifecycle",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session.created",
+            "session.deleted",
+            "session.idle",
+            "session.error",
+            "session.compacted"
+          ],
+          "registration": "event"
+        }
+      ],
+      "contract": {
+        "configuration": "Local/global plugin modules and package registration.",
+        "handlers": "In-process typed callbacks; event bus is separate.",
+        "payload": "Callback input/output objects; sessionID/callID when supplied.",
+        "dispatch": "Awaited transforms; event delivery differs.",
+        "failure": "Pre-tool throw can refuse execution; event observers cannot."
+      },
+      "limitations": [
+        "Callback interface inventoried; bus list is deliberately partial.",
+        "permission.ask remains declared but its effective runtime gate is not established; Interlinked intentionally does not install it.",
+        "experimental.compaction.autocontinue controls a synthetic follow-up, not compaction itself."
+      ]
+    },
+    {
+      "id": "opencode-v2",
+      "label": "OpenCode v2 plugin API",
+      "kind": "plugin",
+      "scope": "Separate v2 documentation; not the current Interlinked bridge",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://opencode.ai/v2/docs/build/plugins/"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "prompt.transform",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "prompt"
+          ],
+          "registration": "ctx.session.hook"
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "context",
+            "model.request",
+            "http.request"
+          ],
+          "registration": "ctx.session.hook"
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "http.response"
+          ],
+          "registration": "ctx.session.hook"
+        },
+        {
+          "phase": "model.retry",
+          "controls": [
+            "retry"
+          ],
+          "native_names": [
+            "retry"
+          ],
+          "registration": "ctx.session.hook"
+        },
+        {
+          "phase": "permission.request",
+          "controls": [
+            "allow",
+            "deny",
+            "ask"
+          ],
+          "native_names": [
+            "evaluate"
+          ],
+          "registration": "ctx.permission.hook"
+        },
+        {
+          "phase": "shell.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "create.before"
+          ],
+          "registration": "ctx.shell.hook"
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "execute.before"
+          ],
+          "registration": "ctx.tool.hook"
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "execute.after"
+          ],
+          "registration": "ctx.tool.hook"
+        },
+        {
+          "phase": "event.bus",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "subscribe"
+          ],
+          "registration": "ctx.events"
+        },
+        {
+          "phase": "extension.registration",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "agent",
+            "catalog",
+            "command",
+            "integration",
+            "mcp",
+            "reference",
+            "skill",
+            "tool",
+            "vcs",
+            "worktree",
+            "websearch"
+          ],
+          "registration": "registry transforms"
+        }
+      ],
+      "contract": {
+        "configuration": "Plugin.define setup(ctx) and teardown; typed namespaces.",
+        "handlers": "In-process hooks and registries.",
+        "payload": "Namespace-specific typed request/response contracts.",
+        "dispatch": "Hooks and subscriptions are separate.",
+        "failure": "Permission evaluate can deny; configuration denial remains final."
+      },
+      "limitations": [
+        "No typed prompt-rejection result is documented; do not grant a veto merely because prompt is interceptable.",
+        "Tool execute.before is an input transform; use the documented permission gate for denial.",
+        "Worktree strategies replace creation/removal operations; registration is not a lifecycle notification."
+      ]
+    },
+    {
+      "id": "kilo",
+      "label": "Kilo plugin API",
+      "kind": "plugin",
+      "scope": "Current Kilo CLI/VS Code plugin documentation",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://kilo.ai/docs/automate/extending/plugins"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "config.loaded",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "config"
+          ]
+        },
+        {
+          "phase": "event.bus",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "event"
+          ]
+        },
+        {
+          "phase": "extension.registration",
+          "controls": [],
+          "native_names": [
+            "tool",
+            "auth",
+            "provider"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "tool.execute.before"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "tool.execute.after"
+          ]
+        },
+        {
+          "phase": "tool.catalog",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "tool.definition"
+          ]
+        },
+        {
+          "phase": "prompt.transform",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "chat.message"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "chat.params",
+            "chat.headers",
+            "experimental.chat.messages.transform",
+            "experimental.chat.system.transform"
+          ]
+        },
+        {
+          "phase": "permission.request",
+          "controls": [
+            "allow",
+            "deny",
+            "ask"
+          ],
+          "native_names": [
+            "permission.ask"
+          ]
+        },
+        {
+          "phase": "command.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "command.execute.before"
+          ]
+        },
+        {
+          "phase": "environment.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "shell.env"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "context",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "experimental.session.compacting"
+          ]
+        },
+        {
+          "phase": "compaction.after",
+          "controls": [
+            "cancel"
+          ],
+          "native_names": [
+            "experimental.compaction.autocontinue"
+          ]
+        },
+        {
+          "phase": "message.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "experimental.text.complete"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "kilo.json plugins and .kilo/plugin/ modules.",
+        "handlers": "OpenCode-derived in-process API.",
+        "payload": "Typed input/output callbacks plus event bus.",
+        "dispatch": "Version-specific execution path.",
+        "failure": "Throwing at a pre-tool callback can prevent execution."
+      },
+      "limitations": [
+        "Upstream ancestry does not prove binary parity. The event bus is not exhaustively enumerated here."
+      ]
+    },
+    {
+      "id": "pi",
+      "label": "Pi coding agent",
+      "kind": "plugin",
+      "scope": "Current public main; package/repository naming has changed",
+      "inventory_status": "source_declared",
+      "sources": [
+        "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/docs/extensions.md",
+        "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/src/core/extensions/types.ts"
+      ],
+      "runtime_verified": false,
+      "interlinked": "partial",
+      "event_groups": [
+        {
+          "phase": "trust.before",
+          "controls": [
+            "allow",
+            "deny"
+          ],
+          "native_names": [
+            "project_trust"
+          ]
+        },
+        {
+          "phase": "resources.discover",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "resources_discover"
+          ]
+        },
+        {
+          "phase": "session.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session_start"
+          ]
+        },
+        {
+          "phase": "session.changed",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session_info_changed"
+          ]
+        },
+        {
+          "phase": "session.before",
+          "controls": [
+            "cancel"
+          ],
+          "native_names": [
+            "session_before_switch",
+            "session_before_fork",
+            "session_before_tree"
+          ]
+        },
+        {
+          "phase": "session.tree",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session_tree"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session_shutdown"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "cancel",
+            "replace_operation"
+          ],
+          "native_names": [
+            "session_before_compact"
+          ]
+        },
+        {
+          "phase": "compaction.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session_compact"
+          ]
+        },
+        {
+          "phase": "compaction.error",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session_compact_failed"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "rewrite_input",
+            "short_circuit"
+          ],
+          "native_names": [
+            "input"
+          ]
+        },
+        {
+          "phase": "turn.before",
+          "controls": [
+            "context",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_agent_start"
+          ]
+        },
+        {
+          "phase": "turn.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "agent_start"
+          ]
+        },
+        {
+          "phase": "turn.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "agent_end"
+          ]
+        },
+        {
+          "phase": "turn.idle",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "agent_settled"
+          ]
+        },
+        {
+          "phase": "ui.prompt",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "ui_prompt_start",
+            "ui_prompt_end"
+          ]
+        },
+        {
+          "phase": "step.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "turn_start"
+          ]
+        },
+        {
+          "phase": "step.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "turn_end"
+          ]
+        },
+        {
+          "phase": "message.stream",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "message_start",
+            "message_update",
+            "message_end"
+          ]
+        },
+        {
+          "phase": "tool.execution",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "tool_execution_start",
+            "tool_execution_update",
+            "tool_execution_end"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "context",
+            "before_provider_request",
+            "before_provider_headers"
+          ]
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "after_provider_response"
+          ]
+        },
+        {
+          "phase": "model.changed",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "model_select",
+            "thinking_level_select"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny",
+            "rewrite_input",
+            "cancel"
+          ],
+          "native_names": [
+            "tool_call"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "tool_result"
+          ]
+        },
+        {
+          "phase": "shell.before",
+          "controls": [
+            "replace_operation"
+          ],
+          "native_names": [
+            "user_bash"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Project/user extensions with project trust.",
+        "handlers": "Awaited in-process callbacks.",
+        "payload": "Typed event/context; tool_call and tool_result carry correlated tool data.",
+        "dispatch": "Sequential preflight of siblings, then execution may parallelize.",
+        "failure": "Block and terminate are distinct; tool input mutation is not revalidated."
+      },
+      "limitations": [
+        "agent_settled does not veto Stop. Programmatically queuing another prompt is a separate API.",
+        "The current session_start reason replaces older switch/fork event names; pin the installed version."
+      ]
+    },
+    {
+      "id": "amp",
+      "label": "Amp plugin API",
+      "kind": "plugin",
+      "scope": "Current PluginEventMap; distinct from retired preview hooks",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://ampcode.com/docs/plugin-api"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "session.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session.start"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "rewrite_input",
+            "short_circuit"
+          ],
+          "native_names": [
+            "tool.call"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "tool.result"
+          ]
+        },
+        {
+          "phase": "turn.before",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "agent.start"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "agent.end"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Plugin registration and session discovery.",
+        "handlers": "Typed in-process plugins.",
+        "payload": "thread/tool-use identities and discriminated tool outcomes.",
+        "dispatch": "Ordering between different plugins is undefined.",
+        "failure": "tool.call supports explicit rejection, synthetic result and error outcomes."
+      },
+      "limitations": [
+        "External webhook and cron registration are trigger APIs, not extra PluginEventMap names."
+      ]
+    },
+    {
+      "id": "cline-classic",
+      "label": "Cline classic task hooks",
+      "kind": "command_hooks",
+      "scope": "Indexed official classic documentation; current page fetch is incomplete",
+      "inventory_status": "conflicted",
+      "sources": [
+        "https://docs.cline.bot/customization/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "task.start",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "TaskStart",
+            "TaskResume"
+          ]
+        },
+        {
+          "phase": "task.cancelled",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "TaskCancel"
+          ]
+        },
+        {
+          "phase": "task.complete",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "TaskComplete"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny",
+            "context"
+          ],
+          "native_names": [
+            "PreToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "cancel",
+            "context"
+          ],
+          "native_names": [
+            "PostToolUse"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny",
+            "context"
+          ],
+          "native_names": [
+            "UserPromptSubmit"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [],
+          "native_names": [
+            "PreCompact"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Classic hook scripts and hook UI; version-pin before installation.",
+        "handlers": "Scripts.",
+        "payload": "Task-oriented JSON contract.",
+        "dispatch": "Pre/post tool boundaries.",
+        "failure": "PostToolUse cancel stops subsequent work; cannot undo the tool."
+      },
+      "limitations": [
+        "Full event list was available in the indexed primary page, but direct page/markdown fetch returned only a stub. Release compatibility remains unverified.",
+        "Do not confuse this contract with ClineCore SDK hooks."
+      ]
+    },
+    {
+      "id": "cline-sdk",
+      "label": "ClineCore SDK/plugins",
+      "kind": "sdk",
+      "scope": "Current plugin reference; includes runtime callbacks and stage hooks",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.cline.bot/sdk/plugins"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "run.before",
+          "controls": [],
+          "native_names": [
+            "beforeRun"
+          ],
+          "registration": "AgentRuntimeHooks"
+        },
+        {
+          "phase": "run.after",
+          "controls": [],
+          "native_names": [
+            "afterRun"
+          ],
+          "registration": "AgentRuntimeHooks"
+        },
+        {
+          "phase": "model.before",
+          "controls": [],
+          "native_names": [
+            "beforeModel"
+          ],
+          "registration": "AgentRuntimeHooks"
+        },
+        {
+          "phase": "model.after",
+          "controls": [],
+          "native_names": [
+            "afterModel"
+          ],
+          "registration": "AgentRuntimeHooks"
+        },
+        {
+          "phase": "tool.before",
+          "controls": [],
+          "native_names": [
+            "beforeTool"
+          ],
+          "registration": "AgentRuntimeHooks"
+        },
+        {
+          "phase": "tool.after",
+          "controls": [],
+          "native_names": [
+            "afterTool"
+          ],
+          "registration": "AgentRuntimeHooks"
+        },
+        {
+          "phase": "event.bus",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onEvent"
+          ],
+          "registration": "AgentRuntimeHooks"
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [],
+          "native_names": [
+            "input"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "event.bus",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "runtime_event"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "session.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session_start"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session_shutdown"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "run.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "run_start"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "run.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "run_end"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "step.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "iteration_start",
+            "turn_start"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "step.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "turn_end",
+            "iteration_end"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "turn.before",
+          "controls": [
+            "rewrite_input",
+            "context"
+          ],
+          "native_names": [
+            "before_agent_start"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "tool_call_before"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "tool_call_after"
+          ],
+          "registration": "stage"
+        },
+        {
+          "phase": "error",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "stop_error",
+            "error"
+          ],
+          "registration": "stage"
+        }
+      ],
+      "contract": {
+        "configuration": "ClineCore extensions, pluginPaths and CLI-installed plugins.",
+        "handlers": "Runtime callbacks and configurable hook stages.",
+        "payload": "Runtime events plus stage-specific data.",
+        "dispatch": "Blocking/async mode, retries, queueLimit and maxConcurrency are explicit.",
+        "failure": "Configurable fail_open/fail_closed and timeoutMs."
+      },
+      "limitations": [
+        "Named callbacks are not assigned unverified mutation rights; detailed return types need a pinned SDK probe."
+      ]
+    },
+    {
+      "id": "openhands",
+      "label": "OpenHands SDK and CLI",
+      "kind": "command_hooks",
+      "scope": "Shared documented lifecycle; installation formats differ",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.openhands.dev/sdk/guides/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "PreToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "PostToolUse"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "UserPromptSubmit"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "Stop"
+          ]
+        },
+        {
+          "phase": "session.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "SessionStart"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "SessionEnd"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "SDK HookConfig; CLI hook file uses its own configuration contract.",
+        "handlers": "command, prompt and agent.",
+        "payload": "Event-specific lifecycle/tool data.",
+        "dispatch": "Synchronous gates; observer behavior remains event-specific.",
+        "failure": "Exit 2 blocks at pre-tool, prompt and Stop; exit 1 is a non-blocking error."
+      },
+      "limitations": [
+        "Agent reviewer failure falls open. Python SDK and CLI parser formats must not be assumed interchangeable."
+      ]
+    },
+    {
+      "id": "mistral-vibe",
+      "label": "Mistral Vibe CLI",
+      "kind": "command_hooks",
+      "scope": "Current CLI hooks reference",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.mistral.ai/vibe/code/cli/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "pre_tool"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "post_tool"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "post_agent"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "TOML hook arrays with event and matcher.",
+        "handlers": "Commands.",
+        "payload": "Tool call/result or agent completion data.",
+        "dispatch": "Glob or explicit regex matching.",
+        "failure": "strict mode can deny pre-tool or clear post-tool output on hook failure; default warns."
+      },
+      "limitations": [
+        "post_tool follows an executed tool body, including error/cancellation; denied pre-tool calls do not emit it."
+      ]
+    },
+    {
+      "id": "goose",
+      "label": "Goose",
+      "kind": "command_hooks",
+      "scope": "Public main HookEvent enum and dispatcher; emitters not exhaustively checked",
+      "inventory_status": "source_declared",
+      "sources": [
+        "https://raw.githubusercontent.com/block/goose/main/crates/goose/src/hooks/mod.rs"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "tool.before",
+          "controls": [],
+          "native_names": [
+            "PreToolUse"
+          ]
+        },
+        {
+          "phase": "policy.decision",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "PreToolUseResult"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [],
+          "native_names": [
+            "PostToolUse"
+          ]
+        },
+        {
+          "phase": "tool.failure",
+          "controls": [],
+          "native_names": [
+            "PostToolUseFailure"
+          ]
+        },
+        {
+          "phase": "session.start",
+          "controls": [],
+          "native_names": [
+            "SessionStart"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [],
+          "native_names": [
+            "SessionEnd"
+          ]
+        },
+        {
+          "phase": "prompt.before",
+          "controls": [],
+          "native_names": [
+            "UserPromptSubmit"
+          ]
+        },
+        {
+          "phase": "file.read.before",
+          "controls": [],
+          "native_names": [
+            "BeforeReadFile"
+          ]
+        },
+        {
+          "phase": "filesystem.tool_edit.after",
+          "controls": [],
+          "native_names": [
+            "AfterFileEdit"
+          ]
+        },
+        {
+          "phase": "shell.before",
+          "controls": [],
+          "native_names": [
+            "BeforeShellExecution"
+          ]
+        },
+        {
+          "phase": "shell.after",
+          "controls": [],
+          "native_names": [
+            "AfterShellExecution"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [],
+          "native_names": [
+            "Stop"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Plugin hooks/hooks.json.",
+        "handlers": "Command only; other types deserialize without execution.",
+        "payload": "session_id, matcher_context, optional tool_call_id and raw event fields.",
+        "dispatch": "Separate observing and blocking emit methods.",
+        "failure": "Blocking dispatcher honors exit 2/deny; timeout and hook errors log and allow."
+      },
+      "limitations": [
+        "Enum presence does not establish a live emitting call site or blocking authority for each event. Controls intentionally unmeasured pending native/source call-site tests.",
+        "policy_evaluated distinguishes absent/failed policy evaluation from a returned verdict."
+      ]
+    },
+    {
+      "id": "antigravity",
+      "label": "Google Antigravity",
+      "kind": "command_hooks",
+      "scope": "Main hooks reference; do not infer SDK or every IDE variant",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://antigravity.google/docs/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "ask",
+            "force_ask"
+          ],
+          "native_names": [
+            "PreToolUse"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "PostToolUse"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "context"
+          ],
+          "native_names": [
+            "PreInvocation"
+          ]
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "context",
+            "continue",
+            "cancel"
+          ],
+          "native_names": [
+            "PostInvocation"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "Stop"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Named hooks in customization-directory hooks.json.",
+        "handlers": "Commands.",
+        "payload": "conversationId, workspacePaths, toolCall, stepIdx/invocationNum; Stop includes fullyIdle.",
+        "dispatch": "Model invocation and execution-loop boundaries are separate.",
+        "failure": "Pre-tool supports deny_unless_prior_grant and permissionOverrides; timeout behavior needs probing."
+      },
+      "limitations": [
+        "ask respects prior grants; force_ask does not. No input-rewrite field is documented at PreToolUse.",
+        "PostToolUse receives error but returns an empty object; it is not a result-rewrite hook."
+      ]
+    },
+    {
+      "id": "crush",
+      "label": "Crush",
+      "kind": "command_hooks",
+      "scope": "Public main built-in configuration reference",
+      "inventory_status": "source_declared",
+      "sources": [
+        "https://raw.githubusercontent.com/charmbracelet/crush/main/internal/skills/builtin/crush-config/SKILL.md"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "tool.before",
+          "controls": [
+            "allow",
+            "deny",
+            "rewrite_input",
+            "context"
+          ],
+          "native_names": [
+            "PreToolUse"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "crushrc or crush.json; project/user merge.",
+        "handlers": "Commands; case-insensitive event aliases.",
+        "payload": "stdin JSON and hook-specific environment variables.",
+        "dispatch": "Matching commands run in parallel and deduplicate; last nonempty input replacement wins.",
+        "failure": "Exit 2 denies; other nonzero exits do not. Any deny overrides allows."
+      },
+      "limitations": [
+        "The source explicitly documents only PreToolUse. No general post-tool/Stop hook is established."
+      ]
+    },
+    {
+      "id": "openclaw",
+      "label": "OpenClaw plugin runtime",
+      "kind": "plugin",
+      "scope": "Current plugin hook catalog; underlying agent runner can restrict support",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.openclaw.ai/plugins/hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "model.select.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_model_resolve"
+          ]
+        },
+        {
+          "phase": "turn.before",
+          "controls": [
+            "context",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "agent_turn_prepare",
+            "before_prompt_build",
+            "heartbeat_prompt_contribution"
+          ]
+        },
+        {
+          "phase": "turn.before",
+          "controls": [
+            "deny"
+          ],
+          "native_names": [
+            "before_agent_run"
+          ]
+        },
+        {
+          "phase": "turn.before",
+          "controls": [
+            "short_circuit",
+            "claim"
+          ],
+          "native_names": [
+            "before_agent_reply"
+          ]
+        },
+        {
+          "phase": "turn.stop.before",
+          "controls": [
+            "continue"
+          ],
+          "native_names": [
+            "before_agent_finalize"
+          ]
+        },
+        {
+          "phase": "turn.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "agent_end"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "model_call_started",
+            "llm_input"
+          ]
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "model_call_ended",
+            "llm_output"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny",
+            "ask",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_tool_call"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "after_tool_call"
+          ]
+        },
+        {
+          "phase": "environment.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "resolve_exec_env"
+          ]
+        },
+        {
+          "phase": "transcript.before",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "tool_result_persist"
+          ]
+        },
+        {
+          "phase": "transcript.before",
+          "controls": [
+            "deny",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "before_message_write"
+          ]
+        },
+        {
+          "phase": "message.inbound",
+          "controls": [
+            "claim"
+          ],
+          "native_names": [
+            "inbound_claim",
+            "before_dispatch"
+          ]
+        },
+        {
+          "phase": "message.inbound",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "channel_pairing_requested",
+            "message_received"
+          ]
+        },
+        {
+          "phase": "message.outbound.before",
+          "controls": [
+            "deny",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "message_sending",
+            "reply_payload_sending"
+          ]
+        },
+        {
+          "phase": "message.outbound.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "message_sent"
+          ]
+        },
+        {
+          "phase": "message.dispatch",
+          "controls": [
+            "claim"
+          ],
+          "native_names": [
+            "reply_dispatch"
+          ]
+        },
+        {
+          "phase": "session.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session_start"
+          ]
+        },
+        {
+          "phase": "session.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "session_end"
+          ]
+        },
+        {
+          "phase": "compaction.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "before_compaction"
+          ]
+        },
+        {
+          "phase": "compaction.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "after_compaction"
+          ]
+        },
+        {
+          "phase": "session.reset.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "before_reset"
+          ]
+        },
+        {
+          "phase": "agent.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "subagent_spawned"
+          ]
+        },
+        {
+          "phase": "agent.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "subagent_ended"
+          ]
+        },
+        {
+          "phase": "agent.progress",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "subagent_progress"
+          ]
+        },
+        {
+          "phase": "agent.delivery",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "subagent_delivery_target"
+          ]
+        },
+        {
+          "phase": "runtime.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "gateway_start"
+          ]
+        },
+        {
+          "phase": "runtime.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "gateway_stop"
+          ]
+        },
+        {
+          "phase": "scheduler.changed",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "cron_reconciled",
+            "cron_changed"
+          ]
+        },
+        {
+          "phase": "installation.before",
+          "controls": [
+            "deny",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_install"
+          ]
+        },
+        {
+          "phase": "skill.evaluate",
+          "controls": [],
+          "native_names": [
+            "skill_proposal_evaluate"
+          ]
+        },
+        {
+          "phase": "skill.changed",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "skill_proposal_changed",
+            "skill_changed"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Plugin api.on registrations with priority and per-hook budgets.",
+        "handlers": "In-process; persistence hooks must be synchronous.",
+        "payload": "Runner/session/tool and channel-specific fields.",
+        "dispatch": "Observation and modifying hooks have different ordering; timeout does not cancel a handler.",
+        "failure": "before_agent_run, before_tool_call and before_install fail closed; many other hooks log and continue."
+      },
+      "limitations": [
+        "Codex-native relay restricts capabilities, including tool-parameter rewriting; advertise the effective host/runtime intersection.",
+        "Compaction hooks observe only. Session shutdown has a shared bounded drain, not durable delivery."
+      ]
+    },
+    {
+      "id": "cloudflare-think",
+      "label": "Cloudflare Think / Project Think",
+      "kind": "sdk",
+      "scope": "Agents Think lifecycle reference; pin SDK before adoption",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://developers.cloudflare.com/agents/harnesses/think/lifecycle-hooks/"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "session.configure",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "configureSession"
+          ]
+        },
+        {
+          "phase": "turn.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "beforeTurn"
+          ]
+        },
+        {
+          "phase": "step.before",
+          "controls": [
+            "rewrite_input",
+            "filter_tools"
+          ],
+          "native_names": [
+            "beforeStep"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "deny",
+            "rewrite_input",
+            "short_circuit"
+          ],
+          "native_names": [
+            "beforeToolCall"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "afterToolCall"
+          ]
+        },
+        {
+          "phase": "step.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onStepFinish"
+          ]
+        },
+        {
+          "phase": "message.stream",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onChunk"
+          ]
+        },
+        {
+          "phase": "turn.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onChatResponse"
+          ]
+        },
+        {
+          "phase": "turn.error",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onChatError"
+          ]
+        },
+        {
+          "phase": "error.classify",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "classifyChatError"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Think subclass overrides; app owns deployment.",
+        "handlers": "In-process async lifecycle methods.",
+        "payload": "Turn/step/tool data, streamed chunks, completion status.",
+        "dispatch": "Server-executed tools only; completion notification follows persistence and release of turn lock.",
+        "failure": "Error classification currently drives context-overflow recovery; other classifications may be reserved."
+      },
+      "limitations": [
+        "afterToolCall success may describe a blocked or substituted call. Preserve policy outcome separately from actual execution.",
+        "onChatResponse is not a Stop veto. Durable application storage/recovery does not automatically make every hook side effect durable.",
+        "Documentation and main-source streaming-tool details differ; capture the pinned implementation."
+      ]
+    },
+    {
+      "id": "openai-agents-python",
+      "label": "OpenAI Agents SDK (Python)",
+      "kind": "sdk",
+      "scope": "Python lifecycle API; TypeScript parity not assumed",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://openai.github.io/openai-agents-python/ref/lifecycle/"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "model.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_llm_start"
+          ],
+          "registration": "RunHooks"
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_llm_end"
+          ],
+          "registration": "RunHooks"
+        },
+        {
+          "phase": "agent.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_agent_start"
+          ],
+          "registration": "RunHooks"
+        },
+        {
+          "phase": "agent.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_agent_end"
+          ],
+          "registration": "RunHooks"
+        },
+        {
+          "phase": "agent.handoff",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_handoff"
+          ],
+          "registration": "RunHooks"
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_tool_start"
+          ],
+          "registration": "RunHooks"
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_tool_end"
+          ],
+          "registration": "RunHooks"
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_llm_start"
+          ],
+          "registration": "AgentHooks"
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_llm_end"
+          ],
+          "registration": "AgentHooks"
+        },
+        {
+          "phase": "agent.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_start"
+          ],
+          "registration": "AgentHooks"
+        },
+        {
+          "phase": "agent.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_end"
+          ],
+          "registration": "AgentHooks"
+        },
+        {
+          "phase": "agent.handoff",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_handoff"
+          ],
+          "registration": "AgentHooks"
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_tool_start"
+          ],
+          "registration": "AgentHooks"
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "on_tool_end"
+          ],
+          "registration": "AgentHooks"
+        }
+      ],
+      "contract": {
+        "configuration": "RunHooks or per-agent AgentHooks.",
+        "handlers": "Async Python methods returning None.",
+        "payload": "Run context, agent, tools and model request/response data.",
+        "dispatch": "Awaited lifecycle observations.",
+        "failure": "No typed allow/deny/rewrite decision in these lifecycle callbacks."
+      },
+      "limitations": [
+        "Guardrails and tool wrappers are separate enforcement seams. Do not advertise on_tool_start as a policy-decision API."
+      ]
+    },
+    {
+      "id": "google-adk",
+      "label": "Google ADK callbacks",
+      "kind": "sdk",
+      "scope": "Agent-local callbacks; global plugin API is additional scope",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://google.github.io/adk-docs/callbacks/types-of-callbacks/",
+        "https://adk.dev/plugins/"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "agent.before",
+          "controls": [
+            "short_circuit"
+          ],
+          "native_names": [
+            "before_agent_callback"
+          ]
+        },
+        {
+          "phase": "agent.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_agent_callback"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "rewrite_input",
+            "short_circuit"
+          ],
+          "native_names": [
+            "before_model_callback"
+          ]
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_model_callback"
+          ]
+        },
+        {
+          "phase": "model.error",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "on_model_error_callback"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "rewrite_input",
+            "short_circuit"
+          ],
+          "native_names": [
+            "before_tool_callback"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_tool_callback"
+          ]
+        },
+        {
+          "phase": "tool.error",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "on_tool_error_callback"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Agent callback fields; BasePlugin can apply callbacks across a Runner.",
+        "handlers": "SDK functions.",
+        "payload": "CallbackContext/ToolContext and request/result data.",
+        "dispatch": "Returning None proceeds; replacement content can skip or override a stage.",
+        "failure": "Application-owned exception handling."
+      },
+      "limitations": [
+        "This inventory covers agent callback names, not every BasePlugin callback or language SDK."
+      ]
+    },
+    {
+      "id": "strands-python",
+      "label": "Strands Agents (Python)",
+      "kind": "sdk",
+      "scope": "Python event table",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://strandsagents.com/docs/user-guide/concepts/agents/hooks/"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "agent.initialized",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AgentInitializedEvent"
+          ]
+        },
+        {
+          "phase": "run.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "BeforeInvocationEvent"
+          ]
+        },
+        {
+          "phase": "run.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AfterInvocationEvent"
+          ]
+        },
+        {
+          "phase": "message.persisted",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "MessageAddedEvent"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "BeforeModelCallEvent"
+          ]
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "retry"
+          ],
+          "native_names": [
+            "AfterModelCallEvent"
+          ]
+        },
+        {
+          "phase": "batch.before",
+          "controls": [
+            "cancel"
+          ],
+          "native_names": [
+            "BeforeToolsEvent"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "cancel",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "BeforeToolCallEvent"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output",
+            "retry"
+          ],
+          "native_names": [
+            "AfterToolCallEvent"
+          ]
+        },
+        {
+          "phase": "batch.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AfterToolsEvent"
+          ]
+        },
+        {
+          "phase": "orchestration.initialized",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "MultiAgentInitializedEvent"
+          ]
+        },
+        {
+          "phase": "orchestration.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "BeforeMultiAgentInvocationEvent"
+          ]
+        },
+        {
+          "phase": "orchestration.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AfterMultiAgentInvocationEvent"
+          ]
+        },
+        {
+          "phase": "node.before",
+          "controls": [
+            "cancel"
+          ],
+          "native_names": [
+            "BeforeNodeCallEvent"
+          ]
+        },
+        {
+          "phase": "node.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AfterNodeCallEvent"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "HookProvider/agent registration.",
+        "handlers": "Python callbacks.",
+        "payload": "Typed mutable properties on otherwise read-only event objects.",
+        "dispatch": "Before callbacks follow registration order; after callbacks reverse it.",
+        "failure": "Cancellation and retry are explicit event properties."
+      },
+      "limitations": [
+        "BeforeTools/AfterTools are true batch boundaries. Callback access does not imply every event field is mutable."
+      ]
+    },
+    {
+      "id": "strands-typescript",
+      "label": "Strands Agents (TypeScript)",
+      "kind": "sdk",
+      "scope": "TypeScript event table; additional stream/node events",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://strandsagents.com/docs/user-guide/concepts/agents/hooks/"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "agent.initialized",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AgentInitializedEvent"
+          ]
+        },
+        {
+          "phase": "run.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "BeforeInvocationEvent"
+          ]
+        },
+        {
+          "phase": "run.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AfterInvocationEvent"
+          ]
+        },
+        {
+          "phase": "message.persisted",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "MessageAddedEvent"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "BeforeModelCallEvent"
+          ]
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "retry"
+          ],
+          "native_names": [
+            "AfterModelCallEvent"
+          ]
+        },
+        {
+          "phase": "batch.before",
+          "controls": [
+            "cancel"
+          ],
+          "native_names": [
+            "BeforeToolsEvent"
+          ]
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "cancel",
+            "rewrite_input"
+          ],
+          "native_names": [
+            "BeforeToolCallEvent"
+          ]
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output",
+            "retry"
+          ],
+          "native_names": [
+            "AfterToolCallEvent"
+          ]
+        },
+        {
+          "phase": "batch.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AfterToolsEvent"
+          ]
+        },
+        {
+          "phase": "orchestration.initialized",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "MultiAgentInitializedEvent"
+          ]
+        },
+        {
+          "phase": "orchestration.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "BeforeMultiAgentInvocationEvent"
+          ]
+        },
+        {
+          "phase": "orchestration.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AfterMultiAgentInvocationEvent"
+          ]
+        },
+        {
+          "phase": "node.before",
+          "controls": [
+            "cancel"
+          ],
+          "native_names": [
+            "BeforeNodeCallEvent"
+          ]
+        },
+        {
+          "phase": "node.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AfterNodeCallEvent"
+          ]
+        },
+        {
+          "phase": "model.stream",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "ModelStreamUpdateEvent",
+            "ContentBlockEvent",
+            "ModelMessageEvent"
+          ]
+        },
+        {
+          "phase": "tool.stream",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "ToolStreamUpdateEvent",
+            "ToolResultEvent"
+          ]
+        },
+        {
+          "phase": "run.result",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "AgentResultEvent"
+          ]
+        },
+        {
+          "phase": "run.interrupted",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "InterruptEvent"
+          ]
+        },
+        {
+          "phase": "node.stream",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "NodeStreamUpdateEvent"
+          ]
+        },
+        {
+          "phase": "node.cancelled",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "NodeCancelEvent"
+          ]
+        },
+        {
+          "phase": "node.result",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "NodeResultEvent"
+          ]
+        },
+        {
+          "phase": "agent.handoff",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "MultiAgentHandoffEvent"
+          ]
+        },
+        {
+          "phase": "orchestration.result",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "MultiAgentResultEvent"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "addHook and plugins.",
+        "handlers": "TypeScript callbacks.",
+        "payload": "Typed HookableEvent objects, also streamable.",
+        "dispatch": "Before order and reversed after order.",
+        "failure": "Verify language-specific cancel/retry behavior against the pinned SDK."
+      },
+      "limitations": [
+        "Python and TypeScript inventories differ; streaming observations are not additional pre-execution gates."
+      ]
+    },
+    {
+      "id": "langchain",
+      "label": "LangChain / Deep Agents middleware",
+      "kind": "sdk",
+      "scope": "Python middleware API; Deep Agents uses the middleware layer",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.langchain.com/oss/python/langchain/middleware/custom"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "run.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_agent"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_model"
+          ]
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_model"
+          ]
+        },
+        {
+          "phase": "run.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_agent"
+          ]
+        },
+        {
+          "phase": "model.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output",
+            "retry"
+          ],
+          "native_names": [
+            "wrap_model_call"
+          ]
+        },
+        {
+          "phase": "tool.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output",
+            "retry"
+          ],
+          "native_names": [
+            "wrap_tool_call"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "AgentMiddleware/custom decorators in the application.",
+        "handlers": "Node-style hooks and around wrappers.",
+        "payload": "Agent state and typed model/tool requests.",
+        "dispatch": "Wrappers control whether and how often the next handler runs.",
+        "failure": "Application-controlled recovery and routing."
+      },
+      "limitations": [
+        "Async equivalents and LangGraph interrupts need explicit adapter handling; this is not a shell-hook installer."
+      ]
+    },
+    {
+      "id": "vercel-ai-sdk",
+      "label": "Vercel AI SDK ToolLoopAgent",
+      "kind": "sdk",
+      "scope": "Current main / AI SDK 7 documentation",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://raw.githubusercontent.com/vercel/ai/main/content/docs/03-agents/02-building-agents.mdx"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "run.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onStart"
+          ]
+        },
+        {
+          "phase": "step.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onStepStart"
+          ]
+        },
+        {
+          "phase": "tool.execution.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onToolExecutionStart"
+          ]
+        },
+        {
+          "phase": "tool.execution.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onToolExecutionEnd"
+          ]
+        },
+        {
+          "phase": "step.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onStepEnd"
+          ]
+        },
+        {
+          "phase": "run.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "onEnd"
+          ]
+        },
+        {
+          "phase": "step.before",
+          "controls": [
+            "rewrite_input",
+            "filter_tools"
+          ],
+          "native_names": [
+            "prepareStep"
+          ]
+        },
+        {
+          "phase": "loop.condition",
+          "controls": [
+            "cancel"
+          ],
+          "native_names": [
+            "stopWhen"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "ToolLoopAgent constructor and invocation options.",
+        "handlers": "SDK callbacks and loop controls.",
+        "payload": "runtimeContext, tool context, discriminated tool output and step usage.",
+        "dispatch": "Constructor callbacks precede invocation callbacks; both run.",
+        "failure": "Use tool approval/policy or an execution wrapper for authorization."
+      },
+      "limitations": [
+        "Lifecycle callbacks are documented for observation. prepareStep and stopWhen are separate control seams, not additional event notifications.",
+        "Older onStepFinish/onFinish names must not be substituted without version evidence."
+      ]
+    },
+    {
+      "id": "mastra",
+      "label": "Mastra agent processors",
+      "kind": "sdk",
+      "scope": "Current processor reference",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://mastra.ai/docs/agents/processors"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "prompt.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "processInput"
+          ]
+        },
+        {
+          "phase": "step.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "processInputStep"
+          ]
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "processLLMRequest"
+          ]
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "processLLMResponse"
+          ]
+        },
+        {
+          "phase": "output.final",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "processOutputResult"
+          ]
+        },
+        {
+          "phase": "output.stream",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "processOutputStream"
+          ]
+        },
+        {
+          "phase": "step.after",
+          "controls": [
+            "retry",
+            "cancel"
+          ],
+          "native_names": [
+            "processOutputStep"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Agent processor arrays.",
+        "handlers": "Typed processor methods.",
+        "payload": "Messages, request/response context and streamed chunks.",
+        "dispatch": "Input, per-step, provider-wire and output stages differ.",
+        "failure": "Processors can abort or request retries where supported."
+      },
+      "limitations": [
+        "processLLMRequest changes transient provider input, not necessarily persisted history. prepareStep is shorthand, not another independent event."
+      ]
+    },
+    {
+      "id": "microsoft-agent-framework",
+      "label": "Microsoft Agent Framework middleware",
+      "kind": "sdk",
+      "scope": "Middleware architecture; exact language signatures intentionally unmeasured",
+      "inventory_status": "partial",
+      "sources": [
+        "https://learn.microsoft.com/en-us/agent-framework/journey/adding-middleware"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "agent.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "agent"
+          ],
+          "registration": "middleware layer"
+        },
+        {
+          "phase": "tool.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "function"
+          ],
+          "registration": "middleware layer"
+        },
+        {
+          "phase": "model.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "chat-client"
+          ],
+          "registration": "middleware layer"
+        }
+      ],
+      "contract": {
+        "configuration": "Application middleware pipeline.",
+        "handlers": "Language-specific around middleware.",
+        "payload": "Layer-specific request/response context.",
+        "dispatch": "An application can omit invoking the next layer.",
+        "failure": "Application-controlled."
+      },
+      "limitations": [
+        "Names here label documented extension layers, not callable method identifiers. Language-specific API inventory remains partial."
+      ]
+    },
+    {
+      "id": "crewai",
+      "label": "CrewAI execution hooks",
+      "kind": "sdk",
+      "scope": "Documentation version v1.15.20",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.crewai.com/v1.15.20/en/learn/execution-hooks"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "run.before",
+          "controls": [
+            "rewrite_input",
+            "cancel"
+          ],
+          "native_names": [
+            "EXECUTION_START",
+            "INPUT"
+          ],
+          "registration": "InterceptionPoint"
+        },
+        {
+          "phase": "run.after",
+          "controls": [
+            "rewrite_output",
+            "cancel"
+          ],
+          "native_names": [
+            "OUTPUT",
+            "EXECUTION_END"
+          ],
+          "registration": "InterceptionPoint"
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "rewrite_input",
+            "cancel"
+          ],
+          "native_names": [
+            "PRE_MODEL_CALL"
+          ],
+          "registration": "InterceptionPoint"
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "rewrite_output",
+            "cancel"
+          ],
+          "native_names": [
+            "POST_MODEL_CALL"
+          ],
+          "registration": "InterceptionPoint"
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "rewrite_input",
+            "cancel"
+          ],
+          "native_names": [
+            "PRE_TOOL_CALL"
+          ],
+          "registration": "InterceptionPoint"
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output",
+            "cancel"
+          ],
+          "native_names": [
+            "POST_TOOL_CALL"
+          ],
+          "registration": "InterceptionPoint"
+        },
+        {
+          "phase": "step.before",
+          "controls": [
+            "rewrite_input",
+            "cancel"
+          ],
+          "native_names": [
+            "PRE_STEP"
+          ],
+          "registration": "InterceptionPoint"
+        },
+        {
+          "phase": "step.after",
+          "controls": [
+            "rewrite_output",
+            "cancel"
+          ],
+          "native_names": [
+            "POST_STEP"
+          ],
+          "registration": "InterceptionPoint"
+        }
+      ],
+      "contract": {
+        "configuration": "@on hook registration and interception context.",
+        "handlers": "Synchronous functions.",
+        "payload": "Mutable context; return values may replace stage data.",
+        "dispatch": "Execution hooks are distinct from the observation event bus.",
+        "failure": "HookAborted stops; ordinary hook exceptions are swallowed."
+      },
+      "limitations": [
+        "Legacy before/after LLM/tool decorators are compatibility aliases. They are not extra engine phases."
+      ]
+    },
+    {
+      "id": "pydantic-ai",
+      "label": "Pydantic AI Hooks / capabilities",
+      "kind": "sdk",
+      "scope": "Current main decorator API; separate AbstractCapability aliases",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://raw.githubusercontent.com/pydantic/pydantic-ai/main/docs/hooks.md"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_implemented",
+      "event_groups": [
+        {
+          "phase": "run.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "before_run"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "run.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_run"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "run.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "run"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "run.error",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "run_error"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "node.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_node_run"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "node.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_node_run"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "node.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "node_run"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "node.error",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "node_run_error"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "model.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_model_request"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "model.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_model_request"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "model.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "model_request"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "model.error",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "model_request_error"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "tool.validation.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_tool_validate"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "tool.validation.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_tool_validate"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "tool.validation.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "tool_validate"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "tool.validation.error",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "tool_validate_error"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "tool.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_tool_execute"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "tool.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_tool_execute"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "tool.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "tool_execute"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "tool.error",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "tool_execute_error"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "output.validation.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_output_validate"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "output.validation.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_output_validate"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "output.validation.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "output_validate"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "output.validation.error",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "output_validate_error"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "output.processing.before",
+          "controls": [
+            "rewrite_input"
+          ],
+          "native_names": [
+            "before_output_process"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "output.processing.after",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "after_output_process"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "output.processing.around",
+          "controls": [
+            "short_circuit",
+            "rewrite_input",
+            "rewrite_output"
+          ],
+          "native_names": [
+            "output_process"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "output.processing.error",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "output_process_error"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "tool.catalog",
+          "controls": [
+            "filter_tools"
+          ],
+          "native_names": [
+            "prepare_tools",
+            "prepare_output_tools"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "permission.deferred",
+          "controls": [
+            "allow",
+            "deny",
+            "replace_operation"
+          ],
+          "native_names": [
+            "deferred_tool_calls"
+          ],
+          "registration": "hooks.on"
+        },
+        {
+          "phase": "event.stream",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "run_event_stream",
+            "event"
+          ],
+          "registration": "hooks.on"
+        }
+      ],
+      "contract": {
+        "configuration": "Hooks capability or AbstractCapability subclass.",
+        "handlers": "Sync/async decorators; wrappers and error handlers.",
+        "payload": "RunContext plus typed request, tool and output contexts.",
+        "dispatch": "Per-model-turn hooks include provider continuations; streamed partial output is explicitly marked.",
+        "failure": "Timeout raises HookTimeoutError; wrappers can recover."
+      },
+      "limitations": [
+        "Tool validation/execution hooks cover function tools, not internal output tools.",
+        "Defer/approval before execution; after execution is too late to prevent effects.",
+        "Decorator wrap names omit wrap_; error aliases omit on_. run_stream has a documented final-node exception."
+      ]
+    },
+    {
+      "id": "acp",
+      "label": "Agent Client Protocol (ACP)",
+      "kind": "protocol",
+      "scope": "v1 tool-call and permission messages; selected relevant methods",
+      "inventory_status": "partial",
+      "sources": [
+        "https://agentclientprotocol.com/protocol/v1/tool-calls"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_applicable",
+      "event_groups": [
+        {
+          "phase": "tool.lifecycle",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "tool_call",
+            "tool_call_update"
+          ],
+          "registration": "session/update"
+        },
+        {
+          "phase": "permission.request",
+          "controls": [
+            "allow",
+            "deny"
+          ],
+          "native_names": [
+            "session/request_permission"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Client/agent protocol negotiation.",
+        "handlers": "JSON-RPC methods and notifications.",
+        "payload": "sessionId, toolCallId, content, locations and incremental updates.",
+        "dispatch": "Permissions are request/response; tool updates are observations.",
+        "failure": "Agent/client transport semantics."
+      },
+      "limitations": [
+        "A client may reject requested permission; the protocol does not require every internal tool call to cross that gate.",
+        "A transport adapter cannot grant universal filesystem coverage. Filesystem/terminal delegation requires separately negotiated capabilities."
+      ]
+    },
+    {
+      "id": "ahp",
+      "label": "VS Code Agent Host Protocol (AHP)",
+      "kind": "protocol",
+      "scope": "Active development; architectural contract only",
+      "inventory_status": "partial",
+      "sources": [
+        "https://code.visualstudio.com/docs/agents/concepts/agent-host"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_applicable",
+      "event_groups": [],
+      "contract": {
+        "configuration": "Agent Host and first-party runtime adapters.",
+        "handlers": "JSON-RPC; local message port or remote WebSocket.",
+        "payload": "URI-addressed sessions/chats/terminals/changesets.",
+        "dispatch": "Host-owned snapshot plus ordered actions; reconnect replays missed actions or replaces the snapshot.",
+        "failure": "Capability-specific; not a general pre-tool hook contract."
+      },
+      "limitations": [
+        "Relevant to remote shadow session transport and synchronization. Exact wire-method inventory was not established in this survey.",
+        "Clients can observe one shared session; underlying agent policy remains a separate contract."
+      ]
+    },
+    {
+      "id": "mcp",
+      "label": "Model Context Protocol (MCP)",
+      "kind": "protocol",
+      "scope": "2026-07-28; selected relevant methods, not whole specification",
+      "inventory_status": "partial",
+      "sources": [
+        "https://modelcontextprotocol.io/specification/2026-07-28/server/tools",
+        "https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_applicable",
+      "event_groups": [
+        {
+          "phase": "tool.catalog",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "tools/list",
+            "notifications/tools/list_changed"
+          ]
+        },
+        {
+          "phase": "tool.rpc",
+          "controls": [
+            "replace_operation"
+          ],
+          "native_names": [
+            "tools/call"
+          ]
+        },
+        {
+          "phase": "elicitation.request",
+          "controls": [
+            "rewrite_output"
+          ],
+          "native_names": [
+            "elicitation/create"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Negotiated client/server capabilities.",
+        "handlers": "Protocol handlers or an application-owned proxy.",
+        "payload": "JSON-RPC request IDs, tool arguments/results and elicitation schema/content.",
+        "dispatch": "Calls and notifications; client interaction is implementation-dependent.",
+        "failure": "Protocol errors and tool-result errors are distinct."
+      },
+      "limitations": [
+        "A proxy can police traffic it mediates; it cannot intercept built-in Bash, native edits or external filesystem writes.",
+        "Elicitation is user interaction, not proof of a native tool permission gate."
+      ]
+    },
+    {
+      "id": "ag-ui",
+      "label": "AG-UI",
+      "kind": "protocol",
+      "scope": "Current documented events; drafts and deprecated thinking events excluded",
+      "inventory_status": "documented_catalog",
+      "sources": [
+        "https://docs.ag-ui.com/concepts/events"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_applicable",
+      "event_groups": [
+        {
+          "phase": "run.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "RUN_STARTED"
+          ]
+        },
+        {
+          "phase": "run.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "RUN_FINISHED"
+          ]
+        },
+        {
+          "phase": "run.error",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "RUN_ERROR"
+          ]
+        },
+        {
+          "phase": "step.before",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "STEP_STARTED"
+          ]
+        },
+        {
+          "phase": "step.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "STEP_FINISHED"
+          ]
+        },
+        {
+          "phase": "message.stream",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "TEXT_MESSAGE_START",
+            "TEXT_MESSAGE_CONTENT",
+            "TEXT_MESSAGE_END",
+            "TEXT_MESSAGE_CHUNK"
+          ]
+        },
+        {
+          "phase": "tool.stream",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "TOOL_CALL_START",
+            "TOOL_CALL_ARGS",
+            "TOOL_CALL_END",
+            "TOOL_CALL_RESULT",
+            "TOOL_CALL_CHUNK"
+          ]
+        },
+        {
+          "phase": "state.changed",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "STATE_SNAPSHOT",
+            "STATE_DELTA",
+            "MESSAGES_SNAPSHOT",
+            "ACTIVITY_SNAPSHOT",
+            "ACTIVITY_DELTA"
+          ]
+        },
+        {
+          "phase": "event.extension",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "RAW",
+            "CUSTOM"
+          ]
+        },
+        {
+          "phase": "reasoning.stream",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "REASONING_START",
+            "REASONING_MESSAGE_START",
+            "REASONING_MESSAGE_CONTENT",
+            "REASONING_MESSAGE_END",
+            "REASONING_MESSAGE_CHUNK",
+            "REASONING_END",
+            "REASONING_ENCRYPTED_VALUE"
+          ]
+        },
+        {
+          "phase": "agent.start",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "SUBAGENT_STARTED"
+          ]
+        },
+        {
+          "phase": "agent.end",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "SUBAGENT_FINISHED"
+          ]
+        },
+        {
+          "phase": "agent.error",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "SUBAGENT_ERROR"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "Agent/frontend event stream.",
+        "handlers": "Typed protocol events.",
+        "payload": "threadId/runId plus message/tool/subagent identities and metadata.",
+        "dispatch": "Streamed lifecycle and state changes.",
+        "failure": "RUN_ERROR differs from a normal or interrupted run result."
+      },
+      "limitations": [
+        "TOOL_CALL_END can end generation of call arguments; it is not proof that execution succeeded.",
+        "UI protocol events do not supply a universal synchronous veto."
+      ]
+    },
+    {
+      "id": "aider",
+      "label": "Aider",
+      "kind": "adjacent",
+      "scope": "Documented lint/test automation",
+      "inventory_status": "partial",
+      "sources": [
+        "https://aider.chat/docs/usage/lint-test.html"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_applicable",
+      "event_groups": [
+        {
+          "phase": "filesystem.tool_edit.after",
+          "controls": [
+            "observe"
+          ],
+          "native_names": [
+            "--lint-cmd",
+            "--test-cmd"
+          ]
+        }
+      ],
+      "contract": {
+        "configuration": "CLI options; --auto-test enables automatic test runs.",
+        "handlers": "Lint/test commands.",
+        "payload": "Changed filenames for linting; command output and status.",
+        "dispatch": "After AI edits.",
+        "failure": "Feedback can lead to repair."
+      },
+      "limitations": [
+        "These are post-edit automation options, not native event names or pre-execution gates."
+      ]
+    },
+    {
+      "id": "continue",
+      "label": "Continue CLI",
+      "kind": "adjacent",
+      "scope": "Headless automation page; lifecycle API not established",
+      "inventory_status": "discovery_only",
+      "sources": [
+        "https://docs.continue.dev/cli/headless-mode"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_applicable",
+      "event_groups": [],
+      "contract": {
+        "configuration": "Headless CLI invocation.",
+        "handlers": "External process automation.",
+        "payload": "Structured JSON output available.",
+        "dispatch": "Can be invoked by a Git hook.",
+        "failure": "Caller-owned process handling."
+      },
+      "limitations": [
+        "Running an agent from a Git hook is the opposite direction from subscribing to its internal tool lifecycle."
+      ]
+    },
+    {
+      "id": "junie",
+      "label": "JetBrains Junie CLI",
+      "kind": "adjacent",
+      "scope": "Current extensions page mentions hook content without event contract",
+      "inventory_status": "discovery_only",
+      "sources": [
+        "https://junie.jetbrains.com/docs/junie-cli-extensions.html"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_applicable",
+      "event_groups": [],
+      "contract": {
+        "configuration": "Project/user extension marketplaces; cached extension bundles.",
+        "handlers": "Hook assets mentioned as extension content.",
+        "payload": "Not established.",
+        "dispatch": "Not established.",
+        "failure": "Not established."
+      },
+      "limitations": [
+        "Hook packaging support is documented, but event names and enforcement were not verified. Requires a native/version-specific investigation."
+      ]
+    },
+    {
+      "id": "devin-hosted",
+      "label": "Devin hosted agent",
+      "kind": "adjacent",
+      "scope": "Official webhook-to-session integration example",
+      "inventory_status": "discovery_only",
+      "sources": [
+        "https://docs.devin.ai/use-cases/gallery/api-webhook-custom-ticketing"
+      ],
+      "runtime_verified": false,
+      "interlinked": "not_applicable",
+      "event_groups": [],
+      "contract": {
+        "configuration": "External ticketing webhook starts a Devin API session.",
+        "handlers": "Integration service.",
+        "payload": "Ticket/session API data.",
+        "dispatch": "Job trigger, not a per-tool boundary.",
+        "failure": "Caller-owned API handling."
+      },
+      "limitations": [
+        "No general user-installable tool lifecycle hook contract established by this source. Do not reuse Cascade hooks for hosted Devin."
+      ]
+    }
+  ],
+  "discovery_gaps": [
+    {
+      "label": "Kiro Web / CLI 3.x",
+      "reason": "Primary documents conflict on surface support and migration naming; retain as unmeasured until native capture.",
+      "sources": [
+        "https://kiro.dev/docs/hooks/",
+        "https://kiro.dev/docs/hooks/types/"
+      ]
+    },
+    {
+      "label": "Roo Code",
+      "reason": "Search did not establish a current primary-source lifecycle API. This is an unresolved discovery item, not an absence claim.",
+      "sources": []
+    },
+    {
+      "label": "Agent Plugins / OpenPlugins",
+      "reason": "Goose references a shared hook specification; its linked specification endpoint could not be fetched reliably. Do not certify spec/runtime equivalence.",
+      "sources": [
+        "https://agent-plugins.org/agent-builders/components/hooks"
+      ]
+    },
+    {
+      "label": "Other language SDKs, Antigravity SDK/IDE variants, Replit Agent, proprietary enterprise runtimes and smaller forks",
+      "reason": "Outside verified inventory. Add runtime-specific evidence rather than inherit another brand/version's checklist.",
+      "sources": []
+    }
+  ],
+  "local_registry_snapshot": {
+    "source": "src/harness/adapters/provider-capabilities.ts",
+    "meaning": "Declarations in the reviewed working tree; install:true is an installer selection, not evidence that the installed client emits or enforces the event.",
+    "providers": {
+      "CLAUDE_CODE": [
+        {
+          "name": "SessionStart",
+          "phase": "session-start",
+          "install": true
+        },
+        {
+          "name": "SessionEnd",
+          "phase": "session-end",
+          "install": true
+        },
+        {
+          "name": "UserPromptSubmit",
+          "phase": "user-prompt",
+          "install": true
+        },
+        {
+          "name": "Stop",
+          "phase": "stop",
+          "install": true
+        },
+        {
+          "name": "PreToolUse",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "PostToolUse",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "PostToolUseFailure",
+          "phase": "post-tool",
+          "install": false
+        },
+        {
+          "name": "PermissionRequest",
+          "phase": "permission-request",
+          "install": true
+        },
+        {
+          "name": "WorktreeCreate",
+          "phase": "worktree-create",
+          "install": true
+        },
+        {
+          "name": "SubagentStart",
+          "phase": "subagent-start",
+          "install": true
+        },
+        {
+          "name": "SubagentStop",
+          "phase": "subagent-stop",
+          "install": true
+        },
+        {
+          "name": "Notification",
+          "phase": "notification",
+          "install": true
+        },
+        {
+          "name": "PreCompact",
+          "phase": "pre-compact",
+          "install": true
+        },
+        {
+          "name": "TaskCompleted",
+          "phase": "other",
+          "install": true
+        },
+        {
+          "name": "TeammateIdle",
+          "phase": "other",
+          "install": true
+        }
+      ],
+      "CODEX": [
+        {
+          "name": "SessionStart",
+          "phase": "session-start",
+          "install": true
+        },
+        {
+          "name": "SessionEnd",
+          "phase": "session-end",
+          "install": true
+        },
+        {
+          "name": "UserPromptSubmit",
+          "phase": "user-prompt",
+          "install": true
+        },
+        {
+          "name": "Stop",
+          "phase": "stop",
+          "install": true
+        },
+        {
+          "name": "PreToolUse",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "PermissionRequest",
+          "phase": "permission-request",
+          "install": true
+        },
+        {
+          "name": "PostToolUse",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "PreCompact",
+          "phase": "pre-compact",
+          "install": true
+        },
+        {
+          "name": "PostCompact",
+          "phase": "post-compact",
+          "install": true
+        },
+        {
+          "name": "SubagentStart",
+          "phase": "subagent-start",
+          "install": true
+        },
+        {
+          "name": "SubagentStop",
+          "phase": "subagent-stop",
+          "install": true
+        },
+        {
+          "name": "Interrupt",
+          "phase": "other",
+          "install": true
+        }
+      ],
+      "COPILOT_CLI": [
+        {
+          "name": "sessionStart",
+          "phase": "session-start",
+          "install": true
+        },
+        {
+          "name": "sessionEnd",
+          "phase": "session-end",
+          "install": true
+        },
+        {
+          "name": "userPromptSubmitted",
+          "phase": "user-prompt",
+          "install": true
+        },
+        {
+          "name": "preToolUse",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "postToolUse",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "errorOccurred",
+          "phase": "error",
+          "install": true
+        }
+      ],
+      "GEMINI_CLI": [
+        {
+          "name": "SessionStart",
+          "phase": "session-start",
+          "install": true
+        },
+        {
+          "name": "SessionEnd",
+          "phase": "session-end",
+          "install": true
+        },
+        {
+          "name": "BeforeAgent",
+          "phase": "user-prompt",
+          "install": true
+        },
+        {
+          "name": "AfterAgent",
+          "phase": "other",
+          "install": true
+        },
+        {
+          "name": "BeforeTool",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "AfterTool",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "AfterModel",
+          "phase": "other",
+          "install": true
+        },
+        {
+          "name": "PreCompress",
+          "phase": "pre-compact",
+          "install": true
+        },
+        {
+          "name": "Notification",
+          "phase": "notification",
+          "install": true
+        }
+      ],
+      "CURSOR": [
+        {
+          "name": "sessionStart",
+          "phase": "session-start",
+          "install": true
+        },
+        {
+          "name": "sessionEnd",
+          "phase": "session-end",
+          "install": true
+        },
+        {
+          "name": "stop",
+          "phase": "stop",
+          "install": true
+        },
+        {
+          "name": "preCompact",
+          "phase": "pre-compact",
+          "install": true
+        },
+        {
+          "name": "beforeSubmitPrompt",
+          "phase": "user-prompt",
+          "install": true
+        },
+        {
+          "name": "beforeShellExecution",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "afterShellExecution",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "beforeMCPExecution",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "beforeMcpToolExecution",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "afterMCPExecution",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "afterMcpToolExecution",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "beforeReadFile",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "afterFileEdit",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "preToolUse",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "postToolUse",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "postToolUseFailure",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "subagentStart",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "subagentStop",
+          "phase": "subagent-stop",
+          "install": true
+        }
+      ],
+      "OPENCODE": [
+        {
+          "name": "chat.message",
+          "phase": "user-prompt",
+          "install": true
+        },
+        {
+          "name": "tool.execute.before",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "tool.execute.after",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "permission.ask",
+          "phase": "permission-request",
+          "install": false
+        },
+        {
+          "name": "experimental.session.compacting",
+          "phase": "pre-compact",
+          "install": true
+        },
+        {
+          "name": "event:session.created",
+          "phase": "session-start",
+          "install": true
+        },
+        {
+          "name": "event:session.deleted",
+          "phase": "session-end",
+          "install": true
+        },
+        {
+          "name": "event:session.idle",
+          "phase": "stop",
+          "install": true
+        },
+        {
+          "name": "event:session.error",
+          "phase": "error",
+          "install": true
+        },
+        {
+          "name": "event:session.compacted",
+          "phase": "post-compact",
+          "install": true
+        },
+        {
+          "name": "event:permission.updated",
+          "phase": "permission-request",
+          "install": true
+        },
+        {
+          "name": "event:permission.replied",
+          "phase": "other",
+          "install": true
+        }
+      ],
+      "PI": [
+        {
+          "name": "session_start",
+          "phase": "session-start",
+          "install": true
+        },
+        {
+          "name": "session_shutdown",
+          "phase": "session-end",
+          "install": true
+        },
+        {
+          "name": "input",
+          "phase": "user-prompt",
+          "install": true
+        },
+        {
+          "name": "tool_call",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "tool_result",
+          "phase": "post-tool",
+          "install": true
+        },
+        {
+          "name": "user_bash",
+          "phase": "pre-tool",
+          "install": true
+        },
+        {
+          "name": "before_agent_start",
+          "phase": "other",
+          "install": true
+        },
+        {
+          "name": "agent_start",
+          "phase": "other",
+          "install": true
+        },
+        {
+          "name": "agent_end",
+          "phase": "other",
+          "install": true
+        },
+        {
+          "name": "agent_settled",
+          "phase": "stop",
+          "install": true
+        },
+        {
+          "name": "session_before_compact",
+          "phase": "pre-compact",
+          "install": true
+        },
+        {
+          "name": "session_compact",
+          "phase": "post-compact",
+          "install": true
+        },
+        {
+          "name": "session_compact_failed",
+          "phase": "error",
+          "install": true
+        }
+      ]
+    }
+  }
+}

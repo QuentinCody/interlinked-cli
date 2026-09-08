@@ -190,6 +190,15 @@ over 250,000 records / 64 MiB instead of exhausting application memory.
 `interlinked metrics` (whole-repo code-quality scan) lives in **interlinked-quality-gates**;
 `interlinked context` (effective config) in **interlinked-setup**.
 
+For measured gate execution, `interlinked metrics gates --json` separates enabled policy
+from actual attempts, fresh source-bound reach, stale/deferred/unavailable work and recorded
+latency percentiles. `.interlinked/metrics/executions.jsonl` is the bounded local execution
+journal; malformed/truncated evidence is reported. Historical ratchet file counts are not
+current test coverage, and a disabled gate measures nothing. `metrics evidence status`
+lists behavioral receipt freshness; `metrics coverage status` validates the contribution
+index. `metrics coverage warm` explicitly runs the suite and belongs to
+**interlinked-quality-gates**, so do not trigger its CPU work merely to display status.
+
 ## `interlinked impact` — facts, not attribution
 
 `interlinked impact [--base <ref>] [--experiment-manifest <path>] [--cwd <path>]

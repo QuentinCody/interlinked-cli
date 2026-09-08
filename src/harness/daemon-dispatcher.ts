@@ -22,6 +22,7 @@ import type { TsgoRunner } from "./tsgo-runner.js";
 import type { HarnessDecision } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
 import { validateUnifiedEvent } from "./unified-event.js";
+import { isHookCoverageRequest, type HookCoverageReport, type HookCoverageRequest } from "./hook-coverage-control.js";
 
 type HookDecisionMethod =
 	| "hook.pre_tool_use"
@@ -56,6 +57,7 @@ const OBSERVATION_ONLY_HOOK_METHODS = new Set<HookDecisionMethod>([
 ]);
 
 export interface DispatcherState {
+	coverage?: (request: HookCoverageRequest) => HookCoverageReport;
 	/** Wall-clock ms at daemon start. */
 	started_at: number;
 	/** In-flight request count (updated by the caller). */
@@ -96,6 +98,8 @@ export async function dispatchRpc(
 		return dispatchHookDecision(request, state);
 	}
 	switch (request.method) {
+		case "daemon.coverage":
+			return dispatchCoverage(request, state);
 		case "daemon.health":
 			return {
 				id: request.id,
@@ -125,6 +129,13 @@ export async function dispatchRpc(
 				true,
 			);
 	}
+}
+
+function dispatchCoverage(request: { id: string; params?: unknown }, state: DispatcherState): RpcResponse<"daemon.coverage"> | RpcError {
+	if (!isHookCoverageRequest(request.params)) return makeError(request.id, "bad_request", "Invalid hook coverage operation");
+	try {
+		return { id: request.id, result: state.coverage?.(request.params) ?? { readiness: "unmeasured", reason: "No daemon observer" } };
+	} catch (error) { return makeError(request.id, "internal", String(error)); }
 }
 
 function isHookDecisionRequest(

@@ -23,6 +23,8 @@ export interface HarnessDecision {
 	warnings?: string[] | undefined;
 	/** Modified tool input — when set, the hook script should pass this to the agent instead of the original input */
 	updated_input?: JsonObject;
+	/** Dynamic filesystem subscriptions. Only supported native boundaries encode these. */
+	watch_paths?: string[];
 	/** Entries to append to the local activity log */
 	log_entries?: LogEntry[];
 	/** File reservation action taken (if any) */

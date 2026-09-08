@@ -16,6 +16,15 @@ export function wireOptional<T>(validate: WireValidator<T>): WireValidator<T | u
 	return (value): value is T | undefined => value === undefined || validate(value);
 }
 
+export interface AbsentWireValidator<T> {
+	readonly present: WireValidator<T>;
+}
+
+/** Allow an omitted object property while validating every present value. */
+export function wireAbsentOptional<T>(validate: WireValidator<T>): AbsentWireValidator<T> {
+	return { present: validate };
+}
+
 export function wireNullable<T>(validate: WireValidator<T>): WireValidator<T | null> {
 	return (value): value is T | null => value === null || validate(value);
 }
@@ -26,18 +35,41 @@ export function parseWire<T>(value: unknown, validate: WireValidator<T>, label: 
 }
 
 export function wireArray<T>(validate: WireValidator<T>): WireValidator<T[]> {
-	return (value): value is T[] => Array.isArray(value) && value.every(validate);
+	return (value): value is T[] => {
+		if (!Array.isArray(value)) return false;
+		for (const item of value) if (!validate(item)) return false;
+		return true;
+	};
 }
 
 export function wireRecord<T>(validate: WireValidator<T>): WireValidator<Record<string, T>> {
 	return (value): value is Record<string, T> => isJsonObject(value) && Object.values(value).every(validate);
 }
 
-/** Require a validator for every declared field, including optional fields.
- * Unknown extra fields remain allowed for protocol forward compatibility. */
+export type WireFields = Record<string, WireValidator<unknown> | AbsentWireValidator<unknown>>;
+type WireFieldValue<F> = F extends WireValidator<infer T> | AbsentWireValidator<infer T> ? T : never;
+export type InferredWireObject<F extends WireFields> = {
+	[K in keyof F as F[K] extends AbsentWireValidator<unknown> ? never : K]: WireFieldValue<F[K]>;
+} & {
+	[K in keyof F as F[K] extends AbsentWireValidator<unknown> ? K : never]?: WireFieldValue<F[K]>;
+};
+type NarrowIndexKeys<T> = {
+	[K in keyof T]-?: {} extends Record<K, unknown> ? unknown extends T[K] ? never : K : never;
+}[keyof T];
+/** Open extra keys are safe only when their values are unknown. Use wireRecord
+ * to validate every value of a narrower index signature. */
+export type SupportedWireObject<T> = Extract<keyof T, symbol> extends never
+	? [NarrowIndexKeys<T>] extends [never] ? unknown : never
+	: never;
+
+/** Require every declared field unless its schema explicitly permits absence.
+ * Present inherited fields are validated just like own fields; extra fields remain allowed. */
+export function wireObject<F extends WireFields>(fields: F & SupportedWireObject<InferredWireObject<F>>): WireValidator<InferredWireObject<F>>;
 export function wireObject<T extends object>(fields: {
-	[K in keyof T]-?: WireValidator<T[K]>;
-}): WireValidator<T> {
-	const entries = Object.entries<WireValidator<unknown>>(fields);
-	return (value): value is T => isJsonObject(value) && entries.every(([key, validate]) => validate(value[key]));
+	[K in keyof T as {} extends Record<K, unknown> ? never : K]-?: {} extends Pick<T, K> ? AbsentWireValidator<Required<T>[K]> : WireValidator<T[K]>;
+} & SupportedWireObject<T>): WireValidator<T>;
+export function wireObject(fields: WireFields): WireValidator<object> {
+	const entries = Object.entries<WireValidator<unknown> | AbsentWireValidator<unknown>>(fields);
+	return (value): value is object => isJsonObject(value) && entries.every(([key, validate]) =>
+		typeof validate === "function" ? key in value && validate(value[key]) : !(key in value) || validate.present(value[key]));
 }

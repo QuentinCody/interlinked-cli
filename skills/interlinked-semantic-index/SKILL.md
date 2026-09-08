@@ -17,6 +17,13 @@ weighted-centroid aggregation. Model context changes never redefine or bypass th
 The semantic runtime's `llama-tokenize` path currently requires the installed GGUF artifact
 and local llama.cpp commands, even though tokenization itself does not run neural inference.
 
+Use **syntax tokens** (lexical tokens), not AST-node counts, when explaining the hard cap
+or `metrics score`. `canonicalTokens` is the compatible field name for the versioned syntax
+count; `modelTokens` describes the selected embedding tokenizer. No universal conversion
+rate exists between these units. The metrics composite, behavioral evidence and per-edit
+coverage workflows do not need semantic models. Route those operations to
+**interlinked-quality-gates**; installing an embedding model cannot resolve missing test evidence.
+
 ## Command surface
 
 ```bash

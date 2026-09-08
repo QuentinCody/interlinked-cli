@@ -8,6 +8,7 @@
 import type { JsonObject } from "../lib/json-types.js";
 import type { HarnessDecision } from "./types.js";
 import type { UnifiedHookEvent } from "./unified-event.js";
+import type { HookCoverageReport, HookCoverageRequest } from "./hook-coverage-control.js";
 
 /** Wire-version. Bumped when the envelope breaks compatibility. */
 export const PROTOCOL_VERSION = "1" as const;
@@ -58,6 +59,7 @@ export type RpcMethod =
 	| "hook.post_compact"
 	| "hook.lifecycle"
 	| "daemon.health"
+	| "daemon.coverage"
 	| "daemon.shutdown"
 	| "daemon.invalidate"
 	| "tsgo.check_file"
@@ -100,6 +102,7 @@ export interface RpcParams {
 	"hook.post_compact": UnifiedHookEvent;
 	"hook.lifecycle": UnifiedHookEvent;
 	"daemon.health": Record<string, never>;
+	"daemon.coverage": HookCoverageRequest;
 	"daemon.shutdown": { reason?: string };
 	"daemon.invalidate": { path: string };
 	"tsgo.check_file": { path: string };
@@ -117,6 +120,7 @@ export interface RpcResult {
 	"hook.post_compact": HarnessDecision;
 	"hook.lifecycle": HarnessDecision;
 	"daemon.health": DaemonHealth;
+	"daemon.coverage": HookCoverageReport;
 	"daemon.shutdown": HookSessionAck;
 	"daemon.invalidate": HookSessionAck;
 	"tsgo.check_file": { diagnostics: TsgoDiagnostic[]; cached: boolean; elapsed_ms: number };
