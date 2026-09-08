@@ -180,6 +180,15 @@ Source mutation by the runner invalidates evidence. Resume requires matching
 inputs and a current passing receipt; a newer failed/cancelled attempt cannot be
 hidden by an older pass.
 
+The normalized artifact selector is part of cache identity, so choosing another
+report from the same runner requires separate evidence. Local status and scoring
+also recheck the inherited environment and all copied runtime inputs, including
+ignored files and installed dependencies. Changes make a receipt stale; missing
+provenance, unreadable inputs or exhausted validation budgets make it inconclusive.
+Each store load shares a ten-second validation deadline and the existing
+200,000-entry / 4-GiB workspace bounds. An execution's earlier deadline takes
+precedence. Older local receipts remain readable but cannot certify a current score.
+
 Coverage uses strict Istanbul maps and aligned nonnegative counts. Mutation uses
 Stryker-style reports with exact source bytes and sites. Missing eligible files
 stay inconclusive. Killed, surviving, uncovered, timed-out, errored and ignored
@@ -202,7 +211,9 @@ interlinked metrics gates --json
 ```
 
 A full Vitest warm run measures an isolated overlay, checks full-report parity,
-and records per-test-file contributions and scoring evidence. Incremental runs
+and records per-test-file contributions. Its scoring receipt is inconclusive
+because warming does not verify complete runtime/dependency/environment provenance;
+use `metrics evidence run` for local composite scoring evidence. Incremental runs
 replace affected contributions, retain unchanged ones and preserve zero-hit
 denominators. Source, test, configuration, dependency, discovery, import-graph,
 runner and environment changes invalidate the appropriate evidence.

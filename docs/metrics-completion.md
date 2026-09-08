@@ -65,8 +65,10 @@ and promotes a staged generation only after its source fingerprint is on disk.
 Content-addressed blobs and locked generation checks preserve accepted evidence.
 Coverage churn under identical inputs quarantines reuse until three full runs agree.
 Unsupported capture degrades visibly; it does not authorize a guessed coverage block.
-Full warm runs also produce source-bound scoring evidence. Failed or cancelled
-attempts prevent an older passing receipt from silently satisfying resume/ranking.
+Full warm runs retain an explicitly inconclusive scoring receipt: their overlay
+does not yet verify the complete runtime provenance needed for composite scoring.
+Use `metrics evidence run` for that evidence. Failed or cancelled attempts prevent
+an older passing receipt from silently satisfying resume/ranking.
 
 The combined metrics/index/gate regression run passed 341 tests in 25 files.
 The final receipt/stability integration checks passed five tests in three files.
