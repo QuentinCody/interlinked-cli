@@ -500,7 +500,7 @@ describe("createTsgoRunner — onExit cleanup handler", () => {
 
 		const added = process.listeners("exit").slice(beforeExitCount);
 		expect(added.length).toBe(1);
-		const onExit = added[0] as () => void;
+		const onExit = nonNull(added[0]);
 
 		// The handler's try/catch must swallow the throw — process exit cleanup
 		// must never itself crash the process.

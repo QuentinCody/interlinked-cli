@@ -78,6 +78,13 @@ export class ReservationManager {
 	private apiClient: ServerApiClient | null;
 	private refreshInterval: ReturnType<typeof setInterval> | null = null;
 	private eventSink: ReservationEventSink | null = null;
+	private changeListeners = new Set<() => void>();
+
+	/** Subscribe to local reservation changes; remote refresh is also reconciled by the watcher. */
+	onChange(listener: () => void): () => void {
+		this.changeListeners.add(listener);
+		return () => { this.changeListeners.delete(listener); };
+	}
 
 	constructor(
 		apiClient?: ServerApiClient,
@@ -290,6 +297,9 @@ export class ReservationManager {
 	}
 
 	private emit(event: ReservationLogEvent): void {
+		for (const listener of this.changeListeners) {
+			try { listener(); } catch { /* Intentional: observer failure must not break reservation ownership or later listeners. */ }
+		}
 		if (!this.eventSink) return;
 		try {
 			this.eventSink(event);

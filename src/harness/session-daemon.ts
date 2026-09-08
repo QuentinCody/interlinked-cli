@@ -362,13 +362,13 @@ export async function startSessionDaemon(opts: SessionDaemonOptions): Promise<Se
 			? setInterval(
 					() => {
 						if (runtime.rpcInflight() > 0) return;
+						if (opts.hasBackgroundWork?.()) return;
 						if (Date.now() - runtime.lastActivityAt() < idleMs) return;
 						void handle.stop("idle_shutdown");
 					},
 					Math.min(idleMs, 60_000),
 				)
 			: null;
-						if (opts.hasBackgroundWork?.()) return;
 	idleTimer?.unref();
 
 	const handle: SessionDaemonHandle = {

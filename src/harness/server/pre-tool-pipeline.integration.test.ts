@@ -1037,10 +1037,10 @@ describe("auto-coordination", () => {
 		expect(session.last_coordination_at).toBe(9);
 	});
 
-			heartbeat_recorded: false,
 	it("falls back to session.agent_name when event.agent_name is absent", async () => {
 		mShouldCoordinate.mockReturnValue(true);
 		const fetchCoordinationState = vi.fn(async () => ({
+			heartbeat_recorded: false,
 			unread: { total: 0, urgent: [] },
 			task_changes: [],
 		}));
