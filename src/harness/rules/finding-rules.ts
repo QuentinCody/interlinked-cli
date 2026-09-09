@@ -152,8 +152,7 @@ function resolveActiveFindingRule(entry: unknown, overrides: FindingRuleOverride
 	// ReDoS gate — a finding rule's regex is LLM-authored from arbitrary
 	// review prose; a nested-quantifier shape would hang the daemon. Same
 	// guard as distilled rules. Skip the whole rule + one stderr line.
-	const patterns = Array.isArray(raw.patterns) ? raw.patterns : [];
-	const unsafeRegex = findUnsafePatternRegex(patterns);
+	const unsafeRegex = raw.patterns.find(pattern => looksLikeReDoS(pattern.regex))?.regex;
 	if (unsafeRegex !== undefined) {
 		process.stderr.write(`[interlinked] skipping finding rule ${id}: ReDoS-prone pattern ${unsafeRegex.slice(0, 120)}\n`);
 		return null;
@@ -174,20 +173,6 @@ function normalizeFindingMetadata(raw: GuardRule & JsonObject): FindingRule {
 	const source = normalizeFindingRuleSource(rawSource);
 	if (source) rule.source = source;
 	return rule;
-}
-
-/**
- * First ReDoS-prone `regex` field found among unvalidated pattern entries, or
- * `undefined` if none. Entries are raw JSON — each `p` may not even be an
- * object — so every access here is a real (not type-proven) narrowing.
- */
-function findUnsafePatternRegex(patterns: unknown[]): string | undefined {
-	for (const p of patterns) {
-		if (!isJsonObject(p)) continue;
-		const regex = p.regex;
-		if (typeof regex === "string" && looksLikeReDoS(regex)) return regex;
-	}
-	return undefined;
 }
 
 /** Public API — paths watched by `watchRulesFiles()` so changes hot-reload. */

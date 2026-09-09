@@ -25,19 +25,16 @@ function hasSupportedRuntime(config: ScannerFactoryConfig): config is ContentSca
 export function createScanner(config: ScannerFactoryConfig): ContentScanner | undefined {
 	if (!config.enabled || !hasSupportedRuntime(config)) return undefined;
 	const backend = buildBackend(config);
-	if (!backend) return undefined;
 	return wrapWithDisabledLabels(backend, config.disabled_labels);
 }
 
-function buildBackend(config: ContentScannerConfig): ContentScanner | undefined {
+function buildBackend(config: ContentScannerConfig): ContentScanner {
 	switch (config.runtime) {
 		case "local":
 			return new OpfLocalScanner(config);
 		case "huggingface":
 		case "custom_http":
 			return new OpfHttpScanner(config);
-		default:
-			return undefined;
 	}
 }
 

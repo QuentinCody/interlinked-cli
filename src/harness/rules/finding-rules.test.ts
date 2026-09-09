@@ -52,6 +52,29 @@ const baseRule = (over: Partial<GuardRule> & { id: string; source?: Record<strin
 });
 
 describe("loadFindingRules", () => {
+	it("retains valid review metadata and omits malformed source coordinates", () => {
+		writeRules([{
+			...baseRule({ id: "reviewed", source: { kind: "finding", bug_class: "unsafe-input", lines: ["ten", 20] } }),
+			distilled_action_reason: "Validated external input can reach the rule",
+			confidence: 0.75,
+			user_modified: false,
+		}]);
+		expect(loadFindingRules(cwd)[0]).toMatchObject({
+			id: "reviewed", confidence: 0.75, user_modified: false,
+			distilled_action_reason: "Validated external input can reach the rule",
+			source: { kind: "finding", bug_class: "unsafe-input" },
+		});
+		expect(asFindingRule(nonNull(loadFindingRules(cwd)[0])).source?.lines).toBeUndefined();
+	});
+
+	it("omits an overflowing JSON confidence without dropping the valid rule", () => {
+		const payload = JSON.stringify({ rules: [{ ...baseRule({ id: "overflow" }), confidence: 99 }] });
+		writeFileSync(findingRulesPath(cwd), payload.replace('"confidence":99', '"confidence":1e999'));
+		const rules = loadFindingRules(cwd);
+		expect(rules.map(rule => rule.id)).toEqual(["overflow"]);
+		expect(asFindingRule(nonNull(rules[0])).confidence).toBeUndefined();
+	});
+
 	// test-contract: boundary — returns [] when the file is missing
 	it("returns [] when the file is missing", () => {
 		expect(loadFindingRules(cwd)).toEqual([]);

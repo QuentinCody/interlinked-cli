@@ -18,9 +18,7 @@ import { type CorpusItem, canonicalizeFindings, runInlinePipeline } from "./dete
 async function readStdin(): Promise<string> {
 	const chunks: Buffer[] = [];
 	for await (const chunk of process.stdin) {
-		if (Buffer.isBuffer(chunk)) chunks.push(chunk);
-		else if (typeof chunk === "string") chunks.push(Buffer.from(chunk));
-		else throw new TypeError("Unexpected stdin chunk type");
+		chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
 	}
 	return Buffer.concat(chunks).toString("utf-8");
 }

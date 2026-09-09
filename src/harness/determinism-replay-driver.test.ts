@@ -188,4 +188,14 @@ describe("determinism-replay-driver main()", () => {
 		expect(exitCodes).toEqual([1]);
 		expect(stdoutCapture).toHaveLength(0);
 	});
+
+	it("rejects a null corpus entry before sending any item to the pipeline", async () => {
+		await runDriverWith([JSON.stringify([null, { path: "x.ts", content: "X" }])]);
+		expect(mRunPipeline).not.toHaveBeenCalled();
+		expect(exitCodes).toEqual([1]);
+		expect(stdoutCapture).toEqual([]);
+		expect(consoleErrArgs[0]?.[0]).toEqual(expect.objectContaining({
+			message: "stdin corpus must be a JSON array of { path: string; content: string }",
+		}));
+	});
 });
