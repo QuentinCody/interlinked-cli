@@ -227,13 +227,14 @@ describe("ChangeSet external-check batching", () => {
 		expect(all[0]?.detail).toContain("external-tool capacity is busy");
 	});
 
-	it("runs one unioned affected-test process for every changed TypeScript source", async () => {
+	it.each([false, true])("runs one complete unioned affected-test process (recovery=%s)", async recovery => {
 		const checksRan: string[] = [];
 		const batch = createChangeSetExternalBatch({
 			paths: ["/repo/src/a.ts", "/repo/src/b.ts"],
 			checks: { affected_tests: namedConfig("error") },
 			cwd: "/repo",
 			outChecksRan: checksRan,
+			recovery,
 		});
 
 		expect(await batch.resultsForFile("/repo/src/a.ts")).toEqual([]);
@@ -249,7 +250,7 @@ describe("ChangeSet external-check batching", () => {
 				"/repo/src/a.ts",
 				"/repo/src/b.ts",
 				"--run",
-				"--reporter=verbose",
+				...(recovery ? ["--reporter=dot", "--maxWorkers=2"] : ["--reporter=verbose"]),
 			],
 			cwd: "/repo",
 			timeoutMs: 5_000,

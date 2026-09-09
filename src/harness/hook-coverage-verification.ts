@@ -10,7 +10,11 @@ export interface HookCheckEvidence {
     findings: string[];
     unavailable: string[];
 }
-export type HookCoverageChecker = (entries: readonly HookPendingCheck[]) => Promise<ReadonlyMap<string, HookCheckEvidence>>;
+export interface HookCoverageChecker {
+    (entries: readonly HookPendingCheck[]): Promise<ReadonlyMap<string, HookCheckEvidence>>;
+    /** Recovery can group compatible scopes before imposing its process caps. */
+    batches?(entries: readonly HookPendingCheck[]): HookPendingCheck[][];
+}
 export interface HookVerificationStatus {
     id: string;
     status: "running" | "complete";
@@ -67,12 +71,15 @@ export class HookCoverageVerification {
     stop(): void { this.stopped = true; }
 
     private async run(entries: HookPendingCheck[], job: HookVerificationStatus): Promise<void> {
-        for (let offset = 0; offset < entries.length; offset += BATCH_SIZE) {
+        const batches = this.checker.batches?.(entries) ?? Array.from(
+            { length: Math.ceil(entries.length / BATCH_SIZE) },
+            (_, index) => entries.slice(index * BATCH_SIZE, (index + 1) * BATCH_SIZE),
+        );
+        for (const batch of batches) {
             // A resolved checker promise only yields to microtasks. Let socket
             // requests and shutdown timers run even when every batch defers.
             await setImmediate();
             if (this.stopped) break;
-            const batch = entries.slice(offset, offset + BATCH_SIZE);
             await this.checkBatch(batch, job);
             job.processed += batch.length;
         }

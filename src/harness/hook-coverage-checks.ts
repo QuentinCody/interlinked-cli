@@ -1,24 +1,49 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
+import { basename, extname, resolve } from "node:path";
 import type { HookPendingCheck } from "./hook-coverage-ledger.js";
 import type { HookCheckEvidence, HookCoverageChecker } from "./hook-coverage-verification.js";
 import { isInsideRoot } from "./large-file-policy.js";
 import { isOperationalCheckDeferral } from "./operational-check-deferrals.js";
 import { createChangeSetExternalBatch } from "./quality-checks/change-set-external.js";
 import { pathMatchesCheck } from "./quality-checks/change-set-external-candidates.js";
+import { findProjectRoot } from "./quality-checks/project-root.js";
+import { isLikelyTestFile } from "./quality-checks/test-classifier.js";
 import type { QualityCheckResult } from "./quality-checks/result-types.js";
 import { resolveQualityCheckTarget, runQualityChecks } from "./quality-checks.js";
 import type { HarnessEvent, QualityCheckConfig } from "./types.js";
 
-// Recovery runs outside the interactive hook deadline. Keep admission and
-// source-count limits, but allow a related suite time to produce a verdict.
-const RECOVERY_TEST_TIMEOUT_MS = 120_000;
+// Recovery is an explicit background job. Group up to the external batch cap
+// so overlapping related suites run once; bound worker count in the runner.
+const RECOVERY_BATCH_SIZE = 32;
+const RECOVERY_TEST_TIMEOUT_MS = 900_000;
 
 function recoveryChecks(configured: Record<string, QualityCheckConfig>): Record<string, QualityCheckConfig> {
     const checks = structuredClone(configured);
     const tests = checks.affected_tests;
-    if (tests) tests.timeout_ms = Math.max(tests.timeout_ms, RECOVERY_TEST_TIMEOUT_MS);
+    if (tests) {
+        tests.timeout_ms = Math.max(tests.timeout_ms, RECOVERY_TEST_TIMEOUT_MS);
+        tests.max_dependent_tests = Math.max(tests.max_dependent_tests ?? 8, RECOVERY_BATCH_SIZE);
+    }
     return checks;
+}
+
+function recoveryBatches(root: string, entries: readonly HookPendingCheck[], checks: Record<string, QualityCheckConfig>): HookPendingCheck[][] {
+    const groups = new Map<string, HookPendingCheck[]>();
+    for (const entry of entries) {
+        const project = resolve(findProjectRoot(entry.path, root) ?? root);
+        const test = isLikelyTestFile(basename(entry.path, extname(entry.path)), entry.path);
+        const applicable = Object.entries(checks).filter(([name, check]) => check.enabled &&
+            (name !== "affected_tests" || !test) && pathMatchesCheck(entry.path, check)).map(([name]) => name).sort();
+        const key = JSON.stringify([project, applicable]);
+        const group = groups.get(key) ?? [];
+        group.push(entry);
+        groups.set(key, group);
+    }
+    return [...groups.values()].flatMap(group => Array.from(
+        { length: Math.ceil(group.length / RECOVERY_BATCH_SIZE) },
+        (_, index) => group.slice(index * RECOVERY_BATCH_SIZE, (index + 1) * RECOVERY_BATCH_SIZE),
+    ));
 }
 
 function capturedContent(root: string, entry: HookPendingCheck): string {
@@ -58,26 +83,35 @@ function collectInputs(root: string, entries: readonly HookPendingCheck[], evide
 /** Reuses configured PostToolUse checks with one bounded external batch.
  * Receipts enumerate completed checks; they do not certify unrun hook phases. */
 export function createHookCoverageChecker(root: string, getChecks: () => Record<string, QualityCheckConfig>): HookCoverageChecker {
-    return async entries => {
+    const checker: HookCoverageChecker = async entries => {
         const evidence = new Map<string, HookCheckEvidence>();
-        const inputs = collectInputs(root, entries, evidence);
         const configured = structuredClone(getChecks());
         const checks = recoveryChecks(configured);
-        const externalRan: string[] = [];
-        const external = createChangeSetExternalBatch({ cwd: root, paths: [...inputs.keys()].map(entry => entry.path), checks, outChecksRan: externalRan });
-        const externalRows = new Map<string, QualityCheckResult[]>();
-        for (const [entry] of inputs) externalRows.set(entry.id, await external.resultsForFile(entry.path));
-        // The batch attributes a shared deferral to its primary path. It must
-        // invalidate coverage for every consumer, not only that first file.
-        const deferred = [...externalRows.values()].flat().filter(row => isOperationalCheckDeferral(row.name)).map(findingText);
-        for (const [entry, event] of inputs) {
-            evidence.set(entry.id, await checkInput({ root, entry, event, checks, externalRan, externalRows: externalRows.get(entry.id) ?? [], deferred }));
+        for (const batch of recoveryBatches(root, entries, configured)) {
+            await checkRecoveryBatch(root, batch, checks, evidence);
         }
         if (JSON.stringify(configured) !== JSON.stringify(getChecks())) {
             for (const result of evidence.values()) result.unavailable.push("Configured checks changed during verification");
         }
         return evidence;
     };
+    checker.batches = entries => recoveryBatches(root, entries, getChecks());
+    return checker;
+}
+
+async function checkRecoveryBatch(root: string, entries: readonly HookPendingCheck[], checks: Record<string, QualityCheckConfig>, evidence: Map<string, HookCheckEvidence>): Promise<void> {
+    const inputs = collectInputs(root, entries, evidence);
+    if (!inputs.size) return;
+    const externalRan: string[] = [];
+    const external = createChangeSetExternalBatch({ cwd: root, paths: [...inputs.keys()].map(entry => entry.path), checks, outChecksRan: externalRan, recovery: true });
+    const externalRows = new Map<string, QualityCheckResult[]>();
+    for (const [entry] of inputs) externalRows.set(entry.id, await external.resultsForFile(entry.path));
+    // Shared deferrals invalidate their compatible group, never unrelated
+    // documentation or another project's completed checks.
+    const deferred = [...externalRows.values()].flat().filter(row => isOperationalCheckDeferral(row.name)).map(findingText);
+    for (const [entry, event] of inputs) {
+        evidence.set(entry.id, await checkInput({ root, entry, event, checks, externalRan, externalRows: externalRows.get(entry.id) ?? [], deferred }));
+    }
 }
 
 interface CheckInputOptions {

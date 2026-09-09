@@ -43,6 +43,8 @@ export interface ChangeSetExternalBatch {
 }
 
 interface ChangeSetExternalBatchOptions {
+	/** Explicit background recovery, outside interactive hook deadlines. */
+	readonly recovery?: boolean;
 	readonly paths:readonly string[];
 	/** Paths proven created by the request's observed ChangeSet. Only these may
 	 * turn a cold-start TypeScript finding into an "introduced" error without a

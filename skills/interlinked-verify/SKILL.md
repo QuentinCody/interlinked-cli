@@ -53,8 +53,13 @@ polls without restarting verification. A responsive report resets that counter.
 Persistent unavailability exits nonzero with the original reason; the job may still
 be running. Only a ready response with a missing or different job establishes that
 the observed job changed or disappeared.
-Recovery allows at least two minutes for each related-test process; ordinary hook
-deadlines and the shared admission/source-count limits remain in effect on their paths.
+Recovery groups pending files by project and applicable checks, then checks up to 32
+compatible files together. Documentation does not inherit an unrelated source-test
+timeout, and nested projects acquire their own admission lane sequentially. Each
+recovery related-test process gets at least 15 minutes and at most two workers, with
+the complete union of related tests for up to 32 sources. This reduces repeated broad
+suites without selecting a passing subset. Ordinary hook deadlines and source-count
+limits remain unchanged; recovery still defers honestly on capacity or timeout.
 
 The daemon retains `automated_check` receipts with exact file identities, completed check
 names and findings. Completed checks may have findings; a receipt is not a clean verdict.

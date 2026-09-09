@@ -52,6 +52,23 @@ describe("coverage verification evidence", () => {
         expect(reopened.checks).toEqual([expect.objectContaining({ identity: "first", checks: ["typescript"], findings: measured.findings, kind: "automated_check" })]);
     });
 
+    it("uses the checker's compatible groups without splitting a shared suite into eight-file runs", async () => {
+        const owner = fixture();
+        for (let index = 0; index < 16; index++) owner.ledger.observe(`source-${index}.ts`, "first", "reservation");
+        const sizes: number[] = [];
+        const checker: HookCoverageChecker = async entries => {
+            sizes.push(entries.length);
+            return completed(entries);
+        };
+        checker.batches = entries => [[...entries]];
+        const verifier = new HookCoverageVerification(owner, checker);
+        verifier.start();
+        await expect.poll(() => verifier.status()?.status).toBe("complete");
+        expect(sizes).toEqual([17]);
+        expect(verifier.status()).toMatchObject({ total: 17, processed: 17, checked: 17, unmeasured: [] });
+        expect(owner.ledger.snapshot().pending).toEqual([]);
+    });
+
     it.each(["file", "policy"])("retains an obligation if %s changes while checks run", async kind => {
         const owner = fixture();
         owner.ledger.observe("policy.json", "original", "policy");

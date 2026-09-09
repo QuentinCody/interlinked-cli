@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -35,7 +35,9 @@ function fixture() {
         writeFileSync(path, content);
         return { id: name, path, identity: createHash("sha256").update(content).digest("hex"), scope: "reservation", writer: "unknown" };
     });
-    return { root, entries };
+    const first = entries[0];
+    if (!first) throw new Error("Missing fixture entry");
+    return { root, entries, first };
 }
 
 describe("coverage check scope", () => {
@@ -83,8 +85,47 @@ describe("coverage check scope", () => {
         const { root, entries } = fixture();
         const configured = { affected_tests: { enabled: true, severity: "error" as const, timeout_ms: 15000, max_dependent_tests: 8, file_types: [".ts"] } };
         const evidence = await createHookCoverageChecker(root, () => configured)(entries);
-        expect(mocks.batch).toHaveBeenCalledWith(expect.objectContaining({ checks: { affected_tests: { ...configured.affected_tests, timeout_ms: 120000 } } }));
+        expect(mocks.batch).toHaveBeenCalledWith(expect.objectContaining({ recovery: true, checks: { affected_tests: { ...configured.affected_tests, timeout_ms: 900000, max_dependent_tests: 32 } } }));
         expect(configured.affected_tests.timeout_ms).toBe(15000);
+        expect(configured.affected_tests.max_dependent_tests).toBe(8);
         expect([...evidence.values()].map(result => result.unavailable)).toEqual([[], []]);
+    });
+
+    it("does not let an affected-test timeout invalidate documentation checks", async () => {
+        const { root, entries, first } = fixture();
+        const document = { ...first, id: "readme", path: join(root, "README.md") };
+        writeFileSync(document.path, "export const count = 1;\n");
+        const affected_tests = { enabled: true, severity: "error" as const, timeout_ms: 1000, file_types: [".ts"] };
+        mocks.batch.mockImplementation(({ paths }: { paths: string[] }) => ({ resultsForFile: async () => paths.some(path => path.endsWith(".ts")) ? [{ name: "external_check_deferred", severity: "warning", message: "affected-test timeout" }] : [] }));
+        const evidence = await createHookCoverageChecker(root, () => ({ affected_tests }))([...entries, document]);
+        expect(evidence.get(document.id)).toEqual({ checks: ["strong_typing"], findings: [], unavailable: [] });
+        expect(evidence.get(first.id)?.unavailable).toContain("warning: external_check_deferred: affected-test timeout");
+        expect(mocks.batch).toHaveBeenCalledTimes(2);
+    });
+
+    it("plans bounded batches with all compatible sources and separates nested projects", () => {
+        const { root, first } = fixture();
+        const nested = join(root, "fixture");
+        mkdirSync(nested);
+        writeFileSync(join(nested, "package.json"), "{}");
+        writeFileSync(join(nested, "tsconfig.json"), "{}");
+        const sources = Array.from({ length: 33 }, (_, index) => ({ ...first, id: String(index), path: join(root, `${index}.ts`) }));
+        const child = { ...first, id: "child", path: join(nested, "child.ts") };
+        const checker = createHookCoverageChecker(root, () => ({}));
+        const batches = checker.batches?.([...sources.slice(0, 1), child, ...sources.slice(1)]) ?? [];
+        expect(batches.map(batch => batch.length)).toEqual([32, 1, 1]);
+        expect(batches[2]).toEqual([child]);
+        expect(batches.flat()).toHaveLength(34);
+        expect(new Set(batches.flat().map(entry => entry.id)).size).toBe(34);
+    });
+
+    it("keeps absent versions pending for an explicit deletion review", async () => {
+        const { root, first } = fixture();
+        const missing = { ...first, identity: "missing" };
+        rmSync(missing.path);
+        const evidence = await createHookCoverageChecker(root, () => ({}))([missing]);
+        expect(evidence.get(missing.id)?.unavailable.join(" ")).toContain("review deletion");
+        expect(mocks.batch).not.toHaveBeenCalled();
+        expect(mocks.quality).not.toHaveBeenCalled();
     });
 });

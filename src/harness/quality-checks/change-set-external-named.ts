@@ -14,12 +14,26 @@ import { classifyTestFailure, isLikelyTestFile } from "./test-classifier.js";
 import { runBoundedTestProcess } from "./test-process-gate.js";
 
 interface NamedRunOptions {
+	recovery?: boolean;
 	outToolMetrics?: ToolBreakdownEntry[];
 	outChecksRan?: string[];
 }
 
 function outputTail(stdout: string, stderr: string): string {
 	return `${stderr}\n${stdout}`.trim().split("\n").slice(-8).join("\n");
+}
+
+function affectedSourcePaths(
+	projectRoot: string,
+	paths: readonly string[],
+	candidate: NamedExternalCandidate,
+): string[] {
+	return paths.filter((path) => {
+		if (!pathMatchesCheck(path, candidate.check)) return false;
+		const absolute = isAbsolute(path) ? path : resolve(projectRoot, path);
+		const stem = basename(absolute).replace(/\.[^.]+$/, "");
+		return !isLikelyTestFile(stem, absolute);
+	});
 }
 
 async function runAffectedTestsAdmitted(
@@ -29,12 +43,7 @@ async function runAffectedTestsAdmitted(
 	paths: readonly string[],
 	candidate: NamedExternalCandidate,
 ): Promise<DeferredCheck | null> {
-	const sourcePaths = paths.filter((path) => {
-		if (!pathMatchesCheck(path, candidate.check)) return false;
-		const absolute = isAbsolute(path) ? path : resolve(projectRoot, path);
-		const stem = basename(absolute).replace(/\.[^.]+$/, "");
-		return !isLikelyTestFile(stem, absolute);
-	});
+	const sourcePaths = affectedSourcePaths(projectRoot, paths, candidate);
 	if (sourcePaths.length === 0) return null;
 	const maxSources = candidate.check.max_dependent_tests ?? 8;
 	if (sourcePaths.length > maxSources) {
@@ -62,7 +71,8 @@ async function runAffectedTestsAdmitted(
 	const started = Date.now();
 	const outcome = await runBoundedTestProcess({
 		command: "npx",
-		args: ["vitest", "related", ...absolutePaths, "--run", "--reporter=verbose"],
+		args: ["vitest", "related", ...absolutePaths, "--run",
+			...(options.recovery ? ["--reporter=dot", "--maxWorkers=2"] : ["--reporter=verbose"])],
 		cwd: projectRoot,
 		timeoutMs: candidate.check.timeout_ms,
 		admissionAlreadyHeld: true,
