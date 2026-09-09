@@ -69,6 +69,17 @@ describe("installCursorHooks / uninstallCursorHooks", () => {
 		expect(content).toContain('"beforeMcpToolExecution"');
 	});
 
+	it("retains valid third-party hook options while rejecting malformed entries", () => {
+		const retained = { command: "third-party-hook", timeout: 7, matcher: "Read", failClosed: false };
+		seed(tmp, JSON.stringify({ version: 1, hooks: { sessionStart: [null, 12, {}, { command: false }, retained] } }));
+		installCursorHooks(tmp, REL_SCRIPT);
+		const installed = JSON.parse(readFileSync(cursorPath(tmp), "utf8"));
+		expect(installed.hooks.sessionStart).toHaveLength(2);
+		expect(installed.hooks.sessionStart[0]).toEqual(retained);
+		expect(uninstallCursorHooks(tmp)).toBe(true);
+		expect(JSON.parse(readFileSync(cursorPath(tmp), "utf8")).hooks.sessionStart).toEqual([retained]);
+	});
+
 	it("removes Interlinked entries and deletes hooks.json when empty", () => {
 		installCursorHooks(tmp, REL_SCRIPT);
 		expect(uninstallCursorHooks(tmp)).toBe(true);

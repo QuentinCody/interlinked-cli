@@ -101,4 +101,21 @@ describe("ensureRemoteOnboarding", () => {
 		expect(result.reason).toBe("bootstrap_failed");
 		expect(result.error).toContain("unreachable");
 	});
+
+	it.each([null, undefined])("retains the configured name when bootstrap returns no identity: %s", async response => {
+		mockCallTool.mockResolvedValue(response);
+		expect(await ensureRemoteOnboarding()).toMatchObject({ status: "linked", agentName: "TestAgent", agentHandle: undefined });
+		expect(mockUpdateLocalConfig).not.toHaveBeenCalled();
+	});
+
+	it.each([[], { agent: { agent_handle: 17 } }, { workspace: { name: false } }])("rejects malformed remote identity without persisting it: %j", async response => {
+		mockCallTool.mockResolvedValue(response);
+		expect(await ensureRemoteOnboarding()).toMatchObject({ status: "failed", reason: "bootstrap_failed", error: "Invalid agent bootstrap response" });
+		expect(mockUpdateLocalConfig).not.toHaveBeenCalled();
+	});
+
+	it("reports non-Error transport failures without throwing", async () => {
+		mockCallTool.mockRejectedValue("remote disconnected");
+		expect(await ensureRemoteOnboarding()).toMatchObject({ status: "failed", error: "remote disconnected" });
+	});
 });

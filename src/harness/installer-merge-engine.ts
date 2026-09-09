@@ -110,7 +110,6 @@ export function removeJsonPath(target: unknown, path: string): boolean {
 	}
 	const last = segments[segments.length - 1];
 	if (last === undefined) return false;
-	if (cursor == null) return false;
 	if (last.kind === "index") {
 		return removeIndexSegment(cursor, last.value);
 	}
@@ -154,7 +153,6 @@ function parsePath(path: string): PathSegment[] {
 }
 
 function step(cursor: unknown, seg: PathSegment): unknown {
-	if (cursor == null) return undefined;
 	if (seg.kind === "index") {
 		if (!Array.isArray(cursor)) return undefined;
 		return cursor[seg.value];

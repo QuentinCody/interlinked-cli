@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getAdapter } from "../../harness/adapters/index.js";
 import { nonNull } from "../non-null.js";
 import type { ClientName } from "../settings.js";
@@ -248,6 +248,24 @@ describe("uninstallAllHooks — unknown client and uninstall failure", () => {
 			expect(results[0]?.error?.length).toBeGreaterThan(0);
 		} finally {
 			chmodSync(settingsPath, 0o644);
+		}
+	});
+
+	it("reports a provider's non-Error failure without aborting other uninstalls", async () => {
+		vi.resetModules();
+		vi.doMock("../hook-installers.js", async () => ({
+			...await vi.importActual<typeof import("../hook-installers.js")>("../hook-installers.js"),
+			uninstallGeminiHooks: () => { throw "provider cleanup failed"; },
+		}));
+		try {
+			const hooks = await import("../hooks.js");
+			expect(hooks.uninstallAllHooks(tmp, ["gemini", "cursor"])).toEqual([
+				{ client: "gemini", installed: false, events: [], error: "provider cleanup failed" },
+				{ client: "cursor", installed: false, events: [] },
+			]);
+		} finally {
+			vi.doUnmock("../hook-installers.js");
+			vi.resetModules();
 		}
 	});
 });

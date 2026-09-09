@@ -52,6 +52,7 @@ const {
 	mergeSettings,
 	readJson,
 	removeJsonPath,
+	resolveSettingsPath,
 	restoreTextFile,
 	snapshotTextFile,
 	writeAtomic,
@@ -378,6 +379,9 @@ describe("writeTextAtomic", () => {
 // -----------------------------------------------------------------------------
 
 describe("snapshotTextFile", () => {
+	it("does not treat a directory as recoverable settings bytes", () => {
+		expect(snapshotTextFile(tmp)).toBeNull();
+	});
 	// test-contract: invariant — a stat failure AFTER existsSync already
 	// passed (the classic TOCTOU race) must degrade to null, not throw or
 	// report a fabricated snapshot a caller would trust for rollback.
@@ -392,6 +396,20 @@ describe("snapshotTextFile", () => {
 });
 
 describe("restoreTextFile", () => {
+	it("refuses missing rollback bytes without replacing the current settings", () => {
+		const path = join(tmp, "settings.json");
+		writeFileSync(path, "current settings");
+		expect(() => restoreTextFile(path, { existed: true })).toThrow("missing rollback bytes");
+		expect(readFileSync(path, "utf8")).toBe("current settings");
+	});
+
+	it("restores text when optional mode metadata is absent and tolerates an already-absent new artifact", () => {
+		const path = join(tmp, "settings.json");
+		restoreTextFile(path, { existed: false });
+		expect(existsSync(path)).toBe(false);
+		restoreTextFile(path, { existed: true, content: "retained settings" });
+		expect(readFileSync(path, "utf8")).toBe("retained settings");
+	});
 	// test-contract: invariant — a snapshot of `existed: false` means the
 	// artifact was CREATED by the failed install, so restoring means deleting
 	// it, not writing empty text. If the leftover file is still present after
@@ -402,6 +420,11 @@ describe("restoreTextFile", () => {
 		restoreTextFile(p, { existed: false });
 		expect(existsSync(p)).toBe(false);
 	});
+});
+
+it("preserves an absolute adapter settings path rather than anchoring it to the project", () => {
+	const absolute = join(tmp, "external", "settings.json");
+	expect(resolveSettingsPath(join(tmp, "project"), absolute)).toBe(absolute);
 });
 
 describe("removeJsonPath — prototype-chain hardening (review 2026-08-30)", () => {

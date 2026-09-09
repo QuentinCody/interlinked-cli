@@ -311,6 +311,18 @@ describe("resolveHookBinaryPath — resolution order", () => {
 		expect(result).toBe(getHookScriptPath(tmp));
 		expect(existsSync(result)).toBe(false);
 	});
+
+	it("creates the generated fallback by default in an unbuilt checkout", () => {
+		const result = resolveHookBinaryPath(tmp, { packagedPath: () => null });
+		expect(result).toBe(getHookScriptPath(tmp));
+		expect(readFileSync(result, "utf8")).toContain("interlinked");
+	});
+
+	it("resolves a usable runtime even when the invocation path is missing", () => {
+		process.argv[1] = "";
+		const result = resolveHookBinaryPath(tmp);
+		expect(existsSync(result)).toBe(true);
+	});
 });
 
 describe("deleteConfigDir", () => {

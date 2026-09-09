@@ -16,6 +16,34 @@ afterEach(() => {
 });
 
 describe("hook runtime receipt", () => {
+	it.each([
+		null,
+		{ schema_version: "2", providers: {} },
+		{ schema_version: "1", providers: [] },
+		{ schema_version: "1", providers: { codex: null } },
+		{ schema_version: "1", providers: { codex: { observed_at: 1, native_event: "Stop" } } },
+		{ schema_version: "1", providers: { codex: { observed_at: "2026-09-08", native_event: 1 } } },
+		{ schema_version: "1", providers: { codex: { observed_at: "2026-09-08", native_event: "Stop", definition_sha256: 42 } } },
+	])("does not certify malformed provider evidence: %j", value => {
+		const root = mkdtempSync(join(tmpdir(), "interlinked-hook-receipt-invalid-"));
+		roots.push(root);
+		const path = join(root, HOOK_RUNTIME_RECEIPT_FILE);
+		writeFileSync(path, JSON.stringify(value));
+		expect(readHookRuntimeReceipt(path)).toBeNull();
+		recordHookRuntime({ dataDir: root, provider: "codex", nativeEvent: "PreToolUse" });
+		expect(readHookRuntimeReceipt(path)?.providers.codex?.native_event).toBe("PreToolUse");
+	});
+
+	it("cleans up a staged receipt when publication cannot replace its destination", () => {
+		const root = mkdtempSync(join(tmpdir(), "interlinked-hook-receipt-publish-"));
+		roots.push(root);
+		const path = join(root, HOOK_RUNTIME_RECEIPT_FILE);
+		mkdirSync(path);
+		recordHookRuntime({ dataDir: root, provider: "codex", nativeEvent: "Stop" });
+		expect(readHookRuntimeReceipt(path)).toBeNull();
+		expect(() => readFileSync(`${path}.${process.pid}.tmp`)).toThrow();
+	});
+
 	it("records provider execution and the installed definition hash without payload data", () => {
 		const root = mkdtempSync(join(tmpdir(), "interlinked-hook-receipt-"));
 		roots.push(root);
