@@ -253,7 +253,7 @@ async function completeZombieReap(args: {
 	expectedIdentity: string;
 	identify: ProcessIdentityReader;
 	logAlways: (msg: string) => void;
-	deps: ZombieReapDeps;
+	deps: ZombieReapDeps & { isAlive: (pid: number) => boolean };
 }): Promise<ZombieReapResult> {
 	const { pid, cwd, expectedIdentity, identify, logAlways, deps } = args;
 	const kill = deps.kill ?? ((target, signal) => process.kill(target, signal));
@@ -264,7 +264,7 @@ async function completeZombieReap(args: {
 		cwd,
 		expectedIdentity,
 		identify,
-		isAlive: deps.isAlive ?? processIsAlive,
+		isAlive: deps.isAlive,
 		sleep: deps.sleep ?? sleepBriefly,
 	};
 	const outcome = await waitForZombieExit({ ...waitArgs, timeoutMs: ZOMBIE_TERM_WAIT_MS });

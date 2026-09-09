@@ -1,4 +1,3 @@
-import { isJsonObject } from "../../lib/json-types.js";
 // ===========================================
 // Legacy activity.jsonl mirror (daemon dual-write)
 // ===========================================
@@ -108,7 +107,7 @@ const TOOL_FIELD_BY_LIFECYCLE_TYPE: Readonly<Record<string, string>> = {
 /** Read a lifecycle payload field from the normalized event first, then from
  *  the compact `tool_input` fallback used by the legacy bridge. */
 function lifecycleField(event: HarnessEvent, key: string): unknown {
-	const direct = isJsonObject(event) ? event[key] : undefined;
+	const direct: unknown = Reflect.get(event, key);
 	return direct !== undefined ? direct : event.tool_input?.[key];
 }
 
@@ -234,8 +233,7 @@ export function mapLifecycleEventToActivityRecord(
 	if (!type) return null;
 	const cwd = event.cwd ?? fallbackCwd;
 	const keys = projectKeys(cwd);
-	const persistedPrompt =
-		type === "user_prompt" ? (decision?.redacted_prompt ?? event.prompt ?? "") : null;
+	const persistedPrompt = decision?.redacted_prompt ?? event.prompt ?? "";
 	const rec: LocalActivityEvent = {
 		schema_version: 5,
 		ts: event.timestamp,
@@ -252,7 +250,7 @@ export function mapLifecycleEventToActivityRecord(
 	Object.assign(rec, eventAttributionFields(event));
 	copyLifecyclePayloadFields(rec, event);
 	if (type === "user_prompt") {
-		rec.prompt = persistedPrompt ?? "";
+		rec.prompt = persistedPrompt;
 		if (decision?.redacted_prompt !== undefined) rec.scrubbed = true;
 	}
 	if (type === "interrupt") rec.is_interrupt = true;

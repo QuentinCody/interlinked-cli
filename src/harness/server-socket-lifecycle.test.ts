@@ -35,7 +35,7 @@ import {
 	cleanupSocket as cleanupSocketAt,
 	ensureDirectory,
 } from "./server/socket-lifecycle.js";
-import { removePidFileIfOwned } from "./daemon-pid-ownership.js";
+import { pidFileNames, removePidFileIfOwned } from "./daemon-pid-ownership.js";
 import {
 	createSocketLifecycle,
 	type SocketLifecycleDeps,
@@ -874,3 +874,25 @@ async function runShutdown(lc: { shutdown: () => void }): Promise<void> {
 	await flushMacrotasks();
 	await flushMacrotasks();
 }
+
+
+describe("socket ownership preservation", () => {
+    it("leaves raw artifacts owned by a successor intact during shutdown", async () => {
+        vi.useFakeTimers();
+        vi.mocked(pidFileNames).mockReturnValue(false);
+        const { deps } = makeDeps();
+        createSocketLifecycle(deps).shutdown();
+        await vi.runAllTimersAsync();
+        expect(cleanupSocketAt).not.toHaveBeenCalled();
+        expect(removePidFileIfOwned).not.toHaveBeenCalled();
+        expect(lastExitCode()).toBe(0);
+    });
+
+    it("reports a bind error message when the runtime supplies no errno code", () => {
+        const { deps, logAlways } = makeDeps();
+        createSocketLifecycle(deps).startRawServer();
+        nonNull(lastServer).emitError(new Error("listener unavailable"));
+        expect(logAlways).toHaveBeenCalledWith(expect.stringContaining("listener unavailable"));
+        expect(lastExitCode()).toBe(1);
+    });
+});

@@ -452,3 +452,38 @@ describe("activity writers — a failed append is swallowed, not propagated", ()
 		expect(readFileSync(join(dir, ".interlinked"), "utf8")).toBe(SENTINEL);
 	});
 });
+
+
+describe("lifecycle payload fidelity", () => {
+    it("prefers top-level normalized fields while retaining compact payload fields and false booleans", () => {
+        const event = { ...harnessEvent({ hook_event: "Stop", prompt_id: "p1", effort: "high",
+            tool_input: { reason: "fallback", stop_hook_active: true, permission_suggestions: [{ type: "allow" }] } }),
+            reason: "complete", stop_hook_active: false };
+        expect(mapLifecycleEventToActivityRecord(event, "/repo")).toMatchObject({
+            summary: "complete", reason: "complete", stop_hook_active: false,
+            permission_suggestions: [{ type: "allow" }], prompt_id: "p1", effort: "high",
+        });
+    });
+});
+
+describe("writer fallback cwd and model attribution", () => {
+    let root: string;
+    beforeEach(() => { root = mkdtempSync(join(tmpdir(), "writer-fallback-")); });
+    afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+
+    it("persists tool, lifecycle and guard records under the fallback cwd with shared transcript model", () => {
+        mkdirSync(join(root, ".interlinked"));
+        const transcript = join(root, "transcript.jsonl");
+        writeFileSync(transcript, JSON.stringify({ type: "assistant", message: { model: "model-fallback", content: [{ type: "thinking", thinking: "checking the change" }] } }) + "\n");
+        const event = harnessEvent({ hook_event: "PreToolUse", session_id: `fallback-${root}`, transcript_path: transcript });
+        writeActivityRecord(event, root);
+        writeLifecycleActivityRecord({ ...event, hook_event: "SessionEnd", tool_input: { reason: "complete" } }, root);
+        writeGuardDecisionRecord(event, { decision: "block", reason: "denied", rule_id: "fixture" }, root);
+        const records = readLocalActivity({ cwd: root });
+        expect(records).toHaveLength(3);
+        expect(records.find(record => record.type === "tool_use_start")).toMatchObject({ cwd: root, model: "model-fallback", thinking: "checking the change" });
+        expect(records.find(record => record.type === "session_end")).toMatchObject({ cwd: root, reason: "complete" });
+        expect(records.find(record => record.type === "guard_block")).toMatchObject({ cwd: root, model: "model-fallback", guard_reason: "denied" });
+        expect(verifyAuditChain(root).valid).toBe(true);
+    });
+});

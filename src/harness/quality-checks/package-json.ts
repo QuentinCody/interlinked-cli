@@ -42,7 +42,6 @@ function findInvalidSemverInSection(
 ): PkgConsistencyIssue[] {
 	const issues: PkgConsistencyIssue[] = [];
 	for (const [pkg, version] of Object.entries(sectionDeps)) {
-		if (typeof version !== "string") continue;
 		if (!SEMVER_RE.test(version.trim())) {
 			issues.push({
 				kind: "invalid_semver",
@@ -78,12 +77,10 @@ export function checkPackageJsonConsistency(content: string): PkgConsistencyIssu
 	const optDeps = stringDependencies(parsed.optionalDependencies);
 
 	// 1. Duplicate detection: same package in both deps and devDeps
-	if (deps && devDeps) {
-		issues.push(...findDuplicateDeps(deps, devDeps));
-	}
+	issues.push(...findDuplicateDeps(deps, devDeps));
 
 	// 2. Invalid semver across all dependency sections
-	const allSections: [string, Record<string, string> | undefined][] = [
+	const allSections: [string, Record<string, string>][] = [
 		["dependencies", deps],
 		["devDependencies", devDeps],
 		["peerDependencies", peerDeps],
@@ -91,7 +88,6 @@ export function checkPackageJsonConsistency(content: string): PkgConsistencyIssu
 	];
 
 	for (const [section, sectionDeps] of allSections) {
-		if (!sectionDeps) continue;
 		issues.push(...findInvalidSemverInSection(section, sectionDeps));
 	}
 

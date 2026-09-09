@@ -1,3 +1,9 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { nonNull } from "../../lib/non-null.js";
+import { startHookFilesystemWatch } from "../hook-filesystem-watch.js";
+import { startBuildRefreshWatcher } from "../build-refresh.js";
 import { makeServerRuntime } from "./__tests__/fixtures.js";
 import { makeGuardRules } from "../evaluator/__tests__/fixtures.js";
 import { daemonPathsFor } from "../session-paths.js";
@@ -18,7 +24,7 @@ import { acquireStartupLock } from "../startup-lock.js";
 import { installDaemonTimers } from "./daemon-timers.js";
 import { activateHookCoverage } from "./hook-coverage.js";
 import { activateDaemon } from "./server-daemon-activation.js";
-import { runStartupSelfCheck } from "./startup-guard.js";
+import { runStartupSelfCheck, startFramedDaemonOrExit } from "./startup-guard.js";
 
 vi.mock("../build-refresh.js", () => ({ startBuildRefreshWatcher: vi.fn(() => () => {}) }));
 vi.mock("../daemon-ledger.js", () => ({
@@ -182,4 +188,35 @@ describe("activateDaemon — callbacks handed to collaborators", () => {
 			},
 		]);
 	});
+});
+
+
+it("keeps framed idle shutdown and build refresh paused during hook verification", async () => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    vi.setSystemTime(5000);
+    const root = mkdtempSync(join(tmpdir(), "activation-coverage-"));
+    const watcher = startHookFilesystemWatch({ root, reservations: () => [], checker: async () => new Map() });
+    try {
+        const options = makeOptions();
+        options.cli.runFramedSocket = true;
+        await activateDaemon(options);
+        const framed = nonNull(vi.mocked(startFramedDaemonOrExit).mock.calls[0]?.[0]);
+        const refresh = nonNull(vi.mocked(startBuildRefreshWatcher).mock.calls[0]?.[0]);
+        expect(framed.hasBackgroundWork?.()).toBe(false);
+        expect(framed.state.coverage?.({ operation: "status" })).toEqual({ readiness: "unmeasured", reason: "Daemon filesystem observer unavailable" });
+        options.runtime.hookCoverage = watcher;
+        const running = vi.spyOn(nonNull(watcher.verification), "isRunning").mockReturnValue(true);
+        expect(framed.hasBackgroundWork?.()).toBe(true);
+        expect(refresh.lastActivityMs()).toBe(5000);
+        running.mockReturnValue(false);
+        expect(framed.hasBackgroundWork?.()).toBe(false);
+        expect(refresh.lastActivityMs()).toBe(0);
+    } finally {
+        watcher.stop();
+        rmSync(root, { recursive: true, force: true });
+        vi.restoreAllMocks();
+        vi.useRealTimers();
+        process.removeAllListeners("SIGHUP");
+    }
 });

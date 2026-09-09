@@ -184,3 +184,30 @@ describe("runProjectWideChecksAsync — the non-blocking sweep variant", () => {
 		expect(result.toolsRun).toEqual(["biome"]);
 	});
 });
+
+
+describe("project-wide deferred retries", () => {
+    it.each(["resource_busy", "tool_missing", "timeout", "error"] as const)("keeps %s eligible for retry instead of reporting a clean sweep", (category) => {
+        const state = new ProjectWideSweepState();
+        state.editsSinceLastSweep = 3;
+        const report: CheckReport = {
+            results: [], toolsRun: [{ id: "biome", available: true }], toolsSkipped: [],
+            skipped: [{ check: "biome", reason: "no verdict", category }], elapsedMs: 0, metrics: [], deduplicatedCount: 0,
+        };
+        mRunChecks.mockReturnValueOnce(report);
+        const result = runProjectWideChecks(config(), state, "/repo");
+        expect(result).toMatchObject({ toolsRun: [], findings: [], deferredReasons: ["biome: no verdict"] });
+        expect(state.editsSinceLastSweep).toBe(3);
+    });
+
+    it("does not retry deliberately disabled checks", () => {
+        const state = new ProjectWideSweepState();
+        state.editsSinceLastSweep = 3;
+        mRunChecks.mockReturnValueOnce({ results: [], toolsRun: [], toolsSkipped: [],
+            skipped: [{ check: "biome", reason: "disabled", category: "config_disabled" }],
+            elapsedMs: 0, metrics: [], deduplicatedCount: 0 } satisfies CheckReport);
+        const result = runProjectWideChecks(config(), state, "/repo");
+        expect(result.deferredReasons).toEqual([]);
+        expect(state.editsSinceLastSweep).toBe(0);
+    });
+});
