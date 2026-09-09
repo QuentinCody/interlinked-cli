@@ -9,7 +9,6 @@
 // helpers. This module has NO import from `multi-edit.ts` — the dependency
 // direction is one-way (apply ← manifest ← command) so there is no cycle.
 
-import { captureGatedWriteBaseline, commitGatedWrites } from "../lib/gated-file-transaction.js";
 import type { CheckResult } from "../harness/check-engine/types.js";
 import { GATE_SEVERITY_ERROR, gateProposedContent } from "../harness/content-gate.js";
 import { isTscFindingBlocking } from "../harness/diff-overlay.js";
@@ -211,26 +210,4 @@ export { isTscFindingBlocking };
 export function transactionFailurePath(error: unknown): string | undefined {
     if (!(error instanceof Error) || !("path" in error)) return undefined;
     return typeof error.path === "string" ? error.path : undefined;
-}
-
-/** Compatibility API for callers that already hold the exact pre-edit bytes.
- * Command handlers capture their transaction before running the gate.
- */
-export function atomicBatchWrite(
-    finals: Array<{ path: string; content: string; priorContent: string }>,
-    opts: { projectRoot?: string } = {},
-): { ok: true } | { ok: false; failedPath: string; message: string } {
-    try {
-        const transaction = captureGatedWriteBaseline(opts.projectRoot ?? process.cwd(), finals.map((entry) => ({
-            path: entry.path, content: entry.content, expectedContent: entry.priorContent,
-        })));
-        commitGatedWrites(transaction);
-        return { ok: true };
-    } catch (error) {
-        return {
-            ok: false,
-            failedPath: transactionFailurePath(error) ?? finals[0]?.path ?? "",
-            message: error instanceof Error ? error.message : String(error),
-        };
-    }
 }

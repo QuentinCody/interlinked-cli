@@ -710,12 +710,12 @@ describe("gitLinkCheckpointCommand — --apply (amend + notes via execSync)", ()
 		expect(mockExecSync).toHaveBeenCalledTimes(2);
 	});
 
-	it("--apply with no server trailers leaves applied=false (guard: serverResult.trailers falsy)", async () => {
+	it("--apply with no server trailers leaves HEAD untouched and applied=false", async () => {
 		mockCallTool.mockResolvedValue({ checkpoint_id: 42, notes_json: '{"k":1}' });
 
 		await gitLinkCheckpointCommand({ checkpoint: "42", apply: true, json: true });
 
-		// `opts.apply && serverResult?.trailers` short-circuits → block skipped.
+		// Missing trailers are a no-op even when the response contains notes.
 		expect(mockExecSync).not.toHaveBeenCalled();
 		expect(lastJson()).toHaveProperty(["applied"], false);
 	});

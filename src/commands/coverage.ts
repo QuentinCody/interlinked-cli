@@ -39,6 +39,7 @@ import {
 import { parseChangedFiles } from "../lib/changed-files-option.js";
 import { getConfigDir } from "../lib/config.js";
 import { c, header, kvLine } from "../lib/formatter.js";
+import { nonNull } from "../lib/non-null.js";
 import { getOutputMode, output, outputError } from "../lib/output.js";
 import { reportMtimeMs } from "../lib/report-mtime.js";
 
@@ -282,7 +283,6 @@ export function loadMergedReport(
 			return { summary: merged, failedPath: path };
 		}
 		for (const [key, entry] of Object.entries(summary)) {
-			if (!entry) continue;
 			const normalized = normalizePath(key, cwd);
 			if (!normalized) continue;
 			merged[normalized] = entry;
@@ -305,7 +305,7 @@ function buildJsonPayload(reportPath: string, result: CoverageRatchetResult): Co
 		report: reportPath,
 		findings: result.findings,
 		stats: result.stats,
-		...(result.partialReport ? { partialReport: result.partialReport } : {}),
+		partialReport: nonNull(result.partialReport),
 	};
 }
 

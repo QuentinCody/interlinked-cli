@@ -55,7 +55,6 @@ export type {
 } from "./multi-edit-apply.js";
 export {
 	applyEditsToBuffer,
-	atomicBatchWrite,
 	countOccurrences,
 	gateProposedContentInline,
 	isTscFindingBlocking,
@@ -188,7 +187,7 @@ function gateAndCommitBatches(
 			error_code: MULTI_EDIT_ERROR_CODES.WRITE_FAILED,
 			file_changes_applied: [],
 			error_detail: {
-				path: transactionFailurePath(error) ?? finals[0]?.path ?? root,
+				path: transactionFailurePath(error) ?? nonNull(finals[0]).path,
 				message: error instanceof Error ? error.message : String(error),
 			},
 		};

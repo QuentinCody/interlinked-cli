@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as ast from "../harness/checks/cyclomatic-ast.js";
 
 import { extractBindings, findDeadImports } from "./check-dead-imports.js";
 
@@ -145,6 +146,31 @@ describe("findDeadImports", () => {
 });
 
 describe("extractBindings", () => {
+	it.each([
+		["import './setup';", []],
+		["import * as source from './source';", []],
+		["/* documentation only */", []],
+		["const value = 1; /* not an import */", []],
+		["import /* startup side effects */ './setup';", []],
+		["import /* package default */ Default from './source';", ["Default"]],
+		["import /* type keyword */ type from './source';", []],
+		["import /* namespace */ * as source from './source';", []],
+		["import { /* type keyword */ type } from './source';", []],
+	])("extracts only supported bindings while ignoring import trivia: %s", (content, expected) => {
+		const bindings: string[] = [];
+		extractBindings(content, bindings);
+		expect(bindings).toEqual(expected);
+	});
+
+	it("does not invent dead bindings when the optional TypeScript parser is unavailable", () => {
+		const parser = vi.spyOn(ast, "parseTsSource").mockReturnValueOnce(null);
+		try {
+			expect(findDeadImports("import { /* annotation */ PotentiallyUsed } from './source';\n")).toEqual([]);
+		} finally {
+			parser.mockRestore();
+		}
+	});
+
 	it("trims the source line before parsing", () => {
 		const bindings: string[] = [];
 

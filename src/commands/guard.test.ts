@@ -475,6 +475,22 @@ describe("guardCheckCommand reservation fallback", () => {
 		expect(errOutput()).toContain("no cache available");
 	});
 
+	it.each([
+		null,
+		{ reservations: [null], fetched_at: "2026-09-08T12:00:00Z" },
+		{ reservations: [], fetched_at: "invalid timestamp" },
+	])("rejects malformed reservation cache contents: %j", async cache => {
+		mockCallTool.mockRejectedValue(new Error("down"));
+		mockExistsSync.mockReturnValue(true);
+		mockReadFileSync.mockReturnValue(JSON.stringify(cache));
+
+		await guardStatusCommand({ json: true });
+		expect(lastLogJson().cache).toBeNull();
+		await guardCheckCommand({ files: ["src/x.ts"], json: true });
+		expect(lastLogJson().cached).toBe(false);
+		expect(errOutput()).toContain("no cache available");
+	});
+
 	it("normal mode conflict using cached reservations prints the cache-age note", async () => {
 		mockCallTool.mockRejectedValue(new Error("down"));
 		mockExistsSync.mockReturnValue(true);

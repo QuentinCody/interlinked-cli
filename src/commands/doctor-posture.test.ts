@@ -39,4 +39,9 @@ describe("postureEnumChecks", () => {
 		writeFileSync(join(cwd, ".interlinked", "guard-rules.json"), "{ nope");
 		expect(postureEnumChecks(cwd)).toEqual([]);
 	});
+
+	it.each(["null", "[]", '"not a configuration"'])("leaves non-object configuration %s to the configuration-shape check", content => {
+		writeFileSync(join(cwd, ".interlinked", "guard-rules.json"), content);
+		expect(postureEnumChecks(cwd)).toEqual([]);
+	});
 });

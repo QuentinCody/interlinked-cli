@@ -593,12 +593,23 @@ describe("runMultiEdit (mocked gate + fs)", () => {
 });
 
 // ───────────────────────────────────────────────
-// atomicBatchWrite rollback — reached through runMultiEdit's two-file path
+// Shared transaction failures — reached through runMultiEdit's two-file path
 // ───────────────────────────────────────────────
 // Real staging/rollback behavior lives in gated-file-transaction.test.ts;
 // this command boundary preserves the transaction failure for its caller.
 
 describe("runMultiEdit transaction failures", () => {
+    it.each([
+        ["/repo/b.ts", "/repo/b.ts"],
+        [42, "/repo/a.ts"],
+    ])("reports the transaction target only when its path is a string: %s", (path, expected) => {
+        mockCommit.mockImplementationOnce(() => { throw Object.assign(new Error("write failed"), { path }); });
+        const result = runMultiEdit(twoFileBatch());
+        expect(result.ok).toBe(false);
+        expect(result.error_code).toBe(MULTI_EDIT_ERROR_CODES.WRITE_FAILED);
+        expect(result.error_detail?.path).toBe(expected);
+        expect(result.error_detail?.message).toBe("write failed");
+    });
     it.each([new Error("transaction lock busy"), "write failed", new Error("guarded rollback incomplete: a.ts")])("retains the transaction failure in the command result: %s", (error) => {
         mockCommit.mockImplementationOnce(() => { throw error; });
         const result = runMultiEdit(twoFileBatch());

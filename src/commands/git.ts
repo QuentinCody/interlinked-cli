@@ -119,7 +119,7 @@ export async function gitLinkCheckpointCommand(opts: {
 		};
 
 		// Apply trailers and notes if requested
-		if (opts.apply && serverResult?.trailers) {
+		if (opts.apply && serverResult) {
 			applyCheckpointToHead(serverResult, cwd, commitSha, result);
 		}
 
