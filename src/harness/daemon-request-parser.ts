@@ -68,7 +68,7 @@ export const isRpcHookEvent = wireObject<UnifiedHookEvent>({
 	schema_version: wireLiteral("1"), event_id: wireString, session_id: wireString, ts: wireString,
 	parent_event_id: wireAbsentOptional(wireOptional(wireString)), turn_id: wireAbsentOptional(wireOptional(wireString)), tool_use_id: wireAbsentOptional(wireOptional(wireString)),
 	post_delivery_token: wireAbsentOptional(wireOptional(wireString)), post_delivery_pid: wireAbsentOptional(wireOptional(wireNumber)),
-	runner: wireLiteral("claude-code", "copilot-cli", "codex", "gemini-cli", "cursor", "opencode", "pi", "factory-droid", "windsurf", "antigravity", "crush", "unknown"),
+	runner: wireLiteral("cowork", "claude-code", "copilot-cli", "codex", "gemini-cli", "cursor", "opencode", "pi", "factory-droid", "windsurf", "antigravity", "crush", "unknown"),
 	runner_version: wireAbsentOptional(wireOptional(wireString)), runner_native_event: wireString,
 	capability: wireAbsentOptional(capability), outcome: wireAbsentOptional(outcome), observation: wireAbsentOptional(isObservation),
 	phase: wireLiteral("pre-tool", "post-tool", "post-tool-batch", "file-change", "config-change", "cwd-change", "pre-model", "post-model", "tool-selection", "session-start", "session-end", "user-prompt", "permission-request", "worktree-create", "pre-compact", "post-compact", "stop", "subagent-start", "subagent-stop", "notification", "error", "other"),

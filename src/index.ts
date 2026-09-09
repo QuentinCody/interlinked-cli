@@ -42,6 +42,7 @@ import { registerSetupCommands } from "./registrars/setup.js";
 import { registerSponsorCommands } from "./registrars/sponsor.js";
 import { registerSupplyChainCommands } from "./registrars/supply-chain.js";
 import { registerVizCommands } from "./registrars/viz.js";
+import { registerCoworkCommands } from "./registrars/cowork.js";
 
 const program = new Command();
 
@@ -115,6 +116,7 @@ registerCollectCommand(program);
 registerCompactCommand(program);
 registerDoctestCommand(program);
 registerVizCommands(program);
+registerCoworkCommands(program);
 
 program
 	.command("version")

@@ -13,6 +13,7 @@ import type { HookObservation } from "./adapters/hook-observation.js";
 // internal representation so existing checks keep working unchanged.
 
 export type RunnerId =
+	| "cowork"
 	| "claude-code"
 	| "copilot-cli"
 	| "codex"

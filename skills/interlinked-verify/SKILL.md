@@ -5,6 +5,11 @@ description: "Run `interlinked verify`, understand the PostToolUse quality check
 
 # interlinked-verify — check your work & land edits through the gates
 
+For Cowork, load **interlinked-cowork**. `cowork verify <workspace>` runs only tsc,
+biome and gitleaks with before/after workspace hashes; skipped checks remain
+unmeasured. It is not the full `verify` command or a per-edit ratchet. Run configured
+repository checks on the filesystem holding the actual version being reviewed.
+
 Interlinked gates edits at **three moments**, and they run different check sets:
 - **PreToolUse content gate**: real agent Edit/Write calls run deterministic `pre_block` checks
   without synchronously launching biome/tsc on the daemon event loop; those external overlays

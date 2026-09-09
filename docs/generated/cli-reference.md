@@ -29,6 +29,7 @@ Commands:
   completions <shell>                        Output shell completion script (bash, zsh, fish)
   context [options]                          Show effective configuration (merged from all sources)
   coverage                                   Per-file coverage ratchet — fails on any file whose coverage drops
+  cowork                                     Experimental Cowork plugin, native hook evidence, and workspace verification (JSON output)
   daemons [options]                          List active harness daemons, PID liveness, socket paths, and health
   data                                       Discover, assess, index and search all local JSONL evidence
   deadcode [options]                         Scan the whole repo for dead-code candidates: unreachable files, unused import bindings, unused exports

@@ -20,6 +20,12 @@ bypassable) — so the right instinct when blocked is to take the suggested safe
 defeat the pattern.
 
 ## Load this when
+
+For the experimental Cowork plugin, first load **interlinked-cowork**. Its portable
+guard is a subset of this daemon: exact tool/path denials and the shared destructive
+command guard. Native crashes/timeouts were observed to fail open; the plugin's
+launcher mitigates child failure but cannot enforce an absent/provider-killed hook.
+Host file policies require explicit bridge mapping and matching file snapshots.
 - A tool call was refused: `BLOCKED: <reason>` / `Suggestion: <safer alternative>`.
 - You see an `[interlinked:<check>]` warning (tagged `[proven]` or `[heuristic]`).
 - A destructive command, `git push --force`, protected-file, secret, repo-confinement, or

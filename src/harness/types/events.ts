@@ -44,6 +44,7 @@ export type Determinism = "fully_deterministic" | "partially_deterministic" | "h
 export type HookEventName = string;
 
 export type AgentSource =
+	| "cowork"
 	| "claude"
 	| "copilot"
 	| "codex"

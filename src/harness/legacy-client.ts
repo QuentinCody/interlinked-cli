@@ -249,6 +249,7 @@ function legacyHookEventName(event: UnifiedHookEvent): HarnessEvent["hook_event"
 }
 
 const AGENT_SOURCE_BY_RUNNER: Partial<Record<UnifiedHookEvent["runner"], AgentSource>> = {
+	cowork: "cowork",
 	"claude-code": "claude",
 	"copilot-cli": "copilot",
 	codex: "codex",

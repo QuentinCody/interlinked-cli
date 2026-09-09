@@ -5,6 +5,11 @@ description: "Configure and respond to Interlinked's metric ratchets: line-count
 
 # interlinked-quality-gates — the metric ratchets
 
+The experimental Cowork portable plugin does not carry these repository baselines
+or run coverage/mutation automatically. Load **interlinked-cowork** for explicit
+host bridging and version checks. Its `cowork verify` external-tool subset is not
+evidence that a coverage, mutation, CRAP or baseline ratchet passed.
+
 Every quality metric is a **water-line** stored in a JSON file under `.interlinked/`. The gates
 enforce **"may only move in the tightening direction"**: coverage/mutation scores may only rise;
 caps may only fall. The harness raises water-lines itself (internal writes); **an agent

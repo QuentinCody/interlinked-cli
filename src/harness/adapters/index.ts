@@ -12,6 +12,7 @@ import { createOpenCodeAdapter } from "./opencode.js";
 import { createPiAdapter } from "./pi.js";
 import type { RunnerAdapter } from "./types.js";
 import { createAdditionalClientAdapter } from "./additional-clients.js";
+import { createCoworkAdapter } from "./cowork.js";
 
 export interface AdapterRegistryOptions {
 	overrides?: ClassifierOverrides | undefined;
@@ -52,6 +53,7 @@ export function getAdapter(
 	id: string,
 	adapters: RunnerAdapter[] = buildAllAdapters(),
 ): RunnerAdapter | null {
+	if (id === "cowork") return createCoworkAdapter();
 	return adapters.find((a) => a.id === id) ?? null;
 }
 

@@ -35,6 +35,7 @@ const ENTRY_POINTS = [
 // Exported so the regression suite pins the public declaration surface.
 export const REQUIRED_OUTPUTS = [
     "index.js",
+    "cowork/cowork-hook.js",
     "hook-entry.js",
     "harness/server.js",
     "harness/replay/inference-proxy.js",
@@ -79,6 +80,7 @@ function buildStage(root, stage) {
         root,
     );
     fixDistDts(stage);
+    runCommand(tsup, ["src/cowork-hook.ts", "--format", "esm", "--no-splitting", "--out-dir", join(stage, "cowork")], root);
     copyRuntimeAssets(stage, root);
     for (const rel of EXECUTABLE_OUTPUTS) chmodSync(join(stage, rel), 0o755);
 }

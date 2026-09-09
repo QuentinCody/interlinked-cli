@@ -58,7 +58,7 @@ function isPredicate(value: unknown): boolean {
 }
 
 function isAgentSource(value: unknown): boolean {
-	return member(["claude", "copilot", "gemini", "codex", "cursor", "opencode", "pi", "factory-droid", "windsurf", "antigravity", "crush"], value);
+	return member(["claude", "cowork", "copilot", "gemini", "codex", "cursor", "opencode", "pi", "factory-droid", "windsurf", "antigravity", "crush"], value);
 }
 
 function isActiveWhen(value: unknown): boolean {

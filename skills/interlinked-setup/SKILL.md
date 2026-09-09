@@ -42,6 +42,11 @@ network.
 
 ## Turning it on
 
+Cowork has a separate plugin workflow: `interlinked cowork package --output <directory>`.
+Load **interlinked-cowork** for upload, native conformance, runtime failures and the
+optional authenticated host bridge. It is not an `enable --clients` coding-client
+target; editing Claude Code settings does not install the Cowork plugin.
+
 `interlinked doctor` also inventories existing lint configuration and offers
 `interlinked lint import`. Preview is read-only; `lint import --write` enables
 the registered PostToolUse wrapper, and adding `--baseline` executes installed

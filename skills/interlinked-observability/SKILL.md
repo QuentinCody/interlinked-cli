@@ -1,9 +1,15 @@
 ---
+
 name: interlinked-observability
 description: "Investigate agent activity and JSONL/gzip evidence. Load for data scan, catalog/health/index/search/show/investigate, storage-engine experiments and benchmarks, native transcript comparisons, file/session history, capture gaps, lossless rotation, audit integrity, and evidence-backed handoffs. Also covers activity, logs, impact, trace, recurrence, viz, collect, compact, and optional sync. Missing capture is not absence; correlation is not causation."
 ---
 
 # interlinked-observability — inspect what agents did
+
+Cowork plugin receipts use a separate metadata-only schema and explicit exports.
+Use **interlinked-cowork** and `interlinked cowork report <receipts> --effects <listing>`
+for native conformance. An intended hook decision is not execution/prevention proof;
+these receipts do not provide complete transcripts or authenticated writer attribution.
 
 ## Search and organize all local evidence
 

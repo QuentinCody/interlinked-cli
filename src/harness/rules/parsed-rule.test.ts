@@ -25,6 +25,8 @@ const invalidFields = [
 	{ requires_prior: { verification_kind: "typo" } }, { forbids_after: [] },
 	{ rewrite: { field: "command", match: "foo", replace: null } },
 	{ applies_to_roles: ["admin"] }, { tool_externality: ["network"] },
+	{ active_when: { agent_source: "cowork-typo" } },
+	{ active_when: { agent_source: ["cowork", "cowork-typo"] } },
 ];
 
 it("retains valid evaluator scope and rewrite fields", () => {
@@ -60,6 +62,11 @@ for (const [name, load] of [["distilled-rules", loadDistilledRules], ["findings-
 				modifications: { valid: { action: "typo", enabled: "false", severity: "high" } },
 			});
 			expect(load(root)[0]).toMatchObject({ action: "warn", enabled: true, severity: "high" });
+		});
+		it.each([{ agent_source: "cowork" }, { agent_source: ["cowork", "claude"] }])("retains Cowork-scoped runtime rules: %j", ({ agent_source }) => {
+			const rule = { ...valid, active_when: { agent_source } };
+			expect(parseRuntimeRule(rule)).toEqual(rule);
+			expect(load(write([rule]))).toEqual([expect.objectContaining(rule)]);
 		});
 	});
 }

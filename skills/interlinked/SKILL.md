@@ -77,6 +77,11 @@ A **block reason is always surfaced.** Allow-time warnings are surfaced but easy
 
 ## Which skill to load for what
 
+For the experimental uploaded Cowork plugin, use **interlinked-cowork** and
+`interlinked cowork capabilities --json`. Cowork cloud hooks execute away from the
+host daemon. Native crash/timeout behavior can fail open; the coding-client claims
+above do not imply identical Cowork enforcement or Desktop Chat hooks.
+
 For hook parity and provider limitations, use `interlinked harness capabilities --json`
 and **interlinked-setup**. For `[interlinked:hook-coverage] NOT CHECKED` after an
 external write, use **interlinked-verify**. A declared hook, an installed entry, an
