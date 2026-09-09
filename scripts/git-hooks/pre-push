@@ -62,7 +62,7 @@ trap cleanup_export EXIT
 
 run_gate() {
     local push_sha="$1" changed_paths="$2" docs_only="$3" pkg_touched="$4"
-    local gate_dir cov_files cov_report cov_cli cov_json
+    local gate_dir cov_files cov_report cov_scope cov_cli cov_json cov_targets
     export_dir="$(mktemp -d "${TMPDIR:-/tmp}/prepush-revision-XXXXXX")" || return 1
     if ! git worktree add --detach --quiet "$export_dir/tree" "$push_sha" \
         || [ -e "$export_dir/tree/node_modules" ] || [ -L "$export_dir/tree/node_modules" ] \
@@ -96,7 +96,10 @@ run_gate() {
     else
         # Run tests once, with coverage, against this exact revision. Reusing a
         # working-tree report by mtime can certify completely different code.
-        (cd "$gate_dir" && CI=1 npm test -- --coverage --testTimeout=120000 --coverage.reporter=json-summary) || {
+        cov_scope="$gate_dir/.interlinked/pre-push-coverage-scope.json"
+        (cd "$gate_dir" && CI=1 INTERLINKED_PRE_PUSH_COVERAGE_SCOPE="$cov_scope" \
+            INTERLINKED_PRE_PUSH_COVERAGE_TARGETS="$cov_files" npm test -- --coverage --testTimeout=120000 \
+            --coverage.reporter=json-summary --reporter=default --reporter="$hook_dir/../pre-push-coverage.mjs") || {
             echo "[pre-push] tests failed for $push_sha."
             return 1
         }
@@ -111,26 +114,30 @@ run_gate() {
         else
             printf '%s\n' '{"version":1,"updated_at":"1970-01-01T00:00:00.000Z","files":{}}' > "$gate_dir/.interlinked/coverage-baseline.json" || return 1
         fi
-        node "$hook_dir/../pre-push-coverage.mjs" "$gate_dir" "$cov_report" "$gate_dir/.interlinked/coverage-baseline.json" "$cov_files" || return 1
-        if [ ! -f "$gate_dir/dist/index.js" ]; then
-            echo "[pre-push] Pushed revision has no built coverage checker; verification unavailable."
-            return 1
+        cov_targets="$(node "$hook_dir/../pre-push-coverage.mjs" "$gate_dir" "$cov_report" "$gate_dir/.interlinked/coverage-baseline.json" "$cov_files" "$cov_scope")" || return 1
+        if [ "$cov_targets" = "0" ]; then
+            echo "[pre-push] No runtime coverage targets in the push scope; no coverage pass certified."
+        else
+            if [ ! -f "$gate_dir/dist/index.js" ]; then
+                echo "[pre-push] Pushed revision has no built coverage checker; verification unavailable."
+                return 1
+            fi
+            cov_cli=(node "$gate_dir/dist/index.js")
+            echo "[pre-push] Running strict coverage ratchet for $push_sha..."
+            cov_json="$(cd "$gate_dir" && "${cov_cli[@]}" coverage check --strict --report "$cov_report" --changed-files "$cov_files" --json)" || { printf '%s\n' "$cov_json"; return 1; }
+            if ! printf '%s\n' "$cov_json" | node -e '
+    try {
+        const result = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+        if (result.partialReport?.partial !== false || !Array.isArray(result.findings)
+            || !Number.isSafeInteger(result.stats?.files_checked) || result.stats.files_checked < 0) {
+            throw new Error("Coverage is partial or unmeasured.");
+        }
+        if (result.findings.length > 0) throw new Error("Coverage findings remain in the push scope.");
+        if (result.stats.files_checked === 0) console.log("[pre-push] No runtime coverage targets in the push scope; no coverage pass certified.");
+        else console.log(`[pre-push] ✓ no coverage regressions in ${result.stats.files_checked} measured file(s)`);
+    } catch (error) { console.error(`[pre-push] ${error.message}`); process.exitCode = 1; }
+    '; then return 1; fi
         fi
-        cov_cli=(node "$gate_dir/dist/index.js")
-        echo "[pre-push] Running strict coverage ratchet for $push_sha..."
-        cov_json="$(cd "$gate_dir" && "${cov_cli[@]}" coverage check --strict --report "$cov_report" --changed-files "$cov_files" --json)" || { printf '%s\n' "$cov_json"; return 1; }
-        if ! printf '%s\n' "$cov_json" | node -e '
-try {
-    const result = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
-    if (result.partialReport?.partial !== false || !Array.isArray(result.findings)
-        || !Number.isSafeInteger(result.stats?.files_checked) || result.stats.files_checked < 0) {
-        throw new Error("Coverage is partial or unmeasured.");
-    }
-    if (result.findings.length > 0) throw new Error("Coverage findings remain in the push scope.");
-    if (result.stats.files_checked === 0) console.log("[pre-push] No runtime coverage targets in the push scope; no coverage pass certified.");
-    else console.log(`[pre-push] ✓ no coverage regressions in ${result.stats.files_checked} measured file(s)`);
-} catch (error) { console.error(`[pre-push] ${error.message}`); process.exitCode = 1; }
-'; then return 1; fi
     fi
     if [ "$pkg_touched" -eq 1 ]; then
         (cd "$gate_dir" && bash scripts/ci-packaging.sh) || return 1

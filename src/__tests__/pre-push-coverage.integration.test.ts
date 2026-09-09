@@ -45,6 +45,11 @@ describe("pre-push coverage integration", () => {
         write("scripts/coverage-fixture.cjs", `
 const fs = require("node:fs");
 console.log("TEST_GATE");
+if (process.env.INTERLINKED_PRE_PUSH_COVERAGE_SCOPE && process.env.COVERAGE_OMIT_SCOPE !== "1") {
+    fs.mkdirSync(require("node:path").dirname(process.env.INTERLINKED_PRE_PUSH_COVERAGE_SCOPE), { recursive: true });
+    fs.writeFileSync(process.env.INTERLINKED_PRE_PUSH_COVERAGE_SCOPE, JSON.stringify({ version: 1, root: process.cwd(),
+        included: Object.fromEntries(process.env.INTERLINKED_PRE_PUSH_COVERAGE_TARGETS.split(",").map(path => [path, true])) }));
+}
 fs.mkdirSync("coverage", { recursive: true });
 const entries = ${JSON.stringify(FILES)}.filter(path => !String(process.env.COVERAGE_OMIT || "").split(",").includes(path)).map(path => [path, {
     lines: { pct: process.env.COVERAGE_PARTIAL === "1" ? 0 : process.env.COVERAGE_REGRESSION === "1" && path === ${JSON.stringify(TARGET)} ? 40 : 90 },
@@ -218,6 +223,33 @@ process.exitCode = result.status ?? 1;
         const result = run([{ sha, remote: "main", old: base }]);
         expect(result.status).toBe(0);
         expect(result.output).toContain("No runtime coverage targets");
+    });
+
+    it("rejects a coverage result without the native scope snapshot", () => {
+        const sha = codeCommit();
+        measurement.COVERAGE_OMIT_SCOPE = "1";
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status).toBe(1);
+        expect(result.output).toContain("pre-push-coverage-scope.json");
+    });
+
+    it("uses native dynamic coverage exclusions instead of requiring retained out-of-scope baseline entries", () => {
+        write("package.json", JSON.stringify({ scripts: {
+            "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE",
+            test: `node "${join(REPO, "node_modules/vitest/vitest.mjs")}" run --maxWorkers=1`,
+        } }));
+        write("vitest.config.mjs", `export default { test: { include: ["src/probe.test.ts"], coverage: { provider: "v8", reporter: ["json-summary"], include: ["${TARGET}"], exclude: process.env.COVERAGE_DYNAMIC_EXCLUDE === "1" ? ["${TARGET}"] : [] } } };`);
+        write("src/probe.test.ts", `import { expect, it } from "vitest"; import { value } from "./well0"; it("returns its value", () => { expect(value()).toBe(1); });`);
+        write(TARGET, "export function value() { return 1; }\n");
+        const sha = commit("dynamic coverage policy");
+        measurement.COVERAGE_DYNAMIC_EXCLUDE = "1";
+        const excluded = run([{ sha, remote: "main", old: base }]);
+        expect(excluded.status, excluded.output).toBe(0);
+        expect(excluded.output).toContain("No runtime coverage targets");
+        measurement.COVERAGE_DYNAMIC_EXCLUDE = "0";
+        const included = run([{ sha, remote: "main", old: base }]);
+        expect(included.status, included.output).toBe(0);
+        expect(included.output).toContain("1 measured file(s)");
     });
 
     it("measures each pushed revision with real Vitest instead of reusing the working-tree report", () => {

@@ -796,7 +796,12 @@ Distinct revisions get distinct runs, and export failures block the push.
 
 The gate copies the local coverage baseline into the export and checks that every
 changed, previously baselined runtime source is measured in that export's report,
-including when other changed files are present. Deleted files, test-only paths
+including when other changed files are present. A reporter captures the native
+coverage provider's effective inclusion decisions during that same test run;
+explicitly excluded files do not become required merely because a retained
+baseline still names them. Dynamic configuration is evaluated by Vitest, and
+missing scope evidence fails closed. A scope with no remaining runtime targets is
+reported explicitly without certifying a coverage pass. Deleted files, test-only paths
 and modules containing only explicit type/declaration syntax do not require an
 entry. Ordinary imports retain a measurement requirement because compiler options
 can preserve their runtime side effects. It then runs
