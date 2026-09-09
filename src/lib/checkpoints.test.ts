@@ -264,17 +264,14 @@ describe("listCheckpoints", () => {
 		expect(result.map((c) => c.id)).toEqual(["cp-a", "cp-b"]);
 	});
 
-	// test-contract: invariant — a corrupt checkpoints.json (JSON.parse
-	// throws) must be treated as an empty list, not as a placeholder/sentinel
-	// value that then flows into the caller's filter/sort pipeline.
-	it("treats a corrupt checkpoints.json as an empty list", () => {
+	// test-contract: invariant — unreadable history must not become an empty
+	// list that a subsequent append or prune silently overwrites.
+	it("reports corrupt checkpoint metadata instead of hiding its history", () => {
 		const tmpA = mkTmp();
 		mkdirSync(join(tmpA, ".interlinked"), { recursive: true });
 		writeFileSync(checkpointsPathFor(tmpA), "not valid json {");
 
-		const result = listCheckpoints({ cwd: tmpA });
-
-		expect(result).toEqual([]);
+		expect(() => listCheckpoints({ cwd: tmpA })).toThrow("Cannot load checkpoint metadata");
 	});
 });
 

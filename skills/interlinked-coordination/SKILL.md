@@ -106,6 +106,12 @@ still useful, just no cross-machine truth.
 Metadata in `.interlinked/checkpoints.json`; working-tree state via a transient git stash.
 A checkpoint captures HEAD SHA, changed files, and a stash ref.
 
+An absent metadata file starts an empty history. An existing unreadable file,
+invalid JSON or malformed checkpoint record instead stops the operation with its
+path; it is never treated as empty. Creation validates metadata before stashing,
+and prune/archive cannot overwrite a malformed ledger. Preserve and repair the
+existing metadata before retrying rather than deleting it to clear the error.
+
 | Command | Effect |
 |---|---|
 | `interlinked checkpoint [message]` | **Creates** a checkpoint (runs `git stash push --include-untracked` then immediately `git stash pop` — a stash/pop; a pop conflict can leave changes stashed). |

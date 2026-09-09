@@ -95,10 +95,10 @@ function readCheckpointsFile(cwd: string): Checkpoint[] {
 	if (!existsSync(path)) return [];
 	try {
 		const parsed: unknown = JSON.parse(readFileSync(path, "utf-8"));
-		return wireArray(isCheckpoint)(parsed) ? parsed : [];
-	} catch (_err) {
-		/* intentional: corrupt/missing checkpoints.json treated as empty list */
-		return [];
+		if (!wireArray(isCheckpoint)(parsed)) throw new Error("Expected an array of complete checkpoint records");
+		return parsed;
+	} catch (cause) {
+		throw new Error(`Cannot load checkpoint metadata at ${path}; repair the invalid or unreadable file before continuing`, { cause });
 	}
 }
 
@@ -122,6 +122,9 @@ export function createCheckpoint(opts: CreateCheckpointOpts): Checkpoint {
 	if (!isGitRepo(cwd)) {
 		throw new Error("Not a git repository. Checkpoints require git.");
 	}
+	// Validate existing metadata before any stash operation. A damaged ledger
+	// must never become an empty history that a later append overwrites.
+	readCheckpointsFile(cwd);
 
 	const id = generateId();
 	const baseCommit = gitShell("rev-parse HEAD", cwd);

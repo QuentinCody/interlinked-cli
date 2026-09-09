@@ -429,10 +429,10 @@ describe("compareCheckpoints", () => {
 });
 
 describe("readCheckpointsFile (via getCheckpoint)", () => {
-	it("treats corrupt JSON as an empty list", () => {
+	it("reports corrupt JSON as unavailable checkpoint metadata", () => {
 		onlyCheckpointsFileExists();
 		mockReadFileSync.mockReturnValue("{ this is not valid json ]");
-		expect(getCheckpoint("anything", "/test")).toBeNull();
+		expect(() => getCheckpoint("anything", "/test")).toThrow("Cannot load checkpoint metadata");
 	});
 
 	it("returns empty list when the checkpoints file is absent", () => {
