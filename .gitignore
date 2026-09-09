@@ -157,6 +157,7 @@ scripts/*
 !scripts/gen-shadow-corpus-rows.mts
 !scripts/gen-shadow-corpus-rows.test.mts
 !scripts/setup-git-hooks.mjs
+!scripts/pre-push-coverage.mjs
 !scripts/git-hooks/
 !scripts/backfill-thinking.mjs
 !scripts/backfill-recovery.mjs
