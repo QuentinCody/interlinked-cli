@@ -195,7 +195,7 @@ process.exitCode = result.status ?? 1;
         const result = run([{ sha, remote: "main", old: base }, { sha, remote: "master", old: middle }]);
         expect(result.status).toBe(0);
         expect(capturedScope().sort()).toEqual([TARGET, "src/well1.ts"]);
-        expect(result.output.split(`checks pass for ${sha}`).length - 1).toBe(1);
+        expect(result.output.split(`typecheck + tests pass for ${sha}`).length - 1).toBe(1);
     });
 
     it("rejects a dangling changed source link instead of treating it as a deletion", () => {
@@ -240,7 +240,7 @@ process.exitCode = result.status ?? 1;
         expect(cleanOlderRevision.status).toBe(0);
         const both = run([{ sha: good, remote: "main", old: base }, { sha: bad, remote: "master", old: good }]);
         expect(both.status).toBe(1);
-        expect(both.output).toContain(`checks pass for ${good}`);
+        expect(both.output).toContain(`typecheck + tests pass for ${good}`);
         expect(both.output).toContain(`verification failed or unavailable for ${bad}`);
         expect(both.output).toContain('"current_pct": 50');
         expect(readFileSync(join(root, "coverage/coverage-summary.json"), "utf8")).toBe(reportBefore);

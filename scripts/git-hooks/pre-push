@@ -78,19 +78,28 @@ run_gate() {
         cleanup_export
         return 0
     fi
-    (cd "$gate_dir" && npm run typecheck:stable) || return 1
+    (cd "$gate_dir" && npm run typecheck:stable) || {
+        echo "[pre-push] typecheck:stable failed for $push_sha."
+        return 1
+    }
     (cd "$gate_dir" && npm run docs:check) || return 1
     if (cd "$gate_dir" && node -e 'process.exit((require("./package.json").scripts||{}).build?0:1)'); then
         (cd "$gate_dir" && npm run build) || return 1
     fi
     cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | LC_ALL=C sort -u | paste -sd, - || true)"
     if [ -z "$cov_files" ]; then
-        (cd "$gate_dir" && CI=1 npm test) || return 1
+        (cd "$gate_dir" && CI=1 npm test) || {
+            echo "[pre-push] tests failed for $push_sha."
+            return 1
+        }
         echo "[pre-push] coverage check SKIPPED: no src/ code files in the push range."
     else
         # Run tests once, with coverage, against this exact revision. Reusing a
         # working-tree report by mtime can certify completely different code.
-        (cd "$gate_dir" && CI=1 npm test -- --coverage --testTimeout=120000 --coverage.reporter=json-summary) || return 1
+        (cd "$gate_dir" && CI=1 npm test -- --coverage --testTimeout=120000 --coverage.reporter=json-summary) || {
+            echo "[pre-push] tests failed for $push_sha."
+            return 1
+        }
         if ! git -C "$gate_dir" diff --quiet "$push_sha" --; then
             echo "[pre-push] Tests changed committed inputs; coverage is unmeasured."
             return 1
@@ -126,7 +135,7 @@ try {
     if [ "$pkg_touched" -eq 1 ]; then
         (cd "$gate_dir" && bash scripts/ci-packaging.sh) || return 1
     fi
-    echo "[pre-push] ✓ checks pass for $push_sha"
+    echo "[pre-push] ✓ typecheck + tests pass for $push_sha"
     cleanup_export
 }
 
