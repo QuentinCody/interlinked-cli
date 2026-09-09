@@ -783,7 +783,8 @@ Coverage accepts strict Istanbul maps; mutation accepts source-bound Stryker-sty
 reports. Missing files remain inconclusive. Timeout/error/ignored outcomes are not
 kills, and no-coverage mutants cannot establish assertion discrimination. Imported
 CI receipts have asserted provenance and hash integrity, not signed CI attestation
-or independent verification of all installed dependency bytes.
+or independent verification of all installed dependency bytes. Artifact and receipt
+JSON must be valid UTF-8; malformed bytes make the evidence unavailable.
 
 In this repository, the pre-push gate groups protected ref updates by their exact
 pushed revision and unions changed source paths within each revision. New refs or

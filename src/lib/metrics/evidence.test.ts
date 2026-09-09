@@ -7,7 +7,7 @@ import { parseIstanbulEvidence } from "./evidence-coverage.js";
 import { parseMutationEvidence } from "./evidence-mutation.js";
 import { runEvidenceProcess } from "./evidence-process.js";
 import { runBehavioralEvidence, type EvidenceRunOptions } from "./evidence-run.js";
-import { loadEvidence, validateEvidence } from "./evidence-store.js";
+import { evidenceDirectory, loadEvidence, validateEvidence } from "./evidence-store.js";
 import { collectRepositoryInventory } from "./inventory.js";
 import { collectCompositeScoreReport } from "./composite-report.js";
 
@@ -61,6 +61,25 @@ describe("behavioral evidence provenance", () => {
         expect(() => validateEvidence(collectRepositoryInventory(options.root), evidence.receipt, "{}")).toThrow("hash mismatch");
         const bad = coverage(); bad["index.cjs"].s[0] = -1;
         expect(() => parseIstanbulEvidence(bad, options.root)).toThrow("nonnegative");
+    });
+    it("rejects corrupted UTF-8 bytes even when lossy decoding preserves the artifact text", async () => {
+        const options = fixture();
+        const runner = join(options.root, "tests/run.cjs");
+        writeFileSync(runner, readFileSync(runner, "utf8").replace("increment", "increment\uFFFD"));
+        const result = await runBehavioralEvidence(options);
+        if (!result.evidence) throw new Error(result.issues.join("; "));
+        const inventory = collectRepositoryInventory(options.root);
+        expect(loadEvidence(inventory).entries[0]?.observations.state).toBe("measured");
+        const artifact = join(evidenceDirectory(options.root), `${result.evidence.id}.artifact.json`);
+        const original = readFileSync(artifact);
+        const offset = original.indexOf(Buffer.from("\uFFFD"));
+        expect(offset).toBeGreaterThanOrEqual(0);
+        const corrupted = Buffer.concat([original.subarray(0, offset), Buffer.from([0x80]), original.subarray(offset + 3)]);
+        expect(corrupted.toString("utf8")).toBe(original.toString("utf8"));
+        writeFileSync(artifact, corrupted);
+        const stored = loadEvidence(inventory);
+        expect(stored.entries).toEqual([]);
+        expect(stored.issues.join()).toMatch(/utf-8/i);
     });
     it("invalidates evidence when an excluded fixture changes", async () => {
         const options = fixture();

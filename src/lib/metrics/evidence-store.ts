@@ -13,7 +13,7 @@ import { localEvidenceFreshness, type EvidenceFreshnessOptions, type LocalEviden
 const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
 export function readEvidenceArtifact(path: string): string {
     if (statSync(path).size > MAX_ARTIFACT_BYTES) throw new Error("Evidence artifact exceeds 64 MiB limit");
-    return readFileSync(path, "utf8");
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(readFileSync(path));
 }
 export function evidenceDirectory(root: string): string { return join(root, ".interlinked", "metrics", "evidence"); }
 
