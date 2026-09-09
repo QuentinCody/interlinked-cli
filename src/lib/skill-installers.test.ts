@@ -513,6 +513,7 @@ describe("shipped SKILL.md frontmatter is loader-safe", () => {
 			"enforce",
 			"interlinked",
 			"interlinked-coordination",
+			"interlinked-cowork",
 			"interlinked-harness",
 			"interlinked-observability",
 			"interlinked-quality-gates",

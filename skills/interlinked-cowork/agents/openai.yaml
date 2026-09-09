@@ -1,0 +1,4 @@
+interface:
+  display_name: "Interlinked Cowork"
+  short_description: "Package and verify the experimental Cowork plugin"
+  default_prompt: "Use $interlinked-cowork to package, test, or troubleshoot the experimental Interlinked Cowork plugin and host bridge."
