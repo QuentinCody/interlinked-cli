@@ -785,15 +785,26 @@ kills, and no-coverage mutants cannot establish assertion discrimination. Import
 CI receipts have asserted provenance and hash integrity, not signed CI attestation
 or independent verification of all installed dependency bytes.
 
-In this repository, the pre-push gate unions and deduplicates source paths across
-every protected ref update. A new ref or unknown comparison base requires that
-ref's full tracked source tree. Its coverage summary must be newer than every
-protected tip, and the gate passes that exact summary to `coverage check --strict
---json`. It checks the JSON measurement verdict as well as the exit code: partial,
-missing or malformed evidence cannot certify coverage, even when the CLI exits 0.
-The CLI's existing advisory/partial-report exit behavior is unchanged. A complete
-report with no report-covered paths in scope (for example, excluded test-only
-changes) explicitly states that no coverage pass was certified.
+In this repository, the pre-push gate groups protected ref updates by their exact
+pushed revision and unions changed source paths within each revision. New refs or
+unknown comparison bases require that revision's full tracked source tree. Each
+revision runs in a disposable export; source-changing pushes run the tests once
+with coverage there, using a 120-second per-test timeout and JSON summary output.
+Working-tree coverage reports and report timestamps never establish freshness.
+Distinct revisions get distinct runs, and export failures block the push.
+
+The gate copies the local coverage baseline into the export and checks that every
+changed, previously baselined runtime source is measured in that export's report,
+including when other changed files are present. Deleted files, test-only paths
+and modules containing only explicit type/declaration syntax do not require an
+entry. Ordinary imports retain a measurement requirement because compiler options
+can preserve their runtime side effects. It then runs
+`coverage check --strict --json` on that report and checks the JSON measurement
+verdict as well as the exit code. Partial, missing or malformed evidence cannot
+certify coverage. The CLI's existing advisory/partial-report exit behavior is
+unchanged. Coverage instrumentation increases source-push verification time;
+there is no second uninstrumented test run. Working-tree files and reports are
+left untouched.
 
 `metrics coverage warm --timeout <ms>` runs full Vitest coverage in an overlay and
 initializes an exact per-test-file contribution index. Its scoring receipt remains

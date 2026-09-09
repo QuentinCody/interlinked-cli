@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -25,6 +25,7 @@ describe("pre-push coverage integration", () => {
     };
 
     beforeEach(() => {
+        measurement = {};
         root = mkdtempSync(join(tmpdir(), "prepush-coverage-"));
         git("init", "-q");
         git("config", "user.name", "Coverage fixture");
@@ -34,11 +35,23 @@ describe("pre-push coverage integration", () => {
             mkdirSync(join(root, path), { recursive: true });
         }
         copyFileSync(join(REPO, "scripts/git-hooks/pre-push"), join(root, "scripts/git-hooks/pre-push"));
+        copyFileSync(join(REPO, "scripts/pre-push-coverage.mjs"), join(root, "scripts/pre-push-coverage.mjs"));
+        symlinkSync(join(REPO, "node_modules"), join(root, "node_modules"));
         write("scripts/ci-packaging.sh", "echo PACKAGE_GATE\n");
-        write(".gitignore", "coverage/\n.interlinked/\ncaptured.json\n");
+        write(".gitignore", "coverage/\n.interlinked/\ncaptured.json\nnode_modules\n");
         write("package.json", JSON.stringify({ name: "gate-fixture", scripts: {
-            "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE", test: "echo TEST_GATE",
+            "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE", test: "node scripts/coverage-fixture.cjs",
         } }));
+        write("scripts/coverage-fixture.cjs", `
+const fs = require("node:fs");
+console.log("TEST_GATE");
+fs.mkdirSync("coverage", { recursive: true });
+const entries = ${JSON.stringify(FILES)}.filter(path => !String(process.env.COVERAGE_OMIT || "").split(",").includes(path)).map(path => [path, {
+    lines: { pct: process.env.COVERAGE_PARTIAL === "1" ? 0 : process.env.COVERAGE_REGRESSION === "1" && path === ${JSON.stringify(TARGET)} ? 40 : 90 },
+    branches: { pct: process.env.COVERAGE_PARTIAL === "1" ? 0 : 80 }
+}]);
+fs.writeFileSync("coverage/coverage-summary.json", JSON.stringify(Object.fromEntries(entries)));
+`);
         // Keep the hook's real coverage CLI boundary; only the expensive CI gates
         // above are stubs. The committed wrapper also works in its clean export.
         write("dist/index.js", `
@@ -57,18 +70,15 @@ process.exitCode = result.status ?? 1;
 
     afterEach(() => rmSync(root, { recursive: true, force: true }));
 
+    let measurement: Record<string, string> = {};
     function report(partial = false, regression = false): void {
-        write("coverage/coverage-summary.json", JSON.stringify(Object.fromEntries(FILES.map((path, index) => [path, {
-            lines: { pct: partial ? 0 : regression && index === 0 ? 40 : 90 }, branches: { pct: partial ? 0 : 80 },
-        }]))));
-        const fresh = new Date("2026-01-01T00:01:00Z");
-        utimesSync(join(root, "coverage/coverage-summary.json"), fresh, fresh);
+        measurement = { COVERAGE_PARTIAL: partial ? "1" : "0", COVERAGE_REGRESSION: regression ? "1" : "0" };
     }
 
     function run(updates: { sha: string; remote: string; old: string }[]) {
         const result = spawnSync("bash", [join(root, "scripts/git-hooks/pre-push"), "origin", "unused"], {
             cwd: root, encoding: "utf8", timeout: 60_000,
-            env: { ...process.env, COVERAGE_CAPTURE: join(root, "captured.json") },
+            env: { ...process.env, ...measurement, COVERAGE_CAPTURE: join(root, "captured.json") },
             input: updates.map(({ sha, remote, old }) => `refs/heads/local ${sha} refs/heads/${remote} ${old}\n`).join(""),
         });
         return { status: result.status, output: result.stdout + result.stderr };
@@ -130,27 +140,118 @@ process.exitCode = result.status ?? 1;
         expect(result.output).toContain("20 measured file(s)");
     });
 
-    it("requires coverage newer than every protected ref, including an earlier update", () => {
-        write(TARGET, "export const value = 2;\n");
-        git("add", "--all");
-        execFileSync("git", ["commit", "-qm", "newer code commit"], {
-            cwd: root,
-            env: { ...process.env, GIT_COMMITTER_DATE: "2026-01-01T00:02:00Z" },
-        });
-        const code = git("rev-parse", "HEAD");
-        write("README.md", "Documentation\n");
-        const docs = commit("older timestamp on last ref");
+    it("rejects an omitted changed baseline file even when another changed file is measured", () => {
+        write("src/well1.ts", "export const value = 2;\n");
+        const sha = codeCommit();
         report();
-        const result = run([{ sha: code, remote: "main", old: base }, { sha: docs, remote: "master", old: code }]);
+        measurement.COVERAGE_OMIT = TARGET;
+        const result = run([{ sha, remote: "main", old: base }]);
         expect(result.status).toBe(1);
-        expect(result.output).toContain(`no coverage report newer than ${code}`);
+        expect(result.output).toContain(`unmeasured for changed baselined source: ${TARGET}`);
+    });
+
+    it("rejects an omitted sole changed baseline file", () => {
+        const sha = codeCommit();
+        measurement.COVERAGE_OMIT = TARGET;
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status).toBe(1);
+        expect(result.output).toContain(`unmeasured for changed baselined source: ${TARGET}`);
+    });
+
+    it.each(["deleted", "type-only"])("permits an omitted %s file", change => {
+        if (change === "deleted") rmSync(join(root, TARGET));
+        else write(TARGET, "export interface Value { count: number }\n");
+        const sha = commit(change);
+        measurement.COVERAGE_OMIT = TARGET;
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status).toBe(0);
+        expect(result.output).toContain("No runtime coverage targets");
+    });
+
+    it("does not erase a runtime import when classifying a type-declaration module", () => {
+        write("tsconfig.json", JSON.stringify({ compilerOptions: { verbatimModuleSyntax: true } }));
+        write(TARGET, 'import { value } from "./well1"; export interface PublicShape { count: number }\n');
+        const sha = commit("preserved runtime import");
+        measurement.COVERAGE_OMIT = TARGET;
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status).toBe(1);
+        expect(result.output).toContain(`unmeasured for changed baselined source: ${TARGET}`);
+    });
+
+    it("refuses a working-tree checker when the pushed revision has no built checker", () => {
+        const checker = readFileSync(join(root, "dist/index.js"), "utf8");
+        rmSync(join(root, "dist/index.js"));
+        const sha = codeCommit();
+        write("dist/index.js", checker);
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status).toBe(1);
+        expect(result.output).toContain("Pushed revision has no built coverage checker");
+    });
+
+    it("unions different comparison ranges for the same pushed revision without running it twice", () => {
+        const middle = codeCommit();
+        write("src/well1.ts", "export const value = 2;\n");
+        const sha = commit("second changed source");
+        const result = run([{ sha, remote: "main", old: base }, { sha, remote: "master", old: middle }]);
+        expect(result.status).toBe(0);
+        expect(capturedScope().sort()).toEqual([TARGET, "src/well1.ts"]);
+        expect(result.output.split(`checks pass for ${sha}`).length - 1).toBe(1);
+    });
+
+    it("rejects a dangling changed source link instead of treating it as a deletion", () => {
+        rmSync(join(root, TARGET));
+        symlinkSync("missing.ts", join(root, TARGET));
+        const sha = commit("dangling source");
+        measurement.COVERAGE_OMIT = TARGET;
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status).toBe(1);
+        expect(result.output).toContain("ENOENT");
+    });
+
+    it("does not require coverage entries for test-only changes", () => {
+        const path = "src/covered.test.ts";
+        write(path, "export const testValue = 1;\n");
+        const sha = commit("test-only change");
+        const baseline = JSON.parse(readFileSync(join(root, ".interlinked/coverage-baseline.json"), "utf8"));
+        baseline.files[path] = { lines_pct: 90, branches_pct: 80 };
+        write(".interlinked/coverage-baseline.json", JSON.stringify(baseline));
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status).toBe(0);
+        expect(result.output).toContain("No runtime coverage targets");
+    });
+
+    it("measures each pushed revision with real Vitest instead of reusing the working-tree report", () => {
+        write("package.json", JSON.stringify({ scripts: {
+            "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE",
+            test: `node "${join(REPO, "node_modules/vitest/vitest.mjs")}" run --maxWorkers=1`,
+        } }));
+        write("vitest.config.mjs", `export default { test: { include: ["src/probe.test.ts"], coverage: { provider: "v8", reporter: ["json-summary"], include: ["${TARGET}"] } } };`);
+        write("src/probe.test.ts", `import { expect, it } from "vitest"; import { value } from "./well0"; it("returns its value", () => { expect(value()).toBe(1); });`);
+        const goodSource = "export function value() {\n    return 1;\n}\n";
+        write(TARGET, goodSource);
+        const good = commit("fully covered revision");
+        write(TARGET, `${goodSource}export function untested() {\n    return 2;\n}\n`);
+        const bad = commit("uncovered additional function");
+        // A newer working-tree report claims full coverage for both revisions.
+        // It has no authority over either disposable export.
+        write("coverage/coverage-summary.json", JSON.stringify({ [TARGET]: { lines: { pct: 100 }, branches: { pct: 100 } } }));
+        const reportBefore = readFileSync(join(root, "coverage/coverage-summary.json"), "utf8");
+        const cleanOlderRevision = run([{ sha: good, remote: "main", old: base }]);
+        expect(cleanOlderRevision.status).toBe(0);
+        const both = run([{ sha: good, remote: "main", old: base }, { sha: bad, remote: "master", old: good }]);
+        expect(both.status).toBe(1);
+        expect(both.output).toContain(`checks pass for ${good}`);
+        expect(both.output).toContain(`verification failed or unavailable for ${bad}`);
+        expect(both.output).toContain('"current_pct": 50');
+        expect(readFileSync(join(root, "coverage/coverage-summary.json"), "utf8")).toBe(reportBefore);
+        expect(git("status", "--porcelain")).toBe("");
     });
 
     it("runs code and package checks for a path list larger than the pipe buffer", () => {
         mkdirSync(join(root, "zz-changes"));
         for (let index = 0; index < 1000; index++) write(`zz-changes/${index}-${"x".repeat(160)}.txt`, "change\n");
         write("package.json", JSON.stringify({ scripts: {
-            "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE", test: "echo TEST_GATE",
+            "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE", test: "node scripts/coverage-fixture.cjs",
         } }));
         const sha = commit("large code and package range");
         const result = run([{ sha, remote: "main", old: base }]);

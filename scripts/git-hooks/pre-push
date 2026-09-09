@@ -17,328 +17,138 @@
 
 set -uo pipefail
 
-# Skip on pushes to non-main branches and on deletions. Pushes to feature
-# branches still go through CI, and deletions don't introduce new code.
+# Each protected revision is verified in its own disposable export. A report
+# generated elsewhere, even after the commit, cannot establish source identity.
 remote="$1"
 url="$2"
+source_root="$(pwd -P)"
+hook_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 zero=$(git hash-object --stdin </dev/null | tr '0-9a-f' '0')
-
 protected_branch_re='^(main|master)$'
-should_run=0
-docs_only=1
-pkg_touched=0
-# Keep every protected ref: a later docs-only ref must not erase code scope.
 push_shas=()
-changed_paths=""
+push_paths=()
+push_docs=()
+push_packages=()
 while read -r local_ref local_sha remote_ref remote_sha; do
-	[ -z "$local_ref" ] && continue
-	# Deletion: local_sha is all-zeros. Skip.
-	if [ "$local_sha" = "$zero" ]; then continue; fi
-	# Only gate pushes to protected branches.
-	branch_short="${remote_ref##refs/heads/}"
-	if [[ "$branch_short" =~ $protected_branch_re ]]; then
-		should_run=1
-		push_shas+=("$local_sha")
-		# Docs-only fast-path: if the net diff being pushed to a protected
-		# branch touches only Markdown files, skip the typecheck + test gate
-		# (which would otherwise stash the working tree — racy under
-		# parallel agents — and burn ~4 minutes to test code that isn't
-		# changing). CI still runs on the pushed commit. Force-push that
-		# rewrites history with non-md changes is still detected because
-		# we look at the net `remote..local` diff.
-		#
-		# Any uncertainty falls back to the full gate: a new branch (no
-		# remote_sha), a shallow / pruned clone where `git diff` can't
-		# reach the remote_sha, or an empty diff. Better to spend the
-		# 4 minutes than to let a code push through unverified — the
-		# whole point of the gate is to catch CI failures BEFORE the
-		# push, not to optimize the push experience.
-		if [ "$remote_sha" = "$zero" ]; then
-			# New branch being created on the remote — no diff base.
-			docs_only=0
-			pkg_touched=1
-			diff_files="$(git ls-tree -r --name-only "$local_sha")" || exit 1
-		elif diff_files="$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null)"; then
-			# `git diff` exited 0. Empty diff or any non-md file → full gate.
-			# Otherwise (every changed path ends in .md) leave docs_only=1.
-			if [ -z "$diff_files" ] \
-				|| printf '%s\n' "$diff_files" | grep -vE '\.md$' >/dev/null; then
-				docs_only=0
-			fi
-			# Package-surface change → also run the build + distribution smokes
-			# (build / publint / attw / pack / install / onboarding). Ordinary
-			# source/test pushes skip them so they stay fast; the cloud ubuntu
-			# leg is the backstop either way.
-			if printf '%s\n' "$diff_files" | grep -E '^(package(-lock)?\.json|\.npmignore|tsup\.config|src/index\.ts|src/hook-entry\.ts|src/harness/server\.ts|src/lib/demo-runtime/|scripts/(fix-dist-dts|copy-runtime-assets|ci-packaging|ci-local|smoke-tarball-install|smoke-onboarding)\.)' >/dev/null; then
-				pkg_touched=1
-			fi
-		else
-			# `git diff` failed — typically a shallow / pruned clone where
-			# remote_sha is no longer reachable locally. We have no idea
-			# what's actually being pushed, so don't trust the fast-path.
-			docs_only=0
-			pkg_touched=1
-			diff_files="$(git ls-tree -r --name-only "$local_sha")" || exit 1
-		fi
-		changed_paths="${changed_paths}${changed_paths:+$'\n'}${diff_files}"
-	fi
+    [ -z "$local_ref" ] && continue
+    [ "$local_sha" = "$zero" ] && continue
+    branch_short="${remote_ref##refs/heads/}"
+    [[ "$branch_short" =~ $protected_branch_re ]] || continue
+    docs_only=1
+    pkg_touched=0
+    if [ "$remote_sha" = "$zero" ] || ! diff_files="$(git diff --name-only "$remote_sha" "$local_sha" 2>/dev/null)"; then
+        docs_only=0
+        pkg_touched=1
+        diff_files="$(git ls-tree -r --name-only "$local_sha")" || exit 1
+    else
+        if [ -z "$diff_files" ] || printf '%s\n' "$diff_files" | grep -vE '\.md$' >/dev/null; then docs_only=0; fi
+        if printf '%s\n' "$diff_files" | grep -E '^(package(-lock)?\.json|\.npmignore|tsup\.config|src/index\.ts|src/hook-entry\.ts|src/harness/server\.ts|src/lib/demo-runtime/|scripts/(fix-dist-dts|copy-runtime-assets|ci-packaging|ci-local|smoke-tarball-install|smoke-onboarding)\.)' >/dev/null; then pkg_touched=1; fi
+    fi
+    push_shas+=("$local_sha")
+    push_paths+=("$diff_files")
+    push_docs+=("$docs_only")
+    push_packages+=("$pkg_touched")
 done
 
-if [ "$should_run" -eq 0 ]; then
-	exit 0
-fi
-
-# ---------------------------------------------------------------------------
-# Gate against a disposable export of HEAD, not the dirty working tree.
-#
-# History note (do not regress this): an earlier design stashed the working
-# tree to test a clean state, and `git stash pop` conflicts with test-written
-# fixture paths caused silent work loss — that class is forbidden. This
-# design NEVER touches the working tree: `git worktree add --detach` checks
-# out the exact HEAD being pushed into a temp dir (node_modules symlinked —
-# the same pattern the two-box mutation runner uses), gates run there, and
-# the export is removed on exit. Unstaged/uncommitted changes can neither
-# cause false gate failures nor mask real ones.
-#
-# Fallback: if the export cannot be created (exotic clone states), gates run
-# against the working tree exactly as before — correctness degrades to the
-# old documented trade-off rather than blocking the push outright.
-# ---------------------------------------------------------------------------
-GATE_DIR="$(pwd)"
 export_dir=""
-if export_dir="$(mktemp -d "${TMPDIR:-/tmp}/prepush-head-XXXXXX" 2>/dev/null)" \
-	&& git worktree add --detach --quiet "$export_dir/tree" HEAD 2>/dev/null \
-	&& ln -s "$(pwd)/node_modules" "$export_dir/tree/node_modules" 2>/dev/null; then
-	GATE_DIR="$export_dir/tree"
-	echo "[pre-push] Gating against clean export of HEAD ($(git rev-parse --short HEAD)) — working tree untouched."
-else
-	echo "[pre-push] WARNING: could not export HEAD to a temp worktree; gating against working tree (old behavior)."
-fi
 cleanup_export() {
-	if [ -n "$export_dir" ]; then
-		git worktree remove --force "$export_dir/tree" >/dev/null 2>&1
-		rm -rf "$export_dir" >/dev/null 2>&1
-		git worktree prune >/dev/null 2>&1
-	fi
+    if [ -n "$export_dir" ]; then
+        git -C "$source_root" worktree remove --force "$export_dir/tree" >/dev/null 2>&1
+        rm -rf "$export_dir" >/dev/null 2>&1
+        export_dir=""
+    fi
 }
 trap cleanup_export EXIT
 
-if [ "$docs_only" -eq 1 ]; then
-	# A Markdown-only push skips the expensive, code-dependent gate
-	# (typecheck + tests) but STILL validates the generated doc markers:
-	# docs:check is ~3s and code-independent, and a docs-only push can still
-	# hand-edit a `<!-- gen:* -->` counter to a wrong value (the exact drift
-	# class — landing/README rule count vs source — this gate exists for).
-	# Letting that through to CI is the gap we are closing here.
-	echo "[pre-push] Push is Markdown-only — skipping typecheck + tests, validating doc markers only (CI still runs)."
-	set +e
-	(cd "$GATE_DIR" && npm run docs:check)
-	docs_status=$?
-	set -e
-	if [ "$docs_status" -ne 0 ]; then
-		echo ""
-		echo "❌ pre-push: docs:check failed (exit $docs_status) on a Markdown-only push."
-		echo "   A docs-only push still must not hand-edit a gen-marker to a wrong value."
-		echo "   Run 'npm run docs:build' to regenerate, then re-push."
-		echo "   Bypass: git push --no-verify (use sparingly — same risk as red CI)."
-		exit 1
-	fi
-	echo "[pre-push] ✓ doc markers OK — pushing"
-	exit 0
-fi
-
-# Gates below run inside GATE_DIR — the clean HEAD export created above
-# (or the working tree only on export-creation failure). The stash/pop
-# approach remains forbidden; see the history note at the export block.
-
-echo "[pre-push] Running typecheck + tests in $GATE_DIR (mirrors CI exactly)..."
-
-# Mirror what CI actually runs (see .github/workflows/ci.yml):
-#   - npm run typecheck:stable  (stable tsc, not the experimental tsgo)
-#   - npm run docs:check        (landing + README counters vs source —
-#                                drift here is what bit us on commit
-#                                5452fac; the gen-marker mismatch was
-#                                a CI-only signal before this hook ran it)
-#   - CI=1 npm test             (no --silent: vitest's worker IPC needs
-#                                stdio flow; CI=1 applies the same worker
-#                                cap as GitHub Actions so local pre-push
-#                                does not run a less-stable, higher-
-#                                parallelism variant than CI)
-set +e
-(cd "$GATE_DIR" && npm run typecheck:stable)
-tc_status=$?
-set -e
-
-if [ "$tc_status" -ne 0 ]; then
-	echo ""
-	echo "❌ pre-push: typecheck:stable failed (exit $tc_status). Push blocked."
-	echo "   Fix the type errors above before pushing, or bypass with:"
-	echo "     git push --no-verify   (use sparingly — same risk as red CI)"
-	exit 1
-fi
-
-set +e
-(cd "$GATE_DIR" && npm run docs:check)
-docs_status=$?
-set -e
-
-if [ "$docs_status" -ne 0 ]; then
-	echo ""
-	echo "❌ pre-push: docs:check failed (exit $docs_status). Push blocked."
-	echo "   Run 'npm run docs:build' to regenerate gen markers, then re-push."
-	echo "   Bypass: git push --no-verify (use sparingly — same risk as red CI)"
-	exit 1
-fi
-
-# CI builds dist/ before testing (ci.yml), and some integration tests stat
-# build artifacts — a bare HEAD export has no dist/ (gitignored), so build
-# here too or those tests fail only in the export. Conditional on a build
-# script existing so repos (and hook-test fixtures) without one skip it,
-# same as CI would.
-if [ "$GATE_DIR" != "$(pwd)" ] \
-	&& (cd "$GATE_DIR" && node -e "process.exit((require('./package.json').scripts||{}).build?0:1)" 2>/dev/null); then
-	set +e
-	(cd "$GATE_DIR" && npm run build)
-	build_status=$?
-	set -e
-	if [ "$build_status" -ne 0 ]; then
-		echo ""
-		echo "❌ pre-push: build failed in HEAD export (exit $build_status). Push blocked."
-		exit 1
-	fi
-fi
-
-set +e
-(cd "$GATE_DIR" && CI=1 npm test)
-test_status=$?
-set -e
-
-if [ "$test_status" -ne 0 ]; then
-	echo ""
-	echo "❌ pre-push: tests failed (exit $test_status). Push blocked."
-	echo "   Fix the failing tests above before pushing, or bypass with:"
-	echo "     git push --no-verify   (use sparingly — same risk as red CI)"
-	exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# Per-file coverage ratchet — STRICT, scoped to the files this push changes.
-#
-# `interlinked coverage check` is advisory by default (a drop prints and exits
-# 0); --strict is what makes a drop fail. Three deliberate constraints:
-#
-#   1. NEVER generate coverage here. A full `npm run test:coverage` is ~190s
-#      and one test times out under instrumentation, so producing a report in
-#      the hook would trade a real gate for a flaky one.
-#   2. Reuse the report only when it is NEWER than the commit being pushed. An
-#      older report cannot describe this code, so the step FAILS CLOSED and
-#      tells you to regenerate (~3 min). This was a loud SKIP (fail-open) until
-#      the coverage campaign landed 2026-09-05; the ratchet is now trustworthy
-#      enough to demand fresh evidence. A push that touches no src/ code file
-#      still skips — there is nothing for the ratchet to judge.
-#   3. Scope to the push range with --changed-files. The repo-wide ratchet
-#      still carries a large pre-existing backlog, so an unscoped --strict run
-#      would block every push regardless of what it touches.
-#
-# Runs in the WORKING TREE, not GATE_DIR: both inputs (coverage/ and
-# .interlinked/coverage-baseline.json) are gitignored, so the clean HEAD
-# export has neither.
-# ---------------------------------------------------------------------------
-cov_report="coverage/coverage-summary.json"
-# node, not `stat`: -c is GNU and -f is BSD, and this hook runs on both.
-cov_report_time="$(node -e 'try{process.stdout.write(String(Math.floor(require("node:fs").statSync(process.argv[1]).mtimeMs/1000)))}catch{process.stdout.write("0")}' "$cov_report" 2>/dev/null || echo 0)"
-cov_commit_time=0
-cov_sha=""
-for push_sha in "${push_shas[@]}"; do
-	ref_commit_time="$(git log -1 --format=%ct "$push_sha")" || exit 1
-	if [ "$ref_commit_time" -ge "$cov_commit_time" ]; then
-		cov_commit_time="$ref_commit_time"
-		cov_sha="$push_sha"
-	fi
-done
-cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | LC_ALL=C sort -u | paste -sd, - || true)"
-
-if [ -z "$cov_files" ]; then
-	echo "[pre-push] coverage check SKIPPED: no src/ code files in the push range."
-elif [ "${cov_report_time:-0}" -le "${cov_commit_time:-0}" ]; then
-	echo ""
-	echo "❌ pre-push: no coverage report newer than $cov_sha — the per-file coverage ratchet has nothing current to judge."
-	echo "   Regenerate the report (~3 min), then push again:"
-	echo "     npm run test:coverage"
-	echo "   Bypass: git push --no-verify (use sparingly — same risk as red CI)"
-	exit 1
-else
-	# Prefer the HEAD export's build: the hook just built it above, so it is
-	# the code being pushed. The working-tree dist/ is whatever was last built
-	# here and can be stale (found 2026-09-04). `.interlinked/` and coverage/
-	# paths are cwd-relative, so a GATE_DIR binary run from the working tree
-	# still reads the working tree's report and baseline.
-	if [ "$GATE_DIR" != "$(pwd)" ] && [ -f "$GATE_DIR/dist/index.js" ]; then
-		cov_cli=(node "$GATE_DIR/dist/index.js")
-	elif [ -f "dist/index.js" ]; then
-		cov_cli=(node dist/index.js)
-	else
-		cov_cli=(npx tsx src/index.ts)
-	fi
-	# awk -F, NF, not `tr , '\n' | wc -l`: the list has no trailing newline, so
-	# wc counts separators and reports 0 for a single file.
-	echo "[pre-push] Running strict coverage ratchet on $(printf '%s' "$cov_files" | awk -F, '{print NF}') changed file(s)..."
-	set +e
-	cov_json="$("${cov_cli[@]}" coverage check --strict --report "$cov_report" --changed-files "$cov_files" --json)"
-	cov_status=$?
-	set -e
-	if [ "$cov_status" -ne 0 ]; then
-		echo ""
-		printf '%s\n' "$cov_json"
-		echo "❌ pre-push: coverage check failed or is unavailable (exit $cov_status)."
-		echo "   Add tests to restore coverage. The baseline is a HIGH-WATER mark:"
-		echo "   'interlinked coverage check --update-baseline' only ever raises it and cannot accept a drop."
-		echo "   Bypass: git push --no-verify (use sparingly — same risk as red CI)"
-		exit 1
-	fi
-	# --strict deliberately exits zero for a partial report. Inspect the verdict
-	# before certifying coverage; process success alone is not measurement.
-	if ! printf '%s\n' "$cov_json" | node -e '
+run_gate() {
+    local push_sha="$1" changed_paths="$2" docs_only="$3" pkg_touched="$4"
+    local gate_dir cov_files cov_report cov_cli cov_json
+    export_dir="$(mktemp -d "${TMPDIR:-/tmp}/prepush-revision-XXXXXX")" || return 1
+    if ! git worktree add --detach --quiet "$export_dir/tree" "$push_sha" \
+        || [ -e "$export_dir/tree/node_modules" ] || [ -L "$export_dir/tree/node_modules" ] \
+        || ! ln -s "$source_root/node_modules" "$export_dir/tree/node_modules"; then
+        echo "[pre-push] Cannot export $push_sha for verification; push blocked."
+        return 1
+    fi
+    gate_dir="$(cd "$export_dir/tree" && pwd -P)"
+    echo "[pre-push] Gating exact pushed revision $push_sha in $gate_dir — working tree untouched."
+    if [ "$docs_only" -eq 1 ]; then
+        (cd "$gate_dir" && npm run docs:check) || return 1
+        echo "[pre-push] ✓ doc markers OK for $push_sha"
+        cleanup_export
+        return 0
+    fi
+    (cd "$gate_dir" && npm run typecheck:stable) || return 1
+    (cd "$gate_dir" && npm run docs:check) || return 1
+    if (cd "$gate_dir" && node -e 'process.exit((require("./package.json").scripts||{}).build?0:1)'); then
+        (cd "$gate_dir" && npm run build) || return 1
+    fi
+    cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | LC_ALL=C sort -u | paste -sd, - || true)"
+    if [ -z "$cov_files" ]; then
+        (cd "$gate_dir" && CI=1 npm test) || return 1
+        echo "[pre-push] coverage check SKIPPED: no src/ code files in the push range."
+    else
+        # Run tests once, with coverage, against this exact revision. Reusing a
+        # working-tree report by mtime can certify completely different code.
+        (cd "$gate_dir" && CI=1 npm test -- --coverage --testTimeout=120000 --coverage.reporter=json-summary) || return 1
+        if ! git -C "$gate_dir" diff --quiet "$push_sha" --; then
+            echo "[pre-push] Tests changed committed inputs; coverage is unmeasured."
+            return 1
+        fi
+        cov_report="$gate_dir/coverage/coverage-summary.json"
+        mkdir -p "$gate_dir/.interlinked" || return 1
+        if [ -f "$source_root/.interlinked/coverage-baseline.json" ]; then
+            cp "$source_root/.interlinked/coverage-baseline.json" "$gate_dir/.interlinked/coverage-baseline.json" || return 1
+        else
+            printf '%s\n' '{"version":1,"updated_at":"1970-01-01T00:00:00.000Z","files":{}}' > "$gate_dir/.interlinked/coverage-baseline.json" || return 1
+        fi
+        node "$hook_dir/../pre-push-coverage.mjs" "$gate_dir" "$cov_report" "$gate_dir/.interlinked/coverage-baseline.json" "$cov_files" || return 1
+        if [ ! -f "$gate_dir/dist/index.js" ]; then
+            echo "[pre-push] Pushed revision has no built coverage checker; verification unavailable."
+            return 1
+        fi
+        cov_cli=(node "$gate_dir/dist/index.js")
+        echo "[pre-push] Running strict coverage ratchet for $push_sha..."
+        cov_json="$(cd "$gate_dir" && "${cov_cli[@]}" coverage check --strict --report "$cov_report" --changed-files "$cov_files" --json)" || { printf '%s\n' "$cov_json"; return 1; }
+        if ! printf '%s\n' "$cov_json" | node -e '
 try {
     const result = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
     if (result.partialReport?.partial !== false || !Array.isArray(result.findings)
         || !Number.isSafeInteger(result.stats?.files_checked) || result.stats.files_checked < 0) {
-        throw new Error("Coverage is partial or unmeasured. Run npm run test:coverage before pushing.");
+        throw new Error("Coverage is partial or unmeasured.");
     }
     if (result.findings.length > 0) throw new Error("Coverage findings remain in the push scope.");
-    if (result.stats.files_checked === 0) {
-        console.log("[pre-push] No report-covered files in the push scope; no coverage pass certified.");
-    } else {
-        console.log(`[pre-push] ✓ no coverage regressions in ${result.stats.files_checked} measured file(s)`);
-    }
-} catch (error) {
-    console.error(`[pre-push] ${error.message}`);
-    process.exitCode = 1;
+    if (result.stats.files_checked === 0) console.log("[pre-push] No runtime coverage targets in the push scope; no coverage pass certified.");
+    else console.log(`[pre-push] ✓ no coverage regressions in ${result.stats.files_checked} measured file(s)`);
+} catch (error) { console.error(`[pre-push] ${error.message}`); process.exitCode = 1; }
+'; then return 1; fi
+    fi
+    if [ "$pkg_touched" -eq 1 ]; then
+        (cd "$gate_dir" && bash scripts/ci-packaging.sh) || return 1
+    fi
+    echo "[pre-push] ✓ checks pass for $push_sha"
+    cleanup_export
 }
-'; then
-		exit 1
-	fi
-fi
 
-# Package-surface pushes also run the build + distribution smokes (the CI steps
-# beyond typecheck/docs/test). Shared with `npm run ci:local` via
-# scripts/ci-packaging.sh so local and cloud can't drift. Ordinary source/test
-# pushes skip this (pkg_touched stayed 0) so they don't pay the extra ~90s.
-if [ "$pkg_touched" -eq 1 ]; then
-	echo "[pre-push] Package surface changed — running build + distribution smokes..."
-	set +e
-	(cd "$GATE_DIR" && bash scripts/ci-packaging.sh)
-	pkg_status=$?
-	set -e
-	if [ "$pkg_status" -ne 0 ]; then
-		echo ""
-		echo "❌ pre-push: packaging / smoke checks failed (exit $pkg_status). Push blocked."
-		echo "   Reproduce with 'npm run ci:local', or bypass with:"
-		echo "     git push --no-verify   (use sparingly — same risk as red CI)"
-		exit 1
-	fi
-	echo "[pre-push] ✓ build + packaging smokes pass"
-fi
-
-echo "[pre-push] ✓ typecheck + tests pass — pushing"
+# A SHA pushed to both main and master needs one run over the union of its
+# comparison ranges. Different revisions never share a test or coverage report.
+seen=" "
+for ((index=0; index<${#push_shas[@]}; index++)); do
+    sha="${push_shas[$index]}"
+    [[ "$seen" == *" $sha "* ]] && continue
+    seen="$seen$sha "
+    paths=""
+    docs=1
+    packages=0
+    for ((other=0; other<${#push_shas[@]}; other++)); do
+        [ "${push_shas[$other]}" = "$sha" ] || continue
+        paths="${paths}${paths:+$'\n'}${push_paths[$other]}"
+        [ "${push_docs[$other]}" -eq 0 ] && docs=0
+        [ "${push_packages[$other]}" -eq 1 ] && packages=1
+    done
+    if ! run_gate "$sha" "$paths" "$docs" "$packages"; then
+        echo "❌ pre-push: verification failed or unavailable for $sha. Push blocked."
+        exit 1
+    fi
+done
 exit 0
