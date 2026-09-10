@@ -1,7 +1,7 @@
 import { isJsonObject } from "../../lib/json-types.js";
 import { createEventLoop, type EventLoopDeps } from "../server-event-loop.js";
 import { toLegacyHarnessEvent } from "../legacy-client.js";
-import { appendHookCoverageDecision } from "./hook-coverage.js";
+import { appendHookCoverageDecision, type CoverageBoundary } from "./hook-coverage.js";
 import { controlHookCoverage, isHookCoverageRequest } from "../hook-coverage-control.js";
 
 /** Apply coverage at the transport boundary, once for either raw or framed calls. */
@@ -16,13 +16,20 @@ export function createCoverageEventLoop(deps: EventLoopDeps): ReturnType<typeof 
             const query = coverageQuery(deps.ctx, value);
             if (query) return query;
             const decision = await loop.evaluateEventLine(line, protocol);
-            const native = isJsonObject(value) && typeof value.hook_event === "string" ? value.hook_event : "unknown";
-            return appendHookCoverageDecision(deps.ctx, native, decision);
+            return appendHookCoverageDecision(deps.ctx, rawBoundary(value), decision);
         },
         async evaluateUnifiedViaRuntime(event) {
             const decision = await loop.evaluateUnifiedViaRuntime(event);
-            return appendHookCoverageDecision(deps.ctx, toLegacyHarnessEvent(event).hook_event, decision);
+            const legacy = toLegacyHarnessEvent(event);
+            return appendHookCoverageDecision(deps.ctx, { hook_event: legacy.hook_event, session_id: legacy.session_id ?? "" }, decision);
         },
+    };
+}
+function rawBoundary(value: unknown): CoverageBoundary {
+    if (!isJsonObject(value)) return { hook_event: "unknown", session_id: "" };
+    return {
+        hook_event: typeof value.hook_event === "string" ? value.hook_event : "unknown",
+        session_id: typeof value.session_id === "string" ? value.session_id : "",
     };
 }
 function coverageQuery(ctx: EventLoopDeps["ctx"], value: unknown): import("../types.js").HarnessDecision | undefined {
