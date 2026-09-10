@@ -315,3 +315,17 @@ describe("getDistilledRulesWatchPaths", () => {
 		);
 	});
 });
+
+
+it("treats a legacy rules envelope without a rules array as empty", () => {
+    writeDistilled({ version: 1 });
+    expect(loadDistilledRules(tmpRoot)).toEqual([]);
+});
+
+
+it("retains otherwise valid legacy rules without source metadata", () => {
+    const { source: _source, ...rule } = SAMPLE_RULE;
+    writeDistilled({ rules: [rule] });
+    writeOverrides({ removed_groups: ["local:AGENTS.md"] });
+    expect(loadDistilledRules(tmpRoot)).toEqual([rule]);
+});

@@ -610,6 +610,61 @@ describe("subagent_diverged_edit", () => {
 		expect(matches.length).toBe(1);
 	});
 
+	describe("subagentDivergedEdit — self-attribution — positive/negative (2026-09-10 false-positive fix)", () => {
+		it("N1: does not fire on this session's own row — same session_id, different agent_name", () => {
+			const filePath = "src/gate.ts";
+			const { session } = buildTrajectoryFixture(
+				[{ tool_name: "Write", tool_input: { file_path: filePath }, cwd: dir }],
+				{ agent_name: "parent", session_id: "test-session" },
+			);
+			writeActivityLog(dir, [
+				{
+					agent_name: "claude",
+					session_id: "test-session",
+					tool_name: "Write",
+					tool_input: { file_path: filePath },
+					timestamp: isoMinutesFromNow(-1),
+				},
+			]);
+			const candidate = makeCandidate({ hook_event: "Stop", cwd: dir, agent_name: "parent", session_id: "test-session" });
+			expect(subagentDivergedEdit.fn(session, candidate)).toEqual([]);
+		});
+
+		it("N2: does not fire on a PreToolUse row whose guard_block twin shows the write never landed", () => {
+			const filePath = join(dir, "src", "gate.ts");
+			const { session } = buildTrajectoryFixture(
+				[{ tool_name: "Write", tool_input: { file_path: filePath }, cwd: dir }],
+				{ agent_name: "parent", session_id: "test-session" },
+			);
+			const ts = isoMinutesFromNow(-1);
+			writeV5ActivityLog(dir, [
+				{ schema_version: 5, ts, agent: "rival", session: "rival-session", type: "tool_use_start", tool: "Write", hook: "PreToolUse", tool_use_id: "toolu_blocked", tool_input: { file_path: filePath } },
+				{ schema_version: 5, ts, agent: "rival", session: "rival-session", type: "guard_block", tool: "Write", hook: "PreToolUse", tool_use_id: "toolu_blocked", guard_decision: "block" },
+			]);
+			const candidate = makeCandidate({ hook_event: "Stop", cwd: dir, agent_name: "parent", session_id: "test-session" });
+			expect(subagentDivergedEdit.fn(session, candidate)).toEqual([]);
+		});
+
+		it("P1: fires on a write from a different session_id and different agent_name", () => {
+			const filePath = "src/gate.ts";
+			const { session } = buildTrajectoryFixture(
+				[{ tool_name: "Write", tool_input: { file_path: filePath }, cwd: dir }],
+				{ agent_name: "parent", session_id: "test-session" },
+			);
+			writeActivityLog(dir, [
+				{
+					agent_name: "rival",
+					session_id: "rival-session",
+					tool_name: "Write",
+					tool_input: { file_path: filePath },
+					timestamp: isoMinutesFromNow(-1),
+				},
+			]);
+			const candidate = makeCandidate({ hook_event: "Stop", cwd: dir, agent_name: "parent", session_id: "test-session" });
+			expect(subagentDivergedEdit.fn(session, candidate)).toHaveLength(1);
+		});
+	});
+
 	it("fires for two different files written by two different other agents", () => {
 		const fileA = "src/a.ts";
 		const fileB = "src/b.ts";

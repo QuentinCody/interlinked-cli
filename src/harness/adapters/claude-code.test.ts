@@ -447,6 +447,17 @@ describe("Claude Code encodeDecision", () => {
 		// `reason`, not this literal.
 		expect(out.stderr).toBe("custom operator note");
 	});
+	it("abstains silently on permission allow and supplies a useful default for an unexplained ask", () => {
+		const permissionEvent = adapter.parseHookInput({ session_id: "s", cwd: "/repo" }, "PermissionRequest");
+		expect(adapter.encodeDecision({ decision: "allow" }, permissionEvent)).toEqual({ exit_code: 0 });
+		expect(adapter.encodeDecision({ decision: "ask" }, permissionEvent)).toEqual({ exit_code: 0, stderr: "Confirmation required" });
+	});
+	it("preserves diagnostics alongside the native worktree refusal", () => {
+		const event = adapter.parseHookInput({ session_id: "s", cwd: "/repo" }, "WorktreeCreate");
+		expect(adapter.encodeDecision({ decision: "block", reason: "reserved workspace", warnings: ["retry later"] }, event)).toEqual({
+			exit_code: 2, stderr: "reserved workspace\nretry later",
+		});
+	});
 	it("WorktreeCreate always fails without returning a replacement path", () => {
 		const worktreeEvent = adapter.parseHookInput(
 			{ session_id: "s", cwd: "/repo", name: "feature" },

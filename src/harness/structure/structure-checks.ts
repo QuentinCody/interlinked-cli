@@ -349,17 +349,17 @@ function extractSimpleKeyContributions(
 function extractFileEntryContributions(
 	data: JsonObject,
 	arrayField: string,
-	kind: ArtifactNode["kind"],
+	kind: "doc" | "test" | "example",
 ): GraphContribution[] {
 	const items = data[arrayField];
 	if (!Array.isArray(items)) return [];
 
-	const edgeKindMap: Record<string, EdgeKind> = {
+	const edgeKindMap: Record<typeof kind, EdgeKind> = {
 		doc: "documents",
 		test: "tests",
 		example: "illustrates",
 	};
-	const edgeKind = edgeKindMap[kind] ?? "documents";
+	const edgeKind = edgeKindMap[kind];
 
 	return items.flatMap<GraphContribution>((entry) => {
 		if (!isFileEntry(entry)) return [];

@@ -3,9 +3,27 @@ import { nonNull } from "../../lib/non-null.js";
 import {
 	parseCargoJson,
 	parseGolangciLintJson,
+	parseKnipJson,
 	parseOsvScannerJson,
 	parseRuffJson,
 } from "./output-parsers-extra.js";
+
+describe("parseKnipJson", () => {
+	it("keeps valid findings beside malformed records and defaults absent locations", () => {
+		const payload = { files: [null, "unused.ts"], issues: [null, {
+			file: "entry.ts", exports: [{ name: "unused" }, false], types: [],
+			unlisted: [null, { name: "missing-dep" }],
+		}] };
+		expect(parseKnipJson(JSON.stringify(payload))).toMatchObject([
+			{ file: "unused.ts", ruleId: "unused-file" },
+			{ file: "entry.ts", ruleId: "unused-export", line: 0, message: "unused export: unused" },
+			{ file: "entry.ts", ruleId: "unlisted-dep", message: "unlisted dependency: missing-dep" },
+		]);
+	});
+	it("rejects a non-object report", () => {
+		expect(parseKnipJson("null")).toEqual([]);
+	});
+});
 
 describe("parseOsvScannerJson", () => {
 	it("returns null when the parsed JSON has no usable 'results' shape", () => {
@@ -301,6 +319,11 @@ describe("parseRuffJson", () => {
 });
 
 describe("parseCargoJson", () => {
+	it("retains diagnostics when optional level and message fields are absent", () => {
+		expect(parseCargoJson(JSON.stringify({ reason: "compiler-message", message: {
+			spans: [{ file_name: "lib.rs", line_start: 2 }],
+		} }), "cargo-check")).toMatchObject([{ file: "lib.rs", line: 2, severity: "warning", message: "" }]);
+	});
 	it("parses an error-level compiler-message with a full span, and maps a non-error level to warning with defaults", () => {
 		const lines = [
 			JSON.stringify({

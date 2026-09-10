@@ -30,6 +30,18 @@ import { installHooksCommand, parseModeChoice } from "./install-hooks.js";
 // --preserve-mode / --refresh: the hooks-only contract (2026-08-29)
 // ─────────────────────────────────────────────────────────────────
 describe("installHooksCommand — preserve-mode and refresh never write enforcement mode", () => {
+	it("reports preserved mode in JSON without creating enforcement policy", async () => {
+		const out = await captureStdout(() => installHooksCommand({ runner: "gemini-cli", binary: "/usr/bin/ih-preserve-json", preserveMode: true, json: true }));
+		expect(JSON.parse(out)).toMatchObject({ ok: true, mode: "preserved" });
+		expect(existsSync(join(tmp, ".interlinked", "check-policy.json"))).toBe(false);
+	});
+
+	it("rejects every unknown runner in a mixed selection without installing valid members", async () => {
+		const out = await captureStdout(() => installHooksCommand({ runner: "gemini-cli,unknown-one,unknown-two", binary: "/usr/bin/ih-unknown-runners", json: true }));
+		expect(JSON.parse(out)).toMatchObject({ ok: false, error: "unknown runners: unknown-one, unknown-two; no hooks were installed" });
+		expect(existsSync(join(tmp, ".gemini", "settings.json"))).toBe(false);
+		expect(process.exitCode).toBe(1);
+	});
 	// test-contract: bug — the reason plain repairs were unsafe: without the
 	// flag, every run rewrites check-policy.json (the --mode default is
 	// "balanced"). The pair below pins BOTH directions.
@@ -341,6 +353,15 @@ describe("install-hooks — a failed postInstall is not reported as success", ()
 });
 
 describe("install-hooks — a failed mode write is not reported as success", () => {
+	it("reports the failed mode application in human output and preserves invalid settings", async () => {
+		mkdirSync(join(tmp, ".interlinked"), { recursive: true });
+		const guardPath = join(tmp, ".interlinked", "guard-rules.json");
+		writeFileSync(guardPath, "{ invalid settings");
+		const out = await captureStdout(() => installHooksCommand({ runner: "gemini-cli", binary: "/usr/bin/ih-mode-human", mode: "strict" }));
+		expect(out).toContain("mode: NOT APPLIED (requested strict)");
+		expect(readFileSync(guardPath, "utf8")).toBe("{ invalid settings");
+		expect(process.exitCode).toBe(1);
+	});
 	it("reports ok:false and leaves the requested mode unapplied", async () => {
 		mkdirSync(join(tmp, ".interlinked"), { recursive: true });
 		const guardPath = join(tmp, ".interlinked", "guard-rules.json");

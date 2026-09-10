@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { computeSymbolHashes, deriveIdentities, type SymbolHashEntry } from "./identity.js";
 import {
 	acceptedSurvivors,
+	stampProvenance,
+	provenanceOf,
+	corruptManifestMessage,
 	appendReceipt,
 	applyMeasuredRun,
 	changedSymbols,
@@ -977,4 +980,37 @@ describe("loadManifest — self-heals an already-corrupted files map", () => {
 		const healed = loadManifest(dir);
 		expect(healed?.files["src/a.ts"]?.s1?.symbolHash).toBe("h1");
 	});
+});
+
+
+describe("mutation provenance defaults and move review fidelity", () => {
+    it("uses the process workspace consistently when provenance callers omit cwd", () => {
+        const base = emptyManifest(META);
+        const provenance = { at: "2026-09-08", scope: "import_graph" as const, testCount: 12, surface: "measure" as const };
+        const stamped = stampProvenance({ manifest: base, file: join(process.cwd(), FILE), provenance });
+        expect(provenanceOf(stamped, FILE)).toEqual(provenance);
+        expect(base.fileProvenance).toBeUndefined();
+    });
+
+    it("carries a structured review without inventing legacy reason text and ignores stale move hints", () => {
+        const prior = { ...rec("old", "equivalent"), disposition: { kind: "proved_equivalent", evidence: "review-123" } };
+        const base = manifestWith(FILE, [sym({ symbolId: "before", symbolHash: "old-hash", mutants: [prior] })]);
+        const next = applyMeasuredRun({ base, file: FILE, overlayHashes: overlay([["after", "new-hash"]]),
+            measured: [measured("new", "after", "survived"), measured("fresh", "after", "killed")], at: "2026-09-08",
+            moves: [{ previousMutantId: "old", currentMutantId: "new" }, { previousMutantId: "absent", currentMutantId: "fresh" }],
+        });
+        expect(next.files[FILE]?.after?.mutants.new).toMatchObject({ status: "equivalent", firstSeen: prior.firstSeen, disposition: prior.disposition });
+        expect(next.files[FILE]?.after?.mutants.new?.accepted_reason).toBeUndefined();
+        expect(next.files[FILE]?.after?.mutants.fresh).toMatchObject({ status: "killed", firstSeen: "2026-09-08" });
+        expect(next.files[FILE]?.after?.mutants.fresh?.disposition).toBeUndefined();
+    });
+});
+
+
+it("directs recovery toward the damaged manifest rather than fresh adoption", () => {
+    const message = corruptManifestMessage("/repo/.interlinked", "invalid files shape");
+    expect(message).toContain("/repo/.interlinked/mutation-manifest.json");
+    expect(message).toContain("CORRUPT (invalid files shape)");
+    expect(message).toContain('not "missing"');
+    expect(message).toContain("preserved for recovery");
 });

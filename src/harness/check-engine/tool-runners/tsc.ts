@@ -8,6 +8,7 @@ import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, relative, resolve } from "node:path";
+import { errorMessage } from "../../../lib/error-message.js";
 import {
 	ProjectCompilerUnavailableError,
 	runWithProjectCompilerLease,
@@ -95,7 +96,7 @@ function runCompilerSync(options: {
 		});
 		return parseSyncCompilerResult(result, options.resultFile);
 	} catch (error) {
-		const detail = error instanceof Error ? error.message : String(error);
+		const detail = errorMessage(error);
 		return unavailableFinding(options.resultFile, `compiler spawn threw: ${detail}`);
 	} finally {
 		release();
@@ -332,7 +333,7 @@ async function runProjectCheck(
 		const reason =
 			error instanceof ProjectCompilerUnavailableError
 				? error.message
-				: `compiler admission failed: ${error instanceof Error ? error.message : String(error)}`;
+				: `compiler admission failed: ${errorMessage(error)}`;
 		return unavailableFinding(resultFile, reason);
 	}
 }
@@ -367,7 +368,7 @@ async function runTscStandaloneAsync(
 	} catch (error) {
 		return unavailableFinding(
 			relative(cwd, filePath),
-			error instanceof Error ? error.message : String(error),
+			errorMessage(error),
 		);
 	}
 }

@@ -25,7 +25,6 @@ import { buildDetachedHookCommand, buildHookCommand } from "./hook-command.js";
 import { buildStandardAction, normalizeNativeHookEvent } from "./normalization.js";
 import {
 	CLAUDE_CODE_CAPABILITIES,
-	eventCapability,
 	installedEventNames,
 } from "./provider-capabilities.js";
 import type { AdapterOutput, RunnerAdapter, SettingsFragment } from "./types.js";
@@ -39,10 +38,6 @@ function claudeHookSettings(event: string, command: string): Record<string, unkn
 		...(event === "FileChanged" ? {} : { matcher }),
 		hooks: [{ type: "command", command, ...(timeout !== undefined ? { timeout } : {}) }],
 	};
-}
-
-function claudeMissingRuntimePolicy(event: string): "fail_closed" | "warn_open" {
-	return eventCapability(CLAUDE_CODE_CAPABILITIES, event)?.missing_runtime ?? "warn_open";
 }
 
 /**
@@ -112,7 +107,8 @@ export function createClaudeCodeAdapter(opts: ClaudeCodeAdapterOptions = {}): Ru
 		renderSettingsFragment(binaryPath, scope): SettingsFragment {
 			const path = scope === "user" ? "~/.claude/settings.json" : ".claude/settings.json";
 			const hooks: Record<string, unknown[]> = {};
-			for (const event of NATIVE_EVENTS) {
+			for (const capability of CLAUDE_CODE_CAPABILITIES.events.filter(item => item.install)) {
+				const event = capability.name;
 				// SessionEnd is fire-and-forget: nothing consumes its output, and a
 				// runner that exits right after firing it (`claude update`) cancels
 				// any foreground hook still booting ("Hook cancelled"). The detached
@@ -128,7 +124,7 @@ export function createClaudeCodeAdapter(opts: ClaudeCodeAdapterOptions = {}): Ru
 								binaryPath,
 								"claude-code",
 								event,
-								claudeMissingRuntimePolicy(event),
+								capability.missing_runtime,
 							);
 				// Per-event timeout (seconds; lib/hook-timeouts.ts is the single
 				// source): PreToolUse must outlast the per-edit coverage overlay,

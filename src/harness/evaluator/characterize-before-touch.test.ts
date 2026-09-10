@@ -1,3 +1,4 @@
+import { makeGuardRules } from "./__tests__/fixtures.js";
 // Tests for the characterize-before-touch gate (plan 25, lane 1).
 //
 // Shape mirrors tdd-new-file-gate.test.ts: build a tmpdir with an
@@ -8,10 +9,10 @@ import { makeSession as makeSessionFixture } from "../__tests__/fixtures/evaluat
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetUntestedFilesBaselineCache } from "../tested-file-policy.js";
 import type { SessionTrajectory } from "../types.js";
-import { evaluateCharacterizeBeforeTouch } from "./characterize-before-touch.js";
+import { evaluateCharacterizeBeforeTouch, evaluateCharacterizeForEvent } from "./characterize-before-touch.js";
 
 let tmp: string;
 
@@ -231,4 +232,26 @@ describe("characterize-before-touch — Python parity (plan 25)", () => {
 		});
 		expect(d).toBeNull();
 	});
+});
+
+
+describe("characterization event defaults", () => {
+    it("blocks untested source without requiring a session trajectory", () => {
+        seedBaseline(["src/legacy.ts"]);
+        seedSource("src/legacy.ts");
+        expect(evaluateCharacterizeBeforeTouch({ filePath: "src/legacy.ts", cwd: tmp, session: undefined, mode: "block" })?.decision).toBe("block");
+    });
+
+    it("uses the process cwd when the direct or event API receives none", () => {
+        seedBaseline(["src/legacy.ts"]);
+        seedSource("src/legacy.ts");
+        const cwd = vi.spyOn(process, "cwd").mockReturnValue(tmp);
+        try {
+            expect(evaluateCharacterizeBeforeTouch({ filePath: "src/legacy.ts", session: undefined, mode: "block" })?.decision).toBe("block");
+            const rules = makeGuardRules();
+            delete rules.structural_checks.characterize_mode;
+            expect(evaluateCharacterizeForEvent({ hook_event: "PreToolUse", agent_source: "codex", session_id: "test", timestamp: "2026-09-08", tool_input: { file_path: "src/legacy.ts" } }, rules, undefined)).toMatchObject({ decision: "allow", rule_id: "characterize_before_touch" });
+            expect(evaluateCharacterizeForEvent({ hook_event: "PreToolUse", agent_source: "codex", session_id: "test", timestamp: "2026-09-08" }, rules, undefined)).toBeNull();
+        } finally { cwd.mockRestore(); }
+    });
 });

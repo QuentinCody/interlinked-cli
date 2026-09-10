@@ -113,7 +113,7 @@ export function parseOsvScannerJson(output: string): AuditResult | null {
 	const root: OsvRoot = parsed;
 
 	const tally: OsvTally = { critical: 0, high: 0, moderate: 0, low: 0, topIds: [] };
-	for (const result of root.results ?? []) {
+	for (const result of nonNull(root.results)) {
 		for (const pkg of result.packages ?? []) {
 			tallyPackage(pkg, tally);
 		}

@@ -28,6 +28,8 @@
 
 import { existsSync, rmSync, statSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import { errorMessage } from "../lib/error-message.js";
+import { nonNull } from "../lib/non-null.js";
 
 import { CheckEngine, type CheckResult, formatToolReport } from "../harness/check-engine/index.js";
 import { tryAcquireProjectHeavyProcessLease } from "../harness/project-heavy-process-lock.js";
@@ -187,8 +189,7 @@ function displaySuppressions(interlinkedDir: string): void {
 	);
 	for (const [filePath, checks] of entries.sort((a, b) => a[0].localeCompare(b[0]))) {
 		process.stderr.write(`  \x1b[36m${filePath}\x1b[0m\n`);
-		if (!checks) continue;
-		for (const [checkName, entry] of Object.entries(checks).sort((a, b) =>
+			for (const [checkName, entry] of Object.entries(nonNull(checks)).sort((a, b) =>
 			a[0].localeCompare(b[0]),
 		)) {
 			const reason = entry.reason ? ` \x1b[2m— ${entry.reason}\x1b[0m` : "";
@@ -269,7 +270,7 @@ async function runVerify(cwd: string, opts: VerifyOpts): Promise<void> {
 	try {
 		releaseHeavyProcess = tryAcquireProjectHeavyProcessLease(cwd);
 	} catch (error) {
-		const detail = error instanceof Error ? error.message : String(error);
+		const detail = errorMessage(error);
 		process.stderr.write(
 			`  verify unavailable: project admission failed (${detail}); no verification verdict was produced.\n`,
 		);

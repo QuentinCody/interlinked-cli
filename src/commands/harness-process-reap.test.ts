@@ -1,5 +1,8 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { terminateCandidates, type OrphanCandidate } from "./harness-process-reap.js";
+import { clearOrphanedPidFiles, terminateCandidates, type OrphanCandidate } from "./harness-process-reap.js";
 
 const CWD = "/repo";
 const CANDIDATE: OrphanCandidate = {
@@ -13,6 +16,40 @@ afterEach(() => {
 });
 
 describe("terminateCandidates process identity fencing", () => {
+	it.each([50, 3_001])("recognizes delayed exit after %i ms without escalating to SIGKILL", elapsed => {
+		let alive = true;
+		let now = 1_000;
+		vi.spyOn(Date, "now").mockImplementation(() => now);
+		vi.spyOn(Atomics, "wait").mockImplementation(() => {
+			alive = false;
+			now += elapsed;
+			return "timed-out";
+		});
+		const kill = vi.spyOn(process, "kill").mockImplementation((_pid, signal) => {
+			if (signal === 0 && !alive) throw Object.assign(new Error("exited"), { code: "ESRCH" });
+			return true;
+		});
+		expect(terminateCandidates([CANDIDATE], CWD, () => alive ? "original" : null)).toEqual([4242]);
+		expect(kill).toHaveBeenCalledWith(4242, "SIGTERM");
+		expect(kill).not.toHaveBeenCalledWith(4242, "SIGKILL");
+	});
+
+	it("retains pid and socket metadata when another process has reused the killed PID", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "reap-reused-pid-"));
+		const dataDir = join(cwd, ".interlinked");
+		mkdirSync(dataDir);
+		writeFileSync(join(dataDir, "harness.pid"), "4242");
+		writeFileSync(join(dataDir, "harness.sock"), "replacement socket");
+		const kill = vi.spyOn(process, "kill").mockReturnValue(true);
+		try {
+			clearOrphanedPidFiles(cwd, [4242]);
+			expect(readFileSync(join(dataDir, "harness.pid"), "utf8")).toBe("4242");
+			expect(existsSync(join(dataDir, "harness.sock"))).toBe(true);
+			expect(kill.mock.calls).toEqual([[4242, 0]]);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
 	it("never SIGTERMs a replacement that appears after candidate authentication", () => {
 		const identify = vi
 			.fn<(cwd: string, pid: number) => string | null>()

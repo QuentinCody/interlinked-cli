@@ -250,9 +250,7 @@ function findDivergedEditForFile(
 	const key = canonicalKey(filePath, cwd);
 	if (reportedFiles.has(key)) return null;
 	for (const ev of events) {
-		if (!ev.tool_name || !WRITE_TOOLS.has(ev.tool_name)) continue;
-		if (!ev.agent_name || ev.agent_name === trajectory.agent_name) continue;
-		if (!fileMatches(eventFilePath(ev), filePath)) continue;
+		if (!isOtherAgentWriteTo(ev, filePath, trajectory)) continue;
 		const evMs = Date.parse(ev.timestamp);
 		if (Number.isNaN(evMs)) continue;
 		if (evMs < windowStartMs) continue;

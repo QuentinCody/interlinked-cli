@@ -41,7 +41,7 @@ vi.mock("node:fs", () => ({
 
 // --- harness/check-engine --------------------------------------------------
 const discoverToolsMock = vi.fn<() => unknown[]>(() => []);
-const runChecksMock = vi.fn<(scope: unknown, opts: unknown) => { results: ToolResult[] }>(() => ({
+const runChecksMock = vi.fn<(scope: unknown, opts: unknown) => { results: ToolResult[]; toolsRun?: { id: string }[] }>(() => ({
 	results: [],
 }));
 const runDepAuditMock = vi.fn<() => unknown>(() => ({ kind: "audit" }));
@@ -757,6 +757,15 @@ describe("runVerify — tally line variants", () => {
 // ===========================================
 
 describe("runVerifyBatchJson — json output path", () => {
+	it("includes imported lint findings and runs all configured cadences for --all-checks", async () => {
+		const { verifyCommand } = await importVerify();
+		const finding = { tool: "lint-import", file: "src/app.py", message: "unused import" };
+		runChecksMock.mockReturnValue({ results: [finding], toolsRun: [{ id: "lint-import" }] });
+		await verifyCommand({ cwd: "/repo", json: true, allChecks: true });
+		expect(runChecksMock).toHaveBeenCalledWith(expect.objectContaining({ lintCadence: "all" }), expect.any(Object));
+		expect(lastJsonArg()).toMatchObject({ linterName: "lint", linterResults: [finding] });
+	});
+
 	function lastJsonArg(): Record<string, unknown> {
 		return nonNull(outputJsonMock.mock.calls.at(-1)?.[0]);
 	}

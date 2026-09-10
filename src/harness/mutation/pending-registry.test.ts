@@ -245,3 +245,61 @@ describe("pendingRegistry — the daemon-scoped store", () => {
 		expect(takePending(pendingRegistry(NOW), "src/a.ts", "h", NOW)).toHaveLength(0);
 	});
 });
+
+
+describe("registry malformed persisted boundaries", () => {
+    it.each([null, {}, Array.from({ length: 257 }, () => ({}))])("rejects non-array or oversized store envelopes", contents => {
+        const root = mkdtempSync(join(tmpdir(), "pending-shape-"));
+        try {
+            mkdirSync(join(root, ".interlinked"));
+            writeFileSync(join(root, ".interlinked", "pending-mutation-runs.json"), JSON.stringify(contents));
+            initPendingRegistryStore(root);
+            expect(pendingRegistry(NOW).runs).toEqual([]);
+        } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+
+    it("keeps the in-flight handle when reinitialized with the same canonical existing root", () => {
+        const root = mkdtempSync(join(tmpdir(), "pending-same-root-"));
+        try {
+            initPendingRegistryStore(root);
+            const store = pendingRegistry(NOW);
+            const run = { file: "src/f.ts", overlayHash: overlayHash("code"), jobId: "job", runnerUrl: "https://runner.example", startedAt: NOW };
+            recordPending(store, run);
+            initPendingRegistryStore(join(root, "."));
+            expect(takePending(pendingRegistry(NOW), run.file, run.overlayHash, NOW)).toEqual([run]);
+        } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+
+    it.each([false, "", "https://runner.example/" + "x".repeat(2048)])("rejects non-string, empty or over-budget runner URL inputs", value => {
+        expect(parseRunnerUrl(value)).toBeNull();
+    });
+
+    it("skips malformed identity strings without dropping the following valid job", () => {
+        const root = mkdtempSync(join(tmpdir(), "pending-identities-"));
+        const run = { file: "src/f.ts", overlayHash: overlayHash("code"), jobId: "job", runnerUrl: "https://runner.example", startedAt: NOW };
+        try {
+            mkdirSync(join(root, ".interlinked"));
+            writeFileSync(join(root, ".interlinked", "pending-mutation-runs.json"), JSON.stringify([
+                { ...run, file: "" }, { ...run, file: "x".repeat(4097) }, { ...run, jobId: false }, { ...run, runnerUrl: "" }, run,
+            ]));
+            initPendingRegistryStore(root);
+            expect(pendingRegistry(NOW).runs).toEqual([run]);
+        } finally { rmSync(root, { recursive: true, force: true }); }
+    });
+});
+
+
+it("does not carry one repository's in-flight handles into another repository", () => {
+    const first = mkdtempSync(join(tmpdir(), "pending-repo-first-"));
+    const second = mkdtempSync(join(tmpdir(), "pending-repo-second-"));
+    try {
+        initPendingRegistryStore(first);
+        recordPending(pendingRegistry(NOW), { file: "src/f.ts", overlayHash: overlayHash("code"), jobId: "first-only", runnerUrl: "https://runner.example", startedAt: NOW });
+        initPendingRegistryStore(second);
+        expect(pendingRegistry(NOW).runs).toEqual([]);
+    } finally { rmSync(first, { recursive: true, force: true }); rmSync(second, { recursive: true, force: true }); }
+});
+
+it.each(["https://user@runner.example", "https://:password@runner.example"])("rejects runner URLs carrying credentials: %s", url => {
+    expect(parseRunnerUrl(url)).toBeNull();
+});

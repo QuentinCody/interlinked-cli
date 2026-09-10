@@ -35,6 +35,21 @@ describe("checkTsConfigTypesAgainstDeps", () => {
 		expect(checkTsConfigTypesAgainstDeps({}, tmp)).toEqual([]);
 	});
 
+	it.each(["null", "[]", "42"])("does not treat a non-object manifest as installed type declarations: %s", content => {
+		writeFileSync(join(tmp, "package.json"), content);
+		expect(checkTsConfigTypesAgainstDeps({ types: ["node"] }, tmp)).toEqual([
+			expect.objectContaining({ file: "tsconfig.json", fix: "Run `npm i --save-dev @types/node`" }),
+		]);
+	});
+
+	it.each(["null", "[]", "42"])("reports a non-object tsconfig as invalid configuration: %s", content => {
+		writeFileSync(join(tmp, "app.ts"), "export const value = 1;");
+		writeFileSync(join(tmp, "tsconfig.json"), content);
+		expect(checkProjectSetup(tmp)).toEqual([
+			expect.objectContaining({ file: "tsconfig.json", message: "tsconfig.json exists but cannot be parsed (invalid JSON)" }),
+		]);
+	});
+
 	it("returns nothing when types[] is empty", () => {
 		writePkg({});
 		expect(checkTsConfigTypesAgainstDeps({ types: [] }, tmp)).toEqual([]);

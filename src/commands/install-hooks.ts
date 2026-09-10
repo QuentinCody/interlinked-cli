@@ -136,7 +136,7 @@ function reportInstallFailure(
 	}
 	if (!modeWriteSucceeded) {
 		process.stderr.write(
-			`[interlinked] hooks were written, but mode ${mode ?? "preserved"} was NOT applied; install-hooks is incomplete.\n`,
+			`[interlinked] hooks were written, but mode ${nonNull(mode)} was NOT applied; install-hooks is incomplete.\n`,
 		);
 	}
 	process.exitCode = 1;
@@ -146,9 +146,7 @@ function reportInstallFailure(
 /** Explicit --mode wins. In a TTY with no flag, prompt. Otherwise default
  *  to balanced. Unknown values fall back to balanced with a stderr warning. */
 function resolveMode(options: InstallHooksOptions): ModeName {
-	if (options.mode) {
-		if (isKnownMode(options.mode)) return options.mode;
-	}
+	if (options.mode) return parseModeChoice(options.mode);
 	if (options.json || !process.stdin.isTTY) return "balanced";
 	return promptForMode();
 }

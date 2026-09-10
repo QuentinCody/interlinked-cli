@@ -177,9 +177,8 @@ export async function runContentScanRequest(
 	// declared shape.
 	const contentScannerLocal: | (Omit<NonNullable<GuardRulesConfig["content_scanner"]>, "local"> & {
 				local?: { scan_timeout_ms?: number };
-		  })
-		| undefined = rules.content_scanner;
-	const timeoutMs = contentScannerLocal?.local?.scan_timeout_ms || 1500;
+		  }) = rules.content_scanner;
+	const timeoutMs = contentScannerLocal.local?.scan_timeout_ms || 1500;
 	const findings: ScanFinding[] = [];
 	for (const part of scanReq.parts) {
 		try {

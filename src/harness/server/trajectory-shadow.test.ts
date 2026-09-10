@@ -55,6 +55,19 @@ describe("formatTrajectoryVerdict", () => {
 });
 
 describe("trajectoryShadowWarnings", () => {
+	it("rehydrates persisted reads once and retains reads observed by the warm engine", () => {
+		const event = postEdit({ file: "/read.ts", from: "one", to: "two", step: "1" });
+		trajectoryShadowWarnings(event, ALLOW, CONFIG_ON, ["/read.ts"]);
+		expect(peekTrajectoryState("sess-1")?.fileReadSteps.has("/read.ts")).toBe(true);
+		trajectoryShadowWarnings(event, ALLOW, CONFIG_ON, ["/later.ts"]);
+		expect(peekTrajectoryState("sess-1")?.fileReadSteps.has("/later.ts")).toBe(false);
+	});
+
+	it("accepts an empty persisted read set without inventing read evidence", () => {
+		trajectoryShadowWarnings(postEdit({ file: "/unread.ts", from: "one", to: "two", step: "1" }), ALLOW, CONFIG_ON, []);
+		expect(peekTrajectoryState("sess-1")?.fileReadSteps.size).toBe(0);
+	});
+
 	it("surfaces a firing rule as an [interlinked:trajectory] warning", () => {
 		trajectoryShadowWarnings(postEdit({ file: "/x.ts", from: "foo", to: "bar", step: "1" }), ALLOW, CONFIG_ON);
 		const warnings = trajectoryShadowWarnings(

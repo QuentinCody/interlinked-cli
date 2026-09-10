@@ -216,6 +216,12 @@ describe("detectPatchApplierExecution — exec-time classification (2026-08-25 g
 		expect(hit?.evidence.writeCall).toContain("writeFileSync");
 	});
 
+	it("keeps scanning later scripts when an earlier script exceeds the bounded read size", () => {
+		writeFileSync(join(root, "large.mjs"), "//" + "x".repeat(65536));
+		writeFileSync(join(root, "apply.mjs"), "writeFileSync('src/a.ts', replacement);");
+		expect(detectPatchApplierExecution("node large.mjs; node apply.mjs", root)?.scriptPath).toBe("apply.mjs");
+	});
+
 	it("P2: python applier execution is detected", () => {
 		const script = join(root, "apply.py");
 		// write_text survives comment/string stripping (the open('…','w') form

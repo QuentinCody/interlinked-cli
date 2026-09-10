@@ -13,7 +13,6 @@ import { buildHookCommand } from "./hook-command.js";
 import { buildStandardAction, normalizeNativeHookEvent } from "./normalization.js";
 import {
 	COPILOT_CLI_CAPABILITIES,
-	eventCapability,
 	installedEventNames,
 } from "./provider-capabilities.js";
 import type { RunnerAdapter, SettingsFragment } from "./types.js";
@@ -65,13 +64,14 @@ export function createCopilotCliAdapter(opts: CopilotCliAdapterOptions = {}): Ru
 
 		renderSettingsFragment(binaryPath, scope): SettingsFragment {
 			const hooks: Record<string, unknown[]> = {};
-			for (const event of NATIVE_EVENTS) {
+				for (const capability of COPILOT_CLI_CAPABILITIES.events.filter(item => item.install)) {
+					const event = capability.name;
 				// Missing-runtime policy: only Copilot's tool gate fails closed.
 				const hookCommand = buildHookCommand(
 					binaryPath,
 					"copilot-cli",
 					event,
-					eventCapability(COPILOT_CLI_CAPABILITIES, event)?.missing_runtime ?? "warn_open",
+						capability.missing_runtime,
 				);
 				hooks[event] = [{ type: "command", bash: hookCommand }];
 			}

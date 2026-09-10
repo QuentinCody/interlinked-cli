@@ -808,6 +808,26 @@ describe("SessionStart handler — branch coverage", () => {
 
 // ───────────────────────────── handleSessionEnd ───────────────────────────
 describe("SessionEnd handler — branch coverage", () => {
+	it("still removes session state when the resource planner is unavailable", async () => {
+		mRunSessionEndResourcePlan.mockReturnValue(null);
+		const sessions = bSessions();
+		expect(await handleLifecycleEvent(bCtx({ sessions }), bEvent({ hook_event: "SessionEnd" }), bSession())).toEqual({ decision: "allow" });
+		expect(fnOf(sessions.remove)).toHaveBeenCalled();
+		expect(mRunSessionEndJobs).not.toHaveBeenCalled();
+		expect(mRunSessionEndHeavyJobs).not.toHaveBeenCalled();
+	});
+
+	it("returns the measured baseline-fold warning after raising the local edit baseline", async () => {
+		const cwd = mkdtempSync(join(tmpdir(), "lifecycle-fold-"));
+		try {
+			mkdirSync(join(cwd, ".interlinked"));
+			writeFileSync(join(cwd, ".interlinked", "coverage-baseline.json"), JSON.stringify({ version: 1, updated_at: new Date().toISOString(), files: { "src/app.ts": { lines_pct: 85, branches_pct: 70 } } }));
+			const result = await handleLifecycleEvent(bCtx({ cwd }), bEvent({ hook_event: "SessionEnd" }), bSession());
+			expect(nonNull(result).warnings).toContain("[interlinked:baseline-fold] edit-baseline +1 raised");
+			expect(JSON.parse(readFileSync(join(cwd, ".interlinked", "coverage-edit-baseline.json"), "utf8"))).toEqual({ "src/app.ts": 0.85 });
+		} finally { rmSync(cwd, { recursive: true, force: true }); }
+	});
+
 	it("runs the planned background lanes before removing the session", async () => {
 		const event = bEvent({ hook_event: "SessionEnd", session_id: "s1" });
 		const plan = {

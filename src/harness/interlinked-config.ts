@@ -8,6 +8,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { errorMessage } from "../lib/error-message.js";
 import { isJsonObject } from "../lib/json-types.js";
 import type { ToolClassBudgets } from "./evaluator-unified.js";
 import type { RunnerId } from "./unified-event.js";
@@ -193,7 +194,7 @@ function readSafe(path: string): string | null {
 		text = readFileSync(path, "utf-8");
 	} catch (err) {
 		ok = false;
-		process.stderr.write(`[interlinked] could not read ${path}: ${(err instanceof Error ? err.message : String(err))}\n`);
+		process.stderr.write(`[interlinked] could not read ${path}: ${errorMessage(err)}\n`);
 	}
 	return ok ? text : null;
 }
@@ -206,7 +207,7 @@ function parseSafe(text: string, path: string): unknown {
 	} catch (err) {
 		ok = false;
 		process.stderr.write(
-			`[interlinked] could not parse ${path} (${(err instanceof Error ? err.message : String(err))}); using defaults\n`,
+			`[interlinked] could not parse ${path} (${errorMessage(err)}); using defaults\n`,
 		);
 	}
 	return ok ? parsed : null;

@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { deriveEditedLineNumbers } from "./edit-line-derivation.js";
 
 describe("deriveEditedLineNumbers", () => {
+	it("withholds line attribution for incomplete edit payloads and preserves deletion semantics", () => {
+		expect(deriveEditedLineNumbers("Edit", { old_string: "before" }, "after")).toBeUndefined();
+		expect(deriveEditedLineNumbers("MultiEdit", { edits: null }, "after")).toBeUndefined();
+		expect(deriveEditedLineNumbers("Edit", { old_string: "removed", new_string: "" }, "remaining")?.size).toBe(0);
+	});
+
 	it("returns every line for a Write (whole-file rewrite)", () => {
 		const content = "line1\nline2\nline3\n";
 		const result = deriveEditedLineNumbers("Write", { content }, content);

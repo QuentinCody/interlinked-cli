@@ -158,19 +158,6 @@ function isRuleRemoved(
 }
 
 /**
- * Extracts a usable regex string from one raw pattern-array entry, or `null`
- * if the entry isn't shaped like a pattern. `entry` is `unknown`, not
- * `RulePattern`: a hand-edited or legacy-schema `distilled-rules.json` can
- * carry a pattern entry that isn't even an object, let alone one with a
- * string `regex`.
- */
-function rawPatternRegex(entry: unknown): string | null {
-	if (!isJsonObject(entry)) return null;
-	const regex = entry.regex;
-	return typeof regex === "string" ? regex : null;
-}
-
-/**
  * ReDoS gate. `/enforce`-distilled rules can carry regexes from arbitrary
  * third-party AGENTS.md / CLAUDE.md files; a nested-quantifier or
  * prefix-overlap shape hangs the daemon on adversarial input. Returns true
@@ -178,9 +165,8 @@ function rawPatternRegex(entry: unknown): string | null {
  * patterns fails the shape check — the caller skips the whole rule.
  */
 function hasUnsafePattern(raw: DistilledRule): boolean {
-	if (!Array.isArray(raw.patterns)) return false;
 	for (const entry of raw.patterns) {
-		const regex = rawPatternRegex(entry);
+		const regex = entry.regex;
 		if (!regex || !looksLikeReDoS(regex)) continue;
 		process.stderr.write(
 			`[interlinked] skipping distilled rule ${raw.id}: ReDoS-prone pattern ${regex.slice(0, 120)}\n`,
@@ -208,19 +194,17 @@ function applyRuleModification(rule: DistilledRule, mod: RuleModification | unde
 /**
  * Settles the final `enabled` flag. Priority: `disabled_rule_ids[]` always
  * wins (forces `false`); otherwise an explicit `modifications{}.enabled`
- * wins; otherwise the raw JSON's own `enabled` value — which, unlike
- * `DistilledRule.enabled`'s required static type, can genuinely be absent
- * when the file was hand-edited or written by an older /enforce schema — is
- * used if present, defaulting to `true` when it is not.
+ * wins; otherwise use the enabled value normalized by parseRuntimeRule,
+ * which supplies true for legacy rules that omit it.
  */
 function resolveEnabledState(
 	ruleId: string,
-	rawEnabled: boolean | undefined,
+	rawEnabled: boolean,
 	modEnabled: boolean | undefined,
 	disabledIds: Set<string>,
 ): boolean {
 	if (disabledIds.has(ruleId)) return false;
-	return modEnabled ?? rawEnabled ?? true;
+	return modEnabled ?? rawEnabled;
 }
 
 /**

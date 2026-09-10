@@ -904,6 +904,15 @@ describe("content scanner scan-request handling", () => {
 		expect(scan).toHaveBeenCalledWith(expect.objectContaining({ text: "01234" }));
 	});
 
+	it("uses the default scan limit when the configured byte limit is zero", async () => {
+		const scan = vi.fn(async () => []);
+		const ctx = scanCtx({ scan });
+		if (!ctx.rules.content_scanner) throw new Error("scanner fixture missing");
+		ctx.rules.content_scanner.max_scan_bytes = 0;
+		await runPreToolPipeline(ctx, ev({ tool_name: "Write" }), makeSessionWithScan(scanReq));
+		expect(scan).toHaveBeenCalledWith(expect.objectContaining({ text: "alice@vendor.example secret stuff" }));
+	});
+
 	it("falls back to default byte/timeout when config omits them (|| defaults)", async () => {
 		const scan = vi.fn(async () => []);
 		const ctx = makeCtx({

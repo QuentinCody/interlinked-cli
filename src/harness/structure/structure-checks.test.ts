@@ -833,3 +833,26 @@ describe("runStructureChecks → buildPendingCompletions", () => {
 		expect(pendingCompletions).toHaveLength(0);
 	});
 });
+
+
+it("rejects malformed artifact entries while retaining valid neighboring declarations and edges", () => {
+    artifactData = {
+        public_api: { modules: [null, { id: "invalid" }, { id: "m", file: "m.ts", symbols: [null, { name: 3 }, { name: "f" }] }] },
+        env: { keys: [null, { name: 1 }, { name: "PORT", default_sources: ["env.ts"] }] },
+        tests: { tests: [false, { id: "bad" }, { id: "test", file: "m.test.ts", covers: [null, { artifact_kind: 3 }, { artifact_kind: "module", artifact_id: "m" }] }] },
+        glossary: { terms: [null, { id: "bad", canonical: 4 }, { id: "term", canonical: "Term" }] },
+        layers: { layers: [null, { id: 3 }, { id: "core" }] },
+        packages: { packages: [null, { id: "bad", root: 3 }, { id: "pkg", root: "src" }] },
+    };
+    const graph = new ArtifactGraph();
+    layerDeclaredArtifacts(graph, "/repo", makeConfig({ artifacts: {
+        public_api: "api.json", env: "env.json", tests: "tests.json", glossary: "glossary.json", layers: "layers.json", packages: "packages.json",
+    } }));
+    expect(graph.nodeCount).toBe(7);
+    expect(graph.getNode("public_symbol:m#f")?.file).toBe("m.ts");
+    expect(graph.getNode("env_key:PORT")?.file).toBe("env.ts");
+    expect(graph.getEdgesByKind("tests")).toMatchObject([{ from: "module:m", to: "test:test" }]);
+    expect(graph.getNode("term:term")?.label).toBe("Term");
+    expect(graph.getNode("layer:core")).toBeDefined();
+    expect(graph.getNode("package:pkg")?.file).toBe("src");
+});

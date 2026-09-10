@@ -35,14 +35,13 @@ export interface OrphanCandidate {
 }
 
 /** Parse one `ps` row of the form `<pid> <ppid> <command>`. Returns null when
- *  the line doesn't match (blank lines, header residue) or the pid is NaN. */
+ *  the line doesn't match (blank lines, header residue, or nonnumeric PIDs). */
 function parsePsRow(line: string): OrphanCandidate | null {
 	const m = line.trim().match(/^(\d+)\s+(\d+)\s+(.+)$/);
 	if (!m) return null;
 	const pid = Number.parseInt(nonNull(m[1]), 10);
 	const ppid = Number.parseInt(nonNull(m[2]), 10);
 	const command = nonNull(m[3]);
-	if (Number.isNaN(pid)) return null;
 	return { pid, ppid, command };
 }
 

@@ -69,6 +69,24 @@ describe("demoData", () => {
 	beforeEach(() => __resetDemoRegistry());
 	afterEach(() => __resetDemoRegistry());
 
+	it.each([null, { key: "prior", reason: "legacy", registeredAt: "yesterday" }, { key: "prior", reason: "legacy", registeredAt: 1, ticket: 42 }])("replaces a malformed preexisting browser registry: %j", entry => {
+		Reflect.set(globalThis, "__INTERLINKED_DEMO__", [entry]);
+		const data = { total: 3 };
+		expect(demoData("new", data, { reason: "preview" })).toBe(data);
+		expect(Reflect.get(globalThis, "__INTERLINKED_DEMO__")).toEqual([
+			{ key: "new", reason: "preview", registeredAt: expect.any(Number) },
+		]);
+	});
+
+	it.each([undefined, "ISSUE-1"])("retains valid preexisting registry entries with optional ticket %s", ticket => {
+		const prior = { key: "prior", reason: "preview", registeredAt: 1, ticket };
+		Reflect.set(globalThis, "__INTERLINKED_DEMO__", [prior]);
+		demoData("new", [], { reason: "pending API" });
+		expect(Reflect.get(globalThis, "__INTERLINKED_DEMO__")).toEqual([
+			prior, { key: "new", reason: "pending API", registeredAt: expect.any(Number) },
+		]);
+	});
+
 	it("returns the wrapped value unchanged", () => {
 		const arr = [{ id: 1, name: "alice" }];
 		expect(demoData("users", arr)).toBe(arr);

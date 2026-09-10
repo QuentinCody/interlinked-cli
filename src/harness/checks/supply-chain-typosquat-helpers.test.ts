@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	findTyposquatForDep,
@@ -95,4 +98,22 @@ describe("findTyposquatForDep — negative (must not fire)", () => {
 			findTyposquatForDep("some-totally-unrelated-name", [], scoring),
 		).toBeNull();
 	});
+});
+
+
+it.each(["null", "[]", "42"])("does not certify non-object package JSON as a dependency map: %s", content => {
+    const root = mkdtempSync(join(tmpdir(), "typosquat-shape-"));
+    try {
+        const path = join(root, "package.json");
+        writeFileSync(path, content);
+        expect(parsePackageJsonDeps(path)).toBeNull();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+it("reports two-character typos with the declared dependency line", () => {
+    const result = findTyposquatForDep("exprezz", ['{', '  "exprezz": "1.0.0"', '}'], {
+        popularPackages: new Set(["express"]), levenshtein,
+    });
+    expect(result).toMatchObject({ line: 2, text: expect.stringContaining('2 characters away from popular package "express"') });
 });

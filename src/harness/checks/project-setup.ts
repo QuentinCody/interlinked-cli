@@ -101,9 +101,8 @@ function processDirEntry(
 function walkProjectFiles(root: string, visit: (absPath: string) => boolean): boolean {
 	const stack: string[] = [root];
 	let budget = MAX_PROJECT_SCAN_ENTRIES;
-	while (stack.length > 0) {
-		const dir = stack.pop();
-		if (dir === undefined) break;
+	let dir: string | undefined;
+	while ((dir = stack.pop()) !== undefined) {
 		for (const entry of readDirEntries(dir)) {
 			if (--budget <= 0) return false;
 			if (processDirEntry(entry, dir, stack, visit)) return true;
@@ -234,10 +233,9 @@ function findTsconfigDir(cwd: string): string | null {
 /** Read + JSON-parse tsconfig.json from `tsconfigDir`. On parse failure,
  *  returns the same ProjectSetupIssue the inline try/catch used to push,
  *  and a `null` config so the caller can short-circuit exactly as before. */
-function readTsconfig(tsconfigDir: string): {
-	config: JsonObject | null;
-	parseErrorIssue: ProjectSetupIssue | null;
-} {
+function readTsconfig(tsconfigDir: string):
+	| { config: JsonObject; parseErrorIssue: null }
+	| { config: null; parseErrorIssue: ProjectSetupIssue } {
 	try {
 		const raw = readFileSync(resolve(tsconfigDir, "tsconfig.json"), "utf-8");
 		const config: unknown = JSON.parse(raw);
@@ -394,11 +392,10 @@ export function checkProjectSetup(cwd: string): ProjectSetupIssue[] {
 
 	// Read and parse tsconfig
 	const { config, parseErrorIssue } = readTsconfig(tsconfigDir);
-	if (parseErrorIssue) {
+	if (config === null) {
 		issues.push(parseErrorIssue);
 		return issues;
 	}
-	if (!config) return issues;
 	const compilerOptions = isJsonObject(config.compilerOptions) ? config.compilerOptions : {};
 
 	// Check for node:* protocol imports in FIRST-PARTY source files. The walk
