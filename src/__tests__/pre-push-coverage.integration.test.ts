@@ -81,9 +81,15 @@ process.exitCode = result.status ?? 1;
     }
 
     function run(updates: { sha: string; remote: string; old: string }[]) {
+        // This suite itself runs inside the real pre-push gate, whose reporter
+        // variables would otherwise reach the fixture's coverage stub and make
+        // it overwrite the OUTER gate's scope file with this fixture's root
+        // (found 2026-09-10: every push was refused with "scope does not
+        // describe this pushed revision" after the full suite went green).
+        const { INTERLINKED_PRE_PUSH_COVERAGE_SCOPE: _scope, INTERLINKED_PRE_PUSH_COVERAGE_TARGETS: _targets, ...inherited } = process.env;
         const result = spawnSync("bash", [join(root, "scripts/git-hooks/pre-push"), "origin", "unused"], {
             cwd: root, encoding: "utf8", timeout: 60_000,
-            env: { ...process.env, ...measurement, COVERAGE_CAPTURE: join(root, "captured.json") },
+            env: { ...inherited, ...measurement, COVERAGE_CAPTURE: join(root, "captured.json") },
             input: updates.map(({ sha, remote, old }) => `refs/heads/local ${sha} refs/heads/${remote} ${old}\n`).join(""),
         });
         return { status: result.status, output: result.stdout + result.stderr };
