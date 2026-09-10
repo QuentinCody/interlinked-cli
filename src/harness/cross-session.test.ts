@@ -70,6 +70,40 @@ describe("loadRecentWorkspaceEvents", () => {
 		]);
 	});
 
+	describe("guard-blocked attempts — positive/negative", () => {
+		const attempt = {
+			schema_version: 5,
+			ts: "2026-05-27T00:00:02Z",
+			agent: "worker-7",
+			type: "tool_use_start",
+			tool: "Write",
+			tool_use_id: "toolu_1",
+			tool_input: { file_path: "src/live.ts" },
+			session: "session-7",
+		};
+
+		it("N1: drops a tool_use_start row whose guard_block twin (same tool_use_id) shows the write never landed", () => {
+			writeLog([
+				attempt,
+				{ schema_version: 5, ts: "2026-05-27T00:00:02Z", agent: "worker-7", type: "guard_block", tool: "Write", tool_use_id: "toolu_1", guard_decision: "block", session: "session-7" },
+			]);
+			expect(loadRecentWorkspaceEvents(dir).filter((e) => e.tool_name === "Write")).toEqual([]);
+		});
+
+		it("P1: keeps a tool_use_start row when the guard_block twin carries a different tool_use_id", () => {
+			writeLog([
+				attempt,
+				{ schema_version: 5, ts: "2026-05-27T00:00:03Z", agent: "worker-7", type: "guard_block", tool: "Write", tool_use_id: "toolu_2", guard_decision: "block", session: "session-7" },
+			]);
+			expect(loadRecentWorkspaceEvents(dir).filter((e) => e.tool_name === "Write")).toHaveLength(1);
+		});
+
+		it("P2: keeps a tool_use_start row with no guard_block row at all", () => {
+			writeLog([attempt]);
+			expect(loadRecentWorkspaceEvents(dir).filter((e) => e.tool_name === "Write")).toHaveLength(1);
+		});
+	});
+
 	it("filters out events with timestamps below `sinceTimestamp`", () => {
 		writeLog([
 			{ hook_event: "PreToolUse", session_id: "s1", timestamp: "2026-05-27T00:00:01Z" },

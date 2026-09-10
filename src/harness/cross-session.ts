@@ -101,15 +101,11 @@ export function loadRecentWorkspaceEvents(
 		return [];
 	}
 
+	const records = parseRecords(lines);
+	const blockedIds = blockedToolUseIds(records);
 	const events: WorkspaceActivityEvent[] = [];
-	for (const line of lines) {
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(line);
-		} catch {
-			continue; // malformed line — best-effort, skip silently
-		}
-		if (!isJsonObject(parsed)) continue;
+	for (const parsed of records) {
+		if (isBlockedAttempt(parsed, blockedIds)) continue;
 		const event = normalizeActivityEvent(parsed, cwd);
 		if (!event) continue;
 		if (sinceTimestamp && event.timestamp < sinceTimestamp) continue;
@@ -124,6 +120,43 @@ export function loadRecentWorkspaceEvents(
 function stringField(record: JsonObject, key: string): string | undefined {
 	const value = record[key];
 	return typeof value === "string" ? value : undefined;
+}
+
+function parseRecords(lines: readonly string[]): JsonObject[] {
+	const records: JsonObject[] = [];
+	for (const line of lines) {
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(line);
+		} catch {
+			continue; // malformed line — best-effort, skip silently
+		}
+		if (isJsonObject(parsed)) records.push(parsed);
+	}
+	return records;
+}
+
+/** `tool_use_id`s the guard refused. The PreToolUse `tool_use_start` row is
+ *  appended before the verdict exists, so a blocked Write still leaves a
+ *  write-shaped row; its `guard_block` twin (same id) is the only proof the
+ *  file was never touched. */
+function blockedToolUseIds(records: readonly JsonObject[]): Set<string> {
+	const ids = new Set<string>();
+	for (const record of records) {
+		if (record.type !== "guard_block") continue;
+		const id = stringField(record, "tool_use_id");
+		if (id) ids.add(id);
+	}
+	return ids;
+}
+
+/** A guard verdict row is not an action, and a refused attempt never reached
+ *  disk: neither may read as "someone wrote this file". */
+function isBlockedAttempt(record: JsonObject, blockedIds: ReadonlySet<string>): boolean {
+	if (record.type === "guard_block") return true;
+	if (blockedIds.size === 0 || record.type !== "tool_use_start") return false;
+	const id = stringField(record, "tool_use_id");
+	return id !== undefined && blockedIds.has(id);
 }
 
 function normalizeActivityEvent(record: JsonObject, cwd: string): WorkspaceActivityEvent | null {
