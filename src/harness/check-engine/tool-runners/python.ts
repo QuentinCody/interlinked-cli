@@ -170,7 +170,7 @@ function ruffFormatFindings(
 	const parsed = parseRuffFormatOutput(output, scope.projectRoot);
 	const findings =
 		scope.mode === "file" && scope.targetFile && scope.filterToFile
-			? filterResultsToFile(parsed, scope.targetFile)
+			? filterResultsToFile(parsed, relTarget(scope.targetFile, scope.projectRoot))
 			: parsed;
 	if (findings.length > 0) return findings;
 	// Parsed reformat lines existed but all belonged to OTHER files → edited file clean.

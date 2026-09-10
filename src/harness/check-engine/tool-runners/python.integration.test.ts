@@ -389,6 +389,18 @@ describe("runRuff (sync)", () => {
 // ===========================================================================
 
 describe("runRuffFormat (sync)", () => {
+	it("filters formatting findings to the requested file", () => {
+		spawnSyncMock.mockReturnValue(spawnResult({ status: 1, stdout: wouldReformat() + wouldReformat(`${PROJECT_ROOT}/other.py`) }));
+		expect(runRuffFormat(input(fileScope({ filterToFile: true })))).toMatchObject([{ file: "app/models.py" }]);
+		spawnSyncMock.mockReturnValue(spawnResult({ status: 1, stdout: wouldReformat(`${PROJECT_ROOT}/other.py`) }));
+		expect(runRuffFormat(input(fileScope({ filterToFile: true })))).toEqual([]);
+	});
+	it("reports project-wide formatting failure when the process has no exit code", () => {
+		spawnSyncMock.mockReturnValue(spawnResult({ status: null, signal: "SIGTERM" }));
+		expect(runRuffFormat(input({ projectRoot: PROJECT_ROOT, mode: "project" }))).toMatchObject([
+			{ file: ".", message: expect.stringContaining("exit none") },
+		]);
+	});
 	it("invokes `ruff format --check <target>` in file mode with cwd/timeout/pipes", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
 		runRuffFormat(input(fileScope(), 7_777));
