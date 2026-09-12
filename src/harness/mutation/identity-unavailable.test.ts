@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { computeSymbolHashes, deriveIdentities, mutationIdentityAvailable } from "./identity.js";
+import { computeSymbolHashes, deriveIdentities, derivePortableIdentities, mutationIdentityAvailable } from "./identity.js";
 
 // Simulate the optional `typescript` dep being absent (--omit=optional): the
 // synchronous createRequire load throws, loadTs() caches null, and every entry
@@ -19,6 +19,7 @@ describe("identity derivation without the optional typescript dep", () => {
 	it("reports unavailable and returns null instead of crashing", () => {
 		expect(mutationIdentityAvailable()).toBe(false);
 		expect(deriveIdentities("a.ts", "const x = 1;", [])).toBeNull();
+		expect(derivePortableIdentities("a.ts", "const x = 1;", [])).toBeNull();
 		expect(computeSymbolHashes("a.ts", "const x = 1;")).toBeNull();
 	});
 });

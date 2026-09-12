@@ -16,6 +16,7 @@
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import type * as TS from "typescript";
+import { nonNull } from "../../lib/non-null.js";
 import { isFunctionLike, parseTsSourceWith } from "../checks/cyclomatic-ast.js";
 import type { MutantIdentity, RawMutant, StableId } from "./types.js";
 
@@ -81,9 +82,9 @@ function normalizeTokens(ts: TsModule, text: string): string {
 }
 
 /** Best-effort local name for a function-like node (mirrors cyclomatic-ast). */
-function localName(ts: TsModule, sf: TS.SourceFile, node: TS.Node): string {
+function localName(ts: TsModule, sf: TS.SourceFile, node: TS.FunctionLikeDeclaration): string {
 	if (ts.isConstructorDeclaration(node)) return "constructor";
-	const name = isFunctionLike(ts, node) ? node.name : undefined;
+	const name = node.name;
 	if (name && (ts.isIdentifier(name) || ts.isPrivateIdentifier(name))) {
 		return name.getText(sf);
 	}
@@ -198,7 +199,7 @@ function prunesOrdinalWalk(ts: TsModule, sf: TS.SourceFile, node: TS.Node): bool
  * symbols gain a preorder ordinal inside the nearest named function/class/
  * namespace; changing that ordinal necessarily changes the containing symbol
  * and therefore belongs to the changed region. */
-function portableSymbolContext(ts: TsModule, sf: TS.SourceFile, node: TS.Node | null, qn: string): string {
+function portableSymbolContext(ts: TsModule, sf: TS.SourceFile, node: TS.FunctionLikeDeclaration | null, qn: string): string {
 	if (node === null || localName(ts, sf, node) !== "(anonymous)") return qn;
 	return `${qn}#anonymous-${anonymousContextOrdinal(ts, sf, node)}`;
 }
@@ -253,7 +254,8 @@ export function deriveIdentities(
 
 	return resolved.map((r) => {
 		const key = groupKey(r.site.symbolId, r.raw.mutator, r.raw.originalLexeme);
-		const ordinal = rankByGroup.get(key)?.get(r.raw.startOffset) ?? 0;
+		// Both maps were populated from this same resolved row set above.
+		const ordinal = nonNull(nonNull(rankByGroup.get(key)).get(r.raw.startOffset));
 		const siteId = sha16([r.site.symbolId, r.raw.mutator, r.raw.originalLexeme, String(ordinal)]);
 		return {
 			mutantId: sha16([siteId, r.raw.replacement]),
@@ -323,7 +325,8 @@ export function derivePortableIdentities(
 	return resolved.map((row) => {
 		const symbolId = sha256PortableParts([file, row.site.symbolContext, String(row.site.arity)]);
 		const key = groupKey(symbolId, row.raw.mutator, row.raw.originalLexeme);
-		const ordinal = rankByGroup.get(key)?.get(row.raw.startOffset) ?? 0;
+		// Both maps were populated from this same resolved row set above.
+		const ordinal = nonNull(nonNull(rankByGroup.get(key)).get(row.raw.startOffset));
 		const siteId = sha256PortableParts([
 			symbolId,
 			row.raw.mutator,
