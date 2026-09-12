@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
+import { TEST_SANDBOX_HOME } from "../test-setup/home-sandbox.js";
 import {
 	__test_only__,
 	codexSessionsDir,
@@ -101,6 +102,34 @@ describe("findCodexRollouts", () => {
 });
 
 describe("collectCodexSessions", () => {
+	it("imports the default session directory when no directory override is supplied", () => {
+		// The suite's home-sandbox setup isolates this real default-path lookup.
+		expect(codexSessionsDir()).toBe(join(TEST_SANDBOX_HOME, ".codex", "sessions"));
+		mkdirSync(codexSessionsDir(), { recursive: true });
+		const day = mkdtempSync(join(codexSessionsDir(), "collect-default-"));
+		roots.push(day);
+		writeFileSync(join(day, "rollout-default.jsonl"), rollout("default-session"));
+		const cwd = tmp("codex-default-destination-");
+		const result = collectCodexSessions({ cwd });
+		expect(result).toMatchObject({ files: 1, sessions: 1 });
+		const records = readFileSync(join(cwd, ".interlinked", "timeline.jsonl"), "utf8")
+			.trim().split("\n").map((line) => JSON.parse(line));
+		expect(records).toEqual(expect.arrayContaining([
+			expect.objectContaining({ session: "default-session", category: "agent_message", text: "Done." }),
+		]));
+	});
+
+	it("skips an oversized rollout even when it starts with valid session records", () => {
+		const dir = tmp("codex-oversized-source-");
+		const file = join(dir, "rollout-oversized.jsonl");
+		writeFileSync(file, `${rollout("oversized-session")}\n`);
+		// A sparse tail exercises the 64 MiB input limit without allocating it.
+		truncateSync(file, 64 * 1024 * 1024 + 1);
+		expect(collectCodexSessions({ cwd: tmp("codex-oversized-destination-"), dir })).toEqual({
+			files: 1, parsed: 0, added: 0, sessions: 0,
+		});
+	});
+
 	const setup = () => {
 		const dir = tmp("codex-src-");
 		const cwd = tmp("codex-cwd-");
