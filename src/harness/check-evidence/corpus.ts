@@ -99,6 +99,7 @@ export function staleAdjudications(record: CorpusRecord): string[] {
 /** Whether a record satisfies the corpus obligation. */
 export function corpusSatisfied(record: CorpusRecord | undefined): boolean {
 	if (!record) return false;
+	if (!Number.isSafeInteger(record.files_scanned) || record.files_scanned <= 0) return false;
 	return unadjudicatedHits(record).length === 0;
 }
 

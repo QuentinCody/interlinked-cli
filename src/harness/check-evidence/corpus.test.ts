@@ -78,6 +78,10 @@ describe("buildCorpusRecord", () => {
 });
 
 describe("unadjudicatedHits / corpusSatisfied", () => {
+	it.each([0, -1, 0.5, NaN, Infinity])("does not certify a scan without a valid positive file count: %s", (files_scanned) => {
+		expect(corpusSatisfied(buildCorpusRecord([], files_scanned))).toBe(false);
+	});
+
 	it("reports a hit with no verdict", () => {
 		const r = record({ hits: ["abc"] });
 		expect(unadjudicatedHits(r)).toEqual(["abc"]);
