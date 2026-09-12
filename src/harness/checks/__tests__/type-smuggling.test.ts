@@ -33,6 +33,20 @@ const TEST_FILE = "src/lib/foo.test.ts";
 // ===========================================
 
 describe("checkTypeSmuggling — positive cases", () => {
+	it.each(["\r", "\u2028", "\u2029"])("retains an incompatible cast's source context after separator %j", (separator) => {
+		const code = `const heading = 1;${separator}const observed = "x" as { id: number };`;
+		expect(checkTypeSmuggling(code, TS)).toEqual([
+			expect.objectContaining({ line: 2, text: expect.stringContaining('const observed = "x" as { id: number };') }),
+		]);
+	});
+
+	it.each(["\r", "\u2028", "\u2029"])("retains a double cast's source context after separator %j", (separator) => {
+		const code = `const heading = 1;${separator}const observed = {} as unknown as { id: number };`;
+		expect(checkTypeSmuggling(code, TS)).toEqual([
+			expect.objectContaining({ line: 2, text: expect.stringContaining("const observed = {} as unknown as { id: number };") }),
+		]);
+	});
+
 	it("flags a string-literal cast to an unrelated object shape", () => {
 		const code = [
 			'const x = "hello" as { id: number };',

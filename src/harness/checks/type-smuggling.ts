@@ -24,6 +24,7 @@
 
 import { createRequire } from "node:module";
 import type * as TS from "typescript";
+import { nonNull } from "../../lib/non-null.js";
 import { getExtension, type InlineMatch, isTestFile } from "./shared.js";
 
 // Only .ts/.tsx/.mts/.cts are typechecked — plain .js/.jsx have no `as`
@@ -230,7 +231,9 @@ function collectSmugglingCasts(
 	const checker = program.getTypeChecker();
 
 	const matches: InlineMatch[] = [];
-	const lines = sourceFile.text.split("\n");
+	// Diagnostics and snippets must use the same TypeScript line table.
+	const starts = sourceFile.getLineStarts();
+	const lines = starts.map((start, index) => sourceFile.text.slice(start, starts[index + 1] ?? sourceFile.text.length));
 
 	const visit = (node: TS.Node): void => {
 		if (matches.length >= MAX_MATCHES_PER_FILE) return;
@@ -302,7 +305,7 @@ function evaluateAsNode(
 		const { line } = ts.getLineAndCharacterOfPosition(sourceFile, node.getStart(sourceFile));
 		return {
 			line: line + 1,
-			text: buildDoubleCastReportText(lines[line] || "", doubleCastTargetText),
+			text: buildDoubleCastReportText(nonNull(lines[line]), doubleCastTargetText),
 		};
 	}
 
@@ -325,7 +328,7 @@ function evaluateAsNode(
 	const targetTypeText = typeNode.getText(sourceFile);
 	return {
 		line: line + 1,
-		text: buildSmugglingReportText(lines[line] || "", sourceTypeText, targetTypeText),
+		text: buildSmugglingReportText(nonNull(lines[line]), sourceTypeText, targetTypeText),
 	};
 }
 
