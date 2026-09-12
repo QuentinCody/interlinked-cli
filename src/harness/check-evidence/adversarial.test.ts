@@ -124,6 +124,11 @@ describe("loadAdversarialStore", () => {
 });
 
 describe("parseAdversarialStore", () => {
+	it("discards non-object check records while preserving valid reviewer evidence", () => {
+		const store = parseAdversarialStore({ checks: { bad: null, c: { reviewer: "r", detector_sha256: "abc", author: "a", findings: [] } } });
+		expect(store.checks).toEqual({ c: { reviewer: "r", detector_sha256: "abc", author: "a", findings: [] } });
+	});
+
 	it("reads a well-formed store", () => {
 		const store = parseAdversarialStore({
 			version: 1,
@@ -141,11 +146,12 @@ describe("parseAdversarialStore", () => {
 		expect(parseAdversarialStore({ checks: { c: { detector_sha256: "abc" } } }).checks).toEqual({});
 	});
 
-	it("drops non-string findings", () => {
+	it.each([undefined, null, "invalid", ["ok", 5]])("does not certify an incomplete adversarial review: %j", (findings) => {
 		const store = parseAdversarialStore({
-			checks: { c: { reviewer: "r", detector_sha256: "a", findings: ["ok", 5] } },
+			checks: { c: { reviewer: "r", detector_sha256: detectorHash(SOURCE), findings } },
 		});
-		expect(store.checks.c?.findings).toEqual(["ok"]);
+		expect(adversarialGap(store.checks.c, SOURCE)).toBe("missing");
+		expect(store.checks.c).toBeUndefined();
 	});
 
 	it("fails closed on non-object input", () => {

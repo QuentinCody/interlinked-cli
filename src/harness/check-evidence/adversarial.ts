@@ -103,13 +103,12 @@ function parseRecord(raw: unknown): AdversarialRecord | null {
 	if (!isJsonObject(raw)) return null;
 	const o = raw;
 	if (typeof o.reviewer !== "string" || typeof o.detector_sha256 !== "string") return null;
-	const findings = Array.isArray(o.findings)
-		? o.findings.filter((f): f is string => typeof f === "string")
-		: [];
+	// Missing or discarded findings cannot establish a completed review.
+	if (!Array.isArray(o.findings) || !o.findings.every((finding): finding is string => typeof finding === "string")) return null;
 	return {
 		reviewer: o.reviewer,
 		detector_sha256: o.detector_sha256,
-		findings,
+		findings: o.findings,
 		...(typeof o.author === "string" ? { author: o.author } : {}),
 		...(typeof o.note === "string" ? { note: o.note } : {}),
 	};

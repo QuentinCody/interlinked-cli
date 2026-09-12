@@ -114,13 +114,13 @@ describe("parseCorpusStore — positive (must fire)", () => {
 	});
 
 	// test-contract: public-api — a well-formed store parses through, keeping
-	// only string hits and dropping unrecognized adjudication verdicts/shapes.
+	// the complete hit list and dropping unrecognized adjudication verdicts/shapes.
 	it("parses a well-formed store, keeping only valid records", () => {
 		const raw = {
 			checks: {
 				my_check: {
 					files_scanned: 10,
-					hits: ["sig1", "sig2", 5, null],
+					hits: ["sig1", "sig2"],
 					adjudications: {
 						sig1: { verdict: "true_positive" },
 						sig2: { verdict: "false_positive", note: "legit" },

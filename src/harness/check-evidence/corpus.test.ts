@@ -120,6 +120,16 @@ describe("falsePositiveSignatures / staleAdjudications", () => {
 });
 
 describe("parseCorpusStore", () => {
+	it.each([undefined, null, "invalid", [7], ["reviewed", null]])("does not turn malformed hits into a satisfied corpus obligation: %j", (hits) => {
+		const store = parseCorpusStore({ checks: {
+			bad: { files_scanned: 5, hits, adjudications: { reviewed: { verdict: "true_positive" } } },
+			good: { files_scanned: 5, hits: [], adjudications: {} },
+		} });
+		expect(corpusSatisfied(store.checks.bad)).toBe(false);
+		expect(store.checks.bad).toBeUndefined();
+		expect(corpusSatisfied(store.checks.good)).toBe(true);
+	});
+
 	it("reads a well-formed store", () => {
 		const store = parseCorpusStore({
 			version: 1,
@@ -135,8 +145,8 @@ describe("parseCorpusStore", () => {
 		expect(store.checks.c?.adjudications).toEqual({});
 	});
 
-	it("drops non-string hit entries", () => {
-		expect(parseCorpusStore({ checks: { c: { hits: ["a", 7, null] } } }).checks.c?.hits).toEqual(["a"]);
+	it("rejects a mixed hit list instead of silently dropping unresolved evidence", () => {
+		expect(parseCorpusStore({ checks: { c: { hits: ["a", 7, null] } } }).checks.c).toBeUndefined();
 	});
 
 	it("fails closed on a missing checks map", () => {

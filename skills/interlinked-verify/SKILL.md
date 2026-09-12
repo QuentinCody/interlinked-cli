@@ -389,6 +389,12 @@ Different project roots remain independent and may compile concurrently.
 
 ## Reviewing test discrimination
 
+Check-evidence stores must preserve complete result lists. A corpus record with
+missing, non-array, or non-string `hits`, or an adversarial review with malformed
+`findings`, is rejected and leaves its obligation unsatisfied. Re-run the scan or
+review to replace that record; do not replace unknown results with `[]`. An explicit
+empty list from a completed run remains valid evidence of no findings.
+
 `interlinked verify --all-checks --details` includes fourteen advisory test-discrimination
 and isolation checks; default verify omits them. They remain PostToolUse warnings.
 Review each finding against the observable contract before editing the test.

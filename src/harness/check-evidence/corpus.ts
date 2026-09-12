@@ -117,15 +117,15 @@ export function buildCorpusRecord(
 	return { files_scanned: filesScanned, hits: signatures, adjudications };
 }
 
-/** Narrow unknown JSON to a corpus record, discarding malformed parts. */
+/** Preserve the complete hit list: discarded hits could falsely satisfy the obligation. */
 function parseRecord(raw: unknown): CorpusRecord | null {
 	if (!isJsonObject(raw)) return null;
 	const o = raw;
-	const hits = Array.isArray(o.hits) ? o.hits.filter((h): h is string => typeof h === "string") : [];
+	if (!Array.isArray(o.hits) || !o.hits.every((hit): hit is string => typeof hit === "string")) return null;
 	const filesScanned = typeof o.files_scanned === "number" ? o.files_scanned : 0;
 	return {
 		files_scanned: filesScanned,
-		hits,
+		hits: o.hits,
 		adjudications: parseAdjudications(o.adjudications),
 	};
 }
