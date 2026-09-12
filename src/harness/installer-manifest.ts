@@ -189,7 +189,8 @@ export function readManifestState(path: string): ManifestState {
 	try {
 		parsed = JSON.parse(readFileSync(path, "utf-8"));
 	} catch (err) {
-		return { kind: "corrupt", reason: err instanceof Error ? err.message : String(err) };
+		// SAFETY: native readFileSync and JSON.parse without a reviver throw Error instances.
+		return { kind: "corrupt", reason: (err as Error).message };
 	}
 	if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
 		return { kind: "corrupt", reason: "manifest is not a JSON object" };

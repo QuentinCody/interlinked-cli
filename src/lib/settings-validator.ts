@@ -237,7 +237,9 @@ export function validateSettingsFile(filePath: string): SettingsValidationResult
 	try {
 		parsed = JSON.parse(readFileSync(filePath, "utf-8"));
 	} catch (e) {
-		result.parseError = e instanceof Error ? e.message : String(e);
+		// SAFETY: the try contains only native file reading and JSON parsing,
+		// both of which throw Error instances; no user callback executes here.
+		result.parseError = (e as Error).message;
 		return result;
 	}
 

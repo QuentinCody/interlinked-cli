@@ -68,7 +68,8 @@ async function readChangesetSource(opts: VerifyChangesetOptions): Promise<string
 			return readFileSync(opts.file, "utf-8");
 		} catch (err) {
 			throw new Error(
-				`Could not read changeset file ${opts.file}: ${err instanceof Error ? err.message : String(err)}`,
+				// SAFETY: readFileSync throws native Error instances for this string path.
+				`Could not read changeset file ${opts.file}: ${(err as Error).message}`,
 				{ cause: err },
 			);
 		}
@@ -95,7 +96,8 @@ function parseChangeset(raw: string): ChangeEntry[] {
 	try {
 		parsed = JSON.parse(raw);
 	} catch (err) {
-		throw new Error(`Changeset is not valid JSON: ${err instanceof Error ? err.message : String(err)}`, {
+		// SAFETY: parsing a string without a reviver can only throw SyntaxError.
+		throw new Error(`Changeset is not valid JSON: ${(err as SyntaxError).message}`, {
 			cause: err,
 		});
 	}

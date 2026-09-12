@@ -106,8 +106,11 @@ function parseManifestJson(raw: string): unknown {
 	try {
 		return JSON.parse(raw);
 	} catch (err) {
+		// SAFETY: JSON.parse receives a string and no reviver; malformed JSON
+		// throws SyntaxError, with no caller callback that can throw another value.
+		const detail = (err as SyntaxError).message;
 		throw new Error(
-			`Batch manifest is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+			`Batch manifest is not valid JSON: ${detail}`,
 			{ cause: err },
 		);
 	}

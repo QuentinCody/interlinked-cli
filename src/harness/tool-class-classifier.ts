@@ -297,7 +297,8 @@ function readAttempt(path: string, out: { ok: boolean; text: string; err: string
 	} catch (e) {
 		text = "";
 		ok = false;
-		err = (e instanceof Error ? e.message : String(e));
+		// SAFETY: readFileSync receives a string path and throws a native Error.
+		err = (e as Error).message;
 	}
 	out.text = text;
 	out.ok = ok;
@@ -312,7 +313,8 @@ function safeParse(text: string, path: string): unknown {
 		parsed = JSON.parse(text);
 	} catch (e) {
 		ok = false;
-		err = (e instanceof Error ? e.message : String(e));
+		// SAFETY: JSON.parse receives a string and no reviver, so failure is SyntaxError.
+		err = (e as SyntaxError).message;
 	}
 	if (!ok) {
 		process.stderr.write(

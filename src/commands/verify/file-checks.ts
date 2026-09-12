@@ -314,7 +314,8 @@ function collectJsonFindings(file: string, content: string, ext: string, relPath
 	try {
 		JSON.parse(content);
 	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
+		// SAFETY: string input and no reviver make SyntaxError the only parse failure.
+		const msg = (err as SyntaxError).message;
 		r.jsonValidity.push({
 			check: "json_validity",
 			file: relPath,
