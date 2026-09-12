@@ -343,6 +343,14 @@ var InterlinkedWizard = (() => {
     return PRESETS_BY_NAME[name] ?? null;
   }
 
+  // src/lib/non-null.ts
+  function nonNull(value, message) {
+    if (value === null || value === void 0) {
+      throw new Error(message ?? "nonNull: expected a value but received null/undefined");
+    }
+    return value;
+  }
+
   // src/commands/setup-wizard.ts
   var WIZARD_MODES = ["strict", "lenient", "balanced"];
   function parseWizardMode(value) {
@@ -487,10 +495,10 @@ var InterlinkedWizard = (() => {
     });
   }
   function describePostureReceipt(choices) {
-    const preset = getPreset(choices.mode);
+    const preset = nonNull(getPreset(choices.mode));
     const lines = [];
-    lines.push(`  mode ${choices.mode} \u2014 ${preset?.description ?? "user-defined policy"}`);
-    for (const p of preset?.posture ?? []) lines.push(`    \xB7 ${p}`);
+    lines.push(`  mode ${choices.mode} \u2014 ${preset.description}`);
+    for (const p of nonNull(preset.posture)) lines.push(`    \xB7 ${p}`);
     lines.push("    change: interlinked mode strict|balanced|lenient  (preview first: --diff)");
     lines.push(`  caps: ${capReceiptBits(choices.caps).join(" \xB7 ")}`);
     lines.push("    change: interlinked caps set <metric> <value>  \xB7  meanings: interlinked caps explain");

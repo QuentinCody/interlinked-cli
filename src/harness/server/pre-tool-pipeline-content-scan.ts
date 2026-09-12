@@ -8,6 +8,7 @@ import { readToolString } from "../evaluator/tool-input-values.js";
 // helpers (the orchestrator calls them, they do not call back into the main
 // file). `buildScanAskOutcome` stays internal to this module.
 
+import { nonNull } from "../../lib/non-null.js";
 import { applyAllowlist } from "../content-scanner/allowlist.js";
 import { decideFromFindings } from "../content-scanner/policy.js";
 import { buildAskReason, writePendingPrompt } from "../content-scanner/redact-preview.js";
@@ -55,7 +56,8 @@ export async function runWebFetchProxy(
 		scanner: ctx.contentScanner,
 		compiledAllowlist: ctx.compiledAllowlist,
 		config: rules.content_scanner,
-		toolName: event.tool_name ?? "WebFetch",
+		// The isWebFetchTool guard above admits only the two concrete tool names.
+		toolName: nonNull(event.tool_name),
 	});
 	log(
 		`Content scanner: WebFetch proxy → ${proxyResult.kind}` +

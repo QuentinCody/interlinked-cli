@@ -19,6 +19,7 @@
 
 import { readFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
+import { nonNull } from "../lib/non-null.js";
 import { buildPredictionOracle } from "./dependency-view.js";
 import {
 	appendPredictionRow,
@@ -180,7 +181,7 @@ export function buildReconciliationRow(args: BuildReconciliationArgs): GraphReco
 // ── Text builders ────────────────────────────────────────────────────────────
 
 export function slugFor(targetPath: string): string {
-	const base = targetPath.split("/").pop() ?? "target";
+	const base = nonNull(targetPath.split("/").pop());
 	// Strip .ext and any extra dots, keep only safe chars
 	return base.replace(/\.[^.]+$/, "").replace(/[^a-zA-Z0-9_-]/g, "_") || "target";
 }

@@ -91,7 +91,8 @@ function applyTddCommitGateToDecision(
 	session: SessionTrajectory,
 	preDecision: HarnessDecision,
 ): void {
-	const testFirstMode = rules.structural_checks.test_first_mode || "warn";
+	// The merged StructuralChecksConfig requires one of nudge / warn / enforce.
+	const testFirstMode = rules.structural_checks.test_first_mode;
 	const commitMessage = parseCommitMessageFromBash(
 		readToolString(event.tool_input?.command),
 	);

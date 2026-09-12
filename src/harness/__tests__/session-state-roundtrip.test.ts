@@ -26,6 +26,32 @@ const baseEvent = (overrides: Partial<HarnessEvent>): HarnessEvent => ({
 });
 
 describe("SessionTracker round-trip", () => {
+	it("serializes omitted optional session fields with restart-safe defaults", () => {
+		const writer = new SessionTracker();
+		const session = writer.recordEvent(baseEvent({}));
+		// These fields are optional for older session producers. Delete only
+		// optional properties, keeping the supported SessionTrajectory shape.
+		delete session.test_commands_run;
+		delete session.non_doc_files_edited_since_commit;
+		delete session.doc_files_edited_since_commit;
+		delete session.mid_session_nudge_emitted;
+		delete session.stop_nudge_emitted;
+		delete session.verification_observed;
+		delete session.observed_checks;
+		delete session.stubs_introduced;
+		const snapshot = nonNull(writer.serialize(session.session_id));
+		expect(snapshot).toMatchObject({
+			test_commands_run: [], non_doc_files_edited_since_commit: [],
+			doc_files_edited_since_commit: 0, mid_session_nudge_emitted: false,
+			stop_nudge_emitted: false, verification_observed: [],
+			observed_checks: {}, stubs_introduced: [],
+		});
+		const reader = new SessionTracker();
+		expect(reader.hydrate(snapshot)?.session_id).toBe(session.session_id);
+		expect(reader.serialize(session.session_id)).toMatchObject({
+			verification_observed: [], observed_checks: {}, stubs_introduced: [],
+		});
+	});
 	it("preserves a freshly-created session unchanged", () => {
 		const writer = new SessionTracker();
 		writer.recordEvent(baseEvent({ tool_name: "Read", tool_input: { file_path: "a.ts" } }));
