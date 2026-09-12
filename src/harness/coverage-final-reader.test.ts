@@ -86,6 +86,21 @@ function writeFixture(fixture: unknown): void {
 // ==================================================================
 
 describe("loadCoverageFinal", () => {
+	it("scopes cached coverage to the repository interpreting a shared report", () => {
+		const packageRoot = join(tmp, "packages", "one");
+		writeFixture(buildFixture(packageRoot));
+		const packageView = nonNull(loadCoverageFinal(coveragePath, packageRoot));
+		expect([...packageView.keys()]).toEqual(["src/foo.ts"]);
+		const workspaceView = nonNull(loadCoverageFinal(coveragePath, tmp));
+		expect([...workspaceView.keys()]).toEqual(["packages/one/src/foo.ts"]);
+		expect(loadCoverageFinal(coveragePath, packageRoot)).toBe(packageView);
+	});
+
+	it("reuses cached coverage for equivalent report and repository paths", () => {
+		writeFixture(buildFixture(tmp));
+		const first = loadCoverageFinal(coveragePath, tmp);
+		expect(loadCoverageFinal(`${tmp}/coverage/../coverage/coverage-final.json`, `${tmp}/.`)).toBe(first);
+	});
 	it("retains coverage when Vitest reports null end columns", () => {
 		const path = join(tmp, "src/foo.ts");
 		writeFixture({ [path]: {

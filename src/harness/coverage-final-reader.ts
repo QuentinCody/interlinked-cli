@@ -5,8 +5,8 @@
 // `coverage-final.json` provides — it contains the `fnMap` with declaration
 // line ranges and the `s` (statement hit counts) keyed by statement id.
 //
-// The cache key is the absolute path of `coverage-final.json` and its
-// mtime. Typical file sizes are 10–50MB on real repos, so we re-parse only
+// The cache key includes the absolute report path and repository root;
+// mtime invalidates changed reports. Typical file sizes are 10–50MB, so we re-parse only
 // when the file actually changes.
 //
 // Scope: JS/TS only. istanbul is the de facto coverage reporter for that
@@ -19,11 +19,6 @@ import { relative, resolve } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
 import { isIstanbulFileEntry, type IstanbulFileEntry, type IstanbulRange } from "./coverage-report-values.js";
 import type { CoverageSummary } from "./coverage-ratchet.js";
-
-// Type-tag constants used in the narrow guards below. Extracted so the
-// runtime checks read as intent ("is this shaped like an object?") rather
-// than comparisons against bare string literals.
-const TYPE_STRING = "string";
 
 // ==================================================================
 // Public types
@@ -80,7 +75,7 @@ interface CachedCoverage {
 	data: Map<string, PerFileCoverage>;
 }
 
-const CACHE = new Map<string /*abs path*/, CachedCoverage>();
+const CACHE = new Map<string /* JSON tuple: absolute report path and repo root */, CachedCoverage>();
 
 /**
  * Reset the in-memory cache. Exposed for tests only.
@@ -107,13 +102,18 @@ export function loadCoverageFinal(
 	if (!existsSync(coveragePath)) return null;
 
 	let mtime: number;
+	let root: string;
+	let reportPath: string;
 	try {
 		mtime = statSync(coveragePath).mtimeMs;
+		root = resolve(repoRoot);
+		reportPath = resolve(coveragePath);
 	} catch {
 		return null;
 	}
 
-	const cached = CACHE.get(coveragePath);
+	const cacheKey = JSON.stringify([reportPath, root]);
+	const cached = CACHE.get(cacheKey);
 	if (cached && cached.mtime === mtime) {
 		return cached.data;
 	}
@@ -126,8 +126,8 @@ export function loadCoverageFinal(
 	}
 	if (!isJsonObject(raw)) return null;
 
-	const data = buildPerFileCoverage(raw, repoRoot, mtime);
-	CACHE.set(coveragePath, { mtime, data });
+	const data = buildPerFileCoverage(raw, root, mtime);
+	CACHE.set(cacheKey, { mtime, data });
 	return data;
 }
 
@@ -192,8 +192,10 @@ export function loadCoverageFinalSummary(
 ): CoverageSummary | null {
 	if (!existsSync(coveragePath)) return null;
 	let raw: unknown;
+	let root: string;
 	try {
 		raw = JSON.parse(readFileSync(coveragePath, "utf-8"));
+		root = resolve(repoRoot);
 	} catch {
 		return null;
 	}
@@ -205,7 +207,7 @@ export function loadCoverageFinalSummary(
 		if (!isIstanbulFileEntry(rawEntry)) continue;
 		const entry = rawEntry;
 		if (!entry.statementMap || !entry.s) continue;
-		const rel = relKeyFor(entry, key, repoRoot);
+		const rel = relKeyFor(entry, key, root);
 		if (!rel) continue;
 		const lines = lineMetricsOf(entry);
 		const branches = branchMetricsOf(entry);
@@ -375,12 +377,10 @@ function computeStatementPct(input: StatementPctInput): number | null {
 }
 
 function resolveFileKey(pathKey: string, repoRoot: string): string | null {
-	if (!pathKey || typeof pathKey !== TYPE_STRING) return null;
-	try {
-		return resolve(repoRoot, pathKey);
-	} catch {
-		return null;
-	}
+	if (!pathKey) return null;
+	// Both readers normalize repoRoot to an absolute path and validate entry
+	// paths as strings. resolve therefore needs neither coercion nor cwd lookup.
+	return resolve(repoRoot, pathKey);
 }
 
 function normalizeRelPath(p: string): string {
