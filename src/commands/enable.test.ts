@@ -328,6 +328,15 @@ describe("enableCommand — explicit client validation", () => {
 		expect(vi.mocked(harnessStartCommand)).not.toHaveBeenCalled();
 	});
 
+	it("reports every unknown client together before starting setup", async () => {
+		await enableCommand({ clients: "claude,bogus,unsupported" });
+		expect(logged(errorSpy)).toContain("Unknown clients: bogus, unsupported. No files or processes were changed.");
+		expect(process.exitCode).toBe(1);
+		expect(writeHookScript).not.toHaveBeenCalled();
+		expect(installAllHooks).not.toHaveBeenCalled();
+		expect(harnessStartCommand).not.toHaveBeenCalled();
+	});
+
 	it("deduplicates normalized supported ids without changing their order", async () => {
 		vi.mocked(installAllHooks).mockReturnValue([
 			install("claude", { installed: true, events: ["PreToolUse"] }),

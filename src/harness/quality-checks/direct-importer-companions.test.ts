@@ -49,6 +49,7 @@ vi.mock("./test-process-gate.js", async () => {
 import { spawnSync as mockedSpawnSync } from "node:child_process";
 import { getProfileForFile } from "../language-profiles.js";
 import { capDependentTests, __test_only__ } from "./test-dispatchers.js";
+import * as testProcessGate from "./test-process-gate.js";
 
 const { runDirectImporterCompanions } = __test_only__;
 const spawnSyncMock = vi.mocked(mockedSpawnSync);
@@ -83,6 +84,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	vi.restoreAllMocks();
 	rmSync(root, { recursive: true, force: true });
 });
 
@@ -93,6 +95,22 @@ function tsProfile() {
 }
 
 describe("runDirectImporterCompanions — positive (must fire)", () => {
+	it("reports a busy runner as deferred for an importer's tests", async () => {
+		const target = write("src/modes.ts", "export const X = 1;\n");
+		write("src/user.ts", "import { X } from './modes.js';\n");
+		write("src/user.test.ts", "it('x', () => {});\n");
+		const runner = vi.spyOn(testProcessGate, "runBoundedTestProcess").mockResolvedValueOnce({ kind: "deferred", reason: "busy" });
+		const out = await runDirectImporterCompanions({
+			filePath: "src/modes.ts", absPath: target, profile: tsProfile(), checkCwd: root,
+			timeoutMs: 15000, severity: "error", checkName: "affected_tests",
+		});
+		expect(out).toEqual([expect.objectContaining({
+			name: "affected_tests_deferred", severity: "warning", file: "src/modes.ts",
+			message: "Affected tests deferred for src/modes.ts (another test check is running)",
+		})]);
+		expect(runner).toHaveBeenCalledWith(expect.objectContaining({ args: ["vitest", "run", "src/user.test.ts", "--reporter=verbose"], cwd: root }));
+	});
+
 	// test-contract: public-api — the forensics scenario this feature exists
 	// for: editing modes.ts must select install-hooks.ts's companion test
 	// (a DIRECT importer), the exact gap buildTestCandidates alone left open.

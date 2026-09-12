@@ -12,12 +12,13 @@ import {
 	createFreshSession,
 	isAcknowledged,
 	mergeVerificationObserved,
+	mergeObservedChecks,
 	trackCommand,
 	trackErrorOutcome,
 	trackFileOperations,
 	trackToolCall,
 } from "../session-state-mutators.js";
-import type { HarnessEvent, SessionTrajectory } from "../types.js";
+import type { HarnessEvent, ObservedCheck, SessionTrajectory } from "../types.js";
 
 const baseEvent = (overrides: Partial<HarnessEvent>): HarnessEvent => ({
 	hook_event: "PostToolUse",
@@ -76,6 +77,28 @@ describe("mergeVerificationObserved", () => {
 		mergeVerificationObserved(from, to);
 
 		expect(to.verification_observed).toBeUndefined();
+	});
+});
+
+describe("mergeObservedChecks", () => {
+	it("creates the parent's optional check map and copies the child's observation", () => {
+		const child = freshSession();
+		const observation: ObservedCheck = { kind: "typecheck", status: "red", red_at: 4 };
+		child.observed_checks = new Map([["typecheck", observation]]);
+		const parent = freshSession();
+		delete parent.observed_checks;
+		mergeObservedChecks(child, parent);
+		observation.status = "green";
+		expect(parent.observed_checks).toEqual(new Map([["typecheck", { kind: "typecheck", status: "red", red_at: 4 }]]));
+	});
+
+	it("keeps the parent's newer result when a child's observation is rolled up", () => {
+		const child = freshSession();
+		child.observed_checks = new Map([["typecheck", { kind: "typecheck", status: "red", red_at: 4 }]]);
+		const parent = freshSession();
+		parent.observed_checks = new Map([["typecheck", { kind: "typecheck", status: "green", green_at: 8 }]]);
+		mergeObservedChecks(child, parent);
+		expect(parent.observed_checks.get("typecheck")).toEqual({ kind: "typecheck", status: "green", green_at: 8 });
 	});
 });
 
@@ -535,6 +558,7 @@ describe("trackCommand", () => {
 describe("trackCommand — test_commands_run (durable test-signal list)", () => {
 	it("P1: a recognized test-runner command is appended to test_commands_run", () => {
 		const session = freshSession();
+		delete session.test_commands_run;
 		trackCommand(
 			session,
 			baseEvent({ tool_name: "Bash", tool_input: { command: "npx vitest related src/a.ts --run" } }),

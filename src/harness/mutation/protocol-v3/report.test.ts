@@ -45,6 +45,17 @@ describe("verifyReportAgainstEnvelope — positive (must verify)", () => {
 });
 
 describe("verifyReportAgainstEnvelope — negative (must reject)", () => {
+	it("rejects a non-object file map even when the report hash matches", () => {
+		const text = JSON.stringify({ report_version: "1", files: [] });
+		expect(verifyReportAgainstEnvelope(withReport(validMutationResult(), text), Buffer.from(text))).toBe("report.files must be an object");
+	});
+
+	it.each([null, {}])("rejects a non-array mutant list %j even when the report hash matches", (mutants) => {
+		const base = validMutationResult();
+		const text = JSON.stringify({ report_version: "1", files: { [base.job.target_file]: { mutants } } });
+		expect(verifyReportAgainstEnvelope(withReport(base, text), Buffer.from(text))).toBe("report target entry must carry a mutants array");
+	});
+
 	// test-contract: security — the reviewer's repro: a prose mention of
 	// the target and mutant ids is NOT a structural file entry.
 	it("N1: the prose-mention smuggle rejects", () => {

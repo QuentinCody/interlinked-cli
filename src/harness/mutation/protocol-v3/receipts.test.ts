@@ -86,6 +86,18 @@ const ACCEPTANCE_PAYLOAD = {
 	intended_scope_mode: "import_graph",
 };
 
+describe("parseSignedReceipt — signed malformed payloads", () => {
+	it.each([
+		[{ job: null }, "acceptance.job must be an object"],
+		[{ approved_policy_ids: "policy-a1" }, "acceptance.approved_policy_ids must be an array"],
+		[{ receipt_version: "2" }, 'acceptance receipt_version must be "1"'],
+		[{ protocol_version: "unsupported" }, `acceptance.protocol_version must be exactly "${PROTOCOL_V3_VERSION}"`],
+	])("rejects malformed acceptance fields even with a valid signature: %j", (fields, reason) => {
+		const text = signedReceiptText({ ...ACCEPTANCE_PAYLOAD, ...fields });
+		expect(parseSignedReceipt(text, "acceptance", REGISTRY)).toEqual({ ok: false, reason });
+	});
+});
+
 describe("parseSignedReceipt — positive (must accept)", () => {
 	// test-contract: public-api — a well-formed signed execution receipt
 	// parses, verifies, and exposes its canonical payload hash.

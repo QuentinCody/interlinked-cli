@@ -242,6 +242,11 @@ describe("parseWizardYesNo / parseWizardCapOverrides — positive/negative (shar
 });
 
 describe("describeWizardPlan", () => {
+	it("shows that declining adoption leaves baseline seeding for a later command", () => {
+		const text = describeWizardPlan({ ...DEFAULT_WIZARD_CHOICES, adopt: false }).join("\n");
+		expect(text).toContain("Baselines: skipped  (run later: interlinked adopt)");
+		expect(text).not.toContain("adopt now");
+	});
 	// test-contract: public-api — the plan summary names every decision so the user sees what will happen before it does
 	it("P7: the rendered plan names mode, scope, runners, and adopt intent", () => {
 		const text = describeWizardPlan({

@@ -58,6 +58,21 @@ function rejectionOf(raw: unknown): string {
 	return outcome.ok ? "ACCEPTED" : outcome.reason;
 }
 
+describe("request wire shape", () => {
+	it.each([
+		[{ job: null }, "request.job must be an object"],
+		[{ changeset: [null] }, "request.changeset entries must be objects"],
+		[{ request_version: "2" }, 'request.request_version must be "1"'],
+		[{ protocol_version: "unsupported" }, `request.protocol_version must be exactly "${PROTOCOL_V3_VERSION}"`],
+	])("rejects malformed request fields %j before admission", (fields, reason) => {
+		expect(parseMutationJobRequestV3({ ...baseRequest(), ...fields })).toEqual({ ok: false, reason });
+	});
+
+	it("rejects a traversal in the selected test files", () => {
+		expect(rejectionOf({ ...baseRequest(), test_files: ["../outside.test.ts"] })).toContain("request.test_files[]");
+	});
+});
+
 describe("parseMutationJobRequestV3 + deriveAdmission — positive", () => {
 	// test-contract: public-api — a canonical request parses; admission
 	// derives both hashes consistently from the PARSED request only.
