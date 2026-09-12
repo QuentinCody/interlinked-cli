@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { addPermissionToSettings, extractPermissionPattern } from "../permission-patterns.js";
 
 describe("extractPermissionPattern", () => {
+	it("keeps a version command without inventing a subcommand in a compound pattern", () => {
+		expect(extractPermissionPattern("Bash", { command: "git --version && pwd" })).toBe("Bash(git && pwd *)");
+	});
 	it("returns null for empty or missing commands", () => {
 		expect(extractPermissionPattern("Bash", { command: "" })).toBeNull();
 		expect(extractPermissionPattern("Bash", {})).toBeNull();
@@ -202,6 +205,14 @@ describe("addPermissionToSettings", () => {
 			permissions: { allow: ["Bash(pwd *)", "Bash(ls *)"] },
 			theme: "dark",
 		});
+	});
+
+	it.each(["null", "[]", '"settings"'])("preserves a non-object settings file instead of overwriting it: %s", (raw) => {
+		mkdirSync(join(tmpDir, ".claude"));
+		const path = join(tmpDir, ".claude", "settings.json");
+		writeFileSync(path, raw);
+		expect(addPermissionToSettings("Bash(ls *)")).toBe(false);
+		expect(readFileSync(path, "utf-8")).toBe(raw);
 	});
 
 	it("creates missing nested settings directories", () => {

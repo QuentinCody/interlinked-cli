@@ -344,7 +344,8 @@ function extractRmTargets(cmd: string, acc: ResolvedTarget[]): void {
 	let started = false;
 	for (const tok of tokens) {
 		if (!started) {
-			const base = tok.split("/").pop() || tok;
+			// split is nonempty; a trailing slash cannot name the rm executable.
+			const base = nonNull(tok.split("/").pop());
 			if (base === "rm") started = true;
 			continue;
 		}
@@ -366,7 +367,7 @@ function extractGitPushBranch(cmd: string, acc: ResolvedTarget[]): void {
 	const tokens = tokenizeShell(cmd);
 	let i = 0;
 	while (i < tokens.length) {
-		const base = nonNull(tokens[i]).split("/").pop() || tokens[i];
+		const base = nonNull(nonNull(tokens[i]).split("/").pop());
 		if (base === "git") break;
 		i++;
 	}
@@ -413,8 +414,9 @@ function classifyMcpKey(key: string): ResolvedTarget["kind"] | null {
 }
 
 function extractMcpTargets(toolInput: JsonObject, acc: ResolvedTarget[]): void {
+	// The sole caller starts with an empty accumulator; pushTarget returns
+	// true at the cap and immediately exits this loop below.
 	for (const [key, value] of Object.entries(toolInput)) {
-		if (acc.length >= MAX_RESOLVED_TARGETS) return;
 		if (typeof value !== "string") continue;
 		const kind = classifyMcpKey(key);
 		if (!kind) continue;

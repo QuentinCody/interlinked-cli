@@ -931,6 +931,9 @@ describe("formatAskReasonWithTargets", () => {
 });
 
 describe("extractResolvedTargets — Bash: rm targets", () => {
+	it("does not invent a file target for an empty quoted rm argument", () => {
+		expect(extractResolvedTargets("Bash", { command: 'rm ""' }, makeRule())).toEqual([]);
+	});
 	it("extracts the file arguments following a bare `rm`", () => {
 		expect(
 			extractResolvedTargets("Bash", { command: "rm -rf /tmp/cache /tmp/other" }, makeRule()),
