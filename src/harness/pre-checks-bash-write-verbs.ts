@@ -40,7 +40,7 @@ function unwrapOneSegment(segment: string): string | null {
 	const words = splitShellWordsLoose(segment).map(stripOuterQuotes);
 	let i = 0;
 	while (i < words.length) {
-		const verb = nonNull(words[i]).split("/").pop() ?? nonNull(words[i]);
+		const verb = nonNull(nonNull(words[i]).split("/").pop());
 		if (!WRAPPER_VERBS.has(verb)) break;
 		i++;
 		// env VAR=x …  |  timeout [-k dur] 60 …  |  xargs -0 -n1 -I{} …
@@ -81,7 +81,7 @@ export function detectInPlaceEditorVerbs(cmd: string): VerbWriteHit | null {
 	for (const segment of splitCommandSegments(cmd)) {
 		const args = splitShellWordsLoose(segment).map(stripOuterQuotes);
 		if (args.length < 2) continue;
-		const verb = nonNull(args[0]).split("/").pop() ?? nonNull(args[0]);
+		const verb = nonNull(nonNull(args[0]).split("/").pop());
 		const rest = args.slice(1);
 		if (!editsInPlace(verb, rest)) continue;
 		const target = lastCodeFilePositional(rest);
@@ -147,7 +147,8 @@ function gitApplyWritesWorktree(args: string[]): boolean {
 export function detectPatchApplyVerb(cmd: string): VerbWriteHit | null {
 	for (const segment of splitCommandSegments(cmd)) {
 		const args = splitShellWordsLoose(segment).map(stripOuterQuotes);
-		const verb = args.length > 0 ? (nonNull(args[0]).split("/").pop() ?? "") : "";
+		// Segments are trimmed and nonempty; the word scanner consumes every non-space token.
+		const verb = nonNull(nonNull(args[0]).split("/").pop());
 		if (verb === "patch") {
 			if (patchOptions(args.slice(1)).has("--dry-run")) continue;
 			return { target: "(files named inside the diff)", mechanism: "patch (diff applier)" };

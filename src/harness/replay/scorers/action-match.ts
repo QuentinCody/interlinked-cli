@@ -39,7 +39,7 @@ export function canonicalizeInput(value: unknown): string {
 }
 
 export function actionMatch(ref: ActionForMatch, cand: ActionForMatch): ActionMatchScore {
-	const sameTool = (ref.tool ?? null) === (cand.tool ?? null);
+	const sameTool = ref.tool === cand.tool;
 	const sameInput = canonicalizeInput(ref.input) === canonicalizeInput(cand.input);
 	return { same_tool: sameTool, same_input: sameInput, match: sameTool && sameInput };
 }

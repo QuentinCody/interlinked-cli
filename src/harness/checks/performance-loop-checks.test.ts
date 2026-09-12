@@ -23,6 +23,15 @@ import {
 	loopIterableRegexFor,
 } from "./performance-loop-checks.js";
 
+describe("work performed outside loops", () => {
+	it("allows regex compilation outside a loop", () => {
+		expect(checkRegexInLoop('const pattern = new RegExp("x");', "worker.ts")).toEqual([]);
+	});
+	it("allows sorting outside a loop", () => {
+		expect(checkSortInLoop("const ordered = items.sort();", "worker.ts")).toEqual([]);
+	});
+});
+
 /** N standalone brace-delimited loops, each with one `line(i)` body line. */
 function manyLoops(n: number, line: (i: number) => string): string {
 	return Array.from({ length: n }, (_, i) => `for (const x${i} of xs) {\n    ${line(i)}\n}`).join(

@@ -93,8 +93,8 @@ interface QueryScanCtx {
 	pattern: RegExp;
 	/** Original file lines (for head/assignment tracing). */
 	contentLines: string[];
-	/** Loop-head iterable extractor, null when the language has none. */
-	iterRe: RegExp | null;
+	/** Every language admitted by queryCallPatternFor has an iterable extractor. */
+	iterRe: RegExp;
 }
 
 /**
@@ -109,7 +109,6 @@ function findQueryFedIterable(
 	ctx: QueryScanCtx,
 	bodyStartLine: number,
 ): { sourceLine: number; iterable: string } | null {
-	if (!ctx.iterRe) return null;
 	const lines = ctx.contentLines;
 	for (let k = bodyStartLine - 2; k >= Math.max(0, bodyStartLine - 8); k--) {
 		const m = ctx.iterRe.exec(nonNull(lines[k]));
@@ -188,7 +187,7 @@ export function checkQueryInLoop(content: string, filePath: string): InlineMatch
 	const ctx: QueryScanCtx = {
 		pattern,
 		contentLines: content.split("\n"),
-		iterRe: loopIterableRegexFor(ext),
+		iterRe: nonNull(loopIterableRegexFor(ext)),
 	};
 
 	const matches: InlineMatch[] = [];

@@ -139,8 +139,8 @@ function buildSpineRecords(
 		if (!record) continue;
 		if (row.category === "user_prompt") episode++;
 		if (wantIx) {
-			const ix = ixAnnotationsFor(row, collection, guards, Math.max(episode, 0));
-			if (Object.keys(ix).length > 0) record.ix = ix;
+			// Every annotation includes the episode, even without collection joins.
+			record.ix = ixAnnotationsFor(row, collection, guards, Math.max(episode, 0));
 		}
 		spine.push(record);
 	}
