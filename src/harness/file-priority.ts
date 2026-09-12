@@ -97,7 +97,7 @@ export function parseGitLogOutput(
 		const ageDays = Math.max(0, Math.round((now - commitMs) / MS_PER_DAY));
 		for (let i = 1; i < lines.length; i++) {
 			const path = nonNull(lines[i]).trim();
-			if (!path) continue;
+			// Blank lines separate blocks; trim removed the block's empty edges.
 			if (out.has(path)) continue; // Most-recent wins.
 			out.set(path, { ageDays, tier: priorityTierForAge(ageDays) });
 		}

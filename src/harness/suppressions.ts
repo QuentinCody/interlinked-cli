@@ -32,12 +32,7 @@ interface SuppressionEntry {
 }
 
 interface SuppressionFile {
-	[filePath: string]:
-		| {
-				[checkName: string]: SuppressionEntry;
-		  }
-		| null
-		| undefined;
+	[filePath: string]: { [checkName: string]: SuppressionEntry };
 }
 
 const isSuppressionEntry = wireObject<SuppressionEntry>({
@@ -251,7 +246,7 @@ export function loadFileSuppressions(
 		const checks = new Set<string>();
 
 		for (const [pattern, entry] of Object.entries(data)) {
-			if (!entry) continue;
+			// parseSuppressionFile admits only objects into the cached map.
 			if (suppressionPatternMatches(pattern, relativeFilePath)) {
 				for (const check of Object.keys(entry)) checks.add(check);
 			}

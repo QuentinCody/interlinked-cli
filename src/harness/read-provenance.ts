@@ -123,7 +123,8 @@ function trackRescue(session: SessionTrajectory, _event: HarnessEvent, filePath:
  * be blocked and never display or land anything.
  */
 export function recordFileView(session: SessionTrajectory, event: HarnessEvent): void {
-	const filePath = readOptionalToolString(event.tool_input?.file_path);
+	const input = event.tool_input;
+	const filePath = readOptionalToolString(input?.file_path);
 	const toolName = event.tool_name;
 	if (!filePath || !toolName || !isPostToolUseEvent(event)) return;
 	const isRead = isReadOperation(toolName);
@@ -139,7 +140,7 @@ export function recordFileView(session: SessionTrajectory, event: HarnessEvent):
 	const lineHashes = toLineHashes(content);
 	// A write refreshes the whole view: the client echoes the result, so the
 	// session is grounded in the file's new state (ranges null = whole file).
-	const displayed = isRead ? readRange(event.tool_input ?? {}, lineHashes.length) : null;
+	const displayed = isRead ? readRange(nonNull(input), lineHashes.length) : null;
 	const next: FileView = {
 		hash: sha256Hex(content),
 		line_hashes: lineHashes,

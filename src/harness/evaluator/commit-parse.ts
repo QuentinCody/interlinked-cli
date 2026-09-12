@@ -165,7 +165,7 @@ function hasPathspecFromFile(rest: string[]): boolean {
 function addSegmentPaths(segment: string): { paths: string[]; broad: boolean; updateOnly: boolean } {
 	const tokens = stripLeadingPrefix(shellSplit(segment));
 	const { subIdx } = scanGitGlobalFlags(tokens);
-	if (subIdx < 0) return { paths: [], broad: false, updateOnly: false };
+	// The caller already proved this is `git add` with the same parser.
 	const paths: string[] = [];
 	let allish = false;
 	let updateOnly = false;

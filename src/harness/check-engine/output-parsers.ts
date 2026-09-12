@@ -19,18 +19,16 @@ export function parseTscOutput(output: string): CheckResult[] {
 		// File-level errors: "file(line,col): error TSxxxx: message"
 		const fileMatch = line.match(/^(.+?)\((\d+),(\d+)\):\s*error\s+(TS\d+):\s*(.+)/);
 		if (fileMatch) {
+			// All five captures are mandatory in this matched diagnostic form.
 			const [, file, lineNo, col, code, msg] = fileMatch;
-			if (file === undefined || lineNo === undefined || col === undefined || code === undefined) {
-				continue;
-			}
 			results.push({
 				tool: "tsc",
 				severity: "error",
-				file,
-				line: Number.parseInt(lineNo, 10),
-				column: Number.parseInt(col, 10),
-				message: `${code}: ${msg ?? ""}`,
-				ruleId: code,
+				file: nonNull(file),
+				line: Number.parseInt(nonNull(lineNo), 10),
+				column: Number.parseInt(nonNull(col), 10),
+				message: `${code}: ${msg}`,
+				ruleId: nonNull(code),
 			});
 			continue;
 		}
@@ -39,14 +37,13 @@ export function parseTscOutput(output: string): CheckResult[] {
 		const projectMatch = line.match(/^error\s+(TS\d+):\s*(.+)/);
 		if (projectMatch) {
 			const [, code, msg] = projectMatch;
-			if (code === undefined) continue;
 			results.push({
 				tool: "tsc",
 				severity: "error",
 				file: "tsconfig.json",
 				line: 0,
-				message: `${code}: ${msg ?? ""}`,
-				ruleId: code,
+				message: `${code}: ${msg}`,
+				ruleId: nonNull(code),
 			});
 		}
 	}
@@ -72,18 +69,16 @@ export function parseEslintOutput(output: string): CheckResult[] {
 	for (const line of output.split("\n")) {
 		const match = line.match(/^(.+?):(\d+):(\d+):\s+(.+)/);
 		if (match) {
+			// A match requires all four captures, including a non-empty message.
 			const [, file, lineNo, col, rawMsg] = match;
-			if (file === undefined || lineNo === undefined || col === undefined || rawMsg === undefined) {
-				continue;
-			}
-			const msg = rawMsg.trim();
+			const msg = nonNull(rawMsg).trim();
 			const ruleMatch = msg.match(/\[(.+)\]$/);
 			results.push({
 				tool: "eslint",
 				severity: "warning",
-				file,
-				line: Number.parseInt(lineNo, 10),
-				column: Number.parseInt(col, 10),
+				file: nonNull(file),
+				line: Number.parseInt(nonNull(lineNo), 10),
+				column: Number.parseInt(nonNull(col), 10),
 				message: msg,
 				ruleId: ruleMatch?.[1],
 			});

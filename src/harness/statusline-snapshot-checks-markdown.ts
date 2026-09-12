@@ -90,8 +90,7 @@ export function buildLoadedRulesMarkdown(rules: GuardRulesConfig): string {
 	lines.push("");
 
 	for (const cat of categories) {
-		const entries = byCategory.get(cat);
-		if (!entries) continue;
+		const entries = nonNull(byCategory.get(cat)); // categories came from this map's keys.
 		lines.push(`## ${humanizeCategory(cat)} (${entries.length})`);
 		lines.push("");
 		for (const r of entries) {
@@ -186,7 +185,7 @@ function buildToolRunnersSection(enabled: QualityEntry[]): string[] {
 		const desc =
 			cfg.description ||
 			`Runs on edits to ${cfg.file_types.join(", ") || "all files"}.`;
-		const cmd = cfg.command ? ` — \`${cfg.command}\`` : "";
+		const cmd = ` — \`${cfg.command}\``; // isToolRunner already required a command.
 		lines.push(`- \`${name}\` — ${cfg.severity}${cmd} — ${desc}`);
 	}
 	lines.push("");

@@ -17,6 +17,7 @@
 // switches.
 
 import { createRequire } from "node:module";
+import { nonNull } from "../../lib/non-null.js";
 import { parseTsSourceWith } from "./cyclomatic-ast.js";
 import { defaultBranchAssertsNever } from "./exhaustiveness-assert-never.js";
 import {
@@ -148,7 +149,7 @@ function analyzeSwitch(
 
 	const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
 	const lineNo = line + 1;
-	const raw = (lines[line] ?? "").trim();
+	const raw = nonNull(lines[line]).trim(); // sourceLineTexts uses this same TypeScript line table.
 	const missingDisplay = missing.slice(0, 3).join(", ") + (missing.length > 3 ? ", …" : "");
 	const detail = resolved.discriminant
 		? `discriminated union on \`${resolved.discriminant}\` missing case(s): ${missingDisplay}`
@@ -164,9 +165,9 @@ function caseExpressionToLiteralTag(
 	ts: TsModule,
 	expr: import("typescript").Expression,
 ): string | null {
+	// TypeScript includes no-substitution template literals in StringLiteralLike.
 	if (ts.isStringLiteralLike(expr)) return JSON.stringify(expr.text);
 	if (ts.isNumericLiteral(expr)) return expr.text;
-	if (ts.isNoSubstitutionTemplateLiteral(expr)) return JSON.stringify(expr.text);
 	// `case -1:` / `case +2:`. Both are PrefixUnaryExpressions, never numeric
 	// literals — treating only the minus form as a tag made `case +2:` invisible
 	// and reported an exhaustive switch as missing that member.

@@ -11,6 +11,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
+import { nonNull } from "../lib/non-null.js";
 
 // Only the fields the report reads. Wire rows carry more (schema/kind/ts/
 // tool_name/agent_source/decision); parsing them was validate-and-ignore
@@ -136,7 +137,7 @@ export function computeLatencyReport(
 			p50: percentile(postTimings, 0.5),
 			p90: percentile(postTimings, 0.9),
 			p99: percentile(postTimings, 0.99),
-			max: postTimings.length > 0 ? (postTimings[postTimings.length - 1] ?? null) : null,
+			max: postTimings.length > 0 ? nonNull(postTimings[postTimings.length - 1]) : null,
 		},
 		slowest_sessions: slowestSessions,
 		...(byTool ? { by_tool: byTool } : {}),
@@ -291,7 +292,7 @@ function computeByToolStats(records: LatencyRecord[]): ByToolStats[] {
 				p50: percentile(timings, 0.5),
 				p90: percentile(timings, 0.9),
 				p99: percentile(timings, 0.99),
-				max: timings.length > 0 ? (timings[timings.length - 1] ?? null) : null,
+				max: timings.length > 0 ? nonNull(timings[timings.length - 1]) : null,
 			},
 		});
 	}
@@ -305,7 +306,8 @@ function percentile(sortedAsc: number[], q: number): number | null {
 		sortedAsc.length - 1,
 		Math.max(0, Math.ceil(q * sortedAsc.length) - 1),
 	);
-	return sortedAsc[idx] ?? null;
+	// The non-empty array and clamped index guarantee a sample for our fixed quantiles.
+	return nonNull(sortedAsc[idx]);
 }
 
 export interface HarnessLatencyCommandOptions {

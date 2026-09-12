@@ -30,6 +30,7 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { extname, relative } from "node:path";
 import type * as TS from "typescript";
+import { nonNull } from "../lib/non-null.js";
 import { parseTsSourceWith } from "./checks/cyclomatic-ast.js";
 
 type TsModule = typeof TS;
@@ -246,7 +247,7 @@ function toFinding(group: SymbolGroup): CaseDivergenceFinding | null {
 	if (flagged.length < 2) return null;
 
 	const spellingEntries: SpellingEntry[] = flagged.map((name) => {
-		const locs = (spellings.get(name) ?? [])
+		const locs = nonNull(spellings.get(name)) // flagged names are a subset of these keys.
 			.map((s) => ({ file: s.file, line: s.line, kind: s.kind }))
 			.sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 		return { name, style: classifyStyle(name), locs };

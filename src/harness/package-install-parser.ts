@@ -131,13 +131,12 @@ interface ShellSplitState {
  *  when `nextCh` was consumed as the second half of a two-char operator
  *  (`&&`, `||`) — the caller must then skip that character. */
 function consumeShellSplitChar(
-	ch: string | undefined,
+	ch: string,
 	nextCh: string | undefined,
 	prevCh: string | undefined,
 	state: ShellSplitState,
 	out: string[],
 ): boolean {
-	if (ch === undefined) return false;
 	if (state.q) {
 		state.buf += ch;
 		if (ch === state.q && prevCh !== "\\") state.q = null;
@@ -176,7 +175,7 @@ export function splitShellSegments(s: string): string[] {
 	const out: string[] = [];
 	const state: ShellSplitState = { buf: "", q: null };
 	for (let i = 0; i < s.length; i++) {
-		const consumedNext = consumeShellSplitChar(s[i], s[i + 1], s[i - 1], state, out);
+		const consumedNext = consumeShellSplitChar(nonNull(s[i]), s[i + 1], s[i - 1], state, out);
 		if (consumedNext) i++;
 	}
 	if (state.buf) out.push(state.buf);
@@ -272,11 +271,9 @@ interface StripResult {
 	envVars: Record<string, string>;
 }
 
-/** Record one `NAME=value` assignment into `envVars`. An assignment with an
- *  empty name (leading `=`) is ignored. */
+/** Both callers first match `^[A-Za-z_]\\w*=`, proving a non-empty name. */
 function consumeEnvVar(assignment: string, envVars: Record<string, string>): void {
 	const eq = assignment.indexOf("=");
-	if (eq <= 0) return;
 	envVars[assignment.slice(0, eq)] = assignment.slice(eq + 1);
 }
 
@@ -285,8 +282,7 @@ function consumeEnvVar(assignment: string, envVars: Record<string, string>): voi
 function consumeEnvPrefix(out: string[], envVars: Record<string, string>): void {
 	out.shift();
 	while (out[0] && /^[A-Za-z_]\w*=/.test(out[0])) {
-		const next = out.shift();
-		if (next) consumeEnvVar(next, envVars);
+		consumeEnvVar(nonNull(out.shift()), envVars);
 	}
 }
 

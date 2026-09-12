@@ -15,6 +15,7 @@ import type {
 } from "../harness/content-scanner/review-files.js";
 import { c, header, kvLine } from "../lib/formatter.js";
 import { isJsonObject } from "../lib/json-types.js";
+import { nonNull } from "../lib/non-null.js";
 import type {
 	AuditAction,
 	AuditEntry,
@@ -147,7 +148,7 @@ export function pickReview(
 		if (!match) return { error: `no pending review with key "${key}"` };
 		return match;
 	}
-	return reviews[0] ?? null;
+	return nonNull(reviews[0]); // The empty queue returned above.
 }
 
 /** Reject conflicting decision flags up front. Cleaner than implicit

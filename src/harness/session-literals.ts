@@ -16,6 +16,7 @@
 
 import { createHash } from "node:crypto";
 import { isJsonObject } from "../lib/json-types.js";
+import { nonNull } from "../lib/non-null.js";
 import type { HarnessEvent, SessionTrajectory } from "./types.js";
 
 /** Per-file ring buffer ceiling for `recent_line_edits`. The §3.21
@@ -171,8 +172,8 @@ export function extractNonTrivialLiterals(chunk: string): string[] {
 	let m: RegExpExecArray | null;
 	m = stringRe.exec(chunk);
 	while (m !== null) {
-		const body = m[2];
-		if (body !== undefined) out.push(body);
+		// The matched quoted-string pattern always captures its body in group 2.
+		out.push(nonNull(m[2]));
 		m = stringRe.exec(chunk);
 	}
 	// Integer literals (3+ digits) outside the boring and HTTP-status ranges.
@@ -180,13 +181,11 @@ export function extractNonTrivialLiterals(chunk: string): string[] {
 	let n: RegExpExecArray | null;
 	n = numberRe.exec(chunk);
 	while (n !== null) {
-		const raw = n[1];
-		if (raw !== undefined) {
-			const value = Number.parseInt(raw, 10);
-			const trivial = value >= TRIVIAL_NUMBER_LO && value <= TRIVIAL_NUMBER_HI;
-			const httpStatus = value >= HTTP_STATUS_LO && value <= HTTP_STATUS_HI;
-			if (!trivial && !httpStatus) out.push(raw);
-		}
+		const raw = nonNull(n[1]);
+		const value = Number.parseInt(raw, 10);
+		const trivial = value >= TRIVIAL_NUMBER_LO && value <= TRIVIAL_NUMBER_HI;
+		const httpStatus = value >= HTTP_STATUS_LO && value <= HTTP_STATUS_HI;
+		if (!trivial && !httpStatus) out.push(raw);
 		n = numberRe.exec(chunk);
 	}
 	return out;

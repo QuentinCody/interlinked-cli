@@ -35,6 +35,7 @@ import { mkdirSync } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
+import { nonNull } from "../lib/non-null.js";
 import { sanitizeSessionId } from "./session-paths.js";
 import type {
 	CapturedPlan,
@@ -240,7 +241,7 @@ export function parseMarkdownBullets(text: string): PlanStep[] {
 		const bulletMatch = BULLET_RE.exec(line);
 		if (bulletMatch) {
 			flush();
-			currentIntent = bulletMatch[1] ?? "";
+			currentIntent = nonNull(bulletMatch[1]); // Mandatory capture; an empty bullet is still "".
 			continue;
 		}
 		// Stop a continuation when we hit a heading or a blank line
