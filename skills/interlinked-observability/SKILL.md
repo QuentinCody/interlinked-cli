@@ -180,6 +180,11 @@ strict: `\d+(s|m|h|d)` (e.g. `30m`, `2d`) — `15` or `1.5h` throw.
 | `explain` | Narrative chronological timeline + agent/human line-attribution | `--agent --since` (def 1h) `--full` · `--json` |
 | `watch` | **Server** poll: unread messages, pending tasks, active agents (diffs between polls) | `--interval` (def 10s) · `--short --json` |
 
+`activity` isolates local and server read failures: available server events still
+render if the local read fails, and local events remain available if the server
+client fails. A local read failure with no available server events is reported as
+an error.
+
 **Event log & raw**
 | Command | Purpose |
 |---|---|

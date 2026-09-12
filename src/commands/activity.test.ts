@@ -513,6 +513,30 @@ describe("activityCommand — localToActivity normalization", () => {
 });
 
 describe("activityCommand — catch path", () => {
+	it("shows available server events when the local read throws", async () => {
+		mockReadLocalActivity.mockImplementation(() => {
+			throw new Error("local read failed");
+		});
+		mockCallTool.mockResolvedValue({
+			events: [{ agent_name: "server-agent", event_type: "tool_use", occurred_at: "2026-06-06T11:58:00.000Z" }],
+		});
+
+		await activityCommand({ json: true, limit: "10" });
+		expect(lastJson(io)).toMatchObject({ source: "server", events: [{ agent_name: "server-agent" }] });
+		expect(io.read().stderr).toBe("");
+	});
+
+	it("shows available local events when the server client throws synchronously", async () => {
+		mockReadLocalActivity.mockReturnValue([localRow()]);
+		mockCallTool.mockImplementation(() => {
+			throw new Error("server client failed");
+		});
+
+		await activityCommand({ json: true, limit: "10" });
+		expect(lastJson(io)).toMatchObject({ source: "local", events: [{ agent_name: "local-agent" }] });
+		expect(io.read().stderr).toBe("");
+	});
+
 	it("reports the message of a thrown Error", async () => {
 		mockReadLocalActivity.mockImplementation(() => {
 			throw new Error("local read blew up");

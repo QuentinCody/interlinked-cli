@@ -80,13 +80,14 @@ export async function activityCommand(opts: {
 
 		// Fetch local and server in parallel
 		const [localResult, serverResult] = await Promise.allSettled([
-			Promise.resolve(readLocalEvents(opts, limit, sinceTs)),
-			fetchServerEvents(opts, limit),
+			Promise.resolve().then(() => readLocalEvents(opts, limit, sinceTs)),
+			Promise.resolve().then(() => fetchServerEvents(opts, limit)),
 		]);
 
 		const localEvents = localResult.status === "fulfilled" ? localResult.value : [];
 		const serverEvents: ActivityEvent[] =
 			serverResult.status === "fulfilled" ? toServerEvents(serverResult.value) : [];
+		if (localResult.status === "rejected" && serverEvents.length === 0) throw localResult.reason;
 
 		const isServerDown = serverResult.status === "rejected";
 		const isLocalEmpty = localEvents.length === 0;
