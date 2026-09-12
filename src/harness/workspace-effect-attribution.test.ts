@@ -20,6 +20,24 @@ beforeEach(() => {
 });
 
 describe("partitionResidueByAttribution — positive (must attribute elsewhere)", () => {
+	it("keeps malformed persisted entries from claiming another session's writes", () => {
+		const root = mkdtempSync(join(tmpdir(), "effect-attr-invalid-records-"));
+		try {
+			mkdirSync(join(root, ".interlinked"), { recursive: true });
+			writeFileSync(join(root, ".interlinked", "effect-attribution.json"), JSON.stringify({
+				"src/null.ts": null, "src/bad-session.ts": { sessionId: 42, sha256: "abc" },
+				"src/valid.ts": { sessionId: "other", sha256: "abc" },
+			}));
+			initEffectAttributionStore(root);
+			initEffectAttributionStore(root);
+			const result = partitionResidueByAttribution("current", [effect("src/null.ts", "abc"), effect("src/bad-session.ts", "abc"), effect("src/valid.ts", "abc")]);
+			expect(result.own.map((entry) => entry.path)).toEqual(["src/null.ts", "src/bad-session.ts"]);
+			expect(result.attributedElsewhere).toBe(1);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	it("P1: drops a residue effect whose hash matches another session's reconciled write", () => {
 		recordReconciledEffects("session-b", [effect("src/foo.ts", "abc")]);
 		const result = partitionResidueByAttribution("session-a", [effect("src/foo.ts", "abc")]);

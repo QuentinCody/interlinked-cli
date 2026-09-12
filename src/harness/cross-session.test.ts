@@ -5,6 +5,7 @@ import {
 	readFileSync,
 	rmSync,
 	truncateSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -70,6 +71,19 @@ describe("loadRecentWorkspaceEvents", () => {
 		]);
 	});
 
+	it("skips undated records and preserves explicit workspace and inferred completion events", () => {
+		writeLog([
+			{ tool_name: "Write" },
+			{ timestamp: "", hook_event: "PostToolUse" },
+			{ timestamp: "2026-05-27T00:00:01Z", type: "tool_use", cwd: "/other/workspace", tool_name: "Edit" },
+			{ timestamp: "2026-05-27T00:00:02Z" },
+		]);
+		expect(loadRecentWorkspaceEvents(dir)).toEqual([
+			{ timestamp: "2026-05-27T00:00:01Z", cwd: "/other/workspace", tool_name: "Edit", hook_event: "PostToolUse" },
+			{ timestamp: "2026-05-27T00:00:02Z", cwd: dir },
+		]);
+	});
+
 	describe("guard-blocked attempts — positive/negative", () => {
 		const attempt = {
 			schema_version: 5,
@@ -101,6 +115,17 @@ describe("loadRecentWorkspaceEvents", () => {
 		it("P2: keeps a tool_use_start row with no guard_block row at all", () => {
 			writeLog([attempt]);
 			expect(loadRecentWorkspaceEvents(dir).filter((e) => e.tool_name === "Write")).toHaveLength(1);
+		});
+
+		it("does not infer a blocked write from an uncorrelated guard verdict", () => {
+			writeLog([
+				{ type: "guard_block", timestamp: "2026-05-27T00:00:01Z" },
+				{ type: "guard_block", tool_use_id: "another-call", timestamp: "2026-05-27T00:00:02Z" },
+				{ type: "tool_use_start", timestamp: "2026-05-27T00:00:03Z", tool_name: "Write" },
+			]);
+			expect(loadRecentWorkspaceEvents(dir)).toEqual([
+				{ timestamp: "2026-05-27T00:00:03Z", cwd: dir, tool_name: "Write", hook_event: "PreToolUse" },
+			]);
 		});
 	});
 
@@ -245,21 +270,22 @@ describe("loadRecentWorkspaceEvents", () => {
 		expect(loadRecentWorkspaceEvents(dir)).toEqual([]);
 	});
 
-	it("re-reads (cache miss) after the log file's mtime changes", async () => {
+	it("re-reads (cache miss) after the log file's mtime changes", () => {
 		writeLog([
 			{ hook_event: "PreToolUse", session_id: "s1", timestamp: "2026-05-27T00:00:01Z" },
 		]);
+		const logPath = join(dir, ".interlinked", "activity.jsonl");
+		utimesSync(logPath, 1_000, 1_000);
 		const first = loadRecentWorkspaceEvents(dir);
 		expect(first).toHaveLength(1);
 
-		// Rewrite the log with different content. mtimeMs must advance so the
-		// cached entry is treated as stale.
-		// interlinked-ignore: hardcoded_timeout_in_tests — waits out filesystem mtime resolution so the rewrite gets a distinct mtimeMs; not a flaky race
-		await new Promise((r) => setTimeout(r, 12));
+		// Set distinct mtimes explicitly so invalidation does not depend on
+		// filesystem timestamp resolution or elapsed wall-clock time.
 		writeLog([
 			{ hook_event: "PreToolUse", session_id: "s1", timestamp: "2026-05-27T00:00:01Z" },
 			{ hook_event: "PostToolUse", session_id: "s2", timestamp: "2026-05-27T00:00:02Z" },
 		]);
+		utimesSync(logPath, 1_001, 1_001);
 
 		const second = loadRecentWorkspaceEvents(dir);
 		// New content observed => cache was invalidated, fresh parse happened.

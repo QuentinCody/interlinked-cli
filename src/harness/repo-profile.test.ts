@@ -154,6 +154,11 @@ describe("repo-profile", () => {
 			writeFixture(root, { "package.json": "{ this is not valid json" });
 			expect(detectRepoProfile(root).runners.js).toBe(true);
 		});
+
+		it.each([null, [], 42])("does not infer a test runner from a non-object package manifest: %j", (manifest) => {
+			writeFixture(root, { "package.json": JSON.stringify(manifest) });
+			expect(detectRepoProfile(root).runners.js).toBe(false);
+		});
 	});
 
 	describe("runners.python", () => {

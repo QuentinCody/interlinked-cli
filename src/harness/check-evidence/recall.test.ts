@@ -113,6 +113,10 @@ describe("parseMutationScores", () => {
 		expect(parseMutationScores({ files: { "src/a.ts": { score: "high" } } })).toEqual({});
 	});
 
+	it("ignores non-object file records beside valid mutation scores", () => {
+		expect(parseMutationScores({ files: { bad: null, array: [], "src/a.ts": { score: 0.75 } } })).toEqual({ "src/a.ts": 0.75 });
+	});
+
 	it("drops non-finite scores", () => {
 		expect(parseMutationScores({ files: { "src/a.ts": { score: Number.NaN } } })).toEqual({});
 	});

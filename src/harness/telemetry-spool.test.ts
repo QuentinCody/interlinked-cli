@@ -106,6 +106,11 @@ describe("redactors", () => {
 		expect("secrets" in out).toBe(false);
 	});
 
+	it("preserves telemetry that has no secrets field", () => {
+		const event = makeEvent({ kind: "hook_decision" });
+		expect(redactSecretsShallow(event)).toEqual(event);
+	});
+
 	it("truncateFilePaths shortens long paths", () => {
 		const raw = makeEvent({ kind: "check_finding", file_path: "a".repeat(500) });
 		const out = truncateFilePaths(raw);

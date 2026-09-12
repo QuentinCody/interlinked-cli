@@ -48,6 +48,13 @@ afterEach(() => {
 });
 
 describe("parseMutationCloudV3Config", () => {
+	it.each([null, [], 42])("rejects non-object configuration before reading authority fields: %j", (value) => {
+		expect(parseMutationCloudV3Config(value, "/repo")).toEqual({ ok: false, reason: "mutation cloud config must be a JSON object" });
+	});
+
+	it("rejects an unsupported configuration version", () => {
+		expect(parseMutationCloudV3Config({ ...validConfig(), version: 2 }, "/repo")).toEqual({ ok: false, reason: "mutation cloud config version must be 1" });
+	});
 	it("constructs one submission/client/evaluator authority only after enabled:true", () => {
 		const parsed = parseMutationCloudV3Config(validConfig(), "/repo");
 		expect(parsed).toMatchObject({

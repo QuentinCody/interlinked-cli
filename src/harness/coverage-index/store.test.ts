@@ -84,6 +84,19 @@ function sampleManifest(generation: number): CoverageIndexManifest {
 }
 
 describe("storeDirFor", () => {
+	it("returns no evidence when an accepted shard blob has disappeared", () => {
+		const entry = nonNull(writeContributionBlob(storeDir, sampleContribution()));
+		rmSync(join(storeDir, entry.contributionPath));
+		expect(readContributionBlob(storeDir, entry)).toBeNull();
+	});
+
+	it("refuses promotion when the store path cannot become a directory", () => {
+		const blocked = join(root, "blocked-store");
+		writeFileSync(blocked, "preserve this file");
+		expect(promoteManifest(blocked, sampleManifest(1), null)).toBe(false);
+		expect(readFileSync(blocked, "utf8")).toBe("preserve this file");
+	});
+
 	it("nests one subtree per runner under .interlinked/coverage-index", () => {
 		expect(storeDirFor("/repo", "vitest")).toBe("/repo/.interlinked/coverage-index/vitest");
 		expect(storeDirFor("/repo", "coverage-py")).toBe(

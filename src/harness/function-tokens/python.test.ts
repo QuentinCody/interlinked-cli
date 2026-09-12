@@ -39,6 +39,24 @@ function entries(source: string) {
 
 describe("interlinked-code-v1 Python adapter", () => {
     it.each([
+        { declarationKind: "unknown" }, { identityKind: "unknown" },
+        { qualifiedName: 42 }, { language: "javascript" },
+        { startOffset: -1 }, { endOffset: 1.5 }, { line: "1" },
+        { endLine: null }, { canonicalTokens: -1 },
+    ])("rejects invalid function metadata without exposing partial counts: %j", (invalid) => {
+        spawnControl.output = JSON.stringify({ ok: true, entries: [{
+            name: "f", qualifiedName: "f", language: "python", declarationKind: "function",
+            identityKind: "named", startOffset: 0, endOffset: 13, line: 1, endLine: 1,
+            canonicalTokens: 6, ...invalid,
+        }] });
+        try {
+            expect(computePythonFunctionTokens("def f(): pass", "test.py")).toBeNull();
+        } finally {
+            delete spawnControl.output;
+        }
+    });
+
+    it.each([
         { ok: "true", entries: [] },
         { ok: true, entries: [null] },
         { ok: true, entries: [{ name: "incomplete" }] },

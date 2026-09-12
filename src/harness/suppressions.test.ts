@@ -577,6 +577,11 @@ describe("loadFileSuppressions / loadSuppressionFile / addSuppressions / glob", 
 			writeFileSync(jsonPath(), "}}}not json", "utf-8");
 			expect(loadSuppressionFile(dir)).toEqual({});
 		});
+
+		it.each([null, [], 42])("ignores non-object suppression documents: %j", (value) => {
+			writeFileSync(jsonPath(), JSON.stringify(value), "utf8");
+			expect(loadSuppressionFile(dir)).toEqual({});
+		});
 	});
 
 	describe("addSuppressions", () => {

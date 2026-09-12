@@ -201,6 +201,16 @@ describe("fold mechanics", () => {
 		expect(row?.last_seen).toBe("2026-06-30T00:00:00.000Z");
 	});
 
+	it("treats an unparseable timestamp as oldest without corrupting the latest observation", () => {
+		const [row] = healthOf([
+			caught({ ts: "2026-06-15T00:00:00.000Z" }),
+			caught({ ts: "not-a-timestamp" }),
+			caught({ ts: "2026-06-30T00:00:00.000Z" }),
+		]);
+		expect(row?.first_seen).toBe("not-a-timestamp");
+		expect(row?.last_seen).toBe("2026-06-30T00:00:00.000Z");
+	});
+
 	it("counts sessions uniquely", () => {
 		const rows = [
 			caught({ session_id: "s-1" }),

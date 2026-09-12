@@ -36,6 +36,17 @@ describe("parseCoveragePyJson — non-existent report", () => {
 });
 
 describe("parseCoveragePyJson — happy path: toLineSet + relForKey composite", () => {
+	// test-contract: boundary — absolute in-project file keys retain coverage, while an empty key identifies no source file
+	it("accepts an absolute source path and excludes an empty file key", () => {
+		const root = makeRoot();
+		const report = writeReport(root, { files: {
+			[join(root, "module.py")]: { executed_lines: [2], missing_lines: [3] },
+			"": { executed_lines: [1], missing_lines: [] },
+		} });
+		const result = parseCoveragePyJson(report, root);
+		expect([...nonNull(result).keys()]).toEqual(["module.py"]);
+		expect(result?.get("module.py")?.coveredLines).toEqual(new Set([2]));
+	});
 	function parseFixture(root: string) {
 		const path = writeReport(root, {
 			files: {

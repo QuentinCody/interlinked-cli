@@ -107,6 +107,20 @@ describe("enumerateEligibleFiles", () => {
 });
 
 describe("collectGateReachSnapshot", () => {
+	it("reports an existing empty execution journal without inventing measurements", () => {
+		write("src/a.ts", "export const a = 1;\n");
+		write(".interlinked/metrics/executions.jsonl", "");
+		const snapshot = collectGateReachSnapshot({ cwd: repo, sessionId: "s1", now: 1000, perEditCoverageEnabled: true });
+		expect(gateOf(snapshot, "per_edit_coverage")).toMatchObject({ measured: 0, reason: "0_stale_or_unavailable_observations;_0_executions_recorded" });
+	});
+
+	it("reports corrupt execution evidence as unavailable", () => {
+		write("src/a.ts", "export const a = 1;\n");
+		write(".interlinked/metrics/executions.jsonl", "{broken\n");
+		const snapshot = collectGateReachSnapshot({ cwd: repo, sessionId: "s1", now: 1000, perEditCoverageEnabled: true });
+		expect(gateOf(snapshot, "per_edit_coverage")).toMatchObject({ status: "source_unavailable", measured: 0, reason: "Malformed_execution_record" });
+	});
+
 	it("reports the coverage ratchet's real reach over the eligible tree", () => {
 		write("src/a.ts", "export const a = 1;\n");
 		write("src/b.ts", "export const b = 2;\n");

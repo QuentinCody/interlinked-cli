@@ -15,7 +15,7 @@ const row = {
 };
 
 describe("mutation run log — the live per-run stream", () => {
-	it.each([{ source: "other" }, { survived: null }])("skips malformed required run fields: %j", (invalid) => {
+	it.each([{ source: "other" }, { survived: null }, { file: 42 }, { ts: false }, { mutants: "65" }, { killed: null }])("skips malformed required run fields: %j", (invalid) => {
 		const root = mkdtempSync(join(tmpdir(), "run-log-"));
 		try {
 			appendMutationRun(root, row);
@@ -73,7 +73,7 @@ describe("mutation run log — the live per-run stream", () => {
 		const root = mkdtempSync(join(tmpdir(), "run-log-"));
 		try {
 			appendMutationRun(root, row);
-			appendFileSync(join(root, MUTATION_RUNS_REL), "{torn\n");
+			appendFileSync(join(root, MUTATION_RUNS_REL), "{torn\nnull\n[]\n");
 			appendMutationRun(root, { ...row, file: "src/h.ts" });
 			expect(readRecentMutationRuns(root, 10).map((r) => r.file)).toEqual(["src/f.ts", "src/h.ts"]);
 		} finally {

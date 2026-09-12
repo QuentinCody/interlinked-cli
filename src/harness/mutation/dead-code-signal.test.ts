@@ -57,6 +57,10 @@ describe("findDeadCodeCandidates — positive (must fire)", () => {
 });
 
 describe("findDeadCodeCandidates — negative (must not fire)", () => {
+	it("does not treat missing or non-boolean condition replacements as polarity evidence", () => {
+		expect(findDeadCodeCandidates([s("1", 50, "ConditionalExpression"), s("2", 50, "ConditionalExpression", "someExpression")])).toEqual([]);
+	});
+
 	it("N1: an ordinary test gap is not reported", () => {
 		// One survivor on a line is the common case: write a better assertion.
 		expect(findDeadCodeCandidates([s("1", 42, "ArithmeticOperator", "a - b")])).toEqual([]);

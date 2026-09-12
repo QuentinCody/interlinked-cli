@@ -23,6 +23,24 @@ function tmpRepo(): string {
 const T = "2026-07-16T00:00:00.000Z";
 
 describe("reconciliation sidecar", () => {
+	it("reanchors an open finding without closing it and preserves an acknowledged state", () => {
+		const cwd = tmpRepo();
+		appendReconciliationTxn(cwd, { finding_id: "open", action: "reanchored", by: "reviewer", ts: T, file: "moved.ts", line: 12 });
+		appendReconciliationTxn(cwd, { finding_id: "acked", action: "acked", by: "reviewer", ts: T });
+		appendReconciliationTxn(cwd, { finding_id: "acked", action: "reanchored", by: "reviewer", ts: T, file: "moved.ts", line: 24 });
+		const state = loadReconciliation(cwd);
+		expect(reconciliationStateOf(state, "open")).toBe("open");
+		expect(reconciliationStateOf(state, "acked")).toBe("acked");
+		expect(state.get("acked")?.last_txn).toMatchObject({ action: "reanchored", file: "moved.ts", line: 24 });
+	});
+
+	it.each([null, [], { finding_id: "" }, { finding_id: 1 }, { reason: 1 }, { file: false }, { line: "12" }])("ignores malformed reconciliation records: %j", (invalid) => {
+		const cwd = tmpRepo();
+		appendReconciliationTxn(cwd, { finding_id: "preserved", action: "touched", by: "reviewer", ts: T });
+		const malformed = invalid === null || Array.isArray(invalid) ? invalid : { finding_id: "invalid", action: "acked", by: "reviewer", ts: T, ...invalid };
+		writeFileSync(reconciliationPath(cwd), `${JSON.stringify(malformed)}\n`, { flag: "a" });
+		expect([...loadReconciliation(cwd).keys()]).toEqual(["preserved"]);
+	});
 	it("keeps the sidecar under .interlinked/findings/", () => {
 		expect(reconciliationPath("/repo")).toBe(
 			"/repo/.interlinked/findings/reconciliation.jsonl",

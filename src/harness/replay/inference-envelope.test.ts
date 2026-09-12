@@ -79,6 +79,15 @@ describe("extractToolUseIds", () => {
 });
 
 describe("buildEnvelope", () => {
+	it.each([
+		["invalid", "2026-07-24T12:00:00Z"],
+		["2026-07-24T12:00:00Z", "invalid"],
+	])("records zero latency when a timestamp cannot be parsed: %s, %s", (tsRequest, tsResponse) => {
+		const envelope = buildEnvelope({ requestIndex: 1, tsRequest, tsResponse, requestHeaders: {}, requestBody: {}, response: {} });
+		expect(envelope.latency_ms).toBe(0);
+		expect(envelope.ts_request).toBe(tsRequest);
+		expect(envelope.ts_response).toBe(tsResponse);
+	});
 	it("assembles a v1 envelope with sha256 and null session/seq", () => {
 		const env = buildEnvelope({
 			requestIndex: 3,

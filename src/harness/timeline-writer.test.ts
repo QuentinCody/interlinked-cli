@@ -333,6 +333,17 @@ describe("timeline-writer file I/O", () => {
 		expect(existingTimelineKeys(cwd)).toEqual(new Set(["old#0", "new#1"]));
 	});
 
+	it.each([[0, 100], [10, 0], [-1, 100]])("returns no dedup keys when the scan budget is disabled (%s keys, %s bytes)", (maxKeys, maxBytes) => {
+		appendTimelineRecords([rec({ ts: "t", uuid: "present", seq: 0 })], cwd);
+		expect(recentTimelineKeys(cwd, maxKeys, maxBytes)).toEqual(new Set());
+	});
+
+	it("ignores malformed recent rows while retaining a valid dedup key", () => {
+		appendTimelineRecords([rec({ ts: "t", uuid: "present", seq: 0 })], cwd);
+		appendFileSync(timelinePath(cwd), "not-json\n{}\nnull\n");
+		expect(recentTimelineKeys(cwd, 10)).toEqual(new Set(["present#0"]));
+	});
+
 	describe("existingTimelineKeys — malformed rows (parseTimelineDedupKey)", () => {
 		function seedRawLines(lines: string[]): void {
 			mkdirSync(join(cwd, ".interlinked"), { recursive: true });

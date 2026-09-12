@@ -145,6 +145,11 @@ describe("extractNugetDeps", () => {
 });
 
 describe("extractNugetDeps — modern <PackageReference> (.csproj)", () => {
+	it("retains packages with missing versions so the install guard can reject unpinned dependencies", () => {
+		expect([...extractNugetDeps('<package id="Legacy" /><PackageReference Include="Modern" />')]).toEqual([
+			["Legacy", ""], ["Modern", ""],
+		]);
+	});
 	it("parses the Version attribute form", () => {
 		expect(extractNugetDeps('<PackageReference Include="Serilog" Version="3.0.0" />').get("Serilog")).toBe("3.0.0");
 	});

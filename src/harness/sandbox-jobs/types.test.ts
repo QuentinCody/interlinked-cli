@@ -15,6 +15,9 @@ const base: SandboxJobRequest = {
 };
 
 describe("isValidSandboxJobRequest", () => {
+	it.each([{ file: null }, { sessionId: 42 }, { overlays: [null] }, { overlays: [[]] }])("rejects invalid file/session identities and non-object overlays: %j", (invalid) => {
+		expect(isValidSandboxJobRequest({ ...base, ...invalid })).toBe(false);
+	});
 	it("accepts a well-formed request for every known kind", () => {
 		for (const kind of ["mutation", "leak", "flake", "asan", "miri"] as const) {
 			expect(isValidSandboxJobRequest({ ...base, kind })).toBe(true);

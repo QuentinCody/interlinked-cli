@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	checkBoundedText,
 	checkRepoRelativePath,
 	checkRfc3339,
 	checkSha256Hex,
@@ -11,6 +12,10 @@ import {
 } from "./field-checks.js";
 
 describe("field checks — positive (must accept)", () => {
+	it("rejects a lone surrogate in mutation replacement text", () => {
+		expect(checkBoundedText("\uD800", "replacement")).toBe("replacement must be well-formed Unicode (no lone surrogates)");
+	});
+
 	// test-contract: public-api — the canonical formats pass.
 	it("P1: canonical sha256 / timestamp / path / key-set pass", () => {
 		expect(checkSha256Hex("a".repeat(64), "x")).toBeNull();

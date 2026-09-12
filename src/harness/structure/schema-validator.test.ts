@@ -498,6 +498,16 @@ describe("validateStructureJson: accumulates errors across multiple fields", () 
 // -------------------------------------------
 
 describe("resolveStructureConfig", () => {
+	it.each([true, false])("preserves explicitly configured post-tool emission flags set to %s", (enabled) => {
+		const config = resolveStructureConfig({
+			version: 1, mode: "standard",
+			posttooluse: { emit_deterministic: enabled, emit_partial: enabled, emit_heuristic: enabled },
+		});
+		expect(config.posttooluse).toEqual({
+			emit_deterministic: enabled, emit_partial: enabled, emit_heuristic: enabled,
+			max_heuristics: MODE_DEFAULTS.standard.posttooluse.max_heuristics,
+		});
+	});
 	it("falls back to standard mode when mode is absent", () => {
 		const config = resolveStructureConfig({ version: 1 });
 		expect(config.mode).toBe("standard");
