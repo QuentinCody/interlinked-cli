@@ -731,6 +731,16 @@ describe("ensureDistFresh", () => {
 		);
 	});
 
+	it("refuses stale code when a supplied build runner throws without an Error message", () => {
+		existsFor(new Set([DIST]));
+		const readStaleness = vi.fn(() => STALE);
+		expect(() => ensureDistFresh({
+			readStaleness,
+			runBuild: () => { throw "build unavailable"; },
+		})).toThrow("Build failed; refusing to start the harness with stale code");
+		expect(readStaleness).toHaveBeenCalledOnce();
+	});
+
 	it("throws when a nominally successful build removes the verifiable dist shape", () => {
 		existsFor(new Set([DIST]));
 		mocks.execSync.mockReturnValue("built");

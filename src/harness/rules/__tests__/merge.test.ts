@@ -804,6 +804,12 @@ describe("mergeContentScanner (via mergeLocalOverrides deep-merge)", () => {
 // argument is whatever the JSON file held — including the non-object shapes
 // the type signature cannot rule out. Doctor calls it on exactly that value.
 describe("postureEnumViolationsIn — non-object structural_checks sections", () => {
+	it("distinguishes an absent setting from an explicitly invalid undefined value", () => {
+		expect(postureEnumViolationsIn({})).toEqual([]);
+		expect(postureEnumViolationsIn({ test_first_mode: undefined })).toEqual([
+			{ field: "test_first_mode", value: "undefined" },
+		]);
+	});
 	it("reports nothing for a missing (null) structural_checks section", () => {
 		// Without the null guard the entry loop reaches Object.hasOwn(null, …)
 		// and throws, so doctor would crash on a config that simply has no

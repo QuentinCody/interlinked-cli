@@ -76,6 +76,16 @@ describe("writeLiveSnapshot / readLiveSnapshot round trip", () => {
 		}
 	});
 
+	it("preserves the last snapshot when a serializer throws a non-Error value", () => {
+		expect(writeLiveSnapshot(cwd, "serializer", { edits: 3 })).toEqual({ ok: true });
+		const result = writeLiveSnapshot(cwd, "serializer", {
+			toJSON() { throw "snapshot source unavailable"; },
+		});
+		expect(result).toEqual({ ok: false, error: new Error("snapshot source unavailable") });
+		expect(readLiveSnapshot(cwd, "serializer")).toEqual({ edits: 3 });
+		expect(existsSync(join(cwd, ".interlinked", "sessions", "serializer.live.json.tmp"))).toBe(false);
+	});
+
 	it("returns ok:false and cleans up the .tmp sibling when the write itself fails", () => {
 		// Pre-create the `.tmp` sibling as a directory so writeFileSync throws
 		// EISDIR; the catch path then tries to remove it (also failing, since
