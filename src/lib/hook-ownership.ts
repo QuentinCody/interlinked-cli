@@ -12,6 +12,7 @@
 
 import { basename } from "node:path";
 import type { JsonObject } from "./json-types.js";
+import { nonNull } from "./non-null.js";
 
 // SHELL-POSITION-parsed ownership (review 2026-08-30 final pass: the regex
 // version still claimed `echo node /…/hook-entry.js`, `echo ok # node …`,
@@ -91,7 +92,7 @@ function scanChar(
 	i: number,
 	state: { quote: string | null; current: string; segments: string[] },
 ): number {
-	const ch = command[i] ?? "";
+	const ch = nonNull(command[i]);
 	if (state.quote !== null) return scanQuotedChar(command, i, ch, state);
 	if (ch === "'" || ch === '"') {
 		state.quote = ch;
@@ -145,7 +146,7 @@ interface ParsedInvocation {
 function invocationOf(segment: string): ParsedInvocation | null {
 	const words = shellWords(stripShellComment(segment));
 	let i = 0;
-	while (i < words.length && isSkippableLeadingWord(words[i] ?? "")) i++;
+	while (i < words.length && isSkippableLeadingWord(nonNull(words[i]))) i++;
 	const executable = words[i];
 	if (executable === undefined) return null;
 	return parsedInvocation(words, i, stripQuotes(executable));
@@ -169,7 +170,7 @@ function parsedNodeInvocation(words: string[], executableIndex: number): ParsedI
 	if (scriptIndex === null) return { executable: "node", script: null, args: [] };
 	return {
 		executable: "node",
-		script: stripQuotes(words[scriptIndex] ?? ""),
+		script: stripQuotes(nonNull(words[scriptIndex])),
 		args: words.slice(scriptIndex + 1).map(stripQuotes),
 	};
 }
@@ -187,7 +188,7 @@ function isSkippableLeadingWord(word: string): boolean {
  * our entry point and lets purge/uninstall delete a user's hook. The standard
  * `--` option terminator is unambiguous and remains supported. */
 function nodeScriptIndex(words: string[], executableIndex: number): number | null {
-	if (stripQuotes(words[executableIndex] ?? "") !== "node") return null;
+	// parsedInvocation calls this path only after recognizing the node executable.
 	let j = executableIndex + 1;
 	const firstArgument = stripQuotes(words[j] ?? "");
 	if (firstArgument === "--") j++;
@@ -215,7 +216,7 @@ function optionMatch(
 	index: number,
 	name: string,
 ): { value: string | null; consumedNext: boolean } | null {
-	const arg = args[index] ?? "";
+	const arg = nonNull(args[index]);
 	if (arg === name) {
 		const next = args[index + 1] ?? "";
 		return {

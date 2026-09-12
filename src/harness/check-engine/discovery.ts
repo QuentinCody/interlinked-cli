@@ -52,7 +52,8 @@ export function tryBinary(bin: ToolBinarySpec): { available: boolean; version?: 
 		});
 
 		if (result.error) return { available: false };
-		const output = (result.stdout || "") + (result.stderr || "");
+		// Both streams are piped and decoded as UTF-8; spawn errors returned above.
+		const output = result.stdout + result.stderr;
 		const match = output.match(bin.versionRegex);
 		return { available: true, version: match?.[1] };
 	} catch {

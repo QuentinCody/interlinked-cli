@@ -124,7 +124,7 @@ function collectHits(
 ): RawHit[] {
 	const hits: RawHit[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i] ?? "";
+		const line = nonNull(lines[i]);
 		re.lastIndex = 0;
 		for (const m of line.matchAll(re)) {
 			const col = m.index;
@@ -134,7 +134,8 @@ function collectHits(
 			// "REQ-1é", combining marks, astral letters) — post-filter by
 			// whole code point instead of bloating the regex (round-7 #2).
 			if (hasUnicodeWordGlue(line, col, col + id.length)) continue;
-			const prefix = m[1] ?? "";
+			// Both ID patterns require the prefix capture on every match.
+			const prefix = nonNull(m[1]);
 			const num = Number(m[2]);
 			if (!isValidHit(style, prefix, num)) continue;
 			hits.push({ prefix, num, id, line: i + 1, col, style });
@@ -152,8 +153,8 @@ function creditsDefinition(
 ): boolean {
 	if (firstColByLine.get(h.line) !== h.col) return false;
 	return isDefinitionSite(
-		views.raw[h.line - 1] ?? "",
-		views.stripped[h.line - 1] ?? "",
+		nonNull(views.raw[h.line - 1]),
+		nonNull(views.stripped[h.line - 1]),
 		h.col,
 	);
 }
@@ -187,15 +188,16 @@ function fillGapRange(gaps: number[], a: number, b: number): void {
 /** Missing numbers in [min..max]: bounded list + true count. `nums` is sorted
  *  ascending and distinct. */
 function computeGaps(nums: number[]): { gaps: number[]; gapCount: number } {
-	const min = nums[0] ?? 0;
-	const max = nums[nums.length - 1] ?? 0;
+	// extractIdNamespaces admits only groups meeting a positive distinct-ID minimum.
+	const min = nonNull(nums[0]);
+	const max = nonNull(nums[nums.length - 1]);
 	// Count is arithmetic (`nums` is distinct) — never scan the span for it.
 	const gapCount = max - min + 1 - nums.length;
 	const gaps: number[] = [];
 	// Walk adjacent SORTED values, filling each pair's gap — O(present), never
 	// O(span), even for a dense P-1..P-9999 registry with no gaps (sol-max #3).
 	for (let i = 0; i + 1 < nums.length && gaps.length < GAP_LIST_CAP; i++) {
-		fillGapRange(gaps, nums[i] ?? 0, nums[i + 1] ?? 0);
+		fillGapRange(gaps, nonNull(nums[i]), nonNull(nums[i + 1]));
 	}
 	return { gaps, gapCount };
 }
@@ -223,8 +225,8 @@ function buildNamespace(
 		prefix,
 		style,
 		ids,
-		min: nums[0] ?? 0,
-		max: nums[nums.length - 1] ?? 0,
+		min: nonNull(nums[0]),
+		max: nonNull(nums[nums.length - 1]),
 		uniqueCount: ids.length,
 		gaps,
 		gapCount,
@@ -292,7 +294,7 @@ function inSortedSpan(spans: Array<[number, number]>, col: number): boolean {
 	let hi = spans.length - 1;
 	while (lo <= hi) {
 		const mid = (lo + hi) >> 1;
-		const [s, e] = spans[mid] ?? [0, 0];
+		const [s, e] = nonNull(spans[mid]);
 		if (col < s) hi = mid - 1;
 		else if (col >= e) lo = mid + 1;
 		else return true;
@@ -420,10 +422,10 @@ const RANGE_CLAIM_RE =
 
 /** Validate one range-claim regex match; null when it is not a real claim. */
 function parseRangeMatch(
-	m: RegExpMatchArray,
+	m: RegExpExecArray,
 	lineNo: number,
 ): RangeClaim | null {
-	const prefix = m[1] ?? "";
+	const prefix = nonNull(m[1]);
 	const from = Number(m[2]);
 	const to = Number(m[3] ?? m[4] ?? m[5]);
 	if (!isValidDashedPrefix(prefix)) return null;
@@ -437,7 +439,7 @@ function parseRangeMatch(
 		toExplicit: (m[3] ?? m[4]) !== undefined,
 		raw: m[0],
 		line: lineNo,
-		col: m.index ?? 0,
+		col: m.index,
 	};
 }
 
@@ -450,8 +452,8 @@ function parseRangeMatch(
 /** One regex match → range claim, rejecting a match glued to a Unicode
  *  letter/digit on either side (round-7 #5 — the ASCII lookarounds can't see
  *  it). */
-function rangeMatchToClaim(line: string, m: RegExpMatchArray, lineNo: number): RangeClaim | null {
-	const start = m.index ?? 0;
+function rangeMatchToClaim(line: string, m: RegExpExecArray, lineNo: number): RangeClaim | null {
+	const start = m.index;
 	if (hasUnicodeWordGlue(line, start, start + m[0].length)) return null;
 	return parseRangeMatch(m, lineNo);
 }
@@ -459,7 +461,7 @@ function rangeMatchToClaim(line: string, m: RegExpMatchArray, lineNo: number): R
 export function extractRangeClaims(lines: string[]): RangeClaim[] {
 	const out: RangeClaim[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		const line = stripEmphasis(lines[i] ?? "");
+		const line = stripEmphasis(nonNull(lines[i]));
 		RANGE_CLAIM_RE.lastIndex = 0;
 		for (const m of line.matchAll(RANGE_CLAIM_RE)) {
 			const claim = rangeMatchToClaim(line, m, i + 1);

@@ -13,6 +13,7 @@
 // Deterministic: no IO, no network, no Date.now, no randomness. `event.ts` is
 // data carried on the event, never a live clock read.
 
+import { nonNull } from "../../lib/non-null.js";
 import {
 	anchorHash,
 	commandFamily,
@@ -300,8 +301,8 @@ const FILE_READ_CAP = 512;
  *  the oldest entry once the map is full (insertion order = age). */
 function recordRead(state: TrajectoryState, path: string): void {
 	if (!state.fileReadSteps.has(path) && state.fileReadSteps.size >= FILE_READ_CAP) {
-		const oldest = state.fileReadSteps.keys().next().value;
-		if (oldest !== undefined) state.fileReadSteps.delete(oldest);
+		// Reaching the positive cap proves that a first key exists.
+		state.fileReadSteps.delete(nonNull(state.fileReadSteps.keys().next().value));
 	}
 	state.fileReadSteps.set(path, state.stepCount);
 }
@@ -333,7 +334,8 @@ function recordPathLikeTokenReads(state: TrajectoryState, argToks: string[]): vo
 function foldBashReadBalance(state: TrajectoryState, cmd: string): void {
 	for (const seg of splitSegments(cmd)) {
 		const toks = seg.split(/\s+/).filter((t) => t.length > 0);
-		const head = ((toks[0] ?? "").split("/").pop() ?? "").toLowerCase();
+		// splitSegments returns trimmed, nonempty segments; each has a first token.
+		const head = nonNull(nonNull(toks[0]).split("/").pop()).toLowerCase();
 		const isSearch = SEARCH_VERBS.has(head);
 		if (isSearch) state.searchCount += 1;
 		if (!isSearch && !INSPECT_VERBS.has(head)) continue;

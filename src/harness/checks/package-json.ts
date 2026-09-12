@@ -333,7 +333,8 @@ function extractScriptFileRefs(scriptValue: string): string[] {
 		// Reset lastIndex — these are module-scope `g` regexes, shared across calls.
 		pattern.lastIndex = 0;
 		for (const match of scriptValue.matchAll(pattern)) {
-			if (match[1]) refs.add(match[1]);
+			// Every reference pattern requires a nonempty path capture.
+			refs.add(nonNull(match[1]));
 		}
 	}
 	return [...refs];

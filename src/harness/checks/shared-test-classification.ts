@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isJsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 
 /**
  * Resolve the interlinked-cli package root once, lazily, by walking up from
@@ -189,7 +190,7 @@ function isHarnessInternalDataFile(filePath: string): boolean {
 export function isTestSourcePath(relPath: string): boolean {
 	const norm = relPath.replace(/\\/g, "/");
 	if (/(?:^|\/)(?:__tests__|tests?)\//.test(norm)) return true;
-	const name = norm.split("/").pop() ?? "";
+	const name = nonNull(norm.split("/").pop());
 	if (/\.(?:test|spec)\.[^/]+$/.test(name)) return true;
 	if (name.startsWith("test_") && (name.endsWith(".py") || name.endsWith(".swift"))) return true;
 	if (/_test\.(?:py|go)$/.test(name)) return true;
@@ -291,7 +292,7 @@ export function isTestFile(filePath: string): boolean {
 
 /** Companion SUT basename for a test path (`foo.test.ts` → `foo`); "" if none. */
 export function sutBaseFromPath(filePath: string): string {
-	const fileName = filePath.replace(/\\/g, "/").split("/").pop() ?? "";
+	const fileName = nonNull(filePath.replace(/\\/g, "/").split("/").pop());
 	const base = fileName.replace(/\.(test|spec)\.(tsx?|jsx?|mjs|cjs|mts|cts)$/, "");
 	return base === fileName ? "" : base;
 }
