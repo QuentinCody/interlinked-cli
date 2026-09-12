@@ -21,6 +21,16 @@ import {
 } from "../output-parsers.js";
 
 describe("parseTscOutput", () => {
+	it.each(["null", "[]", "42"])("ignores non-object JSON reports without throwing: %s", (payload) => {
+		expect(parseOxlintJson(payload)).toEqual([]);
+		expect(parseShellcheckJson(payload)).toEqual([]);
+		expect(parseNpmAuditJson(payload)).toBeNull();
+	});
+
+	it("preserves a shellcheck finding when its optional level is absent", () => {
+		expect(parseShellcheckJson(JSON.stringify({ comments: [{ file: "a.sh", line: 2, code: 2086, message: "quote expansion" }] }))).toMatchObject([{ file: "a.sh", line: 2, severity: "warning", ruleId: "SC2086", message: "quote expansion" }]);
+	});
+
 	it("parses file-level errors with line/column/ruleId", () => {
 		const out = "src/a.ts(12,5): error TS2345: Argument not assignable";
 		const results = parseTscOutput(out);

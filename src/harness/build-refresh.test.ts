@@ -145,6 +145,23 @@ describe("startBuildRefreshWatcher", () => {
 
 	const distUrl = "file:///repo/dist/harness/server.js";
 
+	it("honors the process environment when no environment override is supplied", () => {
+		vi.stubEnv("INTERLINKED_NO_AUTO_RESTART", "1");
+		const spawn = makeSpawn();
+		try {
+			const dispose = startBuildRefreshWatcher({
+				moduleUrl: distUrl, cwd: "/repo", lastActivityMs: () => 0,
+				log: vi.fn(), deps: { spawn, statMtimeMs: () => Date.now() },
+			});
+			vi.advanceTimersByTime(60_000);
+			expect(spawn).not.toHaveBeenCalled();
+			expect(vi.getTimerCount()).toBe(0);
+			dispose();
+		} finally {
+			vi.unstubAllEnvs();
+		}
+	});
+
 	interface HarnessDeps {
 		spawn: ReturnType<typeof makeSpawn>;
 		log: ReturnType<typeof vi.fn<(message: string) => void>>;

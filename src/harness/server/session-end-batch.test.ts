@@ -45,6 +45,19 @@ function makeCtx(over: NonNullable<Parameters<typeof makeServerRuntime>[0]> = {}
 }
 
 describe("runSessionEndResourcePlan", () => {
+	it("defers heavy session-end work when the host is busy", () => {
+		const cores = vi.spyOn(os, "availableParallelism").mockReturnValue(2);
+		const load = vi.spyOn(os, "loadavg").mockReturnValue([20, 20, 20]);
+		try {
+			const ctx = makeCtx();
+			expect(runSessionEndResourcePlan(ctx, sessionEnd("busy"))).toMatchObject({ defer: true });
+			expect(ctx._logLines.join("\n")).toContain("DEFER heavy lane");
+		} finally {
+			load.mockRestore();
+			cores.mockRestore();
+		}
+	});
+
 	it("returns a valid resource plan for the current machine", () => {
 		const ctx = makeCtx();
 		const plan = runSessionEndResourcePlan(ctx, sessionEnd());

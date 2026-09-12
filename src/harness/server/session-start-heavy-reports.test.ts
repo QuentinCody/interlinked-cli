@@ -164,6 +164,18 @@ describe("readHeavyReports", () => {
 		expect(warnings.some((w) => w.includes("[interlinked:bench]"))).toBe(false);
 	});
 
+	it("compares only positive numeric benchmark baselines", () => {
+		mkdirSync(join(cwd, ".interlinked"), { recursive: true });
+		writeFileSync(join(cwd, ".interlinked", "bench-baseline.json"), JSON.stringify({ valid: 1, text: "1", zero: 0, negative: -1 }));
+		writeReport("bench", "mixed.json", { benchmarks: [
+			{ name: "valid", mean: 2 }, { name: "text", mean: 2 }, { name: "zero", mean: 2 }, { name: "negative", mean: 2 },
+		] });
+		const warnings = readHeavyReports(cwd);
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("valid");
+		expect(warnings[0]).not.toMatch(/text|zero|negative/);
+	});
+
 	it("does not throw when the bench baseline path cannot be written (a directory in its place)", () => {
 		mkdirSync(join(cwd, ".interlinked", "bench-baseline.json"), { recursive: true });
 		writeReport("bench", "s.json", { benchmarks: [{ name: "hot", mean: 1.5 }] });

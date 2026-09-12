@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import type { BiomeOverlayOutcome } from "../check-engine/tool-runners/biome.js";
+import type { TscOverlayOutcome } from "../check-engine/tool-runners/tsc-overlay.js";
 import type { CheckResult } from "../check-engine/types.js";
 
 const mockEngine = {
@@ -31,7 +32,7 @@ const mockEngine = {
 		filePath: string,
 		content: string,
 		siblings?: ReadonlyArray<{ filePath: string; content: string }>,
-	): { status: "ok"; findings: CheckResult[] } {
+	): TscOverlayOutcome {
 		return { status: "ok", findings: mockEngine.getTscDiagnosticsForOverlay(filePath, content, siblings) };
 	},
 	clearCache: vi.fn<() => void>(),
@@ -63,6 +64,22 @@ function resetEngineMocks(): void {
 	mockEngine.getTscDiagnosticsForOverlay.mockReset();
 	mockEngine.clearCache.mockReset();
 }
+
+it("leaves the proposed TypeScript result unmeasured when the baseline check is disabled", () => {
+	resetEngineMocks();
+	const file = join(TMP_ROOT, "disabled-baseline.ts");
+	writeFileSync(file, "export const value = 1;\n");
+	const run = vi.spyOn(mockEngine, "getTscDiagnosticsForOverlayTyped")
+		.mockReturnValue({ status: "skipped", reason: "tsc overlay disabled by config" });
+	try {
+		const result = evaluateTscDiffOverlay(file, "export const value = 2;\n", TMP_ROOT);
+		expect(result.newFindings).toEqual([]);
+		expect(result.proposedFindings).toBeNull();
+		expect(run).toHaveBeenCalledTimes(1);
+	} finally {
+		run.mockRestore();
+	}
+});
 
 describe("evaluateBiomeDiffOverlay — unreadable file", () => {
 	it("reports unavailable when the target cannot be read as text (e.g. a directory)", () => {

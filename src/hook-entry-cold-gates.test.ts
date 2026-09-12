@@ -283,6 +283,9 @@ describe("coldGraphShardBlockReason", () => {
 // coldMergeConflictBlockReason
 // ===========================================================================
 describe("coldMergeConflictBlockReason", () => {
+	it("ignores a pre-tool event with no tool name", () => {
+		expect(coldMergeConflictBlockReason(makeToolCallEvent({ tool_name: "", tool_input: { content: "plain text" } }))).toBeNull();
+	});
 	it("returns null outside the pre-tool phase", () => {
 		const event = makeToolCallEvent({
 			phase: "post-tool",

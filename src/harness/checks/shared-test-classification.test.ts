@@ -8,11 +8,26 @@ import {
 	__setPackageRootForTesting,
 	isPatternDataFile,
 	isStrictTestFile,
+	isTestSourcePath,
 	isTestFile,
 } from "./shared-test-classification.js";
 
 afterEach(() => {
 	__setPackageRootForTesting(undefined);
+});
+
+it.each([
+	"src/thing_test.go", "src/ThingTest.java", "src/ThingTests.swift",
+	"src/test_thing.swift", "src/test_thing.py", "src/thing_test.py",
+])("recognizes the language's test filename convention: %s", (file) => {
+	expect(isStrictTestFile(file)).toBe(true);
+	expect(isTestSourcePath(file)).toBe(true);
+});
+
+it.each(["src/test_helper.ts", "src/test_thing.txt", "src/ThingTests.txt"])(
+	"keeps similarly named production files out of test scope: %s", (file) => {
+		expect(isStrictTestFile(file)).toBe(false);
+		expect(isTestSourcePath(file)).toBe(false);
 });
 
 describe("isStrictTestFile — positive (must fire)", () => {

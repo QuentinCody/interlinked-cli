@@ -15,6 +15,7 @@ import {
 	attemptDaemonSelfHeal,
 	attemptDaemonSelfHealDetailed,
 	coldDaemonUnreachableBlockReason,
+	daemonRecoveryRoot,
 	commandCarriesNoDaemonBypass,
 	findRepoRoot,
 	isHarnessRecoveryCommand,
@@ -75,6 +76,19 @@ describe("findRepoRoot", () => {
 });
 
 describe("coldDaemonUnreachableBlockReason", () => {
+	it("does not race an operator's explicit harness recovery command", () => {
+		writeConfig();
+		const event = makeEvent("pre-tool", dir);
+		event.action = { kind: "shell_command", command: "interlinked harness restart", cwd: dir, tool_class: "modify" };
+		expect(daemonRecoveryRoot(event, dir, {})).toBeNull();
+	});
+
+	it("does not recover a deliberately disabled project", () => {
+		writeConfig();
+		writeDisable("guard-disabled.json");
+		expect(daemonRecoveryRoot(makeEvent("pre-tool", dir), dir, {})).toBeNull();
+	});
+
 	function writePid(pid = "2147480000"): void {
 		writeFileSync(join(dir, ".interlinked", "harness.pid"), `${pid}\n`);
 	}

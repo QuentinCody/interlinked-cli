@@ -19,6 +19,7 @@ vi.mock("node:fs", async (importOriginal) => {
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import {
 	backgroundTaskLogPath,
+	captureBackgroundTasks,
 	type BackgroundTaskRecord,
 	lastStatuses,
 	parseBackgroundTasks,
@@ -55,6 +56,15 @@ function record(tasks: unknown, ts = TS): number {
 }
 
 describe("parseBackgroundTasks — positive (must parse)", () => {
+	it("records an unattributed cold roster and reports the number of state changes", () => {
+		const log = vi.fn();
+		// test-contract: native hook payloads can omit session_id before validation.
+		const event = { hook_event: "SubagentStop", timestamp: TS, background_tasks: [{ id: "b1", status: "running" }] };
+		expect(Reflect.apply(captureBackgroundTasks, undefined, [event, dir, log])).toBe(1);
+		expect(rows()).toMatchObject([{ session_id: null, id: "b1", status: "running" }]);
+		expect(log).toHaveBeenCalledWith("Background-task roster: 1 state change(s) recorded");
+	});
+
 	it("P1: parses the roster shape the runner sends", () => {
 		expect(
 			parseBackgroundTasks([

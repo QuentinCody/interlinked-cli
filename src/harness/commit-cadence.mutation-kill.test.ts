@@ -49,7 +49,7 @@ describe("commit-cadence mutation boundaries", () => {
 		});
 	});
 
-	describe("readSessionTokens and usage extraction", () => {
+		describe("readSessionTokens and usage extraction", () => {
 		function transcript(rows: unknown[]): string {
 			const dir = mkdtempSync(join(tmpdir(), "commit-cadence-mutants-"));
 			const path = join(dir, "transcript.jsonl");
@@ -85,7 +85,7 @@ describe("commit-cadence mutation boundaries", () => {
 
 		it("ignores nonnumeric usage fields and accepts either nonzero side", () => {
 			const path = transcript([
-				{ type: "assistant", message: { usage: { input_tokens: "3", output_tokens: 4 } } },
+				{ type: "assistant", message: null, usage: { input_tokens: "3", output_tokens: 4 } },
 				{ type: "assistant", message: { usage: { input_tokens: 5, output_tokens: 0 } } },
 				{ type: "assistant", message: { usage: { input_tokens: 0, output_tokens: 6 } } },
 			]);

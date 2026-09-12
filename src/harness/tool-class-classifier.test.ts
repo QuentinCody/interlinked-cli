@@ -129,6 +129,15 @@ describe("classifyFromToolName — Copilot built-ins", () => {
 });
 
 describe("classifyFromToolName — fallback + overrides", () => {
+	it.each(["cmd", "bash", "shell", "script"])("classifies a shell tool using its %s command field", (field) => {
+		expect(classifyFromToolName("Bash", { [field]: "git status" })).toBe("read");
+	});
+	it("keeps the conservative class for a non-string command", () => {
+		expect(classifyFromToolName("Bash", { command: 42 })).toBe("modify");
+	});
+	it("falls through an unmatched substring override to the builtin command classifier", () => {
+		expect(classifyCommand("git status", [{ match: "deploy", class: "side-effect" }])).toBe("read");
+	});
 	it("falls back to modify for unknown MCP tools", () => {
 		expect(classifyFromToolName("MyCustomTool", { arg: 1 })).toBe("modify");
 	});

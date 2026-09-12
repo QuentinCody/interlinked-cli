@@ -27,6 +27,9 @@ beforeEach(() => {
 afterEach(() => rmSync(tmp, { recursive: true, force: true }));
 
 describe("detectBreakGlass — matching", () => {
+	it.each(["break glass:", "break glass,  ", "break glass:\r\n"])("does not invent a reason from a bare separator: %s", (message) => {
+		expect(detectBreakGlass(message)).toEqual({ triggered: true, reason: null });
+	});
 	it("fires on the literal token", () => {
 		const sig = detectBreakGlass("fix: critical bug\n\nbreak glass — prod outage");
 		expect(sig.triggered).toBe(true);

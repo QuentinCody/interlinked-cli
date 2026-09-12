@@ -17,6 +17,10 @@ const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 describe("coverage on both daemon transports", () => {
+    it.each([null, [], true, 42, "event", {}])("preserves the event-loop decision for an unrecognized raw payload %j", async (payload) => {
+        const loop = createCoverageEventLoop(makeEventLoopDeps());
+        expect(await loop.evaluateEventLine(JSON.stringify(payload), "raw")).toEqual({ decision: "allow", warnings: ["existing"] });
+    });
     it("routes control queries and leaves malformed event handling with the original loop", async () => {
         const loop = createCoverageEventLoop(makeEventLoopDeps());
         expect(await loop.evaluateEventLine("malformed", "raw")).toMatchObject({ decision: "allow", warnings: ["existing"] });

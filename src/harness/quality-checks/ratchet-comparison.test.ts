@@ -672,6 +672,15 @@ describe("runRatchetComparison — defensive error swallow", () => {
 });
 
 describe("runRatchetComparison — seam_ratchet (plan 25 lane 2)", () => {
+	it("reports newly introduced randomness and environment dependencies", () => {
+		const results = runRatchetComparison(makeCtx({
+			baseline: zeroBaseline({ ambientSeams: { clock: 0, random: 0, env: 0 } }),
+			postContent: "const sample = Math.random(); const mode = process.env.MODE;",
+		}));
+		expect(names(results)).toEqual(["seam_ratchet"]);
+		expect(results[0]?.message).toContain("random 0→1");
+		expect(results[0]?.message).toContain("env 0→1");
+	});
 	// test-contract: behavior — adding an ambient clock read must warn with the
 	// grown dimension and the injection fix
 	it("P1: fires when the edit adds a clock read", () => {
@@ -707,6 +716,15 @@ describe("runRatchetComparison — seam_ratchet (plan 25 lane 2)", () => {
 });
 
 describe("runRatchetComparison — assertion_strength_ratchet (introduced assertions)", () => {
+	it("reviews newly added Python assertions using Python matcher forms", () => {
+		const results = runRatchetComparison(makeCtx({
+			absPath: "/repo/tests/test_result.py",
+			baseline: zeroBaseline({ assertionStrength: { weak: 0, exact: 0 }, assertionStrengthPreContent: "" }),
+			postContent: "assert result\n",
+		}));
+		expect(names(results)).toEqual(["assertion_strength_ratchet"]);
+		expect(results[0]?.message).toContain("1 new, 0 new exact-value assertions");
+	});
 	// test-contract: behavior — pure weakening (weak added, no offsetting exact
 	// in the same added lines) fires
 	it("P1: fires when the edit adds a weak matcher with no offsetting exact matcher", () => {

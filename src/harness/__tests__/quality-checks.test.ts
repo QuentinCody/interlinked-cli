@@ -12,6 +12,7 @@ import {
 	findAnyTypes,
 	formatQualityWarnings,
 	resolveQualityCheckTarget,
+	runQualityChecks,
 	sharedContentReader,
 	stripStringLiterals,
 } from "../quality-checks.js";
@@ -341,6 +342,10 @@ describe("formatQualityWarnings — proven|heuristic determinism tag", () => {
 });
 
 describe("resolveQualityCheckTarget", () => {
+	it("runs no file checks for an event without a usable target", async () => {
+		expect(await runQualityChecks({ hook_event: "PostToolUse", session_id: "s", agent_source: "claude", timestamp: "2026-09-12T00:00:00Z" }, {}, "/repo")).toEqual([]);
+	});
+
 	function event(filePath: string): HarnessEvent {
 		return {
 			hook_event: "PostToolUse",
@@ -354,6 +359,14 @@ describe("resolveQualityCheckTarget", () => {
 	it("returns null for a file path under an excluded build/vendor directory", () => {
 		const target = resolveQualityCheckTarget(event("/repo/node_modules/pkg/index.js"), "/repo");
 		expect(target).toBeNull();
+	});
+
+	it.each([{}, { file_path: 42 }, { path: false }, { file_path: "", path: "" }])("ignores tool inputs without a usable file path: %j", (tool_input) => {
+		expect(resolveQualityCheckTarget({ ...event(""), tool_input }, "/repo")).toBeNull();
+	});
+
+	it("uses the path alias for an extensionless file when file_path is invalid", () => {
+		expect(resolveQualityCheckTarget({ ...event(""), tool_input: { file_path: 42, path: "Makefile" } }, "/repo")).toEqual({ filePath: "Makefile", absPath: "/repo/Makefile", testBaseName: "Makefile" });
 	});
 
 	it("resolves a normal in-repo file to its absolute path and test base name", () => {

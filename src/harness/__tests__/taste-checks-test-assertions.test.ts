@@ -7,6 +7,13 @@ import { checkAssertionFreeTest } from "../taste-checks-test-assertions.js";
 
 const TEST = "/x/widget.test.ts";
 
+it("does not infer assertion absence from a parameterized callback supplied by reference", () => {
+	const content = 'it.each(cases)("validates %s", verifyCase);\nit("ordinary case", () => { compute(); });';
+	expect(checkAssertionFreeTest(content, TEST)).toEqual([
+		expect.objectContaining({ line: 2 }),
+	]);
+});
+
 describe("checkAssertionFreeTest — smoke-test name exemption", () => {
 	// ---- exempt: cases EXPLICITLY named for a not-throwing / smoke check ----
 	it("exempts a case named 'renders without crashing'", () => {

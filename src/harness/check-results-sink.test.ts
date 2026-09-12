@@ -1,10 +1,11 @@
 // Tests for the check-results sink: mapping a HarnessDecision's structured
 // check_results into a compact filmstrip row, and the fail-open append.
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import * as capturedData from "../lib/data/capture.js";
 import { appendCheckResults, buildCheckRow } from "./check-results-sink.js";
 import type { CheckResultEntry, HarnessDecision } from "./types/decisions.js";
 import type { HarnessEvent } from "./types/events.js";
@@ -124,6 +125,16 @@ describe("appendCheckResults", () => {
 	beforeAll(() => { dir = mkdtempSync(join(tmpdir(), "check-sink-")); });
 	afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 
+	it("does not create capture artifacts for a dry-run event with findings", () => {
+		const root = mkdtempSync(join(tmpdir(), "check-sink-dry-run-"));
+		try {
+			appendCheckResults(root, postEvent({ dry_run: true, tool_use_id: "probe", tool_name: "Edit" }), decisionWith({ check_results: [tsFinding] }));
+			expect(readdirSync(root)).toEqual([]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	});
+
 	it("appends a row to .interlinked/check-results.jsonl, creating the dir", () => {
 		const ev = postEvent({ tool_use_id: "t1", tool_name: "Edit", tool_input: { file_path: "src/x.ts" } });
 		appendCheckResults(dir, ev, decisionWith({ checks_ran: ["typescript"], check_results: [magicFinding] }));
@@ -143,5 +154,15 @@ describe("appendCheckResults", () => {
 		writeFileSync(asFile, "x");
 		const ev = postEvent({ tool_use_id: "t1", tool_input: { file_path: "a.ts" } });
 		expect(() => appendCheckResults(asFile, ev, decisionWith({ check_results: [magicFinding] }))).not.toThrow();
+	});
+
+	it("contains an unexpected native capture failure before recording check results", () => {
+		const writer = vi.spyOn(capturedData, "appendCapturedData").mockImplementation(() => { throw new Error("capture writer failed"); });
+		try {
+			expect(() => appendCheckResults(dir, postEvent({ tool_use_id: "writer-failure" }), decisionWith({ check_results: [magicFinding] }))).not.toThrow();
+			expect(writer).toHaveBeenCalledWith({ cwd: dir, producer: "harness/data-capture-native", session: "s", provider: "claude" }, "files-touched", []);
+		} finally {
+			writer.mockRestore();
+		}
 	});
 });

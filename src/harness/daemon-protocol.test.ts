@@ -84,6 +84,14 @@ describe("decodeFrame error paths", () => {
 });
 
 describe("splitFrames", () => {
+	it("preserves a partial frame until a later chunk supplies its newline", () => {
+		expect(splitFrames('"value"', '{"id":')).toEqual({ frames: [], remainder: '{"id":"value"' });
+	});
+
+	it("ignores leading and repeated blank frames while retaining complete JSON", () => {
+		expect(splitFrames('\n{"id":"1"}\n\n{"id":')).toEqual({ frames: ['{"id":"1"}'], remainder: '{"id":' });
+	});
+
 	it("splits newline-delimited frames and returns remainder", () => {
 		const { frames, remainder } = splitFrames('{"id":"1"}\n{"id":"2"}\n{"id":"3');
 		expect(frames.length).toBe(2);

@@ -43,6 +43,32 @@ function isError(m: RpcResponse | RpcError): m is RpcError {
 }
 
 describe("dispatchRpc — schema check", () => {
+	it("rejects malformed hook coverage operations before invoking the observer", async () => {
+		const coverage = vi.fn();
+		const result = await dispatchRpc({ schema_version: "1", id: "coverage", method: "daemon.coverage", params: { operation: "unknown" } }, makeState({ coverage }));
+		expect(result).toMatchObject({ id: "coverage", error: { code: "bad_request" } });
+		expect(coverage).not.toHaveBeenCalled();
+	});
+
+	it("reports coverage as unmeasured when no observer is available", async () => {
+		const result = await dispatchRpc({ schema_version: "1", id: "coverage", method: "daemon.coverage", params: { operation: "status" } }, makeState());
+		expect(result).toEqual({ id: "coverage", result: { readiness: "unmeasured", reason: "No daemon observer" } });
+	});
+
+	it("returns the observer report for a valid coverage operation", async () => {
+		const report = { readiness: "ready" as const, generation: 7, pending: [] };
+		const coverage = vi.fn(() => report);
+		const result = await dispatchRpc({ schema_version: "1", id: "coverage", method: "daemon.coverage", params: { operation: "verify" } }, makeState({ coverage }));
+		expect(result).toEqual({ id: "coverage", result: report });
+		expect(coverage).toHaveBeenCalledWith({ operation: "verify" });
+	});
+
+	it("contains observer failures within the coverage RPC response", async () => {
+		const coverage = vi.fn(() => { throw new Error("observer failed"); });
+		const result = await dispatchRpc({ schema_version: "1", id: "coverage", method: "daemon.coverage", params: { operation: "status" } }, makeState({ coverage }));
+		expect(result).toMatchObject({ id: "coverage", error: { code: "internal", message: "Error: observer failed" } });
+	});
+
 	it("rejects requests with a wrong schema_version", async () => {
 		const result = await dispatchRpc(
 			{

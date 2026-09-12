@@ -319,6 +319,10 @@ describe("parseRuffJson", () => {
 });
 
 describe("parseCargoJson", () => {
+	it("does not invent a file finding for a compiler message without spans", () => {
+		expect(parseCargoJson(JSON.stringify({ reason: "compiler-message", message: { level: "error", message: "project failed" } }), "cargo-check")).toEqual([]);
+	});
+
 	it("retains diagnostics when optional level and message fields are absent", () => {
 		expect(parseCargoJson(JSON.stringify({ reason: "compiler-message", message: {
 			spans: [{ file_name: "lib.rs", line_start: 2 }],

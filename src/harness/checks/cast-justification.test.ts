@@ -1,9 +1,20 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as syntaxParser from "./cyclomatic-ast.js";
 import { countUnjustifiedCasts, findUnjustifiedCasts } from "./cast-justification.js";
 
 const n = (s: string) => findUnjustifiedCasts(s, "src/foo.ts").length;
 
 describe("findUnjustifiedCasts", () => {
+	it("retains lexical assertion detection if the syntax parser fails", () => {
+		const parser = vi.spyOn(syntaxParser, "parseTsSource").mockImplementationOnce(() => { throw new Error("parser unavailable"); });
+		try {
+			const content = 'import { User as Alias } from "types";\nexport { User as PublicUser };\nconst value = input as User;';
+			expect(findUnjustifiedCasts(content, "src/a.ts")).toEqual([{ line: 3, text: "const value = input as User;" }]);
+		} finally {
+			parser.mockRestore();
+		}
+	});
+
 	// ── positives: real `as T` assertions with no justification ──────────────
 	it("flags a plain `as T` cast with no justification", () => {
 		expect(n("const x = foo as Bar;")).toBeGreaterThanOrEqual(1);

@@ -235,6 +235,10 @@ describe("FileContentCache", () => {
 // ===========================================
 
 describe("checkGrepAcceleration entry guards", () => {
+	it.each([{}, { command: 42 }, { command: null }])("declines a shell event without a string command: %j", (tool_input) => {
+		const { index } = fixture({ "a.ts": "content here" });
+		expect(checkGrepAcceleration({ ...bashEvent(""), tool_input }, index, ACCEL)).toBeNull();
+	});
 	it("returns null immediately when the index is null", () => {
 		const ev = grepEvent("anyToken");
 		expect(checkGrepAcceleration(ev, null, ACCEL)).toBeNull();

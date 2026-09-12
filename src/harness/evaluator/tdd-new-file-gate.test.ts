@@ -194,6 +194,14 @@ describe("evaluateTddNewFileGate — exempt paths", () => {
 });
 
 describe("evaluateTddNewFileGate — blocking", () => {
+	it("does not treat unrelated session writes as a companion test", () => {
+		const decision = evaluateTddNewFileGate({
+			filePath: join(tmp, "src/foo.ts"), cwd: tmp,
+			session: makeSession([join(tmp, "elsewhere/foo.test.ts"), join(tmp, "src/other.test.ts")]),
+			testFirstMode: "enforce",
+		});
+		expect(decision).toMatchObject({ decision: "block", rule_id: "tdd_new_file_gate" });
+	});
 	it("blocks a brand-new .ts source with no companion on disk or in session", () => {
 		const decision = evaluateTddNewFileGate({
 			filePath: join(tmp, "src/foo.ts"),

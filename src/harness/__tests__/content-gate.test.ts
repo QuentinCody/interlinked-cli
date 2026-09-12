@@ -807,6 +807,19 @@ describe("gateProposedContent", () => {
 		expect(result.ok).toBe(true);
 	});
 
+	it("retains an advisory finding when registry instructions are unavailable", async () => {
+		const registry = await import("../check-registry/index.js");
+		const instructions = vi.spyOn(registry, "buildCheckInstructions").mockReturnValueOnce({});
+		try {
+			const result = gateProposedContent([{ path: PRE_WARN_FIXTURE, content: PRE_WARN_CONTENT }], { projectRoot: FIXTURE_DIR, skipPreWarn: false });
+			const finding = result.failures.find((entry) => entry.code === "floating_promises");
+			expect(finding).toMatchObject({ severity: GATE_SEVERITY_WARNING, line: 3 });
+			expect(finding).not.toHaveProperty("hint");
+		} finally {
+			instructions.mockRestore();
+		}
+	});
+
 	it("pre_warn enabled: floating-promise content surfaces a pre_warn warning (non-blocking)", () => {
 		const result = gateProposedContent(
 			[{ path: PRE_WARN_FIXTURE, content: PRE_WARN_CONTENT }],

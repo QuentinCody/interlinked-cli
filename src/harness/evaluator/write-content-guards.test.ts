@@ -153,6 +153,16 @@ function run(
 // run" as clean. These drive the real evaluateWriteContentGuards production
 // path with the overlay mocked to the sidecar's actual unavailable shape.
 describe("tsc overlay unavailable — NOT CHECKED on the live path", () => {
+	it("reports an unavailable Biome baseline without certifying or blocking the edit", () => {
+		vi.mocked(evaluateBiomeDiffOverlay).mockReturnValueOnce({
+			newFindings: [], proposedFindings: null, elapsedMs: 0, exceededBudget: false,
+			checkerUnavailable: "Biome baseline could not be read",
+		});
+		const result = run({ file_path: "src/a.ts", content: "export const a = 1;\n" });
+		expect(result).toMatchObject({ kind: "ok", warnings: [
+			"[interlinked:biome-overlay] NOT CHECKED — src/a.ts: Biome baseline could not be read",
+		] });
+	});
 	const mTscOverlay = vi.mocked(evaluateTscDiffOverlay);
 
 	it("P: checkerUnavailable ⇒ a loud NOT CHECKED warning on an otherwise-allowed edit", () => {

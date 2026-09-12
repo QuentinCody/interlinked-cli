@@ -13,6 +13,11 @@ import {
 // ===========================================
 
 describe("checkSilentFailure", () => {
+	it("skips non-JSON MCP text blocks while retaining an explicit failure", () => {
+		const response = { content: [{ type: "text", text: "operation completed" }, { type: "text", text: '{"success":false,"reason":"timeout"}' }] };
+		expect(checkSilentFailure(response)).toMatchObject({ pattern: "success: false" });
+	});
+
 	it("flags { success: false }", () => {
 		const hit = checkSilentFailure({ success: false, reason: "timeout" });
 		expect(hit?.pattern).toBe("success: false");

@@ -140,6 +140,9 @@ vi.mock("./tool-runners/tsc.js", () => ({
 }));
 
 vi.mock("./tool-runners/biome.js", () => ({
+	runBiomeOverlayTyped: (args: Parameters<typeof biomeOverlaySpy>[0]) => ({
+		status: "ok", findings: biomeOverlaySpy(args),
+	}),
 	runBiome: mkSyncRunner("biome"),
 	runBiomeAsync: mkAsyncRunner("biome"),
 	runBiomeOverlay: (args: {
@@ -1086,6 +1089,29 @@ describe("cache clearing", () => {
 // getBiomeDiagnosticsForOverlay
 // ===========================================================================
 describe("CheckEngine.getBiomeDiagnosticsForOverlay", () => {
+	it("does not certify an overlay when all diagnostics refer to other files", () => {
+		biomeOverlayImpl = () => [result({ tool: "biome", file: "src/other.ts" })];
+		const eng = new CheckEngine(ROOT);
+		expect(eng.getBiomeDiagnosticsForOverlayTyped("/proj/src/x.ts", "code")).toEqual({
+			status: "unavailable", reason: "Biome diagnostics could not be attributed to the proposed file",
+		});
+	});
+
+	it.each(["src/x.ts", "/proj/src/x.ts"])("attributes typed overlay findings at %s", (file) => {
+		const finding = result({ tool: "biome", file, message: "invalid code" });
+		biomeOverlayImpl = () => [finding];
+		const eng = new CheckEngine(ROOT);
+		expect(eng.getBiomeDiagnosticsForOverlayTyped("/proj/src/x.ts", "code")).toEqual({
+			status: "ok", findings: [finding],
+		});
+	});
+
+	it("preserves a measured clean typed overlay", () => {
+		const eng = new CheckEngine(ROOT);
+		expect(eng.getBiomeDiagnosticsForOverlayTyped("/proj/src/x.ts", "code")).toEqual({
+			status: "ok", findings: [],
+		});
+	});
 	it("returns [] when biome is unavailable (no overlay run)", () => {
 		discoverSingleToolImpl = () => avail("biome", false);
 		const eng = new CheckEngine(ROOT);

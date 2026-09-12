@@ -606,6 +606,14 @@ describe("runRuffAsync", () => {
 // ===========================================================================
 
 describe("runRuffFormatAsync", () => {
+	it("checks the project when file mode supplies no target", async () => {
+		runProcessAsyncMock.mockResolvedValue(procResult({ code: 1, stdout: wouldReformat() }));
+		const out = await runRuffFormatAsync(input({ projectRoot: PROJECT_ROOT, mode: "file" }));
+		expect(out).toMatchObject([{ tool: "ruff-format", file: "app/models.py" }]);
+		expect(runProcessAsyncMock).toHaveBeenCalledWith("ruff", ["format", "--check", "."], {
+			cwd: PROJECT_ROOT, timeout: 5_000,
+		});
+	});
 	it("invokes runProcessAsync with `format --check` + target, cwd/timeout", async () => {
 		runProcessAsyncMock.mockResolvedValue(procResult({ code: 0 }));
 		await runRuffFormatAsync(input(fileScope(), 2_222));

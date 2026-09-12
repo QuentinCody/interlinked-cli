@@ -36,6 +36,11 @@ function initOf(f: FetchImpl): RequestInit {
 }
 
 describe("fetchRegistryMetadata — per ecosystem", () => {
+	it.each(["composer", "maven", "gradle", "nuget"] as const)("returns no metadata for unsupported registry %s without fetching", async (ecosystem) => {
+		const fetchImpl = fakeFetch({ version: "1.0.0" });
+		expect(await fetchRegistryMetadata(ecosystem, "example", { fetchImpl })).toBeNull();
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
 	it("npm: reads version + license from the /latest dist-tag endpoint", async () => {
 		const f = fakeFetch({ version: "4.17.21", license: "MIT" });
 		const meta = await fetchRegistryMetadata("npm", "lodash", { fetchImpl: f });

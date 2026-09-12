@@ -1075,6 +1075,21 @@ describe("harness server.ts — runtime sync callbacks", () => {
 });
 
 describe("harness server.ts — idle timeout enabled branch", () => {
+	it("keeps the daemon alive until active hook verification completes", async () => {
+		// Install the observer before advancing the startup's idle timer.
+		process.argv = ["node", "server.js", "--idle-timeout", "1000"];
+		await import("./server.js");
+		const deps = nonNull(cap.eventLoopDeps);
+		const isRunning = vi.fn(() => true);
+		deps.ctx.hookCoverage = { verification: { isRunning } };
+		deps.resetIdleTimer();
+		vi.advanceTimersByTime(2000);
+		expect(cap.socketSetters.shutdown).not.toHaveBeenCalled();
+		isRunning.mockReturnValue(false);
+		vi.advanceTimersByTime(1000);
+		expect(cap.socketSetters.shutdown).toHaveBeenCalledTimes(1);
+	});
+
 	it("arms an idle timer that shuts down after the configured timeout", async () => {
 		await loadServer(["--idle-timeout", "1000"]);
 		const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
