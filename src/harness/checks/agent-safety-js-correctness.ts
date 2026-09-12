@@ -34,11 +34,8 @@ export function checkNonNullAssertions(content: string, filePath: string): Inlin
 		if (matches.length >= 10) break;
 		// Match identifier! followed by . or [ or ) — but not !== or !=
 		if (/\w!\.|\w!\[|\w!\)/.test(line) && !/!==|!=/.test(line.replace(/\w!\./g, ""))) {
-			// Verify it's actually a non-null assertion (not a boolean negation)
-			const nnaMatch = line.match(/(\w+)!\s*[.[)]/);
-			if (nnaMatch) {
-				matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
-			}
+			// The predicate already matched a word character followed by ! and . / [ / ).
+			matches.push({ line: i + 1, text: nonNull(originalLines[i]).trim().slice(0, 150) });
 		}
 	}
 	return matches;

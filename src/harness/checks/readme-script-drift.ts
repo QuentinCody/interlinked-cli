@@ -25,6 +25,7 @@
 // is a heuristic in monorepos.
 
 import { isJsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { InlineMatch } from "./shared.js";
@@ -92,7 +93,8 @@ function mapFences(lines: string[]): FenceMap {
 			if (currentFence === null) {
 				currentFence = nextFenceId++;
 				fenceIdByLine.push(currentFence);
-				const lang = (delim[1] ?? "").toLowerCase();
+				// The capture is mandatory; its * quantifier admits an empty language.
+				const lang = nonNull(delim[1]).toLowerCase();
 				if (DATA_FENCE_LANGS.has(lang)) foreignFences.add(currentFence);
 			} else {
 				fenceIdByLine.push(currentFence); // closing delimiter belongs to the fence
@@ -177,7 +179,7 @@ export function detectReadmeScriptDrift(
 		const fenceId = fenceIdByLine[i] ?? null;
 		if (fenceId !== null && foreignFences.has(fenceId)) continue; // data fence / other repo's setup
 
-		const line = lines[i] ?? "";
+		const line = nonNull(lines[i]);
 		collectLineDrift(line, i + 1, scripts, matches);
 	}
 	return matches;

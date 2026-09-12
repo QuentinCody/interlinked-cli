@@ -311,7 +311,7 @@ function isInterlinkedCapped(resp: unknown): boolean {
 }
 
 function computeCapturedBytes(fieldValue: unknown): number {
-	if (fieldValue === null || fieldValue === undefined) return 0;
+	// buildFidelity excludes absent fields before computing their fidelity.
 	if (typeof fieldValue === "string") return Buffer.byteLength(fieldValue, "utf8");
 	return Buffer.byteLength(JSON.stringify(fieldValue), "utf8");
 }

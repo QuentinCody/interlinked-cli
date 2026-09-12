@@ -22,6 +22,7 @@ import { isJsonObject } from "../lib/json-types.js";
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { nonNull } from "../lib/non-null.js";
 import { loadCheckPolicy } from "./check-policy.js";
 import {
 	baselinePath,
@@ -96,7 +97,8 @@ export function findCoverageSummary(cwd: string): string | null {
 		existsSync(p),
 	);
 	if (present.length === 0) return null;
-	return present.sort((a, b) => mtimeOrZero(b) - mtimeOrZero(a))[0] ?? null;
+	// Sorting preserves the nonempty candidate array checked above.
+	return nonNull(present.sort((a, b) => mtimeOrZero(b) - mtimeOrZero(a))[0]);
 }
 
 /**

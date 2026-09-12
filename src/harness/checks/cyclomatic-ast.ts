@@ -25,6 +25,7 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { extname } from "node:path";
 import type * as TS from "typescript";
+import { nonNull } from "../../lib/non-null.js";
 import type { FunctionComplexityEntry } from "./cyclomatic.js";
 
 export type TsModule = typeof TS;
@@ -141,8 +142,8 @@ export function parseTsSourceWith(ts: TsModule, content: string, filePath: strin
 	);
 	parseMemo.set(key, { ts, sf, scriptKind });
 	if (parseMemo.size > PARSE_MEMO_MAX) {
-		const oldest = parseMemo.keys().next();
-		if (!oldest.done) parseMemo.delete(oldest.value);
+		// Exceeding the positive cache limit proves that a first key exists.
+		parseMemo.delete(nonNull(parseMemo.keys().next().value));
 	}
 	return sf;
 }

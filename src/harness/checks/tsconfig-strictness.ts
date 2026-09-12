@@ -164,8 +164,7 @@ function safeReadJsonc(path: string): JsonObject | null {
 }
 
 /** Get `compilerOptions` as a JsonObject (or null if absent / not an object). */
-function getCompilerOptions(cfg: JsonObject | null): JsonObject | null {
-	if (!cfg) return null;
+function getCompilerOptions(cfg: JsonObject): JsonObject | null {
 	const co = cfg.compilerOptions;
 	if (isJsonObject(co)) return co;
 	return null;

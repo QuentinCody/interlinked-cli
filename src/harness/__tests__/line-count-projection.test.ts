@@ -87,6 +87,11 @@ describe("projectLineCount", () => {
 		expect(projectLineCount({ file_path: path, old_string: "nope", new_string: "x" }, path)).toBeNull();
 	});
 
+	it("declines an empty Edit search instead of looping or inventing an insertion", () => {
+		const path = file("empty-search.ts", "code();");
+		expect(projectLineCount({ file_path: path, old_string: "", new_string: "insert();", replace_all: true }, path)).toBeNull();
+	});
+
 	it("Edit on a nonexistent file projects null", () => {
 		const path = join(dir, "ghost.ts");
 		expect(projectLineCount({ file_path: path, old_string: "a", new_string: "b" }, path)).toBeNull();

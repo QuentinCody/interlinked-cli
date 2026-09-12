@@ -450,6 +450,16 @@ describe("loadFileSuppressions / loadSuppressionFile / addSuppressions / glob", 
 			expect(loadFileSuppressions(dir, "src/b.ts").size).toBe(0);
 		});
 
+		it("keeps valid suppressions while rejecting malformed neighboring records", () => {
+			write({ "src/a.ts": {
+				valid: { reason: "reviewed", by: "cli", at: "now" },
+				missingReason: { by: "cli", at: "now" },
+				invalidLine: { reason: "reviewed", by: "cli", at: "now", line: "2" },
+				nullRecord: null,
+			} });
+			expect([...loadFileSuppressions(dir, "src/a.ts")]).toEqual(["valid"]);
+		});
+
 		it("matches a single-segment `*` glob", () => {
 			write({ "src/*.ts": { foo: { reason: "x", by: "cli", at: "n" } } });
 			expect(loadFileSuppressions(dir, "src/a.ts").has("foo")).toBe(true);

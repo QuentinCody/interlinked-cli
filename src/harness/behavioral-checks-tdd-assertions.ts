@@ -167,15 +167,15 @@ export function countAssertions(rawContent: string): AssertionCounts {
  * before vs after (via `emptyBlocksByCounts`, keyed off the exact
  * `AssertionCounts` objects involved): a pure split conserves that count
  * (every new block still has ≥1 assertion), while a genuinely new
- * assertion-free block raises it. A cache miss on either side (object
- * never passed through `countAssertions`, e.g. a `before` restored from an
- * older session snapshot) reads as 0 — the same "assume nothing moved,
+ * assertion-free block raises it. A cache miss on the before side (object
+ * restored from an older session snapshot) reads as 0 — the same "assume nothing moved,
  * still allow a real positive to fire" default the rest of this check
  * uses for missing history.
  */
 function assertionsWereRedistributed(before: AssertionCounts, after: AssertionCounts): boolean {
 	const beforeEmpty = emptyBlocksByCounts.get(before) ?? 0;
-	const afterEmpty = emptyBlocksByCounts.get(after) ?? 0;
+	// The only caller creates after with countAssertions immediately before this call.
+	const afterEmpty = nonNull(emptyBlocksByCounts.get(after));
 	return afterEmpty - beforeEmpty <= 0;
 }
 

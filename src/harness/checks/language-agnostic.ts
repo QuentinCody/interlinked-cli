@@ -3,6 +3,7 @@
 // harness/large-file-policy.ts — the single source of truth for file size.)
 
 import { isJsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import {
@@ -89,7 +90,8 @@ export function checkConsoleDebug(content: string, filePath: string): InlineMatc
 	if (isConsoleDebugExempt(filePath, content)) return [];
 
 	const ext = getExtension(filePath);
-	const fileName = filePath.split(/[/\\]/).pop() || "";
+	// split always returns at least one element, including for an empty path.
+	const fileName = nonNull(filePath.split(/[/\\]/).pop());
 	const normalized = filePath.replace(/\\/g, "/");
 	const pattern = consoleDebugPatternFor(ext, fileName, normalized, content);
 	if (!pattern) return [];
