@@ -282,10 +282,29 @@ describe("callTool", () => {
 });
 
 describe("fetchWorkspaces", () => {
-	it.each([{ workspaces: "invalid" }, { workspaces: [{ id: 4, name: "project" }] }, { workspaces: [null] }])("rejects malformed workspace records (%j)", async (json) => {
+	it.each([null, [], { workspaces: "invalid" }, { workspaces: [{ id: 4, name: "project" }] }, { workspaces: [null] }])("rejects malformed workspace records (%j)", async (json) => {
 		const client = new InterlinkedClient({ serverUrl: "https://x", token: "tk" });
 		fetchMock.mockResolvedValue(makeRes({ json }));
 		await expect(client.fetchWorkspaces()).rejects.toThrow(/Workspace response/);
+	});
+
+	it("preserves optional workspace role and display name", async () => {
+		const c = new InterlinkedClient({ serverUrl: "https://x", token: "tk" });
+		const workspace = { id: "1", name: "a", role: "owner", display_name: "Project A" };
+		fetchMock.mockResolvedValue(makeRes({ json: { workspaces: [workspace] } }));
+		expect(await c.fetchWorkspaces()).toEqual([workspace]);
+	});
+
+	it("applies the caller's parser to a successful tool response", async () => {
+		const c = new InterlinkedClient({ serverUrl: "https://x", token: "tk" });
+		fetchMock.mockResolvedValue(makeRes({ json: { count: 7 } }));
+		expect(await c.callTool("count", {}, (value) => JSON.stringify(value))).toBe('{"count":7}');
+	});
+
+	it("propagates a response parser's validation failure", async () => {
+		const c = new InterlinkedClient({ serverUrl: "https://x", token: "tk" });
+		fetchMock.mockResolvedValue(makeRes({ json: null }));
+		await expect(c.callTool("count", {}, () => { throw new Error("invalid count response"); })).rejects.toThrow("invalid count response");
 	});
 	it("throws when no token and not local dev", async () => {
 		const c = new InterlinkedClient({ serverUrl: "https://prod.example" });

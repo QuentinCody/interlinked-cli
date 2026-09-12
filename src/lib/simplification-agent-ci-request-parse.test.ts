@@ -16,6 +16,16 @@ const SHA_A = "a".repeat(64);
 const SHA_B = "b".repeat(64);
 const COMMIT = "c".repeat(40);
 
+describe("request object boundaries", () => {
+	it.each([
+		[parseScope, "scope"], [parseEvidence, "evidence"],
+		[parseOrchestration, "orchestration"], [parseValidation, "validation"],
+		[parseSubmission, "submission"],
+	])("rejects a null object with its request location: %s", (parse, field) => {
+		expect(parse(null)).toEqual({ reason: `request.${field} must be an object` });
+	});
+});
+
 function repository(): Record<string, unknown> {
 	return {
 		workspace_id: "ws",

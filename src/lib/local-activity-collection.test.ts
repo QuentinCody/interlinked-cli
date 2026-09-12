@@ -437,6 +437,9 @@ describe("readCollectionActivity — filters and scan bounds", () => {
 		writeCollection(tmp, [
 			toolEvent({ ts: "2026-07-30T10:00:00Z", action: { command: "good-old" } }),
 			"{not json",
+			"null",
+			"42",
+			"{}",
 			toolEvent({ ts: "2026-07-30T10:00:02Z", action: { command: "good-new" } }),
 		]);
 		expect(readCollectionActivity({ cwd: tmp }).map((e) => e.summary)).toEqual([

@@ -6,6 +6,13 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+const prompts = vi.hoisted(() => ({ question: vi.fn<() => Promise<string>>(), close: vi.fn() }));
+vi.mock("node:readline/promises", () => ({ createInterface: () => prompts }));
+vi.mock("../lib/settings.js", async (importOriginal) => ({
+	...await importOriginal<typeof import("../lib/settings.js")>(),
+	detectClients: () => [],
+}));
+
 vi.mock("./adopt.js", () => ({ adoptCommand: vi.fn(async () => {}) }));
 vi.mock("./caps.js", () => ({ capsSetAction: vi.fn(async () => 0) }));
 vi.mock("./enable.js", () => ({ enableCommand: vi.fn(async () => {}) }));
@@ -15,7 +22,28 @@ import { adoptCommand } from "./adopt.js";
 import { capsSetAction } from "./caps.js";
 import { enableCommand } from "./enable.js";
 import { modeCommand } from "./mode.js";
-import { realWizardDeps, runSetupWizardNonInteractive } from "./setup-wizard-run.js";
+import { realWizardDeps, runSetupWizardInteractive, runSetupWizardNonInteractive } from "./setup-wizard-run.js";
+
+it("closes the interactive prompt and leaves configuration unapplied when the plan is declined", async () => {
+	const originalTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+	Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+	const log = vi.spyOn(console, "log").mockImplementation(() => {});
+	vi.mocked(enableCommand).mockClear();
+	prompts.close.mockClear();
+	prompts.question.mockResolvedValueOnce("balanced").mockResolvedValueOnce("whole-file")
+		.mockResolvedValueOnce("").mockResolvedValueOnce("no").mockResolvedValueOnce("off")
+		.mockResolvedValueOnce("no");
+	try {
+		await runSetupWizardInteractive("/repo");
+		expect(prompts.close).toHaveBeenCalledExactlyOnceWith();
+		expect(enableCommand).not.toHaveBeenCalled();
+		expect(log.mock.calls.flat().join("\n")).toContain("Aborted");
+	} finally {
+		log.mockRestore();
+		if (originalTty) Object.defineProperty(process.stdin, "isTTY", originalTty);
+		else Reflect.deleteProperty(process.stdin, "isTTY");
+	}
+});
 
 describe("realWizardDeps — positive (must wire to the owning commands)", () => {
 	// test-contract: public-api — each wizard step routes to the command that owns that decision, with the wizard's no-double-confirm mode flag

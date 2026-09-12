@@ -402,6 +402,15 @@ describe("checkCommand", () => {
 		expect(io.mocks().stderr).toContain("0 files");
 	});
 
+	it("accepts a side-effect-only import of an existing module with no exports", async () => {
+		graphState.files = ["/abs/src/a.ts"];
+		graphState.fileCount = 1;
+		existing.add("/abs/src/setup.ts");
+		graphState.deps["/abs/src/a.ts"] = [edge({ toFile: "/abs/src/setup.ts", symbols: [] })];
+		await checkCommand({ only: "broken-imports", cwd: "/abs" });
+		expect(io.mocks().stderr).toContain("0 files");
+	});
+
 	// ---- cycles ----
 	it("records every file in a detected cycle and dedups via visited set", async () => {
 		graphState.files = ["/abs/src/a.ts", "/abs/src/b.ts"];

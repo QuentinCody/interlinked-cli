@@ -244,6 +244,18 @@ describe("scrubSecrets — ignore_patterns branch coverage", () => {
 });
 
 describe("loadScrubConfig", () => {
+	it.each([null, [], { enabled: "false" }, { entropy_threshold: "high" }])("keeps scrubbing enabled for invalid configuration: %j", async (value) => {
+		vi.resetModules();
+		vi.doMock("node:fs", () => ({ existsSync: vi.fn(() => true), readFileSync: vi.fn(() => JSON.stringify(value)) }));
+		try {
+			const mod = await import("../secrets.js");
+			expect(mod.loadScrubConfig("/tmp/fake-cwd")).toEqual({ enabled: true });
+		} finally {
+			vi.doUnmock("node:fs");
+			vi.resetModules();
+		}
+	});
+
 	it("returns {enabled: true} when scrub.json does not exist", () => {
 		vi.resetModules();
 		vi.doMock("node:fs", () => ({

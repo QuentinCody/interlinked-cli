@@ -380,6 +380,13 @@ describe("logsCommand — normal mode", () => {
 		expect(out).toContain("2.0k tok");
 	});
 
+	it.each([{ input: "unknown", output: 1200 }, { input: 1200, output: null }])("renders the known token count when the other counter is malformed: %j", async (tokens) => {
+		readLocalActivityImpl = () => [ev({ tool: "Read", summary: "x.ts", tokens })];
+		await logsCommand({});
+		expect(allOut()).toContain("1.2k tok");
+		expect(allOut()).not.toContain("NaN");
+	});
+
 	it("event without a tool omits the tool segment", async () => {
 		readLocalActivityImpl = () => [ev({ type: "user_prompt", tool: null, summary: "hello" })];
 		await logsCommand({});

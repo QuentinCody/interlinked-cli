@@ -87,6 +87,11 @@ describe("readGuardDisable", () => {
 		expect(readGuardDisable(dir, 5000)?.disabled).toBe(true);
 	});
 
+	it("rejects a non-string expiry instead of treating the marker as permanent", () => {
+		writeMarker(LOCAL, { disabled: true, scope: "project", version: 1, expires_at: 10000 });
+		expect(readGuardDisable(dir, 5000)).toBeNull();
+	});
+
 	it("ignores malformed JSON (fails toward guarding)", () => {
 		writeRaw(LOCAL, "{ not json");
 		expect(readGuardDisable(dir)).toBeNull();

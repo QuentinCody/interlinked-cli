@@ -916,6 +916,11 @@ describe("performLogin", () => {
 		);
 	});
 
+	it.each([null, [], {}, { client_id: 42 }, { client_id: "" }])("rejects malformed client registration before authorization: %j", async (reply) => {
+		stubRegisterAndToken({ registerResponse: jsonResponse(reply) });
+		await expect(performLogin("https://oauth.example")).rejects.toThrow("Client registration returned an invalid client_id");
+	});
+
 	it("rejects the callback with an OAuth error param (error page + reject)", async () => {
 		stubRegisterAndToken();
 		vi.spyOn(console, "log").mockImplementation(() => {});

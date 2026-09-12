@@ -10,7 +10,7 @@
 // file's `baseReport` fixture style.
 import { describe, expect, it } from "vitest";
 import { stripAnsi } from "../lib/formatter.js";
-import { type MetricsReport, renderNormal } from "./metrics-renderers.js";
+import { type MetricsReport, renderNormal, renderShort } from "./metrics-renderers.js";
 
 function baseReport(overrides: Partial<MetricsReport> = {}): MetricsReport {
 	return {
@@ -46,6 +46,13 @@ function baseReport(overrides: Partial<MetricsReport> = {}): MetricsReport {
 }
 
 describe("functionTokenDistributionLines legacy fallback (via renderNormal)", () => {
+	it("renders legacy reports without claiming a measured function denominator", () => {
+		const report = baseReport();
+		report.caps.functionTokens = 500;
+		expect(stripAnsi(renderShort(report))).toContain("fn-tokens>500: 0 · CRAP");
+		expect(stripAnsi(renderNormal(report))).toMatch(/function tokens > 500\s+0/);
+	});
+
 	// test-contract: public-api — with functionTokenMetrics unset, the legacy
 	// distribution header and one padded "bucket count" line per entry render.
 	it("renders the legacy function-token distribution header and per-bucket lines", () => {

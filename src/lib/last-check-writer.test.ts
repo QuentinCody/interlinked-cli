@@ -121,6 +121,11 @@ describe("extractEventFile", () => {
 });
 
 describe("deriveLastCheckFields", () => {
+	it("records a post-tool block even when the decision has no rule identifier", () => {
+		expect(deriveLastCheckFields(makeEvent({ phase: "post-tool" }), { decision: "block" }, 9)).toEqual({
+			result: "block", tool: "edit", file: "src/a.ts", ms: 9,
+		});
+	});
 	it("maps a pre-tool block with first-line summary capped at 80 chars and the rule id", () => {
 		const decision: HarnessDecision = {
 			decision: "block",

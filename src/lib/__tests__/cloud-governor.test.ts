@@ -38,6 +38,12 @@ describe("evaluateRemote", () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
+	it.each([null, [], 42])("ignores non-object remote verdicts: %j", async (value) => {
+		fetchSpy.mockResolvedValueOnce(new Response(JSON.stringify(value), { status: 200 }));
+		const { timeout_ms: _timeout, ...config } = ENABLED_CONFIG;
+		expect(await evaluateRemote(makeEvent(), config)).toBeNull();
+	});
+
 	it("returns null when url is missing", async () => {
 		const result = await evaluateRemote(makeEvent(), { ...ENABLED_CONFIG, url: "" });
 		expect(result).toBeNull();

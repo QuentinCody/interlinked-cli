@@ -865,6 +865,17 @@ describe("health check", () => {
 // Harness setup branch
 // =======================================================================
 describe("harness setup", () => {
+	it("does not prompt or start automatically if the terminal disconnects during onboarding", async () => {
+		setTty(true);
+		mocks.isHarnessRunning.mockImplementation(() => {
+			setTty(false);
+			return { running: false };
+		});
+		await initCommand({ server: "http://localhost:8787", agent: "bot" });
+		expect(mocks.harnessStartCommand).not.toHaveBeenCalled();
+		expect(rlQuestions).not.toEqual(expect.arrayContaining([expect.stringContaining("Start harness server")]));
+		expect(logged()).toContain("Skipped — start later with: interlinked harness start");
+	});
 	it("reports an already-running harness and suppresses the start hint", async () => {
 		mocks.isHarnessRunning.mockReturnValue({ running: true, pid: 555 });
 		await initCommand({ server: "http://localhost:8787", agent: "bot" });

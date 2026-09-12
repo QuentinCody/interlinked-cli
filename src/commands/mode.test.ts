@@ -185,8 +185,12 @@ describe("writeMode — enforcement-gate posture (guard-rules.json ladder)", () 
 	});
 
 	it("N: custom applies no gate overrides at all", () => {
+		rmSync(join(tmp, ".interlinked"), { recursive: true });
 		writeMode(tmp, "custom", false);
 		expect(existsSync(join(tmp, ".interlinked", "guard-rules.json"))).toBe(false);
+		expect(JSON.parse(readFileSync(join(tmp, ".interlinked", "check-policy.json"), "utf-8"))).toMatchObject({
+			mode: "custom", version: 1,
+		});
 	});
 });
 

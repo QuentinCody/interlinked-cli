@@ -103,6 +103,12 @@ function wireSuccessfulReply(reply: unknown): FakeSocket {
 // =============================================================================
 
 describe("skillEnterCommand", () => {
+	it.each([null, [], "allow", 1, true])("reports a non-object daemon reply as unavailable: %j", async (reply) => {
+		const sock = wireSuccessfulReply(reply);
+		await skillEnterCommand("example", {});
+		expect(errs.join("\n")).toContain("Could not reach harness");
+		expect(sock.destroyed).toBe(true);
+	});
 	// test-contract: boundary — errors and sets exitCode=1 when name is empty/whitespace
 	it("errors and sets exitCode=1 when name is empty/whitespace", async () => {
 		await skillEnterCommand("   ", {});

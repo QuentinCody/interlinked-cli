@@ -441,6 +441,9 @@ describe("scanner status — malformed / unreadable audit log", () => {
 		writeFileSync(
 			auditPath(),
 			`not-json-at-all\n` +
+				`null\n[]\n` +
+				`${JSON.stringify({ ts, action: "enable", actor: { ...actor, user: 42 }, reason: null })}\n` +
+				`${JSON.stringify({ ts, action: "enable", actor: { ...actor, host: false }, reason: null })}\n` +
 				`${JSON.stringify({ ts, action: "enable", from: false, to: true, actor, reason: null })}\n` +
 				`{ also broken\n`,
 		);

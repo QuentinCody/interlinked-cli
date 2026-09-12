@@ -305,6 +305,14 @@ describe("trajectory commands", () => {
 			).rejects.toThrow(/line 2: invalid JSON/);
 		});
 
+		it("rejects malformed optional event fields before replaying a recorded tool call", async () => {
+			const path = writeEvents("invalid-event.jsonl", [JSON.stringify({
+				hook_event: "PreToolUse", session_id: "s", agent_source: "claude",
+				timestamp: "2026-05-27T00:00:00Z", tool_name: 42,
+			})]);
+			await expect(trajectoryReplayCommand({ file: path, cwd: dir })).rejects.toThrow("line 1: invalid event fields");
+		});
+
 		it("resolves a relative file path against cwd", async () => {
 			writeEvents("rel.jsonl", [bashEvent("ls", "2026-05-27T00:00:00Z")]);
 			await trajectoryReplayCommand({ file: "rel.jsonl", cwd: dir, json: true });
