@@ -93,16 +93,12 @@ vi.mock("./harness.js", () => ({
 	isHarnessRunning: vi.fn(),
 }));
 
-const trigramBuildMock = vi.fn(() => ({
-	save: vi.fn(),
-	stats: vi.fn(() => ({ fileCount: 42 })),
-}));
-vi.mock("../harness/trigram-index.js", () => ({
-	TrigramIndex: { build: () => trigramBuildMock() },
-}));
-
 vi.mock("./structure.js", () => ({
 	structureInitCommand: vi.fn(),
+}));
+
+vi.mock("../harness/trigram-index.js", () => ({
+	TrigramIndex: { build: vi.fn() },
 }));
 
 import {
@@ -115,6 +111,7 @@ import {
 	updateLocalConfig,
 } from "../lib/config.js";
 import { getAdapter } from "../harness/adapters/index.js";
+import { TrigramIndex } from "../harness/trigram-index.js";
 import { stripAnsi } from "../lib/formatter.js";
 import { clearGuardDisable } from "../lib/guard-state.js";
 import {
@@ -362,26 +359,18 @@ describe("enableCommand — config lifecycle", () => {
 		expect(vi.mocked(initConfig)).toHaveBeenCalledWith({}, CWD);
 	});
 
-	// test-contract: behavior — enable folds the trigram index build in
-	// (2026-08-17) so grep acceleration works from the first session without a
-	// separate `interlinked index build` step.
-	it("P: builds the trigram index when absent and announces the file count", async () => {
+	// test-contract: bug — enable never builds the trigram index
+	// (2026-09-10). The in-process build ran a 50k-file prose corpus out of
+	// heap mid-enable; the index stays opt-in via `interlinked index build`.
+	it("starts the daemon without building the optional trigram index", async () => {
 		vi.mocked(isConfigured).mockReturnValue(false);
+		vi.mocked(isHarnessRunning).mockReturnValue({ running: false });
 
 		await enableCommand({});
 
-		expect(trigramBuildMock).toHaveBeenCalledTimes(1);
-		expect(logged(logSpy)).toContain("trigram search index (42 files)");
-	});
-
-	it("N: skips the index build when an index already exists on disk", async () => {
-		vi.mocked(isConfigured).mockReturnValue(false);
-		const { existsSync } = await import("node:fs");
-		vi.mocked(existsSync).mockImplementation((p) => String(p).includes("trigram.lookup"));
-
-		await enableCommand({});
-
-		expect(trigramBuildMock).not.toHaveBeenCalled();
+		expect(TrigramIndex.build).not.toHaveBeenCalled();
+		expect(harnessStartCommand).toHaveBeenCalledWith({ daemon: true });
+		expect(logged(logSpy)).not.toMatch(/trigram/i);
 	});
 
 	it("announces already-enabled and passes --server into initConfig when unconfigured", async () => {

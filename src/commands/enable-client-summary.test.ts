@@ -41,15 +41,6 @@ vi.mock("./harness.js", () => ({
 	isHarnessRunning: vi.fn(),
 }));
 
-const trigramBuildMock = vi.fn(() => ({
-	save: vi.fn(),
-	stats: vi.fn(() => ({ fileCount: 42 })),
-}));
-vi.mock("../harness/trigram-index.js", () => ({
-	TrigramIndex: { build: () => trigramBuildMock() },
-}));
-
-import { existsSync } from "node:fs";
 import { getAdapter } from "../harness/adapters/index.js";
 import { stripAnsi } from "../lib/formatter.js";
 import { installSkills } from "../lib/skill-installers.js";
@@ -57,7 +48,6 @@ import type { SkillInstallResult } from "../lib/skill-installers.js";
 import {
 	buildPostEnableNotes,
 	clientSummary,
-	ensureIndexBuilt,
 	installSkillsForClients,
 	parseRequestedClients,
 	reportInvalidExplicitValue,
@@ -181,25 +171,6 @@ describe("reportInvalidExplicitValue", () => {
 		expect(message).toContain("Invalid sync mode");
 		expect(message).toContain("realtime, local, manual");
 		expect(process.exitCode).toBe(1);
-	});
-});
-
-// --- ensureIndexBuilt --------------------------------------------------------
-
-describe("ensureIndexBuilt", () => {
-	it("skips silently when the index already exists", () => {
-		vi.mocked(existsSync).mockReturnValue(true);
-		ensureIndexBuilt("/repo");
-		expect(trigramBuildMock).not.toHaveBeenCalled();
-		expect(logSpy).not.toHaveBeenCalled();
-	});
-
-	it("builds and reports the index when absent", () => {
-		vi.mocked(existsSync).mockReturnValue(false);
-		ensureIndexBuilt("/repo");
-		expect(trigramBuildMock).toHaveBeenCalledTimes(1);
-		const lines = logLines();
-		expect(lines.some((l) => l.includes("Built") && l.includes("42 files"))).toBe(true);
 	});
 });
 

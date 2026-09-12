@@ -4,13 +4,10 @@
 // Split out of enable.ts (2026-09) to keep the parent under the per-file line
 // cap. Holds the parts of `enable` that describe or bootstrap ONE client's
 // footprint: the dry-run event-count summary, skill installation reporting,
-// requested-client parsing/validation, the trigram index build, harness
+// requested-client parsing/validation, harness
 // autostart, and the post-enable per-client follow-up notes.
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { getAdapter } from "../harness/adapters/index.js";
-import { TrigramIndex } from "../harness/trigram-index.js";
 import { c } from "../lib/formatter.js";
 import { type ClientName, CLIENT_TO_RUNNER } from "../lib/settings.js";
 import { installSkills } from "../lib/skill-installers.js";
@@ -126,27 +123,7 @@ export function reportInvalidExplicitValue(
 	process.exitCode = 1;
 }
 
-/** Build the trigram index when absent (2026-08-17) so grep acceleration
- *  works from the first session instead of waiting for a separate
- *  `interlinked index build` nobody was told about. Skips silently when an
- *  index exists (adopt and the daemon keep it fresh incrementally); a build
- *  failure warns and continues — search still works without the index, just
- *  unaccelerated. Runs BEFORE the daemon start so the fresh daemon loads it. */
-export function ensureIndexBuilt(cwd: string): void {
-	if (existsSync(join(cwd, ".interlinked", "index", "trigram.lookup"))) return;
-	try {
-		const index = TrigramIndex.build({ cwd });
-		index.save(join(cwd, ".interlinked"));
-		console.log(
-			`\n${c.green("Built")} trigram search index (${index.stats().fileCount} files) — grep acceleration on`,
-		);
-	} catch (err) {
-		console.log(
-			`\n${c.yellow("!")} Trigram index build failed (${err instanceof Error ? err.message : String(err)}). Run: ${c.cyan("interlinked index build")}`,
-		);
-	}
-}
-
+/** Start the daemon when absent, reporting an actionable retry if startup fails. */
 export async function startHarnessIfNeeded(cwd: string): Promise<void> {
 	if (isHarnessRunning(cwd).running) return;
 	const harnessOpts = { daemon: true };

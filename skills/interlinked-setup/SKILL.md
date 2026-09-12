@@ -87,11 +87,13 @@ mode, `lenient`=off), and the session-end verification/commit-cadence nudges
 (`lenient` turns them off). Security rails and tighten-only ratchets never
 ladder. `custom` applies nothing.
 
-**Folded into onboarding (2026-08-17), no longer separate steps:** `enable`
-builds the trigram index when absent (grep acceleration works from session
-one), and `adopt` step 6 snapshots existing manifests/lockfiles into the
-install allowlist (`approved_by: "adopt"`) so the fail-closed install gate only
-prompts on genuinely NEW packages.
+**Trigram indexing is opt-in:** `enable` installs hooks and starts the daemon
+without building the repository's search index. Run `interlinked index build`
+to enable grep acceleration; an existing index continues to load normally.
+Keeping the repository scan out of onboarding allows setup to finish on large
+repositories without exhausting the CLI's heap. `adopt` still builds the index
+and snapshots existing manifests/lockfiles into the install allowlist
+(`approved_by: "adopt"`).
 
 > Bare **`interlinked` is the recommended human first run** because it shows the local posture
 > decisions before composing them. `enable` is the canonical install primitive for automation

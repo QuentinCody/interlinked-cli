@@ -592,9 +592,12 @@ sit at 54% (20/37), so backfill those first. Re-derive these numbers with
 6. If warnings: hook writes to stderr, agent sees on next turn
 7. If harness unavailable: inline fallback patterns (sleep, rm -rf, force push, DROP)
 
-**Grep acceleration:**
-- Build index: `interlinked index build` (0.1-10s depending on repo size)
-- Harness loads index on startup, refreshes incrementally on each SessionStart
+**Grep acceleration (OPT-IN, off unless an index exists — 2026-09-10):**
+- Build index: `interlinked index build` (0.1-10s depending on repo size).
+  `interlinked enable` no longer builds it: the in-process build walks every
+  tracked file and ran a 50k-file prose corpus out of heap mid-enable, leaving
+  hooks installed but no daemon. Nothing on the hook path needs the index.
+- Harness loads an existing index on startup, refreshes incrementally on each SessionStart
 - Intercepts Grep tool calls AND Bash rg/grep commands (including from subagents)
 - Queries index in ~10-50μs, narrows to candidate files, runs rg on candidates only
 - Agent sees results via block-and-answer pattern (formatted like normal grep output)

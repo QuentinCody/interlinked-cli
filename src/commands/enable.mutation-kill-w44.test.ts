@@ -14,7 +14,6 @@
 // Each mocked module boundary mirrors ./enable.test.ts so the command
 // runs without touching the real filesystem or network.
 
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { InstallResult } from "../lib/hook-types.js";
@@ -75,22 +74,10 @@ vi.mock("./harness.js", () => ({
 	isHarnessRunning: vi.fn(),
 }));
 
-// Custom trigram mock (unlike enable.test.ts's arg-discarding stub) so we
-// can assert on the `{ cwd }` object literal and the save() path segment.
-let trigramSaveMock: ReturnType<typeof vi.fn>;
-const trigramBuildMock = vi.fn((_opts: unknown) => {
-	trigramSaveMock = vi.fn();
-	return { save: trigramSaveMock, stats: () => ({ fileCount: 7 }) };
-});
-vi.mock("../harness/trigram-index.js", () => ({
-	TrigramIndex: { build: (opts: unknown) => trigramBuildMock(opts) },
-}));
-
 vi.mock("./structure.js", () => ({
 	structureInitCommand: vi.fn(),
 }));
 
-import { existsSync } from "node:fs";
 import {
 	getConfigDir,
 	hasLegacyConfig,
@@ -288,36 +275,6 @@ describe("printInstallResults", () => {
 		await enableCommand({});
 
 		expect(logged(logSpy)).not.toContain("Warning: No hooks were installed.");
-	});
-});
-
-// --- ensureIndexBuilt path segments + object literal ---------------------
-
-describe("ensureIndexBuilt", () => {
-	it("checks the exact .interlinked/index/trigram.lookup path", async () => {
-		await enableCommand({});
-
-		expect(vi.mocked(existsSync)).toHaveBeenCalledWith(
-			join(CWD, ".interlinked", "index", "trigram.lookup"),
-		);
-	});
-
-	it("passes { cwd } through to TrigramIndex.build and saves to .interlinked", async () => {
-		await enableCommand({});
-
-		expect(trigramBuildMock).toHaveBeenCalledWith({ cwd: CWD });
-		expect(trigramSaveMock).toHaveBeenCalledWith(join(CWD, ".interlinked"));
-		expect(logged(logSpy)).toContain("Built trigram search index (7 files)");
-	});
-
-	it("prints the '!' failure marker when the build throws", async () => {
-		trigramBuildMock.mockImplementationOnce(() => {
-			throw new Error("disk full");
-		});
-
-		await enableCommand({});
-
-		expect(logged(logSpy)).toContain("! Trigram index build failed (disk full)");
 	});
 });
 

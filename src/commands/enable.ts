@@ -29,7 +29,6 @@ import { type ClientName, detectClients } from "../lib/settings.js";
 import {
 	buildPostEnableNotes,
 	clientSummary,
-	ensureIndexBuilt,
 	installSkillsForClients,
 	parseRequestedClients,
 	reportInvalidExplicitValue,
@@ -119,7 +118,10 @@ export async function enableCommand(options: EnableOptions): Promise<void> {
 
 	configureStatusLine(targetClients);
 	installSkillsForClients(cwd, targetClients);
-	ensureIndexBuilt(cwd);
+	// The trigram search index is opt-in (`interlinked index build`). Building
+	// it here walked every tracked file in-process and ran a 50k-file prose
+	// corpus out of heap mid-enable (2026-09-10), leaving hooks installed but
+	// no daemon. Nothing in the hook path needs the index.
 	await startHarnessIfNeeded(cwd);
 	noteUndetectedClients(detectedNames, targetClients, requestedClients);
 	await maybeScaffoldStructure(options.structure);
