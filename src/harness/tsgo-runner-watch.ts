@@ -61,9 +61,12 @@ const WATCH_STOP_GRACE_MS = 500;
 const WATCH_GROUP_REAP_POLL_MS = 10;
 
 function signalCompilerTree(child: ChildProcess, signal: NodeJS.Signals): void {
+	// A failed spawn has no OS child. Before its asynchronous error/close
+	// events, child.kill() can still reach an uninitialized native handle.
+	// Do not signal it: on POSIX that can target the caller's process group.
+	if (child.pid === undefined) return;
 	try {
-		if (child.pid !== undefined) process.kill(-child.pid, signal);
-		else child.kill(signal);
+		process.kill(-child.pid, signal);
 	} catch {
 		try {
 			child.kill(signal);
@@ -406,18 +409,8 @@ export class WatchProcess {
 			};
 			const timer = setTimeout(() => finish(false), budgetMs);
 			// Keep the idle timer fresh while a check awaits a pass. Pass and
-			// crash events synchronously flush registered waiters; the repeated
-			// state checks below are redundant with those event notifications.
-			// The timer still matters when the idle window is shorter than the
-			// initial-pass budget.
-			const poll = setInterval(() => {
-				this.touchIdle();
-				if (!this.isUsable() && this.lastPassCompletedAt === startPassAt) {
-					finish(false);
-				} else if (this.lastPassCompletedAt > startPassAt) {
-					finish(true);
-				}
-			}, WATCH_POLL_INTERVAL_MS);
+			// crash events synchronously flush the registered waiters below.
+			const poll = setInterval(() => this.touchIdle(), WATCH_POLL_INTERVAL_MS);
 			poll.unref();
 			this.passWaiters.push(() => {
 				if (this.lastPassCompletedAt > startPassAt && this.isUsable()) {

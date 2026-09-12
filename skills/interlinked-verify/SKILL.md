@@ -126,6 +126,10 @@ process that reused the same PID cannot keep compiler or heavyweight capacity bu
 lockfiles without that identity remain compatible while fresh, but expire after 24 hours — well
 beyond every minute-scale workload timeout — rather than starving a project indefinitely.
 
+A compiler watch process that fails to spawn is unavailable. Shutdown waits for
+its close event and releases the compiler lease without signaling a missing
+process; callers can then use the normal cold compiler fallback.
+
 There is **no** `--file`/`--changed`/`--staged` flag — verify always walks the whole discovered
 set (or `target`/`--subdir`). Diff-awareness lives at the *edit-time* gate, not in verify.
 Run verify to see **pre-existing** findings in a file you're about to touch (the edit gate

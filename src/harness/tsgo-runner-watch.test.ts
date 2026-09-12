@@ -191,6 +191,52 @@ describe("WatchProcess — start() lifecycle", () => {
 		expect(wp.isUsable()).toBe(false);
 	});
 
+	it("reaps a spawn failure with no process id and releases its compiler lease", async () => {
+		const wp = new WatchProcess(join(tmp, "missing-compiler"), tmp, DEFAULT_WATCH_IDLE_MS);
+		spawned.push(wp);
+		wp.start();
+		await wp.kill();
+		expect(wp.isUsable()).toBe(false);
+		const release = tryAcquireProjectCompilerLease(tmp);
+		expect(release).not.toBeNull();
+		release?.();
+	});
+
+	it("marks an asynchronous spawn error as crashed and releases the compiler lease", async () => {
+		const wp = new WatchProcess(join(tmp, "missing-compiler"), tmp, DEFAULT_WATCH_IDLE_MS);
+		spawned.push(wp);
+		wp.start();
+		await waitFor(() => wp.state() === WATCH_CRASHED, 5000);
+		expect(await wp.diagnosticsForFile(join(tmp, "a.ts"))).toBeNull();
+		const release = nonNull(tryAcquireProjectCompilerLease(tmp));
+		release();
+	});
+
+	it("does not spawn a watcher while another compiler owns the project", () => {
+		const release = nonNull(tryAcquireProjectCompilerLease(tmp));
+		try {
+			const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, fakeTsgo("busy.sh", ONE_PASS_THEN_SLEEP));
+			wp.start();
+			expect(wp.isUsable()).toBe(false);
+			expect(childProcesses).toHaveLength(0);
+		} finally {
+			release();
+		}
+	});
+
+	it("completes shutdown when an exit observer stops an already exited child", async () => {
+		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, fakeTsgo("exited.sh", EXIT_WITH_CODE_7));
+		wp.start();
+		const child = nonNull(childProcesses[0]);
+		let stopped: Promise<void> | undefined;
+		child.prependOnceListener("exit", () => { stopped = wp.kill(); });
+		await new Promise<void>((resolve) => child.once("close", () => resolve()));
+		await nonNull(stopped);
+		expect(wp.state()).toBe(WATCH_IDLE_EVICTED);
+		const release = nonNull(tryAcquireProjectCompilerLease(tmp));
+		release();
+	});
+
 	it("marks crashed when the child exits unexpectedly", async () => {
 		const script = fakeTsgo("crash.sh", EXIT_WITH_CODE_7);
 		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, script);
