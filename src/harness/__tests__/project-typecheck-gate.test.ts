@@ -646,6 +646,20 @@ describe("checkProjectTypecheckCleanAsync", () => {
 		]);
 	});
 
+	it("reports a compiler terminated by a signal as not checked", async () => {
+		writeFileSync(join(tmp, "tsconfig.json"), "{}");
+		mkdirSync(join(tmp, "node_modules", ".bin"), { recursive: true });
+		// The fixture signals only its own PID, modeling an externally terminated compiler.
+		writeFileSync(join(tmp, "node_modules", ".bin", "tsc"), "#!/bin/sh\nkill -TERM $$\n", { mode: 0o755 });
+		await expect(checkProjectTypecheckCleanAsync(tmp, { timeoutMs: 30000 })).resolves.toEqual([
+			{
+				source: "structural", name: "project_typecheck_failed_to_run", severity: "warning",
+				message: "Project typecheck (local-tsc) could not run to completion. Verify CI manually.",
+				determinism: "fully_deterministic",
+			},
+		]);
+	});
+
 	it("defers with the admission reason when another compiler holds the project", async () => {
 		writeFileSync(
 			join(tmp, "package.json"),

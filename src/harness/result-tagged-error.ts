@@ -34,7 +34,7 @@ type TaggedPropsSupported<Props> = false extends (Props extends unknown ? Tagged
 /** Structural types also admit inherited or hidden fields, which Object.assign cannot copy. */
 function assertCopyableTaggedArgs(args: JsonObject | null): void {
 	if (args === null) return;
-	if (typeof args !== "object") throw new TypeError("TaggedError arguments must be a plain object");
+	// Boxed primitives and functions also fail the plain-prototype check below.
 	const prototype = Object.getPrototypeOf(args);
 	if (prototype !== Object.prototype && prototype !== null) {
 		throw new TypeError("TaggedError arguments must be a plain object");

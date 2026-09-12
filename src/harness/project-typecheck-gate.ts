@@ -33,7 +33,6 @@ import { join } from "node:path";
 import { nonNull } from "../lib/non-null.js";
 import { runProcessAsync } from "./check-engine/spawn-async.js";
 import {
-	ProjectCompilerUnavailableError,
 	runWithProjectCompilerLease,
 	tryAcquireProjectCompilerLease,
 } from "./project-compiler-gate.js";
@@ -306,12 +305,8 @@ export async function checkProjectTypecheckCleanAsync(
 			}));
 		});
 	} catch (error) {
-		const detail =
-			error instanceof ProjectCompilerUnavailableError
-				? error.message
-				: error instanceof Error
-					? error.message
-					: String(error);
+		// Admission errors extend Error and use this same message path.
+		const detail = error instanceof Error ? error.message : String(error);
 		return [
 			{
 				source: "structural",

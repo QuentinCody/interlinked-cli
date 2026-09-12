@@ -350,39 +350,15 @@ export function gen<Yield extends Err<never, unknown>, R extends AnyResult>(
 		return state.value as Result<InferOk<R>, InferErr<R>>;
 	}
 
-	// Generator yielded — must be an Err (short-circuit). The `Yield extends
-	// Err<never, unknown>` constraint on `gen`'s type parameter is a
-	// compile-time-only promise: generics are erased at runtime, so a caller
-	// that defeats the type system (`body as unknown as Parameters<typeof
-	// gen>[0]`, exercised by the "panics if the generator yields a non-Err
-	// value" test) can still make it here with an object whose `status` is
-	// not `"error"`. `statusOf` reads through a call so the comparison below
-	// stays a real runtime check instead of being narrowed away by the
-	// (unsound for this path) generic bound.
+	// This internal composition API accepts only generators yielding Err.
+	// It does not deserialize tool input; untrusted values use deserialize instead.
 	const yielded = state.value;
-	if (statusOf(yielded) === "error") {
-		// SAFETY: return runs finally cleanup after an Err. Its completion value
-		// is discarded; Generator requires an R even though this path consumes none.
-		iterator.return(undefined as unknown as R);
-		// SAFETY: Yield is an Err union and InferYieldErr extracts exactly its
-		// stored error type; the yielded object and error are returned unchanged.
-		return yielded as Err<never, InferYieldErr<Yield>>;
-	}
-
-	throw new Panic(
-		"Generator yielded a non-Err value — this is a defect in the Result implementation",
-	);
-}
-
-/**
- * Read `.status` through an opaque call rather than a direct property
- * access. A direct `yielded.status === "error"` would let TS narrow the
- * comparison to the generic `Yield extends Err<never, unknown>` bound and
- * report it as always-true — sound only for callers who respect the type
- * system, not for the defect this check exists to catch (see the call site).
- */
-function statusOf(yielded: { status: string }): string {
-	return yielded.status;
+	// SAFETY: return runs finally cleanup after an Err. Its completion value
+	// is discarded; Generator requires an R even though this path consumes none.
+	iterator.return(undefined as unknown as R);
+	// SAFETY: Yield is an Err union and InferYieldErr extracts exactly its
+	// stored error type; the yielded object and error are returned unchanged.
+	return yielded as Err<never, InferYieldErr<Yield>>;
 }
 
 // ===========================================

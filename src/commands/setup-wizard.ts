@@ -30,6 +30,7 @@ import { getPreset } from "../harness/modes.js";
 import { DEFAULT_STRUCTURAL_CHECKS } from "../harness/rules/default-structural.js";
 import { mergeIntoGuardRules } from "../harness/rules/guard-rules-write.js";
 import { isJsonObject, type JsonObject } from "../lib/json-types.js";
+import { nonNull } from "../lib/non-null.js";
 
 /** The review-scope decision: judge only the edited region, or whole files. */
 export type WizardScope = "diff" | "whole-file";
@@ -385,10 +386,11 @@ function capReceiptBits(caps: WizardChoices["caps"]): string[] {
  * receipt from the same module.
  */
 export function describePostureReceipt(choices: WizardChoices): string[] {
-	const preset = getPreset(choices.mode);
+	// WizardMode admits only the three shipped presets, all with posture text.
+	const preset = nonNull(getPreset(choices.mode));
 	const lines: string[] = [];
-	lines.push(`  mode ${choices.mode} — ${preset?.description ?? "user-defined policy"}`);
-	for (const p of preset?.posture ?? []) lines.push(`    · ${p}`);
+	lines.push(`  mode ${choices.mode} — ${preset.description}`);
+	for (const p of nonNull(preset.posture)) lines.push(`    · ${p}`);
 	lines.push("    change: interlinked mode strict|balanced|lenient  (preview first: --diff)");
 	lines.push(`  caps: ${capReceiptBits(choices.caps).join(" · ")}`);
 	lines.push("    change: interlinked caps set <metric> <value>  ·  meanings: interlinked caps explain");
