@@ -48,6 +48,10 @@ Route evidence receipts, incremental coverage setup and deletion trials to
 - You need to write a probe/analysis script and want it in the right place.
 
 ## `interlinked verify`
+Cognitive-complexity diagnostics align snippets with TypeScript's line numbering,
+including CRLF, lone CR, and Unicode line/paragraph separators. Preserve those
+line endings when reproducing a warning; normalizing a fixture can hide a location bug.
+
 For `[interlinked:hook-coverage] NOT CHECKED`, use `interlinked harness coverage verify
 --json`. This starts one daemon-owned recovery run over the pending versions and waits
 for completion; `--no-wait` returns after starting it. Poll `harness coverage status

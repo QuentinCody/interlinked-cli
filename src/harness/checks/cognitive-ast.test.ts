@@ -218,6 +218,13 @@ describe("cognitiveComplexityCheck — registry detector contract", () => {
 		expect(matches[0]?.text).toContain("21");
 	});
 
+	it.each(["\n", "\r\n", "\r", "\u2028", "\u2029"])("keeps the source snippet aligned with TypeScript after line separator %j", (separator) => {
+		const code = `const heading = 1;${separator}${monster(6)}`;
+		expect(cognitiveComplexityCheck(code, "src/a.ts")).toEqual([
+			expect.objectContaining({ line: 2, text: expect.stringContaining("function monster(") }),
+		]);
+	});
+
 	it("fires on callback-pyramid code whose inner unit crosses via initial nesting", () => {
 		const code = `
 function pipeline(xs: number[]): number[] {

@@ -17,6 +17,7 @@
 // acceptable accuracy), so callers treat null as "metric unavailable".
 
 import type * as TS from "typescript";
+import { nonNull } from "../../lib/non-null.js";
 import type { InlineMatch } from "../check-registry/types.js";
 import {
 	functionName,
@@ -233,11 +234,12 @@ export function cognitiveComplexityCheck(content: string, filePath: string): Inl
 	if (!JS_TS_RE.test(filePath)) return [];
 	const entries = computeCognitiveAst(content, filePath);
 	if (!entries) return [];
-	const lines = content.split("\n");
+	// Match TypeScript's line table, including CRLF, lone CR and Unicode separators.
+	const lines = content.split(/\r\n|[\n\r\u2028\u2029]/);
 	const matches: InlineMatch[] = [];
 	for (const e of entries) {
 		if (e.cognitive <= DEFAULT_MAX_COGNITIVE) continue;
-		const snippet = (lines[e.line - 1] ?? "").trim().slice(0, 90);
+		const snippet = nonNull(lines[e.line - 1]).trim().slice(0, 90);
 		matches.push({
 			line: e.line,
 			text: `${snippet} — cognitive ${e.cognitive} > ${DEFAULT_MAX_COGNITIVE} (max nesting ${e.maxNesting})`,
