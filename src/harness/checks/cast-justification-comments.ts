@@ -10,19 +10,20 @@ function hasExplanation(text: string): boolean {
 
 /** Index comments once, retaining the existing two-line contiguous lookback. */
 export function safetyCommentLines(content: string, ranges: readonly CastCommentRange[]) {
-    const lines = content.split("\n");
+    const lines = content.split(/\r\n|[\n\r\u2028\u2029]/);
     const remainingCode = [...lines];
     const commentLines = new Set<number>();
     const justifiedLines = new Set<number>();
     const starts = [0];
-    for (let index = 0; index < lines.length - 1; index++) {
-        starts.push((starts[index] ?? 0) + (lines[index]?.length ?? 0) + 1);
+    // Keep original offsets: CRLF is one line boundary but occupies two units.
+    for (const separator of content.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) {
+        starts.push(separator.index + separator[0].length);
     }
     for (const range of ranges) {
         const startLine = lineAt(starts, range.pos);
         const endLine = lineAt(starts, Math.max(range.pos, range.end - 1));
         const body = content.slice(range.pos + 2, range.end).replace(/\*\/$/, "");
-        const parts = body.split("\n");
+        const parts = body.split(/\r\n|[\n\r\u2028\u2029]/);
         for (let line = startLine; line <= endLine; line++) {
             const start = Math.max(0, range.pos - (starts[line] ?? 0));
             const end = Math.min(lines[line]?.length ?? 0, range.end - (starts[line] ?? 0));

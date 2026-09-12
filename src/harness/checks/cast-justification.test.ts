@@ -5,6 +5,10 @@ import { countUnjustifiedCasts, findUnjustifiedCasts } from "./cast-justificatio
 const n = (s: string) => findUnjustifiedCasts(s, "src/foo.ts").length;
 
 describe("findUnjustifiedCasts", () => {
+	it.each(["\n", "\r\n", "\r", "\u2028", "\u2029"])("aligns comments and diagnostics across separator %j", (separator) => {
+		const content = ["const heading = 1;", "// SAFETY: the first shape was validated", "const a = input as User;", "const b = input as Admin;"].join(separator);
+		expect(findUnjustifiedCasts(content, "source.ts")).toEqual([{ line: 4, text: "const b = input as Admin;" }]);
+	});
 	it("retains lexical assertion detection if the syntax parser fails", () => {
 		const parser = vi.spyOn(syntaxParser, "parseTsSource").mockImplementationOnce(() => { throw new Error("parser unavailable"); });
 		try {

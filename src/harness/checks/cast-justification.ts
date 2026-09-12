@@ -2,6 +2,7 @@
 // unjustified casts, including when several assertions share the same line.
 // Comment presence is advisory evidence, not a proof that an assertion is sound.
 import type * as TS from "typescript";
+import { nonNull } from "../../lib/non-null.js";
 import { safetyCommentLines, type CastCommentRange } from "./cast-justification-comments.js";
 import { hasParseErrors, parseTsSource, type ParsedTsSource } from "./cyclomatic-ast.js";
 import { getExtension, JS_TS_EXTS, type InlineMatch, stripCommentsAndStrings, stripStrings } from "./shared.js";
@@ -70,6 +71,9 @@ function ownerLine(assertion: TS.Node, { ts, sf }: ParsedTsSource): number {
 
 /** Retain the old detection breadth when optional TypeScript is absent or syntax is incomplete. */
 function scanLexically(content: string): InlineMatch[] {
+    // This fallback's string/comment scanner uses LF. Normalize its private
+    // input so comments end at every TypeScript line terminator as well.
+    content = content.replace(/\r\n|[\r\u2028\u2029]/g, "\n");
     const ranges: CastCommentRange[] = [];
     for (const match of stripStrings(content).matchAll(/\/\/[^\r\n]*|\/\*[\s\S]*?\*\//g)) {
         ranges.push({ pos: match.index, end: match.index + match[0].length });
@@ -79,15 +83,15 @@ function scanLexically(content: string): InlineMatch[] {
     const lines = stripCommentsAndStrings(content).split("\n");
     const rawLines = content.split("\n");
     for (let line = 0; line < lines.length; line++) {
-        const raw = rawLines[line] ?? "";
+        const raw = nonNull(rawLines[line]);
         if (/^\s*import\b/.test(raw) || /^\s*export\s*(?:type\s+)?\{/.test(raw)) continue;
         if (/^\s*export\b/.test(raw) && /\bfrom\s*['"]/.test(raw) && !raw.includes("=")) continue;
-        if (/\bas\s+(?!const\b)[A-Za-z_$][\w$]*/.test(lines[line] ?? "") && !justified(line)) matches.add(line);
+        if (/\bas\s+(?!const\b)[A-Za-z_$][\w$]*/.test(nonNull(lines[line])) && !justified(line)) matches.add(line);
     }
     return lineMatches(content, matches);
 }
 
 function lineMatches(content: string, matches: ReadonlySet<number>): InlineMatch[] {
-    const lines = content.split("\n");
-    return [...matches].sort((a, b) => a - b).map((line) => ({ line: line + 1, text: (lines[line] ?? "").trim().slice(0, 150) }));
+    const lines = content.split(/\r\n|[\n\r\u2028\u2029]/);
+    return [...matches].sort((a, b) => a - b).map((line) => ({ line: line + 1, text: nonNull(lines[line]).trim().slice(0, 150) }));
 }

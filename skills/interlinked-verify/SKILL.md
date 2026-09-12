@@ -48,7 +48,7 @@ Route evidence receipts, incremental coverage setup and deletion trials to
 - You need to write a probe/analysis script and want it in the right place.
 
 ## `interlinked verify`
-Cognitive-complexity and type-smuggling diagnostics align snippets with TypeScript's line numbering,
+Cognitive-complexity, type-smuggling, and cast-justification diagnostics align snippets with TypeScript's line numbering,
 including CRLF, lone CR, and Unicode line/paragraph separators. Preserve those
 line endings when reproducing a warning; normalizing a fixture can hide a location bug.
 

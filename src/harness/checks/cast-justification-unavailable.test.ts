@@ -13,6 +13,10 @@ vi.mock("node:module", async (importOriginal) => {
 import { countUnjustifiedCasts, findUnjustifiedCasts } from "./cast-justification.js";
 
 describe("cast measurement without optional TypeScript", () => {
+    it.each(["\n", "\r\n", "\r", "\u2028", "\u2029"])("keeps lexical comment scope across separator %j", (separator) => {
+        const content = ["const heading = 1;", "// SAFETY: the first shape was validated", "const a = input as User;", "const b = input as Admin;"].join(separator);
+        expect(findUnjustifiedCasts(content, "source.ts")).toEqual([{ line: 4, text: "const b = input as Admin;" }]);
+    });
     it("retains the existing lexical line measurement across repeated calls", () => {
         const content = "const a = input as unknown as User;\nconst b = input as Admin;";
         expect(countUnjustifiedCasts(content)).toBe(2);
