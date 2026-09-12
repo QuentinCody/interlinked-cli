@@ -55,10 +55,10 @@ interface GuardEventReport {
  * the bare success object) is treated as accepted.
  */
 function isExplicitReservationRejection(
-	result: JsonObject | null | undefined,
+	result: JsonObject,
 	_filePath: string,
 ): boolean {
-	if (!result) return false;
+	// callTool validates the decoded response as an object before returning it.
 	if (result.ok === false) return true;
 	const conflicts = result.conflicts;
 	// `reserveFile` is the only caller and always sends a single path. Any

@@ -47,6 +47,10 @@ function bashEvent(command: string): HarnessEvent {
 }
 
 describe("evaluateDestructiveRules — bash-code-file-write-bypass", () => {
+	it("handles a tool event with no argument object without inventing a destructive command", () => {
+		const event: HarnessEvent = { ...bashEvent(""), tool_input: undefined };
+		expect(evaluateDestructiveRules(event, getDefaultConfig(), undefined, [])).toBeNull();
+	});
 	it("blocks a shell redirect to a code file and recommends the real atomic primitive", () => {
 		const decision = evaluateDestructiveRules(
 			bashEvent("echo x > src/foo.ts"),

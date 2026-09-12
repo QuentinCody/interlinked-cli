@@ -109,7 +109,7 @@ function decideAddedDep(
 	if (!dec.allowed) {
 		return {
 			decision: "block",
-			reason: `[interlinked:supply-chain] ${manifestName} adds new ${delta.ecosystem} dependency "${delta.name}": ${dec.reason ?? "unapproved"}`,
+			reason: `[interlinked:supply-chain] ${manifestName} adds new ${delta.ecosystem} dependency "${delta.name}": ${dec.reason}`,
 			rule_id: "supply-chain-manifest-add",
 			severity: "high",
 			category: "supply-chain",

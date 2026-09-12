@@ -43,10 +43,9 @@ export interface Allowlist {
 	license_allowlist?: string[] | undefined;
 }
 
-interface AllowDecision {
-	allowed: boolean;
-	reason?: string;
-}
+type AllowDecision =
+	| { allowed: true; reason?: undefined }
+	| { allowed: false; reason: string };
 
 const FILE_NAME = "package-allowlist.json";
 

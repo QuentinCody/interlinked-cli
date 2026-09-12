@@ -179,6 +179,9 @@ describe("detectConfigLoosening — tsconfig.json", () => {
 });
 
 describe("detectConfigLoosening — package.json", () => {
+	it.each(["[]", '"package"', "true"])("does not infer package fields from a non-object proposed manifest: %s", (after) => {
+		expect(detectConfigLoosening("package.json", '{"engines":{"node":">=20"}}', after)).toEqual([]);
+	});
 	it("flags engines.node version drop", () => {
 		const before = `{ "engines": { "node": ">=22.0.0" } }`;
 		const after = `{ "engines": { "node": ">=18.0.0" } }`;

@@ -145,6 +145,10 @@ describe("toHarnessEvent — tool_call", () => {
 	it("maps agent_source to claude for claude-code runner", () => {
 		expect(harness.agent_source).toBe("claude");
 	});
+
+	it("preserves the legacy source fallback for a normalized unknown runner", () => {
+		expect(toHarnessEvent(makeEvent({ runner: "unknown" })).agent_source).toBe("claude");
+	});
 	it("preserves tool_input", () => {
 		expect(harness.tool_input?.file_path).toBe("/repo/a.ts");
 	});

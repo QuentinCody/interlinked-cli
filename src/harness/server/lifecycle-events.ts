@@ -305,27 +305,26 @@ async function handleStop(
 async function handleUserPromptSubmit(
 	ctx: ServerRuntime,
 	event: HarnessEvent,
-	session?: SessionTrajectory,
+	session: SessionTrajectory,
 ): Promise<HarnessDecision> {
 	const { cohort, log } = ctx;
 	cohort.recordActivity(event);
 	// Plan capture (PB&J item #2) — structured `## Plan` parser, behind a
 	// config flag (default off — false-positive risk). Best-effort.
-	if (session) {
-		const planCfg = ctx.rules.plan_capture;
-		const planCaptured = await maybeCaptureFromUserPromptSubmit({
-			event,
-			session,
-			cwd: ctx.cwd,
-			enabled: planCfg?.enabled !== false,
-			parseUserPrompt: planCfg?.parse_userprompt === true,
-			log: ctx.log,
-		});
-		if (planCaptured) {
-			log(
-				`Plan capture (user-prompt): ${planCaptured.steps.length} step(s) (session ${planCaptured.session_id})`,
-			);
-		}
+	// handleLifecycleEvent supplies its required session to this private handler.
+	const planCfg = ctx.rules.plan_capture;
+	const planCaptured = await maybeCaptureFromUserPromptSubmit({
+		event,
+		session,
+		cwd: ctx.cwd,
+		enabled: planCfg?.enabled !== false,
+		parseUserPrompt: planCfg?.parse_userprompt === true,
+		log: ctx.log,
+	});
+	if (planCaptured) {
+		log(
+			`Plan capture (user-prompt): ${planCaptured.steps.length} step(s) (session ${planCaptured.session_id})`,
+		);
 	}
 	if (ctx.rules.content_scanner?.enabled && ctx.contentScanner) {
 		const promptText = event.prompt ?? "";
