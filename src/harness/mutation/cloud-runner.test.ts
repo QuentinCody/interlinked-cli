@@ -7,6 +7,7 @@ import {
 	MutationRunnerBusyError,
 	MutationRunPendingError,
 	readExecutedTestCount,
+	readEngineExitCode,
 	readNotMeasurable,
 	type FetchLike,
 	type FetchResponse,
@@ -40,6 +41,20 @@ function okFetch(body: unknown): FetchLike {
 const CFG: CloudRunnerConfig = { url: "https://worker", timeoutMs: 1000 };
 
 describe("readExecutedTestCount", () => {
+	it("preserves explicit successful and failed engine exit statuses", () => {
+		expect(readEngineExitCode({ engine: { exitCode: 0 } })).toBe(0);
+		expect(readEngineExitCode({ engine: { exitCode: 1 } })).toBe(1);
+	});
+
+	it.each([null, [], "not a response"])("does not infer execution evidence from a malformed response %j", (body) => {
+		expect(readExecutedTestCount(body)).toBeNull();
+		expect(readEngineExitCode(body)).toBeUndefined();
+	});
+
+	it.each([null, [], "success"])("refuses a malformed claimed engine status %j", (engine) => {
+		expect(readEngineExitCode({ engine })).toBeNull();
+	});
+
 	it("uses a valid explicit count when the runner provides one", () => {
 		expect(readExecutedTestCount({ testRun: { executedTestCount: 3 } })).toBe(3);
 	});

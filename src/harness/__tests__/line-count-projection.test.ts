@@ -57,6 +57,15 @@ describe("projectLineCount", () => {
 		expect(p?.afterText).toBe("one();\ntwo();\ndup();\nend();");
 	});
 
+	it("does not synthesize a replacement after an earlier MultiEdit step removed its match", () => {
+		const path = file("overlap.ts", "old();");
+		const projection = projectLineCount({ file_path: path, edits: [
+			{ old_string: "old();", new_string: "first();" },
+			{ old_string: "old();", new_string: "second();" },
+		] }, path);
+		expect(projection?.afterText).toBe("first();");
+	});
+
 	it("Edit inserts new_string LITERALLY (no $-substitution)", () => {
 		const path = file("dollar.ts", "const s = OLD;");
 		const p = projectLineCount({ file_path: path, old_string: "OLD", new_string: '"$&$`$1"' }, path);

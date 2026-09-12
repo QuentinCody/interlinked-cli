@@ -35,6 +35,11 @@ function entry(overrides: object = {}): object {
 }
 
 describe("readManifestState — adapter/path binding (review 2026-08-30)", () => {
+	it("refuses an invalid post-install status instead of presenting it as successful", () => {
+		writeFileSync(mfPath(), JSON.stringify({ schema_version: "1", entries: [entry({ post_install: "skipped" })] }));
+		expect(readManifestState(mfPath())).toMatchObject({ kind: "corrupt", reason: 'entry[0] has invalid post_install "skipped"' });
+	});
+
 	// test-contract: public-api — an adapter-consistent entry is valid.
 	it("P1: an entry whose settings_path matches the adapter derivation is valid", () => {
 		writeFileSync(mfPath(), JSON.stringify({ schema_version: "1", entries: [entry()] }));
