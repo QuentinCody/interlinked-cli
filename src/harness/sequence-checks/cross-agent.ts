@@ -11,6 +11,7 @@
 // snake-case identifier surfaced to agents and config.
 
 import { isAbsolute, resolve } from "node:path";
+import { nonNull } from "../../lib/non-null.js";
 
 import {
 	loadRecentWorkspaceEvents,
@@ -146,8 +147,7 @@ function latestOtherAgentWriteInWindow(
 	windowStartMs: number,
 ): WorkspaceActivityEvent | null {
 	for (let i = events.length - 1; i >= 0; i--) {
-		const ev = events[i];
-		if (!ev) continue;
+		const ev = nonNull(events[i]);
 		if (!isOtherAgentWriteTo(ev, filePath, trajectory)) continue;
 		const evMs = Date.parse(ev.timestamp);
 		if (Number.isNaN(evMs) || evMs < windowStartMs) continue;
@@ -199,9 +199,9 @@ export const staleReadThenWrite: SequenceDetector = {
 		// not the offending-agent-write timestamp. Treat presence in
 		// files_read AND an other-agent write after started_at as the
 		// stale shape, per the spec's simplification.
-		const last = offending.at(-1);
-		if (!last) return [];
-		const otherAgent = last.agent_name ?? "another agent";
+		const last = nonNull(offending.at(-1));
+		// isOtherAgent rejected records without an agent name before this list was built.
+		const otherAgent = nonNull(last.agent_name);
 		const match: SequenceMatch = {
 			prior_event_count: offending.length,
 			prior_summary: `${otherAgent} wrote ${filePath} at ${last.timestamp}`,
@@ -254,7 +254,7 @@ function findDivergedEditForFile(
 		const evMs = Date.parse(ev.timestamp);
 		if (Number.isNaN(evMs)) continue;
 		if (evMs < windowStartMs) continue;
-		const otherAgent = ev.agent_name ?? "another agent";
+		const otherAgent = nonNull(ev.agent_name); // isOtherAgentWriteTo established the name.
 		reportedFiles.add(key);
 		return {
 			prior_event_count: 1,
@@ -340,7 +340,7 @@ export const fileOverwriteAfterOtherAgent: SequenceDetector = {
 		const events = loadRecentWorkspaceEvents(cwd, sinceIso);
 		const ev = latestOtherAgentWriteInWindow(events, filePath, trajectory, windowStartMs);
 		if (!ev) return [];
-		const otherAgent = ev.agent_name ?? "another agent";
+		const otherAgent = nonNull(ev.agent_name); // latestOtherAgentWriteInWindow established the name.
 		return [
 			{
 				prior_event_count: 1,

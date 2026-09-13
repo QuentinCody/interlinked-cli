@@ -13,6 +13,7 @@
 // rephrased / paraphrased injection attempts.
 
 import { hasPublicHttpUrl } from "../evaluator/network-hosts.js";
+import { nonNull } from "../../lib/non-null.js";
 import type { TaintProvenance } from "../types.js";
 import {
 	CONFIDENTIAL_LEVELS,
@@ -128,7 +129,7 @@ export const fetchedExternalThenSecretRead: SequenceDetector = {
 	determinism: "fully_deterministic",
 	fn: (trajectory, candidate) => {
 		if (!isReadCandidate(candidate.tool_name)) return [];
-		const filePath = (typeof candidate.tool_input?.file_path === "string" ? candidate.tool_input?.file_path : "") || "";
+		const filePath = typeof candidate.tool_input?.file_path === "string" ? candidate.tool_input.file_path : "";
 		if (!filePath) return [];
 		const filePathLower = filePath.toLowerCase();
 		// Sensitive-shape heuristic — match on common secret-bearing filenames.
@@ -144,14 +145,14 @@ export const fetchedExternalThenSecretRead: SequenceDetector = {
 			UNTRUSTED_PROVENANCE.has(s.provenance),
 		);
 		if (untrusted.length === 0) return [];
+		const latest = nonNull(untrusted.at(-1));
 		return [
 			{
 				prior_event_count: untrusted.length,
 				prior_summary: `${untrusted.length} untrusted source(s) earlier`,
 				message:
 					`Sensitive-looking read (${filePath}) following an untrusted-content fetch ` +
-					`(${untrusted[untrusted.length - 1]?.file ?? "earlier"} via ` +
-					`${untrusted[untrusted.length - 1]?.provenance ?? "fetched_external"}). ` +
+					`(${latest.file} via ${latest.provenance}). ` +
 					"The textbook flow that completes the lethal trifecta — confirm the read is intentional " +
 					"before continuing.",
 				evidence: untrusted.slice(-3).map((s) => `${s.file} (${s.provenance})`),
@@ -224,7 +225,7 @@ const URL_HOSTNAME_RE = /https?:\/\/([^\s'":/<>]+)/gi;
 function extractHostnames(text: string): string[] {
 	const out: string[] = [];
 	for (const m of text.matchAll(URL_HOSTNAME_RE)) {
-		if (m[1]) out.push(m[1].toLowerCase());
+		out.push(nonNull(m[1]).toLowerCase()); // The hostname capture requires at least one character.
 	}
 	return out;
 }

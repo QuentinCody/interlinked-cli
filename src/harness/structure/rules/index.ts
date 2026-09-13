@@ -43,16 +43,12 @@ export function evaluateStructureRules(
 	repoRoot?: string,
 ): StructureFinding[];
 export function evaluateStructureRules(
-	ctxOrGraph: StructureRuleContext | ArtifactGraph,
-	configArg?: StructureConfig,
-	changedFilesArg?: string[],
-	repoRootArg?: string,
+	...args: [ctx: StructureRuleContext] | [graph: ArtifactGraph, config: StructureConfig, changedFiles: string[], repoRoot?: string | undefined]
 ): StructureFinding[] {
-	if (!("graph" in ctxOrGraph)) {
-		if (!configArg || !changedFilesArg) throw new TypeError("Structure rules require config and changedFiles");
-		return evaluateStructureRules({ graph: ctxOrGraph, config: configArg, changedFiles: changedFilesArg, repoRoot: repoRootArg });
+	if (args.length !== 1) {
+		return evaluateStructureRules({ graph: args[0], config: args[1], changedFiles: args[2], repoRoot: args[3] });
 	}
-	const { graph, config, changedFiles, repoRoot } = ctxOrGraph;
+	const { graph, config, changedFiles, repoRoot } = args[0];
 	const findings: StructureFinding[] = [];
 	const builtins = config.builtins;
 

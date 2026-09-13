@@ -39,6 +39,7 @@
 // so an over-cap payload is refused after bounded work, never measured in full.
 
 import { isRecord } from "./field-checks.js";
+import { nonNull } from "../../../lib/non-null.js";
 
 /** Deepest JSON nesting the walk will descend. Beyond it the payload is
  *  refused: no supported tool-input shape nests past a handful of levels, and
@@ -214,10 +215,8 @@ function frameCount(frame: Frame): number {
 
 function frameChild(frame: Frame): unknown {
 	if (frame.kind === "list") return frame.items[frame.index];
-	const key = frame.keys[frame.index];
-	// An out-of-range key cannot occur — `frameCount` gates the index — and an
-	// `undefined` read is refused as a projection failure anyway.
-	return key === undefined ? undefined : frame.record[key];
+	// nextChild bounds this index against the dense Object.keys result.
+	return frame.record[nonNull(frame.keys[frame.index])];
 }
 
 /** The next child to measure, or null once every open container is drained.
@@ -225,8 +224,7 @@ function frameChild(frame: Frame): unknown {
  *  container at O(1) frames. */
 function nextChild(stack: Frame[]): Child | null {
 	while (stack.length > 0) {
-		const frame = stack[stack.length - 1];
-		if (frame === undefined) break;
+		const frame = nonNull(stack[stack.length - 1]);
 		if (frame.index >= frameCount(frame)) {
 			stack.pop();
 			continue;

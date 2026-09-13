@@ -39,8 +39,9 @@
     "src/harness/shadow/protocol/types-core.ts",
     "src/harness/shadow/protocol/types-lifecycle.ts",
     "src/harness/shadow/protocol/types-outcome.ts",
-    "src/harness/shadow/protocol/types-transport.ts"
+    "src/harness/shadow/protocol/types-transport.ts",
+    "src/lib/non-null.ts"
   ],
-  "files": 88,
-  "digest": "dad0d6994e92d6554fd3ede61711c8389400347db052576505a4ef2adc4f9cce"
+  "files": 89,
+  "digest": "d4bc0a03229897c949af613e453903414aca745622f9521ee14c9c18db7b3b77"
 }

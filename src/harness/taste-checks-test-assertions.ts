@@ -74,7 +74,7 @@ function testBodyAtLine(source: TestSource, start: number): TestBody | null {
 	const test = source.parameterized.get(start);
 	if (test) return { ...test, body: stripCommentsAndStrings(test.body) };
 	// An unparsed parameterized callback cannot prove assertion absence.
-	if (/\.\s*each\s*\(/.test(source.sLines[start] ?? "")) return null;
+	if (/\.\s*each\s*\(/.test(nonNull(source.sLines[start]))) return null;
 	const end = findBlockEnd(source.sLines, start);
 	return {
 		end,
@@ -127,8 +127,8 @@ const TAUTOLOGY_LITERAL_EXPECT = new RegExp(
 const TRIVIAL_TRUTHINESS =
 	/expect\s*\(\s*true\s*\)\s*\.\s*toBeTruthy\s*\(\s*\)|expect\s*\(\s*false\s*\)\s*\.\s*toBeFalsy\s*\(\s*\)|\bassert(?:\.ok)?\s*\(\s*true\s*\)/g;
 
-function startsInCode(codeMask: string, index: number | undefined): boolean {
-	return (codeMask[index ?? 0] ?? " ").trim() !== "";
+function startsInCode(codeMask: string, index: number): boolean {
+	return (codeMask[index] ?? " ").trim() !== "";
 }
 
 function hasEqualLiteralTautology(line: string, codeMask: string): boolean {
@@ -198,7 +198,7 @@ function sameDirSiblingBase(mockedPath: string): string {
 
 export function checkMockingTheSUT(content: string, filePath: string): InlineMatch[] {
 	if (!isTestFile(filePath)) return [];
-	const baseName = filePath.split(/[/\\]/).pop() || "";
+	const baseName = nonNull(filePath.split(/[/\\]/).pop());
 	const sut = baseName.replace(/\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/, "");
 	if (!sut || sut === baseName) return [];
 	const stripped = stripComments(content);
