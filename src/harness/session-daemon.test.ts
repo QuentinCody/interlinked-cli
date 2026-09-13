@@ -804,6 +804,14 @@ describe("startSessionDaemon", () => {
 		expect(readFileSync(paths.socket, "utf8")).toBe("successor-socket");
 	});
 
+	it("cleans an owned pid after the socket has already disappeared", () => {
+		const paths = makePaths("missing-owned-socket");
+		writeFileSync(paths.pid, String(process.pid));
+		removeOwnedSessionArtifacts(paths, process.pid);
+		expect(existsSync(paths.pid)).toBe(false);
+		expect(existsSync(paths.socket)).toBe(false);
+	});
+
 	it("daemon.shutdown RPC drives state.shutdown -> handle.stop() (line 134)", async () => {
 		const paths = makePaths("t6");
 		daemon = await startSessionDaemon({

@@ -51,6 +51,22 @@ afterEach(() => {
 });
 
 describe("tsc-overlay-service", () => {
+	it("resolves proposed siblings in directories that do not yet exist on disk", () => {
+		const dir = project({});
+		writeFileSync(join(dir, "tsconfig.json"), JSON.stringify({
+			compilerOptions: { module: "nodenext", moduleResolution: "nodenext", strict: true, noEmit: true },
+			include: ["**/*.ts"],
+		}));
+		const out = runOverlayCheckInProcess({
+			projectRoot: dir,
+			filePath: join(dir, "new/a.ts"),
+			content: 'import { value } from "../deps/b.js"; export const x: number = value;',
+			siblings: [{ filePath: join(dir, "deps/b.ts"), content: 'export const value = "text";' }],
+		});
+		expect(out.some((r) => r.ruleId === "TS2322")).toBe(true);
+		expect(out.some((r) => r.ruleId === "TS2307")).toBe(false);
+	});
+
 	// kind: public-api — positive (must fire)
 	it("P1: OVERLAY_EXT matches .ts/.tsx/.mts/.cts", () => {
 		expect(OVERLAY_EXT.test("a.ts")).toBe(true);
