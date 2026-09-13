@@ -174,7 +174,9 @@ export function loadManifestState(dir: string): ManifestLoadState {
 		manifestCache = { path, mtimeMs: stat.mtimeMs, size: stat.size, manifest };
 		return { kind: "valid", manifest };
 	} catch (err) {
-		return { kind: "corrupt", detail: err instanceof Error ? err.message : String(err) };
+		// SAFETY: native file/JSON reads and validation of detached JSON data
+		// throw Error instances; healing uses only internal folds over that data.
+		return { kind: "corrupt", detail: (err as Error).message };
 	}
 }
 

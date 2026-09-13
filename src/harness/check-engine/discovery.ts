@@ -97,11 +97,11 @@ export function discoverTools(projectRoot: string): ToolAvailability[] {
 }
 
 /**
- * Discover a single tool by ID. Returns cached result if available.
+ * Discover a single registered tool by ID. Unknown names return undefined.
  * Use this instead of discoverTools() when you only need to check a few tools
  * (e.g., getDiagnostics for a single file) to avoid spawning subprocesses for all 20+ tools.
  */
-export function discoverSingleTool(id: ToolId, projectRoot: string): ToolAvailability | undefined {
+export function discoverSingleTool(id: string, projectRoot: string): ToolAvailability | undefined {
 	const spec = TOOL_SPECS.find((s) => s.id === id);
 	if (!spec) return undefined;
 	return checkTool(spec, projectRoot);

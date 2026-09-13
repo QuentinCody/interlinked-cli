@@ -239,7 +239,9 @@ export async function queryCommand(
 		resolved = resolveTarget(target, opts.file, cwd);
 		if (resolved !== undefined) params = buildParams(resolved, opts);
 	} catch (error) {
-		outputError(mode, error instanceof Error ? error.message : String(error));
+		// SAFETY: target and CLI argument parsers throw Error, as do their native
+		// path/file helpers. This try does not run record-processing callbacks.
+		outputError(mode, (error as Error).message);
 		process.exitCode = 1;
 		return;
 	}

@@ -187,7 +187,9 @@ export function runBiomeOverlayTyped(input: BiomeOverlayInput): BiomeOverlayOutc
 			findings: remapOverlayFindings(findings, { projectRoot, tmpPath, filePath }),
 		};
 	} catch (error) {
-		return { status: "unavailable", reason: error instanceof Error ? error.message : String(error) };
+		// SAFETY: this block invokes native file/process APIs and our string parser;
+		// no supplied callback runs, and their failures are Error instances.
+		return { status: "unavailable", reason: (error as Error).message };
 	} finally {
 		try {
 			if (created) unlinkSync(tmpPath);

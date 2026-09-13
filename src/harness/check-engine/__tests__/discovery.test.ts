@@ -1,8 +1,14 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { discoverSingleTool, discoverTools, formatToolReport, tryBinary } from "../discovery.js";
+
+vi.mock("node:child_process", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("node:child_process")>();
+	return { ...actual, spawnSync: vi.fn(actual.spawnSync) };
+});
 
 describe("discoverTools", () => {
 	let tmp: string;
@@ -27,7 +33,9 @@ describe("discoverTools", () => {
 
 	it("marks unavailable tools with a reason", () => {
 		const tools = discoverTools(tmp);
-		for (const t of tools.filter((t) => !t.available)) {
+		const unavailable = tools.filter((t) => !t.available);
+		expect(unavailable.length).toBeGreaterThan(0);
+		for (const t of unavailable) {
 			expect(t.reason, `${t.id}`).toBeTruthy();
 		}
 	});
@@ -50,22 +58,33 @@ describe("discoverSingleTool", () => {
 		expect(r?.id).toBe("tsc");
 	});
 
+	it("discovers stable TypeScript when the primary compiler cannot spawn", async () => {
+		writeFileSync(join(tmp, "tsconfig.json"), "{}");
+		const native = await vi.importActual<typeof import("node:child_process")>("node:child_process");
+		const missing = native.spawnSync(join(tmp, "missing-tsgo"), ["--version"], { encoding: "utf8", timeout: 5000 });
+		const stable = native.spawnSync(process.execPath, ["-e", "console.log('Version 5.9.3')"], { encoding: "utf8", timeout: 5000 });
+		const spawn = vi.mocked(spawnSync);
+		spawn.mockClear();
+		spawn.mockReturnValueOnce(missing).mockReturnValueOnce(stable);
+		expect(discoverSingleTool("tsc", tmp)).toEqual({ id: "tsc", available: true, version: "5.9.3" });
+		expect(spawn.mock.calls.map(([command, args]) => [command, args])).toEqual([
+			["npx", ["tsgo", "--version"]],
+			["npx", ["tsc", "--version"]],
+		]);
+	});
+
 	it("returns undefined for an unknown id", () => {
-		// SAFETY: the invalid tool ID deliberately exercises the runtime unknown-tool fallback outside the declared ID union.
-		const r = discoverSingleTool("not-a-tool" as never, tmp);
+		const r = discoverSingleTool("not-a-tool", tmp);
 		expect(r).toBeUndefined();
 	});
 });
 
 describe("tryBinary — spawnSync throws synchronously", () => {
 	it("returns unavailable when spawnSync throws instead of reporting result.error", () => {
-		// A non-string `file` argument makes Node's spawnSync throw a
-		// TypeError synchronously (distinct from an ENOENT, which surfaces
-		// via `result.error` and is handled by the branch above this one).
-		// The cast mirrors a malformed spec reaching this internal helper.
+		// An empty command is a string, but Node rejects it synchronously
+		// instead of returning the ENOENT result of an absent executable.
 		const malformed = {
-			// SAFETY: intentionally malformed to force spawnSync's synchronous throw path
-			versionCmd: [123 as unknown as string],
+			versionCmd: [""],
 			versionRegex: /x/,
 		};
 		expect(tryBinary(malformed)).toEqual({ available: false });

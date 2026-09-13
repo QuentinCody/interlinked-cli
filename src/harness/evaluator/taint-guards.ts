@@ -56,20 +56,6 @@ const ESCALATION_TAIL_LENGTH = 10;
 const HIGH_BUDGET_THRESHOLD = 0.8;
 
 /**
- * `GuardRulesConfig.taint_tracking` is declared non-optional, but that's the
- * fully-defaulted `resolveConfig()` shape, not a runtime guarantee at every
- * call site — unit tests deliberately construct `GuardRulesConfig` objects
- * missing the field (`{ enabled: true, rules: [] } as unknown as
- * GuardRulesConfig`) to model stale/partial configs. Routing the read
- * through this accessor keeps the type at this boundary honest so the
- * defensive check downstream stays necessary instead of looking dead to
- * `no-unnecessary-condition`.
- */
-function taintTrackingOf(rules: GuardRulesConfig): TaintTrackingConfig | undefined {
-	return rules.taint_tracking;
-}
-
-/**
  * `SessionTrajectory.taint_sources` is likewise declared non-optional, but a
  * legacy session object hydrated before this field existed can genuinely
  * lack it at runtime (the "tolerates a legacy session without taint_sources"
@@ -339,13 +325,9 @@ export function evaluateTaintGuards(args: TaintGuardsArgs): TaintGuardsResult {
 	const warnings: string[] = [];
 	let escalation = args.pendingEscalation;
 
-	// `GuardRulesConfig.taint_tracking` is declared non-optional, but that's
-	// the fully-defaulted `resolveConfig()` shape, not a runtime guarantee at
-	// every call site: `taintTrackingOf` documents the boundary this defends
-	// (mutation-kill + unit tests deliberately construct configs missing the
-	// field to model stale/partial config objects).
-	const taint = taintTrackingOf(rules);
-	if (!taint) return { kind: "ok", warnings, escalation };
+	// The production caller checks taint_tracking.enabled before invoking this
+	// evaluator with the fully resolved GuardRulesConfig, never a raw override.
+	const taint = rules.taint_tracking;
 
 	// Stage 1 — on file read, check sensitivity and ratchet (mutates session/warnings).
 	applySensitivityRatchet(toolName, toolInput, taint, session, warnings);

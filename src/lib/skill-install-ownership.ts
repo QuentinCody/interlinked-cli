@@ -175,7 +175,9 @@ export function loadSkillInstallManifest(cwd: string): SkillInstallManifest {
     try {
         return validateManifest(JSON.parse(readFileSync(path, "utf-8")));
     } catch (err) {
-        const detail = err instanceof Error ? err.message : String(err);
+        // SAFETY: native file/JSON reads and manifest validators throw Error;
+        // the validators inspect detached JSON and invoke no supplied callbacks.
+        const detail = (err as Error).message;
         throw new Error(`Cannot read ${SKILL_INSTALL_MANIFEST}: ${detail}`, { cause: err });
     }
 }
