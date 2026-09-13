@@ -32,6 +32,7 @@ const EXPECTED_KEY_ORDER = [
 	"codeClones",
 	"largeFiles",
 	"untestedFiles",
+	"htmlDuplicateId",
 	"strongTyping",
 	"suppressions",
 	"consoleStatements",

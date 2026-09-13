@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkHtmlDuplicateId } from "./html-duplicate-id.js";
 
 describe("checkHtmlDuplicateId", () => {
-    it("reports every repeated ID at its attribute line and references the first", () => {
+    it("MUST-FIRE: reports every repeated ID at its attribute line and references the first", () => {
         const html = '<body>\n<div id="panel"></div>\n<span\n id=panel></span>\n<a id=panel></a></body>';
         expect(checkHtmlDuplicateId(html, "index.html")).toEqual([
             { line: 4, text: 'Duplicate HTML id "panel"; first used on line 2.' },
@@ -10,7 +10,7 @@ describe("checkHtmlDuplicateId", () => {
         ]);
     });
 
-    it("accepts mixed-case markup and different quotes", () => {
+    it("MUST-FIRE: detects duplicates across mixed-case markup and different quotes", () => {
         expect(checkHtmlDuplicateId('<BODY><div ID = "x"></div><p id=\'x\'></p></BODY>', "index.HTM"))
             .toEqual([{ line: 1, text: 'Duplicate HTML id "x"; first used on line 1.' }]);
     });
@@ -59,7 +59,7 @@ describe("checkHtmlDuplicateId", () => {
         '<body><div id=x></div><!-- <p id=x>',
         '<body><div id=x></div><p title="unterminated <b id=x>',
         '<body><div id=x></div><plaintext><p id=x>',
-    ])("does not report out-of-scope or ambiguous IDs: %s", (html) => {
+    ])("MUST-NOT-FIRE: out-of-scope or ambiguous IDs: %s", (html) => {
         expect(checkHtmlDuplicateId(html, "index.html")).toEqual([]);
     });
 
@@ -69,11 +69,11 @@ describe("checkHtmlDuplicateId", () => {
             .toEqual([{ line: 1, text: 'Duplicate HTML id "x"; first used on line 1.' }]);
     });
 
-    it.each(["index.ts", "index.tsx", "index.vue", "index.md", "index.xhtml"])("skips %s", (file) => {
+    it.each(["index.ts", "index.tsx", "index.vue", "index.md", "index.xhtml"])("MUST-NOT-FIRE: unsupported file %s", (file) => {
         expect(checkHtmlDuplicateId('<body><div id=x></div><p id=x></p></body>', file)).toEqual([]);
     });
 
-    it("does not merge IDs across files", () => {
+    it("MUST-NOT-FIRE: does not merge IDs across files", () => {
         const html = '<body><div id=x></div></body>';
         expect(checkHtmlDuplicateId(html, "one.html")).toEqual([]);
         expect(checkHtmlDuplicateId(html, "two.html")).toEqual([]);
