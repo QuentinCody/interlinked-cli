@@ -1,7 +1,7 @@
-import { constants, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { collectRepositoryInventory } from "../../lib/metrics/inventory.js";
 import { inventoryWithOverrides } from "../../lib/metrics/inventory-overrides.js";
@@ -13,13 +13,13 @@ import { indexStore, promoteMatchingProposal } from "./staged-state.js";
 import { readAcceptedManifest } from "./store.js";
 import { loadEvidence } from "../../lib/metrics/evidence-store.js";
 import { collectCompositeScoreReport } from "../../lib/metrics/composite-report.js";
+import { copyVitestRuntime } from "./__tests__/fixtures/vitest-runtime.js";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture(): string {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "coverage-index-integration-"))); roots.push(root);
-    cpSync(realpathSync(join(process.cwd(), "node_modules")), join(root, "node_modules"), { recursive: true, verbatimSymlinks: true, mode: constants.COPYFILE_FICLONE,
-        filter: path => basename(path) !== ".vite-temp" && basename(path) !== ".vite" });
+    copyVitestRuntime(root);
     writeFileSync(join(root, "package.json"), '{"type":"module"}');
     writeFileSync(join(root, "vitest.config.ts"), 'export default { test: { include: ["*.test.ts"], maxWorkers: 1, coverage: { include: ["a.ts", "b.ts"] } } };');
     writeFileSync(join(root, "a.ts"), "export function answer(value: boolean) { return value ? 1 : 2; }\n");
