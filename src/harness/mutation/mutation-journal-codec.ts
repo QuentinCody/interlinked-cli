@@ -4,6 +4,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { isJsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 import type { SqliteDatabase } from "./mutation-journal-driver.js";
 import { checkSourceArtifactBinding } from "./protocol-v3/field-checks.js";
 import { normalizeRetainedEvidence } from "./mutation-journal-retained.js";
@@ -249,8 +250,9 @@ export function stableJson(value: unknown): string {
 		for (const key of Object.keys(item).sort()) sorted[key] = item[key];
 		return sorted;
 	});
-	if (encoded === undefined) throw new Error("mutation journal values must be JSON-serializable");
-	return encoded;
+	// The detached snapshot passed assertJsonValue; unsupported root values and
+	// callable toJSON properties cannot reach this serialization.
+	return nonNull(encoded);
 }
 
 export function stableJsonHash(encoded: string): string {

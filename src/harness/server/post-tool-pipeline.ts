@@ -57,12 +57,11 @@ import {
 export { POST_TOOL_PIPELINE_FAILURE_WARNING } from "./post-tool-pipeline-spool.js";
 
 function observedSkipDecision(
-	event: HarnessEvent,
+	files: NonNullable<HarnessEvent["change_set"]>["files"],
 	rules: ServerRuntime["rules"],
 ): HarnessDecision | null {
-	const paths = event.change_set?.files.map((effect) => effect.path) ?? [];
+	const paths = files.map((effect) => effect.path);
 	if (
-		paths.length === 0 ||
 		paths.some(isWorkspaceControlPath) ||
 		!paths.every((path) => shouldSkipPath(path, rules))
 	) return null;
@@ -81,7 +80,7 @@ function skipPathsShortCircuit(
 	event: HarnessEvent,
 	rules: ServerRuntime["rules"],
 ): HarnessDecision | null {
-	if (event.change_set?.files.length) return observedSkipDecision(event, rules);
+	if (event.change_set?.files.length) return observedSkipDecision(event.change_set.files, rules);
 	// tool_input crosses a process boundary, so its field types are a claim rather
 	// than a guarantee; `as string` would pass a non-string on to path handling
 	// that assumes otherwise.

@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 import {
 	findDirtyDependents,
 	formatDirtyDependentWarning,
@@ -376,7 +377,7 @@ export interface ReadGuardResult {
  *  warnings for oversized reads. */
 export function evaluateReadGuards(filePath: string): ReadGuardResult {
 	const warnings: string[] = [];
-	const readFileName = filePath.split("/").pop() || "";
+	const readFileName = nonNull(filePath.split("/").pop());
 	const sensitiveFilePatterns = [
 		/^\.env($|\.)/,
 		/^credentials\.json$/,

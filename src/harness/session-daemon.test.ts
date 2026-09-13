@@ -897,7 +897,7 @@ describe("startSessionDaemon", () => {
 		expect(responses.map((r) => r.id)).toEqual(["real-1"]);
 	});
 
-	it("a rejecting evaluateHook makes dispatchRpc throw, caught into an internal error (line 177)", async () => {
+	it.each([new Error("boom"), "boom"])("returns an RPC error when the supplied hook evaluator rejects: %s", async (failure) => {
 		const paths = makePaths("t8");
 		daemon = await startSessionDaemon({
 			paths,
@@ -905,7 +905,7 @@ describe("startSessionDaemon", () => {
 			state: {
 				tsgo: makeTsgo(),
 				getEvaluatorContext: makeEvaluatorContext,
-				evaluateHook: vi.fn().mockRejectedValue(new Error("boom")),
+				evaluateHook: async () => { throw failure; },
 			},
 		});
 		const response = await roundTrip(paths, {

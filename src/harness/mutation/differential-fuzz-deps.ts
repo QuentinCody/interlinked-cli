@@ -30,6 +30,7 @@
 import { createRequire } from "node:module";
 import type * as TS from "typescript";
 import { isJsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 
 export type TsModule = typeof TS;
 
@@ -192,7 +193,8 @@ export function transpileMutantModule(source: string, filePath: string): Transpi
 			verbatimModuleSyntax: false,
 		},
 	});
-	const diagnostics = (emitted.diagnostics ?? []).map((d) =>
+	// TypeScript's transpileWorker always returns its initialized diagnostics array.
+	const diagnostics = nonNull(emitted.diagnostics).map((d) =>
 		ts.flattenDiagnosticMessageText(d.messageText, " "),
 	);
 	return { js: emitted.outputText, diagnostics };

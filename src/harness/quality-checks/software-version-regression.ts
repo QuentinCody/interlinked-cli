@@ -9,6 +9,7 @@
 
 import { basename } from "node:path";
 import { isJsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 import { isTestFile } from "../checks/shared.js";
 import {
 	freshnessConcernForRef,
@@ -112,7 +113,7 @@ export function collectSoftwareVersionReferences(
 			collectLineRef(refs, seen, collectCargoDependencyRef(line, lineNo));
 		}
 
-		for (const ref of collectGenericAssignmentRefs(line, lineNo, pathByLine[i] ?? "")) {
+		for (const ref of collectGenericAssignmentRefs(line, lineNo, nonNull(pathByLine[i]))) {
 			// Test fixtures pin arbitrary versions by design — comparing
 			// them across edits is meaningless (the registry-metadata.test.ts
 			// cross-block FP). Keep only model refs (freshness still applies);
@@ -444,9 +445,10 @@ function collectGenericAssignmentRefsForPattern(
 	const found: SoftwareVersionReference[] = [];
 	re.lastIndex = 0;
 	for (const match of line.matchAll(re)) {
-		const key = match.groups?.key;
-		const value = match.groups?.value;
-		if (!key || !value) continue;
+		// Both admitted patterns require nonempty named key and value captures.
+		const groups = nonNull(match.groups);
+		const key = nonNull(groups.key);
+		const value = nonNull(groups.value);
 		const ref = buildGenericAssignmentRef(key, value, lineNo, objectPath, line);
 		if (ref) found.push(ref);
 	}

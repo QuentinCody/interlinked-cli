@@ -12,6 +12,7 @@ import { readOptionalToolString } from "../evaluator/tool-input-values.js";
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import { nonNull } from "../../lib/non-null.js";
 import { GENERIC_CHECK_META, QUALITY_CHECK_META } from "../check-metadata.js";
 import { isOperationalCheckDeferral } from "../operational-check-deferrals.js";
 import type { QualityCheckResult } from "../quality-checks/result-types.js";
@@ -97,7 +98,8 @@ export function formatQualityDecisionWarnings(
 		const key = result.file ?? "";
 		if (emittedDeferredFiles.has(key)) continue;
 		emittedDeferredFiles.add(key);
-		const group = deferredByFile.get(key) ?? [result];
+		// groupQualityDeferrals indexed every deferred result in this same list.
+		const group = nonNull(deferredByFile.get(key));
 		const target = result.file ? ` for ${result.file}` : "";
 		const labels = [...new Set(group.map(deferredCheckLabel))];
 		const reasons = [...new Set(group.map(deferredReason))];
