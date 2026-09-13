@@ -9,6 +9,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, relative, resolve } from "node:path";
 import { errorMessage } from "../../../lib/error-message.js";
+import { nonNull } from "../../../lib/non-null.js";
 import {
 	ProjectCompilerUnavailableError,
 	runWithProjectCompilerLease,
@@ -74,8 +75,9 @@ function parseSyncCompilerResult(
 ): CheckResult[] {
 	if (result.error) return unavailableFinding(file, `compiler failed: ${result.error.message}`);
 	if (result.signal) return unavailableFinding(file, `compiler was killed by ${result.signal}`);
-	if (result.status === null) return unavailableFinding(file, "compiler returned no exit status");
-	return parseCompletedCompiler(`${result.stdout || ""}${result.stderr || ""}`, result.status, file);
+	// Native spawnSync has no exit status only after a spawn failure or signal,
+	// both handled above; an ordinary child exit supplies its numeric status.
+	return parseCompletedCompiler(`${result.stdout || ""}${result.stderr || ""}`, nonNull(result.status), file);
 }
 
 function runCompilerSync(options: {

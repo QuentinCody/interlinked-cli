@@ -12,6 +12,7 @@
 
 import { createRequire } from "node:module";
 import { dirname, relative, resolve } from "node:path";
+import { nonNull } from "../../../lib/non-null.js";
 import { configFingerprintOf, selectCheckerConfig } from "../../config-graph.js";
 import type { CheckResult } from "../types.js";
 import { type DiskRead, type DiskReader, diskVersion, readOnce } from "./tsc-overlay-identity.js";
@@ -314,8 +315,8 @@ export function runOverlayCheckInProcessTyped(input: RunTscOverlayInput): Overla
 	if (lookup.kind === "not_measured") return { status: "not_measured", reason: lookup.reason };
 	if (lookup.kind === "none") return { status: "ok", findings: [] };
 	const ctx = lookup.ctx;
-	const service = ctx.service;
-	if (service === null) return { status: "ok", findings: [] };
+	// buildService assigns the LanguageService before returning or caching ctx.
+	const service = nonNull(ctx.service);
 	const { ts } = ctx;
 	return { status: "ok", findings: overlayDiagnostics(ctx, ts, service, input) };
 }
@@ -357,10 +358,8 @@ function overlayDiagnostics(
 
 /** Set the primary overlay, bumping its version so the LS invalidates caches for this file. */
 function setOverlayTarget(ctx: ServiceContext, absFilePath: string, content: string): void {
-	const prevVersion =
-		ctx.overlay?.filePath === absFilePath
-			? ctx.overlay.version
-			: (ctx.versions.get(absFilePath) ?? 0);
+	// Checks run synchronously; each prior check cleared its overlay in finally.
+	const prevVersion = ctx.versions.get(absFilePath) ?? 0;
 	ctx.overlay = {
 		filePath: absFilePath,
 		content,
@@ -410,7 +409,7 @@ function clearOverlayTarget(
 	ctx.versions.set(absFilePath, (ctx.overlay as NonNullable<ServiceContext["overlay"]>).version + 1);
 	ctx.overlay = null;
 	for (const abs of siblingPaths) {
-		ctx.versions.set(abs, (ctx.versions.get(abs) ?? 0) + 1);
+		ctx.versions.set(abs, nonNull(ctx.versions.get(abs)) + 1);
 		ctx.siblings.delete(abs);
 	}
 }
