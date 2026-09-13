@@ -79,6 +79,8 @@ describe("pushWarnings — survivor kills", () => {
 });
 
 describe("updateTrigramDirtyLayer — survivor kills", () => {
+	// test-contract: boundary — real oversized content is excluded from the index
+	// while its observed bytes remain in the content cache; no mutant kill is claimed.
 	it("logs an oversized file as skipped while refreshing its content cache", () => {
 		const cwd = makeTempCwd();
 		const content = "x".repeat(DEFAULT_MAX_FILE_SIZE + 1);
