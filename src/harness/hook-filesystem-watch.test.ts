@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,6 +13,37 @@ function fixture(): string {
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 describe("filesystem coverage", () => {
+    it("keeps symlinked policy content unmeasured instead of certifying its target", () => {
+        const root = fixture();
+        writeFileSync(join(root, "target.json"), "{}");
+        symlinkSync("target.json", join(root, "package.json"));
+        const watcher = startHookFilesystemWatch({ root, reservations: () => [] });
+        cleanups.push(watcher.stop);
+        expect(watcher.status()).toMatchObject({ readiness: "unmeasured", unmeasured: [expect.stringContaining("unmeasured symbolic link")] });
+        expect(watcher.ledger.snapshot().files[join(root, "package.json")]).toBeUndefined();
+    });
+
+    it("reports a directory occupying a policy-file path as unmeasured", () => {
+        const root = fixture();
+        mkdirSync(join(root, "package.json"));
+        const watcher = startHookFilesystemWatch({ root, reservations: () => [] });
+        cleanups.push(watcher.stop);
+        expect(watcher.status()).toMatchObject({ readiness: "unmeasured", unmeasured: [expect.stringContaining("unmeasured non-file")] });
+        expect(watcher.ledger.snapshot().files[join(root, "package.json")]).toBeUndefined();
+    });
+
+    it("does not read or certify a policy file above the size limit", () => {
+        const root = fixture();
+        const path = join(root, "package.json");
+        const fd = openSync(path, "w");
+        try { ftruncateSync(fd, 64 * 1024 * 1024 + 1); }
+        finally { closeSync(fd); }
+        const watcher = startHookFilesystemWatch({ root, reservations: () => [] });
+        cleanups.push(watcher.stop);
+        expect(watcher.status()).toMatchObject({ readiness: "unmeasured", unmeasured: [expect.stringContaining("oversized policy")] });
+        expect(watcher.ledger.snapshot().files[path]).toBeUndefined();
+    });
+
     it("detects atomic replacement and survives restart", () => {
         const root = fixture();
         writeFileSync(join(root, "package.json"), "old");
