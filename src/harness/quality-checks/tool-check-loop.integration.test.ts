@@ -12,6 +12,9 @@ import { loopAudit, loopEngine, loopFreshness, loopProfile, loopRegression, loop
 // supplied per-call, so content/ref injection needs no module mock.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { HarnessEvent, QualityCheckConfig } from "../types.js";
 import { runToolCheckLoop, type ToolCheckLoopContext, yieldEventLoop } from "./tool-check-loop.js";
 
@@ -734,6 +737,25 @@ describe("runToolCheckLoop — inline_language_checks", () => {
 // ==========================================================================
 
 describe("runToolCheckLoop — affected_tests", () => {
+	it("routes a fixture edit in a Node project through its TypeScript test dispatcher", async () => {
+		const root = mkdtempSync(join(tmpdir(), "node-fixture-tests-"));
+		try {
+			writeFileSync(join(root, "package.json"), '{"type":"module"}');
+			const { findProjectRoot } = await import("./project-root.js");
+			vi.mocked(findProjectRoot).mockReturnValueOnce(root);
+			mockGetProfileForFile.mockImplementation(path => path === "source.ts" ? loopProfile("typescript") : null);
+			const dispatcher = vi.fn().mockResolvedValue([{ name: "affected_tests", severity: "error",
+				message: "Fixture broke an assertion", file: "fixtures/sample.json", detail: "Expected valid fixture" }]);
+			TEST_DISPATCHERS.typescript = dispatcher;
+			const out = await runToolCheckLoop(makeCtx({ cwd: root, filePath: "fixtures/sample.json",
+				checks: { affected_tests: cfg({ file_types: [""] }) } }));
+			expect(dispatcher).toHaveBeenCalledWith(expect.objectContaining({ checkCwd: root,
+				absPath: join(root, "fixtures/sample.json"), profile: loopProfile("typescript") }));
+			expect(out).toEqual([{ name: "affected_tests", severity: "error", message: "Fixture broke an assertion",
+				file: "fixtures/sample.json", detail: "Expected valid fixture" }]);
+		} finally { rmSync(root, { recursive: true, force: true }); }
+	});
+
 	it("skips when there is no language profile", async () => {
 		mockGetProfileForFile.mockReturnValue(null);
 		const out = await runToolCheckLoop(makeCtx({ checks: { affected_tests: cfg() } }));

@@ -116,6 +116,24 @@ beforeEach(() => {
 });
 
 describe("runNamedChecksAdmitted — affected tests", () => {
+    it("retains a scheduler failure as unavailable without a measured verdict", async () => {
+        scheduleTests.mockRejectedValueOnce(new Error("Test scheduler busy; request retained"));
+        const result = await runNamed({ paths: ["/repo/src/a.ts"], affectedTests: testsCandidate() });
+        expect(result.deferred).toEqual([{ name: "affected_tests", reason: "Error: Test scheduler busy; request retained" }]);
+        expect(result.checksRan).toEqual([]);
+        expect(result.toolMetrics).toEqual([]);
+        expect(result.resultMap.size).toBe(0);
+    });
+
+    it("defers a mixed-language batch without reporting a measured test check", async () => {
+        getProfileForFile.mockReturnValueOnce({ id: "typescript" }).mockReturnValueOnce({ id: "python" });
+        const result = await runNamed({ paths: ["/repo/src/a.ts", "/repo/tools/check.py"], affectedTests: testsCandidate() });
+        expect(result.deferred).toEqual([{ name: "affected_tests", reason: "mixed-language ChangeSets have no single bounded affected-test command" }]);
+        expect(result.checksRan).toEqual([]);
+        expect(result.resultMap.size).toBe(0);
+        expect(scheduleTests).not.toHaveBeenCalled();
+    });
+
     it("sends the whole changed input union and applies a test-file budget", async () => {
         await runNamed({ paths: ["/repo/src/a.ts", "/repo/src/b.test.ts"],
             affectedTests: testsCandidate({ max_dependent_tests: 2 }) });

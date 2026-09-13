@@ -6,7 +6,7 @@ import { afterEach, expect, it } from "vitest";
 import { collectRepositoryInventory } from "../../lib/metrics/inventory.js";
 import { inventoryWithOverrides } from "../../lib/metrics/inventory-overrides.js";
 import { createCoverageOverlay } from "../coverage-overlay.js";
-import { coverageIndexContext } from "./context.js";
+import { coverageIndexContext, dependencyHashes } from "./context.js";
 import { runIndexedCoverage, coverageIndexStatus } from "./controller.js";
 import { warmCoverageIndex } from "./warm.js";
 import { indexStore, promoteMatchingProposal } from "./staged-state.js";
@@ -44,6 +44,19 @@ it("keeps a pure shard reusable when an unrelated opaque shard exists", async ()
         expect(measured).toEqual([...full.result.perFile].map(([path, { mtime: _mtime, ...coverage }]) => [path, coverage]));
     } finally { overlay.cleanup(); }
 }, 120_000);
+
+it("invalidates shared setup dependencies transitively even when their imports form a cycle", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "vitest.config.ts"), 'export default { test: { include: ["*.test.ts"], setupFiles: ["./bootstrap.ts"] } };');
+    writeFileSync(join(root, "bootstrap.ts"), 'import "./setup-helper"; export {};');
+    writeFileSync(join(root, "setup-helper.ts"), 'import "./bootstrap"; export const marker = 1;');
+    const before = await coverageIndexContext(collectRepositoryInventory(root));
+    writeFileSync(join(root, "setup-helper.ts"), 'import "./bootstrap"; export const marker = 2;');
+    const after = await coverageIndexContext(collectRepositoryInventory(root));
+    expect(after.validity.coverageConfigHash).not.toBe(before.validity.coverageConfigHash);
+    expect(after.validity.dependencyGraphVersion).toBe(before.validity.dependencyGraphVersion);
+    expect(dependencyHashes(after, ["a.test.ts"], [])).toEqual(dependencyHashes(before, ["a.test.ts"], []));
+}, 30_000);
 it("matches full coverage, reruns one shard and promotes only after the actual write", async () => {
     const root = fixture(), warm = await warmCoverageIndex(root, 30_000);
     expect(warm.reason).toBeNull(); expect(warm.indexed).toBe(true); expect(warm.status.shards).toBe(2);

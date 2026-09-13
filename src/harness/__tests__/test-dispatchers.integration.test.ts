@@ -107,6 +107,16 @@ describe("runPytestDispatcher", () => {
 	const dispatcher = TEST_DISPATCHERS.python;
 	if (!dispatcher) throw new Error("python dispatcher not registered");
 
+	it("preserves both diagnostic streams when a Python assertion fails", async () => {
+		existsSyncMock.mockReturnValue(true);
+		spawnSyncMock.mockReturnValue(mkSpawnResult({ status: 1,
+			stdout: "FAILED tests/test_m.py::test_value - assert 1 == 2\n", stderr: "traceback from stderr\n" }));
+		const out = await dispatcher({ filePath, absPath: filePath, profile, checkCwd: "/repo",
+			timeoutMs: 5000, severity: "error", checkName: "affected_tests" });
+		expect(out).toHaveLength(1);
+		expect(out[0]?.detail).toBe("traceback from stderr\nFAILED tests/test_m.py::test_value - assert 1 == 2");
+	});
+
 	it("returns empty when no test-candidate file exists", async () => {
 		existsSyncMock.mockReturnValue(false);
 		const out = await dispatcher({
@@ -522,11 +532,23 @@ describe("runGoTestDispatcher", () => {
 
 describe("runVitestDispatcher — shared execution", () => {
     const profile = getProfileForFile("/repo/src/a.ts");
-    async function run() {
-        if (!profile || !TEST_DISPATCHERS.typescript) throw new Error("missing TypeScript dispatcher");
-        return TEST_DISPATCHERS.typescript({ profile, absPath: "/repo/src/a.ts", filePath: "src/a.ts",
+    async function run(selectedProfile = profile) {
+        if (!selectedProfile || !TEST_DISPATCHERS.typescript) throw new Error("missing TypeScript dispatcher");
+        return TEST_DISPATCHERS.typescript({ profile: selectedProfile, absPath: "/repo/src/a.ts", filePath: "src/a.ts",
             checkCwd: "/repo", timeoutMs: 5000, severity: "error", checkName: "affected_tests" });
     }
+    it("uses built-in Vitest defaults without runner metadata and accepts a passing run", async () => {
+        if (!profile) throw new Error("missing TypeScript profile");
+        expect(await run({ ...profile, test_runner: null })).toEqual([]);
+        expect(scheduleTests).toHaveBeenCalledExactlyOnceWith({ root: "/repo", paths: ["/repo/src/a.ts"],
+            timeoutMs: 5000, maxTests: 150, waitForCapacity: false });
+        expect(spawnSyncMock).not.toHaveBeenCalled();
+    });
+    it("turns an unstructured runner rejection into an unavailable verdict", async () => {
+        scheduleTests.mockRejectedValueOnce("worker connection closed");
+        expect(await run()).toEqual([{ name: "affected_tests_deferred", severity: "warning", file: "src/a.ts",
+            message: "Affected test request retained", detail: "Test planning unavailable" }]);
+    });
     it("reports a failed shared execution without a second fallback process", async () => {
         scheduleTests.mockResolvedValue({ status: "failed", output: "AssertionError: mismatch" });
         expect(await run()).toEqual([expect.objectContaining({ name: "affected_tests", detail: "AssertionError: mismatch" })]);

@@ -415,6 +415,18 @@ describe("verifyCommand — applySuppressions", () => {
 // ===========================================
 
 describe("verifyCommand — dispatch", () => {
+	it("defers without a clean verdict and releases the project slot when host capacity is busy", async () => {
+		const { acquireTestCapacity } = await import("../harness/test-capacity.js");
+		vi.mocked(acquireTestCapacity).mockResolvedValueOnce(null);
+		const { verifyCommand } = await importVerify();
+		await verifyCommand({ cwd: "/repo", json: true });
+		expect(process.exitCode).toBe(1);
+		expect(stderr).toContain("host capacity is busy; no verification verdict was produced");
+		expect(stdout).toBe("");
+		expect(discoverFilesMock).not.toHaveBeenCalled();
+		expect(releaseHeavyProcessMock).toHaveBeenCalledExactlyOnceWith();
+	});
+
 	it("routes --structure-only to runStructureVerify and returns early", async () => {
 		const { verifyCommand } = await importVerify();
 		await verifyCommand({ structureOnly: true, cwd: "/repo" });
