@@ -81,7 +81,8 @@ it("does not overlap different background jobs", async () => {
 });
 
 it("aborts the process group when available memory drops below the host reserve", async () => {
-    vi.useFakeTimers();
+    // Leave admission deadlines/retry timers real when another process owns the host lane.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     vi.mocked(runProcessAsync).mockImplementation(async (_file, _args, options) => {
         vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 8 * 1024 ** 3, availableBytes: 512 * 1024 ** 2 });
         await vi.advanceTimersByTimeAsync(500);
