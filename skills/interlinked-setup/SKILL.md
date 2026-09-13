@@ -232,6 +232,23 @@ unresolved attempt. If the backoff refuses `restart` during a genuine outage,
 
 ### Over the memory ceiling, the daemon stops before replacement (2026-08-31)
 
+SessionEnd jobs now run through a detached supervisor with a 128 MiB V8 heap cap.
+The supervisor holds a per-project/job lease through child cleanup, including when the
+daemon exits, and admits only one background runner per host at a time. A duplicate job
+is skipped; a different job waits at most two minutes. Each admitted runner has a ten-minute
+deadline and a 768 MiB Node V8 heap cap. Fuzz and benchmark commands receive an explicit
+`--maxWorkers` value, rechecked after waiting for admission.
+
+Admission respects physical RAM and any process/container limit. It budgets at most one
+quarter of total memory, preserves at least 1 GiB or one eighth of total memory as host
+headroom, and budgets 1 GiB for coordination plus 1 GiB per worker. Thus an otherwise idle
+8 GiB machine gets at most one worker and a 16 GiB machine at most three. Missing or
+insufficient available-memory readings defer work. A 500 ms monitor aborts the child process
+group when headroom disappears; timeout and termination also reap descendants before releasing
+admission. These are background controls, not an OS-enforced RSS limit or a guarantee against
+arbitrary native allocations. They do not change the daemon's limits below or govern commands
+launched independently by the user. `INTERLINKED_DISABLE_SESSION_END_JOBS=1` still opts out.
+
 The default daemon V8 heap cap is 1536MB and the hard RSS recycle ceiling is 2048MB.
 `INTERLINKED_HARNESS_HEAP_MB` is accepted only when it is finite and at least 1; fractional
 values are floored, and every invalid value falls back to 1536. The CLI, hook self-heal path,

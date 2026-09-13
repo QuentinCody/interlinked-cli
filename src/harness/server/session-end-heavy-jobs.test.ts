@@ -59,6 +59,27 @@ afterEach(() => {
 });
 
 describe("runSessionEndHeavyJobs", () => {
+	it("coalesces a burst of session-end events until the supervisor exits", () => {
+		writeFileSync(join(cwd, "src", "a.test.ts"), `import fc from "fast-check";\n`);
+		const exits: Array<() => void> = [];
+		const tracked: SpawnFn = (file, args) => {
+			calls.push({ file, args });
+			return {
+				on(...event: ["error", (error: Error) => void] | ["exit", () => void]) {
+					if (event[0] === "exit") exits.push(event[1]);
+				},
+				unref() {},
+			};
+		};
+		const deps = { spawn: tracked, activeJobs: new Set<string>() };
+		runSessionEndHeavyJobs(makeCtx(cwd), endEvent(), plan, deps);
+		runSessionEndHeavyJobs(makeCtx(cwd), endEvent(), plan, deps);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.args).toContain("--maxWorkers=4");
+		exits[0]?.();
+		runSessionEndHeavyJobs(makeCtx(cwd), endEvent(), plan, deps);
+		expect(calls).toHaveLength(2);
+	});
 	it("spawns nothing when there are no fuzz targets and no bench/ dir", () => {
 		runSessionEndHeavyJobs(makeCtx(cwd), endEvent(), plan, { spawn });
 		expect(calls).toHaveLength(0);

@@ -73,7 +73,7 @@
     },
     "scripts": {
         "build": "node scripts/build-atomic-cli.mjs",
-        "build:watch": "tsup src/index.ts src/hook-entry.ts src/harness/server.ts src/harness/replay/inference-proxy.ts src/harness/check-engine/tool-runners/tsc-overlay-sidecar-main.ts src/lib/demo-runtime/index.ts src/lib/viz/reporter-vitest.ts src/lib/hook-bridge/index.ts --format esm --watch",
+        "build:watch": "tsup src/index.ts src/hook-entry.ts src/harness/server.ts src/harness/background-job-main.ts src/harness/replay/inference-proxy.ts src/harness/check-engine/tool-runners/tsc-overlay-sidecar-main.ts src/lib/demo-runtime/index.ts src/lib/viz/reporter-vitest.ts src/lib/hook-bridge/index.ts --format esm --watch",
         "dev": "tsx src/index.ts",
         "typecheck": "tsgo --noEmit && tsgo --noEmit -p landing/tsconfig.json",
         "typecheck:stable": "tsc --noEmit && tsc --noEmit -p landing/tsconfig.json",

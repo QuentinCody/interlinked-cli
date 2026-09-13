@@ -137,6 +137,15 @@ verify owns the heavyweight lane. `--only <tool>` really runs only that external
 the inline code-quality census rather than retaining the whole-project scan before the requested
 tool.
 
+SessionEnd maintenance, fuzz, and benchmark runners additionally share a host-wide background
+lane owned by a detached supervisor. Duplicate jobs coalesce across daemon restarts; other jobs
+wait at most two minutes. Memory admission can defer a job, and low memory or a ten-minute
+deadline terminates the child group. Fuzz/benchmark worker counts are bounded by current CPU
+and RAM capacity and rechecked before execution. A deferred or interrupted background job is
+not a successful verification; use current completed reports and explicit checks for a verdict.
+See **interlinked-setup** for the memory budget and its limits. Foreground checks retain their
+separate per-project admission contract above.
+
 Lease ownership binds the PID to an OS-derived process-start identity, so a live unrelated
 process that reused the same PID cannot keep compiler or heavyweight capacity busy. Legacy
 lockfiles without that identity remain compatible while fresh, but expire after 24 hours — well

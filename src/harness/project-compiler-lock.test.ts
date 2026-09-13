@@ -63,7 +63,9 @@ const RACING_CHILD_PROGRAM = [
 	"while (!existsSync(go)) Atomics.wait(wait, 0, 0, 1);",
 	"const lease = tryAcquireCrossProcessCompilerLease(canonicalProjectRoot(root));",
 	'process.stdout.write(lease ? "acquired\\n" : "busy\\n");',
-	"if (lease) { Atomics.wait(wait, 0, 0, 1000); lease.release(); }",
+	// The parent terminates the winner only after BOTH contenders report.
+	// A fixed hold interval can expire before a descheduled loser attempts admission.
+	"if (lease) setInterval(() => {}, 1000);",
 ].join("\n");
 
 function spawnContender(root: string): ChildProcess {
@@ -209,12 +211,17 @@ describe("cross-process project compiler lease", () => {
 		const goPath = join(root, "go");
 		const first = spawnRacingContender(root, goPath);
 		const second = spawnRacingContender(root, goPath);
-		await Promise.all([first.ready, second.ready]);
-		writeFileSync(goPath, "go", { flag: "wx" });
-		const outcomes = await Promise.all([first.result, second.result]);
-		expect(outcomes.filter((outcome) => outcome === "acquired")).toHaveLength(1);
-		expect(outcomes.filter((outcome) => outcome === "busy")).toHaveLength(1);
-		await Promise.all([childExit(first.child), childExit(second.child)]);
+		try {
+			await Promise.all([first.ready, second.ready]);
+			writeFileSync(goPath, "go", { flag: "wx" });
+			const outcomes = await Promise.all([first.result, second.result]);
+			expect(outcomes.filter((outcome) => outcome === "acquired")).toHaveLength(1);
+			expect(outcomes.filter((outcome) => outcome === "busy")).toHaveLength(1);
+		} finally {
+			first.child.kill("SIGTERM");
+			second.child.kill("SIGTERM");
+			await Promise.all([childExit(first.child), childExit(second.child)]);
+		}
 	});
 
 	it("does not retire a successor that replaces the owner after stale observation", () => {

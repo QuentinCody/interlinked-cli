@@ -16,6 +16,7 @@ import os from "node:os";
 import { dirname, resolve } from "node:path";
 import { dataMaintenanceJobs } from "../../lib/data/maintenance.js";
 import { planResources, type ResourcePlan } from "../resource-governor.js";
+import { readResourceMemory } from "../resource-memory.js";
 import type { HarnessEvent } from "../types.js";
 import type { ServerRuntime } from "./runtime-context.js";
 
@@ -42,6 +43,7 @@ export function runSessionEndResourcePlan(
 		// (`resource_governor` config) lands with jobs 1/4 that need to override
 		// it — the defaults are correct for the single-agent-local common case.
 		const plan = planResources({
+			memory: readResourceMemory(),
 			cores: coreCount(),
 			load1: os.loadavg()[0] ?? 0,
 			agentCount: ctx.cohort.getActiveAgents().length,
@@ -62,6 +64,12 @@ function resolveCliEntry(): string {
 	return resolve(dirname(process.argv[1] ?? ""), "..", "index.js");
 }
 
+/** Detached supervisor retains admission and cleanup ownership after daemon exit. */
+export function supervisedCommand(name: string, file: string, args: string[], deps: SessionEndJobDeps): { file: string; args: string[] } {
+	const entry = resolve(dirname(deps.cliEntry ?? resolveCliEntry()), "harness", "background-job-main.js");
+	return { file: deps.execPath ?? process.execPath, args: ["--max-old-space-size=128", entry, name, file, ...args] };
+}
+
 /**
  * Wrap a command in the governor's background-priority prefix. `""` → run
  * directly; `"taskpolicy -b "` / `"nice -n 19 "` → the prefix binary becomes the
@@ -72,9 +80,9 @@ export function governedSpawn(
 	file: string,
 	args: string[],
 ): { file: string; args: string[] } {
-	const prefix = commandPrefix.trim().split(/\s+/).filter(Boolean);
-	if (prefix.length === 0) return { file, args };
-	return { file: prefix[0] ?? file, args: [...prefix.slice(1), file, ...args] };
+	const [head, ...tail] = commandPrefix.trim().split(/\s+/).filter(Boolean);
+	if (head === undefined) return { file, args };
+	return { file: head, args: [...tail, file, ...args] };
 }
 
 /** Injectable seams for testing the spawn without launching a real process. */
@@ -142,7 +150,8 @@ function spawnGovernedJob(input: SpawnGovernedJobInput): void {
 		ctx.log(`[session-end:job] ${job.name} already running (skipped)`);
 		return;
 	}
-	const { file, args } = governedSpawn(plan.commandPrefix, execPath, [cliEntry, ...job.argv]);
+	const command = supervisedCommand(job.name, execPath, [cliEntry, ...job.argv], { execPath, cliEntry });
+	const { file, args } = governedSpawn(plan.commandPrefix, command.file, command.args);
 	try {
 		const child = spawn(file, args, { cwd: ctx.cwd, detached: true, stdio: "ignore" });
 		activeJobs.add(job.name);

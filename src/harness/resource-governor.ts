@@ -33,6 +33,8 @@ interface ResourceGovernorConfig {
 }
 
 export interface GovernorInput {
+	/** Available bytes include process/container limits when the runtime can report them. */
+	memory?: { totalBytes: number; availableBytes: number };
 	/** Logical cores (os.availableParallelism()). */
 	cores: number;
 	/** 1-min load average (os.loadavg()[0]); 0 when unknown (e.g. Windows). */
@@ -62,6 +64,15 @@ export interface ResourcePlan {
 
 const DEFAULT_LOAD_THRESHOLD = 0.7;
 const DEFAULT_DEFER_THRESHOLD = 1.5;
+const GIB = 1024 ** 3;
+/** Reserve 1 GiB for coordination and 1 GiB per worker, including native headroom. */
+function memoryJobCap(memory: GovernorInput["memory"]): number {
+	if (!memory || !Number.isFinite(memory.totalBytes) || !Number.isFinite(memory.availableBytes) ||
+		memory.totalBytes <= 0 || memory.availableBytes <= 0) return 0;
+	const reserve = Math.max(GIB, memory.totalBytes / 8);
+	const budget = Math.min(memory.totalBytes / 4, memory.availableBytes - reserve);
+	return Math.max(0, Math.floor((budget - GIB) / GIB));
+}
 
 /** Background-priority command prefix for the platform ("" when none applies —
  *  Windows has no portable equivalent, so the heavy lane just runs un-niced). */
@@ -73,7 +84,9 @@ export function backgroundPrefix(platform: NodeJS.Platform): string {
 
 /** Base job cap: explicit config, else half the cores (min 1). */
 function baseJobCap(cores: number, config?: ResourceGovernorConfig): number {
-	if (config?.max_jobs && config.max_jobs > 0) return config.max_jobs;
+	if (Number.isFinite(config?.max_jobs) && config?.max_jobs && config.max_jobs > 0) {
+		return Math.max(1, Math.floor(Math.min(cores, config.max_jobs)));
+	}
 	return Math.max(1, Math.ceil(Math.max(1, cores) / 2));
 }
 
@@ -91,13 +104,14 @@ function capByCpuBudget(jobs: number, input: GovernorInput): number {
  * prefix. UNKNOWN load (0) is treated as a quiet machine (fail-open).
  */
 export function planResources(input: GovernorInput): ResourcePlan {
-	const cores = Math.max(1, input.cores);
-	const agents = Math.max(1, input.agentCount);
+	const cores = Number.isFinite(input.cores) ? Math.max(1, Math.floor(input.cores)) : 1;
+	const agents = Number.isFinite(input.agentCount) ? Math.max(1, Math.ceil(input.agentCount)) : 1;
 	const cfg = input.config;
 	const loadThreshold = cfg?.load_threshold ?? DEFAULT_LOAD_THRESHOLD;
 	const deferThreshold = cfg?.defer_threshold ?? DEFAULT_DEFER_THRESHOLD;
 	const perCore = input.load1 > 0 ? input.load1 / cores : 0;
 	const prefix = backgroundPrefix(input.platform);
+	const memoryJobs = memoryJobCap(input.memory);
 
 	if (perCore >= deferThreshold) {
 		return {
@@ -107,6 +121,10 @@ export function planResources(input: GovernorInput): ResourcePlan {
 			defer: true,
 			reason: `machine busy (load/core ${perCore.toFixed(2)} ≥ ${deferThreshold}) — deferring heavy lane`,
 		};
+	}
+	if (memoryJobs === 0) {
+		return { maxJobs: 0, background: prefix !== "", commandPrefix: prefix, defer: true,
+			reason: "insufficient or unknown available memory — deferring heavy lane" };
 	}
 
 	let jobs = baseJobCap(cores, cfg);
@@ -122,6 +140,8 @@ export function planResources(input: GovernorInput): ResourcePlan {
 	const budgeted = capByCpuBudget(jobs, input);
 	if (budgeted !== jobs) notes.push(`CPU-budget capped to ${budgeted}`);
 	jobs = budgeted;
+	if (jobs > memoryJobs) notes.push(`memory capped to ${memoryJobs}`);
+	jobs = Math.min(jobs, memoryJobs);
 
 	return {
 		maxJobs: jobs,

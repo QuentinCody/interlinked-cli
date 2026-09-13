@@ -19,10 +19,11 @@ import type { ResourcePlan } from "../resource-governor.js";
 import type { HarnessEvent } from "../types.js";
 import { detectFuzzTargets } from "./fuzz-targets.js";
 import type { ServerRuntime } from "./runtime-context.js";
-import { governedSpawn, type SessionEndJobDeps, type SessionEndSpawn } from "./session-end-batch.js";
+import { governedSpawn, supervisedCommand, type SessionEndJobDeps, type SessionEndSpawn } from "./session-end-batch.js";
 
 /** Elevated fast-check case count for the SessionEnd fuzz-smoke (per-edit cap is 25). */
 const FUZZ_SMOKE_NUMRUNS = "500";
+const ACTIVE_HEAVY_JOBS = new Set<string>();
 
 function safeId(sessionId: string): string {
 	return sessionId.replace(/[^\w.-]/g, "_") || "unknown";
@@ -80,14 +81,20 @@ function spawnHeavyJob(
 	name: string,
 	reportPath: string,
 	cmd: HeavyJobCommand,
+	deps: SessionEndJobDeps,
 ): void {
+	const activeJobs = deps.activeJobs ?? ACTIVE_HEAVY_JOBS;
+	const key = `${ctx.cwd}\0${name}`;
+	if (activeJobs.has(key)) return;
 	try {
 		mkdirSync(dirname(reportPath), { recursive: true });
 	} catch (err) {
 		void err; // vitest may still create it; best-effort
 	}
-	const { file, args } = governedSpawn(plan.commandPrefix, cmd.file, cmd.args);
+	const command = supervisedCommand(name, cmd.file, [...cmd.args, `--maxWorkers=${plan.maxJobs}`], deps);
+	const { file, args } = governedSpawn(plan.commandPrefix, command.file, command.args);
 	try {
+		activeJobs.add(key);
 		const child = spawn(file, args, {
 			cwd: ctx.cwd,
 			detached: true,
@@ -95,11 +102,14 @@ function spawnHeavyJob(
 			...(cmd.env ? { env: { ...process.env, ...cmd.env } } : {}),
 		});
 		child.on("error", (e: Error) => {
+			activeJobs.delete(key);
 			ctx.log(`[session-end:heavy] ${name} spawn failed (skipped): ${e.message}`);
 		});
+		child.on("exit", () => { activeJobs.delete(key); });
 		child.unref();
 		ctx.log(`[session-end:heavy] ${name} spawned (bg=${plan.background})`);
 	} catch (err) {
+		activeJobs.delete(key);
 		void err; // never-throw: a spawn failure must not break SessionEnd cleanup
 	}
 }
@@ -117,6 +127,6 @@ export function runSessionEndHeavyJobs(
 	for (const job of HEAVY_JOBS) {
 		const reportPath = heavyJobReportPath(ctx.cwd, job.kind, event.session_id);
 		const cmd = job.build(ctx.cwd, reportPath);
-		if (cmd) spawnHeavyJob(ctx, plan, spawn, job.name, reportPath, cmd);
+		if (cmd) spawnHeavyJob(ctx, plan, spawn, job.name, reportPath, cmd, deps);
 	}
 }

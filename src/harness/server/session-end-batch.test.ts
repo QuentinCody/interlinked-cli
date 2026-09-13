@@ -142,9 +142,10 @@ describe("runSessionEndJobs", () => {
 		expect(calls).toHaveLength(2);
 		for (const c of calls) {
 			expect(c.file).toBe("taskpolicy");
-			expect(c.args.slice(0, 3)).toEqual(["-b", "/node", "/repo/dist/index.js"]);
+			expect(c.args.slice(0, 4)).toEqual(["-b", "/node", "--max-old-space-size=128", "/repo/dist/harness/background-job-main.js"]);
+			expect(c.args.slice(5, 7)).toEqual(["/node", "/repo/dist/index.js"]);
 		}
-		const commands = calls.map((c) => c.args.slice(3).join(" "));
+		const commands = calls.map((c) => c.args.slice(7).join(" "));
 		expect(commands).toContain("recurrence scan --record");
 		expect(commands).toContain("coverage check --update-baseline");
 	});
@@ -269,13 +270,13 @@ describe("runSessionEndJobs", () => {
 			expect(vi.mocked(mockedNodeSpawn)).toHaveBeenNthCalledWith(
 				1,
 				"taskpolicy",
-				["-b", process.execPath, "/repo/dist/index.js", "recurrence", "scan", "--record"],
+				["-b", process.execPath, "--max-old-space-size=128", "/repo/dist/harness/background-job-main.js", "recurrence-scan", process.execPath, "/repo/dist/index.js", "recurrence", "scan", "--record"],
 				{ cwd: "/repo", detached: true, stdio: "ignore" },
 			);
 			expect(vi.mocked(mockedNodeSpawn)).toHaveBeenNthCalledWith(
 				2,
 				"taskpolicy",
-				["-b", process.execPath, "/repo/dist/index.js", "coverage", "check", "--update-baseline"],
+				["-b", process.execPath, "--max-old-space-size=128", "/repo/dist/harness/background-job-main.js", "coverage-ratchet", process.execPath, "/repo/dist/index.js", "coverage", "check", "--update-baseline"],
 				{ cwd: "/repo", detached: true, stdio: "ignore" },
 			);
 		} finally {

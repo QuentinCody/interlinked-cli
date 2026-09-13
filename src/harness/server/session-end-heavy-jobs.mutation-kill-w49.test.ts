@@ -101,23 +101,30 @@ describe("runSessionEndHeavyJobs — positive (must fire)", () => {
 		return child;
 	}
 
-	it("P1: spawns the fuzz-smoke job with the exact npx vitest args and 500 numRuns env", () => {
+	// test-contract: invariant — fuzz runs retain their targets and 500 cases inside a bounded supervisor.
+	it("P1: supervises fuzz-smoke with one worker and 500 numRuns env", () => {
 		const plan = makePlan();
 		const event = makeEvent("sess-1");
 		runSessionEndHeavyJobs(makeCtx(tmpCwd, logs), event, plan, {
 			spawn: fakeSpawn,
+			cliEntry: "/repo/dist/index.js",
 		});
 
 		const reportPath = heavyJobReportPath(tmpCwd, "fuzz", "sess-1");
 		const fuzzCall = spawnCalls.find((c) => c.args.includes("run"));
 		expect(fuzzCall).toBeDefined();
-		expect(fuzzCall?.file).toBe("npx");
+		expect(fuzzCall?.file).toBe(process.execPath);
 		expect(fuzzCall?.args).toEqual([
+			"--max-old-space-size=128",
+			"/repo/dist/harness/background-job-main.js",
+			"fuzz-smoke",
+			"npx",
 			"vitest",
 			"run",
 			"test/prop.smoke.test.ts",
 			"--reporter=json",
 			`--outputFile=${reportPath}`,
+			"--maxWorkers=1",
 		]);
 		expect(fuzzCall?.options).toHaveProperty(["env","INTERLINKED_PROPERTY_NUMRUNS"], "500");
 	});
