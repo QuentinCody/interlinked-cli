@@ -7,7 +7,7 @@
 // other collaborator runs for real:
 //
 //   ../language-profiles.js        → getProfileForFile (affected-test gating)
-//   ./test-process-gate.js         → runBoundedTestProcess (vitest related)
+//   ../test-scheduler.js         → scheduleTests (vitest related)
 //   ./dependency-audit.js          → resolveDependencyAuditCommandAsync
 //   ../check-engine/spawn-async.js → runProcessAsync (the audit process)
 //
@@ -23,16 +23,16 @@ import type {
 } from "./change-set-external-candidates.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./result-types.js";
 
-const { getProfileForFile, runBoundedTestProcess, resolveDependencyAuditCommandAsync, runProcessAsync } =
+const { getProfileForFile, scheduleTests, resolveDependencyAuditCommandAsync, runProcessAsync } =
 	vi.hoisted(() => ({
 		getProfileForFile: vi.fn(),
-		runBoundedTestProcess: vi.fn(),
+		scheduleTests: vi.fn(),
 		resolveDependencyAuditCommandAsync: vi.fn(),
 		runProcessAsync: vi.fn(),
 	}));
 
 vi.mock("../language-profiles.js", () => ({ getProfileForFile }));
-vi.mock("./test-process-gate.js", () => ({ runBoundedTestProcess }));
+vi.mock("../test-scheduler.js", () => ({ scheduleTests }));
 vi.mock("./dependency-audit.js", () => ({ resolveDependencyAuditCommandAsync }));
 vi.mock("../check-engine/spawn-async.js", () => ({ runProcessAsync }));
 
@@ -104,8 +104,8 @@ beforeEach(() => {
 		id: "typescript",
 		test_runner: { command: "npx vitest run" },
 	});
-	runBoundedTestProcess.mockReset();
-	runBoundedTestProcess.mockResolvedValue({ kind: "completed", code: 0, stdout: "", stderr: "" });
+	scheduleTests.mockReset();
+	scheduleTests.mockResolvedValue({ status: "passed", durationMs: 12, output: "" });
 	resolveDependencyAuditCommandAsync.mockReset();
 	resolveDependencyAuditCommandAsync.mockResolvedValue({
 		cmd: ["npm", "audit", "--json", "--audit-level=moderate"],
@@ -116,95 +116,27 @@ beforeEach(() => {
 });
 
 describe("runNamedChecksAdmitted — affected tests", () => {
-	it("defers without spawning when the ChangeSet has more source files than the related-test cap", async () => {
-		const { deferred } = await runNamed({
-			paths: ["/repo/src/a.ts", "/repo/src/b.ts", "/repo/src/c.ts"],
-			affectedTests: testsCandidate({ max_dependent_tests: 2 }),
-		});
-
-		expect(deferred).toEqual([
-			{
-				name: "affected_tests",
-				reason: "3 source files exceed the bounded related-test cap 2",
-			},
-		]);
-		expect(runBoundedTestProcess).not.toHaveBeenCalled();
-	});
-
-	it("reports the bounded test process's own deferral reason when admission is busy", async () => {
-		runBoundedTestProcess.mockResolvedValue({ kind: "deferred", reason: "busy" });
-
-		const { deferred, checksRan } = await runNamed({
-			paths: ["/repo/src/a.ts"],
-			affectedTests: testsCandidate(),
-		});
-
-		expect(deferred).toEqual([
-			{ name: "affected_tests", reason: "affected-test process busy" },
-		]);
-		expect(checksRan).toEqual([]);
-	});
-
-	it("attributes one failing-test finding to the first changed source with the tail of the runner output", async () => {
-		runBoundedTestProcess.mockResolvedValue({
-			kind: "completed",
-			code: 1,
-			stdout: "FAIL src/a.test.ts > adds\nAssertionError: expected 3 to be 4\n",
-			stderr: "",
-		});
-
-		const { resultMap, deferred, checksRan, toolMetrics } = await runNamed({
-			paths: ["/repo/src/a.ts", "/repo/src/b.ts"],
-			affectedTests: testsCandidate(),
-		});
-
-		expect(deferred).toEqual([]);
-		expect(resultMap.get("/repo/src/a.ts")).toEqual([
-			{
-				name: "affected_tests",
-				severity: "error",
-				message: "Tests failed for 2 changed source file(s) (one vitest --related run)",
-				file: "/repo/src/a.ts",
-				detail: "FAIL src/a.test.ts > adds\nAssertionError: expected 3 to be 4",
-			},
-		]);
-		expect(resultMap.has("/repo/src/b.ts")).toBe(false);
-		expect(checksRan).toEqual(["affected_tests"]);
-		expect(toolMetrics[0]?.tool).toBe("affected-tests");
-		expect(toolMetrics[0]?.finding_count).toBe(1);
-	});
-
-	it("records no finding when the red run is a pre-existing module-resolution failure", async () => {
-		runBoundedTestProcess.mockResolvedValue({
-			kind: "completed",
-			code: 1,
-			stdout: "",
-			stderr: "Error: Cannot find module '/repo/src/missing.js'",
-		});
-
-		const { resultMap, deferred, checksRan } = await runNamed({
-			paths: ["/repo/src/preexisting.ts"],
-			affectedTests: testsCandidate(),
-		});
-
-		expect(resultMap.size).toBe(0);
-		expect(deferred).toEqual([]);
-		expect(checksRan).toEqual(["affected_tests"]);
-	});
-
-	it("defers with the thrown error's message when the bounded test process rejects", async () => {
-		runBoundedTestProcess.mockRejectedValue(new Error("vitest launcher exploded"));
-
-		const { deferred, resultMap } = await runNamed({
-			paths: ["/repo/src/a.ts"],
-			affectedTests: testsCandidate(),
-		});
-
-		expect(deferred).toEqual([
-			{ name: "affected_tests", reason: "Error: vitest launcher exploded" },
-		]);
-		expect(resultMap.size).toBe(0);
-	});
+    it("sends the whole changed input union and applies a test-file budget", async () => {
+        await runNamed({ paths: ["/repo/src/a.ts", "/repo/src/b.test.ts"],
+            affectedTests: testsCandidate({ max_dependent_tests: 2 }) });
+        expect(scheduleTests).toHaveBeenCalledWith({ root: "/repo",
+            paths: ["/repo/src/a.ts", "/repo/src/b.test.ts"], timeoutMs: 5000, maxTests: 2, maxWorkers: 2, waitForCapacity: false });
+    });
+    it.each(["deferred", "stale", "empty"])("records no measured check for %s", async status => {
+        scheduleTests.mockResolvedValue({ status, reason: "No current verdict" });
+        const result = await runNamed({ paths: ["/repo/src/a.ts"], affectedTests: testsCandidate() });
+        expect(result.deferred).toEqual([{ name: "affected_tests", reason: "No current verdict" }]);
+        expect(result.checksRan).toEqual([]);
+    });
+    it("attributes failure to a changed input with the shared runner evidence", async () => {
+        scheduleTests.mockResolvedValue({ status: "failed", output: "AssertionError: expected 3 to be 4", durationMs: 42 });
+        const result = await runNamed({ paths: ["/repo/src/a.ts", "/repo/src/b.ts"], affectedTests: testsCandidate() });
+        expect(result.resultMap.get("/repo/src/a.ts")).toEqual([expect.objectContaining({
+            name: "affected_tests", severity: "error", message: "Tests failed for 2 changed input(s) (shared test plan)",
+            detail: "AssertionError: expected 3 to be 4" })]);
+        expect(result.checksRan).toEqual(["affected_tests"]);
+        expect(result.toolMetrics).toEqual([{ tool: "affected-tests", ms: 42, finding_count: 1 }]);
+    });
 });
 
 describe("runNamedChecksAdmitted — dependency audit", () => {

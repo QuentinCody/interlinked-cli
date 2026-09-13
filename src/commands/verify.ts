@@ -33,6 +33,7 @@ import { nonNull } from "../lib/non-null.js";
 
 import { CheckEngine, type CheckResult, formatToolReport } from "../harness/check-engine/index.js";
 import { tryAcquireProjectHeavyProcessLease } from "../harness/project-heavy-process-lock.js";
+import { acquireTestCapacity } from "../harness/test-capacity.js";
 import {
 	detectDecisionSurface,
 	detectLockfileMultiplicity,
@@ -285,10 +286,21 @@ async function runVerify(cwd: string, opts: VerifyOpts): Promise<void> {
 		return;
 	}
 	try {
-		await runVerifyWithHeavyProcessLease(cwd, opts);
+		await runVerifyWithHostCapacity(cwd, opts);
 	} finally {
 		releaseHeavyProcess();
 	}
+}
+
+async function runVerifyWithHostCapacity(cwd: string, opts: VerifyOpts): Promise<void> {
+	const capacity = await acquireTestCapacity("foreground", Date.now() + 5000, new AbortController().signal);
+	if (!capacity) {
+		process.stderr.write("  verify deferred: host capacity is busy; no verification verdict was produced.\n");
+		process.exitCode = 1;
+		return;
+	}
+	try { await runVerifyWithHeavyProcessLease(cwd, opts); }
+	finally { capacity.release(); }
 }
 
 /** Run one verify after the caller owns the cross-process project lane. */

@@ -15,7 +15,8 @@
 // onCheckBoundary(`inline_<name>`). A handler returning an array (even empty)
 // falls through to the boundary, matching a branch that ran to completion.
 
-import { extname, isAbsolute, resolve, sep } from "node:path";
+import { existsSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import { parseNpmAuditJson, parseOsvScannerJson } from "../check-engine/output-parsers.js";
 import { runProcessAsync } from "../check-engine/spawn-async.js";
 import { isGeneratedFile, isTestFile } from "../checks/shared.js";
@@ -323,11 +324,9 @@ async function runAffectedTests(
 	// runner shape and scoping (file-level, package-level, or
 	// project-wide).
 	const absPath = isAbsolute(ctx.filePath) ? ctx.filePath : resolve(ctx.cwd, ctx.filePath);
-	const extForTests = extname(absPath);
-	const baseForTests = absPath.slice(absPath.lastIndexOf(sep) + 1, -extForTests.length || undefined);
-	const profile = getProfileForFile(ctx.filePath);
+	const checkCwd = findProjectRoot(ctx.filePath, ctx.cwd) || ctx.cwd;
+	const profile = getProfileForFile(ctx.filePath) ?? nodeSupportProfile(checkCwd);
 	if (!profile) return null;
-	if (isLikelyTestFile(baseForTests, absPath)) return null;
 
 	// Keep the public registry as the lookup seam. Tests and downstream
 	// embedders replace registry entries to supply their own runner, while the
@@ -335,7 +334,6 @@ async function runAffectedTests(
 	const dispatcher = TEST_DISPATCHERS[profile.id];
 	if (!dispatcher) return null;
 
-	const checkCwd = findProjectRoot(ctx.filePath, ctx.cwd) || ctx.cwd;
 	const dispatched = await dispatcher({
 		filePath: ctx.filePath,
 		absPath,
@@ -355,6 +353,10 @@ async function runAffectedTests(
 		file: r.file,
 		detail: r.detail,
 	}));
+}
+
+function nodeSupportProfile(root: string): ReturnType<typeof getProfileForFile> {
+	return existsSync(join(root, "package.json")) ? getProfileForFile("source.ts") : null;
 }
 
 /** name → handler. Two names (software_version_regression,

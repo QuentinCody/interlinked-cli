@@ -9,6 +9,9 @@ import { nonNull } from "../lib/non-null.js";
 // string/arithmetic/conditional literals rather than on subfile behavior.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("../harness/test-capacity.js", () => ({
+    acquireTestCapacity: vi.fn(async () => ({ release: vi.fn() })),
+}));
 
 import type { ScanProgress } from "./verify/scan-progress.js";
 

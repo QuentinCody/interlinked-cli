@@ -44,6 +44,8 @@ export interface RunProcessOptions {
 	cwd?: string;
 	/** Additional environment variables (merged on top of `process.env`). */
 	env?: NodeJS.ProcessEnv;
+	/** Freeze an evidence runner's complete environment instead of merging live values. */
+	exactEnv?: NodeJS.ProcessEnv;
 }
 
 export interface RunProcessResult {
@@ -270,7 +272,7 @@ interface ProcessStartInput {
 
 function startProcessRun(resolve: RunProcessResolver, input: ProcessStartInput): void {
 	const { cmd, args, opts, timeoutMs } = input;
-	const env = opts.env ? { ...process.env, ...opts.env } : process.env;
+	const env = opts.exactEnv ?? (opts.env ? { ...process.env, ...opts.env } : process.env);
 	// Detached children lead their own process group so timeout/abort can stop
 	// wrapper-spawned descendants without signalling the daemon's group.
 	const child = spawn(cmd, args, { cwd: opts.cwd, env, detached: true });

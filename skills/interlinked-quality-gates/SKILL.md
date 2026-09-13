@@ -798,6 +798,14 @@ with coverage there, using a 120-second per-test timeout and JSON summary output
 Working-tree coverage reports and report timestamps never establish freshness.
 Distinct revisions get distinct runs, and export failures block the push.
 
+The full pre-push suite remains mandatory. `INTERLINKED_PRE_PUSH_WORKERS=1|2|3|4`
+selects a bounded local worker count (default 1); it changes neither test scope nor the
+strict coverage ratchet. Use `node scripts/benchmark-tests.mjs` in this repository to
+compare 1/2/4 workers on explicit unit and subprocess samples with retries disabled,
+elapsed time, failures and sampled process-tree RSS. Add `--full --coverage` for the
+actual full coverage workload and `--iterations=3` for repeated measurements. Sample
+speedups alone do not establish a safe CI or pre-push default.
+
 The gate copies the local coverage baseline into the export and checks that every
 changed, previously baselined runtime source is measured in that export's report,
 including when other changed files are present. A reporter captures the native
@@ -824,7 +832,13 @@ Use `metrics evidence run` to obtain that scoring evidence. Warming and index
 operations remain available; warming alone does not certify a composite score.
 Affected tests replace their previous contribution; untouched shards and zero-hit
 denominators remain. Input/configuration/dependency/discovery/runner/environment
-changes invalidate reuse. A bounded child process uses Vitest's native discovery
+changes invalidate reuse. Dependency uncertainty is per importing module and
+per shard: a pure shard can remain valid alongside an unrelated opaque I/O shard.
+Opaque consumers retain repository-wide source dependencies; opaque shared setup or
+configuration widens every shard. Configuration/runtime/discovery identity still
+invalidates globally when needed. The same static dependency graph powers
+`tests plan/run`; ordinary test-run receipts do not replace coverage contributions.
+A bounded child process uses Vitest's native discovery
 to identify executable test files. Both warm and status load the project's Vitest
 configuration in that child; status does not execute tests. Helpers, resolved setup
 and global-setup files, and configuration dependencies remain invalidating inputs

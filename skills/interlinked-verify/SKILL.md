@@ -143,8 +143,70 @@ wait at most two minutes. Memory admission can defer a job, and low memory or a 
 deadline terminates the child group. Fuzz/benchmark worker counts are bounded by current CPU
 and RAM capacity and rechecked before execution. A deferred or interrupted background job is
 not a successful verification; use current completed reports and explicit checks for a verdict.
-See **interlinked-setup** for the memory budget and its limits. Foreground checks retain their
-separate per-project admission contract above.
+See **interlinked-setup** for the memory budget and its limits. Scheduled Vitest runs and
+verify also acquire this host lane. Foreground requests close background admission while
+waiting; the background monitor interrupts its child group to yield capacity. Verify waits
+at most five seconds for the host lane, then exits 1 without a verdict.
+
+## Select, explain and resume tests
+
+```bash
+interlinked tests plan --base HEAD --json
+interlinked tests run src/lib/config.ts --workers 2 --timeout 120000
+interlinked tests status --json
+interlinked tests run --all --timeout 3600000
+```
+
+Paths are relative to `--cwd` (default cwd). With no paths, plan/run include staged,
+unstaged, deleted and untracked inputs relative to `--base` (default HEAD), plus pending
+requests. `--all` works without Git and asks the native runner for its full suite.
+Plan loads the project's Vitest configuration in a bounded child but runs no assertions.
+Status returns pending inputs and the last observed job ID, PID, snapshot and state; a
+retained running observation is not proof its owner is still alive.
+
+The TypeScript/Vitest hook paths use this same union: edited tests, static transitive
+consumers, colocated and `__tests__` companions, declared inputs, and historical coverage
+consumers. Estimates use existing per-shard durations and otherwise say unmeasured.
+An opaque test runs on any input change; shared opaque setup/configuration, unknown/deleted
+inputs, incomplete discovery or an explicit full request widen to the full suite.
+Named/multiple Vitest projects currently use native full execution rather than selective
+indexing. Python/Rust/Go retain their existing dispatchers; mixed-language batches defer.
+
+Optional `.interlinked/test-dependencies.json` declares additive literal inputs:
+
+```json
+{"version":1,"tests":{"src/cli.test.ts":["src/templates/config.json","dist/index.js"]}}
+```
+
+Declarations never make uncontrolled I/O cacheable. Exact passing-result reuse is limited
+to plans without uncertain dependencies and requires matching source/scope, captured runtime
+bytes, runner/dependency/configuration inputs, platform/environment and worker count.
+Opaque plans run fresh without the expensive reusable-evidence census. Their results say
+`runtimeVerified:false`: the runner completed and the scheduler checked analyzed source
+stability, but no exact runtime or coverage verdict exists. A failed bounded runtime census
+also disables reuse and widens selection. No runtime values are persisted in receipts.
+Failed, interrupted, missing-report, all-skipped and empty runs never create passing receipts.
+Edits during execution trigger another plan; stale evidence cannot clear pending work.
+
+Requests coalesce across nearby edits and identical in-flight subscribers. Cross-process
+leases serialize execution. A waiting process can consume its request's completed result
+after rechecking source, declared/requested inputs, environment and platform; exact-runtime
+results also require a fresh matching runtime census. This request-specific sharing is
+distinct from reusable passing-result caching. Hooks defer immediately when another process occupies capacity,
+while explicit CLI runs wait within their deadline. A subscriber's timeout does not cancel
+another caller's shared work. Durable requests survive timeout and process restart. The
+queue reads at most 1,000 requests per batch and continues draining later batches.
+TypeScript hooks use `max_dependent_tests` as a cap on the complete selected test-file
+union (default 150). Full and over-budget plans defer intact; run `interlinked tests run`
+to drain them with an explicit deadline. The external-tool batch releases its project lease
+before entering the test scheduler. Capacity, path-cap and tool-cap deferrals retain inputs.
+
+`affected_tests` remains opt-in. Its default empty filename suffix includes configuration
+and fixtures in Node projects; explicit repository `file_types` and `skip_test_files`
+settings still control which changes trigger it. After a triggered batch, all changed inputs
+are considered. Raw `npm test` and independently launched tools do not use this scheduler.
+The full pre-push/CI coverage gates remain authoritative; passing focused tests does not
+satisfy them or re-enable a disabled local coverage policy.
 
 Lease ownership binds the PID to an OS-derived process-start identity, so a live unrelated
 process that reused the same PID cannot keep compiler or heavyweight capacity busy. Legacy
@@ -369,15 +431,16 @@ and the admitted PostToolUse path checks the on-disk result asynchronously.
 
 Full-project TypeScript children are serialized per project across concurrent
 hook and CLI processes. Heavy verify/check/test/audit/sweep work uses one
-project-scoped cross-process lease and does not queue: contention is an explicit
-deferred/no-verdict result. Each accepted request runs after its own edit is on
-disk; results are never shared across edit generations.
+project-scoped cross-process lease: contention is an explicit deferred/no-verdict result
+for external-tool batches. Tests retain requests and use the bounded scheduler described
+above. Each accepted request runs after its own edit is on disk; cached test results require
+matching validated inputs.
 A multi-file PostToolUse request also owns one external-tool batch for its
 entire ChangeSet: project-capable compilers, linters, and security scanners run
 at most once, then their findings are attributed back to the touched files.
 Cheap inline checks still run once per file. A same-ecosystem dependency audit
 runs once for the ChangeSet, and TypeScript/Vitest affected tests run once with
-the union of changed source paths. Mixed-language affected-test sets,
+the union of changed inputs, including tests. Mixed-language affected-test sets,
 multi-ecosystem audits, file/tool-cap overflow, a file-only external runner, or
 a batch denied by capacity produce one aggregate `NOT CHECKED` result for the
 request instead of N subprocesses or N warnings. Existing-file TypeScript

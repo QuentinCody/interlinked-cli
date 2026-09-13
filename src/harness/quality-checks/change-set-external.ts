@@ -12,12 +12,14 @@ import { resolve } from "node:path";
 import { getOrCreateEngine } from "../check-engine/index.js";
 import type { CheckReport, CheckResult, ToolId } from "../check-engine/types.js";
 import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
+import { requestTests } from "../test-requests.js";
 import type { QualityCheckConfig } from "../types.js";
 import { type EngineFindingRow, formatEngineFindings } from "./finding-delta.js";
 import { findProjectRoot } from "./project-root.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./result-types.js";
 import {
 	candidateChecks,
+	pathMatchesCheck,
 	type DeferredCheck,
 	type ExternalCandidate,
 	type NamedExternalCandidate,
@@ -264,6 +266,23 @@ async function runEngineAdmitted(
 	}
 }
 
+function deferBusyBatch(candidates: NamedExternalCandidate[], deferred: DeferredCheck[]): void {
+	for (const candidate of candidates) deferred.push({ name: candidate.name, reason: "external-tool capacity is busy; affected test requests are retained" });
+}
+
+function retainAffectedChanges(options: ChangeSetExternalBatchOptions, paths: readonly string[]): void {
+	const check = options.checks.affected_tests;
+	if (!check?.enabled || !paths.some(path => pathMatchesCheck(path, check))) return;
+	const projects = new Map<string, string[]>();
+	for (const path of paths) {
+		const root = findProjectRoot(path, options.cwd) || options.cwd;
+		const inputs = projects.get(root) ?? [];
+		inputs.push(path);
+		projects.set(root, inputs);
+	}
+	for (const [root, inputs] of projects) requestTests(root, inputs, false);
+}
+
 async function runBatch(
 	options: ChangeSetExternalBatchOptions,
 	paths: readonly string[],
@@ -271,6 +290,7 @@ async function runBatch(
 	const resultMap = new Map(paths.map((path) => [path, []]));
 	const primaryPath = paths[0];
 	if (!primaryPath) return resultMap;
+	retainAffectedChanges(options, paths);
 	if (paths.length > MAX_CHANGESET_EXTERNAL_FILES) {
 		aggregateDeferral(resultMap, primaryPath, paths.length, [
 			{
@@ -317,12 +337,7 @@ async function runBatch(
 
 	const release = tryAcquireProjectHeavyProcessLease(projectRoot);
 	if (!release) {
-		for (const candidate of [...candidates, ...namedCandidates]) {
-			deferred.push({
-				name: candidate.name,
-				reason: "external-tool capacity is busy",
-			});
-		}
+		deferBusyBatch([...candidates, ...namedCandidates], deferred);
 		aggregateDeferral(resultMap, primaryPath, paths.length, deferred);
 		return resultMap;
 	}
@@ -340,13 +355,14 @@ async function runBatch(
 			resultMap,
 			projectRoot,
 			projectPaths,
-			affectedTests,
+			undefined,
 			dependencyAudit,
 			deferred,
 		);
 	} finally {
 		release();
 	}
+	await runNamedChecksAdmitted(options, resultMap, projectRoot, projectPaths, affectedTests, undefined, deferred);
 	aggregateDeferral(resultMap, primaryPath, paths.length, deferred);
 	return resultMap;
 }

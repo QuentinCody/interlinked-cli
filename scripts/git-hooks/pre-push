@@ -17,6 +17,14 @@
 
 set -uo pipefail
 
+# Keep one worker until a full coverage benchmark justifies a higher default.
+# Explicit bounds prevent accidental CPU-count fanout on large hosts.
+test_workers="${INTERLINKED_PRE_PUSH_WORKERS:-1}"
+case "$test_workers" in
+    1|2|3|4) ;;
+    *) echo "[pre-push] INTERLINKED_PRE_PUSH_WORKERS must be 1, 2, 3, or 4."; exit 1 ;;
+esac
+
 # Each protected revision is verified in its own disposable export. A report
 # generated elsewhere, even after the commit, cannot establish source identity.
 remote="$1"
@@ -88,7 +96,7 @@ run_gate() {
     fi
     cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | LC_ALL=C sort -u | paste -sd, - || true)"
     if [ -z "$cov_files" ]; then
-        (cd "$gate_dir" && CI=1 npm test) || {
+        (cd "$gate_dir" && CI=1 npm test -- --maxWorkers="$test_workers") || {
             echo "[pre-push] tests failed for $push_sha."
             return 1
         }
@@ -98,7 +106,7 @@ run_gate() {
         # working-tree report by mtime can certify completely different code.
         cov_scope="$gate_dir/.interlinked/pre-push-coverage-scope.json"
         (cd "$gate_dir" && CI=1 INTERLINKED_PRE_PUSH_COVERAGE_SCOPE="$cov_scope" \
-            INTERLINKED_PRE_PUSH_COVERAGE_TARGETS="$cov_files" npm test -- --coverage --testTimeout=120000 \
+            INTERLINKED_PRE_PUSH_COVERAGE_TARGETS="$cov_files" npm test -- --maxWorkers="$test_workers" --coverage --testTimeout=120000 \
             --coverage.reporter=json-summary --reporter=default --reporter="$hook_dir/../pre-push-coverage.mjs") || {
             echo "[pre-push] tests failed for $push_sha."
             return 1

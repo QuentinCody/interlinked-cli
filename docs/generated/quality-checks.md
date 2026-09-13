@@ -16,7 +16,7 @@ Subprocess-based checks run external tools (tsc, biome, etc.); inline checks sca
 | `freshness_sensitive_reference` (inline) | warning | package.json, requirements.txt, go.mod, Cargo.toml, Dockerfile ... | PostToolUse advisory when newly introduced software/model/API references require verification against official current sources |
 | `strict_typing_block` (inline) | error | .ts, .tsx, .mts, .cts | PreToolUse hard-block when an edit introduces new type-erasure patterns: `as any`, `as unknown as` chains, unjustified `@ts-ignore`/`@ts-expect-error`, bare `: any` annotations. Off by default — opt in via `.interlinked/guard-rules.local.json` once the team is ready to enforce. |
 | `inline_language_checks` (inline) | warning | .py, .pyi, .rs, .go, .c ... | Per-language inline pattern checks (bare except, .unwrap(), unsafe blocks, force casts, ignored err, etc.) driven by LanguageProfile.inline_checks |
-| `affected_tests` (inline) | error | .ts, .tsx, .js, .jsx | Run the test file corresponding to the edited source file (foo.ts → foo.test.ts) |
+| `affected_tests` (inline) | error |  | Run a shared affected-test plan for changed source, tests, configuration and fixtures |
 | `python_typecheck` (subprocess) | warning | .py | Python type checking with mypy |
 | `ruff_lint` (subprocess) | warning | .py | Python linting with ruff |
 | `ruff_format` (subprocess) | warning | .py | Python formatting check with ruff |

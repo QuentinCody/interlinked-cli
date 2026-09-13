@@ -129,6 +129,7 @@ scripts/*
 !scripts/function-token-migration.ts
 !scripts/function-token-migration-legacy.ts
 !scripts/function-token-migration-benchmark.ts
+!scripts/benchmark-tests.mjs
 !scripts/build-atomic.mjs
 !scripts/build-atomic-cli.mjs
 !scripts/build-atomic.test.mjs

@@ -234,7 +234,11 @@ unresolved attempt. If the backoff refuses `restart` during a genuine outage,
 
 SessionEnd jobs now run through a detached supervisor with a 128 MiB V8 heap cap.
 The supervisor holds a per-project/job lease through child cleanup, including when the
-daemon exits, and admits only one background runner per host at a time. A duplicate job
+daemon exits, and admits only one background runner per host at a time.
+Scheduled foreground Vitest runs and verify share this host slot. A waiting
+foreground request prevents another background admission; the supervisor's monitor
+aborts the active background child group so foreground work can proceed. Independent
+`npm test` processes remain outside this admission system. A duplicate background job
 is skipped; a different job waits at most two minutes. Each admitted runner has a ten-minute
 deadline and a 768 MiB Node V8 heap cap. Fuzz and benchmark commands receive an explicit
 `--maxWorkers` value, rechecked after waiting for admission.

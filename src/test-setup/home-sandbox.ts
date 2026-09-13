@@ -19,6 +19,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+// Isolate cross-process test leases from the live harness and sibling test files.
+// A short root also keeps Unix socket fixtures below the macOS path limit.
+const sandboxTmp = mkdtempSync("/tmp/il-");
+process.env.TMPDIR = sandboxTmp;
 const sandboxHome = mkdtempSync(join(tmpdir(), "interlinked-test-home-"));
 process.env.INTERLINKED_TEST_PROJECT_ROOT = process.cwd();
 process.env.HOME = sandboxHome;

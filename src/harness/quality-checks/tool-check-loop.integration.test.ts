@@ -740,14 +740,14 @@ describe("runToolCheckLoop — affected_tests", () => {
 		expect(out).toEqual([]);
 	});
 
-	it("skips when the edited file is itself a test file", async () => {
+	it("dispatches an edited test file so its assertions are checked", async () => {
 		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		mockIsLikelyTestFile.mockReturnValue(true);
-		const dispatcher = vi.fn();
+		const dispatcher = vi.fn().mockResolvedValue([]);
 		TEST_DISPATCHERS.typescript = dispatcher;
 		const out = await runToolCheckLoop(makeCtx({ checks: { affected_tests: cfg() } }));
 		expect(out).toEqual([]);
-		expect(dispatcher).not.toHaveBeenCalled();
+		expect(dispatcher).toHaveBeenCalledTimes(1);
 	});
 
 	it("skips when no dispatcher is registered for the language id", async () => {

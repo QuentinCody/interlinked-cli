@@ -40,6 +40,8 @@ Everything is per-`cwd` under `<repo>/.interlinked/`. Key files:
 | `lint-import.json`, `lint-baseline.json` | team | imported analyzer scopes/configuration digests and tighten-only existing-debt allowances |
 | `package-allowlist.json` | committed | approved dependencies (default-deny installs) |
 | `verify-suppressions.json` | committed | file/glob check suppressions |
+| `test-dependencies.json` | team | additive literal test-to-input dependency declarations |
+| `test-runs/` | local | durable pending requests, validated passing receipts, native reports and the last observed job |
 | `*-baseline.json`, `metric-caps.json` | mixed | ratchet water-lines (coverage/mutation/line-cap/caps); the daemon folds session evidence into three of them at SessionEnd, tighten-only — see **interlinked-quality-gates** |
 | `baseline-folds.jsonl` | local | audit row per SessionEnd water-line fold (what tightened, what was refused) |
 | `hook-coverage.json` | local | daemon-owned protected/reserved file observations, pending versions, manual reviews and automated check receipts; writer identity remains unknown |
@@ -92,6 +94,7 @@ observed invocation and native enforcement are separate evidence.
 | Installing / enabling Interlinked, connecting a coding client/hook, daemon down or **zombie**, `doctor` fails, config/mode | **interlinked-setup** |
 | A Bash command or edit was **BLOCKED**; a sandbox/effect-residue warning; a `[interlinked:*]` warning; suppressions | **interlinked-harness** |
 | Running `interlinked verify`; a `pre_block` check blocked an edit; landing a cross-file refactor; scratch scripts | **interlinked-verify** |
+| Selecting tests, explaining invalidation/reuse, resuming deferred test work (`tests plan/run/status`) | **interlinked-verify**; incremental coverage contracts: **interlinked-quality-gates** |
 | `[interlinked:hook-coverage] NOT CHECKED`; verifying or reviewing pending file versions (`harness coverage`) | **interlinked-verify**; daemon/capability diagnostics: **interlinked-setup** |
 | Discovering/adopting lint configs, script aliases and CI/tasks (`lint scan`, `lint import`, `lint check`), native or declared SARIF adapters, explicit `--config tool=file` and hook/audit cadence | **interlinked-verify**; baseline integrity and retirement: **interlinked-quality-gates** |
 | Blocked by a **line-cap / function-token / coverage / complexity / CRAP / mutation** ratchet; configuring report, per-edit, or durable `mutation cloud` work; operating the mutation journal; "can't lower a baseline"; `adopt`; automatic obligation or manual marker debt; **dead code** (`deadcode` scan + `--categorize` deletion-safety buckets, per-edit `dead_code_action`) | **interlinked-quality-gates** |

@@ -10,27 +10,13 @@
 
 import { existsSync } from "node:fs";
 import { dirname, extname, join, relative, sep } from "node:path";
-import { nonNull } from "../../lib/non-null.js";
 import { goBuildTagArgs, goToolTags } from "../check-engine/tool-runners/go-invocation.js";
 import type { LanguageId, LanguageProfile } from "../types.js";
-import { findDirectImporters } from "./direct-importers.js";
+import { scheduleTests } from "../test-scheduler.js";
 import { buildTestCandidates, classifyTestFailure } from "./test-classifier.js";
 import { runBoundedTestProcess } from "./test-process-gate.js";
-
-/**
- * `affected_tests` only, TypeScript/JavaScript: ceiling on how many DIRECT
- * importers' companion test files one edit may run (see
- * {@link runDirectImporterCompanions}). Config knob:
- * `quality_checks.affected_tests.max_dependent_tests` in
- * `.interlinked/guard-rules.local.json` (falls back to this constant when
- * absent). Kept intentionally small — this is a bounded, one-hop expansion
- * of the affected-tests check, not the transitive/whole-suite selection the
- * mutation gate's `MAX_MUTATION_TEST_SCOPE` (150) performs; past this many
- * companion files in one PostToolUse pass, the runtime cost outweighs the
- * value of running them inline, so the edit is reported and skipped instead
- * (never silently widened or silently truncated to an arbitrary subset).
- */
-const DEFAULT_MAX_DEPENDENT_TESTS = 8;
+/** Maximum selected test files in one hook run. Larger or full plans remain queued. */
+const DEFAULT_MAX_DEPENDENT_TESTS = 150;
 
 interface TestDispatcherInput {
 	/** Path as reported by the agent (may be relative) */
@@ -47,7 +33,7 @@ interface TestDispatcherInput {
 	severity: "error" | "warning";
 	/** Check name to stamp on results (usually "affected_tests") */
 	checkName: string;
-	/** `affected_tests` only: cap on direct-importer companion test files
+	/** `affected_tests` only: cap on all selected test files
 	 *  (see {@link DEFAULT_MAX_DEPENDENT_TESTS}). Absent → the default. */
 	maxDependentTests?: number;
 }
@@ -99,9 +85,7 @@ function combinedOutput(result: { stdout?: string | null; stderr?: string | null
 // ===========================================
 // TypeScript / JavaScript (vitest)
 // ===========================================
-// Extracted verbatim from the pre-refactor quality-checks.ts block.
-// First tries `vitest --related` for module-graph-aware discovery, then
-// falls back to filename-convention test lookup.
+// One shared planner owns static, companion, declared and recorded dependencies.
 
 const DEFERRED_TEST_REASONS = {
 	busy: "another test check is running",
@@ -124,212 +108,25 @@ function deferredTestResult(
 }
 
 async function runVitestDispatcher(input: TestDispatcherInput): Promise<TestDispatcherResult[]> {
-	const { filePath, absPath, profile, checkCwd, timeoutMs, severity, checkName } = input;
-	const results: TestDispatcherResult[] = [];
-	const runnerCmd = profile.test_runner?.command || "npx vitest run";
-	if (!runnerCmd.includes("vitest")) return [];
-
-	// 1) vitest --related
-	const relatedRun = await runBoundedTestProcess({
-		command: "npx",
-		args: ["vitest", "related", absPath, "--run", "--reporter=verbose"],
-		cwd: checkCwd,
-		timeoutMs,
-	});
-	if (relatedRun.kind === "deferred") return [deferredTestResult(input, relatedRun.reason)];
-	const relatedResult = relatedRun;
-
-	const relatedOutput = combinedOutput(relatedResult);
-	const unknownOption = /unknown option/i.test(relatedOutput);
-	let ranViaRelated = false;
-
-	if (!unknownOption) {
-		ranViaRelated = true;
-		if (relatedResult.code !== 0) {
-			const classification = classifyTestFailure(
-				`related:${absPath}`,
-				relatedOutput,
-				"typescript",
-			);
-			if (classification !== "pre-existing") {
-				results.push({
-					name: checkName,
-					severity,
-					message: `Tests failed for ${filePath} (vitest --related)`,
-					file: filePath,
-					detail: truncateTail(relatedOutput),
-				});
-			}
-		}
-	}
-
-	// 2) Convention fallback
-	if (!ranViaRelated) {
-		const fallback = await runConventionFallback(input);
-		if (fallback.deferred) return [...results, fallback.result];
-		results.push(...fallback.results);
-	}
-
-	// 3) Direct importers — bounded, additive to phases 1/2 above. A
-	// companion test belonging to a file that DIRECTLY imports the edited
-	// file is a distinct concern from the edited file's own test, so this
-	// runs regardless of whether phases 1/2 found (or reported) anything.
-	results.push(...(await runDirectImporterCompanions(input)));
-
-	return results;
+    if (!(input.profile.test_runner?.command ?? "npx vitest run").includes("vitest")) return [{
+        name: "affected_tests_deferred", severity: "warning", file: input.filePath,
+        message: "Affected tests unavailable", detail: "The configured runner is not Vitest; no run was scheduled.",
+    }];
+    try {
+        const result = await scheduleTests({ root: input.checkCwd, paths: [input.absPath], timeoutMs: input.timeoutMs,
+            maxTests: input.maxDependentTests ?? DEFAULT_MAX_DEPENDENT_TESTS, waitForCapacity: false });
+        if (result.status === "passed") return [];
+        if (result.status === "failed") return [{ name: input.checkName, severity: input.severity,
+            file: input.filePath, message: `Tests failed for ${input.filePath}`, detail: result.output }];
+        return [plannedTestDeferral(input, result.reason)];
+    } catch (error) {
+        return [plannedTestDeferral(input, error instanceof Error ? error.message : "Test planning unavailable")];
+    }
 }
 
-/** Result of {@link runConventionFallback} — a discriminated union so the
- *  caller must branch on `deferred` before reading either payload field. */
-type ConventionFallbackOutcome =
-	| { deferred: true; result: TestDispatcherResult }
-	| { deferred: false; results: TestDispatcherResult[] };
-
-/**
- * Phase 2 of {@link runVitestDispatcher}: filename-convention test lookup,
- * used only when `vitest --related` itself was unavailable (`unknownOption`
- * in the caller). Extracted verbatim from the pre-refactor inline block —
- * behavior, including the early-return-on-deferred, is unchanged; the
- * deferred case is surfaced via the discriminated return instead of an
- * inline early `return` so the caller can still append it to `results`.
- */
-async function runConventionFallback(
-	input: TestDispatcherInput,
-): Promise<ConventionFallbackOutcome> {
-	const { filePath, absPath, profile, checkCwd, timeoutMs, severity, checkName } = input;
-	const results: TestDispatcherResult[] = [];
-	const ext = extname(absPath);
-	const base = absPath.slice(0, -ext.length);
-	const dir = dirname(absPath);
-	const baseName = absPath.slice(dir.length + 1, -ext.length);
-	const candidates = buildTestCandidates(absPath, ext, base, dir, baseName, profile);
-	const testFile = candidates.find((t) => existsSync(t));
-	if (!testFile) return { deferred: false, results };
-
-	const relTest = testFile.startsWith(checkCwd) ? testFile.slice(checkCwd.length + 1) : testFile;
-	const runnerCmd = profile.test_runner?.command || "npx vitest run";
-	const runnerParts = runnerCmd.split(/\s+/).filter(Boolean);
-	const run = await runBoundedTestProcess({
-		command: nonNull(runnerParts[0]),
-		args: [...runnerParts.slice(1), relTest, "--reporter=verbose"],
-		cwd: checkCwd,
-		timeoutMs,
-	});
-	if (run.kind === "deferred") {
-		return { deferred: true, result: deferredTestResult(input, run.reason) };
-	}
-	const result = run;
-	if (result.code !== 0) {
-		const output = combinedOutput(result);
-		const classification = classifyTestFailure(`conv:${relTest}`, output, "typescript");
-		if (classification !== "pre-existing") {
-			results.push({
-				name: checkName,
-				severity,
-				message: `Tests failed for ${filePath} (${relTest})`,
-				file: filePath,
-				detail: truncateTail(output),
-			});
-		}
-	}
-	return { deferred: false, results };
-}
-
-/** Result of {@link capDependentTests} — a discriminated union so callers
- *  must branch on `kind` before reading either payload field. */
-type DependentTestCapDecision =
-	| { kind: "ok";tests: string[] }
-	| { kind: "over_cap"; count: number };
-
-/**
- * Cap decision for the direct-importer companion-test set — pure and
- * independently testable (no fs, no subprocess). `≤ cap` runs everything;
- * over cap declines the WHOLE set rather than an arbitrary truncated
- * subset, so "N dependent test files not run" always names the true count,
- * never a silently-dropped remainder.
- */
-export function capDependentTests(
-	companionTests: readonly string[],
-	cap: number,
-): DependentTestCapDecision {
-	if (companionTests.length > cap) return { kind: "over_cap", count: companionTests.length };
-	return { kind: "ok", tests: [...companionTests] };
-}
-
-/**
- * Phase 3 of {@link runVitestDispatcher}: resolve the edited file's DIRECT
- * importers (one hop, via {@link findDirectImporters} — no project-wide
- * graph build) and run each importer's OWN companion test, bounded by
- * `input.maxDependentTests` (default {@link DEFAULT_MAX_DEPENDENT_TESTS}).
- *
- * Over cap: reports the skip and runs nothing for this phase — see
- * {@link capDependentTests}. Under cap: every companion test file runs in
- * ONE vitest invocation (not one spawn per file).
- */
-async function runDirectImporterCompanions(
-	input: TestDispatcherInput,
-): Promise<TestDispatcherResult[]> {
-	const { filePath, absPath, profile, checkCwd, timeoutMs, severity, checkName } = input;
-	const cap = input.maxDependentTests ?? DEFAULT_MAX_DEPENDENT_TESTS;
-
-	const importers = findDirectImporters({ absPath, projectRoot: checkCwd });
-	if (importers.length === 0) return [];
-
-	const companionTests: string[] = [];
-	for (const importer of importers) {
-		const ext = extname(importer);
-		const base = importer.slice(0, -ext.length);
-		const dir = dirname(importer);
-		const baseName = importer.slice(dir.length + 1, -ext.length);
-		const candidates = buildTestCandidates(importer, ext, base, dir, baseName, profile);
-		const testFile = candidates.find((t) => existsSync(t));
-		if (testFile && !companionTests.includes(testFile)) companionTests.push(testFile);
-	}
-	if (companionTests.length === 0) return [];
-
-	const decision = capDependentTests(companionTests, cap);
-	if (decision.kind === "over_cap") {
-		return [
-			{
-				name: checkName,
-				severity: "warning",
-				message: `${decision.count} dependent test files not run (over cap)`,
-				file: filePath,
-				detail: `Direct importers of ${filePath} have ${decision.count} companion test file(s); cap is ${cap}. Raise quality_checks.affected_tests.max_dependent_tests in .interlinked/guard-rules.local.json to run more.`,
-			},
-		];
-	}
-
-	const relTests = decision.tests.map((t) => relative(checkCwd, t));
-	const runnerCmd = profile.test_runner?.command || "npx vitest run";
-	const runnerParts = runnerCmd.split(/\s+/).filter(Boolean);
-	const run = await runBoundedTestProcess({
-		command: nonNull(runnerParts[0]),
-		args: [...runnerParts.slice(1), ...relTests, "--reporter=verbose"],
-		cwd: checkCwd,
-		timeoutMs,
-	});
-	if (run.kind === "deferred") return [deferredTestResult(input, run.reason)];
-	const result = run;
-	if (result.code === 0) return [];
-
-	const output = combinedOutput(result);
-	const classification = classifyTestFailure(`direct-importers:${absPath}`, output, "typescript");
-	if (classification === "pre-existing") return [];
-
-	const message =
-		relTests.length === 1
-			? `Tests failed for a direct importer of ${filePath} (${nonNull(relTests[0])})`
-			: `Tests failed for ${relTests.length} direct importer test files of ${filePath}`;
-	return [
-		{
-			name: checkName,
-			severity,
-			message,
-			file: filePath,
-			detail: truncateTail(output),
-		},
-	];
+function plannedTestDeferral(input: TestDispatcherInput, detail: string): TestDispatcherResult {
+    return { name: "affected_tests_deferred", severity: "warning", file: input.filePath,
+        message: "Affected test request retained", detail };
 }
 
 // ===========================================
@@ -472,5 +269,4 @@ export const __test_only__ = {
 	runCargoTestDispatcher,
 	runGoTestDispatcher,
 	relativizeFromRoot,
-	runDirectImporterCompanions,
 };

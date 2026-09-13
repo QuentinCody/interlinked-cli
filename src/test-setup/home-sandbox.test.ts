@@ -11,6 +11,10 @@ import { describe, expect, it } from "vitest";
 import { TEST_SANDBOX_HOME } from "./home-sandbox.js";
 
 describe("home-sandbox — positive (must hold in every worker)", () => {
+	it("keeps lease and subprocess temporary files inside the test sandbox", () => {
+		expect(tmpdir()).toBe(process.env.TMPDIR);
+		expect(tmpdir()).toMatch(/^\/tmp\/il-/);
+	});
 	it("P1: HOME points at the per-worker sandbox, not a real home", () => {
 		expect(process.env.HOME).toBe(TEST_SANDBOX_HOME);
 		expect(TEST_SANDBOX_HOME.startsWith(tmpdir())).toBe(true);

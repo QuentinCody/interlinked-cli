@@ -8,6 +8,7 @@
 import { type Command, type OptionValues } from "commander";
 import { registerMetricsCommands } from "./metrics.js";
 import { registerMutationCloudCommands } from "./mutation-cloud.js";
+import { registerTestsCommands } from "./tests.js";
 
 const VERIFY_DESCRIPTION =
 	"Run the default high-signal external catalog plus diff-safe inline checks. Target can be a local path, GitHub URL, or any git remote URL.";
@@ -476,6 +477,7 @@ function registerDesignCommand(program: Command): void {
 }
 
 export function registerQualityCommands(program: Command): void {
+	registerTestsCommands(program);
 	registerCheckAndSearchCommands(program);
 	registerMultiEditCommand(program);
 	registerVerifyCommand(program);

@@ -88,7 +88,7 @@ export interface QualityCheckConfig {
 	slack?: number;
 	/** `dependency_audit` only: when osv-scanner is used, pass `--offline` (requires `osv-scanner scan --download-offline-databases` to have run at least once). Avoids osv.dev network round-trips on every edit. */
 	offline?: boolean;
-	/** `affected_tests` only: direct-importer companion-test cap (default DEFAULT_MAX_DEPENDENT_TESTS in quality-checks/test-dispatchers.ts). */
+	/** `affected_tests` only: selected test-file cap (default 150); larger/full plans remain queued. */
 	max_dependent_tests?: number;
 }
 

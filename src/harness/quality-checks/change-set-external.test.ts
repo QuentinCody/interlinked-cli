@@ -8,7 +8,7 @@ const {
 	releaseHeavyProcess,
 	getProfileForFile,
 	findProjectRootForLanguage,
-	runBoundedTestProcess,
+	scheduleTests,
 	resolveDependencyAuditCommandAsync,
 	runProcessAsync,
 } = vi.hoisted(() => ({
@@ -17,7 +17,7 @@ const {
 	releaseHeavyProcess: vi.fn(),
 	getProfileForFile: vi.fn(),
 	findProjectRootForLanguage: vi.fn(),
-	runBoundedTestProcess: vi.fn(),
+	scheduleTests: vi.fn(),
 	resolveDependencyAuditCommandAsync: vi.fn(),
 	runProcessAsync: vi.fn(),
 }));
@@ -45,7 +45,8 @@ vi.mock("../language-profiles.js", () => ({
 	getProfileForFile,
 	findProjectRootForLanguage,
 }));
-vi.mock("./test-process-gate.js", () => ({ runBoundedTestProcess }));
+vi.mock("../test-scheduler.js", () => ({ scheduleTests }));
+vi.mock("../test-requests.js", () => ({ requestTests: vi.fn() }));
 vi.mock("./dependency-audit.js", () => ({ resolveDependencyAuditCommandAsync }));
 vi.mock("../check-engine/spawn-async.js", () => ({ runProcessAsync }));
 
@@ -131,12 +132,9 @@ beforeEach(() => {
 	});
 	findProjectRootForLanguage.mockReset();
 	findProjectRootForLanguage.mockReturnValue("/repo");
-	runBoundedTestProcess.mockReset();
-	runBoundedTestProcess.mockResolvedValue({
-		kind: "completed",
-		code: 0,
-		stdout: "",
-		stderr: "",
+	scheduleTests.mockReset();
+	scheduleTests.mockResolvedValue({
+        status: "passed", durationMs: 12, output: "",
 	});
 	resolveDependencyAuditCommandAsync.mockReset();
 	resolveDependencyAuditCommandAsync.mockResolvedValue({
@@ -215,7 +213,7 @@ describe("ChangeSet external-check batching", () => {
 		const all = [...aResults, ...bResults];
 
 		expect(runChecksAsync).not.toHaveBeenCalled();
-		expect(runBoundedTestProcess).not.toHaveBeenCalled();
+		expect(scheduleTests).not.toHaveBeenCalled();
 		expect(releaseHeavyProcess).not.toHaveBeenCalled();
 		expect(all).toHaveLength(1);
 		expect(all[0]).toMatchObject({
@@ -241,21 +239,11 @@ describe("ChangeSet external-check batching", () => {
 		expect(await batch.resultsForFile("/repo/src/b.ts")).toEqual([]);
 
 		expect(runChecksAsync).not.toHaveBeenCalled();
-		expect(runBoundedTestProcess).toHaveBeenCalledTimes(1);
-		expect(runBoundedTestProcess).toHaveBeenCalledWith({
-			command: "npx",
-			args: [
-				"vitest",
-				"related",
-				"/repo/src/a.ts",
-				"/repo/src/b.ts",
-				"--run",
-				...(recovery ? ["--reporter=dot", "--maxWorkers=2"] : ["--reporter=verbose"]),
-			],
-			cwd: "/repo",
-			timeoutMs: 5_000,
-			admissionAlreadyHeld: true,
-		});
+		expect(scheduleTests).toHaveBeenCalledTimes(1);
+		expect(scheduleTests).toHaveBeenCalledWith({
+            root: "/repo", paths: ["/repo/src/a.ts", "/repo/src/b.ts"],
+            timeoutMs: 5000, maxTests: 150, maxWorkers: 2, waitForCapacity: false,
+        });
 		expect(checksRan).toEqual(["affected_tests"]);
 		expect(tryAcquireHeavyProcess).toHaveBeenCalledTimes(1);
 		expect(releaseHeavyProcess).toHaveBeenCalledTimes(1);
@@ -281,7 +269,7 @@ describe("ChangeSet external-check batching", () => {
 		expect(all).toHaveLength(1);
 		expect(all[0]?.name).toBe("external_check_deferred");
 		expect(all[0]?.detail).toContain("mixed-language ChangeSets");
-		expect(runBoundedTestProcess).not.toHaveBeenCalled();
+		expect(scheduleTests).not.toHaveBeenCalled();
 		expect(releaseHeavyProcess).toHaveBeenCalledTimes(1);
 	});
 
@@ -309,7 +297,7 @@ describe("ChangeSet external-check batching", () => {
 		expect(releaseHeavyProcess).toHaveBeenCalledTimes(1);
 	});
 
-	it("holds one request lease across engine, audit, and unioned-test work", async () => {
+	it("releases the external-tool lease before the scheduler acquires capacity", async () => {
 		runChecksAsync.mockResolvedValue(completedReport());
 		const paths = [
 			"/repo/src/a.ts",
@@ -333,10 +321,10 @@ describe("ChangeSet external-check batching", () => {
 		expect(tryAcquireHeavyProcess).toHaveBeenCalledTimes(1);
 		expect(runChecksAsync).toHaveBeenCalledTimes(1);
 		expect(runProcessAsync).toHaveBeenCalledTimes(1);
-		expect(runBoundedTestProcess).toHaveBeenCalledTimes(1);
+		expect(scheduleTests).toHaveBeenCalledTimes(1);
 		expect(releaseHeavyProcess).toHaveBeenCalledTimes(1);
-		expect(releaseHeavyProcess.mock.invocationCallOrder[0]).toBeGreaterThan(
-			runBoundedTestProcess.mock.invocationCallOrder[0] ?? 0,
+		expect(releaseHeavyProcess.mock.invocationCallOrder[0]).toBeLessThan(
+			scheduleTests.mock.invocationCallOrder[0] ?? 0,
 		);
 	});
 
@@ -354,7 +342,7 @@ describe("ChangeSet external-check batching", () => {
 		expect(all[0]?.detail).toContain("cap 32");
 		expect(tryAcquireHeavyProcess).not.toHaveBeenCalled();
 		expect(runChecksAsync).not.toHaveBeenCalled();
-		expect(runBoundedTestProcess).not.toHaveBeenCalled();
+		expect(scheduleTests).not.toHaveBeenCalled();
 	});
 
 	it("defers one aggregate result before spawning when requested work exceeds the tool cap", async () => {

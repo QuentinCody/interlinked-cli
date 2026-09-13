@@ -6,7 +6,7 @@
 // so a direct call is the smallest test that reaches its fallback branch.
 // Fuller dispatcher-level coverage lives in
 // src/harness/__tests__/test-dispatchers.integration.test.ts and
-// src/harness/quality-checks/direct-importer-companions.test.ts.
+// src/harness/quality-checks/planned-dispatcher.test.ts.
 
 import { describe, expect, it } from "vitest";
 import { __test_only__ } from "./test-dispatchers.js";

@@ -73,7 +73,7 @@ const EXPECTED: Record<string, CheckMeta> = {
 	},
 	affected_tests: {
 		name: "Affected Tests",
-		description: "Run the test file corresponding to the edited source file",
+		description: "Run a shared affected-test plan; widen uncertain dependencies and retain deferred work",
 		tier: 2,
 		determinism: "fully_deterministic",
 	},

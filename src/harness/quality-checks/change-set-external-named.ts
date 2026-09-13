@@ -1,4 +1,4 @@
-import { basename, isAbsolute, resolve } from "node:path";
+import { basename } from "node:path";
 import { parseNpmAuditJson, parseOsvScannerJson } from "../check-engine/output-parsers.js";
 import { runProcessAsync } from "../check-engine/spawn-async.js";
 import { getProfileForFile } from "../language-profiles.js";
@@ -10,8 +10,7 @@ import { pathMatchesCheck } from "./change-set-external-candidates.js";
 import { pushResult } from "./change-set-result-map.js";
 import { resolveDependencyAuditCommandAsync } from "./dependency-audit.js";
 import type { QualityCheckResult, ToolBreakdownEntry } from "./result-types.js";
-import { classifyTestFailure, isLikelyTestFile } from "./test-classifier.js";
-import { runBoundedTestProcess } from "./test-process-gate.js";
+import { scheduleTests } from "../test-scheduler.js";
 
 interface NamedRunOptions {
 	recovery?: boolean;
@@ -23,83 +22,30 @@ function outputTail(stdout: string, stderr: string): string {
 	return `${stderr}\n${stdout}`.trim().split("\n").slice(-8).join("\n");
 }
 
-function affectedSourcePaths(
-	projectRoot: string,
-	paths: readonly string[],
-	candidate: NamedExternalCandidate,
-): string[] {
-	return paths.filter((path) => {
-		if (!pathMatchesCheck(path, candidate.check)) return false;
-		const absolute = isAbsolute(path) ? path : resolve(projectRoot, path);
-		const stem = basename(absolute).replace(/\.[^.]+$/, "");
-		return !isLikelyTestFile(stem, absolute);
-	});
-}
-
 async function runAffectedTestsAdmitted(
-	options: NamedRunOptions,
-	resultMap: Map<string, QualityCheckResult[]>,
-	projectRoot: string,
-	paths: readonly string[],
-	candidate: NamedExternalCandidate,
+    options: NamedRunOptions,
+    resultMap: Map<string, QualityCheckResult[]>,
+    projectRoot: string,
+    paths: readonly string[],
+    candidate: NamedExternalCandidate,
 ): Promise<DeferredCheck | null> {
-	const sourcePaths = affectedSourcePaths(projectRoot, paths, candidate);
-	if (sourcePaths.length === 0) return null;
-	const maxSources = candidate.check.max_dependent_tests ?? 8;
-	if (sourcePaths.length > maxSources) {
-		return {
-			name: candidate.name,
-			reason: `${sourcePaths.length} source files exceed the bounded related-test cap ${maxSources}`,
-		};
-	}
-	const profiles = sourcePaths.map((path) => getProfileForFile(path));
-	const allVitest = profiles.every(
-		(profile) =>
-			profile?.id === "typescript" &&
-			(profile.test_runner?.command ?? "npx vitest run").includes("vitest"),
-	);
-	if (!allVitest) {
-		return {
-			name: candidate.name,
-			reason: "mixed-language ChangeSets have no single bounded affected-test command",
-		};
-	}
-
-	const absolutePaths = sourcePaths.map((path) =>
-		isAbsolute(path) ? path : resolve(projectRoot, path),
-	);
-	const started = Date.now();
-	const outcome = await runBoundedTestProcess({
-		command: "npx",
-		args: ["vitest", "related", ...absolutePaths, "--run",
-			...(options.recovery ? ["--reporter=dot", "--maxWorkers=2"] : ["--reporter=verbose"])],
-		cwd: projectRoot,
-		timeoutMs: candidate.check.timeout_ms,
-		admissionAlreadyHeld: true,
-	});
-	if (outcome.kind === "deferred") {
-		return { name: candidate.name, reason: `affected-test process ${outcome.reason}` };
-	}
-	options.outToolMetrics?.push({
-		tool: "affected-tests",
-		ms: Date.now() - started,
-		finding_count: outcome.code === 0 ? 0 : 1,
-	});
-	options.outChecksRan?.push(candidate.name);
-	if (outcome.code === 0) return null;
-	const output = outputTail(outcome.stdout, outcome.stderr);
-	const runKey = `changeset:${absolutePaths.slice().sort().join("|")}`;
-	if (classifyTestFailure(runKey, output, "typescript") === "pre-existing") return null;
-	const primaryPath = sourcePaths[0];
-	if (!primaryPath) return null;
-	pushResult(resultMap, primaryPath, {
-		name: candidate.name,
-		severity: candidate.check.severity,
-		message: `Tests failed for ${sourcePaths.length} changed source file(s) (one vitest --related run)`,
-		file: primaryPath,
-		detail: output,
-	});
-	return null;
+    if (!paths.some(path => pathMatchesCheck(path, candidate.check))) return null;
+    const inputs = [...paths];
+    const profiles = inputs.map(path => getProfileForFile(path)).filter(profile => profile !== null && profile !== undefined);
+    if (!profiles.every(profile => profile.id === "typescript" && (profile.test_runner?.command ?? "npx vitest run").includes("vitest"))) {
+        return { name: candidate.name, reason: "mixed-language ChangeSets have no single bounded affected-test command" };
+    }
+    const result = await scheduleTests({ root: projectRoot, paths: inputs, timeoutMs: candidate.check.timeout_ms,
+        maxTests: candidate.check.max_dependent_tests ?? 150, maxWorkers: 2, waitForCapacity: false });
+    if (result.status === "deferred" || result.status === "stale") return { name: candidate.name, reason: result.reason };
+    if (result.status === "empty") return { name: candidate.name, reason: result.reason };
+    options.outChecksRan?.push(candidate.name);
+    options.outToolMetrics?.push({ tool: "affected-tests", ms: result.durationMs, finding_count: result.status === "failed" ? 1 : 0 });
+    if (result.status === "failed") {
+        pushResult(resultMap, inputs[0] ?? projectRoot, { name: candidate.name, severity: candidate.check.severity,
+            message: `Tests failed for ${inputs.length} changed input(s) (shared test plan)`, file: inputs[0] ?? projectRoot, detail: result.output });
+    }
+    return null;
 }
 
 type DependencyFamily = "node" | "python" | "rust" | "go";

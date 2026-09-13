@@ -242,7 +242,7 @@ process.exitCode = result.status ?? 1;
     it("uses native dynamic coverage exclusions instead of requiring retained out-of-scope baseline entries", () => {
         write("package.json", JSON.stringify({ scripts: {
             "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE",
-            test: `node "${join(REPO, "node_modules/vitest/vitest.mjs")}" run --maxWorkers=1`,
+            test: `node "${join(REPO, "node_modules/vitest/vitest.mjs")}" run`,
         } }));
         write("vitest.config.mjs", `export default { test: { include: ["src/probe.test.ts"], coverage: { provider: "v8", reporter: ["json-summary"], include: ["${TARGET}"], exclude: process.env.COVERAGE_DYNAMIC_EXCLUDE === "1" ? ["${TARGET}"] : [] } } };`);
         write("src/probe.test.ts", `import { expect, it } from "vitest"; import { value } from "./well0"; it("returns its value", () => { expect(value()).toBe(1); });`);
@@ -261,7 +261,7 @@ process.exitCode = result.status ?? 1;
     it("measures each pushed revision with real Vitest instead of reusing the working-tree report", () => {
         write("package.json", JSON.stringify({ scripts: {
             "typecheck:stable": "echo TYPECHECK_GATE", "docs:check": "echo DOC_GATE",
-            test: `node "${join(REPO, "node_modules/vitest/vitest.mjs")}" run --maxWorkers=1`,
+            test: `node "${join(REPO, "node_modules/vitest/vitest.mjs")}" run`,
         } }));
         write("vitest.config.mjs", `export default { test: { include: ["src/probe.test.ts"], coverage: { provider: "v8", reporter: ["json-summary"], include: ["${TARGET}"] } } };`);
         write("src/probe.test.ts", `import { expect, it } from "vitest"; import { value } from "./well0"; it("returns its value", () => { expect(value()).toBe(1); });`);

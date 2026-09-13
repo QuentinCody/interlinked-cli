@@ -1,4 +1,5 @@
-import { canonicalProjectRoot, acquireCrossProcessCompilerLease, tryAcquireCrossProcessCompilerLease } from "./project-compiler-lock.js";
+import { canonicalProjectRoot, tryAcquireCrossProcessCompilerLease } from "./project-compiler-lock.js";
+import { acquireTestCapacity, foregroundWantsCapacity } from "./test-capacity.js";
 import { runProcessAsync, type RunProcessResult } from "./check-engine/spawn-async.js";
 import { readResourceMemory } from "./resource-memory.js";
 
@@ -9,7 +10,6 @@ export interface BackgroundJob {
 }
 
 const GIB = 1024 ** 3;
-const HOST_LANE = "interlinked-background-host-v1";
 const MEMORY_POLL_MS = 500;
 
 /** The supervisor owns both leases, so daemon exit cannot release a live job's slot. */
@@ -22,7 +22,7 @@ export async function runBackgroundJob(
     const owner = tryAcquireCrossProcessCompilerLease(key);
     if (!owner) return null;
     try {
-        const lane = await acquireCrossProcessCompilerLease(HOST_LANE, Date.now() + 120_000, signal);
+        const lane = await acquireTestCapacity("background", Date.now() + 120_000, signal);
         if (!lane) return null;
         try {
             return await runWithMemoryWatch(job, cwd, signal);
@@ -55,7 +55,7 @@ async function runWithMemoryWatch(job: BackgroundJob, cwd: string, signal: Abort
     const timer = setInterval(() => {
         try {
             const current = readResourceMemory().availableBytes;
-            if (!Number.isFinite(current) || current < reserve) abort();
+            if (!Number.isFinite(current) || current < reserve || foregroundWantsCapacity()) abort();
         } catch {
             abort();
         }

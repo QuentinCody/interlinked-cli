@@ -28,6 +28,22 @@ function fixture(): string {
     writeFileSync(join(root, "b.test.ts"), 'import { expect, test } from "vitest"; import { other } from "./b"; test("other", () => expect(other()).toBe(3));');
     return root;
 }
+it("keeps a pure shard reusable when an unrelated opaque shard exists", async () => {
+    const root = fixture();
+    writeFileSync(join(root, "io.test.ts"), 'import {test,expect} from "vitest"; import {readFileSync} from "node:fs"; test("io",()=>expect(readFileSync("a.ts","utf8")).toContain("export"));');
+    expect((await warmCoverageIndex(root, 60_000)).indexed).toBe(true);
+    const proposed = "export function answer(value: boolean) { if (value) return 1; return 2; }\n";
+    const changes = new Map([["a.ts", proposed]]), overlay = createCoverageOverlay(root, "a.ts", proposed);
+    try {
+        const context = await coverageIndexContext(inventoryWithOverrides(collectRepositoryInventory(root), changes), changes, { workspace: overlay.overlayRoot });
+        const selected = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 60_000 });
+        expect(selected.indexed, selected.reason ?? "").toBe(true);
+        expect(selected.selectedTests).toEqual(["a.test.ts", "io.test.ts"]);
+        const full = await runIndexedCoverage({ context, workspace: overlay.overlayRoot, timeoutMs: 60_000, full: true });
+        const measured = [...selected.result.perFile].map(([path, { mtime: _mtime, ...coverage }]) => [path, coverage]);
+        expect(measured).toEqual([...full.result.perFile].map(([path, { mtime: _mtime, ...coverage }]) => [path, coverage]));
+    } finally { overlay.cleanup(); }
+}, 120_000);
 it("matches full coverage, reruns one shard and promotes only after the actual write", async () => {
     const root = fixture(), warm = await warmCoverageIndex(root, 30_000);
     expect(warm.reason).toBeNull(); expect(warm.indexed).toBe(true); expect(warm.status.shards).toBe(2);

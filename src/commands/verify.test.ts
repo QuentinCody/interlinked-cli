@@ -67,6 +67,9 @@ const tryAcquireProjectHeavyProcessLeaseMock = vi.fn<() => (() => void) | null>(
 vi.mock("../harness/project-heavy-process-lock.js", () => ({
 	tryAcquireProjectHeavyProcessLease: tryAcquireProjectHeavyProcessLeaseMock,
 }));
+vi.mock("../harness/test-capacity.js", () => ({
+    acquireTestCapacity: vi.fn(async () => ({ release: vi.fn() })),
+}));
 
 // --- harness/quality-checks ------------------------------------------------
 const detectDecisionSurfaceMock = vi.fn<(cwd: string) => unknown>(() => ({ ds: true }));

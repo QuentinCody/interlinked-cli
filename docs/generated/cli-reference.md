@@ -87,6 +87,7 @@ Commands:
   tasks                                      Task management via the server
   tdd                                        Inspect and clear TDD cycle state (what the commit gate believes)
   telemetry [options]                        View or tail the local telemetry spool (.interlinked/offline-spool.jsonl)
+  tests                                      Explain and run affected tests with bounded scheduling and snapshot validation
   trace                                      Agent trace export/import
   trajectory                                 Inspect trajectory snapshots; replay recorded event streams through sequence detectors
   uninstall-hooks [options]                  Remove hooks previously installed via install-hooks (manifest-driven)

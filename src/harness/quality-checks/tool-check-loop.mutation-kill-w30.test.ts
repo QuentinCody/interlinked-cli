@@ -320,7 +320,7 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 	// a5a69b90d4636fc0 (end→true), 81eaff1e6aa2d666 (end→false),
 	// 2a40b4f80e20f2fb (unary -→+), b892a27d59ea5ab2 (||→&&) — all six change
 	// the basename passed to isLikelyTestFile away from the correct "feature".
-	it("affected_tests: baseForTests strips exactly the extension", async () => {
+	it("affected_tests: preserves the complete path for the shared planner", async () => {
 		mockGetProfileForFile.mockReturnValue(loopProfile("typescript"));
 		mockIsLikelyTestFile.mockReturnValue(false);
 		const dispatcher = vi.fn().mockReturnValue([]);
@@ -328,7 +328,7 @@ describe("tool-check-loop — mutation-kill wave 30", () => {
 		await runToolCheckLoop(
 			makeCtx({ filePath: "src/feature.ts", cwd: "/cwd", checks: { affected_tests: cfg() } }),
 		);
-		expect(mockIsLikelyTestFile).toHaveBeenCalledWith("feature", "/cwd/src/feature.ts");
+		expect(dispatcher).toHaveBeenCalledWith(expect.objectContaining({ absPath: "/cwd/src/feature.ts" }));
 	});
 
 	// test-contract: kill 30c8463e998b6529 (`!profile` → false) — real no-profile
