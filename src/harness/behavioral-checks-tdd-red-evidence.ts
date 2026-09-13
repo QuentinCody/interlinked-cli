@@ -23,6 +23,7 @@
 // rests on instead.
 
 import { basename } from "node:path";
+import { nonNull } from "../lib/non-null.js";
 import { ALL_TESTS_SENTINEL } from "./server-tdd-cycle.js";
 import { normalizeCycleKey } from "./tdd-cycle-admission.js";
 import type { SessionTrajectory } from "./types.js";
@@ -70,18 +71,17 @@ export function isSuiteSourcedRed(
 	// evidence. A historical targeted pass must not override a newer suite
 	// fan-out: that stale map entry is exactly what made unrelated, currently
 	// green files appear as regressions after a later full-suite failure.
-	return !hasTargetedFailureAtRedStep(session, cycle);
+	return !hasTargetedFailureAtRedStep(nonNull(testRuns), cycle);
 }
 
 function hasTargetedFailureAtRedStep(
-	session: SessionTrajectory,
+	testRuns: SessionTrajectory["test_runs"],
 	cycle: { red_at?: number | undefined; test_file: string | null },
 ): boolean {
-	if (!cycle.test_file || cycle.red_at === undefined) return false;
+	// isSuiteSourcedRed established both the run map and the red step.
+	if (!cycle.test_file) return false;
 	const cycleTestKey = normalizeCycleKey(cycle.test_file);
-	// SAFETY: see isSuiteSourcedRed above — same partially-hydrated-session case.
-	const testRuns: SessionTrajectory["test_runs"] | undefined = session.test_runs;
-	for (const [testFile, result] of testRuns ?? []) {
+	for (const [testFile, result] of testRuns) {
 		if (testFile === ALL_TESTS_SENTINEL) continue;
 		if (normalizeCycleKey(testFile) !== cycleTestKey) continue;
 		if (result.status === "fail" && result.at_step === cycle.red_at) return true;
@@ -120,7 +120,7 @@ export function redCycleMessage(
 		return `The full suite was failing when ${name} was last observed, but the failure is not attributed to this file${redEvidence(cycle)}. Re-run its own tests to confirm.`;
 	}
 	if (isStaleRed(session, cycle)) {
-		const age = session.tool_call_count - (cycle.red_at ?? 0);
+		const age = session.tool_call_count - nonNull(cycle.red_at); // isStaleRed requires a recorded step.
 		return `${name} has been red since step ${cycle.red_at} — ${age} tool calls ago — and nothing has re-run its tests since${redEvidence(cycle)}. That is no longer evidence about the current tree; re-run its tests to confirm or clear it.`;
 	}
 	return `Tests are ${cycle.state === "regression" ? "REGRESSING" : "FAILING"} for ${name}${redEvidence(cycle)}. Fix before committing.`;

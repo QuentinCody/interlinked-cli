@@ -437,9 +437,9 @@ export class SidecarManager {
 
 	// ---- status tracking ----------------------------------------------------
 
-	private setStatus(patch: Partial<SidecarStatus>): void {
+	private setStatus(patch: Partial<SidecarStatus> & Pick<SidecarStatus, "state">): void {
 		const prevState = this.status.state;
-		const nextState = patch.state ?? prevState;
+		const nextState = patch.state;
 		this.status = {
 			...this.status,
 			...patch,

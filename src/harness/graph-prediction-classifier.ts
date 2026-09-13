@@ -114,7 +114,7 @@ function scanDirEntry(ent: import("node:fs").Dirent, dir: string, stack: string[
 	if (!SHARD_RE.test(name)) return false;
 	if (isExcluded(full)) return false;
 	const sourcePath = sourcePathForShard(full);
-	return sourcePath !== null && existsSync(sourcePath);
+	return existsSync(sourcePath);
 }
 
 /** Processes one directory popped from the scan stack: pushes its
@@ -124,9 +124,8 @@ function processStackLength(dir: string, stack: string[]): boolean {
 	if (isExcluded(dir)) return false;
 	let entries: import("node:fs").Dirent[];
 	try {
-		entries = readdirSync(dir, { withFileTypes: true, encoding: "utf8" }).sort((a, b) =>
-			a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-		);
+		// This search returns only existence; directory order cannot change the result.
+		entries = readdirSync(dir, { withFileTypes: true, encoding: "utf8" });
 	} catch {
 		return false;
 	}
@@ -145,9 +144,9 @@ function scanForShardNearSourcePair(absCwd: string): boolean {
 	return false;
 }
 
-function sourcePathForShard(shardPath: string): string | null {
-	const m = shardPath.match(SHARD_RE);
-	if (!m) return null;
+function sourcePathForShard(shardPath: string): string {
+	// scanDirEntry already matched this basename's shard suffix.
+	const m = nonNull(shardPath.match(SHARD_RE));
 	const suffix = m[1] ?? "";
 	return shardPath.slice(0, shardPath.length - m[0].length) + suffix;
 }

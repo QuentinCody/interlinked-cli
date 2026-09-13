@@ -78,7 +78,7 @@ function processPrediction(
 		// Don't even know which file — can't classify; ignore silently.
 		return;
 	}
-	if (!pred.file) return;
+	// Parser finalization marks a missing file as parse_failed, handled above.
 
 	const classification = classifyCase(pred.file, args.cwd);
 	if (classification.case !== "E-fresh") {
@@ -103,7 +103,6 @@ function processPrediction(
 	}
 
 	const row = buildPredictionRow(pred, classification, args.sessionId, now);
-	if (!row) return;
 	appendPredictionRow(args.cwd, row);
 	result.persisted.push({ file_path: classification.sourcePath, case: "E-fresh" });
 }
@@ -113,9 +112,9 @@ function buildPredictionRow(
 	classification: CaseResult,
 	sessionId: string,
 	now: string,
-): GraphPredictionRow | null {
-	if (!classification.shardPath) return null;
-	if (!classification.sourceMtime || !classification.shardMtime) return null;
+): GraphPredictionRow {
+	// Only an E-fresh classification reaches this helper; classifyCase builds
+	// that case with a shard path and both successful filesystem timestamps.
 	const content: PredictionContent = {
 		deps: pred.deps,
 		calls: pred.calls,
@@ -124,9 +123,9 @@ function buildPredictionRow(
 	return {
 		session_id: sessionId,
 		file_path: classification.sourcePath,
-		source_mtime: classification.sourceMtime,
-		shard_mtime: classification.shardMtime,
-		shard_path: classification.shardPath,
+		source_mtime: nonNull(classification.sourceMtime),
+		shard_mtime: nonNull(classification.shardMtime),
+		shard_path: nonNull(classification.shardPath),
 		emitted_at: now,
 		tool_input_hash: "",
 		case: "E-fresh",
