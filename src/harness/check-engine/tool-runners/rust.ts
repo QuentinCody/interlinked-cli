@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { hasErrorCode } from "../tool-errors.js";
 import type { SpawnSyncOptionsWithStringEncoding, SpawnSyncReturns } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { nonNull } from "../../../lib/non-null.js";
 import { filterResultsToFile, parseCargoJson } from "../output-parsers.js";
 import type { CheckResult, ToolRunnerInput } from "../types.js";
@@ -105,7 +105,7 @@ const CARGO_EDITIONS = new Set(["2015", "2018", "2021", "2024"]);
 export function crateEditionFor(targetFile: string, projectRoot: string): string | null {
 	const root = resolve(projectRoot);
 	let dir = resolve(root, dirname(targetFile));
-	if (!dir.startsWith(root)) dir = root;
+	if (dir !== root && !dir.startsWith(join(root, sep))) dir = root;
 	for (;;) {
 		try {
 			const manifest = readFileSync(join(dir, "Cargo.toml"), "utf-8");
@@ -118,9 +118,8 @@ export function crateEditionFor(targetFile: string, projectRoot: string): string
 			if (!hasErrorCode(err, "ENOENT")) throw err;
 		}
 		if (dir === root) return null;
-		const parent = dirname(dir);
-		if (parent === dir) return null;
-		dir = parent;
+		// The initial containment check guarantees this walk reaches root.
+		dir = dirname(dir);
 	}
 }
 

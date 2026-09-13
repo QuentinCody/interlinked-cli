@@ -549,6 +549,21 @@ describe("crateEditionFor + file-mode --edition threading", () => {
 		expect(crateEditionFor("src/lib.rs", crateRoot)).toBeNull();
 	});
 
+	it("does not read a neighboring crate whose name shares the project prefix", () => {
+		const workspace = join(crateRoot, "repo");
+		const neighbor = join(crateRoot, "repo-other");
+		mkdirSync(workspace);
+		mkdirSync(join(neighbor, "src"), { recursive: true });
+		writeFileSync(join(workspace, "Cargo.toml"), 'edition = "2021"\n');
+		writeFileSync(join(neighbor, "Cargo.toml"), 'edition = "2024"\n');
+		expect(crateEditionFor(join(neighbor, "src/lib.rs"), workspace)).toBe("2021");
+	});
+
+	it("reports an unreadable manifest instead of assuming an edition", () => {
+		mkdirSync(join(crateRoot, "Cargo.toml"));
+		expect(() => crateEditionFor("src/lib.rs", crateRoot)).toThrow();
+	});
+
 	it("passes --edition to file-mode rustfmt when the crate declares one", () => {
 		mkdirSync(join(crateRoot, "src"), { recursive: true });
 		writeFileSync(
