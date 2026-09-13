@@ -7,7 +7,7 @@
 // envelope is the only faithful way to exercise a receipt-arm branch.
 
 import { createHash } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	manifestFromHead,
 	parseProtocolV3Envelope,
@@ -145,25 +145,7 @@ describe("targetContentFromJournal — target-byte authentication", () => {
 		);
 	});
 
-	it("rejects a decoded string that cannot be losslessly re-encoded back to the original bytes", () => {
-		const bytes = Buffer.from("perfectly ordinary ascii content", "utf8");
-		const hash = sha256Hex(bytes);
-		const job = claimedJob({ acceptanceReceiptHash: "c".repeat(64), targetSha256: hash, targetBytes: bytes });
-		const expected = jobBinding({ target_content_hash: hash });
-		// Seam injection: force the round-trip re-encoding to diverge from the
-		// original bytes without a real non-lossless UTF-8 input (fuzzed 2M
-		// random byte strings against Node's fatal-mode TextDecoder produced no
-		// such input — see rangesOpen reasoning for line 181 in the report).
-		const decoy = Buffer.from([0x00]);
-		const spy = vi.spyOn(Buffer, "from").mockReturnValueOnce(decoy);
-		expect(() => targetContentFromJournal(job, expected)).toThrow(
-			"journal targetBytes cannot be losslessly represented as UTF-8 source text",
-		);
-		spy.mockRestore();
-	});
-
-	it("returns the decoded content on a fully authenticated round trip", () => {
-		const content = "export const z = 3;\n";
+	it.each(["export const z = 3;\n", "\uFEFF// café 🧪\n", "\u0000\u007f\u0080\u07ff\u0800\uFFFF\u{10000}\u{10FFFF}"])("preserves authenticated UTF-8 source bytes: %j", (content) => {
 		const bytes = Buffer.from(content, "utf8");
 		const hash = sha256Hex(bytes);
 		const job = claimedJob({ acceptanceReceiptHash: "d".repeat(64), targetSha256: hash, targetBytes: bytes });

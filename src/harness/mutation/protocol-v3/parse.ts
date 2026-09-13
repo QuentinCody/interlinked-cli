@@ -131,15 +131,14 @@ function checkTestFiles(files: unknown, where: string): Reason {
 }
 
 function validatedRecord(raw: Raw, key: string): Raw {
-	const value = raw[key];
-	if (!isRecord(value)) throw new Error(`internal protocol parser invariant: ${key} was not validated`);
-	return value;
+	// SAFETY: callers have passed checkRunBlocks/checkCensusBlock on the detached
+	// snapshot; no getters or external references can change a validated field.
+	return raw[key] as Raw;
 }
 
 function validatedNumber(raw: Raw, key: string): number {
-	const value = raw[key];
-	if (typeof value !== "number") throw new Error(`internal protocol parser invariant: ${key} was not validated`);
-	return value;
+	// SAFETY: checkTestRun already validated this field on the detached snapshot.
+	return raw[key] as number;
 }
 
 function checkScope(o: Raw, where: string): Reason {

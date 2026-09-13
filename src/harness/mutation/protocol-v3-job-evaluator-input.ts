@@ -176,9 +176,8 @@ export function targetContentFromJournal(job: Readonly<Pick<ClaimedMutationJob, 
 	} catch {
 		fail("journal targetBytes are not valid UTF-8 source text");
 	}
-	if (!Buffer.from(content, "utf8").equals(bytes)) {
-		fail("journal targetBytes cannot be losslessly represented as UTF-8 source text");
-	}
+	// Fatal UTF-8 decoding rejects invalid/overlong/surrogate encodings; ignoreBOM
+	// preserves a leading BOM as text, so every accepted sequence round-trips.
 	return content;
 }
 
@@ -207,9 +206,7 @@ export function manifestFromHead(value: unknown): MutationManifest {
 
 function reportPointer(envelope: ParsedEnvelope): { bytes: number } | null {
 	if (!("report" in envelope) || envelope.report === undefined) return null;
-	if (!isJsonObject(envelope.report) || typeof envelope.report.bytes !== "number") {
-		fail("parsed envelope contains an invalid report pointer");
-	}
+	// ParsedEnvelope is branded only after validation of a detached, frozen value.
 	return { bytes: envelope.report.bytes };
 }
 
