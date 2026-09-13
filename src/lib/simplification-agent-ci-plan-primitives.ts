@@ -6,6 +6,7 @@
 // neither plan module has to import the other.
 
 import { createHash } from "node:crypto";
+import { compareCodeUnits } from "./compare-code-units.js";
 import { matchesAnyGlob } from "./path-glob.js";
 import {
 	canonicalSimplificationAgentCiJson,
@@ -63,10 +64,7 @@ export function boundaryOrder(boundary: SimplificationProtectedBoundary): number
 	return SIMPLIFICATION_PROTECTED_BOUNDARIES.indexOf(boundary);
 }
 
-export function compareCodeUnits(left: string, right: string): number {
-	if (left < right) return -1;
-	return left > right ? 1 : 0;
-}
+export { compareCodeUnits };
 
 export function sha256Canonical(value: unknown): string {
 	return createHash("sha256")

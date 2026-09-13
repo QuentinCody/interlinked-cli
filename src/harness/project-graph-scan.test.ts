@@ -56,6 +56,13 @@ describe("project-graph-scan", () => {
 	});
 
 	describe("scanProjectFiles — negative (must not fire)", () => {
+		it("stops at the directory depth limit", () => {
+			const deep = join(root, ...Array.from({ length: 21 }, () => "nested"));
+			mkdirSync(deep, { recursive: true });
+			writeFileSync(join(deep, "hidden.ts"), "export {};");
+			writeFileSync(join(root, "visible.ts"), "export {};");
+			expect(scanProjectFiles(root).map((entry) => entry.file)).toEqual([join(root, "visible.ts")]);
+		});
 		it("N1: skips node_modules and root-local scratch/", () => {
 			const nm = join(root, "node_modules", "pkg");
 			mkdirSync(nm, { recursive: true });
@@ -90,6 +97,10 @@ describe("project-graph-scan", () => {
 	});
 
 	describe("loadTsconfigPathsFor — negative (must not fire)", () => {
+		it.each(["null", "[]", '{"compilerOptions":null}'])("ignores a malformed configuration shell: %s", (config) => {
+			writeFileSync(join(root, "tsconfig.json"), config);
+			expect(loadTsconfigPathsFor(root)).toBeUndefined();
+		});
 		it("N1: returns undefined when tsconfig.json is absent", () => {
 			expect(loadTsconfigPathsFor(root)).toBeUndefined();
 		});

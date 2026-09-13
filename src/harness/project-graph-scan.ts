@@ -7,6 +7,7 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
+import { compareCodeUnits } from "../lib/compare-code-units.js";
 import { isJsonObject } from "../lib/json-types.js";
 import { resolveIgnoredDirs } from "./structure/extractors/skip-dirs.js";
 
@@ -108,7 +109,7 @@ function walkDir(state: WalkState): void {
 		const boundary = boundaryForDir(dir, currentBoundary, projectRoot);
 
 		const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-			a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+			compareCodeUnits(a.name, b.name),
 		);
 		for (const entry of entries) {
 			const fullPath = join(dir, entry.name);

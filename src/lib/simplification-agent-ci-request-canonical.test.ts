@@ -35,6 +35,9 @@ describe("canonicalSimplificationAgentCiJson", () => {
 });
 
 describe("compareCodeUnits", () => {
+	it("keeps UTF-16 ordering independent of locale or Unicode code-point order", () => {
+		expect(["\uE000", "😀", "a", "A", "a"].sort(compareCodeUnits)).toEqual(["A", "a", "a", "😀", "\uE000"]);
+	});
 	it("orders by code unit and reports equality as zero", () => {
 		expect(compareCodeUnits("a", "b")).toBe(-1);
 		expect(compareCodeUnits("b", "a")).toBe(1);

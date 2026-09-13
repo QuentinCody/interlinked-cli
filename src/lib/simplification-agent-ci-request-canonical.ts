@@ -18,10 +18,7 @@ function sha256(value: string): string {
 	return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-export function compareCodeUnits(left: string, right: string): number {
-	if (left < right) return -1;
-	return left > right ? 1 : 0;
-}
+export { compareCodeUnits } from "./compare-code-units.js";
 
 function canonicalJsonValue(value: unknown, location: string): string {
 	if (value === null) return "null";
