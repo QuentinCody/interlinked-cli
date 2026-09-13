@@ -159,6 +159,17 @@ describe("evaluateBashEditObligationGate", () => {
 });
 
 describe("store hygiene", () => {
+	it("ignores malformed rows and keeps a legacy obligation with missing metadata", () => {
+		mkdirSync(join(cwd, ".interlinked"));
+		writeFileSync(join(cwd, ".interlinked", "bash-edit-obligations.json"), JSON.stringify({
+			"null.ts": null,
+			"scalar.ts": 3,
+			"empty.ts": { checkIds: [] },
+			"wrong.ts": { checkIds: "eval" },
+			"legacy.ts": { checkIds: ["eval", null] },
+		}));
+		expect(openBashEditObligations(cwd)).toEqual([{ file: "legacy.ts", checkIds: ["eval"], opened_at: "", session_id: "" }]);
+	});
 	it("the JSON store lives under .interlinked and is valid JSON", () => {
 		const abs = writeSrc("src/a.ts", BAD_LINE);
 		recordBashEditObligations({ cwd, sessionId: "s1", filePath: abs, dryRun: false });

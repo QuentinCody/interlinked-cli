@@ -75,6 +75,9 @@ function collectionRows(cwd: string): JsonObject[] {
 }
 
 describe("lastAssistantText", () => {
+	it.each([null, [], "incomplete"])("ignores an assistant row with a non-object message: %j", (message) => {
+		expect(lastAssistantText(JSON.stringify({ type: "assistant", message }))).toBeNull();
+	});
 	it("returns the LAST assistant entry's last text block", () => {
 		const text =
 			assistantLine({ uuid: "a1", text: "first answer" }) +
@@ -169,6 +172,12 @@ describe("resolveFinalMessage", () => {
 		expect(
 			resolveFinalMessage(stopEvent({ agent_transcript_path: join(dir, "missing.jsonl") })),
 		).toBeNull();
+	});
+
+	it("returns no final message from a newly created empty transcript", () => {
+		const transcript = join(dir, "empty.jsonl");
+		writeFileSync(transcript, "");
+		expect(resolveFinalMessage(stopEvent({ agent_transcript_path: transcript }))).toBeNull();
 	});
 });
 

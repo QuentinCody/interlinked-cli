@@ -123,6 +123,7 @@ import {
 	rememberBaselineSnapshot,
 } from "../evaluator/baseline-effect-guard.js";
 import { runCommitBaselineGate } from "../evaluator/commit-baseline-gate.js";
+import { runCommitFunctionTokenGate } from "../evaluator/commit-function-token-gate.js";
 import { runCommitLaunderingGate } from "../evaluator/commit-laundering-gate.js";
 import { appendShadowLog, callClassifier } from "../policy-classifier.js";
 import { rememberWorkspaceSnapshot, shouldObserveWorkspaceEffects } from "../workspace-effects.js";
@@ -397,6 +398,23 @@ describe("commit-baseline and laundering gate short circuits", () => {
 // ---------------------------------------------------------------------------
 
 describe("combineMetricGateDecisions", () => {
+	it.each([
+		{ coverage: undefined, mutation: ["mutation"], expected: ["mutation"] },
+		{ coverage: ["coverage"], mutation: undefined, expected: ["coverage"] },
+	])("preserves the available warnings when one gate omits them: %j", async ({ coverage, mutation, expected }) => {
+		mRunCoverageWriteGate.mockResolvedValue({ decision: "block", reason: "COV", warnings: coverage });
+		mRunMutationWriteGate.mockResolvedValue({ decision: "allow", warnings: mutation });
+		const decision = await runPreToolPipeline(makeCtx(), ev({ tool_name: "Edit" }), makeSession());
+		expect(decision.warnings).toEqual(expected);
+		expect(decision.reason).toBe("COV");
+	});
+
+	it("stops commit evaluation at a function token failure", async () => {
+		vi.mocked(runCommitFunctionTokenGate).mockReturnValueOnce({ decision: "block", reason: "TOKEN-CAP" });
+		const decision = await runPreToolPipeline(makeCtx(), ev({ tool_name: "Bash", tool_input: { command: "git commit -m x" } }), makeSession());
+		expect(decision.reason).toBe("TOKEN-CAP");
+		expect(mRunCommitLaunderingGate).not.toHaveBeenCalled();
+	});
 	// test-contract: exact-observable — both gates firing merges BOTH warning sets
 	it("merges mutation warnings onto the coverage decision when both gates fire", async () => {
 		mRunCoverageWriteGate.mockResolvedValue({ decision: "block", reason: "COV", warnings: ["COVW"] });

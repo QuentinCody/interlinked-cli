@@ -13,6 +13,7 @@
 
 import { readToolString } from "./tool-input-values.js";
 import type { SharedConfig } from "../../lib/config.js";
+import { nonNull } from "../../lib/non-null.js";
 import { type CohortManager, isLineage } from "../cohort.js";
 import { extractScannableContent } from "../content-scanner/extractor.js";
 import type { ContentScanRequest } from "../content-scanner/types.js";
@@ -433,7 +434,8 @@ export function evaluateTaintPhase(
 	) {
 		return {
 			...taintResult.decision,
-			warnings: [...warnings, ...(taintResult.decision.warnings || [])],
+			// Every terminal taint result carries the guard's accumulated warnings.
+			warnings: [...warnings, ...nonNull(taintResult.decision.warnings)],
 		};
 	}
 	warnings.push(...taintResult.warnings);

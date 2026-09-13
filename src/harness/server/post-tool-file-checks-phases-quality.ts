@@ -377,7 +377,7 @@ function applyScoredSuggestions(
 
 	const rawScored = scoreFindings(allFindings, {
 		filePath: editedFilePath,
-		...(session ? { session } : {}),
+		session,
 		...(editRegion
 			? { editStartLine: editRegion.editStartLine, editEndLine: editRegion.editEndLine }
 			: {}),
@@ -387,12 +387,8 @@ function applyScoredSuggestions(
 		threshold: rules.suggestion_threshold ?? 0.5,
 	});
 
-	// Session-ack suppression for suggestions (always warning severity).
-	// No session to check acknowledgement against means nothing is
-	// acknowledged yet — keep every finding rather than dereferencing.
-	const scored = session
-		? rawScored.filter((s) => !isAcknowledged(session, editedFilePath, s.check))
-		: rawScored;
+	// Both this private helper and its caller require the session trajectory.
+	const scored = rawScored.filter((s) => !isAcknowledged(session, editedFilePath, s.check));
 
 	if (scored.length > 0) {
 		for (const s of scored) {
@@ -401,7 +397,7 @@ function applyScoredSuggestions(
 				name: s.check,
 				severity: "warning",
 				message: s.message,
-				file: editedFilePath || undefined,
+				file: editedFilePath,
 				score: s.score,
 				line: s.line,
 				determinism: "heuristic",

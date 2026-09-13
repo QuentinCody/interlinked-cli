@@ -485,6 +485,17 @@ describe("applyQualityDecision", () => {
 		expect(decision.warnings?.[1]?.split("\n")).toHaveLength(1);
 	});
 
+	it("groups project-wide deferrals without inventing a file name", () => {
+		const decision: HarnessDecision = { decision: "allow" };
+		applyQualityDecision(makeCtx(), [
+			{ name: "external_check_deferred", severity: "warning", message: "External checks deferred", detail: "busy" },
+			{ name: "affected_tests_deferred", severity: "warning", message: "Affected tests deferred", detail: "busy" },
+		], decision);
+		expect(decision.warnings).toHaveLength(1);
+		expect(decision.warnings?.[0]).toContain("external checks, affected tests");
+		expect(decision.warnings?.[0]).toContain("affected tests (busy)");
+	});
+
 	it("keeps a lone capacity deferral to one concise line", () => {
 		const ctx = makeCtx();
 		const decision: HarnessDecision = { decision: "allow" };

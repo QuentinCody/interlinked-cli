@@ -18,6 +18,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
+import { nonNull } from "../../lib/non-null.js";
 import { buildEnvelope } from "./inference-envelope.js";
 import { appendEnvelope } from "./inference-store.js";
 import { createSseReassembler } from "./sse-reassembly.js";
@@ -202,12 +203,14 @@ async function fetchUpstream(
 	const connectTimer = setTimeout(() => controller.abort(), UPSTREAM_CONNECT_TIMEOUT_MS);
 	try {
 		const init: RequestInit = {
-			method: req.method ?? "GET",
+			// This private path receives server requests, for which Node supplies
+			// both method and url (the broader type also describes responses).
+			method: nonNull(req.method),
 			headers: forwardHeaders(req),
 			signal: controller.signal,
 		};
 		if (body.length > 0) init.body = new Uint8Array(body);
-		return await fetch(`${runtime.opts.upstreamUrl}${req.url ?? "/"}`, init);
+		return await fetch(`${runtime.opts.upstreamUrl}${nonNull(req.url)}`, init);
 	} catch (err) {
 		runtime.log(`upstream unreachable: ${err instanceof Error ? err.message : String(err)}`);
 		return null;

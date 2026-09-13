@@ -913,6 +913,21 @@ describe("content scanner scan-request handling", () => {
 		expect(scan).toHaveBeenCalledWith(expect.objectContaining({ text: "alice@vendor.example secret stuff" }));
 	});
 
+	it("uses a bounded default timeout when the configured timeout is zero", async () => {
+		const timeout = vi.spyOn(AbortSignal, "timeout");
+		try {
+			const scan = vi.fn(async () => []);
+			const ctx = scanCtx({ scan });
+			if (!ctx.rules.content_scanner) throw new Error("scanner fixture missing");
+			ctx.rules.content_scanner.local.scan_timeout_ms = 0;
+			await runPreToolPipeline(ctx, ev({ tool_name: "Write" }), makeSessionWithScan(scanReq));
+			expect(timeout).toHaveBeenCalledWith(1500);
+			expect(scan).toHaveBeenCalledWith(expect.objectContaining({ signal: expect.any(AbortSignal) }));
+		} finally {
+			timeout.mockRestore();
+		}
+	});
+
 	it("falls back to default byte/timeout when config omits them (|| defaults)", async () => {
 		const scan = vi.fn(async () => []);
 		const ctx = makeCtx({

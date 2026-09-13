@@ -12,6 +12,7 @@ import { readOptionalToolString } from "../evaluator/tool-input-values.js";
 
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative } from "node:path";
+import { nonNull } from "../../lib/non-null.js";
 import { STRUCTURAL_CHECK_META } from "../check-metadata.js";
 import { checkOrphanedTests } from "../deletion-hygiene.js";
 import { resolveDependencyView } from "../dependency-view.js";
@@ -131,7 +132,7 @@ export function applyStructuralFindings(
 		// Bug B1: a PostToolUse block MUST carry a reason (else the hook shows the
 		// "no reason was attached" fallback). Surface the structural findings.
 		decision.reason ??=
-			(decision.warnings ?? []).join("\n") ||
+			decision.warnings.join("\n") ||
 			"[interlinked] PostToolUse structural checks flagged a deterministic issue.";
 	}
 
@@ -197,9 +198,8 @@ export function runImpactOrFallback(
 			decision.decision = "block";
 			decision.rule_id ??= "impact-critical";
 			// Bug B1: a PostToolUse block MUST carry a reason.
-			decision.reason ??=
-				(decision.warnings ?? []).join("\n") ||
-				`[interlinked] Critical cross-file impact: ${impactResult.dependentCount} dependent(s), ${impactResult.breakingFiles.length} breaking file(s).`;
+			// The critical formatter always emits at least its impact summary.
+			decision.reason ??= nonNull(decision.warnings).join("\n");
 		}
 
 		log(
