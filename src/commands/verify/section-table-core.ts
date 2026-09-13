@@ -136,6 +136,13 @@ export const coreSections: readonly SectionSpec[] = [
 		color: "33",
 	},
 	{
+        label: "html duplicate id",
+        key: "htmlDuplicateId",
+        noun: "duplicate HTML IDs",
+        passLabel: "no duplicate static body IDs found",
+        color: "33",
+    },
+    {
 		label: "strong typing",
 		key: "strongTyping",
 		noun: "any/unknown-type usages",

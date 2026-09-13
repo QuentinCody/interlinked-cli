@@ -129,6 +129,7 @@ function readRegistrySources(): string {
 		"entries-warnings/agent-laziness.ts",
 		"entries-warnings/test-and-demo.ts",
 		"entries-warnings/endpoint-security.ts",
+        "entries-warnings/html.ts",
 		// Quality-frontier wave (2026-07-06..08-10). Added to the visible set
 		// 2026-08-10 when homedir_write_escape landed there WITH verify wiring —
 		// the file's older checks are PostToolUse-only (deferred verify batch,

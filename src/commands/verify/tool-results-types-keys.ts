@@ -16,6 +16,7 @@ export const CQ_RESULT_KEYS = [
 	"largeFiles",
 	"untestedFiles",
 	"jsonValidity",
+    "htmlDuplicateId",
 	"phantomImports",
 	"consoleStatements",
 	"silentCatches",

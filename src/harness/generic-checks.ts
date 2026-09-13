@@ -423,3 +423,4 @@ export {
 	checkRustUnsafeSpan,
 	checkSuppressionSpan,
 } from "./checks/unsafe-span.js";
+export { checkHtmlDuplicateId } from "./checks/html-duplicate-id.js";

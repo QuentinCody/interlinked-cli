@@ -16,6 +16,7 @@ import { AGENT_LAZINESS_ENTRIES } from "./entries-warnings/agent-laziness.js";
 import { BOUNDARY_CONTRACT_ENTRIES } from "./entries-warnings/boundary-contracts.js";
 import { CODE_QUALITY_ENTRIES } from "./entries-warnings/code-quality.js";
 import { ENDPOINT_SECURITY_ENTRIES } from "./entries-warnings/endpoint-security.js";
+import { HTML_ENTRIES } from "./entries-warnings/html.js";
 import { PORTABILITY_ENTRIES } from "./entries-warnings/portability.js";
 import { QUALITY_FRONTIER_ENTRIES } from "./entries-warnings/quality-frontier.js";
 import { SPEC_STRUCTURE_ENTRIES } from "./entries-warnings/spec-structure.js";
@@ -31,6 +32,7 @@ export {
 	BOUNDARY_CONTRACT_ENTRIES,
 	CODE_QUALITY_ENTRIES,
 	ENDPOINT_SECURITY_ENTRIES,
+    HTML_ENTRIES,
 	PORTABILITY_ENTRIES,
 	QUALITY_FRONTIER_ENTRIES,
 	SPEC_STRUCTURE_ENTRIES,
@@ -48,6 +50,7 @@ export const WARNING_ENTRIES: CheckRegistration[] = [
 	...TEST_AND_DEMO_ENTRIES,
 	...TEST_DISCRIMINATION_ENTRIES,
 	...ENDPOINT_SECURITY_ENTRIES,
+    ...HTML_ENTRIES,
 	...QUALITY_FRONTIER_ENTRIES,
 	...SPEC_STRUCTURE_ENTRIES,
 	...TYPE_DISCIPLINE_ENTRIES,

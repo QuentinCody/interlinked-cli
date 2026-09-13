@@ -29,6 +29,22 @@ function captureStdout(fn: () => void): string {
 }
 
 describe("outputJson", () => {
+    it("includes duplicate HTML ID locations in JSON output", () => {
+        const cq = emptyCq();
+        const issue = {
+            check: "html_duplicate_id", file: "index.html", line: 4,
+            message: 'Duplicate HTML id "panel"; first used on line 2.',
+        };
+        cq.htmlDuplicateId.push(issue);
+        const out = captureStdout(() => outputJson({
+            tscResults: [], linterResults: [], linterName: "biome",
+            semgrepResults: [], gitleaksResults: [], auditResult: null,
+            cq, suggestions: null, totalFiles: 1,
+        }));
+        expect(JSON.parse(out).html_duplicate_id).toEqual({
+            issues: 1, files: ["index.html"], details: [issue],
+        });
+    });
 	it("emits valid JSON to stdout", () => {
 		const out = captureStdout(() => {
 			outputJson({

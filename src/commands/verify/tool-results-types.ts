@@ -39,6 +39,7 @@ export interface CodeQualityResults {
 	 */
 	untestedFiles: CodeQualityIssue[];
 	jsonValidity: CodeQualityIssue[];
+    htmlDuplicateId: CodeQualityIssue[];
 	phantomImports: CodeQualityIssue[];
 	consoleStatements: CodeQualityIssue[];
 	silentCatches: CodeQualityIssue[];

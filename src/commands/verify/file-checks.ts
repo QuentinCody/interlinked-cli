@@ -20,6 +20,7 @@ import { isGeneratedFile } from "../../harness/checks/shared.js";
 import {
 	checkConsoleDebug,
 	checkFunctionComplexity,
+    checkHtmlDuplicateId,
 	checkMissingReturnTypes,
 	checkSilentCatch,
 	checkTestFileExists,
@@ -305,10 +306,15 @@ function collectUntestedFileFinding(
 }
 
 /**
- * JSON-file handling: parse-validity finding + tsconfig strictness. Returns
+ * HTML ID findings plus JSON parse-validity and tsconfig strictness. Returns
  * `true` when the file was a `.json` (caller must then short-circuit the rest
  * of the per-file battery, preserving the original early-return semantics).
  */
+function collectMarkupFindings(file: string, content: string, ext: string, relPath: string, r: CodeQualityResults): boolean {
+    r.htmlDuplicateId.push(...toIssues("html_duplicate_id", relPath, checkHtmlDuplicateId(content, file)));
+    return collectJsonFindings(file, content, ext, relPath, r);
+}
+
 function collectJsonFindings(file: string, content: string, ext: string, relPath: string, r: CodeQualityResults): boolean {
 	if (ext !== JSON_EXT) return false;
 	try {
@@ -376,7 +382,7 @@ function collectPerFileFindings(args: RunFileChecksArgs): void {
 	collectFunctionTokenFindings(file, content, cwd, relPath, r);
 	collectUntestedFileFinding(file, cwd, relPath, r, content);
 
-	if (collectJsonFindings(file, content, ext, relPath, r)) return;
+	if (collectMarkupFindings(file, content, ext, relPath, r)) return;
 
 	if (isDts) return;
 

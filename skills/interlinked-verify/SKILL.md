@@ -153,6 +153,15 @@ hides those as warnings).
 
 ## Check families & phases
 
+`html_duplicate_id` is a default PostToolUse/verify warning for repeated static IDs in
+an explicit `<body>` in `.html`/`.htm` files. It reports each later occurrence with the
+first occurrence's line. IDs are case-sensitive; comments, script/raw-text contents,
+inert `<template>` contents, and dynamic ID expressions are excluded. IDs on the body,
+script, and template elements themselves still count. This is a lexical check, not a
+browser DOM audit: it does not infer omitted body tags, normalize equivalent entity
+spellings, evaluate template branches, or execute JavaScript. Rename duplicate IDs and
+update links, labels, ARIA references, and selectors; use classes for shared styling.
+
 ### Adopt existing project linters
 
 `interlinked lint scan [directory] --json` inventories recognized lint configs,
