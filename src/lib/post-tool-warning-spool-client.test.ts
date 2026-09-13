@@ -117,6 +117,18 @@ describe("acknowledgeSynchronousPostToolResult", () => {
 });
 
 describe("drainLatePostToolWarnings", () => {
+	it("discards malformed ready and active shells while delivering a valid warning", () => {
+		const now = Date.now();
+		const malformed = [null, [], { version: 2 }, { version: 1, token: "bad" }, { version: 1, token: "valid-token-00001", session_id: 42 }];
+		for (const [i, record] of malformed.entries()) {
+			for (const suffix of ["ready", "active"]) {
+				writeFileSync(join(spoolDir, `invalid-token-000${i}.${suffix}.json`), JSON.stringify(record));
+			}
+		}
+		writeReady("valid-token-00002", "session-a", ["real warning"], new Date(now - 1000).toISOString());
+		expect(drainLatePostToolWarnings(dataDir, "session-a", now)).toEqual(["real warning"]);
+		expect(readdirSync(spoolDir)).toEqual([]);
+	});
 	it("defers young same-session work, then claims that session exactly once while retaining foreign work", () => {
 		const now = Date.now();
 		const eligible = writeReady(

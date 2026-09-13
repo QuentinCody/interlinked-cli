@@ -95,6 +95,19 @@ function tsProfile() {
 }
 
 describe("runDirectImporterCompanions — positive (must fire)", () => {
+	it("reports failures across two importers with the default runner profile", async () => {
+		const target = write("src/modes.ts", "export const X = 1;\n");
+		write("src/a.ts", "import { X } from './modes.js';\n");
+		write("src/a.test.ts", "it('a', () => {});\n");
+		write("src/b.ts", "import { X } from './modes.js';\n");
+		write("src/b.test.ts", "it('b', () => {});\n");
+		const profile = { ...tsProfile(), test_runner: null };
+		spawnSyncMock.mockReturnValue(mkResult({ status: 1, stdout: "AssertionError: importer expectations failed" }));
+		const out = await runDirectImporterCompanions({ filePath: "src/modes.ts", absPath: target, profile,
+			checkCwd: root, timeoutMs: 15000, severity: "error", checkName: "affected_tests" });
+		expect(out).toEqual([expect.objectContaining({ message: "Tests failed for 2 direct importer test files of src/modes.ts", detail: "AssertionError: importer expectations failed" })]);
+		expect(spawnSyncMock).toHaveBeenCalledWith("npx", ["vitest", "run", "src/a.test.ts", "src/b.test.ts", "--reporter=verbose"], expect.objectContaining({ cwd: root }));
+	});
 	it("reports a busy runner as deferred for an importer's tests", async () => {
 		const target = write("src/modes.ts", "export const X = 1;\n");
 		write("src/user.ts", "import { X } from './modes.js';\n");

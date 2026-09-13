@@ -457,6 +457,20 @@ describe("runQualityPhase", () => {
 		expect(preEditBaselines.size).toBe(0);
 	});
 
+	it("creates a shared batch for legacy multi-file events without a ChangeSet", async () => {
+		const acc = makeAcc({ editedFilePaths: [FILE, "/repo/src/other.ts"] });
+		await call({ acc, event: ev() });
+		expect(acc.externalCheckBatch).toBeDefined();
+		expect(mRunQualityChecks).toHaveBeenCalledWith(expect.anything(), expect.anything(), CWD,
+			expect.objectContaining({ skipMultiFileExternalChecks: true }));
+	});
+
+	it("does not create a project batch when every observed edit is outside the repo", async () => {
+		const acc = makeAcc({ editedFilePaths: ["/outside/a.ts", "/outside/b.ts"] });
+		await call({ acc, file: "/outside/a.ts", inRepo: false });
+		expect(acc.externalCheckBatch).toBeUndefined();
+	});
+
 	it("passes only the change_set's created paths to the batch as newFilePaths", async () => {
 		const createdFile = "/repo/src/created.ts";
 		const acc = makeAcc({ editedFilePaths: [FILE, createdFile] });

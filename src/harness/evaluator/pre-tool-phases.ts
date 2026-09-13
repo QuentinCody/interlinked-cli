@@ -11,7 +11,7 @@
 // control-flow order is unchanged.
 
 import { readToolString } from "./tool-input-values.js";
-import { isAbsolute, resolve } from "node:path";
+import { resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import type { ErrorHistory } from "../error-history.js";
 import { getPatternWarnings } from "../pattern-detector.js";
@@ -165,7 +165,7 @@ function checkFileWriteMetricCaps(
 		toolInput,
 		eventCwd,
 		(filePath, beforeFns, afterFns, afterContent) => {
-			const absPath = isAbsolute(filePath) ? filePath : resolve(eventCwd, filePath);
+			const absPath = resolve(eventCwd, filePath);
 			recordComplexityPulse(event.session_id, absPath, beforeFns, afterFns, afterContent);
 		},
 	);
@@ -179,7 +179,7 @@ function checkFileWriteMetricCaps(
 		toolInput,
 		eventCwd,
 		(filePath, beforeFns, afterFns, afterContent) => {
-			const absPath = isAbsolute(filePath) ? filePath : resolve(eventCwd, filePath);
+			const absPath = resolve(eventCwd, filePath);
 			recordFunctionTokenPulse(event.session_id, absPath, beforeFns, afterFns, afterContent);
 		},
 	);

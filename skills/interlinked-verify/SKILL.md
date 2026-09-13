@@ -19,6 +19,8 @@ through unchanged; run the original compiler normally in those cases.
 The file-mode Rust formatter reads the nearest `Cargo.toml` only within the
 project root. A neighboring directory with a shared name prefix is outside
 that scope; unreadable manifests are reported instead of guessing an edition.
+Affected Python tests outside the check root retain their absolute paths;
+directory-name prefixes alone never make a candidate project-relative.
 
 Interlinked gates edits at **three moments**, and they run different check sets:
 - **PreToolUse content gate**: real agent Edit/Write calls run deterministic `pre_block` checks

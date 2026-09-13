@@ -9,7 +9,7 @@
 // quality-checks.ts just looks up the dispatcher by LanguageId and calls it.
 
 import { existsSync } from "node:fs";
-import { dirname, extname, relative, sep } from "node:path";
+import { dirname, extname, join, relative, sep } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import { goBuildTagArgs, goToolTags } from "../check-engine/tool-runners/go-invocation.js";
 import type { LanguageId, LanguageProfile } from "../types.js";
@@ -300,9 +300,7 @@ async function runDirectImporterCompanions(
 		];
 	}
 
-	const relTests = decision.tests.map((t) =>
-		t.startsWith(checkCwd) ? t.slice(checkCwd.length + 1) : t,
-	);
+	const relTests = decision.tests.map((t) => relative(checkCwd, t));
 	const runnerCmd = profile.test_runner?.command || "npx vitest run";
 	const runnerParts = runnerCmd.split(/\s+/).filter(Boolean);
 	const run = await runBoundedTestProcess({
@@ -463,11 +461,8 @@ function findFirstExistingCandidate(
 }
 
 function relativizeFromRoot(absPath: string, root: string): string {
-	if (absPath.startsWith(root)) {
-		const rest = absPath.slice(root.length);
-		return rest.startsWith(sep) ? rest.slice(1) : rest;
-	}
-	return absPath;
+	const prefix = join(root, sep);
+	return absPath.startsWith(prefix) ? absPath.slice(prefix.length) : absPath;
 }
 
 // Exported helpers for tests. Dispatcher internals stay private otherwise.

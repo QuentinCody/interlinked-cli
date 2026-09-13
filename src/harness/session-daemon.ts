@@ -204,7 +204,7 @@ async function observedSessionSocketState(socketPath: string): Promise<ObservedS
 
 export function removeOwnedSessionArtifacts(paths: DaemonPaths, pid: number): void {
 	if (!pidFileNames(paths.pid, pid)) return;
-	if (existsSync(paths.socket)) rmSync(paths.socket, { force: true });
+	rmSync(paths.socket, { force: true });
 	removePidFileIfOwned(paths.pid, pid);
 }
 
@@ -245,7 +245,7 @@ async function replaceSessionOwner(args: SessionOwnershipArgs, ownerPid: number)
 	if (!replacementClaim.claimed) {
 		throw new DaemonOwnershipConflictError(args.sessionId, replacementClaim.ownerPid);
 	}
-	if (existsSync(args.paths.socket)) rmSync(args.paths.socket, { force: true });
+	rmSync(args.paths.socket, { force: true });
 }
 
 async function claimSessionOwnership(args: SessionOwnershipArgs): Promise<void> {

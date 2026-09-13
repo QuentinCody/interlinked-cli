@@ -155,6 +155,17 @@ describe("targetContentFromJournal — target-byte authentication", () => {
 });
 
 describe("manifestFromHead — head snapshot field validation", () => {
+	it.each([null, [], "manifest"])("rejects a non-object head snapshot: %j", (value) => {
+		expect(() => manifestFromHead(value)).toThrow("mutation manifest head snapshot must be an object");
+	});
+
+	it("rejects a different manifest version before using its fields", () => {
+		expect(() => manifestFromHead(manifestHeadFixture({ version: 2 }))).toThrow("mutation manifest head snapshot.version must be 1");
+	});
+
+	it("rejects non-object manifest files", () => {
+		expect(() => manifestFromHead(manifestHeadFixture({ files: [] }))).toThrow("mutation manifest head snapshot.files must be an object");
+	});
 	it("rejects a generation that is not a non-negative safe integer", () => {
 		expect(() => manifestFromHead(manifestHeadFixture({ generation: -1 }))).toThrow(
 			"mutation manifest head snapshot.generation must be a non-negative safe integer",

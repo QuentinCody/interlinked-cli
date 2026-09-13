@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FileContentCache } from "../grep-accelerator.js";
 import { createFreshSession } from "../session-state-mutators.js";
+import { DEFAULT_MAX_FILE_SIZE } from "../trigram-primitives.js";
 import type { HarnessDecision, HarnessEvent, SessionTrajectory } from "../types.js";
 import {
 	classifyObservedOutcome,
@@ -78,6 +79,17 @@ describe("pushWarnings — survivor kills", () => {
 });
 
 describe("updateTrigramDirtyLayer — survivor kills", () => {
+	it("logs an oversized file as skipped while refreshing its content cache", () => {
+		const cwd = makeTempCwd();
+		const content = "x".repeat(DEFAULT_MAX_FILE_SIZE + 1);
+		writeFileSync(join(cwd, "large.ts"), content);
+		const index = buildTestIndex({});
+		const ctx = makeCtx({ cwd, trigramIndex: index });
+		updateTrigramDirtyLayer(ctx, writeEvent("large.ts"));
+		expect(ctx.log).toHaveBeenCalledWith(expect.stringContaining("dirty update SKIPPED"));
+		expect(index.dirtyFileCount).toBe(0);
+		expect(ctx.fileContentCache.get("large.ts")).toBe(content);
+	});
 	// test-contract: invariant — ca21cae56ed51dd3, `!ctx.trigramIndex` forced
 	// false: a null index must short-circuit with zero log calls, not fall
 	// through to the per-path update loop.

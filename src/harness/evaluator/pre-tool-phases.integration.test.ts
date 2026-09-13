@@ -220,6 +220,14 @@ function fnWith(name: string, branches: number): string {
 }
 
 describe("evaluatePreChecksTail", () => {
+	it("blocks a long straight-line function on tokens without requiring branch complexity", () => {
+		const content = `export function sum(value: number): number {\nlet total = 0;\n${"total += value;\n".repeat(200)}return total;\n}`;
+		const out = evaluatePreChecksTail(makeEvent({ cwd: tmp }), makeSession(), undefined, "Write",
+			{ file_path: join(tmp, "long-function.ts"), content }, []);
+		expect(out?.decision).toBe("block");
+		expect(out?.rule_id).toBe("function-tokens-cap");
+		expect(out?.reason).toContain("function-tokens");
+	});
 	it("blocks a Write that would create a code file over the per-file line cap", () => {
 		const filePath = join(tmp, "huge.ts");
 		// 2000 trivial lines — comfortably past the 800-line cap.

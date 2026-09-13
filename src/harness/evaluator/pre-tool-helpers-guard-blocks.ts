@@ -12,7 +12,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { isJsonObject, type JsonObject } from "../../lib/json-types.js";
 import { nonNull } from "../../lib/non-null.js";
 import {
@@ -91,7 +91,7 @@ export function collectDirtyDependentWarning(cwd: string, graph: ProjectGraph): 
 	const dirtyRel = listGitDiffPaths(cwd, false);
 	if (dirtyRel.length === 0) return null;
 
-	const toAbs = (p: string): string => (isAbsolute(p) ? p : resolve(cwd, p));
+	const toAbs = (p: string): string => resolve(cwd, p);
 	const toRel = (p: string): string => relative(cwd, p) || p;
 	const stagedAbs = stagedRel.map(toAbs);
 	const dirtyAbs = dirtyRel.map(toAbs);

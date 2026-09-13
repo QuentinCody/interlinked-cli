@@ -310,7 +310,8 @@ export function ensureDistFresh(options: DistFreshnessOptions = {}): void {
 
 export function getHarnessServerPath(): string {
 	// Resolve harness server path — prefer pre-compiled JS for fast startup.
-	const dir = import.meta.dirname || __dirname;
+	// Supported Node >=22 file modules expose dirname in both source and ESM builds.
+	const dir = import.meta.dirname;
 	const candidates = [
 		// 1. Pre-compiled JS — same dist/ directory as this file (tsup co-entry)
 		join(dir, "harness", "server.js"),
