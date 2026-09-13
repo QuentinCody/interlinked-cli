@@ -287,6 +287,13 @@ proposal; consult **interlinked-verify** for the command contracts and transacti
 The observer is bounded ordinary-process evidence: concurrent writers can cause conservative extra
 attribution, and an incomplete snapshot is never proof of absence.
 
+## Compiler acceleration
+
+The separate Bash compiler accelerator recognizes `tsc` / `npx tsc` only in
+executable positions of flat, quote-aware command lists. Quoted search patterns
+and look-alike names are never compiler invocations. Commands with comments,
+newlines, substitutions, or grouping run unchanged through the normal tool.
+
 ## Grep acceleration
 The guard intercepts `Grep` tool calls and Bash `rg`/`grep`, queries a trigram index for
 candidate files, and can answer the search directly (block-and-answer) faster than a full

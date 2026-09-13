@@ -143,6 +143,16 @@ describe("isBashTsc — matching", () => {
 // ---------------------------------------------------------------------------
 
 describe("isBashTsc — non-matching", () => {
+	it.each([
+		'rg -n "beforeEach|tsc-overlay.js" src/harness/check-engine/index.test.ts',
+		'echo "next; tsc --noEmit"',
+		"tsc-wrapper --noEmit",
+		"echo hi # ; tsc --noEmit",
+		"echo $(date); tsc --noEmit",
+	])("does not accelerate quoted data, look-alike names, or complex shell syntax: %s", (command) => {
+		expect(isBashTsc({ tool_name: "Bash", tool_input: { command } })).toBe(false);
+	});
+
 	it("does not match non-Bash tools", () => {
 		expect(isBashTsc({ tool_name: "Read", tool_input: { command: "tsc" } })).toBe(false);
 	});
@@ -211,6 +221,19 @@ describe("isBashTsc — non-matching", () => {
 // ---------------------------------------------------------------------------
 
 describe("tryTsgoRewrite", () => {
+	it("rewrites the executable compiler while preserving earlier quoted compiler text", () => {
+		spawnSyncMock.mockReturnValue(spawnResult({ status: 0 }));
+		const command = "echo 'tsc label' && npx tsc --noEmit";
+		expect(tryTsgoRewrite({ tool_input: { command } }, "/w", () => {})).not.toBeNull();
+		expect(spawnSyncMock).toHaveBeenLastCalledWith("sh", ["-c", "echo 'tsc label' && npx tsgo --noEmit"], expect.objectContaining({ cwd: "/w" }));
+	});
+
+	it("refuses a direct rewrite of a search command without probing or executing it", () => {
+		const command = 'rg "beforeEach|tsc-overlay.js" src';
+		expect(tryTsgoRewrite({ tool_input: { command } }, "/w", () => {})).toBeNull();
+		expect(spawnSyncMock).not.toHaveBeenCalled();
+	});
+
 	it("returns null without spawning when tsgo is unavailable", () => {
 		spawnSyncMock.mockReturnValue(spawnResult({ status: 1 })); // version probe fails
 		const log = vi.fn();

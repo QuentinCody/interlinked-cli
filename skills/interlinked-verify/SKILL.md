@@ -10,6 +10,12 @@ biome and gitleaks with before/after workspace hashes; skipped checks remain
 unmeasured. It is not the full `verify` command or a per-edit ratchet. Run configured
 repository checks on the filesystem holding the actual version being reviewed.
 
+The optional Bash `tsc` accelerator recognizes executable `tsc` / `npx tsc`
+segments in flat, quote-aware command lists. It preserves quoted arguments and
+rewrites only the matched invocation. Search patterns, look-alike executable
+names, comments, multiline commands, substitutions, and shell grouping fall
+through unchanged; run the original compiler normally in those cases.
+
 Interlinked gates edits at **three moments**, and they run different check sets:
 - **PreToolUse content gate**: real agent Edit/Write calls run deterministic `pre_block` checks
   without synchronously launching biome/tsc on the daemon event loop; those external overlays

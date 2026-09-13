@@ -9,6 +9,7 @@
 
 import { spawnSync } from "node:child_process";
 import type { JsonObject } from "../lib/json-types.js";
+import { splitSegments } from "./shell-structure.js";
 
 let _tsgoAvailable: boolean | null = null;
 
@@ -42,12 +43,13 @@ export function isBashTsc(event: {
 }): boolean {
 	if (event.tool_name !== "Bash") return false;
 	const command = event.tool_input?.command;
-	if (typeof command !== "string") return false;
-	const cmd = command.trim();
-	if (/\btsgo\b/.test(cmd)) return false; // already using tsgo
-	// Only match tsc as the primary command (not inside strings/echo)
-	const isTscCommand = /^(npx\s+)?tsc\b/.test(cmd) || /[;&|]\s*(npx\s+)?tsc\b/.test(cmd);
-	if (!isTscCommand) return false;
+	return typeof command === "string" && rewrittenTscCommand(command) !== null;
+}
+
+/** Only rewrite flat command lists understood by the shared quote-aware splitter.
+ * Complex shell syntax falls through to the original command unchanged. */
+function rewrittenTscCommand(cmd: string): string | null {
+	if (/[\r\n#$`(){}]/.test(cmd) || /\btsgo\b/.test(cmd)) return null;
 	// tsgo doesn't support all tsc flags — only rewrite for type-checking.
 	// Skip: --build/-b, --watch/-w, --declaration/-d, --emitDeclarationOnly,
 	// --incremental, --composite, --init, --generateTrace
@@ -56,8 +58,18 @@ export function isBashTsc(event: {
 			cmd,
 		)
 	)
-		return false;
-	return true;
+		return null;
+	let offset = 0;
+	for (const segment of splitSegments(cmd)) {
+		const segmentStart = cmd.indexOf(segment, offset);
+		offset = segmentStart + segment.length;
+		const trimmed = segment.trimStart();
+		const compiler = /^(?:npx[ \t]+)?tsc(?=[ \t]|$)/.exec(trimmed);
+		if (!compiler) continue;
+		const start = segmentStart + segment.length - trimmed.length;
+		return `${cmd.slice(0, start)}npx tsgo${cmd.slice(start + compiler[0].length)}`;
+	}
+	return null;
 }
 
 /** Rewrite a tsc command to tsgo and run it via block-and-answer. Returns a
@@ -69,8 +81,9 @@ export function tryTsgoRewrite(
 ): { decision: "block"; reason: string } | null {
 	const cmd = event.tool_input?.command;
 	if (typeof cmd !== "string") return null;
+	const rewritten = rewrittenTscCommand(cmd);
+	if (rewritten === null) return null;
 	if (!isTsgoAvailable()) return null;
-	const rewritten = cmd.replace(/\b(npx\s+)?tsc\b/, "npx tsgo");
 	log(`tsgo acceleration: ${cmd.trim().slice(0, 60)} → ${rewritten.trim().slice(0, 60)}`);
 
 	try {
