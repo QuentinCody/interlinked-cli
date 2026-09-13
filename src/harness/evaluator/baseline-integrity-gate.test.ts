@@ -24,6 +24,13 @@ function detect(file: string, before: unknown, after: unknown, exists = alwaysEx
 }
 
 describe("detectBaselineGaming — not a baseline file / no HEAD", () => {
+	it("does not grandfather exemptions from malformed prior exemption lists", () => {
+		expect(detect(UNTESTED, { files: "src/a.ts" }, { files: ["src/a.ts"] }))
+			.toEqual([expect.objectContaining({ rule: "exempt-added:src/a.ts" })]);
+		expect(detect(EVIDENCE, { exempt: "check-a" }, { exempt: ["check-a"] }))
+			.toEqual([expect.objectContaining({ rule: "exempt-added:check-a" })]);
+	});
+
 	it("ignores non-baseline files", () => {
 		expect(detectBaselineGaming("/repo/src/foo.ts", "a", "b")).toEqual([]);
 		expect(detectBaselineGaming("/repo/.interlinked/other.json", "{}", "{}")).toEqual([]);

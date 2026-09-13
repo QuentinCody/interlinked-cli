@@ -289,6 +289,14 @@ describe("checkComplexityBlock + filterComplexFnsToEdit (section 6)", () => {
 		expect(f?.message).toContain("complex function(s)");
 	});
 
+	it("retains complexity evidence when the completed edit omits replacement metadata", () => {
+		const out = runInlineCheckBlock(ctx({
+			fileContent: sixParamFn,
+			event: { ...baseEvent, tool_input: { old_string: "return a + b + c + d + e + f;" } },
+		}));
+		expect(out).toContainEqual(expect.objectContaining({ name: "complexity", severity: "warning" }));
+	});
+
 	it("keeps a complex fn inside the Edit region (strategy 1, new_string lookup)", () => {
 		const out = runInlineCheckBlock(
 			ctx({

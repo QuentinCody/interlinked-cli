@@ -62,6 +62,12 @@ describe("stripPriorThinking", () => {
 });
 
 describe("buildCandidateRequest", () => {
+	it("handles a captured request with omitted messages and parameters", () => {
+		const captured: InferenceEnvelope = { ...envelope(), request: {} };
+		expect(buildCandidateRequest(captured, "candidate-y", {}))
+			.toEqual({ model: "candidate-y", messages: [] });
+	});
+
 	it("swaps the model, strips thinking, forces non-streaming, keeps params", () => {
 		const body = buildCandidateRequest(envelope(), "candidate-y", {});
 		expect(body.model).toBe("candidate-y");

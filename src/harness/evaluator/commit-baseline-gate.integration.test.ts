@@ -109,6 +109,16 @@ describe("checkCommitBaselineGate", () => {
 });
 
 describe("runCommitBaselineGate (pipeline wrapper)", () => {
+	it("blocks a loosened staged baseline even when the preceding phase has an empty warning list", () => {
+		writeBaseline(REL, { max_lines: 800, files: {} });
+		git("add", "-f", REL);
+		const decision = runCommitBaselineGate(commitEvent('git commit -m "x"'), {
+			decision: "allow", warnings: [],
+		});
+		expect(decision).toMatchObject({ decision: "block", rule_id: "commit_baseline_integrity_gate" });
+		expect(decision?.reason).toContain("max_lines");
+	});
+
 	it("returns a block (merging warnings) on a loosened staged baseline", () => {
 		writeBaseline(REL, { max_lines: 800, files: {} });
 		git("add", "-f", REL);

@@ -481,6 +481,22 @@ describe("loadCoverageFinal — field-omission and fallback branches", () => {
 // ==================================================================
 
 describe("loadCoverageFinalSummary", () => {
+	it("counts a statement with no recorded hit as uncovered in a partial report", () => {
+		const absPath = join(tmp, "src/partial.ts");
+		writeFixture({
+			[absPath]: {
+				fnMap: { "0": { name: "work", line: 1 } },
+				f: { "0": 0 },
+				statementMap: { "0": { start: { line: 1 }, end: { line: 1 } } },
+				s: {},
+			},
+		});
+		expect(loadCoverageFinalSummary(coveragePath, tmp)?.["src/partial.ts"]?.lines)
+			.toEqual({ pct: 0, covered: 0, total: 1 });
+		expect(coverageForFile(nonNull(loadCoverageFinal(coveragePath, tmp)), "src/partial.ts")?.uncoveredLines)
+			.toEqual(new Set([1]));
+	});
+
 	it("returns null when the file is missing", () => {
 		expect(loadCoverageFinalSummary(join(tmp, "nope.json"), tmp)).toBeNull();
 	});

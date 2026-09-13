@@ -129,6 +129,12 @@ describe("loudRunnerUnavailable — once-per-daemon memo (kills a5347138, a6a8e0
 });
 
 describe("runnerUnavailableWarning provider text by language (kills 4e8af87, 45647d4, 34f84fc)", () => {
+	it("does not diagnose a missing runner when the event has no tool input", () => {
+		const event = mkEvent("a.ts");
+		delete event.tool_input;
+		expect(profileRunnerFastPath(event, cfg(["ts"]), freshRoot())).toBeUndefined();
+	});
+
 	// test-contract: public-api — runnerUnavailableWarning's language-based
 	// provider selection, exercised via loudRunnerUnavailable's warning text.
 	it("P6: python language names pytest-cov as the provider", () => {
