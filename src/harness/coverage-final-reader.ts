@@ -133,12 +133,15 @@ export function loadCoverageFinal(
 
 /** Line metrics with istanbul's own semantics: a line's hits are the MAX of
  *  the statements STARTING on it (getLineCoverage), covered when > 0. */
-function lineMetricsOf(entry: IstanbulFileEntry): { covered: number; total: number } {
+function lineMetricsOf(
+	statementMap: NonNullable<IstanbulFileEntry["statementMap"]>,
+	statementHits: NonNullable<IstanbulFileEntry["s"]>,
+): { covered: number; total: number } {
 	const lineHits = new Map<number, number>();
-	for (const [id, range] of Object.entries(entry.statementMap ?? {})) {
+	for (const [id, range] of Object.entries(statementMap)) {
 		const line = range?.start?.line;
 		if (line == null || line <= 0) continue;
-		lineHits.set(line, Math.max(lineHits.get(line) ?? 0, entry.s?.[id] ?? 0));
+		lineHits.set(line, Math.max(lineHits.get(line) ?? 0, statementHits[id] ?? 0));
 	}
 	let covered = 0;
 	for (const hits of lineHits.values()) if (hits > 0) covered++;
@@ -209,7 +212,7 @@ export function loadCoverageFinalSummary(
 		if (!entry.statementMap || !entry.s) continue;
 		const rel = relKeyFor(entry, key, root);
 		if (!rel) continue;
-		const lines = lineMetricsOf(entry);
+		const lines = lineMetricsOf(entry.statementMap, entry.s);
 		const branches = branchMetricsOf(entry);
 		summary[rel] = {
 			lines: { pct: metricPct(lines.covered, lines.total), ...lines },

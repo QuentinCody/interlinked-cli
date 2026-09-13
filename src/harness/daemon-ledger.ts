@@ -207,7 +207,6 @@ export function readRecentDaemonEvents(projectRoot: string): DaemonLedgerRow[] {
 		const lines = readRecentLines(path, 10_000, READ_TAIL_BYTES).reverse();
 		const out: DaemonLedgerRow[] = [];
 		for (const line of lines) {
-			if (line.trim() === "") continue;
 			const evt = parseEventLine(line);
 			if (evt) out.push(evt);
 		}
@@ -237,9 +236,10 @@ export function describeLastExit(events: DaemonLedgerRow[], nowMs: number): stri
 	if (nowMs - lastExit.at > EXPLAIN_WINDOW_MS) return null;
 
 	const ageS = Math.max(0, Math.round((nowMs - lastExit.at) / 1000));
-	const handoverExplains =
-		lastHandover !== null && lastExit.at >= lastHandover.at && lastExit.at - lastHandover.at < 60_000;
-	const reason = handoverExplains ? (lastHandover?.reason ?? "handover") : (lastExit.reason ?? "unknown");
+	const reason =
+		lastHandover !== null && lastExit.at >= lastHandover.at && lastExit.at - lastHandover.at < 60_000
+			? (lastHandover.reason ?? "handover")
+			: (lastExit.reason ?? "unknown");
 	const rss = lastExit.rss_mb !== undefined ? `, rss ${lastExit.rss_mb}MB` : "";
 	const disposition = classifyExitReason(reason);
 	const normal =

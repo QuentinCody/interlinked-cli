@@ -90,6 +90,25 @@ describe("writeMode --local → loadRules (personal tier)", () => {
 });
 
 describe("writeMode — inverse-direction rollback (review 2026-08-30 second pass)", () => {
+	it("initializes a fresh custom policy without imposing a guard preset", () => {
+		rmSync(join(cwd, ".interlinked"), { recursive: true });
+		expect(writeMode(cwd, "custom", false)).toBe(true);
+		expect(JSON.parse(readFileSync(join(cwd, ".interlinked", "check-policy.json"), "utf-8")))
+			.toEqual({ version: 1, mode: "custom" });
+		expect(existsSync(join(cwd, ".interlinked", "guard-rules.json"))).toBe(false);
+	});
+
+	it("reports a failed custom policy write while leaving the absent guard file absent", () => {
+		mkdirSync(join(cwd, ".interlinked", "check-policy.json"));
+		try {
+			expect(writeMode(cwd, "custom", false)).toBe(false);
+			expect(process.exitCode).toBe(1);
+			expect(existsSync(join(cwd, ".interlinked", "guard-rules.json"))).toBe(false);
+		} finally {
+			process.exitCode = 0;
+		}
+	});
+
 	// test-contract: bug — the guard half landed, then the check-policy write
 	// failed (its path was a DIRECTORY); the command threw and left a split
 	// posture. It must restore the guard file and return false.

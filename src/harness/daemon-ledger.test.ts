@@ -141,6 +141,20 @@ describe("recordDaemonEvent / readRecentDaemonEvents", () => {
 });
 
 describe("describeLastExit — the sentence the block message shows", () => {
+	it("describes a legacy handover with no reason as a planned handover", () => {
+		recordDaemonEvent(dir, { at: NOW - 4_000, pid: 7, event: "handover" });
+		recordDaemonEvent(dir, { at: NOW - 3_000, pid: 7, event: "exit", reason: "signal" });
+		expect(describeLastExit(readRecentDaemonEvents(dir), NOW)).toBe(
+			"last daemon (pid 7) exited 3s ago: handover — planned exit, not a crash; self-heal brings it back",
+		);
+	});
+
+	it("does not invent a cause for a legacy exit with no reason", () => {
+		recordDaemonEvent(dir, { at: NOW - 3_000, pid: 7, event: "exit" });
+		expect(describeLastExit(readRecentDaemonEvents(dir), NOW))
+			.toBe("last daemon (pid 7) exited 3s ago: unknown");
+	});
+
 	it("explains a build-refresh handover as normal, with age", () => {
 		recordDaemonEvent(dir, { at: NOW - 4_000, pid: 7, event: "handover", reason: "build-refresh" });
 		recordDaemonEvent(dir, { at: NOW - 3_000, pid: 7, event: "exit", reason: "signal" });

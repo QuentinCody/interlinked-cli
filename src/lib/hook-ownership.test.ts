@@ -36,6 +36,20 @@ describe("isInterlinkedHookCommand", () => {
 		expect(isInterlinkedHookCommand("")).toBe(false);
 	});
 
+	it.each([
+		"node",
+		"node --",
+		"# node /repo/dist/hook-entry.js --runner codex --event PreToolUse",
+		"node /repo/dist/hook-entry.js --runner",
+		"node /repo/dist/hook-entry.js --runner --event PreToolUse",
+		"node /repo/dist/hook-entry.js --runner codex --event",
+		'node "/repo/dist/hook-entry.js\\',
+		"node /repo/dist/hook-entry.js\\",
+	])("preserves incomplete or non-executable user hook text: %s", (command) => {
+		expect(isInterlinkedHookCommand(command)).toBe(false);
+		expect(ownedInvocations(command)).toEqual([]);
+	});
+
 	// test-contract: security — review 2026-08-30: the substring recognizer
 	// CLAIMED these user commands, and a claimed entry is a REMOVED entry on
 	// the purge/uninstall paths. Ownership is shape-parsed now.
