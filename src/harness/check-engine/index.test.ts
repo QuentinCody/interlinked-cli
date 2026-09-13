@@ -12,6 +12,8 @@
 // No real subprocesses, filesystem, network, or wall-clock dependence.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { runTscOverlayTyped } from "./tool-runners/tsc-overlay.js";
+import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
 import type {
 	AuditResult,
 	CheckResult,
@@ -158,10 +160,10 @@ vi.mock("./tool-runners/tsc-overlay.js", () => ({
 		tscOverlaySpy(args),
 	// The engine's typed path routes through the same spy, wrapped in the
 	// "ok" outcome; unavailable passthrough is pinned in tsc-overlay tests.
-	runTscOverlayTyped: (args: { projectRoot: string; filePath: string; content: string }) => ({
+	runTscOverlayTyped: vi.fn((args: { projectRoot: string; filePath: string; content: string }) => ({
 		status: "ok",
 		findings: tscOverlaySpy(args),
-	}),
+	})),
 	clearTscOverlayCache: (root: string) => clearTscOverlayCacheSpy(root),
 }));
 
@@ -1165,6 +1167,29 @@ describe("CheckEngine.getBiomeDiagnosticsForOverlay", () => {
 // getTscDiagnosticsForOverlay
 // ===========================================================================
 describe("CheckEngine.getTscDiagnosticsForOverlay", () => {
+	it("preserves unavailable evidence in the typed API while the legacy wrapper returns no findings", () => {
+		const unavailable = { status: "unavailable" as const, reason: "overlay worker failed to start" };
+		vi.mocked(runTscOverlayTyped).mockReturnValueOnce(unavailable).mockReturnValueOnce(unavailable);
+		const engine = new CheckEngine(ROOT);
+		expect(engine.getTscDiagnosticsForOverlayTyped("/proj/src/q.ts", "export const x = 1;"))
+			.toEqual(unavailable);
+		expect(engine.getTscDiagnosticsForOverlay("/proj/src/q.ts", "export const x = 1;"))
+			.toEqual([]);
+	});
+
+	it("uses an admission lease already held by its caller", async () => {
+		const release = tryAcquireProjectHeavyProcessLease(ROOT);
+		expect(release).not.toBeNull();
+		try {
+			const report = await new CheckEngine(ROOT).runChecksAsync(
+				{ projectRoot: ROOT, mode: "project" }, { tools: [], admissionAlreadyHeld: true },
+			);
+			expect(report.skipped).toEqual([]);
+			expect(report.results).toEqual([]);
+			expect(tryAcquireProjectHeavyProcessLease(ROOT)).toBeNull();
+		} finally { release?.(); }
+	});
+
 	it("delegates to runTscOverlay with project root, file path, and content", () => {
 		tscOverlayImpl = () => [result({ tool: "tsc", severity: "error", file: "src/q.ts", line: 8 })];
 		const eng = new CheckEngine(ROOT);

@@ -5,6 +5,7 @@
 // Two modes: "project" (batch scan) and "file" (incremental).
 
 import { extname, relative } from "node:path";
+import { nonNull } from "../../lib/non-null.js";
 import { discoverSingleTool, discoverTools, formatToolReport } from "./discovery.js";
 import {
 	clearCheckEngineDiagnosticCache,
@@ -112,11 +113,10 @@ export class CheckEngine {
 				tools.push(cached);
 				continue;
 			}
-			const discovered = discoverSingleTool(id, this.projectRoot);
-			if (discovered) {
-				this.singleToolCache.set(id, discovered);
-				tools.push(discovered);
-			}
+			// Every ToolId has a discovery row in the closed tool catalog.
+			const discovered = nonNull(discoverSingleTool(id, this.projectRoot));
+			this.singleToolCache.set(id, discovered);
+			tools.push(discovered);
 		}
 		return tools;
 	}
@@ -150,7 +150,6 @@ export class CheckEngine {
 		// Determine which tools to run
 		const toolsToRun = available.filter((t) => {
 			if (!t.available) return false;
-			if (options?.tools && !options.tools.includes(t.id)) return false;
 			if (options?.skipTools?.includes(t.id)) return false;
 			return true;
 		});
@@ -227,7 +226,6 @@ export class CheckEngine {
 
 		const toolsToRun = available.filter((t) => {
 			if (!t.available) return false;
-			if (options?.tools && !options.tools.includes(t.id)) return false;
 			if (options?.skipTools?.includes(t.id)) return false;
 			return true;
 		});
@@ -305,8 +303,8 @@ export class CheckEngine {
 		for (const toolId of toolsForFile) {
 			const availability = this.isToolAvailable(toolId);
 			if (!availability) continue;
-			const runner = toolRunnerFor(toolId);
-			if (!runner) continue;
+			// Extension dispatch is derived from catalog rows with registered runners.
+			const runner = nonNull(toolRunnerFor(toolId));
 			const toolResults = runner({ scope, timeoutMs: 5_000 });
 			results.push(...toolResults);
 		}
