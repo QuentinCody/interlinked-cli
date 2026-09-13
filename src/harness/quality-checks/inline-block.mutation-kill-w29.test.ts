@@ -87,7 +87,8 @@ const fetchFn =
 	"  return a;\n}\n";
 
 afterEach(() => {
-	vi.clearAllMocks();
+	// Clear unused one-shot implementations from checks intentionally skipped above.
+	vi.resetAllMocks();
 });
 
 // ===========================================================================

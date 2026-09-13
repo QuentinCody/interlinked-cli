@@ -30,7 +30,8 @@ import {
 
 describe("loadCloudUrl — existsSync gate and encoding literal (positive/negative)", () => {
 	afterEach(() => {
-		vi.restoreAllMocks();
+		// A skipped read leaves its one-shot response queued unless mocks are reset.
+		vi.resetAllMocks();
 	});
 
 	// test-contract: public-api — loadCloudUrl(cwd) must return null without
