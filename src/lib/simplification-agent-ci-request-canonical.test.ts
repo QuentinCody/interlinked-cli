@@ -8,6 +8,9 @@ import {
 } from "./simplification-agent-ci-request-canonical.js";
 
 describe("canonicalSimplificationAgentCiJson", () => {
+	it("rejects undefined object members instead of silently dropping identity material", () => {
+		expect(() => canonicalSimplificationAgentCiJson({ field: undefined })).toThrow("request.field is undefined");
+	});
 	it("sorts object keys recursively", () => {
 		expect(canonicalSimplificationAgentCiJson({ b: 1, a: { d: 2, c: 3 } })).toBe(
 			'{"a":{"c":3,"d":2},"b":1}',
