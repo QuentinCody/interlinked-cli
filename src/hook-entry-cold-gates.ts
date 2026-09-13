@@ -23,7 +23,8 @@ import {
 	type ColdWriteToolInput,
 } from "./lib/hook-template-chunks/cold-write-guards.js";
 import { checkDestructiveCommand } from "./lib/hook-template-chunks/destructive-command-guard.js";
-import { isJsonObject, type JsonObject } from "./lib/json-types.js";
+import type { JsonObject } from "./lib/json-types.js";
+import { nonNull } from "./lib/non-null.js";
 
 // Unified phase tag (a subset of UnifiedPhase). Local copy of the constant in
 // hook-entry.ts so this leaf module does not import back from the main file
@@ -41,30 +42,15 @@ const ACTION_FILE_OPERATION = "file_operation";
 // there as JS inside the generated-hook template string; both hook paths now
 // call the SAME functions, and the .mjs embeds their serialized source.
 
-// What `colColdToolName` returns when the unified event is a generic
-// file_operation (no specific tool name). "edit" matches the normalized form
+// Default for a generic file_operation (no specific tool name).
+// "edit" matches the normalized form
 // the shared write guards recognize.
 const FILE_OPERATION_DEFAULT_TOOL = "edit";
 
-function colColdToolName(event: UnifiedHookEvent): string | null {
-	const action = event.action;
-	if (action.kind === ACTION_TOOL_CALL) return action.tool_name;
-	if (action.kind === ACTION_FILE_OPERATION) return FILE_OPERATION_DEFAULT_TOOL;
-	return null;
-}
-
-/** Resolve `event.context.cwd`, tolerating a malformed/missing `context`
- *  (the static `UnifiedHookEvent` type marks it required, but this cold path
- *  runs precisely when normal validation may not have — see the
- *  "falls back to process.cwd() when event.context is absent" test). Reads
- *  through `unknown` and narrows explicitly rather than relying on `?.`/`??`
- *  against the (honest-elsewhere) required type. */
+/** hook-entry builds the event through an adapter before either warm or cold
+ *  dispatch; adapters supply context.cwd even for incomplete native payloads. */
 function resolveColdCwd(event: UnifiedHookEvent): string {
-	const rawContext: unknown = event.context;
-	if (isJsonObject(rawContext) && typeof rawContext.cwd === "string") {
-		return rawContext.cwd;
-	}
-	return process.cwd();
+	return event.context.cwd;
 }
 
 /** Filesystem functions handed to the shared write guards. The .mjs supplies
@@ -78,20 +64,21 @@ const COLD_WRITE_DEPS: ColdWriteDeps = { existsSync, statSync, join: joinPath };
  *  directly, so it is presented to the shared gate as an `edit` tool call. */
 export function coldGraphShardBlockReason(event: UnifiedHookEvent): string | null {
 	if (event.phase !== PHASE_PRE_TOOL) return null;
-	const toolName = colColdToolName(event);
-	if (!toolName) return null;
+	const action = event.action;
+	if (action.kind !== ACTION_TOOL_CALL && action.kind !== ACTION_FILE_OPERATION) return null;
+	const toolName = action.kind === ACTION_TOOL_CALL ? action.tool_name : FILE_OPERATION_DEFAULT_TOOL;
 	const cwd = resolveColdCwd(event);
-	const verdict = checkGraphShardWrite(toolName, coldWriteToolInput(event), cwd, COLD_WRITE_DEPS);
+	const verdict = checkGraphShardWrite(toolName, coldWriteToolInput(action), cwd, COLD_WRITE_DEPS);
 	return verdict ? verdict.reason : null;
 }
 
 /** The tool_input the shared write guards read, for either action shape. */
-function coldWriteToolInput(event: UnifiedHookEvent): ColdWriteToolInput {
-	const action = event.action;
+function coldWriteToolInput(
+	action: Extract<UnifiedHookEvent["action"], { kind: typeof ACTION_TOOL_CALL | typeof ACTION_FILE_OPERATION }>,
+): ColdWriteToolInput {
 	if (action.kind === ACTION_FILE_OPERATION) {
-		return typeof action.path === "string" ? { file_path: action.path } : {};
+		return { file_path: action.path };
 	}
-	if (action.kind !== ACTION_TOOL_CALL) return {};
 	// Every field of ColdWriteToolInput is optional-unknown, so the untyped
 	// tool_input object structurally satisfies it without a cast; the guards
 	// type-check each value they read.
@@ -112,8 +99,7 @@ export function coldMergeConflictBlockReason(event: UnifiedHookEvent): string | 
 	if (event.phase !== PHASE_PRE_TOOL) return null;
 	const action = event.action;
 	if (action.kind !== ACTION_TOOL_CALL) return null;
-	const toolName = colColdToolName(event);
-	if (!toolName) return null;
+	const toolName = action.tool_name;
 	// SAFETY: every field of ColdWriteToolInput is optional-unknown, so any
 	// tool_input object satisfies it; the guard type-checks each value it reads.
 	const ti: ColdWriteToolInput = (action.tool_input ?? {});
@@ -199,7 +185,8 @@ export function coldPackageInstallBlockReason(event: UnifiedHookEvent): string |
 	const allowlist = loadAllowlist(cwd);
 	const decision = evaluatePackageInstall(installCommands, cwd, allowlist);
 	if (!decision || decision.decision !== "block") return null;
-	return decision.reason ?? "package install blocked by supply-chain allowlist";
+	// Every block produced by evaluatePackageInstall carries its supply-chain reason.
+	return nonNull(decision.reason);
 }
 
 /** Cold fail-closed gate: refuse a Write/Edit/MultiEdit that would grow (or create)

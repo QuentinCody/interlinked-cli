@@ -377,20 +377,14 @@ async function runTscStandaloneAsync(
 
 /** Check if a file is included in the tsconfig's compilation scope. */
 export function isFileInTscScope(filePath: string, tscRoot: string): boolean {
-	try {
-		// Quick heuristic: check if the file is under a directory referenced by tsconfig
-		const rel = relative(tscRoot, filePath);
-		// Files outside the tsconfig root (../) are definitely not in scope
-		if (rel.startsWith("..")) return false;
-		// Files in common non-source directories are likely not in scope
-		if (
-			rel.startsWith(".claude/") ||
-			rel.startsWith(".interlinked/") ||
-			rel.startsWith("scripts/")
-		)
-			return false;
-		return true;
-	} catch {
-		return true;
-	}
+	// Pure path/string operations on string inputs; no filesystem access occurs.
+	const rel = relative(tscRoot, filePath);
+	if (rel.startsWith("..")) return false;
+	if (
+		rel.startsWith(".claude/") ||
+		rel.startsWith(".interlinked/") ||
+		rel.startsWith("scripts/")
+	)
+		return false;
+	return true;
 }
