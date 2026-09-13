@@ -45,6 +45,22 @@ describe("ensureDistFresh — real filesystem recursion", () => {
 		return { root, distIndex, distServer, sourceDir, sourceFile };
 	}
 
+	it.each([
+		{ path: "src/harness/server.ts", recognized: true },
+		{ path: "other/harness/server.ts", recognized: false },
+		{ path: "src/other/server.ts", recognized: false },
+	])("checks source freshness only for the owned source layout: $path", ({ path, recognized }) => {
+		const files = checkout();
+		const server = join(files.root, path);
+		mkdirSync(join(server, ".."), { recursive: true });
+		writeFileSync(server, "export {};\n");
+		const readStaleness = vi.fn(() => null);
+		const runBuild = vi.fn();
+		ensureDistFresh({ quiet: true, resolveServerPath: () => server, readStaleness, runBuild });
+		expect(readStaleness.mock.calls).toEqual(recognized ? [[files.root]] : []);
+		expect(runBuild).not.toHaveBeenCalled();
+	});
+
 	// test-contract: bug — editing an existing nested file does not update its
 	// parent directory mtime, so freshness must walk files rather than stat dirs.
 	it("rebuilds for an existing nested source edit even when its directory stays old", () => {

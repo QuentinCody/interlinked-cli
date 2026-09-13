@@ -97,6 +97,10 @@ describe("project-graph-scan", () => {
 	});
 
 	describe("loadTsconfigPathsFor — negative (must not fire)", () => {
+		it("treats a partially written config as unavailable aliases", () => {
+			writeFileSync(join(root, "tsconfig.json"), '{"compilerOptions":');
+			expect(loadTsconfigPathsFor(root)).toBeUndefined();
+		});
 		it.each(["null", "[]", '{"compilerOptions":null}'])("ignores a malformed configuration shell: %s", (config) => {
 			writeFileSync(join(root, "tsconfig.json"), config);
 			expect(loadTsconfigPathsFor(root)).toBeUndefined();
