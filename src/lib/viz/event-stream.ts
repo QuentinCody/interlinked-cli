@@ -9,6 +9,7 @@
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { isJsonObject, type JsonObject } from "../json-types.js";
 import { readRecentLines } from "../local-activity-collection.js";
+import { nonNull } from "../non-null.js";
 
 export interface VizEvent {
 	ts: string;
@@ -157,7 +158,7 @@ export function seedRecentEvents(path: string, max: number): VizEvent[] {
 	const lines = readRecentLines(path, max); // newest-first
 	const events: VizEvent[] = [];
 	for (let i = lines.length - 1; i >= 0; i--) {
-		const ev = mapActivityLine(lines[i] ?? "");
+		const ev = mapActivityLine(nonNull(lines[i]));
 		if (ev) events.push(ev);
 	}
 	return events;
@@ -305,7 +306,7 @@ export function seedRecentChecks(path: string, max: number): CheckEvent[] {
 	const lines = readRecentLines(path, max); // newest-first
 	const events: CheckEvent[] = [];
 	for (let i = lines.length - 1; i >= 0; i--) {
-		const ev = mapCheckLine(lines[i] ?? "");
+		const ev = mapCheckLine(nonNull(lines[i]));
 		if (ev) events.push(ev);
 	}
 	return events;

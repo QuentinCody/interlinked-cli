@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import {
 	appendTestEvent,
 	createTestTailer,
 	mapTestLine,
+	seedRecentTestEvents,
 	type TestEvent,
 	testEventsPath,
 	trimError,
@@ -30,6 +31,15 @@ describe("testEventsPath", () => {
 	it("resolves under the project's .interlinked dir", () => {
 		expect(testEventsPath("/proj")).toBe(join("/proj", ".interlinked", "test-events.jsonl"));
 	});
+});
+
+it("seeds the test feed in chronological order while skipping a corrupt neighboring row", () => {
+	const path = join(dir, "test-events.jsonl");
+	const older = ev({ name: "older" });
+	const newer = ev({ name: "newer", status: "fail" });
+	writeFileSync(path, `${JSON.stringify(older)}\n{broken\n${JSON.stringify(newer)}\n`);
+	const seeded = seedRecentTestEvents(path, 3);
+	expect(seeded).toEqual([older, newer]);
 });
 
 describe("trimError", () => {

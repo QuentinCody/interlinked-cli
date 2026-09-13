@@ -172,7 +172,8 @@ function countByName(entries: readonly NamedMetricEntry[]): Map<string, number> 
 /** True when `name` has no reliable cross-edit identity in that state:
  *  anonymous, or colliding with another same-named function. */
 function isAmbiguousName(anonName: string, name: string, counts: Map<string, number>): boolean {
-	return name === anonName || (counts.get(name) ?? 0) > 1;
+	// Each caller selects entries from the same state used to build counts.
+	return name === anonName || nonNull(counts.get(name)) > 1;
 }
 
 /** name → max metric value among same-named entries (anonymous skipped). */

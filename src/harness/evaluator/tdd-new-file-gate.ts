@@ -105,7 +105,7 @@ export function evaluateTddNewFileGate(args: TddNewFileGateArgs): HarnessDecisio
 	const projectRoot = args.cwd || process.cwd();
 	const candidates = companionTestCandidates(abs, projectRoot);
 	if (hasCompanionTest(abs, projectRoot)) return null;
-	if (args.session && sessionWroteCompanion(args, abs, candidates)) return null;
+	if (sessionWroteCompanion(args, abs, candidates)) return null;
 
 	return missingCompanionVerdict(args, candidates, projectRoot);
 }

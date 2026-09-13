@@ -10,6 +10,7 @@
 
 import { readToolString } from "./tool-input-values.js";
 import { readFileSync } from "node:fs";
+import { nonNull } from "../../lib/non-null.js";
 import { checkPhantomDependencies, checkTyposquatDependencies } from "../generic-checks.js";
 import { countLines, isCappableFile, maxLinesFor } from "../large-file-policy.js";
 import type { HarnessEvent } from "../types.js";
@@ -208,7 +209,8 @@ function analyzeSuppressions(content: string): Map<string, SuppressionCounts> {
 		for (const { label, re, isJustified } of SUPPRESSION_DIRECTIVES) {
 			const match = re.exec(line);
 			if (!match) continue;
-			const suffix = match[1] ?? "";
+			// Every directive regex captures the suffix, including an empty suffix.
+			const suffix = nonNull(match[1]);
 			const counts = byLabel.get(label) ?? { justified: 0, unjustifiedLines: [] };
 			if (isJustified(suffix)) counts.justified++;
 			else counts.unjustifiedLines.push(i + 1);

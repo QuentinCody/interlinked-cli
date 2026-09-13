@@ -229,7 +229,8 @@ async function runDependencyAudit(
 				severity: check.severity,
 				message: `Dependency vulnerabilities found after editing ${ctx.filePath}`,
 				file: ctx.filePath,
-				detail: detail || `Run \`${command}\` for details (parser: ${resolved.parser})`,
+				// Parsed audit summaries contain a nonzero bucket; raw output has its own fallback.
+				detail,
 			},
 		];
 	} finally {

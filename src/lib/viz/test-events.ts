@@ -14,6 +14,7 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { isJsonObject, type JsonObject } from "../json-types.js";
 import { readRecentLines } from "../local-activity-collection.js";
+import { nonNull } from "../non-null.js";
 import { createJsonlTailer } from "./event-stream.js";
 
 /** Terminal verdict of a single test case. Closed domain — renderers switch on it. */
@@ -50,7 +51,7 @@ const ERROR_MAX = 200;
 
 /** Truncate a failure message to a single rendered line. */
 export function trimError(message: string): string {
-	const firstLine = message.split("\n")[0] ?? "";
+	const firstLine = nonNull(message.split("\n")[0]);
 	return firstLine.length > ERROR_MAX ? `${firstLine.slice(0, ERROR_MAX - 1)}…` : firstLine;
 }
 
@@ -140,7 +141,7 @@ export function seedRecentTestEvents(path: string, max: number): TestEvent[] {
 	const lines = readRecentLines(path, max); // newest-first
 	const events: TestEvent[] = [];
 	for (let i = lines.length - 1; i >= 0; i--) {
-		const ev = mapTestLine(lines[i] ?? "");
+		const ev = mapTestLine(nonNull(lines[i]));
 		if (ev) events.push(ev);
 	}
 	return events;

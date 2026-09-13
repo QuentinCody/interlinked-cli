@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { nonNull } from "../../lib/non-null.js";
-import { runWithProjectCompilerLease } from "../project-compiler-gate.js";
+import { runWithProjectCompilerLease, tryRegisterWarmProjectCompiler } from "../project-compiler-gate.js";
 import {
 	checkProjectTestsClean,
 	checkProjectTestsCleanAsync,
@@ -37,6 +37,22 @@ afterEach(() => {
 	else process.env.INTERLINKED_SKIP_PROJECT_TYPECHECK = savedEnv;
 	if (savedTestsEnv === undefined) delete process.env.INTERLINKED_SKIP_PROJECT_TESTS;
 	else process.env.INTERLINKED_SKIP_PROJECT_TESTS = savedTestsEnv;
+});
+
+it("reports an unmeasured typecheck when a registered eviction callback rejects with a string", async () => {
+	writeFileSync(join(tmp, "package.json"), JSON.stringify({ scripts: { typecheck: 'node -e "process.exit(0)"' } }));
+	const unregister = nonNull(tryRegisterWarmProjectCompiler(tmp, () => Promise.reject("warm eviction failed")));
+	try {
+		expect(await checkProjectTypecheckCleanAsync(tmp)).toEqual([
+			expect.objectContaining({
+				name: "project_typecheck_deferred",
+				severity: "warning",
+				message: "Project typecheck was NOT CHECKED: warm eviction failed. Retry before committing or pushing.",
+			}),
+		]);
+	} finally {
+		unregister();
+	}
 });
 
 describe("resolveTypecheckCommand", () => {

@@ -21,6 +21,14 @@ afterEach(() => {
 });
 
 describe("exportTrace", () => {
+	it("labels a retained event with an empty type as unknown", () => {
+		mockReadLocal.mockReturnValue([{ ts: "2026-09-12T00:00:00Z", agent: "codex", type: "" }]);
+		const document = JSON.parse(exportTrace());
+		expect(document.spans).toEqual([
+			expect.objectContaining({ name: "unknown", timestamp: "2026-09-12T00:00:00Z", attributes: { agent: "codex" } }),
+		]);
+	});
+
 	it("exports events as JSON document", () => {
 		mockReadLocal.mockReturnValue([
 			{

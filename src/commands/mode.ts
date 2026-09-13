@@ -23,7 +23,6 @@ import { join } from "node:path";
 import type { CheckAction, CheckPolicy } from "../harness/check-policy.js";
 import { loadCheckPolicy } from "../harness/check-policy.js";
 import { CHECK_REGISTRY } from "../harness/check-registry/registry.js";
-import type { CheckRegistration } from "../harness/check-registry/types.js";
 import {
 	ALL_PRESETS,
 	getPreset,
@@ -33,6 +32,7 @@ import {
 } from "../harness/modes.js";
 import { mergeIntoGuardRules } from "../harness/rules/guard-rules-write.js";
 import { isJsonObject, type JsonObject } from "../lib/json-types.js";
+import { nonNull } from "../lib/non-null.js";
 
 export interface ModeCommandOptions {
 	diff?: boolean;
@@ -235,8 +235,8 @@ function renderDiff(
 }
 
 function describeCheck(id: string): string {
-	const found: CheckRegistration | undefined = CHECK_REGISTRY.find((c) => c.id === id);
-	return found?.name ?? "";
+	// computeDiff produces IDs by iterating this same registry.
+	return nonNull(CHECK_REGISTRY.find((c) => c.id === id)).name;
 }
 
 // -----------------------------------------------------------------------------

@@ -261,7 +261,7 @@ function appendMultilineImport(
 /** Extract local binding names from an import statement line. */
 function processImportLine(line: string, bindings: Array<{ name: string }>): void {
 	const trimmed = line.trim();
-	if (trimmed.startsWith("//")) return;
+	// The collector admits only import headers; buffered continuations retain that header.
 
 	// Side-effect: import 'module'
 	if (/^import\s+['"]/.test(trimmed)) return;
