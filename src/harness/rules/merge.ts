@@ -376,8 +376,7 @@ function applyTeamQualityCheckOverrides(
 	if (!isJsonObject(teamQualityChecks)) return;
 	for (const [key, teamCheck] of Object.entries(teamQualityChecks)) {
 		if (!Object.hasOwn(config.quality_checks, key)) continue;
-		const existing = config.quality_checks[key];
-		if (!existing) continue; // Team cannot add new check entries
+		const existing = nonNull(config.quality_checks[key]);
 		if (!isJsonObject(teamCheck)) continue;
 		applySafeQualityFields(existing, teamCheck);
 	}

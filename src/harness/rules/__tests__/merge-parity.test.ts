@@ -31,6 +31,15 @@ function mkBaseConfig() {
 	return structuredClone(DEFAULT_CONFIG);
 }
 
+describe("team quality-check input boundaries", () => {
+	it.each([42, "invalid", [], null])("ignores a non-object quality-check section: %j", (qualityChecks) => {
+		const config = mkBaseConfig();
+		const before = structuredClone(config.quality_checks);
+		mergeTeamRules(config, { quality_checks: qualityChecks });
+		expect(config.quality_checks).toEqual(before);
+	});
+});
+
 interface LocalProbe {
 	override: GuardRulesOverrides;
 	changed: (c: GuardRulesConfig) => boolean;
