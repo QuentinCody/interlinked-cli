@@ -246,6 +246,7 @@ describe("pre-push hook exit-status behavior", () => {
 		chmodSync(join(work, "scripts", "git-hooks", "pre-push"), 0o755);
 		symlinkSync(join(REPO_ROOT, "scripts/run-resource-bounded.ts"), join(work, "scripts/run-resource-bounded.ts"));
 		symlinkSync(join(REPO_ROOT, "node_modules"), join(work, "node_modules"));
+		// interlinked: defer write_without_mkdir -- git init above creates work synchronously before this write.
 		writeFileSync(join(work, ".gitignore"), "node_modules\n");
 
 		// Initial commit, seeded to the remote with --no-verify so the
