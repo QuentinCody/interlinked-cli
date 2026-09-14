@@ -35,6 +35,7 @@ import {
 	mkdtempSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -243,6 +244,9 @@ describe("pre-push hook exit-status behavior", () => {
 		execFileSync("mkdir", ["-p", join(work, "scripts", "git-hooks")]);
 		copyFileSync(PRE_PUSH_HOOK, join(work, "scripts", "git-hooks", "pre-push"));
 		chmodSync(join(work, "scripts", "git-hooks", "pre-push"), 0o755);
+		symlinkSync(join(REPO_ROOT, "scripts/run-resource-bounded.ts"), join(work, "scripts/run-resource-bounded.ts"));
+		symlinkSync(join(REPO_ROOT, "node_modules"), join(work, "node_modules"));
+		writeFileSync(join(work, ".gitignore"), "node_modules\n");
 
 		// Initial commit, seeded to the remote with --no-verify so the
 		// hook only runs on the push under test.

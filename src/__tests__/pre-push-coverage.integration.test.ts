@@ -36,6 +36,7 @@ describe("pre-push coverage integration", () => {
         }
         copyFileSync(join(REPO, "scripts/git-hooks/pre-push"), join(root, "scripts/git-hooks/pre-push"));
         copyFileSync(join(REPO, "scripts/pre-push-coverage.mjs"), join(root, "scripts/pre-push-coverage.mjs"));
+        symlinkSync(join(REPO, "scripts/run-resource-bounded.ts"), join(root, "scripts/run-resource-bounded.ts"));
         symlinkSync(join(REPO, "node_modules"), join(root, "node_modules"));
         write("scripts/ci-packaging.sh", "echo PACKAGE_GATE\n");
         write(".gitignore", "coverage/\n.interlinked/\ncaptured.json\nnode_modules\n");
