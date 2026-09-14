@@ -349,9 +349,11 @@ describe("WatchProcess — diagnosticsForFile: fresh-file wait", () => {
 	it("times out and returns null when the file is newer but no further pass ever lands", async () => {
 		const script = fakeTsgo("onepass.sh", ONE_PASS_THEN_SLEEP);
 		const wp = makeWatchWithScript(DEFAULT_WATCH_IDLE_MS, script);
-		wp.start();
 		const tsPath = join(tmp, "stale.ts");
 		writeFileSync(tsPath, "export const a = 1;\n");
+        // The initial file must exist before the compiler can complete its only pass.
+        utimesSync(tsPath, new Date(0), new Date(0));
+        wp.start();
 		const first = await wp.diagnosticsForFile(tsPath);
 		expect(first).not.toBeNull();
 		// Only one pass is ever emitted by this script — mark the file newer
