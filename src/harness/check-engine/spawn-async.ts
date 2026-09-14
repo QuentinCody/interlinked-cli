@@ -24,6 +24,8 @@
 // so report consumers can refuse an incomplete measurement.
 
 import { type ChildProcess, spawn } from "node:child_process";
+import type { ResourceBudget } from "../resource-budget.js";
+import { watchResources } from "../resource-watch.js";
 
 /** Per-stream capture threshold. Complete reports that exceed it require
  *  streaming; bounded prefixes must not stand in for complete measurements. */
@@ -46,6 +48,10 @@ export interface RunProcessOptions {
 	env?: NodeJS.ProcessEnv;
 	/** Freeze an evidence runner's complete environment instead of merging live values. */
 	exactEnv?: NodeJS.ProcessEnv;
+    /** Monitor the entire child tree; callers must first admit this budget. */
+    resourceBudget?: ResourceBudget;
+    /** Stream command output directly for supervised developer commands. */
+    inheritOutput?: boolean;
 }
 
 export interface RunProcessResult {
@@ -62,6 +68,7 @@ export interface RunProcessResult {
 	timedOut: boolean;
 	/** True iff we sent SIGTERM/SIGKILL ourselves. */
 	killed: boolean;
+    resourceReason?: string;
 }
 
 type RunProcessResolver = (result: RunProcessResult) => void;
@@ -90,6 +97,8 @@ class SpawnedProcessRun {
 	private timedOut = false;
 	private killed = false;
 	private settled = false;
+    private stopResourceWatch: (() => void) | undefined;
+    private resourceReason: string | undefined;
 	private timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 	private killGraceTimer: ReturnType<typeof setTimeout> | null = null;
 	private reapPollTimer: ReturnType<typeof setTimeout> | null = null;
@@ -116,6 +125,12 @@ class SpawnedProcessRun {
 		this.child.on("exit", (code) => this.handleExit(code));
 		this.child.on("error", () => this.handleError());
 		this.child.on("close", (code) => this.handleClose(code));
+        if (this.opts.resourceBudget && this.child.pid) {
+            this.stopResourceWatch = watchResources(this.child.pid, this.opts.resourceBudget, reason => {
+                this.resourceReason = reason;
+                this.killTree();
+            });
+        }
 	}
 
 	private registerAbort(): void {
@@ -147,6 +162,7 @@ class SpawnedProcessRun {
 		if (this.settled) return;
 		this.settled = true;
 		this.clearLifecycleTimers();
+        this.stopResourceWatch?.();
 		this.opts.signal?.removeEventListener("abort", this.onAbort);
 		const result: RunProcessResult = {
 			stdout: this.stdout,
@@ -157,6 +173,7 @@ class SpawnedProcessRun {
 		};
 		if (this.stdoutTruncated) result.stdoutTruncated = true;
 		if (this.stderrTruncated) result.stderrTruncated = true;
+        if (this.resourceReason) result.resourceReason = this.resourceReason;
 		this.resolve(result);
 	}
 
@@ -275,7 +292,7 @@ function startProcessRun(resolve: RunProcessResolver, input: ProcessStartInput):
 	const env = opts.exactEnv ?? (opts.env ? { ...process.env, ...opts.env } : process.env);
 	// Detached children lead their own process group so timeout/abort can stop
 	// wrapper-spawned descendants without signalling the daemon's group.
-	const child = spawn(cmd, args, { cwd: opts.cwd, env, detached: true });
+	const child = spawn(cmd, args, { cwd: opts.cwd, env, detached: true, ...(opts.inheritOutput ? { stdio: "inherit" as const } : {}) });
 	new SpawnedProcessRun({ child, opts, timeoutMs, resolve }).start();
 }
 

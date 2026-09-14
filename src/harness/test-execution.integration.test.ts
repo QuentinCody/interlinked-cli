@@ -10,6 +10,7 @@ import { readTestRunObservation } from "./test-run-observation.js";
 
 // Exercise runner behavior under a controlled one-worker resource plan.
 vi.mock("./resource-memory.js", () => ({ readResourceMemory: () => ({ totalBytes: 8 * 1024 ** 3, availableBytes: 4 * 1024 ** 3 }) }));
+vi.mock("node:os", async importOriginal => ({ ...await importOriginal<typeof import("node:os")>(), loadavg: () => [0, 0, 0] }));
 
 it("runs edited tests, reuses exact passing inputs, and invalidates an edited assertion", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "planned-tests-")));

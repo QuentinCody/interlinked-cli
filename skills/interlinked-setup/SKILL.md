@@ -243,15 +243,41 @@ is skipped; a different job waits at most two minutes. Each admitted runner has 
 deadline and a 768 MiB Node V8 heap cap. Fuzz and benchmark commands receive an explicit
 `--maxWorkers` value, rechecked after waiting for admission.
 
-Admission respects physical RAM and any process/container limit. It budgets at most one
-quarter of total memory, preserves at least 1 GiB or one eighth of total memory as host
-headroom, and budgets 1 GiB for coordination plus 1 GiB per worker. Thus an otherwise idle
+Admission respects physical RAM and any process/container limit. On an unconstrained Mac,
+available memory is estimated from free plus inactive pages (`vm_stat`), with native
+`kern.memorystatus_vm_pressure_level` required to be normal. Node's free-page reading alone
+does not account for reclaimable cache. Warning/critical pressure or unavailable telemetry
+defers work. Samples are cached for at most 500 ms and commands have bounded time/output.
+Managed test and background
+runners budget at most 4 GiB or one quarter of total memory, whichever is smaller,
+and preserve at least 1 GiB or one eighth of total memory as host
+headroom. Worker planning budgets 1 GiB for coordination plus 1 GiB per worker. Thus an otherwise idle
 8 GiB machine gets at most one worker and a 16 GiB machine at most three. Missing or
-insufficient available-memory readings defer work. A 500 ms monitor aborts the child process
-group when headroom disappears; timeout and termination also reap descendants before releasing
-admission. These are background controls, not an OS-enforced RSS limit or a guarantee against
-arbitrary native allocations. They do not change the daemon's limits below or govern commands
+insufficient available-memory readings defer work. A 500 ms monitor measures runner and descendant
+RSS with bounded, non-overlapping `ps` samples. It aborts the child process group when the runner
+exceeds its budget, headroom disappears, or telemetry fails. Scheduled foreground tests use this
+monitor too, and their coordinator receives a 1536 MiB V8 heap ceiling. Interruption retains
+the pending request and produces no reusable pass. Timeout and termination reap the child process
+group before releasing admission. This is sampled protection, not an OS-enforced RSS limit:
+allocations can overshoot between samples, descendants that escape the process group are not
+contained, and unsupported `ps` telemetry interrupts the run. Public `verify` and `tests`
+CLI entry points additionally run under a separate supervising process, so a busy CLI event
+loop does not prevent sampling. The child retains its normal project/host admission and
+consumes the private parent marker before dispatch and evidence capture. If only the light
+budget fits, the CLI must stay within its 1 GiB ceiling; interruption exits 75 without a verdict.
+These controls do not change the daemon's limits below or govern commands
 launched independently by the user. `INTERLINKED_DISABLE_SESSION_END_JOBS=1` still opts out.
+
+In this repository, pre-push heavy commands also use the host lane through
+`scripts/run-resource-bounded.ts`. The supervisor retains ownership through child cleanup,
+streams output, assigns at most 2560 MiB to Node's heap within the admitted tree budget,
+and limits common native thread pools. The larger heap accommodates the repository's stable
+TypeScript compiler; the 4 GiB aggregate tree ceiling remains enforced independently.
+Resource interruptions exit 75 and block the push. For small diagnostic/test batches,
+`node --max-old-space-size=128 --import tsx scripts/run-resource-bounded.ts --light <command> [args...]`
+uses a stricter 1 GiB tree ceiling, a 512 MiB Node heap ceiling, and 2 GiB of host headroom.
+It cannot run an oversized check successfully: the same monitor interrupts it. Pre-push
+keeps the heavy profile and its full exact-revision test/coverage contract.
 
 The default daemon V8 heap cap is 1536MB and the hard RSS recycle ceiling is 2048MB.
 `INTERLINKED_HARNESS_HEAP_MB` is accepted only when it is finite and at least 1; fractional

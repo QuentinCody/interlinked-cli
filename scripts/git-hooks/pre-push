@@ -68,6 +68,11 @@ cleanup_export() {
 }
 trap cleanup_export EXIT
 
+# The supervisor retains host admission until the command's children are reaped.
+bounded() {
+    node --max-old-space-size=128 --import tsx "$hook_dir/../run-resource-bounded.ts" "$@"
+}
+
 run_gate() {
     local push_sha="$1" changed_paths="$2" docs_only="$3" pkg_touched="$4"
     local gate_dir cov_files cov_report cov_scope cov_cli cov_json cov_targets
@@ -81,22 +86,22 @@ run_gate() {
     gate_dir="$(cd "$export_dir/tree" && pwd -P)"
     echo "[pre-push] Gating exact pushed revision $push_sha in $gate_dir — working tree untouched."
     if [ "$docs_only" -eq 1 ]; then
-        (cd "$gate_dir" && npm run docs:check) || return 1
+        (cd "$gate_dir" && bounded npm run docs:check) || return 1
         echo "[pre-push] ✓ doc markers OK for $push_sha"
         cleanup_export
         return 0
     fi
-    (cd "$gate_dir" && npm run typecheck:stable) || {
+    (cd "$gate_dir" && bounded npm run typecheck:stable) || {
         echo "[pre-push] typecheck:stable failed for $push_sha."
         return 1
     }
-    (cd "$gate_dir" && npm run docs:check) || return 1
+    (cd "$gate_dir" && bounded npm run docs:check) || return 1
     if (cd "$gate_dir" && node -e 'process.exit((require("./package.json").scripts||{}).build?0:1)'); then
-        (cd "$gate_dir" && npm run build) || return 1
+        (cd "$gate_dir" && bounded npm run build) || return 1
     fi
     cov_files="$(printf '%s\n' "$changed_paths" | grep -E '^src/.*\.(ts|tsx|js|mjs|cjs)$' | LC_ALL=C sort -u | paste -sd, - || true)"
     if [ -z "$cov_files" ]; then
-        (cd "$gate_dir" && CI=1 npm test -- --maxWorkers="$test_workers") || {
+        (cd "$gate_dir" && CI=1 bounded npm test -- --maxWorkers="$test_workers") || {
             echo "[pre-push] tests failed for $push_sha."
             return 1
         }
@@ -106,7 +111,7 @@ run_gate() {
         # working-tree report by mtime can certify completely different code.
         cov_scope="$gate_dir/.interlinked/pre-push-coverage-scope.json"
         (cd "$gate_dir" && CI=1 INTERLINKED_PRE_PUSH_COVERAGE_SCOPE="$cov_scope" \
-            INTERLINKED_PRE_PUSH_COVERAGE_TARGETS="$cov_files" npm test -- --maxWorkers="$test_workers" --coverage --testTimeout=120000 \
+            INTERLINKED_PRE_PUSH_COVERAGE_TARGETS="$cov_files" bounded npm test -- --maxWorkers="$test_workers" --coverage --testTimeout=120000 \
             --coverage.reporter=json-summary --reporter=default --reporter="$hook_dir/../pre-push-coverage.mjs") || {
             echo "[pre-push] tests failed for $push_sha."
             return 1
@@ -148,7 +153,7 @@ run_gate() {
         fi
     fi
     if [ "$pkg_touched" -eq 1 ]; then
-        (cd "$gate_dir" && bash scripts/ci-packaging.sh) || return 1
+        (cd "$gate_dir" && bounded bash scripts/ci-packaging.sh) || return 1
     fi
     echo "[pre-push] ✓ typecheck + tests pass for $push_sha"
     cleanup_export

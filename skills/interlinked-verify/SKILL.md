@@ -148,6 +148,21 @@ verify also acquire this host lane. Foreground requests close background admissi
 waiting; the background monitor interrupts its child group to yield capacity. Verify waits
 at most five seconds for the host lane, then exits 1 without a verdict.
 
+Scheduled foreground test execution now checks host memory and runner-tree RSS throughout
+the run. Its 4 GiB maximum tree budget includes workers; a sampled overrun, lost headroom,
+or unavailable telemetry interrupts the process group and retains the request without a
+pass receipt. Worker planning reads current CPU load as well as available memory. These are
+sampled limits; see **interlinked-setup** for process-group and platform limitations.
+Repository pre-push checks use the same admission lane and monitor. Do not respond to a
+resource deferral by launching the full suite directly. Small checks can use the repository's
+`scripts/run-resource-bounded.ts --light` supervisor with an enforced 1 GiB tree ceiling;
+this does not replace required full verification.
+
+Public `interlinked verify` and `interlinked tests` commands have an outer resource supervisor
+as well: in-process planning/scanning is measured along with the runner tree. This supervisor
+does not acquire a second host lease; the actual command keeps its existing admission protocol.
+Memory interruption exits 75 without a verification verdict, even if partial output was printed.
+
 ## Select, explain and resume tests
 
 ```bash

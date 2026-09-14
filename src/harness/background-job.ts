@@ -2,6 +2,7 @@ import { canonicalProjectRoot, tryAcquireCrossProcessCompilerLease } from "./pro
 import { acquireTestCapacity, foregroundWantsCapacity } from "./test-capacity.js";
 import { runProcessAsync, type RunProcessResult } from "./check-engine/spawn-async.js";
 import { readResourceMemory } from "./resource-memory.js";
+import { readResourceBudget } from "./resource-budget.js";
 
 export interface BackgroundJob {
     name: string;
@@ -38,9 +39,11 @@ export async function runBackgroundJob(
 async function runWithMemoryWatch(job: BackgroundJob, cwd: string, signal: AbortSignal): Promise<RunProcessResult | null> {
     const controller = new AbortController();
     const abort = (): void => controller.abort();
+    const resourceBudget = readResourceBudget();
+    if (!resourceBudget) return null;
     const memory = readResourceMemory();
     const reserve = Math.max(GIB, memory.totalBytes / 8);
-    const budget = Math.min(memory.totalBytes / 4, memory.availableBytes - reserve);
+    const budget = Math.min(resourceBudget.maxRssBytes, memory.totalBytes / 4, memory.availableBytes - reserve);
     const workers = Math.floor((budget - GIB) / GIB);
     if (!Number.isFinite(workers) || workers < 1) return null;
     // Admission may have waited behind another job: shrink stale worker plans.
@@ -62,7 +65,7 @@ async function runWithMemoryWatch(job: BackgroundJob, cwd: string, signal: Abort
     }, MEMORY_POLL_MS);
     try {
         return await runProcessAsync(job.file, args, {
-            cwd, timeout: 600_000, signal: controller.signal,
+            cwd, timeout: 600_000, signal: controller.signal, resourceBudget,
             env: { NODE_OPTIONS: "--max-old-space-size=768" },
         });
     } finally {

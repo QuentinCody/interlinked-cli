@@ -43,6 +43,7 @@ import { registerSponsorCommands } from "./registrars/sponsor.js";
 import { registerSupplyChainCommands } from "./registrars/supply-chain.js";
 import { registerVizCommands } from "./registrars/viz.js";
 import { registerCoworkCommands } from "./registrars/cowork.js";
+import { superviseResourceCli } from "./harness/resource-cli.js";
 
 const program = new Command();
 
@@ -147,6 +148,6 @@ program
 // Sort top-level commands alphabetically in help output.
 program.configureHelp({ sortSubcommands: true });
 
-if (!(await handleImplicitEntry())) {
+if (!(await superviseResourceCli(process.argv)) && !(await handleImplicitEntry())) {
 	await program.parseAsync(process.argv);
 }
