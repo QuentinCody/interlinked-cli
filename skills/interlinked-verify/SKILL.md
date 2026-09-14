@@ -60,6 +60,14 @@ Route evidence receipts, incremental coverage setup and deletion trials to
 - You need to write a probe/analysis script and want it in the right place.
 
 ## `interlinked verify`
+
+The proposed qualification baseline is an 8 GB whole host shared with the user's
+other applications. Its operator plan, `docs/plans/8gb-host-resource-plan.md`, is private
+operator material and absent from public clones. Qualification requires aggregate measurements across owned
+processes and useful completed checks, not merely successful resource deferrals. It does
+not change today's verification contract: interrupted or partial work remains unmeasured,
+and a constrained run cannot satisfy a required full scope by selecting fewer tests.
+
 Cognitive-complexity, type-smuggling, and cast-justification diagnostics align snippets with TypeScript's line numbering,
 including CRLF, lone CR, and Unicode line/paragraph separators. Preserve those
 line endings when reproducing a warning; normalizing a fixture can hide a location bug.

@@ -232,6 +232,13 @@ unresolved attempt. If the backoff refuses `restart` during a genuine outage,
 
 ### Over the memory ceiling, the daemon stops before replacement (2026-08-31)
 
+Interlinked CLI's proposed design baseline is an 8 GB whole host, shared with the
+editor, browser and coding agents. The operator plan is
+`docs/plans/8gb-host-resource-plan.md` (private operator material, absent from public clones).
+Its aggregate budgets and qualification criteria are not shipped defaults or a claim of
+8 GB readiness. Keep the current limits below until retention improvements and constrained
+workflow measurements justify replacing them; lowering heap flags alone can cause restart loops.
+
 SessionEnd jobs now run through a detached supervisor with a 128 MiB V8 heap cap.
 The supervisor holds a per-project/job lease through child cleanup, including when the
 daemon exits, and admits only one background runner per host at a time.
