@@ -244,7 +244,11 @@ The supervisor holds a per-project/job lease through child cleanup, including wh
 daemon exits, and admits only one background runner per host at a time.
 Scheduled foreground Vitest runs and verify share this host slot. A waiting
 foreground request prevents another background admission; the supervisor's monitor
-aborts the active background child group so foreground work can proceed. Independent
+aborts the active background child group so foreground work can proceed. The
+daemon's async project-test and legacy affected-test processes share this slot too;
+outer project admission does not exempt them from host admission. Their Node heap is
+bounded at 768 MiB and `VITEST_MAX_WORKERS=1` bounds compatible Vitest runners.
+Independent
 `npm test` processes remain outside this admission system. A duplicate background job
 is skipped; a different job waits at most two minutes. Each admitted runner has a ten-minute
 deadline and a 768 MiB Node V8 heap cap. Fuzz and benchmark commands receive an explicit
@@ -277,6 +281,9 @@ launched independently by the user. `INTERLINKED_DISABLE_SESSION_END_JOBS=1` sti
 
 In this repository, pre-push heavy commands also use the host lane through
 `scripts/run-resource-bounded.ts`. The supervisor retains ownership through child cleanup,
+and heavy commands wait at most ten minutes for admission so an existing five-minute
+daemon push check can finish first. Light diagnostics retain a five-second admission wait.
+The supervisor
 streams output, assigns at most 2560 MiB to Node's heap within the admitted tree budget,
 and limits common native thread pools. The larger heap accommodates the repository's stable
 TypeScript compiler; the 4 GiB aggregate tree ceiling remains enforced independently.

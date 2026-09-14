@@ -7,7 +7,16 @@ import { runProcessAsync } from "./check-engine/spawn-async.js";
 vi.mock("./test-capacity.js", () => ({ acquireTestCapacity: vi.fn() }));
 vi.mock("./resource-budget.js", () => ({ readResourceBudget: vi.fn() }));
 vi.mock("./check-engine/spawn-async.js", () => ({ runProcessAsync: vi.fn() }));
-afterEach(() => vi.resetAllMocks());
+afterEach(() => { vi.resetAllMocks(); vi.restoreAllMocks(); });
+
+it.each([["heavy", 600_000], ["light", 5000]] as const)("bounds %s admission waiting without overlapping the existing owner", async (profile, waitMs) => {
+    vi.spyOn(Date, "now").mockReturnValue(1000);
+    vi.mocked(acquireTestCapacity).mockResolvedValue(null);
+    const signal = new AbortController().signal;
+    expect(await runResourceCommand("node", [], signal, profile)).toBeNull();
+    expect(acquireTestCapacity).toHaveBeenCalledWith("foreground", 1000 + waitMs, signal);
+    expect(runProcessAsync).not.toHaveBeenCalled();
+});
 
 it("does not spawn when another project owns the host lane", async () => {
     vi.mocked(acquireTestCapacity).mockResolvedValue(null);

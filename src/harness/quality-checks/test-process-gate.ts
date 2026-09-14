@@ -11,6 +11,8 @@
 
 import { runProcessAsync } from "../check-engine/spawn-async.js";
 import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
+import { tryAcquireForegroundCapacity } from "../test-capacity.js";
+import { readResourceBudget } from "../resource-budget.js";
 
 interface TestProcessSpec {
 	command: string;
@@ -51,34 +53,45 @@ export async function runBoundedTestProcess(
 		: tryAcquireProjectHeavyProcessLease(spec.cwd);
 	if (!spec.admissionAlreadyHeld && !release) return { kind: "deferred", reason: "busy" };
 	try {
-		let result: Awaited<ReturnType<typeof runProcessAsync>>;
-		try {
-			result = await runProcessAsync(spec.command, spec.args, {
-				cwd: spec.cwd,
-				timeout: spec.timeoutMs,
-				...(spec.signal ? { signal: spec.signal } : {}),
-			});
-		} catch {
-			// Invalid launch arguments can make node:child_process throw before it
-			// can emit the ordinary ENOENT-style `error` event. Preserve this API's
-			// total no-verdict contract and release the shared slot in `finally`.
-			return { kind: "deferred", reason: "unavailable" };
-		}
-		if (result.timedOut) return { kind: "deferred", reason: "timeout" };
-		if (result.killed) return { kind: "deferred", reason: "interrupted" };
-		if (result.code === null) return { kind: "deferred", reason: "unavailable" };
-		// POSIX wrappers such as npm can translate a child signal into the
-		// conventional 128 + signum exit code (143 for SIGTERM, 137 for
-		// SIGKILL/OOM). That run did not complete its assertions and therefore
-		// cannot be classified as an ordinary red suite.
-		if (result.code >= 128) return { kind: "deferred", reason: "interrupted" };
-		return {
-			kind: "completed",
-			code: result.code,
-			stdout: result.stdout,
-			stderr: result.stderr,
-		};
+		const capacity = tryAcquireForegroundCapacity();
+		if (!capacity) return { kind: "deferred", reason: "busy" };
+		try { return await runAdmittedTestProcess(spec); }
+		finally { capacity.release(); }
 	} finally {
 		release?.();
 	}
+}
+
+async function runAdmittedTestProcess(spec: TestProcessSpec): Promise<TestProcessOutcome> {
+	const resourceBudget = readResourceBudget();
+	if (!resourceBudget) return { kind: "deferred", reason: "unavailable" };
+	let result: Awaited<ReturnType<typeof runProcessAsync>>;
+	try {
+		result = await runProcessAsync(spec.command, spec.args, {
+			cwd: spec.cwd,
+			timeout: spec.timeoutMs,
+			resourceBudget,
+			env: { NODE_OPTIONS: "--max-old-space-size=768", VITEST_MAX_WORKERS: "1", GOMAXPROCS: "2", UV_THREADPOOL_SIZE: "2" },
+			...(spec.signal ? { signal: spec.signal } : {}),
+		});
+	} catch {
+		// Invalid launch arguments can make node:child_process throw before it
+		// can emit the ordinary ENOENT-style `error` event. Preserve this API's
+		// total no-verdict contract and release the shared slot in `finally`.
+		return { kind: "deferred", reason: "unavailable" };
+	}
+	if (result.timedOut) return { kind: "deferred", reason: "timeout" };
+	if (result.killed) return { kind: "deferred", reason: "interrupted" };
+	if (result.code === null) return { kind: "deferred", reason: "unavailable" };
+	// POSIX wrappers such as npm can translate a child signal into the
+	// conventional 128 + signum exit code (143 for SIGTERM, 137 for
+	// SIGKILL/OOM). That run did not complete its assertions and therefore
+	// cannot be classified as an ordinary red suite.
+	if (result.code >= 128) return { kind: "deferred", reason: "interrupted" };
+	return {
+		kind: "completed",
+		code: result.code,
+		stdout: result.stdout,
+		stderr: result.stderr,
+	};
 }

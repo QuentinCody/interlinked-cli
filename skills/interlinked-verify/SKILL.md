@@ -171,6 +171,16 @@ as well: in-process planning/scanning is measured along with the runner tree. Th
 does not acquire a second host lease; the actual command keeps its existing admission protocol.
 Memory interruption exits 75 without a verification verdict, even if partial output was printed.
 
+The daemon's async project test gate and legacy affected-test process adapter also acquire
+the shared host lane, even when their caller already owns project admission. They monitor
+the runner tree and host reserve, set a 768 MiB Node heap limit, and pass
+`VITEST_MAX_WORKERS=1` to prevent a second uncapped Vitest suite during a push. The current
+Vitest adapter honors that variable; other runners still use their own worker controls
+and remain subject to the memory monitor. Capacity loss is an explicit deferral.
+Repository pre-push heavy commands wait at most ten minutes for that shared lane;
+light diagnostic commands wait five seconds. This serializes an existing daemon push
+check with the exact-revision repository gate without skipping either check.
+
 ## Select, explain and resume tests
 
 ```bash

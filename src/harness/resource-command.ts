@@ -4,7 +4,9 @@ import { runProcessAsync, type RunProcessResult } from "./check-engine/spawn-asy
 
 /** Developer checks use the same host lane and bounded child lifecycle as scheduled work. */
 export async function runResourceCommand(file: string, args: string[], signal: AbortSignal, profile: "heavy" | "light" = "heavy"): Promise<RunProcessResult | null> {
-    const lane = await acquireTestCapacity("foreground", Date.now() + 5000, signal);
+    // A daemon push check can already own the host lane for five minutes.
+    const waitMs = profile === "light" ? 5000 : 600_000;
+    const lane = await acquireTestCapacity("foreground", Date.now() + waitMs, signal);
     if (!lane) return null;
     try {
         const resourceBudget = readResourceBudget(profile);

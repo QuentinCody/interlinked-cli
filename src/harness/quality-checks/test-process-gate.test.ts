@@ -1,13 +1,44 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { tryAcquireProjectHeavyProcessLease } from "../project-heavy-process-lock.js";
+import { tryAcquireForegroundCapacity } from "../test-capacity.js";
+import { readResourceMemory } from "../resource-memory.js";
 import { runBoundedTestProcess } from "./test-process-gate.js";
+
+vi.mock("../resource-memory.js", () => ({ readResourceMemory: vi.fn() }));
+beforeEach(() => vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 8 * 1024 ** 3, availableBytes: 4 * 1024 ** 3 }));
 
 describe("runBoundedTestProcess", () => {
 	const projectRoot = mkdtempSync(join(tmpdir(), "interlinked-test-process-gate-"));
 	afterAll(() => rmSync(projectRoot, { recursive: true, force: true }));
+
+    it("defers another project's tests while a foreground check owns the host lane", async () => {
+        const owner = tryAcquireForegroundCapacity();
+        expect(owner).not.toBeNull();
+        try {
+            await expect(runBoundedTestProcess({ command: process.execPath, args: ["-e", "process.exit(0)"],
+                cwd: join(projectRoot, "another-project"), timeoutMs: 2000, admissionAlreadyHeld: true,
+            })).resolves.toEqual({ kind: "deferred", reason: "busy" });
+        } finally { owner?.release(); }
+    });
+
+    it("defers missing memory capacity and releases admission for a later retry", async () => {
+        const spec = { command: process.execPath, args: ["-e", "process.exit(0)"], cwd: projectRoot, timeoutMs: 2000 };
+        vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 8 * 1024 ** 3, availableBytes: 0 });
+        await expect(runBoundedTestProcess(spec)).resolves.toEqual({ kind: "deferred", reason: "unavailable" });
+        vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 8 * 1024 ** 3, availableBytes: 4 * 1024 ** 3 });
+        await expect(runBoundedTestProcess(spec)).resolves.toMatchObject({ kind: "completed", code: 0 });
+    });
+
+    it("passes bounded worker and heap settings to the actual runner", async () => {
+        const result = await runBoundedTestProcess({ command: process.execPath,
+            args: ["-e", "console.log(JSON.stringify([process.env.VITEST_MAX_WORKERS, process.env.NODE_OPTIONS]))"],
+            cwd: projectRoot, timeoutMs: 2000,
+        });
+        expect(result).toMatchObject({ kind: "completed", code: 0, stdout: '["1","--max-old-space-size=768"]\n' });
+    });
 
 	it("keeps the event loop live and declines a burst instead of queueing it", async () => {
 		let timerFired = false;
