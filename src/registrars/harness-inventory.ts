@@ -14,7 +14,8 @@ export function registerHarnessInventory(harness: Command): void {
 function registerCoverage(harness: Command): void {
     const coverage = harness.command("coverage").description("Inspect and review daemon-owned filesystem observations");
     coverage.command("status", { isDefault: true }).option("--json", "Machine-readable output")
-        .action(async (opts: OptionValues) => { const { harnessCoverageCommand } = await import("../commands/harness-capabilities.js"); await harnessCoverageCommand({ operation: "status" }, opts); });
+        .option("--progress", "Read cached recovery progress without rescanning files or returning receipt history")
+        .action(async (opts: OptionValues) => { const { harnessCoverageCommand } = await import("../commands/harness-capabilities.js"); await harnessCoverageCommand({ operation: "status", ...(opts.progress ? { detail: "progress" } : {}) }, opts); });
     coverage.command("verify").description("Check pending file versions and retain exact-version evidence and findings")
         .option("--json", "Machine-readable output").option("--no-wait", "Start the daemon verification job and return immediately")
         .action(async (opts: OptionValues) => { const { harnessCoverageVerifyCommand } = await import("../commands/harness-coverage-verify.js"); await harnessCoverageVerifyCommand(opts); });

@@ -9,11 +9,18 @@
 // itself for the compiler-specific lock.
 
 import {
+	acquireCrossProcessCompilerLease,
 	canonicalProjectRoot,
 	tryAcquireCrossProcessCompilerLease,
 } from "./project-compiler-lock.js";
 
 const HEAVY_PROJECT_KEY_PREFIX = "interlinked-heavy-process-v1\0";
+
+/** Background callers wait in the existing cross-process lane until their deadline. */
+export async function acquireProjectHeavyProcessLease(projectRoot: string, deadline: number, signal: AbortSignal): Promise<(() => void) | null> {
+    const projectKey = `${HEAVY_PROJECT_KEY_PREFIX}${canonicalProjectRoot(projectRoot)}`;
+    return (await acquireCrossProcessCompilerLease(projectKey, deadline, signal))?.release ?? null;
+}
 
 /**
  * Attempt once, without queueing, to own heavyweight work for a project.

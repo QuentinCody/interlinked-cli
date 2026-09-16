@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,10 +18,11 @@ vi.mock("./quality-checks.js", () => ({
 import { createHookCoverageChecker } from "./hook-coverage-checks.js";
 
 const roots: string[] = [];
+const noSharedEvidence = async () => ({ checks: [], unavailable: [], scopes: [] });
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 beforeEach(() => {
     vi.resetAllMocks();
-    mocks.batch.mockReturnValue({ resultsForFile: async () => [] });
+    mocks.batch.mockReturnValue({ resultsForFile: async () => [], evidenceForFile: noSharedEvidence });
     mocks.quality.mockImplementation(async (_event: HarnessEvent, _checks: Record<string, QualityCheckConfig>, _root: string, options: QualityCheckOptions) => {
         options.outChecksRan?.push("strong_typing");
         return [];
@@ -41,10 +43,23 @@ function fixture() {
 }
 
 describe("coverage check scope", () => {
+    it("keeps installer exclusions separate from source passes during recovery", async () => {
+        const { root, first } = fixture();
+        execFileSync("git", ["init", "-q", root]);
+        mkdirSync(join(root, ".venv"));
+        writeFileSync(join(root, ".venv/pyvenv.cfg"), "home = /usr/bin");
+        const path = join(root, ".venv/dependency.py"), content = "pass\n";
+        writeFileSync(path, content);
+        const entry = { ...first, path, identity: createHash("sha256").update(content).digest("hex") };
+        const evidence = await createHookCoverageChecker(root, () => ({ affected_tests: { enabled: true, severity: "warning", timeout_ms: 10, file_types: [".py"] } }))([entry]);
+        expect(mocks.quality).not.toHaveBeenCalled();
+        expect(mocks.batch.mock.calls[0]?.[0].checks).toEqual({});
+        expect(evidence.get(entry.id)?.unavailable.join(" ")).toContain("security-only evidence is not a source-quality pass");
+    });
     it("carries a shared external deferral to every file in the batch", async () => {
         const { root, entries } = fixture();
         const deferred: QualityCheckResult = { name: "external_check_deferred", severity: "warning", message: "compiler busy" };
-        mocks.batch.mockReturnValue({ resultsForFile: async (path: string) => path.endsWith("one.ts") ? [deferred] : [] });
+        mocks.batch.mockReturnValue({ resultsForFile: async (path: string) => path.endsWith("one.ts") ? [deferred] : [], evidenceForFile: noSharedEvidence });
         const evidence = await createHookCoverageChecker(root, () => ({}))(entries);
         expect(evidence.size).toBe(2);
         expect([...evidence.values()].map(result => result.unavailable)).toEqual([[expect.stringContaining("compiler busy")], [expect.stringContaining("compiler busy")]]);
@@ -96,7 +111,7 @@ describe("coverage check scope", () => {
         const document = { ...first, id: "readme", path: join(root, "README.md") };
         writeFileSync(document.path, "export const count = 1;\n");
         const affected_tests = { enabled: true, severity: "error" as const, timeout_ms: 1000, file_types: [".ts"] };
-        mocks.batch.mockImplementation(({ paths }: { paths: string[] }) => ({ resultsForFile: async () => paths.some(path => path.endsWith(".ts")) ? [{ name: "external_check_deferred", severity: "warning", message: "affected-test timeout" }] : [] }));
+        mocks.batch.mockImplementation(({ paths }: { paths: string[] }) => ({ resultsForFile: async () => paths.some(path => path.endsWith(".ts")) ? [{ name: "external_check_deferred", severity: "warning", message: "affected-test timeout" }] : [], evidenceForFile: noSharedEvidence }));
         const evidence = await createHookCoverageChecker(root, () => ({ affected_tests }))([...entries, document]);
         expect(evidence.get(document.id)).toEqual({ checks: ["strong_typing"], findings: [], unavailable: [] });
         expect(evidence.get(first.id)?.unavailable).toContain("warning: external_check_deferred: affected-test timeout");

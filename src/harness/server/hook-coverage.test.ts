@@ -4,13 +4,36 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { startHookFilesystemWatch } from "../hook-filesystem-watch.js";
 import { appendHookCoverageDecision } from "./hook-coverage.js";
+import { createCodexAdapter } from "../adapters/codex.js";
+import { encodeHookResult } from "../../hook-entry-translation.js";
 
 const cleanups: Array<() => void> = [];
 afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 describe("daemon hook coverage delivery", () => {
+
+    it("keeps pending coverage visible without forcing Codex Stop continuation or clearing evidence", () => {
+        const root = mkdtempSync(join(tmpdir(), "interlinked-coverage-stop-output-"));
+        writeFileSync(join(root, "reserved.txt"), "observed file version");
+        cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+        const watcher = startHookFilesystemWatch({ root, reservations: () => ["reserved.txt"] });
+        cleanups.push(watcher.stop);
+        const pending = watcher.ledger.snapshot().pending;
+        expect(pending.length).toBeGreaterThan(0);
+        const decision = appendHookCoverageDecision({ cwd: root, hookCoverage: watcher },
+            { hook_event: "Stop", session_id: "s1" }, { decision: "allow" });
+        const adapter = createCodexAdapter();
+        const output = encodeHookResult({ adapter, decision, dataDir: join(root, ".interlinked"),
+            event: adapter.parseHookInput({ session_id: "s1" }, "Stop"), fellBack: false });
+        expect(output.stdout).toBeUndefined();
+        expect(output.exit_code).toBe(0);
+        expect(output.stderr).toContain("[interlinked:hook-coverage] NOT CHECKED");
+        expect(watcher.ledger.snapshot().pending).toEqual(pending);
+    });
+
     it("returns native watch paths at session start and retains obligations after delivery", () => {
         const root = mkdtempSync(join(tmpdir(), "interlinked-hook-delivery-"));
+        writeFileSync(join(root, "reserved.txt"), "observed file version");
         cleanups.push(() => rmSync(root, { recursive: true, force: true }));
         const watcher = startHookFilesystemWatch({ root, reservations: () => ["reserved.txt"] });
         cleanups.push(watcher.stop);
@@ -35,6 +58,7 @@ describe("daemon hook coverage delivery", () => {
     describe("Stop throttle — positive (must fire)", () => {
         it("P1: an unchanged pending count speaks once per session on Stop, then stays quiet", () => {
             const root = mkdtempSync(join(tmpdir(), "interlinked-hook-stop-throttle-"));
+            writeFileSync(join(root, "reserved.txt"), "observed file version");
             cleanups.push(() => rmSync(root, { recursive: true, force: true }));
             const watcher = startHookFilesystemWatch({ root, reservations: () => ["reserved.txt"] });
             cleanups.push(watcher.stop);
@@ -59,6 +83,7 @@ describe("daemon hook coverage delivery", () => {
     describe("Stop throttle — negative (must not fire)", () => {
         it("N1: a different session hears the nudge again", () => {
             const root = mkdtempSync(join(tmpdir(), "interlinked-hook-stop-session-"));
+            writeFileSync(join(root, "reserved.txt"), "observed file version");
             cleanups.push(() => rmSync(root, { recursive: true, force: true }));
             const watcher = startHookFilesystemWatch({ root, reservations: () => ["reserved.txt"] });
             cleanups.push(watcher.stop);
@@ -69,6 +94,7 @@ describe("daemon hook coverage delivery", () => {
         });
         it("N2: non-Stop boundaries and Stops with no session id are never throttled", () => {
             const root = mkdtempSync(join(tmpdir(), "interlinked-hook-stop-boundary-"));
+            writeFileSync(join(root, "reserved.txt"), "observed file version");
             cleanups.push(() => rmSync(root, { recursive: true, force: true }));
             const watcher = startHookFilesystemWatch({ root, reservations: () => ["reserved.txt"] });
             cleanups.push(watcher.stop);

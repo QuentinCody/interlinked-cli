@@ -14,6 +14,12 @@ function parse(args: string[]): Promise<Command> {
 }
 
 describe("coverage recovery command arguments", () => {
+    it("requests cached progress explicitly while default status still refreshes", async () => {
+        await parse(["coverage", "status", "--progress", "--json"]);
+        expect(calls.coverage).toHaveBeenLastCalledWith({ operation: "status", detail: "progress" }, { progress: true, json: true });
+        await parse(["coverage", "status", "--json"]);
+        expect(calls.coverage).toHaveBeenLastCalledWith({ operation: "status" }, { json: true });
+    });
     it("starts background verification when --no-wait is requested", async () => {
         await parse(["coverage", "verify", "--no-wait", "--json"]);
         expect(calls.verify).toHaveBeenCalledExactlyOnceWith({ wait: false, json: true });

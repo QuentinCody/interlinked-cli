@@ -18,6 +18,12 @@ it("shrinks the runner budget to current capacity", () => {
     vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 48 * GIB, availableBytes: 9 * GIB });
     expect(readResourceBudget()).toEqual({ reserveBytes: 6 * GIB, maxRssBytes: 3 * GIB });
 });
+it("admits a nominal 8 GiB guest while retaining its reserve and minimum runner budget", () => {
+    vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 7.7 * GIB, availableBytes: 5 * GIB });
+    expect(readResourceBudget()).toEqual({ reserveBytes: GIB, maxRssBytes: 2 * GIB });
+    vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 7.7 * GIB, availableBytes: 2.9 * GIB });
+    expect(readResourceBudget()).toBeNull();
+});
 it("admits a light check with a smaller enforced ceiling while the heavy lane remains deferred", () => {
     vi.mocked(readResourceMemory).mockReturnValue({ totalBytes: 48 * GIB, availableBytes: 4 * GIB });
     expect(readResourceBudget()).toBeNull();

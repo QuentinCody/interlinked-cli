@@ -1,7 +1,7 @@
 import { closeSync, ftruncateSync, mkdtempSync, mkdirSync, openSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { startHookFilesystemWatch } from "./hook-filesystem-watch.js";
 
 const cleanups: Array<() => void> = [];
@@ -10,9 +10,18 @@ function fixture(): string {
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
     return root;
 }
-afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
+afterEach(() => { vi.restoreAllMocks(); for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 
 describe("filesystem coverage", () => {
+    it("reconciles an unchanged watch set without cloning historical receipts", () => {
+        const root = fixture(), watcher = startHookFilesystemWatch({ root, reservations: () => [] });
+        cleanups.push(watcher.stop);
+        const before = watcher.ledger.snapshot();
+        const snapshot = vi.spyOn(watcher.ledger, "snapshot");
+        watcher.reconcile();
+        expect(snapshot).not.toHaveBeenCalled();
+        expect(watcher.ledger.snapshot()).toEqual(before);
+    });
     it("keeps symlinked policy content unmeasured instead of certifying its target", () => {
         const root = fixture();
         writeFileSync(join(root, "target.json"), "{}");

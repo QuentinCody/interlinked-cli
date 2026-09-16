@@ -29,4 +29,10 @@ describe("coverage control delivery", () => {
         expect(await queryHookCoverage("/repo", { operation: "status" })).toEqual({ readiness: "ready" });
         expect(mocks.framed).toHaveBeenCalledOnce();
     });
+    it("preserves compact progress on raw-to-framed read fallback", async () => {
+        const report = { readiness: "ready", generation: 7, progress: { observedAt: null, pendingCount: 3 } };
+        mocks.framed.mockResolvedValue(report);
+        expect(await queryHookCoverage("/repo", { operation: "status", detail: "progress" })).toEqual(report);
+        expect(mocks.framed).toHaveBeenCalledExactlyOnceWith("daemon.coverage", { operation: "status", detail: "progress" }, { timeout_ms: 10_000 });
+    });
 });

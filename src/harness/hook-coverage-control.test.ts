@@ -1,21 +1,44 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { controlHookCoverage, isHookCoverageReport, isHookCoverageRequest } from "./hook-coverage-control.js";
 import { startHookFilesystemWatch } from "./hook-filesystem-watch.js";
 
 const cleanups: Array<() => void> = [];
-afterEach(() => { for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
+afterEach(() => { vi.restoreAllMocks(); for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
 function fixture() {
     const root = mkdtempSync(join(tmpdir(), "hook-control-"));
     cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    writeFileSync(join(root, "package.json"), '{"name":"initial"}');
     const watcher = startHookFilesystemWatch({ root, reservations: () => [] });
     cleanups.push(watcher.stop);
     return { root, watcher };
 }
 
 describe("daemon coverage controls", () => {
+    it("serves cached progress without reconciliation or copying receipt history", () => {
+        const { root, watcher } = fixture();
+        const before = watcher.ledger.summary(), observedAt = watcher.status().lastReconciled;
+        writeFileSync(join(root, "package.json"), "new bytes after the observation");
+        const reconcile = vi.spyOn(watcher, "reconcile");
+        const snapshot = vi.spyOn(watcher.ledger, "snapshot");
+        const result = controlHookCoverage(watcher, { operation: "status", detail: "progress" });
+        expect(result).toMatchObject({ readiness: "ready", generation: before.generation,
+            progress: { observedAt, pendingCount: before.pendingCount } });
+        expect(isHookCoverageReport(JSON.parse(JSON.stringify(result)))).toBe(true);
+        expect(reconcile).not.toHaveBeenCalled();
+        expect(snapshot).not.toHaveBeenCalled();
+        expect(Object.keys(result).sort()).toEqual(["generation", "progress", "readiness", "reason"]);
+        const current = controlHookCoverage(watcher, { operation: "status" });
+        expect(current.generation).toBeGreaterThan(before.generation);
+    });
+
+    it("keeps a stopped observer unmeasured in compact progress", () => {
+        const { watcher } = fixture();
+        watcher.stop();
+        expect(controlHookCoverage(watcher, { operation: "status", detail: "progress" })).toMatchObject({ readiness: "unmeasured" });
+    });
     it("reconciles disk before accepting policy or acknowledging a version", () => {
         const { root, watcher } = fixture();
         const before = controlHookCoverage(watcher, { operation: "status" });
@@ -48,5 +71,8 @@ describe("daemon coverage controls", () => {
         expect(isHookCoverageRequest({ operation: "verify" })).toBe(true);
         expect(isHookCoverageRequest({ operation: "record_check", checks: ["fake"] })).toBe(false);
         expect(isHookCoverageReport({ readiness: "ready", checks: [{ kind: "automated_check" }] })).toBe(false);
+        expect(isHookCoverageRequest({ operation: "status", detail: "progress" })).toBe(true);
+        expect(isHookCoverageRequest({ operation: "status", detail: "unknown" })).toBe(false);
+        expect(isHookCoverageReport({ readiness: "ready", progress: { pendingCount: "1" } })).toBe(false);
     });
 });

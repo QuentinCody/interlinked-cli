@@ -100,13 +100,14 @@ class HookFilesystemWatch {
 
     private refreshSelection(): void {
         this.selected = selectedPaths(this.options, this.unmeasured);
+        const observation = this.ledger.observation();
         // Deleted water-lines remain in the comparison set.
-        for (const [path, value] of Object.entries(this.ledger.snapshot().files)) {
+        for (const [path, value] of Object.entries(observation.files)) {
             if (value.scope === "policy") this.selected.set(path, "policy");
         }
         // Releasing ownership does not verify the last observed write. Keep
         // pending paths measured until their exact current version is checked.
-        for (const entry of this.ledger.snapshot().pending) {
+        for (const entry of observation.pending) {
             if (!this.selected.has(entry.path)) this.selected.set(entry.path, entry.scope);
         }
         const directories = new Set([...this.selected.keys()].map(nearestDirectory));
@@ -127,14 +128,14 @@ class HookFilesystemWatch {
     reconcile(): void {
         if (this.stopped) return;
         this.unmeasured = [];
-        const before = this.ledger.snapshot().generation;
+        const before = this.ledger.summary().generation;
         try {
             this.refreshSelection();
             this.measureSelected();
             this.lastReconciled = new Date().toISOString();
         } catch (error) { this.unmeasured.push(String(error)); }
         if (this.unmeasured.length) this.options.onError?.(this.unmeasured.join("; "));
-        if (before !== this.ledger.snapshot().generation) this.options.onChange?.();
+        if (before !== this.ledger.summary().generation) this.options.onChange?.();
     }
 
     watchPaths(): string[] { return [...this.selected.keys()].sort(); }

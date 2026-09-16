@@ -25,6 +25,19 @@ function deferred() {
 }
 
 describe("coverage verification evidence", () => {
+    it("returns bounded progress without omitting unavailable details from full status", async () => {
+        const owner = fixture(), detail = "checker unavailable: " + "x".repeat(100_000);
+        const verifier = new HookCoverageVerification(owner, async entries => new Map(entries.map(entry =>
+            [entry.id, { checks: [], findings: [], unavailable: [detail] }])));
+        expect(verifier.progress()).toBeUndefined();
+        verifier.start();
+        await expect.poll(() => verifier.progress()?.status).toBe("complete");
+        const progress = verifier.progress()!;
+        expect(progress).toMatchObject({ total: 1, processed: 1, checked: 0, unmeasuredCount: 1 });
+        expect(JSON.stringify(progress).length).toBeLessThan(300);
+        progress.checked = 99;
+        expect(verifier.status()).toMatchObject({ checked: 0, unmeasured: [expect.stringContaining(detail)] });
+    });
     it("serves other event-loop work between immediately completed batches", async () => {
         const owner = fixture();
         for (let index = 0; index < 16; index++) owner.ledger.observe(`source-${index}.ts`, "first", "reservation");
@@ -50,6 +63,24 @@ describe("coverage verification evidence", () => {
         expect(reopened.acceptedPolicy).toBeNull();
         expect(reopened.reviews).toEqual([]);
         expect(reopened.checks).toEqual([expect.objectContaining({ identity: "first", checks: ["typescript"], findings: measured.findings, kind: "automated_check" })]);
+    });
+
+    it("retains partial findings across restart, then completes without rewriting history", async () => {
+        const owner = fixture();
+        const partial = { ...measured, unavailable: ["biome unavailable"] };
+        const verifier = new HookCoverageVerification(owner, async entries => new Map(entries.map(entry => [entry.id, partial])));
+        verifier.start();
+        await expect.poll(() => verifier.status()?.status).toBe("complete");
+        expect(verifier.status()).toMatchObject({ checked: 0, findings: 1 });
+        const reopened = new HookCoverageLedger(owner.path);
+        expect(reopened.snapshot().pending).toHaveLength(1);
+        expect(reopened.snapshot().checks).toEqual([expect.objectContaining(partial)]);
+        const retry = new HookCoverageVerification({ ...owner, ledger: reopened }, completed);
+        retry.start();
+        await expect.poll(() => retry.status()?.status).toBe("complete");
+        expect(reopened.snapshot().pending).toHaveLength(0);
+        expect(reopened.snapshot().checks).toHaveLength(2);
+        expect(reopened.snapshot().checks[0]).toMatchObject(partial);
     });
 
     it("uses the checker's compatible groups without splitting a shared suite into eight-file runs", async () => {

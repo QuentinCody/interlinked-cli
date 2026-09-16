@@ -31,9 +31,9 @@ export function appendHookCoverageDecision(runtime: CoverageRuntime, event: Cove
         return { ...decision, warnings: [...(decision.warnings ?? []), ...lines] };
     }
     watcher.reconcile();
-    const snapshot = watcher.ledger.snapshot();
+    const snapshot = watcher.ledger.summary();
     const coverage: string[] = [];
-    if (snapshot.pending.length) coverage.push(`[interlinked:hook-coverage] NOT CHECKED: ${snapshot.pending.length} protected/reserved file version(s) await verification. Writer identity is unknown. Run interlinked harness coverage verify --json; inspect interlinked harness capabilities --json for identities.`);
+    if (snapshot.pendingCount) coverage.push(`[interlinked:hook-coverage] NOT CHECKED: ${snapshot.pendingCount} protected/reserved file version(s) lack complete check evidence. Writer identity is unknown. Inspect interlinked harness coverage status --json for pending scopes and recovery results; retry unavailable checks after their prerequisites change.`);
     for (const reason of watcher.status().unmeasured) coverage.push(`[interlinked:hook-coverage] NOT MEASURED: ${reason}`);
     const warnings = [...(decision.warnings ?? []), ...deliverable(runtime, event, coverage)];
     const result: HarnessDecision = { ...decision, warnings };

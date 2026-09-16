@@ -77,6 +77,16 @@ export class HookCoverageLedger {
 
     snapshot(): LedgerState { return structuredClone(this.state); }
 
+    /** Current observation data without retained check/review history. */
+    observation(): Pick<LedgerState, "files" | "pending"> {
+        return structuredClone({ files: this.state.files, pending: this.state.pending });
+    }
+
+    summary() {
+        return { generation: this.state.generation, policyGeneration: this.state.policyGeneration,
+            pendingCount: this.state.pending.length, acceptedPolicy: this.state.acceptedPolicy };
+    }
+
     observe(path: string, identity: string, scope: ObservedFile["scope"]): void {
         const previous = this.state.files[path];
         if (previous?.identity === identity && previous.scope === scope) return;
@@ -85,7 +95,11 @@ export class HookCoverageLedger {
         next.files[path] = { identity, scope };
         if (scope === "policy" || previous?.scope === "policy") next.policyGeneration++;
         next.pending = next.pending.filter(entry => entry.path !== path);
-        next.pending.push({ id: randomUUID(), path, identity, scope, writer: "unknown" });
+        // Initial absence is an observation, not an observed file version or deletion.
+        // Preserve absence in policy identity; a later creation/deletion still needs evidence.
+        if (previous || identity !== "missing") {
+            next.pending.push({ id: randomUUID(), path, identity, scope, writer: "unknown" });
+        }
         this.save(next);
     }
 
@@ -125,7 +139,7 @@ export class HookCoverageLedger {
         const entry = this.state.pending.find(candidate => candidate.id === receipt.id);
         if (!entry || entry.path !== receipt.path || entry.identity !== receipt.identity) return false;
         const next = this.snapshot();
-        next.pending = next.pending.filter(candidate => candidate.id !== receipt.id);
+        if (!receipt.unavailable?.length) next.pending = next.pending.filter(candidate => candidate.id !== receipt.id);
         next.checks.push(structuredClone(receipt));
         next.generation++;
         this.save(next);

@@ -13,6 +13,9 @@ export function readResourceBudget(profile: "heavy" | "light" = "heavy"): Resour
     if (!Number.isFinite(memory.totalBytes) || !Number.isFinite(memory.availableBytes) || memory.totalBytes <= 0) return null;
     const policy = PROFILES[profile];
     const reserveBytes = Math.max(policy.reserveFloor, memory.totalBytes * policy.reserveFraction);
-    const maxRssBytes = Math.min(policy.ceiling, memory.totalBytes / 4, memory.availableBytes - reserveBytes);
+    // Linux guests report less usable RAM than their nominal allocation. A
+    // proportional ceiling must not fall below the profile's admission floor.
+    const proportionalCeiling = Math.max(policy.required, memory.totalBytes / 4);
+    const maxRssBytes = Math.min(policy.ceiling, proportionalCeiling, memory.availableBytes - reserveBytes);
     return maxRssBytes >= policy.required ? { reserveBytes, maxRssBytes } : null;
 }

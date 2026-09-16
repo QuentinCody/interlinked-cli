@@ -37,8 +37,8 @@ describe("planResources — memory admission", () => {
 	it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY])("rejects invalid total memory %s", totalBytes => {
 		expect(planResources(input({ memory: { totalBytes, availableBytes: 4 * 1024 ** 3 } })).defer).toBe(true);
 	});
-	it("admits one worker on an 8 GiB machine while preserving host headroom", () => {
-		const result = planResources(input({ cores: 16, memory: { totalBytes: 8 * 1024 ** 3, availableBytes: 4 * 1024 ** 3 } }));
+	it.each([7.7, 8])("admits one worker with %s GiB usable memory while preserving host headroom", totalGiB => {
+		const result = planResources(input({ cores: 16, memory: { totalBytes: totalGiB * 1024 ** 3, availableBytes: 4 * 1024 ** 3 } }));
 		expect(result).toMatchObject({ maxJobs: 1, defer: false });
 	});
 	it("caps a 16 GiB machine by memory even when its CPU count is high", () => {

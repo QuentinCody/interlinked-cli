@@ -26,6 +26,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { ResourceBudget } from "../resource-budget.js";
 import { watchResources } from "../resource-watch.js";
+import { combinedProcessSignal } from "./process-cancellation.js";
 
 /** Per-stream capture threshold. Complete reports that exceed it require
  *  streaming; bounded prefixes must not stand in for complete measurements. */
@@ -307,5 +308,7 @@ export function runProcessAsync(
 	opts: RunProcessOptions = {},
 ): Promise<RunProcessResult> {
 	const timeoutMs = opts.timeout ?? 30_000;
+    const signal = combinedProcessSignal(opts.signal);
+    if (signal) opts = { ...opts, signal };
 	return new Promise((resolve) => startProcessRun(resolve, { cmd, args, opts, timeoutMs }));
 }

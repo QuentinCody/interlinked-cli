@@ -13,6 +13,33 @@ function fixture(): string {
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe("durable hook coverage", () => {
+    it("records initial absence without inventing a write, but retains later creation and deletion", () => {
+        const path = fixture(), ledger = new HookCoverageLedger(path);
+        const emptyDigest = ledger.policyDigest();
+        ledger.observe("package.json", "missing", "policy");
+        expect(ledger.observation().files["package.json"]).toEqual({ identity: "missing", scope: "policy" });
+        expect(ledger.policyDigest()).not.toBe(emptyDigest);
+        expect(new HookCoverageLedger(path).observation().pending).toEqual([]);
+        ledger.observe("package.json", "created", "policy");
+        expect(ledger.observation().pending).toEqual([expect.objectContaining({ identity: "created" })]);
+        ledger.observe("package.json", "missing", "policy");
+        expect(new HookCoverageLedger(path).observation().pending).toEqual([expect.objectContaining({ identity: "missing" })]);
+    });
+    it("exposes isolated current observations without copying or dropping history", () => {
+        const path = fixture(), ledger = new HookCoverageLedger(path);
+        ledger.observe("old.ts", "old", "reservation");
+        const before = ledger.snapshot(), entry = before.pending[0]!;
+        expect(ledger.acknowledge({ ...entry, generation: before.generation, evidence: "retained review" })).toBe(true);
+        ledger.observe("new.ts", "new", "reservation");
+        const observation = ledger.observation(), summary = ledger.summary();
+        expect(Object.keys(observation).sort()).toEqual(["files", "pending"]);
+        expect(summary.pendingCount).toBe(1);
+        observation.pending.length = 0;
+        delete observation.files["new.ts"];
+        expect(ledger.summary()).toEqual(summary);
+        expect(ledger.observation().pending).toHaveLength(1);
+        expect(new HookCoverageLedger(path).snapshot().reviews).toEqual([expect.objectContaining({ evidence: "retained review" })]);
+    });
     it("retains changes across restart and deduplicates repeated observations", () => {
         const path = fixture();
         const ledger = new HookCoverageLedger(path);
@@ -24,6 +51,19 @@ describe("durable hook coverage", () => {
         const reopened = new HookCoverageLedger(path);
         expect(reopened.snapshot().pending).toHaveLength(1);
         expect(reopened.snapshot().pending[0]).toMatchObject({ path: "package.json", identity: "new", writer: "unknown" });
+    });
+
+    it.each(["file", "policy"])("rejects stale partial evidence after a %s change", kind => {
+        const path = fixture(), ledger = new HookCoverageLedger(path);
+        ledger.observe("source.ts", "a", "reservation");
+        ledger.observe("policy.json", "p", "policy");
+        const entry = ledger.observation().pending.find(item => item.path === "source.ts")!;
+        const receipt = { ...entry, policyDigest: ledger.policyDigest(), policyGeneration: ledger.summary().policyGeneration,
+            checks: ["lint"], findings: [], unavailable: ["tests busy"], checkedAt: "2026-09-14T00:00:00Z", kind: "automated_check" as const };
+        if (kind === "file") ledger.observe("source.ts", "b", "reservation");
+        else ledger.observe("policy.json", "q", "policy");
+        expect(ledger.recordCheck(receipt)).toBe(false);
+        expect(new HookCoverageLedger(path).snapshot().checks).toEqual([]);
     });
 
     it("rejects an acknowledgment after any newer observed input, including ABA", () => {

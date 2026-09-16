@@ -70,7 +70,7 @@ function memoryJobCap(memory: GovernorInput["memory"]): number {
 	if (!memory || !Number.isFinite(memory.totalBytes) || !Number.isFinite(memory.availableBytes) ||
 		memory.totalBytes <= 0 || memory.availableBytes <= 0) return 0;
 	const reserve = Math.max(GIB, memory.totalBytes / 8);
-	const budget = Math.min(memory.totalBytes / 4, memory.availableBytes - reserve);
+	const budget = Math.min(Math.max(2 * GIB, memory.totalBytes / 4), memory.availableBytes - reserve);
 	return Math.max(0, Math.floor((budget - GIB) / GIB));
 }
 

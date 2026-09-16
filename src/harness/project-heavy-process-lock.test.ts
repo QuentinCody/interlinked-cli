@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { tryAcquireProjectHeavyProcessLease } from "./project-heavy-process-lock.js";
+import { acquireProjectHeavyProcessLease, tryAcquireProjectHeavyProcessLease } from "./project-heavy-process-lock.js";
 
 const CONTENDER_PROGRAM = [
 	'import { tryAcquireProjectHeavyProcessLease } from "./src/harness/project-heavy-process-lock.ts";',
@@ -26,6 +26,27 @@ afterEach(() => {
 });
 
 describe("tryAcquireProjectHeavyProcessLease", () => {
+    it("waits for the existing owner and releases the same lane", async () => {
+        const root = projectRoot("wait");
+        const first = tryAcquireProjectHeavyProcessLease(root);
+        const pending = acquireProjectHeavyProcessLease(root, Date.now() + 1000, new AbortController().signal);
+        first?.();
+        const second = await pending;
+        expect(second).not.toBeNull();
+        expect(tryAcquireProjectHeavyProcessLease(root)).toBeNull();
+        second?.();
+    });
+
+    it("leaves a busy lane untouched on deadline or cancellation", async () => {
+        const root = projectRoot("deadline"), first = tryAcquireProjectHeavyProcessLease(root);
+        try {
+            expect(await acquireProjectHeavyProcessLease(root, Date.now() + 10, new AbortController().signal)).toBeNull();
+            const controller = new AbortController();
+            controller.abort();
+            expect(await acquireProjectHeavyProcessLease(root, Date.now() + 1000, controller.signal)).toBeNull();
+            expect(tryAcquireProjectHeavyProcessLease(root)).toBeNull();
+        } finally { first?.(); }
+    });
 	it("admits one owner per canonical project without queueing", () => {
 		const root = projectRoot("same");
 		const release = tryAcquireProjectHeavyProcessLease(root);

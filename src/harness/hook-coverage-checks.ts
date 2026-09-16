@@ -12,6 +12,8 @@ import { isLikelyTestFile } from "./quality-checks/test-classifier.js";
 import type { QualityCheckResult } from "./quality-checks/result-types.js";
 import { resolveQualityCheckTarget, runQualityChecks } from "./quality-checks.js";
 import type { HarnessEvent, QualityCheckConfig } from "./types.js";
+import type { BatchFileEvidence } from "./quality-checks/change-set-evidence.js";
+import { sourceScanScope } from "./source-scan-scope.js";
 
 // Recovery is an explicit background job. Group up to the external batch cap
 // so overlapping related suites run once; bound worker count in the runner.
@@ -30,12 +32,13 @@ function recoveryChecks(configured: Record<string, QualityCheckConfig>): Record<
 
 function recoveryBatches(root: string, entries: readonly HookPendingCheck[], checks: Record<string, QualityCheckConfig>): HookPendingCheck[][] {
     const groups = new Map<string, HookPendingCheck[]>();
+    const scope = sourceScanScope(root);
     for (const entry of entries) {
         const project = resolve(findProjectRoot(entry.path, root) ?? root);
         const test = isLikelyTestFile(basename(entry.path, extname(entry.path)), entry.path);
         const applicable = Object.entries(checks).filter(([name, check]) => check.enabled &&
             (name !== "affected_tests" || !test) && pathMatchesCheck(entry.path, check)).map(([name]) => name).sort();
-        const key = JSON.stringify([project, applicable]);
+        const key = JSON.stringify([project, applicable, scope.reason(entry.path)]);
         const group = groups.get(key) ?? [];
         group.push(entry);
         groups.set(key, group);
@@ -100,6 +103,8 @@ export function createHookCoverageChecker(root: string, getChecks: () => Record<
 }
 
 async function checkRecoveryBatch(root: string, entries: readonly HookPendingCheck[], checks: Record<string, QualityCheckConfig>, evidence: Map<string, HookCheckEvidence>): Promise<void> {
+    const scoped = recoverySourceScope(root, entries, checks);
+    checks = scoped.checks;
     const inputs = collectInputs(root, entries, evidence);
     if (!inputs.size) return;
     const externalRan: string[] = [];
@@ -110,27 +115,38 @@ async function checkRecoveryBatch(root: string, entries: readonly HookPendingChe
     // documentation or another project's completed checks.
     const deferred = [...externalRows.values()].flat().filter(row => isOperationalCheckDeferral(row.name)).map(findingText);
     for (const [entry, event] of inputs) {
-        evidence.set(entry.id, await checkInput({ root, entry, event, checks, externalRan, externalRows: externalRows.get(entry.id) ?? [], deferred }));
+        const shared = await external.evidenceForFile(entry.path);
+        evidence.set(entry.id, await checkInput({ root, entry, event, checks, shared, externalRows: externalRows.get(entry.id) ?? [], deferred, exclusion: scoped.exclusion }));
     }
 }
 
 interface CheckInputOptions {
+    exclusion: string | null;
     root: string;
     entry: HookPendingCheck;
     event: HarnessEvent;
     checks: Record<string, QualityCheckConfig>;
-    externalRan: string[];
+    shared: BatchFileEvidence;
     externalRows: QualityCheckResult[];
     deferred: string[];
 }
 
 async function checkInput(options: CheckInputOptions): Promise<HookCheckEvidence> {
-    const { root, entry, event, checks, externalRan, externalRows, deferred } = options;
-    const completed = externalRan.filter(name => checks[name] && pathMatchesCheck(entry.path, checks[name]));
+    const { root, event, checks, shared, externalRows, deferred } = options;
+    if (options.exclusion) return { checks: shared.checks, findings: externalRows.filter(row => !isOperationalCheckDeferral(row.name)).map(findingText), scopes: shared.scopes,
+        unavailable: [...deferred, ...shared.unavailable, `Source-quality excluded: ${options.exclusion}; security-only evidence is not a source-quality pass`] };
+    const completed = [...shared.checks];
     try {
         const results = await runQualityChecks(event, checks, root, { skipMultiFileExternalChecks: true, outChecksRan: completed, editedFileInRepo: true });
         const unavailable = results.filter(row => isOperationalCheckDeferral(row.name)).map(findingText);
         const findings = [...externalRows, ...results].filter(row => !isOperationalCheckDeferral(row.name)).map(findingText);
-        return { checks: [...new Set(completed)], findings, unavailable: [...deferred, ...unavailable] };
+        return { checks: [...new Set(completed)], findings, unavailable: [...deferred, ...shared.unavailable, ...unavailable],
+            ...(shared.scopes.length ? { scopes: shared.scopes } : {}) };
     } catch (error) { return { checks: completed, findings: [], unavailable: [String(error)] }; }
+}
+
+/** Recovery groups have one source role. Keep excluded source obligations explicit. */
+function recoverySourceScope(root: string, entries: readonly HookPendingCheck[], checks: Record<string, QualityCheckConfig>) {
+    const exclusion = entries[0] ? sourceScanScope(root).reason(entries[0].path) : null;
+    return { exclusion, checks: exclusion ? Object.fromEntries(Object.entries(checks).filter(([name]) => name === "gitleaks" || name === "dependency_audit")) : checks };
 }
