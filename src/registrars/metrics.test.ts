@@ -2,6 +2,8 @@ import { Command } from "commander";
 import { describe, expect, it, vi } from "vitest";
 import { metricsComplexityCommand } from "../commands/metrics-complexity.js";
 import { metricsScoreCommand } from "../commands/metrics-score.js";
+import { metricsDiagnosticsCommand } from "../commands/metrics-diagnostics.js";
+import { metricsDiagnosticsCompareCommand } from "../commands/metrics-diagnostics-compare.js";
 import { metricsSplitPlanCommand } from "../commands/metrics-split-plan.js";
 import { registerMetricsCommands } from "./metrics.js";
 
@@ -16,8 +18,22 @@ vi.mock("../commands/metrics-split-plan.js", () => ({
 vi.mock("../commands/metrics-score.js", () => ({
 	metricsScoreCommand: vi.fn(),
 }));
+vi.mock("../commands/metrics-diagnostics.js", () => ({ metricsDiagnosticsCommand: vi.fn() }));
+vi.mock("../commands/metrics-diagnostics-compare.js", () => ({ metricsDiagnosticsCompareCommand: vi.fn() }));
 
 describe("registerMetricsCommands", () => {
+    it("routes saved diagnostic comparison without performing a census", async () => {
+        const program = new Command();
+        registerMetricsCommands(program);
+        await program.parseAsync(["node", "interlinked", "metrics", "diagnostics", "compare", "before.json", "after.json", "--json"]);
+        expect(metricsDiagnosticsCompareCommand).toHaveBeenCalledWith("before.json", "after.json", expect.objectContaining({ json: true }));
+    });
+    it("routes diagnostics with inherited scope and JSON output", async () => {
+        const program = new Command();
+        registerMetricsCommands(program);
+        await program.parseAsync(["node", "interlinked", "metrics", "--cwd", "/selected/root", "diagnostics", "--json"]);
+        expect(metricsDiagnosticsCommand).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/selected/root", json: true }));
+    });
 	it("merges the parent `metrics --cwd` option into metricsComplexityCommand's opts", async () => {
 		vi.mocked(metricsComplexityCommand).mockClear();
 		const program = new Command();

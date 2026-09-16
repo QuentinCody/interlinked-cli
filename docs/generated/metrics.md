@@ -31,7 +31,7 @@ The number of non-trivia lexical code tokens in one implementation under the int
 
 - **Shipped default:** 500 tokens (lower is stricter)
 - **Configure:** `interlinked caps set function-tokens <n>` (or .interlinked/metric-caps.json → max_function_tokens)
-- **Fix when an edit is blocked:** Split the implementation into cohesive named helpers. Existing over-cap functions may hold or shrink, but may not grow; there is no inline suppression.
+- **Fix when an edit is blocked:** Simplify redundant logic or extract a cohesive responsibility with clear inputs and outputs. Avoid wrappers that only move tokens. Check relevant behavior after refactoring. Existing over-cap functions may hold or shrink, but may not grow; there is no inline suppression.
 
 ## cyclomatic complexity (per function) (`cyclomatic`)
 
@@ -39,7 +39,7 @@ The number of independent paths through a single function — +1 for each branch
 
 - **Shipped default:** 25 branches (lower is stricter)
 - **Configure:** `interlinked caps set cyclomatic <n>` (or .interlinked/metric-caps.json → max_cyclomatic)
-- **Fix when an edit is blocked:** Extract cohesive groups of branches into smaller, named helper functions. There is no suppression; decomposition is the only way past.
+- **Fix when an edit is blocked:** Remove redundant branches or extract a cohesive responsibility; moving branches alone does not establish better design. Check relevant behavior after refactoring. There is no suppression.
 
 ## cognitive complexity (per function) (`cognitive`)
 

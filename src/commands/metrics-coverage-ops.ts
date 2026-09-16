@@ -1,6 +1,6 @@
 import { getOutputMode, output, outputError } from "../lib/output.js";
 import { collectRepositoryInventory } from "../lib/metrics/inventory.js";
-import { collectGateReachSnapshot, enumerateEligibleFiles } from "../harness/gate-reach-collect.js";
+import { collectGateReachSnapshot, enumerateEligibleFiles, recordedDisableReason } from "../harness/gate-reach-collect.js";
 import { coverageExecutionReach } from "../harness/coverage-execution.js";
 import { loadRules } from "../harness/rules-loader.js";
 import { coverageIndexContext } from "../harness/coverage-index/context.js";
@@ -14,8 +14,10 @@ export function metricsGatesCommand(options: MetricsAnalysisOptions): void {
         const root = options.cwd ?? process.cwd(), rules = loadRules(root), eligible = enumerateEligibleFiles(root);
         const configuredEnabled = rules.per_edit_coverage?.enabled === true, mode = rules.per_edit_coverage?.mode ?? "off";
         const enabled = configuredEnabled && mode === "block";
+        const disabledReason = enabled ? undefined : recordedDisableReason(rules.per_edit_coverage);
         const result = { schemaVersion: 1, policy: { perEditCoverageEnabled: configuredEnabled, mode, executes: enabled },
-            reach: collectGateReachSnapshot({ cwd: root, sessionId: "metrics-cli", now: Date.now(), perEditCoverageEnabled: enabled }),
+            reach: collectGateReachSnapshot({ cwd: root, sessionId: "metrics-cli", now: Date.now(), perEditCoverageEnabled: enabled,
+                ...(disabledReason !== undefined ? { perEditCoverageDisabledReason: disabledReason } : {}) }),
             execution: coverageExecutionReach(root, eligible), journal: readMeasurementExecutions(root),
             definitions: { reach: "Files with a measurement divided by eligible files; independent of covered lines", freshness: "Exact source, tests, configuration and support inputs still match", baseline: "Historical ratchet entries; not a fresh coverage measurement" } };
         output(getOutputMode(options), result, { normal: () => [`Per-edit coverage: ${enabled ? "enabled" : "disabled"}`,

@@ -41,7 +41,22 @@ function evidenceCommands(metrics: Command): void {
         .action((opts: OptionValues, command: Command) => evidenceAction("run", options(opts, command)));
 }
 
+function diagnosticCommands(metrics: Command): void {
+    const diagnostics = common(metrics.command("diagnostics").description("Explained verbosity and erosion census; advisory evidence, no quality verdict"))
+        .option("--profile <name>", "js-ts (default) or python; separate counting contracts")
+        .action(async (opts: OptionValues, command: Command) => {
+            const { metricsDiagnosticsCommand } = await import("../commands/metrics-diagnostics.js");
+            metricsDiagnosticsCommand(options(opts, command));
+        });
+    common(diagnostics.command("compare <before> <after>").description("Compare saved diagnostic reports with scope and identity checks"))
+        .action(async (before: string, after: string, opts: OptionValues, command: Command) => {
+            const { metricsDiagnosticsCompareCommand } = await import("../commands/metrics-diagnostics-compare.js");
+            metricsDiagnosticsCompareCommand(before, after, options(opts, command));
+        });
+}
+
 export function registerMetricsAnalysisCommands(metrics: Command): void {
+    diagnosticCommands(metrics);
     coverageCommands(metrics);
     common(metrics.command("corpus <manifest>").description("Score pinned clean local repositories and persist reproducible reports"))
         .requiredOption("--out <directory>", "Directory for per-repository reports and corpus summary")
