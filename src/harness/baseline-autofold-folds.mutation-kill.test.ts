@@ -139,7 +139,9 @@ describe("countRaised (via foldCoverage) — raise detection and detail cap", ()
 		writeCoverageReport({ "src/a.ts": 90, "src/b.ts": 80, "src/c.ts": 95 });
 		const out = foldCoverage({ cwd, interlinkedDir: join(cwd, ".interlinked"), sessionStartMs: 0, dryRun: false });
 		expect(out.changed).toBe(1);
-		expect(out.details).toEqual(["src/a.ts: lines 40→90"]);
+		expect(out.details).toHaveLength(1);
+		// Every risen metric is named (2026-09-16: all four metrics fold).
+		expect(out.details).toEqual(["src/a.ts: lines 40→90, branches 40→90"]);
 	});
 
 	// test-contract: invariant — the raise test is an OR across lines and
@@ -184,7 +186,8 @@ describe("countRaised (via foldCoverage) — raise detection and detail cap", ()
 		const out = foldCoverage({ cwd, interlinkedDir: join(cwd, ".interlinked"), sessionStartMs: 0, dryRun: false });
 		expect(out.changed).toBe(total);
 		expect(out.details.length).toBe(FOLD_DETAIL_CAP);
-		expect(out.details[0]).toBe("src/f0.ts: lines 10→90");
+		expect(out.details[0]).toContain("src/f0.ts: lines 10→90");
+		expect(out.details[0]).toBe("src/f0.ts: lines 10→90, branches 10→90");
 	});
 });
 

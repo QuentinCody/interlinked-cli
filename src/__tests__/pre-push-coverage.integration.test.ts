@@ -54,8 +54,15 @@ if (process.env.INTERLINKED_PRE_PUSH_COVERAGE_SCOPE && process.env.COVERAGE_OMIT
 fs.mkdirSync("coverage", { recursive: true });
 const entries = ${JSON.stringify(FILES)}.filter(path => !String(process.env.COVERAGE_OMIT || "").split(",").includes(path)).map(path => [path, {
     lines: { pct: process.env.COVERAGE_PARTIAL === "1" ? 0 : process.env.COVERAGE_REGRESSION === "1" && path === ${JSON.stringify(TARGET)} ? 40 : 90 },
-    branches: { pct: process.env.COVERAGE_PARTIAL === "1" ? 0 : 80 }
-}]);
+    branches: { pct: process.env.COVERAGE_PARTIAL === "1" ? 0 : 80 },
+    statements: { pct: process.env.COVERAGE_PARTIAL === "1" ? 0 : 90 },
+    functions: { pct: process.env.COVERAGE_PARTIAL === "1" ? 0 : 90 }
+}]).map(([path, entry]) => {
+    // COVERAGE_OMIT_METRIC drops one metric from every entry: the report is
+    // then UNMEASURED for that metric, which the pre-push gate must refuse.
+    if (process.env.COVERAGE_OMIT_METRIC) delete entry[process.env.COVERAGE_OMIT_METRIC];
+    return [path, entry];
+});
 fs.writeFileSync("coverage/coverage-summary.json", JSON.stringify(Object.fromEntries(entries)));
 `);
         // Keep the hook's real coverage CLI boundary; only the expensive CI gates
@@ -117,6 +124,15 @@ process.exitCode = result.status ?? 1;
         expect(result.output).toContain("TEST_GATE");
         expect(result.status).toBe(1);
         expect(result.output).toContain("Coverage is partial or unmeasured");
+    });
+
+    it("refuses a report that omits one metric (functions) — unmeasured evidence, never a 0", () => {
+        const sha = codeCommit();
+        report();
+        measurement = { ...measurement, COVERAGE_OMIT_METRIC: "functions" };
+        const result = run([{ sha, remote: "main", old: base }]);
+        expect(result.status).toBe(1);
+        expect(result.output).toContain("Coverage is unmeasured for changed baselined source");
     });
 
     it("accepts measured unchanged coverage and rejects a measured decrease", () => {
@@ -273,7 +289,7 @@ process.exitCode = result.status ?? 1;
         const bad = commit("uncovered additional function");
         // A newer working-tree report claims full coverage for both revisions.
         // It has no authority over either disposable export.
-        write("coverage/coverage-summary.json", JSON.stringify({ [TARGET]: { lines: { pct: 100 }, branches: { pct: 100 } } }));
+        write("coverage/coverage-summary.json", JSON.stringify({ [TARGET]: { lines: { pct: 100 }, branches: { pct: 100 }, statements: { pct: 100 }, functions: { pct: 100 } } }));
         const reportBefore = readFileSync(join(root, "coverage/coverage-summary.json"), "utf8");
         const cleanOlderRevision = run([{ sha: good, remote: "main", old: base }]);
         expect(cleanOlderRevision.status).toBe(0);

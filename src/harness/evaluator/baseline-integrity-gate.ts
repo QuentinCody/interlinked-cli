@@ -25,6 +25,7 @@ import { readDiskContent, safeJsonParse } from "./config-loosening-gate.js";
 import { detectFunctionComplexityBaseline, detectSiblingBaseline, isSiblingBaselinePath, ledgerCreationBlock } from "./function-complexity-baseline-gate.js";
 import { type BaselineKind, baselineKind } from "./baseline-kind.js";
 import { detectLintBaselineGaming } from "./lint-baseline-integrity.js";
+import { baselineKeyFor, COVERAGE_METRICS } from "../coverage-metric-names.js";
 
 export interface BaselineGamingFinding {
 	file: string;
@@ -400,7 +401,7 @@ function compareBaseline(input: BaselineComparison): BaselineGamingFinding[] {
     const { kind, filePath, beforeText, afterText, before, after, exists } = input;
 	switch (kind) {
 		case "coverage":
-			return detectRisingMetricMap(filePath, asObj(asObj(before).files), asObj(asObj(after).files), ["lines_pct", "branches_pct"], "coverage", exists);
+			return detectRisingMetricMap(filePath, asObj(asObj(before).files), asObj(asObj(after).files), COVERAGE_METRICS.map(baselineKeyFor), "coverage", exists);
 		case "mutation":
 			return detectRisingMetricMap(filePath, asObj(asObj(before).files), asObj(asObj(after).files), ["score", "killed"], "mutation", exists);
 		case "coverage-edit":

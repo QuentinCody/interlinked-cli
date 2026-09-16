@@ -45,6 +45,7 @@ import {
 	type UntestedFilesBaseline,
 } from "./tested-file-policy.js";
 import { mtimeOrZero } from "./mtime-or-zero.js";
+import { baselineKeyFor, COVERAGE_METRICS } from "./coverage-metric-names.js";
 
 /** Which water-line a fold moved. Stable — this is the audit-row contract. */
 export type FoldKind = "coverage" | "coverage_edit" | "untested_files" | "large_files";
@@ -127,10 +128,17 @@ function countRaised(
 	for (const [file, entry] of Object.entries(next.files)) {
 		const before = prior.files[file];
 		if (!before) continue; // a NEW file entry is not a "raise" — nothing to beat
-		if (entry.lines_pct > before.lines_pct || entry.branches_pct > before.branches_pct) {
+		const risen = COVERAGE_METRICS.filter((metric) => {
+			const key = baselineKeyFor(metric);
+			const after = entry[key];
+			const prior = before[key];
+			return after !== undefined && prior !== undefined && after > prior;
+		});
+		if (risen.length > 0) {
 			raised++;
 			if (details.length < FOLD_DETAIL_CAP) {
-				details.push(`${file}: lines ${before.lines_pct}→${entry.lines_pct}`);
+				const parts = risen.map((metric) => `${metric} ${before[baselineKeyFor(metric)]}→${entry[baselineKeyFor(metric)]}`);
+				details.push(`${file}: ${parts.join(", ")}`);
 			}
 		}
 	}

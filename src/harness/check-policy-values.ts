@@ -1,5 +1,6 @@
 import { wireAbsentOptional, wireArray, wireBoolean, wireLiteral, wireNumber, wireObject, wireRecord, wireString } from "../lib/value-validation.js";
 import type { CheckCondition, CheckPolicyDefaults, CheckPolicyEntry, CheckPolicyFile, CoverageRatchetConfig, MutationGateConfig } from "./check-policy.js";
+import { COVERAGE_METRICS } from "./coverage-metric-names.js";
 
 const isAction = wireLiteral("silent", "info", "warn_after", "warn_before", "ratchet", "ask", "block_preview", "auto_fix");
 const isScope = wireLiteral("diff", "touched_file", "project");
@@ -26,6 +27,7 @@ const isCoverage = wireObject<Partial<CoverageRatchetConfig>>({
 	enabled: wireAbsentOptional(wireBoolean),
 	per_file: wireAbsentOptional(wireBoolean),
 	allow_decrease_pct: wireAbsentOptional(wireNumber),
+	metrics: wireAbsentOptional(wireArray(wireLiteral(...COVERAGE_METRICS))),
 });
 const isMutation = wireObject<Partial<MutationGateConfig>>({
 	enabled: wireAbsentOptional(wireBoolean),

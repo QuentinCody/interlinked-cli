@@ -23,8 +23,10 @@
 // the whole report as UNMEASURED rather than REGRESSED — same stance
 // `per_edit_mutation` takes via `unavailable_behavior: "allow_unmeasured"`.
 
+import { baselineKeyFor, COVERAGE_METRICS } from "./coverage-metric-names.js";
 import {
 	type CoverageBaseline,
+	type CoverageBaselineFileEntry,
 	type CoverageSummary,
 	type FileCoverageEntry,
 	normalizePath,
@@ -91,14 +93,14 @@ function normalizeSummaryPaths(
 	return normalized;
 }
 
-/** A baseline entry counts as "well covered" if either metric clears the
- *  threshold — matching the real incident, where both lines and branches
- *  read as 0 together. */
-function isWellCoveredInBaseline(prior: { lines_pct: number; branches_pct: number }): boolean {
-	return (
-		prior.lines_pct >= PARTIAL_REPORT_WELL_COVERED_BASELINE_PCT ||
-		prior.branches_pct >= PARTIAL_REPORT_WELL_COVERED_BASELINE_PCT
-	);
+/** A baseline entry counts as "well covered" if ANY recorded metric clears
+ *  the threshold — matching the real incident, where every metric read as 0
+ *  together. Unrecorded optional metrics do not vote. */
+function isWellCoveredInBaseline(prior: CoverageBaselineFileEntry): boolean {
+	return COVERAGE_METRICS.some((metric) => {
+		const pct = prior[baselineKeyFor(metric)];
+		return pct !== undefined && pct >= PARTIAL_REPORT_WELL_COVERED_BASELINE_PCT;
+	});
 }
 
 /** A report entry counts as "zeroed" only when BOTH metrics read exactly 0 —

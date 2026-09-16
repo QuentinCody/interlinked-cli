@@ -876,6 +876,8 @@ Commands:
   score [options]                     Explained 0–100 quality burden with
                                       explicit evidence completeness; no model
                                       calls
+  diagnostics [options]               Explained verbosity and erosion census;
+                                      advisory evidence, no quality verdict
   gates [options]                     Show disabled gates, actual coverage
                                       executions, freshness and runtime
                                       percentiles
@@ -1000,6 +1002,40 @@ Options:
                     gaps
   --short           One-line score and evidence status
   -h, --help        display help for command
+```
+
+### metrics diagnostics
+
+```
+Usage: interlinked metrics diagnostics [options] [command]
+
+Explained verbosity and erosion census; advisory evidence, no quality verdict
+
+Options:
+  --cwd <path>                        Repository root
+  --json                              Machine-readable result
+  --short                             Compact summary
+  --profile <name>                    js-ts (default) or python; separate
+                                      counting contracts
+  -h, --help                          display help for command
+
+Commands:
+  compare [options] <before> <after>  Compare saved diagnostic reports with
+                                      scope and identity checks
+```
+
+### metrics diagnostics compare
+
+```
+Usage: interlinked metrics diagnostics compare [options] <before> <after>
+
+Compare saved diagnostic reports with scope and identity checks
+
+Options:
+  --cwd <path>  Repository root
+  --json        Machine-readable result
+  --short       Compact summary
+  -h, --help    display help for command
 ```
 
 ### metrics catalog
@@ -1241,6 +1277,409 @@ Options:
   -h, --help      display help for command
 ```
 
+## Simplify
+
+```
+Usage: interlinked simplify [options] [command]
+
+Simplification evidence, explicit recording, and Agent CI handoff preparation
+
+Options:
+  -h, --help        display help for command
+
+Commands:
+  scan [options]    Compose deterministic local simplification evidence for the
+                    repository
+  review [options]  Review changed, staged, or explicit git-range files using
+                    full repository context
+  audit [options]   Run the local deterministic repository audit; never invokes
+                    an LLM
+  status [options]  Show locally recorded simplification runs and common-corpus
+                    materialization
+  help [command]    display help for command
+```
+
+### simplify scan
+
+```
+Usage: interlinked simplify scan [options]
+
+Compose deterministic local simplification evidence for the repository
+
+Options:
+  --cwd <path>  Project root (default: current directory)
+  --record      Persist a local run receipt and upsert findings into the common
+                corpus
+  --json        Canonical machine-readable report with evidence and coverage
+                receipts
+  -h, --help    display help for command
+```
+
+### simplify review
+
+```
+Usage: interlinked simplify review [options]
+
+Review changed, staged, or explicit git-range files using full repository
+context
+
+Options:
+  --diagnostics <profile>  Include iterative diagnostic candidates: js-ts or
+                           python (explicit full census)
+  --changed                Review tracked and untracked worktree changes
+                           (default)
+  --staged                 Review only paths staged in the git index
+  --range <base..head>     Review paths changed by an explicit validated git
+                           range
+  --deep-handoff           Include a portable, not-submitted Agent CI
+                           deep-review request
+  --cwd <path>             Project root (default: current directory)
+  --record                 Persist a local run receipt and upsert findings into
+                           the common corpus
+  --json                   Canonical machine-readable report with evidence and
+                           coverage receipts
+  -h, --help               display help for command
+```
+
+### simplify audit
+
+```
+Usage: interlinked simplify audit [options]
+
+Run the local deterministic repository audit; never invokes an LLM
+
+Options:
+  --deep-handoff  Include a portable, not-submitted Agent CI deep-review
+                  request
+  --cwd <path>    Project root (default: current directory)
+  --record        Persist a local run receipt and upsert findings into the
+                  common corpus
+  --json          Canonical machine-readable report with evidence and coverage
+                  receipts
+  -h, --help      display help for command
+```
+
+### simplify status
+
+```
+Usage: interlinked simplify status [options]
+
+Show locally recorded simplification runs and common-corpus materialization
+
+Options:
+  --cwd <path>  Project root (default: current directory)
+  --json        Machine-readable local recorded-run view
+  -h, --help    display help for command
+```
+
+## Tests
+
+```
+Usage: interlinked tests [options] [command]
+
+Explain and run affected tests with bounded scheduling and snapshot validation
+
+Options:
+  -h, --help                      display help for command
+
+Commands:
+  contracts                       Inspect provenance or explicitly execute
+                                  portable behavioral contracts
+  review [options] [paths...]     Review changed source, behavioral obligations
+                                  and bounded simplification candidates without
+                                  running tests
+  readiness [options] <language>  Inspect test prerequisites without
+                                  installing; Python also reports approved
+                                  provisioning argv
+  suite [options] <language>      Run a bounded project suite: typescript,
+                                  javascript, python, rust or go
+  plan [options] [paths...]       Explain the union of affected tests without
+                                  running assertions
+  run [options] [paths...]        Run pending and affected tests; retain newer
+                                  edits for another run
+  status [options] [paths...]     Show pending requests and the last observed
+                                  test job
+  help [command]                  display help for command
+```
+
+### tests plan
+
+```
+Usage: interlinked tests plan [options] [paths...]
+
+Explain the union of affected tests without running assertions
+
+Options:
+  --cwd <path>       Project root
+  --base <ref>       Compare tracked changes against this revision (default:
+                     "HEAD")
+  --all              Run the full suite for reconciliation
+  --timeout <ms>     Total planning, admission and execution budget (default:
+                     "60000")
+  --workers <count>  Maximum workers, also bounded by available memory
+                     (default: "2")
+  --json             Machine-readable test plan or execution
+  -h, --help         display help for command
+```
+
+### tests run
+
+```
+Usage: interlinked tests run [options] [paths...]
+
+Run pending and affected tests; retain newer edits for another run
+
+Options:
+  --cwd <path>       Project root
+  --base <ref>       Compare tracked changes against this revision (default:
+                     "HEAD")
+  --all              Run the full suite for reconciliation
+  --timeout <ms>     Total planning, admission and execution budget (default:
+                     "60000")
+  --workers <count>  Maximum workers, also bounded by available memory
+                     (default: "2")
+  --json             Machine-readable test plan or execution
+  -h, --help         display help for command
+```
+
+### tests status
+
+```
+Usage: interlinked tests status [options] [paths...]
+
+Show pending requests and the last observed test job
+
+Options:
+  --cwd <path>       Project root
+  --base <ref>       Compare tracked changes against this revision (default:
+                     "HEAD")
+  --all              Run the full suite for reconciliation
+  --timeout <ms>     Total planning, admission and execution budget (default:
+                     "60000")
+  --workers <count>  Maximum workers, also bounded by available memory
+                     (default: "2")
+  --json             Machine-readable test plan or execution
+  -h, --help         display help for command
+```
+
+### tests suite
+
+```
+Usage: interlinked tests suite [options] <language>
+
+Run a bounded project suite: typescript, javascript, python, rust or go
+
+Options:
+  --cwd <path>    Project root
+  --timeout <ms>  Total admission and execution budget (default: "60000")
+  --json          Machine-readable execution evidence
+  -h, --help      display help for command
+```
+
+### tests readiness
+
+```
+Usage: interlinked tests readiness [options] <language>
+
+Inspect test prerequisites without installing; Python also reports approved
+provisioning argv
+
+Options:
+  --cwd <path>  Project root
+  --json        Machine-readable readiness and missing prerequisites
+  -h, --help    display help for command
+```
+
+### tests review
+
+```
+Usage: interlinked tests review [options] [paths...]
+
+Review changed source, behavioral obligations and bounded simplification
+candidates without running tests
+
+Options:
+  --cwd <path>  Project root
+  --base <ref>  Revision for automatic changed-file discovery (default: "HEAD")
+  --json        Machine-readable review scope and missing evidence
+  -h, --help    display help for command
+```
+
+### tests contracts
+
+```
+Usage: interlinked tests contracts [options] [command]
+
+Inspect provenance or explicitly execute portable behavioral contracts
+
+Options:
+  -h, --help                 display help for command
+
+Commands:
+  import [options] <source>  Print proposed cases from explicit json
+                             interlinked-contract fences; never execute
+  inspect [options]          Inspect provenance and configured acceptance
+                             without execution
+  run [options]              Execute declared runners and retain per-case
+                             receipts
+  help [command]             display help for command
+```
+
+### tests contracts import
+
+```
+Usage: interlinked tests contracts import [options] <source>
+
+Print proposed cases from explicit json interlinked-contract fences; never
+execute
+
+Options:
+  --cwd <path>  Project root
+  --json        Machine-readable proposed manifest
+  -h, --help    display help for command
+```
+
+### tests contracts inspect
+
+```
+Usage: interlinked tests contracts inspect [options]
+
+Inspect provenance and configured acceptance without execution
+
+Options:
+  --cwd <path>       Project root
+  --file <path>      Project-relative contract manifest (default:
+                     ".interlinked/behavioral-contracts.json")
+  --previous <path>  Prior manifest whose cases also run against current
+                     implementation
+  --timeout <ms>     Total admission and execution budget (default: "60000")
+  --json             Machine-readable contract evidence
+  -h, --help         display help for command
+```
+
+### tests contracts run
+
+```
+Usage: interlinked tests contracts run [options]
+
+Execute declared runners and retain per-case receipts
+
+Options:
+  --cwd <path>       Project root
+  --file <path>      Project-relative contract manifest (default:
+                     ".interlinked/behavioral-contracts.json")
+  --previous <path>  Prior manifest whose cases also run against current
+                     implementation
+  --timeout <ms>     Total admission and execution budget (default: "60000")
+  --json             Machine-readable contract evidence
+  -h, --help         display help for command
+```
+
+## Allowlist
+
+```
+Usage: interlinked allowlist [options] [command]
+
+Manage the supply-chain package allowlist (.interlinked/package-allowlist.json)
+
+Options:
+  -h, --help                               display help for command
+
+Commands:
+  add [options] <ecosystem> <package>      Approve a registry package (ecosystem: npm | pypi | cargo | rubygems | go)
+  remove [options] <ecosystem> <package>   Un-approve a previously-approved package
+  propose [options] <ecosystem> <package>  Record a dependency request without changing approval or installing it
+  list [options]                           Show approved packages and snapshots
+  snapshot [options]                       Hash current manifest+lockfile state, store as an approved snapshot
+  verify [options]                         Show manifest deps not on the allowlist
+  help [command]                           display help for command
+```
+
+### allowlist add
+
+```
+Usage: interlinked allowlist add [options] <ecosystem> <package>
+
+Approve a registry package (ecosystem: npm | pypi | cargo | rubygems | go)
+
+Options:
+  --by <name>              Approver name (required)
+  --reason <text>          Why this package is approved
+  --version-range <range>  Optional semver/PEP-440 range constraint
+  --force                  Override the admission screens (typosquat refusal,
+                           non-allowlisted license, open OSV advisories)
+  --cwd <path>             Project root (default: current directory)
+  -h, --help               display help for command
+```
+
+### allowlist propose
+
+```
+Usage: interlinked allowlist propose [options] <ecosystem> <package>
+
+Record a dependency request without changing approval or installing it
+
+Options:
+  --package-version <version>  Requested package version
+  --reason <text>              Why the dependency is needed
+  --cwd <path>                 Project root
+  --json                       Machine-readable proposal
+  -h, --help                   display help for command
+```
+
+### allowlist remove
+
+```
+Usage: interlinked allowlist remove [options] <ecosystem> <package>
+
+Un-approve a previously-approved package
+
+Options:
+  --cwd <path>  Project root
+  -h, --help    display help for command
+```
+
+### allowlist list
+
+```
+Usage: interlinked allowlist list [options]
+
+Show approved packages and snapshots
+
+Options:
+  --ecosystem <name>  Filter by ecosystem
+  --json              Machine-readable output
+  --cwd <path>        Project root
+  -h, --help          display help for command
+```
+
+### allowlist snapshot
+
+```
+Usage: interlinked allowlist snapshot [options]
+
+Hash current manifest+lockfile state, store as an approved snapshot
+
+Options:
+  --by <name>        Approver name (required)
+  --reason <text>    Why this state is approved
+  --lockfile <name>  Snapshot a specific file only (e.g. package-lock.json)
+  --cwd <path>       Project root
+  -h, --help         display help for command
+```
+
+### allowlist verify
+
+```
+Usage: interlinked allowlist verify [options]
+
+Show manifest deps not on the allowlist
+
+Options:
+  --cwd <path>  Project root
+  -h, --help    display help for command
+```
+
 ## Harness
 
 ```
@@ -1394,6 +1833,8 @@ Usage: interlinked harness coverage status [options]
 
 Options:
   --json      Machine-readable output
+  --progress  Read cached recovery progress without rescanning files or
+              returning receipt history
   -h, --help  display help for command
 ```
 

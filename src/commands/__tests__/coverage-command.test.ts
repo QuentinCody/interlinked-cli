@@ -91,6 +91,7 @@ describe("coverageCheckCommand — first run, no baseline (exact normal output)"
 		const expected = [
 			header("Coverage Ratchet"),
 			kvLine("Report", reportPath),
+			kvLine("Metrics gated", "lines, statements, functions, branches"),
 			kvLine("Files checked", "2"),
 			kvLine("New / Improved / Decreased", "2 / 0 / 0"),
 			"",
@@ -136,7 +137,11 @@ describe("coverageCheckCommand — --update-baseline (exact stderr banner + pers
 		);
 
 		const baseline = loadBaseline(join(cwd, ".interlinked"));
-		expect(baseline.files["src/foo.ts"]).toEqual({ lines_pct: 100, branches_pct: 100 });
+		const entry = baseline.files["src/foo.ts"];
+		expect(entry).toMatchObject({ lines_pct: 100, branches_pct: 100 });
+		// LCOV carries functions but no statements: the baseline records exactly
+		// what was measured — never a fake statements_pct.
+		expect(Object.keys(entry ?? {}).sort()).toEqual(["branches_pct", "functions_pct", "lines_pct"]);
 	});
 });
 
@@ -163,6 +168,7 @@ describe("coverageCheckCommand — regression findings (exact multi-line block)"
 		const expected = [
 			header("Coverage Ratchet"),
 			kvLine("Report", reportPath),
+			kvLine("Metrics gated", "lines, statements, functions, branches"),
 			kvLine("Files checked", "1"),
 			kvLine("New / Improved / Decreased", "0 / 0 / 1"),
 			"",
@@ -257,6 +263,7 @@ describe("coverageCheckCommand — partial report, normal mode (exact notice tex
 		const expected = [
 			header("Coverage Ratchet"),
 			kvLine("Report", reportPath),
+			kvLine("Metrics gated", "lines, statements, functions, branches"),
 			"",
 			c.yellow("  ⚠ Coverage report looks PARTIAL — findings suppressed, not measured."),
 			c.dim("    5/20 previously well-covered files now read as exactly 0%."),
@@ -298,6 +305,7 @@ describe("coverageCheckCommand — changedFiles filter (split + trim + Boolean)"
 			[
 				header("Coverage Ratchet"),
 				kvLine("Report", join(cwd, "coverage/lcov.info")),
+				kvLine("Metrics gated", "lines, statements, functions, branches"),
 				kvLine("Files checked", "1"),
 				kvLine("New / Improved / Decreased", "1 / 0 / 0"),
 				"",
@@ -353,7 +361,7 @@ describe("coverageBaselineCommand — exact output", () => {
 			"",
 			...sortedNames.map((file) => {
 				const m = nonNull(files[file]);
-				return `  ${file} ${c.dim(`lines=${m.lines_pct.toFixed(1)}% branches=${m.branches_pct.toFixed(1)}%`)}`;
+				return `  ${file} ${c.dim(`lines=${m.lines_pct.toFixed(1)}% branches=${m.branches_pct.toFixed(1)}%`)}`; // legacy two-metric entries render exactly as before
 			}),
 			c.dim("  … and 2 more"),
 		];
@@ -396,6 +404,31 @@ describe("loadMergedReport — per-entry skip guards (nullish entry, out-of-repo
 		expect(summary).toEqual({
 			"src/good.ts": { lines: { pct: 100 }, branches: { pct: 100 } },
 		});
+	});
+});
+
+describe("loadMergedReport — per-metric merge across formats", () => {
+	it("keeps istanbul `statements` for a file whose NEWER LCOV entry (no statements) wins lines/branches", () => {
+		mkdirSync(join(cwd, "coverage"), { recursive: true });
+		const istanbul = join(cwd, "coverage/coverage-summary.json");
+		writeFileSync(
+			istanbul,
+			JSON.stringify({
+				"src/foo.ts": { lines: { pct: 50 }, statements: { pct: 55 }, functions: { pct: 60 }, branches: { pct: 40 } },
+			}),
+		);
+		const lcov = writeLcov("src/foo.ts"); // lines 100, branches 100, functions — no statements
+		utimesSync(istanbul, new Date(1000), new Date(1000));
+		utimesSync(lcov, new Date(2000), new Date(2000));
+
+		const { summary, failedPath } = loadMergedReport([istanbul, lcov], cwd);
+		expect(failedPath).toBeNull();
+		const entry = summary["src/foo.ts"];
+		// Fresher LCOV wins the metrics it carries …
+		expect(entry?.lines?.pct).toBe(100);
+		expect(entry?.branches?.pct).toBe(100);
+		// … and the metric it cannot carry survives from the older istanbul report.
+		expect(entry?.statements?.pct).toBe(55);
 	});
 });
 

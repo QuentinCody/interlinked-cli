@@ -25,11 +25,14 @@ import { loadCheckPolicy } from "../harness/check-policy.js";
 import { coverageSetupGuidance, lcovReportPaths } from "../harness/coverage-adapters.js";
 import { loadCoverageFinalSummary } from "../harness/coverage-final-reader.js";
 import { canonicalToCoverageSummary, loadLcovFile } from "../harness/coverage-lcov.js";
+import { baselineKeyFor, COVERAGE_METRICS } from "../harness/coverage-metric-names.js";
 import {
+	type CoverageBaselineFileEntry,
 	type CoverageRatchetFinding,
 	type CoverageRatchetResult,
 	type CoverageSummary,
 	compareCoverage,
+	gatedCoverageMetrics,
 	loadBaseline,
 	loadCoverageSummary,
 	normalizePath,
@@ -114,9 +117,10 @@ function runCoverageCheck(
 		...(changedFiles !== undefined ? { changedFiles } : {}),
 	});
 
+	const gated = [...gatedCoverageMetrics(policy.coverage_ratchet)];
 	output(mode, buildJsonPayload(reportPath, result), {
-		json: () => buildJsonPayload(reportPath, result),
-		normal: () => renderNormal(reportPath, result, opts.strict === true),
+		json: () => ({ ...buildJsonPayload(reportPath, result), gated_metrics: gated }),
+		normal: () => renderNormal({ reportPath, result, strict: opts.strict === true, gated }),
 	});
 
 	// A partial/scoped report (see `detectPartialReport`) is UNMEASURED, not
@@ -178,9 +182,7 @@ export function coverageBaselineCommand(opts: { cwd?: string; json?: boolean }):
 			} else {
 				lines.push("");
 				for (const [file, metrics] of rows) {
-					lines.push(
-						`  ${file} ${c.dim(`lines=${metrics.lines_pct.toFixed(1)}% branches=${metrics.branches_pct.toFixed(1)}%`)}`,
-					);
+					lines.push(`  ${file} ${c.dim(formatBaselineMetrics(metrics))}`);
 				}
 				if (Object.keys(baseline.files).length > rows.length) {
 					lines.push(
@@ -196,6 +198,16 @@ export function coverageBaselineCommand(opts: { cwd?: string; json?: boolean }):
 // ===========================================
 // Helpers
 // ===========================================
+
+/** `lines=88.5% branches=70.3% statements=… functions=…` — every metric the
+ *  entry carries, in `COVERAGE_METRICS` order; unrecorded optional metrics
+ *  are omitted rather than shown as 0. Exported for the render pin test. */
+export function formatBaselineMetrics(entry: CoverageBaselineFileEntry): string {
+	return COVERAGE_METRICS.flatMap((metric) => {
+		const pct = entry[baselineKeyFor(metric)];
+		return pct === undefined ? [] : [`${metric}=${pct.toFixed(1)}%`];
+	}).join(" ");
+}
 
 /**
  * Load a coverage report into the ratchet's `CoverageSummary` shape, dispatching
@@ -285,7 +297,13 @@ export function loadMergedReport(
 		for (const [key, entry] of Object.entries(summary)) {
 			const normalized = normalizePath(key, cwd);
 			if (!normalized) continue;
-			merged[normalized] = entry;
+			// Merge PER METRIC, not per entry: the fresher report's metrics win,
+			// but a metric it does not carry survives from the older one. LCOV
+			// has no `statements`, so replacing the istanbul entry wholesale
+			// left every file's statements unmeasured whenever lcov.info was
+			// the newer file of the same run (found live 2026-09-16: 0/1903
+			// statements measured).
+			merged[normalized] = { ...merged[normalized], ...entry };
 		}
 	}
 	return { summary: merged, failedPath: null };
@@ -330,10 +348,21 @@ function renderPartialReportNotice(partialReport: PartialReportVerdict): string 
 	return lines.join("\n");
 }
 
-function renderNormal(reportPath: string, result: CoverageRatchetResult, strict: boolean): string {
+interface RenderNormalInput {
+	reportPath: string;
+	result: CoverageRatchetResult;
+	strict: boolean;
+	/** Metrics whose drops this run reported (`coverage_ratchet.metrics`, or all four). */
+	gated: readonly string[];
+}
+
+function renderNormal({ reportPath, result, strict, gated }: RenderNormalInput): string {
 	const lines: string[] = [];
 	lines.push(header("Coverage Ratchet"));
 	lines.push(kvLine("Report", reportPath));
+	// Name the gated metrics so a run that reports only lines/branches drops
+	// (a narrowed `coverage_ratchet.metrics`) cannot read as a four-metric pass.
+	lines.push(kvLine("Metrics gated", gated.join(", ")));
 
 	if (result.partialReport?.partial) {
 		lines.push("");

@@ -58,19 +58,33 @@ export function assertCoverageMembership(root, reportPath, baselinePath, changed
     const missing = [];
     let runtimeTargets = 0;
     for (const path of changedPaths) {
-        if (scope?.[path] === false) continue;
-        if (/(?:^|\/)(?:__tests__|tests?)(?:\/|$)|\.(?:test|spec)\.[cm]?[jt]sx?$|\.d\.[cm]?ts$/.test(path)) continue;
-        const absolute = resolve(root, path);
-        try { lstatSync(absolute); }
-        catch (error) { if (error.code === "ENOENT") continue; throw error; }
-        if (hasOnlyTypes(ts, path, readFileSync(absolute, "utf8"))) continue;
+        const verdict = classifyChangedPath({ ts, root, path, scope, baseline, entries });
+        if (verdict === "skip") continue;
         runtimeTargets++;
-        if (!Object.hasOwn(baseline.files, path)) continue;
-        const entry = entries.get(path);
-        if (![entry?.lines?.pct, entry?.branches?.pct].every(value => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100)) missing.push(path);
+        if (verdict === "unmeasured") missing.push(path);
     }
     if (missing.length) throw new Error(`Coverage is unmeasured for changed baselined source: ${missing.join(", ")}`);
     return runtimeTargets;
+}
+
+/** Mirrors `src/harness/coverage-metric-names.ts::COVERAGE_METRICS` — this
+ *  script runs from the git hook without the TS build, so it cannot import it.
+ *  json-summary always emits all four; an absent one is unmeasured, never 0. */
+const COVERAGE_METRICS = ["lines", "statements", "functions", "branches"];
+const TEST_OR_TYPES_PATH = /(?:^|\/)(?:__tests__|tests?)(?:\/|$)|\.(?:test|spec)\.[cm]?[jt]sx?$|\.d\.[cm]?ts$/;
+const isPct = value => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
+
+/** "skip" = not a runtime target; otherwise a runtime target that is
+ *  "measured" (every metric present, or not baselined yet) or "unmeasured". */
+function classifyChangedPath({ ts, root, path, scope, baseline, entries }) {
+    if (scope?.[path] === false || TEST_OR_TYPES_PATH.test(path)) return "skip";
+    const absolute = resolve(root, path);
+    try { lstatSync(absolute); }
+    catch (error) { if (error.code === "ENOENT") return "skip"; throw error; }
+    if (hasOnlyTypes(ts, path, readFileSync(absolute, "utf8"))) return "skip";
+    if (!Object.hasOwn(baseline.files, path)) return "measured";
+    const entry = entries.get(path);
+    return COVERAGE_METRICS.every(metric => isPct(entry?.[metric]?.pct)) ? "measured" : "unmeasured";
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

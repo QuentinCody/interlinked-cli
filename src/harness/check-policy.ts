@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { isCheckPolicyFile } from "./check-policy-values.js";
 import { CHECK_REGISTRY } from "./check-registry/registry.js";
 import type { CheckPhase, CheckRegistration } from "./check-registry/types.js";
+import type { CoverageMetricName } from "./coverage-metric-names.js";
 import { getPreset, isKnownMode, type ModeName } from "./modes.js";
 
 // ===========================================
@@ -70,6 +71,13 @@ export interface CoverageRatchetConfig {
 	per_file: boolean;
 	/** Allow per-file coverage to drop by at most this many percentage points. */
 	allow_decrease_pct: number;
+	/**
+	 * Which per-file metrics a drop is REPORTED for. Absent = every metric the
+	 * report carries (lines, statements, functions, branches). The baseline
+	 * still records and high-waters every metric regardless — this list only
+	 * narrows which drops become findings.
+	 */
+	metrics?: CoverageMetricName[];
 }
 
 export interface MutationGateConfig {

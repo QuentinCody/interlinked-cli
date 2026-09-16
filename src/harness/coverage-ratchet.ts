@@ -18,7 +18,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
 import type { CoverageRatchetConfig } from "./check-policy.js";
+import type { CoverageMetricName } from "./coverage-metric-names.js";
+import { compareFileEntry, type FileComparison, gatedCoverageMetrics } from "./coverage-ratchet-compare.js";
 import { isFileCoverageEntry } from "./coverage-report-values.js";
+
+// The per-metric comparison moved to `coverage-ratchet-compare.ts` (2026-09-16,
+// line cap); re-exported so existing importers keep one entry point.
+export { gatedCoverageMetrics, normalizeReportPct } from "./coverage-ratchet-compare.js";
 import { detectPartialReport, type PartialReportVerdict } from "./coverage-partial-report.js";
 
 export type { PartialReportVerdict } from "./coverage-partial-report.js";
@@ -59,20 +65,34 @@ export interface CoverageMetric {
 	total?: number;
 }
 
+/**
+ * One file's high-water marks. `lines_pct` / `branches_pct` are the legacy
+ * required pair (every baseline on disk carries them); `statements_pct` /
+ * `functions_pct` were added 2026-09-16 and are OPTIONAL so a pre-existing
+ * baseline still parses and a report that lacks a metric (LCOV has no
+ * statements) records nothing for it rather than a fake 0.
+ */
+export interface CoverageBaselineFileEntry {
+	lines_pct: number;
+	branches_pct: number;
+	statements_pct?: number;
+	functions_pct?: number;
+}
+
 /** Baseline stored on disk between runs. */
 export interface CoverageBaseline {
 	version: 1;
 	/** ISO timestamp of last successful ratchet. */
 	updated_at: string;
-	/** Per-repo-relative-path snapshot of { lines.pct, branches.pct }. */
-	files: Record<string, { lines_pct: number; branches_pct: number }>;
+	/** Per-repo-relative-path snapshot of each metric's `pct` (see {@link CoverageBaselineFileEntry}). */
+	files: Record<string, CoverageBaselineFileEntry>;
 }
 
 export interface CoverageRatchetFinding {
 	name: "coverage_decrease";
 	severity: "warning" | "error";
 	file: string;
-	metric: "lines" | "branches";
+	metric: CoverageMetricName;
 	baseline_pct: number;
 	current_pct: number;
 	delta_pct: number;
@@ -129,12 +149,17 @@ function parseCoverageBaseline(value: unknown): CoverageBaseline | null {
 	if (!isJsonObject(value)) return null;
 	if (value.version !== 1) return null;
 	if (!isJsonObject(value.files)) return null;
-	const files: Record<string, { lines_pct: number; branches_pct: number }> = {};
+	const files: Record<string, CoverageBaselineFileEntry> = {};
 	for (const [file, stats] of Object.entries(value.files)) {
 		if (!isJsonObject(stats)) continue;
-		const { lines_pct, branches_pct } = stats;
+		const { lines_pct, branches_pct, statements_pct, functions_pct } = stats;
 		if (typeof lines_pct !== "number" || typeof branches_pct !== "number") continue;
-		files[file] = { lines_pct, branches_pct };
+		const entry: CoverageBaselineFileEntry = { lines_pct, branches_pct };
+		// The two newer metrics are optional on disk (pre-2026-09-16 baselines
+		// lack them); a non-numeric value is dropped, not coerced.
+		if (typeof statements_pct === "number") entry.statements_pct = statements_pct;
+		if (typeof functions_pct === "number") entry.functions_pct = functions_pct;
+		files[file] = entry;
 	}
 	const updatedAt = typeof value.updated_at === "string" ? value.updated_at : new Date(0).toISOString();
 	return { version: 1, updated_at: updatedAt, files };
@@ -206,75 +231,14 @@ function partialReportResult(
 	};
 }
 
-/** Per-file comparison outcome — factored out of `compareCoverage`'s loop so
- *  the orchestrator stays a flat accumulation instead of nested branching. */
-interface FileComparison {
-	findings: CoverageRatchetFinding[];
-	nextEntry: { lines_pct: number; branches_pct: number };
-	isNew: boolean;
-	/** True when at least one metric dropped beyond tolerance (never double-
-	 *  counts a file with both lines AND branches decreasing). */
-	decreased: boolean;
-	improved: boolean;
-}
-
-function compareFileEntry(
-	relPath: string,
-	entry: FileCoverageEntry,
-	prior: { lines_pct: number; branches_pct: number } | undefined,
-	allowDecreasePct: number,
-): FileComparison {
-	// Normalize to the report's own resolution (see `normalizeReportPct`)
-	// before comparing OR persisting: the report can only ever state a
-	// value at 2dp, so anything finer is not a measurable regression.
-	const linesPct = normalizeReportPct(entry.lines?.pct ?? 0);
-	const branchesPct = normalizeReportPct(entry.branches?.pct ?? 0);
-
-	if (!prior) {
-		return {
-			findings: [],
-			nextEntry: { lines_pct: linesPct, branches_pct: branchesPct },
-			isNew: true,
-			decreased: false,
-			improved: false,
-		};
-	}
-
-	const priorLinesPct = normalizeReportPct(prior.lines_pct);
-	const priorBranchesPct = normalizeReportPct(prior.branches_pct);
-	const linesDelta = linesPct - priorLinesPct;
-	const branchesDelta = branchesPct - priorBranchesPct;
-
-	const findings: CoverageRatchetFinding[] = [];
-	if (linesDelta < -allowDecreasePct) {
-		findings.push(buildFinding("lines", relPath, priorLinesPct, linesPct, linesDelta));
-	}
-	if (branchesDelta < -allowDecreasePct) {
-		findings.push(buildFinding("branches", relPath, priorBranchesPct, branchesPct, branchesDelta));
-	}
-
-	return {
-		findings,
-		// Only advance the baseline for metrics that are flat or rising. A
-		// decreased metric stays at its prior (normalized) value so the next
-		// run still compares against the high-water mark.
-		nextEntry: {
-			lines_pct: linesDelta >= 0 ? linesPct : priorLinesPct,
-			branches_pct: branchesDelta >= 0 ? branchesPct : priorBranchesPct,
-		},
-		isNew: false,
-		decreased: findings.length > 0,
-		improved: linesDelta > 0 || branchesDelta > 0,
-	};
-}
-
 /** Per-entry context threaded through {@link processCoverageEntry} — grouped
- * so the helper takes one context object rather than four loose params. */
+ * so the helper takes one context object rather than five loose params. */
 interface CoverageEntryContext {
 	repoRoot: string;
 	changedSet: Set<string> | null;
 	baseline: CoverageBaseline;
 	allowDecreasePct: number;
+	gatedMetrics: ReadonlySet<CoverageMetricName>;
 }
 
 /**
@@ -294,7 +258,7 @@ function processCoverageEntry(
 	if (!relPath) return null;
 	if (ctx.changedSet && !ctx.changedSet.has(relPath)) return null;
 
-	const outcome = compareFileEntry(relPath, entry, ctx.baseline.files[relPath], ctx.allowDecreasePct);
+	const outcome = compareFileEntry(relPath, entry, ctx.baseline.files[relPath], ctx);
 	return { relPath, outcome };
 }
 
@@ -311,7 +275,7 @@ export function compareCoverage(
 	if (partialReport.partial) return partialReportResult(baseline, partialReport);
 
 	const findings: CoverageRatchetFinding[] = [];
-	const nextFiles: Record<string, { lines_pct: number; branches_pct: number }> = {
+	const nextFiles: Record<string, CoverageBaselineFileEntry> = {
 		...baseline.files,
 	};
 	const ctx: CoverageEntryContext = {
@@ -319,6 +283,7 @@ export function compareCoverage(
 		changedSet: changedFiles ? new Set(changedFiles) : null,
 		baseline,
 		allowDecreasePct: config.allow_decrease_pct,
+		gatedMetrics: gatedCoverageMetrics(config),
 	};
 
 	let filesChecked = 0;
@@ -352,57 +317,6 @@ export function compareCoverage(
 			files: nextFiles,
 		},
 		partialReport,
-	};
-}
-
-/**
- * The report's own resolution: 2 decimal places, FLOORED (not rounded).
- *
- * Verified empirically against the real coverage-summary.json in this repo:
- * for every entry carrying `covered`/`total` counts where floor and round
- * disagree (876 sampled cases), the reported `pct` matched
- * `Math.floor(exact * 100) / 100` in 876/876 cases and
- * `Math.round(exact * 100) / 100` in 0/876 — istanbul's json-summary reporter
- * floors so coverage never rounds up to a number it hasn't actually reached
- * (e.g. 99.996% never reads as "100%").
- *
- * A baseline captured via the LCOV path (`coverage-lcov.ts::canonicalToCoverageSummary`)
- * stores the EXACT `(covered / total) * 100` ratio at full float precision, with
- * no rounding at all. Comparing that directly against a floored report value
- * manufactures a perpetual sub-0.01pp "regression" that isn't measurable at the
- * report's own resolution — every file whose true ratio has more than 2
- * significant decimal digits shows a phantom drop forever. Flooring BOTH sides
- * to this resolution before comparing (and before persisting into the next
- * baseline) means the artifact cannot survive: a value that only ever differs
- * in digits past the report's own precision now compares equal.
- *
- * The tiny epsilon guards against float-representation error (e.g. an exact
- * 99.0 stored as 98.99999999999999) flooring into the wrong bucket; it is far
- * smaller than any real 2dp distinction.
- */
-export function normalizeReportPct(pct: number): number {
-	return Math.floor(pct * 100 + 1e-9) / 100;
-}
-
-function buildFinding(
-	metric: "lines" | "branches",
-	file: string,
-	baseline: number,
-	current: number,
-	delta: number,
-): CoverageRatchetFinding {
-	const roundedBaseline = Math.round(baseline * 10) / 10;
-	const roundedCurrent = Math.round(current * 10) / 10;
-	const roundedDelta = Math.round(delta * 10) / 10;
-	return {
-		name: "coverage_decrease",
-		severity: "warning",
-		file,
-		metric,
-		baseline_pct: roundedBaseline,
-		current_pct: roundedCurrent,
-		delta_pct: roundedDelta,
-		message: `${metric} coverage for ${file} dropped from ${roundedBaseline}% to ${roundedCurrent}% (${roundedDelta}%). Add tests before committing.`,
 	};
 }
 
