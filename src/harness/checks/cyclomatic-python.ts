@@ -125,6 +125,15 @@ function flattenBlocks(blocks: RadonBlock[], out: FunctionComplexityEntry[]): vo
 	}
 }
 
+/** Radon lists methods both under classes and as top-level blocks in the same file. */
+function uniqueFileFunctions(raw: unknown[]): FunctionComplexityEntry[] {
+	const entries: FunctionComplexityEntry[] = [];
+	flattenBlocks(raw.map(toRadonBlock).filter(isBlock), entries);
+	const unique = new Map<string, FunctionComplexityEntry>();
+	for (const entry of entries) unique.set(JSON.stringify(entry), entry);
+	return [...unique.values()];
+}
+
 /**
  * Parse radon's `cc --json` stdout into entries. radon keys the result by file
  * path; a file that failed to parse maps to `{ "error": "..." }` instead of an
@@ -149,7 +158,7 @@ export function parseRadonJson(stdout: string): FunctionComplexityEntry[] | null
 	for (const fileResult of fileEntries) {
 		if (Array.isArray(fileResult)) {
 			sawArray = true;
-			flattenBlocks(fileResult.map(toRadonBlock).filter(isBlock), out);
+			out.push(...uniqueFileFunctions(fileResult));
 		}
 		// A `{ error: ... }` map (parse failure) contributes nothing; if it's the
 		// ONLY entry, sawArray stays false and we treat the run as a failure below.

@@ -11,6 +11,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
 import type { PerFileCoverage } from "./coverage-final-reader.js";
+import { parsePythonFunctionCoverage } from "./coverage-python-functions.js";
 
 /** Coerce a coverage.py line array (`number[]`) into a Set, dropping non-ints. */
 function toLineSet(raw: unknown): Set<number> {
@@ -39,8 +40,9 @@ function relForKey(key: string, projectRoot: string): string | null {
  * Parse coverage.py's `coverage.json` into `Map<repoRelPath, PerFileCoverage>`.
  * Each entry carries per-line `coveredLines` / `uncoveredLines` (from
  * `executed_lines` / `missing_lines`) and an empty `functions` list — coverage.py
- * has no function ranges, and the per-edit gate reads the per-line fields for
- * these. Returns null when the JSON is absent, unparseable, or has no `files`
+ * invocation counts are not available. Native function regions are retained
+ * separately for CRAP, with explicit missingness for older reporters.
+ * Returns null when the JSON is absent, unparseable, or has no `files`
  * map — the runner turns that into `ok:false`.
  */
 export function parseCoveragePyJson(
@@ -67,6 +69,7 @@ export function parseCoveragePyJson(
 			filePath: rel,
 			mtime: 0,
 			functions: [],
+			pythonFunctions: parsePythonFunctionCoverage(entry.functions),
 			coveredLines: toLineSet(entry.executed_lines),
 			uncoveredLines: toLineSet(entry.missing_lines),
 		});
