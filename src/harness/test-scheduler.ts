@@ -12,12 +12,16 @@ import { executeTestPlan } from "./test-execution.js";
 import { completeTestRequests, hasTestRequest, pendingTests, requestTests, type PendingTests } from "./test-requests.js";
 import type { TestExecution } from "./test-run-receipt.js";
 import type { TestPlan } from "./test-plan.js";
+import { currentProcessSignal } from "./check-engine/process-cancellation.js";
+import { acquireProjectHeavyProcessLease } from "./project-heavy-process-lock.js";
 
 export interface ScheduleTestsOptions { root: string; paths: readonly string[]; timeoutMs: number; full?: boolean; maxWorkers?: number; maxTests?: number; waitForCapacity?: boolean; }
 interface ScheduledRequest extends ScheduleTestsOptions { requestId: string; }
 const active = new Map<string, Promise<TestExecution>>();
 
 async function acquireProject(options: ScheduleTestsOptions, deadline: number): Promise<(() => void) | null> {
+    const signal = currentProcessSignal();
+    if (signal) return options.waitForCapacity === false ? tryAcquireProjectHeavyProcessLease(options.root) : acquireProjectHeavyProcessLease(options.root, deadline, signal);
     while (Date.now() < deadline) {
         const release = tryAcquireProjectHeavyProcessLease(options.root);
         if (release) return release;
@@ -78,7 +82,7 @@ async function runPending(options: ScheduleTestsOptions, deadline: number): Prom
 }
 
 async function drain(options: ScheduledRequest): Promise<TestExecution> {
-    const deadline = Date.now() + options.timeoutMs, signal = new AbortController().signal;
+    const deadline = Date.now() + options.timeoutMs, signal = currentProcessSignal() ?? new AbortController().signal;
     const key = `interlinked-test-scheduler-v1\0${options.root}`, wait = options.waitForCapacity !== false;
     const owner = wait ? await acquireCrossProcessCompilerLease(key, deadline, signal) : tryAcquireCrossProcessCompilerLease(key);
     if (!owner) throw new Error("Test scheduler busy; request retained");

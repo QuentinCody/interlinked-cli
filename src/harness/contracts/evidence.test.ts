@@ -1,0 +1,30 @@
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, expect, it } from "vitest";
+import { contractDigest } from "./paths.js";
+import { inspectContracts, importContractExamples } from "./evidence.js";
+import { inspectCase } from "./evidence.js";
+const roots: string[] = [];
+afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+it("keeps matching citations proposed until the exact case digest is configured", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "contract-evidence-"))); roots.push(root);
+    mkdirSync(join(root, ".interlinked")); writeFileSync(join(root, "spec.md"), "Return the input unchanged.");
+    const row = { id: "echo", description: "echo", inputs: [], source: { kind: "example", path: "spec.md", sha256: contractDigest("Return the input unchanged."), quote: "input unchanged" }, runner: { kind: "process", argv: ["node", "-e", "console.log('hello')"] }, expect: { stdout: "hello\n" } };
+    writeFileSync(join(root, ".interlinked/behavioral-contracts.json"), JSON.stringify({ version: 1, cases: [row] }));
+    expect(inspectContracts(root).report.cases[0]).toMatchObject({ authority: "proposed", provenance: "matched", state: "not-run" });
+    writeFileSync(join(root, ".interlinked/contract-policy.json"), JSON.stringify({ version: 1, accepted: { [contractDigest(row)]: "API owner" } }));
+    expect(inspectContracts(root).report.cases[0]?.authority).toBe("configured");
+    writeFileSync(join(root, "spec.md"), "New requirement");
+    expect(inspectContracts(root).report.cases[0]?.provenance).toBe("stale");
+});
+it("imports only explicit JSON contract examples without executing them", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "contract-import-"))); roots.push(root);
+    const snippet = { id: "example", description: "public example", inputs: [], runner: { kind: "process", argv: ["false"] }, expect: { exitCode: 0 } };
+    writeFileSync(join(root, "spec.md"), '```bash\nexit 99\n```\n```json interlinked-contract\n' + JSON.stringify(snippet) + '\n```\n');
+    const result = importContractExamples(root, "spec.md");
+    expect(result.cases).toHaveLength(1);
+    expect(result.cases[0]?.source).toMatchObject({ kind: "example", path: "spec.md", quote: JSON.stringify(snippet) });
+    const row = result.cases[0]!;
+    expect(inspectCase(root, { ...row, expect: { exitCode: 1 } }, { version: 1, accepted: {} }).provenance).toBe("conflict");
+});
