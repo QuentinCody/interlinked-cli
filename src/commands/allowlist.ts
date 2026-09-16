@@ -24,6 +24,7 @@ import {
 	effectiveLicenseAllowlist,
 	hashLockfile,
 	loadAllowlist,
+    matchingPackageNames,
 	saveAllowlist,
 } from "../harness/package-allowlist.js";
 import type { Ecosystem } from "../harness/package-install-parser.js";
@@ -311,11 +312,12 @@ export function removeAllowlistCommand(
 		);
 	}
 	const al = loadAllowlist(opts.cwd);
-	if (!al.packages[ecosystem][pkg]) {
+    const aliases = matchingPackageNames(al, ecosystem, pkg);
+	if (aliases.length === 0) {
 		process.stdout.write(`no entry: ${ecosystem}:${pkg}\n`);
 		return;
 	}
-	delete al.packages[ecosystem][pkg];
+    for (const alias of aliases) delete al.packages[ecosystem][alias];
 	saveAllowlist(opts.cwd, al);
 	process.stdout.write(`removed: ${ecosystem}:${pkg}\n`);
 }

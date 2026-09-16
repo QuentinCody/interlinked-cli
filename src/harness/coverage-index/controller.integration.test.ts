@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { collectRepositoryInventory } from "../../lib/metrics/inventory.js";
 import { inventoryWithOverrides } from "../../lib/metrics/inventory-overrides.js";
 import { createCoverageOverlay } from "../coverage-overlay.js";
@@ -14,9 +14,11 @@ import { readAcceptedManifest } from "./store.js";
 import { loadEvidence } from "../../lib/metrics/evidence-store.js";
 import { collectCompositeScoreReport } from "../../lib/metrics/composite-report.js";
 import { copyVitestRuntime } from "./__tests__/fixtures/vitest-runtime.js";
+import * as runtimeInputs from "./runtime-inputs.js";
+import * as repositoryInventory from "../../lib/metrics/inventory.js";
 
 const roots: string[] = [];
-afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 function fixture(): string {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "coverage-index-integration-"))); roots.push(root);
     copyVitestRuntime(root);
@@ -28,6 +30,28 @@ function fixture(): string {
     writeFileSync(join(root, "b.test.ts"), 'import { expect, test } from "vitest"; import { other } from "./b"; test("other", () => expect(other()).toBe(3));');
     return root;
 }
+it("does no source or runtime census for promotion without pending candidates", async () => {
+    const root = fixture(), context = await coverageIndexContext(collectRepositoryInventory(root));
+    const capture = vi.spyOn(runtimeInputs, "captureCoverageRuntime");
+    const inventory = vi.spyOn(repositoryInventory, "collectRepositoryInventory");
+    expect(await promoteMatchingProposal(context)).toBe(false);
+    const pending = join(indexStore(root), "pending");
+    mkdirSync(pending, { recursive: true });
+    expect(await promoteMatchingProposal(context)).toBe(false);
+    writeFileSync(join(pending, "partial.tmp"), "unfinished");
+    expect(await promoteMatchingProposal(context)).toBe(false);
+    expect(capture).not.toHaveBeenCalled();
+    expect(inventory).not.toHaveBeenCalled();
+}, 30_000);
+
+it("reduces fresh status to three runtime captures when there are no proposals", async () => {
+    const root = fixture(), capture = vi.spyOn(runtimeInputs, "captureCoverageRuntime");
+    const context = await coverageIndexContext(collectRepositoryInventory(root));
+    expect(capture).toHaveBeenCalledTimes(2);
+    expect(await coverageIndexStatus(context)).toMatchObject({ present: false, valid: false });
+    expect(capture).toHaveBeenCalledTimes(3);
+}, 30_000);
+
 it("keeps a pure shard reusable when an unrelated opaque shard exists", async () => {
     const root = fixture();
     writeFileSync(join(root, "io.test.ts"), 'import {test,expect} from "vitest"; import {readFileSync} from "node:fs"; test("io",()=>expect(readFileSync("a.ts","utf8")).toContain("export"));');

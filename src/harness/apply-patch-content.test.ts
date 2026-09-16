@@ -104,9 +104,10 @@ describe("reconstructAfterContent", () => {
 		expect(reconstructAfterContent(section, "totally\ndifferent\nfile")).toBeNull();
 	});
 
-	it("fails open (null) on a pure insertion with no context", () => {
+	it("appends an unanchored insertion at EOF like native apply_patch", () => {
 		const section = update(["@@", "+just an insert with no anchor"]);
-		expect(reconstructAfterContent(section, "a\nb\nc")).toBeNull();
+		expect(reconstructAfterContent(section, "a\nb\nc")).toBe("a\nb\nc\njust an insert with no anchor\n");
+		expect(reconstructAfterContent(section, "a\nb\nc\n")).toBe("a\nb\nc\njust an insert with no anchor\n");
 	});
 
 	it("fails open (null) on an unknown line prefix", () => {

@@ -110,8 +110,7 @@ describe("safeReadFile — missing/unreadable files read as empty string, not a 
 			root,
 			CFG,
 		);
-		expect(targets).toHaveLength(1);
-		expect(nonNull(targets[0]).proposed).toBe("\nhello");
+		expect(targets).toHaveLength(0); // Missing Update sources are unmeasured.
 	});
 
 	it("an unreadable (directory-shadowed) file's before-content is truly empty (catch branch)", () => {
@@ -123,8 +122,7 @@ describe("safeReadFile — missing/unreadable files read as empty string, not a 
 			root,
 			CFG,
 		);
-		expect(targets).toHaveLength(1);
-		expect(nonNull(targets[0]).proposed).toBe("\nhello");
+		expect(targets).toHaveLength(0); // An unreadable source is not an empty baseline.
 	});
 });
 

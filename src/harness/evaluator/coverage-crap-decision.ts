@@ -8,8 +8,7 @@
 // failure; CRAP is the "complex AND under-covered" escalation. Computed from the
 // SAME overlay coverage run — no second suite spawn. Cyclomatic comes from the
 // per-language analyzer; the coverage fraction from the overlay's per-function
-// (JS/istanbul) or per-line (Python/coverage.py) data, intersected with each
-// function's body range.
+// (JS/istanbul) or native executable-line ownership (Python/coverage.py) data.
 //
 // Extracted from coverage-write-guard.ts to keep that module under the per-file
 // line cap. The guard injects its `loudDegrade` (fail-open) so this module stays
@@ -19,6 +18,7 @@ import type { FunctionComplexityEntry } from "../checks/cyclomatic.js";
 import { computeCyclomaticAst } from "../checks/cyclomatic-ast.js";
 import { computeCyclomaticPython } from "../checks/cyclomatic-python.js";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
+import { pythonFunctionCoverageIssue } from "../coverage-python-functions.js";
 import type { CoverageLanguage } from "../coverage-runner.js";
 import type { HarnessDecision } from "../types.js";
 import { type CrapViolation, crapViolationsPerFunction, crapViolationsPerLine } from "./crap-violations.js";
@@ -142,6 +142,10 @@ export function decideCrap(
 	}
 	const touched = all.filter((fn) => crapTouches(fn, input.editedLines));
 	if (touched.length === 0) return null;
+	if (input.cov.pythonFunctions) {
+		const issue = pythonFunctionCoverageIssue(touched, input.cov.pythonFunctions);
+		if (issue) return onDegrade(input.relPath, `Python CRAP not measured: ${issue}`);
+	}
 
 	const violations = hasPerLineData(input.cov)
 		? crapViolationsPerLine(touched, input.cov, input.threshold)

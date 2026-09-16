@@ -23,6 +23,13 @@ export interface PerEditCoverageConfig {
 	/** Master switch. Default: true (opt-out via local config). Short-circuits to allow when off. */
 	enabled: boolean;
 	/**
+	 * Operator-recorded rationale for `enabled: false`. The Stop-phase gate-reach
+	 * report stays loud about a disabled gate (reach is zero, not success) but
+	 * reads this — or the repo-wide `_note` convention — instead of asking the
+	 * operator to "record why it is off" on every Stop. Not read while enabled.
+	 */
+	disabled_reason?: string;
+	/**
 	 * What a coverage regression does:
 	 *   - "block": refuse the edit before the real write (strict TDD).
 	 *   - "warn":  loaded-but-non-blocking (the guard returns allow even when it

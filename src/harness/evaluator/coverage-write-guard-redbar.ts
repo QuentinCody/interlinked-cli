@@ -160,15 +160,10 @@ async function runRedBarSuites(
 			ranKeys.add(key);
 			const result = await runner.run({
 				projectRoot: overlay.overlayRoot,
+				runtimeRoot: projectRoot,
 				coverageDir: `${overlay.overlayRoot}/.interlinked/coverage`,
 			});
 			updateRuntimeEstimateMs(projectRoot, result.suiteMs, deps.clock);
-			if (!result.ok) {
-				return loudRunnerUnavailable(
-					{ projectRoot, relPath: anchor.relPath, language },
-					result.error ?? "coverage run failed",
-				);
-			}
 			if (result.testsPassed === false) {
 				return block(
 					language,
@@ -176,6 +171,9 @@ async function runRedBarSuites(
 					result.failingTests,
 					result.failingTestFiles,
 				);
+			}
+			if (!result.ok || result.testsPassed === null) {
+				return loudDegrade(anchor.relPath, result.error ?? "test execution evidence is incomplete");
 			}
 		}
 		return null;

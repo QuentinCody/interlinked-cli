@@ -117,7 +117,7 @@ describe("coverageTargetsFor — apply_patch (the finding-1 gap)", () => {
 			CFG,
 		);
 		expect(targets.map((t) => t.relPath)).toEqual(["src/new.ts"]);
-		expect(nonNull(targets[0]).proposed).toBe("export const x = 1;\nexport const y = 2;");
+		expect(nonNull(targets[0]).proposed).toBe("export const x = 1;\nexport const y = 2;\n");
 		expect(nonNull(targets[0]).editedLines).toEqual(new Set([1, 2]));
 	});
 

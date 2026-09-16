@@ -10,6 +10,7 @@
 
 import type { FunctionComplexityEntry } from "../checks/cyclomatic.js";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
+import { pythonFunctionCoverageIssue } from "../coverage-python-functions.js";
 import { newFailures, readSuiteBaseline } from "../suite-baseline.js";
 import type { HarnessDecision } from "../types.js";
 import {
@@ -55,6 +56,24 @@ interface ScanInput {
 	 *  repo's `interlinked caps set cyclomatic` cap honored at commit time, not
 	 *  just per-edit (finding 2026-06, round 8). */
 	cyclomaticCap?: number;
+	onUnmeasured?: (why: string) => void;
+}
+
+function unmeasuredScan(input: ScanInput, why: string): void {
+	if (input.onUnmeasured) input.onUnmeasured(why);
+	else loudDegrade(why);
+}
+
+function scanCrap(input: ScanInput, complexities: FunctionComplexityEntry[]): Violation | null {
+	if (!input.cov || !input.blockOnCrap) return null;
+	if (input.cov.pythonFunctions) {
+		const issue = pythonFunctionCoverageIssue(complexities, input.cov.pythonFunctions);
+		if (issue) {
+			unmeasuredScan(input, `Python CRAP not measured for ${input.source.relPath}: ${issue}`);
+			return null;
+		}
+	}
+	return crapViolation(input.source, complexities, input.cov, input.crapThreshold);
 }
 
 /**
@@ -65,7 +84,7 @@ interface ScanInput {
  * Coverage checks run whenever the file appears in the report.
  */
 export function scanFile(input: ScanInput): Violation[] {
-	const { source, cov, content, analyzer, crapThreshold, blockOnCrap, cyclomaticCap } = input;
+	const { source, cov, content, analyzer, cyclomaticCap } = input;
 	const violations: Violation[] = [];
 
 	// The cyclomatic + CRAP checks need a per-function analysis. An UNAVAILABLE
@@ -88,15 +107,13 @@ export function scanFile(input: ScanInput): Violation[] {
 	}
 
 	if (!complexities) {
-		loudDegrade(`no cyclomatic analysis for ${source.relPath} — CRAP / cyclomatic checks skipped`);
+		unmeasuredScan(input, `no cyclomatic analysis for ${source.relPath} — CRAP / cyclomatic checks skipped`);
 		return violations;
 	}
 	const cycViolation = cyclomaticViolation(source, complexities, cyclomaticCap);
 	if (cycViolation) violations.push(cycViolation);
-	if (cov && blockOnCrap) {
-		const crapV = crapViolation(source, complexities, cov, crapThreshold);
-		if (crapV) violations.push(crapV);
-	}
+	const crapV = scanCrap(input, complexities);
+	if (crapV) violations.push(crapV);
 
 	return violations;
 }

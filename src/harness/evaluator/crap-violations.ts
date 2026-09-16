@@ -16,6 +16,7 @@
 import { computeCrap, crapScore } from "../checks/crap.js";
 import type { FunctionComplexityEntry } from "../checks/cyclomatic.js";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
+import { pythonRegionFor } from "../coverage-python-functions.js";
 
 /** One CRAP violation for a function — drives the block message at both gates. */
 export interface CrapViolation {
@@ -65,25 +66,25 @@ export function crapViolationsPerFunction(
 	}));
 }
 
-/**
- * CRAP violations for the PER-LINE (Python/coverage.py) shape. coverage.py has no
- * function ranges, so the per-function fraction is the covered lines INSIDE each
- * analyzer-reported function body range over its executable lines
- * (covered + uncovered in range). A function with no executable lines in range is
- * skipped (no measurable coverage ⇒ not a CRAP signal). Scores via the REUSED
- * `crapScore`. Sorted worst-first for a stable message.
- */
+/** Native Python regions exclude nested bodies; other line adapters retain their range contract. */
+function functionLineCounts(fn: FunctionComplexityEntry, cov: PerFileCoverage): [number, number] {
+	if (cov.pythonFunctions) {
+		const region = pythonRegionFor(fn, cov.pythonFunctions);
+		return region ? [region.coveredLines.size, region.uncoveredLines.size] : [0, 0];
+	}
+	return [countInRange(cov.coveredLines ?? new Set(), fn.line, fn.endLine),
+		countInRange(cov.uncoveredLines ?? new Set(), fn.line, fn.endLine)];
+}
+
+/** Score measured executable lines. Callers surface attribution gaps before scoring. */
 export function crapViolationsPerLine(
 	complexities: FunctionComplexityEntry[],
 	cov: PerFileCoverage,
 	threshold: number,
 ): CrapViolation[] {
-	const covered = cov.coveredLines ?? new Set<number>();
-	const uncovered = cov.uncoveredLines ?? new Set<number>();
 	const violations: CrapViolation[] = [];
 	for (const fn of complexities) {
-		const inCovered = countInRange(covered, fn.line, fn.endLine);
-		const inUncovered = countInRange(uncovered, fn.line, fn.endLine);
+		const [inCovered, inUncovered] = functionLineCounts(fn, cov);
 		const executable = inCovered + inUncovered;
 		if (executable === 0) continue; // no measurable lines → no CRAP signal
 		const covPct = (inCovered / executable) * 100;

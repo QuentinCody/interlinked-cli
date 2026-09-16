@@ -52,16 +52,21 @@ export async function captureIndexRuntime(inventory: RepositoryInventory, change
 export function verifyIndexEnvironment(runtime: IndexRuntimeContext): void {
     if (captureVitestEnvironment().environmentHash !== runtime.environmentHash) throw new Error("Coverage runner environment changed; index unavailable");
 }
-export async function verifyOriginalRuntime(root: string, runtime: IndexRuntimeContext, excluded: readonly string[] = []): Promise<void> {
+export async function verifyOriginalRuntime(root: string, runtime: IndexRuntimeContext, excluded: readonly string[] = []): Promise<CoverageRuntimeSnapshot> {
     verifyIndexEnvironment(runtime);
     const original = await captureCoverageRuntime(root, { originalRoot: realpathSync(root), deadline: runtime.deadline, excluded });
     if (original.hash !== runtime.original.hash) throw new Error("Original coverage runtime inputs changed; index unavailable");
     verifyIndexEnvironment(runtime);
+    return original;
 }
 /** Runs before selection, after execution, and even when no test shard needs rerunning. */
 export async function verifyIndexRuntime(root: string, runtime: IndexRuntimeContext, workspace = runtime.workspaceRoot, excluded: readonly string[] = []): Promise<void> {
-    await verifyOriginalRuntime(root, runtime, realpathSync(root) === realpathSync(workspace) ? excluded : []);
-    const actual = await captureCoverageRuntime(workspace, { originalRoot: realpathSync(root), deadline: runtime.deadline, excluded });
+    const originalRoot = realpathSync(root), workspaceRoot = realpathSync(workspace);
+    const sameRoot = originalRoot === workspaceRoot;
+    const original = await verifyOriginalRuntime(originalRoot, runtime, sameRoot ? excluded : []);
+    // Reuse only within this validation boundary. The next validation still
+    // captures fresh bytes, including before/after discovery and execution.
+    const actual = sameRoot ? original : await captureCoverageRuntime(workspaceRoot, { originalRoot, deadline: runtime.deadline, excluded });
     if (actual.hash !== runtime.workspace.hash) throw new Error("Coverage workspace runtime inputs changed; index unavailable");
     verifyIndexEnvironment(runtime);
 }

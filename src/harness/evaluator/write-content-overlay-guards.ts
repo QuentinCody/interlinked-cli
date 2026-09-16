@@ -1,8 +1,10 @@
 import { nonNull } from "../../lib/non-null.js";
 import { buildAgentSafetyChecks, buildCheckInstructions } from "../check-registry/index.js";
 import {
+	_isJsTsExt as isBiomeOverlayTarget,
 	evaluateBiomeDiffOverlay,
 	evaluateTscDiffOverlay,
+	isTscOverlayTarget,
 	isTscFindingBlocking,
 	tscUnavailableWarning,
 } from "../diff-overlay.js";
@@ -73,7 +75,7 @@ function deferrableTransientGuard(
 
 export function biomeDiffOverlayGuard(state: WriteContentGuardState): HarnessDecision | null {
 	const { content, externalOverlays, filePath, rules, warnings } = state;
-	if (rules.quality_checks.biome_lint?.enabled === false) return null;
+	if (rules.quality_checks.biome_lint?.enabled === false || !isBiomeOverlayTarget(filePath)) return null;
 	if (!externalOverlays) {
 		warnings.push(
 			`[interlinked:biome-overlay] NOT CHECKED — external PreTool checks are deferred for ${filePath}; PostToolUse runs the on-disk check without blocking the daemon event loop.`,
@@ -110,7 +112,7 @@ export function biomeDiffOverlayGuard(state: WriteContentGuardState): HarnessDec
 
 export function tscDiffOverlayGuard(state: WriteContentGuardState): HarnessDecision | null {
 	const { content, event, externalOverlays, filePath, rules, toolName, warnings } = state;
-	if (rules.quality_checks.typescript?.enabled === false) return null;
+	if (rules.quality_checks.typescript?.enabled === false || !isTscOverlayTarget(filePath)) return null;
 	if (!externalOverlays) {
 		warnings.push(
 			tscUnavailableWarning(

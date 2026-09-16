@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { channel } from "node:diagnostics_channel";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -16,6 +17,26 @@ function fixture(): string {
     symlinkSync("dependency/index.js", join(root, "node_modules", "linked.js"));
     return root;
 }
+
+it("reports bounded scan cost for successful and failed captures without changing identities", async () => {
+    const root = fixture(), events: unknown[] = [];
+    const diagnostics = channel("interlinked.coverage-runtime-scan"), collect = (value: unknown) => { events.push(value); };
+    diagnostics.subscribe(collect);
+    try {
+        const options = { originalRoot: root, deadline: Date.now() + 10_000 };
+        const first = await captureCoverageRuntime(root, options);
+        const second = await captureCoverageRuntime(root, options);
+        expect(second.hash).toBe(first.hash);
+        await expect(captureCoverageRuntime(root, { ...options, deadline: Date.now() - 1 })).rejects.toThrow("deadline");
+        expect(events).toEqual([
+            expect.objectContaining({ root, completed: true, bytesRead: expect.any(Number), durationMs: expect.any(Number) }),
+            expect.objectContaining({ root, completed: true, bytesRead: expect.any(Number), durationMs: expect.any(Number) }),
+            expect.objectContaining({ root, completed: false, bytesRead: 0, entriesVisited: 0 }),
+        ]);
+        expect(JSON.stringify(events)).not.toContain("MODE=before");
+        expect(JSON.stringify(events).length).toBeLessThan(1500);
+    } finally { diagnostics.unsubscribe(collect); }
+});
 it("matches actual copied ignored inputs and linked dependencies, then detects either changing", async () => {
     const root = fixture(), options = { originalRoot: root, deadline: Date.now() + 10_000 };
     const before = await captureCoverageRuntime(root, options);

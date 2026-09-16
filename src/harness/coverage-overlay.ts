@@ -45,6 +45,7 @@ import {
 	symlinkSync,
 } from "node:fs";
 import { basename, join } from "node:path";
+import { isPythonVirtualEnvironment } from "./python-test-runtime.js";
 import { INTERLINKED_DIR, interlinkedPath } from "../lib/interlinked-path.js";
 import { removeInTree, writeFileInTree } from "./overlay-safe-write.js";
 
@@ -203,7 +204,7 @@ function makeMirrorFilter(
 ): (src: string, dst: string) => boolean {
 	return (src, dst) => {
 		const base = basename(src);
-		if (base === "node_modules") {
+		if (base === "node_modules" || isPythonVirtualEnvironment(src)) {
 			nestedNodeModules.push([src, dst]);
 			return false;
 		}

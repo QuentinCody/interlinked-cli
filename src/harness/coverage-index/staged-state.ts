@@ -22,12 +22,13 @@ export function readContributions(root: string, manifest: CoverageIndexManifest)
 }
 /** Lazy reconciliation only accepts a proposal whose complete input fingerprint is now on disk. */
 export async function promoteMatchingProposal(context: CoverageIndexContext): Promise<boolean> {
-    const actual = hashBytes(JSON.stringify(evidenceIdentity(collectRepositoryInventory(context.inventory.root))));
-    if (actual !== context.sourceFingerprint) return false;
-    await verifyOriginalRuntime(context.inventory.root, context.runtime);
     const directory = indexStore(context.inventory.root), pending = join(directory, "pending");
     if (!existsSync(pending)) return false;
     const proposals = readdirSync(pending).filter(path => /^[a-f0-9]{64}$/.test(path)).slice(-100);
+    if (!proposals.length) return false;
+    const actual = hashBytes(JSON.stringify(evidenceIdentity(collectRepositoryInventory(context.inventory.root))));
+    if (actual !== context.sourceFingerprint) return false;
+    await verifyOriginalRuntime(context.inventory.root, context.runtime);
     for (const path of proposals) {
         const candidate = readAcceptedManifest(join(pending, path));
         if (!candidate || candidate.sourceRevision !== context.fingerprint || !manifestValidity(candidate, context.validity).valid) continue;

@@ -12,7 +12,7 @@ export function recordCoverageExecution(ctx: GateContext, event: HarnessEvent, r
         const changes = new Map((ctx.overlayFiles ?? []).map(file => [file.relPath, file.delete ? null : file.content]));
         changes.set(ctx.relPath, ctx.proposed);
         const inventory = inventoryWithOverrides(collectRepositoryInventory(ctx.projectRoot), changes);
-        const measured = result.ok && result.perFile.has(ctx.relPath);
+        const measured = result.ok && result.testsPassed !== null && result.testEvidence?.complete !== false && result.perFile.has(ctx.relPath);
         appendMeasurementExecution(ctx.projectRoot, { schemaVersion: 1, gate: "per_edit_coverage", at: new Date(now).toISOString(), sessionId: event.session_id || "unattributed",
             inputFingerprint: hashBytes(JSON.stringify(evidenceIdentity(inventory, changes))), file: ctx.relPath, sourceHash: hashBytes(ctx.proposed), scope: ctx.selectedTests ?? [],
             elapsedMs: Math.max(0, Math.round(result.suiteMs)), outcome: measured ? "measured" : "unavailable",

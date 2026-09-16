@@ -32,6 +32,8 @@ vi.mock("../check-registry/index.js", () => ({
 }));
 
 vi.mock("../diff-overlay.js", async (importOriginal) => ({
+	_isJsTsExt: (await importOriginal<typeof import("../diff-overlay.js")>())._isJsTsExt,
+	isTscOverlayTarget: (await importOriginal<typeof import("../diff-overlay.js")>()).isTscOverlayTarget,
 	evaluateBiomeDiffOverlay: vi.fn(() => ({ newFindings: [], elapsedMs: 0, exceededBudget: false })),
 	evaluateTscDiffOverlay: vi.fn(() => ({
 		newFindings: [],

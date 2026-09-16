@@ -12,14 +12,11 @@
 // no runtime dependency back on per-function-metric-gate.ts — only type-only
 // imports, which avoids a value-level circular import between the two files.
 
-import { existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
 import type { ApplyPatchSection } from "../apply-patch-content.js";
-import { reconstructAfterContent } from "../apply-patch-content.js";
+import { projectPatchSection } from "../projected-file-changes.js";
 import type { FileGrandfather } from "../function-complexity-baseline.js";
 import { isCappableFile } from "../large-file-policy.js";
 import type { MetricAnalyzer, MetricGateSpec, MetricObserver, NamedMetricEntry } from "./per-function-metric-gate.js";
-import { safeReadFile } from "./safe-read-file.js";
 
 /** Outcome of reconstructing + metric-checking one apply_patch section against
  *  `spec`: `"skip"` when the section can't or shouldn't be analyzed under this
@@ -57,11 +54,9 @@ export function processApplyPatchSection<E extends NamedMetricEntry>(
 	// destination doesn't exist yet, so reading it yields "" and the update
 	// hunks fail to reconstruct → the gate would silently fail open on a move
 	// that introduced an over-cap function (finding 2026-06).
-	const readPath = section.fromPath ?? section.path;
-	const abs = isAbsolute(readPath) ? readPath : resolve(cwd, readPath);
-	const before = existsSync(abs) ? (safeReadFile(abs) ?? "") : "";
-	const after = reconstructAfterContent(section, before);
-	if (after === null) return "skip"; // can't reconstruct confidently → fail open for this file
+    const change = projectPatchSection(section, cwd);
+    if (!change || change.deleted) return "skip";
+    const { before, after } = change;
 	if (!isCappableFile({ filePath: section.path, content: after, root: cwd })) return "skip";
 	const gf = spec.grandfatherFor?.(cwd, section.path) ?? null;
 	const fileViolations = computeViolations(spec, before, after, section.path, analyzer, cap, observe, gf);

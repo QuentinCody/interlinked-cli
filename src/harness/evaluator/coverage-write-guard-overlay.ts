@@ -1,12 +1,9 @@
 // ===========================================
 // Per-edit coverage gate — overlay-run sub-decisions
 // ===========================================
-// Extracted VERBATIM from `runOverlayAndDecide` in coverage-write-guard.ts to
-// keep that function under the cyclomatic cap (finding: 6 fns, max CC 17 on
-// runOverlayAndDecide) and to keep the parent module under the per-file line
-// cap. No behavior changed — same text, same control flow, same order of
-// side effects (budget-estimate update still happens before the `!result.ok`
-// branch in the caller).
+// Shared overlay options and coverage decisions. Test outcomes and coverage
+// availability are independent: an observed regression survives a missing
+// coverage report, while unknown execution cannot earn a clean baseline.
 
 import { join } from "node:path";
 import { appendCrapTelemetry, type CrapTelemetryEntry } from "../crap-telemetry.js";
@@ -36,6 +33,7 @@ import type { CoverageWriteDeps, GateContext } from "./coverage-write-guard.js";
 export function buildOverlayRunOpts(ctx: GateContext, overlayRoot: string): CoverageRunOpts {
 	const runOpts: CoverageRunOpts = {
 		projectRoot: overlayRoot,
+		runtimeRoot: ctx.projectRoot,
 		coverageDir: `${overlayRoot}/.interlinked/coverage`,
 		timeoutMs: ctx.budgetMs, // per-edit BUDGET, not the 120s suite default → an over-budget run defers (below), never hangs the daemon 2min
 	};
@@ -72,8 +70,8 @@ export function handleFailedOverlayRun(
  * Red bar before coverage: a FAILING suite is a harder failure than a
  * coverage gap. Only when opted in (block_on_test_failure) AND the suite
  * definitively came back red (testsPassed === false). `null` (couldn't
- * determine) falls through to the coverage decision — fail-open on the
- * pass/fail axis, exactly like the coverage block's runner-unavailable path.
+ * determine) abstains here; the caller reports an unmeasured run before any
+ * coverage baseline can be earned.
  */
 export function checkRedBar(ctx: GateContext, result: CoverageRunResult): HarnessDecision | null {
 	if (!ctx.blockOnTestFailure || result.testsPassed !== false) return null;

@@ -18,11 +18,13 @@ import {
 } from "../manifest-dep-extract.js";
 import {
 	type Allowlist,
+    allowedPackageEntry,
 	effectiveLicenseAllowlist,
 	isPackageAllowed,
 } from "../package-allowlist.js";
 import type { Ecosystem, PackageSpec } from "../package-install-parser.js";
 import type { HarnessDecision } from "../types.js";
+import { manifestExactApprovalViolation, manifestPackageVersion } from "./manifest-package-version.js";
 
 interface ManifestEditInput {
 	filePath: string;
@@ -106,10 +108,11 @@ function decideAddedDep(
 ): HarnessDecision | null {
 	const spec = classifyManifestValue(delta.ecosystem, delta.name, delta.value);
 	const dec = isPackageAllowed(input.allowlist, delta.ecosystem, spec);
-	if (!dec.allowed) {
+	const refusal = dec.allowed ? manifestExactApprovalViolation(input.allowlist, delta.ecosystem, spec) : dec.reason;
+	if (refusal) {
 		return {
 			decision: "block",
-			reason: `[interlinked:supply-chain] ${manifestName} adds new ${delta.ecosystem} dependency "${delta.name}": ${dec.reason}`,
+			reason: `[interlinked:supply-chain] ${manifestName} adds new ${delta.ecosystem} dependency "${delta.name}": ${refusal}`,
 			rule_id: "supply-chain-manifest-add",
 			severity: "high",
 			category: "supply-chain",
@@ -130,7 +133,7 @@ function warnOnRecordedLicense(
 	spec: PackageSpec,
 ): void {
 	if (spec.kind !== "registry" || !input.warnings) return;
-	const entry = input.allowlist.packages[delta.ecosystem][spec.name];
+	const entry = allowedPackageEntry(input.allowlist, delta.ecosystem, spec.name);
 	if (entry?.license === undefined) return;
 	if (isLicenseAllowed(entry.license, effectiveLicenseAllowlist(input.allowlist))) return;
 	input.warnings.push(
@@ -331,9 +334,9 @@ function parsePoetryDepLine(line: string): { name: string; value: string } | nul
 /** `project.dependencies = [ "a==1", "b" ]` — a PEP 508 string array, a different shape from the Poetry tables. */
 function extractPep508ArrayDeps(content: string): Map<string, string> {
 	const deps = new Map<string, string>();
-	const arrayMatch = content.match(/(?:^|\n)\s*dependencies\s*=\s*\[([\s\S]*?)\]/);
+	const arrayMatch = content.match(/(?:^|\n)\s*dependencies\s*=\s*\[((?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\]"'])*)\]/);
 	if (!arrayMatch) return deps;
-	for (const it of nonNull(arrayMatch[1]).match(/"([^"]+)"/g) || []) {
+	for (const it of nonNull(arrayMatch[1]).match(/"(?:[^"\\]|\\.)*"|'[^']*'/g) || []) {
 		const inner = it.slice(1, -1);
 		const nm = inner.match(/^([A-Za-z0-9._-]+)/);
 		if (nm) deps.set(nonNull(nm[1]), inner);
@@ -459,7 +462,7 @@ function diffNuget(before: string, after: string): DepDelta[] {
 // Spec classification (mirrors package-install-parser's logic for
 // manifest-value strings, plus TOML inline-table and Ruby-hash shapes)
 // ============================================================
-function classifyManifestValue(_eco: Ecosystem, name: string, value: string): PackageSpec {
+function classifyManifestValue(ecosystem: Ecosystem, name: string, value: string): PackageSpec {
 	if (/^https?:\/\/.+\.(tgz|tar\.gz|whl|zip)(?:[?#].*)?$/i.test(value))
 		return { kind: "tarball_url", url: value };
 	if (
@@ -495,5 +498,5 @@ function classifyManifestValue(_eco: Ecosystem, name: string, value: string): Pa
 	if (registryInline) return { kind: "git_url", url: nonNull(registryInline[1]) };
 	const sourceInline = value.match(/\bsource\s*[:=]\s*['"]?([^'"\s,}]+)/);
 	if (sourceInline) return { kind: "git_url", url: nonNull(sourceInline[1]) };
-	return { kind: "registry", name };
+	return { kind: "registry", name, version: manifestPackageVersion(ecosystem, name, value) };
 }

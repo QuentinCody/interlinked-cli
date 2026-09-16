@@ -73,6 +73,32 @@ describe("createCoverageOverlay", () => {
 		overlay.cleanup();
 	});
 
+	it("links recognized Python environments while preserving ordinary venv-named source", () => {
+		mkdirSync(join(root, ".venv2", "bin"), { recursive: true });
+		writeFileSync(join(root, ".venv2", "bin", "python"), "fixture interpreter");
+		writeFileSync(join(root, ".venv2", "pyvenv.cfg"), "home = /usr/bin\n");
+		mkdirSync(join(root, "venv"));
+		writeFileSync(join(root, "venv", "source.py"), "answer = 42\n");
+		const overlay = createCoverageOverlay(root, "src/a.ts", "export const a = 2;\n");
+		try {
+			expect(lstatSync(join(overlay.overlayRoot, ".venv2")).isSymbolicLink()).toBe(true);
+			expect(realpathSync(join(overlay.overlayRoot, ".venv2"))).toBe(realpathSync(join(root, ".venv2")));
+			expect(lstatSync(join(overlay.overlayRoot, "venv")).isSymbolicLink()).toBe(false);
+			expect(readFileSync(join(overlay.overlayRoot, "venv", "source.py"), "utf8")).toContain("42");
+		} finally { overlay.cleanup(); }
+	});
+
+	it("proposed environment writes do not follow the linked directory into the real environment", () => {
+		mkdirSync(join(root, ".venv", "bin"), { recursive: true });
+		writeFileSync(join(root, ".venv", "bin", "python"), "original");
+		writeFileSync(join(root, ".venv", "pyvenv.cfg"), "home = /usr/bin\n");
+		const overlay = createCoverageOverlay(root, ".venv/bin/python", "proposal");
+		try {
+			expect(readFileSync(join(root, ".venv", "bin", "python"), "utf8")).toBe("original");
+			expect(readFileSync(join(overlay.overlayRoot, ".venv", "bin", "python"), "utf8")).toBe("proposal");
+		} finally { overlay.cleanup(); }
+	});
+
 	it("cleanup removes the overlay tree", () => {
 		const overlay = createCoverageOverlay(root, "src/a.ts", "export const a = 2;\n");
 		const overlayRoot = overlay.overlayRoot;

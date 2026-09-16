@@ -26,6 +26,22 @@ afterEach(() => {
 });
 
 describe("allowlistPath", () => {
+    it("matches Python distribution aliases without weakening version policy", () => {
+        addToAllowlist(workspace, "pypi", "My_Package.Name", { approved_by: "operator", version_range: "1.2.3" });
+        const al = loadAllowlist(workspace);
+        for (const name of ["my-package-name", "MY.package_name"]) {
+            expect(isPackageAllowed(al, "pypi", { kind: "registry", name, version: "1.2.3" }).allowed).toBe(true);
+            expect(isPackageAllowed(al, "pypi", { kind: "registry", name, version: "1.2.4" }).allowed).toBe(false);
+        }
+        expect(al.packages.pypi["my-package-name"]).toBeDefined();
+    });
+
+    it("rejects conflicting Python alias grants rather than choosing a permissive one", () => {
+        const al = loadAllowlist(workspace);
+        al.packages.pypi.pyyaml = { approved_by: "operator", approved_at: "today", version_range: "6.0.3" };
+        al.packages.pypi.PyYAML = { approved_by: "operator", approved_at: "today", version_range: "6.0.2" };
+        expect(isPackageAllowed(al, "pypi", { kind: "registry", name: "pyyaml", version: "6.0.3" }).allowed).toBe(false);
+    });
 	it("resolves to .interlinked/package-allowlist.json under cwd", () => {
 		expect(allowlistPath(workspace)).toBe(
 			join(workspace, ".interlinked", "package-allowlist.json"),

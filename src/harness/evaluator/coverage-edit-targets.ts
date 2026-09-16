@@ -17,7 +17,6 @@
 //     file named in `file_path` / `path`.
 
 import { readToolString } from "./tool-input-values.js";
-import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { nonNull } from "../../lib/non-null.js";
 import {
@@ -25,8 +24,8 @@ import {
 	extractApplyPatchRaw,
 	looksLikeApplyPatch,
 	parseApplyPatchSections,
-	reconstructAfterContent,
 } from "../apply-patch-content.js";
+import { projectPatchSection } from "../projected-file-changes.js";
 import type { OverlayFile } from "../coverage-overlay.js";
 import { type CoverageLanguage, coverageLanguageForPath } from "../coverage-runner.js";
 import { isTestPath } from "../coverage-test-selector.js";
@@ -75,14 +74,6 @@ function editedRelPath(event: HarnessEvent, projectRoot: string): string | null 
 
 /** Read a file's current content, or "" when missing/unreadable — the "before" an
  *  apply_patch section is reconstructed against. */
-function safeReadFile(abs: string): string {
-	try {
-		return existsSync(abs) ? readFileSync(abs, "utf-8") : "";
-	} catch {
-		return "";
-	}
-}
-
 /** Cap on the LCS diff's O(n·m) work; beyond it every after-line is treated as
  *  edited (the strict direction — this never UNDER-counts an inserted line). */
 const LCS_CELL_BUDGET = 4_000_000;
@@ -166,10 +157,10 @@ function targetForSection(
 	// Read before-content from the SOURCE path for a moved section (finding 2026-06:
 	// reading the destination, which doesn't exist yet, mis-reconstructed the move).
 	// Confined relPath only — a rejected traversal can't reach the filesystem here.
-	const beforeRel = moveSourceRel(section, projectRoot) ?? relPath;
-	const before = safeReadFile(resolve(projectRoot, beforeRel));
-	const after = reconstructAfterContent(section, before);
-	if (after === null) return null; // can't reconstruct confidently → fail open here
+    if (section.fromPath && moveSourceRel(section, projectRoot) === null) return null;
+    const change = projectPatchSection(section, projectRoot);
+    if (!change) return null;
+    const { before, after } = change;
 	if (!isCappableFile({ filePath: relPath, content: after })) return null;
 	return { relPath, language, proposed: after, editedLines: addedLineNumbers(before, after) };
 }
@@ -233,9 +224,10 @@ function applyPatchOverlayFiles(
 		// Read before-content from the SOURCE (pre-Move) path so a move's hunks
 		// reconstruct against the right contents (finding 2026-06).
 		const fromRel = moveSourceRel(section, projectRoot);
-		const after = reconstructAfterContent(section, safeReadFile(resolve(projectRoot, fromRel ?? relPath)));
-		if (after === null) continue;
-		files.push({ relPath, content: after });
+        if (section.fromPath && fromRel === null) continue;
+        const change = projectPatchSection(section, projectRoot);
+        if (!change) continue;
+		files.push({ relPath, content: change.after });
 		// A Move ALSO removes the source file from the overlay (it no longer exists).
 		if (fromRel !== null && fromRel !== relPath) {
 			files.push({ relPath: fromRel, content: "", delete: true });

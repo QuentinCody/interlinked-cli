@@ -208,12 +208,14 @@ async function runOverlayAndDecide(
 		if (execution.selectedTests === undefined) {
 			updateRuntimeEstimateMs(ctx.projectRoot, result.suiteMs, deps.clock);
 		}
+		const redBarDecision = checkRedBar(ctx, result);
+		if (redBarDecision) return redBarDecision;
 		if (!result.ok) {
 			return handleFailedOverlayRun(ctx, event, result);
 		}
-
-		const redBarDecision = checkRedBar(ctx, result);
-		if (redBarDecision) return redBarDecision;
+		if (result.testsPassed === null || result.testEvidence?.complete === false) {
+			return loudDegrade(ctx.relPath, "test execution evidence is incomplete");
+		}
 
 		const cov = result.perFile.get(ctx.relPath);
 		if (!cov) {

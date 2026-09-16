@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { channel } from "node:diagnostics_channel";
 import { closeSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, readlinkSync, realpathSync, readdirSync, statSync, type BigIntStats } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { setImmediate } from "node:timers/promises";
@@ -93,10 +94,19 @@ async function visit(path: string, logical: string, census: Census, ancestors: R
 /** Verify the actual mirror, including ignored files and linked dependency bytes. */
 export async function captureCoverageRuntime(root: string, options: CoverageRuntimeOptions): Promise<CoverageRuntimeSnapshot> {
     const census: Census = { options, entries: 0, bytes: 0, buffer: Buffer.allocUnsafe(64 * 1024), inputs: [] };
-    await visit(realpathSync(root), "", census, new Set());
-    const inputs = census.inputs.filter(input => input.path !== "");
-    remainingCoverageTime(options.deadline);
-    return { inputs, hash: hashBytes(JSON.stringify(inputs)) };
+    const started = performance.now();
+    let completed = false;
+    try {
+        await visit(realpathSync(root), "", census, new Set());
+        const inputs = census.inputs.filter(input => input.path !== "");
+        remainingCoverageTime(options.deadline);
+        const snapshot = { inputs, hash: hashBytes(JSON.stringify(inputs)) };
+        completed = true;
+        return snapshot;
+    } finally {
+        channel("interlinked.coverage-runtime-scan").publish({ root: resolve(root), completed,
+            bytesRead: census.bytes, entriesVisited: census.entries, durationMs: performance.now() - started });
+    }
 }
 /** Source/test bytes have shard identities; every other byte invalidates the whole index. */
 export function coverageRuntimeSupportHash(snapshot: CoverageRuntimeSnapshot, sourcePaths: ReadonlySet<string>): string {

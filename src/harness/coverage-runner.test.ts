@@ -1,11 +1,10 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __resetCoverageFinalCache } from "./coverage-final-reader.js";
 import {
 	COVERAGE_FINAL_FILENAME,
-	COVERAGE_PY_JSON_FILENAME,
 	type CoverageRunOpts,
 	coverageLanguageForPath,
 	coverageRunnerFor,
@@ -133,11 +132,17 @@ function coveragePyFixture(relPath: string, executed: number[], missing: number[
 	});
 }
 
-/** Write a coverage.py report into `coverageDir` for `relPath`. */
-function writePyReportFor(relPath: string, executed: number[], missing: number[]): void {
+function pythonReportPath(args: string[]): string {
+	const flag = args.find((arg) => arg.startsWith("--cov-report=json:"));
+	if (!flag) throw new Error("No Python JSON report requested");
+	return flag.slice("--cov-report=json:".length);
+}
+
+/** Write to the report actually requested by this invocation. */
+function writePyReportFor(args: string[], executed: number[], missing: number[]): void {
 	writeFileSync(
-		join(coverageDir, COVERAGE_PY_JSON_FILENAME),
-		coveragePyFixture(relPath, executed, missing),
+		pythonReportPath(args),
+		coveragePyFixture("src/foo.py", executed, missing),
 		"utf-8",
 	);
 }
@@ -458,8 +463,8 @@ describe("defaultSpawn (real process) — async spawn contract", () => {
 describe("PythonCoverageRunner", () => {
 	it("parses executed_lines + missing_lines into per-line PerFileCoverage", async () => {
 		// Stub spawn writes a coverage.py report (covered lines 1,2; missing line 3).
-		const spawn: SpawnFn = async () => {
-			writePyReportFor("src/foo.py", [1, 2], [3]);
+		const spawn: SpawnFn = async (_command, args) => {
+			writePyReportFor(args, [1, 2], [3]);
 			return okSpawnResult();
 		};
 		const runner = new PythonCoverageRunner(spawn);
@@ -469,15 +474,15 @@ describe("PythonCoverageRunner", () => {
 		expect(res.error).toBeUndefined();
 		const entry = res.perFile.get("src/foo.py");
 		expect(entry).toBeDefined();
-		// coverage.py has no function ranges → empty functions list.
+		// Python does not fabricate Istanbul invocation counts.
 		expect(entry?.functions).toEqual([]);
 		expect([...(entry?.coveredLines ?? [])].sort((a, b) => a - b)).toEqual([1, 2]);
 		expect([...(entry?.uncoveredLines ?? [])]).toEqual([3]);
 	});
 
 	it("a fully-covered file has zero uncovered lines (block would allow)", async () => {
-		const spawn: SpawnFn = async () => {
-			writePyReportFor("src/foo.py", [1, 2, 3], []);
+		const spawn: SpawnFn = async (_command, args) => {
+			writePyReportFor(args, [1, 2, 3], []);
 			return okSpawnResult();
 		};
 		const runner = new PythonCoverageRunner(spawn);
@@ -491,8 +496,8 @@ describe("PythonCoverageRunner", () => {
 
 	it("flags a file's missing_lines as uncovered (block would block that line)", async () => {
 		// Line 7 is executable but never executed — the per-edit gate keys on this.
-		const spawn: SpawnFn = async () => {
-			writePyReportFor("src/foo.py", [5, 6], [7]);
+		const spawn: SpawnFn = async (_command, args) => {
+			writePyReportFor(args, [5, 6], [7]);
 			return okSpawnResult();
 		};
 		const runner = new PythonCoverageRunner(spawn);
@@ -508,7 +513,7 @@ describe("PythonCoverageRunner", () => {
 		const { spawn } = makeStubSpawn({ delayMs: 20 });
 		const wrappingSpawn: SpawnFn = async (cmd, args, optsArg) => {
 			const r = await spawn(cmd, args, optsArg);
-			writePyReportFor("src/foo.py", [1], []);
+			writePyReportFor(args, [1], []);
 			return r;
 		};
 		const runner = new PythonCoverageRunner(wrappingSpawn);
@@ -542,8 +547,8 @@ describe("PythonCoverageRunner", () => {
 	});
 
 	it("returns ok:false when the report is present but unparseable JSON", async () => {
-		const spawn: SpawnFn = async () => {
-			writeFileSync(join(coverageDir, COVERAGE_PY_JSON_FILENAME), "{ not json", "utf-8");
+		const spawn: SpawnFn = async (_command, args) => {
+			writeFileSync(pythonReportPath(args), "{ not json", "utf-8");
 			return okSpawnResult();
 		};
 		const runner = new PythonCoverageRunner(spawn);
@@ -557,44 +562,43 @@ describe("PythonCoverageRunner", () => {
 		const { spawn, calls } = makeStubSpawn({});
 		const wrappingSpawn: SpawnFn = async (cmd, args, optsArg) => {
 			const r = await spawn(cmd, args, optsArg);
-			writePyReportFor("src/foo.py", [1], []);
+			writePyReportFor(args, [1], []);
 			return r;
 		};
 		const runner = new PythonCoverageRunner(wrappingSpawn);
 		await runner.run(baseOpts());
 
-		expect(calls[0]?.command).toBe("pytest");
-		expect(calls[0]?.args).toEqual(defaultPythonTestCommand(coverageDir).slice(1));
-		expect(calls[0]?.args.join(" ")).toContain(
-			`--cov-report=json:${join(coverageDir, COVERAGE_PY_JSON_FILENAME)}`,
-		);
+		expect(calls[0]?.args.slice(0, 2)).toEqual(["-B", "-c"]);
+		const reportDir = dirname(pythonReportPath(calls[0]!.args));
+		expect(dirname(reportDir)).toBe(coverageDir);
+		expect(calls[0]?.args.slice(6)).toEqual(defaultPythonTestCommand(reportDir).slice(1));
 	});
 });
 
 // ==================================================================
-// PythonCoverageRunner — testsPassed surfacing (exit-code → pass/fail/null)
+// PythonCoverageRunner — process status is not structured assertion evidence
 // ==================================================================
 
-describe("PythonCoverageRunner — testsPassed (red/green via exit code)", () => {
+describe("PythonCoverageRunner — missing assertion evidence", () => {
 	/** Run with a stub that emits a coverage.py report AND a chosen spawn outcome. */
 	async function runWithStatus(stub: SpawnOutcome) {
-		const spawn: SpawnFn = async () => {
-			writePyReportFor("src/foo.py", [1, 2], [3]);
+		const spawn: SpawnFn = async (_command, args) => {
+			writePyReportFor(args, [1, 2], [3]);
 			return stub;
 		};
 		return new PythonCoverageRunner(spawn).run(baseOpts());
 	}
 
-	it("exit 0 → testsPassed:true (green suite)", async () => {
+	it("exit 0 without case evidence does not establish a green suite", async () => {
 		const res = await runWithStatus(spawnResultWith(0));
 		expect(res.ok).toBe(true);
-		expect(res.testsPassed).toBe(true);
+		expect(res.testsPassed).toBeNull();
 	});
 
-	it("exit 1 → testsPassed:false (pytest test failures) with a parseable report", async () => {
+	it("exit 1 without case evidence does not invent failed assertions", async () => {
 		const res = await runWithStatus(spawnResultWith(1));
 		expect(res.ok).toBe(true);
-		expect(res.testsPassed).toBe(false);
+		expect(res.testsPassed).toBeNull();
 	});
 
 	it("exit 5 (no tests collected) → testsPassed:null (runner-level, not a red bar)", async () => {
@@ -612,24 +616,21 @@ describe("PythonCoverageRunner — testsPassed (red/green via exit code)", () =>
 		expect(res.testsPassed).toBeNull();
 	});
 
-	it("parses failing test ids from pytest FAILED summary lines on a red run", async () => {
+	it("text resembling pytest FAILED summaries cannot replace case evidence", async () => {
 		const stdout = [
 			"FAILED tests/test_a.py::test_one - AssertionError",
 			"FAILED tests/test_b.py::TestX::test_two",
 			"passed garbage",
 		].join("\n");
 		const res = await runWithStatus(spawnResultWith(1, { stdout }));
-		expect(res.testsPassed).toBe(false);
-		expect(res.failingTests).toEqual([
-			"tests/test_a.py::test_one",
-			"tests/test_b.py::TestX::test_two",
-		]);
+		expect(res.testsPassed).toBeNull();
+		expect(res.failingTests).toEqual([]);
 	});
 
-	it("parses pytest default-verbosity '<nodeid> FAILED' lines too", async () => {
+	it("default-verbosity FAILED text is not an attributed test failure", async () => {
 		const stdout = "tests/test_a.py::test_one FAILED                 [ 50%]\n";
 		const res = await runWithStatus(spawnResultWith(1, { stdout }));
-		expect(res.failingTests).toEqual(["tests/test_a.py::test_one"]);
+		expect(res.failingTests).toEqual([]);
 	});
 });
 
@@ -675,18 +676,16 @@ describe("CoverageRunner — selectedTests scoping", () => {
 		const { spawn, calls } = makeStubSpawn({});
 		const wrappingSpawn: SpawnFn = async (cmd, args, optsArg) => {
 			const r = await spawn(cmd, args, optsArg);
-			writePyReportFor("src/foo.py", [1], []);
+			writePyReportFor(args, [1], []);
 			return r;
 		};
 		const runner = new PythonCoverageRunner(wrappingSpawn);
 		await runner.run({ ...baseOpts(), selectedTests: ["tests/test_a.py"] });
 
-		expect(calls[0]?.command).toBe("pytest");
-		// `pytest <paths…> --cov …` — paths immediately follow the verb.
-		expect(calls[0]?.args.slice(0, 2)).toEqual(["tests/test_a.py", "--cov"]);
-		expect(calls[0]?.args.join(" ")).toContain(
-			`--cov-report=json:${join(coverageDir, COVERAGE_PY_JSON_FILENAME)}`,
-		);
+		expect(calls[0]?.args.slice(0, 2)).toEqual(["-B", "-c"]);
+		// Interpreter plugin arguments precede the actual pytest selection.
+		expect(calls[0]?.args.slice(6, 8)).toEqual(["tests/test_a.py", "--cov"]);
+		expect(dirname(dirname(pythonReportPath(calls[0]!.args)))).toBe(coverageDir);
 	});
 
 	it("an explicit testCommand wins over selectedTests (caller owns the argv)", async () => {

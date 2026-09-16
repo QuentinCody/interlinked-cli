@@ -12,7 +12,7 @@
 
 import { isAbsolute, resolve } from "node:path";
 import type { PerFileCoverage } from "../coverage-final-reader.js";
-import type { CoverageLanguage, CoverageRunner } from "../coverage-runner.js";
+import type { CoverageLanguage, CoverageRunner, CoverageRunResult } from "../coverage-runner.js";
 import { maxCyclomaticFor } from "../metric-caps.js";
 import type { HarnessDecision } from "../types.js";
 import type { GitChangedFilesFn } from "./commit-gate-changes.js";
@@ -123,6 +123,14 @@ interface SuiteOutcome {
 	degradeReason: string | null;
 }
 
+function incompleteMeasurement(result: CoverageRunResult, language: CoverageLanguage): string | null {
+	if (!result.ok) return result.error ?? `coverage run failed for ${language}`;
+	if (result.testsPassed === null || result.testEvidence?.complete === false) {
+		return `test execution evidence is incomplete for ${language}`;
+	}
+	return null;
+}
+
 /**
  * Run the full suite once per distinct changed-source language and merge the
  * per-file coverage maps. A runner that is missing or could not measure sets
@@ -152,17 +160,16 @@ async function runSuites(ctx: GateContext, deps: CommitGateDeps): Promise<SuiteO
 		ranKeys.add(key);
 		const result = await runner.run({
 			projectRoot: ctx.projectRoot,
+			runtimeRoot: ctx.ledgerRoot ?? ctx.projectRoot,
 			coverageDir: `${ctx.projectRoot}/.interlinked/commit-gate-coverage`,
 			timeoutMs: COMMIT_RUN_TIMEOUT_MS,
 		});
-		if (!result.ok) {
-			const why = result.error ?? `coverage run failed for ${language}`;
-			return { perFile, failingTests, anyRed, degradeReason: why };
-		}
 		if (result.testsPassed === false) {
 			anyRed = true;
 			failingTests.push(...(result.failingTests ?? []));
 		}
+		const degradeReason = incompleteMeasurement(result, language);
+		if (degradeReason) return { perFile, failingTests, anyRed, degradeReason };
 		for (const [k, v] of result.perFile) perFile.set(k, v);
 	}
 	return { perFile, failingTests, anyRed, degradeReason: null };
@@ -173,8 +180,9 @@ function collectViolations(
 	ctx: GateContext,
 	perFile: Map<string, PerFileCoverage>,
 	deps: CommitGateDeps,
-): Violation[] {
+): { violations: Violation[]; unmeasured: string[] } {
 	const violations: Violation[] = [];
+	const unmeasured: string[] = [];
 	// EFFECTIVE per-repo cyclomatic cap (metric-caps.json override → shipped
 	// default). Resolve against the REAL repo root, NOT `ctx.projectRoot` (which
 	// may be a materialized index snapshot whose tree omits `.interlinked/`):
@@ -188,7 +196,10 @@ function collectViolations(
 			? source.relPath
 			: resolve(ctx.projectRoot, source.relPath);
 		const content = deps.readFile(abs);
-		if (content === null) continue; // raced deletion — skip
+		if (content === null) {
+			unmeasured.push(`could not read changed source ${source.relPath}`);
+			continue;
+		}
 		violations.push(
 			...scanFile({
 				source,
@@ -198,10 +209,11 @@ function collectViolations(
 				crapThreshold: ctx.crapThreshold,
 				blockOnCrap: ctx.blockOnCrap,
 				cyclomaticCap,
+				onUnmeasured: (why) => unmeasured.push(why),
 			}),
 		);
 	}
-	return violations;
+	return { violations, unmeasured };
 }
 
 /**
@@ -238,7 +250,6 @@ export async function runSuiteAndScan(
 	deps: CommitGateDeps,
 ): Promise<HarnessDecision | null> {
 	const outcome = await runSuites(ctx, deps);
-	if (outcome.degradeReason !== null) return loudDegrade(outcome.degradeReason);
 
 	// Red bar first — a failing suite is a harder failure than a coverage gap.
 	// Only when opted in (`block_on_test_failure`, the same flag the per-edit gate
@@ -246,9 +257,12 @@ export async function runSuiteAndScan(
 	// the clean-pass discharge below is withheld.
 	const redDecision = decideRedBarOrWarn(ctx, outcome);
 	if (redDecision) return redDecision;
+	if (outcome.degradeReason !== null) return loudDegrade(outcome.degradeReason);
 
-	const violations = collectViolations(ctx, outcome.perFile, deps);
+	const { violations, unmeasured } = collectViolations(ctx, outcome.perFile, deps);
+	ctx.warnings.push(...unmeasured.map((why) => `[interlinked:commit-gate] NOT CHECKED: ${why}; deferred obligations remain open.`));
 	if (violations.length > 0) return blockForViolations(violations, ctx.warnings);
+	if (unmeasured.length > 0) return { decision: "allow", warnings: ctx.warnings };
 
 	// CLEAN: the suite RAN (not degraded), came back GREEN, and every gated source
 	// PASSED → discharge each source's deferred coverage obligation so the Stop

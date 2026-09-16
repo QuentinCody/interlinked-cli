@@ -374,6 +374,19 @@ describe("default config — all gates are ON (enforce by default unless opted o
 });
 
 describe("checkCoverageWrite — red-bar (block_on_test_failure)", () => {
+	it("preserves a Python test failure when the coverage report is missing", async () => {
+		const result = pyCoverageResult("module.py", [], [], 100, {
+			ok: false, testsPassed: false, failingTests: ["test_module.py::test_behavior"],
+			error: "coverage report missing",
+		});
+		const decision = await checkCoverageWrite(
+			writeEvent("module.py", "def value():\n    return 2\n"),
+			rules({ languages: ["python"], block_on_test_failure: true }),
+			deps(stubRunner(result).runner),
+		);
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("test_module.py::test_behavior");
+	});
 	const GREEN_COVERED = (relPath: string): CoverageRunResult =>
 		coverageResult(relPath, [{ name: "f", line: 1, endLine: 3, hits: 5, statement_pct: 100 }]);
 
@@ -474,8 +487,7 @@ describe("checkCoverageWrite — red-bar (block_on_test_failure)", () => {
 	});
 
 	it("ON + testsPassed:null (runner unavailable / indeterminate) → fail-open (no red-bar block)", async () => {
-		// testsPassed null on an ok report with a covered function → the red bar
-		// abstains (fail-open on pass/fail) and the coverage path allows.
+		// Unknown execution must not earn a clean coverage baseline.
 		const result = coverageResult(
 			"src/a.ts",
 			[{ name: "f", line: 1, endLine: 3, hits: 5, statement_pct: 100 }],
@@ -487,7 +499,9 @@ describe("checkCoverageWrite — red-bar (block_on_test_failure)", () => {
 			rules({ block_on_test_failure: true }),
 			deps(stubRunner(result).runner),
 		);
-		expect(decision).toBeNull();
+		expect(decision?.decision).toBe("allow");
+		expect(decision?.warnings?.join(" ")).toContain("test execution evidence is incomplete");
+		expect(readFileCoverageBaseline(root, "src/a.ts")).toBeNull();
 	});
 
 	it("ON + a FAILED coverage run (ok:false) → fail-loud ALLOW with the warning, never a red-bar block", async () => {

@@ -63,7 +63,7 @@ describe("registerSupplyChainCommands — structure", () => {
 		const allowlist = program.commands.find((c) => c.name() === "allowlist");
 		if (!allowlist) throw new Error("allowlist not registered");
 		expect(allowlist.commands.map((c) => c.name()).sort()).toEqual(
-			["add", "list", "remove", "snapshot", "verify"].sort(),
+			["add", "list", "propose", "remove", "snapshot", "verify"].sort(),
 		);
 	});
 
@@ -83,6 +83,7 @@ describe("registerSupplyChainCommands — structure", () => {
 		expect(optsFor("list")).toEqual(["--cwd", "--ecosystem", "--json"].sort());
 		expect(optsFor("snapshot")).toEqual(["--by", "--cwd", "--lockfile", "--reason"].sort());
 		expect(optsFor("verify")).toEqual(["--cwd"]);
+        expect(optsFor("propose")).toEqual(["--cwd", "--json", "--package-version", "--reason"]);
 	});
 });
 

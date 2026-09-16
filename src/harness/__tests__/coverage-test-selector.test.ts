@@ -100,14 +100,26 @@ describe("selectAffectedTests — positive (test dependents found)", () => {
 		expect(selected).toEqual(["src/m.test.ts"]);
 	});
 
-	it("finds a Python companion (test_*.py) and a *_test.go dependent", () => {
+	it("does not treat a populated graph as complete evidence for Python selection", () => {
 		const view = stubView({
 			[abs("src/m.py")]: [abs("tests/test_m.py"), abs("src/m_helper.py")],
 			[abs("src/m_helper.py")]: [abs("pkg/m_test.go")],
 		});
 		const selected = selectAffectedTests({ editedRelPath: "src/m.py", projectRoot: root, depView: view });
-		expect(selected).toEqual(["pkg/m_test.go", "tests/test_m.py"]);
+		expect(selected).toBeNull();
 	});
+    it("falls back to the full Python suite despite an on-disk or co-created companion", () => {
+        mkdirSync(join(root, "src"), { recursive: true });
+        writeFileSync(join(root, "src", "test_m.py"), "from m import behavior\n");
+        const selected = selectAffectedTests({ editedRelPath: "src/m.py", projectRoot: root,
+            depView: stubView({ [abs("src/m.py")]: [] }),
+            overlaySections: [{ relPath: "tests/test_m.py", content: "from m import behavior\n" }] });
+        expect(selected).toBeNull();
+    });
+    it("does not confuse an empty Python graph with proof that no tests exist", () => {
+        expect(selectAffectedTests({ editedRelPath: "src/m.py", projectRoot: root,
+            depView: stubView({ [abs("src/m.py")]: [] }) })).toBeNull();
+    });
 });
 
 // ---------------------------------------------------------------------------

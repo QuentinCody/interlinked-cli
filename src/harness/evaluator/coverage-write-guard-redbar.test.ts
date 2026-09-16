@@ -121,6 +121,20 @@ function deps(overrides?: Partial<CoverageWriteDeps>): CoverageWriteDeps {
 // ---------------------------------------------------------------------------
 
 describe("decideForDeletionOnly", () => {
+	it("keeps a deletion regression red without coverage and uses the workspace runtime", async () => {
+		let runtimeRoot: string | undefined;
+		const runner: CoverageRunner = { run: async (opts) => {
+			runtimeRoot = opts.runtimeRoot;
+			return { ...redResult(["test_import.py::test_removed_module"]), ok: false };
+		} };
+		const result = await decideForDeletionOnly(event(),
+			cfg({ languages: ["python"], block_on_test_failure: true }),
+			deps({ runnerFor: () => runner }),
+			plan([{ relPath: "module.py", content: "", delete: true }]), root);
+		expect(result?.decision).toBe("block");
+		expect(result?.reason).toContain("test_import.py::test_removed_module");
+		expect(runtimeRoot).toBe(root);
+	});
 	it("is a no-op when the patch deletes nothing gated (runner never called)", async () => {
 		const p = plan([{ relPath: "src/a.ts", content: "x", delete: false }]);
 		const { runner, calls } = runnerFor("vitest", greenResult());

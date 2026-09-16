@@ -221,6 +221,9 @@ function expandDependents(
  */
 export function selectAffectedTests(input: SelectAffectedTestsInput): string[] | null {
 	const { editedRelPath, projectRoot, depView } = input;
+    // Python imports, dynamic loading and fixtures are not a complete part of
+    // this dependency view. Naming-convention companions cannot prove scope.
+    if (/\.pyi?$/i.test(editedRelPath)) return null;
 	const overlaySections = input.overlaySections ?? [];
 	const editedAbs = resolve(projectRoot, editedRelPath);
 

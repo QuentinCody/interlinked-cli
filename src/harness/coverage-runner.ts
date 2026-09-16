@@ -57,9 +57,9 @@ import {
 	defaultPythonTestCommand,
 } from "./coverage-runner-commands.js";
 import { parseCoveragePyJson } from "./coverage-runner-coverage-py.js";
+import { pythonCoverageInvocation, type TestExecutionEvidence, withPytestEvidence } from "./pytest-case-evidence.js";
+import { pythonCoverageWorkspace, type PythonCoverageWorkspace } from "./python-coverage-workspace.js";
 import {
-	parsePytestFailingTestFiles,
-	parsePytestFailingTests,
 	parseVitestFailingTestFiles,
 	parseVitestFailingTests,
 	withFailingTests,
@@ -118,6 +118,8 @@ export function coverageLanguageForPath(filePath: string): CoverageLanguage | nu
 export interface CoverageRunOpts {
 	/** Absolute project root; the suite runs here and report paths resolve here. */
 	projectRoot: string;
+	/** Real project root for interpreter/dependency resolution when projectRoot is an overlay. */
+	runtimeRoot?: string;
 	/** Absolute directory the coverage engine should write its report into. */
 	coverageDir: string;
 	/**
@@ -151,9 +153,9 @@ export interface CoverageRunResult {
 	/**
 	 * Whether the suite's tests all passed — ORTHOGONAL to {@link ok} (which is
 	 * "did the runner produce a coverage report?"). The red-bar block reads this:
-	 *   - `true`  — the suite ran and every test passed (exit 0).
+	 *   - `true`  — observed test cases passed (Python), or JS runner exit 0.
 	 *   - `false` — the suite ran but one or more tests FAILED (vitest/pytest
-	 *               exit 1). This is the RED state the red-bar gate blocks on.
+	 *               case failure in Python). This is the RED state the gate checks.
 	 *   - `null`  — could not be determined: the runner did not launch (ENOENT),
 	 *               threw, or exited with a runner-level error code (vitest >1 /
 	 *               pytest >=2 — interrupted / internal error / usage / no tests
@@ -162,11 +164,13 @@ export interface CoverageRunResult {
 	 * true while `testsPassed` is false.
 	 */
 	testsPassed: boolean | null;
+	/** Python's observed case outcomes, independent of coverage instrumentation. */
+	testEvidence?: TestExecutionEvidence;
 	/**
 	 * A few failing test names/ids for the block message, best-effort parsed from
 	 * the runner's stdout/stderr. Absent when none were found or `testsPassed` is
-	 * not `false`. Never load-bearing — the exit code is the source of truth for
-	 * pass/fail; these names are message sugar only.
+	 * not `false`. Python identities come from structured reports; JS names are
+	 * best-effort diagnostics alongside its runner status.
 	 */
 	failingTests?: string[];
 	/**
@@ -176,7 +180,7 @@ export interface CoverageRunResult {
 	 * parsed. Load-bearing only to WIDEN: debt mode records these on the
 	 * `red_suite` obligation so an edit that can influence a failing test is
 	 * recognized as part of the red→green loop; a missed/garbled path merely
-	 * falls back to the filename-pair rule. The exit code still owns pass/fail.
+	 * falls back to the filename-pair rule.
 	 */
 	failingTestFiles?: string[];
 }
@@ -348,6 +352,7 @@ async function runSuite(
 	spawnFn: SpawnFn,
 	command: string[],
 	opts: CoverageRunOpts,
+	env?: Record<string, string>,
 ): Promise<SuiteRunOutcome> {
 	const [rawBin, ...args] = command;
 	if (!rawBin) return { suiteMs: 0, error: "empty test command", result: null };
@@ -366,7 +371,7 @@ async function runSuite(
 			cwd: opts.projectRoot,
 			timeout,
 			encoding: "utf-8",
-			...(budgetEnv ? { env: budgetEnv } : {}),
+			...(budgetEnv || env ? { env: { ...budgetEnv, ...env } } : {}),
 		});
 	} catch (err) {
 		const reason = err instanceof Error ? err.message : String(err);
@@ -436,8 +441,9 @@ export class JsCoverageRunner implements CoverageRunner {
  * `Map<repoRelPath, PerFileCoverage>` the interface returns — `executed_lines` →
  * `coveredLines`, `missing_lines` → `uncoveredLines`. The per-edit gate prefers
  * those per-line fields, so an uncovered added `.py` line blocks exactly as it
- * does for JS. Pass/fail comes from the exit code: 0 → passed, 1 → tests failed,
- * >=2 (interrupted / internal error / usage / no tests) → null (fail-open).
+ * does for JS. Assertion outcomes come from structured pytest case phases;
+ * coverage threshold exits are evaluated separately. Missing or invalid case
+ * evidence remains unknown, including imports of original source in an overlay.
  * Never throws: a launch failure, a missing report, or unparseable JSON all
  * become `{ ok:false, error }`.
  */
@@ -447,26 +453,35 @@ export class PythonCoverageRunner implements CoverageRunner {
 	constructor(private readonly spawn: SpawnFn = defaultSpawn) {}
 
 	async run(opts: CoverageRunOpts): Promise<CoverageRunResult> {
-		const command =
-			opts.testCommand ?? defaultPythonTestCommand(opts.coverageDir, opts.selectedTests);
-		const outcome = await runSuite(this.spawn, command, opts);
+		let workspace: PythonCoverageWorkspace | undefined;
+		try {
+			workspace = pythonCoverageWorkspace(opts);
+			return await this.runPrepared(workspace);
+		} catch (error) {
+			return failure(0, `Python coverage setup failed: ${String(error)}`);
+		} finally {
+			workspace?.dispose();
+		}
+	}
+
+	private async runPrepared(workspace: PythonCoverageWorkspace): Promise<CoverageRunResult> {
+		const opts = workspace.options;
+		const invocation = pythonCoverageInvocation(opts);
+		const outcome = await runSuite(this.spawn, invocation.command, opts, workspace.env);
 		if (outcome.error || !outcome.result) {
-			return failure(outcome.suiteMs, outcome.error ?? "suite did not run");
+			return withPytestEvidence(failure(outcome.suiteMs, outcome.error ?? "suite did not run"), invocation);
 		}
 
 		const reportPath = join(opts.coverageDir, COVERAGE_PY_JSON_FILENAME);
 		const perFile = parseCoveragePyJson(reportPath, opts.projectRoot);
 		if (!perFile) {
-			return failure(
+			return withPytestEvidence(failure(
 				outcome.suiteMs,
 				`no parseable coverage at ${reportPath} — did pytest run with ` +
 					"pytest-cov (--cov --cov-report=json)?",
-			);
+			), invocation);
 		}
-		const testsPassed = testsPassedFromStatus(outcome.result.status, 1);
-		const result: CoverageRunResult = { suiteMs: outcome.suiteMs, perFile, ok: true, testsPassed };
-		const text = spawnText(outcome.result);
-		return withFailingTests(result, parsePytestFailingTests(text), parsePytestFailingTestFiles(text));
+		return withPytestEvidence({ suiteMs: outcome.suiteMs, perFile, ok: true, testsPassed: null }, invocation);
 	}
 }
 

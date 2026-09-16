@@ -160,6 +160,31 @@ const JS_SRC = "export function f() {\n  return 1;\n}\n";
 // ---------------------------------------------------------------------------
 
 describe("parseGitCommit (re-export)", () => {
+	it("blocks observed test failures even when coverage parsing failed", async () => {
+		writeSource("src/a.ts", JS_SRC);
+		const result = coverageResult("src/a.ts", [], {
+			ok: false, testsPassed: false, failingTests: ["fixture setup failed"],
+			error: "coverage report missing",
+		});
+		const decision = await checkCommitGate(commitEvent("git commit -m fix"), rules(),
+			deps(stubRunner(result).runner, ["src/a.ts"]));
+		expect(decision?.decision).toBe("block");
+		expect(decision?.reason).toContain("fixture setup failed");
+	});
+
+	it("does not discharge obligations when coverage exists but test execution is unknown", async () => {
+		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		writeSource("src/a.ts", JS_SRC);
+		const recordDischarge = vi.fn();
+		const result = coverageResult("src/a.ts", [], { testsPassed: null });
+		const decision = await checkCommitGate(commitEvent("git commit -m fix"), rules(), {
+			...deps(stubRunner(result).runner, ["src/a.ts"]), recordDischarge,
+		});
+		expect(decision).toBeNull();
+		expect(stderr).toHaveBeenCalledWith(expect.stringContaining("test execution evidence is incomplete"));
+		expect(recordDischarge).not.toHaveBeenCalled();
+		stderr.mockRestore();
+	});
 	it("detects a commit and flags --no-verify through the gate-module re-export", () => {
 		expect(parseGitCommit('git commit -m "fix"')).toEqual({ isCommit: true, noVerify: false });
 		expect(parseGitCommit("git commit -m x --no-verify")?.noVerify).toBe(true);
@@ -696,7 +721,7 @@ describe("checkCommitGate — fail-open", () => {
 	});
 
 	it("CRAP / cyclomatic checks fail-open when the analyzer is unavailable (null), coverage still enforced", async () => {
-		const errSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const recordDischarge = vi.fn();
 		writeSource("src/a.ts", JS_SRC);
 		// Covered function ⇒ coverage allows; analyzer null ⇒ no CRAP / cyclomatic block.
 		const result = coverageResult("src/a.ts", [
@@ -705,13 +730,11 @@ describe("checkCommitGate — fail-open", () => {
 		const decision = await checkCommitGate(
 			commitEvent('git commit -m "x"'),
 			rules(),
-			deps(stubRunner(result).runner, ["src/a.ts"], null),
+			{ ...deps(stubRunner(result).runner, ["src/a.ts"], null), recordDischarge },
 		);
-		expect(decision).toBeNull();
-		expect(errSpy).toHaveBeenCalledWith(
-			expect.stringContaining("(no cyclomatic analysis for src/a.ts — CRAP / cyclomatic checks skipped)"),
-		);
-		errSpy.mockRestore();
+		expect(decision?.decision).toBe("allow");
+		expect(decision?.warnings?.join(" ")).toContain("no cyclomatic analysis for src/a.ts");
+		expect(recordDischarge).not.toHaveBeenCalled();
 	});
 
 	it("stringifies a thrown non-Error value instead of using its (absent) .message", async () => {

@@ -72,6 +72,7 @@ export function parseApplyPatchSections(raw: string): ApplyPatchSection[] {
 	const sections: ApplyPatchSection[] = [];
 	let current: ApplyPatchSection | null = null;
 	for (const line of raw.split("\n")) {
+        if (line === "*** End Patch") break;
 		const header = HEADER_RE.exec(line);
 		if (header) {
 			current = {
@@ -126,6 +127,8 @@ function reconstructAdd(body: string[]): string | null {
 
 /** Apply "Update File" hunks to before-content via context matching. */
 function applyUpdateHunks(before: string, body: string[]): string | null {
+    const appended = appendUnanchoredInsertion(before, body);
+    if (appended !== null) return appended;
 	const beforeLines = before.split("\n");
 	const hunks = splitHunks(body);
 	if (hunks.length === 0) return null; // nothing to apply confidently
@@ -145,6 +148,15 @@ function applyUpdateHunks(before: string, body: string[]): string | null {
 	}
 	for (let i = cursor; i < beforeLines.length; i++) result.push(nonNull(beforeLines[i]));
 	return result.join("\n");
+}
+
+/** Native V4A's context-free, addition-only update appends at EOF. Other
+ * anchorless/ambiguous shapes remain unmeasured. Confirmed on Codex 0.154.0. */
+function appendUnanchoredInsertion(before: string, body: string[]): string | null {
+    const additions = body[0] === "@@" ? body.slice(1) : body;
+    if (additions.length === 0 || !additions.every(line => line.startsWith("+"))) return null;
+    const separator = before.length > 0 && !before.endsWith("\n") ? "\n" : "";
+    return `${before}${separator}${additions.map(line => line.slice(1)).join("\n")}\n`;
 }
 
 /** Split a body into hunks on `@@` markers (lines before the first `@@` form an

@@ -1,8 +1,8 @@
 // Per-function coverage reader for istanbul `coverage-final.json`.
 //
 // Parallel to `coverage-ratchet.ts` (which reads `coverage-summary.json`,
-// per-file only). CRAP needs per-function coverage, which only
-// `coverage-final.json` provides — it contains the `fnMap` with declaration
+// per-file only). JS/TS CRAP uses per-function coverage from
+// `coverage-final.json` — it contains the `fnMap` with declaration
 // line ranges and the `s` (statement hit counts) keyed by statement id.
 //
 // The cache key includes the absolute report path and repository root;
@@ -10,15 +10,15 @@
 // when the file actually changes.
 //
 // Scope: JS/TS only. istanbul is the de facto coverage reporter for that
-// ecosystem. Python / Go / Rust coverage formats are handled by separate
-// readers (not present in phase 0 — CRAP gracefully degrades to
-// complexity-only warnings when no reader matches the file).
+// ecosystem. Python's separate reader retains native coverage.py function regions
+// in the shared PerFileCoverage type. Go / Rust need separate qualified readers.
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { isJsonObject } from "../lib/json-types.js";
 import { isIstanbulFileEntry, type IstanbulFileEntry, type IstanbulRange } from "./coverage-report-values.js";
 import type { CoverageSummary } from "./coverage-ratchet.js";
+import type { PythonFunctionCoverage } from "./coverage-python-functions.js";
 
 // ==================================================================
 // Public types
@@ -48,6 +48,8 @@ export interface PerFileCoverage {
 	/** mtime of `coverage-final.json` when this entry was parsed. */
 	mtime: number;
 	functions: FunctionCoverage[];
+	/** Native Python function ownership, including explicit attribution gaps. */
+	pythonFunctions?: PythonFunctionCoverage;
 	/**
 	 * 1-based line numbers that executed at least once. Optional, and present
 	 * only for engines whose report is natively PER-LINE (coverage.py's

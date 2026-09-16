@@ -180,7 +180,8 @@ export function addToAllowlist(
 	meta: Partial<Omit<AllowlistEntry, "approved_at">> & { approved_by: string },
 ): void {
 	const al = loadAllowlist(cwd);
-	al.packages[ecosystem][name] = {
+    for (const alias of matchingPackageNames(al, ecosystem, name)) delete al.packages[ecosystem][alias];
+	al.packages[ecosystem][canonicalPackageName(ecosystem, name)] = {
 		approved_at: new Date().toISOString(),
 		approved_by: meta.approved_by,
 		reason: meta.reason,
@@ -194,6 +195,23 @@ export function addToAllowlist(
  *  field when present, otherwise the built-in permissive default seed. */
 export function effectiveLicenseAllowlist(al: Allowlist): readonly string[] {
 	return al.license_allowlist ?? DEFAULT_LICENSE_ALLOWLIST;
+}
+
+/** PyPA distribution identity; other registries retain their existing semantics. */
+export function canonicalPackageName(ecosystem: Ecosystem, name: string): string {
+    return ecosystem === "pypi" ? name.toLowerCase().replace(/[-_.]+/g, "-") : name;
+}
+
+export function matchingPackageNames(al: Allowlist, ecosystem: Ecosystem, name: string): string[] {
+    const canonical = canonicalPackageName(ecosystem, name);
+    return Object.keys(al.packages[ecosystem]).filter(key => canonicalPackageName(ecosystem, key) === canonical);
+}
+
+/** Ambiguous legacy alias grants are unavailable, never silently unioned. */
+export function allowedPackageEntry(al: Allowlist, ecosystem: Ecosystem, name: string): AllowlistEntry | undefined {
+    const names = matchingPackageNames(al, ecosystem, name);
+    if (names.length !== 1) return undefined;
+    return al.packages[ecosystem][names[0]!];
 }
 
 export function isPackageAllowed(
@@ -225,7 +243,7 @@ export function isPackageAllowed(
 		return { allowed: true };
 	}
 	// registry
-	const entry = al.packages[ecosystem][spec.name];
+	const entry = allowedPackageEntry(al, ecosystem, spec.name);
 	if (!entry) {
 		return {
 			allowed: false,

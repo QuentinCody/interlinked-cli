@@ -65,6 +65,7 @@ describe("buildOverlayRunOpts", () => {
 		const opts = buildOverlayRunOpts(baseCtx({ selectedTests: ["src/a.test.ts"] }), "/repo/.cov");
 		expect(opts.selectedTests).toEqual(["src/a.test.ts"]);
 		expect(opts.projectRoot).toBe("/repo/.cov");
+		expect(opts.runtimeRoot).toBe("/repo");
 		expect(opts.coverageDir).toBe("/repo/.cov/.interlinked/coverage");
 		expect(opts.timeoutMs).toBe(25_000);
 	});
