@@ -327,7 +327,9 @@ docs/upstream-bugs
 docs/integrations
 docs/architecture-rationale.md
 docs/hooks-ecosystem-comparison.md
-docs/investigation-posttooluse-hook-count.md
+# Investigation write-ups (2026-09-16: was one named file; the pattern covers the
+# slopcodebench / provider-parity / luna investigations too). Searchable via .ignore.
+docs/investigation-*.md
 docs/structure-validation-prompt.md
 docs/test-quality-harness-plan.md
 .interlinked/hook-runtime.json
@@ -335,3 +337,8 @@ docs/test-quality-harness-plan.md
 
 # Wrangler dev secrets (per-Worker; ADMIN_TOKEN for the landing waitlist export)
 .dev.vars
+
+# SlopCodeBench qualification tooling (2026-09-16): private for now — it pairs
+# with the gitignored docs/plans qualification records. Kept on disk and
+# searchable (see .ignore); the committed evals/fixtures + evals/lib stay tracked.
+evals/slopcodebench/

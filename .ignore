@@ -22,3 +22,6 @@
 !docs/integrations
 !docs/integrations/**
 !docs/*.md
+# SlopCodeBench qualification tooling: gitignored (private for now), searchable.
+!evals/slopcodebench
+!evals/slopcodebench/**
